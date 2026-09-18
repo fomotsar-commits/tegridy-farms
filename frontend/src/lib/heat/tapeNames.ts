@@ -12,17 +12,45 @@
 // existed — never a blank where an address was, and never "unnamed", which would
 // state a fact about a person out of an outage.
 
-/** What a tape row may know about a buyer. Nothing else crosses the wire. */
-export interface TapeName {
-  /** Stored BARE, without the leading @, exactly as the instrument stores it. */
-  xHandle: string;
+/**
+ * What a tape row may know about a buyer. Nothing else crosses the wire.
+ *
+ * ANSWER NINE: a row now arrives for an UNNAMED flame too, carrying the cold
+ * bit and nothing else. Element P needs to tell a cold planter from an unnamed
+ * warm one, and both used to arrive as no row at all. Standing still never
+ * travels without a handle: on an unnamed row, tier is empty and days is null
+ * because the wire does not carry them.
+ */
+export interface TapeRow {
+  /** Stored BARE, without the leading @. null when the flame is unnamed. */
+  xHandle: string | null;
+  /** The island has never seen this wallet hold anything. */
+  isCold: boolean;
+  /** Empty unless the row is named: standing is opt-in at the island's door. */
   tier: string;
   /** Days held, on the ISLAND's clock (held_since → as_of), never ours. */
   days: number | null;
 }
 
-/** Address (as sent) → its name. Absent means "no name to show". */
-export type TapeNames = Record<string, TapeName>;
+/** A row the tape may PAINT. Element N renders these and nothing else. */
+export type NamedTapeRow = TapeRow & { xHandle: string };
+
+/**
+ * The narrowing every consumer of a row has to pass through before printing a
+ * name. Without it, an unnamed row renders as "@null" on the tape, which is
+ * the exact class of bug the proxy returning null used to make impossible.
+ */
+export function isNamed(row: TapeRow | undefined | null): row is NamedTapeRow {
+  return !!row && typeof row.xHandle === 'string' && row.xHandle.length > 0;
+}
+
+/** @deprecated the shape a named row has; kept so element N reads the same. */
+export type TapeName = NamedTapeRow;
+
+/** Address (as sent) → its row. Absent means the read failed or was refused. */
+export type TapeNames = Record<string, TapeRow>;
+
+import { daysHeld } from './daysHeld';
 
 const ENDPOINT = '/api/aggregator?resource=tape';
 
@@ -34,19 +62,6 @@ const MAX = 12;
 // that has not answered by now is not going to change the page usefully.
 const TIMEOUT_MS = 9000;
 
-/**
- * Days between two island timestamps.
- *
- * Deliberately NOT `Date.now()`. The island reckons held time from `held_since`
- * to the `as_of` of its own reading; dating it against the viewer's clock would
- * give two people looking at the same row different numbers, and would keep
- * ticking while the island's reading stood still.
- */
-export function daysBetween(heldSinceUnix: number | null, asOfUnix: number | null): number | null {
-  if (typeof heldSinceUnix !== 'number' || typeof asOfUnix !== 'number') return null;
-  if (asOfUnix < heldSinceUnix) return null;
-  return Math.floor((asOfUnix - heldSinceUnix) / 86_400);
-}
 
 /**
  * Name as many of these wallets as the island knows.
@@ -81,15 +96,20 @@ export async function fetchTapeNames(
     for (const [address, value] of Object.entries(raw)) {
       const v = value as Record<string, unknown> | null;
       const handle = typeof v?.x_handle === 'string' ? v.x_handle.replace(/^@+/, '') : '';
-      // A row with no usable handle is not a name. The proxy already refuses
-      // these; this refuses them again rather than trusting the wire, because a
-      // tier printed beside a stranger's trade without their handle would be
-      // standing they never asked to publish.
-      if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) continue;
+      // A row with no usable handle is not a NAME, and this refuses to treat it
+      // as one rather than trusting the wire: a tier printed beside a stranger's
+      // trade without their handle would be standing they never asked to
+      // publish. It is still a ROW, though (answer nine), carrying the cold bit
+      // alone, so element P can tell a cold planter from an unnamed warm one.
+      if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) {
+        out[address] = { xHandle: null, isCold: v?.is_cold === true, tier: '', days: null };
+        continue;
+      }
       out[address] = {
         xHandle: handle,
+        isCold: v?.is_cold === true,
         tier: typeof v?.tier === 'string' ? v.tier : '',
-        days: daysBetween(
+        days: daysHeld(
           typeof v?.held_since_unix === 'number' ? v.held_since_unix : null,
           typeof v?.as_of_unix === 'number' ? v.as_of_unix : null,
         ),

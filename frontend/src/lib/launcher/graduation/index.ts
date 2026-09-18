@@ -8,6 +8,7 @@ export {
   resolveEvmGraduationVenue,
   resolveSolanaGraduationVenue,
   plannedVenueMigrator,
+  VENUE_HOOK_NAME,
   verifyMigratorModule,
   feePercent,
   type GraduationRail,

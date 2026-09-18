@@ -119,7 +119,12 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/solana': 4,
   '/launch-simulator': 4,
   '/leaderboard': 4,
-  '/community': 5,
+  // 5 -> 2 on answer eight's ruling 3, and the three that left are MOVED, not
+  // cut: the tab intro, the deployed-not-wired title and its receipt line all
+  // sit inside the declared TOWELI section now, because all four tabs are
+  // TOWELI's own contracts. The two that remain are the venue's own: the
+  // page header and the venue-score card.
+  '/community': 2,
   '/liquidity': 6,
   '/privacy': 7,
   '/trust': 7,
@@ -148,7 +153,16 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   // 32 until element F cut the header to one sentence; that sentence carried a
   // prose dash. The fold itself moved none of them — a closed <details> keeps its
   // children in the DOM, which is exactly why the fold uses one.
-  '/launch': 31,
+  // 31 -> 27 on answer eight's ruling 5: the Afterlife card's TOWELI claim
+  // moved under a declared TOWELI section, taking three dash-bearing nodes
+  // with it, and the card's own title dash became a colon. MOVED, not cut -
+  // the words still render, and the section is what the census reads them
+  // under. src/pages/recordSurfaces.test.ts pins who may declare one.
+  // 27 -> 26 on answer ten's ruling 5: the ledger a stranger actually sees
+  // (LaunchAfterlife's header, OUTSIDE the fold) opens on the holders' clocks
+  // now, and its old opening carried one prose dash. The empty-state line
+  // below it keeps one; the ruling named only the opening.
+  '/launch': 26,
 
 };
 
@@ -280,7 +294,6 @@ test.describe('element I: em dashes in venue-voice prose', () => {
       test.slow();
       await page.addInitScript(() => {
         try {
-          sessionStorage.setItem('tf_loaded', '1');
           localStorage.setItem('tegridy-onboarding-seen', '1');
           localStorage.setItem('tegridy_telemetry_consent', 'denied');
           // 'venue', NOT the wallet fixture's 'toweli'. Footer.tsx:180 renders
@@ -330,7 +343,6 @@ test.describe('element I: em dashes in venue-voice prose', () => {
       test.slow();
       await page.addInitScript(() => {
         try {
-          sessionStorage.setItem('tf_loaded', '1');
           localStorage.setItem('tegridy-onboarding-seen', '1');
           localStorage.setItem('tegridy_telemetry_consent', 'denied');
           localStorage.setItem('tegridy-bungalow', 'venue');
@@ -357,5 +369,99 @@ test.describe('element I: em dashes in venue-voice prose', () => {
       expect(route, `${path} is not in the route fixture`).toBeTruthy();
       expect(['venue', 'record', 'legal'], `${path} has census voice ${route?.voice}`).toContain(route?.voice);
     }
+  });
+});
+
+// ── ELEMENT I REACHES THE ROOMS (answer eight, ruling 8) ──────────────
+//
+// FOURTEEN paths, not the thirteen the ruling names: App.tsx maps the registry
+// and appends the /towelie alias, and a table built on "thirteen" leaves one
+// door unwalked - the exact drift routes.ts records as having hidden 14 routes
+// from the a11y sweep for months.
+//
+// A SECOND TABLE, not more rows in the first. The guard below the venue table
+// forbids a non-venue voice as a key there, deliberately: a room's copy is not
+// the venue speaking, and the two debts are owed by different people. The
+// island's own Bayla copy is its canon, rewritten by the island itself in
+// answer eight; the settled doors' shared hero and the market footnote are the
+// venue's, and they ratchet down like any other venue prose.
+//
+// ON /toweli AND /towelie nothing carries the data-room or data-voice markers
+// the walker skips, so TOWELI's protocol copy counts here. That is correct: in
+// TOWELI's OWN room it is that room's prose, not a resident's copy leaking into
+// the venue's.
+const ROOM_VOICE_DEBT: Record<string, number> = {
+  // THE ELEVEN SETTLED ROOMS ARE AT ZERO (answer ten, ruling 6). They sat at 6,
+  // 5 and 4, and not one of those dashes was a room's own copy: the six EVM
+  // rooms carried six shared nodes (settled hero, market footnote, scoped read
+  // intro, holders idle line, footer card, footer chart line), the four Solana
+  // rooms five (their footer trade line had no dash), and /bayla four (its hero
+  // is island canon). Punctuation only, words unchanged, in one commit - and at
+  // zero a room now fails on its FIRST prose dash, like every finished route.
+  // src/components/bungalow/roomProse.test.tsx guards the same sources on every
+  // push, for every resident, including the byline dash no walker can see.
+  //
+  // The two TOWELI-skin doors carry the whole protocol cluster, which is why
+  // they are an order above the rest; the quiet slot says almost nothing.
+  '/toweli': 22,
+  '/towelie': 22,
+  '/bayla': 0,
+  '/pepe': 0,
+  '/qr': 0,
+  '/mfer': 0,
+  '/bnkr': 0,
+  '/drb': 0,
+  '/bobo': 0,
+  '/jbm': 0,
+  '/soy': 0,
+  '/brainlet': 0,
+  '/rizz': 0,
+  '/nb1': 0,
+};
+
+test.describe('element I: em dashes in the rooms', () => {
+  for (const [path, budget] of Object.entries(ROOM_VOICE_DEBT)) {
+    test(`${path} carries ${budget} prose em dash${budget === 1 ? '' : 'es'}`, async ({ page }) => {
+      test.skip(test.info().project.name !== 'chromium', 'the debt here is a desktop measurement');
+      test.slow();
+      await page.addInitScript(() => {
+        try {
+          localStorage.setItem('tegridy-onboarding-seen', '1');
+          localStorage.setItem('tegridy_telemetry_consent', 'denied');
+          // The door sets its own skin on arrival; this is the sentinel a
+          // stranger carries in, not a skin of its own.
+          localStorage.setItem('tegridy-bungalow', 'venue');
+        } catch { /* private mode */ }
+      });
+      await settle(page, path);
+
+      const hits = await proseDashes(page);
+      const shown = hits.slice(0, 8).map((h) => `  ${h.owner}: ${h.text}`).join('\n');
+
+      if (budget === 0) {
+        expect(hits.length, `${path} is at zero and gained prose em dashes:\n${shown}`).toBe(0);
+        return;
+      }
+      expect(
+        hits.length,
+        hits.length > budget
+          ? `${path} gained prose em dashes (${budget} -> ${hits.length}). First few:\n${shown}`
+          : `${path} is DOWN to ${hits.length} from ${budget}. Good: lower the number in ROOM_VOICE_DEBT to ${hits.length}.`,
+      ).toBe(budget);
+    });
+  }
+
+  // The rooms table walks DOORS, and all of them. A door added to the registry
+  // without a row here is a room nobody is counting.
+  test('the room table walks every door the app routes, and only doors', () => {
+    // A DOOR is a route that renders the home page under a resident's skin.
+    // Filtering on voice alone would drag in TOWELI's six protocol rooms,
+    // which are rooms but not doors, and they are the venue's own pages
+    // wearing the band - counted in the table above, under the census.
+    const doors = ROUTES
+      .filter((r) => r.owner === 'pages/HomePage.tsx' && r.voice !== 'venue')
+      .map(navigablePath);
+    expect(doors.length, 'the app routes fourteen doors, thirteen ids plus the towelie alias').toBe(14);
+    expect(Object.keys(ROOM_VOICE_DEBT).sort()).toEqual([...doors].sort());
   });
 });

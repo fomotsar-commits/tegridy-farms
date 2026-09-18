@@ -1,5 +1,5 @@
 import { m } from 'framer-motion';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { pageVariants } from '../../lib/motion';
 
 /**
@@ -13,8 +13,21 @@ import { pageVariants } from '../../lib/motion';
  * ask for reduced motion — no extra handling here.
  */
 export function PageTransition({ pathname, children }: { pathname: string; children: ReactNode }) {
+  // ANSWER TEN, RULING 2: THE FIRST FRAME DOES NOT FADE IN. When index.html's static
+  // hero was on screen (theme-init stamps html[data-first-frame]), the visitor has
+  // been reading the page for seconds; starting it again from opacity 0 would blank
+  // the hero at the exact moment React takes over. Only the document's first route
+  // skips the entrance. Every navigation after it keeps the settle-in.
+  const [firstPath] = useState(() =>
+    typeof document !== 'undefined' && document.documentElement.getAttribute('data-first-frame') === 'venue'
+      ? pathname
+      : null,
+  );
+  const [navigated, setNavigated] = useState(false);
+  if (!navigated && firstPath !== null && pathname !== firstPath) setNavigated(true);
+  const alreadyOnScreen = firstPath === pathname && !navigated;
   return (
-    <m.div key={pathname} initial="initial" animate="enter" variants={pageVariants}>
+    <m.div key={pathname} initial={alreadyOnScreen ? false : 'initial'} animate="enter" variants={pageVariants}>
       {children}
     </m.div>
   );

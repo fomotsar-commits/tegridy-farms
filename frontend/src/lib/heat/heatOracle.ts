@@ -406,6 +406,22 @@ export function tierFor(degrees: number): HeatTier {
   return 'Drifter';
 }
 
+/**
+ * The tier a number sits EXACTLY on, or null (answer ten, ruling 4).
+ *
+ * Not tierFor. tierFor(123) is Resident, because a number between rungs still sits
+ * above one, and that is the right answer to "what tier is this number". It is the
+ * wrong answer to "which tier do I name beside the launch floor": naming Resident
+ * beside 123 is the exact defect the island found. Both dials are canonical, each
+ * for its own question - TIER_FLOORS is the island's standard, heatLaunchFloor() is
+ * the venue's policy - so the word beside the floor is asked of the standard and
+ * only named when the policy lands precisely on one of its rungs.
+ */
+export function tierAtFloor(degrees: number): HeatTier | null {
+  const tier = tierFor(degrees);
+  return TIER_FLOORS.find((t) => t.tier === tier)?.floor === degrees ? tier : null;
+}
+
 /** The next tier up and the degrees still needed, or null at Elder. */
 export function nextTier(degrees: number): { tier: HeatTier; floor: number; remaining: number } | null {
   const ascending = [...TIER_FLOORS].reverse().filter((t) => t.floor > 0);

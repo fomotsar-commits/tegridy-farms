@@ -9,6 +9,7 @@ import {
   normalizeXHandle,
   isStale,
   tierFor,
+  tierAtFloor,
   nextTier,
   heatDegreesFor,
   shareForDegrees,
@@ -483,5 +484,34 @@ describe("the island's retired flag on a breakdown row", () => {
     const sum = r.breakdown.reduce((a, b) => a + b.degrees, 0);
     expect(Number(sum.toFixed(2))).toBe(94.73);
     expect(r.breakdown.filter((b) => b.retired)).toHaveLength(1);
+  });
+});
+
+// ANSWER TEN, RULING 4: WHICH TIER A FLOOR SITS EXACTLY ON, IF ANY.
+//
+// tierFor answers "what tier is this number", which for 123 is Resident: a
+// number between rungs still sits above one. That is the right question for
+// picking which rung the launch sentence hangs under, and the WRONG one for
+// naming a tier beside the floor, which would bring the defect straight back.
+// So the naming question is its own function, and this table is why.
+describe('tierAtFloor', () => {
+  it('names the tier only when the floor sits exactly on its rung', () => {
+    expect(tierAtFloor(30)).toBe('Observer');
+    expect(tierAtFloor(80)).toBe('Resident');
+    expect(tierAtFloor(150)).toBe('Builder');
+    expect(tierAtFloor(250)).toBe('Elder');
+  });
+
+  it('names nothing between rungs, above the top, or a hair off a floor', () => {
+    for (const floor of [123, 10, 300, 80.5, 149.99]) {
+      expect(tierAtFloor(floor), String(floor)).toBeNull();
+    }
+  });
+
+  it('agrees with tierFor wherever it does name a tier', () => {
+    for (const t of TIER_FLOORS) {
+      const named = tierAtFloor(t.floor);
+      if (named !== null) expect(named).toBe(tierFor(t.floor));
+    }
   });
 });

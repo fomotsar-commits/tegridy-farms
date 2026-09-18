@@ -1,4 +1,7 @@
 import { getActiveBungalow, BAYLA_ART } from './bungalows';
+// Type only: the example line takes its tier as an argument, so this eagerly
+// loaded module never pulls the heat oracle into the entry chunk.
+import type { HeatTier } from './heat/heatOracle';
 
 /**
  * ARRIVAL VOICE: the single choke point for WHO the venue speaks as
@@ -51,45 +54,6 @@ export function arrivalVoice(): ArrivalVoice {
  */
 export const OPEN_VENUE_WELCOME_EVENT = 'open-venue-welcome';
 
-/**
- * THE CURTAIN IS UP — and anything decorative should stand down while it is.
- *
- * The arrival curtain is an opaque overlay at z-index 9999 with a 3,000 ms
- * budget it must be gone inside. Everything the page animates underneath it is
- * therefore spending main thread on frames NOBODY CAN SEE, and competing with
- * the deadline that ends the curtain. Profiled at 4x CPU throttle over a whole
- * curtain lifetime, ParticleBackground's 530-particle loop was the single
- * largest consumer on the page -- 597 ms per run, more than the curtain's own
- * post-processing, all of it behind black pixels.
- *
- * A WINDOW EVENT, matching OPEN_VENUE_WELCOME_EVENT above, rather than a store
- * or a context: the listener is one component deep in a lazy chunk and the
- * publisher is another, and neither should have to learn about the other.
- *
- * `isCurtainUp()` EXISTS BECAUSE AN EVENT IS NOT A STATE. ParticleBackground is
- * lazy and mounts on its own schedule, routinely AFTER the curtain has already
- * armed. A listener alone would miss the only edge that mattered and animate
- * through the whole arrival -- which is the bug this is here to stop. Read the
- * flag at mount, then listen for changes.
- */
-export const CURTAIN_STATE_EVENT = 'tf-curtain-state';
-
-let curtainUp = false;
-
-/** True while the arrival curtain covers the page. */
-export function isCurtainUp(): boolean {
-  return curtainUp;
-}
-
-/** Publish the curtain's state. Idempotent: only an actual edge dispatches. */
-export function setCurtainUp(up: boolean): void {
-  if (curtainUp === up) return;
-  curtainUp = up;
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event(CURTAIN_STATE_EVENT));
-  }
-}
-
 /** True when the classic Tegridy voice should render (inside its bungalow). */
 export function isToweliVoice(): boolean {
   return arrivalVoice() === 'toweli';
@@ -100,6 +64,33 @@ export function isToweliVoice(): boolean {
 /* one source and a rewrite cannot fork the voice.                     */
 /* ------------------------------------------------------------------ */
 
+/**
+ * WAVE SEVEN, element B: THE WORKED EXAMPLE, WITH THE FLOOR READ AND NOT TYPED.
+ *
+ * This was a constant reading "At 80 degrees you reach Resident". 80 is the
+ * default launch floor, not a fact about the sentence: heatLaunchFloor() takes
+ * VITE_HEAT_LAUNCH_FLOOR, and the moment an operator sets it the venue was
+ * telling a stranger a threshold it does not itself apply - while the launch
+ * gate, reading the same helper, enforced another. The island named exactly
+ * this mutation: set the floor to 123 and the line must say 123.
+ *
+ * THE CALLER PASSES THE FLOOR rather than this file reading the env, so the
+ * sentence stays a pure function of a number and the one place that decides
+ * what the floor IS stays lib/heat/heatGateConfig.ts.
+ *
+ * AND THE TIER, SINCE ANSWER TEN (ruling 4). Reading the floor was only half the
+ * fix: the word "Resident" was still typed beside it, so a floor of 123 printed
+ * "you reach Resident" under a number no rung sits on. The caller now passes
+ * tierAtFloor(floor): a tier when the floor lands exactly on a rung, and null
+ * between rungs, where no tier is named at all. Taken as an argument rather than
+ * imported, so this eagerly loaded module stays free of the heat oracle.
+ */
+export function heatExampleLine(floor: number, tier: HeatTier | null): string {
+  return tier
+    ? `At ${floor} degrees you reach ${tier}, the tier that may plant a launch here.`
+    : `The launch door opens at ${floor} degrees.`;
+}
+
 export const VENUE = {
   /** Brand wordmark halves (nav, footer, loader formation). */
   markMain: 'MEMETICS',
@@ -108,7 +99,7 @@ export const VENUE = {
   /** One-line world placement. The island authors the standard; the venue
    *  is a place on the island's map. The island never operates the venue. */
   tagline: 'Memetic Finance on Jungle Bay Island',
-  heroTitle: 'MEMETICS.FINANCE.',
+  heroTitle: 'MEMETICS.FINANCE',
   heroLine: 'Held time counts here.',
   heroCopy:
     'The venue of Jungle Bay Island. Bungalows for meme communities, launches ' +
@@ -129,6 +120,9 @@ export const VENUE = {
     'Stake meme tokens, swap on Ethereum, Base and Solana, and check any token before you buy.',
   /** Second person, present tense, the viewer's own stake. */
   heroHook: 'Your heat already exists. It started counting at your first buy.',
+  /** Under the instrument, and in llms.txt: one source, so the two cannot disagree. */
+  heatPerWallet:
+    "Held time is measured per wallet. A bag moved to a new wallet starts that wallet's clock at the move.",
   /**
    * HEAT, MECHANICALLY — the sentence that has to be true.
    *
@@ -162,9 +156,6 @@ export const VENUE = {
     'of its supply rather than a dollar amount. It is read per token and added ' +
     'together across everything you hold. Price never enters it, so Heat cannot ' +
     'be bought, and a fresh bag starts cold however large it is.',
-  /** The worked example. 80° is the live launch floor, not a round number chosen for prose. */
-  heatExample:
-    'At 80 degrees you reach Resident, the tier that may plant a launch here.',
   museLine: 'An island in a sea of rugs.',
   museBy: 'Jungle Bay Island',
   /** Meta description: mirrored by index.html and usePageTitle. Names only

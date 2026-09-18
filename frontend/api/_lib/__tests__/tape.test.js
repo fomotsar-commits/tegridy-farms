@@ -109,14 +109,16 @@ function stubUpstream(resolve) {
 }
 
 describe("the named tape — the strip", () => {
-  it("forwards ONLY the handle, tier, held-since and as-of", async () => {
+  it("forwards ONLY the handle, the cold flag, tier, held-since and as-of", async () => {
     stubUpstream(envelope());
     const { res, jsonSpy } = makeRes();
     await handleTape(makeReq({ query: { addresses: A1 } }), res);
 
     const name = jsonSpy.mock.calls[0][0].names[A1];
+    // is_cold joined the row on 09-16 (answer nine). The list is exhaustive on
+    // purpose: a key the island adds later must fail here before it ships.
     expect(Object.keys(name).sort()).toEqual(
-      ["as_of_unix", "held_since_unix", "tier", "x_handle"].sort(),
+      ["as_of_unix", "held_since_unix", "is_cold", "tier", "x_handle"].sort(),
     );
   });
 
@@ -134,10 +136,15 @@ describe("the named tape — the strip", () => {
     expect(body).not.toContain("0xaaa");
   });
 
-  it("never forwards the avatar, degrees, or the cold flag", async () => {
+  it("never forwards the avatar or the degrees, and DOES forward the cold flag", async () => {
     // x_pfp is an off-origin image: a CSP entry, and every viewer's IP handed to
     // whoever hosts it. degrees is the whole flame, which is the instrument's to
     // paint, not a trade row's.
+    //
+    // is_cold used to be refused with them and is allowed on 09-16 by the
+    // island's answer nine: it is not standing, it is whether the island has
+    // ever seen this wallet hold anything, and element P cannot tell a cold
+    // planter from an unnamed warm one without it.
     stubUpstream(envelope());
     const { res, jsonSpy } = makeRes();
     await handleTape(makeReq({ query: { addresses: A1 } }), res);
@@ -146,7 +153,7 @@ describe("the named tape — the strip", () => {
     expect(body).not.toContain("x_pfp");
     expect(body).not.toContain("pbs.twimg.com");
     expect(body).not.toContain("degrees");
-    expect(body).not.toContain("is_cold");
+    expect(body).toContain("is_cold");
   });
 
   it("drops an unknown key the island adds later, because it is an allowlist", async () => {
@@ -194,11 +201,37 @@ describe("the named tape — failure leaves the row", () => {
     expect(jsonSpy.mock.calls[0][0].names).toEqual({});
   });
 
-  it("gives NO name to a flame with no handle, rather than a bare tier", async () => {
+  it("gives NO name and NO standing to a flame with no handle, but does give a row", async () => {
     // The island's naming is opt-in at its own door. Painting a stranger's tier
     // beside their trade because we could read them is not the same as them
-    // having put their name on it.
+    // having put their name on it - so tier and held_since still do not travel.
+    //
+    // ANSWER NINE: the ROW travels, carrying the cold bit alone. Element P has
+    // to tell "a flame with no name yet" from "no held time on the island yet",
+    // and before this both arrived as nothing at all. Element N is unaffected:
+    // it never paints a row without a handle.
     stubUpstream(envelope({ x_handle: null }));
+    const { res, jsonSpy } = makeRes();
+    await handleTape(makeReq({ query: { addresses: A1 } }), res);
+
+    const row = jsonSpy.mock.calls[0][0].names[A1];
+    expect(row).toEqual({ x_handle: null, is_cold: false });
+    expect(row).not.toHaveProperty("tier");
+    expect(row).not.toHaveProperty("held_since_unix");
+    expect(row).not.toHaveProperty("as_of_unix");
+  });
+
+  it("says an unnamed COLD flame is cold, which is the whole point of the row", async () => {
+    stubUpstream(envelope({ x_handle: null, is_cold: true }));
+    const { res, jsonSpy } = makeRes();
+    await handleTape(makeReq({ query: { addresses: A1 } }), res);
+    expect(jsonSpy.mock.calls[0][0].names[A1]).toEqual({ x_handle: null, is_cold: true });
+  });
+
+  it("still answers NOTHING for a wallet whose read failed, never a cold row", async () => {
+    // The law this file was written under: an outage must not read as a fact.
+    // A failed read is absent from the map; a cold row is a read that came back.
+    stubUpstream("throw");
     const { res, jsonSpy } = makeRes();
     await handleTape(makeReq({ query: { addresses: A1 } }), res);
     expect(jsonSpy.mock.calls[0][0].names).toEqual({});

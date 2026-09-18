@@ -232,7 +232,7 @@ export function poolFlavorLabel(poolId: string, fallback: string): string {
  * venue's second chain is the /solana card below, which carries its own label.
  */
 export const HOME_SWAP_CARD = {
-  desc: 'Swap TOWELI or any listed token on the venue DEX, Uniswap V2, or the routed aggregators — best quote wins, with custom slippage controls.',
+  desc: 'Swap TOWELI or any listed token on the venue DEX, Uniswap V2, or the routed aggregators. Best quote wins, with custom slippage controls.',
   stat: 'Best route',
   label: 'Ethereum',
 } as const;

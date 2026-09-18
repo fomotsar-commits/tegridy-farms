@@ -88,13 +88,13 @@ export default function IslandPage() {
           hanging under an empty heading. */}
       <FlamesBoard limit={25} />
 
-      {/* WAVE SEVEN, elements G and A: THE FILM'S HOME.
-          The arrival's curtain is one art piece and about two and a half seconds
-          now. The full four-piece film — the void, the gallery, the shatter, the
-          vortex, the wordmark forming and the crack on the way out — is not cut;
-          it lives here, for somebody who came to the island to look at it. That
-          is the whole reason element A was allowed to shorten the arrival: the
-          art is re-homed, never removed.
+      {/* WAVE SEVEN, elements G and A, and answer ten, ruling 1: THE FILM'S HOME,
+          AND NOW ITS ONLY ONE. Element A shortened the arrival to a one-piece
+          curtain; answer ten took that curtain off every route, so the venue
+          opens straight to the page. The full four-piece film — the void, the
+          gallery, the shatter, the vortex, the wordmark forming and the crack on
+          the way out — is not cut; it lives here and nowhere else, for somebody
+          who came to the island to look at it. The art is re-homed, never removed.
 
           Lazy, so the ~93 KB of choreography is fetched only by a visitor who
           actually asks for it. Nothing on this page pays for it otherwise. */}
@@ -117,7 +117,7 @@ export default function IslandPage() {
 
       {watching && (
         <Suspense fallback={null}>
-          <ArrivalFilm full onComplete={() => setWatching(false)} />
+          <ArrivalFilm onComplete={() => setWatching(false)} />
         </Suspense>
       )}
 

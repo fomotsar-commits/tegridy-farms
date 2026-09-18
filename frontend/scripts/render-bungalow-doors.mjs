@@ -184,6 +184,11 @@ function transform(html, door) {
   swap('twitter:image" ', /<meta name="twitter:image" content="[^"]*" \/>/, `<meta name="twitter:image" content="${abs(door.image)}" />`);
   swap('twitter:image:alt', /<meta name="twitter:image:alt" content="[^"]*" \/>/, `<meta name="twitter:image:alt" content="${door.imageAlt}" />`);
   swap('twitter:url', /<meta name="twitter:url" content="[^"]*" \/>/, `<meta name="twitter:url" content="${url}" />`);
+  // ANSWER TEN, RULING 2: index.html now ships the VENUE's hero as static markup
+  // inside #root. A door is a resident's page, so its copy carries none of it: a
+  // crawler reading /bayla must not index "MEMETICS.FINANCE Held time counts here."
+  // as that door's heading. Hidden-by-CSS is not absent. Exactly one block, or fail.
+  swap('first frame', /<!-- first-frame -->[\s\S]*?<!-- \/first-frame -->/, '');
   return out;
 }
 

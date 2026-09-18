@@ -1206,25 +1206,65 @@ function LauncherExplainer() {
         </p>
       </ExplainerCard>
 
-      <ExplainerCard title="The Launch Afterlife — a day 2">
+      {/* WAVE SEVEN, answer eight, ruling 5: THE AFTERLIFE, AS THE VENUE'S.
+
+          This card sold a launch on one resident's rails - a veTOWELI-boosted
+          farm and a share of TOWELI emissions - in the venue's own essay, on
+          the venue's own page. The census counted it, and the island ruled it
+          a product claim in TOWELI's voice rather than a copy defect.
+
+          NOTHING IS DELETED. Those words move, unchanged, into the declared
+          TOWELI section directly below - the ruling's own condition - so the
+          claim still stands where a reader can weigh it, under the name of the
+          protocol making it. What is here now is what the VENUE has to say
+          about a launch's day two, and it is three things it can answer for
+          itself: the clock, the door, and the flame. */}
+      {/* ANSWER TEN, RULING 5: the clock left this card for the ledger itself
+          (LaunchAfterlife's header), because this card sits inside a fold no
+          stranger opens and the ledger does not. The card keeps the door and the
+          flame, which is exactly what the ruling left it. */}
+      <ExplainerCard title="The Launch Afterlife: a day 2">
         <p>
-          Most launchers graduate a token into nothing. Because this launcher sits inside a DeFi protocol that is
-          already deployed, a graduated launch has somewhere to go: a boosted LP-farming program on its own
-          graduated pool — one per-pool staker escrowing Uniswap V4 position NFTs, boosted by veTOWELI — and the
-          ability to apply to the existing GaugeController for a share of TOWELI emissions. Both of those rails belong
-          to TOWELI, one resident of this island, and are named here because they are what actually exists — not
-          because a launch here is denominated in anyone's token.
+          When its community settles, it gets its own door in the hall: its own room, its own art, and its own board.
         </p>
-        <ul className="list-disc pl-4 space-y-1">
-          <li>Every afterlife feature is opt-in and reviewed per feature. Launching grants none of them automatically.</li>
-          <li>A gauge is an <em>application</em> through the standard timelocked process — not a promise of emissions.</li>
-          <li>
-            The Uniswap V4 PositionManager is wired, so a graduated launch reports boosted-LP farming as
-            <em> eligible</em> — but that means the infrastructure is in place, not that farming is running: the
-            per-pool staker is deployed for each launch by a re-homed-Safe owner, never automatically.
-          </li>
-        </ul>
+        <p>
+          And its planter keeps a flame on the launch card, so whoever planted it is named beside what they planted.
+        </p>
       </ExplainerCard>
+
+      {/* TOWELI'S RAILS, UNDER TOWELI'S NAME (same ruling). Every word inside
+          this section is the old card's, byte for byte. What changed is who is
+          saying them.
+
+          AND THE COUNT MOVES WITH THE WORDS: element I and the voice census
+          both skip a declared TOWELI section by structure, so /launch's em-dash
+          budget drops by four - the THREE dash-bearing text nodes that moved in
+          here (five dashes among them; element I counts nodes, not characters)
+          and the card title's own dash, which is a colon now.
+          That is a move, not a cleanup, and the budget comment says so - which
+          is also why src/pages/recordSurfaces.test.ts pins who may declare one
+          of these at all, and one per file. */}
+      <section data-voice="toweli" aria-label="TOWELI's protocol: boosted LP farming and gauge emissions">
+        <ExplainerCard title="TOWELI's rails, if a launch wants them">
+          <p>
+            Most launchers graduate a token into nothing. Because this launcher sits inside a DeFi protocol that is
+            already deployed, a graduated launch has somewhere to go: a boosted LP-farming program on its own
+            graduated pool — one per-pool staker escrowing Uniswap V4 position NFTs, boosted by veTOWELI — and the
+            ability to apply to the existing GaugeController for a share of TOWELI emissions. Both of those rails belong
+            to TOWELI, one resident of this island, and are named here because they are what actually exists — not
+            because a launch here is denominated in anyone's token.
+          </p>
+          <ul className="list-disc pl-4 space-y-1">
+            <li>Every afterlife feature is opt-in and reviewed per feature. Launching grants none of them automatically.</li>
+            <li>A gauge is an <em>application</em> through the standard timelocked process — not a promise of emissions.</li>
+            <li>
+              The Uniswap V4 PositionManager is wired, so a graduated launch reports boosted-LP farming as
+              <em> eligible</em> — but that means the infrastructure is in place, not that farming is running: the
+              per-pool staker is deployed for each launch by a re-homed-Safe owner, never automatically.
+            </li>
+          </ul>
+        </ExplainerCard>
+      </section>
 
       <ExplainerCard title="What is built, and what is still open">
         <p>

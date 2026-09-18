@@ -5,7 +5,7 @@
 // fail-closed for every gate path."
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchHeat, clearHeatCache, isSupportedHeatAddress, HeatUnavailableError } from './heatClient';
+import { fetchHeat, peekHeat, clearHeatCache, isSupportedHeatAddress, HeatUnavailableError } from './heatClient';
 
 const ADDR = '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a';
 const SOL = 'So11111111111111111111111111111111111111112';
@@ -154,5 +154,57 @@ describe('isSupportedHeatAddress', () => {
     expect(isSupportedHeatAddress(SOL)).toBe(true);
     expect(isSupportedHeatAddress('0xdeadbeef')).toBe(false);
     expect(isSupportedHeatAddress('')).toBe(false);
+  });
+});
+
+// ── The peek element O's line reads (answer eight, ruling 10) ──────────
+//
+// The buy path may not add a network call, so the line can only say a clock
+// "keeps running" when the venue already holds a reading. Every test here is
+// about the difference between "we read this wallet" and "we did not".
+describe('peekHeat', () => {
+  it('answers null for a wallet nobody has read, and asks the network nothing', () => {
+    expect(peekHeat(ADDR)).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('hands back the reading fetchHeat cached, without fetching again', async () => {
+    fetchMock.mockResolvedValue(ok(WARM_BODY));
+    const fetched = await fetchHeat(ADDR);
+    fetchMock.mockClear();
+
+    const peeked = peekHeat(ADDR);
+    expect(peeked).toBe(fetched);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('finds a Solana buyer, whose base58 key is case-significant', async () => {
+    fetchMock.mockResolvedValue(ok({ ...WARM_BODY, address: SOL }));
+    await fetchHeat(SOL);
+    expect(peekHeat(SOL)).not.toBeNull();
+    // Folding the key would be a different, valid-looking, wrong address.
+    expect(peekHeat(SOL.toLowerCase())).toBeNull();
+  });
+
+  it('is case-insensitive for an EVM buyer, as the cache key is', async () => {
+    fetchMock.mockResolvedValue(ok(WARM_BODY));
+    await fetchHeat(ADDR);
+    expect(peekHeat(ADDR.toUpperCase().replace('0X', '0x'))).not.toBeNull();
+  });
+
+  it('refuses a reading the TTL has already retired', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(ok(WARM_BODY));
+    await fetchHeat(ADDR);
+    expect(peekHeat(ADDR)).not.toBeNull();
+    // Three minutes is the cache's own window; one second past it, the line
+    // must not speak from a reading fetchHeat would itself have thrown away.
+    vi.advanceTimersByTime(3 * 60_000 + 1_000);
+    expect(peekHeat(ADDR)).toBeNull();
+  });
+
+  it('answers null for something that is not an address at all', () => {
+    expect(peekHeat('not-an-address')).toBeNull();
+    expect(peekHeat('')).toBeNull();
   });
 });

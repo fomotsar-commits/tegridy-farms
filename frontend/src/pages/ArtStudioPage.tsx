@@ -52,12 +52,6 @@ export default function ArtStudioPage() {
     };
   }, [zen]);
 
-  // Skip the AppLoader splash inside iframes (it gates on sessionStorage).
-  // Same-origin iframes share sessionStorage with this top-level window.
-  useEffect(() => {
-    try { sessionStorage.setItem('tf_loaded', '1'); } catch {/* ignore */}
-  }, []);
-
   // Persist drafts to localStorage on every change so a refresh doesn't lose work.
   useEffect(() => {
     try {

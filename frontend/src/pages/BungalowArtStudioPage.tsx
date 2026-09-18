@@ -194,12 +194,6 @@ export default function BungalowArtStudioPage({ bungalowId = 'bayla' }: { bungal
     };
   }, [zen]);
 
-  // Skip the AppLoader splash inside the preview iframes (same-origin, so they
-  // share this window's sessionStorage).
-  useEffect(() => {
-    try { sessionStorage.setItem('tf_loaded', '1'); } catch {/* ignore */}
-  }, []);
-
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides)); } catch {/* ignore */}
   }, [overrides]);

@@ -167,7 +167,7 @@ export async function readPoolTrades(
   const timeoutRead = () =>
     unread(
       'timeout',
-      'The trades feed did not answer in time — that is an outage of the read, not an empty tape.',
+      'The trades feed did not answer in time. That is an outage of the read, not an empty tape.',
     );
 
   let res: Response;
@@ -181,7 +181,7 @@ export async function readPoolTrades(
     if (timedOut) return timeoutRead();
     return isAbort(err, opts.signal)
       ? unread('aborted', 'The trades request was cancelled before it finished.')
-      : unread('network', 'The trades feed could not be reached — that is an outage, not an empty tape.');
+      : unread('network', 'The trades feed could not be reached. That is an outage, not an empty tape.');
   }
 
   // The keyless public endpoint throttles by IP, so 429 is an ordinary answer

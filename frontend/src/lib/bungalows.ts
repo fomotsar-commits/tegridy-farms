@@ -214,7 +214,7 @@ export function bungalowArtFor(id: string, name: string): ArtPiece[] | undefined
     id: f.replace(/\.[^.]+$/, ''),
     src: `/art/${id}/${f}`,
     title: `${name} #${String(i + 1).padStart(2, '0')}`,
-    description: `${name} bungalow — Jungle Bay Island`,
+    description: `${name} bungalow, Jungle Bay Island`,
   }));
 }
 
@@ -291,8 +291,8 @@ function settledIdentity(
     heroLine: 'Settled on Jungle Bay Island.',
     heroCopy:
       `${name} holds a bungalow on Jungle Bay Island, living on ${chainWord}. ` +
-      `The venue speaks ${symbol} today — trade route, scanner, held-time heat ` +
-      `and the live market all work right now — while the walls wear the ` +
+      `The venue speaks ${symbol} today: trade route, scanner, held-time heat ` +
+      `and the live market all work right now, while the walls wear the ` +
       `island's classic art until ${name}'s community brings its own drop.`,
     museLine: 'Built brick by brick by its people.',
     museBy: communityLabel ?? 'Jungle Bay Island',
@@ -363,7 +363,7 @@ export const BUNGALOWS: Bungalow[] = [
       heroTitle: 'BAYLA.',
       heroLine: 'The muse was always here.',
       heroCopy:
-        'Bayla is the muse of Jungle Bay Island — brought to light by the Jungle Bay ' +
+        'Bayla is the muse of Jungle Bay Island, brought to light by the Jungle Bay ' +
         'Artists Collective, living on Solana, seated at the lighthouse. Her pull ' +
         'reaches every kind of maker. Trade her, hold her for heat, and stake at the ' +
         // SPELLED OUT, 2026-09-05. This closed on the bare acronym "DM+T", in the
@@ -371,7 +371,7 @@ export const BUNGALOWS: Bungalow[] = [
         // page never defines above it. The expansion was already canon two keys
         // below (museLines) and again in `lore`, so this introduces no new
         // vocabulary; it just stops the hero assuming the reader arrived fluent.
-        'lighthouse — the pool is live on-chain. Dank Memes + Time = Memetic Finance.',
+        'lighthouse: the pool is live on-chain. Dank Memes + Time = Memetic Finance.',
       museLine: 'The work is yours. The light is hers.',
       museBy: 'Jungle Bay Artists Collective',
       museLines: [
@@ -387,7 +387,7 @@ export const BUNGALOWS: Bungalow[] = [
       lore: {
         title: 'The muse of Jungle Bay Island',
         paragraphs: [
-          'An island in a sea of rugs, built by the memes — bungalows for token ' +
+          'An island in a sea of rugs, built by the memes: bungalows for token ' +
           'communities, an artist economy, and time held is what counts. Bayla is ' +
           'its muse: brought to light by the Jungle Bay Artists Collective, seated ' +
           'at the lighthouse, the newest name on the island map.',
@@ -638,7 +638,7 @@ export function bungalowTradeBlurb(b: Bungalow, solanaSwapLive: boolean): string
   const tradable = 'to' in route || route.kind === 'swap';
   return tradable
     ? `Trade ${b.symbol} on ${chainWord}; scan any token on either chain.`
-    : `${b.symbol} lives on ${chainWord} — chart and contract on its page; scan any token on either chain.`;
+    : `${b.symbol} lives on ${chainWord}. Chart and contract on its page; scan any token on either chain.`;
 }
 
 /**
@@ -664,6 +664,37 @@ export function residentLabelForPool(network: GeckoNetwork, pool: string): strin
     if (!m || m.network !== network) continue;
     const known = network === 'solana' ? m.pool : m.pool.toLowerCase();
     if (known === target) return b.name;
+  }
+  return null;
+}
+
+/**
+ * THE ROOM A TOKEN BELONGS TO (answer eight, ruling 10).
+ *
+ * The island specified `bungalowByAddress(chainId, address)`. This registry
+ * carries a chain WORD, not a chain id, and Solana has no numeric id anywhere
+ * in this app (lib/chains/registry.ts holds 1, 8453 and 4663), so a chainId
+ * could not be supplied on the Solana rail at all. The word is the honest
+ * signature: callers pass 'ethereum' on the EVM rail and 'solana' on Solana.
+ *
+ * Addresses compare the way they do everywhere else here, and the rule is
+ * copied from residentLabelForPool above rather than invented twice:
+ * case-insensitively for EVM, EXACTLY for Solana, because base58 is
+ * case-significant and a lowercased key is a different, valid-looking, wrong
+ * address. A bungalow with no address cannot match. Neither can the native
+ * pseudo-address, and it needs no line here to refuse it: no room is ETH, so no
+ * row carries it. That is the thing worth pinning, and bungalows.test.ts pins it
+ * on the registry itself. A refusal written into this function instead looked
+ * careful and could never fire, which a mutation proved by surviving it.
+ */
+export function bungalowByAddress(chain: Bungalow['chain'], address: string): Bungalow | null {
+  const raw = address.trim();
+  if (!raw) return null;
+  const target = chain === 'solana' ? raw : raw.toLowerCase();
+  for (const b of BUNGALOWS) {
+    if (!b.address || b.chain !== chain) continue;
+    const known = chain === 'solana' ? b.address.trim() : b.address.trim().toLowerCase();
+    if (known === target) return b;
   }
   return null;
 }

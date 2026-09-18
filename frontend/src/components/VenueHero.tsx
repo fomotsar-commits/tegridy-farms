@@ -1,5 +1,9 @@
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
+import { clearFirstFrameDraft, peekFirstFrameDraft } from '../lib/firstFrameDraft';
+import { heatExampleLine, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
+import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
+import { tierAtFloor } from '../lib/heat/heatOracle';
 import { HeatCard } from './HeatCard';
 
 /**
@@ -31,11 +35,24 @@ export function VenueHero() {
   const [searchParams] = useSearchParams();
   const heatParam = searchParams.get('heat');
   const initialAddress = heatParam ? heatParam.trim().slice(0, 64) || null : null;
+  // Answer ten, ruling 2: what the first frame's field held when this replaced it, and
+  // whether it had focus. PEEKED here and cleared from the effect below, never taken in
+  // render: this page's first render suspends and is thrown away, and a take in it left
+  // the retry with nothing (lib/firstFrameDraft.ts). It is only put in the field, never
+  // read: nobody submitted it. An untouched ?heat= prefill equals initialAddress, so a
+  // shared link still reads on arrival.
+  const [typedBeforeReact] = useState(peekFirstFrameDraft);
+  useEffect(() => clearFirstFrameDraft(), []);
+  const launchFloor = heatLaunchFloor();
 
   return (
     <>
       <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
-        {VENUE.heroTitle}<br /><span className="text-white">{VENUE.heroLine}</span>
+        {/* A REAL SPACE BEFORE THE BREAK (answer ten, ruling 3). A <br> is not
+            text, so with the period gone the heading read "MEMETICS.FINANCEHeld"
+            to anything that reads text: a screen reader, a crawler, an unfurl. A
+            space before a forced break is never drawn, so nothing moves on screen. */}
+        {VENUE.heroTitle}{' '}<br /><span className="text-white">{VENUE.heroLine}</span>
       </h1>
 
       {/* PLAIN LANGUAGE FIRST (field review, 2026-09-03). The island writing
@@ -72,17 +89,19 @@ export function VenueHero() {
           hides the answer to the sentence immediately above it is a wall with a
           handle on it. The Read button is now the only filled button in the hero. */}
       <div className="mb-6 max-w-md">
-        <HeatCard variant="embedded" initialAddress={initialAddress} />
+        <HeatCard
+          variant="embedded"
+          initialAddress={initialAddress}
+          initialDraft={typedBeforeReact.value}
+          focusField={typedBeforeReact.focused}
+        />
 
         {/* Under the card, in venue voice. The first sentence answers the question
             every multi-wallet holder asks on sight, and answers it honestly rather
             than pretending the island can see across wallets by itself. The second
             says what to do about it, at the island's door, which is the only place
             it can be done. */}
-        <p className="text-white/70 text-[12px] leading-relaxed mt-3">
-          Held time is measured per wallet. A bag moved to a new wallet starts that
-          wallet&apos;s clock at the move.
-        </p>
+        <p className="text-white/70 text-[12px] leading-relaxed mt-3">{VENUE.heatPerWallet}</p>
         <p className="text-white/70 text-[12px] leading-relaxed mt-2">
           Hold in several wallets?{' '}
           <a
@@ -102,7 +121,7 @@ export function VenueHero() {
             lib/arrival.ts, which sources them from heatOracle.ts. */}
         <p className="text-white/60 text-[12px] leading-relaxed mt-3">{VENUE.heatPlain}</p>
         <p className="text-[12px] leading-relaxed mt-1" style={{ color: 'var(--color-kyle)' }}>
-          {VENUE.heatExample}
+          {heatExampleLine(launchFloor, tierAtFloor(launchFloor))}
         </p>
       </div>
 
@@ -154,7 +173,11 @@ export function VenueHero() {
           style={{ background: 'rgba(6,12,26,0.55)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
         >
           <span className="text-white/90">&ldquo;{VENUE.museLine}&rdquo;</span>
-          <span className="text-[11px] not-italic" style={{ color: 'var(--color-weed)' }}>&mdash; {VENUE.museBy}</span>
+          {/* A middle dot, not a dash (answer eight, ruling 8). The dash here
+              was already outside element I by structure - it is its own text
+              node, which the walk reads as the unread placeholder - so this is
+              the island fixing its own typography, not a budget moving. */}
+          <span className="text-[11px] not-italic" style={{ color: 'var(--color-weed)' }}>&middot; {VENUE.museBy}</span>
         </span>
       </div>
     </>

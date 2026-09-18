@@ -309,7 +309,7 @@ export type Failure = {
   permanent?: true;
 };
 
-const READ_FAIL = 'The pool could not be read right now — that is an outage, not a zero.';
+const READ_FAIL = 'The pool could not be read right now. That is an outage, not a zero.';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- SDK account structs are
    IDL-derived; every access below is defensive against field drift. */

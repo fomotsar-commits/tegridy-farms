@@ -86,22 +86,13 @@ export const T_CRACK_DURATION = 500;
 export const T_EXIT_FINALIZE = 2000;
 
 /**
- * THE TWO ARRIVALS (wave seven, element A).
+ * THE FILM'S TIMING (answer ten, ruling 1).
  *
- * The timings above are THE FILM: four pieces, the shatter, the vortex, the hold,
- * ~14.5 s to the wordmark and a crack on the way out. Nothing about it changes —
- * it is the best art on the site and it keeps every frame. It simply stops being
- * the thing standing between a stranger and the venue.
- *
- * The CURTAIN is what the arrival plays now: one piece, the name forming, gone in
- * about two and a half seconds, and pass-through the whole time so the hero
- * underneath is live from the first paint. It is a curtain over an
- * already-rendered home rather than a wall in front of one.
- *
- * The film keeps its home: "Watch the arrival" in the Island lobby mounts
- * <AppLoader full /> and plays the whole thing, deliberately, for somebody who
- * came to see it. That mount is why the curtain is allowed to be short — no art
- * is removed, it is re-homed.
+ * The timings above are the film: four pieces, the shatter, the vortex, the hold,
+ * ~14.5 s to the wordmark and a crack on the way out. It plays only where somebody
+ * asks for it, "Watch the arrival" on /island. The short arrival CURTAIN that used
+ * to share these legs is gone, and its budget, detach budget and deadline slack
+ * went with it: each was a promise about an overlay no route mounts any more.
  */
 export interface ArrivalTiming {
   voidEnd: number;
@@ -113,7 +104,7 @@ export interface ArrivalTiming {
    * A LEG, not a literal, because leaving it out of the sum is exactly how the
    * first version of this got the curtain's length wrong. It lived at
    * phases/textForm.ts:9 as `const textDuration = 2000`, shared by the film and
-   * the curtain, and the curtain routes STRAIGHT into it — so the two longest
+   * the since-deleted curtain, which routed STRAIGHT into it — so the two longest
    * legs of the run were invisible to anything reading this file.
    */
   textForm: number;
@@ -126,100 +117,5 @@ export const FILM_TIMING: ArrivalTiming = {
   textForm: 2000,
 };
 
-export const CURTAIN_TIMING: ArrivalTiming = {
-  voidEnd: 400,
-  artCount: 1,
-  artDuration: 1200,
-  textForm: 800,
-};
-
 /** The dissolve the 'skip' phase spends. Read from here, not typed at the call site. */
 export const SKIP_DISSOLVE_MS = 400;
-
-/**
- * What the curtain must not exceed, end to end, with no input at all.
- *
- * THIS IS A DEADLINE, NOT A SUM — and that distinction is the whole lesson of
- * this element. The first version stated it as a sum (void + art + dissolve) and
- * a test "pinned the promise arithmetically". The arithmetic omitted the
- * textForm settle and the preload gate, so the guard passed at 2,000 ms while
- * the island MEASURED the curtain alive at 4,250 ms warm and 6,100 ms behind a
- * slow image. A sum can only ever be as honest as the terms somebody remembered.
- *
- * So a timer now enforces it directly (AppLoader arms it at the commit that
- * shows the curtain, curtain only). Whatever the image, the frame rate or the
- * machine does, the curtain is gone BY the budget: DEADLINE_SLACK_MS early,
- * because a timer armed AT the budget can only land after it. That is one line
- * that cannot be summed wrong.
- *
- * The island owns its half of the original error: the master said "about 2,500
- * ms in total" and "a 600 ms dissolve", both written without reading
- * textForm.ts:9 or the dissolve that actually spends 400. Its own law now:
- * a duration is read from the line that spends it, never added from a
- * constants file.
- */
-export const CURTAIN_BUDGET_MS = 3000;
-
-/**
- * WHAT THE BUDGET ABOVE IS A PROMISE ABOUT: the curtain being GONE TO LOOK AT.
- *
- * The budget was enforced by two setTimeouts, and a timer is main-thread work.
- * So was the render that removes the overlay. On a machine whose main thread is
- * busy, all of it waits behind whatever task is already running, and the
- * deadline lands as late as that task is long -- which is exactly the machine
- * the deadline exists for. Measured on this build at 6x CPU throttle with the
- * curtain's tick disabled, so the deadline is the only ending and its lateness
- * is the entire number: 3,177 / 3,180 / 3,321 / 3,361 ms against a 2,900 ms
- * deadline. Four runs of four, every one of them over the budget. At 4x with
- * the curtain drawing normally: 2,988 / 3,156 / 3,302 / 3,530 ms.
- *
- * THE SPLIT. AppLoader now also fades the overlay out with a Web Animations
- * opacity animation armed at the same commit. That runs on the COMPOSITOR
- * thread, so it keeps its time while script is blocked solid -- probed at 4x
- * with the main thread in a busy loop from +900 to +4,025 ms: 20 frames
- * delivered, opacity all the way to 0, landing 2,900 ms after the node
- * appeared, while neither timer ran at all.
- *
- * Removing the NODE still needs the main thread and always will. So the element
- * makes two promises now instead of one it could not keep:
- *
- *   CURTAIN_BUDGET_MS        the curtain is invisible by here. Compositor-held,
- *                            so a busy main thread cannot move it.
- *   CURTAIN_DETACH_BUDGET_MS the dead node is out of the DOM by here. Held by
- *                            the same timers as before, and therefore only as
- *                            punctual as the machine.
- *
- * THIS IS NOT THE BUDGET WIDENED. CURTAIN_BUDGET_MS is untouched at 3,000 and
- * is now kept by something a long task cannot reach, which is strictly more
- * than was true before. The second number is not a softer version of the first;
- * it bounds a DIFFERENT event, one that was never separately stated and was
- * silently failing inside the first.
- *
- * The node it bounds is invisible (opacity 0) and pass-through
- * (pointerEvents: 'none') for the whole window, so what this number governs is
- * housekeeping, not anything a visitor can see or touch. The one thing it does
- * govern is the Skip button, which opts back into pointer events -- an
- * invisible control over the hero until the node goes. That is why this is a
- * bound with a test and not an untimed "eventually".
- */
-export const CURTAIN_DETACH_BUDGET_MS = 4500;
-
-/**
- * What the deadline keeps back from CURTAIN_BUDGET_MS for the machine.
- *
- * The budget promises when the curtain is GONE, and a timer can only keep that
- * kind of promise early. setTimeout fires at or after its delay, and removing
- * the overlay still costs a render, so a deadline armed at the budget ends past
- * it by construction. CI measured that path at 3,002 to 3,010 ms in five tries,
- * and the same commit passed at 2,935 ms on a retry. So the curtain starts its
- * dissolve at BUDGET - SLACK - SKIP_DISSOLVE_MS and is gone by BUDGET - SLACK.
- *
- * Bounded both ways in curtainDeadline.test.tsx: larger than the lateness CI
- * measured, and small enough that a curtain running on time still reaches its
- * own dissolve before the deadline asks for one.
- *
- * That second bound is a floor rather than a promise: the deadline counts from
- * the commit that arms it, while the choreography counts from a later passive
- * effect, so the margin between them is smaller than the arithmetic suggests.
- */
-export const DEADLINE_SLACK_MS = 100;

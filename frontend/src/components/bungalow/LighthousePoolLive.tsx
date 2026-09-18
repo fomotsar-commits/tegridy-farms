@@ -492,7 +492,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
             )}
             {funded === null && (
               <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }}>
-                The reward vault could not be read — outage, not a zero.
+                The reward vault could not be read. That is an outage, not a zero.
               </p>
             )}
             {funded !== null && !vaultDry && runwaySecs !== null && (
@@ -1038,7 +1038,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 
             {publicKey && !entriesKnown && entriesForWallet?.reason && (
               <p className="text-[12px] mt-1" style={{ color: '#f0b26b' }}>
-                Your stakes could not be read right now — that is an outage, not an empty list.
+                Your stakes could not be read right now. That is an outage, not an empty list.
               </p>
             )}
 

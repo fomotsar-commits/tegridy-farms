@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 // flakiest test in the suite. A pin that cries wolf gets ignored.
 import { isAddress } from 'viem';
 import { resolve } from 'node:path';
+import { NATIVE_ETH_ADDRESS } from './tokenList';
 import {
   BUNGALOWS,
   BAYLA_ART,
@@ -19,6 +20,7 @@ import {
   bungalowTradeRoute,
   bungalowScanRoute,
   residentLabelForPool,
+  bungalowByAddress,
 } from './bungalows';
 import { pageArt } from './artConfig';
 import { SITE_URL } from './constants';
@@ -465,5 +467,56 @@ describe('resolution order', () => {
     // shows its name) but carries no pool — classic art stays in charge.
     expect(getActiveBungalow()?.id).toBe(DEFAULT_BUNGALOW_ID);
     expect(bungalowArtPool('farm')).toBeNull();
+  });
+});
+
+// ── The room a token belongs to (answer eight, ruling 10) ──────────────
+//
+// Element O's line names the room a buy happened in, so a wrong match is a
+// wrong room in a sentence the buyer is invited to post. Every rule here is
+// one the registry already lives by; the finder must not restate any of them
+// differently.
+describe('bungalowByAddress', () => {
+  const PEPE = '0x6982508145454ce325ddbe47a25d4ec3d2311933';
+  const BOBO_MINT = '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump';
+
+  it('finds an EVM room by its own token, however the address is cased', () => {
+    expect(bungalowByAddress('ethereum', PEPE)?.id).toBe('pepe');
+    expect(bungalowByAddress('ethereum', PEPE.toUpperCase().replace('0X', '0x'))?.id).toBe('pepe');
+    expect(bungalowByAddress('ethereum', `  ${PEPE}  `)?.id).toBe('pepe');
+  });
+
+  it('finds a Solana room by its mint, and refuses a folded one', () => {
+    expect(bungalowByAddress('solana', BOBO_MINT)?.id).toBe('bobo');
+    // base58 is case-significant: the lowercased key is a different address
+    // that happens to look valid, which is exactly how a wrong room is named.
+    expect(bungalowByAddress('solana', BOBO_MINT.toLowerCase())).toBeNull();
+  });
+
+  it('will not match a token across chains', () => {
+    expect(bungalowByAddress('solana', PEPE)).toBeNull();
+    expect(bungalowByAddress('base', PEPE)).toBeNull();
+    expect(bungalowByAddress('ethereum', BOBO_MINT)).toBeNull();
+  });
+
+  it('cannot match the native pseudo-address, because no room is ETH', () => {
+    // A plain ETH buy must never be told it happened in someone's room. The
+    // finder needs no special case for that: it falls out of the registry, and
+    // THIS is the line that keeps it true. A refusal inside the finder survived
+    // its own mutation, because nothing could ever reach it.
+    const native = NATIVE_ETH_ADDRESS.trim().toLowerCase();
+    for (const b of BUNGALOWS) {
+      expect(b.address?.trim().toLowerCase(), `${b.id} carries the native pseudo-address`).not.toBe(native);
+    }
+    expect(bungalowByAddress('ethereum', NATIVE_ETH_ADDRESS)).toBeNull();
+  });
+
+  it('answers null for nothing, and for a room with no address on file', () => {
+    expect(bungalowByAddress('ethereum', '')).toBeNull();
+    expect(bungalowByAddress('ethereum', '   ')).toBeNull();
+    // The quiet slot and any 'tbd' row carry no address; none can be matched.
+    for (const b of BUNGALOWS.filter((x) => !x.address)) {
+      expect(bungalowByAddress(b.chain, 'anything')).toBeNull();
+    }
   });
 });
