@@ -1624,8 +1624,7 @@ function PoolCard({
   const { writeContract, data: txHash, isPending } = useWriteContract();
   const { data: poolTxReceipt, isLoading: isConfirming, isSuccess: poolTxReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
   // AUDIT (receipt-status, 2026-08-24): gate on receipt.status — raw isSuccess
-  // latches true for on-chain REVERTED txs too, and the submission callback
-  // below already toasted "Liquidity added!/withdrawn!".
+  // latches true for on-chain REVERTED txs too.
   const poolTxReverted = poolTxReceiptFetched && !!poolTxReceipt && poolTxReceipt.status !== 'success';
   const poolTxSuccess = poolTxReceiptFetched && !poolTxReverted;
 
@@ -1636,6 +1635,19 @@ function PoolCard({
       refetchPoolHeldIds();
     }
   }, [poolTxSuccess, refetchPoolInfo, refetchPoolHeldIds]);
+
+  // writeContract's onSuccess = SUBMITTED (hash in hand), not confirmed. The
+  // handlers below record what each hash was for; the success toast and the
+  // form reset wait for that hash's receipt. Taking the record makes it once
+  // per hash, and the deps leave out the refetch fns so a re-render can't repeat it.
+  const submittedRef = useRef<{ hash: `0x${string}`; confirmed: string; reset: () => void } | null>(null);
+  useEffect(() => {
+    const submitted = submittedRef.current;
+    if (!poolTxSuccess || !submitted || submitted.hash !== txHash) return;
+    submittedRef.current = null;
+    toast.success(submitted.confirmed);
+    submitted.reset();
+  }, [poolTxSuccess, txHash]);
 
   useEffect(() => {
     if (poolTxReverted) {
@@ -1699,11 +1711,17 @@ function PoolCard({
           value: liqEth ? parseEther(liqEth) : 0n,
         },
         {
-          onSuccess: () => {
-            toast.success('Liquidity added!');
-            setLiqNftIds('');
-            setLiqEth('');
-            setExpanded(false);
+          onSuccess: (hash) => {
+            submittedRef.current = {
+              hash,
+              confirmed: 'Liquidity added!',
+              reset: () => {
+                setLiqNftIds('');
+                setLiqEth('');
+                setExpanded(false);
+              },
+            };
+            toast.info('Deposit submitted — confirming on-chain…');
           },
           onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Failed'),
         }
@@ -1727,11 +1745,17 @@ function PoolCard({
           args: [ids, ethAmt],
         },
         {
-          onSuccess: () => {
-            toast.success('Liquidity withdrawn!');
-            setWithdrawNftIds('');
-            setWithdrawEth('');
-            setExpanded(false);
+          onSuccess: (hash) => {
+            submittedRef.current = {
+              hash,
+              confirmed: 'Liquidity withdrawn!',
+              reset: () => {
+                setWithdrawNftIds('');
+                setWithdrawEth('');
+                setExpanded(false);
+              },
+            };
+            toast.info('Withdrawal submitted — confirming on-chain…');
           },
           onError: (e: Error) => toast.error(e.message?.slice(0, 100) || 'Failed'),
         }

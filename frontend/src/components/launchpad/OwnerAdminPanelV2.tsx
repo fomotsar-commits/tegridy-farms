@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { parseEther } from 'viem';
@@ -134,8 +134,21 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
     }
   }, [isSuccess, refetchPhase, refetchContractURI, refetchPaused]);
 
-  // Surface on-chain reverts: the submission toast in `exec` fires on submit
-  // ("<fn> succeeded"), so without this a reverted tx would read as applied.
+  // writeContract's onSuccess = SUBMITTED (hash in hand), not confirmed. `exec`
+  // records what each hash was for; "<fn> succeeded" and the field reset wait
+  // for that hash's receipt. Taking the record makes it once per hash, and the
+  // deps leave out the refetch fns so a re-render can't repeat it.
+  const submittedRef = useRef<{ hash: `0x${string}`; fn: string; onConfirmed?: () => void } | null>(null);
+  useEffect(() => {
+    const submitted = submittedRef.current;
+    if (!isSuccess || !submitted || submitted.hash !== txHash) return;
+    submittedRef.current = null;
+    toast.success(`${submitted.fn} succeeded`);
+    submitted.onConfirmed?.();
+  }, [isSuccess, txHash]);
+
+  // Surface on-chain reverts: without this a reverted tx would sit on its
+  // "submitted" toast with no word that nothing was applied.
   useEffect(() => {
     if (isReverted) {
       toast.error('Transaction reverted on-chain — no admin change was applied.');
@@ -179,7 +192,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
 
   const chainId = useChainId();
 
-  const exec = useCallback((fn: string, args?: unknown[], opts?: { onSuccess?: () => void }) => {
+  const exec = useCallback((fn: string, args?: unknown[], opts?: { onConfirmed?: () => void }) => {
     // AUDIT FIX M-8: refuse on wrong chain so admin actions aren't sent to a
     // phantom address on Sepolia/Base/Arbitrum.
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
@@ -191,7 +204,10 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
     writeContract(
       { chainId: CHAIN_ID, address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: fn, args: args as never[] } as unknown as WriteArg,
       {
-        onSuccess: () => { toast.success(`${fn} succeeded`); opts?.onSuccess?.(); },
+        onSuccess: (hash) => {
+          submittedRef.current = { hash, fn, onConfirmed: opts?.onConfirmed };
+          toast.info(`${fn} submitted — confirming on-chain…`);
+        },
         onError: (e) => toast.error(e.message.slice(0, 80)),
       },
     );
@@ -288,7 +304,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   className={`${INPUT} font-mono text-xs`}
                 />
                 <ExecButton busy={busy} disabled={isCancelled || !contractURI}
-                  onClick={() => exec('setContractURI', [contractURI], { onSuccess: () => setContractURI('') })}>
+                  onClick={() => exec('setContractURI', [contractURI], { onConfirmed: () => setContractURI('') })}>
                   Update contractURI
                 </ExecButton>
               </AdminSection>
@@ -302,7 +318,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   className={`${INPUT} font-mono text-xs`}
                 />
                 <ExecButton busy={busy} disabled={isCancelled || !baseURI}
-                  onClick={() => exec('setBaseURI', [baseURI], { onSuccess: () => setBaseURI('') })}>
+                  onClick={() => exec('setBaseURI', [baseURI], { onConfirmed: () => setBaseURI('') })}>
                   Set Placeholder
                 </ExecButton>
               </AdminSection>
@@ -316,7 +332,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   className={`${INPUT} font-mono text-xs`}
                 />
                 <ExecButton busy={busy} disabled={isCancelled || !revealURI}
-                  onClick={() => exec('reveal', [revealURI], { onSuccess: () => setRevealURI('') })}>
+                  onClick={() => exec('reveal', [revealURI], { onConfirmed: () => setRevealURI('') })}>
                   Reveal
                 </ExecButton>
               </AdminSection>
@@ -330,7 +346,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   className={`${INPUT} font-mono text-xs`}
                 />
                 <ExecButton busy={busy} disabled={isCancelled || !/^0x[0-9a-fA-F]{64}$/.test(merkleRoot)}
-                  onClick={() => exec('setMerkleRoot', [merkleRoot as `0x${string}`], { onSuccess: () => setMerkleRoot('') })}>
+                  onClick={() => exec('setMerkleRoot', [merkleRoot as `0x${string}`], { onConfirmed: () => setMerkleRoot('') })}>
                   Set Merkle Root
                 </ExecButton>
               </AdminSection>
@@ -351,7 +367,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                     </p>
                   )}
                   <ExecButton busy={busy} disabled={isCancelled || mintPriceWei === null}
-                    onClick={() => exec('setMintPrice', [mintPriceWei], { onSuccess: () => setMintPrice('') })}>
+                    onClick={() => exec('setMintPrice', [mintPriceWei], { onConfirmed: () => setMintPrice('') })}>
                     Set Price
                   </ExecButton>
                 </AdminSection>
@@ -369,7 +385,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                     </p>
                   )}
                   <ExecButton busy={busy} disabled={isCancelled || maxPerWalletBig === null}
-                    onClick={() => exec('setMaxPerWallet', [maxPerWalletBig], { onSuccess: () => setMaxPerWallet('') })}>
+                    onClick={() => exec('setMaxPerWallet', [maxPerWalletBig], { onConfirmed: () => setMaxPerWallet('') })}>
                     Set Cap
                   </ExecButton>
                 </AdminSection>
@@ -464,7 +480,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   className={`${INPUT} font-mono text-xs`}
                 />
                 <ExecButton busy={busy} disabled={!/^0x[0-9a-fA-F]{40}$/.test(newOwner)}
-                  onClick={() => exec('transferOwnership', [newOwner as `0x${string}`], { onSuccess: () => setNewOwner('') })}>
+                  onClick={() => exec('transferOwnership', [newOwner as `0x${string}`], { onConfirmed: () => setNewOwner('') })}>
                   Initiate Transfer
                 </ExecButton>
                 <p className="text-[10px] text-white/60 mt-1">
