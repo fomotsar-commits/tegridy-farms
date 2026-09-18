@@ -17,10 +17,10 @@ any deferred item. Format mirrors `.audit_101/POST_REMEDIATION_LEDGER.md`.
 |---|---|---|---|---|
 | **Critical** | 5 | **5** | 0 | All architectural roots closed. C3 closure cascades across 4 contracts. |
 | **High** | 22 | **22** | 0 | Includes the half-installed-mitigation siblings (H9/H17). |
-| **Medium** | 39 | **38** | 1 | M-S6 (`setRewardNotifier` timelock) deferred — needs Admin propose/execute plumbing. |
+| **Medium** | 39 | **37** | 1 | M-S6 (`setRewardNotifier` timelock) deferred — needs Admin propose/execute plumbing. **Corrected 2026-09-17:** M-S7 was listed Closed but never shipped — moved to Open (§3). M-S1 and M-S5 are closed, but not by the change this ledger described, and not until the day after it was written — rows rewritten (§3). |
 | **Low / Info** | 23 | partial | most | Documented for follow-up. |
 
-**Total:** 65 of 66 Critical/High/Medium findings shipped, 1 deferred, 0 regressions.
+**Total:** 64 of 66 Critical/High/Medium findings shipped, 1 deferred, 1 open (M-S7, misreported as closed until 2026-09-17), 0 regressions.
 
 **Test-suite delta:** 2,287 (pre) → **2,363** (post) — 76 net new regression tests across:
 - `AuditMicroscope_Kick.t.sol` (4 tests, C4 root cause)
@@ -72,7 +72,7 @@ any deferred item. Format mirrors `.audit_101/POST_REMEDIATION_LEDGER.md`.
 
 ---
 
-## 3. Medium (38 / 39 closed; 1 deferred)
+## 3. Medium (37 / 39 closed; 1 deferred; 1 open)
 
 ### Closed
 
@@ -93,11 +93,16 @@ any deferred item. Format mirrors `.audit_101/POST_REMEDIATION_LEDGER.md`.
 | M-R1 | RevenueDistributor | NEW-S1 fallback now ADDITIVE: `userPower += _restakedPowerAt` (mirrored in `_pendingETH` view) |
 | M-R4 | POLAccumulator | `executeSweepETH` now uses `WETHFallbackLib.safeTransferETHOrWrap` (sibling miss vs M-P01) |
 | M-R6 | RevenueDistributor | Per-recovery cap `power <= ep.totalLocked * 25% / 10000` |
-| M-S1 | TegridyStaking | `emergencyWithdrawPosition` decorated with `updateReward` modifier (sibling miss) |
-| M-S5 | TegridyLPFarming | `notifyRewardAmount` no longer takes `duration` parameter — uses stored `rewardsDuration` only (timelock made load-bearing) |
-| M-S7 | TegridyStaking.aggregateActiveBoostBps | Ceiling-div replaces floor-div (favors staker, mirrors M-24) |
+| M-S1 | TegridyStaking | **Corrected 2026-09-17: closed, but NOT by the change this row originally claimed** ("`emergencyWithdrawPosition` decorated with `updateReward` modifier"). That decoration never existed: `git log --all --reflog -G 'function emergencyWithdrawPosition'` on `TegridyStaking.sol` matches only `3b2a028b` (2026-04-02), which wrote today's signature `external nonReentrant whenPaused` (`contracts/src/TegridyStaking.sol:2211`). The concern (the withdrawn position leaves `totalBoostedStake` with no checkpoint, so the next accrual prices the un-checkpointed stretch over the smaller total and over-credits the remaining stakers) is closed instead by the pause-aware accumulator, DS2-04 in `d6b1f5b1` (2026-05-02, the day AFTER this ledger; its commit message wrongly says "no code change"). `pause()` settles rewards before pausing (`:997-998`), and so does `guardianPause()`, added later in `10e1dcc0` (`:1043-1044`). While paused, `StakingRewardLib.accumulateRewards` adds nothing but still advances `lastUpdateTime` (`contracts/src/lib/StakingRewardLib.sol:387`, `:403`). `unpause()` resets `lastUpdateTime` (`:1015`). Because `emergencyWithdrawPosition` is `whenPaused`, the stretch its denominator drop could mis-price earns nothing by construction. At this ledger's own commit `7e7a4a15`, none of those three existed, so M-S1 was live then (in source; nothing was deployed). The deployed staking `0xcaDc93E96De58EA554c71ca609974625615E046D` (broadcast commit `833b757`, runtime byte-identical) has the same design. Verified 2026-09-17 with an uncommitted Foundry test (see PR): on trunk, a staker who stays through a pause in which another staker emergency-withdraws is paid exactly its share. Reverting all three pieces (the code as it stood at `7e7a4a15`) pays it 3.3x, which reproduces M-S1. Removing any one piece alone also fails the test, so all three are load-bearing. **No committed test pins this closure.** |
+| M-S5 | TegridyLPFarming | **Corrected 2026-09-17: closed, but NOT by the change this row originally claimed** ("`notifyRewardAmount` no longer takes `duration` parameter"). It still takes `(amount, duration)` (`contracts/src/TegridyLPFarming.sol:567`). The `rewardsDuration` timelock is load-bearing because a `duration` that differs from the stored `rewardsDuration` reverts `DurationOutOfRange` once it is set (`:586`, "AUDIT FIX M-3"). That guard landed in `f89c97a7` on 2026-05-02, the day AFTER this ledger. At `7e7a4a15`, `notifyRewardAmount` overwrote `rewardsDuration` on every call, so M-S5 was still live when this row was written. |
 | M-30 | PremiumAccess.reconcileExpired | Already had `nonReentrant` (PA-L-01) — confirmed during pass |
 | ... | (full list in source comments tagged `AUDIT MICROSCOPE_2026_04_30 M-*`) | |
+
+### Open (1) — misreported as Closed until 2026-09-17
+
+| ID | Correction | Evidence |
+|---|---|---|
+| **M-S7** | This ledger previously listed M-S7 as Closed with the closure "`TegridyStaking.aggregateActiveBoostBps`: Ceiling-div replaces floor-div (favors staker, mirrors M-24)". **That change never shipped.** The body now lives in `contracts/src/lib/StakingViewLib.sol:108-126` (behind `TegridyStaking.sol:906-911`) and still floors: `weightedBps = totalBoosted / totalAmount` (`:125`). No ceiling form exists anywhere on the path. **Real impact: informational.** The value is not view-only: `TegridyLPFarming._getEffectiveBalance` (`:331`) weights LP rewards by it, and the live mainnet farm `0x1171268AE5B69791c47Fd589b7825932c957e149` reads it from the deployed staking (`tegridyStaking()` = `0xcaDc93E96De58EA554c71ca609974625615E046D`, read 2026-09-17). But the floor loses less than 1 bps of boost, and only for a holder whose active positions carry *different* boosts; one position, or equal boosts, divides exactly. That is under 0.01% of the holder's effective LP balance. It moves to the other LPs, not to the protocol, because the farm splits a fixed stream across `totalEffectiveSupply`; a ceiling would only move the same sliver the other way. **Recommendation: accept.** `StakingViewLib` is a separately deployed library linked into `TegridyStaking` (broadcast `DeployMVP.s.sol/1/run-latest.json`), so any change means a staking redeploy and position migration. | `git log --all --reflog -G 'weightedBps *='`: the line has only ever read `totalBoosted / totalAmount`, from its introduction in `88db1f6b` (2026-04-21, AUDIT H12) through its move into the library in `1fe4f0dc` (2026-05-24). No ceiling form (`+ totalAmount - 1`, `ceilDiv`, `Rounding.Ceil`) appears on any ref, reflog or stash. `git log --all -S M-S7` matches only `7e7a4a15`, the commit that added this ledger. No `AUDIT MICROSCOPE_2026_04_30 M-S7` tag exists in source. The deployed staking's broadcast commit `833b757` floors identically (`StakingViewLib.sol:125`). |
 
 ### Deferred (1)
 
@@ -182,7 +187,7 @@ vault redemption pricing).
 - `TegridyDropV2.t.sol` + `TegridyLaunchpadV2.t.sol` — `mint(qty, allowedAmount, proof)` signature
 - `VoteIncentives.t.sol` — `commitVote(epoch, hash, power)` signature
 - `TegridyNFTPool.t.sol` — `vm.roll(+1)` between swap and withdrawETH (H9 guard)
-- `TegridyLPFarming.t.sol` — `notifyRewardAmount(amount)` (no duration arg)
+- ~~`TegridyLPFarming.t.sol` — `notifyRewardAmount(amount)` (no duration arg)~~ **Corrected 2026-09-17:** never happened. The function and its tests still take `(amount, duration)`; see M-S5 in §3.
 - `TegridyStaking.t.sol` — `revert StakeTooSmall` instead of `ZeroAmount` for stake(0) (size-opt)
 - `TegridyTokenURIReader.t.sol` — assert "Active" / "Expired" enum (H22)
 - `Audit195_Revenue.t.sol` — `revert "STAKE_TOO_LOW"` instead of `NoLockedTokens` (H17)
