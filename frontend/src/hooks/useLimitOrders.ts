@@ -193,19 +193,42 @@ export function useLimitOrders() {
 
   useEffect(() => {
     if (!address) { setOrders([]); ordersRef.current = []; return; }
-    const loaded = loadOrders(address);
-    setOrders(loaded);
-    ordersRef.current = loaded;
+    const reload = () => {
+      const loaded = loadOrders(address);
+      setOrders(loaded);
+      ordersRef.current = loaded;
+    };
+    reload();
     requestNotificationPermission();
+    // Another tab wrote this wallet's orders: take its copy. The browser fires
+    // `storage` in every OTHER tab once the write has landed there, so a reload
+    // here reads it. (key null = storage was cleared.)
+    const key = getStorageKey(address);
+    const onStorage = (e: StorageEvent) => { if (e.key === key || e.key === null) reload(); };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, [address]);
 
   useEffect(() => { ordersRef.current = orders; }, [orders]);
 
-  const persist = useCallback((updated: LimitOrder[]) => {
-    setOrders(updated);
-    ordersRef.current = updated;
-    if (address) saveOrders(address, updated);
+  /**
+   * Every write is a change applied to what storage holds NOW, never this tab's
+   * list saved whole. Another tab keeps its own list, and saving a stale copy
+   * put an order that tab had already filled back to 'active', where the next
+   * poll fired it again, and brought back orders it had cancelled. This tab's
+   * list gets the same change rather than storage's copy, so a receipt that
+   * lands after the wallet switched accounts changes nothing on screen.
+   */
+  const updateOrders = useCallback((change: (list: LimitOrder[]) => LimitOrder[]) => {
+    if (!address) return;
+    saveOrders(address, change(loadOrders(address)));
+    ordersRef.current = change(ordersRef.current);
+    setOrders(change);
   }, [address]);
+
+  const patchOrder = useCallback((id: string, patch: (o: LimitOrder) => LimitOrder) => {
+    updateOrders(list => list.map(o => (o.id === id ? patch(o) : o)));
+  }, [updateOrders]);
 
   const createOrder = useCallback((order: Omit<LimitOrder, 'id' | 'createdAt' | 'status'>) => {
     if (!address) return;
@@ -232,34 +255,26 @@ export function useLimitOrders() {
       createdAt: Date.now(),
       status: 'active',
     };
-    persist([newOrder, ...orders]);
-  }, [address, orders, persist]);
+    updateOrders(list => [newOrder, ...list]);
+  }, [address, orders, updateOrders]);
 
   const cancelOrder = useCallback((id: string) => {
     if (!address) return;
-    persist(orders.filter(o => o.id !== id));
-  }, [address, orders, persist]);
+    updateOrders(list => list.filter(o => o.id !== id));
+  }, [address, updateOrders]);
 
   const markFilled = useCallback((id: string) => {
     executingRef.current.delete(id); // terminal — drop tracking
     releaseTabLock(id);
-    setOrders(prev => {
-      const updated = prev.map(o => o.id === id ? { ...o, status: 'filled' as const } : o);
-      if (address) saveOrders(address, updated);
-      return updated;
-    });
+    patchOrder(id, o => ({ ...o, status: 'filled' as const }));
     toast.success('Limit order confirmed on-chain!');
-  }, [address]);
+  }, [patchOrder]);
 
   const revertOrderStatus = useCallback((orderId: string) => {
     executingRef.current.delete(orderId);
     releaseTabLock(orderId);
-    setOrders(prev => {
-      const updated = prev.map(o => o.id === orderId ? { ...o, status: 'active' as const } : o);
-      if (address) saveOrders(address, updated);
-      return updated;
-    });
-  }, [address]);
+    patchOrder(orderId, o => ({ ...o, status: 'active' as const }));
+  }, [patchOrder]);
 
   const waitForReceipt = useCallback(async (hash: `0x${string}`, orderId: string) => {
     if (!publicClient) return;
@@ -282,14 +297,20 @@ export function useLimitOrders() {
     if (!address || !writeContract || !publicClient) return;
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (isExecuting(order.id)) return;
+    // This tab's copy can be stale: another tab may have sent, filled or
+    // cancelled the order since, and the lock only covers the moment of sending
+    // (it is released on every outcome, and goes stale after 60s in a wallet
+    // prompt). Storage is the copy every tab writes, so fire only an order it
+    // still holds as active, and otherwise take its copy.
+    const stored = loadOrders(address);
+    if (stored.find(o => o.id === order.id)?.status !== 'active') {
+      ordersRef.current = stored;
+      setOrders(stored);
+      return;
+    }
     if (!claimTabLock(order.id)) return;
     executingRef.current.set(order.id, { txHash: null, submittedAt: Date.now() });
-
-    setOrders(prev => {
-      const updated = prev.map(o => o.id === order.id ? { ...o, status: 'executing' as const } : o);
-      if (address) saveOrders(address, updated);
-      return updated;
-    });
+    patchOrder(order.id, o => ({ ...o, status: 'executing' as const }));
 
     const path = buildPath(order.fromToken, order.toToken);
     const parsedAmount = parseUnits(order.amount, order.fromToken.decimals);
@@ -441,7 +462,7 @@ export function useLimitOrders() {
     } catch {
       revertOrderStatus(order.id);
     }
-  }, [address, chainId, writeContract, publicClient, markFilled, revertOrderStatus, waitForReceipt]);
+  }, [address, chainId, writeContract, publicClient, patchOrder, revertOrderStatus, waitForReceipt, isExecuting]);
 
   // Price polling: check active orders against on-chain price
   useEffect(() => {
@@ -458,19 +479,12 @@ export function useLimitOrders() {
         const now = Date.now();
 
         // Expire stale orders
-        let hasExpired = false;
-        const updated = currentOrders.map(o => {
-          if (o.status === 'active' && o.expiresAt < now) {
-            hasExpired = true;
-            return { ...o, status: 'expired' as const };
-          }
-          return o;
-        });
-        if (hasExpired) {
-          persist(updated);
+        const isDue = (o: LimitOrder) => o.status === 'active' && o.expiresAt < now;
+        if (currentOrders.some(isDue)) {
+          updateOrders(list => list.map(o => (isDue(o) ? { ...o, status: 'expired' as const } : o)));
         }
 
-        const activeList = (hasExpired ? updated : currentOrders).filter(
+        const activeList = currentOrders.filter(
           o => o.status === 'active' && o.expiresAt > now
         );
         if (activeList.length === 0) return;
@@ -524,7 +538,7 @@ export function useLimitOrders() {
       // same order. Entries are removed only on terminal outcomes
       // (markFilled / revertOrderStatus) or 5-minute TTL expiry.
     };
-  }, [address, publicClient, persist, executeOrder, isExecuting]);
+  }, [address, publicClient, updateOrders, executeOrder, isExecuting]);
 
   const activeOrders = orders.filter(o => o.status === 'active' || o.status === 'executing');
   const pastOrders = orders.filter(o => o.status === 'expired' || o.status === 'filled');
