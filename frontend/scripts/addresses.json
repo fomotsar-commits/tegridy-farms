@@ -1478,6 +1478,28 @@
       "status": "live"
     },
     {
+      "id": "tegridy-factory-lib",
+      "address": "0xf968e9d314848f19Dc3aB138493e8F62952d655f",
+      "role": "TegridyFactoryLib (Base MVP). Pair-creation math DELEGATECALLed by tegridy-factory. SAME address and byte-identical runtime as ethereum/tegridy-factory-lib: same CREATE2 deployer, salt and initcode on both chains.",
+      "custody": "none — stateless library, no owner",
+      "status": "live, CREATE2 by DeployBaseMVP 2026-08-25",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployBaseMVP.s.sol/8453/run-1787642423785.json `libraries` + CREATE2 TegridyFactoryLib: deployer 0x14898258122c0740106391e6e8e4f17f3b6d456e nonce 5, tx 0x043439e0bf4b2643372eb503105155e15065a9289824fd17059e9b9683af1e6c via 0x4e59b44847b379578588920ca78fbf26c0b4956c salt 0 (key that file by (from, nonce): 10 of its 14 hash labels are scrambled), receipt status 0x1, block 50426550 (0x30172b6). Read back on Base 2026-09-17: the tx input recomputes to this CREATE2 address; 12,653 code bytes, runtime identical to mainnet's; base/tegridy-factory bytecode embeds this address as 2 PUSH20 immediates."
+    },
+    {
+      "id": "swap-fee-router-convert-lib",
+      "address": "0x22Ab189959a22365B889B6B5066bff8b1fCd9108",
+      "role": "SwapFeeRouterConvertLib (Base MVP). Fee-conversion math DELEGATECALLed by swap-fee-router. NOT the mainnet library: ethereum/swap-fee-router-convert-lib is 0x96A4Ed675eA203c4b4ae02F8Ad6D4f300Ee97295, a different runtime (6,522 vs 6,496 bytes) and so a different CREATE2 address. Neither address has code on the other chain.",
+      "custody": "none — stateless library, no owner",
+      "status": "live, CREATE2 by DeployBaseMVP 2026-08-25",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployBaseMVP.s.sol/8453/run-1787642423785.json `libraries` + CREATE2 SwapFeeRouterConvertLib: deployer 0x14898258122c0740106391e6e8e4f17f3b6d456e nonce 4, tx 0xc569d6ccbb72cf654a13dd418936f1ca9ccf3308a6ff780d8b3b96589afad984 via 0x4e59b44847b379578588920ca78fbf26c0b4956c salt 0 (key that file by (from, nonce): 10 of its 14 hash labels are scrambled), receipt status 0x1, block 50426550 (0x30172b6). Read back on Base 2026-09-17: the tx input recomputes to this CREATE2 address; 6,496 code bytes; base/swap-fee-router bytecode embeds this address as 2 PUSH20 immediates and never the mainnet library's."
+    },
+    {
       "id": "curve-launcher",
       "address": "0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060",
       "role": "TegridyCurveLauncher (Base): 2 ETH grad, 1% fee 40/25/35, 3.69% reserve, owner=MULTISIG",
