@@ -301,10 +301,11 @@ function OrderRow({ order, onCancel }: { order: LimitOrder; onCancel?: () => voi
             Cancel
           </button>
         )}
-        {/* A sent order is never fired again, and one whose transaction was
-            dropped or replaced would wait forever. Removing it only stops
-            tracking it; it cannot send anything. */}
-        {onCancel && order.status === 'executing' && order.txHash && (
+        {/* An executing order is never fired again, so one whose transaction was
+            dropped or replaced (or whose tab closed before the wallet returned a
+            hash) would wait forever. Removing it only stops tracking it; it
+            cannot send anything. */}
+        {onCancel && order.status === 'executing' && (
           <button onClick={onCancel}
             title="Stops tracking this order. The transaction already sent is not affected."
             className="text-white hover:text-danger text-[10px] min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer transition-colors">

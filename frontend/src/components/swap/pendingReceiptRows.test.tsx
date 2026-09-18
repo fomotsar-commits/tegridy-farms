@@ -84,6 +84,13 @@ describe('limit order sent but not settled', () => {
     expect(cancelOrder).toHaveBeenCalledWith('o1');
   });
 
+  it('an executing order with no hash yet can still be removed, with no tx link', () => {
+    limit.orders = [order({ status: 'executing' })];
+    render(<LimitOrderTab />);
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'View tx' })).toBeNull();
+  });
+
   it('an active order keeps its plain Cancel and no tx link', () => {
     limit.orders = [order()];
     render(<LimitOrderTab />);
