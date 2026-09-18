@@ -14,6 +14,8 @@ import { maxUint256, type Address, type Hex } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
+import { getTxUrl } from '../lib/explorer';
+import { surfaceUnconfirmedTx } from '../lib/txErrors';
 import { COW_VAULT_RELAYER_ADDRESS } from '../lib/cowProtocol';
 import { COMPOSABLE_COW_ADDRESS, COMPOSABLE_COW_CREATE_ABI, randomSalt } from '../lib/composableCow';
 import {
@@ -195,7 +197,23 @@ export function useTriggerOrders({ kind, sellToken, buyToken }: UseTriggerOrders
         // The file header names this as the one bug this surface cannot ship:
         // telling a user their stop-loss is live when it is not. A reverted
         // create still mines a receipt, so the status check IS that guarantee.
-        const createReceipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+        let createReceipt;
+        try {
+          createReceipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+        } catch {
+          // viem RETURNS a reverted receipt (checked below), so this catch only
+          // means the receipt could not be read: a timeout, a node that has not
+          // indexed it, or a Safe that returned a queue hash not mined yet. The
+          // stop-loss may be registered, so this is never "failed": the generic catch
+          // below used to say it in red with the form still armed, and one more
+          // click registered a second one.
+          surfaceUnconfirmedTx(toast, {
+            hash: txHash,
+            explorerUrl: getTxUrl(CHAIN_ID, txHash),
+            repeatCost: 'registering again places a second stop-loss on the same tokens. From a Safe, check its transaction queue too.',
+          });
+          return null;
+        }
         if (createReceipt.status !== 'success') {
           throw new Error('Registration reverted on-chain — your stop-loss is NOT active.');
         }
