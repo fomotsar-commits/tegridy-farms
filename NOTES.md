@@ -15,6 +15,52 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-18 — a deploy receipt's CREATE transactions are not the list of contracts it created
+
+**Believed:** the top-level `transactions[]` of a Foundry broadcast receipt
+(`contracts/broadcast/<Script>.s.sol/<chainId>/run-*.json`) whose `transactionType` is `CREATE`
+or `CREATE2` list every contract the run deployed. A registry guard that walks them would then
+have a closed world.
+
+**Measured** (newest receipts on trunk `f0e3ca7b` + PR #614, fixed in PR #626): a contract
+created *inside* a transaction never appears as a top-level CREATE. Foundry lists it under that
+transaction's `additionalContracts` (`transactionType`, `contractName`, `address`, `initCode`),
+whatever the parent's own type is. There were 6 on mainnet and 4 on Base. Five of the six
+mainnet ones had no registry row, and two of those were **live**: the clone templates that the
+TegridyLaunchpadV2 and TegridyNFTPoolFactory constructors deploy and expose as immutable
+`dropTemplate()` / `poolImplementation()`, which every clone DELEGATECALLs. On Base, the four
+role Safes from `createProxyWithNonce` were the chain's **only** creations, so the guard printed
+"read ZERO Base CREATEs". That reads as "no receipts". The receipts were there; the guard had
+not read them.
+
+### Where nested creations come from
+
+- A constructor that deploys a helper (`dropTemplate = address(new TegridyDropV2())`) nests it
+  under the parent's CREATE.
+- A factory call (`createPair`, `createProxyWithNonce`) nests it under a CALL.
+- `contractName` is `null` when Foundry has no artifact for the created code. That was all four
+  Safe proxies, so a scan keyed on names would drop them too.
+
+### A nested address cannot be keyed by (from, nonce)
+
+#614 re-derives each top-level CREATE from its sender and nonce, because a receipt's labels can
+be wrong. That does not carry over. A CALL child's creator nonce lives in the creator's on-chain
+history, and a CREATE2 salt lives in the call's arguments. The one derivable case is a
+constructor's children: a contract's nonce starts at 1 (EIP-161), so its first child is
+`getContractAddress({ from: parent, nonce: 1n })`. That held for all four here. For anything
+else, read the chain: each parent's getter returned its child's address.
+
+### A non-zero exit is not a killed mutant
+
+Two of my own mutations of the "unreadable nested entry fails" branch misled me. The first
+changed only the `fail(...)` message and left the call in place, so the self-test stayed green,
+correctly, and looked like a missing test. The second turned `fail(` into `void (` in front of a
+trailing comma. `void (x,)` is a **syntax error**, so the verifier and the self-test both exited
+1 without printing a single FAIL line, and that looked like a kill. A mutant is killed only when
+the run prints the assertion you expected it to trip.
+
+---
+
 ## 2026-09-17 — a value handed across a Suspense render is gone if the render that took it is thrown away
 
 **Believed:** carrying a value from pre-React markup into a lazily loaded component is a
