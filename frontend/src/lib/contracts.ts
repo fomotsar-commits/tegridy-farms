@@ -325,6 +325,7 @@ export const VOTE_INCENTIVES_ABI = [
     { name: 'salt', type: 'bytes32' },
   ], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'sweepForfeitedBond', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }, { name: 'commitIndex', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'voterCommitCount', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'voterCommits', inputs: [{ name: '', type: 'address' }, { name: '', type: 'uint256' }, { name: '', type: 'uint256' }], outputs: [
     { name: 'commitHash', type: 'bytes32' },
     { name: 'bond', type: 'uint96' },
