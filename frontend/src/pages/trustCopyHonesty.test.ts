@@ -143,6 +143,22 @@ describe('social links', () => {
     }
     expect(SOCIAL_LINKS.length).toBeGreaterThan(0);
   });
+
+  // Owner ruling 2026-09-17: there is no Telegram channel and there never will be.
+  // A link to one is a link to whoever registers the handle. (Carried from #596 when
+  // answer eleven split it: the removals land now, the invite waits for its owner.)
+  it('carry no Telegram link', () => {
+    const telegram = SOCIAL_LINKS.filter((l) => /(^|\.|\/\/)(t\.me|telegram\.(me|org))\//i.test(l.href) || /telegram/i.test(l.label));
+    expect(telegram).toEqual([]);
+  });
+
+  // Answer eleven, ruling 1: a Discord link here must be one Discord says is permanent and
+  // the venue's own server, and CI asks Discord on every run
+  // (scripts/verify-discord-invites.mjs). What cannot be checked offline is pinned here:
+  // the vanity Discord answers "Unknown Invite" for is not listed again.
+  it('carry no dead Discord vanity', () => {
+    expect(SOCIAL_LINKS.filter((l) => /discord\.gg\/junglebay\b/i.test(l.href))).toEqual([]);
+  });
 });
 
 // ── The two files served to machines ────────────────────────────────────────

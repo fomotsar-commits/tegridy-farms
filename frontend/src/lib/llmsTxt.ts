@@ -263,7 +263,9 @@ export function renderLlmsTxt(f: LlmsFacts, meta: { date: string; commit?: strin
   }
 
   out.push('## Safety facts', '');
-  out.push(`- The canonical address is ${f.siteUrl}. memetic.fun redirects to it.`);
+  // Only what CI resolves (answer eleven): this line also named an alias domain as a
+  // redirect, and nothing here resolves that alias, so it is not stated.
+  out.push(`- The canonical address is ${f.siteUrl}.`);
   out.push('- Every address in this file is written in full. Compare all of it against a block explorer before signing anything.');
   out.push('- Experimental protocol. Not financial advice.', '');
 

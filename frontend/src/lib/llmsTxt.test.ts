@@ -117,6 +117,15 @@ describe('llms.txt says only what the venue itself says', () => {
     expect(text).not.toMatch(/\d[\d,.]*\s?(ETH|WETH|SOL|USDC|USD)\b/);
   });
 
+  // Answer eleven: "say in that file only what CI resolves." It used to say "memetic.fun
+  // redirects to it", an alias nothing here resolves. So no host but the venue's own is
+  // named at all, as a URL or as a bare domain.
+  it('names no host but the venue’s own, not even as a bare domain', () => {
+    const host = new URL(SITE_URL).host;
+    const named: string[] = text.match(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:fun|finance|com|xyz|io|wtf|app|gg|me|org|net)\b/gi) ?? [];
+    expect(named.filter((h) => h.toLowerCase() !== host)).toEqual([]);
+  });
+
   it('points only at the venue’s own origin', () => {
     for (const url of text.match(/https?:\/\/[^\s)]+/g) ?? []) {
       expect(url.startsWith(SITE_URL), url).toBe(true);
