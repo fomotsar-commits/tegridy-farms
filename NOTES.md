@@ -15,6 +15,34 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-18 — a bare `vite build` ships every derived-image URL and none of the images
+
+**Believed:** `vite build` is the build, and `npm run build` only wraps it in checks.
+
+**Measured** in a fresh worktree of trunk `c446ac67`, where `frontend/public/_derived/` does not
+exist because it is gitignored: `npx vite build` exits 0. The shipped JS still computes
+every `srcset` from `src/lib/artDerivatives.generated.json`, which IS committed, so the page
+asks for images that were never generated. The nav logo is the first casualty: its 128 px
+candidate, `/_derived/art/island-mark-png-128.webp`, is in no output directory. Served by
+`vite preview`, that URL answered **200 `text/html`** (the SPA fallback handing back the app
+shell), not a 404. Jungle Bay Island's box, building the same way, saw a 404 for it. Both
+leave a broken image, and the 200 is the worse of the two, because nothing that checks
+status codes notices.
+
+`npm run build` avoids it only by order: `generate-image-derivatives.mjs` runs first, and
+`verify-dist-derivatives.mjs` runs last. Pointed at the bare build, that gate exits 1 and
+lists all 1,314 advertised candidates as missing, so it is the check that knows. Its header
+records the production outage this shape has already caused once (20 of 27 homepage
+images, when the generator ran as a skipped `prebuild` hook). Production builds with the
+full chain, so production is fine.
+
+**Do:** build with `npm run build`, never `vite build` alone, for anything that will be
+looked at: a preview, a probe, a reviewer's box. If a build has to be hand-rolled, run
+`node scripts/generate-image-derivatives.mjs` before it and
+`node scripts/verify-dist-derivatives.mjs` after it.
+
+---
+
 ## 2026-09-17 — a value handed across a Suspense render is gone if the render that took it is thrown away
 
 **Believed:** carrying a value from pre-React markup into a lazily loaded component is a
