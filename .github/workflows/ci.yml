@@ -118,6 +118,16 @@ jobs:
         # be re-checked before porting to main.
         run: npm test
 
+      # Answer eleven, ruling 1: no Discord invite ships unless Discord's own API says
+      # it is permanent (expires_at null) and belongs to the server the owners named.
+      # Here and not in the build: a Discord outage must not stop a production deploy,
+      # but it must stop a merge that would ship an invite nobody could resolve. With
+      # no invite in the source it makes no network call. The rule and its tests:
+      # scripts/lib/discord-invites.mjs and scripts/discord-invites.test.mjs.
+      - name: Discord invites resolve
+        if: ${{ !cancelled() }}
+        run: node scripts/verify-discord-invites.mjs
+
       # indexer-solana/ is a separate Node service, so its tests cannot be
       # collected by the step above: vitest's `root` is frontend/ and include
       # globs are resolved under it — nothing above frontend/ is reachable,

@@ -92,6 +92,42 @@ export interface LlmsFacts {
   baylaLadderStaking: StakingTerms | null;
   /** Live contracts, confirmed against the ledger, grouped by chain. */
   contracts: { chain: string; label: string; address: string }[];
+  /**
+   * Hosts that redirect permanently onto the canonical origin, read from vercel.json.
+   * Stated because CI resolves them: see aliasHostsFrom.
+   */
+  aliasHosts: string[];
+}
+
+/** As much of vercel.json as this module reads. */
+export interface RedirectConfig {
+  redirects?: { source?: string; destination: string; permanent?: boolean; has?: { type: string; value: string }[] }[];
+}
+
+/**
+ * The alias hosts vercel.json redirects, permanently, onto `siteUrl`'s origin.
+ *
+ * ONLY WHAT CI RESOLVES (answer eleven). These come from the deploy config itself, never
+ * typed: src/lib/__tests__/canonicalHost.test.ts pins the redirect (permanent, one hop,
+ * onto the canonical origin), and .github/workflows/synthetic-monitor.yml requests each
+ * alias live every 30 minutes and fails unless it lands there. llmsTxt.test.ts fails if a
+ * host stated here is one the monitor does not request.
+ */
+export function aliasHostsFrom(config: RedirectConfig | undefined, siteUrl: string): string[] {
+  const origin = new URL(siteUrl).origin;
+  const out: string[] = [];
+  for (const r of config?.redirects ?? []) {
+    const host = r.has?.find((h) => h.type === 'host')?.value;
+    if (!host || r.permanent !== true) continue;
+    let destination: string;
+    try {
+      destination = new URL(r.destination.replace('$1', '')).origin;
+    } catch {
+      continue;
+    }
+    if (destination === origin && !out.includes(host)) out.push(host);
+  }
+  return out;
 }
 
 type LedgerEntry = { id?: string; address?: string; status?: unknown };
@@ -110,7 +146,7 @@ export function isLiveInLedger(ledger: AddressLedger, chain: string, address: st
   );
 }
 
-export function collectFacts(ledger: AddressLedger): LlmsFacts {
+export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfig): LlmsFacts {
   const floor = heatLaunchFloor();
   const doors: DoorFact[] = BUNGALOWS.filter((b) => b.chain !== 'tbd' && b.address).map((b) => ({
     id: b.id,
@@ -174,6 +210,7 @@ export function collectFacts(ledger: AddressLedger): LlmsFacts {
         }
       : null,
     contracts,
+    aliasHosts: aliasHostsFrom(deployConfig, SITE_URL),
   };
 }
 
@@ -263,7 +300,16 @@ export function renderLlmsTxt(f: LlmsFacts, meta: { date: string; commit?: strin
   }
 
   out.push('## Safety facts', '');
-  out.push(`- The canonical address is ${f.siteUrl}. memetic.fun redirects to it.`);
+  // Only what CI resolves (answer eleven): the aliases are read from vercel.json and
+  // each is requested live by the synthetic monitor (aliasHostsFrom says how).
+  const aliases = f.aliasHosts;
+  const aliasList =
+    aliases.length <= 1 ? aliases.join('') : `${aliases.slice(0, -1).join(', ')} and ${aliases[aliases.length - 1]}`;
+  out.push(
+    aliases.length === 0
+      ? `- The canonical address is ${f.siteUrl}.`
+      : `- The canonical address is ${f.siteUrl}. ${aliasList} ${aliases.length === 1 ? 'redirects' : 'redirect'} to it permanently.`,
+  );
   out.push('- Every address in this file is written in full. Compare all of it against a block explorer before signing anything.');
   out.push('- Experimental protocol. Not financial advice.', '');
 

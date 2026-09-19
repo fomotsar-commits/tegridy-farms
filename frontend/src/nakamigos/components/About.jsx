@@ -22,11 +22,16 @@ const GNSS_CONTRACT = COLLECTIONS.gnssart.contract;
 const JUNGLEBAY_CONTRACT = COLLECTIONS.junglebay.contract;
 
 // ═══ LINKS ═══
+// No Discord link on either collection below (answer eleven, 2026-09-18): Discord
+// answers "Unknown Invite" for both discord.gg/nakamigos and discord.gg/junglebay.
+// A dead link is worse than none. CI now asks Discord about every invite the site ships
+// (scripts/verify-discord-invites.mjs), and it accepts only a permanent invite to the
+// venue's own server listed in SOCIAL_LINKS, so a collection's Discord cannot come back
+// here without a deliberate change to that rule.
 const NAKAMIGOS_EXTRA_LINKS = [
   ["nakamigos.io", "https://nakamigos.io"],
   ["@Nakamigos", "https://x.com/Nakamigos"],
   ["HiFo Labs", "https://www.hifolabs.com"],
-  ["Discord", "https://discord.gg/nakamigos"],
   ["Blur", "https://blur.io/eth/collection/nakamigos"],
 ];
 
@@ -42,7 +47,6 @@ const JUNGLEBAY_EXTRA_LINKS = [
   ["@JungleBayAC", "https://x.com/JungleBayAC"],
   ["Jungle Bay Island", "https://junglebayisland.com"],
   ["DAO Governance", "https://collective.xyz/junglebayapeclub"],
-  ["Discord", "https://discord.gg/junglebay"],
 ];
 
 // ═══ SECTION HEADING ═══

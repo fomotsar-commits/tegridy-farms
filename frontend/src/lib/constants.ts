@@ -296,11 +296,17 @@ export const GITHUB_TREE_BASE = `${GITHUB_REPO_URL}/tree/${GITHUB_BRANCH}`;
 // components/layout/Footer.tsx and once in pages/HomePage.tsx, whose comment
 // claimed "keep one source so Home and Footer can't drift" while being the
 // second copy. One list now, so a handle change is one edit and cannot half-land.
+//
+// ANSWER ELEVEN, RULING 1. An empty slot is honest; a dead link and a stranger's
+// handle are not.
+//   - Discord: discord.gg/junglebay is dead (Discord answers "Unknown Invite"), so it
+//     came down, and the slot stays EMPTY until the owner of the "memetics.finance"
+//     server creates a PERMANENT invite in Discord's own server settings and hands it
+//     to the operator directly. It is never minted or relayed by a claude. CI asks
+//     Discord about every invite the site ships, on every run, and fails an expiring,
+//     dead or foreign one (scripts/verify-discord-invites.mjs).
+//   - Telegram: none, and there never will be (owner, 2026-09-17). The retired
+//     brand's t.me handle pointed at whoever holds it.
 export const SOCIAL_LINKS: readonly { href: string; label: string }[] = [
   { href: 'https://x.com/junglebayac', label: 'Twitter / X' },
-  { href: 'https://discord.gg/junglebay', label: 'Discord' },
-  // ⚠ OPERATOR: this handle is the RETIRED brand's. It is left in place rather
-  // than guessed at because only the operator can say whether the channel moved
-  // or should be dropped; when the answer lands, this is the single line to edit.
-  { href: 'https://t.me/tegridyfarms', label: 'Telegram' },
 ];

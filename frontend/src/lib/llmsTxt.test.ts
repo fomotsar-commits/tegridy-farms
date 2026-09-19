@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   collectFacts,
+  aliasHostsFrom,
   renderLlmsTxt,
   isLiveInLedger,
   duration,
@@ -30,6 +31,7 @@ import {
   percent,
   type AddressLedger,
   type LlmsFacts,
+  type RedirectConfig,
 } from './llmsTxt';
 import { VENUE, heatExampleLine } from './arrival';
 import { BUNGALOWS } from './bungalows';
@@ -50,7 +52,8 @@ import { tierAtFloor } from './heat/heatOracle';
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REPO = join(FRONTEND, '..');
 const ledger = JSON.parse(readFileSync(join(FRONTEND, 'scripts', 'addresses.json'), 'utf8')) as AddressLedger;
-const facts = collectFacts(ledger);
+const vercel = JSON.parse(readFileSync(join(FRONTEND, 'vercel.json'), 'utf8')) as RedirectConfig;
+const facts = collectFacts(ledger, vercel);
 const text = renderLlmsTxt(facts, { date: '2026-09-17', commit: 'abc1234' });
 
 /** A `uint256 public constant NAME = <expr>;` from Solidity, evaluated: `4 * 365 days`, `2_500`. */
@@ -115,6 +118,63 @@ describe('llms.txt says only what the venue itself says', () => {
     expect(text).not.toMatch(/\bAP[RY]\b/i);
     expect(text).not.toMatch(/\$\s?\d/);
     expect(text).not.toMatch(/\d[\d,.]*\s?(ETH|WETH|SOL|USDC|USD)\b/);
+  });
+
+  // Answer eleven: "say in that file only what CI resolves." An alias host is resolved by
+  // CI twice over: canonicalHost.test.ts pins vercel.json's permanent, one-hop redirect of
+  // it onto the canonical origin, and .github/workflows/synthetic-monitor.yml requests it
+  // live every 30 minutes and fails unless it lands there. So the file states exactly the
+  // hosts vercel.json redirects there, read from vercel.json, and each must be one the
+  // monitor requests, or it would be a claim nothing checks.
+  it('states each alias host exactly when CI resolves it', () => {
+    const origin = new URL(SITE_URL).origin;
+    const configured = (vercel.redirects ?? [])
+      .filter((r) => r.permanent === true && new URL(r.destination.replace('$1', '')).origin === origin)
+      .map((r) => r.has?.find((h) => h.type === 'host')?.value)
+      .filter((h): h is string => Boolean(h))
+      .sort();
+    expect(configured, 'vercel.json redirects no alias onto the canonical origin').toContain('memetic.fun');
+    expect([...facts.aliasHosts].sort()).toEqual(configured);
+
+    const monitor = readFileSync(join(REPO, '.github', 'workflows', 'synthetic-monitor.yml'), 'utf8');
+    const probed = /ALIASES="([^"]+)"/.exec(monitor)?.[1]?.split(/\s+/) ?? [];
+    for (const h of facts.aliasHosts) {
+      expect(probed, `${h} is stated but the synthetic monitor never requests it`).toContain(h);
+      expect(text).toContain(h);
+    }
+  });
+
+  it('counts only permanent host redirects onto the canonical origin as aliases', () => {
+    // Today's vercel.json has none of the three cases rejected here, so the rule is pinned
+    // with a config written for it: a temporary one is not an alias, nor is a host sent
+    // elsewhere, nor a path redirect.
+    expect(
+      aliasHostsFrom(
+        {
+          redirects: [
+            { source: '/(.*)', has: [{ type: 'host', value: 'temporary.example' }], destination: `${SITE_URL}/$1`, permanent: false },
+            { source: '/(.*)', has: [{ type: 'host', value: 'elsewhere.example' }], destination: 'https://other.example/$1', permanent: true },
+            { source: '/old', destination: `${SITE_URL}/new`, permanent: true },
+            { source: '/(.*)', has: [{ type: 'host', value: 'alias.example' }], destination: `${SITE_URL}/$1`, permanent: true },
+          ],
+        },
+        SITE_URL,
+      ),
+    ).toEqual(['alias.example']);
+  });
+
+  it('states no alias at all when nothing redirects one', () => {
+    const out = renderLlmsTxt({ ...facts, aliasHosts: [] }, { date: '2026-09-18' });
+    expect(out).toContain(`- The canonical address is ${SITE_URL}.\n`);
+    expect(out).not.toMatch(/redirect/i);
+  });
+
+  // And nothing else: no host but the venue's own and its CI-resolved aliases is named,
+  // as a URL or as a bare domain.
+  it('names no host but the venue’s own and its resolved aliases, not even as a bare domain', () => {
+    const allowed = [new URL(SITE_URL).host, ...facts.aliasHosts];
+    const named: string[] = text.match(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:fun|finance|com|xyz|io|wtf|app|gg|me|org|net)\b/gi) ?? [];
+    expect(named.filter((h) => !allowed.includes(h.toLowerCase()))).toEqual([]);
   });
 
   it('points only at the venue’s own origin', () => {
