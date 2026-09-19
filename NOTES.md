@@ -15,6 +15,49 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-18 — a record saved before the wallet answers cannot know its on-chain index, and a OneDrive file is not a file to `Dirent.isFile()`
+
+### The chain numbers only what lands
+
+**Believed:** a contract that assigns an index on push (`commitIndex = list.length`, then
+push) gives this browser's Nth commit index N-1, so the client can save the index along
+with the salt. The source said so in a comment ("index ≈ current length") and promised a
+reconciliation ("we'll reconcile by reading `voterCommits.length` on next refetch") that no
+code ever carried out.
+
+**Measured** (PR #628) against a model of exactly the checks the contract's reveal makes:
+index in range, not revealed, hash at THAT index. Commit, reject it in the wallet, then
+commit again and let the second one land. The page offered two reveals and the model
+rejected both: `['CommitHashMismatch', 'CommitNotFound']`. The rejected commit's record
+took index 0, so the real commit was saved at index 1 while the chain holds it at 0. A
+commit made from another browser, or a cleared list, shifts the numbering the same way.
+
+**Do:** persist the content (salt, pair, power, hash), never an identifier the chain has
+not assigned yet. Resolve the identifier by matching the content against the chain
+(`voterCommitCount`, then every `voterCommits(i)`, and match on the hash), and offer nothing
+while any slot is unread, since an unread slot may be the one the record lives at. Keep
+every saved record: a record whose commit has not landed can mean still pending,
+rejected, or reverted, and the chain cannot tell those apart until the commit window
+closes (the same rule as #616, from the other side).
+
+### A OneDrive placeholder is a symlink to Node
+
+**Believed:** two docs-honesty tests going red locally with "FAQ.md is not being scanned"
+meant a scanner or path regression.
+
+**Measured** in a worktree under OneDrive: `Get-Item FAQ.md` reported
+`Archive, ReparsePoint`, and `fs.readdirSync(root, { withFileTypes: true })` returned it
+with `isFile() === false`, `isSymbolicLink() === true`. `ROADMAP.md` was the same;
+`README.md` and `CONTRACTS.md` in the same directory were plain files. Both scanners keep
+`e.isFile()` entries only, so they dropped exactly those two files. A Linux CI checkout has
+no reparse points, so CI stays green. The scanners' must-scan lists are what turned a silent
+skip into a loud red.
+
+**Do:** before trusting a local red from a test that enumerates files, check the attributes
+of the files it names. A scanner that must not miss a file should `statSync` the entry,
+which follows the link, rather than trust the dirent type; and it should carry a must-scan
+list, as these do.
+
 ## 2026-09-17 — a value handed across a Suspense render is gone if the render that took it is thrown away
 
 **Believed:** carrying a value from pre-React markup into a lazily loaded component is a
