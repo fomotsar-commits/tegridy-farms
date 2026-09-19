@@ -413,9 +413,9 @@
         4663
       ],
       "address": "0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B",
-      "role": "MULTISIG role Safe for Base 8453 AND Robinhood 4663 (identical CREATE2 address both chains). Owner slot for the L2 contract legs.",
+      "role": "MULTISIG role Safe for Base 8453 AND Robinhood 4663 (identical CREATE2 address both chains). Owner slot for the L2 contract legs, and the MVP factories' feeToSetter.",
       "custody": "2-of-2 Safe: 0x14898258122C0740106391E6e8E4F17F3b6d456E + 0x28d7CB2F4D73C2750Ba0055c771871fec79260f8",
-      "status": "⚠️ live both chains, nonce()==0 everywhere — smoke-test before use (see l2-treasury-safe).",
+      "status": "⚠️ live both chains, NOT symmetric. Read 2026-09-17: on Base nonce() is 5, so it has signed, and it is feeToSetter of base/tegridy-factory (pendingFeeToSetter 0). On Robinhood nonce() is 0, and robinhood/tegridy-factory still has feeToSetter = the deployer EOA 0x14898258122C0740106391E6e8E4F17F3b6d456E with this Safe only as pendingFeeToSetter: the accept is still owed there. Smoke-test on Robinhood before use (see l2-treasury-safe).",
       "expect": {
         "type": "contract"
       },
@@ -443,9 +443,9 @@
         4663
       ],
       "address": "0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1",
-      "role": "FEE_REMITTANCE role Safe for Base 8453 AND Robinhood 4663 (identical CREATE2 address both chains). The revenue-watch monitoring leg (M.8) reads this balance.",
+      "role": "FEE_REMITTANCE role Safe for Base 8453 AND Robinhood 4663 (identical CREATE2 address both chains), and the bridge sink. The revenue-watch monitoring leg (M.8) reads this balance.",
       "custody": "2-of-2 Safe: 0x14898258122C0740106391E6e8E4F17F3b6d456E + 0x28d7CB2F4D73C2750Ba0055c771871fec79260f8",
-      "status": "⚠️ live both chains, nonce()==0 everywhere — smoke-test before use (see l2-treasury-safe).",
+      "status": "⚠️ live both chains, NOT symmetric. Read 2026-09-17: nonce() is 1 on Base, so it has signed there, and 0 on Robinhood. Smoke-test on Robinhood before use (see l2-treasury-safe).",
       "expect": {
         "type": "contract"
       },
@@ -564,6 +564,17 @@
       "evidence": "contracts/broadcast/DeployNFTPoolFactory.s.sol/1/run-1784177105276.json CREATE TegridyNFTPoolFactory; CONTRACTS.md and docs/MIGRATION_HISTORY.md:113 record a live owner() read returning 0xA360...b7F8."
     },
     {
+      "id": "nft-pool-template",
+      "address": "0x98553C2a3593c388415f866dCBa4348532ff481A",
+      "role": "TegridyNFTPool implementation. The nft-pool-factory constructor deploys it and stores it as the immutable poolImplementation(), and every pool nft-pool-factory creates is a clone that DELEGATECALLs this code. It cannot be re-pointed without redeploying nft-pool-factory.",
+      "custody": "none — initializers disabled in its constructor, no owner",
+      "status": "live, 0 pools as of 2026-09-18",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployNFTPoolFactory.s.sol/1/run-1784177105276.json tx 0 additionalContracts: CREATE TegridyNFTPool inside the TegridyNFTPoolFactory constructor, which is getContractAddress(nft-pool-factory, nonce 1). Read 2026-09-18 at block 26003300 on eth.drpc.org and ethereum-rpc.publicnode.com (both agreed): 13,145 bytes of code; nft-pool-factory.poolImplementation() returns this address; nft-pool-factory.getPoolCount() = 0; the OpenZeppelin Initializable slot holds type(uint64).max; owner() is the zero address."
+    },
+    {
       "id": "token-uri-reader",
       "address": "0x5cfEe751eAf274F68b05267012b85a867dfCd326",
       "role": "Tolerant tokenURI reader.",
@@ -652,6 +663,17 @@
         "type": "contract"
       },
       "evidence": "contracts/broadcast/DeployLaunchpadV2.s.sol/1/run-1784178539512.json CREATE TegridyLaunchpadV2, receipt status 0x1, block 0x185c17b; CONTRACTS.md read-back paused()==false."
+    },
+    {
+      "id": "launchpad-v2-drop-template",
+      "address": "0xA35ec3e20C4361144b0D99573DEa00B67873e872",
+      "role": "TegridyDropV2 implementation. The launchpad-v2 constructor deploys it and stores it as the immutable dropTemplate(), and every collection launchpad-v2 creates is a clone that DELEGATECALLs this code. It cannot be re-pointed without redeploying launchpad-v2.",
+      "custody": "none — initializers disabled in its constructor, no owner",
+      "status": "live, 0 clones as of 2026-09-18",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployLaunchpadV2.s.sol/1/run-1784178539512.json tx 0 additionalContracts: CREATE TegridyDropV2 inside the TegridyLaunchpadV2 constructor, which is getContractAddress(launchpad-v2, nonce 1). Read 2026-09-18 at block 26003300 on eth.drpc.org and ethereum-rpc.publicnode.com (both agreed): 21,554 bytes of code; launchpad-v2.dropTemplate() returns this address; launchpad-v2.getCollectionCount() = 0; the OpenZeppelin Initializable slot holds type(uint64).max; owner() is the zero address."
     },
     {
       "id": "locker-claimer",
@@ -1146,6 +1168,7 @@
       "",
       "This is NOT documentation and nothing here should be used. It exists so rule 5 has a CLOSED",
       "WORLD: verify-addresses walks every CREATE/CREATE2 in contracts/broadcast/**/1/run-latest.json",
+      "(top-level, and every contract created INSIDE a transaction, which Foundry lists under its additionalContracts)",
       "and demands each address be either a live registry entry above, denylisted, or listed here.",
       "A new mainnet deploy therefore lands in a broadcast receipt, matches nothing, and FAILS CI",
       "until a human classifies it. That is the failure the one-directional guard could not produce.",
@@ -1217,6 +1240,12 @@
         "address": "0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6",
         "contract": "TegridyFactory",
         "script": "DeployFinal.s.sol"
+      },
+      {
+        "address": "0xeD01d5f52EBE97360133bdeF77305ee24d5f26f6",
+        "contract": "TegridyPair",
+        "script": "DeployFinal.s.sol",
+        "note": "Pre-relaunch TOWELI/WETH pair, created inside TegridyFactory.createPair on the retired factory 0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6. Superseded by tegridy-lp-native 0x55875887B43C2E23aE424AF0FC8606Fdb058a481. Read 2026-09-18 at block 26003300 on eth.drpc.org and ethereum-rpc.publicnode.com (both agreed): reserves 1000 TOWELI + 0.00001861 WETH; 99.7% of its LP is staked in the retired LPFarming 0xa5AB522C99F86dEd9F429766872101c75517D77c."
       },
       {
         "address": "0xeD73D8836D04eab05C36a5c2DaE90d2a73F8eC76",
@@ -1354,6 +1383,12 @@
         "script": "DeployV3Features.s.sol"
       },
       {
+        "address": "0x1433a55514b43bffC3E1B53C77a23726a95CF271",
+        "contract": "TegridyDrop",
+        "script": "DeployV3Features.s.sol",
+        "note": "V1 drop template, created inside the constructor of the retired TegridyLaunchpad 0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2, which returns it from dropTemplate(). Read 2026-09-18 at block 26003300 on eth.drpc.org and ethereum-rpc.publicnode.com (both agreed): that launchpad's getCollectionCount() = 0, so no clone runs this code."
+      },
+      {
         "address": "0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2",
         "contract": "TegridyLaunchpad",
         "script": "DeployV3Features.s.sol",
@@ -1369,6 +1404,12 @@
         "address": "0x0728cbcde03D617b26d8C27199436BdfA22d547B",
         "contract": "TegridyNFTPool",
         "script": "DeployV3Features.s.sol"
+      },
+      {
+        "address": "0x1999eb024FeAC0535F49d3F36597Aa8ad6252eF8",
+        "contract": "TegridyNFTPool",
+        "script": "DeployV3Features.s.sol",
+        "note": "V1 pool template, created inside the constructor of the retired TegridyNFTPoolFactory 0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0, which returns it from poolImplementation(). Read 2026-09-18 at block 26003300 on eth.drpc.org and ethereum-rpc.publicnode.com (both agreed): that factory's getPoolCount() = 0, so no clone runs this code."
       },
       {
         "address": "0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0",
@@ -1451,61 +1492,55 @@
       "id": "tegridy-factory",
       "address": "0x12a249A027AA7DdF184E824b4bb63ba031A39fEC",
       "role": "TegridyFactory (Base MVP, 2026-08-25)",
-      "status": "live"
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     },
     {
       "id": "tegridy-router",
       "address": "0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3",
       "role": "TegridyRouter (Base MVP)",
-      "status": "live"
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     },
     {
       "id": "tegridy-twap",
       "address": "0xB021651dACaD5dabf83ef587297E093DfA0c95Ec",
       "role": "TegridyTWAP (Base MVP)",
-      "status": "live"
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     },
     {
       "id": "swap-fee-router",
       "address": "0xa24C7287eC56A7DEFDc70033803451240e267a52",
       "role": "SwapFeeRouter (Base MVP)",
-      "status": "live"
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     },
     {
       "id": "swap-fee-router-admin",
       "address": "0xcb03207ae13076F520b8c81Ea4FE6F08F8bC63b2",
       "role": "SwapFeeRouterAdmin (Base MVP)",
-      "status": "live"
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     },
     {
       "id": "curve-launcher",
       "address": "0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060",
       "role": "TegridyCurveLauncher (Base): 2 ETH grad, 1% fee 40/25/35, 3.69% reserve, owner=MULTISIG",
-      "status": "live"
-    },
-    {
-      "id": "treasury-safe",
-      "address": "0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0",
-      "role": "TREASURY role Safe (2-of-2, owners 0x1489/0x28d7)",
-      "status": "live"
-    },
-    {
-      "id": "multisig-safe",
-      "address": "0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B",
-      "role": "MULTISIG role Safe (2-of-2); MVP owner/feeToSetter pending accept",
-      "status": "live"
-    },
-    {
-      "id": "pause-guardian-safe",
-      "address": "0xF2De91a0086baA36D60B73ee1DF261ef8919A56c",
-      "role": "PAUSE_GUARDIAN role Safe (2-of-2)",
-      "status": "live"
-    },
-    {
-      "id": "fee-remittance-safe",
-      "address": "0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1",
-      "role": "FEE_REMITTANCE role Safe (2-of-2), bridge sink",
-      "status": "live"
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     },
     {
       "id": "lighthouse-qr",
@@ -1603,67 +1638,55 @@
       "id": "attested-sequencer-uptime-feed",
       "address": "0x12a249A027AA7DdF184E824b4bb63ba031A39fEC",
       "role": "AttestedSequencerUptimeFeed (owner=MULTISIG, attestor=PAUSE_GUARDIAN)",
-      "status": "live"
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     },
     {
       "id": "tegridy-factory",
       "address": "0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3",
       "role": "TegridyFactory (Robinhood MVP, 2026-08-25)",
-      "status": "live"
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     },
     {
       "id": "tegridy-router",
       "address": "0xB021651dACaD5dabf83ef587297E093DfA0c95Ec",
       "role": "TegridyRouter (Robinhood MVP)",
-      "status": "live"
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     },
     {
       "id": "tegridy-twap",
       "address": "0xa24C7287eC56A7DEFDc70033803451240e267a52",
       "role": "TegridyTWAP (Robinhood MVP)",
-      "status": "live"
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     },
     {
       "id": "swap-fee-router",
       "address": "0xE9F83A07b071748E795d2489651d5310fA098Db8",
       "role": "SwapFeeRouter (Robinhood MVP)",
-      "status": "live"
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     },
     {
       "id": "swap-fee-router-admin",
       "address": "0xdFdd6D72539A425dC917F49FB834901105cA98c9",
       "role": "SwapFeeRouterAdmin (Robinhood MVP)",
-      "status": "live"
-    },
-    {
-      "id": "curve-launcher",
-      "address": "0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5",
-      "role": "TegridyCurveLauncher (Robinhood): 1.5 ETH grad, 1% fee 40/25/35, 3.69% reserve, owner=MULTISIG",
-      "status": "live"
-    },
-    {
-      "id": "treasury-safe",
-      "address": "0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0",
-      "role": "TREASURY role Safe (2-of-2, owners 0x1489/0x28d7)",
-      "status": "live"
-    },
-    {
-      "id": "multisig-safe",
-      "address": "0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B",
-      "role": "MULTISIG role Safe (2-of-2); MVP owner/feeToSetter pending accept",
-      "status": "live"
-    },
-    {
-      "id": "pause-guardian-safe",
-      "address": "0xF2De91a0086baA36D60B73ee1DF261ef8919A56c",
-      "role": "PAUSE_GUARDIAN role Safe (2-of-2)",
-      "status": "live"
-    },
-    {
-      "id": "fee-remittance-safe",
-      "address": "0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1",
-      "role": "FEE_REMITTANCE role Safe (2-of-2), bridge sink",
-      "status": "live"
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     }
   ]
 }
