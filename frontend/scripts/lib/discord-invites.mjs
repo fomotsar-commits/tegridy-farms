@@ -90,8 +90,10 @@ export async function resolveInvite(code, fetchImpl = fetch, sleep = (ms) => new
   }
 }
 
-const SOURCE_EXT = /\.(?:ts|tsx|js|jsx|mjs|json)$/;
-const PUBLIC_EXT = /\.(?:html|txt|json|webmanifest|xml)$/;
+const SOURCE_EXT = /\.(?:ts|tsx|js|jsx|mjs|json|css)$/;
+const PUBLIC_EXT = /\.(?:html|txt|json|webmanifest|xml|js|svg|css)$/;
+const API_EXT = /\.(?:js|mjs|ts)$/;
+const TEST_FILE = /\.test\.[a-z]+$/;
 
 function walk(dir, keep, acc = []) {
   for (const name of readdirSync(dir)) {
@@ -104,11 +106,22 @@ function walk(dir, keep, acc = []) {
   return acc;
 }
 
-/** Every file the site ships its text from: app source (tests excluded), index.html, public/. */
+/**
+ * Every file the site ships text from, tests excluded: the app source, index.html,
+ * public/ (service workers and SVGs included), the serverless api/, the deploy config
+ * (vercel.json redirects are links too: a /discord short link would ship an invite), the
+ * edge middleware that answers unfurlers, and the build scripts that write text into dist/.
+ */
 export function shippedFiles(frontendRoot) {
-  const src = walk(join(frontendRoot, 'src'), (p) => SOURCE_EXT.test(p) && !/\.test\.[a-z]+$/.test(p));
+  const src = walk(join(frontendRoot, 'src'), (p) => SOURCE_EXT.test(p) && !TEST_FILE.test(p));
   const pub = walk(join(frontendRoot, 'public'), (p) => PUBLIC_EXT.test(p));
-  return [...src, join(frontendRoot, 'index.html'), ...pub];
+  const api = walk(join(frontendRoot, 'api'), (p) => API_EXT.test(p) && !TEST_FILE.test(p) && !/[\\/]__tests__[\\/]/.test(p));
+  const single = ['index.html', 'vercel.json', 'middleware.js', 'scripts/render-bungalow-doors.mjs', 'scripts/llms-txt.mjs']
+    .map((f) => join(frontendRoot, f))
+    .filter((f) => {
+      try { return statSync(f).isFile(); } catch { return false; }
+    });
+  return [...src, ...pub, ...api, ...single];
 }
 
 /** code -> the files (relative, forward slashes) that link to it. */

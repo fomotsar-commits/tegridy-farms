@@ -89,19 +89,36 @@ describe('finding the invites the site ships', () => {
     ).toEqual(['Abc123', 'Xy-9', 'Zz']);
   });
 
-  it('scans the app source, index.html and public/, and not the tests', () => {
+  it('scans every file the site ships text from, and not the tests', () => {
+    // A review found the first version read only src/, index.html and some of public/:
+    // a /discord short link in vercel.json, or an invite in a service worker, the edge
+    // middleware or the api/ would have shipped past it unread.
     const files = shippedFiles(FRONTEND).map((f) => f.split('\\').join('/'));
-    expect(files.some((f) => f.endsWith('/src/lib/constants.ts'))).toBe(true);
-    expect(files.some((f) => f.endsWith('/src/nakamigos/components/About.jsx'))).toBe(true);
-    expect(files.some((f) => f.endsWith('/index.html'))).toBe(true);
-    expect(files.some((f) => /\.test\.[a-z]+$/.test(f))).toBe(false);
+    for (const shipped of [
+      '/src/lib/constants.ts',
+      '/src/nakamigos/components/About.jsx',
+      '/index.html',
+      '/vercel.json',
+      '/middleware.js',
+      '/public/sw.js',
+      '/public/push-sw.js',
+      '/api/aggregator.js',
+      '/scripts/render-bungalow-doors.mjs',
+    ]) {
+      expect(files.some((f) => f.endsWith(shipped)), `${shipped} is not scanned`).toBe(true);
+    }
+    expect(files.some((f) => /\.test\.[a-z]+$/.test(f) || f.includes('/__tests__/'))).toBe(false);
   });
 
-  it('finds no invite in shipped source that CI has not been asked about', () => {
-    // Today no invite ships (answer eleven: the dead ones came down, the permanent one
-    // waits for the owner). This is a snapshot of the scan, not the rule: when the owner's
-    // invite lands, this list gains it and CI resolves it on every run.
-    expect([...invitesInFiles(shippedFiles(FRONTEND), FRONTEND).keys()]).toEqual([]);
+  it('ships an invite only from SOCIAL_LINKS, the one place the owner’s invite goes', async () => {
+    // An invariant, not today's snapshot: when the owner's permanent invite is pasted into
+    // SOCIAL_LINKS this still passes, and the live step resolves it. An invite anywhere
+    // else would be one nobody was told to check.
+    const { SOCIAL_LINKS } = await import('../src/lib/constants.ts');
+    const listed = SOCIAL_LINKS.flatMap((l) => findInviteCodes(l.href));
+    for (const [code, where] of invitesInFiles(shippedFiles(FRONTEND), FRONTEND)) {
+      expect(listed, `discord.gg/${code} ships from ${where.join(', ')}, outside SOCIAL_LINKS`).toContain(code);
+    }
   });
 });
 
@@ -115,7 +132,18 @@ describe('CI runs the live check', () => {
     const step = job.slice(job.indexOf('- name: Discord invites resolve'));
     expect(job.indexOf('- name: Discord invites resolve'), 'ci.yml has no Discord invite step').toBeGreaterThan(-1);
     const body = step.slice(0, step.indexOf('\n      - ', 5) === -1 ? undefined : step.indexOf('\n      - ', 5));
-    expect(body).toContain('run: node scripts/verify-discord-invites.mjs');
-    expect(body).not.toMatch(/continue-on-error:\s*true/);
+    // EXACTLY these lines. A review showed that `if: ${{ false }}`, `|| true` after the
+    // command, or `continue-on-error: ${{ true }}` each disable the gate while a looser
+    // check still reads it as wired.
+    const lines = body.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+    expect(lines).toEqual([
+      '- name: Discord invites resolve',
+      'if: ${{ !cancelled() }}',
+      'run: node scripts/verify-discord-invites.mjs',
+    ]);
+    // And nothing at the job level switches the whole job off or makes it advisory.
+    const jobHead = job.slice(0, job.indexOf('steps:'));
+    expect(jobHead).not.toMatch(/^\s*if:/m);
+    expect(jobHead).not.toMatch(/continue-on-error/);
   });
 });

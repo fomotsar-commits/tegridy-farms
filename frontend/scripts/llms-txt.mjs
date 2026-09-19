@@ -46,7 +46,10 @@ const server = await createServer({
 let text;
 try {
   const mod = await server.ssrLoadModule('/src/lib/llmsTxt.ts');
-  text = mod.renderLlmsTxt(mod.collectFacts(ledger), { date, commit });
+  // vercel.json supplies the alias hosts, so llms.txt names exactly the redirects the
+  // deploy config makes (and CI resolves), never a typed list.
+  const deployConfig = JSON.parse(readFileSync(resolve(FRONTEND, 'vercel.json'), 'utf8'));
+  text = mod.renderLlmsTxt(mod.collectFacts(ledger, deployConfig), { date, commit });
 } finally {
   await server.close();
 }
