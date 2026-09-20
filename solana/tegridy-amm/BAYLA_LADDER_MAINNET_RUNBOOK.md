@@ -79,8 +79,11 @@ program's deployer is compiled into the binary.
       handover in §8 completes before the first `notify`.
 - [ ] **A keyed mainnet RPC URL.** The public endpoint throttles hard, and a program upload
       is several hundred write transactions. Never paste the URL into the repo.
-- [ ] **~3 SOL in the deployer wallet** — the rotated deployer, not
-      `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` (§5 for the breakdown).
+- [ ] **~3 SOL in the deployer wallet** — the rotated deployer
+      **`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`**, and no other wallet. Not
+      `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`, not
+      `5MtoeJ8DXcgWZQJAgGgDefd5hbq4KAe3K47yL9Nc87vq` (§5 for the breakdown). It read
+      `AccountNotFound` / 0 SOL on 2026-09-20, so the first transfer creates it.
 
 🏝️ **One more gate, and it is NOT in this list on purpose.** The island's wave-8 "ladder and
 the clock" ruling blocks **§9 (turning the card on)** and nothing before it. It is not a
@@ -95,7 +98,7 @@ commitment and the reason are in `docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md` §8.
 | what | value | notes |
 | --- | --- | --- |
 | program id | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` | Generated 2026-09-11. The keyfile lives outside the repo, and is only needed until the program is deployed. |
-| deployer | ~~`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`~~ → **a rotated key, pubkey not yet recorded** | **SUPERSEDED 2026-09-17 (key rotation option A).** `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` was confirmed 2026-09-12 as the owner's existing BAYLA admin wallet; it is also the devnet faucet bot's hot key in a cloud-synced folder (`docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md` §1). The rebuild compiles a fresh key generated outside any cloud-synced folder — write its pubkey here before §4, and never build with `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`. Compiled in: the only key that can call `initialize_pool`, and it becomes the pool's first authority — so its pubkey is an input to the **build** (§4), not to the deploy. **To generate it (2026-09-20):** `solana-keygen` on the `PATH` is Application-Control blocked, but the versioned install path is not — `~/.local/share/solana/install/releases/stable-25cd9da946ebf6d90024ac32071d05b319715589/solana-release/bin/solana-keygen new --no-bip39-passphrase --outfile C:/Users/jimbo/solana-keys/mainnet/bayla_ladder-deployer.json`, then read it back with `solana address -k`. Checklist §3. |
+| deployer | ~~`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`~~ → **`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`** | ✅ **ROTATED 2026-09-20.** Generated fresh, keyfile at `C:\Users\jimbo\solana-keys\mainnet\bayla_ladder-deployer.json` (outside OneDrive). Verified before use: the keyfile derives to exactly this pubkey; the account does not exist on mainnet (`AccountNotFound`, i.e. never used); and it collides with none of the program id, the old faucet authority, `5MtoeJ8D…` or the devnet program. **SUPERSEDED 2026-09-17 (key rotation option A).** `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` was confirmed 2026-09-12 as the owner's existing BAYLA admin wallet; it is also the devnet faucet bot's hot key in a cloud-synced folder (`docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md` §1). The rebuild compiles a fresh key generated outside any cloud-synced folder — write its pubkey here before §4, and never build with `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`. Compiled in: the only key that can call `initialize_pool`, and it becomes the pool's first authority — so its pubkey is an input to the **build** (§4), not to the deploy. **To generate it (2026-09-20):** `solana-keygen` on the `PATH` is Application-Control blocked, but the versioned install path is not — `~/.local/share/solana/install/releases/stable-25cd9da946ebf6d90024ac32071d05b319715589/solana-release/bin/solana-keygen new --no-bip39-passphrase --outfile C:/Users/jimbo/solana-keys/mainnet/bayla_ladder-deployer.json`, then read it back with `solana address -k`. Checklist §3. |
 | BAYLA mint | `7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump` | Token-2022, 6 decimals |
 | upgrade authority | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` | The venue's existing Squads v4 **vault**: index 0 of multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`, threshold 2. A PDA with no private key, so the transfer needs `--skip-new-upgrade-authority-signer-check`. |
 
@@ -203,7 +206,7 @@ first. The tag is also the permanent record of what was deployed.
 ```powershell
 git tag bayla-ladder-mainnet <AUDITED-COMMIT>
 git push origin bayla-ladder-mainnet
-gh workflow run solana-deploy-artifact.yml --ref bayla-ladder-mainnet -f program=bayla-ladder -f cluster=mainnet -f program_id=EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ -f deployer=<ROTATED-DEPLOYER-PUBKEY>
+gh workflow run solana-deploy-artifact.yml --ref bayla-ladder-mainnet -f program=bayla-ladder -f cluster=mainnet -f program_id=EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ -f deployer=Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6
 ```
 
 ⚠️ **`deployer` is the rotated key from §1, never

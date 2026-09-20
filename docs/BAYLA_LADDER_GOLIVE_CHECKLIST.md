@@ -259,8 +259,16 @@ entitled to make — but make it explicitly, in writing, rather than by omission
       ⚠️ The only `.so` on this machine today is the **devnet** one
       (`3e1b2b7b68292d92ef83e479a938c49aeda3480d4a3bbc58500cf166f6061ebd`), and the binaries have been the same size — verify by **hash**, never by
       filename or size.
-- [ ] **Generate the rotated deployer key.** ✅ **Unblocked 2026-09-20 — `solana-keygen` runs
-      fine, the shortcut path was the problem.** `solana-keygen` on the `PATH` resolves through
+- [x] **Generate the rotated deployer key — ✅ DONE 2026-09-20.** It is
+      **`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`**, keyfile at
+      `C:\Users\jimbo\solana-keys\mainnet\bayla_ladder-deployer.json`, outside OneDrive.
+      Checked before it was compiled into anything: the keyfile derives to exactly that
+      pubkey, the account read `AccountNotFound` on mainnet (never used), and it collides
+      with none of the program id, `GCCSLE7d…`, `5MtoeJ8D…` or the devnet program.
+      **Still owed: an offline backup of the keyfile.** Losing it after `init-pool` means
+      the pool can never be funded again.
+
+      *How it was unblocked — `solana-keygen` runs fine, the shortcut path was the problem.* `solana-keygen` on the `PATH` resolves through
       `~/.local/share/solana/install/active_release/bin/`, which Application Control refuses
       (`Permission denied`). The **versioned** install path runs normally — verified by
       generating a throwaway key and reading it back with `solana address -k`:
@@ -478,7 +486,7 @@ Nothing here is runnable until §1 and §2 are resolved.
 | 2 | Resolve audit scope | — | ⚠️ **WAIVED by the owner 2026-09-20** — no external audit was ever commissioned; deploying `50065ef03b7eae4ec955ec40ffd32aaf4181b3c2` as tag `bayla-ladder-mainnet`. The cost of the waiver is written out in runbook §0 box 1 |
 | 3 | `withdraw_matured` on devnet | `devnet-deploy.json` | ✅ **done 2026-09-17** — §3 (on the superseded 25% build) |
 | 4 | Rebuild the artifact from the audited commit | — | runbook §4, `deployer` = the rotated key. **Never `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`** |
-| 5 | Fund the deployer ~3 SOL | — | ~2.62 needed; the **rotated** deployer — never `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` or `5MtoeJ8DXcgWZQJAgGgDefd5hbq4KAe3K47yL9Nc87vq` |
+| 5 | Fund the deployer ~3 SOL | — | Send it to **`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`** and nowhere else. 2.60439916 needed for rent at `--max-len` exact (chain-quoted 2026-09-20), the rest is headroom — never `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` or `5MtoeJ8DXcgWZQJAgGgDefd5hbq4KAe3K47yL9Nc87vq` |
 | 6 | `solana config set` → mainnet | — | CLI is on **devnet** right now |
 | 7 | `solana program deploy` | program keypair **+ fee payer** | fee payer becomes initial upgrade authority |
 | 8 | Verify deployed bytes | — | `program dump` + hash vs the **rebuilt** artifact's sha256 (never `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`) |
