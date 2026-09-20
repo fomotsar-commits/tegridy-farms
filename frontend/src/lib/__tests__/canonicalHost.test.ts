@@ -148,6 +148,19 @@ describe('vercel.json permanently redirects the aliases onto the canonical host'
       .filter((r) => destHost(r) !== CANONICAL_HOST && hostRule(destHost(r)) !== undefined)
       .map((r) => `${r.has!.find((h) => h.type === 'host')!.value} -> ${r.destination}`);
     expect(chained, 'host redirects that hop through another redirected host').toEqual([]);
+
+    // AND THE HALF THIS TEST ONLY CLAIMED TO CHECK until 2026-09-20. The filter
+    // above flags a destination that is ITSELF a redirected host, so it catches a
+    // chain — but a host redirect pointing at some third host that is simply not
+    // redirected at all sailed through, while the test's name said "lands every
+    // host redirect ON the canonical origin". A mutation proved it: repointing
+    // tegridyfarms.vercel.app at a host with no rule of its own left this green.
+    // The name was the honest statement of intent; the assertion is now that.
+    const offCanonical = redirects
+      .filter((r) => r.has?.some((h) => h.type === 'host'))
+      .filter((r) => new URL(r.destination.replace('$1', '')).origin !== CANONICAL_ORIGIN)
+      .map((r) => `${r.has!.find((h) => h.type === 'host')!.value} -> ${r.destination}`);
+    expect(offCanonical, 'host redirects that do not land on the canonical origin').toEqual([]);
   });
 
   it('never redirects the canonical host away', () => {

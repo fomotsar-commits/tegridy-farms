@@ -166,7 +166,12 @@ const queryClient = new QueryClient({
 function NotFoundPage() {
   // F24: don't canonicalize the bogus path (would create a soft-404 served 200)
   // and mark it noindex so crawlers drop it.
-  usePageTitle('404 — Page Not Found', undefined, { noCanonical: true, noIndex: true });
+  // A COLON, NOT AN EM DASH (element I, 2026-09-20). This title is not only a tab
+  // label: AppLayout.tsx:227 copies document.title into an aria-live region on every
+  // navigation, so the dash was venue-voice prose being READ ALOUD to screen-reader
+  // users. It went uncounted because the 404 catch-all was the one venue route in
+  // neither ratchet table; adding the route to the census is what surfaced it.
+  usePageTitle('404: Page Not Found', undefined, { noCanonical: true, noIndex: true });
   return (
     <div className="min-h-[60vh] flex items-center justify-center px-6">
       <div className="text-center max-w-sm">
