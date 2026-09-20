@@ -29,7 +29,17 @@ Updated in the same commit as every phase close.
 > **Nothing is owed by the venue's side any more.** The last open item, the permanent Discord
 > invite, landed on 2026-09-19: the owner created it in the server's own settings and handed
 > it over, and it resolves live as guild **910243729997168721 ("Jungle Bay")**, `expires_at`
-> **null** (row A11-1). No claude minted or relayed it.
+> **null** (row A11-1). No claude minted or relayed it. The id has **two independent
+> sources** — Discord's API, and the operator reading the Server ID from inside the server on
+> 2026-09-20 (answer thirteen, ruling 1), so the gate is not certifying the invite against
+> its own answer.
+>
+> **Answer thirteen, ruling 2, is also done:** `tegridyfarms.vercel.app` was serving the whole
+> venue under a second name and now redirects permanently to the canonical origin, in the
+> monitor's alias list and named by `llms.txt` on its own. `tegridyfarms-three.vercel.app` is
+> **not** closed and cannot be closed from this repo — it is a separate Vercel project serving
+> a stale build, so our `vercel.json` never runs for it. That one is an operator action in the
+> Vercel dashboard, and it is the only open item on the venue's side.
 >
 > **Still reading IN-PROGRESS below, and the island closed the wave with them in this
 > state:** **D** (the room, cut to the token), **J** (this file), and **Q** (the long tail —
