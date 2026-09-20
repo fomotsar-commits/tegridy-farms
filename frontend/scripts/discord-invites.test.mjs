@@ -153,6 +153,14 @@ describe('finding the invites the site ships', () => {
       '/public/push-sw.js',
       '/api/aggregator.js',
       '/scripts/render-bungalow-doors.mjs',
+      // Answer twelve's verification pass found these two shipped past the scan.
+      // A file is in scope because its TEXT reaches a user, not because of where
+      // it sits: the CSV is downloaded from the upload wizard (Step2_Upload.tsx
+      // links /sample-collection.csv), and addresses.json is the ledger that
+      // scripts/llms-txt.mjs renders into dist/llms.txt — the writer was scanned
+      // while one of its two text inputs was not.
+      '/public/sample-collection.csv',
+      '/scripts/addresses.json',
     ]) {
       expect(files.some((f) => f.endsWith(shipped)), `${shipped} is not scanned`).toBe(true);
     }

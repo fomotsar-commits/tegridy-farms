@@ -114,7 +114,9 @@ export async function resolveInvite(code, fetchImpl = fetch, sleep = (ms) => new
 }
 
 const SOURCE_EXT = /\.(?:ts|tsx|js|jsx|mjs|json|css)$/;
-const PUBLIC_EXT = /\.(?:html|txt|json|webmanifest|xml|js|svg|css)$/;
+// `csv` because public/sample-collection.csv is downloaded by users from the upload
+// wizard: a link in a file the site hands out is a link the site ships.
+const PUBLIC_EXT = /\.(?:html|txt|json|webmanifest|xml|js|svg|css|csv)$/;
 const API_EXT = /\.(?:js|mjs|ts)$/;
 const TEST_FILE = /\.test\.[a-z]+$/;
 
@@ -139,7 +141,11 @@ export function shippedFiles(frontendRoot) {
   const src = walk(join(frontendRoot, 'src'), (p) => SOURCE_EXT.test(p) && !TEST_FILE.test(p));
   const pub = walk(join(frontendRoot, 'public'), (p) => PUBLIC_EXT.test(p));
   const api = walk(join(frontendRoot, 'api'), (p) => API_EXT.test(p) && !TEST_FILE.test(p) && !/[\\/]__tests__[\\/]/.test(p));
-  const single = ['index.html', 'vercel.json', 'middleware.js', 'scripts/render-bungalow-doors.mjs', 'scripts/llms-txt.mjs']
+  // scripts/addresses.json is here because it is an INPUT to shipped text, not a
+  // script: scripts/llms-txt.mjs reads it as the ledger and renders it into
+  // dist/llms.txt. Scanning the writer while leaving its source unread is the
+  // hole this list closes.
+  const single = ['index.html', 'vercel.json', 'middleware.js', 'scripts/render-bungalow-doors.mjs', 'scripts/llms-txt.mjs', 'scripts/addresses.json']
     .map((f) => join(frontendRoot, f))
     .filter((f) => {
       try { return statSync(f).isFile(); } catch { return false; }
