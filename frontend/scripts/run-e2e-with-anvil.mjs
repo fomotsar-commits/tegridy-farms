@@ -33,6 +33,7 @@
  */
 import { spawn } from 'node:child_process';
 import { startForkRelay } from './fork-relay.mjs';
+import { redactRpcUrl } from './lib/redact-url.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createServer } from 'node:net';
 import { pathToFileURL } from 'node:url';
@@ -142,7 +143,7 @@ function diagnoseFork(tailText) {
 function reportForkRefused(reason, tailText, fallbackHeadline) {
   const named = reason !== null;
   const headline = named
-    ? `Anvil could not fork ${FORK_URL} — ${reason}.`
+    ? `Anvil could not fork ${redactRpcUrl(FORK_URL)} — ${reason}.`
     : fallbackHeadline;
   console.error('');
   console.error(
@@ -153,7 +154,7 @@ function reportForkRefused(reason, tailText, fallbackHeadline) {
   console.error('  ┌───────────────────────────────────────────────────────────────────');
   console.error(`  │ ${named ? 'ANVIL FORK ENDPOINT REFUSED' : 'ANVIL FAILED TO START'}`);
   console.error('  │');
-  console.error(`  │ endpoint : ${FORK_URL}`);
+  console.error(`  │ endpoint : ${redactRpcUrl(FORK_URL)}`);
   console.error(`  │ cause    : ${named ? reason : 'unknown — anvil produced no recognisable fork error'}`);
   console.error('  │');
   console.error('  │ NOT ONE TEST RAN. The money-path specs never reached Playwright, so');
@@ -231,7 +232,7 @@ async function main() {
   if (FORK_BLOCK) anvilArgs.push('--fork-block-number', String(FORK_BLOCK));
 
   console.log(
-    `[e2e] spawning anvil --fork-url ${FORK_URL}${FORK_BLOCK ? ' @' + FORK_BLOCK : ''} on :${ANVIL_PORT}` +
+    `[e2e] spawning anvil --fork-url ${redactRpcUrl(FORK_URL)}${FORK_BLOCK ? ' @' + FORK_BLOCK : ''} on :${ANVIL_PORT}` +
       (relay.bypassed ? '' : ` (reads relayed via ${relay.url})`),
   );
   const anvil = spawn('anvil', anvilArgs, { stdio: ['ignore', 'pipe', 'pipe'], shell: false });

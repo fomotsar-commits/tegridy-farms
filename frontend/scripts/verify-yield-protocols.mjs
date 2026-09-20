@@ -98,6 +98,7 @@ import {
   encodeAbiParameters, HttpRequestError,
 } from 'viem';
 import { readFileSync } from 'node:fs';
+import { redactRpcUrl } from './lib/redact-url.mjs';
 import { fileURLToPath } from 'node:url';
 import { mainnet } from 'viem/chains';
 
@@ -373,7 +374,7 @@ async function main() {
   // chain and block it is on, nothing below can be attempted, and attempting it
   // anyway would just produce one unreachable line per address at one timeout
   // each. Bail with the count of what did NOT get looked at.
-  const pre = await attempt(`RPC preamble at ${RPC}`, async () => ({
+  const pre = await attempt(`RPC preamble at ${redactRpcUrl(RPC)}`, async () => ({
     block: await client.getBlockNumber(),
     chainId: await client.getChainId(),
   }));
@@ -382,8 +383,8 @@ async function main() {
     return;
   }
   const { block, chainId } = pre.value;
-  if (chainId !== 1) isWrong(`RPC ${RPC} is chain ${chainId}, not Ethereum mainnet`);
-  console.log(`# verify-yield-protocols — chain ${chainId} block ${block} via ${RPC}\n`);
+  if (chainId !== 1) isWrong(`RPC ${redactRpcUrl(RPC)} is chain ${chainId}, not Ethereum mainnet`);
+  console.log(`# verify-yield-protocols — chain ${chainId} block ${block} via ${redactRpcUrl(RPC)}\n`);
 
   // ── Multicall3 (the clock legs ride in the same aggregate3 as every read) ──
   if (await hasCode('multicall3', CAND.multicall3)) {

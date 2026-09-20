@@ -103,6 +103,7 @@ import {
 // tokens to land in and the instruction fails on a missing account. The IDEMPOTENT
 // form is safe to prepend unconditionally - it is a no-op when the ATA exists.
 import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
+import { redactRpcUrl } from './lib/redact-url.mjs';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -1538,6 +1539,21 @@ const USAGE = `bayla-ladder ops
   common: --program <id> --rpc <url> --keypair <path> --broadcast
           amounts are WHOLE TOKENS; dry run unless --broadcast`;
 
+/**
+ * The two lines every invocation prints before it touches the chain.
+ *
+ * The rpc line exists so an operator can see they are NOT on the devnet default below,
+ * which is the only local signal that a mainnet ceremony is pointed at mainnet. It is a
+ * function so that what is emitted can be tested: it used to interpolate the raw `--rpc`
+ * value, which printed the endpoint's API key on every run. See lib/redact-url.mjs.
+ */
+function headerLines({ programId, rpc }) {
+  return [
+    `program ${programId}`,
+    `rpc     ${redactRpcUrl(rpc)}`,
+  ];
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args._ || args.help) { console.log(USAGE); return; }
@@ -1549,8 +1565,7 @@ async function main() {
   const conn = new Connection(rpc, 'confirmed');
   const broadcast = args.broadcast === true;
 
-  console.log(`program ${programId.toBase58()}`);
-  console.log(`rpc     ${rpc}`);
+  for (const line of headerLines({ programId: programId.toBase58(), rpc })) console.log(line);
 
   const signer = () => {
     const kp = loadKeypair(need(args, 'keypair'));
@@ -1947,3 +1962,7 @@ export {
   PENALTY_SCALE, MAX_PENALTY_RATIO, MAX_PENALTY_PCT, CAP_YEARS, PENALTY_SCHEDULE,
   fmtPct, fmtDuration, positionLine, USAGE,
 };
+
+// The header every run prints. Exported because it is the surface that leaked a live
+// Alchemy key on 2026-09-20 — see lib/redact-url.test.mjs.
+export { headerLines };
