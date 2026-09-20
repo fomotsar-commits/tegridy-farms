@@ -174,6 +174,17 @@ const opsScripts = () => [SCRIPTS, join(SCRIPTS, 'lib')]
 const interpolations = (code) => [...code.matchAll(/\$\{([^{}]*)\}/g)].map((m) => m[1]);
 
 /**
+ * The identifier tokens in an expression.
+ *
+ * Whole tokens, compared through a Set — this deliberately builds NO regex out of a
+ * variable's name. `$` is legal in a JavaScript identifier and is a regex anchor, so
+ * `new RegExp(name)` on an identifier like `rpc$url` matches the wrong thing, silently and
+ * in the direction that makes the guard pass. Tokenising also stops `rpc` from matching
+ * inside `rpcTimeoutMs`.
+ */
+const identTokens = (expr) => expr.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) || [];
+
+/**
  * The identifiers a script resolves an endpoint into: a declaration that both defaults to
  * an `http…` literal and mentions rpc/fork/cluster. That is how all five of these scripts
  * take their endpoint, and deriving the name from the source means renaming the variable
@@ -207,11 +218,12 @@ describe('no ops script under frontend/scripts echoes an endpoint unredacted', (
   it('interpolates every endpoint variable only through redactRpcUrl', () => {
     const leaks = [];
     for (const { name, code } of opsScripts()) {
-      const idents = endpointIdents(code);
-      if (idents.length === 0) continue;
-      const wanted = new RegExp(`\\b(?:${idents.join('|')})\\b`);
+      const idents = new Set(endpointIdents(code));
+      if (idents.size === 0) continue;
       for (const expr of interpolations(code)) {
-        if (wanted.test(expr) && !/redactRpcUrl\s*\(/.test(expr)) leaks.push(`${name}: \${${expr}}`);
+        if (identTokens(expr).some((t) => idents.has(t)) && !/redactRpcUrl\s*\(/.test(expr)) {
+          leaks.push(`${name}: \${${expr}}`);
+        }
       }
     }
     expect(leaks).toEqual([]);
