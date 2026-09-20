@@ -299,14 +299,17 @@ export const GITHUB_TREE_BASE = `${GITHUB_REPO_URL}/tree/${GITHUB_BRANCH}`;
 //
 // ANSWER ELEVEN, RULING 1. An empty slot is honest; a dead link and a stranger's
 // handle are not.
-//   - Discord: discord.gg/junglebay is dead (Discord answers "Unknown Invite"), so it
-//     came down, and the slot stays EMPTY until the owner of the "memetics.finance"
-//     server creates a PERMANENT invite in Discord's own server settings and hands it
-//     to the operator directly. It is never minted or relayed by a claude. CI asks
-//     Discord about every invite the site ships, on every run, and fails an expiring,
-//     dead or foreign one (scripts/verify-discord-invites.mjs).
+//   - Discord: discord.gg/junglebay was dead (Discord answers "Unknown Invite") and came
+//     down. The slot was refilled on 2026-09-19 by the OWNER, who created a permanent
+//     invite in Discord's own server settings and handed it over directly. No claude
+//     mints or relays one. CI asks Discord about every invite the site ships, on every
+//     run, and fails an expiring, dead or foreign one (scripts/verify-discord-invites.mjs).
+//     Resolved live when it landed: guild 910243729997168721 ("Jungle Bay"),
+//     expires_at null, inviter greencifer. The gate reads that SNOWFLAKE, not the name —
+//     the server is called "Jungle Bay", and a name is a label anyone can copy.
 //   - Telegram: none, and there never will be (owner, 2026-09-17). The retired
 //     brand's t.me handle pointed at whoever holds it.
 export const SOCIAL_LINKS: readonly { href: string; label: string }[] = [
   { href: 'https://x.com/junglebayac', label: 'Twitter / X' },
+  { href: 'https://discord.gg/jMqEV3zSvD', label: 'Discord' },
 ];
