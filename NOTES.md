@@ -15,6 +15,104 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-20 — a `waitFor` on a string that renders outside the async state is not a gate
+
+`HeatCard.test.tsx` → `element D … paints the room's row FIRST and the whole flame
+SECOND` went red on [#640](https://github.com/fomotsar-commits/tegridy-farms/pull/640),
+a PR whose diff was **one markdown file**, and passed on a plain re-run:
+
+```
+AssertionError: the scoped number never rendered: expected -1 to be greater than -1
+```
+
+The test waited on the card's heading before reading `container.textContent`:
+
+```ts
+await waitFor(() => expect(screen.getByText(/Your held time in PEPE/i)).toBeTruthy());
+const text = container.textContent ?? '';
+const scoped = text.indexOf('338.21');           // -1 under load
+```
+
+That heading renders **outside** `state.kind === 'ready'` — on purpose, so a cold
+room still names what it reads. It is on screen from the first frame, so the
+`waitFor` returned on its **first poll**, with no relation to the read resolving.
+The two strings it then compared live only in the ready branch.
+
+### The rule
+
+**The gate string and the asserted strings must come from the same render branch.**
+A gate that renders unconditionally cannot tell you an async read has landed. When
+you write `waitFor`, ask *which* branch prints the string you are waiting on — not
+merely whether that string eventually shows up.
+
+Corollary for `findBy*` / `waitFor` over `container.textContent`: waiting for
+**each string you are about to index** is self-checking, because a string that only
+exists post-read doubles as the read's own completion signal.
+
+### `-1` from `indexOf` is a race tell, not a defect
+
+An ordering assertion that fails `expected -1 to be greater than -1` has not caught
+a mis-ordering — it never rendered the thing at all. Same family as
+the repo's recurring "an unreadable value must not read as fine": the sentinel for *absent* got
+compared as if it were a *position*. Ordering tests over `indexOf` should establish
+presence inside the wait, then compare positions outside it, so the two failure
+modes cannot be confused in the log.
+
+### A negative assertion behind a false gate passes vacuously — forever
+
+The sibling test, one function down, had the identical gate and was worse for it:
+
+```ts
+await waitFor(() => expect(screen.getByText(/Your held time in PEPE/i)).toBeTruthy());
+expect(container.textContent).not.toMatch(/Where the .* comes from/i);
+```
+
+An **absence** is satisfied by an empty room. Mutating the component so `scopeTo`
+stopped applying — the exact defect the test names — left it **green**, because the
+gate returned before anything rendered. It never had a chance to fail. Unlike the
+ordering test it did not flake, so nothing ever drew attention to it.
+
+**Do:** whenever a test asserts `not.toMatch` / `not.toContain` / `queryBy… toBeNull`,
+check what proves the DOM was *populated* at that moment. An absence assertion needs
+a positive gate that the same render produced.
+
+### Reproducing a CI-only async race locally: 250ms, not 0
+
+`setTimeout(…, 0)` on the mock's resolve did **not** reproduce it — RTL's `waitFor`
+runs inside React's async `act`, whose microtask flush drains a 0ms timer before the
+callback's first poll. The suite stayed 59/59 green and the race looked unreproducible.
+
+A **real** delay does it, deterministically:
+
+```ts
+h.fetchHeat.mockImplementation(
+  () => new Promise((resolve) => setTimeout(() => resolve(wireReading({ … })), 250)),
+);
+```
+
+250ms is far past any microtask flush and well inside `waitFor`'s 1000ms default, so
+a *correctly* gated test still passes while a falsely gated one fails every run. This
+turns "flaky on a loaded runner" into a deterministic local red — which is what makes
+it mutation-checkable at all.
+
+### Mutation-check the race and the defect *together*
+
+The cell that matters is not "does the fix stop the flake" but **"does the fix still
+catch the real defect on a slow runner"**:
+
+| # | Mutation | Pre-fix | Post-fix |
+|---|---|---|---|
+| 2 | swap render order | RED (ordering) | RED (ordering) |
+| 3 | read resolves 250ms late | **RED (`-1`)** | green |
+| 4 | **2 + 3** | RED (`-1` — *wrong reason*) | **RED (ordering)** |
+| 5 | `scopeTo` stops applying | RED | RED |
+| 6 | **5 + 3** | **green — vacuous** | RED |
+
+Cells 4 and 6 are the ones a "just make it wait longer" fix fails. A fix that made
+the race disappear by loosening the assertion would show green in cell 4, and that
+is indistinguishable from a fix that works — unless you run the defect mutation and
+the race mutation *at the same time*.
+
 ## 2026-09-20 — a backgrounded build reads the worktree it finds, not the branch you launched it from
 
 **Believed:** a long `npm run build && playwright test` started in the background is
