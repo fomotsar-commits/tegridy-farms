@@ -435,6 +435,26 @@ program id in its `address` field. Publish the one from the mainnet build artifa
 denied`). Run this from wherever the artifact is downloaded, or use the versioned install
 path the way `solana-keygen` is handled (checklist §3).
 
+### ✅ IDL PUBLISHED — 2026-09-20
+
+| what | value |
+| --- | --- |
+| IDL account | `3nHKL72LUn5vijmHk76v6qwgkMshToKkJGsEzbWBaQ2r` |
+| owner | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` — the program itself |
+| rent | **0.08335264 SOL** |
+| verified by | `anchor idl fetch` returned 50,407 bytes, `address` = the mainnet program, **15 instructions** |
+
+⚠️ **The IDL cost 0.083, not the 0.047 that was estimated here.** The estimate was
+`solana rent` for the *exact* compressed size (9,058 bytes); Anchor allocates headroom
+above that so the IDL can later be upgraded in place. Roughly 1.8× the minimum. Budget the
+measured figure, not the floor — and note the same reasoning applies anywhere a program,
+not the CLI, chooses the account size.
+
+Deployer after this step: **0.22430224 SOL**. Upgrade authority is still
+`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` — the handover below has not run yet.
+
+---
+
 **Then hand over the upgrade authority** — option A:
 
 ```powershell
