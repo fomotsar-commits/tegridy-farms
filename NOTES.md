@@ -15,6 +15,35 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-20 — a backgrounded build reads the worktree it finds, not the branch you launched it from
+
+**Believed:** a long `npm run build && playwright test` started in the background is
+pinned to the branch that was checked out when it started, so it is safe to switch
+branches in the same worktree while it runs and come back for the result.
+
+**Measured:** it is not. The build and the test run are ordinary processes reading
+files off disk when they get to them, and a worktree has exactly one checkout. A
+build launched on a branch carrying a new `vercel.json` alias, with `git checkout`
+of a docs branch run a minute later, produced `dist/llms.txt` at **4,052 bytes** —
+the *other* branch's output — where the correct build is **4,077**. Nothing warned;
+the build exited 0 and the e2e run that followed would have reported a clean pass
+for a tree nobody intended to test. The 25-byte difference was the only tell, and
+only because that file's size was already known.
+
+This is the same hazard as "your worktree is not private", with the sharp edge
+pointed inward: the other session that moves your files can be *you*, one tool call
+later. The e2e result is the dangerous half — a green run against the wrong tree
+reads exactly like a green run against the right one.
+
+**Do:** while a build or test is running, treat that worktree as owned by it —
+no `checkout`, no `stash`, no rebase. Work that must happen meanwhile goes in a
+second worktree, or waits. Cheap insurance when it matters: have the job print one
+fact that identifies the tree it actually built (a byte count, a grep -c of the
+change under test) as its first line of output, so a wrong-tree run announces
+itself instead of passing quietly.
+
+---
+
 ## 2026-09-19 — a grep of `dist/` proves a string is absent, never that a link is
 
 **Believed:** to prove the site ships no community link, grep the built output for
