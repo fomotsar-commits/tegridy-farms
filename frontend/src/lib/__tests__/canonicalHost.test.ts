@@ -39,7 +39,28 @@ const CANONICAL_ORIGIN = CANONICAL.origin;
 const CANONICAL_HOST = CANONICAL.host;
 
 /** A host this venue also answers on that is NOT the canonical one. */
-const ALIAS_HOST = 'memetic.fun';
+const ALIAS_HOST = 'www.memetics.finance';
+
+/**
+ * A host the venue DOES NOT ANSWER ON AT ALL, and must never start answering on.
+ *
+ * memetic.fun was an alias, and this file used to assert that it redirected here.
+ * It now serves the Memetics Lab, which is a different application on a different
+ * host, so the venue makes no claim on it: no redirect rule, no canonical stamp,
+ * no place in the sitemap.
+ *
+ * The canonical-host law (#478) is unchanged and the guard below is STRONGER than
+ * the one it replaces. The law was never "the alias must redirect" — that was one
+ * mechanism for it. The law is that THIS VENUE ANSWERS UNDER ONE NAME. A redirect
+ * satisfied it; so does a host the venue does not serve. What would break it is
+ * this host quietly becoming a second front door, which is exactly what happened
+ * to tegridyfarms.vercel.app and cost a ruling to undo.
+ *
+ * A redirect rule reappearing here is the tell that someone re-attached the domain
+ * to this Vercel project, because a rule is only ever written to suppress a host
+ * this project is serving.
+ */
+const FOREIGN_HOST = 'memetic.fun';
 
 const BOT_UA = 'Mozilla/5.0 (compatible; Twitterbot/1.0)';
 
@@ -165,5 +186,43 @@ describe('vercel.json permanently redirects the aliases onto the canonical host'
 
   it('never redirects the canonical host away', () => {
     expect(hostRule(CANONICAL_HOST)).toBeUndefined();
+  });
+
+  it('makes no claim on memetic.fun, which is no longer this venue', () => {
+    // No rule, in either direction. A redirect FROM it would mean this project is
+    // serving it again; a redirect TO it would point the venue's consolidated
+    // signal at an application that is not the venue.
+    expect(
+      hostRule(FOREIGN_HOST),
+      `${FOREIGN_HOST} is served by another project now; a rule here means it was re-attached to this one`,
+    ).toBeUndefined();
+
+    // Host rules ONLY. `destHost` parses the destination as an absolute URL, and
+    // the path redirects in this file ("/tradermigos" -> "/nakamigos") are
+    // relative, so handing one to it throws before any assertion is reached.
+    const pointingAt = redirects
+      .filter((r) => r.has?.some((h) => h.type === 'host'))
+      .filter((r) => destHost(r) === FOREIGN_HOST)
+      .map((r) => `${r.has!.find((h) => h.type === 'host')!.value} -> ${r.destination}`);
+    expect(pointingAt, `redirects aiming this venue's traffic at ${FOREIGN_HOST}`).toEqual([]);
+  });
+
+  it('keeps the foreign host out of what a crawler actually reads', () => {
+    // STRUCTURAL, NOT A SUBSTRING SEARCH. Both files carry XML/# comments that
+    // narrate the host history and name memetic.fun in prose. A crawler never
+    // reads those, and a blunt `.includes()` over the file text fails on them —
+    // which would push the next person to delete the history to get green, or to
+    // add this file to an exemption list. Assert on the machine-read surfaces:
+    // the <loc> entries, and robots' directive lines with comments stripped.
+    const locOrigins = new Set(sitemapLocOrigins(read('public', 'sitemap.xml')));
+    const strays = [...locOrigins].filter((o) => new URL(o).host === FOREIGN_HOST);
+    expect(strays, `sitemap <loc> entries on ${FOREIGN_HOST}`).toEqual([]);
+
+    const directives = read('public', 'robots.txt')
+      .split(/\r?\n/)
+      .map((l) => l.replace(/#.*$/, '').trim())
+      .filter(Boolean);
+    const advertised = directives.filter((l) => l.includes(FOREIGN_HOST));
+    expect(advertised, `robots.txt directives naming ${FOREIGN_HOST}`).toEqual([]);
   });
 });

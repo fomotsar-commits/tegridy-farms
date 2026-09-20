@@ -89,7 +89,18 @@ jobs:
           # something no commit can fix. It needs an operator action in the Vercel
           # dashboard; until then llms.txt correctly omits it, because that rule's
           # destination is not the canonical origin.
-          ALIASES="memetic.fun www.memetic.fun www.memetics.finance tegridyfarms.vercel.app"
+          # memetic.fun and www.memetic.fun LEFT THIS LIST on 2026-09-20. They are
+          # not aliases of this venue any more: they serve the Memetics Lab from a
+          # DIFFERENT Vercel project, so this repo's vercel.json never executes for
+          # them and no edit here could make them redirect. Demanding one would page
+          # every 15 minutes about a host behaving exactly as designed, which is the
+          # same shape of mistake #478 made by demanding a literal 301.
+          #
+          # The law they used to enforce is enforced below instead, inverted. #478
+          # was never "the alias must redirect" - that was one mechanism for it. The
+          # law is that THIS VENUE ANSWERS UNDER ONE NAME, and a host we do not serve
+          # satisfies it as completely as a redirect did.
+          ALIASES="www.memetics.finance tegridyfarms.vercel.app"
 
           probe "$CANONICAL app shell" "https://$CANONICAL/" "/assets/"
 
@@ -126,6 +137,32 @@ jobs:
               *) FAILS="$FAILS\n- $host: ${code}s to '$location', not the canonical host https://$CANONICAL/" ;;
             esac
           done
+
+          # THE INVERSE OF THE ALIAS LOOP, for a host that is no longer ours.
+          #
+          # memetic.fun serves the Memetics Lab. The failure worth watching is not
+          # "it stopped redirecting" but "it started serving US again", which is what
+          # a re-attach of the domain to this Vercel project looks like. That is the
+          # canonical-host law breaking in the only direction still open to it, and it
+          # is exactly what went unnoticed with tegridyfarms.vercel.app until it cost
+          # a ruling to undo.
+          #
+          # NO -L. Following the redirect would land on the canonical host, find its
+          # app shell, and report a perfectly healthy redirect as a violation.
+          #
+          # It asserts an ABSENCE, so it is written not to pass vacuously: a non-200
+          # is reported inconclusive rather than as health. This venue does not own
+          # the Lab uptime and must never page on it. While the domain is still
+          # mid-move and answering 308, that is the branch this takes.
+          FOREIGN="memetic.fun"
+          foreign_code="$(curl -sS -o /dev/null --max-time 20 -w '%{http_code}' "https://$FOREIGN/" 2>/dev/null || echo 000)"
+          if [ "$foreign_code" = "200" ]; then
+            if curl -sS --max-time 20 "https://$FOREIGN/" 2>/dev/null | grep -q '/assets/'; then
+              FAILS="$FAILS\n- $FOREIGN: THIS VENUE is answering on it (served our app shell). The domain is back on this Vercel project; the canonical-host law forbids a second front door."
+            fi
+          else
+            printf 'note: %s answered %s, so the "not us" check is inconclusive. Not ours to page on.\n' "$FOREIGN" "$foreign_code"
+          fi
 
           if [ -n "$FAILS" ]; then
             REPORT="$(printf 'Synthetic monitor failures at %s UTC:%b' "$(date -u '+%Y-%m-%d %H:%M')" "$FAILS")"

@@ -255,8 +255,18 @@ export const CURRENT_SEASON = {
 // serve, and api/ deliberately keeps BOTH in its origin allowlist — this constant is
 // about declared identity, not access.
 // ARRIVAL IDENTITY 2026-08-27: the canonical public origin is the venue's
-// own name. memetic.fun and memetics.fun stay attached as redirect aliases
-// in Vercel; share links and og URLs mint on the canonical.
+// own name. Share links and og URLs mint on the canonical, never on the host
+// the request arrived at.
+//
+// 2026-09-20: memetic.fun STOPPED BEING AN ALIAS. It is not a redirect to here
+// any more and it is not this venue at all: it serves the Memetics Lab from a
+// separate Vercel project, so this repo's vercel.json never runs for it. The
+// canonical-host law is unchanged and is now enforced in the other direction,
+// by canonicalHost.test.ts and by the synthetic monitor: this venue must NOT
+// answer on that host. www.memetics.finance is the remaining redirect alias.
+//
+// memetics.fun (with the s) is a different name again and still sits on
+// registrar parking. It has never pointed here.
 export const SITE_URL = 'https://memetics.finance';
 
 /**
