@@ -56,7 +56,21 @@ export function LeaderBoard({
           not a statement about trading anywhere else.
         </p>
       ) : (
-        <div className="mt-4 overflow-x-auto">
+        <div
+          /* `relative` IS LOAD-BEARING — it is what CONTAINS the sr-only span in
+             the last <th> below. Tailwind's `sr-only` is `position:absolute`, and
+             an absolutely-positioned element is only clipped by an ancestor that
+             is its CONTAINING BLOCK, i.e. a POSITIONED one. A static wrapper
+             clips the 46rem table and not the span, so the span paints at the
+             table's right edge and drags the DOCUMENT's scroll width out to
+             ~740px on a 390px phone: the table sits inside its card looking
+             perfectly contained while the whole page slides sideways under the
+             user's thumb.
+             Identical to the fix already carried by liquidity/VenuePoolTable.tsx
+             and farm/VenuePoolIndex.tsx — this board and TapeLeaderBoard were the
+             two copies that were missed. */
+          className="relative mt-4 overflow-x-auto"
+        >
           <table className="w-full min-w-[46rem] text-left text-xs">
             <caption className="sr-only">
               Wallets ranked by quote token spent through the venue router. No profit figure is

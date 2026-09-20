@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import type { NavItem } from '../../lib/navConfig';
 import { tabDomId } from './routeTabId';
@@ -58,83 +59,199 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
   const keys = items.map((i) => i.to);
   const tabKeys = useTabListKeys(keys, active, onSelect);
 
-  return (
-    <div
-      className="fixed left-0 right-0 z-30 px-4 md:px-6 pointer-events-none"
-      style={{ top: 56 }}
-    >
-      <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
-        <div
-          role="tablist"
-          aria-label={ariaLabel}
-          onKeyDown={tabKeys.onKeyDown}
-          /* overflow-x-auto is load-bearing, not defensive: the Trust & Safety
-             strip is seven tabs wide and must scroll on a 390px phone rather
-             than clip its last two. */
-          className="flex gap-1 md:gap-1.5 p-1 rounded-2xl overflow-x-auto no-scrollbar"
-          style={{
-            // F509: 0.92 (not 0.72) so headings and footer links underneath stop
-            // ghosting through the translucent bar. Matches BottomNav's ~0.95.
-            background: 'rgba(13,21,48,0.92)',
-            border: '1px solid rgba(255,255,255,0.22)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            boxShadow: '0 6px 24px rgba(0,0,0,0.45)',
-          }}
-        >
-          {items.map((item) => (
-            <button
-              key={item.to}
-              role="tab"
-              id={tabDomId(idPrefix, item.to)}
-              aria-selected={active === item.to}
-              aria-controls={`${idPrefix}-panel`}
-              tabIndex={tabKeys.tabIndex(item.to)}
-              ref={tabKeys.ref(item.to)}
-              onClick={() => onSelect(item.to)}
-              /* F402: min-w + the row's overflow-x-auto lets long strips scroll
-                 on narrow phones instead of clipping, while flex-1 keeps the
-                 equal-width look once there is room. */
-              /* 44px ON TOUCH (A11Y-R07's floor), 40px on desktop. The three
-                 hosts this markup was extracted from all shipped a flat 40px —
-                 about 4px under the repo's own touch floor for the primary way
-                 to move between a page's sections, which is the exact defect
-                 e2e/tab-target-size.spec.ts was written for on /community and
-                 /nft-finance. Desktop keeps the tighter 40px: the floor is a
-                 finger, not a cursor.
+  const listRef = useRef<HTMLDivElement>(null);
+  const [extraHeight, setExtraHeight] = useState(0);
 
-                 ⚠️ THE BREAKPOINT IS 800, NOT `md` (768), CORRECTED 2026-09-05.
-                 "Desktop" in this app means >=800px — that is where BottomNav
-                 hides and the TopNav row appears, and the seven coupled sites
-                 that define it are listed in TopNav.tsx. Keying the touch floor
-                 to `md` opened a 32px window, 768-799, where the app still
-                 renders its TOUCH chrome (BottomNav) while these tabs shrank to
-                 40px. Measured live across nine hosts at 799px before the fix.
-                 e2e/tab-target-size.spec.ts only ever swept 390px, which is why
-                 nothing caught it. */
-              className="flex-1 min-w-[64px] px-2 md:px-3 py-2 min-h-[44px] min-[800px]:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
-              style={
-                active === item.to
-                  ? { background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }
-                  : undefined
-              }
-            >
-              <span>{item.tabLabel ?? item.label}</span>
-              {item.soon && (
-                <span className="rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30 text-[8.5px] font-semibold leading-none px-1 py-0.5 uppercase tracking-wide">
-                  Soon
-                </span>
-              )}
-              {item.live && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 text-[8.5px] font-semibold leading-none px-1 py-0.5 uppercase tracking-wide">
-                  <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
-                  Live
-                </span>
-              )}
-            </button>
-          ))}
+  /**
+   * HOW MUCH TALLER THAN ONE ROW THIS STRIP IS RIGHT NOW.
+   *
+   * The bar is `position: fixed`, so a second row of tabs costs no layout and
+   * therefore pushes NOTHING down — it just paints over the top of the page.
+   * Every host clears the strip with its own constant (SectionHost's `pt-14`,
+   * InfoPage's `pt-14` on /contracts, and several pages' own top padding), and
+   * none of those constants know the strip grew. Measured at 390px before this
+   * existed: /launch, /farm and /trust each wrapped to two rows and buried
+   * their own <h1> by 18-26px.
+   *
+   * So the strip reserves its own extra space, in flow, immediately below
+   * itself. That is deliberately the WHOLE fix for clearance: no CSS variable
+   * to plumb, no per-host padding to update, and — because a one-row strip
+   * measures 0 here and renders no spacer at all — literally no DOM change on
+   * the six hosts and every desktop width that never wrap.
+   *
+   * Measured rather than derived from a row count: the tabs carry SOON/LIVE
+   * pills and a 44px touch floor that a font or padding change would move, and
+   * `items.length / perRow` would have to re-derive all of it.
+   */
+  const shape = items
+    .map((i) => `${i.to}:${i.tabLabel ?? i.label}:${i.soon ? 's' : ''}${i.live ? 'l' : ''}`)
+    .join('|');
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+
+    const measure = () => {
+      const firstTab = list.querySelector<HTMLElement>('[role="tab"]');
+      if (!firstTab) return;
+      const cs = getComputedStyle(list);
+      const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+      const oneRow = firstTab.getBoundingClientRect().height + padY;
+      const next = Math.max(0, Math.round(list.getBoundingClientRect().height - oneRow));
+      // Guarded: the spacer is a SIBLING of the observed element, never inside
+      // it, so this can't feed back into the observation — but an unconditional
+      // setState here would still re-render on every scroll-driven callback.
+      setExtraHeight((prev) => (prev === next ? prev : next));
+    };
+
+    measure();
+    // jsdom has no ResizeObserver and several suites render this strip
+    // (SectionHost.test.tsx, InfoPage.tablist.test.tsx, CommunityPage.tabTargets).
+    // The one-shot measure above is what those get; it reports 0 there, which is
+    // the correct answer for a layout engine that has no layout.
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(list);
+    return () => ro.disconnect();
+  }, [shape]);
+
+  return (
+    <>
+      <div
+        className="fixed left-0 right-0 z-30 px-4 md:px-6 pointer-events-none"
+        /* TWO THINGS THE BARE `top: 56` DID NOT KNOW ABOUT.
+           · env(safe-area-inset-top) — the app opts into iOS standalone
+             (apple-mobile-web-app-capable + viewport-fit=cover), and TopNav.tsx
+             reserves the inset ABOVE its 3.5rem bar, so on a notched home-screen
+             launch the header really ends at 56 + inset. Pinned at a flat 56 this
+             strip started UNDER the header and a ~47px iPhone inset left barely a
+             sliver of it reachable. AppLayout's content offset and the
+             wrong-network banner both already carry this same calc().
+           · --chrome-banner-h — the wrong-network banner (AppLayout.tsx) is
+             `sticky` at exactly this offset with z-50 inside the same stacking
+             context as this z-30 strip, so while it is up it painted straight
+             over the tabs. AppLayout publishes the banner's measured height and
+             this moves down by it. Unset it resolves to 0px, which is every
+             ordinary page load. */
+        style={{ top: 'calc(3.5rem + env(safe-area-inset-top, 0px) + var(--chrome-banner-h, 0px))' }}
+      >
+        <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
+          <div
+            ref={listRef}
+            role="tablist"
+            aria-label={ariaLabel}
+            onKeyDown={tabKeys.onKeyDown}
+            /* ⚠️ `flex-wrap` IS THE FIX, and `overflow-x-auto` is now only the
+               backstop. Until 2026-09-19 this row was a single nowrap line that
+               SHRANK its tabs past their own labels (see the button class below),
+               so on a phone "Copy Trading" and "Competitions" were painted on top
+               of each other and "Launchpad" ran into "Solana Curve". Measured at
+               390px: seven tabs want 521px of a 356px row.
+               Wrapping is what the extra 165px goes into. It was chosen over
+               scrolling because scrolling ANSWERS THE WRONG QUESTION — it stops
+               the overlap by putting two tabs off-screen behind a `no-scrollbar`
+               row with no affordance, i.e. it trades a visible defect for an
+               invisible one. Six of the nine hosts fit in one row and are
+               byte-identical after this change; the three that don't take a
+               second line and show every tab.
+               overflow-x-auto stays for the case wrapping cannot help: ONE tab
+               whose own label is wider than the viewport. That scrolls instead of
+               spilling. */
+            className="flex flex-wrap gap-1 md:gap-1.5 p-1 rounded-2xl overflow-x-auto no-scrollbar"
+            style={{
+              // F509: 0.92 (not 0.72) so headings and footer links underneath stop
+              // ghosting through the translucent bar. Matches BottomNav's ~0.95.
+              background: 'rgba(13,21,48,0.92)',
+              border: '1px solid rgba(255,255,255,0.22)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              boxShadow: '0 6px 24px rgba(0,0,0,0.45)',
+            }}
+          >
+            {items.map((item) => (
+              <button
+                key={item.to}
+                role="tab"
+                id={tabDomId(idPrefix, item.to)}
+                aria-selected={active === item.to}
+                aria-controls={`${idPrefix}-panel`}
+                tabIndex={tabKeys.tabIndex(item.to)}
+                ref={tabKeys.ref(item.to)}
+                onClick={() => onSelect(item.to)}
+                /* 🔴 `min-w-[64px]` WAS HERE, AND IT WAS THE OVERLAP.
+                   F402 added it believing it let long strips scroll; it did the
+                   opposite. A flex item's default `min-width: auto` resolves to
+                   its MIN-CONTENT size, and that is the only thing stopping a
+                   flex item being laid out narrower than its own text. Writing an
+                   explicit `min-w-[64px]` REPLACES that floor with 64px — so with
+                   `flex-1` (flex-basis: 0) the button was sized to 64px while the
+                   `whitespace-nowrap` label inside it measured 74px, and because
+                   the button's own overflow is `visible` the glyphs simply painted
+                   outside it, across the next tab. Measured at 390px before the
+                   fix: /farm "Copy Trading" 73.8px of text in a 64px box, colliding
+                   5.5px into "Competitions"; /launch "Memetics Curve" 90.1px in an
+                   84px box, with its own SOON pill 25.9px on top of it.
+                   It also defeated the scrolling it was supposed to enable: the
+                   items shrank to fit, so the row had nothing to scroll.
+                   DELETING it restores `min-width: auto`, which floors every tab
+                   at its own label.
+
+                   `flex-1` STAYS, deliberately. Grow is clamped BY that restored
+                   floor and can never push a tab below it, so it is not what
+                   caused the overlap — and keeping it is what makes this change
+                   invisible on the six hosts that already fit: their tabs still
+                   divide the bar exactly as they did, at every width. With
+                   `flex-wrap` each LINE fills itself, so a second row of two tabs
+                   is two half-width tabs rather than two marooned lozenges.
+                   (A `shrink-0` + `justify-center` variant was tried and rejected:
+                   it tidies the wrapped rows and restyles six strips that were
+                   never broken.) */
+                /* 44px ON TOUCH (A11Y-R07's floor), 40px on desktop. The three
+                   hosts this markup was extracted from all shipped a flat 40px —
+                   about 4px under the repo's own touch floor for the primary way
+                   to move between a page's sections, which is the exact defect
+                   e2e/tab-target-size.spec.ts was written for on /community and
+                   /nft-finance. Desktop keeps the tighter 40px: the floor is a
+                   finger, not a cursor.
+
+                   ⚠️ THE BREAKPOINT IS 800, NOT `md` (768), CORRECTED 2026-09-05.
+                   "Desktop" in this app means >=800px — that is where BottomNav
+                   hides and the TopNav row appears, and the seven coupled sites
+                   that define it are listed in TopNav.tsx. Keying the touch floor
+                   to `md` opened a 32px window, 768-799, where the app still
+                   renders its TOUCH chrome (BottomNav) while these tabs shrank to
+                   40px. Measured live across nine hosts at 799px before the fix.
+                   e2e/tab-target-size.spec.ts only ever swept 390px, which is why
+                   nothing caught it. */
+                className="flex-1 px-2 md:px-3 py-2 min-h-[44px] min-[800px]:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
+                style={
+                  active === item.to
+                    ? { background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }
+                    : undefined
+                }
+              >
+                <span>{item.tabLabel ?? item.label}</span>
+                {item.soon && (
+                  <span className="rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30 text-[8.5px] font-semibold leading-none px-1 py-0.5 uppercase tracking-wide">
+                    Soon
+                  </span>
+                )}
+                {item.live && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 text-[8.5px] font-semibold leading-none px-1 py-0.5 uppercase tracking-wide">
+                    <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
+                    Live
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* The strip's second row, reserved in flow. Renders nothing at all while
+          the strip is one row — which is every desktop width and six of the nine
+          hosts on a phone — so a host that never wraps sees no DOM change. */}
+      {extraHeight > 0 && <div aria-hidden="true" style={{ height: extraHeight }} />}
+    </>
   );
 }

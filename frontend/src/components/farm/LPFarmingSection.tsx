@@ -332,7 +332,16 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       className="flex-1 bg-black/60 border border-white/25 rounded-lg px-3 py-2 min-h-[44px] text-white text-[16px] font-mono"
                     />
                     <button
-                      className="text-[10px] text-white/60 hover:text-white px-3 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center"
+                      /* `shrink-0`: `min-w-[44px]` is a TOUCH FLOOR, but as an
+                         explicit min-width it also REPLACES this flex item's
+                         default `min-width: auto` — the thing that normally stops
+                         a flex item being laid out narrower than its own text. At
+                         360px, beside a `flex-1` input, the button was squeezed to
+                         44px while "MAX" plus its px-3 needs more, and the label
+                         painted outside the button. Not shrinking at all keeps
+                         both the floor and the label. Same shape as the tab-strip
+                         defect in components/layout/RouteTabs.tsx. */
+                      className="shrink-0 text-[10px] text-white/60 hover:text-white px-3 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center"
                       onClick={() => setLpStakeAmount(lpFarm.walletLPBalanceFormatted)}
                     >MAX</button>
                   </div>
@@ -405,7 +414,16 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       className="flex-1 bg-black/60 border border-white/25 rounded-lg px-3 py-2 min-h-[44px] text-white text-[16px] font-mono"
                     />
                     <button
-                      className="text-[10px] text-white/60 hover:text-white px-3 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center"
+                      /* `shrink-0`: `min-w-[44px]` is a TOUCH FLOOR, but as an
+                         explicit min-width it also REPLACES this flex item's
+                         default `min-width: auto` — the thing that normally stops
+                         a flex item being laid out narrower than its own text. At
+                         360px, beside a `flex-1` input, the button was squeezed to
+                         44px while "MAX" plus its px-3 needs more, and the label
+                         painted outside the button. Not shrinking at all keeps
+                         both the floor and the label. Same shape as the tab-strip
+                         defect in components/layout/RouteTabs.tsx. */
+                      className="shrink-0 text-[10px] text-white/60 hover:text-white px-3 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center"
                       onClick={() => setLpWithdrawAmount(lpFarm.stakedBalanceFormatted)}
                     >MAX</button>
                   </div>

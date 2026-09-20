@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { resolveMint, type SolToken } from '../../lib/solanaTokenList';
+import { OverlayPortal } from '../ui/OverlayPortal';
 
 /**
  * "What am I actually buying?" — the rug signals every 2026 memecoin trader
@@ -64,7 +65,11 @@ export function TokenDetail({ token, onClose }: { token: SolToken; onClose: () =
 
   const linkCls = 'underline underline-offset-2 text-white/80 hover:text-white inline-block px-1 -mx-1 py-2 -my-2';
 
+  /* OverlayPortal: opened by a PAGE, so without it this dialog renders inside
+     AppLayout's `relative z-10` wrapper and the app header and phone tab bar
+     paint over it — and stay tappable through it. See OverlayPortal.tsx. */
   return (
+    <OverlayPortal>
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={`About ${detail.symbol}`}>
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
       <div
@@ -158,6 +163,7 @@ export function TokenDetail({ token, onClose }: { token: SolToken; onClose: () =
         </p>
       </div>
     </div>
+    </OverlayPortal>
   );
 }
 

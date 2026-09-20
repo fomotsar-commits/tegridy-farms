@@ -34,7 +34,17 @@ export function VenueHero() {
 
   return (
     <>
-      <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
+      {/* ONE STEP DOWN BELOW 380px, and nowhere else. `MEMETICS.FINANCE.` is a
+          single unbreakable token, so at 360px it set 344px wide inside a 328px
+          column and ran flush past its own padding to the screen edge. It cannot
+          wrap and it must not be abbreviated — the mark stays whole at every
+          width (owner, 2026-08-31) — so the only lever left is the one TopNav.tsx
+          already pulls on the same mark for the same reason ("SIZED DOWN BELOW
+          480px, not truncated").
+          The breakpoint is 380, NOT 400: measured, this fits at 390px, which is
+          the iPhone width the venue is tuned for, so `text-3xl` must survive
+          there untouched. Only the widths that actually overflow change. */}
+      <h1 className="heading-luxury text-[27px] min-[380px]:text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
         {VENUE.heroTitle}<br /><span className="text-white">{VENUE.heroLine}</span>
       </h1>
 
