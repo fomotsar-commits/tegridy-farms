@@ -44,6 +44,10 @@
  * not what it should be. Read-only: it never sends a transaction.
  */
 
+// The only import this script has. Dependency-free and at the repo root on purpose:
+// this runs on a bare runner with no frontend install.
+import { redactRpcUrl } from './lib/redact-url.mjs';
+
 const DEFAULT_RPC = 'https://ethereum-rpc.publicnode.com';
 
 // Selectors. Derived with `cast sig "<signature>"` rather than memorised —
@@ -517,7 +521,10 @@ async function main(argv) {
     process.exit(problems ? 1 : 0);
   }
 
-  console.log(`ownership read-back @ ${new Date().toISOString()}  (rpc ${url})`);
+  // Host kept, credential masked. `url` is --rpc or $ETH_RPC_URL, either of which can
+  // be keyed; the host stays because reading it back is how an operator confirms a
+  // custody read-back ran against the chain they meant.
+  console.log(`ownership read-back @ ${new Date().toISOString()}  (rpc ${redactRpcUrl(url)})`);
   if (expectOwner) console.log(`asserting owner == ${expectOwner}\n`);
   else console.log('survey mode — pass --expect-owner <safe> to assert an end state\n');
 

@@ -248,26 +248,6 @@ const opsScripts = () => [SCRIPTS_DIR, join(SCRIPTS_DIR, 'lib')]
     .map((f) => join(dir, f)))
   .map((path) => ({ path, name: basename(path), code: stripJsComments(readFileSync(path, 'utf8')) }));
 
-/**
- * Sites that still print an endpoint verbatim and are deliberately NOT converted here.
- *
- * This change was scoped to three files. The guards below are repo-wide on purpose --
- * narrowing them to the converted files is how the next site gets missed -- so the two
- * they legitimately find outside that scope are NAMED here rather than hidden. Both are
- * owned by the repo-wide credential-exposure audit running on
- * claude/quirky-hermann-db7322 (2026-09-20); converting them from here would collide.
- *
- * A SUBSET allowance, not an equality check: anything not on this list fails, and the
- * audit fixing either of these leaves this green rather than red. Each entry is the
- * whole emitting line, so a DIFFERENT leak in the same file is still caught.
- */
-const KNOWN_UNCONVERTED = new Set([
-  'verify-ownership.mjs: ${url}',
-  `contracts/script/deploy-gated.sh: echo "MODE: $([ -n "$BROADCAST" ] && echo "BROADCAST (REAL MAINNET, rpc=$RPC)" || echo 'DRY-RUN (safe)')  |  owner MULTISIG=$MULTISIG  |  treasury=$TREASURY  |  START_AT=$START_AT"`,
-]);
-
-/** What this change is answerable for: everything the guards found, minus the above. */
-const unaccounted = (leaks) => leaks.filter((l) => !KNOWN_UNCONVERTED.has(l));
 describe('no repo-root script echoes an endpoint unredacted', () => {
   test('finds the endpoint variables it is supposed to be guarding', () => {
     // Guard on the guard. If the detector matches nothing -- a rewritten declaration, a
@@ -296,8 +276,7 @@ describe('no repo-root script echoes an endpoint unredacted', () => {
         if (mentions && !/redactRpcUrl\s*\(/.test(expr)) leaks.push(`${name}: \${${expr}}`);
       }
     }
-    const bad = unaccounted(leaks);
-    assert.deepEqual(bad, [], `these print an endpoint verbatim:\n  ${bad.join('\n  ')}`);
+    assert.deepEqual(leaks, [], `these print an endpoint verbatim:\n  ${leaks.join('\n  ')}`);
   });
 });
 
@@ -334,7 +313,6 @@ describe('no shell script echoes an endpoint unredacted', () => {
         if (!/redact_url\b/.test(line)) leaks.push(`${rel}: ${line.trim()}`);
       }
     }
-    const bad = unaccounted(leaks);
-    assert.deepEqual(bad, [], `these print an endpoint verbatim:\n  ${bad.join('\n  ')}`);
+    assert.deepEqual(leaks, [], `these print an endpoint verbatim:\n  ${leaks.join('\n  ')}`);
   });
 });
