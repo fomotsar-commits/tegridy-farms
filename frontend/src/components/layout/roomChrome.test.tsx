@@ -154,6 +154,15 @@ describe('the tab bar leaves room for the band', () => {
     );
     const fixed = container.querySelector<HTMLElement>('div.fixed');
     expect(fixed).not.toBeNull();
-    expect(fixed!.style.top).toBe('calc(56px + var(--room-band-h, 0px))');
+    // UPDATED 2026-09-19 with two more terms, and the band term is unchanged.
+    // `--chrome-banner-h` keeps the strip out from under the wrong-network
+    // banner, and the inset keeps it out from under the header on a notched
+    // standalone launch. The band and the inset are max()ed rather than summed
+    // because --room-band-h is measured from a FLAT 56 and has therefore already
+    // absorbed the inset — summing would count it twice. Every var is unset here,
+    // so this still asserts the thing the test was written for: no bare 56px.
+    expect(fixed!.style.top).toBe(
+      'calc(56px + max(env(safe-area-inset-top, 0px), var(--room-band-h, 0px)) + var(--chrome-banner-h, 0px))',
+    );
   });
 });

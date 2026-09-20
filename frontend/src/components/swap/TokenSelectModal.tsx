@@ -8,6 +8,7 @@ import { CHAIN_ID } from '../../lib/constants';
 import { pageArt } from '../../lib/artConfig';
 import { DEFAULT_TOKENS, isValidAddress, validateAddress, type TokenInfo } from '../../lib/tokenList';
 import { getTokenUrl } from '../../lib/explorer';
+import { OverlayPortal } from '../ui/OverlayPortal';
 
 /**
  * THE FRONT ROW. Chain-neutral majors only.
@@ -270,7 +271,11 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
     handleSelect(token);
   };
 
+  /* OverlayPortal: opened by a PAGE, so without it this dialog renders inside
+     AppLayout's `relative z-10` wrapper and the app header and phone tab bar
+     paint over it — and stay tappable through it. See OverlayPortal.tsx. */
   return (
+    <OverlayPortal>
     <AnimatePresence>
       {open && (
       <m.div
@@ -534,5 +539,6 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
       </m.div>
       )}
     </AnimatePresence>
+    </OverlayPortal>
   );
 }

@@ -73,7 +73,15 @@ export function TapeLeaderBoard({
         {board.rows.length === 0 ? (
           <p className="mt-4 text-xs leading-relaxed text-white/70">{TAPE_EMPTY_AFTER_READ}</p>
         ) : (
-          <div className="mt-4 overflow-x-auto">
+          <div
+            /* `relative` IS LOAD-BEARING — see the same note on
+               copytrade/LeaderBoard.tsx. The `sr-only` span in the last <th>
+               below is `position:absolute`, so only a POSITIONED ancestor can
+               clip it; a static wrapper lets it paint at the wide table's right
+               edge and the whole PAGE scrolls sideways on a phone while the
+               table looks fine. */
+            className="relative mt-4 overflow-x-auto"
+          >
             <table className="w-full min-w-[52rem] text-left text-xs">
               <caption className="sr-only">
                 Addresses that sent fills through the island’s pools, ranked by GeckoTerminal’s USD

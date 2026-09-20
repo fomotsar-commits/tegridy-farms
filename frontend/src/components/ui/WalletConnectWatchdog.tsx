@@ -60,12 +60,22 @@ export function WalletConnectWatchdog() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed left-0 right-0 bottom-0 px-4 pb-4 md:pb-6"
+      /* `clears-bottom-nav` (index.css) owns the bottom padding so this advisory
+         sits ABOVE the bottom tab bar instead of on top of it. With only 1rem of
+         bottom padding it sat squarely on the Swap/Pools/Earn/Check bar, and this
+         card outranks that bar by a mile (it has to clear RainbowKit's modal), so
+         the nav was simply gone underneath it. The inline `paddingBottom` is
+         deliberately gone too — it outranked any class, so a Tailwind-only fix
+         here would have been a silent no-op.
+         This is now the ONLY bottom-fixed overlay in the app: the consent ask was
+         the other one, and wave eight turned it into an in-flow footer row
+         (ui/ConsentRow.tsx), which is the same defect answered by deleting the
+         overlay rather than by padding it. */
+      className="fixed left-0 right-0 bottom-0 px-4 clears-bottom-nav"
       style={{
         zIndex: ABOVE_RAINBOWKIT_MODAL,
         paddingLeft: 'max(1rem, env(safe-area-inset-left))',
         paddingRight: 'max(1rem, env(safe-area-inset-right))',
-        paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
       }}
     >
       <div

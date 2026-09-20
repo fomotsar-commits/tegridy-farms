@@ -255,7 +255,15 @@ export default function TradePage() {
           role="tablist"
           aria-label="Trade view — swap, DCA, limit order, TWAP, or trigger order"
           onKeyDown={tabKeys.onKeyDown}
-          className="flex gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto"
+          /* `flex-wrap` for the same reason as the shared strip in
+             components/layout/RouteTabs.tsx: at 360px these tabs want more
+             room than the row has, and `overflow-x-auto` answers that by
+             putting the last one off-screen behind a row with no scroll
+             affordance. Wrapping shows all of them. Unlike RouteTabs this
+             strip is IN FLOW, so a second line simply pushes the page down
+             and needs no clearance bookkeeping. `overflow-x-auto` stays as
+             the backstop for a single tab wider than the viewport. */
+          className="flex flex-wrap gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto"
           // F521: bumped the bar background 0.4 -> 0.85 (matches the NFT-finance
           // section toggle) so the inactive Liquidity/DCA/Alerts labels stop
           // washing out white-on-light-art.

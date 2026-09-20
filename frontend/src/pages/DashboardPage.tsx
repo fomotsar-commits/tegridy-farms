@@ -426,7 +426,17 @@ function ToweliDashboard() {
             { l: 'Claimable', numVal: pos.accrualPerSec > 0 ? pos.pendingLive : pendingTotal, decimals: pos.accrualPerSec > 0 ? 4 : 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4), loading: pos.isLoading },
             { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: price.oracleStale, art: pageArt('dashboard', 5), showSparkline: true, isPrice: true, loading: !price.isLoaded },
           ].map((s) => (
-            <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
+            /* THE PRICE TILE TAKES THE WHOLE ROW ON A PHONE, and it is the only
+               one that needs to. A sub-cent price renders at 8 decimals — measured
+               connected at 390px, `$0.00000000` is 168px of 24px type inside a
+               129px tile row, so it painted 39px outside its own tile and over the
+               tile beside it. The three other tiles ("0", "0.0000", "0.00") are
+               26-97px and fit two-up with room to spare.
+               col-span-2 is the "give it more room" fix rather than the "make the
+               number smaller" one: the 8th decimal IS the information on a
+               memecoin price, and `md:col-span-1` keeps the desktop 4-up row
+               exactly as it was. */
+            <div key={s.l} className={`relative overflow-hidden rounded-xl glass-card-animated card-hover ${s.isPrice ? 'col-span-2 md:col-span-1' : ''}`} style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(s.art)} />
               </div>
@@ -478,7 +488,15 @@ function ToweliDashboard() {
             partition the rest of the page by concern. ?tab= deep-links come
             from Dashboard → History link and from external pages. */}
         <div
-          className="flex gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto"
+          /* `flex-wrap` for the same reason as the shared strip in
+             components/layout/RouteTabs.tsx: at 360px these tabs want more
+             room than the row has, and `overflow-x-auto` answers that by
+             putting the last one off-screen behind a row with no scroll
+             affordance. Wrapping shows all of them. Unlike RouteTabs this
+             strip is IN FLOW, so a second line simply pushes the page down
+             and needs no clearance bookkeeping. `overflow-x-auto` stays as
+             the backstop for a single tab wider than the viewport. */
+          className="flex flex-wrap gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto"
           style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
           aria-label="Dashboard sections"

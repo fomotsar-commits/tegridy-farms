@@ -490,7 +490,14 @@ export default function ChangelogPage() {
                           >
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                           </svg>
-                          <span>{item}</span>
+                          {/* `min-w-0` + `break-words`: this span is a flex item, so its
+                              default `min-width: auto` is its MIN-CONTENT width — the
+                              longest unbreakable token in the line. Changelog entries
+                              quote file paths and identifiers, and one of them set the
+                              span 21.8px wider than the row at 360px, so the text
+                              printed past the bullet's right edge. Shrinking is allowed
+                              and long tokens wrap instead. */}
+                          <span className="min-w-0 break-words">{item}</span>
                         </li>
                       ))}
                     </ul>

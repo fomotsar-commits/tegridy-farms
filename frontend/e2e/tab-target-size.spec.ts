@@ -127,3 +127,187 @@ for (const path of ['/', '/liquidity', '/farm', '/island', '/swap', '/trust']) {
     ).toBe(moved.before);
   });
 }
+
+/**
+ * A TAB'S LABEL MUST STAY INSIDE ITS OWN TAB.
+ *
+ * ⚠️ WRITTEN BECAUSE IT SHIPPED BROKEN, and it shipped broken for weeks in the
+ * most visible place in the app. The strip's button class carried
+ * `flex-1 min-w-[64px]` with a `whitespace-nowrap` label. A flex item's default
+ * `min-width: auto` resolves to its MIN-CONTENT size, and that is the only thing
+ * stopping a flex item being laid out narrower than its own text; writing an
+ * explicit `min-w-[64px]` replaced that floor with 64px. So with `flex-basis: 0`
+ * the button was sized to 64px around a 74px label, the button's overflow is
+ * `visible`, and the glyphs simply painted across the next tab. On a 390px phone
+ * /farm read "Copy TradingCompetitions" and /launch read "LaunchpadSolana Curve".
+ *
+ * WHY THE EXISTING CASES ABOVE DID NOT CATCH IT: they measure `boundingBox()`,
+ * which is the BUTTON. The button was a perfectly healthy 44px tall and 64px
+ * wide. Nothing about the box was wrong — it was the ink outside it. A target-size
+ * sweep cannot see this defect, and neither can a class-name assertion, so this
+ * measures the painted text against the box that is supposed to contain it.
+ *
+ * 360px IS DELIBERATE alongside 390. It is the narrowest phone the venue's own
+ * header budget is tuned for (see TopNav.tsx), and it is where a strip that
+ * merely fits at 390 gives up.
+ *
+ * TO SEE IT FAIL: put `min-w-[64px]` back on the button in
+ * src/components/layout/RouteTabs.tsx. /farm, /launch and /trust go red with the
+ * overflow in px and the label that caused it.
+ */
+for (const path of ['/swap', '/liquidity', '/launch', '/farm', '/trust', '/lore', '/contracts', '/leaderboard', '/tokenomics']) {
+  for (const width of [360, 390]) {
+    test(`${path} tab labels stay inside their tabs at ${width}px`, async ({
+      page,
+      walletMock: _w,
+    }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await gotoRoute(page, path);
+      await page.evaluate(() => document.fonts.ready);
+
+      const spills = await page.evaluate(() => {
+        const out: { label: string; overflowPx: number; boxWidth: number; textWidth: number }[] = [];
+        for (const tab of document.querySelectorAll<HTMLElement>('[role="tab"]')) {
+          const range = document.createRange();
+          range.selectNodeContents(tab);
+          // Per-LINE boxes, not their union: the union of a wrapped inline's
+          // line boxes covers area it never paints.
+          const lines = Array.from(range.getClientRects()).filter((r) => r.width > 0.5);
+          range.detach?.();
+          if (!lines.length) continue;
+
+          const box = tab.getBoundingClientRect();
+          const cs = getComputedStyle(tab);
+          const padL = parseFloat(cs.paddingLeft) || 0;
+          const padR = parseFloat(cs.paddingRight) || 0;
+          const over = lines.reduce(
+            (worst, ln) => Math.max(worst, box.left + padL - ln.left, ln.right - (box.right - padR)),
+            0,
+          );
+          if (over > 1.5) {
+            out.push({
+              label: (tab.textContent ?? '').trim().replace(/\s+/g, ' '),
+              overflowPx: Math.round(over * 10) / 10,
+              boxWidth: Math.round(box.width),
+              textWidth: Math.round(lines.reduce((w, l) => Math.max(w, l.width), 0)),
+            });
+          }
+        }
+        return out;
+      });
+
+      expect(
+        spills,
+        `tab labels painted outside their own buttons: ${spills
+          .map((s) => `"${s.label}" +${s.overflowPx}px (${s.textWidth}px of text in a ${s.boxWidth}px box)`)
+          .join('; ')}. A flex item cannot be allowed to size below its own ` +
+          'label — check for a min-w-* overriding `min-width: auto` on the tab.',
+      ).toEqual([]);
+    });
+  }
+}
+
+/**
+ * AND THE STRIP MUST NOT BURY THE PAGE IT SITS ON.
+ *
+ * The companion hazard to the wrap that fixes the overlap above. The strip is
+ * `position: fixed`, so a second row of tabs costs no layout and pushes nothing
+ * down, while every host clears it with a hardcoded constant that does not know
+ * it grew. Measured at 390px while the wrap was in and the spacer was not:
+ * /launch, /farm and /trust each covered their own <h1> by 18-26px.
+ *
+ * RouteTabs reserves that height itself, in flow. This asserts the result rather
+ * than the mechanism: at scrollTop 0, the first painted text of the page proper
+ * starts BELOW the strip.
+ */
+for (const path of ['/launch', '/farm', '/trust', '/swap']) {
+  test(`${path} content clears the tab strip at 390px`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize(IPHONE_390);
+    await gotoRoute(page, path);
+    await page.evaluate(() => document.fonts.ready);
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    const probe = await page.evaluate(() => {
+      const list = document.querySelector('[role="tablist"]');
+      const main = document.querySelector('main#main-content');
+      if (!list || !main) return null;
+      const strip = list.getBoundingClientRect();
+
+      let first: { top: number; text: string } | null = null;
+      for (const el of main.querySelectorAll<HTMLElement>('*')) {
+        if (el.closest('svg') || el.closest('[role="tablist"]')) continue;
+        const own = Array.from(el.childNodes).some(
+          (n) => n.nodeType === 3 && (n.textContent ?? '').trim().length > 0,
+        );
+        if (!own) continue;
+        const cs = getComputedStyle(el);
+        if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) < 0.05) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0 || r.bottom < 0) continue;
+        if (!first || r.top < first.top) {
+          first = { top: r.top, text: (el.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 48) };
+        }
+      }
+      return { stripBottom: strip.bottom, stripHeight: strip.height, first };
+    });
+
+    expect(probe, 'no tablist or no main — the page changed shape').not.toBeNull();
+    expect(probe!.first, 'no page text found below the strip').not.toBeNull();
+    expect(
+      Math.round(probe!.first!.top - probe!.stripBottom),
+      `"${probe!.first!.text}" starts under the ${Math.round(probe!.stripHeight)}px tab strip. ` +
+        'The strip grew a row and the clearance below it did not follow.',
+    ).toBeGreaterThanOrEqual(0);
+  });
+}
+
+/**
+ * AND THE WRONG-NETWORK BANNER MUST NOT BURY THE STRIP EITHER.
+ *
+ * The banner (AppLayout.tsx) is `sticky` at the header offset with z-50, and it
+ * lives inside the SAME z-10 content wrapper as this z-30 strip — so z-50 won
+ * and, for anyone connected to a chain the venue does not serve, every tabbed
+ * page simply lost its tabs behind a red bar. The only way to the rest of a
+ * section was to switch networks first.
+ *
+ * AppLayout now publishes the banner's measured height as `--chrome-banner-h`
+ * and the strip adds it to its own `top`. A constant would not do: the copy is
+ * one line on a desktop and three at 390px.
+ *
+ * TO SEE IT FAIL: drop `var(--chrome-banner-h, 0px)` from the `top` calc in
+ * RouteTabs.tsx.
+ */
+test('the wrong-network banner does not bury the tab strip at 390px', async ({
+  page,
+  walletMock,
+}) => {
+  await page.setViewportSize(IPHONE_390);
+  await walletMock.connect();
+  await gotoRoute(page, '/farm');
+
+  // Polygon — a real chain this venue does not serve, so the banner is honest.
+  await walletMock.switchChain(137);
+
+  const banner = page.getByText(/which this app doesn.t serve/i).first();
+  await expect(banner, 'the wrong-network banner never appeared — the mock did not reach the app').toBeVisible({
+    timeout: 20_000,
+  });
+
+  const geom = await page.evaluate(() => {
+    const list = document.querySelector('[role="tablist"]');
+    const bannerEl = Array.from(document.querySelectorAll<HTMLElement>('div')).find((d) =>
+      /which this app doesn.t serve/i.test(d.textContent ?? '') && getComputedStyle(d).position === 'sticky',
+    );
+    if (!list || !bannerEl) return null;
+    const l = list.getBoundingClientRect();
+    const b = bannerEl.getBoundingClientRect();
+    return { stripTop: Math.round(l.top), bannerBottom: Math.round(b.bottom), bannerHeight: Math.round(b.height) };
+  });
+
+  expect(geom, 'could not find both the tablist and the sticky banner').not.toBeNull();
+  expect(
+    geom!.stripTop,
+    `the ${geom!.bannerHeight}px wrong-network banner ends at y=${geom!.bannerBottom} and the tab strip ` +
+      `starts at y=${geom!.stripTop} — the strip is underneath it.`,
+  ).toBeGreaterThanOrEqual(geom!.bannerBottom);
+});
