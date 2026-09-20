@@ -422,6 +422,36 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 
+/**
+ * THE DATE, AND THE BUILDER'S CREDIT BESIDE IT WHEN THE ENTRY CARRIES ONE.
+ *
+ * Exported, and its own component, so both halves of the rule are reachable by
+ * a test: that a credit prints when there is one, and that NOTHING prints when
+ * there is not. The second half is the one worth pinning. The failure this
+ * guards is not a missing name, it is an empty badge or a stray "built by"
+ * sitting on all forty-odd entries the venue wrote itself, and that cannot be
+ * asserted from a page whose entries all lack `by`.
+ *
+ * The row wraps rather than truncating. The credit is the whole point of
+ * printing it, and a handle that elides to an ellipsis at phone width is not
+ * proof of anything. `mb-3` lives on the row, not the date, so a credited entry
+ * and an uncredited one keep the same gap underneath.
+ */
+export function EntryBadges({ date, by }: { date: string; by?: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 mb-3">
+      <span className="inline-block text-xs font-semibold text-purple-300 bg-purple-500/20 px-3 py-1 rounded-full" style={{ backdropFilter: 'blur(4px)' }}>
+        {date}
+      </span>
+      {by ? (
+        <span className="inline-block text-xs font-semibold text-emerald-300 bg-emerald-500/20 px-3 py-1 rounded-full" style={{ backdropFilter: 'blur(4px)' }}>
+          built by {by}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export default function ChangelogPage() {
   usePageTitle('Changelog', 'Protocol development history and updates');
 
@@ -485,22 +515,7 @@ export default function ChangelogPage() {
                       because the bright orange/yellow jungle-ape art (idx > 0 cards) made body
                       copy essentially invisible at iPad portrait. Higher backdrop-blur too. */}
                   <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    {/* Date badge, and the builder's credit beside it when the entry
-                        carries one. The row wraps rather than truncating, because the
-                        credit is the whole point of printing it: a name that elides to
-                        an ellipsis at phone width is not proof of anything. The `mb-3`
-                        moves to the row so a credited entry and an uncredited one keep
-                        the same gap under the badges. */}
-                    <div className="flex flex-wrap items-center gap-2 mb-3">
-                      <span className="inline-block text-xs font-semibold text-purple-300 bg-purple-500/20 px-3 py-1 rounded-full" style={{ backdropFilter: 'blur(4px)' }}>
-                        {entry.date}
-                      </span>
-                      {entry.by ? (
-                        <span className="inline-block text-xs font-semibold text-emerald-300 bg-emerald-500/20 px-3 py-1 rounded-full" style={{ backdropFilter: 'blur(4px)' }}>
-                          built by {entry.by}
-                        </span>
-                      ) : null}
-                    </div>
+                    <EntryBadges date={entry.date} by={entry.by} />
 
                     {/* Title */}
                     <h2 className="text-white text-lg font-bold mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>{entry.title}</h2>
