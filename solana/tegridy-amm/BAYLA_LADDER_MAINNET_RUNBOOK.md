@@ -551,6 +551,59 @@ What the three numbers rest on:
 
 ## 7. Create the pool
 
+### ✅ POOL CREATED — 2026-09-20, slot 448865455
+
+tx `5F5QELBNfwMkDzv3N6DkZRMYHkT4GUw7ms66jbRmPvyffaCdUcBNoEAWXLVf4PKzF97x24ASpY2tKT2MqfMnFfMc`
+
+| what | value |
+| --- | --- |
+| pool (nonce 0) | `Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV` |
+| stake vault | `FLCy81my7vNEaiqeFH7F1tk2aPR4Gcg8XSCFTvxWVps7` |
+| reward vault | `3yFvfhdRS9WNJEwVec7fgB3KRcKAi7Lo4jUyzzDMPAK1` |
+| authority | `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (the deployer) |
+| min stake | **100** — permanent |
+| max / wallet | **2,000,000** — permanent |
+| deposit cap | **992,095,337** |
+
+**OWNER DECISION 2026-09-20 — the deposit cap is set to the entire BAYLA supply, i.e.
+there is effectively no cap.** The owner's reasoning was checked and is correct: the cap
+does *not* bound reward spending. Emission is a fixed rate per 90-day window
+(`REWARDS_DURATION_SECS`), shared out by weight, so more stakers dilute each other's share
+rather than increasing what the pool pays. A cap therefore only changes the *advertised*
+rate, and the ~28%/yr max-boost bound gets **safer** as stake grows, not riskier.
+
+The one function a cap did serve was blast radius — bounding how much third-party money
+sits in a program with no external audit (waived the same day, §0 box 1). That is now
+bounded only by `max_wallet_principal`, which makes the permanent 2,000,000 wallet cap the
+**sole** concentration control. It is 0.20% of supply.
+
+Safe to set at supply because **supply is fixed**: the BAYLA mint's `Mint authority` reads
+`(not set)`, verified on chain 2026-09-20, so 992,095,336.807558 can never increase. A cap
+of 992,095,337 is unreachable forever, not merely unreachable today. (Freeze authority is
+also unset.)
+
+**Verified before broadcast by reading the dry run's own echo**, which prints the three
+values back in WHOLE tokens: `100` / `992,095,337` / `2,000,000`. That check is the only
+defence against the silent 10⁶ failure — the program has no upper sanity bound on either
+cap, so passing raw units would have succeeded and set an unreachable, unfixable limit.
+
+**Also recorded: the boost curve, computed from the source constants** (`math.rs:67-70`),
+because a 180-day lock earning *less* than 1.00× surprises people:
+
+| lock | boost |
+| --- | --- |
+| 7 days (minimum) | 0.4000× |
+| 30 days | 0.4569× |
+| 90 days | 0.6056× |
+| 180 days | 0.8286× |
+| 365 days | 1.2869× |
+| 730 days | 2.1913× |
+| 1460 days (4y, maximum) | 4.0000× |
+
+1.00× is not the floor — it sits around 240 days. `MIN_BOOST_BPS` is 4,000 and
+`MAX_BOOST_BPS` is 40,000, so the ladder spans 0.40× to 4.00×, a 10× spread.
+
+
 Run from the repo's `frontend` folder. **The ops CLI defaults to DEVNET — every mainnet
 command needs `--rpc`.** A dry run simulates against the real mint and the real program,
 so it is also the final mint check.
