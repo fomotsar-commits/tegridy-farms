@@ -371,14 +371,29 @@ roughly 0.25 to spare.
 **Publish the IDL now — before the handover, not after.**
 
 > **Tooling note (2026-09-20).** `anchor` on the `PATH` is Application-Control blocked, the
-> same shim problem as `solana-keygen`. The real binary runs:
-> `C:\Users\jimbo\.avm\bin\anchor-0.32.1` — and 0.32.1 is the version CI built with. It
-> works **outside** an Anchor workspace as long as `--provider.cluster` and
-> `--provider.wallet` are passed, confirmed with a live `idl fetch`. The IDL account this
-> program will use is `3nHKL72LUn5vijmHk76v6qwgkMshToKkJGsEzbWBaQ2r`, which read
-> `AccountNotFound` before the init — the expected state.
+> same shim problem as `solana-keygen`. The real binary is
+> `C:\Users\jimbo\.avm\bin\anchor-0.32.1` — 0.32.1, the version CI built with.
 >
-> `anchor idl init` **can only be run once.**
+> 🔴 **It has NO `.exe` extension, so PowerShell cannot launch it.** `& "…\anchor-0.32.1"`
+> does not run the program: Windows falls back to file association and pops an
+> "open with" dialog, which looks to the operator like the command silently did nothing.
+> Git Bash runs it fine, which makes this easy to miss when a command is tested in one
+> shell and handed to an operator using the other. **Fix: copy it to `anchor-0.32.1.exe`
+> in the same folder** — verified 2026-09-20 that the `.exe` copy runs and is *not*
+> blocked, so the Application Control rule is on `.cargo\bin\anchor.exe`'s path, not on
+> the binary itself.
+>
+> It works **outside** an Anchor workspace as long as `--provider.cluster` and
+> `--provider.wallet` are passed — confirmed with a live `idl fetch`. That matters:
+> `solana/tegridy-amm/Anchor.toml` still carries the PLACEHOLDER program id, so running
+> from inside the workspace would be leaning on the wrong config.
+>
+> The IDL account this program will use is `3nHKL72LUn5vijmHk76v6qwgkMshToKkJGsEzbWBaQ2r`.
+> It read `AccountNotFound` before the init — that is the check to re-run if an init is
+> ever *thought* to have half-completed, because `anchor idl init` **can only be run once**.
+>
+> ⚠️ PowerShell wraps a native program's stderr in a red `NativeCommandError` block. That
+> is PowerShell's formatting, not a second failure — read the message inside it.
 
 ```powershell
 anchor idl init --filepath target\idl\bayla_ladder.json EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ --provider.cluster mainnet
