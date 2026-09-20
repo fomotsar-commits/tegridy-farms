@@ -75,6 +75,125 @@ as surely as the generator does.
 
 ---
 
+## 2026-09-18 — two copies of one poller under fake timers never overlap, so neither is ever stale
+
+**Believed:** mounting a polling hook twice in one jsdom window (two `renderHook`s sharing
+its localStorage) and advancing fake timers is a fair two-tab test. Both intervals are due
+at the same instant, so each copy acts on what it read before the other one wrote.
+
+**Measured** while writing the cross-tab test for `useLimitOrders` (PR #629), with the RPC
+mocks resolving immediately. `vi.advanceTimersByTimeAsync` runs due timers one at a time and
+drains the microtask queue between callbacks. Tab A's whole interval callback (price read,
+lock claim, send, receipt, mark filled, lock released) therefore finished before tab B's
+callback started, although B was due in the same millisecond. On the old hook the first poll
+fired one order **twice**: B acted on the lock A had just released. With the fix, B re-read
+storage right after A's write and was never stale when it wrote. As a result, the test built
+to catch a stale tab's whole-list save ("creating an order in a stale tab does not put a
+filled order back to active") **passed with `createOrder` reverted to exactly that save**,
+the mutant it existed to kill.
+
+**Do:** mount the second copy half an interval later (`renderHook`, then
+`advanceTimersByTimeAsync(interval / 2)`, then `renderHook`). Each step is then one copy's
+check (A, B, A, B), and between a check of A's and B's next one, B holds whatever it last
+read. With that stagger the same test failed on the mutant, as intended. Run the mutant
+against the staggered version to prove the window exists. Separately, jsdom fires no
+`storage` event for a write in the same window. Two mounted hooks never hear each other,
+which is the right worst case for a guard, but a `storage` listener then needs its own test
+that dispatches the event by hand.
+
+---
+
+## 2026-09-18 — a record saved before the wallet answers cannot know its on-chain index, and a OneDrive file is not a file to `Dirent.isFile()`
+
+### The chain numbers only what lands
+
+**Believed:** a contract that assigns an index on push (`commitIndex = list.length`, then
+push) gives this browser's Nth commit index N-1, so the client can save the index along
+with the salt. The source said so in a comment ("index ≈ current length") and promised a
+reconciliation ("we'll reconcile by reading `voterCommits.length` on next refetch") that no
+code ever carried out.
+
+**Measured** (PR #628) against a model of exactly the checks the contract's reveal makes:
+index in range, not revealed, hash at THAT index. Commit, reject it in the wallet, then
+commit again and let the second one land. The page offered two reveals and the model
+rejected both: `['CommitHashMismatch', 'CommitNotFound']`. The rejected commit's record
+took index 0, so the real commit was saved at index 1 while the chain holds it at 0. A
+commit made from another browser, or a cleared list, shifts the numbering the same way.
+
+**Do:** persist the content (salt, pair, power, hash), never an identifier the chain has
+not assigned yet. Resolve the identifier by matching the content against the chain
+(`voterCommitCount`, then every `voterCommits(i)`, and match on the hash), and offer nothing
+while any slot is unread, since an unread slot may be the one the record lives at. Keep
+every saved record: a record whose commit has not landed can mean still pending,
+rejected, or reverted, and the chain cannot tell those apart until the commit window
+closes (the same rule as #616, from the other side).
+
+### A OneDrive placeholder is a symlink to Node
+
+**Believed:** two docs-honesty tests going red locally with "FAQ.md is not being scanned"
+meant a scanner or path regression.
+
+**Measured** in a worktree under OneDrive: `Get-Item FAQ.md` reported
+`Archive, ReparsePoint`, and `fs.readdirSync(root, { withFileTypes: true })` returned it
+with `isFile() === false`, `isSymbolicLink() === true`. `ROADMAP.md` was the same;
+`README.md` and `CONTRACTS.md` in the same directory were plain files. Both scanners keep
+`e.isFile()` entries only, so they dropped exactly those two files. A Linux CI checkout has
+no reparse points, so CI stays green. The scanners' must-scan lists are what turned a silent
+skip into a loud red.
+
+**Do:** before trusting a local red from a test that enumerates files, check the attributes
+of the files it names. A scanner that must not miss a file should `statSync` the entry,
+which follows the link, rather than trust the dirent type; and it should carry a must-scan
+list, as these do.
+
+---
+
+## 2026-09-18 — a deploy receipt's CREATE transactions are not the list of contracts it created
+
+**Believed:** the top-level `transactions[]` of a Foundry broadcast receipt
+(`contracts/broadcast/<Script>.s.sol/<chainId>/run-*.json`) whose `transactionType` is `CREATE`
+or `CREATE2` list every contract the run deployed. A registry guard that walks them would then
+have a closed world.
+
+**Measured** (newest receipts on trunk `f0e3ca7b` + PR #614, fixed in PR #626): a contract
+created *inside* a transaction never appears as a top-level CREATE. Foundry lists it under that
+transaction's `additionalContracts` (`transactionType`, `contractName`, `address`, `initCode`),
+whatever the parent's own type is. There were 6 on mainnet and 4 on Base. Five of the six
+mainnet ones had no registry row, and two of those were **live**: the clone templates that the
+TegridyLaunchpadV2 and TegridyNFTPoolFactory constructors deploy and expose as immutable
+`dropTemplate()` / `poolImplementation()`, which every clone DELEGATECALLs. On Base, the four
+role Safes from `createProxyWithNonce` were the chain's **only** creations, so the guard printed
+"read ZERO Base CREATEs". That reads as "no receipts". The receipts were there; the guard had
+not read them.
+
+### Where nested creations come from
+
+- A constructor that deploys a helper (`dropTemplate = address(new TegridyDropV2())`) nests it
+  under the parent's CREATE.
+- A factory call (`createPair`, `createProxyWithNonce`) nests it under a CALL.
+- `contractName` is `null` when Foundry has no artifact for the created code. That was all four
+  Safe proxies, so a scan keyed on names would drop them too.
+
+### A nested address cannot be keyed by (from, nonce)
+
+#614 re-derives each top-level CREATE from its sender and nonce, because a receipt's labels can
+be wrong. That does not carry over. A CALL child's creator nonce lives in the creator's on-chain
+history, and a CREATE2 salt lives in the call's arguments. The one derivable case is a
+constructor's children: a contract's nonce starts at 1 (EIP-161), so its first child is
+`getContractAddress({ from: parent, nonce: 1n })`. That held for all four here. For anything
+else, read the chain: each parent's getter returned its child's address.
+
+### A non-zero exit is not a killed mutant
+
+Two of my own mutations of the "unreadable nested entry fails" branch misled me. The first
+changed only the `fail(...)` message and left the call in place, so the self-test stayed green,
+correctly, and looked like a missing test. The second turned `fail(` into `void (` in front of a
+trailing comma. `void (x,)` is a **syntax error**, so the verifier and the self-test both exited
+1 without printing a single FAIL line, and that looked like a kill. A mutant is killed only when
+the run prints the assertion you expected it to trip.
+
+---
+
 ## 2026-09-18 — a bare `vite build` ships every derived-image URL and none of the images
 
 **Believed:** `vite build` is the build, and `npm run build` only wraps it in checks.
@@ -103,6 +222,399 @@ full chain, so production is fine.
 looked at: a preview, a probe, a reviewer's box. If a build has to be hand-rolled, run
 `node scripts/generate-image-derivatives.mjs` before it and
 `node scripts/verify-dist-derivatives.mjs` after it.
+
+---
+
+## 2026-09-17 — a replaced transaction's receipt wait resolves, and a speed-up looks exactly like a cancel
+
+**Believed:** when a wallet cancels or speeds up a pending transaction, viem's
+`waitForTransactionReceipt` throws `TransactionReplacedError` (ethers did), so a success
+receipt means your transaction ran. And if it does resolve instead, checking
+`receipt.transactionHash === hash` is the fix.
+
+**Measured** against @wagmi/core 3.6.5 / viem 2.56.5, driving the real action and the real
+`useWaitForTransactionReceipt` hook through a scripted EIP-1193 node: the submitted hash has
+no receipt, `eth_getTransactionByHash` still returns it pending, and the next block holds a
+same-sender, same-nonce transaction whose receipt is success. All three reasons (`cancelled`,
+`repriced`, `replaced`) RESOLVE the wait with the replacement's receipt: `status: 'success'`,
+the replacement's hash. Nothing throws. viem 2 does not define `TransactionReplacedError` at
+all. The reason arrives only through `onReplaced`, which wagmi's hook forwards to the action
+and leaves out of its query key.
+
+A wallet cancel is a 0-value send to yourself, so its receipt is a success, and every surface
+that read `isSuccess` confirmed the action that was cancelled.
+
+### The hash check is wrong the other way
+
+A speed-up (same to, value and calldata, more gas) resolves exactly like a cancel: another
+hash, a success receipt. It is the same call, and it ran. Calling it "did not happen" invites
+a resend that pays twice, and speed-up is the most common replacement there is. Nothing in
+the receipt tells the two apart; only `onReplaced`'s reason does.
+
+**Do:** pass `onReplaced` on every wait and record the reason per submitted hash. Count a
+foreign receipt as success only when the reason is `repriced`. With no recorded reason, say
+you can't tell, and never "it did not happen". Bind any proof or stored record to the hash
+that mined, not the one you submitted: a proof link to a hash that was sped up points at a
+transaction that never mined. (PR #622.)
+
+---
+
+## 2026-09-17 — `git log -G` dates code by its first *mention*, comments included
+
+**Believed:** the oldest commit that `git log --all --reflog -G '<call>' -- <file>` returns
+is the commit that introduced the call.
+
+**Measured:** while re-verifying `MICROSCOPE_REMEDIATION_2026_05_01.md` (#620), row H5
+("restaking calls `staking.kick(tokenId)` first") was checked this way.
+`-G 'staking\.kick\('` on `TegridyRestaking.sol` put the oldest hit at `f9a3656b`
+(2026-05-02). That commit only adds a *comment* that mentions `staking.kick(tokenId)`. The
+first real call, `try staking.kick(info.tokenId) {} catch {}`, landed in `86b69f70` on
+2026-05-16, two weeks later. `-G` greps every changed diff line, comments and NatSpec
+included, and this repo's comments routinely name the fix they anticipate.
+
+The same trap works in reverse. `_jsonEscape` appears in history only inside a comment
+saying it was removed; no commit ever defined it.
+
+**Do:**
+
+- Treat the first `-G` hit as a lead, then open its diff.
+- When the question is "did this code ever exist, and when", anchor the pattern on code
+  shape (`-G 'try staking\.kick\(info'`) rather than on a name.
+- For a negative claim, extract the function body from every historical version and grep
+  it with comments stripped: `git log --all --reflog --format=%H -- <path>`, then
+  `git show <sha>:<path>`, then a brace-matcher. That disproved H4's "the transfer path
+  decays" across all 124 versions of `_settleRewardsOnTransfer`, where a name grep could
+  only have said "no hits".
+
+---
+
+## 2026-09-17 — viem returns the revert that wagmi throws, and a receipt waiter outlives the component that started it
+
+**Believed:** a `catch` around a receipt wait means the transaction failed; and a hook that
+settles its own state when the receipt arrives keeps that state right, because the wait
+lives in the hook.
+
+**Measured** on the DCA and limit-order keepers and three create flows (PR #618), against
+the installed viem 2.56.5 source and pre-fix vitest runs. Both were wrong.
+
+### Same function name, opposite contract
+
+`useWaitForTransactionReceipt` (wagmi) THROWS on a reverted receipt, so its `isError` is two
+facts. `publicClient.waitForTransactionReceipt` (viem, called directly) RETURNS the reverted
+receipt; its promise rejects only when no receipt could be read (180s default timeout,
+`TransactionReceiptNotFoundError`, transport). So in a `publicClient` catch nothing at all is
+known about the transaction. Five sites called that catch a failure. Two were keepers that
+then released the schedule or order; one unread receipt produced a second swap on every
+poll (3 in 3 polls, measured).
+
+**Do:** in a `publicClient` wait, the `status !== 'success'` branch is the revert and the
+catch is "unread". Decide per site what state is safe while unread, and never let it mean
+"try again automatically".
+
+### Settling state after an await: unmounted means never
+
+viem waits up to 180 seconds. A user who leaves the page in that time unmounts the hook, and
+a functional `setState` on an unmounted component is dropped without running, including any
+`localStorage` write placed inside the updater. The DCA hook's success path saved that way,
+so a swap that landed was never recorded, and the next mount found the schedule due again.
+A vitest that unmounts before rejecting the wait reproduces it.
+
+**Do:** record the in-flight hash when the wallet returns it, and write it through storage
+first, then apply the same change to state by id. Settle keyed on that hash, so the old
+waiter coming back after a re-read (or a second tab) cannot count it twice.
+
+---
+
+## 2026-09-17 — a registry section the verifier never iterates is unchecked, whatever `expect` it carries
+
+**Believed:** a registry row that carries `expect: { type: "contract" }` is asserted. The
+verifier runs offline on every push and `--onchain` daily, both are green, and the fix for a
+missed section is to add its name to the loops.
+
+**Measured** (PR #614; the pre-fix mutation was run first, on trunk's verifier). Every check
+walked `reg.solana` and `reg.ethereum` by name. In a `base` row, each of these exited 0: a
+truncated address, a non-address, two rows on one address, `expect.type: "contarct"`, a deleted
+`role`. A new top-level `"arbitrum"` array holding `0xdead…beef` also exited 0. The 31 rows in
+`base` and `robinhood`, 10 of them with `expect` blocks, had never been read by anything. The
+green was real. It covered fewer rows than the file holds.
+
+Adding the names to the loops got two things wrong. Both showed up only once the rows were
+actually read:
+
+- **A uniqueness check keyed on the raw value false-positives across scopes.** A CREATE address
+  depends only on (deployer, nonce). So `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3` is three
+  different contracts on chains 1, 8453 and 4663, and CREATE2 twins repeat by design. Keyed by
+  (chain, address), the widened check found 9 real duplicates: the same L2 Safe registered in
+  `base` or `robinhood` and again as an `ethereum` row with `chainId: [8453, 4663]`. Folding the
+  copies together turned up two statuses that said "nonce()==0 everywhere". On Base the nonces
+  were 5 and 1.
+- **Reading a section can still mean skipping it.** `mainnet.base.org` answered batches of 5 and
+  10 `eth_getCode` calls. A batch of 16 got back a single
+  `-32014 maximum 10 calls in 1 batch` object. With 20 Base pairs in the read, every Base row came
+  back NOT CHECKED. That was correctly UNKNOWN rather than ABSENT, and exactly as inert as never
+  reading them. The old read held only 4 Base pairs, so it never hit the cap. CI reports 20 of 127
+  skipped as a *partial* warning, so the job stays green.
+
+**Do:** when a checker names the sections it reads, close the set. Fail on any top-level key it
+does not handle, so the next section added fails loudly instead of passing silently. Key
+uniqueness by the scope it must hold in (here, the chain), not by the raw value. After widening a
+read, check the NOT CHECKED count *for the new scope*, not the total.
+
+---
+
+## 2026-09-17 — a ledger row that holds on trunk today can still be false: read it at the ledger's own commit
+
+**Believed:** a remediation ledger row saying "Closed" can be checked against today's
+trunk. If the property it names holds on trunk, the row is right.
+
+**Measured** re-checking the staking and LP Medium rows of
+`.audit_101/MICROSCOPE_REMEDIATION_2026_05_01.md` (#608). Three rows each described a
+specific change. None of those changes exists on any ref, reflog or stash, and a trunk-only
+check passes two of the three rows anyway:
+
+| Row | Ledger's closure | At the ledger's own commit `7e7a4a15` | Trunk today |
+|---|---|---|---|
+| M-S1 | `emergencyWithdrawPosition` gains `updateReward` | still open | holds, via a different fix (`d6b1f5b1`, next day) |
+| M-S5 | `notifyRewardAmount` drops its `duration` argument | still open | holds, via a different fix (`f89c97a7`, next day) |
+| M-S7 | floor division becomes ceiling division | still open | still open |
+
+The ledger was committed at 23:31 the night before the fixes that actually closed M-S1 and
+M-S5 landed. "The property holds today" gets two rows right while their descriptions stay
+fiction. A later session trusting the M-S1 row would then believe `updateReward` guards the
+path. It doesn't: three other pieces do, and the committed suite doesn't see them. With all
+three reverted, all 554 tests in the 16 suites that deploy and pause staking still pass.
+
+**Do:** check a "Closed" row at three points, not one:
+1. **The ledger's own commit:** `git show <ledger-commit>:<file>`. Was the row true when written?
+2. **All history:** `git log --all --reflog -G '<pattern>'`. Did the described change ever exist?
+3. **Trunk and the deployed build:** does the property hold now, and *by what*?
+
+If (3) holds by a different mechanism than the row names, rewrite the row. The mechanism is the
+thing the next reader will rely on.
+
+### A commit message's "no code change" is a claim too
+
+`d6b1f5b1`'s message says DS2-04 "documented the pause-aware accumulator design choice in
+NatSpec; no code change". Its diff adds the `&& !paused()` guard, a pre-pause
+`_accumulateRewards()` call and the `unpause()` reset: the three lines that actually close M-S1.
+Read `git show <c> -- <file>`, not `git show -s`.
+
+### `git log -G` is always an extended regex
+
+`git log -G 'notifyRewardAmount\(uint256 [a-z_]+, *uint256'` matched three commits. Under a
+basic regex, `\(` would open a group that never closes, which is an error, and `+` would be a
+literal plus sign. So `-G` parses the pattern as an extended regex whether or not `-E` is given,
+and `\(` there is a literal parenthesis.
+
+### Under via_ir, `vm.warp(block.timestamp + dt)` can reuse a stale timestamp
+
+A test body that called `vm.warp(block.timestamp + ...)` three times paid out exactly the
+pre-unpause share and zero for the day after unpause. That is only possible if the last warp
+landed at or before the unpause timestamp, i.e. that `block.timestamp` read returned an earlier
+value. The same test paid the exact expected amount once every warp went through a storage
+clock seeded from a literal (`uint256 t = 1_000_000;` then `t += dt; vm.warp(t);`), which never
+reads `block.timestamp`. The failure was a plausible number, not a revert. Seed the clock from a
+literal, not from a local copy of `block.timestamp`, or read time with
+`vm.getBlockTimestamp()`, which several suites here already do.
+
+---
+
+## 2026-09-17 — a rule moved into a tested helper is not pinned where it is called
+
+**Believed:** once an honesty rule is a pure, well-tested function, a page that calls it
+is covered. If someone put the page's old inline logic back, the helper's tests would
+catch it.
+
+**Measured** while porting `verdictFromReads` (#597), the rule that keeps "couldn't read
+the locker" apart from "this token hasn't graduated". It has 6 unit tests, and 6 mutations
+of the helper's body were each killed. Then the *caller* was restored verbatim to its
+pre-fix form: `LaunchPage.tsx`'s inline `if (!stream) → 'not-graduated'`, with the helper
+left intact. **All 31 tests in the helper's file stayed green.** Only a source-level pin on
+the call site (`launchReattestVerdictWiring.test.ts`) went red. A helper test proves the
+rule exists. It says nothing about whether anyone calls it.
+
+**Do:** make "restore the caller verbatim" its own mutation, separate from mutating the
+helper. When the caller can't be rendered cheaply (an unexported component, or a path
+that needs a connected wallet), pin the call site in source, as
+`launchPriceWiring.test.ts` does. Strip comments before matching, so prose about the old
+bug can't satisfy the pin.
+
+### Incidental: an "unknown" message can make the opposite claim
+
+The rescued copy for the new unknown state said the gap "says nothing about this token",
+then ended with "the fee split committed at launch is unaffected and still on-chain". That
+asserts a launch split exists for whatever address was pasted, including tokens that
+never came through the rail. Fixing a false *negative* claim is exactly when a false
+*positive* one slips in. Check both directions: does an unknown state avoid the negative
+claim, and does it avoid asserting anything positive about the input?
+
+---
+
+## 2026-09-17 — wagmi reports a revert as an ERROR, so `isError` is two facts that need opposite advice
+
+**Believed:** `useWaitForTransactionReceipt()` hands back a reverted transaction the way the
+JSON-RPC does, as a receipt on `data` with `status: 'reverted'` and `isSuccess: true`, and
+`isError` means the receipt could not be read. Every money hook here was written to that:
+revert branches keyed off `isSuccess && data.status !== 'success'`, and `isError` toasted
+"Transaction failed". A unit suite mocked exactly that shape and stayed green.
+
+**Measured** by driving the installed `@wagmi/core` 3.6.5 `waitForTransactionReceipt` against
+a local anvil through a switchable JSON-RPC proxy (one scratch script, each case a real
+mined transaction):
+
+| Real outcome | What the action throws |
+|---|---|
+| revert | `CallExecutionError` → `ExecutionRevertedError` |
+| revert, state changed afterwards | `CallExecutionError` (the replay is pinned to the tx's own block) |
+| revert, replay `eth_call` slower than 10s | bare `Error('unknown reason')` |
+| success, `eth_getTransactionReceipt` → `{result: null}` | `TransactionReceiptNotFoundError` |
+| **revert**, `eth_getTransactionReceipt` → `{result: null}` | `TransactionReceiptNotFoundError` |
+| success, receipt/tx reads HTTP 500 | `HttpRequestError` |
+| revert, `getTransaction` 500s during the replay | `HttpRequestError` |
+| node unreachable, or 429 on every call | nothing: **never errors**, loads forever |
+
+On `status === 'reverted'` wagmi does not return the receipt. It replays the transaction with
+viem's `call` to recover a reason and **throws**. So no revert ever reaches `isSuccess`, and
+every revert branch keyed off it was unreachable code. A real revert went down the `isError`
+path and said "Transaction failed" (or, in `useSwap`, nothing, with the in-flight latch left
+set). The unit mock encoded the wrong belief, so it could not notice.
+
+Three consequences that transfer to any wagmi app:
+
+1. **Split `isError` by error type, and default to "unreadable".** A `CallExecutionError`
+   can only come from wagmi's revert branch, because viem's receipt waiter never calls
+   `call`. Everything else is "we could not read it". That includes the bare `Error` in
+   row 3: it also comes from the revert branch, but a bare `Error` is a shape anything can
+   throw. The default matters because the two mistakes are not symmetric: calling an
+   unreadable success "reverted, try again" makes the user pay twice, while calling a
+   revert "unconfirmed, check the explorer" costs them one click.
+2. **"Unreadable" copy must not guess the outcome.** Rows 3, 5 and 7 are real reverts that
+   land on the unreadable side. "It may well have succeeded" is false for them. The honest
+   sentence is "we can't tell whether it went through; check before you resend".
+3. **An outage is not an error at all.** With wagmi's default `timeout: 0`, a node that is
+   simply down never rejects: the hook sits in `isLoading` forever. Any UX that waits for
+   `isError` to release a spinner or a latch waits forever.
+
+**Do:** pin the library's error shapes with a test that runs the REAL action against a
+scripted EIP-1193 provider (`custom({ request })`, `retryCount: 0`, `pollingInterval: 20`
+runs a whole receipt wait in ~16ms), not a hand-built mock of the hook. A mock of the hook
+repeats whatever the author believed. Then pin the hooks against both shapes.
+
+### A ref latch leaves the button enabled, so `toBeEnabled` cannot see a dead CTA
+
+`useSwap` guards `executeSwap` with `isPendingRef`. Left set, it does not re-render, so the
+Swap button stays enabled and every click returns at the guard's line. The rescued e2e leg
+asserted `toBeEnabled()` after the fault, and that passes on the broken code. **Do:** assert
+the click reaches the chain. Read the fork's send count before the click, click, and poll
+for it to grow. In unit form, call the action twice and count `writeContract` calls.
+
+---
+
+## 2026-09-17 — `gh`'s `--json files` stops at 100 files, and says nothing
+
+**Believed:** a sibling-PR check ("does any open PR touch the files I touched?") is one
+query: `gh pr list --json number,files`, filtered on your paths. An empty result means no
+overlap.
+
+**Measured** (gh 2.92.0, PR #591 in this repo): `changedFiles` is **113**, and `.files` has
+**100** entries, from both `gh pr view 591 --json files` and `gh pr list --json files`.
+There is no warning, no truncation marker and no flag to page it. `frontend/src/pages/TradePage.tsx`
+was one of the 13 dropped, so an open-PR filter for that path came back **empty** while
+#591 changes it. `gh pr diff 591 --name-only` listed all 113, and the REST endpoint
+`pulls/591/files?per_page=100&page=2` returned the missing 13.
+
+The PRs this hides are the big ones, which are the likeliest to overlap with you.
+
+**Do:** treat `.files` as a sample whenever it is shorter than `changedFiles`, and re-read
+those PRs in full:
+
+```bash
+gh pr list --state open --limit 100 --json number,changedFiles,files \
+  --jq '.[] | select(.changedFiles > (.files|length)) | .number' |
+  while read -r n; do gh pr diff "$n" --name-only | sed "s/^/#$n /"; done
+```
+
+---
+
+## 2026-09-17 — "element(s) not found" on `getByRole(role, { name })` does not say which half failed
+
+**Believed:** when `getByRole('dialog', { name: /select token/i })` fails with
+`element(s) not found`, the dialog did not open.
+
+**Measured** while mutation-checking an a11y test (a dist copy with the dialog's
+`aria-labelledby` pointed at an id nothing renders): the failure text was identical to a
+dialog that never opened. The dialog **was** open. The locator matches role and name
+together, so an unnamed dialog is "not found" too. A mutant that fails for the wrong reason
+proves nothing about the assertion it was aimed at.
+
+**Do:** read `error-context.md` in the test's output directory before trusting the
+reason. Its page snapshot prints a named node as `- dialog "Select Token":` and an unnamed one as
+`- dialog:`. Here it showed `- dialog:` directly above `- heading "Select Token"`: open,
+titled, unlabelled. That settles it in one grep, with no rerun.
+
+---
+
+## 2026-09-17 — a Foundry broadcast's `hash` can belong to a different transaction of the same run
+
+**Believed:** in `contracts/broadcast/<Script>.s.sol/<chainId>/run-*.json`, `transactions[i].hash`
+is the hash of `transactions[i]`. If that hash exists on chain, succeeded, and sits in the
+recorded block, the entry is proven.
+
+**Measured** while verifying receipts rescued from abandoned branches (PR #598). For every
+entry I fetched the on-chain tx at the same `(from, nonce)`, choosing only among the file's own
+recorded hashes, then compared `to`, the full calldata and the created address:
+
+- `DeployBaseMVP.s.sol/8453` (14 txs, all in one Base block): **10 of 14 entries carry the hash
+  of a different entry.** The *set* of hashes is exact. Each entry's nonce, calldata and
+  `contractAddress` are exact. `receipts[]` is internally consistent: each receipt's fields
+  belong to its own `transactionHash`. Only the `transactions[i].hash` pairing is wrong. The file
+  says TegridyFactory was created by the tx that actually called `setSequencerFeed`.
+- `DeployRoleSafes.s.sol/8453`, already on trunk: 3 of 4 wrong.
+- Mainnet runs from the same deployer (1, 2, 5 and 5 txs): all correct.
+- Blockscout's explorer index gave the same pairing independently.
+
+Every mislabelled hash passes the "exists, status 1, right block" check. That check therefore
+cannot catch it; only comparing the tx *content* can. The cause was not established (forge
+version, concurrent sends on 2-second blocks?). Do not write it down as known.
+
+Two traps on the verification path, measured the same day:
+
+- `ethereum-rpc.publicnode.com` answers `eth_getTransactionByHash` / `eth_getTransactionReceipt`
+  for June-2026 mainnet txs with HTTP 200 and `"result": null`. `eth.drpc.org` and
+  `eth-mainnet.public.blastapi.io` return those same txs. A null looks exactly like "this hash was
+  never mined".
+- An Etherscan v2 free key gets `NOTOK "Free API access is not supported for this chain"` for
+  `chainid=8453`. `https://base.blockscout.com/api/v2/transactions/<hash>` is keyless and returns
+  status, block, nonce, `created_contract` and the decoded method.
+
+**Do:** key broadcast entries by `(from, nonce)`, never by `hash`. When the question is "which tx
+created X", take the answer from the chain (the receipt at that nonce) or from an explorer's
+creation index, not from the JSON. Treat a null tx lookup as UNKNOWN until a second provider
+agrees.
+
+---
+
+## 2026-09-17 — mutate an effect's condition without its deps and the mutated line never runs
+
+**Believed:** to prove a test pins an effect's gate, swap the flag in its condition
+(`if (!isSuccess …)` → `if (!isReceiptFetched …)`) and watch the test go red. If it
+stays green, the test is missing a case.
+
+**Measured** in PR #613's mutation rig, on the success-toast effects in PoolCard
+(AMMSection) and OwnerAdminPanelV2. The condition-only swap SURVIVED both revert tests
+(5/5 and 4/4 green), and the tests were fine. The deps still read `[isSuccess, txHash]`.
+A reverted receipt sets the fetched flag but leaves the derived `isSuccess` false and the
+hash unchanged, so React never re-ran the effect and the mutated condition was never
+evaluated. Swapping the deps too, `[isReceiptFetched, txHash]`, which is how the
+regression would actually be written, killed both, each by its own revert test.
+
+eslint tells the two mutants apart. On AMMSection the condition-only one raised
+`react-hooks/exhaustive-deps` ("missing dependency: 'poolTxReceiptFetched'"): 8 warnings
+against trunk's 7. The faithful one was lint-clean at 7.
+
+**Do:** mutate an effect's condition and its deps together. Before you believe a
+survivor, lint the mutant: an `exhaustive-deps` warning on it means the mutant was not
+faithful and the survival proves nothing.
 
 ---
 
