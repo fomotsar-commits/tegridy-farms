@@ -33,6 +33,13 @@ describe('the verdict on one invite', () => {
     // of the server the owner created the invite in, read from Discord's own API on
     // 2026-09-19 (inviter greencifer, expires_at null). It is pinned literally so that
     // moving the venue to another server has to be a deliberate edit to this line.
+    //
+    // TWO SOURCES, and the second is why this is not circular (answer thirteen, ruling 1).
+    // Taking the id from the invite's own API answer would have the gate certify the
+    // invite against itself: any invite would "match" the id that invite reported. So the
+    // operator read the Server ID from INSIDE the server — Discord app, Server Settings,
+    // Widget — on 2026-09-20 and confirmed it is this number. The API said it and a human
+    // already in the server said it, independently, before this ever shipped.
     expect(VENUE_DISCORD_GUILD_ID).toBe('910243729997168721');
   });
 
