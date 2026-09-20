@@ -523,12 +523,28 @@ describe("element D — the room's own read", () => {
     h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row()] }));
     const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
 
-    await waitFor(() => expect(screen.getByText(/Your held time in PEPE/i)).toBeTruthy());
-    const text = container.textContent ?? '';
-    const scoped = text.indexOf('338.21');
-    const flame = text.indexOf('your whole flame reads');
-    expect(scoped, 'the scoped number never rendered').toBeGreaterThan(-1);
-    expect(flame, 'the whole-flame line never rendered').toBeGreaterThan(-1);
+    // WAIT ON THE ANSWER, NOT ON THE QUESTION. The heading this used to gate on
+    // renders OUTSIDE the ready state — deliberately, so a cold room still names
+    // what it reads — which means it is on screen from the first frame and was
+    // never a gate at all. On a loaded runner the DOM got read before the scoped
+    // read resolved and BOTH indices came back -1, failing on the race rather
+    // than on the ordering this test exists to pin.
+    //
+    // Both strings below live in ScopedReading, which mounts only once the read
+    // lands, so waiting for both of them IS the read having resolved. The
+    // ordering assertion then compares two indices already known to exist — it
+    // can still go red, but only for the reason it names.
+    let text = '';
+    let scoped = -1;
+    let flame = -1;
+    await waitFor(() => {
+      text = container.textContent ?? '';
+      scoped = text.indexOf('338.21');
+      flame = text.indexOf('your whole flame reads');
+      expect(scoped, 'the scoped number never rendered').toBeGreaterThan(-1);
+      expect(flame, 'the whole-flame line never rendered').toBeGreaterThan(-1);
+    });
+
     expect(scoped, 'the flame came first — the room asks its own question first').toBeLessThan(flame);
     expect(text).toContain('400 days held');
     expect(text).toContain(`${DEGREES.toFixed(2)}`);
@@ -573,7 +589,14 @@ describe("element D — the room's own read", () => {
     // effect, the full instrument would render here and this would catch it.
     h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row()] }));
     const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
-    await waitFor(() => expect(screen.getByText(/Your held time in PEPE/i)).toBeTruthy());
+    // Gate on the ANSWER, not the heading: the heading is on screen from the
+    // first frame, so gating on it left this asserting an absence against a DOM
+    // that had not rendered the reading yet — an absence is satisfied by an
+    // empty room, so it would have passed just as happily if the scope prop had
+    // stopped working entirely. Wait on the whole-flame degrees, which the read
+    // paints in BOTH renderings: that way a scope regression still reaches the
+    // assertion below and fails there, instead of timing out on a gate.
+    await waitFor(() => expect(container.textContent ?? '').toContain(DEGREES.toFixed(2)));
     expect(container.textContent).not.toMatch(/Where the .* comes from/i);
   });
 });
