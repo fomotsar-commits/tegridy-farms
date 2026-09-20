@@ -1,12 +1,17 @@
 # BAYLA ladder — mainnet go-live checklist
 
-**Status as of 2026-09-20: CLEARED TO PROCEED, but there is still no deployable binary.**
-The audit gate was waived by the owner (§2), so the remaining order is: generate the rotated
-deployer → record its pubkey in runbook §1 → rebuild in CI against tag `bayla-ladder-mainnet`
-(`50065ef03b7eae4ec955ec40ffd32aaf4181b3c2`) → fund ~3 SOL → deploy. **Do not fund the
-deployer until the rebuild exists**, because the deployer pubkey is compiled into the
-binary and a different key means a different build. Go-live (step 14) is separately gated
-on the island's wave-8 ruling — §8.
+**Status as of 2026-09-20: THE DEPLOYABLE BINARY EXISTS. Ready to fund and deploy.**
+The audit gate was waived by the owner (§2); the deployer was rotated to
+`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (§3); and CI run **35529979428** built the
+mainnet arm from tag `bayla-ladder-mainnet` (`50065ef03b7eae4ec955ec40ffd32aaf4181b3c2`) —
+`.so` sha256 **`b21e1277e104817886a31d6f5b16ba2a35fa6732558cbd6d227e4fb8e21bb0a1`**,
+515,352 bytes, downloaded and verified byte-for-byte with the rotated deployer compiled in
+and every devnet identity absent (runbook §4).
+
+**Next: send 3 SOL to `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`, then deploy** (step 7).
+Measured cost for this build: **2.618867 SOL** programdata rent + 0.00083312 program account
++ ~0.0062 pool PDAs ≈ **2.63 total**. Go-live (step 14) remains separately gated on the
+island's wave-8 ruling — §8.
 
 *(Previous status, 2026-09-17: NOT READY. Do not move SOL yet. A REBUILD IS REQUIRED.)*
 (Updated 09-17: the devnet `withdraw_matured` precondition is now DONE — §3. Updated again
@@ -53,8 +58,11 @@ because an unrecorded "fine" gets re-litigated.
    go-live (`VITE_BAYLA_LADDER_PROGRAM` is unset in every Vercel environment — checked
    2026-09-17), so what must happen **in lockstep** is go-live itself: two environment
    variables and a redeploy (§6), pointed at a program that charges the same schedule.
-2. The program is **not deployed**. The address is unclaimed, the deployer is being
-   rotated, and the artifact built so far (`fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`) is superseded.
+2. The program is **built but not yet deployed**. The address `EJLP5GEJ…` is still
+   unclaimed on mainnet (`AccountNotFound`, checked 2026-09-20). The deployer rotation is
+   **done** — `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` — and the superseded
+   `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` has been replaced by
+   `b21e1277e104817886a31d6f5b16ba2a35fa6732558cbd6d227e4fb8e21bb0a1` (runbook §4).
 3. The real blocker is **key custody quality**, not key custody existence — see §1.
 4. **Rewards are one-way.** No instruction in the program returns BAYLA to the authority.
    Decide the amount as if you are spending it, because you are — and keep what is not yet
@@ -486,7 +494,7 @@ Nothing here is runnable until §1 and §2 are resolved.
 | 2 | Resolve audit scope | — | ⚠️ **WAIVED by the owner 2026-09-20** — no external audit was ever commissioned; deploying `50065ef03b7eae4ec955ec40ffd32aaf4181b3c2` as tag `bayla-ladder-mainnet`. The cost of the waiver is written out in runbook §0 box 1 |
 | 3 | `withdraw_matured` on devnet | `devnet-deploy.json` | ✅ **done 2026-09-17** — §3 (on the superseded 25% build) |
 | 4 | Rebuild the artifact from the audited commit | — | runbook §4, `deployer` = the rotated key. **Never `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`** |
-| 5 | Fund the deployer ~3 SOL | — | Send it to **`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`** and nowhere else. 2.60439916 needed for rent at `--max-len` exact (chain-quoted 2026-09-20), the rest is headroom — never `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` or `5MtoeJ8DXcgWZQJAgGgDefd5hbq4KAe3K47yL9Nc87vq` |
+| 5 | Fund the deployer 3 SOL | — | Send it to **`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`** and nowhere else. Measured for THIS build (515,352 bytes) on 2026-09-20: programdata rent **2.618867**, program account 0.00083312, pool PDAs ~0.0062 — **~2.63 total**, rest is headroom for the IDL account and fees — never `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` or `5MtoeJ8DXcgWZQJAgGgDefd5hbq4KAe3K47yL9Nc87vq` |
 | 6 | `solana config set` → mainnet | — | CLI is on **devnet** right now |
 | 7 | `solana program deploy` | program keypair **+ fee payer** | fee payer becomes initial upgrade authority |
 | 8 | Verify deployed bytes | — | `program dump` + hash vs the **rebuilt** artifact's sha256 (never `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`) |

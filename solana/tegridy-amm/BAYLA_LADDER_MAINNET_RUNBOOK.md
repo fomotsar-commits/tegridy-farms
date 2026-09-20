@@ -233,6 +233,29 @@ the deployed bytes against `b21e1277…`.
 ⏳ **Artifact expires 2026-10-20** (30 days). Download and keep it offline alongside the
 `.so`'s hash before then.
 
+**✅ Downloaded and independently verified, 2026-09-20.** At
+`C:\Users\jimbo\solana-keys\artifact\bayla-ladder-mainnet-50065ef0\`:
+
+- `sha256sum` of the downloaded `.so` = `b21e1277…`, matching CI **and** the `.sha256`
+  sidecar shipped beside it. The IDL matches `ae6c9cba…`.
+- `.so` size **515,352 bytes** (2,848 more than the superseded build — the schedule and the
+  rate guard). Rent re-quoted from this number in §5.
+- The IDL's `address` field is the **mainnet** program `EJLP5GEJ…`, not the devnet one, so
+  the artifact's IDL is the one to publish (this closes the caveat in §5).
+- **The compiled-in identities were checked inside the ELF**, by base58-decoding each key to
+  its 32 raw bytes and searching the binary — not by trusting the job's echo:
+
+  | key | expected | found |
+  | --- | --- | --- |
+  | deployer `Fu7mNAv6…` | present | ✅ present |
+  | program `EJLP5GEJ…` | present | ✅ present |
+  | old faucet `GCCSLE7d…` | absent | ✅ absent |
+  | devnet deployer `ASLXdST4…` | absent | ✅ absent |
+  | devnet program `HzxzfSQz…` | absent | ✅ absent |
+
+  The devnet keys being absent is what proves the `mainnet` arm was built, not the `devnet`
+  feature; the old faucet key being absent is what proves the rotation actually took.
+
 ⚠️ **`deployer` is the rotated key from §1, never
 `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`** (key rotation option A, 2026-09-17). The
 artifact from CI run 34712334698 (`.so` sha256
@@ -267,10 +290,28 @@ solana program deploy deploy\bayla_ladder.so --program-id <program-keyfile> --up
 **Cost.** CLI 4.1.1's own `--help` says `--max-len` defaults to *"the length of the
 original deployed program"* (1×), and that upgrades **auto-extend** unless
 `--no-auto-extend` is passed. So a plain deploy rents exactly the binary and stays
-upgradeable. The devnet build was 512,504 bytes → **2.60 SOL** (`solana rent 512504`);
-the CI summary gives the figure for this build. Add transaction fees and ~0.01 SOL for the
-pool accounts: budget **3 SOL**. `solana --version` must be 4.1.1 or newer; older CLIs
-default to 2× and cost about 5.2 SOL.
+upgradeable.
+
+**Measured for THIS build, 2026-09-20** — the artifact was downloaded, its size read, and
+every figure quoted from mainnet rather than from an older build:
+
+| account | size | rent-exempt minimum |
+| --- | --- | --- |
+| programdata | 515,352 + 45 header | **2.618867 SOL** |
+| program | 36 | 0.00083312 SOL |
+| pool + reward vault PDAs (§7) | — | ~0.0062 SOL |
+| **total, plus fees** | | **~2.63 SOL** |
+
+**Budget 3 SOL.** That leaves roughly 0.37 for the IDL account (§5), the pool creation, the
+authority proposal and transaction fees, with headroom. The deploy consumes the programdata
+rent permanently; the rest stays in the deployer wallet.
+
+⚠️ The old **2.60 SOL** figure was `solana rent 512504` for the superseded `fada8148…`
+build. This binary is 2,848 bytes larger — the veYFI schedule and the rate guard — so it
+rents slightly more. Never reuse a rent figure across builds; ask the chain each time.
+
+`solana --version` must be 4.1.1 or newer; older CLIs default to 2× and cost about
+**5.24 SOL** for this binary.
 
 **Priority fee.** Set `--with-compute-unit-price` from a current reading on the day.
 Measured 2026-09-11, the fee paid by recent transactions touching BAYLA and the lighthouse
