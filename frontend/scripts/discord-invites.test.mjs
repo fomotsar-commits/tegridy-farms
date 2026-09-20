@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   VENUE_DISCORD_GUILD,
+  VENUE_DISCORD_GUILD_ID,
   findInviteCodes,
   judgeInvite,
   resolveInvite,
@@ -17,13 +18,37 @@ import {
 
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = join(FRONTEND, '..');
-const permanent = { code: 'Abc123', expires_at: null, guild: { id: '1', name: VENUE_DISCORD_GUILD } };
+const permanent = {
+  code: 'Abc123',
+  expires_at: null,
+  guild: { id: VENUE_DISCORD_GUILD_ID, name: VENUE_DISCORD_GUILD },
+};
 
 describe('the verdict on one invite', () => {
+  it('pins the venue’s guild id as a literal, because it is a fact about the world', () => {
+    // A MUTATION CAUGHT THIS. Every other test here builds its fixture from
+    // VENUE_DISCORD_GUILD_ID, so changing the constant changed the fixtures with it and
+    // the whole suite stayed green while the venue pointed at a different server. The id
+    // is not an arbitrary choice the tests may define for themselves: it is the snowflake
+    // of the server the owner created the invite in, read from Discord's own API on
+    // 2026-09-19 (inviter greencifer, expires_at null). It is pinned literally so that
+    // moving the venue to another server has to be a deliberate edit to this line.
+    expect(VENUE_DISCORD_GUILD_ID).toBe('910243729997168721');
+  });
+
   it('passes a permanent invite to the venue’s own server', () => {
     const v = judgeInvite('Abc123', { status: 200, body: permanent });
     expect(v.ok).toBe(true);
-    expect(v.line).toBe(`discord.gg/Abc123: guild "${VENUE_DISCORD_GUILD}", expires_at null.`);
+    expect(v.line).toBe(`discord.gg/Abc123: guild "${VENUE_DISCORD_GUILD}" (${VENUE_DISCORD_GUILD_ID}), expires_at null.`);
+  });
+
+  it('passes the venue’s server under a NEW name: the id is the identity, the name is a label', () => {
+    // The owner may rename the server at any time. That must not red CI, because nothing
+    // about which server the invite opens has changed.
+    const renamed = { ...permanent, guild: { id: VENUE_DISCORD_GUILD_ID, name: 'memetics.finance' } };
+    const v = judgeInvite('Abc123', { status: 200, body: renamed });
+    expect(v.ok).toBe(true);
+    expect(v.line).toContain(VENUE_DISCORD_GUILD_ID);
   });
 
   it('fails an invite that expires, the case #596 carried', () => {
@@ -42,9 +67,26 @@ describe('the verdict on one invite', () => {
   });
 
   it('fails a permanent invite to any other server', () => {
-    const v = judgeInvite('Abc123', { status: 200, body: { ...permanent, guild: { id: '2', name: 'memetics finance' } } });
+    const v = judgeInvite('Abc123', { status: 200, body: { ...permanent, guild: { id: '2', name: 'Jungle Bay' } } });
     expect(v.ok).toBe(false);
-    expect(v.line).toContain('not "memetics.finance"');
+    expect(v.line).toContain(`not the venue's ${VENUE_DISCORD_GUILD_ID}`);
+  });
+
+  it('fails an IMPOSTOR server that has simply taken the venue’s name', () => {
+    // THE CASE THAT MADE THE GATE READ THE SNOWFLAKE. Discord server names are neither
+    // unique nor verified, so "the guild is the one the owners named" is satisfiable by
+    // anyone willing to type the name. Under the old name-matching rule this exact input
+    // returned ok:true.
+    const impostor = { ...permanent, guild: { id: '999999999999999999', name: 'memetics.finance' } };
+    const v = judgeInvite('Abc123', { status: 200, body: impostor });
+    expect(v.ok).toBe(false);
+    expect(v.line).toContain('999999999999999999');
+  });
+
+  it('fails an answer that carries no guild at all', () => {
+    const v = judgeInvite('Abc123', { status: 200, body: { code: 'Abc123', expires_at: null } });
+    expect(v.ok).toBe(false);
+    expect(v.line).toContain('unknown');
   });
 
   it('fails closed on an answer it cannot read', () => {

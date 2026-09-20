@@ -26,8 +26,24 @@
 import { readdirSync, statSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
-/** The server the owners named (answer eleven: the "memetics.finance" Discord server). */
-export const VENUE_DISCORD_GUILD = 'memetics.finance';
+/**
+ * THE VENUE'S SERVER, BY ID.
+ *
+ * Answer eleven wrote the rule as "the guild must be the one the owners named", and named
+ * it "memetics.finance". When the owner's permanent invite arrived on 2026-09-19 the API
+ * answered with the guild's real display name, "Jungle Bay" — the same server, under the
+ * name it has always had. A name is a label: the owner can change it, and a stranger can
+ * copy it. Gating on it would have failed this genuine invite while passing any impostor
+ * server someone had named "memetics.finance".
+ *
+ * So the gate reads the snowflake, which is the identity and cannot be forged, and the
+ * NAME is carried into the verdict line as a fact to be read rather than a thing to match.
+ * This is stricter than the ruling asked for, not looser.
+ */
+export const VENUE_DISCORD_GUILD_ID = '910243729997168721';
+
+/** What that server calls itself today. Reported, never matched on. */
+export const VENUE_DISCORD_GUILD = 'Jungle Bay';
 
 /** discord.gg/<code>, discord.com/invite/<code>, discordapp.com/invite/<code>. */
 const INVITE_RE = /https?:\/\/(?:www\.)?(?:discord\.gg|discord(?:app)?\.com\/invite)\/([A-Za-z0-9-]+)/gi;
@@ -43,7 +59,7 @@ export function findInviteCodes(text) {
  * Discord's answer, judged. `answer` is `{ status, body }` from resolveInvite, or
  * `{ error }` when there was no answer at all.
  */
-export function judgeInvite(code, answer, expectedGuild = VENUE_DISCORD_GUILD) {
+export function judgeInvite(code, answer, expectedGuildId = VENUE_DISCORD_GUILD_ID) {
   const label = `discord.gg/${code}`;
   if (!answer || answer.error) {
     return { ok: false, line: `${label}: could not be resolved (${answer?.error ?? 'no answer'}). An invite nobody could resolve does not ship.` };
@@ -61,11 +77,18 @@ export function judgeInvite(code, answer, expectedGuild = VENUE_DISCORD_GUILD) {
   if (body.expires_at !== null) {
     return { ok: false, line: `${label}: expires at ${body.expires_at}. Only a permanent invite (expires_at null) ships.` };
   }
-  const guild = body.guild?.name ?? null;
-  if (guild !== expectedGuild) {
-    return { ok: false, line: `${label}: resolves to the server "${guild}", not "${expectedGuild}".` };
+  // THE IDENTITY, NOT THE LABEL. An impostor can call a server anything; it cannot own
+  // our snowflake. The name is read out afterwards so the CI log still says, in Discord's
+  // own words, which server the invite opens.
+  const guildId = body.guild?.id ?? null;
+  const guildName = body.guild?.name ?? null;
+  if (guildId !== expectedGuildId) {
+    return {
+      ok: false,
+      line: `${label}: resolves to guild ${guildId ?? 'unknown'} ("${guildName}"), not the venue's ${expectedGuildId}.`,
+    };
   }
-  return { ok: true, line: `${label}: guild "${guild}", expires_at null.` };
+  return { ok: true, line: `${label}: guild "${guildName}" (${guildId}), expires_at null.` };
 }
 
 /** One GET, with a single retry when Discord rate-limits us. */
