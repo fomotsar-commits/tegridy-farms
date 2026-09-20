@@ -123,4 +123,26 @@ regexes = [
   '''\b31ZmTzEufRDBGKsJ7NicCkEKxtPQgAEMQvdbCuUfE6GX\b''',
   # sender pubkey in the pool-trades fixture (usePoolTrades.test.ts:22)
   '''\bDJFP3qJroFzcvZj3YowPmrNu6WoMo6njVB3dywTewua5\b''',
+  #
+  # \ DISCORD, added 2026-09-19 \\\\\\\\\\\\\\\\\\\\\\\\@
+  #
+  # The venue's Discord GUILD id (VENUE_DISCORD_GUILD_ID, discord-invites.mjs).
+  # Flagged by the default `discord-client-id` rule, which matches any 17-19 digit
+  # snowflake. This is a false positive of the same family as the addresses above:
+  # a guild id is PUBLIC by construction. Discord returns it in the unauthenticated
+  # GET /api/v10/invites/<code> response that CI itself reads, and anyone who opens
+  # the server can see it. It authorises nothing on its own.
+  #
+  # What is NOT exempted, and the distinction that makes this safe: a Discord
+  # application's CLIENT SECRET is a 32-char mixed-case token, and a BOT TOKEN is
+  # three dot-separated base64 segments. Neither is 17-19 digits, so neither can
+  # hide behind this entry. The venue has no Discord application, bot or OAuth
+  # client at all — the only thing it holds is an invite URL in SOCIAL_LINKS.
+  #
+  # EXACT STRING, per this file's doctrine. A shape rule like \d{17,19} was
+  # considered and rejected on the same reasoning the base58 section records: it
+  # would exempt every 17-19 digit run in the repo — timestamps in fixtures, wei
+  # amounts, block numbers — and anything a future credential format shares with
+  # them. One id, listed literally, cannot hide a second value.
+  '''\b910243729997168721\b''',
 ]

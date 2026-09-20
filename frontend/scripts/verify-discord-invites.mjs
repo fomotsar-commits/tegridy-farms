@@ -11,13 +11,13 @@
  */
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { shippedFiles, invitesInFiles, resolveInvite, judgeInvite, VENUE_DISCORD_GUILD } from './lib/discord-invites.mjs';
+import { shippedFiles, invitesInFiles, resolveInvite, judgeInvite, VENUE_DISCORD_GUILD, VENUE_DISCORD_GUILD_ID } from './lib/discord-invites.mjs';
 
 const FRONTEND = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const found = invitesInFiles(shippedFiles(FRONTEND), FRONTEND);
 
 if (found.size === 0) {
-  console.log(`[discord-invites] No Discord invite ships. Nothing to resolve. (Expected server when one does: "${VENUE_DISCORD_GUILD}".)`);
+  console.log(`[discord-invites] No Discord invite ships. Nothing to resolve. (Expected server when one does: ${VENUE_DISCORD_GUILD_ID}, "${VENUE_DISCORD_GUILD}".)`);
   process.exit(0);
 }
 
