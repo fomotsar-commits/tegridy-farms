@@ -383,10 +383,27 @@ roughly 0.25 to spare.
 > blocked, so the Application Control rule is on `.cargo\bin\anchor.exe`'s path, not on
 > the binary itself.
 >
-> It works **outside** an Anchor workspace as long as `--provider.cluster` and
-> `--provider.wallet` are passed — confirmed with a live `idl fetch`. That matters:
-> `solana/tegridy-amm/Anchor.toml` still carries the PLACEHOLDER program id, so running
-> from inside the workspace would be leaning on the wrong config.
+> 🔴 **`idl init` REQUIRES an Anchor workspace — and it must not be this repo's.**
+> `idl fetch` runs fine outside one, which makes it a **misleading rehearsal**: fetch
+> succeeded from a bare directory, then `idl init` failed there with
+> `Not in anchor workspace.` Rehearse a write with the write's own preconditions.
+>
+> Running it from `solana/tegridy-amm/` fails twice over, and neither is fixable there:
+>
+> 1. `Error: "You need to run this command with administrator privileges."` — the
+>    `[toolchain]` pin (`solana_version = "2.3.0"`) makes anchor attempt a version
+>    override, which needs the Windows symlink privilege. It then warns
+>    `Failed to override solana version to 2.3.0, using 4.1.1 instead`.
+> 2. `Error: program not found` — `[programs.Localnet]` declares `bayla_ladder` as the
+>    **placeholder** `GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4`, so the real deployed
+>    id resolves to nothing. Its `[provider]` also defaults to `cluster = "Localnet"`.
+>
+> Neither is a defect to repair: the placeholder is deliberate (`lib.rs:193-196`) and the
+> toolchain pin is what CI builds against. **Use a throwaway single-purpose workspace
+> instead** — one `Anchor.toml`, no `[toolchain]` section, the real program id under
+> `[programs.mainnet]` and `[programs.localnet]`. One is kept at
+> `C:\Users\jimbo\solana-keys\artifact\idlws\Anchor.toml`, verified 2026-09-20 to reach
+> mainnet and resolve the program with no privilege error.
 >
 > The IDL account this program will use is `3nHKL72LUn5vijmHk76v6qwgkMshToKkJGsEzbWBaQ2r`.
 > It read `AccountNotFound` before the init — that is the check to re-run if an init is

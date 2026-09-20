@@ -1,0 +1,28 @@
+# Throwaway single-purpose Anchor workspace — ONLY for `anchor idl init` against the
+# deployed mainnet bayla-ladder program.
+#
+# Why this exists rather than running from solana/tegridy-amm:
+#   1. That workspace's [toolchain] pins solana_version 2.3.0, and the override needs
+#      the Windows symlink privilege -> "You need to run this command with
+#      administrator privileges."
+#   2. Its [programs.Localnet] declares bayla_ladder as the PLACEHOLDER id
+#      GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4, so anchor resolves the real
+#      deployed id EJLP5GEJ... to nothing -> "Error: program not found".
+# Neither is a thing to "fix" in the repo: the placeholder is deliberate, and the
+# toolchain pin is what CI builds against.
+#
+# No [toolchain] section here on purpose — nothing is being built, only uploaded.
+
+[features]
+seeds = false
+skip-lint = true
+
+[programs.mainnet]
+bayla_ladder = "EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ"
+
+[programs.localnet]
+bayla_ladder = "EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ"
+
+[provider]
+cluster = "mainnet"
+wallet = "C:/Users/jimbo/solana-keys/mainnet/bayla_ladder-deployer.json"
