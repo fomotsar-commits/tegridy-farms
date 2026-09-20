@@ -209,6 +209,30 @@ git push origin bayla-ladder-mainnet
 gh workflow run solana-deploy-artifact.yml --ref bayla-ladder-mainnet -f program=bayla-ladder -f cluster=mainnet -f program_id=EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ -f deployer=Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6
 ```
 
+### ✅ THE REBUILD IS DONE — 2026-09-20, CI run 35529979428
+
+| what | value |
+| --- | --- |
+| run | [35529979428](https://github.com/fomotsar-commits/tegridy-farms/actions/runs/35529979428) — `build-ladder-deployable`: **success** |
+| artifact | `bayla-ladder-mainnet-50065ef03b7eae4ec955ec40ffd32aaf4181b3c2` (id 10610419675) |
+| tag / commit | `bayla-ladder-mainnet` → `50065ef03b7eae4ec955ec40ffd32aaf4181b3c2` |
+| **`.so` sha256** | **`b21e1277e104817886a31d6f5b16ba2a35fa6732558cbd6d227e4fb8e21bb0a1`** |
+| IDL sha256 | `ae6c9cbaddb20ca5d20f9dafb3aca9180e5fcb27ceb53e2fda44866396ae5abc` |
+| built with `program_id` | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` |
+| built with `deployer` | `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` |
+| cluster arm | `mainnet` (no `devnet` feature) |
+
+Both identities were echoed back by the job's own "Validate the identities BEFORE building"
+step (`-> 32 bytes OK`), so the binary is pinned to the rotated deployer, not to
+`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`.
+
+**`b21e1277…` is the only hash that may be deployed.** It is not `fada8148…`, which is the
+proof this is a real rebuild rather than a re-upload of the superseded artifact. §5 checks
+the deployed bytes against `b21e1277…`.
+
+⏳ **Artifact expires 2026-10-20** (30 days). Download and keep it offline alongside the
+`.so`'s hash before then.
+
 ⚠️ **`deployer` is the rotated key from §1, never
 `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`** (key rotation option A, 2026-09-17). The
 artifact from CI run 34712334698 (`.so` sha256
