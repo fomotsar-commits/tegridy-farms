@@ -1,6 +1,14 @@
 # BAYLA ladder — mainnet go-live checklist
 
-**Status as of 2026-09-17: NOT READY. Do not move SOL yet. A REBUILD IS REQUIRED.**
+**Status as of 2026-09-20: CLEARED TO PROCEED, but there is still no deployable binary.**
+The audit gate was waived by the owner (§2), so the remaining order is: generate the rotated
+deployer → record its pubkey in runbook §1 → rebuild in CI against tag `bayla-ladder-mainnet`
+(`50065ef03b7eae4ec955ec40ffd32aaf4181b3c2`) → fund ~3 SOL → deploy. **Do not fund the
+deployer until the rebuild exists**, because the deployer pubkey is compiled into the
+binary and a different key means a different build. Go-live (step 14) is separately gated
+on the island's wave-8 ruling — §8.
+
+*(Previous status, 2026-09-17: NOT READY. Do not move SOL yet. A REBUILD IS REQUIRED.)*
 (Updated 09-17: the devnet `withdraw_matured` precondition is now DONE — §3. Updated again
 09-17: the owner decided a new early-exit penalty and a **reload rate guard** for the
 ladder, so the program changes, the mainnet artifact `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` is **SUPERSEDED**, and the
@@ -182,14 +190,19 @@ than trusting the marker file, and move `OneDrive\Desktop\faucet\` out of the sy
 ## 2. 🔴 HARD GATE — the runbook's own go/no-go is unsatisfied
 
 `BAYLA_LADDER_MAINNET_RUNBOOK.md` §0 is an explicit precondition list — *"all of them,
-before anything costs SOL."* **Five of ten boxes are unchecked.** (It was five of seven
+before anything costs SOL."* **Four of ten boxes are unchecked** (five until the audit box
+was waived on 2026-09-20 — see below). (It was five of seven
 until 2026-09-17, when the devnet `withdraw_matured` box was ticked with evidence — §3. The
 rebuild then added three: the penalty and the deployer rotation, both decided, and the
 multisig pool authority, still open.)
 
-- the external audit report being in, with every fix merged — its *"write the hash here:
-  `________`"* line is still literally blank, **and the audited commit must now contain the
-  veYFI penalty schedule (`math::penalty_for`) and the rate guard**;
+- ~~the external audit report being in~~ — ⚠️ **WAIVED BY THE OWNER, 2026-09-20.** No
+  external audit of `bayla-ladder` was ever commissioned (see the scope paragraph below);
+  rather than leave the box ambiguous the owner decided to ship without one and record it.
+  Deploy commit `50065ef03b7eae4ec955ec40ffd32aaf4181b3c2`, tagged `bayla-ladder-mainnet`,
+  which carries both `math::penalty_for` and `math::rate_change_allowed`. **Read the cost
+  of the waiver in runbook §0 box 1** — it is not a pass, and the two pieces with no
+  independent review are the two with no setter. Four boxes remain genuinely unchecked;
 - both keyfiles backed up offline (see §1);
 - the pool authority handed to a multisig before any funds (D4);
 - a keyed mainnet RPC;
@@ -462,7 +475,7 @@ Nothing here is runnable until §1 and §2 are resolved.
 | # | Step | Signs | Notes |
 |---|---|---|---|
 | 1 | Resolve key custody | — | §1. **Decided: rotate (A)** — generate the fresh deployer outside any cloud-synced folder |
-| 2 | Resolve audit scope | — | §2 — must cover the penalty schedule and the rate guard |
+| 2 | Resolve audit scope | — | ⚠️ **WAIVED by the owner 2026-09-20** — no external audit was ever commissioned; deploying `50065ef03b7eae4ec955ec40ffd32aaf4181b3c2` as tag `bayla-ladder-mainnet`. The cost of the waiver is written out in runbook §0 box 1 |
 | 3 | `withdraw_matured` on devnet | `devnet-deploy.json` | ✅ **done 2026-09-17** — §3 (on the superseded 25% build) |
 | 4 | Rebuild the artifact from the audited commit | — | runbook §4, `deployer` = the rotated key. **Never `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`** |
 | 5 | Fund the deployer ~3 SOL | — | ~2.62 needed; the **rotated** deployer — never `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` or `5MtoeJ8DXcgWZQJAgGgDefd5hbq4KAe3K47yL9Nc87vq` |

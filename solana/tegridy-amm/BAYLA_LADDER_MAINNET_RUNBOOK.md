@@ -26,12 +26,31 @@ program's deployer is compiled into the binary.
 
 ## 0. Preconditions — all of them, before anything costs SOL
 
-- [ ] **The external audit report is in and every fix is merged.** Deploy the exact
-      commit the auditor signed off on. Tag it (§4) and write the hash here: `________`
-      **The audited commit must contain the veYFI penalty schedule (`math::penalty_for`)
-      and the `notify_reward` rate guard.** A sign-off on code from before that change —
-      the superseded `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`
-      build, or #586's flat 75%, which the schedule replaced — does not satisfy this box.
+- [~] **The external audit report — ⚠️ WAIVED BY THE OWNER, 2026-09-20.** No external
+      audit of `bayla-ladder` was ever commissioned: it appears in neither `AUDIT_RFQ.md`
+      nor `AUDIT_OUTREACH.md` (both scope only `cp-swap` and `tegridy-launch`), and no
+      auditor is engaged. Rather than leave the box ambiguous, the owner decided on
+      2026-09-20 to **proceed without one** and to record that decision here.
+
+      **Deploy commit: `50065ef03b7eae4ec955ec40ffd32aaf4181b3c2`**, tagged
+      `bayla-ladder-mainnet`. It carries both required changes — `math::penalty_for`
+      (math.rs:335) and `math::rate_change_allowed` (math.rs:384). The `bayla-ladder`
+      tree has been unchanged since `00c48092` (#592, 2026-09-17), so the tag is the
+      veYFI build, not the superseded
+      `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` (25% penalty,
+      no rate guard) and not #586's flat 75%.
+
+      **What this waiver actually costs, stated plainly so nobody later reads it as a
+      pass.** The only review this code has had is
+      `docs/LIGHTHOUSE_AUDIT_2026_09_01.md` — internal, adversarial, and dated
+      2026-09-01, i.e. **sixteen days before both the penalty schedule and the rate
+      guard existed**. So the two newest, most economically load-bearing pieces of the
+      program have had no independent review at all, and they are the pieces with no
+      setter: the penalty schedule is compiled in and changing it by upgrade rewrites
+      every open position retroactively. The mitigations relied on instead are the
+      `deposit_cap` (raise-only — start small), the multisig pool authority (§8), and
+      the fact that reward sizing, not the penalty, is the lever holding the ~28%/yr
+      bound. If an audit is commissioned later, this is the commit to hand them.
 - [x] **`withdraw_matured` has executed on devnet.** Done **2026-09-17**, finalized, tx
       `4AYtGTnHvSV3bCuaq4nhQPSLnvbc6pnJJfaNY7SqC2FeR2QYQK3ukdwJbAzFjEXNynWYxpBHP9pgRkPYSyAZWeAf`:
       500 back, penalty 0, `penalty_collected_cumulative` unchanged, accounting reconciled
