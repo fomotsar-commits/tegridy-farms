@@ -8,6 +8,21 @@ interface ChangelogEntry {
   date: string;
   title: string;
   items: string[];
+  /**
+   * THE BUILDER, WHEN THE ENTRY CAME IN THROUGH THE PIECE RAIL.
+   *
+   * Optional by construction. Every entry written before the rail existed has
+   * no outside builder to name, and the venue does not credit itself: an
+   * absent `by` prints nothing at all, never an empty badge and never this
+   * venue's own name standing in for a person.
+   *
+   * A builder's reward here is a dated public line. That is the same asset the
+   * venue sells, so it is spent on the person who earned it and on nobody else.
+   * Whatever is written here is a credit the venue is making in public, so it
+   * is a handle a maintainer has actually seen on the merged PR, never one
+   * taken from an issue, a chat message or a commit trailer alone.
+   */
+  by?: string;
 }
 
 // Each card rotates through a distinct art piece so every entry feels its own.
@@ -470,10 +485,22 @@ export default function ChangelogPage() {
                       because the bright orange/yellow jungle-ape art (idx > 0 cards) made body
                       copy essentially invisible at iPad portrait. Higher backdrop-blur too. */}
                   <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    {/* Date badge */}
-                    <span className="inline-block text-xs font-semibold text-purple-300 bg-purple-500/20 px-3 py-1 rounded-full mb-3" style={{ backdropFilter: 'blur(4px)' }}>
-                      {entry.date}
-                    </span>
+                    {/* Date badge, and the builder's credit beside it when the entry
+                        carries one. The row wraps rather than truncating, because the
+                        credit is the whole point of printing it: a name that elides to
+                        an ellipsis at phone width is not proof of anything. The `mb-3`
+                        moves to the row so a credited entry and an uncredited one keep
+                        the same gap under the badges. */}
+                    <div className="flex flex-wrap items-center gap-2 mb-3">
+                      <span className="inline-block text-xs font-semibold text-purple-300 bg-purple-500/20 px-3 py-1 rounded-full" style={{ backdropFilter: 'blur(4px)' }}>
+                        {entry.date}
+                      </span>
+                      {entry.by ? (
+                        <span className="inline-block text-xs font-semibold text-emerald-300 bg-emerald-500/20 px-3 py-1 rounded-full" style={{ backdropFilter: 'blur(4px)' }}>
+                          built by {entry.by}
+                        </span>
+                      ) : null}
+                    </div>
 
                     {/* Title */}
                     <h2 className="text-white text-lg font-bold mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>{entry.title}</h2>
