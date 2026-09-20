@@ -15,6 +15,37 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-19 — a grep of `dist/` proves a string is absent, never that a link is
+
+**Believed:** to prove the site ships no community link, grep the built output for
+`discord.gg` and `t.me/`. A clean grep means clean.
+
+**Measured** on a full `npm run build` of trunk `34095814`. `discord.gg` really is absent
+from every file in `dist/`. `t.me/` is not: `dist/assets/CurveTradePanel-*.js` contains
+`function U(e){return` `` `https://t.me/${e}` `` `}`. That is
+`telegramUrl()` from `src/lib/launcher/curveIdentity.ts:274` — a URL **builder** for a
+launched token's own declared handle, read from that token's Arweave identity metadata and
+rendered only when a token declares one. No venue handle ships, and the handle is filtered
+by `cleanHandle()` first (`curveIdentity.ts:116`, and `cleanWebsite` accepts `https:` only),
+so the grep hit is not a defect. But it is a hit, and "zero `t.me` strings" was the wrong
+claim to make from a grep.
+
+The inverse of the same mistake sits in the invite scanner that answer eleven built.
+`shippedFiles()` (`scripts/lib/discord-invites.mjs`) picked files by directory and
+extension, and so read `public/*.svg` but not `public/sample-collection.csv` — a file users
+download from the upload wizard (`Step2_Upload.tsx:262`) — and read `scripts/llms-txt.mjs`
+but not `scripts/addresses.json`, the ledger that script renders into `dist/llms.txt`. The
+writer was scanned while one of its two text inputs was not. Both are now in the scan, each
+mutation-checked red.
+
+**Do:** when the question is "does this ship", grep to find candidates and then **read what
+builds the string** — a template literal in a minified bundle is one identifier away from
+looking like a link. And when choosing a scan's surface, include a file because its text
+reaches a user, not because of the folder it lives in: the inputs to a generator ship just
+as surely as the generator does.
+
+---
+
 ## 2026-09-18 — a bare `vite build` ships every derived-image URL and none of the images
 
 **Believed:** `vite build` is the build, and `npm run build` only wraps it in checks.
@@ -25,9 +56,12 @@ every `srcset` from `src/lib/artDerivatives.generated.json`, which IS committed,
 asks for images that were never generated. The nav logo is the first casualty: its 128 px
 candidate, `/_derived/art/island-mark-png-128.webp`, is in no output directory. Served by
 `vite preview`, that URL answered **200 `text/html`** (the SPA fallback handing back the app
-shell), not a 404. Jungle Bay Island's box, building the same way, saw a 404 for it. Both
-leave a broken image, and the 200 is the worse of the two, because nothing that checks
-status codes notices.
+shell), not a 404. Jungle Bay Island's answer eleven reported a 404 for it; its answer
+twelve withdrew that — the island saw the broken-image glyph and inferred the code without
+reading the status. So there is one reading, not two, and it is the 200: the failure nothing
+that checks status codes notices. Re-measured 2026-09-19 on a full `npm run build` of trunk
+`34095814`: the real derivative answers `200 image/webp`, while any missing asset path
+(`/_derived/...`, `/assets/...`, `/art/...`) answers `200 text/html`.
 
 `npm run build` avoids it only by order: `generate-image-derivatives.mjs` runs first, and
 `verify-dist-derivatives.mjs` runs last. Pointed at the bare build, that gate exits 1 and
