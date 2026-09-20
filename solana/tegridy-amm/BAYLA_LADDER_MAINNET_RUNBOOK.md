@@ -63,6 +63,12 @@ program's deployer is compiled into the binary.
 - [ ] **~3 SOL in the deployer wallet** — the rotated deployer, not
       `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` (§5 for the breakdown).
 
+🏝️ **One more gate, and it is NOT in this list on purpose.** The island's wave-8 "ladder and
+the clock" ruling blocks **§9 (turning the card on)** and nothing before it. It is not a
+precondition for spending SOL, deploying, publishing the IDL, handing over authority,
+creating the pool, or even funding a first window — only for advertising it to users. The
+commitment and the reason are in `docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md` §8.
+
 ---
 
 ## 1. Identities
@@ -70,7 +76,7 @@ program's deployer is compiled into the binary.
 | what | value | notes |
 | --- | --- | --- |
 | program id | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` | Generated 2026-09-11. The keyfile lives outside the repo, and is only needed until the program is deployed. |
-| deployer | ~~`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`~~ → **a rotated key, pubkey not yet recorded** | **SUPERSEDED 2026-09-17 (key rotation option A).** `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` was confirmed 2026-09-12 as the owner's existing BAYLA admin wallet; it is also the devnet faucet bot's hot key in a cloud-synced folder (`docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md` §1). The rebuild compiles a fresh key generated outside any cloud-synced folder — write its pubkey here before §4, and never build with `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`. Compiled in: the only key that can call `initialize_pool`, and it becomes the pool's first authority. |
+| deployer | ~~`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`~~ → **a rotated key, pubkey not yet recorded** | **SUPERSEDED 2026-09-17 (key rotation option A).** `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` was confirmed 2026-09-12 as the owner's existing BAYLA admin wallet; it is also the devnet faucet bot's hot key in a cloud-synced folder (`docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md` §1). The rebuild compiles a fresh key generated outside any cloud-synced folder — write its pubkey here before §4, and never build with `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`. Compiled in: the only key that can call `initialize_pool`, and it becomes the pool's first authority — so its pubkey is an input to the **build** (§4), not to the deploy. **To generate it (2026-09-20):** `solana-keygen` on the `PATH` is Application-Control blocked, but the versioned install path is not — `~/.local/share/solana/install/releases/stable-25cd9da946ebf6d90024ac32071d05b319715589/solana-release/bin/solana-keygen new --no-bip39-passphrase --outfile C:/Users/jimbo/solana-keys/mainnet/bayla_ladder-deployer.json`, then read it back with `solana address -k`. Checklist §3. |
 | BAYLA mint | `7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump` | Token-2022, 6 decimals |
 | upgrade authority | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` | The venue's existing Squads v4 **vault**: index 0 of multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`, threshold 2. A PDA with no private key, so the transfer needs `--skip-new-upgrade-authority-signer-check`. |
 
@@ -245,6 +251,31 @@ Get-FileHash deploy\bayla_ladder.so -Algorithm SHA256
 
 The two hashes must match: that is the proof that the audited bytes are what is live.
 `program show` must name the deployer as the authority, until the next step.
+
+**Publish the IDL now — before the handover, not after.**
+
+```powershell
+anchor idl init --filepath target\idl\bayla_ladder.json EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ --provider.cluster mainnet
+anchor idl fetch EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ --provider.cluster mainnet
+```
+
+`anchor idl init` is signed by the **program's upgrade authority**, which is still the
+deployer at this point. Once the next step hands that authority to the Squads vault, every
+IDL write becomes a 2-of-2 multisig ceremony — so this is cheap now and permanently
+awkward in five minutes' time.
+
+Without an on-chain IDL, Solscan and SolanaFM cannot decode `stake`, `early_exit`,
+`withdraw_matured` or the `Pool` account: a holder locking tokens for up to four years sees
+raw bytes instead of their own position. The IDL shipped by the CI artifact is the one to
+publish, and its sha256 is recorded alongside the `.so` (§4).
+
+⚠️ The committed IDL at `solana/tegridy-amm/idl/bayla_ladder.json` carries the **devnet**
+program id in its `address` field. Publish the one from the mainnet build artifact, and check
+`anchor idl fetch` returns the mainnet id before moving on.
+
+⚠️ `anchor` itself is Application-Control blocked on the current build box (`Permission
+denied`). Run this from wherever the artifact is downloaded, or use the versioned install
+path the way `solana-keygen` is handled (checklist §3).
 
 **Then hand over the upgrade authority** — option A:
 
@@ -504,6 +535,13 @@ operator policy; the program does not enforce it.
 ---
 
 ## 9. Turn the card on
+
+🏝️ **STOP — this step is go-live, and the island's wave-8 ruling gates it.** Everything
+before this point can be completed without it. See `docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md`
+§8 for the commitment and the reason: staking moves BAYLA out of the holder's wallet, so
+until the island rules a stake as *held*, turning this card on resets the island heat clock
+for everyone who uses it. Setting these two on **Preview** only is not go-live and is not
+gated.
 
 In Vercel → Settings → Environment Variables, for **Production**:
 

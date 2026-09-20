@@ -8,6 +8,21 @@ decisions are recorded in the next section. The penalty was first set to a flat 
 later the same day **replaced by Yearn's veYFI schedule: `min(time left / 4 years, 75%)`**
 (D1). The hard gates in §1 and §2 still stand.)
 
+**Updated 2026-09-20** after a full re-verification against the chain and the machine:
+- **The code is done and on trunk.** The veYFI penalty (#592) and the reload rate guard
+  (#586) merged 2026-09-17. Trunk's `bayla-ladder` tree is byte-identical to
+  `feat/bayla-ladder-yearn-penalty` — all six blob hashes match. **All six ladder branches
+  are merged** and now sit 72–78 commits behind trunk; they are not pending work.
+  What is missing is a **binary**, not code.
+- **A third hard gate exists and was not written down here: the island's wave-8 ruling.**
+  It blocks step 14 (go-live) and nothing earlier. New §8.
+- **Nothing published the program's IDL**, on any path. New step 9.
+- **The reward budget has to reach the multisig's token account before the authority
+  handover**, or the only key allowed to fund holds nothing. New step 12.
+- **Generating the rotated deployer is no longer blocked** — see §3.
+- Chain reads, 2026-09-20: mainnet program id **unclaimed**; deployer **0 SOL**; the live
+  Streamflow reward vault holds **832,767.56 BAYLA** against **2,700,285.89 BAYLA** staked.
+
 This is the sequenced answer to "are we ready to load SOL, load the rewards, and get staking".
 It is a companion to `solana/tegridy-amm/BAYLA_LADDER_MAINNET_RUNBOOK.md`, not a replacement:
 the runbook has the exact commands, this file says what is actually true today, what is
@@ -231,6 +246,20 @@ entitled to make — but make it explicitly, in writing, rather than by omission
       ⚠️ The only `.so` on this machine today is the **devnet** one
       (`3e1b2b7b68292d92ef83e479a938c49aeda3480d4a3bbc58500cf166f6061ebd`), and the binaries have been the same size — verify by **hash**, never by
       filename or size.
+- [ ] **Generate the rotated deployer key.** ✅ **Unblocked 2026-09-20 — `solana-keygen` runs
+      fine, the shortcut path was the problem.** `solana-keygen` on the `PATH` resolves through
+      `~/.local/share/solana/install/active_release/bin/`, which Application Control refuses
+      (`Permission denied`). The **versioned** install path runs normally — verified by
+      generating a throwaway key and reading it back with `solana address -k`:
+
+      ```
+      ~/.local/share/solana/install/releases/stable-25cd9da946ebf6d90024ac32071d05b319715589/solana-release/bin/solana-keygen new --no-bip39-passphrase --outfile C:/Users/jimbo/solana-keys/mainnet/bayla_ladder-deployer.json
+      ```
+
+      `solana-keygen 3.1.11` there; the `solana` and `spl-token` CLIs on the `PATH` are not
+      blocked at all. **Write the new pubkey into runbook §1 before the §4 build** — it is
+      compiled into the binary, so it is an input to the build, not to the deploy. Keep the
+      file out of OneDrive; `C:\Users\jimbo\solana-keys\mainnet\` already is.
 - [ ] **Back up both mainnet keyfiles offline** — `solana-keys\mainnet\` holds a single
       unreplicated copy of each. Losing `bayla_ladder-program.json` *before* deploy means a new
       program id and a rebuild; after deploy it costs nothing, because the address is claimed.
@@ -440,13 +469,15 @@ Nothing here is runnable until §1 and §2 are resolved.
 | 6 | `solana config set` → mainnet | — | CLI is on **devnet** right now |
 | 7 | `solana program deploy` | program keypair **+ fee payer** | fee payer becomes initial upgrade authority |
 | 8 | Verify deployed bytes | — | `program dump` + hash vs the **rebuilt** artifact's sha256 (never `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`) |
-| 9 | Transfer upgrade authority → Squads | current upgrade authority | |
-| 10 | `init-pool` | **the rotated deployer only** | sets `pool.authority` to itself; reward vault is a program PDA, rent 0.0062 SOL |
-| 11 | Hand the pool authority → multisig | deployer proposes; multisig accepts **inside its own app** | D4 — **before any funds**. Confirm with `read` |
-| 12 | Two Vercel vars + **redeploy** | — | §6 — the build must carry the same penalty schedule as the program |
-| 13 | Let stakers arrive, then `notify` (fund rewards) | the multisig pool authority | one-way; never an empty pool; small first window; max-boost annual rate under ~28% — §4 |
-| 14 | Reload every ~60–75 days, before `period_finish` | the multisig pool authority | never lapses — §4 reload policy |
-| 15 | Register addresses | — | §7 |
+| 9 | **Publish the IDL on chain** | the deployer, **while it still holds upgrade authority** | `anchor idl init --filepath target/idl/bayla_ladder.json <PROGRAM-ID>`, then `anchor idl fetch` to confirm. **Must come before step 10** — `anchor idl init` requires the upgrade authority, so after the handover this becomes a 2-of-2 Squads ceremony, forever. Without it no explorer can decode `stake`, `early_exit` or the `Pool` account, and we are asking people to lock tokens for up to four years |
+| 10 | Transfer upgrade authority → Squads | current upgrade authority | |
+| 11 | `init-pool` | **the rotated deployer only** | sets `pool.authority` to itself; reward vault is a program PDA, rent 0.0062 SOL |
+| 12 | **Create the multisig vault's BAYLA token account and move the reward budget into it** | whoever holds the BAYLA | **Before step 13, not after.** `notify_reward` pulls from the *signing authority's own* token account, so the moment the multisig becomes the pool authority it is the only key that may fund — and it must already be holding the tokens. Skipping this lands the handover in a state where the only key allowed to fund has nothing to fund with |
+| 13 | Hand the pool authority → multisig | deployer proposes; multisig accepts **inside its own app** | D4 — **before any funds**. Confirm with `read` |
+| 14 | Two Vercel vars + **redeploy** | — | §6 — the build must carry the same penalty schedule as the program. 🏝️ **This step IS go-live** — see §8 for the island gate that sits in front of it |
+| 15 | Let stakers arrive, then `notify` (fund rewards) | the multisig pool authority | one-way; never an empty pool; small first window; max-boost annual rate under ~28% — §4 |
+| 16 | Reload every ~60–75 days, before `period_finish` | the multisig pool authority | never lapses — §4 reload policy |
+| 17 | Register addresses | — | §7 |
 
 ⚠️ The ops CLI **defaults to devnet** (the `--rpc` default in `bayla-ladder-ops.mjs`). Every mainnet command needs
 an explicit `--rpc`, or it will silently address the wrong cluster. Dry-run first — the
@@ -522,6 +553,39 @@ They are on `mvp-launch` only. Branch from trunk.
 - [ ] When registering the ladder in `addresses.json`, its `role` names **veYFI's
       time-left early-exit penalty, up to 75%** — not the 25% of the EVM
       `LighthouseLadder.sol` entries it may be copied from, and not a flat 75% (runbook §10).
+
+---
+
+## 8. 🔴 HARD GATE — the island's wave-8 ruling sits in front of go-live
+
+**This gate blocks step 14 (the Vercel vars) only. Everything before it — rebuild, fund,
+deploy, IDL, authority handover, init-pool, even a first reward window — can be completed
+while this is outstanding.** A deployed program that the venue does not advertise is not
+"live"; the card is what makes it live.
+
+The venue committed to this in writing. `island-handoff/HANDOFF.md` (2026-09-19, answer
+twelve), lines 195–199:
+
+> **Wave eight opens with "the ladder and the clock"**, island-side first: staked BAYLA
+> leaves the wallet, so a staker's clock would restart the day they stake unless the island
+> reads the program's per-wallet positions and rules a stake as *held*. It arrives as its own
+> file once the island's backend cut and probe have run. **Nothing venue-side is asked for it
+> yet, and the ladder does not go live before that ruling.**
+
+**The reason is a real product defect, not a formality.** Staking moves BAYLA out of the
+holder's wallet into the pool. The island's held-time heat reads wallet balances. So on the
+day we turn the card on, **every person who stakes has their island heat clock reset to
+zero** — we would be punishing our own best users for using the thing we just built.
+
+**What clears it:** the island publishes its wave-8 file ruling that a stake counts as
+*held*. Nothing is owed by the venue first; the ask is theirs to deliver.
+
+**If the owner decides to ship before the ruling**, record the decision here with a date, and
+expect to either eat the clock reset or hold the card back to a private link. Do not clear
+this box silently — it is a promise to a third party, not an internal preference.
+
+- [ ] The island's wave-8 "ladder and the clock" file has landed, **or** the owner has
+      recorded an explicit decision to ship without it: `________`
 
 ---
 
