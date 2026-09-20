@@ -82,6 +82,13 @@ import {
  *  production build under `vite preview`, twice, identical both passes. */
 const VENUE_VOICE_DEBT: Record<string, number> = {
   '/': 0,
+  // THE 404 CATCH-ALL (App.tsx's `path="*"` -> NotFoundPage). Added 2026-09-20,
+  // answer thirteen: it was the one venue-voice route in neither table, so a
+  // prose dash landing there would have been caught by nobody. It reads 0 today
+  // and is pinned at 0, which means it fails on its FIRST prose node like every
+  // other finished route. The route fixture reaches it by a path that matches
+  // nothing (navigablePath), which is exactly how a user meets this page.
+  '/this-path-matches-no-route-a11y-sweep': 0,
   '/faq': 0,
   '/history': 0,
   '/start': 0,

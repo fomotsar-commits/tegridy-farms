@@ -29,7 +29,13 @@ jobs:
         shell: bash
         run: |
           set -u
-          BASE="https://tegridyfarms.vercel.app"
+          # THE CANONICAL HOST, not the deploy alias. Until 2026-09-20 this probed
+          # https://tegridyfarms.vercel.app, which served the whole venue under a
+          # second name — the leak answer thirteen ruled on. That host now
+          # redirects (vercel.json), so probing it for 200 would fail by design;
+          # it moves into ALIASES below and is checked for a permanent redirect
+          # instead. The API probes follow the app to the canonical origin.
+          BASE="https://memetics.finance"
           FAILS=""
 
           probe() { # name url grep_pattern
@@ -69,7 +75,21 @@ jobs:
           # stronger check anyway — a 200 on the alias is now itself the outage,
           # because it means the redirect silently stopped shipping.
           CANONICAL="memetics.finance"
-          ALIASES="memetic.fun www.memetic.fun www.memetics.finance"
+          # tegridyfarms.vercel.app joined 2026-09-20 (answer thirteen, ruling 2):
+          # it was serving the entire venue under a second name, which the
+          # canonical-host law (#478) forbids. It is the project's own .vercel.app
+          # domain, so vercel.json's redirect governs it.
+          #
+          # tegridyfarms-three.vercel.app is deliberately NOT here, and the reason
+          # matters: it is a DIFFERENT Vercel project serving a stale build (its
+          # bundle hash differs from production's and it has no /llms.txt — that
+          # path SPA-falls-back to 200 text/html). This repo's vercel.json never
+          # executes for it, so vercel.json:119 has never fired and no edit here
+          # can make it redirect. Listing it would page every 30 minutes about
+          # something no commit can fix. It needs an operator action in the Vercel
+          # dashboard; until then llms.txt correctly omits it, because that rule's
+          # destination is not the canonical origin.
+          ALIASES="memetic.fun www.memetic.fun www.memetics.finance tegridyfarms.vercel.app"
 
           probe "$CANONICAL app shell" "https://$CANONICAL/" "/assets/"
 

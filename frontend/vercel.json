@@ -116,8 +116,8 @@
   "redirects": [
     {
       "source": "/(.*)",
-      "has": [{ "type": "host", "value": "tegridyfarms-three.vercel.app" }],
-      "destination": "https://tegridyfarms.vercel.app/$1",
+      "has": [{ "type": "host", "value": "tegridyfarms.vercel.app" }],
+      "destination": "https://memetics.finance/$1",
       "permanent": true
     },
     {
