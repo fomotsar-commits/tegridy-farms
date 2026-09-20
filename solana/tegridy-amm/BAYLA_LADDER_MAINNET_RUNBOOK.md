@@ -629,6 +629,59 @@ node scripts\bayla-ladder-ops.mjs read --pool <POOL> --program EJLP5GEJXEyPTdoKb
 
 ## 8. Fund the first 90-day period — and every one after it
 
+### ✅ SEEDED AND FUNDED — 2026-09-20. The ladder is LIVE and emitting.
+
+⚠️ **§8's original step 1 said "multisig before funds" (D4). SUPERSEDED by the owner on
+2026-09-20: the Squads handover happens LAST**, after the pool is proven. So the deployer
+`Fu7mNAv6…` is the pool authority for this first window, and the reward budget was moved
+into **its** ATA `DsGFcoYREF44GJxYofDKJXbxhY2oEMoAewELUMn89Wqc`, not the vault's.
+
+That ordering was not a preference, it was forced: `notify_reward` constrains
+`funder_ata.owner == authority` (lib.rs:1286), and `initialize_pool` pins
+`pool.authority = payer = deployer::ID` (lib.rs:393, :1082). Funding from any wallet that
+is not the pool authority is not possible. The checklist's old step 12 — "move the budget
+to the multisig's token account" — was the right idea against the wrong account.
+
+**Seed stake** — tx `65kztjFkKLsZZEUyp4ivbPNXAApEC6T7j6eYCrtJotuoWH34zukqgoT39ccYuB27FpEdgmx4LDeeCvn2QtcvkFuW`
+
+| what | value |
+| --- | --- |
+| position | `F5DkgYbj2EsD1ZfD1P9EobftUjk2ALsv6Am2JxsnawpE` (#0) |
+| amount / lock | 3,000 BAYLA, 180 days |
+| boost | 0.8286× → weight **2,485.8** |
+| early-exit cost today | 369.859018 BAYLA (12.32%), shrinking to 0 at maturity |
+
+**First window** — tx `3kmMfEjWKSTsvZsRP5KpwyyNdtJPwMf4Q3hoMTmrEHKWsuGEx4uRLiUAyfHNQnG14kU1AXzt4ZBHaaHEVRM99CrT`
+
+| what | value |
+| --- | --- |
+| amount | **23.328 BAYLA** |
+| rate | **3 raw/second** exactly — 0.2592/day |
+| window ends | 2026-12-19T22:41:57Z |
+| max-boost annual rate | **15.22%** — 55% of the 27.64% ceiling |
+| verified | `emitted since then` ticking up; `outstanding (LIVE)` tracks it |
+
+**Why 23.328 and not a round number.** `rate = amount_raw / REWARDS_DURATION_SECS` is
+integer division, so 23,328,000 / 7,776,000 = **3 exactly**. Any amount that does not divide
+cleanly truncates, and the lost remainder is silently unpayable. Size the first window to a
+whole number of raw units per second; AUDIT L-1 records the extreme version of this, where a
+small reload floors the rate to zero while `RewardAdded` still fires with a healthy payload.
+
+**The ceiling, derived rather than quoted.** At max boost,
+`APR = MAX_BOOST × rate × seconds_per_year / total_weighted`. With 4.00×, 3 raw/s and
+2,485.8 whole-weighted that is 15.22%. Rearranged, the compliant maximum for a given weight
+is `total_weighted × 0.017039` whole per window. **This is the number to recompute before
+every reload** — against the SMALLEST total_weighted expected during the window, not
+today's, because weight falling mid-window raises the rate.
+
+🔴 **The binding constraint is funding, not the ceiling.** At today's weight the ceiling is
+42.35 BAYLA per window. But the ceiling scales with stake, so at the reference pool's
+~2.7M BAYLA the compliant window would be roughly **46,000 BAYLA every 90 days**, against an
+owner balance of 42,126.875. Reward funding never stops (D7). **Settle where subsequent
+windows come from before the ladder is opened to the public** — this is a business
+constraint, not an operational one, and no amount of sequencing solves it.
+
+
 **Two things happen before the first `notify`, in this order:**
 
 1. **Hand the pool authority to the multisig** (decided 2026-09-17: a multisig before any
