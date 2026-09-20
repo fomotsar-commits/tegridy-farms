@@ -339,7 +339,46 @@ Get-FileHash deploy\bayla_ladder.so -Algorithm SHA256
 The two hashes must match: that is the proof that the audited bytes are what is live.
 `program show` must name the deployer as the authority, until the next step.
 
+### ✅ DEPLOYED TO MAINNET — 2026-09-20, slot 448851661
+
+| what | value |
+| --- | --- |
+| program id | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` |
+| **programdata** | **`FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw`** — new address, register it (§10) |
+| loader | `BPFLoaderUpgradeab1e11111111111111111111111` (upgradeable, as intended) |
+| upgrade authority | `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` — the deployer, **still**; §5 hands it to Squads |
+| data length | 515,352 bytes — **exactly 1×**, so CLI 4.1.1's default behaved as §5 predicted |
+| programdata rent | 2.618867 SOL, matching the pre-deploy quote to the lamport |
+| deployer left | 0.30772988 SOL |
+
+**The deployed bytes were verified, not assumed.** `solana program dump` pulled the program
+back off chain: 515,352 bytes hashing to
+`b21e1277e104817886a31d6f5b16ba2a35fa6732558cbd6d227e4fb8e21bb0a1` — identical to the CI
+artifact. That closes the chain of custody end to end: CI built it → the download was
+hash-checked → the chain holds those same bytes.
+
+Deployed over a **keyed Alchemy RPC**, read from `frontend/.env` at run time so the key never
+reaches a document or a shell history. The §0 "keyed mainnet RPC" precondition was satisfied
+by a key the venue already owned — it had simply never been tried against Solana.
+
+⚠️ **The remaining 0.30772988 SOL is the budget for everything below.** Measured costs:
+IDL account 0.04666488 (9,058 bytes — the 48,408-byte IDL zlib-compressed to 9,014, plus a
+44-byte header), pool + reward vault PDAs ~0.0062, and transaction fees. It fits, with
+roughly 0.25 to spare.
+
+---
+
 **Publish the IDL now — before the handover, not after.**
+
+> **Tooling note (2026-09-20).** `anchor` on the `PATH` is Application-Control blocked, the
+> same shim problem as `solana-keygen`. The real binary runs:
+> `C:\Users\jimbo\.avm\bin\anchor-0.32.1` — and 0.32.1 is the version CI built with. It
+> works **outside** an Anchor workspace as long as `--provider.cluster` and
+> `--provider.wallet` are passed, confirmed with a live `idl fetch`. The IDL account this
+> program will use is `3nHKL72LUn5vijmHk76v6qwgkMshToKkJGsEzbWBaQ2r`, which read
+> `AccountNotFound` before the init — the expected state.
+>
+> `anchor idl init` **can only be run once.**
 
 ```powershell
 anchor idl init --filepath target\idl\bayla_ladder.json EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ --provider.cluster mainnet
