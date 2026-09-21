@@ -25,6 +25,7 @@ import {
   type WriteResult, type LadderWriteCtx,
 } from '../../lib/ladder/write';
 import { fmtRaw, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
+import { useAccrualMeter } from '../../hooks/useAccrualMeter';
 
 /**
  * A `bayla-ladder` pool, LIVE.
@@ -139,12 +140,17 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   const [readGen, setReadGen] = useState(0);
   const reread = () => setReadGen((n) => n + 1);
 
-  // One tick a minute keeps every countdown and every accrued figure honest without
-  // a render loop. Rewards accrue per second, so a card that never re-rendered would
-  // show a number that was right when the page loaded and drifts from then on.
+  // One tick a SECOND. Rewards accrue per second, and at a minute's cadence the only
+  // way to watch your own balance move was to reload the page.
+  //
+  // This is a clock, not a fetch: nothing in this interval touches the network. It
+  // drives the countdowns, the exit quotes, and the exact `earnedNow` figures the
+  // buttons are gated on. The sub-second METER rides its own leaf component
+  // (`LiveEarned`) so 60Hz smoothing re-renders one <span> instead of re-quoting
+  // every position's three exit doors sixty times a second.
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   useEffect(() => {
-    const t = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 60_000);
+    const t = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1_000);
     return () => clearInterval(t);
   }, []);
 
@@ -165,6 +171,31 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
     }
     return () => { cancelled = true; };
   }, [connection, config, publicKey, readGen]);
+
+  // ── the only thing here that costs RPC ────────────────────────────────────
+  // The meter above is pure arithmetic over fields we already hold, so it can run as
+  // fast as it likes for free. But those fields do go stale: another staker entering
+  // or leaving moves `totalWeighted`, and `notify_reward` moves the rate and the
+  // window. Without a re-sync the meter would climb smoothly along a schedule that
+  // stopped being true.
+  //
+  // COST: one `readLadderPool` every 45s, plus one `readLadderWallet` when a wallet is
+  // connected — so 2 account reads a minute per open card at the outside, against the
+  // 1 (or 2) this card used to do once and never again. Deliberately modest; the
+  // figure is honest between re-syncs because it replays the program's own math, not
+  // because it is fresh.
+  //
+  // ⚠️ NEVER WHILE A DOOR IS ARMED. `armed` below matches the arming against the exact
+  // wallet read its row was drawn from, so a re-sync landing mid-decision would
+  // silently DISARM a confirm the user is looking at — and a background timer must not
+  // reach into a two-step confirmation that exists to protect someone's principal.
+  // Same for an in-flight write, whose own completion re-reads anyway.
+  useEffect(() => {
+    if (!config.ok) return;
+    if (confirmFor !== null || action?.busy) return;
+    const t = setInterval(reread, 45_000);
+    return () => clearInterval(t);
+  }, [config, confirmFor, action?.busy]);
 
   // Vault balances need the pool's own vault addresses, so they ride their own effect.
   useEffect(() => {
@@ -228,6 +259,17 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
     if (!pool || !walletView) return null;
     return positions.reduce((a, p) => a + earnedNow(p, pool, nowSec), 0n);
   }, [pool, walletView, positions, nowSec]);
+
+  // The same sum as a function of an arbitrary second, for the live meter. It is NOT
+  // a second implementation: both go through `earnedNow`, so the meter cannot drift
+  // from the figure the rest of the card is reasoning about. Null propagates —
+  // an unread wallet still renders as an outage below, never as a moving zero.
+  // Depends on the READS, never on `nowSec`, so a once-a-second re-render does not
+  // tear down the meter's animation frame loop.
+  const earnedAt = useMemo(() => {
+    if (!pool || !walletView) return null;
+    return (secs: number) => positions.reduce((a, p) => a + earnedNow(p, pool, secs), 0n);
+  }, [pool, walletView, positions]);
 
   const amountRaw = toRaw(amount, decimals);
   const overBalance = amountRaw !== null && walletRaw !== null && amountRaw > walletRaw;
@@ -381,7 +423,11 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                   <Stat label="Your principal" value={fmtRaw(myPrincipal, decimals)} unit={sym} />
-                  <Stat label="Earned, unclaimed" value={fmtRaw(myEarned, decimals)} unit={sym} />
+                  <Stat
+                    label="Earned, unclaimed"
+                    value={<LiveEarned earnedAt={earnedAt} fallback={fmtRaw(myEarned, decimals)} decimals={decimals} />}
+                    unit={sym}
+                  />
                   <Stat label="Open positions" value={openCount === null ? '–' : `${openCount} / ${MAX_POSITIONS}`} />
                   <Stat
                     label="In your wallet"
@@ -571,7 +617,40 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   );
 }
 
-function Stat({ label, value, unit, note }: { label: string; value: string; unit?: string; note?: string }) {
+/**
+ * The live meter, as its own leaf.
+ *
+ * ⚠️ IT IS A LEAF ON PURPOSE. Smoothing re-renders whatever component owns it at up
+ * to 60Hz. Owned by the card, that would re-run `quoteExit` on every position sixty
+ * times a second for a number that is only being printed. Owned here, sixty renders a
+ * second is one <span> of text.
+ *
+ * The digits go to FULL token precision rather than the card's usual two. At the live
+ * BAYLA schedule a 20,000 stake earns about 0.0053 BAYLA a second, so at two decimals
+ * the display would change roughly every three minutes — technically live and, to
+ * anyone watching it, indistinguishable from the frozen number this replaces.
+ *
+ * `fallback` is the exact, un-smoothed figure. It renders for the first paint and
+ * whenever there is no meter to run, so this can never be the reason a value appears.
+ *
+ * ⚠️ RETURNS A BARE STRING, NOT A <span>. Two reasons, and the first is not cosmetic:
+ * Testing Library's `getNodeText` joins only an element's DIRECT text-node children,
+ * so wrapping the figure moves it out of its parent's matchable text — the existing
+ * suite's "a pool emitting nothing shows a real, labelled zero" pin, which reads
+ * `/0 BAYLA earned/` off the position row, stops seeing the zero. A meter is not
+ * worth weakening the pin that says a real zero is still printed. Second, no wrapper
+ * means no new element for a screen reader to treat as a region; the figure changes
+ * up to sixty times a second and must never be announced.
+ */
+function LiveEarned(
+  { earnedAt, fallback, decimals }:
+  { earnedAt: ((secs: number) => bigint) | null; fallback: string; decimals: number },
+) {
+  const raw = useAccrualMeter(earnedAt);
+  return <>{raw === null ? fallback : fmtRaw(raw, decimals, decimals)}</>;
+}
+
+function Stat({ label, value, unit, note }: { label: string; value: React.ReactNode; unit?: string; note?: string }) {
   return (
     <div className="rounded-lg p-3" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-purple-25)' }}>
       <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)' }}>{label}</p>
@@ -611,7 +690,13 @@ function PositionRow({
 }) {
   const quotes = quoteExit(position, pool, nowSec);
   const matured = BigInt(nowSec) >= position.lockEnd;
+  // ⚠️ THE EXACT FIGURE, and everything that DECIDES anything keeps using it — the
+  // Claim button's `earned <= 0n` gate below above all. The meter beside it lags by
+  // design (see lib/ladder/meter.ts), so gating on the smoothed value would disable
+  // Claim for up to a second after this position first has something to claim.
+  // Smoothing is allowed to change what is PRINTED and nothing else.
   const earned = earnedNow(position, pool, nowSec);
+  const earnedAt = useMemo(() => (secs: number) => earnedNow(position, pool, secs), [position, pool]);
   const secsLeft = Number(position.lockEnd) - nowSec;
   const boost = position.amountRaw > 0n
     ? Number((position.weight * 10_000n) / position.amountRaw)
@@ -640,7 +725,7 @@ function PositionRow({
           {matured ? 'unlocked' : `unlocks in ${humanDuration(secsLeft)}`}
         </p>
         <p className="text-white/70 text-[12px] m-0 tabular-nums">
-          {fmtRaw(earned, decimals)} {sym} earned
+          <LiveEarned earnedAt={earnedAt} fallback={fmtRaw(earned, decimals)} decimals={decimals} /> {sym} earned
         </p>
       </div>
 
