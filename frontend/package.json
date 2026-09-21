@@ -44,7 +44,7 @@
     "@tanstack/react-virtual": "^3.14.10",
     "@types/papaparse": "^5.5.2",
     "@upstash/ratelimit": "^2.0.5",
-    "@upstash/redis": "^1.38.3",
+    "@upstash/redis": "^1.38.4",
     "@walletconnect/ethereum-provider": "^2.25.0",
     "@whetstone-research/doppler-sdk": "^1.0.39",
     "buffer": "^6.0.3",
