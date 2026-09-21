@@ -115,7 +115,20 @@ const REWARD_VAULT_SEED = Buffer.from('rvault');
 /** math.rs — the ladder's own bounds. Quoted so a mistake is refused locally. */
 const MIN_LOCK_SECS = 7 * 86_400;
 const MAX_LOCK_SECS = 4 * 365 * 86_400;
-const REWARDS_DURATION_SECS = 90 * 86_400;
+/**
+ * The emission window: FOUR YEARS, the same number as MAX_LOCK_SECS (owner decision
+ * 2026-09-20, replacing 90 days). The parity test pins it to the value rustc compiled from
+ * math.rs, so this cannot quietly disagree with the program it previews.
+ */
+const REWARDS_DURATION_SECS = 4 * 365 * 86_400;
+/**
+ * The window in the words an operator reads. DERIVED, never typed: every "90 days" this
+ * file used to print was a literal that would have gone on saying 90 days after the
+ * program changed.
+ */
+const WINDOW_LABEL = REWARDS_DURATION_SECS % (365 * 86_400) === 0
+  ? `${REWARDS_DURATION_SECS / (365 * 86_400)} years`
+  : `${REWARDS_DURATION_SECS / 86_400} days`;
 /**
  * math.rs's penalty schedule constants, mirrored exactly (the test reads the first two back
  * out of math.rs). veYFI's schedule: `penaltyFor` below, used by BOTH early doors.
@@ -741,7 +754,7 @@ function notifyPreview({ pool, now, rewardVaultRaw, amount, fromBudget, funder, 
   const budget = fundable(vaultPost, c.rewardsEmitted, pool.rewardsPaid);
   const ceiling = budget / DUR;
   if (newRate > ceiling) {
-    program(6014, `rate ${fmt(newRate, d)}/s exceeds what the vault can fund, ${fmt(ceiling, d)}/s (budget ${fmt(budget, d)} over 90 days)`);
+    program(6014, `rate ${fmt(newRate, d)}/s exceeds what the vault can fund, ${fmt(ceiling, d)}/s (budget ${fmt(budget, d)} over ${WINDOW_LABEL})`);
   }
   if (newRate === 0n) {
     program(6024, `the new rate floors to ZERO per second — the window would emit nothing`);
@@ -795,7 +808,7 @@ function notifyPreview({ pool, now, rewardVaultRaw, amount, fromBudget, funder, 
   if (pool.totalWeighted < floor) {
     const text = `total_weighted ${pool.totalWeighted} is below the floor ${floor}${pool.totalWeighted === 0n ? ' (nobody is staked)' : ''}: ` +
       `every second until the first stake is BURNED, not emitted`;
-    const cost = 'Funding before anyone stakes loses window TIME, not tokens: the 90 days start now and ' +
+    const cost = `Funding before anyone stakes loses window TIME, not tokens: the ${WINDOW_LABEL} start now and ` +
       'the burned seconds never come back, but their tokens stay in the reward vault and remain schedulable (--from-budget)';
     if (allowEmptyPool) notes.push(`${text}. Proceeding (--allow-empty-pool). ${cost}.`);
     else problems.push({ code: null, text: `${text}. ${cost}. Pass --allow-empty-pool to fund an empty pool knowingly.` });
@@ -831,7 +844,7 @@ function notifyReport(pv, pool, { amount, fromBudget, now, slot }) {
   if (pv.midWindow) {
     out.push(`  unemitted tail ${fmt(pv.leftover, d)}  (${pv.remaining}s left x current rate, folded into the new window)`);
   }
-  out.push(`  new finish     ${iso(pv.newPeriodFinish)}  (chain now + 90 days; the program uses its landing time)`);
+  out.push(`  new finish     ${iso(pv.newPeriodFinish)}  (chain now + ${WINDOW_LABEL}; the program uses its landing time)`);
   out.push(`  owed (LIVE)    ${fmt(pv.outstanding, d)}  (emitted to chain now, minus paid; reserved first)`);
   out.push(`  vault after    ${fmt(pv.vaultPost, d)}`);
   out.push(`  fundable       ${fmt(pv.budget, d)}  (ceiling ${fmt(pv.ceiling, d)} / s)`);
@@ -1480,13 +1493,13 @@ async function notifyCommand(args, { conn, programId, broadcast, signer, log = c
   }
   const { amount, fromBudget, max } = resolveNotifyAmounts(args, snap);
   // The program's own order of checks, replayed at chain now: the rate is the
-  // mid-window fold-in (not scheduled / 90 days), and nothing is sent that it would refuse.
+  // mid-window fold-in (not scheduled / the window), and nothing is sent that it would refuse.
   const pv = notifyPreview({
     pool: p, now: snap.now, rewardVaultRaw: snap.rewardVault.value.amount, amount, fromBudget,
     funder: decodeFunderAta(snap.extra[0], p),
     allowEmptyPool: args.allowEmptyPool === true,
   });
-  log(`\nnotify-reward over ${REWARDS_DURATION_SECS / 86400} days${max ? '  (--from-budget max)' : ''}${preview ? '  (--preview)' : ''}`);
+  log(`\nnotify-reward over ${WINDOW_LABEL}${max ? '  (--from-budget max)' : ''}${preview ? '  (--preview)' : ''}`);
   for (const line of notifyReport(pv, p, { amount, fromBudget, now: snap.now, slot: snap.slot })) log(line);
   if (preview) {
     for (const line of notifyPreviewLines(pv, p, { fromBudget })) log(line);
@@ -1924,7 +1937,7 @@ export {
   acceptAuthorityProblem, declareDegradedProblem, confirmPermanentProblem,
   toRaw, fmt, parseArgs, intArg, MAX_EARLY_EXIT_PENALTY_BPS, BPS,
   POOL_SEED, POSITION_SEED, USER_SEED, STAKE_VAULT_SEED, REWARD_VAULT_SEED,
-  MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
+  MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS, WINDOW_LABEL,
 };
 
 // Chain time, the off-chain replay of the reward engine, and the previews built on them.

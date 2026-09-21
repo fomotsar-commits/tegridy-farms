@@ -42,7 +42,7 @@ import {
   acceptAuthorityProblem, declareDegradedProblem, confirmPermanentProblem,
   toRaw, fmt, intArg, parseArgs, MAX_EARLY_EXIT_PENALTY_BPS, BPS,
   STAKE_VAULT_SEED, REWARD_VAULT_SEED,
-  MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
+  MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS, WINDOW_LABEL,
 } from './bayla-ladder-ops.mjs';
 
 const PROGRAM = new PublicKey('GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4');
@@ -319,7 +319,11 @@ describe('the constants quoted from math.rs', () => {
   it('are the program bounds, so a bad request is refused locally', () => {
     expect(MIN_LOCK_SECS).toBe(7 * 86_400);
     expect(MAX_LOCK_SECS).toBe(4 * 365 * 86_400);
-    expect(REWARDS_DURATION_SECS).toBe(90 * 86_400);
+    expect(REWARDS_DURATION_SECS).toBe(4 * 365 * 86_400);
+    // Owner decision 2026-09-20: the emission window IS the top rung of the ladder.
+    expect(REWARDS_DURATION_SECS).toBe(MAX_LOCK_SECS);
+    // ...and what the operator reads is derived from it, never typed beside it.
+    expect(WINDOW_LABEL).toBe('4 years');
   });
 });
 
@@ -935,10 +939,32 @@ import {
 // file's JavaScript and not by hand.
 //
 //   generator  C:/Users/jimbo/tegriddy-worktrees/_b_vectors/main.rs (outside the repo),
-//              sha256 91057f3e337ca0ce943b53a01e9f427ba8f178a869b8b281cf0efc4675cf58a3
+//              sha256 04b7caa48e643dfcedfaa203d843b65fbfda72175d86c728ca1c9379dbbe963a
 //   compiled   rustc 1.94.0 (4a4ef493e 2026-03-02): `rustc --edition 2021 -O main.rs -o gen.exe`
-//   output     vectors.json, sha256 7f53745f86ef6c286837916a4ba60315457ae44a5284244144e485c686a65e73,
+//   output     vectors.json, sha256 d76135955ee6b88ec603128350d149fe98a5b71fc619ccff9cf88ecde5d489c8,
 //              pasted below unchanged apart from layout
+//   math.rs    docs/ladder-golive-corrections' own, sha256
+//              ba14b322cffdff46d33b7e67aa746527fc2ca3142a2954cdeb50246a473937f5
+//              (REWARDS_DURATION_SECS = 4 * 365 * 86_400)
+//
+// REGENERATED 2026-09-20 for the four-year window (owner decision: the emission window
+// equals MAX_LOCK_SECS). Only `constants.REWARDS_DURATION_SECS`, `new_reward_rate` and
+// `notify` changed; every other section came out identical to the 90-day run, compared as
+// parsed JSON. Every notify row kept the outcome its label names — the label is the spec
+// — because each input that meant something RELATIVE to the window is now written in the
+// generator as D (= REWARDS_DURATION_SECS) rather than as a 90-day literal: "half a
+// window left" is D / 2, not 3_888_000. Two rates moved and neither label promises one:
+// "same amount at period_finish" 128 -> 7 and "first notify, never funded" 6430 -> 396,
+// both a fresh window dividing the same amount by a 16.2x longer D.
+//
+// A trap worth recording: the 90-day generator's #[path] named a math.rs in an old session
+// scratchpad that still exists and still says 90 days. Re-running it unmodified prints the
+// OLD vectors and looks like success. The new generator points at this worktree's math.rs.
+// The 90-day generator and its output are kept beside the new ones, byte-identical:
+//   main.90d-2026-09-17.rs          sha256 91057f3e337ca0ce943b53a01e9f427ba8f178a869b8b281cf0efc4675cf58a3
+//   vectors.90d-2026-09-17.json     sha256 7f53745f86ef6c286837916a4ba60315457ae44a5284244144e485c686a65e73
+//
+// ---- the 2026-09-17 provenance, for the penalty columns (unchanged since) ----
 //
 // The generator pulls math.rs in with `#[path = ...] mod math`: math.rs from the
 // feat/bayla-ladder-yearn-penalty worktree, identical to its blob at 53a60668 (git
@@ -978,23 +1004,23 @@ import {
 //   pool = [min_stake, total_weighted, reward_rate, period_finish, last_update_time,
 //           reward_per_weight_stored, rewards_emitted, rewards_paid, rpw_residue, emitted_residue]
 const RUST = {
-  constants: {"PRECISION":"1000000000000","REWARDS_DURATION_SECS":"7776000","MIN_BOOST_BPS":"4000","BPS":"10000","MAX_LOCK_SECS":"126144000","MAX_EARLY_EXIT_PENALTY_BPS":"7500","PENALTY_SCALE":"1000000000000000000","MAX_PENALTY_RATIO":"750000000000000000"},
+  constants: {"PRECISION":"1000000000000","REWARDS_DURATION_SECS":"126144000","MIN_BOOST_BPS":"4000","BPS":"10000","MAX_LOCK_SECS":"126144000","MAX_EARLY_EXIT_PENALTY_BPS":"7500","PENALTY_SCALE":"1000000000000000000","MAX_PENALTY_RATIO":"750000000000000000"},
   new_reward_rate: [
-    ["7776000000","1000","500","999","1000"],
-    ["7775000000","0","1000","1000","1000"],
-    ["7776000000","1000000","4888000","1000","1500"],
-    ["6776000000","1000000","2000000","1000","1000"],
-    ["6775999999","1000000","2000000","1000","999"],
-    ["1000000000","1000000","2000000","1000","257"],
-    ["1000000000","2000000","2000000","1000","128"],
-    ["1000000000","1999999","2000000","1000","128"],
-    ["0","1000000","2000000","1000","128"],
-    ["7775999","5","0","0","0"],
-    ["7776000","5","0","0","1"],
-    ["18446744073709551615","0","1","340282366920938463463374607431768211455","43760592453824390877491590461904"],
-    ["18446744073709551615","0","9223372036854775807","340282366920938463463374607431768211455","43760592453824390877491590461904"],
-    ["18446744073709551615","100","0","0","2372266470384"],
-    ["1","3888000","7776000","10000","5000"],
+    ["126144000000","1000","500","999","1000"],
+    ["126143000000","0","1000","1000","1000"],
+    ["126144000000","1000000","64072000","1000","1500"],
+    ["125144000000","1000000","2000000","1000","1000"],
+    ["125143999999","1000000","2000000","1000","999"],
+    ["1000000000","1000000","2000000","1000","15"],
+    ["1000000000","2000000","2000000","1000","7"],
+    ["1000000000","1999999","2000000","1000","7"],
+    ["0","1000000","2000000","1000","7"],
+    ["126143999","5","0","0","0"],
+    ["126144000","5","0","0","1"],
+    ["18446744073709551615","0","1","340282366920938463463374607431768211455","2697570767701503547242632288747"],
+    ["18446744073709551615","0","9223372036854775807","340282366920938463463374607431768211455","2697570767701503547242632288747"],
+    ["18446744073709551615","100","0","0","146235604338"],
+    ["1","63072000","126144000","10000","5000"],
   ],
   rate_change_allowed: [
     ["999","1000","1000","999",false],
@@ -1165,31 +1191,31 @@ const RUST = {
     ["grid 11",["560534190","2609217593302648","97349","1702035115","1700006945","340925129067343527580927677","14652850440669184","72314023109302130","43428560240284","880937472433"],["1701835676","1705065363","1705065415"],[["560534190","2609217593302648","97349","1702035115","1701835676","340925129067343527649156993","14653028465800871","72314023109302130","2476222706211516","86791501201"],["560534190","2609217593302648","97349","1702035115","1702035115","340925129067343527656597993","14653047880988982","72314023109302130","1575457702443516","851795269201"],["560534190","2609217593302648","97349","1702035115","1702035115","340925129067343527656597993","14653047880988982","72314023109302130","1575457702443516","851795269201"]]],
   ],
   notify: [
-    ["half window left: rate 1500, not 1000",["100000000","40000000","1000","4888000","-2888000","0","0","0","0","0"],"20000000000","7776000000","0","1000000","ok","1500","8776000"],
-    ["exactly holds the rate",["100000000","40000000","1000","2000000","1000000","0","0","0","0","0"],"20000000000","6776000000","0","1000000","ok","1000","8776000"],
-    ["one unit short of holding the rate",["100000000","40000000","1000","2000000","1000000","0","0","0","0","0"],"20000000000","6775999999","0","1000000","RewardRateWouldDecrease",null,null],
+    ["half window left: rate 1500, not 1000",["100000000","40000000","1000","64072000","-62072000","0","0","0","0","0"],"378432000000","126144000000","0","1000000","ok","1500","127144000"],
+    ["exactly holds the rate",["100000000","40000000","1000","2000000","1000000","0","0","0","0","0"],"20000000000","125144000000","0","1000000","ok","1000","127144000"],
+    ["one unit short of holding the rate",["100000000","40000000","1000","2000000","1000000","0","0","0","0","0"],"20000000000","125143999999","0","1000000","RewardRateWouldDecrease",null,null],
     ["rate cut mid-window",["100000000","40000000","1000","2000000","1000000","0","0","0","0","0"],"20000000000","1000000000","0","1000000","RewardRateWouldDecrease",null,null],
-    ["same amount at period_finish",["100000000","40000000","1000","1000000","1000000","0","0","0","0","0"],"20000000000","1000000000","0","1000000","ok","128","8776000"],
-    ["zero-cost grief",["100000000","40000000","10000","4888000","1000000","0","0","0","0","0"],"100000000000","0","1","1000000","RewardRateWouldDecrease",null,null],
-    ["from budget only, holds the rate",["100000000","40000000","1000","2000000","1000000","0","0","0","0","0"],"20000000000","0","6776000000","1000000","ok","1000","8776000"],
-    ["empty pool is accepted on chain",["100000000","0","0","0","1000000","0","0","0","0","0"],"0","7776000000","0","1000000","ok","1000","8776000"],
-    ["RewardTooHigh",["100000000","40000000","0","0","1000000","0","0","0","0","0"],"1000000","0","7776000000","1000000","RewardTooHigh",null,null],
+    ["same amount at period_finish",["100000000","40000000","1000","1000000","1000000","0","0","0","0","0"],"20000000000","1000000000","0","1000000","ok","7","127144000"],
+    ["zero-cost grief",["100000000","40000000","10000","64072000","1000000","0","0","0","0","0"],"2522880000000","0","1","1000000","RewardRateWouldDecrease",null,null],
+    ["from budget only, holds the rate",["100000000","40000000","1000","2000000","1000000","0","0","0","0","0"],"252288000000","0","125144000000","1000000","ok","1000","127144000"],
+    ["empty pool is accepted on chain",["100000000","0","0","0","1000000","0","0","0","0","0"],"0","126144000000","0","1000000","ok","1000","127144000"],
+    ["RewardTooHigh",["100000000","40000000","0","0","1000000","0","0","0","0","0"],"1000000","0","126144000000","1000000","RewardTooHigh",null,null],
     ["EmissionExceedsFunding",["100000000","40000000","0","0","1000000","0","5000000000","1000","0","0"],"1000000","1000","0","1000000","EmissionExceedsFunding",null,null],
     ["ZeroAmount",["100000000","40000000","0","0","1000000","0","0","0","0","0"],"1000000","0","0","1000000","ZeroAmount",null,null],
-    ["rate floors to zero",["100000000","40000000","0","0","1000000","0","0","0","0","0"],"0","7775999","0","1000000","RewardRateTooSmall",null,null],
-    ["rate below the divisor",["100000000","3970000000000000","0","0","1000000","0","0","0","0","0"],"100000000000","7776000000","0","1000000","RewardRateTooSmall",null,null],
+    ["rate floors to zero",["100000000","40000000","0","0","1000000","0","0","0","0","0"],"0","126143999","0","1000000","RewardRateTooSmall",null,null],
+    ["rate below the divisor",["100000000","3970000000000000","0","0","1000000","0","0","0","0","0"],"126144000000","126144000000","0","1000000","RewardRateTooSmall",null,null],
     ["doubly invalid reports RewardRateTooSmall first",["100000000","40000000","1000","1000010","1000000","0","0","0","0","0"],"20000000000","0","1","1000000","RewardRateTooSmall",null,null],
-    ["first notify, never funded",["100000000","40000000","0","0","1000000","0","0","0","0","0"],"0","50000000000","0","1000000","ok","6430","8776000"],
-    ["drift: zero-margin max at preview time",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","70760007","1000000","ok","10","8776000"],
-    ["drift: zero-margin max one second later",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","70760007","1000001","RewardTooHigh",null,null],
-    ["drift: margin 4 one second later",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","70760003","1000001","ok","9","8776001"],
-    ["drift: 1-token margin +1s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000001","ok","9","8776001"],
-    ["drift: 1-token margin +2s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000002","ok","9","8776002"],
-    ["drift: 1-token margin +3s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000003","ok","9","8776003"],
-    ["drift: 1-token margin +60s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000060","ok","9","8776060"],
-    ["drift: 1-token margin +120s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000120","ok","9","8776120"],
-    ["drift: 1-token margin +299s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000299","ok","9","8776299"],
-    ["drift: 1-token margin +300s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000300","ok","9","8776300"],
+    ["first notify, never funded",["100000000","40000000","0","0","1000000","0","0","0","0","0"],"0","50000000000","0","1000000","ok","396","127144000"],
+    ["drift: zero-margin max at preview time",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"1261440007","0","1254440007","1000000","ok","10","127144000"],
+    ["drift: zero-margin max one second later",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"1261440007","0","1254440007","1000001","RewardTooHigh",null,null],
+    ["drift: margin 4 one second later",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"1261440007","0","1254440003","1000001","ok","9","127144001"],
+    ["drift: 1-token margin +1s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"1261440007","0","1253440007","1000001","ok","9","127144001"],
+    ["drift: 1-token margin +2s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"1261440007","0","1253440007","1000002","ok","9","127144002"],
+    ["drift: 1-token margin +3s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"1261440007","0","1253440007","1000003","ok","9","127144003"],
+    ["drift: 1-token margin +60s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"1261440007","0","1253440007","1000060","ok","9","127144060"],
+    ["drift: 1-token margin +120s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"1261440007","0","1253440007","1000120","ok","9","127144120"],
+    ["drift: 1-token margin +299s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"1261440007","0","1253440007","1000299","ok","9","127144299"],
+    ["drift: 1-token margin +300s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"1261440007","0","1253440007","1000300","ok","9","127144300"],
   ],
 };
 
@@ -1718,87 +1744,109 @@ describe('the time-left penalty — charged and printed for THIS position at the
 
 describe('notify preview — refused before a fee, and the rate it prints is the real one', () => {
   const NOW = 1_000_000n;
+  // The window, from the module the CLI runs. Every amount below that means something
+  // RELATIVE to the window is written in D, so each test keeps its meaning at any length.
+  // The base pool runs 1000/s with 1,000,000 s left, so holding its rate mid-window takes
+  // 1000 x (D - 1,000,000) raw: 125,144 tokens at four years (it was 6,776 at 90 days).
+  const D = BigInt(REWARDS_DURATION_SECS);
+  const HOLD = 1000n * (D - 1_000_000n);
+  /** rustc's new_reward_rate for these inputs — looked up, never recomputed here. */
+  const rustRate = (a, n, pf, r) => {
+    const row = RUST.new_reward_rate.find((x) => x[0] === String(a) && x[1] === String(n) && x[2] === String(pf) && x[3] === String(r));
+    if (!row) throw new Error(`no rustc new_reward_rate vector for (${a}, ${n}, ${pf}, ${r}): add it to the generator`);
+    return BigInt(row[4]);
+  };
   const base = (over = {}) => poolOf(['100000000', '40000000', '1000', '2000000', '1000000', '0', '0', '0', '0', '0'], over);
   const preview = (pool, amount, fromBudget = 0n, extra = {}) =>
     notifyPreview({ pool, now: NOW, rewardVaultRaw: 20_000_000_000n, amount, fromBudget, ...extra });
 
-  it('MID-WINDOW: half a window left at 1000/s plus 7,776 tokens is 1500/s, not the 1000/s scheduled/90d gives', () => {
-    const pv = preview(base({ periodFinish: NOW + 3_888_000n }), 7_776_000_000n);
-    expect(7_776_000_000n / BigInt(REWARDS_DURATION_SECS)).toBe(1000n); // what the old CLI printed
+  it('MID-WINDOW: half a window left at 1000/s plus a window of 1000/s is 1500/s, not the 1000/s scheduled/D gives', () => {
+    // The vault is sized so the funding ceiling (2000/s) is not what this test is about.
+    const pv = preview(base({ periodFinish: NOW + D / 2n }), 1000n * D, 0n, { rewardVaultRaw: 1000n * D });
+    expect((1000n * D) / D).toBe(1000n); // scheduled / D alone: what a CLI that dropped the tail would print
     expect(pv.newRate).toBe(1500n);
-    expect(pv.leftover).toBe(3_888_000_000n);
+    expect(pv.newRate).toBe(rustRate(1000n * D, NOW, NOW + D / 2n, 1000n));
+    expect(pv.leftover).toBe(1000n * (D / 2n));
     expect(pv.pctChangeBps).toBe(5000n);
-    expect(pv.newPeriodFinish).toBe(NOW + 7_776_000n);
+    expect(pv.newPeriodFinish).toBe(NOW + D);
     expect(pv.problems).toEqual([]);
-    const text = notifyReport(pv, base({ periodFinish: NOW + 3_888_000n }), { amount: 7_776_000_000n, fromBudget: 0n, now: NOW }).join('\n');
+    const text = notifyReport(pv, base({ periodFinish: NOW + D / 2n }), { amount: 1000n * D, fromBudget: 0n, now: NOW }).join('\n');
     expect(text).toContain('current rate   0.001 / s  (86.4 / day)');
     expect(text).toContain('new rate       0.0015 / s  (129.6 / day)');
     expect(text).toContain('change         +50.00%');
-    expect(text).toContain(`new finish     ${new Date(Number(NOW + 7_776_000n) * 1000).toISOString()}`);
+    expect(text).toContain(`new finish     ${new Date(Number(NOW + D) * 1000).toISOString()}`);
+    // The window is NAMED in what the operator reads, and named from the constant: this
+    // line said "chain now + 90 days" as a literal, and would have gone on saying it.
+    expect(text).toContain('(chain now + 4 years; the program uses its landing time)');
     expect(text).toMatch(/owed \(LIVE\) {4}0 /);
-    expect(text).toContain('fundable       27,776');
-    expect(text).toContain('minimum        3,888 holds the current rate');
+    expect(text).toContain('fundable       252,288'); // 126,144 in the vault + 126,144 arriving
+    expect(text).toContain('minimum        63,072 holds the current rate'); // 1000/s x D/2
   });
 
   it('THE RATE GUARD: exactly rate x elapsed passes, one unit less is refused and names the minimum', () => {
-    const held = preview(base(), 6_776_000_000n);
+    const held = preview(base(), HOLD);
     expect(held.problems).toEqual([]);
     expect(held.newRate).toBe(1000n);
-    expect(held.minScheduled).toBe(6_776_000_000n);
+    expect(held.minScheduled).toBe(HOLD);
 
-    const short = preview(base(), 6_775_999_999n);
+    const short = preview(base(), HOLD - 1n);
     expect(programVerdict(short)).toBe('RewardRateWouldDecrease');
     expect(short.newRate).toBe(999n);
-    expect(short.problems.find((x) => x.code === 6028).text).toContain('Schedule at least 6,776');
+    expect(short.problems.find((x) => x.code === 6028).text).toContain('Schedule at least 125,144');
   });
 
   it('a mid-window cut is refused; the same amount at period_finish is allowed', () => {
     const cut = preview(base(), 1_000_000_000n);
-    expect(cut.newRate).toBe(257n);
+    expect(cut.newRate).toBe(rustRate(1_000_000_000n, NOW, 2_000_000n, 1000n)); // 15 at four years (257 at 90 days)
+    expect(cut.newRate < 1000n, 'premise: the re-spread tail is a cut').toBe(true);
     expect(programVerdict(cut)).toBe('RewardRateWouldDecrease');
     const after = preview(base({ periodFinish: NOW }), 1_000_000_000n);
     expect(after.problems).toEqual([]);
-    expect(after.newRate).toBe(128n);
+    expect(after.newRate).toBe(1_000_000_000n / D); // 7 at four years (128 at 90 days): fresh, old rate ignored
     expect(after.pctChangeBps).toBeNull();
   });
 
   it('a from-budget that cannot hold the rate is told the --amount that would, and that amount works', () => {
     const short = preview(base(), 0n, 1_000_000_000n);
     expect(programVerdict(short)).toBe('RewardRateWouldDecrease');
-    // (6,776,000,000 + 120s x 1000) - 1,000,000,000 from budget
-    expect(short.problems.find((x) => x.code === 6028).text).toContain('an --amount of at least 5,776.12 (120s of landing slack included)');
-    const topped = preview(base(), 5_776_120_000n, 1_000_000_000n);
+    // (HOLD + 120s x 1000) - 1,000,000,000 from budget = 124,144.12 tokens at four years
+    expect(short.problems.find((x) => x.code === 6028).text).toContain('an --amount of at least 124,144.12 (120s of landing slack included)');
+    const topped = preview(base(), HOLD + 120_000n - 1_000_000_000n, 1_000_000_000n);
     expect(topped.problems).toEqual([]);
     expect(topped.risks).toEqual([]);
   });
 
   it('landing drift: at today\'s minimum is a RISK; at the slack minimum it is not', () => {
-    const atMin = preview(base(), 6_776_000_000n);
-    expect(atMin.minScheduledAtSlack).toBe(1000n * (7_776_000n - (1_000_000n - LANDING_SLACK_SECS)));
+    const atMin = preview(base(), HOLD);
+    expect(atMin.minScheduledAtSlack).toBe(1000n * (D - (1_000_000n - LANDING_SLACK_SECS)));
     expect(atMin.risks.join()).toMatch(/lands NOW/);
     expect(preview(base(), atMin.minScheduledAtSlack).risks).toEqual([]);
   });
 
   it('ZERO WEIGHT is refused — every second until the first stake would be burned', () => {
-    const pv = preview(base({ totalWeighted: 0n, periodFinish: 0n, rewardRate: 0n }), 7_776_000_000n);
+    const pv = preview(base({ totalWeighted: 0n, periodFinish: 0n, rewardRate: 0n }), 1000n * D);
     expect(programVerdict(pv)).toBe('ok'); // the program itself would accept it
     expect(pv.problems.map((x) => x.text).join()).toMatch(/nobody is staked.*BURNED/);
-    const ok = preview(base({ totalWeighted: 0n, periodFinish: 0n, rewardRate: 0n }), 7_776_000_000n, 0n, { allowEmptyPool: true });
+    const ok = preview(base({ totalWeighted: 0n, periodFinish: 0n, rewardRate: 0n }), 1000n * D, 0n, { allowEmptyPool: true });
     expect(ok.problems).toEqual([]);
     expect(ok.notes.join()).toMatch(/--allow-empty-pool/);
   });
 
   it('weight one unit below the min-stake floor is refused too', () => {
-    const pv = preview(base({ totalWeighted: 39_999_999n, periodFinish: 0n }), 7_776_000_000n);
+    const pv = preview(base({ totalWeighted: 39_999_999n, periodFinish: 0n }), 1000n * D);
     expect(pv.problems.some((x) => x.code === null && /below the floor 40000000/.test(x.text))).toBe(true);
   });
 
   it('nothing scheduled, a zero rate, RewardTooHigh and a rate below the divisor are all refused', () => {
     const idle = base({ periodFinish: 0n, rewardRate: 0n });
     expect(programVerdict(preview(idle, 0n))).toBe('ZeroAmount');
-    expect(programVerdict(preview(idle, 7_775_999n))).toBe('RewardRateTooSmall');
-    expect(programVerdict(notifyPreview({ pool: idle, now: NOW, rewardVaultRaw: 0n, amount: 0n, fromBudget: 7_776_000_000n }))).toBe('RewardTooHigh');
-    expect(programVerdict(preview(base({ periodFinish: 0n, totalWeighted: 3_970_000_000_000_000n }), 7_776_000_000n))).toBe('RewardRateTooSmall');
+    // D - 1 raw is the LARGEST reload that still floors to a zero rate; D itself emits 1/s.
+    expect(programVerdict(preview(idle, D - 1n))).toBe('RewardRateTooSmall');
+    expect(programVerdict(preview(idle, D))).not.toBe('RewardRateTooSmall');
+    const tooHigh = notifyPreview({ pool: idle, now: NOW, rewardVaultRaw: 0n, amount: 0n, fromBudget: 1000n * D });
+    expect(programVerdict(tooHigh)).toBe('RewardTooHigh');
+    expect(tooHigh.problems.find((x) => x.code === 6014).text).toContain('over 4 years)');
+    expect(programVerdict(preview(base({ periodFinish: 0n, totalWeighted: 3_970_000_000_000_000n }), 1000n * D))).toBe('RewardRateTooSmall');
   });
 });
 
@@ -1839,7 +1887,8 @@ describe('--from-budget max', () => {
   it('resolves from the command line, and refuses to send 0/0 when nothing is unpledged', () => {
     const snap = (vault) => ({ pool, now: NOW, rewardVault: { ok: true, value: { amount: vault } } });
     const args = parseArgs(['notify', '--pool', 'X', '--amount', '0', '--from-budget', 'max']);
-    expect(resolveNotifyAmounts(args, snap(VAULT))).toEqual({ amount: 0n, fromBudget: 69_760_007n, max: true });
+    const oneToken = RUST.notify.find((r) => r[0] === 'drift: 1-token margin +1s');
+    expect(resolveNotifyAmounts(args, snap(VAULT))).toEqual({ amount: 0n, fromBudget: BigInt(oneToken[4]), max: true });
     // A vault holding exactly the unemitted tail has nothing unpledged.
     expect(() => resolveNotifyAmounts(args, snap(7_000_000n))).toThrow(/nothing in the reward vault is unpledged/);
     expect(() => resolveNotifyAmounts(args, { ...snap(0n), rewardVault: { ok: false, reason: 'missing' } })).toThrow(/unreadable/);
@@ -2127,7 +2176,9 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
   // The command itself, against an RPC that answers BY ADDRESS and records every call, so
   // an account read from the wrong address comes back absent, and a blockhash fetch or a
   // simulation shows up in `calls`. The pool is the notify describe's base: 1000/s,
-  // 1,000,000s left, 20,000 tokens in the reward vault; the authority's ATA holds 1,000,000.
+  // 1,000,000s left, 200,000 tokens in the reward vault; the authority's ATA holds 1,000,000.
+  // At the four-year window holding 1000/s here takes 125,144 tokens (1000 x (D - 1e6) raw),
+  // so the reloads below are 130,000 and the vault is big enough for a from-budget one.
   const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
   const AUTHORITY = new PublicKey('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK'); // stands in for a Squads vault
   const POOL = poolPda(PROGRAM, MINT, 0);
@@ -2172,7 +2223,7 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
     const byAddress = new Map([
       [POOL.toBase58(), poolAccount(pool)],
       ['SysvarC1ock11111111111111111111111111111111', { owner: SYSVAR_OWNER, data: clock }],
-      [vaultPda(PROGRAM, REWARD_VAULT_SEED, POOL).toBase58(), tokenAccount(20_000_000_000n)],
+      [vaultPda(PROGRAM, REWARD_VAULT_SEED, POOL).toBase58(), tokenAccount(200_000_000_000n)],
       [vaultPda(PROGRAM, STAKE_VAULT_SEED, POOL).toBase58(), tokenAccount(0n)],
       [FUNDER.toBase58(), funder],
     ]);
@@ -2216,14 +2267,15 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
 
   it('a preview that holds the rate exits 0 with no keypair and one snapshot, printing the authority and the minimum --amount', async () => {
     const rpc = stubRpc();
-    const { code, text } = await run(rpc, '--amount', '7000', '--preview');
+    const { code, text } = await run(rpc, '--amount', '130000', '--preview');
     expect(code).toBe(0);
     expect(rpc.calls).toEqual(SNAPSHOT);
     expect(text).toContain('PREVIEW — no keypair was read; nothing was built, simulated or sent.');
     expect(text).toContain(`pool authority     ${AUTHORITY.toBase58()}`);
-    expect(text).toContain('minimum --amount   6,776  holds the current rate if it lands at chain now');
-    expect(text).toContain(`minimum --amount   6,776.12  holds it if it lands ${LANDING_SLACK_SECS}s later`);
+    expect(text).toContain('minimum --amount   125,144  holds the current rate if it lands at chain now');
+    expect(text).toContain(`minimum --amount   125,144.12  holds it if it lands ${LANDING_SLACK_SECS}s later`);
     expect(text).toContain('adds 0.001, 3.6 per hour');
+    expect(text).toContain('notify-reward over 4 years');
     expect(text).not.toContain('REFUSED');
   });
 
@@ -2237,13 +2289,13 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
 
   it('--preview with --broadcast is refused before the RPC or a keypair is touched', async () => {
     const rpc = stubRpc();
-    await expect(run(rpc, '--amount', '7000', '--preview', '--broadcast')).rejects.toThrow(/--preview never sends/);
+    await expect(run(rpc, '--amount', '130000', '--preview', '--broadcast')).rejects.toThrow(/--preview never sends/);
     expect(rpc.calls).toEqual([]);
   });
 
   it('without --preview the keypair is still required', async () => {
     const rpc = stubRpc();
-    await expect(run(rpc, '--amount', '7000')).rejects.toThrow(/signer\(\) was called/);
+    await expect(run(rpc, '--amount', '130000')).rejects.toThrow(/signer\(\) was called/);
     expect(rpc.calls).toEqual([]);
   });
 
@@ -2252,7 +2304,7 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
   // EmissionExceedsFunding. The program takes ANY token account of the mint the authority
   // holds; the CLI can read only the ATA, and says so.
   it('an authority with NO ATA for the mint is refused, even at --amount 0, and the refusal says only the ATA was checked', async () => {
-    for (const amounts of [['--amount', '7000'], ['--amount', '0', '--from-budget', '7000']]) {
+    for (const amounts of [['--amount', '130000'], ['--amount', '0', '--from-budget', '130000']]) {
       const rpc = stubRpc({ funder: null });
       const { code, text } = await run(rpc, ...amounts, '--preview');
       expect(code, amounts.join(' ')).toBe(1);
@@ -2261,28 +2313,28 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
       expect(text).toContain("only the pool authority's ATA is checked");
     }
     // ...and the same from-budget reload with the ATA present (holding nothing) is accepted.
-    expect((await run(stubRpc({ funder: tokenAccount(0n, AUTHORITY) }), '--amount', '0', '--from-budget', '7000', '--preview')).code).toBe(0);
+    expect((await run(stubRpc({ funder: tokenAccount(0n, AUTHORITY) }), '--amount', '0', '--from-budget', '130000', '--preview')).code).toBe(0);
   });
 
   it('an ATA holding less than --amount is refused; exactly --amount is not', async () => {
-    const short = await run(stubRpc({ funder: tokenAccount(6_999_999_999n, AUTHORITY) }), '--amount', '7000', '--preview');
+    const short = await run(stubRpc({ funder: tokenAccount(129_999_999_999n, AUTHORITY) }), '--amount', '130000', '--preview');
     expect(short.code).toBe(1);
-    expect(short.text).toMatch(/REFUSED: the funder token account holds 6,999.999999, less than --amount 7,000/);
+    expect(short.text).toMatch(/REFUSED: the funder token account holds 129,999.999999, less than --amount 130,000/);
     expect(short.text).toContain("only the pool authority's ATA is checked");
-    const exact = await run(stubRpc({ funder: tokenAccount(7_000_000_000n, AUTHORITY) }), '--amount', '7000', '--preview');
+    const exact = await run(stubRpc({ funder: tokenAccount(130_000_000_000n, AUTHORITY) }), '--amount', '130000', '--preview');
     expect(exact.code).toBe(0);
     expect(exact.text).not.toContain('REFUSED');
   });
 
   it('a token account at the ATA address held by someone else is not the funder', async () => {
-    const { code, text } = await run(stubRpc({ funder: tokenAccount(1_000_000_000_000n, OWNER) }), '--amount', '7000', '--preview');
+    const { code, text } = await run(stubRpc({ funder: tokenAccount(1_000_000_000_000n, OWNER) }), '--amount', '130000', '--preview');
     expect(code).toBe(1);
     expect(text).toMatch(/REFUSED: the funder token account .*not the pool authority/);
   });
 
   it('an authority that moved between addressing the ATA and the snapshot is refused, not mis-read', async () => {
     const rpc = stubRpc({ addressed: { authority: OWNER } });
-    await expect(run(rpc, '--amount', '7000', '--preview')).rejects.toThrow(/pool authority changed/);
+    await expect(run(rpc, '--amount', '130000', '--preview')).rejects.toThrow(/pool authority changed/);
   });
 
   it('the funder refusal comes FIRST: Anchor rejects the account before the handler checks anything', () => {
@@ -2299,11 +2351,11 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
   // notifyCommand are the only thing between them and a broadcast.
   it('a CLI-only problem (an empty pool) throws before a blockhash or a simulation; --allow-empty-pool reaches the simulation', async () => {
     const refused = stubRpc({ pool: { totalWeighted: 0n } });
-    await expect(quietly(() => runAs(theAuthority, refused, '--amount', '7000')))
+    await expect(quietly(() => runAs(theAuthority, refused, '--amount', '130000')))
       .rejects.toThrow(/notify refused before anything was built or sent: 1 problem/);
     expect(refused.calls).toEqual(SNAPSHOT);
     const allowed = stubRpc({ pool: { totalWeighted: 0n } });
-    const { code, text } = await quietly(() => runAs(theAuthority, allowed, '--amount', '7000', '--allow-empty-pool'));
+    const { code, text } = await quietly(() => runAs(theAuthority, allowed, '--amount', '130000', '--allow-empty-pool'));
     expect(code).toBe(0);
     expect(text).toMatch(/note: total_weighted 0 is below the floor .*Proceeding \(--allow-empty-pool\)/);
     expect(allowed.calls).toEqual(SIMULATED);
@@ -2311,20 +2363,20 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
 
   it('a missing funder ATA is refused on the signing path too, before anything is built', async () => {
     const rpc = stubRpc({ funder: null });
-    await expect(quietly(() => runAs(theAuthority, rpc, '--amount', '7000'))).rejects.toThrow(/refused before anything was built/);
+    await expect(quietly(() => runAs(theAuthority, rpc, '--amount', '130000'))).rejects.toThrow(/refused before anything was built/);
     expect(rpc.calls).toEqual(SNAPSHOT);
   });
 
   it('a landing RISK refuses --broadcast before anything is built; the dry run still simulates', async () => {
-    // 6,776 is the minimum at chain now and below the minimum 120s later: a RISK, not a problem.
+    // 125,144 is the minimum at chain now and below the minimum 120s later: a RISK, not a problem.
     const sent = stubRpc();
-    await expect(quietly(() => runAs(theAuthority, sent, '--amount', '6776', '--broadcast')))
+    await expect(quietly(() => runAs(theAuthority, sent, '--amount', '125144', '--broadcast')))
       .rejects.toThrow(/refusing to BROADCAST with a landing RISK/);
     expect(sent.calls).toEqual(SNAPSHOT);
     const dry = stubRpc();
-    const { code, text } = await quietly(() => runAs(theAuthority, dry, '--amount', '6776'));
+    const { code, text } = await quietly(() => runAs(theAuthority, dry, '--amount', '125144'));
     expect(code).toBe(0);
-    expect(text).toMatch(/RISK: 6,776 holds the rate only if it lands NOW/);
+    expect(text).toMatch(/RISK: 125,144 holds the rate only if it lands NOW/);
     expect(text).not.toContain('REFUSED');
     expect(dry.calls).toEqual(SIMULATED);
   });
@@ -2333,8 +2385,8 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
     const pool = poolOf(['100000000', '40000000', '1000', '2000000', '1000000', '0', '0', '0', '0', '0'], { authority: AUTHORITY });
     const pv = notifyPreview({ pool, now: 1_000_000n, rewardVaultRaw: 20_000_000_000n, amount: 0n, fromBudget: 1_000_000_000n });
     const text = notifyPreviewLines(pv, pool, { fromBudget: 1_000_000_000n }).join('\n');
-    expect(text).toContain('minimum --amount   5,776  holds the current rate');
-    expect(text).toContain('minimum --amount   5,776.12  holds it');
+    expect(text).toContain('minimum --amount   124,144  holds the current rate');
+    expect(text).toContain('minimum --amount   124,144.12  holds it');
     const ended = notifyPreview({ pool, now: 2_000_000n, rewardVaultRaw: 20_000_000_000n, amount: 1_000_000_000n, fromBudget: 0n });
     expect(notifyPreviewLines(ended, pool, { fromBudget: 0n }).join('\n')).toContain('none — no live window');
   });
@@ -2359,6 +2411,7 @@ describe('--allow-empty-pool: what an empty pool costs is TIME, never tokens', (
     expect(refusal).toMatch(/loses window TIME, not tokens/);
     expect(refusal).toMatch(/the burned seconds never come back, but their tokens stay in the reward vault and remain schedulable/);
     expect(refusal).toMatch(/Pass --allow-empty-pool/);
+    expect(refusal).toContain('the 4 years start now');
     const pv = at(true);
     expect(pv.problems).toEqual([]);
     expect(pv.notes.join()).toMatch(/loses window TIME, not tokens/);

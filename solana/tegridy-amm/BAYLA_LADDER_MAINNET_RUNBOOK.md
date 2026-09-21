@@ -832,11 +832,123 @@ decaying penalty (I14; `docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md`, D1).
   coming down before `period_finish`.
 - **Publish dates, not rates.**
 
+### 🔁 PENDING UPGRADE — the emission window becomes FOUR YEARS (owner decision 2026-09-20)
+
+**Status: PREPARED, NOT DEPLOYED.** Until the owner runs the upgrade below, the program on
+mainnet still spreads each reload over 90 days, and everything else in §8 describes it
+correctly. This subsection says what changes when the upgrade lands, and what does not.
+
+**The change.** `REWARDS_DURATION_SECS` goes from `90 * 86_400` (7,776,000 s) to
+`4 * 365 * 86_400` (126,144,000 s), the same number as `MAX_LOCK_SECS`: one emission window
+per top-rung lock. Measured against the deployed tag `bayla-ladder-mainnet` (`50065ef0`), the
+program's ONLY executable change is that constant, plus a compile-time
+`assert!(REWARDS_DURATION_SECS == MAX_LOCK_SECS)` that emits no code. Every other line in
+the diff is a comment or `#[cfg(test)]`.
+
+**What it does NOT change: the window live now.** `period_finish` is STORED on the pool and
+only `notify_reward` rewrites it, so the running window keeps its own rate and end date.
+The unemitted tail (42,736.08538 BAYLA at the 2026-09-21T04:00:32Z read) keeps emitting at
+**475.7184/day until 2026-12-20T00:02:42Z**, exactly as it would without the upgrade. That is
+the owner's instruction: "the rewards that are there can do whatever they are doing".
+
+🔴 **After the upgrade, no reload is possible before 2026-12-20T00:02:42Z.** Do not try one,
+and do not "fix" this by bypassing the guard. The rate guard's minimum, `reward_rate ×
+(REWARDS_DURATION_SECS − seconds left)`, equals "what the window emitted since the last
+notify" only when `period_finish` was written with the SAME window length. This window's was
+written with 90 days. Under the new constant, holding 0.005506/s needs **between ~651,813 and
+~694,549 BAYLA of new reward in a single reload**, rising as the window runs down.
+`notify --preview` will refuse with 6028 `RewardRateWouldDecrease` and print that minimum.
+The guard turns itself off at this window's own `period_finish`, and every window after it
+is written with the new length, so this lasts one window only. (math.rs, above
+`rate_change_allowed`, carries the proof.)
+
+**From 2026-12-20T00:02:42Z: the first four-year window.**
+
+| | 90-day window (live now) | four-year window (after the upgrade) |
+| --- | --- | --- |
+| `rate =` | `scheduled / 7,776,000` | `scheduled / 126,144,000` |
+| smallest reload that emits anything (`RewardRateTooSmall` below it) | 7.776 BAYLA | **126.144 BAYLA** |
+| a rate set too high stands until `period_finish`, i.e. up to | 90 days | **four years** |
+| max-boost rate under ~28%/yr needs a full window to schedule less than | ~1.7% of `total_weighted` | **~28% of `total_weighted`** |
+| holding today's 475.7184/day for one full window needs | 42,814.66 BAYLA | **694,548.86 BAYLA** |
+
+- **What the vault alone can fund.** At the 2026-09-21 read only **276.161466 BAYLA** was
+  unpledged. Once the live tail has emitted, that (plus any penalties swept in by then) is
+  all a `--from-budget max` reload can schedule: over four years that is **2 raw/s, about
+  0.17 BAYLA/day**. It clears the 126.144 floor, but a meaningful four-year stream needs
+  fresh BAYLA sent in with the reload.
+- **The 28% ceiling at today's weight**: `0.28 × total_weighted` = 0.28 × 82,654.49 ≈
+  **23,143 BAYLA per four-year window** (weight read 2026-09-21; re-read it before sizing).
+- **Mid-window top-ups still work the same way**: at least `reward_rate × seconds since the
+  last notify`, and each one restarts a fresh four years. The day-60–75 rhythm in the reload
+  policy below was written for 90-day windows; after the upgrade it applies to nothing,
+  since the only 90-day window cannot be reloaded anyway.
+
+⚠️ **Use the CLI that matches the program on chain.** `frontend/scripts/bayla-ladder-ops.mjs`
+on branch `docs/ladder-golive-corrections` already mirrors the four-year constant, and its
+parity test pins it to the value rustc compiled from this math.rs. So:
+- **before the upgrade lands**, a `notify --preview` from that branch computes against the
+  WRONG window. Use the trunk CLI (still 90 days) until then.
+- **after the upgrade lands**, the trunk CLI is the wrong one until the branch merges.
+- `read` never uses the window length, so it is safe from either.
+
+A `notify` run without `--preview` also simulates on chain, which catches a mismatch. `--preview`
+does not simulate.
+
+**The on-chain IDL's doc string** for `notify_reward` will still say "Open a 90-day window"
+until the IDL account is upgraded (8A.7's authority). The interface itself (instructions,
+accounts, args, errors) does not change, so no client breaks; the committed
+`idl/bayla_ladder.json` is updated and CI checks it byte-for-byte against the build.
+
+**The upgrade must land before 8A.6.** After 8A.6 the upgrade authority is the Squads vault
+and the deployer can no longer sign an upgrade (8A.8: a program upgrade is also the only
+remedy for a stranded pool authority, and it too exists only while 8A.6 has not run).
+
+**The owner's sequence** — §4 and §5 exactly, with a NEW tag, because `bayla-ladder-mainnet`
+already names the deployed build and must keep naming it. `<COMMIT>` is the commit that
+carries this subsection; nothing here has been run.
+
+```powershell
+# 1. Tag and build in CI (the artifact workflow is workflow_dispatch only).
+git tag bayla-ladder-mainnet-window-4y <COMMIT>
+git push origin bayla-ladder-mainnet-window-4y
+gh workflow run solana-deploy-artifact.yml --ref bayla-ladder-mainnet-window-4y -f program=bayla-ladder -f cluster=mainnet -f program_id=EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ -f deployer=Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6
+gh run list --workflow solana-deploy-artifact.yml --limit 1
+gh run download <RUN-ID>
+Get-FileHash deployayla_ladder.so -Algorithm SHA256   # must equal the run summary's .so sha256; write it down
+
+# 2. Before spending anything: the chain still matches the build being replaced.
+solana program show EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ   # Authority must be Fu7mNAv6...; note Data Length
+solana program dump EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ before.so
+Get-FileHash before.so -Algorithm SHA256                           # must be b21e1277... (§4) — if not, STOP
+
+# 3. The upgrade: same program id, signed by the upgrade authority. `--program-id` takes the
+#    ADDRESS for an upgrade; the program keyfile's one job is done (§1).
+solana program deploy deployayla_ladder.so --program-id EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ --upgrade-authority <deployer-keyfile> --with-compute-unit-price <MICRO-LAMPORTS> --max-sign-attempts 50
+
+# 4. Verify the live bytes are the new build, and nothing else moved.
+solana program show EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ   # Authority still Fu7mNAv6...; Last Deployed In Slot advanced
+solana program dump EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ after.so
+Get-FileHash after.so -Algorithm SHA256                            # must equal step 1's hash, NOT b21e1277...
+node scriptsayla-ladder-ops.mjs read --pool Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV --program EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ --rpc $env:SOLANA_RPC
+#    reward rate still 0.005506 / second, period finish still 2026-12-20T00:02:42Z,
+#    total principal still 23,200: the upgrade touched no account.
+```
+
+`solana program dump` returns the programdata's whole data region. If the new `.so` is
+SHORTER than the old 515,352 bytes, the dump is zero-padded to the old length and its hash
+will not match. In that case compare only the first `(Get-Item deployayla_ladder.so).Length`
+bytes. If it is LONGER, the deploy auto-extends the account (CLI 4.1.1, §5) and costs rent
+for the extra bytes only. The executable change is one 32-bit immediate, so the length
+should be identical; the build's own number settles it.
+
 ### Reload policy — funding never stops
 
 The ladder's reward funding **never stops**: no sunset, no wind-down, no lapse. This is
 operator policy; the program does not enforce it.
 
+- ⚠️ **Written for the 90-day window.** Once the four-year upgrade above lands, see
+  "PENDING UPGRADE": no reload before 2026-12-20T00:02:42Z, then each reload starts four years.
 - **Reload every ~60–75 days, BEFORE `period_finish`,** with an amount that holds the rate
   — at least `reward_rate × seconds elapsed since the last notify` (at day 60 that is two
   thirds of `reward_rate × 7,776,000`; at day 75, five sixths). Each reload starts a
@@ -1285,7 +1397,7 @@ Do not leave it undecided. `________`
 | `propose_authority` landed but the vault cannot accept | the deployer is still the authority and nothing is lost. Withdraw by proposing `11111111111111111111111111111111` with the same CLI command |
 | `accept_authority` landed and the vault then cannot sign | the pool authority is stranded. **The only remedy is a program upgrade rewriting `pool.authority`** — which exists only while 8A.6 has not run. This is the whole reason for the ordering |
 | both handovers landed and the vault cannot sign | there is no remedy. New stakes still work, existing positions can still exit and claim what is funded, but the pool can never be funded again and `declare_degraded` can never be set |
-| a `notify_reward` lands at a rate that is too high | it stands until `period_finish`, up to 90 days (§8). The rate guard refuses a mid-window reload that lowers it |
+| a `notify_reward` lands at a rate that is too high | it stands until `period_finish`, up to 90 days (§8), **or up to four years once the §8 window upgrade lands**. The rate guard refuses a mid-window reload that lowers it |
 
 ---
 
@@ -1354,7 +1466,7 @@ fee, whatever the program would refuse. Two limits:
 
 | task | command | who signs |
 | --- | --- | --- |
-| reload the next 90-day window — every window, ~60–75 days in, never lapse (§8) | `notify --pool <P> --amount <WHOLE-BAYLA> [--from-budget <WHOLE-BAYLA>]` — before `period_finish` the scheduled total must be at least `reward_rate × seconds since the last notify`, or it is refused with 6028 | the authority (built in the multisig's app — §1) |
+| reload the next 90-day window — every window, ~60–75 days in, never lapse (§8). ⚠️ After the four-year upgrade: no reload before 2026-12-20T00:02:42Z, then each reload is four years (§8 "PENDING UPGRADE") | `notify --pool <P> --amount <WHOLE-BAYLA> [--from-budget <WHOLE-BAYLA>]` — before `period_finish` the scheduled total must be at least `reward_rate × seconds since the last notify`, or it is refused with 6028 | the authority (built in the multisig's app — §1) |
 | move a hatch penalty into the reward vault, before a reload schedules it | `sweep --pool <P>` | anyone |
 | propose a higher cap | `propose-cap-raise --pool <P> --cap <WHOLE-BAYLA>` | the authority |
 | apply it, 48h later | `execute-cap-raise --pool <P>` | anyone |

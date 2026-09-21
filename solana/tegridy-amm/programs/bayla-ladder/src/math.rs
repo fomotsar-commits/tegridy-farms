@@ -105,12 +105,45 @@ pub const MAX_PENALTY_RATIO: u128 =
 const _: () = assert!(MAX_EARLY_EXIT_PENALTY_BPS <= BPS);
 const _: () = assert!(MAX_PENALTY_RATIO == PENALTY_SCALE * 3 / 4);
 
-/// Owner decision 2026-09-06: rewards are RELOADED every 90 days and DISTRIBUTED per
-/// second. `notify_reward` sets a per-second rate over this window; a reload mid-window
-/// folds the unspent remainder in as Synthetix does — but, UNLIKE Synthetix and
-/// `LighthouseLadder.sol`, a reload while the window is live may not LOWER the rate
-/// ([`rate_change_allowed`], owner decision 2026-09-17).
-pub const REWARDS_DURATION_SECS: i64 = 90 * 86_400;
+/// THE EMISSION WINDOW IS THE MAXIMUM LOCK — four years, and deliberately the SAME
+/// number as [`MAX_LOCK_SECS`] (owner decision 2026-09-20, replacing the 90 days set on
+/// 2026-09-06). Rewards are DISTRIBUTED per second, as before; what changed is the
+/// length each `notify_reward` spreads its budget over.
+///
+/// Why the two agree, since that agreement is the point: a staker who takes the top rung
+/// serves exactly ONE window. The 4.00x they were quoted is the boost they actually earn
+/// across the whole schedule, instead of a figure that has to survive sixteen reloads to
+/// mean anything. `the_emission_window_is_exactly_the_maximum_lock` pins it; re-tune one
+/// of these constants and you must re-tune the other or that test goes red.
+///
+/// A reload mid-window folds the unspent remainder in as Synthetix does — but, UNLIKE
+/// Synthetix and `LighthouseLadder.sol`, a reload while the window is live may not LOWER
+/// the rate ([`rate_change_allowed`], owner decision 2026-09-17).
+///
+/// WHAT LENGTHENING THIS COSTS, stated here rather than discovered by an operator:
+///
+/// * The truncate-to-zero floor scales with it. The smallest reload that emits anything
+///   is `REWARDS_DURATION_SECS` raw units — 126.144 BAYLA at six decimals, up from
+///   7.776. See AUDIT L-1 in `notify_reward`.
+/// * The M-2 burn floor scales with it too: a window whose rate is below
+///   `total_weighted / PRECISION` emits exactly nothing, and the budget that clears
+///   that bar is linear in this constant.
+/// * [`rate_change_allowed`]'s escape hatch gets slower by the same factor. A rate set
+///   too high can only be brought down by letting the window lapse, and that wait is
+///   now up to four years rather than up to ninety days. The guard still cannot brick
+///   reloads — a reload that HOLDS or RAISES the rate is always accepted — but a
+///   mis-sized window is a much longer-lived mistake. Size the budget before notifying;
+///   `frontend/scripts/bayla-ladder-ops.mjs notify --preview` prints what will land.
+///
+/// Changing this by UPGRADE does NOT disturb a live window: `period_finish` is STORED on
+/// the pool and only `notify_reward` rewrites it, so the window running at upgrade time
+/// keeps its own end date and its own rate, and the new length first applies to the next
+/// reload. That is the opposite of [`MAX_EARLY_EXIT_PENALTY_BPS`], which is retroactive.
+pub const REWARDS_DURATION_SECS: i64 = 4 * 365 * 86_400;
+
+// The window and the top rung of the ladder are one number. Refuse to compile if a
+// future edit separates them without meaning to.
+const _: () = assert!(REWARDS_DURATION_SECS == MAX_LOCK_SECS);
 
 /// Fixed-point scale for the rewards-per-weight accumulator. See the module docs for
 /// why 1e12 and not 1e18.
@@ -270,7 +303,8 @@ pub fn emitted_delta(rpw_now: u128, rpw_stored: u128, total_weighted: u128) -> u
 /// once `rewards_paid` crosses it, `outstanding` saturates to zero and the solvency
 /// guard in `notify_reward` passes vacuously. Bounded at one raw unit per second of
 /// pool life (a same-second second checkpoint has `dt = 0`, so it is not
-/// attacker-amplifiable), which is ~7.78 BAYLA per 90-day window.
+/// attacker-amplifiable), which is ~126.14 BAYLA per four-year window at six decimals
+/// (the same one-unit-a-second bound read over the longer window; ~7.78 per 90 days).
 ///
 /// Do NOT `div_ceil` this instead: that creates a permanent over-reserve which
 /// `rewards_paid` can never retire, ratcheting `outstanding` upward until the guard
@@ -361,7 +395,7 @@ pub fn new_reward_rate(amount: u64, now: i64, period_finish: i64, old_rate: u128
 /// THE RATE GUARD (owner decision 2026-09-17; design review I07). While a window is
 /// live, a reload may not LOWER the per-second rate.
 ///
-/// Why it exists: `new_reward_rate` folds the unspent tail into a fresh 90 days, and
+/// Why it exists: `new_reward_rate` folds the unspent tail into a fresh window, and
 /// `notify_reward` accepts `amount == 0` with any `from_budget > 0`. Without this, a
 /// copied authority key could call `notify_reward(0, 1)` over and over and decay the
 /// rate toward zero at no cost — no token leaves, so every solvency check still passes,
@@ -372,11 +406,26 @@ pub fn new_reward_rate(amount: u64, now: i64, period_finish: i64, old_rate: u128
 /// the window has emitted since the last notify. A reload of exactly that gives
 /// `floor(R x D / D) == R`: `>` would refuse a reload that keeps the rate unchanged.
 ///
+/// THE "i.e." ABOVE HOLDS ONLY WHEN `period_finish` WAS SET WITH TODAY'S `D`. `D - r`
+/// equals the seconds since the last notify only because that notify set
+/// `period_finish = then + D`. A program upgrade that changes [`REWARDS_DURATION_SECS`]
+/// breaks the identity for exactly one window — the one live at upgrade time — because
+/// its `period_finish` was written with the OLD `D`. The 2026-09-20 upgrade (90 days to
+/// four years, `D` x16.2) is that case: until the live window ends, holding its rate `R`
+/// needs `S >= R x (D_new - r)`, which is most of four years of `R`, not the few days
+/// actually elapsed. In practice no mid-window reload lands during that window. That is
+/// the owner's stated intent ("the rewards that are there can do whatever they are
+/// doing") and needs no code: the guard switches itself off at that window's own
+/// `period_finish`, and every window after it is written with the new `D`, restoring the
+/// identity. Do not "fix" it by bypassing the guard.
+///
 /// Why `now >= period_finish` turns it off: that is the SAME boundary
 /// `new_reward_rate` uses to start a fresh window. After it there is no tail to
 /// re-spread, and a deliberate rate reduction is legitimate — it just has to wait for
-/// the window to end, which is at most 90 days away. So the guard can never brick
-/// reloads. The first-ever notify has `period_finish == 0` and is never guarded.
+/// the window to end, which is at most one window — four years — away (it was 90 days
+/// before 2026-09-20). So the guard can never brick reloads, but a rate set too high now
+/// stands for up to four years: size a reload before sending it, not after. The
+/// first-ever notify has `period_finish == 0` and is never guarded.
 ///
 /// What it does NOT stop, accepted: a key-holder who waits for `period_finish` can
 /// restart the stream at a tiny rate. That is a visible, one-per-window step rather
@@ -669,7 +718,7 @@ mod tests {
     #[test]
     fn a_mid_window_reload_may_not_lower_the_rate() {
         // Review I07, the zero-cost grief: `notify_reward(amount = 0, from_budget = 1)`
-        // halfway through a window re-spreads the unspent tail over a fresh 90 days.
+        // halfway through a window re-spreads the unspent tail over a fresh window.
         // Before the guard, a copied authority key could halve the rate for nothing.
         let old_rate: u128 = 10_000;
         let period_finish = REWARDS_DURATION_SECS; // the window started at 0
@@ -684,7 +733,8 @@ mod tests {
         // new >= old  iff  scheduled >= old_rate x elapsed. Floor division keeps the
         // equality exact: scheduled = R x e gives floor(R x D / D) = R. So the guard is
         // `>=`, not `>` — `>` would refuse a reload that keeps the rate unchanged and
-        // demand an extra 7.776 BAYLA for no safety gain. One unit short must refuse.
+        // demand an extra `REWARDS_DURATION_SECS` raw units (126.144 BAYLA at six
+        // decimals) for no safety gain. One unit short must refuse.
         let old_rate: u128 = 10_000;
         let period_finish = REWARDS_DURATION_SECS;
         for now in [1i64, 3_600, REWARDS_DURATION_SECS / 2, REWARDS_DURATION_SECS - 1] {
@@ -717,15 +767,33 @@ mod tests {
 
     #[test]
     fn reload_after_the_window_starts_fresh() {
-        let rate = new_reward_rate(7_776_000_000, 1_000, 500, 999);
-        assert_eq!(rate, 1_000); // 7.776e9 over 90 days = 1000/sec, old rate ignored
+        // `now >= period_finish`, so the old rate is IGNORED rather than folded in.
+        // Stated as a multiple of the window instead of the old literal 7.776e9, which
+        // only meant "1000/sec" while the window was 90 days long.
+        let d = REWARDS_DURATION_SECS as u64;
+        let rate = new_reward_rate(1_000 * d, 1_000, 500, 999);
+        assert_eq!(rate, 1_000, "a whole window's budget at 1000/sec pays 1000/sec");
     }
 
     #[test]
     fn reload_inside_the_window_folds_the_remainder_in() {
-        // 1000/sec with 1000 s left = 1e6 leftover; add 7.775e9 -> (7.775e9+1e6)/7.776e6
-        let rate = new_reward_rate(7_775_000_000, 0, 1_000, 1_000);
-        assert_eq!(rate, (7_775_000_000u128 + 1_000_000) / 7_776_000);
+        // The fold-in, pinned by its exact consequence rather than by restating the
+        // formula: bring the window's budget MINUS what the unspent tail is already
+        // worth, and the rate comes out unchanged. Had the leftover been dropped the
+        // floor would give 999, so this assertion actually distinguishes the branches.
+        let d = REWARDS_DURATION_SECS as u128;
+        let old_rate: u128 = 1_000;
+        let remaining: i64 = 1_000; // seconds left in the live window
+        let leftover = old_rate * remaining as u128;
+        let amount = (old_rate * d - leftover) as u64;
+
+        let rate = new_reward_rate(amount, 0, remaining, old_rate);
+        assert_eq!(rate, old_rate, "the unspent tail is folded in, not discarded");
+        assert_eq!(
+            amount as u128 / d,
+            old_rate - 1,
+            "premise: without the fold-in the same amount would LOWER the rate"
+        );
     }
 
     #[test]
@@ -886,5 +954,61 @@ mod tests {
         let amount = 7_776_000_123u64;
         let rate = new_reward_rate(amount, 0, 0, 0);
         assert!(rate * (REWARDS_DURATION_SECS as u128) <= amount as u128);
+    }
+
+    #[test]
+    fn the_emission_window_is_exactly_the_maximum_lock() {
+        // Owner decision 2026-09-20. The window is no longer a reload cadence picked
+        // independently of the ladder: it IS the ladder's top rung. A staker who locks
+        // for the maximum serves exactly one emission window, so the 4.00x boost they
+        // were quoted is the boost they actually earn over the whole schedule rather
+        // than a figure that outlives ~16 reloads. If someone re-tunes one of these two
+        // constants and not the other, that correspondence silently breaks — which is
+        // the only thing this test is here to stop.
+        assert_eq!(
+            REWARDS_DURATION_SECS, MAX_LOCK_SECS,
+            "the emission window and the maximum lock must stay equal"
+        );
+    }
+
+    #[test]
+    fn a_reload_below_the_window_length_truncates_to_a_zero_rate() {
+        // AUDIT L-1, pinned at the boundary rather than at a remembered number. `rate =
+        // scheduled / REWARDS_DURATION_SECS` is integer division, so the smallest reload
+        // that emits ANYTHING is exactly `REWARDS_DURATION_SECS` raw units: one unit
+        // below it the rate floors to zero, `notify_reward` would extend the window and
+        // `RewardAdded` would fire with a healthy-looking payload while the pool paid
+        // out nothing. lib.rs refuses that with `RewardRateTooSmall`; this pins the
+        // arithmetic the refusal is derived from.
+        //
+        // Stated in the constant, not in tokens, so it survives the next re-tune: at
+        // six decimals the floor moved from 7.776 BAYLA to 126.144 BAYLA when the window
+        // went from 90 days to four years, and it moves again with any further change.
+        let d = REWARDS_DURATION_SECS as u64;
+
+        // A fresh window (`now >= period_finish`), which is the branch an operator
+        // funding the next period actually takes.
+        assert_eq!(
+            new_reward_rate(d - 1, 0, 0, 0),
+            0,
+            "one raw unit below the window length must truncate to a zero rate"
+        );
+        assert_eq!(
+            new_reward_rate(d, 0, 0, 0),
+            1,
+            "exactly the window length is the smallest reload that emits at all"
+        );
+        assert_eq!(
+            new_reward_rate(2 * d - 1, 0, 0, 0),
+            1,
+            "the floor repeats at every multiple: truncation is not a one-off at zero"
+        );
+
+        // And the whole-token consequence, spelled out because it is what the operator
+        // reads in the runbook: below this many raw units the program refuses outright.
+        assert!(
+            (d - 1) / 1_000_000 == 126,
+            "the six-decimal floor the runbook and lib.rs quote is 126.144 BAYLA"
+        );
     }
 }

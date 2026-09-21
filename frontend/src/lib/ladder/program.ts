@@ -78,7 +78,12 @@ export const SYSTEM_PROGRAM_ID = new PublicKey('11111111111111111111111111111111
 
 export const MIN_LOCK_SECS = 7 * 86_400;
 export const MAX_LOCK_SECS = 4 * 365 * 86_400;
-export const REWARDS_DURATION_SECS = 90 * 86_400;
+/**
+ * The emission window: FOUR YEARS, deliberately equal to `MAX_LOCK_SECS` (owner decision
+ * 2026-09-20, replacing 90 days). `program.test.ts` reads math.rs's value back out of the
+ * source, so this copy cannot drift from the program without that test going red.
+ */
+export const REWARDS_DURATION_SECS = 4 * 365 * 86_400;
 /**
  * The CAP on the early-exit penalty: 75%, reached with three or more years left. The
  * penalty itself is veYFI's schedule — see `penaltyFor`. `program.test.ts` reads this and
