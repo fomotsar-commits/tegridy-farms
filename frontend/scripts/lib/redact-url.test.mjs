@@ -26,11 +26,44 @@ import { dirname, join, basename } from 'node:path';
 import { redactRpcUrl } from './redact-url.mjs';
 import { headerLines } from '../bayla-ladder-ops.mjs';
 
-// Shaped like the real thing — an Alchemy key is 32 mixed-case alphanumerics — but never
-// a live one. `KEY` is what must not appear; `HOST` is what must.
+// A credential-SHAPED fixture: 32 characters, the length of a real Alchemy key, and long
+// enough to fail every route-word test in the redactor so it must be masked.
+//
+// DELIBERATELY LOW-ENTROPY AND SELF-LABELLING, and not a stylistic choice. A realistic
+// random-looking literal here is flagged by the repo's gitleaks gate as `generic-api-key`
+// on entropy alone, and `gitleaks-action` scans a PR's whole COMMIT RANGE rather than its
+// head tree — so a later commit that fixes the fixture does NOT clear the gate; the
+// offending commit stays in range and the branch stays red until history is rewritten.
+//
+// The other option was a `.gitleaks.toml` allowlist entry, and it is the wrong one. That
+// allowlist is GLOBAL across every rule (its own comments record a real case where a shape
+// entry silenced the dedicated sendgrid-api-token rule), it is deliberately a closed list
+// of exact strings that were each verified to be public on-chain identifiers, and the file
+// states its own doctrine: "The better fix sits upstream of this file ... so entries get
+// DELETED not added." Buying a permanent scanner exemption for a value we invented would
+// be the clearest possible violation of that.
 const KEY = 'FAKEKEYFAKEKEYFAKEKEYFAKEKEY0000';
 const HOST = 'solana-mainnet.g.alchemy.com';
 const KEYED = `https://${HOST}/v2/${KEY}`;
+
+/**
+ * The endpoint in some emitted text, parsed — never substring-matched.
+ *
+ * `expect(emitted).toContain(host)` is the obvious way to assert the host survived, and it
+ * is wrong: `https://evil.example.com/?x=solana-mainnet.g.alchemy.com` contains the host
+ * while being a completely different origin. CodeQL flags that shape as
+ * `js/incomplete-url-substring-sanitization` and is right to. Parsing is also the STRONGER
+ * assertion for what this test is actually for — it proves the redactor kept the host AS
+ * the host, rather than leaving the string lying around somewhere in its output.
+ *
+ * Extracts rather than parsing `emitted` whole, because some call sites pass a multi-line
+ * emission (bayla-ladder-ops' two-line header) rather than a bare URL.
+ */
+function hostOf(emitted) {
+  const found = String(emitted).match(/\bhttps?:\/\/[^\s'"`]+/);
+  expect(found, `expected an http(s) URL somewhere in: ${emitted}`).not.toBeNull();
+  return new URL(found[0]).host;
+}
 
 /**
  * Both halves of the invariant, asserted against whatever text a surface emitted.
@@ -42,8 +75,33 @@ const KEYED = `https://${HOST}/v2/${KEY}`;
 function expectRedacted(emitted, { key = KEY, host = HOST } = {}) {
   expect(emitted).not.toContain(key);
   expect(emitted).not.toContain(key.slice(0, 8));
-  expect(emitted).toContain(host);
+  expect(hostOf(emitted)).toBe(host);
 }
+
+describe('the host assertion itself', () => {
+  it('cannot be satisfied by a DIFFERENT origin that merely contains the host', () => {
+    // The whole reason hostOf parses instead of substring-matching. `impostor` CONTAINS
+    // the expected host — so the weak form of this assertion, `expect(impostor)
+    // .toContain(HOST)`, passes on it — while being an entirely attacker-chosen origin.
+    // If someone "simplifies" hostOf back to a substring check, this is what stops them.
+    //
+    // THE WEAK ASSERTION IS DESCRIBED ABOVE, NOT EXECUTED, AND THAT IS DELIBERATE.
+    // Writing it out is itself an instance of js/incomplete-url-substring-sanitization, and
+    // CodeQL matches the line, not the intent — so a test that documents the pattern by
+    // performing it raises a fresh high-severity alert of the very rule it defends against.
+    // The sibling session hit exactly that, one commit after fixing the original instance.
+    // Nothing is lost: the teeth are in the parsed comparison below and in the `throws`
+    // case, never in a line asserting that a substring check does what substring checks do.
+    const impostor = `https://evil.example.com/?x=${HOST}`;
+    expect(hostOf(impostor)).toBe('evil.example.com');
+    expect(hostOf(impostor)).not.toBe(HOST);
+  });
+
+  it('fails loudly when there is no URL to parse at all', () => {
+    // A silent pass on unparseable output is how a host check stops checking anything.
+    expect(() => hostOf('rpc     [unreadable endpoint]')).toThrow();
+  });
+});
 
 describe('redactRpcUrl — the host survives, the credential does not', () => {
   it('masks a key in the path and keeps the host and the path SHAPE', () => {
@@ -104,6 +162,12 @@ describe('redactRpcUrl — the host survives, the credential does not', () => {
     }
   });
 
+  // CONVERGENCE NOTE. This test and the pure-contract ones above are duplicated in
+  // scripts/lib/redact-url.test.mjs (repo root), which is the canonical home once both
+  // halves of this fix land. When deleting them from here, DIFF THE TWO FILES rather than
+  // assuming the port was complete — the QuickNode trailing-slash case below is the one
+  // with no other coverage: the empty segment a trailing `/` leaves behind must stay empty
+  // rather than becoming a second `***`, and nothing else in either file asserts that.
   it('keeps route words and masks every credential-shaped path segment', () => {
     // Route words: short, letters, an optional version number. These carry no secret and
     // reading them back is how an operator recognises the provider's URL.
@@ -111,7 +175,9 @@ describe('redactRpcUrl — the host survives, the credential does not', () => {
     expect(redactRpcUrl('https://h.example.com/solana/rpc/v1')).toBe('https://h.example.com/solana/rpc/v1');
     // Credential shapes from the real providers this repo has used: 32-hex (Infura),
     // a UUID (Blast), base58 (Alchemy), a QuickNode token with a trailing slash.
-    expect(redactRpcUrl('https://mainnet.infura.io/v3/0123456789abcdef0123456789abcdef'))
+    // 32-char hex, deliberately repeating: dull for the same reason KEY is dull, and it
+    // exercises the identical path — any 32-char segment fails ROUTE_WORD whatever it spells.
+    expect(redactRpcUrl('https://mainnet.infura.io/v3/deadbeefdeadbeefdeadbeefdeadbeef'))
       .toBe('https://mainnet.infura.io/v3/***');
     expect(redactRpcUrl('https://eth-mainnet.blastapi.io/550e8400-e29b-41d4-a716-446655440000'))
       .toBe('https://eth-mainnet.blastapi.io/***');
@@ -148,7 +214,9 @@ describe('bayla-ladder-ops header — the line that leaked', () => {
     // The whole point of the line: mainnet and devnet must not render identically.
     const mainnet = headerLines({ programId: PROGRAM, rpc: KEYED }).join('\n');
     const devnet = headerLines({ programId: PROGRAM, rpc: 'https://api.devnet.solana.com' }).join('\n');
-    expect(devnet).toContain('api.devnet.solana.com');
+    // Exact hosts, not substrings — same reason as hostOf.
+    expect(hostOf(devnet)).toBe('api.devnet.solana.com');
+    expect(hostOf(mainnet)).toBe(HOST);
     expect(mainnet).not.toContain('devnet');
     expect(mainnet).not.toBe(devnet);
   });
