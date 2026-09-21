@@ -8,7 +8,7 @@
 // connected at all. It now goes through the ladder's `sharePct`: floored to a tenth,
 // null on any inconsistency, and "nothing staked" only from a COMPLETE read.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import type { Bungalow } from '../../lib/bungalows';
 
 const DAY = 86_400;
@@ -59,11 +59,27 @@ const entriesState = vi.hoisted(() => ({
   result: { ok: true, entries: [] } as { ok: true; entries: unknown[] } | { ok: false; reason: string },
 }));
 
+// THE SAME-SLOT BASIS (readShareBasis): the wallet's open entries and the pool account
+// re-read in ONE getMultipleAccountsInfo call. `undefined` = derive a CONSISTENT basis
+// from the fixtures (mine = the open entries, total = the pool's), so every case above
+// the same-slot block reads exactly as it did before the basis existed; `null` = the
+// call could not establish one.
+const basisState = vi.hoisted(() => ({
+  value: undefined as { mineEffectiveRaw: bigint; totalEffectiveRaw: bigint } | null | undefined,
+}));
 vi.mock('../../lib/bungalowStaking', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/bungalowStaking')>()),
   readPool: vi.fn(async () => ({ ok: true as const, pool: pool() })),
   readEntries: vi.fn(async () => entriesState.result),
   readWalletBalance: vi.fn(async () => ({ ok: true as const, raw: 5_000_000n })),
+  readShareBasis: vi.fn(async () => {
+    if (basisState.value !== undefined) return basisState.value;
+    const r = entriesState.result;
+    if (!r.ok || poolState.totalEffective === null) return null;
+    const mine = (r.entries as { closedTs: number; effectiveAmountRaw: bigint }[])
+      .filter((e) => e.closedTs === 0).reduce((a, e) => a + e.effectiveAmountRaw, 0n);
+    return { mineEffectiveRaw: mine, totalEffectiveRaw: poolState.totalEffective };
+  }),
 }));
 
 const { LighthousePoolLive } = await import('./LighthousePoolLive');
@@ -73,13 +89,21 @@ const BUNGALOW = {
   stakePool: 'PooLAddr1111111111111111111111111111111111', address: 'MintAddr',
 } as unknown as Bungalow & { stakePool: string };
 
-/** The "Your share" footnote — its text says which state the cell is in. */
-const shareNote = async () => (await screen.findByText('Your share —')).parentElement!.textContent ?? '';
+/**
+ * The "Your share" footnote — its text says which state the cell is in. Waits out the
+ * transient "reading your stakes…" (the entries read, then the same-slot basis read).
+ */
+const shareNote = async () => {
+  const el = await screen.findByText('Your share —');
+  await waitFor(() => expect(el.parentElement!.textContent).not.toMatch(/reading your stakes/));
+  return el.parentElement!.textContent ?? '';
+};
 
 beforeEach(() => {
   walletState.publicKey = { toBase58: () => 'StakerPk1111111111111111111111111111111111' };
   poolState.totalEffective = 3_000_000n;
   entriesState.result = { ok: true, entries: [] };
+  basisState.value = undefined;
 });
 
 describe('the lighthouse "Your share" never reads better than the truth', () => {
@@ -129,5 +153,46 @@ describe('the lighthouse "Your share" never reads better than the truth', () => 
     entriesState.result = { ok: true, entries: [] };
     render(<LighthousePoolLive bungalow={BUNGALOW} />);
     expect(await shareNote()).toMatch(/nothing staked/);
+  });
+});
+
+// THE SAME-SLOT RULE — the ladder's (add8127f), now on the lighthouse.
+//
+// The entries and the pool used to land in SEPARATE requests and be divided with no
+// link between them. On a stake both rise: pool 100, you hold 10, you stake +10 — you
+// hold 20 of 110 (18.2%), and an entries read carrying the new 20 over a pool read
+// still carrying the old 100 printed 20%. `mine > total` cannot see it (20 < 100). So
+// the share's inputs now come from ONE getMultipleAccountsInfo call, and the
+// separately read pool can only LOWER the figure.
+describe('the lighthouse share is read from one slot, and never prints the larger reading', () => {
+  it('⚠️ entries 20 over a STALE pool 100 with no same-slot basis: "could not be read", never 20%', async () => {
+    entriesState.result = { ok: true, entries: [entry(20_000_000n)] };
+    poolState.totalEffective = 100_000_000n;
+    basisState.value = null;
+    render(<LighthousePoolLive bungalow={BUNGALOW} />);
+    expect(await shareNote()).toMatch(/could not be read/);
+    expect(document.body.textContent).not.toMatch(/(^|[^0-9.])20%/);
+  });
+
+  it('⚠️ the same-slot basis (20 of 110) beats the stale pool read (100): 18.1%, not 20%', async () => {
+    entriesState.result = { ok: true, entries: [entry(20_000_000n)] };
+    poolState.totalEffective = 100_000_000n;
+    basisState.value = { mineEffectiveRaw: 20_000_000n, totalEffectiveRaw: 110_000_000n };
+    render(<LighthousePoolLive bungalow={BUNGALOW} />);
+    expect(await shareNote()).toMatch(/of each payout/);
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('18.1%');
+    expect(text).not.toMatch(/(^|[^0-9.])20%/);
+  });
+
+  it('a FRESHER, LARGER separately read pool total (others staked since) lowers it, and a share IS printed', async () => {
+    entriesState.result = { ok: true, entries: [entry(20_000_000n)] };
+    poolState.totalEffective = 200_000_000n;
+    basisState.value = { mineEffectiveRaw: 20_000_000n, totalEffectiveRaw: 110_000_000n };
+    render(<LighthousePoolLive bungalow={BUNGALOW} />);
+    expect(await shareNote()).toMatch(/of each payout/);
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('10%');
+    expect(text).not.toMatch(/18\.1%/);
   });
 });

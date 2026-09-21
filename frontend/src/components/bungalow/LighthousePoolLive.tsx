@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useSolanaConnect } from '../solana/useSolanaConnect';
@@ -14,6 +14,7 @@ import {
   payingNowRate,
   readPool,
   readEntries,
+  readShareBasis,
   readWalletBalance,
   stake,
   unstakeAndClaim,
@@ -197,7 +198,16 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // base58 is case-SENSITIVE — no case folding here, unlike the EVM sibling.
   const identityMismatch = poolMint !== '' && poolMint !== (bungalow.address ?? '');
 
-  const refresh = useCallback(() => {
+  // ⚠️ EVERY POOL AND ENTRIES READ IS STARTED BY THE ONE EFFECT BELOW, so a newer read
+  // cancels an older one. `run()` used to call a `refresh()` directly after each
+  // confirmed write and drop the cancellation it returned; setPoolRead/setEntriesRead
+  // then took whatever resolved LAST, and a slow older read could land after a newer
+  // one and put a stale, smaller pool back under every figure on the card. A write now
+  // bumps this generation instead — the ladder card's pattern (SolanaLadderPoolLive).
+  const [readGen, setReadGen] = useState(0);
+  const reread = () => setReadGen((n) => n + 1);
+
+  useEffect(() => {
     let cancelled = false;
     readPool(bungalow.stakePool).then((r) => { if (!cancelled) setPoolRead(r); });
     if (walletKey) {
@@ -208,9 +218,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
       });
     }
     return () => { cancelled = true; };
-  }, [bungalow.stakePool, walletKey]);
-
-  useEffect(() => refresh(), [refresh]);
+  }, [bungalow.stakePool, walletKey, readGen]);
 
   // Wallet balance needs the pool's mint, so it rides its own effect that runs
   // once both are known.
@@ -332,7 +340,34 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
    * sets.
    */
   const dynamicPool = primaryRp ? !quotesAConfiguredRate(primaryRp) : false;
-  const myEffectiveRaw = openEntries.reduce((a, e) => a + e.effectiveAmountRaw, 0n);
+
+  // ⚠️ THE SHARE'S INPUTS COME FROM ONE SLOT (readShareBasis). The entries and the pool
+  // land in separate requests, and dividing one by the other printed 20% for a true
+  // 18.2% right after a stake (pool 100, you hold 10, +10: 20 of 110), and over-read
+  // after an exit (an older entries read still counts the closed entry). So once the
+  // entries read names the open entries, THOSE addresses and the pool are re-read in
+  // ONE getMultipleAccountsInfo call. Only a dynamic pool prints a share, so only a
+  // dynamic pool pays for the read. The basis is tied to the exact entries read it was
+  // taken for (identity), and a newer entries read cancels an older basis read.
+  const entriesList = entriesForWallet?.list ?? null;
+  const [basisRead, setBasisRead] = useState<{
+    list: StakeEntryView[];
+    basis: { mineEffectiveRaw: bigint; totalEffectiveRaw: bigint } | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!dynamicPool || !entriesList) return;
+    const open = entriesList.filter((e) => e.closedTs === 0);
+    if (open.length === 0) return;
+    let cancelled = false;
+    readShareBasis(bungalow.stakePool, open.map((e) => e.address)).then((basis) => {
+      if (!cancelled) setBasisRead({ list: entriesList, basis });
+    });
+    return () => { cancelled = true; };
+  }, [dynamicPool, entriesList, bungalow.stakePool]);
+  // undefined = not read yet for THIS entries read; null = could not be established.
+  const shareBasis = basisRead !== null && entriesList !== null && basisRead.list === entriesList
+    ? basisRead.basis
+    : undefined;
   const poolEffectiveRaw = pool?.totalEffectiveStakeRaw ?? null;
   // Share of everything the pool distributes while these positions stay open.
   //
@@ -344,15 +379,25 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // `sharePct` floors to a tenth and refuses (null) on a missing or zero total and on
   // mine > total; it is only computed from a COMPLETE entries read; and "nothing
   // staked" is reserved for a complete read that found no open stake.
+  //
+  // SAME-SLOT, OR NOTHING (2026-09-21) — the ladder's rule (add8127f). The figure is
+  // computed from `shareBasis`, never from the entries read over the pool read. The
+  // separately read pool still BOUNDS it: both go through `sharePct` and the LOWER is
+  // printed, so a fresher, larger total (others staked since) can only make it smaller,
+  // and one below your own weight means the reads disagree and the figure is refused.
   const nothingStaked = entriesKnown && openEntries.length === 0;
-  const myShare = entriesKnown && !nothingStaked
-    ? sharePct({ mineWeight: myEffectiveRaw, totalWeighted: poolEffectiveRaw, truncated: false })
-    : null;
+  const myShare = (() => {
+    if (!entriesKnown || nothingStaked || !shareBasis) return null;
+    const own = sharePct({ mineWeight: shareBasis.mineEffectiveRaw, totalWeighted: shareBasis.totalEffectiveRaw, truncated: false });
+    const bound = sharePct({ mineWeight: shareBasis.mineEffectiveRaw, totalWeighted: poolEffectiveRaw, truncated: false });
+    if (!own || !bound) return null;
+    return own.pct <= bound.pct ? own : bound;
+  })();
   const shareNote = !publicKey
     ? 'connect a wallet to see yours.'
     : nothingStaked
       ? 'nothing staked.'
-      : !entriesForWallet
+      : !entriesForWallet || (entriesKnown && shareBasis === undefined)
         ? 'reading your stakes…'
         : myShare === null
           ? 'could not be read.'
@@ -377,7 +422,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     if (res.ok) {
       setAction({ note: `${label} confirmed.`, tx: res.txId });
       setAmount('');
-      refresh();
+      reread();
     } else {
       setAction({ note: res.reason });
     }

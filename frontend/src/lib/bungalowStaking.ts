@@ -872,6 +872,72 @@ export async function readEntries(
   }
 }
 
+/**
+ * The wallet's open weight and the pool's total, READ IN ONE getMultipleAccountsInfo
+ * CALL — so both come from the same slot by construction. The only honest input to a
+ * share. Null whenever that cannot be established.
+ *
+ * ⚠️ WHY. `readEntries` and `readPool` are separate requests. On a stake BOTH the
+ * wallet's effective amount and `totalEffectiveStake` rise, so an entries read carrying
+ * the NEW weight over a pool read still carrying the OLD total prints a share better
+ * than the truth: pool 100, you hold 10, you stake +10 — you hold 20 of 110 (18.2%), and
+ * the stale pair printed 20/100 = 20%. `mine > total` cannot see it, because 20 < 100.
+ * An EXIT goes wrong the same way: an older entries read still counts the closed entry
+ * while a newer total does not. Ordering the two reads by slot fixes the stake and not
+ * the exit; one call has no ordering to get wrong. (The ladder card's `shareBasis`,
+ * lib/ladder/read.ts, is the same rule.)
+ *
+ * `entryAddresses` are the wallet's OPEN entries as `readEntries` found them; they are
+ * re-read here together with the pool. An entry that is gone, or now carries a
+ * `closedTs`, has closed since and is out of both sides. One that fails to decode, is
+ * owned by another program or names another pool, or a pool account that is missing
+ * or undecodable, is no basis at all — never a guess.
+ */
+export async function readShareBasis(
+  stakePool: string,
+  entryAddresses: string[],
+): Promise<{ mineEffectiveRaw: bigint; totalEffectiveRaw: bigint } | null> {
+  // getMultipleAccountsInfo answers up to 100 addresses in one call: the entries + the pool.
+  if (entryAddresses.length === 0 || entryAddresses.length > 99) return null;
+  try {
+    const client: any = await makeClient();
+    const program = client.programs?.stakePoolProgram;
+    if (!program) return null;
+    const { PublicKey } = await import('@solana/web3.js');
+    const keys = [...entryAddresses, stakePool].map((a) => new PublicKey(a));
+    const infos: any[] = await client.connection.getMultipleAccountsInfo(keys, 'confirmed');
+    if (!Array.isArray(infos) || infos.length !== keys.length) return null;
+    const programId = String(program.programId?.toBase58?.() ?? program.programId ?? '');
+    const ownedByProgram = (info: any) => {
+      try { return String(info?.owner?.toBase58?.() ?? info?.owner ?? '') === programId && programId !== ''; } catch { return false; }
+    };
+
+    const poolInfo = infos[entryAddresses.length];
+    if (!poolInfo || !ownedByProgram(poolInfo)) return null;
+    const poolAcc: any = program.coder.accounts.decode('StakePool', poolInfo.data);
+    const totalScaled = bnToBigint(poolAcc?.totalEffectiveStake);
+    if (totalScaled === null) return null;
+
+    let mine = 0n;
+    for (let i = 0; i < entryAddresses.length; i++) {
+      const info = infos[i];
+      if (!info) continue;                       // closed and drained since: out of both sides
+      if (!ownedByProgram(info)) return null;
+      const e: any = program.coder.accounts.decode('StakeEntry', info.data);
+      if (String(e?.stakePool?.toBase58?.() ?? e?.stakePool ?? '') !== stakePool) return null;
+      if (bnToNumber(e?.closedTs) !== 0) continue; // closed since: out of both sides
+      const eff = bnToBigint(e?.effectiveAmount);
+      if (eff === null) return null;
+      mine += eff;
+    }
+    // Same units as readEntries/readPool: an entry's effectiveAmount is raw, the pool's
+    // totalEffectiveStake is WEIGHT_SCALE-scaled.
+    return { mineEffectiveRaw: mine, totalEffectiveRaw: totalScaled / WEIGHT_SCALE };
+  } catch {
+    return null;
+  }
+}
+
 /** Lowest nonce in [0,255] not used by an OPEN entry (closed entries free theirs). */
 export function nextVacantNonce(entries: StakeEntryView[]): number | null {
   // AUDIT (2026-09-01): this used to skip CLOSED entries, on the assumption
