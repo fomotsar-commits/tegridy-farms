@@ -190,9 +190,14 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const [days, setDays] = useState<number | null>(null);
   const [customDays, setCustomDays] = useState('');
   const [action, setAction] = useState<{ busy?: string; note?: string; tx?: string } | null>(null);
-  // Two-step confirm for the principal-rescue exit, keyed by entry nonce. It
-  // forfeits accrued rewards, so it must never be a single mis-click.
-  const [rescueFor, setRescueFor] = useState<number | null>(null);
+  // Two-step confirm for the principal-rescue exit. It forfeits accrued rewards, so it
+  // must never be a single mis-click.
+  // ⚠️ ARMED AGAINST ONE READ (the ladder card's `confirmFor`). Nonces restart at 0 for
+  // every wallet, so a bare nonce armed on wallet A's entry #0 came up pre-armed on
+  // wallet B's entry #0 after a switch — and one click forfeited B's rewards. The armed
+  // nonce is stored with the exact entries read its row was drawn from, and any other
+  // read (another wallet's, or a fresh one) renders it disarmed (`rescueArmed` below).
+  const [rescueFor, setRescueFor] = useState<{ read: typeof entriesRead; nonce: number } | null>(null);
   // One tick a minute keeps every "unlocks in 12d" countdown honest without a
   // render loop — same cadence the TOWELI staking card uses.
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
@@ -270,6 +275,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   }, [walletKey, poolMint, action?.tx]);
 
   const entriesForWallet = walletKey && entriesRead.key === walletKey ? entriesRead : null;
+  const rescueArmed = rescueFor !== null && rescueFor.read === entriesRead ? rescueFor.nonce : null;
   const entriesKnown = entriesForWallet?.list !== null && entriesForWallet !== null;
   const entries = entriesForWallet?.list ?? [];
   // THREE STATES, NOT TWO (the ladder card's rule): not read yet, read and failed, and
@@ -474,13 +480,13 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // two-step confirm). Costs nothing when nothing is fenced.
   const fenceSig = writeFence && writeFence.slot === null ? writeFence.sig : null;
   useEffect(() => {
-    if (!updating || action?.busy || rescueFor !== null) return;
+    if (!updating || action?.busy || rescueArmed !== null) return;
     const t = setInterval(() => {
       setReadGen((n) => n + 1);
       if (fenceSig) refineFence(fenceSig, setWriteFence);
     }, FENCE_RETRY_MS);
     return () => clearInterval(t);
-  }, [updating, action?.busy, rescueFor, fenceSig]);
+  }, [updating, action?.busy, rescueArmed, fenceSig]);
 
   const run = async (label: string, fn: () => Promise<{ ok: true; txId: string } | { ok: false; reason: string }>) => {
     setAction({ busy: label });
@@ -1178,7 +1184,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                               instruction in the transaction. Only the UI could
                               trap it, and this is where. */}
                           {!locked && (exceedsVault || atRisk) && (
-                            rescueFor === e.nonce ? (
+                            rescueArmed === e.nonce ? (
                               <span className="inline-flex items-center gap-1.5">
                                 <button
                                   type="button"
@@ -1205,7 +1211,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                                 type="button"
                                 disabled={!invoker || !!action?.busy}
                                 title="Withdraws your principal WITHOUT claiming rewards. It closes the reward entry rather than paying it, so it cannot be blocked by an unfunded vault or by a position that has passed the reward program's limit — and the accrued rewards are given up."
-                                onClick={() => setRescueFor(e.nonce)}
+                                onClick={() => setRescueFor({ read: entriesRead, nonce: e.nonce })}
                                 className="btn-secondary px-3 py-1.5 text-[12px] disabled:opacity-50"
                                 style={{ borderColor: 'rgba(227,179,65,0.5)', color: '#e3b341' }}
                               >
