@@ -1,11 +1,14 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { m } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useSolanaConnect } from '../solana/useSolanaConnect';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { SolanaProviders } from '../solana/SolanaProviders';
 import type { Bungalow } from '../../lib/bungalows';
+import { staggerContainer } from '../../lib/motion';
+import { Fact, HAIR, DIVIDED_BG } from './ledger';
 import {
   vaultIsMateriallyEmpty,
   payingNowRate,
@@ -153,6 +156,7 @@ function humanDuration(secs: number): string {
 function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const { publicKey, wallet } = useWallet();
   const openConnect = useSolanaConnect();
+  const fid = useId();
 
   const [poolRead, setPoolRead] = useState<{ ok: true; pool: PoolView } | { ok: false; reason: string } | null>(null);
   // Entries + balance keyed by wallet: a disconnect/switch is handled by
@@ -359,6 +363,63 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     }
   };
 
+  // The ledger's cells. `unit` is only ever a unit (or the qualifier that makes the
+  // number true, like the lock a boost is quoted at) — it shares the number's
+  // baseline. Everything that is a sentence goes in `note`, printed as a footnote.
+  const lhCells: LhCell[] = !pool ? [] : [
+    {
+      key: 'vault',
+      label: dynamicPool ? 'Reward budget' : 'Reward vault',
+      value: fmt(funded, decimals),
+      unit: bungalow.symbol,
+      note: dynamicPool ? 'what is left to distribute.' : undefined,
+    },
+    { key: 'staked', label: 'Total staked', value: fmt(pool.totalStakeRaw, decimals), unit: bungalow.symbol },
+    ...(dynamicPool
+      ? [
+          // No rate exists on this program, so none is invented. What a position
+          // holds is its SHARE — a present fact, not a forecast — and it is the
+          // number that actually determines the payout.
+          {
+            key: 'share',
+            label: 'Your share',
+            value: myShare === null ? '–' : pct(myShare),
+            tone: myShare === null ? 'muted' as const : 'good' as const,
+            note: myShare === null ? 'nothing staked.' : 'of each payout — it moves as others stake.',
+          },
+          { key: 'pays', label: 'How it pays', value: 'Budget', note: 'not a fixed rate — split by weighted stake.' },
+        ]
+      : [
+          {
+            key: 'now',
+            label: 'Paying now',
+            value: ratePercent ? pct(payingNow) : payingNow.toLocaleString(undefined, { maximumFractionDigits: 4 }),
+            unit: ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`,
+            tone: payingNow > 0 ? 'good' as const : 'muted' as const,
+          },
+          {
+            key: 'configured',
+            label: 'Configured',
+            value: !ratePercent
+              ? configuredRate.toLocaleString(undefined, { maximumFractionDigits: 4 })
+              : weighted
+                ? `${pct(rateAtMin)}–${pct(rateAtMax)}`
+                : pct(configuredRate),
+            unit: ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`,
+            note: weighted ? `${labelForDays(minDays)} → ${labelForDays(maxDays)}.` : undefined,
+          },
+        ]),
+    ...(weighted
+      ? [{
+          key: 'boost',
+          label: 'Max boost',
+          value: `${maxBoost.toFixed(2)}×`,
+          unit: `at ${labelForDays(maxDays).toLowerCase()}`,
+          note: 'longer lock, bigger share.',
+        }]
+      : []),
+  ];
+
   const setLockDays = (d: number) => {
     setDays(d);
     setCustomDays('');
@@ -413,75 +474,46 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 
         {pool && !identityMismatch && (
           <>
-            {/* ── The four numbers that decide whether to stake ───────────── */}
-            {/* One solid ledger with hairline dividers — the same surface as the
-                ladder card's, so the two cards stop disagreeing (this one used to
-                put a dark box behind each number inside the tile's own box).
-                Columns follow the CARD's width, not the viewport. */}
-            <div className="@container mb-4">
-            <div
-              className="grid grid-cols-2 gap-px overflow-hidden rounded-[14px] @min-[34rem]:grid-cols-3"
-              style={{ background: 'linear-gradient(rgba(255,255,255,0.06), rgba(255,255,255,0.06)), rgba(7,11,22,0.94)', border: '1px solid rgba(255,255,255,0.08)' }}
-            >
-              <Stat
-                label={dynamicPool ? 'Reward budget' : 'Reward vault'}
-                value={fmt(funded, decimals)}
-                unit={bungalow.symbol}
-                caption={dynamicPool ? 'what is left to distribute' : undefined}
-              />
-              <Stat label="Total staked" value={fmt(pool.totalStakeRaw, decimals)} unit={bungalow.symbol} />
-              {dynamicPool ? (
-                <>
-                  {/* No rate exists on this program, so none is invented. What
-                      a position holds is its SHARE — a present fact, not a
-                      forecast — and it is the number that actually determines
-                      the payout. */}
-                  <Stat
-                    label="Your share"
-                    value={myShare === null ? '–' : pct(myShare)}
-                    unit={myShare === null ? 'nothing staked' : 'of each payout'}
-                    tone={myShare === null ? 'muted' : 'good'}
-                    caption={myShare === null ? undefined : 'moves as others stake'}
+            {/* ── The numbers that decide whether to stake ────────────────── */}
+            {/* THE LADDER CARD'S LEDGER, not a copy of it (./ledger). Units sit on
+                the number's baseline; every sentence that used to sit inside a
+                tile is a footnote under the panel, word for word, and each cell
+                points at its own with aria-describedby. Columns come from the
+                CARD's width (container query), never the viewport: list rows on a
+                phone, two across, then one row — and an odd cell count never
+                leaves an empty cell beside a lone tile, because the last cell
+                spans (lhSpan). */}
+            <section aria-label="The lighthouse pool figures" className="@container mb-4 flex flex-col gap-3">
+              <m.div
+                variants={staggerContainer(0.06)}
+                initial="hidden"
+                whileInView="show"
+                viewport={{ once: true }}
+                className="grid grid-cols-1 gap-px overflow-hidden rounded-[14px] @min-[30rem]:grid-cols-2 @min-[52rem]:grid-cols-12"
+                style={{ background: DIVIDED_BG, border: `1px solid ${HAIR}` }}
+              >
+                {lhCells.map((c, i) => (
+                  <Fact
+                    key={c.key}
+                    label={c.label}
+                    value={c.value}
+                    unit={c.unit}
+                    tone={c.tone}
+                    describedBy={c.note ? `${fid}-${c.key}` : undefined}
+                    className={lhSpan(i, lhCells.length)}
                   />
-                  <Stat
-                    label="How it pays"
-                    value="Budget"
-                    unit="not a fixed rate"
-                    caption="split by weighted stake"
-                  />
-                </>
-              ) : (
-                <>
-                  <Stat
-                    label="Paying now"
-                    value={ratePercent ? pct(payingNow) : payingNow.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                    unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
-                    tone={payingNow > 0 ? 'good' : 'muted'}
-                  />
-                  <Stat
-                    label="Configured"
-                    value={
-                      !ratePercent
-                        ? configuredRate.toLocaleString(undefined, { maximumFractionDigits: 4 })
-                        : weighted
-                          ? `${pct(rateAtMin)}–${pct(rateAtMax)}`
-                          : pct(configuredRate)
-                    }
-                    unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
-                    caption={weighted ? `${labelForDays(minDays)} → ${labelForDays(maxDays)}` : undefined}
-                  />
-                </>
+                ))}
+              </m.div>
+              {lhCells.some((c) => c.note) && (
+                <ul className="list-none m-0 p-0 flex flex-col gap-1 text-[11.5px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.62)' }}>
+                  {lhCells.filter((c) => c.note).map((c) => (
+                    <li key={c.key} id={`${fid}-${c.key}`}>
+                      <strong className="font-semibold" style={{ color: '#fff' }}>{c.label} —</strong>{' '}{c.note}
+                    </li>
+                  ))}
+                </ul>
               )}
-              {weighted && (
-                <Stat
-                  label="Max boost"
-                  value={`${maxBoost.toFixed(2)}×`}
-                  unit={`at ${labelForDays(maxDays).toLowerCase()}`}
-                  caption="longer lock, bigger share"
-                />
-              )}
-            </div>
-            </div>
+            </section>
 
             {/* The whole model in two sentences, stated before anyone signs.
                 A dynamic pool cannot honestly advertise an APR: what a staker
@@ -1076,32 +1108,36 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                 {action.tx && (
                   <a href={`https://solscan.io/tx/${action.tx}`} target="_blank" rel="noopener noreferrer"
                     aria-label="View transaction on Solscan (opens in new tab)"
-                    className="underline underline-offset-2 text-white/70 hover:text-white">
+                    className="inline-flex min-h-[44px] items-center underline underline-offset-2 text-white/70 hover:text-white">
                     view tx ↗
                   </a>
                 )}
               </p>
             )}
 
-            <p className="text-white/45 text-[11px] mt-4 leading-relaxed">
-              Pool{' '}
+            {/* TAP TARGETS (2026-09-21): these two links were 69x13 inline words in a
+                sentence — far under the 44px tap floor. They are their own row now,
+                44px tall, and the sentence they sat in follows them, unchanged in
+                meaning. */}
+            <div className="mt-4 flex flex-wrap items-center gap-x-5">
               <a href={`https://solscan.io/account/${pool.address}`} target="_blank" rel="noopener noreferrer"
                 aria-label="View stake pool on Solscan (opens in new tab)"
-                className="underline underline-offset-2 hover:text-white/80 font-mono">
-                {pool.address.slice(0, 4)}…{pool.address.slice(-4)} ↗
-              </a>{' '}
-              · a Streamflow staking pool — audited program, non-custodial, verifiable on-chain.
+                className="inline-flex min-h-[44px] items-center gap-1.5 text-[11px] text-white/60 hover:text-white/90">
+                Pool <span className="underline underline-offset-2 font-mono">{pool.address.slice(0, 4)}…{pool.address.slice(-4)} ↗</span>
+              </a>
               {primaryRp && (
-                <>
-                  {' '}Reward vault{' '}
-                  <a href={`https://solscan.io/account/${primaryRp.vault}`} target="_blank" rel="noopener noreferrer"
-                    aria-label="View reward vault on Solscan (opens in new tab)"
-                    className="underline underline-offset-2 hover:text-white/80 font-mono">
-                    {primaryRp.vault.slice(0, 4)}…{primaryRp.vault.slice(-4)} ↗
-                  </a>
-                  {primaryRp.permissionless ? ' — funding is permissionless: anyone can top it up, and the balance above is the proof.' : ' — only the pool authority can fund it.'}
-                </>
+                <a href={`https://solscan.io/account/${primaryRp.vault}`} target="_blank" rel="noopener noreferrer"
+                  aria-label="View reward vault on Solscan (opens in new tab)"
+                  className="inline-flex min-h-[44px] items-center gap-1.5 text-[11px] text-white/60 hover:text-white/90">
+                  Reward vault <span className="underline underline-offset-2 font-mono">{primaryRp.vault.slice(0, 4)}…{primaryRp.vault.slice(-4)} ↗</span>
+                </a>
               )}
+            </div>
+            <p className="text-white/45 text-[11px] m-0 leading-relaxed">
+              A Streamflow staking pool — audited program, non-custodial, verifiable on-chain.
+              {primaryRp && (primaryRp.permissionless
+                ? ' Reward vault funding is permissionless: anyone can top it up, and the balance above is the proof.'
+                : ' Only the pool authority can fund the reward vault.')}
             </p>
           </>
         )}
@@ -1110,20 +1146,28 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   );
 }
 
-function Stat({ label, value, unit, tone, caption }: { label: string; value: string; unit?: string; tone?: 'good' | 'muted'; caption?: string }) {
-  const color = tone === 'good' ? '#4ade80' : tone === 'muted' ? 'rgba(255,255,255,0.85)' : '#ffffff';
-  return (
-    // A ledger cell: solid, no box inside a box, sized to its content.
-    <div className="px-4 py-3 min-w-0 flex flex-col gap-1" style={{ background: '#070b16' }}>
-      <p className="text-[11px] uppercase tracking-wider m-0" style={{ color: 'rgba(255,255,255,0.72)' }}>{label}</p>
-      {/* A range like "21.9%–109.5%" is wider than a single figure — let it step
-          down a size rather than overflow the card on a narrow column. */}
-      <p
-        className={`m-0 leading-tight font-semibold tabular-nums whitespace-nowrap ${value.length > 9 ? 'text-base' : 'text-xl'}`}
-        style={{ color, fontFamily: 'var(--font-family-mono)' }}
-      >{value}</p>
-      {unit && <p className="text-[11px] m-0" style={{ color: 'rgba(255,255,255,0.62)' }}>{unit}</p>}
-      {caption && <p className="text-[11px] leading-tight m-0" style={{ color: 'rgba(255,255,255,0.55)' }}>{caption}</p>}
-    </div>
-  );
+interface LhCell {
+  key: string;
+  label: string;
+  value: string;
+  unit?: string;
+  tone?: 'good' | 'muted';
+  /** A sentence about the figure — printed as a footnote, never inside the cell. */
+  note?: string;
+}
+
+/**
+ * Column spans for the lighthouse ledger, so no row ever ends in an empty cell.
+ * Two across: an odd last cell spans both columns. One row (12-column grid): the
+ * cells share it evenly — or, for five, three over two. The class strings are
+ * spelled out because Tailwind only emits classes it finds verbatim in the source.
+ */
+function lhSpan(i: number, n: number): string {
+  const two = n % 2 === 1 && i === n - 1 ? '@min-[30rem]:col-span-2' : '';
+  const wide = n === 5 ? (i < 3 ? '@min-[52rem]:col-span-4' : '@min-[52rem]:col-span-6')
+    : n === 4 ? '@min-[52rem]:col-span-3'
+    : n === 3 ? '@min-[52rem]:col-span-4'
+    : n === 2 ? '@min-[52rem]:col-span-6'
+    : '@min-[52rem]:col-span-12';
+  return `${two} ${wide}`;
 }

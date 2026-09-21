@@ -27,6 +27,7 @@ import {
 } from '../../lib/ladder/write';
 import { fmtRaw, fmtRawParts, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
 import { useAccrualMeter } from '../../hooks/useAccrualMeter';
+import { Fact, HEAD, PANEL_BG, LEDGER_BG, HAIR, DIVIDED_BG } from './ledger';
 import { Reveal } from '../motion/Reveal';
 import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../lib/motion';
 
@@ -597,7 +598,14 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                   <p className="text-[12px] mb-3 m-0" style={{ color: 'rgba(255,255,255,0.78)' }} id="ladder-rungs-label">
                     Lock length — a longer lock carries more weight, and weight is what decides your share.
                   </p>
-                  <div role="group" aria-labelledby="ladder-rungs-label" className="grid grid-cols-7 gap-0.5 @min-[30rem]:gap-1.5 h-[116px] @min-[30rem]:h-[132px] @min-[52rem]:h-[148px]">
+                  {/* TAP TARGETS (2026-09-21): seven rungs across a phone came out 40px
+                      wide at 393px, under the 44px floor. On a narrow panel the rungs
+                      sit flush (gap-0) and bleed 10px into the panel's padding
+                      (-mx-2.5); the bars keep their visual gap from the button's own
+                      3px padding. The weight label is tracked in slightly so "4.00×"
+                      stays inside its rung at 320px, where it overlapped by 1.3px; self-center
+                      centres it even when it is wider than the content box. */}
+                  <div role="group" aria-labelledby="ladder-rungs-label" className="grid grid-cols-7 gap-0 -mx-2.5 @min-[30rem]:mx-0 @min-[30rem]:gap-1.5 h-[116px] @min-[30rem]:h-[132px] @min-[52rem]:h-[148px]">
                     {RUNGS.map((secs, i) => {
                       const on = secs === lockSecs;
                       const bps = boostBpsForLock(secs);
@@ -610,10 +618,10 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                           aria-label={`${lockLabel(secs)} lock, ${boostLabel(bps)} weight`}
                           onClick={() => setLockSecs(secs)}
                           whileTap={pressTap}
-                          className="flex h-full min-w-0 flex-col items-stretch justify-end gap-1.5 rounded-lg px-0.5 pt-1.5 pb-1.5 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-kyle)]"
+                          className="flex h-full min-w-0 flex-col items-stretch justify-end gap-1.5 rounded-lg px-[3px] pt-1.5 pb-1.5 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-kyle)]"
                           style={{ background: on ? 'rgba(76,175,80,0.07)' : 'transparent' }}
                         >
-                          <span aria-hidden="true" className="text-center text-[11px] tabular-nums leading-none" style={{ fontFamily: MONO, color: on ? '#fff' : 'rgba(255,255,255,0.66)' }}>
+                          <span aria-hidden="true" className="self-center text-center text-[11px] tabular-nums leading-none tracking-[-0.03em] whitespace-nowrap" style={{ fontFamily: MONO, color: on ? '#fff' : 'rgba(255,255,255,0.66)' }}>
                             {boostLabel(bps)}
                           </span>
                           <span aria-hidden="true" className="relative flex flex-1 items-end">
@@ -913,18 +921,6 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
 /* ── the instrument's shared surfaces ───────────────────────────────────── */
 
 const MONO = 'var(--font-family-mono)';
-const HEAD = 'var(--font-family-heading)';
-/** Solid enough that a number never fights the art behind it for legibility. */
-const PANEL_BG = 'rgba(5,9,18,0.92)';
-const LEDGER_BG = 'rgba(7,11,22,0.94)';
-const HAIR = 'rgba(255,255,255,0.08)';
-/**
- * A grid's background as its dividers: cells are opaque, the 1px gaps between them
- * show this. Layered over the solid ledger colour so the island's art does NOT show
- * through the hairlines.
- */
-const DIVIDED_BG = `linear-gradient(rgba(255,255,255,0.06), rgba(255,255,255,0.06)), ${LEDGER_BG}`;
-const CELL_BG = '#070b16';
 const CHIP = 'rounded-full px-2.5 py-1 text-[11px] tabular-nums';
 const CHIP_STYLE = { background: 'rgba(139,92,246,0.12)', border: '1px solid var(--color-purple-25)', color: 'rgba(255,255,255,0.9)' } as const;
 
@@ -1021,97 +1017,6 @@ function LiveEarned(
 ) {
   const raw = useAccrualMeter(earnedAt);
   return <>{raw === null ? fallback : fmtRaw(raw, decimals, decimals)}</>;
-}
-
-/**
- * One fact in a ledger: a label, then its value, then (only when the value itself is
- * in doubt) a short state note — "reading…" or "could not be read".
- *
- * ⚠️ THE DOM CONTRACT the card's tests read: label <p>, then the value <p> as its
- * nextElementSibling (the unit INSIDE it), then the optional state <p>, all children of
- * one cell element.
- *
- * Nothing is absolutely positioned, so a label can never sit on top of its value. On a
- * narrow ledger it is a list row (label left, value right, one baseline); past `at`
- * the value stacks under the label. The value never wraps and the unit shares its
- * baseline, so a number and its unit cannot come apart.
- *
- * The class strings are spelled out per breakpoint because Tailwind only emits classes
- * it can find verbatim in the source.
- */
-const FACT_LAYOUT = {
-  '30rem': {
-    cell: 'grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 px-4 py-3 @min-[30rem]:grid-cols-1 @min-[30rem]:content-start @min-[30rem]:gap-y-1.5 @min-[30rem]:px-5 @min-[30rem]:py-4',
-    value: 'justify-self-end @min-[30rem]:justify-self-start',
-    state: 'col-span-2 justify-self-end text-right @min-[30rem]:col-span-1 @min-[30rem]:justify-self-start @min-[30rem]:text-left',
-    span2: '@min-[30rem]:col-span-2',
-  },
-  '40rem': {
-    cell: 'grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 px-4 py-3 @min-[40rem]:grid-cols-1 @min-[40rem]:content-start @min-[40rem]:gap-y-1.5 @min-[40rem]:px-5 @min-[40rem]:py-4',
-    value: 'justify-self-end @min-[40rem]:justify-self-start',
-    state: 'col-span-2 justify-self-end text-right @min-[40rem]:col-span-1 @min-[40rem]:justify-self-start @min-[40rem]:text-left',
-    span2: '@min-[40rem]:col-span-2',
-  },
-} as const;
-
-function Fact({
-  label, value, unit, state, describedBy, span2, inline, at = '30rem',
-}: {
-  label: string;
-  value: React.ReactNode;
-  unit?: string;
-  state?: string;
-  describedBy?: string;
-  span2?: boolean;
-  /** A single pair set in running layout (the action rail), not a ledger cell. */
-  inline?: boolean;
-  at?: keyof typeof FACT_LAYOUT;
-}) {
-  const valueEl = (
-    <p
-      className={`m-0 flex items-baseline gap-[0.35em] whitespace-nowrap tabular-nums ${inline ? '' : FACT_LAYOUT[at].value}`}
-      style={{ fontVariantNumeric: 'tabular-nums' }}
-    >
-      <span
-        className="text-white"
-        style={{ fontWeight: 600, fontSize: inline ? 15 : 'clamp(18px, calc(2.2cqi + 10px), 24px)', lineHeight: 1.15 }}
-      >
-        {value}
-      </span>
-      {unit ? (
-        <span style={{ fontFamily: HEAD, fontWeight: 500, fontSize: 'max(11px, 0.5em)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.55)' }}>
-          {unit}
-        </span>
-      ) : null}
-    </p>
-  );
-  const labelEl = (
-    <p className="m-0 min-w-0 text-[11px] uppercase tracking-[0.12em] leading-snug" style={{ color: 'rgba(76,175,80,0.9)', fontFamily: HEAD }}>
-      {label}
-    </p>
-  );
-  if (inline) {
-    return (
-      <div className="flex items-baseline gap-2.5 min-w-0" aria-describedby={describedBy}>
-        {labelEl}
-        {valueEl}
-      </div>
-    );
-  }
-  return (
-    <m.div
-      variants={staggerItem}
-      className={`${FACT_LAYOUT[at].cell} ${span2 ? FACT_LAYOUT[at].span2 : ''} min-w-0`}
-      style={{ background: CELL_BG }}
-      aria-describedby={describedBy}
-    >
-      {labelEl}
-      {valueEl}
-      {state && (
-        <p className={`m-0 text-[11px] ${FACT_LAYOUT[at].state}`} style={{ color: '#f0b26b' }}>{state}</p>
-      )}
-    </m.div>
-  );
 }
 
 /**
