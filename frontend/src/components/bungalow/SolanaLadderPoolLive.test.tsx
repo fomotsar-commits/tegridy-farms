@@ -864,6 +864,50 @@ describe('the hero meter', () => {
   });
 });
 
+describe('the hero meter never prints a zero it did not read', () => {
+  // read.ts: "a partial list presented as complete is the 'unreadable renders as fine'
+  // defect wearing a different hat." A read can SUCCEED and still be partial, and
+  // stats.openPositions can count positions the scan did not return. In both cases an
+  // empty `open` list is NOT "you have none".
+  const heroValue = async () => {
+    const label = await screen.findByText('Earned, unclaimed');
+    return (label.nextElementSibling as HTMLElement).textContent ?? '';
+  };
+
+  it('⚠️ a TRUNCATED scan with no positions returned: no "0", no "No open positions"', async () => {
+    reads.wallet = { ok: true, value: walletView({ truncated: true, open: [] }) };
+    draw();
+    const v = await heroValue();
+    expect(v).not.toMatch(/^\s*0(?![\d.,])/);
+    expect(v).toMatch(/could not be fully read/);
+    expect(document.body.textContent).not.toMatch(/No open positions/);
+  });
+
+  it('⚠️ openPositions > 0 but the list came back empty: no "0", no "No open positions"', async () => {
+    // stats say 1 open, the scan returned none (e.g. a slot that would not decode).
+    reads.wallet = { ok: true, value: walletView({ truncated: false, open: [] }) };
+    draw();
+    const v = await heroValue();
+    expect(v).not.toMatch(/^\s*0(?![\d.,])/);
+    expect(v).toMatch(/could not be fully read/);
+    expect(document.body.textContent).not.toMatch(/No open positions/);
+  });
+
+  it('a COMPLETE read of a wallet with none still shows the honest zero', async () => {
+    reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false } };
+    draw();
+    expect(await heroValue()).toMatch(/^0\s*BAYLA$/);
+    expect(screen.getByText(/No open positions — pick a rung below/)).toBeTruthy();
+  });
+
+  it('a partial list WITH positions labels its figure as partial', async () => {
+    reads.wallet = { ok: true, value: walletView({ truncated: true }) };
+    draw();
+    await heroValue();
+    expect(screen.getByText(/covers only the positions this view could read/)).toBeTruthy();
+  });
+});
+
 describe('the staircase', () => {
   it('is climbable WITHOUT a wallet — seven real buttons, one pressed', async () => {
     walletState.publicKey = null;

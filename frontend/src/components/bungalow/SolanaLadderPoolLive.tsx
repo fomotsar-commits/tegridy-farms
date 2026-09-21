@@ -257,6 +257,14 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   const openCount = walletView ? (walletView.stats?.openPositions ?? 0) : null;
   const myPrincipal = walletView ? walletPrincipalRaw(walletView) : null;
   const carriedRaw = walletView?.stats?.rewardsCarriedRaw ?? null;
+  // ⚠️ A READ CAN SUCCEED AND STILL BE PARTIAL. `truncated` means the scan stopped
+  // before accounting for every open position, and `stats.openPositions` can count
+  // positions the scan did not return. An empty `open` list is "you have none" ONLY
+  // when neither is the case; otherwise the card says it could not fully read the
+  // wallet, and never prints a zero (read.ts: a partial list presented as complete).
+  const walletPartial = walletView !== null
+    && (walletView.truncated || (openCount ?? 0) > positions.length);
+  const walletEmpty = walletView !== null && !walletPartial && openCount === 0 && positions.length === 0;
 
   // Sum only over positions we could actually read. `null` when the wallet read
   // failed, so an outage never renders as "you have earned 0".
@@ -465,10 +473,14 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                         <p className="m-0 row-start-1 col-start-1 text-[11px] uppercase tracking-[0.14em]" style={{ color: 'var(--color-kyle)', fontFamily: HEAD }}>
                           Earned, unclaimed
                         </p>
-                        {positions.length === 0 ? (
+                        {walletEmpty ? (
                           <p className="m-0 row-start-2 col-span-2 flex items-baseline gap-[0.3em] whitespace-nowrap" style={DIGITS}>
                             <span style={{ color: 'rgba(255,255,255,0.5)' }}>0</span>
                             <span style={UNIT_HERO}>{sym}</span>
+                          </p>
+                        ) : positions.length === 0 ? (
+                          <p className="m-0 row-start-2 col-span-2 text-[16px]" style={{ color: '#f0b26b' }}>
+                            could not be fully read
                           </p>
                         ) : (
                           <HeroDigits earnedAt={earnedAt} exactRaw={myEarned} decimals={decimals} sym={sym} />
@@ -487,14 +499,25 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                           </span>
                         )}
                       </div>
-                      {positions.length === 0 ? (
+                      {walletEmpty ? (
                         <p className="m-0 text-[12px]" style={{ color: 'rgba(255,255,255,0.72)' }}>
                           No open positions — pick a rung below to start one.
+                        </p>
+                      ) : positions.length === 0 ? (
+                        <p role="alert" className="m-0 text-[12px]" style={{ color: '#f0b26b' }}>
+                          This wallet has {openCount ?? 'some'} open {openCount === 1 ? 'position' : 'positions'} this view
+                          could not read, so no figure is shown rather than a zero.{' '}
+                          <button type="button" onClick={reread} className="underline underline-offset-2">Try again</button>
                         </p>
                       ) : (
                         <p className="m-0 text-[12px]" style={{ color: 'rgba(255,255,255,0.72)' }}>
                           {fmtRaw(myPrincipal, decimals)} {sym} staked across {openCount ?? positions.length}{' '}
                           {(openCount ?? positions.length) === 1 ? 'position' : 'positions'}
+                        </p>
+                      )}
+                      {walletPartial && positions.length > 0 && (
+                        <p className="m-0 text-[12px]" style={{ color: '#f0b26b' }}>
+                          This figure covers only the positions this view could read; the wallet has more.
                         </p>
                       )}
                       {vaultShort && vaults && (
@@ -765,8 +788,12 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                     </p>
                   )}
 
-                  {positions.length === 0 ? (
+                  {walletEmpty ? (
                     <p className="text-white/60 text-[13px] m-0">No open positions in this pool.</p>
+                  ) : positions.length === 0 ? (
+                    <p className="text-[13px] m-0" style={{ color: '#f0b26b' }}>
+                      Your open positions could not be fully read, so none are listed — this is not an empty wallet.
+                    </p>
                   ) : (
                     <ul className="space-y-3 list-none p-0 m-0">
                       {positions.map((p) => (
