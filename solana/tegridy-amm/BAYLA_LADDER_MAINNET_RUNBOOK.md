@@ -661,6 +661,63 @@ to the multisig's token account" — was the right idea against the wrong accoun
 | max-boost annual rate | **15.22%** — 55% of the 27.64% ceiling |
 | verified | `emitted since then` ticking up; `outstanding (LIVE)` tracks it |
 
+### ✅ THE LADDER WAS EXERCISED ON MAINNET — 2026-09-20/21
+
+Owner decision: fund the first real window at **42,993.504 BAYLA** (475.7184/day), knowingly
+above the ~28% max-boost bound at the seed's weight, on the basis that the card is not live
+and the only staker is the venue itself. Recorded as a decision, not an oversight.
+
+**A landing guard refused the first attempt, and was right.** `notify --broadcast` exited with
+`refusing to BROADCAST with a landing RISK`. The margin is
+`fundable − scheduled = vault − owed − tail`, which is **independent of `--amount`** — lowering
+the amount does not help, because the transfer raises `vault` and the schedule raises `tail`
+by the same step. Verified empirically at 42,993.504 / 42,900 / 42,500: all three printed the
+identical 7,940-raw margin. **The only way to create headroom is BAYLA in the vault that is
+not scheduled**, so 200 BAYLA was sent **directly to the reward vault**
+`3yFvfhdRS9WNJEwVec7fgB3KRcKAi7Lo4jUyzzDMPAK1` with `spl-token transfer` (safe: the address is
+a Token-2022 account owned by the pool, and spl-token uses a token account directly when given
+one) and the notify was reduced to 42,793.504. Total committed unchanged; guard cleared.
+
+**The boost curve, verified on chain** — four positions staked, weights read back:
+
+| lock | weight (raw) | boost | predicted |
+| --- | --- | --- | --- |
+| 7 days | 40,000,000 | 0.4000× | 0.4000× ✓ |
+| 180 days | 2,485,800,000 | 0.8286× | 0.8286× ✓ |
+| 365 days | 128,690,000 | 1.2869× | 1.2869× ✓ |
+| 1460 days | 400,000,000 | 4.0000× | 4.0000× ✓ |
+
+**The veYFI penalty, verified on chain** — the schedule quoted per position at the chain clock:
+7d left → 0.47% · 365d left → 24.99% · 1460d left → **75.00%, the clamp** (it would be 100%
+unclamped). `min(time_left/4y, 75%)` behaving exactly as written.
+
+**`early_exit` EXECUTED under the schedule** — tx
+`2BuHQMm8VhmssvRoCQnYZ9V2w45qaxLzcYwMUZgeSLGq2aCDhbQAVtvJkMm984CSjeUwY1MmS1DCgwSQ5HQgXUSG`.
+**This was the last untested path in the program**: devnet only ever ran it on the flat-25%
+build. Position #3 (100 BAYLA, 4-year lock) forfeited **75**, returned **25**, and every book
+reconciled to the raw unit:
+
+- `penalties collected` 0 → **75**, `orphaned penalty` **0**
+- `unpledged budget` 201.161466 → **276.161466** — the forfeit became schedulable reward
+  budget. **Penalty recycling is real and needs no operator step**, confirmed by reading it
+  rather than from the doc.
+- `total_weighted` −400,000,000 and `total_principal` −100, both exact
+- reward vault +74.932944, not +75 — the 0.067056 difference is precisely the rewards #3
+  accrued in the ~90 seconds it existed, paid out on exit. Even the discrepancy reconciles.
+
+⚠️ **The weight drop is the hazard worth remembering**: closing #3 removed 13% of the pool's
+weight, which RAISES every remaining staker's effective rate — and the rate cannot be lowered
+until the window ends. Size every window against the SMALLEST weight expected during it.
+
+🔴 **Two guards could NOT be tested, and are not covered by any unit test.** `min_stake`: the
+ops CLI rejects client-side (`below this pool's minimum of 100`) before the program ever sees
+it, so only the CLI guard was proven. `max_wallet_principal`: a 2,000,000 attempt failed at the
+token transfer with `insufficient funds`, never reaching the cap check. Both `require!`s exist
+(lib.rs:466, :478) but nothing exercises them — and both values are permanent. A grep for tests
+naming `WalletCapExceeded` or the min-stake floor returns nothing.
+
+---
+
 **Why 23.328 and not a round number.** `rate = amount_raw / REWARDS_DURATION_SECS` is
 integer division, so 23,328,000 / 7,776,000 = **3 exactly**. Any amount that does not divide
 cleanly truncates, and the lost remainder is silently unpayable. Size the first window to a
