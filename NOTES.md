@@ -15,6 +15,84 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-20 — gitleaks checks every commit in a PR, so fixing a flagged value in a later commit does nothing
+
+Found while fixing an ops CLI that printed its RPC URL, API key included, on every run
+([#648](https://github.com/fomotsar-commits/tegridy-farms/pull/648),
+[#646](https://github.com/fomotsar-commits/tegridy-farms/pull/646)).
+
+**The belief:** if gitleaks flags a string in a PR, a follow-up commit that removes it
+turns the check green. **It doesn't.** `gitleaks-action` scans the PR's whole **commit
+range**, not the final tree, so the commit that added the string stays in range and the
+check stays red. Measured on #646: a random-looking 32-character test fixture was flagged
+as `generic-api-key` on entropy alone. It went green only after the branch was rewritten
+so the string never entered history, then force-pushed.
+
+What to do instead:
+
+- **Make fixtures dull on purpose.** `FAKEKEYFAKEKEYFAKEKEYFAKEKEY0000` is the same length
+  as a real key and exercises the same code, but has low entropy and says what it is.
+  Shannon entropy in bits per character, computed with `-Σ p·log2 p`: the flagged random
+  fixture **5.00** (gitleaks reported the same 5.0, so this is the number it uses),
+  `0123456789abcdef` ×2 **4.00**, `FAKEKEY…0000` **2.50**, `deadbeef` ×4 **2.16**.
+  Repeating a string does not lower its entropy; using fewer distinct characters does.
+- **Don't add a `.gitleaks.toml` allowlist entry for a value you made up.** That allowlist
+  applies to every rule, and the file itself says entries should get deleted, not added.
+- **To rewrite without losing commit messages:** `git rebase <base> --exec '<fix> && git
+  commit --amend --no-edit'`. Then check both ways — `git log -S` only looks at diffs, so
+  also `git grep` the tree of every commit in the range.
+- **Delete the safety tags afterwards.** A local tag that still points at a pre-rewrite
+  commit keeps the string reachable, and this repo's origin does carry tags, so
+  `push --tags` would ship it.
+- **Check whether a value already passed the gate.** If a merged commit added it, the rule
+  accepts it. The ladder program id (44-character base58, entropy 4.74, not allowlisted)
+  came in through #579, so repeating it is safe.
+
+The flip side: because it only scans new commits, gitleaks **cannot** see a secret that
+was committed before the scanner existed. An Etherscan key committed in `9b59e212` is
+still readable in this public repo's history, and the gitleaks check is green.
+
+### A test that shows a vulnerable pattern by running it gets flagged for that pattern
+
+A test was added to stop anyone reverting a URL check to a substring match. It contained
+the substring match, to show that it passes on an attacker's URL. CodeQL flagged that line
+as a new high-severity `js/incomplete-url-substring-sanitization` alert (#646, `:206`) — one
+commit after the original instance was fixed. CodeQL reads the line, not the purpose.
+
+Fix: describe the weak form in a comment; don't execute it. The test kept its teeth —
+reverting the helper to a substring check still fails it. Unmeasured: whether vitest's
+`expect(x).toContain(host)` form triggers the rule the way `x.includes(host)` does. Nobody
+here has a CodeQL run on that form.
+
+### "Was the leaked key rotated?" can be answered without the ledger, and without seeing either key
+
+`docs/SECRET_ROTATION.md`'s incident log was empty. That looks exactly like "never rotated",
+and it could also mean "rotated, not written down". It can't tell you which.
+
+Compare fingerprints instead: `sha256` the value in the old commit
+(`git show '<commit>^:<path>' | grep … | sha256sum`) and the value configured today, and
+compare the two digests. Neither key is printed. Measured on the Etherscan key: 34
+characters in both, different digests, so it **was** replaced. That still doesn't say
+whether the **old** key was revoked at the provider — that's a separate check.
+
+### A vitest rooted at `frontend/` can import files above its root
+
+`frontend/vitest.config.ts` stresses that nothing above `frontend/` can be **collected** as a
+test. That's true, but it's easy to read as "nothing above `frontend/` can be used". A test
+under `frontend/` importing `../../../scripts/lib/caller-credit.mjs` resolved and passed.
+So one helper at repo-root `scripts/lib/` can serve both trees.
+
+### An ignore file that starts with `*` and then `!dir/**` needs globs, not names
+
+`.vercelignore` starts with `*`, then re-includes `!frontend` / `!frontend/**`. The last
+matching line wins, so everything under `frontend/` is uploaded **unless a later line
+excludes it**. It excluded `frontend/.env` and `frontend/.env.local` by name, so
+`.env.production`, `.env.staging` and every other env file would have been uploaded with
+their values by a repo-root `vercel --prod`. A test that applies the file's own rules to
+ten env filenames found eight uploaded. Fixed with `frontend/.env*`.
+
+---
+
 ## 2026-09-20 — a `waitFor` on a string that renders outside the async state is not a gate
 
 `HeatCard.test.tsx` → `element D … paints the room's row FIRST and the whole flame
