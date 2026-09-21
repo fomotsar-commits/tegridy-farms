@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
@@ -145,6 +145,16 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   // positions…" with nothing on screen able to read again. They bump this instead.
   const [readGen, setReadGen] = useState(0);
   const reread = () => setReadGen((n) => n + 1);
+  // ⚠️ A READ THAT PREDATES A CONFIRMED WRITE. After someone's first stake, the
+  // pre-stake read (complete, and empty) still satisfied `walletEmpty` until the re-read
+  // landed, and the card said "No open positions" to a wallet that had just opened one.
+  // True when it was read; stale now. The read on screen when a write CONFIRMS is held
+  // here, and while it is still the one on screen the card says it is updating instead
+  // of restating it. Identity, like `armed`: any newer read — this wallet's re-read, or
+  // another wallet's — is not stale, and a failed write marks nothing.
+  const [staleRead, setStaleRead] = useState<typeof walletRead>(null);
+  const latestWalletRead = useRef(walletRead);
+  useEffect(() => { latestWalletRead.current = walletRead; }, [walletRead]);
 
   // One tick a SECOND. Rewards accrue per second, and at a minute's cadence the only
   // way to watch your own balance move was to reload the page.
@@ -265,7 +275,11 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   // wallet, and never prints a zero (read.ts: a partial list presented as complete).
   const walletPartial = walletView !== null
     && (walletView.truncated || (openCount ?? 0) > positions.length);
-  const walletEmpty = walletView !== null && !walletPartial && openCount === 0 && positions.length === 0;
+  const walletStale = staleRead !== null && walletRead === staleRead;
+  const readEmpty = walletView !== null && !walletPartial && openCount === 0 && positions.length === 0;
+  // An empty read taken before a confirmed write is not restated as empty (see `staleRead`).
+  const walletUpdating = readEmpty && walletStale;
+  const walletEmpty = readEmpty && !walletStale;
 
   // Sum only over positions we could actually read. `null` when the wallet read
   // failed, so an outage never renders as "you have earned 0".
@@ -328,6 +342,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
     setConfirmFor(null);
     const res = await fn();
     if (res.ok) {
+      setStaleRead(latestWalletRead.current);
       setAction({ note: `${label} confirmed.`, sig: res.signature });
       setAmount('');
     } else {
@@ -349,9 +364,30 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   // unchanged, so the island's art still shows around and between the panels.
 
   const myWeight = walletView ? positions.reduce((a, p) => a + p.weight, 0n) : null;
-  const share = pool && walletView
-    ? sharePct({ mineWeight: myWeight, totalWeighted: pool.totalWeighted, truncated: walletView.truncated })
-    : null;
+  // ⚠️ SLOT-CONSISTENT, OR NOTHING. The share's inputs are `shareBasis` — the wallet's
+  // weight and the pool's total read in ONE call, so from one slot (read.ts has why a
+  // slot-ORDER check is not enough: it passes an exit's stale pair). Dividing this
+  // wallet read by the separately-read pool total is what printed 20% for a true 18.2%.
+  //
+  // The separate pool read still BOUNDS it: both readings go through `sharePct` (floor,
+  // refuse on mine > total, on a zero total, on a partial list) and the LOWER is shown.
+  // A fresher, larger total — others staked since — can only make the share smaller, so
+  // it wins; an older, smaller one loses to the basis; one smaller than your own weight
+  // means the two reads disagree, and the figure is refused. Never the larger reading.
+  //
+  // PARTIAL means `walletPartial`, not just `truncated`: a list short of
+  // `openPositions` is a partial sum even when the scan did not hit its bound. And a
+  // read that predates a confirmed write of yours shows no share until the re-read lands.
+  const shareBasis = walletView?.shareBasis ?? null;
+  const share = (() => {
+    if (!pool || !walletView || !shareBasis || walletStale) return null;
+    const own = sharePct({ mineWeight: shareBasis.mineWeight, totalWeighted: shareBasis.totalWeighted, truncated: walletPartial });
+    const bound = sharePct({ mineWeight: shareBasis.mineWeight, totalWeighted: pool.totalWeighted, truncated: walletPartial });
+    if (!own || !bound) return null;
+    return own.pct <= bound.pct
+      ? { ...own, mineWeight: shareBasis.mineWeight, totalWeighted: shareBasis.totalWeighted }
+      : { ...bound, mineWeight: shareBasis.mineWeight, totalWeighted: pool.totalWeighted };
+  })();
   // Hidden, not zeroed, when there is nothing to state: no weight of yours, or a pool
   // below its floor (where the accumulator does not move and a share decides nothing).
   const showShare = walletView !== null && !belowFloor && myWeight !== null && myWeight > 0n;
@@ -474,7 +510,11 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                         <p className="m-0 row-start-1 col-start-1 text-[11px] uppercase tracking-[0.14em]" style={{ color: 'var(--color-kyle)', fontFamily: HEAD }}>
                           Earned, unclaimed
                         </p>
-                        {walletEmpty ? (
+                        {walletUpdating ? (
+                          <p role="status" className="m-0 row-start-2 col-span-2 text-[16px] text-white/70">
+                            Updating your positions…
+                          </p>
+                        ) : walletEmpty ? (
                           <p className="m-0 row-start-2 col-span-2 flex items-baseline gap-[0.3em] whitespace-nowrap" style={DIGITS}>
                             <span style={{ color: 'rgba(255,255,255,0.5)' }}>0</span>
                             <span style={UNIT_HERO}>{sym}</span>
@@ -500,7 +540,11 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                           </span>
                         )}
                       </div>
-                      {walletEmpty ? (
+                      {walletUpdating ? (
+                        <p className="m-0 text-[12px]" style={{ color: 'rgba(255,255,255,0.72)' }}>
+                          Confirmed — reading your positions back.
+                        </p>
+                      ) : walletEmpty ? (
                         <p className="m-0 text-[12px]" style={{ color: 'rgba(255,255,255,0.72)' }}>
                           No open positions — pick a rung below to start one.
                         </p>
@@ -557,7 +601,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                           </p>
                         ) : (
                           <p className="m-0 text-[13px]" style={{ color: '#f0b26b' }}>
-                            {walletView?.truncated ? 'could not be fully read' : 'could not be read'}
+                            {walletStale ? 'updating…' : walletPartial ? 'could not be fully read' : 'could not be read'}
                           </p>
                         )}
                         {share && (
@@ -566,7 +610,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                               <div className="h-full rounded-full" style={{ width: `${share.pct}%`, minWidth: share.pct === 0 ? 2 : undefined, background: 'var(--color-kyle)' }} />
                             </div>
                             <p className="m-0 mt-2 text-[11px] tabular-nums" style={{ color: 'rgba(255,255,255,0.62)' }}>
-                              weight {fmtRaw(myWeight, decimals)} of {fmtRaw(pool.totalWeighted, decimals)}
+                              weight {fmtRaw(share.mineWeight, decimals)} of {fmtRaw(share.totalWeighted, decimals)}
                             </p>
                           </>
                         )}
@@ -581,7 +625,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                         unit={sym}
                         state={!balanceLoaded ? 'reading…' : walletRaw === null ? 'could not be read' : undefined}
                       />
-                      <Fact at="40rem" label="Open positions" value={openCount === null ? '–' : `${openCount} / ${MAX_POSITIONS}`} />
+                      <Fact at="40rem" label="Open positions" value={walletUpdating ? '…' : openCount === null ? '–' : `${openCount} / ${MAX_POSITIONS}`} />
                     </div>
                   </m.div>
                 )}
@@ -796,7 +840,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                     </p>
                   )}
 
-                  {walletEmpty ? (
+                  {walletUpdating ? (
+                    <p role="status" className="text-white/60 text-[13px] m-0">Updating your positions…</p>
+                  ) : walletEmpty ? (
                     <p className="text-white/60 text-[13px] m-0">No open positions in this pool.</p>
                   ) : positions.length === 0 ? (
                     <p className="text-[13px] m-0" style={{ color: '#f0b26b' }}>

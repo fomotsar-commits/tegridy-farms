@@ -267,9 +267,115 @@ describe('readLadderWallet', () => {
     await readLadderWallet(conn, PROGRAM, POOL, OWNER);
     // NEWEST FIRST — live positions cluster at the top, so this is what lets the
     // scan stop early instead of walking every lifetime nonce.
+    // The pool rides LAST in the same call, so a share can come from one slot.
     expect(seen).toEqual([
       positionPda(PROGRAM, POOL, OWNER, 1).toBase58(),
       positionPda(PROGRAM, POOL, OWNER, 0).toBase58(),
+      POOL.toBase58(),
     ]);
+  });
+});
+
+// ── THE SHARE BASIS: wallet weight and pool total from ONE call, therefore ONE slot ──
+//
+// The card used to divide the wallet's weight (one request) by the pool's total
+// (another request). After a stake BOTH rise, so a wallet read carrying the new weight
+// over a pool read still carrying the old total printed a share better than the truth.
+// The basis puts the pool account in the SAME getMultipleAccounts call as the positions.
+describe('readLadderWallet — shareBasis is read in one call', () => {
+  const statsAddr = userStatsPda(PROGRAM, POOL, OWNER).toBase58();
+  const W = (n: number) => BigInt(n) * 1_000_000n;
+  function positionW(nonce: number, weight: bigint): Uint8Array {
+    const d = position(nonce, weight);
+    new DataView(d.buffer).setBigUint64(85, weight, true);   // weight, u128 low half
+    return d;
+  }
+  function poolWithTotal(total: bigint): Uint8Array {
+    const d = poolAccount();
+    new DataView(d.buffer).setBigUint64(251, total, true);   // total_weighted, u128 low half
+    return d;
+  }
+  const statsFor = (nextNonce: number, open: number) => (a: PublicKey) =>
+    (a.toBase58() === statsAddr ? { owner: PROGRAM, data: userStats(nextNonce, 0n, open) } : null);
+
+  it('WORKED EXAMPLE: the basis is 20 of 110 from the positions\' own call — never 20 over a stale 100', async () => {
+    const calls: string[][] = [];
+    const conn = fakeConn({
+      account: (a) => {
+        // A separately-read pool would still say 100. The basis must not use it.
+        if (a.toBase58() === POOL.toBase58()) return { owner: PROGRAM, data: poolWithTotal(W(100)) };
+        return statsFor(2, 2)(a);
+      },
+      multi: (addrs) => {
+        calls.push(addrs.map((a) => a.toBase58()));
+        return addrs.map((a) => {
+          if (a.toBase58() === POOL.toBase58()) return { owner: PROGRAM, data: poolWithTotal(W(110)) } as never;
+          const n = [0, 1].find((i) => positionPda(PROGRAM, POOL, OWNER, i).toBase58() === a.toBase58());
+          return n === undefined ? null : { data: positionW(n, W(10)) };
+        });
+      },
+    });
+    const r = await readLadderWallet(conn, PROGRAM, POOL, OWNER);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.shareBasis).toEqual({ mineWeight: W(20), totalWeighted: W(110) });
+    // ONE call carried both the positions and the pool.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain(POOL.toBase58());
+  });
+
+  it('no pool account in that call (or one owned by another program) is NO basis — never a guess', async () => {
+    const conn = fakeConn({
+      account: statsFor(1, 1),
+      multi: (addrs) => addrs.map((a) =>
+        a.toBase58() === POOL.toBase58()
+          ? ({ owner: OTHER_PROGRAM, data: poolWithTotal(W(110)) } as never)
+          : { data: positionW(0, W(10)) }),
+    });
+    const r = await readLadderWallet(conn, PROGRAM, POOL, OWNER);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.open).toHaveLength(1);        // the positions still show
+      expect(r.value.shareBasis).toBeNull();       // ...but no share is derivable
+    }
+  });
+
+  it('a partial scan (open_positions counts one the scan did not find) is NO basis', async () => {
+    const conn = fakeConn({
+      account: statsFor(2, 2),
+      multi: (addrs) => addrs.map((a) => {
+        if (a.toBase58() === POOL.toBase58()) return { owner: PROGRAM, data: poolWithTotal(W(110)) } as never;
+        return a.toBase58() === positionPda(PROGRAM, POOL, OWNER, 1).toBase58() ? { data: positionW(1, W(10)) } : null;
+      }),
+    });
+    const r = await readLadderWallet(conn, PROGRAM, POOL, OWNER);
+    expect(r.ok && r.value.shareBasis).toBeNull();
+  });
+
+  it('positions found across TWO calls are re-read together with the pool in one more call', async () => {
+    // nonce 150 is in the first batch, nonce 0 in the second — two slots. Summing them
+    // over either call's pool could count a position the other slot had already closed.
+    const at = (n: number) => positionPda(PROGRAM, POOL, OWNER, n).toBase58();
+    const calls: string[][] = [];
+    const conn = fakeConn({
+      account: statsFor(151, 2),
+      multi: (addrs) => {
+        calls.push(addrs.map((a) => a.toBase58()));
+        const confirming = calls.length === 3;
+        return addrs.map((a) => {
+          const k = a.toBase58();
+          if (k === POOL.toBase58()) return { owner: PROGRAM, data: poolWithTotal(confirming ? W(200) : W(999)) } as never;
+          if (k === at(150)) return { data: positionW(150, W(10)) };
+          if (k === at(0)) return { data: positionW(0, W(30)) };
+          return null;
+        });
+      },
+    });
+    const r = await readLadderWallet(conn, PROGRAM, POOL, OWNER);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(calls).toHaveLength(3);
+    expect(calls[2]!.sort()).toEqual([at(0), at(150), POOL.toBase58()].sort());
+    expect(r.value.shareBasis).toEqual({ mineWeight: W(40), totalWeighted: W(200) });
   });
 });

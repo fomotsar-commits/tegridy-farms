@@ -136,14 +136,23 @@ const position = (o: Record<string, unknown> = {}) => ({
   ...o,
 });
 
-const walletView = (o: Record<string, unknown> = {}) => ({
-  stats: {
-    address: 'US', nextNonce: 1, openPositions: 1,
-    rewardsCarriedRaw: 0n, principalRaw: 500_000_000n,
-  },
-  slots: [], open: [position()], truncated: false,
-  ...o,
-});
+// `shareBasis` is the wallet weight and the pool total read in ONE getMultipleAccounts
+// call (read.ts). The default puts the SMALLEST total that call could honestly return
+// (your own weight) there, so the card's other bound — the separately read pool — is
+// what decides every share figure below, exactly as it did before the basis existed.
+const walletView = (o: Record<string, unknown> = {}) => {
+  const open = (o.open as { weight: bigint }[] | undefined) ?? [position()];
+  const mine = open.reduce((a, p) => a + p.weight, 0n);
+  return {
+    stats: {
+      address: 'US', nextNonce: 1, openPositions: 1,
+      rewardsCarriedRaw: 0n, principalRaw: 500_000_000n,
+    },
+    slots: [], open, truncated: false,
+    shareBasis: mine > 0n ? { mineWeight: mine, totalWeighted: mine } : null,
+    ...o,
+  };
+};
 
 const BUNGALOW = {
   id: 'bayla', name: 'BAYLA', symbol: 'BAYLA', chain: 'solana',
@@ -942,5 +951,117 @@ describe('the minimum stake is shown in every state', () => {
     const id = label.parentElement!.getAttribute('aria-describedby');
     expect(id).toBeTruthy();
     expect(document.getElementById(id!)!.textContent).toMatch(/the deployed program has no setter for it/);
+  });
+});
+
+/* ────────── 13. the share is SLOT-CONSISTENT (review gaps 1, 2 and 4) ────────── */
+
+// Whole-token weights, so the worked example reads as it does in the review.
+const W = (n: number) => BigInt(n) * 1_000_000n;
+
+describe('⚠️ the share never divides one read by another read\'s total', () => {
+  // THE WORKED EXAMPLE. Pool 100, you hold 10 (10%). You stake +10: you hold 20, the
+  // true total is 110, the true share 18.18%. A pool read still carrying the OLD 100
+  // divided into the NEW 20 prints 20% — better than the truth — and the old guard
+  // (mine > total) lets it straight through, because 20 < 100.
+  it('WORKED EXAMPLE: a stale pool total of 100 and a wallet of 20 never prints 20% — it prints nothing', async () => {
+    reads.pool = { ok: true, value: poolView({ totalWeighted: W(100) }) };
+    reads.wallet = { ok: true, value: walletView({ open: [position({ weight: W(20) })], shareBasis: null }) };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(shareValue()).not.toMatch(/20%/);
+    expect(shareValue()).not.toMatch(/%/);
+    expect(shareValue()).toMatch(/could not be read/);
+  });
+
+  it('the same wallet, with the total read IN ITS OWN CALL (110), prints 18.1% — even against the stale 100', async () => {
+    reads.pool = { ok: true, value: poolView({ totalWeighted: W(100) }) };
+    reads.wallet = {
+      ok: true,
+      value: walletView({ open: [position({ weight: W(20) })], shareBasis: { mineWeight: W(20), totalWeighted: W(110) } }),
+    };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(shareValue()).toMatch(/^18\.1%/);
+    const block = screen.getByText('Your share of pool weight').parentElement!.textContent ?? '';
+    expect(block).toContain(`weight ${fmtRaw(W(20), 6)} of ${fmtRaw(W(110), 6)}`);
+  });
+
+  it('a pool read FRESHER than the wallet (others staked: 130) still prints a share — the lower one', async () => {
+    // The counter-pin: a fix that refuses whenever the two totals differ must fail here.
+    // A fresher, larger total can only make the share smaller, so it is printed — and
+    // it is the smaller of the two readings, never the larger.
+    reads.pool = { ok: true, value: poolView({ totalWeighted: W(130) }) };
+    reads.wallet = {
+      ok: true,
+      value: walletView({ open: [position({ weight: W(20) })], shareBasis: { mineWeight: W(20), totalWeighted: W(110) } }),
+    };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(shareValue()).toMatch(/^15\.3%/);
+    const block = screen.getByText('Your share of pool weight').parentElement!.textContent ?? '';
+    expect(block).toContain(`weight ${fmtRaw(W(20), 6)} of ${fmtRaw(W(130), 6)}`);
+  });
+});
+
+describe('⚠️ a PARTIAL wallet list prints no share, flagged or not (gap 2)', () => {
+  it('openPositions says 2, one came back, truncated is false: "could not be fully read", no percentage', async () => {
+    reads.pool = { ok: true, value: poolView({ totalWeighted: 2_825_000_000n }) };
+    reads.wallet = {
+      ok: true,
+      value: walletView({
+        stats: { address: 'US', nextNonce: 2, openPositions: 2, rewardsCarriedRaw: 0n, principalRaw: 1_000_000_000n },
+        truncated: false,
+      }),
+    };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(shareValue()).not.toMatch(/%/);
+    expect(shareValue()).toMatch(/could not be fully read/);
+  });
+});
+
+describe('a first stake does not leave a stale "No open positions" on screen (gap 4)', () => {
+  it('⚠️ after a confirmed stake, the pre-stake empty read shows "Updating…" until the re-read lands', async () => {
+    const read = await import('../../lib/ladder/read');
+    reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false, shareBasis: null } };
+    try {
+      draw();
+      expect(await screen.findByText(/No open positions — pick a rung below/)).toBeTruthy();
+
+      // Hold the post-stake re-read so the in-between state can be looked at.
+      let release: (v: unknown) => void = () => {};
+      const pending = new Promise((r) => { release = r; });
+      vi.mocked(read.readLadderWallet).mockImplementation(() => pending as never);
+
+      fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '200' } });
+      const lock = screen.getByRole('button', { name: /Lock BAYLA/ }) as HTMLButtonElement;
+      await waitFor(() => expect(lock.disabled).toBe(false));
+      await act(async () => { fireEvent.click(lock); });
+      expect(await screen.findByText(/confirmed\./)).toBeTruthy();
+
+      expect(screen.queryByText(/No open positions/)).toBeNull();
+      expect(screen.getAllByText(/Updating your positions/).length).toBeGreaterThan(0);
+
+      // ...and it is not permanent: the re-read lands and is shown.
+      await act(async () => { release({ ok: true, value: walletView() }); });
+      expect(await screen.findByText('1 / 20')).toBeTruthy();
+      expect(screen.queryByText(/Updating your positions/)).toBeNull();
+    } finally {
+      vi.mocked(read.readLadderWallet).mockImplementation(async () => reads.wallet as never);
+    }
+  });
+
+  it('a FAILED stake leaves the (still true) empty state alone', async () => {
+    reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false, shareBasis: null } };
+    writes.stake.mockImplementationOnce(async () => ({ ok: false, reason: 'User rejected the request.' }) as never);
+    draw();
+    fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '200' } });
+    const lock = screen.getByRole('button', { name: /Lock BAYLA/ }) as HTMLButtonElement;
+    await waitFor(() => expect(lock.disabled).toBe(false));
+    await act(async () => { fireEvent.click(lock); });
+    expect(await screen.findByText('User rejected the request.')).toBeTruthy();
+    expect(await screen.findByText(/No open positions — pick a rung below/)).toBeTruthy();
+    expect(screen.queryByText(/Updating your positions/)).toBeNull();
   });
 });
