@@ -41,6 +41,7 @@ import {
   type RewardPoolView,
   type StakeEntryView,
 } from '../../lib/bungalowStaking';
+import { sharePct } from '../../lib/ladder/program';
 
 /**
  * The lighthouse pool, LIVE — rendered by BungalowFarmPanel when the
@@ -334,9 +335,28 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const myEffectiveRaw = openEntries.reduce((a, e) => a + e.effectiveAmountRaw, 0n);
   const poolEffectiveRaw = pool?.totalEffectiveStakeRaw ?? null;
   // Share of everything the pool distributes while these positions stay open.
-  const myShare = poolEffectiveRaw !== null && poolEffectiveRaw > 0n && myEffectiveRaw > 0n
-    ? Number(myEffectiveRaw) / Number(poolEffectiveRaw)
+  //
+  // ⚠️ THE LADDER'S RULES, THE LADDER'S FUNCTION. This used to be a float division
+  // printed through `pct`, which ROUNDS (2/3 read 66.67%, and a half-up round prints a
+  // share nobody holds), had NO upper bound (a wallet total above the pool total — the
+  // entries and the pool land in separate reads — printed past 100%), and said "nothing
+  // staked" whenever the wallet's entries had not been read, connected or not. Now:
+  // `sharePct` floors to a tenth and refuses (null) on a missing or zero total and on
+  // mine > total; it is only computed from a COMPLETE entries read; and "nothing
+  // staked" is reserved for a complete read that found no open stake.
+  const nothingStaked = entriesKnown && openEntries.length === 0;
+  const myShare = entriesKnown && !nothingStaked
+    ? sharePct({ mineWeight: myEffectiveRaw, totalWeighted: poolEffectiveRaw, truncated: false })
     : null;
+  const shareNote = !publicKey
+    ? 'connect a wallet to see yours.'
+    : nothingStaked
+      ? 'nothing staked.'
+      : !entriesForWallet
+        ? 'reading your stakes…'
+        : myShare === null
+          ? 'could not be read.'
+          : 'of each payout — it moves as others stake.';
 
   const stakedTotal = openEntries.reduce((a, e) => a + e.amountRaw, 0n);
   // THE HEADER TOTAL MUST NOT COUNT WHAT CAN NEVER BE PAID. This reduce was a
@@ -383,9 +403,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
           {
             key: 'share',
             label: 'Your share',
-            value: myShare === null ? '–' : pct(myShare),
+            value: myShare === null ? '–' : myShare.label,
             tone: myShare === null ? 'muted' as const : 'good' as const,
-            note: myShare === null ? 'nothing staked.' : 'of each payout — it moves as others stake.',
+            note: shareNote,
           },
           { key: 'pays', label: 'How it pays', value: 'Budget', note: 'not a fixed rate — split by weighted stake.' },
         ]
