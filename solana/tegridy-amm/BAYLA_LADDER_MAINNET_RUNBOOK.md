@@ -884,6 +884,411 @@ operator policy; the program does not enforce it.
 
 ---
 
+## 8A. The multisig handover — the last irreversible step
+
+**When.** The owner ruled 2026-09-20 that this runs **last**, after §9's card is on. It is
+placed here, between the funding section and the card, because §8's funding rules change the
+moment it completes — not because it runs in this position.
+
+**State as read, not as remembered** (Alchemy mainnet, finalized; pool snapshot slot
+448,901,219, chain clock 2026-09-21T01:03:32Z):
+
+| authority | holder today | target |
+| --- | --- | --- |
+| `pool.authority` | `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (deployer) | vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` |
+| `pool.pending_authority` | `11111111111111111111111111111111` — **unset, nothing proposed** | — |
+| ProgramData upgrade authority | `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` | same vault |
+| **IDL account authority** | `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` | **undecided — see 8A.7** |
+
+`FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw` reads tag 3, last-deploy slot 448,851,661,
+option byte 1, authority `Fu7mNAv…`. The IDL account `3nHKL72LUn5vijmHk76v6qwgkMshToKkJGsEzbWBaQ2r`
+is owned by the program, carries 8,140 bytes of IDL, and its authority field (offset 8..40)
+is the deployer. **Three authorities sit on one key, not two.** §1 and §3 of this runbook
+name only two.
+
+Shared shell setup for every PowerShell block below. The RPC key is never typed into a
+command that gets pasted anywhere — read it out of `frontend\.env` and keep it in the session:
+
+```powershell
+$Sol      = "C:\Users\jimbo\.local\share\solana\install\releases\stable-6a8c724a9ed8f093127ef6066e0bcfb074193cc3\solana-release\bin\solana.exe"
+$SplToken = "C:\Users\jimbo\.local\share\solana\install\releases\stable-6a8c724a9ed8f093127ef6066e0bcfb074193cc3\solana-release\bin\spl-token.exe"
+$Deployer = "C:\Users\jimbo\solana-keys\mainnet\bayla_ladder-deployer.json"
+$Pool     = "Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV"
+$Program  = "EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ"
+$Vault    = "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd"
+$Mint     = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump"
+$T22      = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+
+$EnvLine  = Select-String -Path "C:\Users\jimbo\OneDrive\Desktop\tegriddy farms\frontend\.env" -Pattern "^ALCHEMY_API_KEY=" | Select-Object -First 1
+$Key      = $EnvLine.Line.Split("=",2)[1].Trim().Trim('"').Trim("'")
+$env:SOLANA_RPC = "https://solana-mainnet.g.alchemy.com/v2/$Key"
+Remove-Variable Key, EnvLine
+```
+
+`solana-keygen` and `solana` are **not on the PATH** on this box; the versioned paths above
+are. The ops CLI defaults `--rpc` to **devnet** — every command below passes it explicitly.
+
+---
+
+### 8A.1 Ordering, and why
+
+**Pool authority first. Upgrade authority second. IDL authority third, or never.**
+
+The reason is not taste. *While the deployer still holds the upgrade authority, a failed
+pool-authority handover is recoverable*: a program upgrade can rewrite `pool.authority`,
+because it is a plain field on a program-owned account with no external constraint. The
+moment the upgrade authority moves to the vault, that remedy is gone — and if the vault then
+turns out not to be able to sign, **both** remedies are gone at once and the pool is bricked
+with 3,200 BAYLA of other people's principal and 43,091.76 BAYLA in the reward vault.
+
+So the upgrade authority is the backstop for the pool-authority move, and a backstop is
+surrendered **after** the thing it backs has been proven, not before. The proof is not
+"`read` shows the new authority" — it is **the vault actually executing a pool instruction**,
+which is why 8A.5 ends with a `notify_reward` and not with a balance check.
+
+What becomes impossible, in order:
+
+| after | impossible from then on |
+| --- | --- |
+| the vault's BAYLA account is funded (8A.3) | nothing — this step is additive and reversible; the vault can send the tokens back at any time |
+| **`accept_authority` lands** (8A.5) | `notify_reward`, `propose_cap_raise`, `cancel_cap_raise` and `declare_degraded` from the CLI, forever. Each becomes a 2-of-2 ceremony. The deployer's own 2,686.30 BAYLA stops being usable as reward budget (see 8A.3). `propose_authority` also moves, so **handing the authority back is itself a 2-of-2** |
+| **`set-upgrade-authority` lands** (8A.6) | `solana program deploy --program-id`, `solana program close`, a further `set-upgrade-authority`, and `anchor idl init`, all from the CLI. The pool-authority rescue path described above is gone |
+| `anchor idl set-authority` lands (8A.7) | `anchor idl upgrade` from the CLI |
+
+---
+
+### 8A.2 Before the first command — can the 2-of-2 actually execute?
+
+This is the question that decides whether the handover is safe, and the prior note in this
+repo got it **half wrong**. Re-read on chain 2026-09-20:
+
+The multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK` decodes as Squads v4
+(owner `SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf`):
+`threshold 2`, `time_lock 0`, `config_authority` unset (autonomous), `transaction_index 4`,
+`stale_transaction_index 3`, `rent_collector None`, bump 255, **two members, both with
+permissions 7 = Initiate+Vote+Execute**:
+
+- `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`
+- `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY`
+
+Two voters, threshold two: quorum is reachable only if **both** keys sign. There is no
+spare. Deriving `["multisig", <multisig>, "vault", 0]` under the Squads program reproduces
+`GRMtSxg…` exactly, as §3 says.
+
+**The 2026-07-22 burst was not what it was recorded as.** All four of that day's on-chain
+events were *config* transactions, each created, approved and executed by
+`5QHz…` **alone** — which was possible because the threshold was still 1 at the time. Reading
+the transaction accounts back:
+
+- tx #1 — `AddMember 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY perm=7`, Executed
+  2026-07-22T08:26:16Z, `approved` = 1 key.
+- tx #2 — `ChangeThreshold -> 2`, Executed 2026-07-22T08:28:19Z, `approved` = 1 key.
+  **This is the moment the 2-of-2 came into existence.**
+- tx #3 — a duplicate `ChangeThreshold -> 2`, **Approved but never executed**, and now
+  permanently unexecutable: `stale_transaction_index` is 3, so index 3 is stale. Harmless,
+  but it is the reason the app shows a stranded proposal. Do not try to clear it.
+
+**The 2026-08-13 event is the real precedent, and it is a good one.** Proposal #4 carries
+`approved(2)` = *both* member keys, and executed at 2026-08-13T03:03:30Z under threshold 2:
+
+```
+2026-08-13T03:02:27Z  5QHz…  VaultTransactionCreate + ProposalCreate + ProposalApprove
+2026-08-13T03:03:21Z  6VHow… ProposalApprove
+2026-08-13T03:03:30Z  6VHow… VaultTransactionExecute
+      sig 2xnAE7TkTgMMK5pw38fixwnVGQkW7sKA4FGBv7fHQwbaVdufcWosuaLA1EU8NyPHdioNadg5tvuuAzKc9iXjn5DP
+```
+
+Its inner instructions are two `BPFLoaderUpgradeable` closes, and account index 2 of each —
+the **authority** slot, which the loader requires to be a signer — is
+`GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`. The programs closed were
+`CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED` and
+`3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y`; 3.581 + 4.886 SOL landed on `5QHz…`.
+
+That is the exact signing path 8A.6 hands the program to, exercised for real, with money
+moving. **Confidence that the 2-of-2 can execute a vault transaction: high.** Confidence
+that it can execute *today*: lower — the last exercise was 2026-08-13, 38 days before this
+was written, and nothing on chain proves either private key is still reachable now. Key
+liveness is not a property of the chain. That is what 8A.4 is for, and 8A.4 is not optional.
+
+---
+
+### 8A.3 The reward budget has to move before the authority does
+
+`NotifyReward` (`solana/tegridy-amm/programs/bayla-ladder/src/lib.rs:1280-1292`) constrains
+the funding account:
+
+```rust
+#[account(mut, constraint = funder_ata.mint == pool.mint && funder_ata.owner == authority.key())]
+pub funder_ata: Box<InterfaceAccount<'info, TokenAccount>>,
+```
+
+`authority` is `#[account(address = pool.authority)]`. So from the instant `accept_authority`
+lands, **every reward top-up must be pulled out of a token account owned by the Squads vault
+PDA.** BAYLA sitting in the deployer's own ATA becomes unspendable as reward budget — the
+deployer can still send it anywhere, but it can no longer *fund the pool*, because it can no
+longer sign `notify_reward`.
+
+Read on chain 2026-09-20:
+
+| account | address | state |
+| --- | --- | --- |
+| deployer BAYLA ATA | `DsGFcoYREF44GJxYofDKJXbxhY2oEMoAewELUMn89Wqc` | exists, **2,686.299573 BAYLA**, rent 1,513,840 lamports |
+| **Squads vault BAYLA ATA** | `4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy` | 🔴 **DOES NOT EXIST** |
+| Squads vault (SOL) | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` | System-owned, 0 data, **1,000,000 lamports = 0.001 SOL** |
+| deployer (SOL) | `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` | 211,679,240 lamports = 0.2117 SOL |
+
+Two consequences:
+
+1. The vault's token account must be **created**, and at 0.001 SOL the vault cannot pay its
+   own Token-2022 ATA rent (1,513,840 lamports, taking the deployer's ATA as the measure).
+   Somebody else pays, or the vault gets topped up first.
+2. The constraint is on the **owner**, not on the address, so any vault-owned BAYLA account
+   satisfies it. Use the canonical ATA anyway: `ixNotifyReward`
+   (`frontend/scripts/bayla-ladder-ops.mjs:1018-1031`) derives `ataFor(mint, authority,
+   tokenProgram)` with no override, so `notify --preview` only tells the truth about the ATA.
+
+**How much.** The pool emits 0.005506 BAYLA/s = **475.7184/day** to `period_finish`
+2026-12-20T00:02:42Z; the reward vault holds 43,091.764477 with 42,794.5591 still to emit in
+this window and only 276.161466 unpledged. A next 90-day window at the same rate needs
+475.7184 × 90 ≈ **42,814.66 BAYLA**. The deployer's ATA holds 2,686.30. **Wherever the next
+window's budget is, it is not in a place the vault will be able to spend**, and after the
+handover the vault is the only key that may spend it. Move it into
+`4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy` before 8A.5, not after.
+
+---
+
+### 8A.4 Step 1 — top up the vault, then rehearse the 2-of-2 by creating the ATA
+
+Do the rehearsal and the ATA creation as **one Squads ceremony**: it proves both keys are
+live today and produces the account 8A.3 needs. A rehearsal that produces nothing gets
+skipped; this one cannot be.
+
+**(a) Give the vault enough SOL to pay for accounts it creates** (CLI, deployer signs):
+
+```powershell
+& $Sol transfer $Vault 0.02 --url $env:SOLANA_RPC --keypair $Deployer
+```
+
+Verify: `& $Sol balance $Vault --url $env:SOLANA_RPC` → `0.021 SOL`.
+
+**(b) In the Squads app**, create a vault transaction on **vault index 0** containing one
+instruction. Squads' builder takes program id, accounts and raw data:
+
+| field | value |
+| --- | --- |
+| program id | `ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL` |
+| data | `01` (hex) · `AQ==` (base64) · `2` (base58) — ATA `CreateIdempotent` |
+
+| # | account | signer | writable | what it is |
+| --- | --- | --- | --- | --- |
+| 0 | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` | ✅ | ✅ | payer — the vault itself |
+| 1 | `4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy` | — | ✅ | the ATA being created |
+| 2 | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` | — | — | owner |
+| 3 | `7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump` | — | — | BAYLA mint |
+| 4 | `11111111111111111111111111111111` | — | — | System program |
+| 5 | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` | — | — | **Token-2022**, not the legacy token program |
+
+Then: member A creates + approves, **member B approves**, member B executes. The second
+approval is the whole point — if it does not arrive, **stop, and do not run 8A.5.**
+
+*Fallback if the Squads builder cannot take a raw instruction.* The ATA can be created from
+the CLI with the deployer paying — but this **skips the rehearsal**, and the rehearsal is the
+control on the only failure mode that cannot be undone. If you take this path, rehearse
+separately with a 0.001 SOL vault-to-self transfer before 8A.5.
+
+```powershell
+& $SplToken create-account $Mint --owner $Vault --program-id $T22 `
+    --fee-payer $Deployer --url $env:SOLANA_RPC
+```
+
+**(c) Move the reward budget in** (deployer signs; `--fund-recipient` also creates the ATA,
+so this single command can replace (b) if the rehearsal is done separately):
+
+```powershell
+& $SplToken transfer $Mint <AMOUNT_IN_WHOLE_BAYLA> $Vault --program-id $T22 `
+    --owner $Deployer --fee-payer $Deployer --fund-recipient --url $env:SOLANA_RPC
+```
+
+The vault is a **System-owned** account (0 data), so `--allow-non-system-account-recipient`
+is *not* needed. Verify:
+
+```powershell
+& $SplToken balance $Mint --owner $Vault --program-id $T22 --url $env:SOLANA_RPC
+```
+
+---
+
+### 8A.5 Step 2 — the pool authority, in two halves
+
+#### Half 1 — `propose_authority`, from the CLI, signed by the deployer
+
+Dry run first. The ops CLI signs nothing and sends nothing without `--broadcast`
+(`frontend/scripts/bayla-ladder-ops.mjs:1338-1340`), and it simulates against the real pool:
+
+```powershell
+cd C:\Users\jimbo\tegriddy-worktrees\ladder-golive\frontend
+node scripts\bayla-ladder-ops.mjs propose-authority `
+    --program $Program --pool $Pool --new-authority $Vault `
+    --keypair $Deployer --rpc $env:SOLANA_RPC
+```
+
+Expect it to print the current and proposed authority and then, because `GRMtSxg…` is
+**off-curve** (verified: `PublicKey.isOnCurve` is false), the warning at
+`bayla-ladder-ops.mjs:1852-1855`:
+
+> `WARNING: GRMtSxg… is OFF-CURVE (a PDA, e.g. a Squads vault). It cannot sign this CLI's
+> accept-authority - the accept must be executed from inside that multisig.`
+
+**Seeing that warning is the pass condition.** If it does not appear, the address is wrong.
+Then re-run with `--broadcast` appended.
+
+Nothing has changed yet: `propose_authority` only writes `pool.pending_authority`
+(`lib.rs:879-887`). Until half 2 lands the deployer keeps full control, and the proposal can
+be withdrawn by proposing `11111111111111111111111111111111`.
+
+#### Half 2 — `accept_authority`, which the CLI **cannot** do
+
+`accept-authority` calls `signer()` and passes that keypair as the `pending` signer
+(`bayla-ladder-ops.mjs:1862-1873`). The incoming authority is a PDA; there is no private key;
+no file can be passed to `--keypair`. **The accept must be executed as a Squads vault
+transaction**, where the Squads program signs the CPI as the vault.
+
+`AcceptAuthority` (`solana/tegridy-amm/programs/bayla-ladder/src/lib.rs:1302-1308`) is:
+
+```rust
+#[derive(Accounts)]
+pub struct AcceptAuthority<'info> {
+    #[account(address = pool.pending_authority @ LadderError::Unauthorized)]
+    pub pending: Signer<'info>,
+    #[account(mut)]
+    pub pool: Box<Account<'info, Pool>>,
+}
+```
+
+Two accounts, in this order, and nothing else — no vault, no mint, no token program:
+
+| field | value |
+| --- | --- |
+| program id | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` |
+| data (8 bytes, no args) | `6b56c65b210c6ba0` (hex) · `a1bGWyEMa6A=` (base64) · `JxKhbCbXZc3` (base58) |
+
+| # | account | signer | writable | binds to |
+| --- | --- | --- | --- | --- |
+| 0 | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` | ✅ | ❌ | `pending`, must equal `pool.pending_authority` |
+| 1 | `Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV` | ❌ | ✅ | `pool` |
+
+The discriminator is Anchor's `sha256("global:accept_authority")[0..8]`, reproducible with
+`node -e "console.log(require('crypto').createHash('sha256').update('global:accept_authority').digest().subarray(0,8).toString('hex'))"`,
+and it is pinned by `IX.acceptAuthority` at `bayla-ladder-ops.mjs:156`. Account **0 is a
+signer but NOT writable** — Squads will mark the vault writable by default in some builders;
+leaving it writable does not break this instruction, but getting the *order* wrong does.
+
+Then, the proof that matters:
+
+```powershell
+node scripts\bayla-ladder-ops.mjs read --pool $Pool --program $Program --rpc $env:SOLANA_RPC
+```
+
+`authority` must read `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, and the I-1 and I-4
+invariant lines must both still print as holding.
+
+#### Half 3 — prove the vault can actually run a pool instruction
+
+**Do not skip this, and do not proceed to 8A.6 without it.** Build a `notify_reward` as a
+Squads vault transaction with a deliberately small `amount`, and execute it 2-of-2:
+
+| field | value |
+| --- | --- |
+| program id | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` |
+| data | `fc334b84df30b1d5` + `amount` u64-LE + `from_budget` u64-LE (raw units, 6 dp) |
+
+accounts, in order (`bayla-ladder-ops.mjs:1018-1031`, `lib.rs:1279-1292`):
+
+| # | account | signer | writable |
+| --- | --- | --- | --- |
+| 0 | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` — authority | ✅ | ❌ |
+| 1 | `Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV` — pool | ❌ | ✅ |
+| 2 | `7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump` — mint | ❌ | ❌ |
+| 3 | `4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy` — funder ATA (vault-owned) | ❌ | ✅ |
+| 4 | `3yFvfhdRS9WNJEwVec7fgB3KRcKAi7Lo4jUyzzDMPAK1` — reward vault | ❌ | ✅ |
+| 5 | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` — Token-2022 | ❌ | ❌ |
+
+⚠️ Size it against §8's rules first — `notify_reward` **re-spreads the live tail over a fresh
+90 days** and the rate guard refuses a later reload that would lower it, so this is not a
+free keystroke. Preview it with `node scripts\bayla-ladder-ops.mjs notify --pool $Pool
+--amount <n> --preview --program $Program --rpc $env:SOLANA_RPC` (no keypair needed) and
+read `owed (LIVE)` before committing to a number.
+
+---
+
+### 8A.6 Step 3 — the program upgrade authority
+
+Only after 8A.5 half 3 has executed. One transaction, signed by the deployer; the incoming
+authority is a PDA and cannot co-sign, which is what
+`--skip-new-upgrade-authority-signer-check` is for:
+
+```powershell
+& $Sol program set-upgrade-authority $Program `
+    --new-upgrade-authority $Vault `
+    --skip-new-upgrade-authority-signer-check `
+    --upgrade-authority $Deployer `
+    --keypair $Deployer `
+    --url $env:SOLANA_RPC
+```
+
+`--upgrade-authority` is the *signer* (it defaults to the configured keypair, and
+`solana config get` on this box points at `C:\Users\jimbo\solana-keys\devnet-deploy.json` on
+**devnet** — pass both `--upgrade-authority` and `--url` explicitly or this command addresses
+the wrong cluster with the wrong key). Verified against `solana-cli 4.1.1` (`src:6a8c724a`)
+`program set-upgrade-authority --help` on 2026-09-20.
+
+Verify:
+
+```powershell
+& $Sol program show $Program --url $env:SOLANA_RPC
+```
+
+`Authority` must read `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`. Do **not** pass
+`--final` — §3 decided against immutability on purpose.
+
+---
+
+### 8A.7 The third authority: the IDL account
+
+`3nHKL72LUn5vijmHk76v6qwgkMshToKkJGsEzbWBaQ2r` has its **own** authority field, and it is
+still `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`. It does not move with either handover
+above, and no section of this runbook or of the checklist mentions it.
+
+What that leaves: after 8A.5 and 8A.6, the deployer key can no longer touch the pool or the
+program, but it can still **replace the published IDL** — the artifact every explorer and
+wallet uses to decode `stake`, `early_exit` and the `Pool` account for a user who is about to
+lock tokens for up to four years. A lying IDL is a display-layer attack, not a fund-moving
+one, but it is exactly the surface this handover exists to close.
+
+Decide one of:
+
+- **Move it too**, with the current IDL authority signing:
+  `anchor idl set-authority --provider.cluster $env:SOLANA_RPC --program-id EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ --new-authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`
+  (run from an Anchor workspace — per the 2026-09-19 note, not this repo). After this,
+  `anchor idl upgrade` is a 2-of-2 forever.
+- **Leave it**, and record here that it is deliberate, with a date and a reason.
+
+Do not leave it undecided. `________`
+
+---
+
+### 8A.8 Abort and recovery
+
+| if | then |
+| --- | --- |
+| the second Squads approval never arrives in 8A.4 | **stop.** Nothing irreversible has happened; the vault has 0.02 SOL and that is all. Do not propose the authority |
+| `propose_authority` landed but the vault cannot accept | the deployer is still the authority and nothing is lost. Withdraw by proposing `11111111111111111111111111111111` with the same CLI command |
+| `accept_authority` landed and the vault then cannot sign | the pool authority is stranded. **The only remedy is a program upgrade rewriting `pool.authority`** — which exists only while 8A.6 has not run. This is the whole reason for the ordering |
+| both handovers landed and the vault cannot sign | there is no remedy. New stakes still work, existing positions can still exit and claim what is funded, but the pool can never be funded again and `declare_degraded` can never be set |
+| a `notify_reward` lands at a rate that is too high | it stands until `period_finish`, up to 90 days (§8). The rate guard refuses a mid-window reload that lowers it |
+
+---
+
 ## 9. Turn the card on
 
 🏝️ **STOP — this step is go-live, and the island's wave-8 ruling gates it.** Everything
