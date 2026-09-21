@@ -15,6 +15,47 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-21 — to find everything a key controls, search the field that names the key
+
+**The belief:** "which Streamflow pools does this key run?" can be answered by listing
+the pools for the token and checking each one's authority. **It can't.** A search by the
+BAYLA mint (`searchStakePools({ mint })`) found **2** stake pools administered by the
+OneDrive faucet key. A search on the authority field itself — `getProgramAccounts` on the
+stake program with a `memcmp` of the key at `StakePool.authority`, offset 74 — found **6**.
+The other four were pools for other tokens (BOBO, SOY, RIZZ and one more). A mint search
+can only find the mint you already thought to ask about. Each of the 6 stake pools also
+had a reward pool, so the real answer was 12 accounts. All 12 were then handed to a new
+admin in one transaction.
+
+Take the offset from the program's IDL (the account's field order, plus 8 bytes of
+discriminator), not from memory. Check it by confirming the matches decode as that
+account type with that field set to the key. **A wrong offset returns an empty list,
+which reads exactly like "this key controls nothing"** — measured: the same query for the
+current admin returns 6 accounts at offset 74, and 0 at offsets 73 and 42.
+
+### A simulated call's first error can be about a precondition, not your question
+
+To learn whether the key could pull funds, a `clawback` was simulated with signature
+checking off. It failed with `3012 AccountNotInitialized` on the `to` account — the
+key's own token account for BAYLA did not exist. **That says nothing about whether
+clawback is allowed**, only that the program never got as far as checking. Anyone can
+create that account first, so the honest simulation creates it in the same transaction
+and then claws back. That run reached the real check: `6015 ClawbackNotPossible` at
+`clawback.rs:94`. Before reading "impossible" into a simulation error, confirm the error
+names the thing you asked about. If it names a missing account, a wrong owner or a
+blockhash, satisfy that and simulate again.
+
+### `git fetch` never moves your local `mvp-launch`
+
+A "what does my PR add" check over `mvp-launch..HEAD` reported **3,421** added lines for
+a PR that adds **56**: in a worktree the local `mvp-launch` branch sat **48 commits**
+behind `origin/mvp-launch` — one day's merges — so the range included trunk's own new
+commits. `git fetch` updates `origin/mvp-launch` and leaves
+the local branch where it was, so even "fetch first" doesn't fix a check that names the
+local ref. Every range check — diff, scan, `git log` — should say `origin/mvp-launch`.
+
+---
+
 ## 2026-09-20 — gitleaks checks every commit in a PR, so fixing a flagged value in a later commit does nothing
 
 Found while fixing an ops CLI that printed its RPC URL, API key included, on every run
