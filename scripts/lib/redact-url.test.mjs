@@ -123,6 +123,32 @@ describe('redactRpcUrl -- the host survives, the credential does not', () => {
     }
   });
 
+  test('keeps route words and masks every credential-shaped path segment', () => {
+    // Route words carry no secret and reading them back is how an operator recognises
+    // the provider's URL, so they survive; anything longer or digit-bearing does not.
+    assert.equal(redactRpcUrl('https://h.example.com/v2'), 'https://h.example.com/v2');
+    assert.equal(redactRpcUrl('https://h.example.com/solana/rpc/v1'), 'https://h.example.com/solana/rpc/v1');
+    // The path shapes of the providers this repo's RPC roster actually uses. Every
+    // fixture is deliberately DULL -- 'deadbeef' repeated, a nil-ish UUID -- because a
+    // realistic one is a credential-shaped literal, and this file already had to be
+    // rewritten out of history once for committing one of those.
+    assert.equal(
+      redactRpcUrl('https://mainnet.infura.io/v3/deadbeefdeadbeefdeadbeefdeadbeef'),
+      'https://mainnet.infura.io/v3/***',
+    );
+    assert.equal(
+      redactRpcUrl('https://eth-mainnet.blastapi.io/00000000-0000-4000-8000-000000000000'),
+      'https://eth-mainnet.blastapi.io/***',
+    );
+    // QuickNode's token is a whole path segment with a TRAILING slash. The empty
+    // segment it leaves behind must stay empty rather than becoming another mask.
+    assert.equal(
+      redactRpcUrl(`https://name.solana-mainnet.quiknode.pro/${KEY}/`),
+      'https://name.solana-mainnet.quiknode.pro/***/',
+    );
+    assert.equal(redactRpcUrl(`https://rpc.ankr.com/solana/${KEY}`), 'https://rpc.ankr.com/solana/***');
+  });
+
   test('refuses rather than echoes when there is nothing it can parse', () => {
     // A value that is not a URL may BE the bare key -- someone exporting ETH_RPC_URL
     // wrong. Passing it through is the one outcome that must not happen.
@@ -201,9 +227,16 @@ describe('the host assertion itself -- pinning the CodeQL fix', () => {
   // js/incomplete-url-substring-sanitization with nothing to catch it.
   test('a hostname that is merely PRESENT does not satisfy it', () => {
     // The shape from the CodeQL rule's own description: the real host appears in
-    // the string, but it is not the host. A substring check cannot tell them apart.
+    // the string, but it is NOT the host -- it is a query value on evil.example.com.
+    // `impostor.includes(HOST)` is therefore true, which is the entire bug.
+    //
+    // That claim is stated here rather than asserted, deliberately. Writing it as
+    // executable code re-introduces the exact pattern this test exists to keep out,
+    // and CodeQL flags it on sight -- correctly, and it did: the first draft of this
+    // test shipped the assertion and raised a fresh high-severity alert of the very
+    // rule it was written to defend. The teeth are in the throws below, which fails
+    // if assertRedacted is ever loosened back to a substring check.
     const impostor = `https://evil.example.com/?x=${HOST}`;
-    assert.ok(impostor.includes(HOST), 'the weak substring form would accept this');
     assert.throws(() => assertRedacted(impostor), /lost the host/);
   });
 
