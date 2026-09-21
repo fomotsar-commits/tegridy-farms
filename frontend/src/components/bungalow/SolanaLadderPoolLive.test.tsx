@@ -1065,3 +1065,73 @@ describe('a first stake does not leave a stale "No open positions" on screen (ga
     expect(screen.queryByText(/Updating your positions/)).toBeNull();
   });
 });
+
+/* ────────── 14. after YOUR OWN confirmed write, a basis older than it is not a share ────────── */
+
+// POST-EXIT LAG. The card marked a read stale by OBJECT IDENTITY only, so any read landing
+// after your confirmed exit counted as fresh — even one served by an RPC node still at a
+// pre-exit slot. After an exit the true share (W-w)/(T-w) is BELOW W/T, so that read
+// over-reads until the next 45s poll. The basis now carries the slot it was read at, the
+// write carries the slot it confirmed at, and the basis is stale while basisSlot <
+// writeSlot — and whenever either slot is missing (fail CLOSED). Stale shows "updating…".
+describe('⚠️ a share basis older than your confirmed exit is "updating…", never the old figure', () => {
+  // Two positions, so after one exits there is still weight — and a share — to state.
+  const twoOpen = (basis: { mineWeight: bigint; totalWeighted: bigint; slot?: number | null } | null) => walletView({
+    stats: { address: 'US', nextNonce: 2, openPositions: 2, rewardsCarriedRaw: 0n, principalRaw: 1_000_000_000n },
+    open: [position({ nonce: 0, address: 'POS0', weight: W(20) }), position({ nonce: 1, address: 'POS1', weight: W(10) })],
+    shareBasis: basis,
+  });
+
+  const exitFirst = async (writeResult: Record<string, unknown>, postExitRead: unknown) => {
+    reads.pool = { ok: true, value: poolView({ totalWeighted: W(100) }) };
+    reads.wallet = { ok: true, value: twoOpen({ mineWeight: W(30), totalWeighted: W(100), slot: 300 }) };
+    writes.exit.mockImplementationOnce(async () => writeResult as never);
+    draw();
+    await screen.findByText('Your share of pool weight');
+    await waitFor(() => expect(shareValue()).toMatch(/^30%/));
+    // The re-read that lands after the exit.
+    reads.wallet = postExitRead;
+    const early = (await screen.findAllByText(/^Exit early — keep/))[0]!;
+    await act(async () => { fireEvent.click(early); });
+    await act(async () => { fireEvent.click(await screen.findByText('Confirm')); });
+    expect(await screen.findByText(/confirmed\./)).toBeTruthy();
+    await waitFor(() => expect(vi.mocked(writes.exit)).toHaveBeenCalledTimes(1));
+  };
+
+  it('⚠️ a basis read at slot 400, BELOW the exit confirmed at 500, renders "updating…", not 30%', async () => {
+    // An RPC node still at a pre-exit slot: both positions, the pre-exit total.
+    await exitFirst(
+      { ok: true, signature: 'SIG', slot: 500 },
+      { ok: true, value: twoOpen({ mineWeight: W(30), totalWeighted: W(100), slot: 400 }) },
+    );
+    await waitFor(() => expect(shareValue()).toMatch(/updating…/));
+    expect(shareValue()).not.toMatch(/%/);
+  });
+
+  it('⚠️ a write whose confirmed slot is MISSING fails closed: "updating…", even over a later basis', async () => {
+    await exitFirst(
+      { ok: true, signature: 'SIG' },
+      { ok: true, value: twoOpen({ mineWeight: W(30), totalWeighted: W(100), slot: 600 }) },
+    );
+    await waitFor(() => expect(shareValue()).toMatch(/updating…/));
+    expect(shareValue()).not.toMatch(/%/);
+  });
+
+  it('⚠️ a basis with NO slot after a confirmed exit fails closed: "updating…"', async () => {
+    await exitFirst(
+      { ok: true, signature: 'SIG', slot: 500 },
+      { ok: true, value: twoOpen({ mineWeight: W(30), totalWeighted: W(100) }) },
+    );
+    await waitFor(() => expect(shareValue()).toMatch(/updating…/));
+    expect(shareValue()).not.toMatch(/%/);
+  });
+
+  it('a basis read AT or after the exit slot is a share again — the lag is not permanent', async () => {
+    // The counter-pin: a fix that blanks the share after every write must fail here.
+    await exitFirst(
+      { ok: true, signature: 'SIG', slot: 500 },
+      { ok: true, value: twoOpen({ mineWeight: W(10), totalWeighted: W(80), slot: 500 }) },
+    );
+    await waitFor(() => expect(shareValue()).toMatch(/^10%/));
+  });
+});

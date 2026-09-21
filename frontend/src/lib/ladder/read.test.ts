@@ -60,6 +60,8 @@ function fakeConn(opts: {
   accountThrows?: string;
   multi?: (a: PublicKey[]) => ({ data: Uint8Array } | null)[];
   multiThrows?: string;
+  /** The `context.slot` each multi-account call reports; `null` omits it. Default 1000. */
+  slot?: number | null;
   balance?: (a: PublicKey) => unknown;
 }): Connection {
   return {
@@ -70,6 +72,11 @@ function fakeConn(opts: {
     getMultipleAccountsInfo: async (a: PublicKey[]) => {
       if (opts.multiThrows) throw new Error(opts.multiThrows);
       return opts.multi ? opts.multi(a) : a.map(() => null);
+    },
+    getMultipleAccountsInfoAndContext: async (a: PublicKey[]) => {
+      if (opts.multiThrows) throw new Error(opts.multiThrows);
+      const slot = opts.slot === undefined ? 1000 : opts.slot;
+      return { context: slot === null ? {} : { slot }, value: opts.multi ? opts.multi(a) : a.map(() => null) };
     },
     getTokenAccountBalance: async (a: PublicKey) => {
       if (!opts.balance) throw new Error('no balance');
@@ -318,7 +325,7 @@ describe('readLadderWallet — shareBasis is read in one call', () => {
     const r = await readLadderWallet(conn, PROGRAM, POOL, OWNER);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.value.shareBasis).toEqual({ mineWeight: W(20), totalWeighted: W(110) });
+    expect(r.value.shareBasis).toEqual({ mineWeight: W(20), totalWeighted: W(110), slot: 1000 });
     // ONE call carried both the positions and the pool.
     expect(calls).toHaveLength(1);
     expect(calls[0]).toContain(POOL.toBase58());
@@ -376,6 +383,20 @@ describe('readLadderWallet — shareBasis is read in one call', () => {
     if (!r.ok) return;
     expect(calls).toHaveLength(3);
     expect(calls[2]!.sort()).toEqual([at(0), at(150), POOL.toBase58()].sort());
-    expect(r.value.shareBasis).toEqual({ mineWeight: W(40), totalWeighted: W(200) });
+    expect(r.value.shareBasis).toEqual({ mineWeight: W(40), totalWeighted: W(200), slot: 1000 });
+  });
+
+  // SAME-SLOT IS NOT RECENT. The card fences the share on the slot of your own confirmed
+  // write, so the basis must carry the slot its ONE call was answered at — and a response
+  // without one must say null, never a made-up number that could pass the fence.
+  it('carries the context.slot of its call, and null when the response has none', async () => {
+    const multi = (addrs: PublicKey[]) => addrs.map((a) =>
+      a.toBase58() === POOL.toBase58()
+        ? ({ owner: PROGRAM, data: poolWithTotal(W(110)) } as never)
+        : { data: positionW(0, W(10)) });
+    const withSlot = await readLadderWallet(fakeConn({ account: statsFor(1, 1), multi, slot: 412_000_001 }), PROGRAM, POOL, OWNER);
+    expect(withSlot.ok && withSlot.value.shareBasis).toEqual({ mineWeight: W(10), totalWeighted: W(110), slot: 412_000_001 });
+    const noSlot = await readLadderWallet(fakeConn({ account: statsFor(1, 1), multi, slot: null }), PROGRAM, POOL, OWNER);
+    expect(noSlot.ok && noSlot.value.shareBasis).toEqual({ mineWeight: W(10), totalWeighted: W(110), slot: null });
   });
 });

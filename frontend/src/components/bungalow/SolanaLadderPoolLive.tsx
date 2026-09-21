@@ -155,6 +155,14 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   const [staleRead, setStaleRead] = useState<typeof walletRead>(null);
   const latestWalletRead = useRef(walletRead);
   useEffect(() => { latestWalletRead.current = walletRead; }, [walletRead]);
+  // ⚠️ IDENTITY IS NOT RECENCY. `staleRead` only knows which read was on screen when a
+  // write confirmed; ANY read landing after it counted as fresh — including one served by
+  // an RPC node still at a slot BEFORE the write. After an exit the true share
+  // (W-w)/(T-w) is below W/T, so that read over-read until the next 45s poll. So the
+  // slot the write CONFIRMED at is held here, keyed to the wallet that wrote, and the
+  // share basis is stale while its own slot is below it — or when either slot is
+  // missing (fail closed; never the old figure).
+  const [writeFence, setWriteFence] = useState<{ key: string; slot: number | null } | null>(null);
 
   // One tick a SECOND. Rewards accrue per second, and at a minute's cadence the only
   // way to watch your own balance move was to reload the page.
@@ -343,6 +351,16 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
     const res = await fn();
     if (res.ok) {
       setStaleRead(latestWalletRead.current);
+      let slot: number | null = typeof res.slot === 'number' && Number.isSafeInteger(res.slot) ? res.slot : null;
+      if (slot === null) {
+        // One more ask for the confirmed slot; if it still has none, the fence fails closed.
+        try {
+          const st = await connection.getSignatureStatuses([res.signature]);
+          const s = st?.value?.[0]?.slot;
+          if (typeof s === 'number' && Number.isSafeInteger(s)) slot = s;
+        } catch { /* stays null: stale until a later write carries a slot */ }
+      }
+      setWriteFence({ key: walletKey, slot });
       setAction({ note: `${label} confirmed.`, sig: res.signature });
       setAmount('');
     } else {
@@ -379,8 +397,14 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   // `openPositions` is a partial sum even when the scan did not hit its bound. And a
   // read that predates a confirmed write of yours shows no share until the re-read lands.
   const shareBasis = walletView?.shareBasis ?? null;
+  // A basis older than your own confirmed write (see `writeFence`), or one whose slot —
+  // or the write's — is unknown, is "updating…", never a share.
+  // (No basis at all already prints no share, and says why.)
+  const shareStale = writeFence !== null && writeFence.key === walletKey && shareBasis !== null && (
+    writeFence.slot === null || typeof shareBasis.slot !== 'number' || shareBasis.slot < writeFence.slot
+  );
   const share = (() => {
-    if (!pool || !walletView || !shareBasis || walletStale) return null;
+    if (!pool || !walletView || !shareBasis || walletStale || shareStale) return null;
     const own = sharePct({ mineWeight: shareBasis.mineWeight, totalWeighted: shareBasis.totalWeighted, truncated: walletPartial });
     const bound = sharePct({ mineWeight: shareBasis.mineWeight, totalWeighted: pool.totalWeighted, truncated: walletPartial });
     if (!own || !bound) return null;
@@ -601,7 +625,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                           </p>
                         ) : (
                           <p className="m-0 text-[13px]" style={{ color: '#f0b26b' }}>
-                            {walletStale ? 'updating…' : walletPartial ? 'could not be fully read' : 'could not be read'}
+                            {walletStale || shareStale ? 'updating…' : walletPartial ? 'could not be fully read' : 'could not be read'}
                           </p>
                         )}
                         {share && (

@@ -121,8 +121,15 @@ export interface LadderWalletView {
    * pool total no longer does, and the share over-reads while the order check passes.
    * The card's own re-read after an exit lands exactly that pair whenever the pool
    * answers first. Same-slot has no ordering to get wrong.
+   *
+   * `slot` is that call's `context.slot` (getMultipleAccountsInfoAndContext), or null
+   * when the response did not carry one. Same-slot makes the PAIR consistent; it does
+   * not make it recent. After your own confirmed write the card compares this against
+   * the write's confirmed slot: a basis from an RPC node still behind that write
+   * over-reads after an exit ((W-w)/(T-w) < W/T), so it is shown as updating — and a
+   * missing slot on either side is treated the same way (fail closed).
    */
-  shareBasis: { mineWeight: bigint; totalWeighted: bigint } | null;
+  shareBasis: { mineWeight: bigint; totalWeighted: bigint; slot: number | null } | null;
 }
 
 /**
@@ -185,7 +192,11 @@ export async function readLadderWallet(
     }
   };
   let lastCallTotal: bigint | null = null;
+  let lastCallSlot: number | null = null;
   let callsWithOpen = 0;
+  // The call's own slot, or null — never a guess.
+  const slotOf = (ctx: { slot?: unknown } | undefined): number | null =>
+    typeof ctx?.slot === 'number' && Number.isSafeInteger(ctx.slot) ? ctx.slot : null;
 
   const slots: PositionSlot[] = [];
   let found = 0;
@@ -201,7 +212,9 @@ export async function readLadderWallet(
     const addrs = nonces.map((n) => positionPda(programId, pool, owner, n));
     let infos: (Awaited<ReturnType<Connection['getAccountInfo']>>)[];
     try {
-      infos = await conn.getMultipleAccountsInfo([...addrs, pool], 'confirmed');
+      const res = await conn.getMultipleAccountsInfoAndContext([...addrs, pool], 'confirmed');
+      infos = res.value;
+      lastCallSlot = slotOf(res.context);
     } catch (e) {
       return unreadable(`your positions could not be read: ${(e as Error).message}`);
     }
@@ -239,12 +252,13 @@ export async function readLadderWallet(
   if (!truncated && found >= wanted && open.length > 0) {
     if (callsWithOpen === 1) {
       if (lastCallTotal !== null) {
-        shareBasis = { mineWeight: open.reduce((a, p) => a + p.weight, 0n), totalWeighted: lastCallTotal };
+        shareBasis = { mineWeight: open.reduce((a, p) => a + p.weight, 0n), totalWeighted: lastCallTotal, slot: lastCallSlot };
       }
     } else {
       try {
         const addrs = open.map((p) => positionPda(programId, pool, owner, p.nonce));
-        const infos = await conn.getMultipleAccountsInfo([...addrs, pool], 'confirmed');
+        const res = await conn.getMultipleAccountsInfoAndContext([...addrs, pool], 'confirmed');
+        const infos = res.value;
         const total = totalFrom(infos[addrs.length]);
         let mine = 0n;
         let undecodable = false;
@@ -255,7 +269,7 @@ export async function readLadderWallet(
           if (d.ok) mine += d.value.weight;
           else undecodable = true;
         }
-        if (total !== null && !undecodable) shareBasis = { mineWeight: mine, totalWeighted: total };
+        if (total !== null && !undecodable) shareBasis = { mineWeight: mine, totalWeighted: total, slot: slotOf(res.context) };
       } catch {
         // No basis — the positions themselves were read, so the view still stands.
       }
