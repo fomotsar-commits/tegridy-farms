@@ -194,6 +194,27 @@ describe('redact_url (shell) -- same four places, same kept host', () => {
   });
 });
 
+describe('the host assertion itself -- pinning the CodeQL fix', () => {
+  // Reverting assertRedacted's exact host comparison to `emitted.includes(host)`
+  // leaves every other test in this file GREEN -- measured, not assumed. So the
+  // strict form needs its own pin, or the tempting "simplification" reintroduces
+  // js/incomplete-url-substring-sanitization with nothing to catch it.
+  test('a hostname that is merely PRESENT does not satisfy it', () => {
+    // The shape from the CodeQL rule's own description: the real host appears in
+    // the string, but it is not the host. A substring check cannot tell them apart.
+    const impostor = `https://evil.example.com/?x=${HOST}`;
+    assert.ok(impostor.includes(HOST), 'the weak substring form would accept this');
+    assert.throws(() => assertRedacted(impostor), /lost the host/);
+  });
+
+  test('output that is not a URL fails loudly rather than passing quietly', () => {
+    // `[unreadable endpoint]` is a legitimate result FROM the redactor -- it refused
+    // to echo something it could not parse. It is not a redacted host, though, and a
+    // helper that shrugged at it would stop proving half the invariant.
+    assert.throws(() => assertRedacted('rpc     [unreadable endpoint]'), /parseable URL/);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Source guards.
 //
