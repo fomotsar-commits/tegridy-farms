@@ -152,7 +152,7 @@ schedule, someone whose plans change a month before their lock ends forfeits abo
 | Program id | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` | `BAYLA_LADDER_MAINNET_RUNBOOK.md` §1, and the local program keyfile derives to it exactly |
 | Deployed on mainnet? | **No** | `getAccountInfo` → `null`, 2026-09-15 |
 | Pool authority (compiled in) | `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` — **in the superseded `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` build only.** Rotated under option (A), D3: the rebuild compiles a fresh key, not yet recorded | `BAYLA_LADDER_MAINNET_RUNBOOK.md` §1 |
-| Do we hold it? | **Yes** — `OneDrive\Desktop\faucet\main-keypair.json` | public half derived locally; matches exactly |
+| Do we hold it? | **Yes** — moved 2026-09-21 out of OneDrive to `solana-keys\faucet-retired\main-keypair.json` (the OneDrive copy is in the Recycle Bin). Since that date it administers **nothing**: every Streamflow pool it ran was handed to `Fu7mNAv6…` (tx `4TWgasfpW454rjkJYo1P6gPitrc5QLhBNKvHkDfxDNPp6CcrCFyy5As6Rjas9pFMFBXZTbiPqSe34UD3qb7zyPnm`) | public half derived locally; matches exactly. Sha256 of the copy checked against the original before the original was removed |
 | Its balance | **0.0595 SOL** (a deployer needs ~2.62 — fund the **rotated** one, D3, not this key) | `getBalance`, 2026-09-15 |
 | Program keypair | held, `solana-keys\mainnet\bayla_ladder-program.json` | derives to `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` |
 | `5MtoeJ8DXcgWZQJAgGgDefd5hbq4KAe3K47yL9Nc87vq` | **NOT the authority** — 0 SOL, never used on mainnet | a prior handoff wrongly named it; do not fund it |
