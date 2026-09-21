@@ -133,7 +133,18 @@ describe('llms.txt says only what the venue itself says', () => {
       .map((r) => r.has?.find((h) => h.type === 'host')?.value)
       .filter((h): h is string => Boolean(h))
       .sort();
-    expect(configured, 'vercel.json redirects no alias onto the canonical origin').toContain('memetic.fun');
+    // NON-VACUITY. Without a positive assertion here, the equality below passes on
+    // two empty arrays and proves nothing at all. www.memetics.finance took this
+    // role from memetic.fun on 2026-09-20: memetic.fun is not an alias of this
+    // venue any more, it serves the Memetics Lab from a different Vercel project,
+    // and llms.txt must not tell an assistant it is one of our names.
+    expect(configured, 'vercel.json redirects no alias onto the canonical origin').toContain(
+      'www.memetics.finance',
+    );
+    expect(
+      configured,
+      'memetic.fun is a different application now and must not be stated as an alias',
+    ).not.toContain('memetic.fun');
     expect([...facts.aliasHosts].sort()).toEqual(configured);
 
     const monitor = readFileSync(join(REPO, '.github', 'workflows', 'synthetic-monitor.yml'), 'utf8');

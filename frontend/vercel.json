@@ -122,18 +122,6 @@
     },
     {
       "source": "/(.*)",
-      "has": [{ "type": "host", "value": "memetic.fun" }],
-      "destination": "https://memetics.finance/$1",
-      "permanent": true
-    },
-    {
-      "source": "/(.*)",
-      "has": [{ "type": "host", "value": "www.memetic.fun" }],
-      "destination": "https://memetics.finance/$1",
-      "permanent": true
-    },
-    {
-      "source": "/(.*)",
       "has": [{ "type": "host", "value": "www.memetics.finance" }],
       "destination": "https://memetics.finance/$1",
       "permanent": true
