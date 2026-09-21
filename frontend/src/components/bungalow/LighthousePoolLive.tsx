@@ -365,16 +365,34 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   };
 
   return (
-    <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    // SECONDARY, WHOLE (2026-09-20). The live Lock Ladder now leads the panel; this
+    // card sits back — a quieter border, no glow loop, a heavier scrim — and keeps
+    // every control and notice it has: its stakers still claim and unstake here.
+    <div className="relative overflow-hidden rounded-2xl" style={{ border: '1px solid var(--color-purple-25)' }}>
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim
           plus a dark card scrim stacked into near-black. Lightened hard.
           Safe because the dense copy inside sits on its OWN panels
           (rgba(0,0,0,0.4-0.6) blocks), so contrast is carried there and
           not by drowning the whole card. */}
-      <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.52)' }} />
-      <div className="relative z-10 p-6">
-        <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>The lighthouse pool · LIVE</p>
+      <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.62)' }} />
+      <div className="relative z-10 p-5 sm:p-6">
+        {/* HONESTY FIX: this eyebrow said "LIVE" while the pool was closed to
+            deposits. Closed, it now says exactly what still works. */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {bungalow.depositsClosed ? (
+            <p className="text-[11px] uppercase tracking-wider m-0" style={{ color: 'rgba(255,255,255,0.7)' }}>
+              The lighthouse pool · closed to deposits · claims open
+            </p>
+          ) : (
+            <p className="text-[11px] uppercase tracking-wider m-0" style={{ color: 'var(--color-kyle)' }}>The lighthouse pool · LIVE</p>
+          )}
+          {bungalow.depositsClosed && (
+            <span className="rounded-full px-2 py-0.5 text-[11px]" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.78)' }}>
+              Claim only
+            </span>
+          )}
+        </div>
 
         {poolRead === null && <p className="text-white/70 text-[13px]">Reading the pool…</p>}
 
@@ -396,7 +414,15 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
         {pool && !identityMismatch && (
           <>
             {/* ── The four numbers that decide whether to stake ───────────── */}
-            <div className={`grid grid-cols-2 sm:grid-cols-3 ${weighted ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3 mb-4`}>
+            {/* One solid ledger with hairline dividers — the same surface as the
+                ladder card's, so the two cards stop disagreeing (this one used to
+                put a dark box behind each number inside the tile's own box).
+                Columns follow the CARD's width, not the viewport. */}
+            <div className="@container mb-4">
+            <div
+              className="grid grid-cols-2 gap-px overflow-hidden rounded-[14px] @min-[34rem]:grid-cols-3"
+              style={{ background: 'linear-gradient(rgba(255,255,255,0.06), rgba(255,255,255,0.06)), rgba(7,11,22,0.94)', border: '1px solid rgba(255,255,255,0.08)' }}
+            >
               <Stat
                 label={dynamicPool ? 'Reward budget' : 'Reward vault'}
                 value={fmt(funded, decimals)}
@@ -454,6 +480,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   caption="longer lock, bigger share"
                 />
               )}
+            </div>
             </div>
 
             {/* The whole model in two sentences, stated before anyone signs.
@@ -1086,13 +1113,17 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 function Stat({ label, value, unit, tone, caption }: { label: string; value: string; unit?: string; tone?: 'good' | 'muted'; caption?: string }) {
   const color = tone === 'good' ? '#4ade80' : tone === 'muted' ? 'rgba(255,255,255,0.85)' : '#ffffff';
   return (
-    <div className="rounded-lg px-3 py-2" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)' }}>
-      <p className="text-[10px] uppercase tracking-wider text-white/60">{label}</p>
+    // A ledger cell: solid, no box inside a box, sized to its content.
+    <div className="px-4 py-3 min-w-0 flex flex-col gap-1" style={{ background: '#070b16' }}>
+      <p className="text-[11px] uppercase tracking-wider m-0" style={{ color: 'rgba(255,255,255,0.72)' }}>{label}</p>
       {/* A range like "21.9%–109.5%" is wider than a single figure — let it step
           down a size rather than overflow the card on a narrow column. */}
-      <p className={`stat-value leading-tight ${value.length > 9 ? 'text-base' : 'text-xl'}`} style={{ color }}>{value}</p>
-      {unit && <p className="text-[10px] text-white/50">{unit}</p>}
-      {caption && <p className="text-[10px] text-white/40 leading-tight mt-0.5">{caption}</p>}
+      <p
+        className={`m-0 leading-tight font-semibold tabular-nums whitespace-nowrap ${value.length > 9 ? 'text-base' : 'text-xl'}`}
+        style={{ color, fontFamily: 'var(--font-family-mono)' }}
+      >{value}</p>
+      {unit && <p className="text-[11px] m-0" style={{ color: 'rgba(255,255,255,0.62)' }}>{unit}</p>}
+      {caption && <p className="text-[11px] leading-tight m-0" style={{ color: 'rgba(255,255,255,0.55)' }}>{caption}</p>}
     </div>
   );
 }
