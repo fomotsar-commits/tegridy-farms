@@ -31,6 +31,7 @@ import {
   MIN_LOCK_SECS, MAX_LOCK_SECS, MIN_BOOST_BPS, MAX_BOOST_BPS, MAX_POSITIONS,
   MAX_EARLY_EXIT_PENALTY_BPS, PENALTY_SCALE, MAX_PENALTY_RATIO, penaltyPct,
   PRECISION, minWeightFloor, lastTimeApplicable, rewardPerWeightNow, earnedNow,
+  REWARDS_DURATION_SECS,
 } from './program';
 
 const MATH_RS = resolve(
@@ -160,6 +161,26 @@ describe('the penalty — the veYFI schedule, read from the program and checked 
     expect(PENALTY_SCALE).toBe(BigInt(scale![1]!.replace(/_/g, '')));
     // And the flat constant is gone, so no copy can keep charging a flat rate.
     expect(src).not.toMatch(/pub const EARLY_EXIT_PENALTY_BPS/);
+  });
+
+  it('uses the emission window math.rs declares, and that window is the maximum lock', () => {
+    // Owner decision 2026-09-20: 90 days became four years. A frontend that computes a
+    // different window than the program is the failure this repo keeps recording, so
+    // read the program's value out of its source instead of trusting this copy.
+    // math.rs writes both constants as a product (`4 * 365 * 86_400`), not a single
+    // literal, so parse the product strictly: digits, underscores, `*` and spaces only.
+    expect(existsSync(MATH_RS), `math.rs not found at ${MATH_RS}`).toBe(true);
+    const src = readFileSync(MATH_RS, 'utf8');
+    const product = (name: string): number => {
+      const m = new RegExp(`pub const ${name}: i64 = ([\\d_ *]+);`).exec(src);
+      expect(m, `${name} not found in math.rs as an integer product — re-anchor this test`).not.toBeNull();
+      return m![1]!.split('*').reduce((acc, f) => acc * Number(f.trim().replace(/_/g, '')), 1);
+    };
+    expect(REWARDS_DURATION_SECS).toBe(product('REWARDS_DURATION_SECS'));
+    expect(MAX_LOCK_SECS).toBe(product('MAX_LOCK_SECS'));
+    // The point of the change, not an accident of it: one window per top-rung lock.
+    expect(REWARDS_DURATION_SECS).toBe(MAX_LOCK_SECS);
+    expect(REWARDS_DURATION_SECS).toBe(126_144_000);
   });
 
   it('charges min(time left / 4 years, 75%), floored twice — the cases math.rs pins', () => {

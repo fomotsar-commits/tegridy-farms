@@ -753,8 +753,8 @@ pub mod bayla_ladder {
         Ok(())
     }
 
-    /// Open a 90-day window. Owner decision 2026-09-06: reload every 90 days, distribute
-    /// per second.
+    /// Open a four-year window: `REWARDS_DURATION_SECS`, equal to the maximum lock. Owner
+    /// decision 2026-09-20 (replacing 2026-09-06's 90 days); distribute per second.
     ///
     /// TWO SOURCES, deliberately separated (AUDIT H-1):
     ///   `amount`      fresh tokens transferred in by the authority in THIS instruction.
@@ -825,25 +825,29 @@ pub mod bayla_ladder {
         );
         // AUDIT L-1. `rate = scheduled / REWARDS_DURATION_SECS`, integer division, so a
         // small-but-real reload truncates to a rate of ZERO — the window is extended by
-        // 90 days, `RewardAdded` fires with a healthy-looking payload, and the pool emits
-        // nothing. Mid-window, `new_reward_rate` re-spreads the live tail over a fresh 90
-        // days, so a tiny top-up near the end of a window can floor the WHOLE rate to zero
-        // (this used to cite math.rs:203; the fold-in is `new_reward_rate`). Any such call
-        // also LOWERS the rate, so the rate guard below would refuse it too — this check
-        // simply reports first. Which error a doubly-invalid call gets is the only thing
-        // the ordering decides.
+        // four years, `RewardAdded` fires with a healthy-looking payload, and the pool
+        // emits nothing. Mid-window, `new_reward_rate` re-spreads the live tail over a
+        // fresh four years, so a tiny top-up near the end of a window can floor the WHOLE
+        // rate to zero (this used to cite math.rs:203; the fold-in is `new_reward_rate`).
+        // Any such call also LOWERS the rate, so the rate guard below would refuse it
+        // too — this check simply reports first. Which error a doubly-invalid call gets
+        // is the only thing the ordering decides.
         //
         // Cost of this guard, stated rather than discovered later: the minimum reload is
-        // `REWARDS_DURATION_SECS` raw units — 7.776 whole tokens at 6 decimals, but
-        // 7,776,000 WHOLE tokens on a 0-decimal mint, which such a mint may not have.
-        // That is the right refusal: a per-second stream is not expressible there.
+        // `REWARDS_DURATION_SECS` raw units — 126.144 whole tokens at 6 decimals (it was
+        // 7.776 while the window was 90 days), and 126,144,000 WHOLE tokens on a
+        // 0-decimal mint, which such a mint may not have. That is the right refusal: a
+        // per-second stream is not expressible there. math.rs
+        // `a_reload_below_the_window_length_truncates_to_a_zero_rate` pins the boundary.
         require!(rate > 0, LadderError::RewardRateTooSmall);
         // AUDIT M-2, the total-burn half. Even a non-zero rate emits EXACTLY NOTHING
         // when `rate * PRECISION < total_weighted`, because the accumulator step floors
-        // to zero every interval. At full participation that is any 90-day budget under
-        // ~30,855 BAYLA — and it failed silently, with a healthy-looking `RewardAdded`
-        // and no error. The residue carry softens it but cannot fix it: a permanent
-        // sub-unit rate never accumulates past the divisor. Refuse the window instead.
+        // to zero every interval. At full participation (the whole 9.92e14-raw supply
+        // staked at 4.00x) that is any four-year budget under ~500,539 BAYLA — it was
+        // ~30,855 at 90 days; the bar is linear in the window — and it failed silently,
+        // with a healthy-looking `RewardAdded` and no error. The residue carry softens it
+        // but cannot fix it: a permanent sub-unit rate never accumulates past the
+        // divisor. Refuse the window instead.
         require!(
             pool.total_weighted == 0 || rate.saturating_mul(PRECISION) >= pool.total_weighted,
             LadderError::RewardRateTooSmall

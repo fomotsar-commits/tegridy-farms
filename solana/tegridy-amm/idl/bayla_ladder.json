@@ -604,8 +604,8 @@
     {
       "name": "notify_reward",
       "docs": [
-        "Open a 90-day window. Owner decision 2026-09-06: reload every 90 days, distribute",
-        "per second.",
+        "Open a four-year window: `REWARDS_DURATION_SECS`, equal to the maximum lock. Owner",
+        "decision 2026-09-20 (replacing 2026-09-06's 90 days); distribute per second.",
         "",
         "TWO SOURCES, deliberately separated (AUDIT H-1):",
         "`amount`      fresh tokens transferred in by the authority in THIS instruction.",
