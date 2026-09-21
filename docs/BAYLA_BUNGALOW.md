@@ -270,6 +270,15 @@ fix was a new pool at a fresh nonce.
   Reward vault: `5vcKG4rnmZ4TNy5ADdKNCwqcP8myQSLKitrkSeg6RHgq`.
 - Verified on-chain post-creation: maxWeight 5x, min 1d, max 365d, rate
   0.0006, authority `GCCSLE7d…auV9`, totalStake 0, vault **0 — honest zero**.
+- ⚠️ **ADMIN CHANGED 2026-09-21.** The authority of this pool, its reward pool, and every
+  other Streamflow pool `GCCSLE7d…auV9` administered (6 stake + 6 reward in all) is now
+  **`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`**, the rotated deployer — one
+  `change_authority` transaction,
+  `4TWgasfpW454rjkJYo1P6gPitrc5QLhBNKvHkDfxDNPp6CcrCFyy5As6Rjas9pFMFBXZTbiPqSe34UD3qb7zyPnm`,
+  finalized, read back 12/12. Reason: that old key sat in plaintext in the OneDrive-synced
+  faucet folder. Every command below that needs the pool's authority (`--rebalance`,
+  `--set-period`, `--dynamic-reward`) must now be signed with the `Fu7mNAv6…` keyfile.
+  `--fund` is unaffected: the reward pool is permissionless, so anyone can fund it.
 
 The ladder the operator chose (pinned by test in `bungalowStakingRates.test.ts`):
 
@@ -294,7 +303,9 @@ and is written off deliberately.
 Executed by the operator with the designated ceremony key
 (`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`, the pool's admin authority
 going forward — note it lives as a keyfile in the OneDrive-synced faucet
-folder; custody caveat accepted by the operator on 2026-08-26):
+folder; custody caveat accepted by the operator on 2026-08-26 — **superseded
+2026-09-21: admin moved to `Fu7mNAv6…` and the keyfiles moved out of OneDrive, see
+§6g**):
 
 - **Stake pool: `4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp`**
   (tx `3vDxaGWo9ZrzrNWQumqe9AG2oUxJU4YRCoBBbthf8SykVTTQxmP5s2j1pvcPHZmA7PpET9vXV2s19rvMEFcAzeoB`)

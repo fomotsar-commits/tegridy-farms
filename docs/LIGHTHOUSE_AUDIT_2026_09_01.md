@@ -88,6 +88,36 @@ scheduled task runs a cloud-synced script from that folder every 2 hours**.
 tree; delete the scheduled task. *(Agent-reported. I have not opened those files
 myself — verify first, but treat as true until disproven.)*
 
+> **STATUS 2026-09-21 — mostly fixed. One step was done differently from what this
+> finding asked, and one is still open.**
+>
+> - **Confirmed, and wider than reported.** `GCCSLE7d…` was the authority of **12**
+>   Streamflow accounts, not two: 6 stake pools and 6 reward pools, including empty
+>   pools for BOBO, SOY, RIZZ and one other token. They were found by searching the
+>   stake program for the authority field. A search by the BAYLA mint finds only 2 of
+>   the 6.
+> - **What the key could and could not do**, established by simulation with nothing
+>   signed. It could **not** move funds: `clawback` on the live reward pool returns
+>   `6015 ClawbackNotPossible` once the destination account exists, and `unstake` is
+>   signed by the staker. It **could** rewrite reward rates (`update_pool`) and give the
+>   admin role away (`change_authority`).
+> - **Authority rotated — all 12 — to `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`**
+>   in one transaction,
+>   `4TWgasfpW454rjkJYo1P6gPitrc5QLhBNKvHkDfxDNPp6CcrCFyy5As6Rjas9pFMFBXZTbiPqSe34UD3qb7zyPnm`.
+>   Finalized; a fresh chain search finds 0 pools left under the old key. **This is not
+>   the hardware or air-gapped key the fix above asks for.** It is the rotated deployer:
+>   a local keyfile outside any cloud folder, and already the ladder's authority. That
+>   removes the cloud exposure without making reward-rate changes a multisig
+>   ceremony. The move to the Squads vault is planned together with the ladder's own
+>   authority handover.
+> - **Keyfiles moved out of the sync tree.** Copied to `solana-keys\faucet-retired\`
+>   (sha256 verified), then the OneDrive originals were sent to the Recycle Bin. The
+>   old key now controls 0.0595 SOL and nothing else.
+> - **Open: the scheduled task was not deleted.** It is harmless — a `DISABLED` file has
+>   made `run.js` exit before touching any key since 2026-08-23, and its last log is
+>   2026-08-24 — but it still fires every 2 hours. Deleting it is a Task Scheduler
+>   change for the owner.
+
 ## C4 — CRITICAL: `--fund` will fund the RETIRED pool, unrecoverably
 
 `frontend/scripts/bayla-lighthouse-ceremony.mjs:486` takes `--pool` verbatim and
