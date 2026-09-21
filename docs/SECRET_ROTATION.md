@@ -66,8 +66,13 @@ read by `/api` serverless functions.
 > committed one (verified by comparing sha256 digests of the historical blob and the
 > configured value — neither value was printed), so it was replaced at some point. That
 > rotation was never recorded below, which is why this took an audit to establish.
-> **What is still unknown is whether the OLD key was REVOKED at etherscan.io.** Until
-> someone confirms that, assume a live, world-readable Etherscan key exists.
+> **The OLD key is REVOKED — confirmed 2026-09-20 by asking Etherscan.** The same harmless
+> read (`module=account&action=balance`, chainid 1) was sent three ways: with no key
+> (`NOTOK — Missing/Invalid API Key`), with today's key (`OK`, served), and with the old
+> key read from the historical blob (`NOTOK — Invalid API Key (#err2)`). The two controls
+> show the method tells "accepted" from "rejected", so the old key's rejection means it
+> is dead, not that the check failed. The value is still world-readable in history, and
+> that is now harmless.
 
 Rotation is mandatory only if:
 - A contributor has ever shared their local `.env` (Slack, email, screenshot,
@@ -183,6 +188,15 @@ Equal digests mean the leaked key is still in use — rotate now. Different dige
 only that the *value changed*; they say nothing about whether the old key was **revoked**
 at the provider, which is a separate check and the one people skip.
 
+**To answer "was it revoked?", ask the provider — with two controls.** Send one harmless
+read three times: with no key, with the key you use today, and with the old key. If the
+no-key call is rejected and today's key is served, the method can tell the difference, so
+an old-key rejection means the key is dead. Without the controls, a rejection could just
+as well mean the endpoint, the parameters or the network were wrong. Read the old value
+from the blob inside the script rather than typing it, and never print a request URL or an
+exception message, since either can carry the key. This is how the Etherscan row below
+was closed; it needed no dashboard login.
+
 If a history search returns commits, the key must be rotated *and* history rewritten
 via `git filter-repo --replace-text` before the next push to a public
 remote. Coordinate with the remote host (GitHub) to purge cached
@@ -202,15 +216,14 @@ in the same sitting.
 
 | Date | Key | Bucket | Reason | Commit after redeploy |
 |------|-----|--------|--------|----------------------|
-| ≤2026-09-20 (exact date unknown) | `ETHERSCAN_API_KEY` / `VITE_ETHERSCAN_API_KEY` | B (was miscategorised as A) | The 34-char value was committed as audit evidence in `9b59e212` (2026-04-26) and redacted in tree only by `00e10a07` (2026-05-02); the blob is still public. Reconstructed 2026-09-20: the configured value's sha256 **differs** from the historical blob's, so it was replaced — but no one recorded when, by whom, or whether the old key was revoked. | unknown |
-| 2026-09-20 | Alchemy **Solana mainnet** app key (supplied by hand as `--rpc`) | not in any bucket — an operator-supplied endpoint credential, which this document did not model | `frontend/scripts/bayla-ladder-ops.mjs` printed the full `--rpc` URL in its header on every invocation, and a shared terminal screenshot during the BAYLA ladder mainnet go-live disclosed the key. Fixed in `c599677a`: the host is printed, the credential masked (`frontend/scripts/lib/redact-url.mjs`). | `c599677a` |
+| ≤2026-09-20 (exact date unknown) | `ETHERSCAN_API_KEY` / `VITE_ETHERSCAN_API_KEY` | B (was miscategorised as A) | The 34-char value was committed as audit evidence in `9b59e212` (2026-04-26) and redacted in tree only by `00e10a07` (2026-05-02); the blob is still public. Reconstructed 2026-09-20: the configured value's sha256 **differs** from the historical blob's, so it was replaced, and Etherscan **rejects the old key** (`Invalid API Key (#err2)`, with a no-key and a current-key control), so it was revoked. When and by whom were never recorded. | unknown |
+| 2026-09-20 | Alchemy **Solana mainnet** app key (supplied by hand as `--rpc`) | not in any bucket — an operator-supplied endpoint credential, which this document did not model | `frontend/scripts/bayla-ladder-ops.mjs` printed the full `--rpc` URL in its header on every invocation, and a shared terminal screenshot during the BAYLA ladder mainnet go-live disclosed the key. Fixed in [#648](https://github.com/fomotsar-commits/tegridy-farms/pull/648): the host is printed, the credential masked (`frontend/scripts/lib/redact-url.mjs`). | #648 |
 
-**Still open, from the 2026-09-20 audit:**
-- [ ] Confirm the **old** Etherscan key is deleted at <https://etherscan.io/myapikey>, not
-      merely superseded. This is the entire residual risk: the value is permanently
-      public in a public repository's history, so if it was never revoked it is a live
-      key anyone can read. Etherscan keys are read-only, so the harm is quota abuse and
-      attribution rather than funds — but it is not zero.
+**From the 2026-09-20 audit:**
+- [x] Confirm the **old** Etherscan key is revoked, not merely superseded. **Done
+      2026-09-20:** Etherscan answers the old key with `Invalid API Key (#err2)` while
+      serving the current key, and rejects a no-key call — method under "Auditing leaked
+      values". The value remains public in history, and is now harmless.
 - [ ] Record the date and actor of the Etherscan rotation above, if either can still be
       established. If they cannot, write "unrecoverable" rather than leaving it blank.
 
