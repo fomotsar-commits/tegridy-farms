@@ -30,10 +30,15 @@ describe('sharePct', () => {
     expect(sharePct({ mineWeight: 10n, totalWeighted: 10n, truncated: false })!.label).toBe('100%');
   });
 
-  it('clamps to 100 when a stale read has the wallet above the pool total', () => {
-    // earnedNow clamps the same way; a reader is never told they own 140% of a pool.
-    expect(sharePct({ mineWeight: 14n, totalWeighted: 10n, truncated: false }))
-      .toEqual({ pct: 100, label: '100%' });
+  it('⚠️ wallet weight ABOVE the pool total is null — the two reads disagree, never 100%', () => {
+    // The wallet read and the pool read land separately. Right after a stake the wallet's
+    // new weight can exceed a not-yet-refreshed total. Clamping would print up to 100% —
+    // a share BETTER than the truth. (earnedNow keeps its own clamp: that one mirrors the
+    // program's accrual, lib.rs `position.weight.min(pool.total_weighted)`. Display refuses.)
+    expect(sharePct({ mineWeight: 14n, totalWeighted: 10n, truncated: false })).toBeNull();
+    expect(sharePct({ mineWeight: 11n, totalWeighted: 10n, truncated: false })).toBeNull();
+    // Equal is still a real, readable 100%.
+    expect(sharePct({ mineWeight: 10n, totalWeighted: 10n, truncated: false })!.label).toBe('100%');
   });
 
   it('a real share that floors to 0.0 reads "<0.1%", never "0%"', () => {
