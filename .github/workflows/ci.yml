@@ -300,6 +300,18 @@ jobs:
         working-directory: .
         run: node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
 
+      # The two endpoint redactors and the guards that keep the ops scripts using
+      # them. Separate from the step above because it is not a monitoring rule, and a
+      # step name that stops describing what it runs is how coverage goes unnoticed.
+      #
+      # Same bare-runner constraint: plain `node --test`, no frontend install. It also
+      # spawns bash to source contracts/script/lib/redact-url.sh, which ubuntu-latest
+      # has; the test FAILS rather than skips if bash is missing.
+      - name: Endpoint redaction unit tests
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: node --test scripts/lib/redact-url.test.mjs
+
   build:
     name: Build
     runs-on: ubuntu-latest

@@ -83,6 +83,13 @@ const OTHER_RUNNERS: { prefix: string; runner: string }[] = [
   // pull request ever reaches, is the exact hole these entries used to have.
   { prefix: 'contracts/monitoring/', runner: "node --test (ci.yml 'Monitoring rule unit tests')" },
   { prefix: 'scripts/monitoring/', runner: "node --test (ci.yml 'Monitoring rule unit tests')" },
+  // The endpoint redactors shared by the repo-root ops scripts and the contracts/
+  // shell scripts, plus the source guards that keep those scripts calling them.
+  // Same reason as the two entries above: operational code that must run on a bare
+  // runner with no frontend toolchain, so `node --test` rather than this project.
+  //   node --test scripts/lib/redact-url.test.mjs
+  // ci.yml runs exactly that in the "Endpoint redaction unit tests" step.
+  { prefix: 'scripts/lib/', runner: "node --test (ci.yml 'Endpoint redaction unit tests')" },
   // Vendored dependency trees. Not ours, not our runner's problem.
   { prefix: 'contracts/lib/', runner: 'upstream vendored dependency (not executed here)' },
 ];
