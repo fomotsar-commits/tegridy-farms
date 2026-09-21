@@ -1,12 +1,45 @@
 # BAYLA ladder — mainnet go-live checklist
 
-**Status as of 2026-09-17: NOT READY. Do not move SOL yet. A REBUILD IS REQUIRED.**
+**Status as of 2026-09-20: THE DEPLOYABLE BINARY EXISTS. Ready to fund and deploy.**
+The audit gate was waived by the owner (§2); the deployer was rotated to
+`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (§3); and CI run **35529979428** built the
+mainnet arm from tag `bayla-ladder-mainnet` (`50065ef03b7eae4ec955ec40ffd32aaf4181b3c2`) —
+`.so` sha256 **`b21e1277e104817886a31d6f5b16ba2a35fa6732558cbd6d227e4fb8e21bb0a1`**,
+515,352 bytes, downloaded and verified byte-for-byte with the rotated deployer compiled in
+and every devnet identity absent (runbook §4).
+
+**Next: send 3 SOL to `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`, then deploy** (step 7).
+Measured cost for this build: **2.618867 SOL** programdata rent + 0.00083312 program account
++ ~0.0062 pool PDAs ≈ **2.63 total**. Go-live (step 14) remains separately gated on the
+island's wave-8 ruling — §8.
+
+*(Previous status, 2026-09-17: NOT READY. Do not move SOL yet. A REBUILD IS REQUIRED.)*
 (Updated 09-17: the devnet `withdraw_matured` precondition is now DONE — §3. Updated again
 09-17: the owner decided a new early-exit penalty and a **reload rate guard** for the
 ladder, so the program changes, the mainnet artifact `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` is **SUPERSEDED**, and the
 decisions are recorded in the next section. The penalty was first set to a flat 75%, and
 later the same day **replaced by Yearn's veYFI schedule: `min(time left / 4 years, 75%)`**
 (D1). The hard gates in §1 and §2 still stand.)
+
+**Updated 2026-09-20** after a full re-verification against the chain and the machine:
+- **The code is done and on trunk.** The veYFI penalty (#592) and the reload rate guard
+  (#586) merged 2026-09-17. Trunk's `bayla-ladder` tree is byte-identical to
+  `feat/bayla-ladder-yearn-penalty` — all six blob hashes match. **All six ladder branches
+  are merged** and now sit 72–78 commits behind trunk; they are not pending work.
+  What is missing is a **binary**, not code.
+- **A third hard gate exists and was not written down here: the island's wave-8 ruling.**
+  It blocks step 14 (go-live) and nothing earlier. New §8.
+- **Nothing published the program's IDL**, on any path. New step 9.
+- **The reward budget has to reach the multisig's token account before the authority
+  handover**, or the only key allowed to fund holds nothing. New step 12.
+- **Generating the rotated deployer is no longer blocked** — see §3.
+- Chain reads, 2026-09-20 (EARLIER THAT DAY, before the deploy): mainnet program id
+  **unclaimed**; deployer **0 SOL**; the live Streamflow reward vault holds
+  **832,767.56 BAYLA** against **2,700,285.89 BAYLA** staked.
+- Chain reads, 2026-09-20 (AFTER the deploy, finalized slot 448,901,426): program
+  **live and executable**; deployer **0.21167924 SOL**; the ladder's own stake vault holds
+  **3,200 BAYLA** and its reward vault **43,091.764477 BAYLA**. The Streamflow numbers on
+  the line above belong to a different rail and are unchanged by any of this.
 
 This is the sequenced answer to "are we ready to load SOL, load the rewards, and get staking".
 It is a companion to `solana/tegridy-amm/BAYLA_LADDER_MAINNET_RUNBOOK.md`, not a replacement:
@@ -30,8 +63,24 @@ because an unrecorded "fine" gets re-litigated.
    go-live (`VITE_BAYLA_LADDER_PROGRAM` is unset in every Vercel environment — checked
    2026-09-17), so what must happen **in lockstep** is go-live itself: two environment
    variables and a redeploy (§6), pointed at a program that charges the same schedule.
-2. The program is **not deployed**. The address is unclaimed, the deployer is being
-   rotated, and the artifact built so far (`fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`) is superseded.
+2. ✅ **DEPLOYED 2026-09-20.** `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` is live on
+   mainnet-beta — executable, ProgramData `FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw`
+   carrying 515,352 bytes of bytecode, last deployed slot 448,851,661 (read at finalized
+   slot 448,901,426). The IDL is published at
+   `3nHKL72LUn5vijmHk76v6qwgkMshToKkJGsEzbWBaQ2r`, the pool is
+   `Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV` (nonce 0, 3,200 BAYLA staked, emitting to
+   2026-12-20), and all seven addresses are registered in `frontend/scripts/addresses.json`
+   and chain-asserted by `.github/workflows/registry-onchain.yml`. The paragraph this
+   replaces said "built but not yet deployed … still unclaimed on mainnet
+   (`AccountNotFound`, checked 2026-09-20)" — true earlier that day, false by the end of it.
+   🔴 **Still open: the authority handover.** Both the ProgramData upgrade authority and
+   `pool.authority` are the deployer key `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`,
+   not the Squads vault this file's §1 and the runbook's identity table name as the target;
+   `pool.pendingAuthority` is unset, so the two-step has not been started.
+   The deployer rotation is
+   **done** — `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` — and the superseded
+   `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` has been replaced by
+   `b21e1277e104817886a31d6f5b16ba2a35fa6732558cbd6d227e4fb8e21bb0a1` (runbook §4).
 3. The real blocker is **key custody quality**, not key custody existence — see §1.
 4. **Rewards are one-way.** No instruction in the program returns BAYLA to the authority.
    Decide the amount as if you are spending it, because you are — and keep what is not yet
@@ -142,11 +191,21 @@ constrained to a signing owner (every `owner_ata` constraint in `lib.rs`). The u
 is the real power, goes to the Squads vault. And the authority is transferable after init via
 two-step `propose_authority` / `accept_authority`.
 
-**DECIDED 2026-09-17: (A).** Written down here and as D3. Not yet executed: no fresh
-deployer pubkey is recorded in the repo, and the rebuild has not run. And, separately (D4),
-the **pool authority is handed to a multisig before any funds** — the bound above says what
-a stolen authority key can take, not what it can do (`declare_degraded` is one-way and
-waives every early penalty, including on the thief's own locked positions).
+**DECIDED 2026-09-17: (A).** Written down here and as D3. ✅ **Executed 2026-09-20** — the
+paragraph here said "Not yet executed: no fresh deployer pubkey is recorded in the repo, and
+the rebuild has not run", and both halves are now done: the deployer is
+`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (registry id `bayla-ladder-deployer`), and the
+rebuild deployed from tag `bayla-ladder-mainnet`.
+
+🔴 **(D4) HAS NOT BEEN EXECUTED, AND IT WAS A BEFORE-ANY-FUNDS CONDITION.** It reads: the
+**pool authority is handed to a multisig before any funds** — the bound above says what a
+stolen authority key can take, not what it can do (`declare_degraded` is one-way and waives
+every early penalty, including on the thief's own locked positions). As of the chain read at
+finalized slot 448,901,426 the pool holds 3,200 BAYLA of principal and 43,091.76 BAYLA of
+reward budget, `pool.authority` is the deployer key, and `pool.pendingAuthority` is the zero
+pubkey, so the two-step `propose_authority` / `accept_authority` has not been started. The
+ProgramData upgrade authority is the same single key. This is stated because the decision was
+recorded as a gate and the gate did not hold — not as a re-opening of it.
 
 The two options as they were weighed:
 
@@ -167,14 +226,19 @@ than trusting the marker file, and move `OneDrive\Desktop\faucet\` out of the sy
 ## 2. 🔴 HARD GATE — the runbook's own go/no-go is unsatisfied
 
 `BAYLA_LADDER_MAINNET_RUNBOOK.md` §0 is an explicit precondition list — *"all of them,
-before anything costs SOL."* **Five of ten boxes are unchecked.** (It was five of seven
+before anything costs SOL."* **Four of ten boxes are unchecked** (five until the audit box
+was waived on 2026-09-20 — see below). (It was five of seven
 until 2026-09-17, when the devnet `withdraw_matured` box was ticked with evidence — §3. The
 rebuild then added three: the penalty and the deployer rotation, both decided, and the
 multisig pool authority, still open.)
 
-- the external audit report being in, with every fix merged — its *"write the hash here:
-  `________`"* line is still literally blank, **and the audited commit must now contain the
-  veYFI penalty schedule (`math::penalty_for`) and the rate guard**;
+- ~~the external audit report being in~~ — ⚠️ **WAIVED BY THE OWNER, 2026-09-20.** No
+  external audit of `bayla-ladder` was ever commissioned (see the scope paragraph below);
+  rather than leave the box ambiguous the owner decided to ship without one and record it.
+  Deploy commit `50065ef03b7eae4ec955ec40ffd32aaf4181b3c2`, tagged `bayla-ladder-mainnet`,
+  which carries both `math::penalty_for` and `math::rate_change_allowed`. **Read the cost
+  of the waiver in runbook §0 box 1** — it is not a pass, and the two pieces with no
+  independent review are the two with no setter. Four boxes remain genuinely unchecked;
 - both keyfiles backed up offline (see §1);
 - the pool authority handed to a multisig before any funds (D4);
 - a keyed mainnet RPC;
@@ -231,6 +295,28 @@ entitled to make — but make it explicitly, in writing, rather than by omission
       ⚠️ The only `.so` on this machine today is the **devnet** one
       (`3e1b2b7b68292d92ef83e479a938c49aeda3480d4a3bbc58500cf166f6061ebd`), and the binaries have been the same size — verify by **hash**, never by
       filename or size.
+- [x] **Generate the rotated deployer key — ✅ DONE 2026-09-20.** It is
+      **`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`**, keyfile at
+      `C:\Users\jimbo\solana-keys\mainnet\bayla_ladder-deployer.json`, outside OneDrive.
+      Checked before it was compiled into anything: the keyfile derives to exactly that
+      pubkey, the account read `AccountNotFound` on mainnet (never used), and it collides
+      with none of the program id, `GCCSLE7d…`, `5MtoeJ8D…` or the devnet program.
+      **Still owed: an offline backup of the keyfile.** Losing it after `init-pool` means
+      the pool can never be funded again.
+
+      *How it was unblocked — `solana-keygen` runs fine, the shortcut path was the problem.* `solana-keygen` on the `PATH` resolves through
+      `~/.local/share/solana/install/active_release/bin/`, which Application Control refuses
+      (`Permission denied`). The **versioned** install path runs normally — verified by
+      generating a throwaway key and reading it back with `solana address -k`:
+
+      ```
+      ~/.local/share/solana/install/releases/stable-25cd9da946ebf6d90024ac32071d05b319715589/solana-release/bin/solana-keygen new --no-bip39-passphrase --outfile C:/Users/jimbo/solana-keys/mainnet/bayla_ladder-deployer.json
+      ```
+
+      `solana-keygen 3.1.11` there; the `solana` and `spl-token` CLIs on the `PATH` are not
+      blocked at all. **Write the new pubkey into runbook §1 before the §4 build** — it is
+      compiled into the binary, so it is an input to the build, not to the deploy. Keep the
+      file out of OneDrive; `C:\Users\jimbo\solana-keys\mainnet\` already is.
 - [ ] **Back up both mainnet keyfiles offline** — `solana-keys\mainnet\` holds a single
       unreplicated copy of each. Losing `bayla_ladder-program.json` *before* deploy means a new
       program id and a rebuild; after deploy it costs nothing, because the address is claimed.
@@ -433,20 +519,22 @@ Nothing here is runnable until §1 and §2 are resolved.
 | # | Step | Signs | Notes |
 |---|---|---|---|
 | 1 | Resolve key custody | — | §1. **Decided: rotate (A)** — generate the fresh deployer outside any cloud-synced folder |
-| 2 | Resolve audit scope | — | §2 — must cover the penalty schedule and the rate guard |
+| 2 | Resolve audit scope | — | ⚠️ **WAIVED by the owner 2026-09-20** — no external audit was ever commissioned; deploying `50065ef03b7eae4ec955ec40ffd32aaf4181b3c2` as tag `bayla-ladder-mainnet`. The cost of the waiver is written out in runbook §0 box 1 |
 | 3 | `withdraw_matured` on devnet | `devnet-deploy.json` | ✅ **done 2026-09-17** — §3 (on the superseded 25% build) |
 | 4 | Rebuild the artifact from the audited commit | — | runbook §4, `deployer` = the rotated key. **Never `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`** |
-| 5 | Fund the deployer ~3 SOL | — | ~2.62 needed; the **rotated** deployer — never `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` or `5MtoeJ8DXcgWZQJAgGgDefd5hbq4KAe3K47yL9Nc87vq` |
+| 5 | Fund the deployer 3 SOL | — | Send it to **`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`** and nowhere else. Measured for THIS build (515,352 bytes) on 2026-09-20: programdata rent **2.618867**, program account 0.00083312, pool PDAs ~0.0062 — **~2.63 total**, rest is headroom for the IDL account and fees — never `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` or `5MtoeJ8DXcgWZQJAgGgDefd5hbq4KAe3K47yL9Nc87vq` |
 | 6 | `solana config set` → mainnet | — | CLI is on **devnet** right now |
 | 7 | `solana program deploy` | program keypair **+ fee payer** | fee payer becomes initial upgrade authority |
 | 8 | Verify deployed bytes | — | `program dump` + hash vs the **rebuilt** artifact's sha256 (never `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`) |
-| 9 | Transfer upgrade authority → Squads | current upgrade authority | |
-| 10 | `init-pool` | **the rotated deployer only** | sets `pool.authority` to itself; reward vault is a program PDA, rent 0.0062 SOL |
-| 11 | Hand the pool authority → multisig | deployer proposes; multisig accepts **inside its own app** | D4 — **before any funds**. Confirm with `read` |
-| 12 | Two Vercel vars + **redeploy** | — | §6 — the build must carry the same penalty schedule as the program |
-| 13 | Let stakers arrive, then `notify` (fund rewards) | the multisig pool authority | one-way; never an empty pool; small first window; max-boost annual rate under ~28% — §4 |
-| 14 | Reload every ~60–75 days, before `period_finish` | the multisig pool authority | never lapses — §4 reload policy |
-| 15 | Register addresses | — | §7 |
+| 9 | **Publish the IDL on chain** | the deployer, **while it still holds upgrade authority** | `anchor idl init --filepath target/idl/bayla_ladder.json <PROGRAM-ID>`, then `anchor idl fetch` to confirm. **Must come before step 10** — `anchor idl init` requires the upgrade authority, so after the handover this becomes a 2-of-2 Squads ceremony, forever. Without it no explorer can decode `stake`, `early_exit` or the `Pool` account, and we are asking people to lock tokens for up to four years |
+| 10 | Transfer upgrade authority → Squads | current upgrade authority | |
+| 11 | `init-pool` | **the rotated deployer only** | sets `pool.authority` to itself; reward vault is a program PDA, rent 0.0062 SOL |
+| 12 | **Create the multisig vault's BAYLA token account and move the reward budget into it** | whoever holds the BAYLA | **Before step 13, not after.** `notify_reward` pulls from the *signing authority's own* token account, so the moment the multisig becomes the pool authority it is the only key that may fund — and it must already be holding the tokens. Skipping this lands the handover in a state where the only key allowed to fund has nothing to fund with |
+| 13 | Hand the pool authority → multisig | deployer proposes; multisig accepts **inside its own app** | D4 — **before any funds**. Confirm with `read` |
+| 14 | Two Vercel vars + **redeploy** | — | §6 — the build must carry the same penalty schedule as the program. 🏝️ **This step IS go-live** — see §8 for the island gate that sits in front of it |
+| 15 | Let stakers arrive, then `notify` (fund rewards) | the multisig pool authority | one-way; never an empty pool; small first window; max-boost annual rate under ~28% — §4 |
+| 16 | Reload every ~60–75 days, before `period_finish` | the multisig pool authority | never lapses — §4 reload policy |
+| 17 | Register addresses | — | §7 |
 
 ⚠️ The ops CLI **defaults to devnet** (the `--rpc` default in `bayla-ladder-ops.mjs`). Every mainnet command needs
 an explicit `--rpc`, or it will silently address the wrong cluster. Dry-run first — the
@@ -522,6 +610,39 @@ They are on `mvp-launch` only. Branch from trunk.
 - [ ] When registering the ladder in `addresses.json`, its `role` names **veYFI's
       time-left early-exit penalty, up to 75%** — not the 25% of the EVM
       `LighthouseLadder.sol` entries it may be copied from, and not a flat 75% (runbook §10).
+
+---
+
+## 8. 🔴 HARD GATE — the island's wave-8 ruling sits in front of go-live
+
+**This gate blocks step 14 (the Vercel vars) only. Everything before it — rebuild, fund,
+deploy, IDL, authority handover, init-pool, even a first reward window — can be completed
+while this is outstanding.** A deployed program that the venue does not advertise is not
+"live"; the card is what makes it live.
+
+The venue committed to this in writing. `island-handoff/HANDOFF.md` (2026-09-19, answer
+twelve), lines 195–199:
+
+> **Wave eight opens with "the ladder and the clock"**, island-side first: staked BAYLA
+> leaves the wallet, so a staker's clock would restart the day they stake unless the island
+> reads the program's per-wallet positions and rules a stake as *held*. It arrives as its own
+> file once the island's backend cut and probe have run. **Nothing venue-side is asked for it
+> yet, and the ladder does not go live before that ruling.**
+
+**The reason is a real product defect, not a formality.** Staking moves BAYLA out of the
+holder's wallet into the pool. The island's held-time heat reads wallet balances. So on the
+day we turn the card on, **every person who stakes has their island heat clock reset to
+zero** — we would be punishing our own best users for using the thing we just built.
+
+**What clears it:** the island publishes its wave-8 file ruling that a stake counts as
+*held*. Nothing is owed by the venue first; the ask is theirs to deliver.
+
+**If the owner decides to ship before the ruling**, record the decision here with a date, and
+expect to either eat the clock reset or hold the card back to a private link. Do not clear
+this box silently — it is a promise to a third party, not an internal preference.
+
+- [ ] The island's wave-8 "ladder and the clock" file has landed, **or** the owner has
+      recorded an explicit decision to ship without it: `________`
 
 ---
 

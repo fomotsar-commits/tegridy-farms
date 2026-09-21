@@ -296,6 +296,80 @@
       "expect": {
         "type": "program-owned"
       }
+    },
+    {
+      "$comment": "bayla-ladder — the venue's OWN Solana staking program, deployed to mainnet-beta 2026-09-20 from tag bayla-ladder-mainnet (50065ef03b7eae4ec955ec40ffd32aaf4181b3c2). It is NOT the Streamflow rail above: the four lighthouse-* pools keep their own stakers and their own locks. Every address in this block was DERIVED, not transcribed — the pool, both vaults, the ProgramData account, the IDL account and the deployer's ATA are each a PDA of the program id (or of the BPF upgradeable loader), re-derived and matched against the live account before being written here, which is the only defence against the homoglyph spraying recorded above. Read on mainnet-beta at finalized slot 448,901,426 (2026-09-20)."
+    },
+    {
+      "id": "bayla-ladder-program",
+      "address": "EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ",
+      "role": "`bayla-ladder` program id — the venue's own lock-ladder staking program on Solana, the port of LighthouseLadder.sol. Executable, owned by BPFLoaderUpgradeab1e11111111111111111111111; its 36-byte stub names ProgramData FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw, which is registered below. Charges Yearn's veYFI early-exit schedule, amount × min(time left / 4 years, 75%).",
+      "custody": "the program id keypair is spent — it claimed the address at first deploy and authorises nothing afterwards. What can still change this program is the UPGRADE AUTHORITY on its ProgramData account, which is the deployer wallet, not the multisig. See bayla-ladder-programdata.",
+      "status": "LIVE ON MAINNET 2026-09-20. Deployed from tag `bayla-ladder-mainnet` (50065ef03b7eae4ec955ec40ffd32aaf4181b3c2); the artifact's sha256 is b21e1277e104817886a31d6f5b16ba2a35fa6732558cbd6d227e4fb8e21bb0a1 at 515,352 bytes, and the ProgramData account carries exactly 515,352 bytes of bytecode after its 45-byte header. `expect.type: executable` below is NOT on its own evidence that this program can run — a closed program keeps that flag, which is why the two ids above still pass it. The entry that actually holds the liveness claim is bayla-ladder-programdata, whose `program-owned` assertion fails the moment the ProgramData account is closed.",
+      "expect": {
+        "type": "executable"
+      }
+    },
+    {
+      "id": "bayla-ladder-programdata",
+      "address": "FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw",
+      "role": "ProgramData account for bayla-ladder — PDA of the BPF upgradeable loader, seeds [program id]. Holds the deployed bytecode and the upgrade authority. THIS is the account that answers 'is the ladder live', because `solana program close` deletes it and leaves the program stub executable-flagged.",
+      "custody": "🔴 UPGRADE AUTHORITY IS `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`, A SINGLE OPERATOR-HELD KEY — not the Squads vault. The mainnet runbook's §1 identity table names squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd as the upgrade authority; that is the TARGET, and the handover has not happened. Read at finalized slot 448,901,426: option byte 1, authority Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6.",
+      "status": "LIVE. 515,397 bytes, 2,618,867,000 lamports of rent, last deployed slot 448,851,661. `expect.type: program-owned` is the tripwire the closed programs above needed and did not have: if this program is ever closed, the account goes to value:null and the chain read fails with 'registry expects this account to exist and it DOES NOT' rather than passing on a stale executable flag.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "bayla-ladder-idl",
+      "address": "3nHKL72LUn5vijmHk76v6qwgkMshToKkJGsEzbWBaQ2r",
+      "role": "Anchor IDL account for bayla-ladder — `createWithSeed(base, 'anchor:idl', program)` where base is findProgramAddress([], program). Published 2026-09-20 so `anchor idl fetch` answers on mainnet and the program's interface is readable without this repo.",
+      "custody": "program-derived, owned by EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ — no key exists for it. Its IDL authority is the deployer, the same key that holds the upgrade authority.",
+      "status": "live. 16,280 bytes, 83,352,640 lamports of rent — the largest single rent cost of the deploy after the bytecode itself.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "bayla-ladder-pool",
+      "address": "Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV",
+      "role": "The BAYLA ladder pool — PDA seeds ['pool', BAYLA mint, nonce 0] off the program above. 508 bytes, the `POOL_SIZE` the frontend decoder pins. Decoded at slot 448,901,426 with the repo's own POOL_L offsets (src/lib/ladder/program.ts:185): mint 7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump, tokenProgram Token-2022, decimals 6, nonce 0, degraded 0, pendingAuthority is the all-zero pubkey (no handover in flight).",
+      "custody": "program-derived — no key. Its `authority` FIELD is Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6, the deployer; `pendingAuthority` is unset, so the two-step handover to squads-vault has not been started.",
+      "status": "live and emitting. 3,200 BAYLA of principal across 3 open positions; periodFinish 1797724962 = 2026-12-20T00:02:42Z. This is the address VITE_BAYLA_LADDER_POOL must carry; the card also needs VITE_BAYLA_LADDER_PROGRAM, and neither is set in production as of 2026-09-20.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "bayla-ladder-stake-vault",
+      "address": "FLCy81my7vNEaiqeFH7F1tk2aPR4Gcg8XSCFTvxWVps7",
+      "role": "Stake vault for bayla-ladder-pool — PDA seeds ['svault', pool]. Token-2022 account holding every staker's PRINCIPAL. Its token-account `owner` field is the pool PDA, so only the program can move it.",
+      "custody": "program-derived, authority is the pool PDA — no key exists. No instruction lets the pool authority withdraw principal.",
+      "status": "live, holding 3,200.000000 BAYLA at slot 448,901,426 — equal to the pool's totalPrincipal field, which is the invariant worth re-reading rather than assuming.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
+      "id": "bayla-ladder-reward-vault",
+      "address": "3yFvfhdRS9WNJEwVec7fgB3KRcKAi7Lo4jUyzzDMPAK1",
+      "role": "Reward vault for bayla-ladder-pool — PDA seeds ['rvault', pool]. Token-2022 account holding the emission budget. REWARDS ARE ONE-WAY: no instruction in the program returns BAYLA from here to the authority, so anything funded in is spent.",
+      "custody": "program-derived, authority is the pool PDA — no key exists, and no recovery path exists either.",
+      "status": "live, holding 43,091.764477 BAYLA at slot 448,901,426, emitting 475.7184 BAYLA/day to 2026-12-20. Unpledged remainder 276.16 BAYLA. A balance here is a SPEND, not a deposit.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
+      "id": "bayla-ladder-deployer",
+      "address": "Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6",
+      "role": "Deployer of bayla-ladder, and today BOTH of its live authorities: the ProgramData upgrade authority AND the pool's `authority` field (set_deposit_cap, notify_reward, set_degraded, the authority handover itself). Compiled into the build as the only key that could call initialize_pool. Rotated 2026-09-20 away from GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9, which was also a devnet faucet hot key in a cloud-synced folder.",
+      "custody": "single key, operator-held, generated outside any cloud-synced folder. 🔴 Both authorities are due to move to squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd (multisig EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK, threshold 2, time_lock 0) and NEITHER MOVE HAS HAPPENED — the chain read at slot 448,901,426 shows this key on ProgramData and on pool.authority, with pool.pendingAuthority unset. Until then one key can upgrade the program and re-point every account it owns.",
+      "status": "live and funded — 211,679,240 lamports (0.21167924 SOL), system-owned. Its BAYLA ATA is DsGFcoYREF44GJxYofDKJXbxhY2oEMoAewELUMn89Wqc (Token-2022, derived and matched), which is where the reward funding came from; that ATA is deliberately NOT a separate row, because nothing in this repo references it and rule 4 reaches only the files it names.",
+      "expect": {
+        "type": "wallet",
+        "funded": true
+      }
     }
   ],
   "ethereum": [

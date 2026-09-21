@@ -1,6 +1,11 @@
 # bayla-ladder — Devnet Runbook
 
-**Status: DEVNET ONLY. Do not deploy this to mainnet with real BAYLA yet.**
+**Status: DEVNET ONLY — this document is, and stays, the devnet ceremony.** The mainnet
+deploy has since happened (2026-09-20, program `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ`);
+it was done from `BAYLA_LADDER_MAINNET_RUNBOOK.md`, which is the only file whose commands
+should ever be pointed at mainnet. The line here used to read "Do not deploy this to mainnet
+with real BAYLA yet" — the *yet* is spent, but the instruction it was shorthand for is not:
+**do not run the commands in THIS file against mainnet.** They carry devnet ids throughout.
 
 ---
 

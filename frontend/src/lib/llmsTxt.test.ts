@@ -264,10 +264,12 @@ describe('every generated number equals its source', () => {
   });
 
   it('prints the BAYLA ladder terms only when the venue offers the pool: program AND pool', async () => {
-    // No mainnet bayla-ladder exists; publishing its 75% unconditionally would tell
-    // BAYLA holders the rules of a pool they cannot use. The app needs BOTH variables
-    // to mount the card, so an operator halfway through the ceremony, program set and
-    // pool not, must publish nothing either.
+    // A mainnet bayla-ladder now exists (program EJLP5GEJ…FfUQ, pool Bq6jovnQ…sXTXV,
+    // live 2026-09-20), but EXISTING is not OFFERING: until the operator sets both env
+    // vars the card does not mount, and publishing the penalty schedule would tell BAYLA
+    // holders the rules of a pool they cannot reach from this site. The app needs BOTH
+    // variables, so an operator halfway through the ceremony — program set and pool not —
+    // must publish nothing either.
     const build = async (env: Record<string, string>) => {
       vi.resetModules();
       for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
