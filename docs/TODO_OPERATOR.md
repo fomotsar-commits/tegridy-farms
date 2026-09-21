@@ -71,6 +71,13 @@ The lock-ladder staking program is deployed and its whole lifecycle has been dri
 real transactions. Full record, with the measured compute and the reconciled accounting:
 `solana/tegridy-amm/BAYLA_LADDER_DEVNET_RUNBOOK.md`.
 
+> ✅ **AND SINCE 2026-09-20 IT IS LIVE ON MAINNET TOO** — program
+> `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ`, pool
+> `Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV`, seeded and emitting. Every mainnet
+> address is in `frontend/scripts/addresses.json` under `bayla-ladder-*`. The devnet ids
+> in the table below are DEVNET ids and the app never talks to that cluster; do not
+> confuse the two, and note the devnet program is still the superseded flat-25% build.
+
 | | |
 | --- | --- |
 | program | `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` |
@@ -90,8 +97,13 @@ penalty as **25%, measured on the superseded 25% build**.
 > also adds a `notify_reward` guard that refuses a mid-window reload lowering the rate
 > (6028 `RewardRateWouldDecrease`). `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` still runs the flat-25%
 > build with no guard, so every penalty figure in this section is a record of that build,
-> and **nothing has been measured on chain under the schedule**. Upgrade the devnet program
-> to the schedule build before any preview environment points at it. Decisions (including
+> ✅ **and the schedule HAS since been measured on chain — on MAINNET, 2026-09-20**
+> (`b4bdf0fc`): the boost curve read back off four staked positions (0.4000x/7d,
+> 0.8286x/180d, 1.2869x/365d, 4.0000x/1460d), the veYFI penalty at 0.47%/7d, 24.99%/365d
+> and the 75.00% clamp at 1460d, and one `early_exit` executed under the schedule. The
+> sentence replaced here said "nothing has been measured on chain under the schedule",
+> which was true until that day. The DEVNET program is still the flat-25% build, so:
+> upgrade it to the schedule build before any preview environment points at it. Decisions (including
 > the reward-sizing bound the schedule brings) and the superseded mainnet artifact:
 > `docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md`.
 

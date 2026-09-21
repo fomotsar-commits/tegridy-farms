@@ -43,10 +43,15 @@ import { PublicKey } from '@solana/web3.js';
 /**
  * The deployed program.
  *
- * Env-driven and ABSENT BY DEFAULT: unlike the Streamflow rail there is no mainnet
- * bayla-ladder yet, and a hardcoded devnet id would be a live-looking address on a
- * cluster the app does not talk to. `isLadderConfigured()` is the gate every caller
- * must pass before deriving anything.
+ * Env-driven and ABSENT BY DEFAULT, and it stays that way now that the program IS on
+ * mainnet (`EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ`, deployed 2026-09-20 — see
+ * `frontend/scripts/addresses.json`, id `bayla-ladder-program`). The original reason was
+ * that a hardcoded devnet id would be a live-looking address on a cluster the app does
+ * not talk to. That reason is spent; the one that replaces it is the go-live gate itself.
+ * The card must not mount until the operator turns it on, and unlike the Streamflow rail
+ * above there is no honest hardcoded fallback to turn on WITH — a pool id and a program
+ * id have to agree, so the env var is the switch. `isLadderConfigured()` is the gate
+ * every caller must pass before deriving anything.
  */
 export const LADDER_PROGRAM_ID: string =
   (import.meta.env.VITE_BAYLA_LADDER_PROGRAM as string | undefined)?.trim() ?? '';

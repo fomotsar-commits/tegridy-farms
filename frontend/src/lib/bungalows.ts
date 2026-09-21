@@ -130,10 +130,15 @@ export interface Bungalow {
    *
    * ── ABSENT BY DEFAULT, AND THAT IS THE FEATURE GATE ───────────────────────
    * Deliberately the OPPOSITE shape to `stakePool` above, which ships a hardcoded
-   * address that WINS whenever its env var is blank. There is no mainnet bayla-ladder
-   * deployment, so a hardcoded id here would be a live-looking address on a cluster
-   * the app does not talk to. Set BOTH VITE_BAYLA_LADDER_POOL and
-   * VITE_BAYLA_LADDER_PROGRAM, or the card never mounts.
+   * address that WINS whenever its env var is blank. A mainnet bayla-ladder pool now
+   * EXISTS — `Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV`, live since 2026-09-20 and
+   * registered in `frontend/scripts/addresses.json` as `bayla-ladder-pool` — so the
+   * original reason (a hardcoded id would be a live-looking address on a cluster the
+   * app does not talk to) no longer applies. The shape stays anyway, because it is the
+   * go-live switch: the pool and the program id must agree, and a hardcoded fallback
+   * would mount the card the moment this file merged rather than when the operator
+   * decided. Set BOTH VITE_BAYLA_LADDER_POOL and VITE_BAYLA_LADDER_PROGRAM, or the
+   * card never mounts.
    */
   ladderPool?: string;
 
@@ -256,11 +261,16 @@ const BAYLA_STAKE_POOL =
  * The bayla-ladder pool, if an operator has deployed one and pointed at it.
  *
  * ⚠️ NO FALLBACK, ON PURPOSE. Every other address in this file ships hardcoded so no
- * env var is load-bearing. This one must not: there is no mainnet bayla-ladder
- * deployment yet, and the only pool that exists is on devnet — a cluster this app
- * never talks to (the browser's sole Solana transport is /api/solrpc, whose upstream
- * is mainnet). A hardcoded devnet address would render a live-looking card over
- * accounts that do not exist where the app is looking.
+ * env var is load-bearing. This one must not — but the reason CHANGED on 2026-09-20 and
+ * the old one is no longer true. It used to be that the only pool was on devnet, a
+ * cluster this app never talks to (the browser's sole Solana transport is /api/solrpc,
+ * whose upstream is mainnet), so a hardcoded devnet address would render a live-looking
+ * card over accounts that do not exist where the app is looking. There is now a real
+ * mainnet pool — `Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV` off program
+ * `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ`, both registered in
+ * `frontend/scripts/addresses.json` and chain-checked by the registry-onchain workflow.
+ * The reason it still must not ship hardcoded is that go-live is the OWNER's call: a
+ * hardcoded id turns the card on at merge, and the env pair turns it on when they say so.
  *
  * The program id comes from VITE_BAYLA_LADDER_PROGRAM, read in lib/ladder/program.ts.
  * BOTH must be set. Note the near-miss with the operator CLI's own environment: that

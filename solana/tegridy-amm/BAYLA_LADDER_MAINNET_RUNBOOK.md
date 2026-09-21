@@ -1,6 +1,15 @@
 # bayla-ladder — MAINNET runbook
 
-**Status: NOT YET EXECUTED.** Written 2026-09-11. This is the mainnet half that
+**Status: ✅ EXECUTED 2026-09-20** — program `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ`
+is live on mainnet-beta, the IDL is published, and the pool is seeded, funded and emitting.
+Every address this runbook produced is registered in `frontend/scripts/addresses.json`
+(ids `bayla-ladder-*`) and chain-asserted daily by `.github/workflows/registry-onchain.yml`.
+🔴 **One step of it has NOT run: the authority handover (§1 below, and step 13).** The
+ProgramData upgrade authority and `pool.authority` are both still the deployer key
+`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`, and `pool.pendingAuthority` is unset.
+Read this file as a record of what was done plus that one open step, not as a plan.
+
+Written 2026-09-11. This is the mainnet half that
 `BAYLA_LADDER_DEVNET_RUNBOOK.md` deliberately left unwritten. Every command below was
 checked against the tool it calls (Solana CLI 4.1.1 on the operator box, the ops CLI
 on trunk), and every figure says where it came from.
@@ -97,10 +106,10 @@ commitment and the reason are in `docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md` §8.
 
 | what | value | notes |
 | --- | --- | --- |
-| program id | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` | Generated 2026-09-11. The keyfile lives outside the repo, and is only needed until the program is deployed. |
+| program id | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` | Generated 2026-09-11. **Claimed on mainnet 2026-09-20** — the keyfile has now done its one job and authorises nothing further; what can still change this program is the ProgramData upgrade authority, one row down. The keyfile lives outside the repo. |
 | deployer | ~~`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`~~ → **`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`** | ✅ **ROTATED 2026-09-20.** Generated fresh, keyfile at `C:\Users\jimbo\solana-keys\mainnet\bayla_ladder-deployer.json` (outside OneDrive). Verified before use: the keyfile derives to exactly this pubkey; the account does not exist on mainnet (`AccountNotFound`, i.e. never used); and it collides with none of the program id, the old faucet authority, `5MtoeJ8D…` or the devnet program. **SUPERSEDED 2026-09-17 (key rotation option A).** `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` was confirmed 2026-09-12 as the owner's existing BAYLA admin wallet; it is also the devnet faucet bot's hot key in a cloud-synced folder (`docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md` §1). The rebuild compiles a fresh key generated outside any cloud-synced folder — write its pubkey here before §4, and never build with `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`. Compiled in: the only key that can call `initialize_pool`, and it becomes the pool's first authority — so its pubkey is an input to the **build** (§4), not to the deploy. **To generate it (2026-09-20):** `solana-keygen` on the `PATH` is Application-Control blocked, but the versioned install path is not — `~/.local/share/solana/install/releases/stable-25cd9da946ebf6d90024ac32071d05b319715589/solana-release/bin/solana-keygen new --no-bip39-passphrase --outfile C:/Users/jimbo/solana-keys/mainnet/bayla_ladder-deployer.json`, then read it back with `solana address -k`. Checklist §3. |
 | BAYLA mint | `7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump` | Token-2022, 6 decimals |
-| upgrade authority | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` | The venue's existing Squads v4 **vault**: index 0 of multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`, threshold 2. A PDA with no private key, so the transfer needs `--skip-new-upgrade-authority-signer-check`. |
+| upgrade authority | **TARGET** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` — **ACTUAL, as of 2026-09-20: `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`** | 🔴 This row named only the target and read as a statement of fact; the handover has not run. Read at finalized slot 448,901,426, ProgramData `FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw` carries option byte 1 and authority `Fu7mNAv67sRb…`, the deployer. The target is the venue's existing Squads v4 **vault**: index 0 of multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`, threshold 2. A PDA with no private key, so the transfer needs `--skip-new-upgrade-authority-signer-check`. |
 
 **Why a plain wallet is acceptable as the POOL authority, and not as the UPGRADE
 authority.** The pool authority's instructions were read account by account:

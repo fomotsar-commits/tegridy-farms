@@ -33,8 +33,13 @@ later the same day **replaced by Yearn's veYFI schedule: `min(time left / 4 year
 - **The reward budget has to reach the multisig's token account before the authority
   handover**, or the only key allowed to fund holds nothing. New step 12.
 - **Generating the rotated deployer is no longer blocked** — see §3.
-- Chain reads, 2026-09-20: mainnet program id **unclaimed**; deployer **0 SOL**; the live
-  Streamflow reward vault holds **832,767.56 BAYLA** against **2,700,285.89 BAYLA** staked.
+- Chain reads, 2026-09-20 (EARLIER THAT DAY, before the deploy): mainnet program id
+  **unclaimed**; deployer **0 SOL**; the live Streamflow reward vault holds
+  **832,767.56 BAYLA** against **2,700,285.89 BAYLA** staked.
+- Chain reads, 2026-09-20 (AFTER the deploy, finalized slot 448,901,426): program
+  **live and executable**; deployer **0.21167924 SOL**; the ladder's own stake vault holds
+  **3,200 BAYLA** and its reward vault **43,091.764477 BAYLA**. The Streamflow numbers on
+  the line above belong to a different rail and are unchanged by any of this.
 
 This is the sequenced answer to "are we ready to load SOL, load the rewards, and get staking".
 It is a companion to `solana/tegridy-amm/BAYLA_LADDER_MAINNET_RUNBOOK.md`, not a replacement:
@@ -58,8 +63,21 @@ because an unrecorded "fine" gets re-litigated.
    go-live (`VITE_BAYLA_LADDER_PROGRAM` is unset in every Vercel environment — checked
    2026-09-17), so what must happen **in lockstep** is go-live itself: two environment
    variables and a redeploy (§6), pointed at a program that charges the same schedule.
-2. The program is **built but not yet deployed**. The address `EJLP5GEJ…` is still
-   unclaimed on mainnet (`AccountNotFound`, checked 2026-09-20). The deployer rotation is
+2. ✅ **DEPLOYED 2026-09-20.** `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` is live on
+   mainnet-beta — executable, ProgramData `FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw`
+   carrying 515,352 bytes of bytecode, last deployed slot 448,851,661 (read at finalized
+   slot 448,901,426). The IDL is published at
+   `3nHKL72LUn5vijmHk76v6qwgkMshToKkJGsEzbWBaQ2r`, the pool is
+   `Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV` (nonce 0, 3,200 BAYLA staked, emitting to
+   2026-12-20), and all seven addresses are registered in `frontend/scripts/addresses.json`
+   and chain-asserted by `.github/workflows/registry-onchain.yml`. The paragraph this
+   replaces said "built but not yet deployed … still unclaimed on mainnet
+   (`AccountNotFound`, checked 2026-09-20)" — true earlier that day, false by the end of it.
+   🔴 **Still open: the authority handover.** Both the ProgramData upgrade authority and
+   `pool.authority` are the deployer key `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`,
+   not the Squads vault this file's §1 and the runbook's identity table name as the target;
+   `pool.pendingAuthority` is unset, so the two-step has not been started.
+   The deployer rotation is
    **done** — `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` — and the superseded
    `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` has been replaced by
    `b21e1277e104817886a31d6f5b16ba2a35fa6732558cbd6d227e4fb8e21bb0a1` (runbook §4).
