@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useSolanaConnect } from '../solana/useSolanaConnect';
@@ -15,6 +15,7 @@ import {
   readPool,
   readEntries,
   readShareBasis,
+  readConfirmedSlot,
   readWalletBalance,
   stake,
   unstakeAndClaim,
@@ -43,6 +44,7 @@ import {
   type StakeEntryView,
 } from '../../lib/bungalowStaking';
 import { sharePct } from '../../lib/ladder/program';
+import { basisBehindWrite, FENCE_RETRY_MS, type WriteFence } from '../../lib/ladder/writeFence';
 
 /**
  * The lighthouse pool, LIVE — rendered by BungalowFarmPanel when the
@@ -155,6 +157,21 @@ function humanDuration(secs: number): string {
   return `${Math.max(1, Math.floor(secs / 60))}m`;
 }
 
+/** A write fence, plus the signature it belongs to (so a late slot lands on its own write). */
+type SigFence = WriteFence & { sig: string };
+
+/**
+ * Give the fence for `sig` the slot that write confirmed at, once it can be read. A
+ * slot that cannot be read leaves it null, which is stale (fail closed); the card's
+ * retry asks again. A later write's fence is never overwritten by an earlier answer.
+ */
+function refineFence(sig: string, set: (f: (prev: SigFence | null) => SigFence | null) => void) {
+  void readConfirmedSlot(sig).then((slot) => {
+    if (slot === null) return;
+    set((f) => (f && f.sig === sig ? { ...f, slot } : f));
+  });
+}
+
 function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const { publicKey, wallet } = useWallet();
   const openConnect = useSolanaConnect();
@@ -207,6 +224,27 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const [readGen, setReadGen] = useState(0);
   const reread = () => setReadGen((n) => n + 1);
 
+  // ⚠️ A READ THAT PREDATES YOUR CONFIRMED WRITE — the ladder card's two guards.
+  //
+  // IDENTITY (the ladder's `staleRead`): the entries read on screen when a write
+  // confirms is held here, and while it is STILL the one on screen it is "updating…",
+  // never restated. Without it, a first stake left the pre-stake read (complete, and
+  // empty) on screen until the re-read landed, and "Your share" said "nothing staked."
+  // to someone whose stake had just confirmed. Any newer read is not stale.
+  //
+  // RECENCY (the ladder's `writeFence`, dc2a4578): identity is not recency. A re-read
+  // served by an RPC node still BEFORE the write is a consistent picture of the past —
+  // pool 100, you hold A=10 and B=10, your exit of A confirms at slot 500, a node at
+  // 498 serves A and B open over 100 and the card printed 20% for a true 10/90 = 11.1%.
+  // So the slot the write CONFIRMED at fences the share basis, keyed to the wallet that
+  // wrote: a basis below it, or a missing slot on either side, is "updating…" (fail
+  // closed). The fence is set the moment the write confirms, with slot null — so it is
+  // closed even before the slot is known — then given the slot once it is read.
+  const [staleEntries, setStaleEntries] = useState<typeof entriesRead | null>(null);
+  const latestEntriesRead = useRef(entriesRead);
+  useEffect(() => { latestEntriesRead.current = entriesRead; }, [entriesRead]);
+  const [writeFence, setWriteFence] = useState<SigFence | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     readPool(bungalow.stakePool).then((r) => { if (!cancelled) setPoolRead(r); });
@@ -234,7 +272,10 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const entriesForWallet = walletKey && entriesRead.key === walletKey ? entriesRead : null;
   const entriesKnown = entriesForWallet?.list !== null && entriesForWallet !== null;
   const entries = entriesForWallet?.list ?? [];
-  const walletRaw = walletKey && balanceRead.key === walletKey ? balanceRead.raw : null;
+  // THREE STATES, NOT TWO (the ladder card's rule): not read yet, read and failed, and
+  // a number. They used to print the same "–", so a pending read looked like an outage.
+  const balanceLoaded = Boolean(walletKey) && balanceRead.key === walletKey;
+  const walletRaw = balanceLoaded ? balanceRead.raw : null;
 
   const pool = poolRead?.ok ? poolRead.pool : null;
   const decimals = pool?.decimals ?? bungalow.decimals ?? 6;
@@ -352,7 +393,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const entriesList = entriesForWallet?.list ?? null;
   const [basisRead, setBasisRead] = useState<{
     list: StakeEntryView[];
-    basis: { mineEffectiveRaw: bigint; totalEffectiveRaw: bigint } | null;
+    basis: { mineEffectiveRaw: bigint; totalEffectiveRaw: bigint; slot: number | null } | null;
   } | null>(null);
   useEffect(() => {
     if (!dynamicPool || !entriesList) return;
@@ -385,9 +426,15 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // separately read pool still BOUNDS it: both go through `sharePct` and the LOWER is
   // printed, so a fresher, larger total (others staked since) can only make it smaller,
   // and one below your own weight means the reads disagree and the figure is refused.
-  const nothingStaked = entriesKnown && openEntries.length === 0;
+  // The entries read on screen is the one a confirmed write of yours was made over.
+  const entriesStale = staleEntries !== null && entriesForWallet !== null && entriesRead === staleEntries;
+  // A basis older than your own confirmed write, or one whose slot — or the write's —
+  // is unknown, is "updating…", never a share (see `writeFence`).
+  const shareStale = Boolean(shareBasis) && basisBehindWrite(writeFence, walletKey, shareBasis?.slot);
+  const updating = entriesStale || shareStale;
+  const nothingStaked = entriesKnown && openEntries.length === 0 && !entriesStale;
   const myShare = (() => {
-    if (!entriesKnown || nothingStaked || !shareBasis) return null;
+    if (!entriesKnown || nothingStaked || !shareBasis || updating) return null;
     const own = sharePct({ mineWeight: shareBasis.mineEffectiveRaw, totalWeighted: shareBasis.totalEffectiveRaw, truncated: false });
     const bound = sharePct({ mineWeight: shareBasis.mineEffectiveRaw, totalWeighted: poolEffectiveRaw, truncated: false });
     if (!own || !bound) return null;
@@ -395,7 +442,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   })();
   const shareNote = !publicKey
     ? 'connect a wallet to see yours.'
-    : nothingStaked
+    : updating
+      ? 'updating…'
+      : nothingStaked
       ? 'nothing staked.'
       : !entriesForWallet || (entriesKnown && shareBasis === undefined)
         ? 'reading your stakes…'
@@ -416,10 +465,30 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 
   const overBalance = amountRaw !== null && walletRaw !== null && amountRaw > walletRaw;
 
+  // ⚠️ "updating…" MUST NOT BECOME PERMANENT. This card has no standing poll (only the
+  // minute clock), so a re-read that lands from a node still behind your write would
+  // leave the share fenced until the next write or a reload. While it is fenced the card
+  // re-reads on a timer — and asks again for the write's slot if it has none — and stops
+  // as soon as a read at or past the write lands. Not while a write is in flight (its own
+  // completion re-reads) or while a principal rescue is armed (nothing moves under a
+  // two-step confirm). Costs nothing when nothing is fenced.
+  const fenceSig = writeFence && writeFence.slot === null ? writeFence.sig : null;
+  useEffect(() => {
+    if (!updating || action?.busy || rescueFor !== null) return;
+    const t = setInterval(() => {
+      setReadGen((n) => n + 1);
+      if (fenceSig) refineFence(fenceSig, setWriteFence);
+    }, FENCE_RETRY_MS);
+    return () => clearInterval(t);
+  }, [updating, action?.busy, rescueFor, fenceSig]);
+
   const run = async (label: string, fn: () => Promise<{ ok: true; txId: string } | { ok: false; reason: string }>) => {
     setAction({ busy: label });
     const res = await fn();
     if (res.ok) {
+      setStaleEntries(latestEntriesRead.current);
+      setWriteFence({ key: walletKey, slot: null, sig: res.txId });
+      refineFence(res.txId, setWriteFence);
       setAction({ note: `${label} confirmed.`, tx: res.txId });
       setAmount('');
       reread();
@@ -697,7 +766,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                         onClick={() => walletRaw !== null && setAmount(toPlain(walletRaw, decimals))}
                         className="text-white/60 text-[11px] hover:text-white transition-colors cursor-pointer disabled:cursor-default disabled:hover:text-white/60"
                       >
-                        Balance: {walletRaw === null ? '–' : fmt(walletRaw, decimals)}{walletRaw !== null && walletRaw > 0n ? ' · MAX' : ''}
+                        Balance: {!balanceLoaded ? '…' : walletRaw === null ? 'unreadable' : fmt(walletRaw, decimals)}{walletRaw !== null && walletRaw > 0n ? ' · MAX' : ''}
                       </button>
                     </div>
                     <input
@@ -985,7 +1054,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   {openEntries.map((e) => {
                     const opensAt = unlockTs(e);
                     const locked = nowSec < opensAt;
-                    const entryPending = pool.rewardPools.reduce<bigint | null>((acc, rp) => {
+                    // An accrual this read did not price is UNKNOWN, never zero — a zero
+                    // here disabled the claim as "Nothing accrued yet" (see `pendingUnread`).
+                    const entryPending = e.pendingUnread ? null : pool.rewardPools.reduce<bigint | null>((acc, rp) => {
                       if (acc === null) return null;
                       const v = e.pendingRaw[rp.nonce];
                       return v === undefined ? acc : v === null ? null : acc + v;

@@ -1,5 +1,6 @@
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { solanaRpcEndpoint } from './solana';
+import { confirmedSlotOf, slotOrNull } from './ladder/writeFence';
 
 /**
  * Bungalow staking adapter — the venue's thin seam over the Streamflow
@@ -162,6 +163,15 @@ export interface StakeEntryView {
    */
   pendingRaw: Record<number, bigint | null>;
   /**
+   * Set on an OPEN entry whose accrual this read did NOT price: past readEntries'
+   * pricing cap, or when either half of the reward-pool search failed. Its
+   * `pendingRaw` is then incomplete (often empty), and every consumer must read the
+   * entry's accrual as UNKNOWN: an empty record summed as zero printed "0 accrued"
+   * as a complete total and disabled the claim as "Nothing accrued yet". Absent means
+   * every reward pool the search found was priced.
+   */
+  pendingUnread?: true;
+  /**
    * The reward entry's LIFETIME `accountedAmount`, keyed by reward-pool nonce.
    * `null` = no reward entry exists yet, or it could not be read. OPTIONAL at the
    * type level for the same reason: a view built from a partial read has no
@@ -277,12 +287,14 @@ export function anyClaimBrokenByRateChange(
  * cannot contradict each other while a read is in flight.
  */
 export function splitAccruedByRisk(
-  entries: Pick<StakeEntryView, 'createdTs' | 'pendingRaw'>[],
+  entries: Pick<StakeEntryView, 'createdTs' | 'pendingRaw' | 'pendingUnread'>[],
   rewardPools: Pick<RewardPoolView, 'kind' | 'rateChangedAtTs'>[],
 ): { claimableRaw: bigint | null; atRiskRaw: bigint | null; atRiskCount: number } {
-  const sum = (list: Pick<StakeEntryView, 'pendingRaw'>[]): bigint | null =>
+  const sum = (list: Pick<StakeEntryView, 'pendingRaw' | 'pendingUnread'>[]): bigint | null =>
     list.reduce<bigint | null>((acc, e) => {
       if (acc === null) return null;
+      // An accrual that was not priced is unknown, and so is any total containing it.
+      if (e.pendingUnread) return null;
       const vals = Object.values(e.pendingRaw);
       if (vals.length === 0) return acc;
       if (vals.some((v) => v === null)) return null;
@@ -370,19 +382,32 @@ function bnToNumber(v: unknown, fallback = 0): number {
  * cannot see is reported as absent by the caller, never as a zero rate.
  */
 async function searchAllRewardPools(client: any, stakePool: string): Promise<{ acc: any; kind: 'fixed' | 'dynamic' }[]> {
+  return (await searchAllRewardPoolsChecked(client, stakePool)).pools;
+}
+
+/**
+ * `searchAllRewardPools`, plus whether BOTH halves answered. A caller that SUMS over
+ * the pools (readEntries' accruals) must know when one half was silently absent: the
+ * pools it did find are real, but a total over them is partial.
+ */
+async function searchAllRewardPoolsChecked(
+  client: any,
+  stakePool: string,
+): Promise<{ pools: { acc: any; kind: 'fixed' | 'dynamic' }[]; complete: boolean }> {
   const out: { acc: any; kind: 'fixed' | 'dynamic' }[] = [];
+  let complete = true;
   try {
     const fixed: any[] = await client.searchRewardPools({ stakePool });
     for (const acc of fixed ?? []) out.push({ acc, kind: 'fixed' });
-  } catch { /* fixed unreadable — the dynamic half may still answer */ }
+  } catch { complete = false; /* fixed unreadable — the dynamic half may still answer */ }
   try {
     const dyn = client.getRewardProgram('dynamic');
     const found: any[] = await dyn.account.rewardPool.all([
       { memcmp: { offset: 10, bytes: stakePool } },
     ]);
     for (const acc of found ?? []) out.push({ acc, kind: 'dynamic' });
-  } catch { /* dynamic unreadable — the fixed half may still answer */ }
-  return out;
+  } catch { complete = false; /* dynamic unreadable — the fixed half may still answer */ }
+  return { pools: out, complete };
 }
 
 /** Mint decimals, read on-chain. Falls back to `fallback` when unreadable. */
@@ -811,16 +836,23 @@ export async function readEntries(
     // Reward pools are needed to price the accrual; a failed read just leaves
     // every pending number unknown.
     let rewardAccounts: any[] = [];
+    // False when a reward-pool search half failed: the pools found are real, but a
+    // pending figure summed over them is PARTIAL, so every open entry is marked unread.
+    let rewardSearchComplete = false;
     try {
       // BOTH programs: a dynamic pool is invisible to client.searchRewardPools,
       // and omitting it would silently under-report every pending figure.
-      rewardAccounts = (await searchAllRewardPools(client, stakePool)).map((r) => r.acc);
-    } catch { /* pending stays null below */ }
+      const found = await searchAllRewardPoolsChecked(client, stakePool);
+      rewardAccounts = found.pools.map((r) => r.acc);
+      rewardSearchComplete = found.complete;
+    } catch { /* every open entry is marked unread below */ }
 
     const raw = accounts.map((acc) => ({ acc, e: acc?.account ?? acc }));
     // Only OPEN entries accrue, and only a handful ever exist per wallet; the
     // cap keeps a pathological wallet from firing 256 x N account scans.
+    // ⚠️ AN OPEN ENTRY PAST THE CAP IS UNPRICED, NOT ZERO: it is marked `pendingUnread`.
     const accruing = raw.filter(({ e }) => bnToNumber(e?.closedTs) === 0).slice(0, 8);
+    const priced = new Set(accruing.map(({ acc }) => String(acc?.publicKey ?? '')));
     const pendingByEntry = new Map<string, Record<number, bigint | null>>();
     const accountedByEntry = new Map<string, Record<number, bigint | null>>();
     for (const { acc } of accruing) {
@@ -853,7 +885,9 @@ export async function readEntries(
       .map(({ acc, e }) => {
         const address = String(acc?.publicKey ?? '');
         const amountRaw = bnToBigint(e?.amount) ?? 0n;
+        const unread = bnToNumber(e?.closedTs) === 0 && (!rewardSearchComplete || !priced.has(address));
         return {
+          ...(unread ? { pendingUnread: true as const } : {}),
           address,
           nonce: bnToNumber(e?.nonce),
           amountRaw,
@@ -896,7 +930,7 @@ export async function readEntries(
 export async function readShareBasis(
   stakePool: string,
   entryAddresses: string[],
-): Promise<{ mineEffectiveRaw: bigint; totalEffectiveRaw: bigint } | null> {
+): Promise<{ mineEffectiveRaw: bigint; totalEffectiveRaw: bigint; slot: number | null } | null> {
   // getMultipleAccountsInfo answers up to 100 addresses in one call: the entries + the pool.
   if (entryAddresses.length === 0 || entryAddresses.length > 99) return null;
   try {
@@ -905,7 +939,13 @@ export async function readShareBasis(
     if (!program) return null;
     const { PublicKey } = await import('@solana/web3.js');
     const keys = [...entryAddresses, stakePool].map((a) => new PublicKey(a));
-    const infos: any[] = await client.connection.getMultipleAccountsInfo(keys, 'confirmed');
+    // ...AndContext, for the call's own slot. Same-slot makes the pair CONSISTENT, not
+    // RECENT: after your own confirmed write the card compares this slot with the
+    // write's (lib/ladder/writeFence.ts). A response with no slot carries null, never a
+    // guess, and the card fails closed on it.
+    const res: any = await client.connection.getMultipleAccountsInfoAndContext(keys, 'confirmed');
+    const infos: any[] = res?.value;
+    const slot = slotOrNull(res?.context?.slot);
     if (!Array.isArray(infos) || infos.length !== keys.length) return null;
     const programId = String(program.programId?.toBase58?.() ?? program.programId ?? '');
     const ownedByProgram = (info: any) => {
@@ -932,7 +972,22 @@ export async function readShareBasis(
     }
     // Same units as readEntries/readPool: an entry's effectiveAmount is raw, the pool's
     // totalEffectiveStake is WEIGHT_SCALE-scaled.
-    return { mineEffectiveRaw: mine, totalEffectiveRaw: totalScaled / WEIGHT_SCALE };
+    return { mineEffectiveRaw: mine, totalEffectiveRaw: totalScaled / WEIGHT_SCALE, slot };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The slot a confirmed write CONFIRMED at, or null. The lighthouse card fences its share
+ * on it (lib/ladder/writeFence.ts): a share basis read at an earlier slot predates the
+ * write however recently it arrived, because an RPC node can still be behind it. Null
+ * is not "no fence": the card treats it as stale.
+ */
+export async function readConfirmedSlot(signature: string): Promise<number | null> {
+  try {
+    const client: any = await makeClient();
+    return await confirmedSlotOf(client.connection, signature);
   } catch {
     return null;
   }
