@@ -88,6 +88,13 @@ program's deployer is compiled into the binary.
       handover in §8 completes before the first `notify`.
 - [ ] **A keyed mainnet RPC URL.** The public endpoint throttles hard, and a program upload
       is several hundred write transactions. Never paste the URL into the repo.
+      **The ops CLI used to paste it for you.** `bayla-ladder-ops.mjs` echoed the full
+      `--rpc` value in its header on every invocation, dry runs included, and on
+      2026-09-20 that put a live Alchemy key into a shared screenshot; the key was
+      rotated. It now prints the host and masks the credential —
+      `rpc     https://solana-mainnet.g.alchemy.com/v2/***` — so the header is safe to
+      screenshot. The HOST is still shown, deliberately: it is how you confirm you are
+      not on the CLI's devnet default. Redactor: `scripts/lib/redact-url.mjs`.
 - [ ] **~3 SOL in the deployer wallet** — the rotated deployer
       **`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`**, and no other wallet. Not
       `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`, not
