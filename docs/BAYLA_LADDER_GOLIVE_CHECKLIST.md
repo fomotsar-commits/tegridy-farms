@@ -191,11 +191,21 @@ constrained to a signing owner (every `owner_ata` constraint in `lib.rs`). The u
 is the real power, goes to the Squads vault. And the authority is transferable after init via
 two-step `propose_authority` / `accept_authority`.
 
-**DECIDED 2026-09-17: (A).** Written down here and as D3. Not yet executed: no fresh
-deployer pubkey is recorded in the repo, and the rebuild has not run. And, separately (D4),
-the **pool authority is handed to a multisig before any funds** — the bound above says what
-a stolen authority key can take, not what it can do (`declare_degraded` is one-way and
-waives every early penalty, including on the thief's own locked positions).
+**DECIDED 2026-09-17: (A).** Written down here and as D3. ✅ **Executed 2026-09-20** — the
+paragraph here said "Not yet executed: no fresh deployer pubkey is recorded in the repo, and
+the rebuild has not run", and both halves are now done: the deployer is
+`Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (registry id `bayla-ladder-deployer`), and the
+rebuild deployed from tag `bayla-ladder-mainnet`.
+
+🔴 **(D4) HAS NOT BEEN EXECUTED, AND IT WAS A BEFORE-ANY-FUNDS CONDITION.** It reads: the
+**pool authority is handed to a multisig before any funds** — the bound above says what a
+stolen authority key can take, not what it can do (`declare_degraded` is one-way and waives
+every early penalty, including on the thief's own locked positions). As of the chain read at
+finalized slot 448,901,426 the pool holds 3,200 BAYLA of principal and 43,091.76 BAYLA of
+reward budget, `pool.authority` is the deployer key, and `pool.pendingAuthority` is the zero
+pubkey, so the two-step `propose_authority` / `accept_authority` has not been started. The
+ProgramData upgrade authority is the same single key. This is stated because the decision was
+recorded as a gate and the gate did not hold — not as a re-opening of it.
 
 The two options as they were weighed:
 
