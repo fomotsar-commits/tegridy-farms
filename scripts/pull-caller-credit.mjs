@@ -53,6 +53,7 @@ import {
   renderGithubOutput,
   renderReport,
 } from './lib/caller-credit.mjs';
+import { redactRpcUrl } from './lib/redact-url.mjs';
 
 const DEFAULT_RPC = 'https://ethereum-rpc.publicnode.com';
 
@@ -168,14 +169,23 @@ function printHuman(c) {
   console.log('Stranded swap fees — ReferralSplitter.callerCredit(SwapFeeRouter)');
   console.log(`  splitter  ${ADDRESSES.referralSplitter}`);
   console.log(`  router    ${ADDRESSES.swapFeeRouter}`);
-  console.log(`  rpc       ${RPC}`);
+  // Host kept, credential masked. The line is not deleted and the host is not
+  // hidden: reading it back is how an operator confirms this is pointed at the
+  // chain they think it is. See lib/redact-url.mjs for what that costs.
+  console.log(`  rpc       ${redactRpcUrl(RPC)}`);
   console.log('');
   console.log(renderReport(c));
   console.log('');
 
   if (c.state === 'stranded' && c.pullable) {
     console.log('To pull it (permissionless, no arguments, any wallet):');
-    console.log(`  ${pullCommand(RPC)}`);
+    // The endpoint goes in by NAME, not by value. This line is a command to PASTE
+    // into a shell, so a redacted URL would hand the operator something that
+    // cannot run, and the raw URL would put the key back in the transcript one
+    // line below where it was just masked. `ETH_RPC_URL` is the variable the
+    // USAGE block above documents; an operator who passed `--rpc` instead should
+    // export it or substitute their endpoint by hand.
+    console.log(`  ${pullCommand('"$ETH_RPC_URL"')}`);
     console.log(`  or, with no tooling at all: ${pullViaExplorerUrl()}`);
     if (c.economics && !c.economics.worthIt) {
       console.log('');

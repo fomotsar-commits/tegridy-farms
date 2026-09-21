@@ -28,6 +28,13 @@
 # already cancelled, or with a different pending owner is SKIPPED, never touched.
 set -euo pipefail
 
+# redact_url: print an endpoint without printing the credential in it. Sourced
+# relative to THIS file, not the caller's cwd -- the usage above runs this from the
+# repo root while deploy-gated.sh is run from contracts/.
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/redact-url.sh
+. "$_HERE/lib/redact-url.sh"
+
 DEPLOYER="0x14898258122C0740106391E6e8E4F17F3b6d456E"
 FLAGGED="0xA36053477568Fb5382492F3A5970D35Fe896b7F8"
 REASON="close stale 0xA360 pending ownership pre-Safe-rebuild"
@@ -58,7 +65,12 @@ CHAIN=$(cast chain-id --rpc-url "$RPC_URL")
 if [ "$BROADCAST" = "1" ] && [ -z "$SIGNER" ]; then
   echo "REFUSING --broadcast without SIGNER (e.g. SIGNER=\"--account deployer\" or --ledger)"; exit 1
 fi
-echo "mode: $([ "$BROADCAST" = 1 ] && echo BROADCAST || echo DRY-RUN)   rpc: $RPC_URL"
+# The HOST is printed and the credential is not. The host stays because this line is
+# the operator's one local check that a mainnet ceremony is pointed where they think
+# -- "rpc: [redacted]" would pass a leak test and delete the reason the line exists.
+# It matters here in particular: the USAGE block above tells the operator to point
+# RPC_URL at Flashbots/MEV-Blocker for admin txs, and those endpoints are keyed.
+echo "mode: $([ "$BROADCAST" = 1 ] && echo BROADCAST || echo DRY-RUN)   rpc: $(redact_url "$RPC_URL")"
 echo
 
 for entry in $CONTRACTS; do
