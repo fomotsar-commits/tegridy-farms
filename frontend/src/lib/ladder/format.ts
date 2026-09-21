@@ -26,6 +26,36 @@ export function fmtRaw(raw: bigint | null | undefined, decimals: number, maxFrac
   return neg ? `-${out}` : out;
 }
 
+/**
+ * Raw base units → the whole part (grouped like `fmtRaw`) and EXACTLY `frac` fraction
+ * digits, padded with zeros and TRUNCATED, never rounded. `null` when unread.
+ *
+ * For the live meter. `fmtRaw` trims trailing zeros, so a climbing figure changed width
+ * every time its last digit hit 0 and the whole line jittered; and any rounding here
+ * could print a digit the account does not hold yet, which is the one thing the meter
+ * must never do (lib/ladder/meter.ts, invariant I).
+ */
+export function fmtRawParts(
+  raw: bigint | null | undefined, decimals: number, frac: number,
+): { whole: string; frac: string } | null {
+  if (raw === null || raw === undefined) return null;
+  const neg = raw < 0n;
+  const s = (neg ? -raw : raw).toString().padStart(decimals + 1, '0');
+  const whole = decimals > 0 ? s.slice(0, -decimals) || '0' : s;
+  const digits = decimals > 0 ? s.slice(-decimals) : '';
+  const wholeNum = Number(whole);
+  const wholeFmt = Number.isSafeInteger(wholeNum) ? wholeNum.toLocaleString() : whole;
+  const f = decimals > 0 ? (digits + '0'.repeat(frac)).slice(0, frac) : '';
+  return { whole: neg ? `-${wholeFmt}` : wholeFmt, frac: f };
+}
+
+/** `fmtRawParts` joined: "0.095138". An unread figure is a dash, never a zero. */
+export function fmtRawFixed(raw: bigint | null | undefined, decimals: number, frac: number): string {
+  const p = fmtRawParts(raw, decimals, frac);
+  if (p === null) return '–';
+  return p.frac ? `${p.whole}.${p.frac}` : p.whole;
+}
+
 /** Raw base units → a LOCALE-FREE decimal string, safe to feed back to `toRaw`. */
 export function toPlain(raw: bigint, decimals: number): string {
   const s = raw.toString().padStart(decimals + 1, '0');

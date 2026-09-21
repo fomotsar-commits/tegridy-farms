@@ -436,6 +436,36 @@ export function penaltyPct(penaltyRaw: bigint, amountRaw: bigint): string {
   return frac ? `${whole}.${frac}%` : `${whole}%`;
 }
 
+/**
+ * A wallet's share of the pool's WEIGHT, for display: floored to tenths of a percent,
+ * clamped to [0, 100]. `null` when it cannot be stated honestly.
+ *
+ * This is a FACT the chain fixes (rewards are split by weight: `earned` in math.rs), not
+ * a yield. It is deliberately never multiplied by a reward rate or annualised — see the
+ * "NO APR" note on the ladder card.
+ *
+ * - Floored, like `penaltyPct`, but for the opposite reason: a share must never read
+ *   LARGER than it is. 70.89% prints 70.8%.
+ * - `null` for an unread wallet or pool, for a PARTIAL position list (`truncated` — the
+ *   sum would understate a real share) and for a pool with no weight at all (there is
+ *   no denominator; that is neither 0% nor 100%).
+ * - A real, non-zero share that floors to 0.0 reads "<0.1%", never "0%".
+ */
+export function sharePct(
+  { mineWeight, totalWeighted, truncated }:
+  { mineWeight: bigint | null; totalWeighted: bigint | null; truncated: boolean },
+): { pct: number; label: string } | null {
+  if (mineWeight === null || totalWeighted === null || truncated) return null;
+  if (totalWeighted <= 0n || mineWeight < 0n) return null;
+  const mine = mineWeight < totalWeighted ? mineWeight : totalWeighted;
+  const tenths = (mine * 1_000n) / totalWeighted;
+  const pct = Number(tenths) / 10;
+  if (tenths === 0n && mine > 0n) return { pct: 0, label: '<0.1%' };
+  const whole = tenths / 10n;
+  const t = tenths % 10n;
+  return { pct, label: t === 0n ? `${whole}%` : `${whole}.${t}%` };
+}
+
 export type ExitDoor = 'matured' | 'early' | 'hatch';
 
 export interface ExitQuote {

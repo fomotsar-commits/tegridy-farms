@@ -65,6 +65,9 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
   );
   const explorer = bungalowExplorerUrl(bungalow);
   const chainLabel = bungalow.chain === 'solana' ? 'Solana' : bungalow.chain === 'base' ? 'Base' : 'Ethereum';
+  // Row 2 holds the lighthouse pool and the funding card side by side. With a
+  // ladder and no lighthouse pool, funding would be alone beside a hole.
+  const fundingAlone = bungalow.chain === 'solana' && Boolean(bungalow.ladderPool) && !bungalow.stakePool;
 
   return (
     <div className="relative min-h-screen">
@@ -103,14 +106,19 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* THE LIVE POOL LEADS (2026-09-20). The closed Streamflow card used to sit
+          first, so on a phone the pool anyone can stake into began ~1,360px down.
+          The ladder now comes first in the DOM and spans the row; the closed pool
+          and the funding card share row 2. DOM order IS visual order — no CSS
+          `order` — so tab and screen-reader order match what is on screen. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Pool slot: the honest dark card until a pool address is configured
             (VITE_BAYLA_STAKE_POOL), the live Streamflow section after. The
             live section renders an EMPTY reward vault as a labeled real zero
             — funding is allowed to come last without the page ever lying. */}
         {(bungalow.stakePool || bungalow.ladderPool) ? (
           <Suspense fallback={
-            <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+            <div className={`relative overflow-hidden rounded-2xl glass-card-animated ${bungalow.chain === 'solana' && bungalow.ladderPool ? 'lg:col-span-2' : ''}`} style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.85)' }} />
               <div className="relative z-10 p-6"><p className="text-white/70 text-[13px]">Loading the lighthouse…</p></div>
             </div>
@@ -122,11 +130,15 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
               // Each card reads its OWN program; neither is ever handed the other's
               // account.
               <>
-                {bungalow.stakePool && (
-                  <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
-                )}
                 {bungalow.ladderPool && (
-                  <SolanaLadderPoolLive bungalow={bungalow as Bungalow & { ladderPool: string }} />
+                  <div className="lg:col-span-2 min-w-0">
+                    <SolanaLadderPoolLive bungalow={bungalow as Bungalow & { ladderPool: string }} />
+                  </div>
+                )}
+                {bungalow.stakePool && (
+                  <div className="min-w-0">
+                    <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+                  </div>
                 )}
               </>
             ) : bungalow.poolKind === 'ladder' ? (
@@ -159,8 +171,14 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         </div>
         )}
 
-        {/* Funding routes card — where incentives come from. */}
-        <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+        {/* Funding routes card — where incentives come from. Secondary to the
+            live pool, so no glow loop. It spans the row only when it would
+            otherwise sit alone beside an empty cell (a ladder with no
+            lighthouse pool). */}
+        <div
+          className={`relative overflow-hidden rounded-2xl min-w-0 ${fundingAlone ? 'lg:col-span-2' : ''}`}
+          style={{ border: '1px solid var(--color-purple-25)' }}
+        >
           <div className="absolute inset-0">
             <ArtImg pageId="bungalow-farm" idx={1} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>

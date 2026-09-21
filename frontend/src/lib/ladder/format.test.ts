@@ -119,3 +119,35 @@ describe('ladder labels', () => {
     expect(boostLabel(4_000)).not.toBe('1.00×');
   });
 });
+
+describe('fmtRawFixed — the meter\'s fixed-width figure', () => {
+  // The hero meter runs at full token precision. A figure that dropped trailing zeros
+  // would change WIDTH as it climbed (0.1157 → 0.11571 → 0.115715), and one that
+  // rounded could print a digit the account does not hold yet.
+  it('PADS the fraction to exactly `frac` digits', async () => {
+    const { fmtRawFixed } = await import('./format');
+    expect(fmtRawFixed(1_000_000n, 6, 6)).toBe('1.000000');
+    expect(fmtRawFixed(95_138n, 6, 6)).toBe('0.095138');
+    expect(fmtRawFixed(0n, 6, 6)).toBe('0.000000');
+    expect(fmtRawFixed(1_500_000n, 6, 2)).toBe('1.50');
+  });
+
+  it('TRUNCATES, never rounds up', async () => {
+    const { fmtRawFixed } = await import('./format');
+    expect(fmtRawFixed(1_999_999n, 6, 2)).toBe('1.99');
+    expect(fmtRawFixed(999_999n, 6, 0)).toBe('0');
+  });
+
+  it('groups the whole part like fmtRaw and keeps an unread figure a dash', async () => {
+    const { fmtRawFixed } = await import('./format');
+    expect(fmtRawFixed(1_234_500_000n, 6, 6)).toBe((1234).toLocaleString() + '.500000');
+    expect(fmtRawFixed(null, 6, 6)).toBe('–');
+  });
+
+  it('splits into whole and fraction for the two-tone meter', async () => {
+    const { fmtRawParts } = await import('./format');
+    expect(fmtRawParts(115_715n, 6, 6)).toEqual({ whole: '0', frac: '115715' });
+    expect(fmtRawParts(42n, 0, 6)).toEqual({ whole: '42', frac: '' });
+    expect(fmtRawParts(null, 6, 6)).toBeNull();
+  });
+});

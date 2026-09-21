@@ -467,8 +467,18 @@ describe('with no wallet connected', () => {
 const { fmtRaw } = await import('../../lib/ladder/format');
 const dateOf = (secs: number) =>
   new Date(secs * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-const statGrid = async () => (await screen.findByText('Reward vault')).parentElement!.parentElement!;
+// The pool LEDGER: its cells AND the footnotes beneath them. The helper sentences
+// ("to all stakers combined…", "no reward window has ever been scheduled…") moved out
+// of the cells into always-visible footnotes in the 2026-09-20 redesign; what these
+// pins assert is that the sentence is on the card beside its fact, not which box.
+const statGrid = async () => (await screen.findByText('Reward vault')).closest('[data-ledger]') as HTMLElement;
 const stat = (label: string) => within(screen.getByText(label).parentElement!);
+/** A fact's disclosure: the footnote its cell points at with aria-describedby. */
+const noteFor = (label: string) => {
+  const id = screen.getByText(label).parentElement!.getAttribute('aria-describedby');
+  if (!id) throw new Error(`"${label}" has no linked disclosure`);
+  return document.getElementById(id)!.textContent ?? '';
+};
 
 describe('pool-level reward figures', () => {
   it('a LIVE window shows tokens per day to ALL stakers and the funded-through date, and no percentage', async () => {
@@ -486,7 +496,7 @@ describe('pool-level reward figures', () => {
     await waitFor(() => expect(screen.getByText('Rewards per day')).toBeTruthy());
     const perDay = stat('Rewards per day');
     expect(perDay.getByText(fmtRaw(86_400_000_000n, 6))).toBeTruthy();
-    expect(screen.getByText('Rewards per day').parentElement!.textContent).toMatch(/all stakers combined/);
+    expect(noteFor('Rewards per day')).toMatch(/all stakers combined/);
     expect(stat('Funded through').getByText(dateOf(NOW + 30 * DAY))).toBeTruthy();
   });
 
@@ -526,13 +536,13 @@ describe('pool-level reward figures', () => {
     draw();
     await statGrid();
     await waitFor(() => expect(screen.getByText('Rewards per day')).toBeTruthy());
-    expect(screen.getByText('Rewards per day').parentElement!.textContent).toMatch(/nothing accrues/);
+    expect(noteFor('Rewards per day')).toMatch(/nothing accrues/);
   });
 
   it('the minimum stake is not called immutable without saying it is the DEPLOYED program', async () => {
     draw();
     await statGrid();
-    const note = screen.getByText('Minimum stake').parentElement!.textContent ?? '';
+    const note = noteFor('Minimum stake');
     expect(note).toMatch(/deployed program/);
     expect(note).not.toMatch(/fixed/);
   });
@@ -772,5 +782,121 @@ describe('switching wallets while something is in flight', () => {
     expect(await screen.findByText(`Exit early — keep ${fmtRaw(125_000_000n, 6)} BAYLA`)).toBeTruthy();
     expect(screen.queryByText('Confirm')).toBeNull();
     expect(screen.getByText(/Emergency withdraw — costs 375 BAYLA/)).toBeTruthy();
+  });
+});
+
+/* ────────── 12. the redesign: share, hero meter, staircase, minimum stake ────────── */
+
+const shareValue = () => {
+  const label = screen.getByText('Your share of pool weight');
+  return label.nextElementSibling?.textContent ?? '';
+};
+
+describe('your share of pool weight — a fact, never a yield', () => {
+  it('is Σ position weight / pool totalWeighted, FLOORED to a tenth', async () => {
+    // 2,000 weight of 2,825 → 70.796…% → 70.7%, where rounding would say 70.8%.
+    reads.pool = { ok: true, value: poolView({ totalWeighted: 2_825_000_000n }) };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(shareValue()).toMatch(/^70\.7%/);
+    expect(shareValue()).not.toMatch(/70\.8/);
+    // The subline names both weights, so the figure can be checked by hand.
+    const block = screen.getByText('Your share of pool weight').parentElement!.textContent ?? '';
+    expect(block).toContain(`weight ${fmtRaw(2_000_000_000n, 6)} of ${fmtRaw(2_825_000_000n, 6)}`);
+  });
+
+  it('⚠️ a PARTIAL position list reads "could not be fully read", never a percentage', async () => {
+    reads.pool = { ok: true, value: poolView({ totalWeighted: 2_825_000_000n }) };
+    reads.wallet = { ok: true, value: walletView({ truncated: true }) };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(shareValue()).toMatch(/could not be fully read/);
+    expect(shareValue()).not.toMatch(/%/);
+  });
+
+  it('⚠️ a FAILED pool read renders no share at all — never 0% or 100%', async () => {
+    reads.pool = { ok: false, reason: 'The pool could not be read: RPC 503.' };
+    draw();
+    expect(await screen.findByText(/RPC 503/)).toBeTruthy();
+    expect(screen.queryByText('Your share of pool weight')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\b(0|100)%/);
+  });
+
+  it('is never multiplied into a daily or annual figure', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, totalWeighted: 2_825_000_000n }) };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(document.body.textContent).not.toMatch(/your daily|per year|annual|\bAPR\b|\bAPY\b/i);
+  });
+});
+
+describe('the hero meter', () => {
+  it('hides the racing digits from screen readers and gives them the exact figure instead', async () => {
+    draw();
+    const label = await screen.findByText('Earned, unclaimed');
+    const value = label.nextElementSibling as HTMLElement;
+    const racing = value.querySelector('[aria-hidden="true"]');
+    expect(racing).not.toBeNull();
+    const sr = value.querySelector('.sr-only');
+    expect(sr?.textContent).toMatch(/^Earned, unclaimed: [\d,.]+ BAYLA$/);
+    // Never announced sixty times a second.
+    expect(value.closest('[aria-live]')).toBeNull();
+  });
+
+  it('with no wallet, invites a lock and prints NO placeholder digits', async () => {
+    walletState.publicKey = null;
+    draw();
+    expect(await screen.findByText('Your meter starts when you lock.')).toBeTruthy();
+    expect(screen.queryByText('Earned, unclaimed')).toBeNull();
+  });
+
+  it('says why it is not moving when the reward window has ended', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    draw();
+    expect(await screen.findByText(/paused · reward window ended/)).toBeTruthy();
+  });
+
+  it('adds a coverage line when what is owed exceeds the reward vault', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, totalWeighted: 2_000_000_000n }) };
+    reads.vaults = { stakeRaw: 1_000_000_000n, rewardRaw: 1_000_000n };   // 1 BAYLA in the vault
+    draw();
+    expect(await screen.findByText(/a claim pays up to that and the rest stays owed to you/)).toBeTruthy();
+  });
+});
+
+describe('the staircase', () => {
+  it('is climbable WITHOUT a wallet — seven real buttons, one pressed', async () => {
+    walletState.publicKey = null;
+    draw();
+    const group = await screen.findByRole('group', { name: /Lock length/ });
+    const rungs = within(group).getAllByRole('button');
+    expect(rungs).toHaveLength(7);
+    expect(rungs.filter((b) => b.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
+    fireEvent.click(within(group).getByRole('button', { name: /^4y lock, 4\.00× weight$/ }));
+    expect(within(group).getByRole('button', { name: /^4y lock/ }).getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+describe('the minimum stake is shown in every state', () => {
+  it('when DISCONNECTED', async () => {
+    walletState.publicKey = null;
+    draw();
+    const label = await screen.findByText('Minimum stake');
+    expect(label.nextElementSibling?.textContent).toMatch(/^100\s*BAYLA$/);
+  });
+
+  it('when CONNECTED, beside the amount', async () => {
+    draw();
+    await screen.findByLabelText('Amount');
+    const label = screen.getByText('Minimum stake');
+    expect(label.nextElementSibling?.textContent).toMatch(/^100\s*BAYLA$/);
+  });
+
+  it('keeps its disclosure, linked to it for assistive tech', async () => {
+    draw();
+    const label = await screen.findByText('Minimum stake');
+    const id = label.parentElement!.getAttribute('aria-describedby');
+    expect(id).toBeTruthy();
+    expect(document.getElementById(id!)!.textContent).toMatch(/the deployed program has no setter for it/);
   });
 });

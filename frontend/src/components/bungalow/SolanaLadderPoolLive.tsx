@@ -1,6 +1,7 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
+import { m } from 'framer-motion';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { PublicKey } from '@solana/web3.js';
@@ -12,7 +13,7 @@ import {
   boostBpsForLock, weightForStake, quoteExit, checkDeposit, earnedNow, rewardRunwaySecs,
   minWeightFloor,
   MAX_LOCK_SECS, MAX_POSITIONS, MAX_EARLY_EXIT_PENALTY_BPS, MIN_BOOST_BPS,
-  penaltyFor, penaltyPct,
+  penaltyFor, penaltyPct, sharePct,
   type LadderPoolView, type LadderPositionView,
 } from '../../lib/ladder/program';
 import {
@@ -24,8 +25,10 @@ import {
   ladderStake, ladderClaim, ladderExit, ladderHatch, ladderClaimCarried,
   type WriteResult, type LadderWriteCtx,
 } from '../../lib/ladder/write';
-import { fmtRaw, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
+import { fmtRaw, fmtRawParts, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '../../lib/ladder/format';
 import { useAccrualMeter } from '../../hooks/useAccrualMeter';
+import { Reveal } from '../motion/Reveal';
+import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../lib/motion';
 
 /**
  * A `bayla-ladder` pool, LIVE.
@@ -111,6 +114,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   const { publicKey, wallet } = useWallet();
   const { connection } = useConnection();
   const openConnect = useSolanaConnect();
+  // Footnote ids: each ledger fact points at its own disclosure (aria-describedby).
+  const fid = useId();
 
   const config = useMemo(() => resolveConfig(bungalow.ladderPool), [bungalow.ladderPool]);
 
@@ -286,6 +291,11 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   // divided by total principal rather than total weight, so it was not even the rate
   // its own note named.
   //
+  // What IS allowed (2026-09-20): YOUR SHARE OF POOL WEIGHT — Σ your positions' weight
+  // over `totalWeighted`, floored (`sharePct`). It is a present fact the chain fixes, not
+  // a forecast. FORBIDDEN, and not to be added later: share × rewards per day, "your
+  // daily earnings", or any annualisation of either. Those are yield promises.
+  //
   // `rewardRunwaySecs` is null only when no rate has ever been set — `notify_reward`
   // refuses a zero rate — so null means NEVER FUNDED, and 0 means the window ENDED.
   // Those are different facts, and neither is a live stream.
@@ -319,43 +329,90 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
 
   /* ── render ───────────────────────────────────────────────────────────── */
 
+  // ── THE INSTRUMENT (2026-09-20) ───────────────────────────────────────────
+  // One racing meter, one real staircase, one quiet ledger — in that order: see what
+  // you are earning, climb a rung, act; the pool's context closes the card. The five
+  // translucent stat tiles this replaces were too narrow for their own numbers, so
+  // labels wrapped into their values and units fell onto their own lines. Every
+  // figure and every sentence they carried is still here; only the location moved.
+  //
+  // Surfaces are SOLID (0.92-0.94) so the numbers read; the card's outer scrim is
+  // unchanged, so the island's art still shows around and between the panels.
+
+  const myWeight = walletView ? positions.reduce((a, p) => a + p.weight, 0n) : null;
+  const share = pool && walletView
+    ? sharePct({ mineWeight: myWeight, totalWeighted: pool.totalWeighted, truncated: walletView.truncated })
+    : null;
+  // Hidden, not zeroed, when there is nothing to state: no weight of yours, or a pool
+  // below its floor (where the accumulator does not move and a share decides nothing).
+  const showShare = walletView !== null && !belowFloor && myWeight !== null && myWeight > 0n;
+  const youLoaded = Boolean(publicKey) && !walletUnreadable && walletLoaded && walletView !== null;
+
+  // The chip EXPLAINS the meter; it never drives it. The meter freezing is the math
+  // freezing (lib/ladder/meter.ts, STOPPING) — this only says why.
+  const accrualChip: { text: string; live: boolean } | null = !pool ? null
+    : rewardWindow === 'ended' ? { text: `paused · reward window ended ${dateOf(pool.periodFinish)}`, live: false }
+    : rewardWindow === 'never' ? { text: 'not accruing · no reward window scheduled', live: false }
+    : belowFloor ? { text: 'not accruing · pool below its weight floor', live: false }
+    : myWeight !== null && myWeight > 0n ? { text: 'accruing', live: true }
+    : null;
+  // A claim pays min(owed, reward vault) — so when more is owed than the vault holds,
+  // the card says so beside the figure rather than let "earned" read as "claimable".
+  const vaultShort = myEarned !== null && vaults?.rewardRaw != null && myEarned > vaults.rewardRaw;
+
+  const selectedIdx = RUNGS.indexOf(lockSecs);
+  const maxBps = boostBpsForLock(MAX_LOCK_SECS);
+
+  const minStakeFact = (
+    <Fact
+      inline
+      label="Minimum stake"
+      value={pool ? fmtRaw(pool.minStakeRaw, decimals) : '–'}
+      unit={sym}
+      describedBy={`${fid}-min`}
+    />
+  );
+
   return (
+    <Reveal>
     <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
       <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.52)' }} />
-      <div className="relative z-10 p-6">
-        <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>
-          The lock ladder · LIVE
-        </p>
-        <h2 className="heading-luxury text-xl text-white mb-3">
-          Lock {sym}, earn a weighted share
-        </h2>
-        {/* Owner-mandated disclosure. Every rule on this card is what the DEPLOYED
-            program enforces; the upgrade authority can change any of it. */}
-        {config.ok && (
-          <p className="text-white/60 text-[11px] leading-relaxed mb-4 max-w-2xl">
-            A position keeps its full weight after its lock opens, for as long as it stays in the pool.
-            The program can be upgraded by its upgrade authority, and a future upgrade may reset matured positions
-            to the {boostLabel(MIN_BOOST_BPS)} base weight. Everything on this card describes the program
-            as deployed today.
+      <div className="relative z-10 p-5 sm:p-6 flex flex-col gap-6">
+        <header>
+          <p className="text-[11px] uppercase tracking-[0.14em] mb-3 m-0" style={{ color: 'var(--color-kyle)', fontFamily: HEAD }}>
+            The lock ladder · LIVE
           </p>
-        )}
+          <h2 className="heading-luxury text-xl sm:text-2xl text-white mb-3">
+            Lock {sym}, earn a weighted share
+          </h2>
+          {/* Owner-mandated disclosure. Every rule on this card is what the DEPLOYED
+              program enforces; the upgrade authority can change any of it. */}
+          {config.ok && (
+            <p className="text-[12px] leading-relaxed m-0 max-w-2xl" style={{ color: 'rgba(255,255,255,0.72)' }}>
+              A position keeps its full weight after its lock opens, for as long as it stays in the pool.
+              The program can be upgraded by its upgrade authority, and a future upgrade may reset matured positions
+              to the {boostLabel(MIN_BOOST_BPS)} base weight. Everything on this card describes the program
+              as deployed today.
+            </p>
+          )}
+        </header>
 
         {!config.ok && (
-          <p role="alert" className="text-[13px] rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
+          <p role="alert" className="text-[13px] rounded-lg p-3 m-0" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
             {config.reason}
           </p>
         )}
 
         {config.ok && poolRead === null && (
-          <p className="text-white/70 text-[13px]">Reading the pool…</p>
+          <p className="text-white/70 text-[13px] m-0">Reading the pool…</p>
         )}
 
         {config.ok && poolRead && !poolRead.ok && (
-          <p role="alert" className="text-[13px]" style={{ color: '#f0b26b' }}>{poolRead.reason}</p>
+          <p role="alert" className="text-[13px] m-0" style={{ color: '#f0b26b' }}>{poolRead.reason}</p>
         )}
 
         {identityMismatch && pool && (
-          <p role="alert" className="text-[13px] rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
+          <p role="alert" className="text-[13px] rounded-lg p-3 m-0" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
             This pool does not stake {sym} — it reports {pool.mint.slice(0, 6)}…{pool.mint.slice(-4)} as its
             staking mint. That is a configuration error, not a network problem, so no figures are shown and
             nothing here will send a transaction.
@@ -365,7 +422,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
         {pool && !identityMismatch && (
           <>
             {pool.degraded && (
-              <p role="alert" className="text-[13px] rounded-lg p-3 mb-4" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
+              <p role="alert" className="text-[13px] rounded-lg p-3 m-0" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
                 <strong>This pool has been declared degraded.</strong> It takes no new stakes. Every open
                 position still exits, and while it is degraded neither early exit nor the emergency hatch
                 charges any penalty — that is what the flag is for. The deployed program has no instruction
@@ -373,77 +430,316 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
               </p>
             )}
 
-            {/* ── the numbers that decide whether to stake ─────────────── */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
-              <Stat
-                label="Reward vault"
-                value={vaults === null ? '…' : fmtRaw(vaults.rewardRaw, decimals)}
-                unit={sym}
-                note={vaults === null ? 'reading…' : vaults.rewardRaw === null ? 'could not be read' : undefined}
-              />
-              <Stat label={`${sym} locked here`} value={fmtRaw(pool.totalPrincipalRaw, decimals)} unit={sym} />
-              {rewardWindow === 'live' ? (
-                <>
-                  <Stat
-                    label="Rewards per day"
-                    value={fmtRaw(perDayRaw, decimals)}
-                    unit={sym}
-                    note={belowFloor
-                      ? 'scheduled, but nothing accrues while no one is staked, and that time is not paid out later'
-                      : 'to all stakers combined, split by weight'}
-                  />
-                  <Stat label="Funded through" value={dateOf(pool.periodFinish)}
-                    note={`the current reward window closes in ${humanDuration(runway ?? 0)}`} />
-                </>
-              ) : rewardWindow === 'ended' ? (
-                <Stat label="Reward window" value="ended"
-                  note={`closed ${dateOf(pool.periodFinish)} — no new rewards are accruing`} />
-              ) : (
-                <Stat label="Reward window" value="not started"
-                  note="no reward window has ever been scheduled — no rewards are accruing" />
-              )}
-              <Stat label="Minimum stake" value={fmtRaw(pool.minStakeRaw, decimals)} unit={sym}
-                note="the deployed program has no setter for it" />
-            </div>
-
-            {/* ── your position ────────────────────────────────────────── */}
-            {!publicKey ? (
-              <button type="button" onClick={openConnect} className="btn-primary px-6 py-2.5 text-[13px]">
-                Connect a Solana wallet
-              </button>
-            ) : walletUnreadable ? (
-              <p role="alert" className="text-[13px] rounded-lg p-3 mb-4" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
-                {walletUnreadable} Nothing is shown below rather than a zero, because a read that did not land
-                is not the same as an empty position.{' '}
-                <button type="button" onClick={reread} className="underline underline-offset-2">Try again</button>
-              </p>
-            ) : !walletLoaded ? (
-              <p role="status" className="text-white/70 text-[13px]">Reading your positions…</p>
-            ) : (
-              <>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                  <Stat label="Your principal" value={fmtRaw(myPrincipal, decimals)} unit={sym} />
-                  <Stat
-                    label="Earned, unclaimed"
-                    value={<LiveEarned earnedAt={earnedAt} fallback={fmtRaw(myEarned, decimals)} decimals={decimals} />}
-                    unit={sym}
-                  />
-                  <Stat label="Open positions" value={openCount === null ? '–' : `${openCount} / ${MAX_POSITIONS}`} />
-                  <Stat
-                    label="In your wallet"
-                    value={!balanceLoaded ? '…' : fmtRaw(walletRaw, decimals)}
-                    unit={sym}
-                    note={!balanceLoaded ? 'reading…' : walletRaw === null ? 'could not be read' : undefined}
-                  />
+            {/* ── 1. THE METER, and you in this pool ────────────────────── */}
+            <section aria-label="Your earnings" className="@container">
+              <div className="grid grid-cols-1 gap-4 @min-[52rem]:grid-cols-12">
+                <div
+                  className={`@container relative overflow-hidden rounded-[14px] p-5 sm:p-6 min-w-0 flex flex-col gap-3 ${youLoaded ? '@min-[52rem]:col-span-7' : '@min-[52rem]:col-span-12'}`}
+                  style={{
+                    background: `radial-gradient(60% 80% at 0% 0%, var(--color-kyle-12), transparent), ${PANEL_BG}`,
+                    border: `1px solid ${HAIR}`,
+                  }}
+                >
+                  {!publicKey ? (
+                    <>
+                      <p className="m-0 text-white" style={{ fontFamily: HEAD, fontWeight: 700, fontSize: 'clamp(1.5rem, 6cqi, 2.75rem)', lineHeight: 1.1 }}>
+                        Your meter starts when you lock.
+                      </p>
+                      <div>
+                        <button type="button" onClick={openConnect} className="btn-primary px-6 py-2.5 text-[13px]">
+                          Connect a Solana wallet
+                        </button>
+                      </div>
+                    </>
+                  ) : walletUnreadable ? (
+                    <p role="alert" className="text-[13px] rounded-lg p-3 m-0" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
+                      {walletUnreadable} Nothing is shown below rather than a zero, because a read that did not land
+                      is not the same as an empty position.{' '}
+                      <button type="button" onClick={reread} className="underline underline-offset-2">Try again</button>
+                    </p>
+                  ) : !walletLoaded ? (
+                    <p role="status" className="text-white/70 text-[16px] m-0">Reading your positions…</p>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3">
+                        <p className="m-0 row-start-1 col-start-1 text-[11px] uppercase tracking-[0.14em]" style={{ color: 'var(--color-kyle)', fontFamily: HEAD }}>
+                          Earned, unclaimed
+                        </p>
+                        {positions.length === 0 ? (
+                          <p className="m-0 row-start-2 col-span-2 flex items-baseline gap-[0.3em] whitespace-nowrap" style={DIGITS}>
+                            <span style={{ color: 'rgba(255,255,255,0.5)' }}>0</span>
+                            <span style={UNIT_HERO}>{sym}</span>
+                          </p>
+                        ) : (
+                          <HeroDigits earnedAt={earnedAt} exactRaw={myEarned} decimals={decimals} sym={sym} />
+                        )}
+                        {accrualChip && (
+                          <span
+                            className="row-start-3 col-span-2 justify-self-start @min-[30rem]:row-start-1 @min-[30rem]:col-start-2 @min-[30rem]:col-span-1 @min-[30rem]:justify-self-end inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]"
+                            style={{
+                              background: accrualChip.live ? 'var(--color-kyle-12)' : 'rgba(255,255,255,0.06)',
+                              border: `1px solid ${accrualChip.live ? 'var(--color-kyle-40)' : 'rgba(255,255,255,0.12)'}`,
+                              color: accrualChip.live ? 'var(--color-kyle-bright)' : 'rgba(255,255,255,0.78)',
+                            }}
+                          >
+                            {accrualChip.live && <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-kyle)' }} />}
+                            {accrualChip.text}
+                          </span>
+                        )}
+                      </div>
+                      {positions.length === 0 ? (
+                        <p className="m-0 text-[12px]" style={{ color: 'rgba(255,255,255,0.72)' }}>
+                          No open positions — pick a rung below to start one.
+                        </p>
+                      ) : (
+                        <p className="m-0 text-[12px]" style={{ color: 'rgba(255,255,255,0.72)' }}>
+                          {fmtRaw(myPrincipal, decimals)} {sym} staked across {openCount ?? positions.length}{' '}
+                          {(openCount ?? positions.length) === 1 ? 'position' : 'positions'}
+                        </p>
+                      )}
+                      {vaultShort && vaults && (
+                        <p className="m-0 text-[12px]" style={{ color: '#f0b26b' }}>
+                          The reward vault holds {fmtRaw(vaults.rewardRaw, decimals)} {sym}; a claim pays up to that and the
+                          rest stays owed to you.
+                        </p>
+                      )}
+                    </>
+                  )}
                 </div>
 
+                {youLoaded && (
+                  <m.div
+                    variants={staggerContainer(0.06)}
+                    initial="hidden"
+                    whileInView="show"
+                    viewport={{ once: true }}
+                    className="@container rounded-[14px] p-5 sm:p-6 min-w-0 flex flex-col gap-4 @min-[52rem]:col-span-5"
+                    style={{ background: LEDGER_BG, border: `1px solid ${HAIR}` }}
+                  >
+                    <p className="m-0 text-[11px] uppercase tracking-[0.14em]" style={{ color: 'rgba(255,255,255,0.7)', fontFamily: HEAD }}>
+                      You in this pool
+                    </p>
+                    {/* ⚠️ A SHARE OF WEIGHT, NOT A YIELD. It is what the chain fixes
+                        about you today. Never multiplied by the rewards rate, never
+                        annualised — see the NO APR note above. */}
+                    {showShare && (
+                      <m.div variants={staggerItem}>
+                        <p className="m-0 mb-1.5 text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(76,175,80,0.9)', fontFamily: HEAD }}>
+                          Your share of pool weight
+                        </p>
+                        {share ? (
+                          <p className="m-0 text-white tabular-nums" style={{ fontFamily: MONO, fontWeight: 600, fontSize: 28, lineHeight: 1.1 }}>
+                            {share.label}
+                          </p>
+                        ) : (
+                          <p className="m-0 text-[13px]" style={{ color: '#f0b26b' }}>
+                            {walletView?.truncated ? 'could not be fully read' : 'could not be read'}
+                          </p>
+                        )}
+                        {share && (
+                          <>
+                            <div aria-hidden="true" className="mt-2.5 h-1.5 w-full rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                              <div className="h-full rounded-full" style={{ width: `${share.pct}%`, minWidth: share.pct === 0 ? 2 : undefined, background: 'var(--color-kyle)' }} />
+                            </div>
+                            <p className="m-0 mt-2 text-[11px] tabular-nums" style={{ color: 'rgba(255,255,255,0.62)' }}>
+                              weight {fmtRaw(myWeight, decimals)} of {fmtRaw(pool.totalWeighted, decimals)}
+                            </p>
+                          </>
+                        )}
+                      </m.div>
+                    )}
+                    <div className="grid grid-cols-1 gap-px overflow-hidden rounded-[10px] @min-[40rem]:grid-cols-3" style={{ background: DIVIDED_BG, border: `1px solid ${HAIR}` }}>
+                      <Fact at="40rem" label="Your principal" value={fmtRaw(myPrincipal, decimals)} unit={sym} />
+                      <Fact
+                        at="40rem"
+                        label="In your wallet"
+                        value={!balanceLoaded ? '…' : fmtRaw(walletRaw, decimals)}
+                        unit={sym}
+                        state={!balanceLoaded ? 'reading…' : walletRaw === null ? 'could not be read' : undefined}
+                      />
+                      <Fact at="40rem" label="Open positions" value={openCount === null ? '–' : `${openCount} / ${MAX_POSITIONS}`} />
+                    </div>
+                  </m.div>
+                )}
+              </div>
+            </section>
+
+            {/* ── 2. THE STAIRCASE, and the action rail ─────────────────── */}
+            {/* Visible WITHOUT a wallet: anyone can climb the ladder and see what each
+                rung weighs before deciding to connect. The amount, the verdict and
+                the Lock button still render only for a read wallet. */}
+            <section aria-label="Open a position" className="@container rounded-[14px] px-3 py-5 sm:p-6" style={{ background: PANEL_BG, border: `1px solid ${HAIR}` }}>
+              <div className="grid grid-cols-1 gap-6 @min-[52rem]:grid-cols-12">
+                <div className="min-w-0 @min-[52rem]:col-span-7">
+                  <p className="text-[12px] mb-3 m-0" style={{ color: 'rgba(255,255,255,0.78)' }} id="ladder-rungs-label">
+                    Lock length — a longer lock carries more weight, and weight is what decides your share.
+                  </p>
+                  <div role="group" aria-labelledby="ladder-rungs-label" className="grid grid-cols-7 gap-0.5 @min-[30rem]:gap-1.5 h-[116px] @min-[30rem]:h-[132px] @min-[52rem]:h-[148px]">
+                    {RUNGS.map((secs, i) => {
+                      const on = secs === lockSecs;
+                      const bps = boostBpsForLock(secs);
+                      const climbed = selectedIdx >= 0 && i < selectedIdx;
+                      return (
+                        <m.button
+                          key={secs}
+                          type="button"
+                          aria-pressed={on}
+                          aria-label={`${lockLabel(secs)} lock, ${boostLabel(bps)} weight`}
+                          onClick={() => setLockSecs(secs)}
+                          whileTap={pressTap}
+                          className="flex h-full min-w-0 flex-col items-stretch justify-end gap-1.5 rounded-lg px-0.5 pt-1.5 pb-1.5 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-kyle)]"
+                          style={{ background: on ? 'rgba(76,175,80,0.07)' : 'transparent' }}
+                        >
+                          <span aria-hidden="true" className="text-center text-[11px] tabular-nums leading-none" style={{ fontFamily: MONO, color: on ? '#fff' : 'rgba(255,255,255,0.66)' }}>
+                            {boostLabel(bps)}
+                          </span>
+                          <span aria-hidden="true" className="relative flex flex-1 items-end">
+                            <m.span
+                              key={on ? 'on' : 'off'}
+                              initial={on ? { scaleY: 0.96 } : false}
+                              animate={{ scaleY: 1 }}
+                              transition={{ duration: DUR.fast, ease: EASE_OUT }}
+                              className="block w-full rounded-t-[5px]"
+                              style={{
+                                height: `${Math.max(4, (bps / maxBps) * 100)}%`,
+                                transformOrigin: 'bottom',
+                                background: on
+                                  ? 'linear-gradient(180deg, var(--color-kyle), var(--color-primary))'
+                                  : climbed ? 'var(--color-purple-40)' : 'rgba(139,92,246,0.18)',
+                                boxShadow: on
+                                  ? 'inset 0 2px 0 var(--color-kyle), 0 0 18px rgba(76,175,80,0.25)'
+                                  : 'inset 0 1px 0 var(--color-purple-40)',
+                              }}
+                            />
+                          </span>
+                          <span aria-hidden="true" className="text-center text-[12px] leading-none" style={{ fontFamily: HEAD, fontWeight: 600, color: on ? '#fff' : 'rgba(255,255,255,0.72)' }}>
+                            {lockLabel(secs)}
+                          </span>
+                        </m.button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2 pt-2 flex justify-end" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                    <p className="m-0 text-[11px] text-right" style={{ color: 'rgba(255,255,255,0.62)' }}>
+                      weight grows with lock length · capped at {MAX_LOCK_SECS / (365 * DAY)} years
+                    </p>
+                  </div>
+                </div>
+
+                {/* ── the action rail ──────────────────────────────────── */}
+                <div className="min-w-0 @min-[52rem]:col-span-5">
+                  {!publicKey ? (
+                    <div className="flex flex-col gap-4">
+                      {minStakeFact}
+                      <button type="button" onClick={openConnect} className="btn-primary w-full px-6 py-2.5 text-[13px]">
+                        Connect to lock for {lockLabel(lockSecs)}
+                      </button>
+                    </div>
+                  ) : !youLoaded ? (
+                    <div className="flex flex-col gap-3">
+                      {minStakeFact}
+                      <p className="m-0 text-[12px]" style={{ color: 'rgba(255,255,255,0.62)' }}>
+                        The stake form opens once your positions have been read.
+                      </p>
+                    </div>
+                  ) : (
+                    <fieldset className="m-0 p-0 border-0 min-w-0 flex flex-col gap-3">
+                      <legend className="sr-only">Open a position</legend>
+                      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+                        <label htmlFor="ladder-amount" className="block text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(76,175,80,0.9)', fontFamily: HEAD }}>Amount</label>
+                        {minStakeFact}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          id="ladder-amount"
+                          inputMode="decimal"
+                          value={amount}
+                          onChange={(e) => setAmount(e.target.value)}
+                          placeholder="0.0"
+                          className="flex-1 min-w-0 rounded-lg px-3 py-2.5 text-white text-[15px]"
+                          style={{ fontFamily: MONO, background: 'rgba(0,0,0,0.6)', border: '1px solid var(--color-purple-25)' }}
+                        />
+                        <button
+                          type="button"
+                          // MAX comes from the PLAIN string, never from the grouped
+                          // display — see format.ts. The grouped form under-stakes by
+                          // 1000x in any dot-grouping locale.
+                          disabled={walletRaw === null}
+                          onClick={() => walletRaw !== null && setAmount(toPlain(walletRaw, decimals))}
+                          className="btn-secondary px-3 py-2.5 text-[12px] disabled:opacity-40"
+                        >
+                          Max
+                        </button>
+                      </div>
+
+                      {amountRaw !== null && amountRaw > 0n && (
+                        <>
+                          <ul className="list-none m-0 p-0 flex flex-wrap gap-1.5" aria-label="This lock at a glance">
+                            <li className={CHIP} style={CHIP_STYLE}>Unlocks {dateOf(BigInt(nowSec + lockSecs))}</li>
+                            <li className={CHIP} style={CHIP_STYLE}>Weight {fmtRaw(weightForStake(amountRaw, lockSecs), decimals)}</li>
+                            {!pool.degraded && (
+                              <li className={CHIP} style={CHIP_STYLE}>
+                                Leave now −{penaltyPct(penaltyFor(amountRaw, BigInt(lockSecs), 0n), amountRaw)}
+                              </li>
+                            )}
+                          </ul>
+                          <p className="text-[12px] m-0" style={{ color: 'rgba(255,255,255,0.72)' }}>
+                            This would carry a weight of{' '}
+                            <strong className="text-white">{fmtRaw(weightForStake(amountRaw, lockSecs), decimals)}</strong>{' '}
+                            and unlock in {humanDuration(lockSecs)}.{' '}
+                            {pool.degraded
+                              ? 'While the pool is degraded it accepts no new stakes.'
+                              : `Leaving straight away would forfeit ${penaltyPct(penaltyFor(amountRaw, BigInt(lockSecs), 0n), amountRaw)} of the principal; the penalty is the time left on the lock over four years, capped at ${MAX_EARLY_EXIT_PENALTY_BPS / 100}%, so it shrinks as the lock runs down.`}
+                          </p>
+                        </>
+                      )}
+
+                      {verdict && !verdict.allowed && (
+                        <p role="alert" className="text-[12px] m-0" style={{ color: '#f0b26b' }}>{verdict.reason}</p>
+                      )}
+                      {overBalance && (
+                        <p role="alert" className="text-[12px] m-0" style={{ color: '#f0b26b' }}>
+                          That is more {sym} than this wallet holds.
+                        </p>
+                      )}
+
+                      <button
+                        type="button"
+                        disabled={
+                          !canWrite || !ctx || !walletView
+                          || amountRaw === null || amountRaw <= 0n
+                          || overBalance || !verdict?.allowed
+                        }
+                        onClick={() => {
+                          if (!ctx || !walletView || amountRaw === null) return;
+                          void run('Stake', () => ladderStake(ctx, {
+                            // Read fresh from UserStats: the program derives the position
+                            // account from this, so a stale value addresses one that
+                            // already exists and the transaction fails.
+                            positionNonce: nextPositionNonce(walletView),
+                            amountRaw,
+                            lockSecs,
+                          }));
+                        }}
+                        className="btn-primary w-full px-6 py-3 text-[13px] disabled:opacity-40"
+                      >
+                        {action?.busy === 'Stake' ? 'Staking…' : `Lock ${sym} for ${lockLabel(lockSecs)}`}
+                      </button>
+                    </fieldset>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {youLoaded && (
+              <>
                 {/* Carried rewards are real money in a field. A UI that never shows
                     them hides a balance the program deliberately preserved: the hatch
                     carries accrual, and either exit door carries what a short reward
                     vault could not pay (lib.rs `exit_with_penalty`). */}
                 {carriedRaw !== null && carriedRaw > 0n && (
-                  <div className="rounded-lg p-3 mb-4 flex flex-wrap items-center justify-between gap-3"
-                    style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-kyle-40)' }}>
+                  <div className="rounded-[14px] p-4 flex flex-wrap items-center justify-between gap-3"
+                    style={{ background: LEDGER_BG, border: '1px solid var(--color-kyle-40)' }}>
                     <p className="text-white/85 text-[13px] m-0">
                       <strong>{fmtRaw(carriedRaw, decimals)} {sym}</strong> carried from a closed position —
                       rewards the reward vault could not cover when it closed, or that the emergency hatch set
@@ -451,148 +747,117 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                     </p>
                     <button type="button" disabled={!canWrite || !ctx}
                       onClick={() => ctx && void run('Claim carried', () => ladderClaimCarried(ctx))}
-                      className="btn-secondary px-4 py-2 text-[12px] disabled:opacity-50">
+                      className="btn-secondary px-4 py-2.5 text-[12px] disabled:opacity-50">
                       Claim carried
                     </button>
                   </div>
                 )}
 
-                {/* ── the stake form ───────────────────────────────────── */}
-                <fieldset className="rounded-lg p-4 mb-4" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid var(--color-purple-25)' }}>
-                  <legend className="text-[10px] uppercase tracking-wider px-2" style={{ color: 'var(--color-kyle)' }}>
-                    Open a position
-                  </legend>
-
-                  <label htmlFor="ladder-amount" className="block text-white/70 text-[11px] mb-1">Amount</label>
-                  <div className="flex items-center gap-2 mb-3">
-                    <input
-                      id="ladder-amount"
-                      inputMode="decimal"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      placeholder="0.0"
-                      className="flex-1 min-w-0 rounded-lg px-3 py-2 text-white text-[14px] font-mono"
-                      style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid var(--color-purple-25)' }}
-                    />
-                    <button
-                      type="button"
-                      // MAX comes from the PLAIN string, never from the grouped
-                      // display — see format.ts. The grouped form under-stakes by
-                      // 1000x in any dot-grouping locale.
-                      disabled={walletRaw === null}
-                      onClick={() => walletRaw !== null && setAmount(toPlain(walletRaw, decimals))}
-                      className="btn-secondary px-3 py-2 text-[12px] disabled:opacity-40"
-                    >
-                      Max
-                    </button>
-                  </div>
-
-                  <p className="text-white/70 text-[11px] mb-2" id="ladder-rungs-label">
-                    Lock length — a longer lock carries more weight, and weight is what decides your share.
-                  </p>
-                  <div role="group" aria-labelledby="ladder-rungs-label" className="flex flex-wrap gap-2 mb-3">
-                    {RUNGS.map((secs) => {
-                      const on = secs === lockSecs;
-                      return (
-                        <button
-                          key={secs}
-                          type="button"
-                          aria-pressed={on}
-                          onClick={() => setLockSecs(secs)}
-                          className="rounded-lg px-3 py-2 text-[12px]"
-                          style={{
-                            background: on ? 'var(--color-purple-25)' : 'rgba(0,0,0,0.5)',
-                            border: `1px solid ${on ? 'var(--color-kyle)' : 'var(--color-purple-25)'}`,
-                            color: on ? '#fff' : 'rgba(255,255,255,0.75)',
-                          }}
-                        >
-                          <span className="font-semibold">{lockLabel(secs)}</span>
-                          <span className="ml-2 opacity-80">{boostLabel(boostBpsForLock(secs))}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {amountRaw !== null && amountRaw > 0n && (
-                    <p className="text-white/70 text-[12px] mb-3">
-                      This would carry a weight of{' '}
-                      <strong className="text-white">{fmtRaw(weightForStake(amountRaw, lockSecs), decimals)}</strong>{' '}
-                      and unlock in {humanDuration(lockSecs)}.{' '}
-                      {pool.degraded
-                        ? 'While the pool is degraded it accepts no new stakes.'
-                        : `Leaving straight away would forfeit ${penaltyPct(penaltyFor(amountRaw, BigInt(lockSecs), 0n), amountRaw)} of the principal; the penalty is the time left on the lock over four years, capped at ${MAX_EARLY_EXIT_PENALTY_BPS / 100}%, so it shrinks as the lock runs down.`}
-                    </p>
-                  )}
-
-                  {verdict && !verdict.allowed && (
-                    <p role="alert" className="text-[12px] mb-3" style={{ color: '#f0b26b' }}>{verdict.reason}</p>
-                  )}
-                  {overBalance && (
-                    <p role="alert" className="text-[12px] mb-3" style={{ color: '#f0b26b' }}>
-                      That is more {sym} than this wallet holds.
-                    </p>
-                  )}
-
-                  <button
-                    type="button"
-                    disabled={
-                      !canWrite || !ctx || !walletView
-                      || amountRaw === null || amountRaw <= 0n
-                      || overBalance || !verdict?.allowed
-                    }
-                    onClick={() => {
-                      if (!ctx || !walletView || amountRaw === null) return;
-                      void run('Stake', () => ladderStake(ctx, {
-                        // Read fresh from UserStats: the program derives the position
-                        // account from this, so a stale value addresses one that
-                        // already exists and the transaction fails.
-                        positionNonce: nextPositionNonce(walletView),
-                        amountRaw,
-                        lockSecs,
-                      }));
-                    }}
-                    className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-40"
-                  >
-                    {action?.busy === 'Stake' ? 'Staking…' : `Lock ${sym} for ${lockLabel(lockSecs)}`}
-                  </button>
-                </fieldset>
-
                 {/* ── open positions ───────────────────────────────────── */}
-                {walletView?.truncated && (
-                  <p role="alert" className="text-[12px] mb-3" style={{ color: '#f0b26b' }}>
-                    This wallet has more positions than one read could cover, so the list below is partial.
-                    Nothing is missing from your account — only from this view.
+                <section aria-label="Your positions" className="flex flex-col gap-3">
+                  <p className="m-0 text-[11px] uppercase tracking-[0.14em]" style={{ color: 'rgba(255,255,255,0.7)', fontFamily: HEAD }}>
+                    Your positions
                   </p>
-                )}
+                  {walletView?.truncated && (
+                    <p role="alert" className="text-[12px] m-0" style={{ color: '#f0b26b' }}>
+                      This wallet has more positions than one read could cover, so the list below is partial.
+                      Nothing is missing from your account — only from this view.
+                    </p>
+                  )}
 
-                {positions.length === 0 ? (
-                  <p className="text-white/60 text-[13px]">No open positions in this pool.</p>
-                ) : (
-                  <ul className="space-y-3 list-none p-0 m-0">
-                    {positions.map((p) => (
-                      <PositionRow
-                        key={p.nonce}
-                        position={p}
-                        pool={pool}
-                        nowSec={nowSec}
-                        decimals={decimals}
-                        sym={sym}
-                        busy={action?.busy}
-                        canWrite={canWrite && Boolean(ctx)}
-                        confirmFor={armed}
-                        setConfirmFor={arm}
-                        onClaim={() => ctx && void run('Claim', () => ladderClaim(ctx, { positionNonce: p.nonce }))}
-                        onExit={(early) => ctx && void run(early ? 'Early exit' : 'Withdraw', () => ladderExit(ctx, { positionNonce: p.nonce, early }))}
-                        onHatch={() => ctx && void run('Emergency withdraw', () => ladderHatch(ctx, { positionNonce: p.nonce }))}
-                      />
-                    ))}
-                  </ul>
-                )}
+                  {positions.length === 0 ? (
+                    <p className="text-white/60 text-[13px] m-0">No open positions in this pool.</p>
+                  ) : (
+                    <ul className="space-y-3 list-none p-0 m-0">
+                      {positions.map((p) => (
+                        <PositionRow
+                          key={p.nonce}
+                          position={p}
+                          pool={pool}
+                          nowSec={nowSec}
+                          decimals={decimals}
+                          sym={sym}
+                          busy={action?.busy}
+                          canWrite={canWrite && Boolean(ctx)}
+                          confirmFor={armed}
+                          setConfirmFor={arm}
+                          onClaim={() => ctx && void run('Claim', () => ladderClaim(ctx, { positionNonce: p.nonce }))}
+                          onExit={(early) => ctx && void run(early ? 'Early exit' : 'Withdraw', () => ladderExit(ctx, { positionNonce: p.nonce, early }))}
+                          onHatch={() => ctx && void run('Emergency withdraw', () => ladderHatch(ctx, { positionNonce: p.nonce }))}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </section>
               </>
             )}
 
+            {/* ── 3. THE LEDGER — the numbers that decide whether to stake ─── */}
+            {/* One solid panel with hairline dividers, not five translucent boxes.
+                Columns come from the LEDGER's own width (container query), never the
+                viewport: list rows on a phone, 2×2 on an iPad, four across on a
+                desktop. Helper sentences live in the footnotes below, word for word,
+                always visible, and each cell points at its own with
+                aria-describedby. */}
+            <section data-ledger aria-label="The pool" className="@container flex flex-col gap-3">
+              <p className="m-0 text-[11px] uppercase tracking-[0.14em]" style={{ color: 'rgba(255,255,255,0.7)', fontFamily: HEAD }}>
+                The pool
+              </p>
+              <m.div
+                variants={staggerContainer(0.06)}
+                initial="hidden"
+                whileInView="show"
+                viewport={{ once: true }}
+                className="grid grid-cols-1 gap-px overflow-hidden rounded-[14px] @min-[30rem]:grid-cols-2 @min-[52rem]:grid-cols-4"
+                style={{ background: DIVIDED_BG, border: `1px solid ${HAIR}` }}
+              >
+                <Fact
+                  label="Reward vault"
+                  value={vaults === null ? '…' : fmtRaw(vaults.rewardRaw, decimals)}
+                  unit={sym}
+                  state={vaults === null ? 'reading…' : vaults.rewardRaw === null ? 'could not be read' : undefined}
+                />
+                <Fact label={`${sym} locked here`} value={fmtRaw(pool.totalPrincipalRaw, decimals)} unit={sym} />
+                {rewardWindow === 'live' ? (
+                  <>
+                    <Fact label="Rewards per day" value={fmtRaw(perDayRaw, decimals)} unit={sym} describedBy={`${fid}-perday`} />
+                    <Fact label="Funded through" value={dateOf(pool.periodFinish)} describedBy={`${fid}-funded`} />
+                  </>
+                ) : (
+                  <Fact span2 label="Reward window" value={rewardWindow === 'ended' ? 'ended' : 'not started'} describedBy={`${fid}-window`} />
+                )}
+              </m.div>
+              <ul className="list-none m-0 p-0 flex flex-col gap-1 text-[11.5px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.62)' }}>
+                {rewardWindow === 'live' ? (
+                  <>
+                    <li id={`${fid}-perday`}>
+                      <strong className="font-semibold" style={{ color: '#fff' }}>Rewards per day —</strong>{' '}
+                      {belowFloor
+                        ? 'scheduled, but nothing accrues while no one is staked, and that time is not paid out later'
+                        : 'to all stakers combined, split by weight'}.
+                    </li>
+                    <li id={`${fid}-funded`}>
+                      <strong className="font-semibold" style={{ color: '#fff' }}>Funded through —</strong>{' '}
+                      the current reward window closes in {humanDuration(runway ?? 0)}.
+                    </li>
+                  </>
+                ) : (
+                  <li id={`${fid}-window`}>
+                    <strong className="font-semibold" style={{ color: '#fff' }}>Reward window —</strong>{' '}
+                    {rewardWindow === 'ended'
+                      ? `closed ${dateOf(pool.periodFinish)} — no new rewards are accruing`
+                      : 'no reward window has ever been scheduled — no rewards are accruing'}.
+                  </li>
+                )}
+                <li id={`${fid}-min`}>
+                  <strong className="font-semibold" style={{ color: '#fff' }}>Minimum stake —</strong>{' '}
+                  the deployed program has no setter for it.
+                </li>
+              </ul>
+            </section>
+
             {action?.note && (
-              <p role="status" className="text-[12px] mt-4 rounded-lg p-3" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-purple-25)', color: 'rgba(255,255,255,0.85)' }}>
+              <p role="status" className="text-[12px] m-0 rounded-lg p-3" style={{ background: LEDGER_BG, border: '1px solid var(--color-purple-25)', color: 'rgba(255,255,255,0.85)' }}>
                 {action.note}
                 {action.sig && (
                   <>
@@ -614,11 +879,92 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
         )}
       </div>
     </div>
+    </Reveal>
+  );
+}
+
+/* ── the instrument's shared surfaces ───────────────────────────────────── */
+
+const MONO = 'var(--font-family-mono)';
+const HEAD = 'var(--font-family-heading)';
+/** Solid enough that a number never fights the art behind it for legibility. */
+const PANEL_BG = 'rgba(5,9,18,0.92)';
+const LEDGER_BG = 'rgba(7,11,22,0.94)';
+const HAIR = 'rgba(255,255,255,0.08)';
+/**
+ * A grid's background as its dividers: cells are opaque, the 1px gaps between them
+ * show this. Layered over the solid ledger colour so the island's art does NOT show
+ * through the hairlines.
+ */
+const DIVIDED_BG = `linear-gradient(rgba(255,255,255,0.06), rgba(255,255,255,0.06)), ${LEDGER_BG}`;
+const CELL_BG = '#070b16';
+const CHIP = 'rounded-full px-2.5 py-1 text-[11px] tabular-nums';
+const CHIP_STYLE = { background: 'rgba(139,92,246,0.12)', border: '1px solid var(--color-purple-25)', color: 'rgba(255,255,255,0.9)' } as const;
+
+const DIGITS = {
+  fontFamily: MONO,
+  fontWeight: 600,
+  fontSize: 'clamp(1.75rem, 9cqi, 4.5rem)',
+  letterSpacing: '-0.02em',
+  lineHeight: 1,
+  fontVariantNumeric: 'tabular-nums slashed-zero',
+} as const;
+/** The meter's unit: on the digits' baseline, subordinate, never under the 11px floor. */
+const UNIT_HERO = {
+  fontFamily: HEAD,
+  fontWeight: 600,
+  fontSize: 'max(11px, 0.28em)',
+  letterSpacing: '0.06em',
+  color: 'var(--color-kyle)',
+} as const;
+
+/**
+ * THE HERO METER — the live figure, as its own leaf.
+ *
+ * It prints `useAccrualMeter(earnedAt)` and NOTHING ELSE: that is `smoothedRaw`, which
+ * interpolates the TRAILING second and floors (lib/ladder/meter.ts, invariant I), so it
+ * can never read higher than what is owed at that instant. `fmtRawParts` truncates. No
+ * spring, no tween, no forward easing — the movement is the value changing, and every
+ * gate on this card (Claim above all) keeps using the exact `earnedNow` figure.
+ *
+ * ⚠️ A LEAF ON PURPOSE, like `LiveEarned`: it re-renders at up to 60Hz, and owned by the
+ * card that would re-quote every position's exit doors sixty times a second.
+ *
+ * Screen readers: the racing digits are aria-hidden. The sr-only sibling carries the
+ * EXACT once-a-second figure with no aria-live, so it is never announced but is always
+ * current when someone navigates to it. Its parent panel is `relative`, so the sr-only
+ * box cannot escape it and widen the page.
+ *
+ * Two tones, one colour family: the whole part and first two decimals in white, the
+ * rest of the token's precision dimmed. Fixed width (the fraction is padded), so the
+ * line never jitters as the last digit climbs.
+ */
+function HeroDigits(
+  { earnedAt, exactRaw, decimals, sym }:
+  { earnedAt: ((secs: number) => bigint) | null; exactRaw: bigint | null; decimals: number; sym: string },
+) {
+  const live = useAccrualMeter(earnedAt);
+  const parts = fmtRawParts(live ?? exactRaw, decimals, decimals);
+  return (
+    <p className="m-0 row-start-2 col-span-2 flex items-baseline gap-[0.3em] whitespace-nowrap min-w-0" style={DIGITS}>
+      <span aria-hidden="true">
+        {parts === null ? '–' : (
+          <>
+            <span style={{ color: '#fff' }}>{parts.whole}{parts.frac ? `.${parts.frac.slice(0, 2)}` : ''}</span>
+            {parts.frac.length > 2 && <span style={{ color: 'rgba(255,255,255,0.5)' }}>{parts.frac.slice(2)}</span>}
+          </>
+        )}
+      </span>
+      <span aria-hidden="true" style={UNIT_HERO}>{sym}</span>
+      <span className="sr-only">
+        {`Earned, unclaimed: ${exactRaw === null ? 'could not be read' : `${fmtRaw(exactRaw, decimals, decimals)} ${sym}`}`}
+      </span>
+    </p>
   );
 }
 
 /**
- * The live meter, as its own leaf.
+ * The live meter on a position row, as its own leaf.
  *
  * ⚠️ IT IS A LEAF ON PURPOSE. Smoothing re-renders whatever component owns it at up
  * to 60Hz. Owned by the card, that would re-run `quoteExit` on every position sixty
@@ -650,15 +996,94 @@ function LiveEarned(
   return <>{raw === null ? fallback : fmtRaw(raw, decimals, decimals)}</>;
 }
 
-function Stat({ label, value, unit, note }: { label: string; value: React.ReactNode; unit?: string; note?: string }) {
+/**
+ * One fact in a ledger: a label, then its value, then (only when the value itself is
+ * in doubt) a short state note — "reading…" or "could not be read".
+ *
+ * ⚠️ THE DOM CONTRACT the card's tests read: label <p>, then the value <p> as its
+ * nextElementSibling (the unit INSIDE it), then the optional state <p>, all children of
+ * one cell element.
+ *
+ * Nothing is absolutely positioned, so a label can never sit on top of its value. On a
+ * narrow ledger it is a list row (label left, value right, one baseline); past `at`
+ * the value stacks under the label. The value never wraps and the unit shares its
+ * baseline, so a number and its unit cannot come apart.
+ *
+ * The class strings are spelled out per breakpoint because Tailwind only emits classes
+ * it can find verbatim in the source.
+ */
+const FACT_LAYOUT = {
+  '30rem': {
+    cell: 'grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 px-4 py-3 @min-[30rem]:grid-cols-1 @min-[30rem]:content-start @min-[30rem]:gap-y-1.5 @min-[30rem]:px-5 @min-[30rem]:py-4',
+    value: 'justify-self-end @min-[30rem]:justify-self-start',
+    state: 'col-span-2 justify-self-end text-right @min-[30rem]:col-span-1 @min-[30rem]:justify-self-start @min-[30rem]:text-left',
+    span2: '@min-[30rem]:col-span-2',
+  },
+  '40rem': {
+    cell: 'grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 px-4 py-3 @min-[40rem]:grid-cols-1 @min-[40rem]:content-start @min-[40rem]:gap-y-1.5 @min-[40rem]:px-5 @min-[40rem]:py-4',
+    value: 'justify-self-end @min-[40rem]:justify-self-start',
+    state: 'col-span-2 justify-self-end text-right @min-[40rem]:col-span-1 @min-[40rem]:justify-self-start @min-[40rem]:text-left',
+    span2: '@min-[40rem]:col-span-2',
+  },
+} as const;
+
+function Fact({
+  label, value, unit, state, describedBy, span2, inline, at = '30rem',
+}: {
+  label: string;
+  value: React.ReactNode;
+  unit?: string;
+  state?: string;
+  describedBy?: string;
+  span2?: boolean;
+  /** A single pair set in running layout (the action rail), not a ledger cell. */
+  inline?: boolean;
+  at?: keyof typeof FACT_LAYOUT;
+}) {
+  const valueEl = (
+    <p
+      className={`m-0 flex items-baseline gap-[0.35em] whitespace-nowrap tabular-nums ${inline ? '' : FACT_LAYOUT[at].value}`}
+      style={{ fontVariantNumeric: 'tabular-nums' }}
+    >
+      <span
+        className="text-white"
+        style={{ fontWeight: 600, fontSize: inline ? 15 : 'clamp(18px, calc(2.2cqi + 10px), 24px)', lineHeight: 1.15 }}
+      >
+        {value}
+      </span>
+      {unit ? (
+        <span style={{ fontFamily: HEAD, fontWeight: 500, fontSize: 'max(11px, 0.5em)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.55)' }}>
+          {unit}
+        </span>
+      ) : null}
+    </p>
+  );
+  const labelEl = (
+    <p className="m-0 min-w-0 text-[11px] uppercase tracking-[0.12em] leading-snug" style={{ color: 'rgba(76,175,80,0.9)', fontFamily: HEAD }}>
+      {label}
+    </p>
+  );
+  if (inline) {
+    return (
+      <div className="flex items-baseline gap-2.5 min-w-0" aria-describedby={describedBy}>
+        {labelEl}
+        {valueEl}
+      </div>
+    );
+  }
   return (
-    <div className="rounded-lg p-3" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-purple-25)' }}>
-      <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)' }}>{label}</p>
-      <p className="text-white text-[15px] font-semibold m-0 tabular-nums">
-        {value}{unit ? <span className="text-white/60 text-[11px] font-normal ml-1">{unit}</span> : null}
-      </p>
-      {note && <p className="text-white/55 text-[11px] mt-1 m-0">{note}</p>}
-    </div>
+    <m.div
+      variants={staggerItem}
+      className={`${FACT_LAYOUT[at].cell} ${span2 ? FACT_LAYOUT[at].span2 : ''} min-w-0`}
+      style={{ background: CELL_BG }}
+      aria-describedby={describedBy}
+    >
+      {labelEl}
+      {valueEl}
+      {state && (
+        <p className={`m-0 text-[11px] ${FACT_LAYOUT[at].state}`} style={{ color: '#f0b26b' }}>{state}</p>
+      )}
+    </m.div>
   );
 }
 
@@ -715,23 +1140,35 @@ function PositionRow({
   const key = (door: string) => `${position.nonce}:${door}`;
 
   return (
-    <li className="rounded-lg p-4" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-purple-25)' }}>
+    <li className="rounded-[14px] p-4 sm:p-5" style={{ background: 'rgba(7,11,22,0.94)', border: '1px solid rgba(255,255,255,0.08)' }}>
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mb-3">
-        <p className="text-white text-[15px] font-semibold m-0 tabular-nums">
-          {fmtRaw(position.amountRaw, decimals)} <span className="text-white/60 text-[11px] font-normal">{sym}</span>
+        <p className="text-white text-[17px] font-semibold m-0 tabular-nums whitespace-nowrap">
+          {fmtRaw(position.amountRaw, decimals)}{' '}
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.55)', fontFamily: 'var(--font-family-heading)' }}>{sym}</span>
         </p>
         <p className="text-white/70 text-[12px] m-0">{boostLabel(boost)} weight</p>
-        <p className="text-white/70 text-[12px] m-0">
-          {matured ? 'unlocked' : `unlocks in ${humanDuration(secsLeft)}`}
-        </p>
         <p className="text-white/70 text-[12px] m-0 tabular-nums">
           <LiveEarned earnedAt={earnedAt} fallback={fmtRaw(earned, decimals)} decimals={decimals} /> {sym} earned
         </p>
       </div>
 
+      {/* The lock, as a line. The read carries no lock START, so this does not
+          invent one: the bar is the time left against the four-year scale that
+          prices the early door — the same fraction `quoteExit` charges, capped at
+          75%. Decorative; the words beside it carry the facts. */}
+      <div className="mb-4">
+        <div aria-hidden="true" className="h-1 w-full rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+          <div className="h-full rounded-full" style={{ width: `${matured ? 0 : Math.min(100, (secsLeft / MAX_LOCK_SECS) * 100)}%`, background: 'var(--color-purple-60)' }} />
+        </div>
+        <p className="text-white/70 text-[12px] m-0 mt-1.5 tabular-nums">
+          {matured ? 'unlocked' : `unlocks in ${humanDuration(secsLeft)}`}
+          {!matured && !pool.degraded && ` · leave now −${penaltyPct(normal.penaltyRaw, position.amountRaw)}`}
+        </p>
+      </div>
+
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={!canWrite || earned <= 0n} onClick={onClaim}
-          className="btn-secondary px-4 py-2 text-[12px] disabled:opacity-40">
+          className="btn-secondary px-4 py-2.5 text-[12px] disabled:opacity-40">
           {busy === 'Claim' ? 'Claiming…' : 'Claim rewards'}
         </button>
 
@@ -796,12 +1233,12 @@ function ExitButton({
       <span className="inline-flex flex-col gap-1">
         <span className="inline-flex gap-2">
           <button type="button" disabled={disabled} onClick={onGo}
-            className="px-4 py-2 text-[12px] rounded-lg disabled:opacity-40"
+            className="px-4 py-2.5 text-[12px] rounded-lg disabled:opacity-40"
             style={{ background: 'rgba(239,68,68,0.15)', border: `1px solid ${border}`, color: '#fff' }}>
             {busy ? 'Sending…' : confirmed ? 'Confirm' : label}
           </button>
           {confirmed && (
-            <button type="button" onClick={onCancel} className="btn-secondary px-3 py-2 text-[12px]">
+            <button type="button" onClick={onCancel} className="btn-secondary px-3 py-2.5 text-[12px]">
               Cancel
             </button>
           )}
@@ -813,7 +1250,7 @@ function ExitButton({
   return (
     <span className="inline-flex flex-col gap-1">
       <button type="button" disabled={disabled} onClick={onArm}
-        className="px-4 py-2 text-[12px] rounded-lg disabled:opacity-40"
+        className="px-4 py-2.5 text-[12px] rounded-lg disabled:opacity-40"
         style={{ background: 'rgba(0,0,0,0.5)', border: `1px solid ${border}`, color: 'rgba(255,255,255,0.9)' }}>
         {label}
       </button>
