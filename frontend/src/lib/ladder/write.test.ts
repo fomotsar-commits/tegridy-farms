@@ -199,7 +199,7 @@ describe('the classifier only promises "nothing moved" when it can prove it', ()
 
 /* ─────────────────────── 4. submit, end to end ─────────────────────── */
 
-type Status = { err: unknown; confirmationStatus?: string } | null;
+type Status = { err: unknown; confirmationStatus?: string; slot?: number } | null;
 
 function fakeConn(opts: {
   statuses: Status[];
@@ -236,7 +236,13 @@ describe('submitLadder', () => {
   it('returns the signature once the status says confirmed', async () => {
     const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }] });
     const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, noSleep);
-    expect(r).toEqual({ ok: true, signature: SIG });
+    expect(r).toEqual({ ok: true, signature: SIG, slot: null });
+  });
+
+  it('carries the slot the write CONFIRMED at — the card fences its share on it', async () => {
+    const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed', slot: 412_345_678 }] });
+    const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, noSleep);
+    expect(r).toEqual({ ok: true, signature: SIG, slot: 412_345_678 });
   });
 
   it('accepts `finalized` as confirmed too', async () => {
@@ -254,7 +260,7 @@ describe('submitLadder', () => {
       throwOnStatuses: 0,
     });
     const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, noSleep);
-    expect(r).toEqual({ ok: true, signature: SIG });
+    expect(r).toEqual({ ok: true, signature: SIG, slot: null });
   });
 
   it('asks the chain WHY when it lands and reverts, and names the error', async () => {

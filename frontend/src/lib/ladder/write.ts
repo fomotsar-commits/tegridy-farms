@@ -24,9 +24,17 @@ import {
 } from './ix';
 import { MAX_EARLY_EXIT_PENALTY_BPS } from './program';
 
-/** Sent and confirmed, or an honest reason. Never a bare boolean. */
+/**
+ * Sent and confirmed, or an honest reason. Never a bare boolean.
+ *
+ * `slot` is the slot the transaction CONFIRMED at (getSignatureStatuses'
+ * `value[0].slot`), or null when the status did not carry one. The card fences its
+ * share on it: a read taken at an earlier slot predates this write, however recently it
+ * arrived — an RPC node can still be behind it. Null is not "no fence"; the card treats
+ * a missing slot as stale (fail closed).
+ */
 export type WriteResult =
-  | { ok: true; signature: string }
+  | { ok: true; signature: string; slot: number | null }
   | { ok: false; reason: string; signature?: string };
 
 /* ─────────────────────── the program's own error table ─────────────────────── */
@@ -210,7 +218,7 @@ async function pollConfirm(
   timeoutMs: number,
   sleep: (ms: number) => Promise<void>,
   now: () => number,
-): Promise<'confirmed' | 'reverted' | 'unknown'> {
+): Promise<{ outcome: 'confirmed' | 'reverted' | 'unknown'; slot: number | null }> {
   const start = now();
   for (;;) {
     const status = await (async () => {
@@ -222,12 +230,13 @@ async function pollConfirm(
       }
     })();
     if (status) {
-      if (status.err) return 'reverted';
+      if (status.err) return { outcome: 'reverted', slot: null };
       if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') {
-        return 'confirmed';
+        const slot = typeof status.slot === 'number' && Number.isSafeInteger(status.slot) ? status.slot : null;
+        return { outcome: 'confirmed', slot };
       }
     }
-    if (now() - start >= timeoutMs) return 'unknown';
+    if (now() - start >= timeoutMs) return { outcome: 'unknown', slot: null };
     await sleep(2_000);
   }
 }
@@ -268,8 +277,8 @@ export async function submitLadder(
     tx.recentBlockhash = blockhash;
     tx.add(...instructions);
     signature = await invoker.sendTransaction(tx, conn);
-    const outcome = await pollConfirm(conn, signature, timeoutMs, sleep, now);
-    if (outcome === 'confirmed') return { ok: true, signature };
+    const { outcome, slot } = await pollConfirm(conn, signature, timeoutMs, sleep, now);
+    if (outcome === 'confirmed') return { ok: true, signature, slot };
     if (outcome === 'reverted') {
       // It landed and reverted. ASK THE CHAIN WHY rather than guessing: the status
       // object carries an opaque InstructionError, while the transaction's own logs

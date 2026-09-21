@@ -136,14 +136,23 @@ const position = (o: Record<string, unknown> = {}) => ({
   ...o,
 });
 
-const walletView = (o: Record<string, unknown> = {}) => ({
-  stats: {
-    address: 'US', nextNonce: 1, openPositions: 1,
-    rewardsCarriedRaw: 0n, principalRaw: 500_000_000n,
-  },
-  slots: [], open: [position()], truncated: false,
-  ...o,
-});
+// `shareBasis` is the wallet weight and the pool total read in ONE getMultipleAccounts
+// call (read.ts). The default puts the SMALLEST total that call could honestly return
+// (your own weight) there, so the card's other bound — the separately read pool — is
+// what decides every share figure below, exactly as it did before the basis existed.
+const walletView = (o: Record<string, unknown> = {}) => {
+  const open = (o.open as { weight: bigint }[] | undefined) ?? [position()];
+  const mine = open.reduce((a, p) => a + p.weight, 0n);
+  return {
+    stats: {
+      address: 'US', nextNonce: 1, openPositions: 1,
+      rewardsCarriedRaw: 0n, principalRaw: 500_000_000n,
+    },
+    slots: [], open, truncated: false,
+    shareBasis: mine > 0n ? { mineWeight: mine, totalWeighted: mine } : null,
+    ...o,
+  };
+};
 
 const BUNGALOW = {
   id: 'bayla', name: 'BAYLA', symbol: 'BAYLA', chain: 'solana',
@@ -467,8 +476,18 @@ describe('with no wallet connected', () => {
 const { fmtRaw } = await import('../../lib/ladder/format');
 const dateOf = (secs: number) =>
   new Date(secs * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-const statGrid = async () => (await screen.findByText('Reward vault')).parentElement!.parentElement!;
+// The pool LEDGER: its cells AND the footnotes beneath them. The helper sentences
+// ("to all stakers combined…", "no reward window has ever been scheduled…") moved out
+// of the cells into always-visible footnotes in the 2026-09-20 redesign; what these
+// pins assert is that the sentence is on the card beside its fact, not which box.
+const statGrid = async () => (await screen.findByText('Reward vault')).closest('[data-ledger]') as HTMLElement;
 const stat = (label: string) => within(screen.getByText(label).parentElement!);
+/** A fact's disclosure: the footnote its cell points at with aria-describedby. */
+const noteFor = (label: string) => {
+  const id = screen.getByText(label).parentElement!.getAttribute('aria-describedby');
+  if (!id) throw new Error(`"${label}" has no linked disclosure`);
+  return document.getElementById(id)!.textContent ?? '';
+};
 
 describe('pool-level reward figures', () => {
   it('a LIVE window shows tokens per day to ALL stakers and the funded-through date, and no percentage', async () => {
@@ -486,7 +505,7 @@ describe('pool-level reward figures', () => {
     await waitFor(() => expect(screen.getByText('Rewards per day')).toBeTruthy());
     const perDay = stat('Rewards per day');
     expect(perDay.getByText(fmtRaw(86_400_000_000n, 6))).toBeTruthy();
-    expect(screen.getByText('Rewards per day').parentElement!.textContent).toMatch(/all stakers combined/);
+    expect(noteFor('Rewards per day')).toMatch(/all stakers combined/);
     expect(stat('Funded through').getByText(dateOf(NOW + 30 * DAY))).toBeTruthy();
   });
 
@@ -526,13 +545,13 @@ describe('pool-level reward figures', () => {
     draw();
     await statGrid();
     await waitFor(() => expect(screen.getByText('Rewards per day')).toBeTruthy());
-    expect(screen.getByText('Rewards per day').parentElement!.textContent).toMatch(/nothing accrues/);
+    expect(noteFor('Rewards per day')).toMatch(/nothing accrues/);
   });
 
   it('the minimum stake is not called immutable without saying it is the DEPLOYED program', async () => {
     draw();
     await statGrid();
-    const note = screen.getByText('Minimum stake').parentElement!.textContent ?? '';
+    const note = noteFor('Minimum stake');
     expect(note).toMatch(/deployed program/);
     expect(note).not.toMatch(/fixed/);
   });
@@ -772,5 +791,347 @@ describe('switching wallets while something is in flight', () => {
     expect(await screen.findByText(`Exit early — keep ${fmtRaw(125_000_000n, 6)} BAYLA`)).toBeTruthy();
     expect(screen.queryByText('Confirm')).toBeNull();
     expect(screen.getByText(/Emergency withdraw — costs 375 BAYLA/)).toBeTruthy();
+  });
+});
+
+/* ────────── 12. the redesign: share, hero meter, staircase, minimum stake ────────── */
+
+const shareValue = () => {
+  const label = screen.getByText('Your share of pool weight');
+  return label.nextElementSibling?.textContent ?? '';
+};
+
+describe('your share of pool weight — a fact, never a yield', () => {
+  it('is Σ position weight / pool totalWeighted, FLOORED to a tenth', async () => {
+    // 2,000 weight of 2,825 → 70.796…% → 70.7%, where rounding would say 70.8%.
+    reads.pool = { ok: true, value: poolView({ totalWeighted: 2_825_000_000n }) };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(shareValue()).toMatch(/^70\.7%/);
+    expect(shareValue()).not.toMatch(/70\.8/);
+    // The subline names both weights, so the figure can be checked by hand.
+    const block = screen.getByText('Your share of pool weight').parentElement!.textContent ?? '';
+    expect(block).toContain(`weight ${fmtRaw(2_000_000_000n, 6)} of ${fmtRaw(2_825_000_000n, 6)}`);
+  });
+
+  it('⚠️ a PARTIAL position list reads "could not be fully read", never a percentage', async () => {
+    reads.pool = { ok: true, value: poolView({ totalWeighted: 2_825_000_000n }) };
+    reads.wallet = { ok: true, value: walletView({ truncated: true }) };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(shareValue()).toMatch(/could not be fully read/);
+    expect(shareValue()).not.toMatch(/%/);
+  });
+
+  it('⚠️ a FAILED pool read renders no share at all — never 0% or 100%', async () => {
+    reads.pool = { ok: false, reason: 'The pool could not be read: RPC 503.' };
+    draw();
+    expect(await screen.findByText(/RPC 503/)).toBeTruthy();
+    expect(screen.queryByText('Your share of pool weight')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\b(0|100)%/);
+  });
+
+  it('is never multiplied into a daily or annual figure', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, totalWeighted: 2_825_000_000n }) };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(document.body.textContent).not.toMatch(/your daily|per year|annual|\bAPR\b|\bAPY\b/i);
+  });
+});
+
+describe('the hero meter', () => {
+  it('hides the racing digits from screen readers and gives them the exact figure instead', async () => {
+    draw();
+    const label = await screen.findByText('Earned, unclaimed');
+    const value = label.nextElementSibling as HTMLElement;
+    const racing = value.querySelector('[aria-hidden="true"]');
+    expect(racing).not.toBeNull();
+    const sr = value.querySelector('.sr-only');
+    expect(sr?.textContent).toMatch(/^Earned, unclaimed: [\d,.]+ BAYLA$/);
+    // Never announced sixty times a second.
+    expect(value.closest('[aria-live]')).toBeNull();
+  });
+
+  it('with no wallet, invites a lock and prints NO placeholder digits', async () => {
+    walletState.publicKey = null;
+    draw();
+    expect(await screen.findByText('Your meter starts when you lock.')).toBeTruthy();
+    expect(screen.queryByText('Earned, unclaimed')).toBeNull();
+  });
+
+  it('says why it is not moving when the reward window has ended', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    draw();
+    expect(await screen.findByText(/paused · reward window ended/)).toBeTruthy();
+  });
+
+  it('adds a coverage line when what is owed exceeds the reward vault', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, totalWeighted: 2_000_000_000n }) };
+    reads.vaults = { stakeRaw: 1_000_000_000n, rewardRaw: 1_000_000n };   // 1 BAYLA in the vault
+    draw();
+    expect(await screen.findByText(/a claim pays up to that and the rest stays owed to you/)).toBeTruthy();
+  });
+});
+
+describe('the hero meter never prints a zero it did not read', () => {
+  // read.ts: "a partial list presented as complete is the 'unreadable renders as fine'
+  // defect wearing a different hat." A read can SUCCEED and still be partial, and
+  // stats.openPositions can count positions the scan did not return. In both cases an
+  // empty `open` list is NOT "you have none".
+  const heroValue = async () => {
+    const label = await screen.findByText('Earned, unclaimed');
+    return (label.nextElementSibling as HTMLElement).textContent ?? '';
+  };
+
+  it('⚠️ a TRUNCATED scan with no positions returned: no "0", no "No open positions"', async () => {
+    reads.wallet = { ok: true, value: walletView({ truncated: true, open: [] }) };
+    draw();
+    const v = await heroValue();
+    expect(v).not.toMatch(/^\s*0(?![\d.,])/);
+    expect(v).toMatch(/could not be fully read/);
+    expect(document.body.textContent).not.toMatch(/No open positions/);
+  });
+
+  it('⚠️ openPositions > 0 but the list came back empty: no "0", no "No open positions"', async () => {
+    // stats say 1 open, the scan returned none (e.g. a slot that would not decode).
+    reads.wallet = { ok: true, value: walletView({ truncated: false, open: [] }) };
+    draw();
+    const v = await heroValue();
+    expect(v).not.toMatch(/^\s*0(?![\d.,])/);
+    expect(v).toMatch(/could not be fully read/);
+    expect(document.body.textContent).not.toMatch(/No open positions/);
+  });
+
+  it('a COMPLETE read of a wallet with none still shows the honest zero', async () => {
+    reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false } };
+    draw();
+    expect(await heroValue()).toMatch(/^0\s*BAYLA$/);
+    expect(screen.getByText(/No open positions — pick a rung below/)).toBeTruthy();
+  });
+
+  it('a partial list WITH positions labels its figure as partial', async () => {
+    reads.wallet = { ok: true, value: walletView({ truncated: true }) };
+    draw();
+    await heroValue();
+    expect(screen.getByText(/covers only the positions this view could read/)).toBeTruthy();
+  });
+});
+
+describe('the staircase', () => {
+  it('is climbable WITHOUT a wallet — seven real buttons, one pressed', async () => {
+    walletState.publicKey = null;
+    draw();
+    const group = await screen.findByRole('group', { name: /Lock length/ });
+    const rungs = within(group).getAllByRole('button');
+    expect(rungs).toHaveLength(7);
+    expect(rungs.filter((b) => b.getAttribute('aria-pressed') === 'true')).toHaveLength(1);
+    fireEvent.click(within(group).getByRole('button', { name: /^4y lock, 4\.00× weight$/ }));
+    expect(within(group).getByRole('button', { name: /^4y lock/ }).getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+describe('the minimum stake is shown in every state', () => {
+  it('when DISCONNECTED', async () => {
+    walletState.publicKey = null;
+    draw();
+    const label = await screen.findByText('Minimum stake');
+    expect(label.nextElementSibling?.textContent).toMatch(/^100\s*BAYLA$/);
+  });
+
+  it('when CONNECTED, beside the amount', async () => {
+    draw();
+    await screen.findByLabelText('Amount');
+    const label = screen.getByText('Minimum stake');
+    expect(label.nextElementSibling?.textContent).toMatch(/^100\s*BAYLA$/);
+  });
+
+  it('keeps its disclosure, linked to it for assistive tech', async () => {
+    draw();
+    const label = await screen.findByText('Minimum stake');
+    const id = label.parentElement!.getAttribute('aria-describedby');
+    expect(id).toBeTruthy();
+    expect(document.getElementById(id!)!.textContent).toMatch(/the deployed program has no setter for it/);
+  });
+});
+
+/* ────────── 13. the share is SLOT-CONSISTENT (review gaps 1, 2 and 4) ────────── */
+
+// Whole-token weights, so the worked example reads as it does in the review.
+const W = (n: number) => BigInt(n) * 1_000_000n;
+
+describe('⚠️ the share never divides one read by another read\'s total', () => {
+  // THE WORKED EXAMPLE. Pool 100, you hold 10 (10%). You stake +10: you hold 20, the
+  // true total is 110, the true share 18.18%. A pool read still carrying the OLD 100
+  // divided into the NEW 20 prints 20% — better than the truth — and the old guard
+  // (mine > total) lets it straight through, because 20 < 100.
+  it('WORKED EXAMPLE: a stale pool total of 100 and a wallet of 20 never prints 20% — it prints nothing', async () => {
+    reads.pool = { ok: true, value: poolView({ totalWeighted: W(100) }) };
+    reads.wallet = { ok: true, value: walletView({ open: [position({ weight: W(20) })], shareBasis: null }) };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(shareValue()).not.toMatch(/20%/);
+    expect(shareValue()).not.toMatch(/%/);
+    expect(shareValue()).toMatch(/could not be read/);
+  });
+
+  it('the same wallet, with the total read IN ITS OWN CALL (110), prints 18.1% — even against the stale 100', async () => {
+    reads.pool = { ok: true, value: poolView({ totalWeighted: W(100) }) };
+    reads.wallet = {
+      ok: true,
+      value: walletView({ open: [position({ weight: W(20) })], shareBasis: { mineWeight: W(20), totalWeighted: W(110) } }),
+    };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(shareValue()).toMatch(/^18\.1%/);
+    const block = screen.getByText('Your share of pool weight').parentElement!.textContent ?? '';
+    expect(block).toContain(`weight ${fmtRaw(W(20), 6)} of ${fmtRaw(W(110), 6)}`);
+  });
+
+  it('a pool read FRESHER than the wallet (others staked: 130) still prints a share — the lower one', async () => {
+    // The counter-pin: a fix that refuses whenever the two totals differ must fail here.
+    // A fresher, larger total can only make the share smaller, so it is printed — and
+    // it is the smaller of the two readings, never the larger.
+    reads.pool = { ok: true, value: poolView({ totalWeighted: W(130) }) };
+    reads.wallet = {
+      ok: true,
+      value: walletView({ open: [position({ weight: W(20) })], shareBasis: { mineWeight: W(20), totalWeighted: W(110) } }),
+    };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(shareValue()).toMatch(/^15\.3%/);
+    const block = screen.getByText('Your share of pool weight').parentElement!.textContent ?? '';
+    expect(block).toContain(`weight ${fmtRaw(W(20), 6)} of ${fmtRaw(W(130), 6)}`);
+  });
+});
+
+describe('⚠️ a PARTIAL wallet list prints no share, flagged or not (gap 2)', () => {
+  it('openPositions says 2, one came back, truncated is false: "could not be fully read", no percentage', async () => {
+    reads.pool = { ok: true, value: poolView({ totalWeighted: 2_825_000_000n }) };
+    reads.wallet = {
+      ok: true,
+      value: walletView({
+        stats: { address: 'US', nextNonce: 2, openPositions: 2, rewardsCarriedRaw: 0n, principalRaw: 1_000_000_000n },
+        truncated: false,
+      }),
+    };
+    draw();
+    await screen.findByText('Your share of pool weight');
+    expect(shareValue()).not.toMatch(/%/);
+    expect(shareValue()).toMatch(/could not be fully read/);
+  });
+});
+
+describe('a first stake does not leave a stale "No open positions" on screen (gap 4)', () => {
+  it('⚠️ after a confirmed stake, the pre-stake empty read shows "Updating…" until the re-read lands', async () => {
+    const read = await import('../../lib/ladder/read');
+    reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false, shareBasis: null } };
+    try {
+      draw();
+      expect(await screen.findByText(/No open positions — pick a rung below/)).toBeTruthy();
+
+      // Hold the post-stake re-read so the in-between state can be looked at.
+      let release: (v: unknown) => void = () => {};
+      const pending = new Promise((r) => { release = r; });
+      vi.mocked(read.readLadderWallet).mockImplementation(() => pending as never);
+
+      fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '200' } });
+      const lock = screen.getByRole('button', { name: /Lock BAYLA/ }) as HTMLButtonElement;
+      await waitFor(() => expect(lock.disabled).toBe(false));
+      await act(async () => { fireEvent.click(lock); });
+      expect(await screen.findByText(/confirmed\./)).toBeTruthy();
+
+      expect(screen.queryByText(/No open positions/)).toBeNull();
+      expect(screen.getAllByText(/Updating your positions/).length).toBeGreaterThan(0);
+
+      // ...and it is not permanent: the re-read lands and is shown.
+      await act(async () => { release({ ok: true, value: walletView() }); });
+      expect(await screen.findByText('1 / 20')).toBeTruthy();
+      expect(screen.queryByText(/Updating your positions/)).toBeNull();
+    } finally {
+      vi.mocked(read.readLadderWallet).mockImplementation(async () => reads.wallet as never);
+    }
+  });
+
+  it('a FAILED stake leaves the (still true) empty state alone', async () => {
+    reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false, shareBasis: null } };
+    writes.stake.mockImplementationOnce(async () => ({ ok: false, reason: 'User rejected the request.' }) as never);
+    draw();
+    fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '200' } });
+    const lock = screen.getByRole('button', { name: /Lock BAYLA/ }) as HTMLButtonElement;
+    await waitFor(() => expect(lock.disabled).toBe(false));
+    await act(async () => { fireEvent.click(lock); });
+    expect(await screen.findByText('User rejected the request.')).toBeTruthy();
+    expect(await screen.findByText(/No open positions — pick a rung below/)).toBeTruthy();
+    expect(screen.queryByText(/Updating your positions/)).toBeNull();
+  });
+});
+
+/* ────────── 14. after YOUR OWN confirmed write, a basis older than it is not a share ────────── */
+
+// POST-EXIT LAG. The card marked a read stale by OBJECT IDENTITY only, so any read landing
+// after your confirmed exit counted as fresh — even one served by an RPC node still at a
+// pre-exit slot. After an exit the true share (W-w)/(T-w) is BELOW W/T, so that read
+// over-reads until the next 45s poll. The basis now carries the slot it was read at, the
+// write carries the slot it confirmed at, and the basis is stale while basisSlot <
+// writeSlot — and whenever either slot is missing (fail CLOSED). Stale shows "updating…".
+describe('⚠️ a share basis older than your confirmed exit is "updating…", never the old figure', () => {
+  // Two positions, so after one exits there is still weight — and a share — to state.
+  const twoOpen = (basis: { mineWeight: bigint; totalWeighted: bigint; slot?: number | null } | null) => walletView({
+    stats: { address: 'US', nextNonce: 2, openPositions: 2, rewardsCarriedRaw: 0n, principalRaw: 1_000_000_000n },
+    open: [position({ nonce: 0, address: 'POS0', weight: W(20) }), position({ nonce: 1, address: 'POS1', weight: W(10) })],
+    shareBasis: basis,
+  });
+
+  const exitFirst = async (writeResult: Record<string, unknown>, postExitRead: unknown) => {
+    reads.pool = { ok: true, value: poolView({ totalWeighted: W(100) }) };
+    reads.wallet = { ok: true, value: twoOpen({ mineWeight: W(30), totalWeighted: W(100), slot: 300 }) };
+    writes.exit.mockImplementationOnce(async () => writeResult as never);
+    draw();
+    await screen.findByText('Your share of pool weight');
+    await waitFor(() => expect(shareValue()).toMatch(/^30%/));
+    // The re-read that lands after the exit.
+    reads.wallet = postExitRead;
+    const early = (await screen.findAllByText(/^Exit early — keep/))[0]!;
+    await act(async () => { fireEvent.click(early); });
+    await act(async () => { fireEvent.click(await screen.findByText('Confirm')); });
+    expect(await screen.findByText(/confirmed\./)).toBeTruthy();
+    await waitFor(() => expect(vi.mocked(writes.exit)).toHaveBeenCalledTimes(1));
+  };
+
+  it('⚠️ a basis read at slot 400, BELOW the exit confirmed at 500, renders "updating…", not 30%', async () => {
+    // An RPC node still at a pre-exit slot: both positions, the pre-exit total.
+    await exitFirst(
+      { ok: true, signature: 'SIG', slot: 500 },
+      { ok: true, value: twoOpen({ mineWeight: W(30), totalWeighted: W(100), slot: 400 }) },
+    );
+    await waitFor(() => expect(shareValue()).toMatch(/updating…/));
+    expect(shareValue()).not.toMatch(/%/);
+  });
+
+  it('⚠️ a write whose confirmed slot is MISSING fails closed: "updating…", even over a later basis', async () => {
+    await exitFirst(
+      { ok: true, signature: 'SIG' },
+      { ok: true, value: twoOpen({ mineWeight: W(30), totalWeighted: W(100), slot: 600 }) },
+    );
+    await waitFor(() => expect(shareValue()).toMatch(/updating…/));
+    expect(shareValue()).not.toMatch(/%/);
+  });
+
+  it('⚠️ a basis with NO slot after a confirmed exit fails closed: "updating…"', async () => {
+    await exitFirst(
+      { ok: true, signature: 'SIG', slot: 500 },
+      { ok: true, value: twoOpen({ mineWeight: W(30), totalWeighted: W(100) }) },
+    );
+    await waitFor(() => expect(shareValue()).toMatch(/updating…/));
+    expect(shareValue()).not.toMatch(/%/);
+  });
+
+  it('a basis read AT or after the exit slot is a share again — the lag is not permanent', async () => {
+    // The counter-pin: a fix that blanks the share after every write must fail here.
+    await exitFirst(
+      { ok: true, signature: 'SIG', slot: 500 },
+      { ok: true, value: twoOpen({ mineWeight: W(10), totalWeighted: W(80), slot: 500 }) },
+    );
+    await waitFor(() => expect(shareValue()).toMatch(/^10%/));
   });
 });

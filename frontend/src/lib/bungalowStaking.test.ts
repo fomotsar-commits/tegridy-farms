@@ -21,10 +21,32 @@ const calcRewards = vi.fn();
 const prepareStakeInstructions = vi.fn();
 const prepareCreateRewardEntryInstructions = vi.fn();
 const execute = vi.fn();
+const getMultipleAccountsInfo = vi.fn();
+// The DYNAMIC reward program's half of searchAllRewardPools. Absent from the canned
+// client before 2026-09-21, so that half always failed here, silently.
+// readShareBasis reads through the ...AndContext variant so it can carry the call's slot.
+// It delegates to the bare mock above, so each case sets the accounts one way.
+const ctxSlot = { value: 777 as number | undefined };
+const getMultipleAccountsInfoAndContext = vi.fn(async (...a: unknown[]) => ({
+  context: ctxSlot.value === undefined ? {} : { slot: ctxSlot.value },
+  value: await getMultipleAccountsInfo(...a),
+}));
+const dynamicRewardPoolAll = vi.fn(async () => [] as unknown[]);
+const getRewardProgram = vi.fn(() => ({ account: { rewardPool: { all: dynamicRewardPoolAll } } }));
+// Anchor's coder, faked: an account's `data` names which struct it is, and decoding it
+// as any other struct throws — as a discriminator mismatch does for real.
+const stakePoolProgram = {
+  programId: { toBase58: () => 'StakePoolProgramId' },
+  coder: { accounts: { decode: (name: string, data: { kind: string; fields: unknown }) => {
+    if (data?.kind !== name) throw new Error(`not a ${name}`);
+    return data.fields;
+  } } },
+};
 
 vi.mock('@streamflow/staking', () => ({
   SolanaStakingClient: class {
-    connection = { getTokenAccountBalance, getAccountInfo, getParsedAccountInfo, getParsedTokenAccountsByOwner };
+    connection = { getTokenAccountBalance, getAccountInfo, getParsedAccountInfo, getParsedTokenAccountsByOwner, getMultipleAccountsInfo, getMultipleAccountsInfoAndContext };
+    programs = { stakePoolProgram };
     getStakePool = getStakePool;
     searchRewardPools = searchRewardPools;
     searchStakeEntries = searchStakeEntries;
@@ -36,6 +58,7 @@ vi.mock('@streamflow/staking', () => ({
     prepareCreateRewardEntryInstructions = prepareCreateRewardEntryInstructions;
     execute = execute;
     getCurrentProgramId = vi.fn(() => 'StakePoolProgramId');
+    getRewardProgram = getRewardProgram;
   },
   deriveStakeMintPDA: vi.fn(() => 'StakeMintPda'),
   calcRewards,
@@ -55,7 +78,9 @@ vi.mock('@solana/spl-token', () => ({
 import {
   readPool,
   readEntries,
+  readShareBasis,
   nextVacantNonce,
+  splitAccruedByRisk,
   stake,
   unstakeAndCloseForfeitingRewards,
   WEIGHT_SCALE,
@@ -161,6 +186,53 @@ describe('readEntries + nextVacantNonce', () => {
       effectiveAmountRaw: 1n, pendingRaw: {},
     }));
     expect(nextVacantNonce(entries)).toBe(null);
+  });
+});
+
+// AN UNPRICED ACCRUAL IS UNKNOWN, NEVER ZERO. readEntries prices at most 8 open entries,
+// and a reward-pool search half can fail silently; an open entry left unpriced used to
+// come back with an empty `pendingRaw`, which every sum reads as zero — a partial total
+// printed as complete. It is now marked `pendingUnread`, and the sum refuses it.
+describe('readEntries — an open entry whose accrual was not priced says so', () => {
+  const open = (n: number) => ({
+    publicKey: `E${n}`,
+    account: { nonce: bn(n), amount: bn('100'), duration: bn(1), createdTs: bn(1_700_000_000 + n), closedTs: bn(0), effectiveAmount: bn('100') },
+  });
+  const closed = { publicKey: 'EC', account: { nonce: bn(50), amount: bn('1'), duration: bn(1), createdTs: bn(1), closedTs: bn(5) } };
+
+  it('⚠️ past the pricing cap, the 9th open entry is pendingUnread, and the header sum is null — not a partial total', async () => {
+    searchStakeEntries.mockResolvedValue(Array.from({ length: 9 }, (_, i) => open(i)));
+    searchRewardPools.mockResolvedValue([{ publicKey: 'Rp1', account: { nonce: bn(0) } }]);
+    searchRewardEntries.mockResolvedValue([{ publicKey: 'Re1', account: {} }]);
+    calcRewards.mockReturnValue(bn('42'));
+    const r = await readEntries(POOL, 'Payer');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.entries.filter((e) => e.pendingUnread)).toHaveLength(1);
+    expect(r.entries.filter((e) => !e.pendingUnread).every((e) => e.pendingRaw[0] === 42n)).toBe(true);
+    expect(splitAccruedByRisk(r.entries, []).claimableRaw).toBeNull();
+  });
+
+  it('⚠️ a reward-pool search half that FAILED leaves every open entry pendingUnread (the closed one is not)', async () => {
+    searchStakeEntries.mockResolvedValue([open(0), closed]);
+    searchRewardPools.mockResolvedValue([]);
+    dynamicRewardPoolAll.mockRejectedValueOnce(new Error('rpc down'));
+    const r = await readEntries(POOL, 'Payer');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.entries.find((e) => e.address === 'E0')!.pendingUnread).toBe(true);
+    expect(r.entries.find((e) => e.address === 'EC')!.pendingUnread).toBeUndefined();
+    expect(splitAccruedByRisk(r.entries, []).claimableRaw).toBeNull();
+  });
+
+  it('both halves answered and no reward pool exists: a real zero, not unread', async () => {
+    searchStakeEntries.mockResolvedValue([open(0)]);
+    searchRewardPools.mockResolvedValue([]);
+    const r = await readEntries(POOL, 'Payer');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.entries[0]!.pendingUnread).toBeUndefined();
+    expect(splitAccruedByRisk(r.entries, []).claimableRaw).toBe(0n);
   });
 });
 
@@ -413,5 +485,68 @@ describe('unstakeAndCloseForfeitingRewards', () => {
     });
     expect(r.ok).toBe(false);
     expect(unstakeAndClose).not.toHaveBeenCalled();
+  });
+});
+
+// THE SAME-SLOT SHARE BASIS. The lighthouse share used to divide the entries read by a
+// separately read pool; these pin that the basis comes from ONE call, drops what closed
+// in between from BOTH sides, and refuses (null) rather than guessing on anything odd.
+describe('readShareBasis — the entries and the pool, from one call', () => {
+  const OWNER_OK = { toBase58: () => 'StakePoolProgramId' };
+  const poolAcc = (totalEffectiveScaled: bigint) => ({
+    owner: OWNER_OK, data: { kind: 'StakePool', fields: { totalEffectiveStake: bn(totalEffectiveScaled.toString()) } },
+  });
+  const entryAcc = (effective: number, closedTs = 0, stakePool = POOL) => ({
+    owner: OWNER_OK,
+    data: { kind: 'StakeEntry', fields: { stakePool: { toBase58: () => stakePool }, closedTs: bn(closedTs), effectiveAmount: bn(effective) } },
+  });
+
+  beforeEach(() => { getMultipleAccountsInfo.mockReset(); ctxSlot.value = 777; });
+
+  it('reads the entries AND the pool in a single getMultipleAccountsInfo call', async () => {
+    getMultipleAccountsInfo.mockResolvedValue([entryAcc(20_000_000), poolAcc(110_000_000n * WEIGHT_SCALE)]);
+    const r = await readShareBasis(POOL, ['E1']);
+    expect(r).toEqual({ mineEffectiveRaw: 20_000_000n, totalEffectiveRaw: 110_000_000n, slot: 777 });
+    expect(getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
+    const keys = getMultipleAccountsInfo.mock.calls[0]![0] as { toBase58(): string }[];
+    expect(keys.map((k) => k.toBase58())).toEqual(['E1', POOL]);
+  });
+
+  it('an entry closed or drained since the entries read is out of both sides', async () => {
+    getMultipleAccountsInfo.mockResolvedValue([entryAcc(20_000_000), entryAcc(30_000_000, 1_700_000_000), null, poolAcc(90_000_000n * WEIGHT_SCALE)]);
+    expect(await readShareBasis(POOL, ['E1', 'E2', 'E3'])).toEqual({ mineEffectiveRaw: 20_000_000n, totalEffectiveRaw: 90_000_000n, slot: 777 });
+  });
+
+  it('refuses on a missing pool, a foreign owner, an entry of another pool, or an undecodable account', async () => {
+    getMultipleAccountsInfo.mockResolvedValueOnce([entryAcc(1), null]);
+    expect(await readShareBasis(POOL, ['E1'])).toBeNull();
+    getMultipleAccountsInfo.mockResolvedValueOnce([{ ...entryAcc(1), owner: { toBase58: () => 'Stranger' } }, poolAcc(10n * WEIGHT_SCALE)]);
+    expect(await readShareBasis(POOL, ['E1'])).toBeNull();
+    getMultipleAccountsInfo.mockResolvedValueOnce([entryAcc(1, 0, 'OtherPool'), poolAcc(10n * WEIGHT_SCALE)]);
+    expect(await readShareBasis(POOL, ['E1'])).toBeNull();
+    getMultipleAccountsInfo.mockResolvedValueOnce([{ owner: OWNER_OK, data: { kind: 'Garbage', fields: {} } }, poolAcc(10n * WEIGHT_SCALE)]);
+    expect(await readShareBasis(POOL, ['E1'])).toBeNull();
+    getMultipleAccountsInfo.mockRejectedValueOnce(new Error('rpc down'));
+    expect(await readShareBasis(POOL, ['E1'])).toBeNull();
+  });
+
+  // THE WRITE-SLOT FENCE needs the basis's own slot: the card compares it with the slot
+  // your write confirmed at. A response that carries none is null — never a guess —
+  // and the card fails closed on it.
+  it('⚠️ carries the one call’s context.slot, and null when the response has none', async () => {
+    getMultipleAccountsInfo.mockResolvedValue([entryAcc(10_000_000), poolAcc(90_000_000n * WEIGHT_SCALE)]);
+    ctxSlot.value = 498;
+    expect((await readShareBasis(POOL, ['E1']))?.slot).toBe(498);
+    ctxSlot.value = undefined;
+    const r = await readShareBasis(POOL, ['E1']);
+    expect(r).not.toBeNull();
+    expect(r!.slot).toBeNull();
+    expect(getMultipleAccountsInfoAndContext).toHaveBeenCalled();
+  });
+
+  it('no entries, or more than one call can carry, is no basis', async () => {
+    expect(await readShareBasis(POOL, [])).toBeNull();
+    expect(await readShareBasis(POOL, Array.from({ length: 100 }, (_, i) => `E${i}`))).toBeNull();
+    expect(getMultipleAccountsInfo).not.toHaveBeenCalled();
   });
 });

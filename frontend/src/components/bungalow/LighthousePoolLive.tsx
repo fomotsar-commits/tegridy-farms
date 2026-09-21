@@ -1,16 +1,21 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { m } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useSolanaConnect } from '../solana/useSolanaConnect';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { SolanaProviders } from '../solana/SolanaProviders';
 import type { Bungalow } from '../../lib/bungalows';
+import { staggerContainer } from '../../lib/motion';
+import { Fact, HAIR, DIVIDED_BG } from './ledger';
 import {
   vaultIsMateriallyEmpty,
   payingNowRate,
   readPool,
   readEntries,
+  readShareBasis,
+  readConfirmedSlot,
   readWalletBalance,
   stake,
   unstakeAndClaim,
@@ -38,6 +43,8 @@ import {
   type RewardPoolView,
   type StakeEntryView,
 } from '../../lib/bungalowStaking';
+import { sharePct } from '../../lib/ladder/program';
+import { basisBehindWrite, FENCE_RETRY_MS, type WriteFence } from '../../lib/ladder/writeFence';
 
 /**
  * The lighthouse pool, LIVE — rendered by BungalowFarmPanel when the
@@ -150,9 +157,25 @@ function humanDuration(secs: number): string {
   return `${Math.max(1, Math.floor(secs / 60))}m`;
 }
 
+/** A write fence, plus the signature it belongs to (so a late slot lands on its own write). */
+type SigFence = WriteFence & { sig: string };
+
+/**
+ * Give the fence for `sig` the slot that write confirmed at, once it can be read. A
+ * slot that cannot be read leaves it null, which is stale (fail closed); the card's
+ * retry asks again. A later write's fence is never overwritten by an earlier answer.
+ */
+function refineFence(sig: string, set: (f: (prev: SigFence | null) => SigFence | null) => void) {
+  void readConfirmedSlot(sig).then((slot) => {
+    if (slot === null) return;
+    set((f) => (f && f.sig === sig ? { ...f, slot } : f));
+  });
+}
+
 function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const { publicKey, wallet } = useWallet();
   const openConnect = useSolanaConnect();
+  const fid = useId();
 
   const [poolRead, setPoolRead] = useState<{ ok: true; pool: PoolView } | { ok: false; reason: string } | null>(null);
   // Entries + balance keyed by wallet: a disconnect/switch is handled by
@@ -167,9 +190,14 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const [days, setDays] = useState<number | null>(null);
   const [customDays, setCustomDays] = useState('');
   const [action, setAction] = useState<{ busy?: string; note?: string; tx?: string } | null>(null);
-  // Two-step confirm for the principal-rescue exit, keyed by entry nonce. It
-  // forfeits accrued rewards, so it must never be a single mis-click.
-  const [rescueFor, setRescueFor] = useState<number | null>(null);
+  // Two-step confirm for the principal-rescue exit. It forfeits accrued rewards, so it
+  // must never be a single mis-click.
+  // ⚠️ ARMED AGAINST ONE READ (the ladder card's `confirmFor`). Nonces restart at 0 for
+  // every wallet, so a bare nonce armed on wallet A's entry #0 came up pre-armed on
+  // wallet B's entry #0 after a switch — and one click forfeited B's rewards. The armed
+  // nonce is stored with the exact entries read its row was drawn from, and any other
+  // read (another wallet's, or a fresh one) renders it disarmed (`rescueArmed` below).
+  const [rescueFor, setRescueFor] = useState<{ read: typeof entriesRead; nonce: number } | null>(null);
   // One tick a minute keeps every "unlocks in 12d" countdown honest without a
   // render loop — same cadence the TOWELI staking card uses.
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
@@ -192,7 +220,37 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // base58 is case-SENSITIVE — no case folding here, unlike the EVM sibling.
   const identityMismatch = poolMint !== '' && poolMint !== (bungalow.address ?? '');
 
-  const refresh = useCallback(() => {
+  // ⚠️ EVERY POOL AND ENTRIES READ IS STARTED BY THE ONE EFFECT BELOW, so a newer read
+  // cancels an older one. `run()` used to call a `refresh()` directly after each
+  // confirmed write and drop the cancellation it returned; setPoolRead/setEntriesRead
+  // then took whatever resolved LAST, and a slow older read could land after a newer
+  // one and put a stale, smaller pool back under every figure on the card. A write now
+  // bumps this generation instead — the ladder card's pattern (SolanaLadderPoolLive).
+  const [readGen, setReadGen] = useState(0);
+  const reread = () => setReadGen((n) => n + 1);
+
+  // ⚠️ A READ THAT PREDATES YOUR CONFIRMED WRITE — the ladder card's two guards.
+  //
+  // IDENTITY (the ladder's `staleRead`): the entries read on screen when a write
+  // confirms is held here, and while it is STILL the one on screen it is "updating…",
+  // never restated. Without it, a first stake left the pre-stake read (complete, and
+  // empty) on screen until the re-read landed, and "Your share" said "nothing staked."
+  // to someone whose stake had just confirmed. Any newer read is not stale.
+  //
+  // RECENCY (the ladder's `writeFence`, dc2a4578): identity is not recency. A re-read
+  // served by an RPC node still BEFORE the write is a consistent picture of the past —
+  // pool 100, you hold A=10 and B=10, your exit of A confirms at slot 500, a node at
+  // 498 serves A and B open over 100 and the card printed 20% for a true 10/90 = 11.1%.
+  // So the slot the write CONFIRMED at fences the share basis, keyed to the wallet that
+  // wrote: a basis below it, or a missing slot on either side, is "updating…" (fail
+  // closed). The fence is set the moment the write confirms, with slot null — so it is
+  // closed even before the slot is known — then given the slot once it is read.
+  const [staleEntries, setStaleEntries] = useState<typeof entriesRead | null>(null);
+  const latestEntriesRead = useRef(entriesRead);
+  useEffect(() => { latestEntriesRead.current = entriesRead; }, [entriesRead]);
+  const [writeFence, setWriteFence] = useState<SigFence | null>(null);
+
+  useEffect(() => {
     let cancelled = false;
     readPool(bungalow.stakePool).then((r) => { if (!cancelled) setPoolRead(r); });
     if (walletKey) {
@@ -203,9 +261,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
       });
     }
     return () => { cancelled = true; };
-  }, [bungalow.stakePool, walletKey]);
-
-  useEffect(() => refresh(), [refresh]);
+  }, [bungalow.stakePool, walletKey, readGen]);
 
   // Wallet balance needs the pool's mint, so it rides its own effect that runs
   // once both are known.
@@ -219,9 +275,13 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   }, [walletKey, poolMint, action?.tx]);
 
   const entriesForWallet = walletKey && entriesRead.key === walletKey ? entriesRead : null;
+  const rescueArmed = rescueFor !== null && rescueFor.read === entriesRead ? rescueFor.nonce : null;
   const entriesKnown = entriesForWallet?.list !== null && entriesForWallet !== null;
   const entries = entriesForWallet?.list ?? [];
-  const walletRaw = walletKey && balanceRead.key === walletKey ? balanceRead.raw : null;
+  // THREE STATES, NOT TWO (the ladder card's rule): not read yet, read and failed, and
+  // a number. They used to print the same "–", so a pending read looked like an outage.
+  const balanceLoaded = Boolean(walletKey) && balanceRead.key === walletKey;
+  const walletRaw = balanceLoaded ? balanceRead.raw : null;
 
   const pool = poolRead?.ok ? poolRead.pool : null;
   const decimals = pool?.decimals ?? bungalow.decimals ?? 6;
@@ -327,12 +387,76 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
    * sets.
    */
   const dynamicPool = primaryRp ? !quotesAConfiguredRate(primaryRp) : false;
-  const myEffectiveRaw = openEntries.reduce((a, e) => a + e.effectiveAmountRaw, 0n);
+
+  // ⚠️ THE SHARE'S INPUTS COME FROM ONE SLOT (readShareBasis). The entries and the pool
+  // land in separate requests, and dividing one by the other printed 20% for a true
+  // 18.2% right after a stake (pool 100, you hold 10, +10: 20 of 110), and over-read
+  // after an exit (an older entries read still counts the closed entry). So once the
+  // entries read names the open entries, THOSE addresses and the pool are re-read in
+  // ONE getMultipleAccountsInfo call. Only a dynamic pool prints a share, so only a
+  // dynamic pool pays for the read. The basis is tied to the exact entries read it was
+  // taken for (identity), and a newer entries read cancels an older basis read.
+  const entriesList = entriesForWallet?.list ?? null;
+  const [basisRead, setBasisRead] = useState<{
+    list: StakeEntryView[];
+    basis: { mineEffectiveRaw: bigint; totalEffectiveRaw: bigint; slot: number | null } | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!dynamicPool || !entriesList) return;
+    const open = entriesList.filter((e) => e.closedTs === 0);
+    if (open.length === 0) return;
+    let cancelled = false;
+    readShareBasis(bungalow.stakePool, open.map((e) => e.address)).then((basis) => {
+      if (!cancelled) setBasisRead({ list: entriesList, basis });
+    });
+    return () => { cancelled = true; };
+  }, [dynamicPool, entriesList, bungalow.stakePool]);
+  // undefined = not read yet for THIS entries read; null = could not be established.
+  const shareBasis = basisRead !== null && entriesList !== null && basisRead.list === entriesList
+    ? basisRead.basis
+    : undefined;
   const poolEffectiveRaw = pool?.totalEffectiveStakeRaw ?? null;
   // Share of everything the pool distributes while these positions stay open.
-  const myShare = poolEffectiveRaw !== null && poolEffectiveRaw > 0n && myEffectiveRaw > 0n
-    ? Number(myEffectiveRaw) / Number(poolEffectiveRaw)
-    : null;
+  //
+  // ⚠️ THE LADDER'S RULES, THE LADDER'S FUNCTION. This used to be a float division
+  // printed through `pct`, which ROUNDS (2/3 read 66.67%, and a half-up round prints a
+  // share nobody holds), had NO upper bound (a wallet total above the pool total — the
+  // entries and the pool land in separate reads — printed past 100%), and said "nothing
+  // staked" whenever the wallet's entries had not been read, connected or not. Now:
+  // `sharePct` floors to a tenth and refuses (null) on a missing or zero total and on
+  // mine > total; it is only computed from a COMPLETE entries read; and "nothing
+  // staked" is reserved for a complete read that found no open stake.
+  //
+  // SAME-SLOT, OR NOTHING (2026-09-21) — the ladder's rule (add8127f). The figure is
+  // computed from `shareBasis`, never from the entries read over the pool read. The
+  // separately read pool still BOUNDS it: both go through `sharePct` and the LOWER is
+  // printed, so a fresher, larger total (others staked since) can only make it smaller,
+  // and one below your own weight means the reads disagree and the figure is refused.
+  // The entries read on screen is the one a confirmed write of yours was made over.
+  const entriesStale = staleEntries !== null && entriesForWallet !== null && entriesRead === staleEntries;
+  // A basis older than your own confirmed write, or one whose slot — or the write's —
+  // is unknown, is "updating…", never a share (see `writeFence`).
+  const shareStale = Boolean(shareBasis) && basisBehindWrite(writeFence, walletKey, shareBasis?.slot);
+  const updating = entriesStale || shareStale;
+  const nothingStaked = entriesKnown && openEntries.length === 0 && !entriesStale;
+  const myShare = (() => {
+    if (!entriesKnown || nothingStaked || !shareBasis || updating) return null;
+    const own = sharePct({ mineWeight: shareBasis.mineEffectiveRaw, totalWeighted: shareBasis.totalEffectiveRaw, truncated: false });
+    const bound = sharePct({ mineWeight: shareBasis.mineEffectiveRaw, totalWeighted: poolEffectiveRaw, truncated: false });
+    if (!own || !bound) return null;
+    return own.pct <= bound.pct ? own : bound;
+  })();
+  const shareNote = !publicKey
+    ? 'connect a wallet to see yours.'
+    : updating
+      ? 'updating…'
+      : nothingStaked
+      ? 'nothing staked.'
+      : !entriesForWallet || (entriesKnown && shareBasis === undefined)
+        ? 'reading your stakes…'
+        : myShare === null
+          ? 'could not be read.'
+          : 'of each payout — it moves as others stake.';
 
   const stakedTotal = openEntries.reduce((a, e) => a + e.amountRaw, 0n);
   // THE HEADER TOTAL MUST NOT COUNT WHAT CAN NEVER BE PAID. This reduce was a
@@ -347,17 +471,94 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 
   const overBalance = amountRaw !== null && walletRaw !== null && amountRaw > walletRaw;
 
+  // ⚠️ "updating…" MUST NOT BECOME PERMANENT. This card has no standing poll (only the
+  // minute clock), so a re-read that lands from a node still behind your write would
+  // leave the share fenced until the next write or a reload. While it is fenced the card
+  // re-reads on a timer — and asks again for the write's slot if it has none — and stops
+  // as soon as a read at or past the write lands. Not while a write is in flight (its own
+  // completion re-reads) or while a principal rescue is armed (nothing moves under a
+  // two-step confirm). Costs nothing when nothing is fenced.
+  const fenceSig = writeFence && writeFence.slot === null ? writeFence.sig : null;
+  useEffect(() => {
+    if (!updating || action?.busy || rescueArmed !== null) return;
+    const t = setInterval(() => {
+      setReadGen((n) => n + 1);
+      if (fenceSig) refineFence(fenceSig, setWriteFence);
+    }, FENCE_RETRY_MS);
+    return () => clearInterval(t);
+  }, [updating, action?.busy, rescueArmed, fenceSig]);
+
   const run = async (label: string, fn: () => Promise<{ ok: true; txId: string } | { ok: false; reason: string }>) => {
     setAction({ busy: label });
     const res = await fn();
     if (res.ok) {
+      setStaleEntries(latestEntriesRead.current);
+      setWriteFence({ key: walletKey, slot: null, sig: res.txId });
+      refineFence(res.txId, setWriteFence);
       setAction({ note: `${label} confirmed.`, tx: res.txId });
       setAmount('');
-      refresh();
+      reread();
     } else {
       setAction({ note: res.reason });
     }
   };
+
+  // The ledger's cells. `unit` is only ever a unit (or the qualifier that makes the
+  // number true, like the lock a boost is quoted at) — it shares the number's
+  // baseline. Everything that is a sentence goes in `note`, printed as a footnote.
+  const lhCells: LhCell[] = !pool ? [] : [
+    {
+      key: 'vault',
+      label: dynamicPool ? 'Reward budget' : 'Reward vault',
+      value: fmt(funded, decimals),
+      unit: bungalow.symbol,
+      note: dynamicPool ? 'what is left to distribute.' : undefined,
+    },
+    { key: 'staked', label: 'Total staked', value: fmt(pool.totalStakeRaw, decimals), unit: bungalow.symbol },
+    ...(dynamicPool
+      ? [
+          // No rate exists on this program, so none is invented. What a position
+          // holds is its SHARE — a present fact, not a forecast — and it is the
+          // number that actually determines the payout.
+          {
+            key: 'share',
+            label: 'Your share',
+            value: myShare === null ? '–' : myShare.label,
+            tone: myShare === null ? 'muted' as const : 'good' as const,
+            note: shareNote,
+          },
+          { key: 'pays', label: 'How it pays', value: 'Budget', note: 'not a fixed rate — split by weighted stake.' },
+        ]
+      : [
+          {
+            key: 'now',
+            label: 'Paying now',
+            value: ratePercent ? pct(payingNow) : payingNow.toLocaleString(undefined, { maximumFractionDigits: 4 }),
+            unit: ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`,
+            tone: payingNow > 0 ? 'good' as const : 'muted' as const,
+          },
+          {
+            key: 'configured',
+            label: 'Configured',
+            value: !ratePercent
+              ? configuredRate.toLocaleString(undefined, { maximumFractionDigits: 4 })
+              : weighted
+                ? `${pct(rateAtMin)}–${pct(rateAtMax)}`
+                : pct(configuredRate),
+            unit: ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`,
+            note: weighted ? `${labelForDays(minDays)} → ${labelForDays(maxDays)}.` : undefined,
+          },
+        ]),
+    ...(weighted
+      ? [{
+          key: 'boost',
+          label: 'Max boost',
+          value: `${maxBoost.toFixed(2)}×`,
+          unit: `at ${labelForDays(maxDays).toLowerCase()}`,
+          note: 'longer lock, bigger share.',
+        }]
+      : []),
+  ];
 
   const setLockDays = (d: number) => {
     setDays(d);
@@ -365,16 +566,34 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   };
 
   return (
-    <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    // SECONDARY, WHOLE (2026-09-20). The live Lock Ladder now leads the panel; this
+    // card sits back — a quieter border, no glow loop, a heavier scrim — and keeps
+    // every control and notice it has: its stakers still claim and unstake here.
+    <div className="relative overflow-hidden rounded-2xl" style={{ border: '1px solid var(--color-purple-25)' }}>
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim
           plus a dark card scrim stacked into near-black. Lightened hard.
           Safe because the dense copy inside sits on its OWN panels
           (rgba(0,0,0,0.4-0.6) blocks), so contrast is carried there and
           not by drowning the whole card. */}
-      <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.52)' }} />
-      <div className="relative z-10 p-6">
-        <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>The lighthouse pool · LIVE</p>
+      <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.62)' }} />
+      <div className="relative z-10 p-5 sm:p-6">
+        {/* HONESTY FIX: this eyebrow said "LIVE" while the pool was closed to
+            deposits. Closed, it now says exactly what still works. */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {bungalow.depositsClosed ? (
+            <p className="text-[11px] uppercase tracking-wider m-0" style={{ color: 'rgba(255,255,255,0.7)' }}>
+              The lighthouse pool · closed to deposits · claims open
+            </p>
+          ) : (
+            <p className="text-[11px] uppercase tracking-wider m-0" style={{ color: 'var(--color-kyle)' }}>The lighthouse pool · LIVE</p>
+          )}
+          {bungalow.depositsClosed && (
+            <span className="rounded-full px-2 py-0.5 text-[11px]" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.78)' }}>
+              Claim only
+            </span>
+          )}
+        </div>
 
         {poolRead === null && <p className="text-white/70 text-[13px]">Reading the pool…</p>}
 
@@ -395,66 +614,46 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 
         {pool && !identityMismatch && (
           <>
-            {/* ── The four numbers that decide whether to stake ───────────── */}
-            <div className={`grid grid-cols-2 sm:grid-cols-3 ${weighted ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3 mb-4`}>
-              <Stat
-                label={dynamicPool ? 'Reward budget' : 'Reward vault'}
-                value={fmt(funded, decimals)}
-                unit={bungalow.symbol}
-                caption={dynamicPool ? 'what is left to distribute' : undefined}
-              />
-              <Stat label="Total staked" value={fmt(pool.totalStakeRaw, decimals)} unit={bungalow.symbol} />
-              {dynamicPool ? (
-                <>
-                  {/* No rate exists on this program, so none is invented. What
-                      a position holds is its SHARE — a present fact, not a
-                      forecast — and it is the number that actually determines
-                      the payout. */}
-                  <Stat
-                    label="Your share"
-                    value={myShare === null ? '–' : pct(myShare)}
-                    unit={myShare === null ? 'nothing staked' : 'of each payout'}
-                    tone={myShare === null ? 'muted' : 'good'}
-                    caption={myShare === null ? undefined : 'moves as others stake'}
+            {/* ── The numbers that decide whether to stake ────────────────── */}
+            {/* THE LADDER CARD'S LEDGER, not a copy of it (./ledger). Units sit on
+                the number's baseline; every sentence that used to sit inside a
+                tile is a footnote under the panel, word for word, and each cell
+                points at its own with aria-describedby. Columns come from the
+                CARD's width (container query), never the viewport: list rows on a
+                phone, two across, then one row — and an odd cell count never
+                leaves an empty cell beside a lone tile, because the last cell
+                spans (lhSpan). */}
+            <section aria-label="The lighthouse pool figures" className="@container mb-4 flex flex-col gap-3">
+              <m.div
+                variants={staggerContainer(0.06)}
+                initial="hidden"
+                whileInView="show"
+                viewport={{ once: true }}
+                className="grid grid-cols-1 gap-px overflow-hidden rounded-[14px] @min-[30rem]:grid-cols-2 @min-[52rem]:grid-cols-12"
+                style={{ background: DIVIDED_BG, border: `1px solid ${HAIR}` }}
+              >
+                {lhCells.map((c, i) => (
+                  <Fact
+                    key={c.key}
+                    label={c.label}
+                    value={c.value}
+                    unit={c.unit}
+                    tone={c.tone}
+                    describedBy={c.note ? `${fid}-${c.key}` : undefined}
+                    className={lhSpan(i, lhCells.length)}
                   />
-                  <Stat
-                    label="How it pays"
-                    value="Budget"
-                    unit="not a fixed rate"
-                    caption="split by weighted stake"
-                  />
-                </>
-              ) : (
-                <>
-                  <Stat
-                    label="Paying now"
-                    value={ratePercent ? pct(payingNow) : payingNow.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                    unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
-                    tone={payingNow > 0 ? 'good' : 'muted'}
-                  />
-                  <Stat
-                    label="Configured"
-                    value={
-                      !ratePercent
-                        ? configuredRate.toLocaleString(undefined, { maximumFractionDigits: 4 })
-                        : weighted
-                          ? `${pct(rateAtMin)}–${pct(rateAtMax)}`
-                          : pct(configuredRate)
-                    }
-                    unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
-                    caption={weighted ? `${labelForDays(minDays)} → ${labelForDays(maxDays)}` : undefined}
-                  />
-                </>
+                ))}
+              </m.div>
+              {lhCells.some((c) => c.note) && (
+                <ul className="list-none m-0 p-0 flex flex-col gap-1 text-[11.5px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.62)' }}>
+                  {lhCells.filter((c) => c.note).map((c) => (
+                    <li key={c.key} id={`${fid}-${c.key}`}>
+                      <strong className="font-semibold" style={{ color: '#fff' }}>{c.label} —</strong>{' '}{c.note}
+                    </li>
+                  ))}
+                </ul>
               )}
-              {weighted && (
-                <Stat
-                  label="Max boost"
-                  value={`${maxBoost.toFixed(2)}×`}
-                  unit={`at ${labelForDays(maxDays).toLowerCase()}`}
-                  caption="longer lock, bigger share"
-                />
-              )}
-            </div>
+            </section>
 
             {/* The whole model in two sentences, stated before anyone signs.
                 A dynamic pool cannot honestly advertise an APR: what a staker
@@ -573,7 +772,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                         onClick={() => walletRaw !== null && setAmount(toPlain(walletRaw, decimals))}
                         className="text-white/60 text-[11px] hover:text-white transition-colors cursor-pointer disabled:cursor-default disabled:hover:text-white/60"
                       >
-                        Balance: {walletRaw === null ? '–' : fmt(walletRaw, decimals)}{walletRaw !== null && walletRaw > 0n ? ' · MAX' : ''}
+                        Balance: {!balanceLoaded ? '…' : walletRaw === null ? 'unreadable' : fmt(walletRaw, decimals)}{walletRaw !== null && walletRaw > 0n ? ' · MAX' : ''}
                       </button>
                     </div>
                     <input
@@ -861,7 +1060,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   {openEntries.map((e) => {
                     const opensAt = unlockTs(e);
                     const locked = nowSec < opensAt;
-                    const entryPending = pool.rewardPools.reduce<bigint | null>((acc, rp) => {
+                    // An accrual this read did not price is UNKNOWN, never zero — a zero
+                    // here disabled the claim as "Nothing accrued yet" (see `pendingUnread`).
+                    const entryPending = e.pendingUnread ? null : pool.rewardPools.reduce<bigint | null>((acc, rp) => {
                       if (acc === null) return null;
                       const v = e.pendingRaw[rp.nonce];
                       return v === undefined ? acc : v === null ? null : acc + v;
@@ -983,7 +1184,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                               instruction in the transaction. Only the UI could
                               trap it, and this is where. */}
                           {!locked && (exceedsVault || atRisk) && (
-                            rescueFor === e.nonce ? (
+                            rescueArmed === e.nonce ? (
                               <span className="inline-flex items-center gap-1.5">
                                 <button
                                   type="button"
@@ -1010,7 +1211,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                                 type="button"
                                 disabled={!invoker || !!action?.busy}
                                 title="Withdraws your principal WITHOUT claiming rewards. It closes the reward entry rather than paying it, so it cannot be blocked by an unfunded vault or by a position that has passed the reward program's limit — and the accrued rewards are given up."
-                                onClick={() => setRescueFor(e.nonce)}
+                                onClick={() => setRescueFor({ read: entriesRead, nonce: e.nonce })}
                                 className="btn-secondary px-3 py-1.5 text-[12px] disabled:opacity-50"
                                 style={{ borderColor: 'rgba(227,179,65,0.5)', color: '#e3b341' }}
                               >
@@ -1049,32 +1250,36 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                 {action.tx && (
                   <a href={`https://solscan.io/tx/${action.tx}`} target="_blank" rel="noopener noreferrer"
                     aria-label="View transaction on Solscan (opens in new tab)"
-                    className="underline underline-offset-2 text-white/70 hover:text-white">
+                    className="inline-flex min-h-[44px] items-center underline underline-offset-2 text-white/70 hover:text-white">
                     view tx ↗
                   </a>
                 )}
               </p>
             )}
 
-            <p className="text-white/45 text-[11px] mt-4 leading-relaxed">
-              Pool{' '}
+            {/* TAP TARGETS (2026-09-21): these two links were 69x13 inline words in a
+                sentence — far under the 44px tap floor. They are their own row now,
+                44px tall, and the sentence they sat in follows them, unchanged in
+                meaning. */}
+            <div className="mt-4 flex flex-wrap items-center gap-x-5">
               <a href={`https://solscan.io/account/${pool.address}`} target="_blank" rel="noopener noreferrer"
                 aria-label="View stake pool on Solscan (opens in new tab)"
-                className="underline underline-offset-2 hover:text-white/80 font-mono">
-                {pool.address.slice(0, 4)}…{pool.address.slice(-4)} ↗
-              </a>{' '}
-              · a Streamflow staking pool — audited program, non-custodial, verifiable on-chain.
+                className="inline-flex min-h-[44px] items-center gap-1.5 text-[11px] text-white/60 hover:text-white/90">
+                Pool <span className="underline underline-offset-2 font-mono">{pool.address.slice(0, 4)}…{pool.address.slice(-4)} ↗</span>
+              </a>
               {primaryRp && (
-                <>
-                  {' '}Reward vault{' '}
-                  <a href={`https://solscan.io/account/${primaryRp.vault}`} target="_blank" rel="noopener noreferrer"
-                    aria-label="View reward vault on Solscan (opens in new tab)"
-                    className="underline underline-offset-2 hover:text-white/80 font-mono">
-                    {primaryRp.vault.slice(0, 4)}…{primaryRp.vault.slice(-4)} ↗
-                  </a>
-                  {primaryRp.permissionless ? ' — funding is permissionless: anyone can top it up, and the balance above is the proof.' : ' — only the pool authority can fund it.'}
-                </>
+                <a href={`https://solscan.io/account/${primaryRp.vault}`} target="_blank" rel="noopener noreferrer"
+                  aria-label="View reward vault on Solscan (opens in new tab)"
+                  className="inline-flex min-h-[44px] items-center gap-1.5 text-[11px] text-white/60 hover:text-white/90">
+                  Reward vault <span className="underline underline-offset-2 font-mono">{primaryRp.vault.slice(0, 4)}…{primaryRp.vault.slice(-4)} ↗</span>
+                </a>
               )}
+            </div>
+            <p className="text-white/45 text-[11px] m-0 leading-relaxed">
+              A Streamflow staking pool — audited program, non-custodial, verifiable on-chain.
+              {primaryRp && (primaryRp.permissionless
+                ? ' Reward vault funding is permissionless: anyone can top it up, and the balance above is the proof.'
+                : ' Only the pool authority can fund the reward vault.')}
             </p>
           </>
         )}
@@ -1083,16 +1288,28 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   );
 }
 
-function Stat({ label, value, unit, tone, caption }: { label: string; value: string; unit?: string; tone?: 'good' | 'muted'; caption?: string }) {
-  const color = tone === 'good' ? '#4ade80' : tone === 'muted' ? 'rgba(255,255,255,0.85)' : '#ffffff';
-  return (
-    <div className="rounded-lg px-3 py-2" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)' }}>
-      <p className="text-[10px] uppercase tracking-wider text-white/60">{label}</p>
-      {/* A range like "21.9%–109.5%" is wider than a single figure — let it step
-          down a size rather than overflow the card on a narrow column. */}
-      <p className={`stat-value leading-tight ${value.length > 9 ? 'text-base' : 'text-xl'}`} style={{ color }}>{value}</p>
-      {unit && <p className="text-[10px] text-white/50">{unit}</p>}
-      {caption && <p className="text-[10px] text-white/40 leading-tight mt-0.5">{caption}</p>}
-    </div>
-  );
+interface LhCell {
+  key: string;
+  label: string;
+  value: string;
+  unit?: string;
+  tone?: 'good' | 'muted';
+  /** A sentence about the figure — printed as a footnote, never inside the cell. */
+  note?: string;
+}
+
+/**
+ * Column spans for the lighthouse ledger, so no row ever ends in an empty cell.
+ * Two across: an odd last cell spans both columns. One row (12-column grid): the
+ * cells share it evenly — or, for five, three over two. The class strings are
+ * spelled out because Tailwind only emits classes it finds verbatim in the source.
+ */
+function lhSpan(i: number, n: number): string {
+  const two = n % 2 === 1 && i === n - 1 ? '@min-[30rem]:col-span-2' : '';
+  const wide = n === 5 ? (i < 3 ? '@min-[52rem]:col-span-4' : '@min-[52rem]:col-span-6')
+    : n === 4 ? '@min-[52rem]:col-span-3'
+    : n === 3 ? '@min-[52rem]:col-span-4'
+    : n === 2 ? '@min-[52rem]:col-span-6'
+    : '@min-[52rem]:col-span-12';
+  return `${two} ${wide}`;
 }

@@ -102,6 +102,34 @@ export interface LadderWalletView {
    * "unreadable renders as fine" defect wearing a different hat.
    */
   truncated: boolean;
+  /**
+   * The wallet's weight and the pool's `total_weighted`, READ IN ONE getMultipleAccounts
+   * CALL — so both come from the same slot by construction. Null when that could not be
+   * established (a partial scan, a pool account missing from the call, nothing staked).
+   *
+   * ⚠️ THE ONLY HONEST INPUT TO A SHARE. The pool and the wallet used to be read in
+   * separate requests. On a stake BOTH the wallet's weight and `total_weighted` rise, so a
+   * wallet read carrying the NEW weight over a pool read still carrying the OLD total
+   * printed a share better than the truth: pool 100, you hold 10, you stake +10 — you
+   * hold 20 of 110 (18.2%), and the stale pair printed 20/100 = 20%. The `mine > total`
+   * guard cannot see it, because 20 < 100.
+   *
+   * WHY ONE CALL AND NOT SLOT ORDERING. Recording each read's `context.slot` and trusting
+   * the pair when the pool is the fresher one covers a STAKE (any weight the wallet read
+   * holds is already in a later total, so the share can only under-read) — but not an
+   * EXIT: a wallet read from before your exit still counts the closed position, a later
+   * pool total no longer does, and the share over-reads while the order check passes.
+   * The card's own re-read after an exit lands exactly that pair whenever the pool
+   * answers first. Same-slot has no ordering to get wrong.
+   *
+   * `slot` is that call's `context.slot` (getMultipleAccountsInfoAndContext), or null
+   * when the response did not carry one. Same-slot makes the PAIR consistent; it does
+   * not make it recent. After your own confirmed write the card compares this against
+   * the write's confirmed slot: a basis from an RPC node still behind that write
+   * over-reads after an exit ((W-w)/(T-w) < W/T), so it is shown as updating — and a
+   * missing slot on either side is treated the same way (fail closed).
+   */
+  shareBasis: { mineWeight: bigint; totalWeighted: bigint; slot: number | null } | null;
 }
 
 /**
@@ -122,7 +150,7 @@ export async function readLadderWallet(
     return unreadable(`your position could not be read: ${(e as Error).message}`);
   }
   // No UserStats at all = never staked in this pool. That is a fact, not an outage.
-  if (!statsInfo) return { ok: true, value: { stats: null, slots: [], open: [], truncated: false } };
+  if (!statsInfo) return { ok: true, value: { stats: null, slots: [], open: [], truncated: false, shareBasis: null } };
 
   const s = decodeLadderUserStats(statsAddr.toBase58(), statsInfo.data);
   if (!s.ok) return unreadable(`your position account did not decode (${s.reason})`);
@@ -145,8 +173,30 @@ export async function readLadderWallet(
   // top. Batched, bounded, and honest when the bound is hit.
   const total = s.value.nextNonce;
   const wanted = s.value.openPositions;
-  const BATCH = 100;          // getMultipleAccounts takes up to 100 addresses in ONE call
-  const MAX_SCAN = 1_000;     // ~10 calls; past this we say so rather than guess
+  // getMultipleAccounts takes up to 100 addresses in ONE call: 99 positions + the pool,
+  // which rides along so a share can be computed from a single slot (`shareBasis`).
+  const BATCH = 99;
+  const MAX_SCAN = 10 * BATCH; // 10 calls; past this we say so rather than guess
+
+  // The pool's `total_weighted` out of one call's result, or null. Same checks as
+  // readLadderPool: the owner first, then a decode — never a number from a stranger.
+  const totalFrom = (info: Awaited<ReturnType<Connection['getAccountInfo']>> | undefined): bigint | null => {
+    // No `instanceof PublicKey`: the adapter's Connection may come from another copy of
+    // web3.js, and a class check would then refuse every real pool.
+    try {
+      if (!info || !info.owner.equals(programId)) return null;
+      const d = decodeLadderPool(pool.toBase58(), info.data);
+      return d.ok ? d.value.totalWeighted : null;
+    } catch {
+      return null;
+    }
+  };
+  let lastCallTotal: bigint | null = null;
+  let lastCallSlot: number | null = null;
+  let callsWithOpen = 0;
+  // The call's own slot, or null — never a guess.
+  const slotOf = (ctx: { slot?: unknown } | undefined): number | null =>
+    typeof ctx?.slot === 'number' && Number.isSafeInteger(ctx.slot) ? ctx.slot : null;
 
   const slots: PositionSlot[] = [];
   let found = 0;
@@ -162,10 +212,14 @@ export async function readLadderWallet(
     const addrs = nonces.map((n) => positionPda(programId, pool, owner, n));
     let infos: (Awaited<ReturnType<Connection['getAccountInfo']>>)[];
     try {
-      infos = await conn.getMultipleAccountsInfo(addrs, 'confirmed');
+      const res = await conn.getMultipleAccountsInfoAndContext([...addrs, pool], 'confirmed');
+      infos = res.value;
+      lastCallSlot = slotOf(res.context);
     } catch (e) {
       return unreadable(`your positions could not be read: ${(e as Error).message}`);
     }
+    lastCallTotal = totalFrom(infos[addrs.length]);
+    const foundBefore = found;
     nonces.forEach((n, i) => {
       const info = infos[i];
       // ABSENT MEANS CLOSED. Anchor's `close` drains the account, and every nonce
@@ -175,20 +229,63 @@ export async function readLadderWallet(
       if (d.ok) { found += 1; slots.push({ nonce: n, state: 'open', position: d.value }); }
       else slots.push({ nonce: n, state: 'unreadable', reason: d.reason });
     });
+    if (found > foundBefore) callsWithOpen += 1;
     scanned += nonces.length;
   }
   if (found < wanted && scanned >= MAX_SCAN) truncated = true;
 
   slots.sort((a, b) => a.nonce - b.nonce);
+  const open = slots.flatMap((x) => (x.state === 'open' ? [x.position] : []));
+
+  // ── THE SHARE BASIS ─────────────────────────────────────────────────────
+  // A partial list is a partial sum: no basis. Otherwise, if every open position came
+  // back in ONE call, that call's own pool snapshot is the basis. The scan stops right
+  // after the call that completed the count, so that call is the last one, and a
+  // position absent from an earlier call is CLOSED for good — nonces never reopen.
+  //
+  // Open positions spread over SEVERAL calls are several slots: one found early may
+  // have closed by the last call, whose total would then no longer include it. So they
+  // are read again, all together with the pool, in ONE more call (at most MAX_POSITIONS
+  // + 1 addresses). One that vanished in between closed, and is out of both sides; one
+  // that no longer decodes, or a missing pool, is no basis at all.
+  let shareBasis: LadderWalletView['shareBasis'] = null;
+  if (!truncated && found >= wanted && open.length > 0) {
+    if (callsWithOpen === 1) {
+      if (lastCallTotal !== null) {
+        shareBasis = { mineWeight: open.reduce((a, p) => a + p.weight, 0n), totalWeighted: lastCallTotal, slot: lastCallSlot };
+      }
+    } else {
+      try {
+        const addrs = open.map((p) => positionPda(programId, pool, owner, p.nonce));
+        const res = await conn.getMultipleAccountsInfoAndContext([...addrs, pool], 'confirmed');
+        const infos = res.value;
+        const total = totalFrom(infos[addrs.length]);
+        let mine = 0n;
+        let undecodable = false;
+        for (let i = 0; i < addrs.length; i++) {
+          const info = infos[i];
+          if (!info) continue;                           // closed since: out of both sides
+          const d = decodeLadderPosition(addrs[i]!.toBase58(), info.data);
+          if (d.ok) mine += d.value.weight;
+          else undecodable = true;
+        }
+        if (total !== null && !undecodable) shareBasis = { mineWeight: mine, totalWeighted: total, slot: slotOf(res.context) };
+      } catch {
+        // No basis — the positions themselves were read, so the view still stands.
+      }
+    }
+  }
+
   return {
     ok: true,
     value: {
       stats: s.value,
       slots,
-      open: slots.flatMap((x) => (x.state === 'open' ? [x.position] : [])),
+      open,
       // NOT a silent cap. The caller must be able to say "there are more" rather
       // than presenting a partial list as complete.
       truncated,
+      shareBasis,
     },
   };
 }
