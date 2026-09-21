@@ -29,7 +29,7 @@ PRs that do not follow this template may be closed or asked to be revised.
 - [ ] Unit tests added / updated
 - [ ] Integration or E2E tests added / updated (if applicable)
 - [ ] Foundry tests pass locally (`forge test`) — contract changes only
-- [ ] Frontend typecheck + lint pass locally (`npm run typecheck`, `npm run lint`)
+- [ ] Frontend typecheck + lint pass locally (`npm run precommit`, which is `npm run lint && tsc -b --noEmit`)
 - [ ] Manual testing performed on desktop, iPhone 14+, and iPad (responsive — all affected pages)
 - [ ] New edge cases, reverts, and failure modes are covered
 
@@ -44,7 +44,7 @@ If the box above is checked, please describe:
 
 ## Checklist
 
-- [ ] Branch is rebased on latest `main`
+- [ ] Branch is rebased on latest `mvp-launch` (the trunk; **not** `main`, which has diverged)
 - [ ] Commits follow conventional-commit style (`feat(...)`, `fix(...)`, `docs(...)`, etc.)
 - [ ] No secrets, private keys, or `.env` values committed
 - [ ] Documentation updated (README, inline comments, changelog) where relevant

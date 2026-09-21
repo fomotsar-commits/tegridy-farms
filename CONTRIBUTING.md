@@ -1,6 +1,15 @@
-# Contributing to Tegriddy Farms
+# Contributing to Memetics
 
-Thanks for your interest in making Tegriddy Farms better. This project welcomes contributions from the community across code, content, and community-building activities.
+**The venue is [memetics.finance](https://memetics.finance).** That is the site you came for,
+and this is the repository behind it.
+
+The repo, the Vercel project and most of this history say **Tegriddy Farms**. Same project,
+earlier name; nothing is forked and you are not in the wrong place. The venue is referred to
+by its live host throughout this guide, because that is the thing a change here actually
+reaches.
+
+This project welcomes contributions from the community across code, content, and
+community-building activities.
 
 ## Ways to Contribute
 
@@ -55,9 +64,8 @@ This guide told contributors to branch from `main` and open PRs against `main` u
 2026-09-04. If you have a branch in that state, rebase it onto `mvp-launch` before opening a
 PR. Run `git log HEAD..mvp-launch` **before your first edit** so you know what you are behind.
 
-**Merging to `mvp-launch` ships.** Vercel auto-deploys it to memetic.fun and
-memetics.finance within a couple of minutes, and a red merge ships exactly as fast as a green
-one — so gate on checks that actually ran, not on a green tick. Note that a PR with a merge
+**Merging to `mvp-launch` ships.** Vercel auto-deploys it to memetics.finance within a
+couple of minutes, and a red merge ships exactly as fast as a green one — so gate on checks that actually ran, not on a green tick. Note that a PR with a merge
 conflict runs almost no CI at all: if you see only two or three checks instead of ~30, the
 branch is conflicting, not passing.
 
@@ -121,4 +129,4 @@ If nothing open looks right, comment on any issue and a maintainer will help sco
 - **Security** — For vulnerabilities, please do **not** open a public issue. See `SECURITY.md` for the private disclosure process.
 - **General questions** — Start a GitHub Discussion or reach maintainers through the community links in the project README.
 
-By contributing, you agree that your contributions will be licensed under the same license as the project. Thanks for helping grow Tegriddy Farms.
+By contributing, you agree that your contributions will be licensed under the same license as the project. Thanks for helping grow Memetics.
