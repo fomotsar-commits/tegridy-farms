@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 // Static, not `await import('viem')` inside the test: the dynamic form times
 // out against vitest's 5s default whenever the machine is busy, which made
@@ -23,6 +23,8 @@ import {
   bungalowByAddress,
   poolReadByIsland,
   ISLAND_READ_POOLS,
+  subscribeActiveBungalow,
+  announceActiveBungalow,
 } from './bungalows';
 import { pageArt } from './artConfig';
 import { SITE_URL } from './constants';
@@ -567,5 +569,56 @@ describe('read by the island, per pool', () => {
     ]);
     expect(ISLAND_READ_POOLS.length).toBeGreaterThan(0);
     for (const r of ISLAND_READ_POOLS) expect(shipped.has(r.pool), r.pool).toBe(true);
+  });
+});
+
+// The skin is state: a write is render-safe and silent, and the announce is
+// what tells subscribers (useActiveBungalowId) to read it again.
+describe('the skin store', () => {
+  it('setActiveBungalow writes without calling subscribers, so a door may write during render', () => {
+    const heard = vi.fn();
+    const off = subscribeActiveBungalow(heard);
+    try {
+      setActiveBungalow('bayla');
+      expect(getActiveBungalow()?.id).toBe('bayla');
+      expect(heard).not.toHaveBeenCalled();
+    } finally {
+      off();
+    }
+  });
+
+  it('announceActiveBungalow calls each subscriber once', () => {
+    const a = vi.fn();
+    const b = vi.fn();
+    const offA = subscribeActiveBungalow(a);
+    const offB = subscribeActiveBungalow(b);
+    try {
+      announceActiveBungalow();
+      expect(a).toHaveBeenCalledTimes(1);
+      expect(b).toHaveBeenCalledTimes(1);
+    } finally {
+      offA();
+      offB();
+    }
+  });
+
+  it('an unsubscribed listener hears nothing more', () => {
+    const heard = vi.fn();
+    const off = subscribeActiveBungalow(heard);
+    off();
+    announceActiveBungalow();
+    expect(heard).not.toHaveBeenCalled();
+  });
+
+  it('a listener that unsubscribes during an announce does not stop the others', () => {
+    const later = vi.fn();
+    const offFirst = subscribeActiveBungalow(() => offFirst());
+    const offLater = subscribeActiveBungalow(later);
+    try {
+      announceActiveBungalow();
+      expect(later).toHaveBeenCalledTimes(1);
+    } finally {
+      offLater();
+    }
   });
 });
