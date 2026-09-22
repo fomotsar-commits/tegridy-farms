@@ -1,5 +1,7 @@
 # Jungle Bay Island — the 13-bungalow buildout
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 *Written 2026-08-24. Companion code shipped the same day on `mvp-launch`
 (`island: Jungle Bay bungalows — Bayla background skin + picker after the intro`).*
 

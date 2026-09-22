@@ -1,5 +1,7 @@
 # Next Session — superseded
 
+> The one to-do list is [docs/TODO_OPERATOR.md](../TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 **This file is no longer the handoff. Do not follow it. Retired 2026-08-19.**
 
 > Since 2026-08-21 the single canonical to-do list is

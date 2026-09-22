@@ -1,5 +1,7 @@
 # What still needs finishing or cleaning up
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 Inventory of 352 items across 12 tree regions + a completeness critic, 2026-08-13.
 18 were flagged as deliberate and are listed last, not as debt.
 

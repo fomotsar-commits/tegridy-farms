@@ -1,5 +1,7 @@
 # Tegridy Farms — Remediation Work Order v2 (hard-verified 2026-07-28)
 
+> The one to-do list is [docs/TODO_OPERATOR.md](../TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 Supersedes the external `tegridy-claude-code-workorder.md` + `tegridy-feature-roadmap.md` (both dated 2026-07-23/24). Every load-bearing claim in those docs was re-verified against the repo and mainnet by a 75-agent adversarial review (verify → 2-skeptic refute → design), and this document itself passed a red-team critique pass (2026-07-28). Items marked **[v1-WRONG]** were factually wrong in the originals; **[v1-STALE]** were true once but already done/changed; **[NEW]** were missing entirely.
 
 **Execution protocol: stop, summarize, and WAIT for operator go at the end of each phase — mandatory after Phase 0 and before ANY phase containing deletions or contract-source changes.** Commit per phase with conventional-commit messages.

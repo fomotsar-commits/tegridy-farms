@@ -1,5 +1,7 @@
 # Open-PR Triage — 2026-06-01
 
+> The one to-do list is [docs/TODO_OPERATOR.md](../TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 10 PRs open against `main` after #73 (security batch) and #75 (frontend polish) merged.
 **None mergeable as-is** — all have a failing check; 4 also conflict with `main`.
 

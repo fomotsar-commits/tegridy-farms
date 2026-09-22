@@ -1,5 +1,7 @@
 # Fix Status — Rolling tracker
 
+> The one to-do list is [docs/TODO_OPERATOR.md](../TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 Running log of what's landed on `main` across the full 8-pass internal
 audit lineage: 100→200→300→40-agent passes (Mar 2026), the 101-agent
 canonical pass (`.audit_101/MASTER_REPORT.md` + remediation R001–R076,

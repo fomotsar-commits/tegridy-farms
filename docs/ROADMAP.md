@@ -1,5 +1,7 @@
 # Tegriddy Farms Roadmap
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 Reconciled against the repo and the chain on **2026-09-04**. Each item carries a
 one-sentence scope, a success metric, and a **Status** line that says what the tree
 actually contains.

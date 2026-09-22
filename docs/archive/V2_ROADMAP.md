@@ -1,4 +1,7 @@
 # Tegriddy Farms V2 Roadmap
+
+> The one to-do list is [docs/TODO_OPERATOR.md](../TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 ## Issues to bundle into the next redeployment
 
 ### HIGH PRIORITY — Economic/Product
