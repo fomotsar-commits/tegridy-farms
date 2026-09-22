@@ -128,24 +128,9 @@ export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGatePr
           )}
         </p>
 
-        {/* WAVE SEVEN, element F: THE GATE READS A PASTED ADDRESS.
-            Before this the door had nothing to say to anyone without a wallet
-            connected, which is the state every first visitor arrives in: it
-            named held time as the thing that matters and then offered no way to
-            find out what yours is.
-
-            The instrument goes here whole, exactly as VenueHero mounts it — no
-            `address` prop, so it renders its own labelled field and reads
-            whatever is pasted. That is the element B card, not a second one.
-
-            IT READS; IT DOES NOT OPEN. Opening the lane needs a SIGNATURE
-            (`prove()` below), and a pasted address cannot sign — which is the
-            whole enforcement order this gate exists to hold: heat, then
-            custody, then the signature. A reading here is advisory and the copy
-            says so, because a visitor who sees WARM and then cannot launch
-            deserves to have been told why before they tried. The launch call
-            itself re-reads the CONNECTED wallet at submit
-            (`assertMayLaunch(cfg.userAddress)`), so nothing here can move it. */}
+        {/* The card reads a pasted address, as VenueHero mounts it. It reads; it does not
+            open: the lane needs the connected wallet's signature (heat, then custody, then
+            the signature), and the launch call re-reads that wallet at submit. */}
         <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <HeatCard variant="embedded" showEligibility />
           <p className="text-[12px] text-white/45 mt-3">

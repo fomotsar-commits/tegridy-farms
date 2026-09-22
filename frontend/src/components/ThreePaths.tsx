@@ -12,7 +12,7 @@
 // click rather than after it.
 //
 // THE FLOOR IS READ, NEVER TYPED. `heatLaunchFloor()` is the same value the launch
-// gate enforces with, resolved at render. A typed 80 here would be a promise the gate
+// gate enforces with, resolved at render. A typed number here would be a promise the gate
 // could silently stop keeping.
 
 import { Link } from 'react-router-dom';

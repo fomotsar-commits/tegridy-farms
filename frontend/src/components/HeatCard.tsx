@@ -778,13 +778,6 @@ function Reading({
 }
 
 /**
- * The launch floor, on the card.
- *
- * Rendered from `gateDecision` — the SAME primitive the launch paths enforce with — so
- * what a wallet is told here and what happens at submit cannot drift. It reads DEGREES,
- * not tenure: held time is already priced inside the number (see LAUNCH_FLOOR).
- */
-/**
  * THE ROOM'S OWN READ — wave seven, element D.
  *
  * Two lines, in the order the directive sets: the row for THIS room's contract
@@ -901,6 +894,7 @@ function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeo
   );
 }
 
+/** The launch floor on the card, from gateDecision: what the launch paths enforce with. */
 function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
   const floor = heatLaunchFloor();
   const floorTier = tierAtFloor(floor);
