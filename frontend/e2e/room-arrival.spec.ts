@@ -22,7 +22,10 @@ test.beforeEach(() => {
 function expectOnHero(a: Arrival) {
   expect.soft(a.loads, `${a.url}: documents loaded in the tab`).toBe(1);
   expect.soft(a.documents, `${a.url}: main-frame document requests`).toBe(1);
-  expect.soft(a.navTypes, `${a.url}: navigation types`).toEqual(['navigate']);
+  // loads and documents carry the one-document claim. This names the kind: a
+  // reload or a restored entry is a failure, an empty list is only a document
+  // whose DOMContentLoaded had not landed, and the H1 assertions say that.
+  expect.soft(a.navTypes.filter((t) => t !== 'navigate'), `${a.url}: navigation types other than 'navigate'`).toEqual([]);
   for (const ms of SAMPLE_MS) {
     expect.soft(a.at[ms]?.y, `${a.url}: scrollY at ${ms} ms`).toBe(0);
     if (ms >= 3000) expect.soft(a.at[ms]?.h1InView, `${a.url}: H1 in the viewport at ${ms} ms`).toBe(true);

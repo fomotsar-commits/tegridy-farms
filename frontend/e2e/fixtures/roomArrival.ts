@@ -22,6 +22,7 @@ export interface Arrival {
   loads: number;
   /** Main-frame document requests Playwright saw. */
   documents: number;
+  /** One per document, pushed at its DOMContentLoaded. Empty if none landed in time. */
   navTypes: string[];
   at: Record<string, Sample>;
   scrollHeight: number;
@@ -107,7 +108,9 @@ export async function coldArrival(browser: Browser, contextOptions: BrowserConte
           }
         })
         .catch(() => null);
-      if (state?.at?.[last]) break;
+      // The last sample is fixed at 7 s but DOMContentLoaded is not, so waiting
+      // only for the sample can read navTypes before the document pushed one.
+      if (state?.at?.[last] && state.navTypes.length > 0) break;
       await page.waitForTimeout(250);
     }
     if (!state?.at?.[last]) throw new Error(`${url}: no ${last} ms sample within 20 s`);
@@ -133,6 +136,7 @@ export function summarize(label: string, arrivals: Arrival[]): string {
   return (
     `[room-arrival] ${label}: documents ${arrivals.map((a) => a.documents).join(',')}` +
     ` · loads ${arrivals.map((a) => a.loads).join(',')}` +
+    ` · nav ${arrivals.map((a) => a.navTypes.join('+') || 'none').join(',')}` +
     ` · off-hero ${count(offHero)}/${n}` +
     ` · H1@1s ${h1(1000)}/${n} · H1@3s ${h1(3000)}/${n} · H1@7s ${h1(7000)}/${n}` +
     ` · H1 first in view ${h1First} (${firsts.length}/${n})` +
