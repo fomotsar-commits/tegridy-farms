@@ -119,7 +119,7 @@ describe('held-through.json lists every contract that holds user positions', () 
 
   it('refuses a staked registry row with no decimals rather than publish a guess', () => {
     const noDecimals = { ...BUNGALOWS.find((b) => b.id === 'pepe')!, id: 'nodec', decimals: undefined };
-    expect(() => collectHeldThrough({ bungalows: [noDecimals], ladderProgram: '' })).toThrow(/decimals/);
+    expect(() => collectHeldThrough({ bungalows: [noDecimals], ladderProgram: '', retired: [] })).toThrow(/decimals/);
   });
 
   it('every staked registry row carries its token decimals, as read on chain', () => {
@@ -150,6 +150,8 @@ describe('the lock ladder follows the build env, like the card', () => {
     expect(neither.chains.solana.some((c) => c.kind === 'bayla-ladder')).toBe(false);
     const programOnly = await build({ VITE_BAYLA_LADDER_PROGRAM: LADDER_PROGRAM, VITE_BAYLA_LADDER_POOL: '' });
     expect(programOnly.chains.solana.some((c) => c.kind === 'bayla-ladder')).toBe(false);
+    const poolOnly = await build({ VITE_BAYLA_LADDER_PROGRAM: '', VITE_BAYLA_LADDER_POOL: LADDER_POOL });
+    expect(poolOnly.chains.solana.some((c) => c.kind === 'bayla-ladder')).toBe(false);
     const both = await build({ VITE_BAYLA_LADDER_PROGRAM: LADDER_PROGRAM, VITE_BAYLA_LADDER_POOL: LADDER_POOL });
     const ladder = both.chains.solana.find((c) => c.kind === 'bayla-ladder')!;
     expect(ladder).toBeTruthy();
@@ -488,6 +490,14 @@ describe('each EVM read names a real function with its selector', () => {
     }
   });
 
+  it('the ladder position tuple is the LighthouseLadder struct, in order', () => {
+    const r = byId(doc, 'ladder-pepe').read as Extract<HeldContract['read'], { calls: unknown }>;
+    const positions = r.calls.find((x) => x.signature === 'positions(uint256)')!;
+    const struct = /struct Position \{([\s\S]*?)\}/.exec(read(resolve(REPO, 'contracts/src/LighthouseLadder.sol')))![1]!;
+    const sol = [...struct.matchAll(/^\s*(\w+) (\w+);/gm)].map(([, t, n]) => `${t} ${n}`);
+    expect(positions.returns).toBe(`(${sol.join(', ')})`);
+  });
+
   it('the TegridyStaking position tuple is the Solidity struct, amount first', () => {
     const r = byId(doc, 'tegridy-staking').read as Extract<HeldContract['read'], { calls: unknown }>;
     const positions = r.calls.find((x) => x.signature === 'positions(uint256)')!;
@@ -550,14 +560,19 @@ describe('the rendered file', () => {
   });
 
   it('is ASCII JSON with no em dash, under its schema', () => {
-    expect(/^[\x00-\x7f]*$/.test(text)).toBe(true);
-    expect(text).not.toContain('—');
+    expect([...text].every((c) => c.charCodeAt(0) < 128)).toBe(true);
+    expect(text).not.toContain('\u2014');
     expect(json.schema).toBe(HELD_THROUGH_SCHEMA);
     expect(json.schema).toBe('memetics.finance/held-through/1');
     expect(json.site).toBe('https://memetics.finance');
     expect(json.generated).toBe('2026-09-22');
     expect(json.commit).toBe('abcdef123456');
     expect(text.endsWith('\n')).toBe(true);
+  });
+
+  it('prints exactly the collected contracts, nothing lost to the compact layout', () => {
+    expect(json.chains).toEqual(JSON.parse(JSON.stringify(withLadder().chains)));
+    expect(json.conventions).toEqual(withLadder().conventions);
   });
 
   it('carries no balance: every number is an offset, a size, a decimals or a byte', () => {
