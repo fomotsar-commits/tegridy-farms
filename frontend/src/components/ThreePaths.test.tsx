@@ -38,7 +38,7 @@ describe('the launch floor is read, never typed', () => {
 
   it('falls back to the island’s published floor with no override', () => {
     const { container } = mount();
-    expect(container.textContent).toContain(`${LAUNCH_FLOOR}°`);
+    expect(container.textContent).toContain('Residents may plant. The floor is 180°.');
   });
 
   // ANSWER TEN, RULING 4: the word beside the floor is derived, never typed.
@@ -49,10 +49,10 @@ describe('the launch floor is read, never typed', () => {
     expect(container.textContent).not.toMatch(/Elder|Builder|Resident|Observer|Drifter/);
   });
 
-  it('names the tier a floor sits exactly on (150 is Builder)', () => {
-    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
+  it('names the tier a floor sits exactly on (365 is Builder)', () => {
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '365');
     const { container } = mount();
-    expect(container.textContent).toContain('Builders may plant. The floor is 150°.');
+    expect(container.textContent).toContain('Builders may plant. The floor is 365°.');
     expect(container.textContent).not.toContain('Residents');
   });
 
@@ -62,7 +62,7 @@ describe('the launch floor is read, never typed', () => {
     vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '0');
     const { container } = mount();
     expect(container.textContent).toContain(`${LAUNCH_FLOOR}°`);
-    // Anchored on the sentence, not the bare glyphs: the fallback "The floor is 80°."
+    // Anchored on the sentence, not the bare glyphs: the fallback "The floor is 180°."
     // legitimately ends in "0°.", so a looser assertion fails on correct output.
     expect(container.textContent).not.toContain('The floor is 0°');
   });

@@ -44,7 +44,7 @@ describe('recordGateDecision', () => {
       degrees: 195.54,
       tier: 'Builder',
       as_of: NOW,
-      floor: 80,
+      floor: 180,
       verdict: 'WARM',
     });
     expect(findGateDecision(row.id)).toMatchObject({ id: row.id, verdict: 'WARM' });

@@ -91,6 +91,8 @@ describe('llms.txt says only what the venue itself says', () => {
     }
     const floor = heatLaunchFloor();
     expect(text).toContain(heatExampleLine(floor, tierAtFloor(floor)));
+    // Pinned as well as derived: a derived line alone follows any floor.
+    expect(text).toContain('\nAt 180 degrees you reach Resident, the tier that may plant a launch here.\n');
   });
 
   it('lists exactly the doors the hall lists as open, and every settled door with its token', () => {

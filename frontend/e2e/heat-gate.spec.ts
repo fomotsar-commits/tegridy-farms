@@ -52,7 +52,7 @@ const nowSec = () => Math.floor(Date.now() / 1000);
  * two against each other and flags a disagreement — a fixture that ships a mismatch
  * would put a warning on screen that has nothing to do with what is being tested.
  */
-function heatPayload({ degrees = 195.54, tier = 'Builder' } = {}) {
+function heatPayload({ degrees = 195.54, tier = 'Resident' } = {}) {
   const now = nowSec();
   return {
     address: WALLET,
@@ -133,7 +133,7 @@ test.describe('the launch door', () => {
     const door = await openLaunch(page);
     await expect(door.getByText('WARM', { exact: true })).toBeVisible();
     // The reading itself, not merely the verdict word.
-    await expect(door.getByText('This wallet reads 195.54° (Builder). The launch lane is open.')).toBeVisible();
+    await expect(door.getByText('This wallet reads 195.54° (Resident). The launch lane is open.')).toBeVisible();
 
     // Custody proof is the NEXT step, and it exists only because heat already passed.
     await expect(door.getByRole('button', { name: /prove this wallet is yours/i })).toBeVisible();
@@ -150,8 +150,8 @@ test.describe('the launch door', () => {
     await expect(door.getByText('COLD', { exact: true })).toBeVisible();
 
     // The door's explanation, in its own words, with the floor named.
-    await expect(door.getByText(/The door opens at 80°/).first()).toBeVisible();
-    await expect(door.getByText(/it cannot be bought, and a larger bag does not buy it faster/i)).toBeVisible();
+    await expect(door.getByText(/The door opens at 180°,/).first()).toBeVisible();
+    await expect(door.getByText(/Size can raise what a day is worth, it cannot buy a day[.]/)).toBeVisible();
 
     // THIS WALLET'S OWN READING, from the embedded card — the point of the COLD state.
     // The breakdown heading is HeatCard's alone, so it cannot be satisfied by the
@@ -225,14 +225,10 @@ test.describe('the audit panel', () => {
 
     // The prior row, with ITS OWN inputs — not today's.
     //
-    // SCOPED TO THE PRIOR ROW'S OWN FIELD LIST, and it has to be. A bare
-    // exact-text '250°' inside the door now resolves to two nodes, because
-    // element B's ladder renders in this same region and its top rung is 250°;
-    // and 'Floor at the time' appears twice, because the panel lists TODAY's
-    // decision beside the prior one - the live row's floor is 80°. Anchoring on
-    // the prior row's own degrees and walking up to its <dl> asks the only
-    // question this test is for: does history still carry the floor it was
-    // taken on, rather than today's substituted into it.
+    // Scoped to the prior row's own field list: 'Floor at the time' appears twice,
+    // because the panel lists today's decision (floor 180°) beside the prior one.
+    // Anchoring on the prior row's degrees asks the only question this test is for:
+    // does history still carry the floor it was taken on.
     const priorRow = door.getByText('41.20°', { exact: true }).locator('xpath=ancestor::dl[1]');
     await expect(door.getByText('41.20°', { exact: true })).toBeVisible();
     await expect(
@@ -240,7 +236,7 @@ test.describe('the audit panel', () => {
     ).toHaveText('250°');
     await expect(door.getByText(/41\.20° measured against a 250° floor — short by 208\.80°/)).toBeVisible();
     // A moved floor is disclosed as a present-tense fact, never substituted into history.
-    await expect(door.getByText(/The floor is 80° today\. This decision was taken against 250°/)).toBeVisible();
+    await expect(door.getByText(/The floor is 180° today\. This decision was taken against 250°/)).toBeVisible();
 
     // Reckoning date and decision time are separate fields, because they are separate facts.
     await expect(door.getByText('Island reckoned').first()).toBeVisible();
@@ -278,7 +274,7 @@ test.describe('the audit panel', () => {
 
     // Written by the door on read, read back by the panel — the whole round trip, in a
     // browser, which is the half no unit test can reach.
-    await expect(door.getByText(/62\.40° measured against a 80° floor — short by 17\.60°/)).toBeVisible();
+    await expect(door.getByText(/62\.40° measured against a 180° floor — short by 117\.60°/)).toBeVisible();
     await expect(door.getByText(/never sent anywhere, and it is not analytics/i)).toBeVisible();
 
     const stored = await page.evaluate((key) => localStorage.getItem(key), AUDIT_KEY);

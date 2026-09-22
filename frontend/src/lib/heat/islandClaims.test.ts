@@ -27,6 +27,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import * as oracle from './heatOracle';
+import { VENUE } from '../arrival';
 
 const SRC = join(process.cwd(), 'src');
 
@@ -102,20 +103,8 @@ describe('the three confirmed properties survive', () => {
   });
 });
 
-// ─── WAVE SEVEN, element K: the WHOLE law, not a term of it ─────────────────
-//
-// Same defect class as the window above, arriving from the other direction. The
-// island published `heat = weight · (size + loyalty)`, and the venue was teaching
-// the SIZE TERM as though it were the entire formula: a per-token cap of 100, a
-// what-the-curve-pays table computed from it, a single-token share needed for
-// Observer, and "the period the average is taken over has not been published"
-// after the island had published its grammar for exactly that.
-//
-// The cap is the load-bearing one. Under the published law, loyalty adds on top
-// of the share curve and weight multiplies the pair, so "each token scores 0 to
-// 100" is not a simplification, it is false — and it was rendered on the venue
-// arrival, not just in a dev comment.
-
+// The island's law page carries the formula. The venue explains heat in the island's
+// sentences and states no per-token cap, no unreachable tier and no curve arithmetic.
 describe('the venue teaches the whole published law, not one term of it', () => {
   const userFacing = walk(SRC).map(prose).join('\n');
 
@@ -133,21 +122,16 @@ describe('the venue teaches the whole published law, not one term of it', () => 
     expect(userFacing).not.toMatch(/has not been published/i);
   });
 
-  it('DEFINES all three published terms, not merely names them', () => {
-    // Asserting the words exist is not enough and this test learned that the
-    // hard way: the formula line `heat = weight × (size + loyalty)` contains all
-    // three, so deleting an entire explanatory bullet still passed a
-    // word-presence check. A mutation caught it. Each term is pinned to the
-    // island's own definition of it, which the formula line cannot satisfy.
+  it('explains in the island sentences, word for word', () => {
+    expect(VENUE.heatPlain).toBe(
+      'Heat counts the days you have held each token. It is read per token and added together across everything you hold. Size can raise what a day is worth, it cannot buy a day, and price never enters it.',
+    );
+    expect(VENUE.heatDays).toBe('Your clock on a token starts at your first hold.');
+    expect(VENUE.heatSize).toBe('A real position earns a full day. The largest holders earn up to two. Dust earns nothing.');
+    // The Maths fold renders all three from VENUE; Weight stays its own sentence.
     const heatCard = prose(join(SRC, 'components', 'HeatCard.tsx'));
-    expect(heatCard, 'size is not defined as the share curve').toMatch(/share curve/i);
-    expect(heatCard, 'loyalty is not defined as held days').toMatch(/held days and nothing else/i);
+    for (const key of ['heatPlain', 'heatDays', 'heatSize']) expect(heatCard).toContain(`VENUE.${key}`);
     expect(heatCard, 'weight is not defined as the published multiplier').toMatch(/published\s*\{?'?\s*\}?\s*multiplier/i);
-  });
-
-  it('quotes the island’s whole-held-time grammar for the average', () => {
-    const heatCard = prose(join(SRC, 'components', 'HeatCard.tsx'));
-    expect(heatCard).toMatch(/whole held time/i);
   });
 
   it('retires the arithmetic it can no longer do honestly', () => {
@@ -159,12 +143,71 @@ describe('the venue teaches the whole published law, not one term of it', () => 
   });
 });
 
-describe('the launch floor is the island word, unchanged', () => {
-  it('is 80 — Resident', () => {
-    // Confirmed in writing by the island in Wave 3. Recorded so a future "tidy-up"
-    // cannot drift it without failing here.
-    expect(oracle.LAUNCH_FLOOR).toBe(80);
+describe('the launch floor is the island word', () => {
+  it('is 180, Resident', () => {
+    expect(oracle.LAUNCH_FLOOR).toBe(180);
     const resident = oracle.TIER_FLOORS.find((t) => t.tier === 'Resident');
-    expect(resident?.floor).toBe(80);
+    expect(resident?.floor).toBe(180);
+  });
+});
+
+// The venue reads heat and never computes it, so it carries sentences, never a
+// formula. User-facing source is what prose() leaves of every src/**/*.{ts,tsx,js,jsx}
+// that is not a test: block comments, // lines and * lines are stripped.
+describe('no formula, TWAB or time-weighted in user-facing source', () => {
+  const GUARDS: [string, RegExp][] = [
+    ['a formula line', /\bheat\s*=\s*\w+\s*[×·*x]|weight\s*[×·*]\s*\(|days held\s*[×·*]\s*rate|1\s*[−-]\s*e\s*\^/i],
+    ['TWAB', /\bTWAB\b/],
+    ['time-weighted', /time[- ]weighted/i],
+  ];
+  for (const [name, re] of GUARDS) {
+    it(`states no ${name}`, () => {
+      const offenders = walk(SRC).flatMap((f) => {
+        const m = re.exec(prose(f));
+        return m ? [`${f.slice(SRC.length + 1)}: "${m[0]}"`] : [];
+      });
+      expect(offenders, `${name} in user-facing source:\n${offenders.join('\n')}`).toEqual([]);
+    });
+  }
+
+  it('exports no heat curve or formula constant from the oracle', () => {
+    for (const name of ['HEAT_K', 'heatDegreesFor', 'shareForDegrees']) {
+      expect(name in oracle, `heatOracle exports ${name}`).toBe(false);
+    }
+  });
+});
+
+// The island is linked by its public paths, never memetics.wtf/island. Shipped source
+// is src and api (tests excluded), public's text files, index.html and middleware.js,
+// read line by line minus comment lines: prose()'s block strip can swallow code after
+// a `/*` inside a // comment, and a link must not hide there.
+describe('no link to memetics.wtf/island', () => {
+  const ROOT = process.cwd();
+  const TEXT = /\.(tsx?|jsx?|mjs|html|json|txt|xml|webmanifest)$/;
+  function shipped(): string[] {
+    const files = walk(SRC);
+    const stack = [join(ROOT, 'api'), join(ROOT, 'public')];
+    while (stack.length) {
+      const dir = stack.pop()!;
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) {
+          if (e.name !== '__tests__') stack.push(p);
+        } else if (TEXT.test(e.name) && !/\.test\./.test(e.name)) files.push(p);
+      }
+    }
+    return [...files, join(ROOT, 'index.html'), join(ROOT, 'middleware.js')];
+  }
+
+  it('names it in no shipped source', () => {
+    const files = shipped();
+    expect(files.length).toBeGreaterThan(800);
+    const code = (f: string) =>
+      readFileSync(f, 'utf8')
+        .split('\n')
+        .filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l))
+        .join('\n');
+    const offenders = files.filter((f) => /memetics\.wtf\/+island/i.test(code(f)));
+    expect(offenders, `memetics.wtf/island is linked from:\n${offenders.join('\n')}`).toEqual([]);
   });
 });

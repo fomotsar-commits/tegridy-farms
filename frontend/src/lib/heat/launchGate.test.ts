@@ -56,10 +56,13 @@ describe('meetsHeatFloor — a wallet above the floor sees the open lane', () =>
     expect(decision.qualified).toBe(true);
   });
 
-  it('uses the island’s floor of 80 by default — Residents may plant', async () => {
-    const { decision } = await meetsHeatFloor(ADDR, { nowUnix: NOW, read: async () => reading(80) });
-    expect(decision.floor).toBe(LAUNCH_FLOOR);
-    expect(decision.state).toBe('WARM');
+  it('uses the island’s floor of 180 by default: Residents may plant', async () => {
+    const at = async (deg: number) => (await meetsHeatFloor(ADDR, { nowUnix: NOW, read: async () => reading(deg) })).decision;
+    const resident = await at(180);
+    expect(resident.floor).toBe(LAUNCH_FLOOR);
+    expect(resident.floor).toBe(180);
+    expect(resident.state).toBe('WARM');
+    expect((await at(179.99)).state).toBe('COLD');
   });
 });
 
@@ -109,7 +112,7 @@ describe('every decision is logged replayable', () => {
       degrees: 195.54,
       tier: 'Builder',
       as_of: NOW,
-      floor: 80,
+      floor: 180,
       verdict: 'WARM',
     });
     expect(typeof audit!.id).toBe('string');

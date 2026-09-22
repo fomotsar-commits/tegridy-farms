@@ -100,3 +100,15 @@ describe('the door mounts the audit panel where a denied wallet is standing', ()
     expect(toggle()).not.toBeInTheDocument();
   });
 });
+
+describe('the COLD door says what size can do, in the island words', () => {
+  it('names the 180 floor and says size cannot buy a day, with no prose em dash', async () => {
+    h.fetchHeat.mockResolvedValue(reading(137.42, 'Observer'));
+    render(<LaunchGate />);
+    await screen.findByText('COLD');
+    expect(screen.getByText(/This wallet reads 137\.42° \(Observer\)\. The door opens at 180°,/)).toBeInTheDocument();
+    const why = screen.getByText(/^Warmth is held time\./);
+    expect(why.textContent).toContain('Size can raise what a day is worth, it cannot buy a day.');
+    expect(why.textContent).not.toMatch(/larger bag|—/);
+  });
+});

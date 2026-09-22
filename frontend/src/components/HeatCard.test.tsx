@@ -716,8 +716,9 @@ describe('the ladder', () => {
     vi.unstubAllEnvs();
   });
 
-  // 95 degrees: Drifter, Observer and Resident reached, Builder next at 150.
-  const MID = { degrees: 95, tier: 'Resident' as const };
+  // A board reading served 2026-09-22: 137.42 Observer. Drifter and Observer reached,
+  // Resident next at 180.
+  const MID = { degrees: 137.42, tier: 'Observer' as const };
 
   it('climbs all five rungs, lowest first', async () => {
     h.fetchHeat.mockResolvedValue(wireReading(MID));
@@ -734,11 +735,11 @@ describe('the ladder', () => {
     expect(rungs[1]).toContain('Observer');
     expect(rungs[1]).toContain('30°');
     expect(rungs[2]).toContain('Resident');
-    expect(rungs[2]).toContain('80°');
+    expect(rungs[2]).toMatch(/(^|[^0-9])180°/);
     expect(rungs[3]).toContain('Builder');
-    expect(rungs[3]).toContain('150°');
+    expect(rungs[3]).toMatch(/(^|[^0-9])365°/);
     expect(rungs[4]).toContain('Elder');
-    expect(rungs[4]).toContain('250°');
+    expect(rungs[4]).toMatch(/(^|[^0-9])1000°/);
   });
 
   it('lights the rungs this wallet has reached, and only those', async () => {
@@ -746,8 +747,9 @@ describe('the ladder', () => {
     mount();
     const rungs = await ladderRows();
     const reached = rungs.filter((r) => r.includes('reached'));
-    expect(reached).toHaveLength(3);
-    expect(reached.every((r) => /Drifter|Observer|Resident/.test(r))).toBe(true);
+    expect(reached).toHaveLength(2);
+    expect(reached.every((r) => /Drifter|Observer/.test(r))).toBe(true);
+    expect(rungs[2]).not.toContain('reached');
     expect(rungs[3]).not.toContain('reached');
     expect(rungs[4]).not.toContain('reached');
   });
@@ -755,9 +757,9 @@ describe('the ladder', () => {
   it('prints the gap to the next rung as arithmetic on two served numbers', async () => {
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
-    // 150 (the rung's floor) minus 95 (the degrees the island served). Not a
+    // 180 (the rung's floor) minus 137.42 (the degrees the island served). Not a
     // rate, not a date, and nothing the instrument computed for itself.
-    expect(await screen.findByText('55.00° to Builder')).toBeTruthy();
+    expect(await screen.findByText('42.58° to Resident')).toBeTruthy();
   });
 
   // ANSWER TEN, RULING 4: BOTH DIALS ARE CANONICAL, AND THE WORD IS DERIVED.
@@ -769,29 +771,29 @@ describe('the ladder', () => {
   // so the word must come from asking the first dial about the second.
   //
   // The assertions sit on the SENTENCE <p> and the eligibility span, never the
-  // whole rung <li>: each rung prints its own tier label, so the Resident row
-  // legitimately says "Resident" beside a 123 sentence hung under it.
+  // whole rung <li>: each rung prints its own tier label, so the Observer row
+  // legitimately says "Observer" beside a 123 sentence hung under it.
   it('names no tier beside a floor that sits between rungs (123)', async () => {
     vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '123');
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
     const sentence = await screen.findByText('The launch door opens at 123 degrees.');
     expect(sentence.textContent).not.toMatch(/Elder|Builder|Resident|Observer|Drifter/);
-    // Hung under the rung tierFor returns, which for 123 is Resident.
-    expect(sentence.closest('li')?.textContent).toContain('Resident');
+    // Hung under the rung tierFor returns, which for 123 is Observer.
+    expect(sentence.closest('li')?.textContent).toContain('Observer');
     expect(screen.getByText('the door opens at 123°')).toBeTruthy();
     expect(screen.queryByText(/you reach/)).toBeNull();
   });
 
-  it('names the tier a floor sits exactly on, under that rung (150)', async () => {
-    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
+  it('names the tier a floor sits exactly on, under that rung (365)', async () => {
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '365');
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
     const sentence = await screen.findByText(
-      'At 150 degrees you reach Builder, the tier that may plant a launch here.',
+      'At 365 degrees you reach Builder, the tier that may plant a launch here.',
     );
-    expect(sentence.closest('li')?.textContent).toContain('150°');
-    expect(screen.getByText('the door opens at 150° · Builder')).toBeTruthy();
+    expect(sentence.closest('li')?.textContent).toMatch(/(^|[^0-9])365°/);
+    expect(screen.getByText('the door opens at 365° · Builder')).toBeTruthy();
     expect(screen.queryByText(/reach Resident|· Resident/)).toBeNull();
   });
 
@@ -877,5 +879,72 @@ describe('a reading older than the freshness law allows', () => {
     mount();
     const line = await screen.findByText(/^Stale/);
     expect(line.textContent).toBe('Stale: older than 7 days, so it decides nothing');
+  });
+});
+
+describe('the island current values, on the card', () => {
+  it('reads an Observer at 137.42 with Resident unreached and the door at 180', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 137.42, tier: 'Observer' }));
+    mount();
+    const rungs = await ladderRows();
+    expect(rungs[2]).toMatch(/^Resident\s*180°/);
+    expect(rungs[2]).not.toContain('reached');
+    expect(rungs[2]).toContain('At 180 degrees you reach Resident, the tier that may plant a launch here.');
+    expect(screen.getByText('the door opens at 180° · Resident')).toBeTruthy();
+    expect(screen.getByText('Cannot launch a token yet')).toBeTruthy();
+  });
+
+  it('lights every rung for an Elder and hangs the launch sentence under Resident', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 20695, tier: 'Elder' }));
+    mount();
+    const rungs = await ladderRows();
+    expect(rungs.map((r) => r.match(/^([A-Za-z]+)\s*(\d+)°/)?.slice(1))).toEqual([
+      ['Drifter', '0'], ['Observer', '30'], ['Resident', '180'], ['Builder', '365'], ['Elder', '1000'],
+    ]);
+    expect(rungs.every((r) => r.includes('reached'))).toBe(true);
+    expect(rungs[2]).toContain('At 180 degrees you reach Resident, the tier that may plant a launch here.');
+    expect(screen.getByText('the door opens at 180° · Resident')).toBeTruthy();
+  });
+});
+
+describe('the maths fold carries the island sentences, never a formula', () => {
+  const BOLD =
+    'Heat counts the days you have held each token. It is read per token and added together across everything you hold. Size can raise what a day is worth, it cannot buy a day, and price never enters it.';
+
+  async function openMaths() {
+    const view = mount();
+    fireEvent.click(await screen.findByRole('button', { name: /how is this calculated/i }));
+    return view;
+  }
+
+  it('opens on the bold sentence, then Days, Size and Weight', async () => {
+    await openMaths();
+    expect(screen.getByText(BOLD).tagName).toBe('STRONG');
+    expect(screen.getByText('Your clock on a token starts at your first hold.')).toBeTruthy();
+    expect(
+      screen.getByText('A real position earns a full day. The largest holders earn up to two. Dust earns nothing.'),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /The Apes carry triple weight, JBM and BAYLA carry their edge, the home team leans warm, and every measured token counts\./,
+      ),
+    ).toBeTruthy();
+    const fold = screen.getByText(BOLD).closest('p')!.parentElement!;
+    const labels = [...fold.querySelectorAll('li > strong')].map((e) => e.textContent);
+    expect(labels).toEqual(['Days', 'Size', 'Weight']);
+  });
+
+  it('prints no formula line, no TWAB and no whole-held-time average', async () => {
+    const { container } = await openMaths();
+    const text = container.textContent ?? '';
+    expect(text).toContain(BOLD);
+    expect(text).not.toMatch(/heat\s*=|weight\s*×|TWAB|time-weighted|average is taken|whole held time|the formula/i);
+  });
+
+  it('lists the tiers on your total with their meanings in time', async () => {
+    await openMaths();
+    for (const meaning of ['a month', 'half a year', 'a year', 'a thousand days']) {
+      expect(screen.getByText(meaning)).toBeTruthy();
+    }
   });
 });

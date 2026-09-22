@@ -14,9 +14,8 @@
  * pass the defect.
  *
  * RULING 4. The launch floor is read (heatLaunchFloor) and the tier word beside
- * it must be derived from it, never typed: at 123 no tier is named, at 150 the
- * sentence says Builder. The island's own mutation for this is "retype Resident
- * and the 150 fixture goes red".
+ * it must be derived from it, never typed: at 123 no tier is named, at 365 the
+ * sentence says Builder. Retyping Resident turns the 365 fixture red.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { Suspense } from 'react';
@@ -73,16 +72,16 @@ describe('the launch floor sentence (ruling 4)', () => {
     vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '123');
     const { container } = mount();
     expect(screen.getByText('The launch door opens at 123 degrees.')).toBeTruthy();
-    // tierFor(123) is Resident, because a floor BETWEEN rungs still sits above
+    // tierFor(123) is Observer, because a floor BETWEEN rungs still sits above
     // one. That is exactly the word that must not appear beside 123.
     expect(container.textContent).not.toMatch(/you reach/);
   });
 
   it('names the tier the floor sits exactly on, derived and never typed', () => {
-    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '365');
     const { container } = mount();
     expect(
-      screen.getByText('At 150 degrees you reach Builder, the tier that may plant a launch here.'),
+      screen.getByText('At 365 degrees you reach Builder, the tier that may plant a launch here.'),
     ).toBeTruthy();
     expect(container.textContent).not.toContain('reach Resident');
   });
@@ -90,8 +89,20 @@ describe('the launch floor sentence (ruling 4)', () => {
   it('reads today’s sentence at the default floor', () => {
     mount();
     expect(
-      screen.getByText('At 80 degrees you reach Resident, the tier that may plant a launch here.'),
+      screen.getByText('At 180 degrees you reach Resident, the tier that may plant a launch here.'),
     ).toBeTruthy();
+  });
+});
+
+describe('the explainer is the island sentence', () => {
+  it('explains heat in the island words, with no formula', () => {
+    const { container } = mount();
+    expect(
+      screen.getByText(
+        'Heat counts the days you have held each token. It is read per token and added together across everything you hold. Size can raise what a day is worth, it cannot buy a day, and price never enters it.',
+      ),
+    ).toBeTruthy();
+    expect(container.textContent).not.toMatch(/as a share of its supply|a fresh bag starts cold/);
   });
 });
 
