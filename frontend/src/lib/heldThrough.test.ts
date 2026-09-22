@@ -306,6 +306,7 @@ describe('the lighthouse pool read is the one the Streamflow SDK pins', () => {
     expect(r.stakeEntry.seeds).toEqual(['utf8:stake-entry', 'stakePool', 'authority', 'u32le:nonce']);
     expect(r.stakeEntry.discriminator).toEqual(sf.STAKE_ENTRY_DISCRIMINATOR);
     expect(r.stakeEntry.discriminator).toEqual(idl.accounts.find((a) => a.name === 'StakeEntry')!.discriminator);
+    expect(r.stakePool.discriminator).toEqual(idl.accounts.find((a) => a.name === 'StakePool')!.discriminator);
     const memcmp = r.stakeEntry.filters.flatMap((f) => ('memcmp' in f ? [f.memcmp] : []));
     expect(memcmp).toEqual([
       { offset: sf.STAKE_ENTRY_BYTE_OFFSETS.stakePool, bytes: 'stakePool' },
@@ -336,6 +337,16 @@ describe('the lighthouse pool read is the one the Streamflow SDK pins', () => {
 
   it('says the stake-mint receipt is not principal', () => {
     expect(r.notPrincipal).toMatch(/stake_mint/);
+  });
+
+  it('gives a nonce range to derive from, so the read runs without a program scan', () => {
+    // The venue's own staking path is the witness for the bound: it takes the lowest
+    // nonce under 256 the wallet does not already hold, so 0..255 covers every entry.
+    const staking = read(resolve(HERE, 'bungalowStaking.ts'));
+    const vacant = /export function nextVacantNonce[\s\S]*?\n\}/.exec(staking)![0];
+    expect(vacant).toMatch(/n < 256/);
+    expect(r.stakeEntry.nonces).toMatch(/0 to 255/);
+    expect(r.stakeEntry.nonces).toMatch(/without a program scan/i);
   });
 });
 
@@ -419,6 +430,7 @@ describe('the published spec alone reproduces recorded mainnet positions', () =>
     expect(field(e, r.stakeEntry.layout, 'closed_ts')).toBe(0n);
 
     const pool = acct('lighthousePool');
+    expect(Array.from(pool.subarray(0, 8))).toEqual(r.stakePool.discriminator);
     expect(c.vault).toBe(sol.accounts.lighthouseVault.address);
     expect(field(pool, r.stakePool.layout, 'vault')).toBe(c.vault);
     expect(field(pool, r.stakePool.layout, 'mint')).toBe(c.tokens[0]!.address);
@@ -426,6 +438,20 @@ describe('the published spec alone reproduces recorded mainnet positions', () =>
     const vault = acct('lighthouseVault').readBigUInt64LE(doc.conventions.tokenAccountAmountOffset);
     expect(total).toBe(2_700_285_885_758n);
     expect(vault >= total).toBe(true);
+  });
+
+  it('tells a reader to take the token program from the mint, which here is not SPL Token', () => {
+    const SPL_TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+    const c = byId(doc, 'bayla-ladder-pool');
+    const r = c.read as Extract<HeldContract['read'], { position: unknown }>;
+    // The program that owns the mint is the program that owns its token accounts:
+    // both BAYLA vaults are Token-2022, so a reader who assumes SPL Token finds nothing.
+    const tokenProgram = field(acct('ladderPool'), r.pool.layout, 'token_program');
+    expect(tokenProgram).toBe(sol.accounts.ladderStakeVault.owner);
+    expect(tokenProgram).toBe(sol.accounts.lighthouseVault.owner);
+    expect(tokenProgram).not.toBe(SPL_TOKEN);
+    expect(doc.conventions.solanaTokenProgram).toMatch(/mint account/);
+    expect(doc.conventions.solanaTokenProgram).toMatch(/SPL Token/);
   });
 });
 
