@@ -30,7 +30,7 @@ git argument containing `:.github` (Git Bash mangles it). Gotchas: `docs/DEVELOP
 
 ## The one to-do
 
-`docs/TODO_OPERATOR.md`. Every other plan document is history and opens with a pointer there.
+`docs/TODO_OPERATOR.md`. Every other plan in `docs/` and `docs/archive/` is history and opens with a pointer there.
 
 ## Laws, one line each
 
