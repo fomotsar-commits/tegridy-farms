@@ -207,6 +207,9 @@ const USER_L = {
   rewardsCarried: 78, principal: 94,
 } as const;
 
+/** The decoders' offsets. heldThrough.test.ts holds the published layouts to them. */
+export { POOL_L as POOL_LAYOUT, POSITION_L as POSITION_LAYOUT, USER_L as USER_STATS_LAYOUT };
+
 /* ─────────────────────────── views ─────────────────────────── */
 
 export interface LadderPoolView {

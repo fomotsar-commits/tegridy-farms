@@ -442,6 +442,7 @@ const LIVE_SELECTORS: Record<string, string> = {
 };
 const SOLIDITY: Record<string, string> = {
   'lighthouse-ladder': 'contracts/src/LighthouseLadder.sol',
+  'lighthouse-staking': 'contracts/src/vendor/synthetix-staking-rewards/StakingRewards.sol',
   'tegridy-staking': 'contracts/src/TegridyStaking.sol',
   'tegridy-pair': 'contracts/src/TegridyPair.sol',
   'tegridy-lp-farming': 'contracts/src/TegridyLPFarming.sol',
