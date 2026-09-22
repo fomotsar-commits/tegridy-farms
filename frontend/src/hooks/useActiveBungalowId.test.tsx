@@ -4,6 +4,7 @@
 // reaches the new room before paint, and one that has nothing new stays put.
 
 import { describe, it, expect, afterEach } from 'vitest';
+import { memo } from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { useActiveBungalowId } from './useActiveBungalowId';
 import { BungalowDoor, VENUE_ID } from '../components/bungalow/BungalowDoor';
@@ -56,6 +57,30 @@ describe('useActiveBungalowId', () => {
       </>,
     );
     expect(renders[0], 'the probe renders first and reads the old skin').toBeNull();
+    expect(screen.getByTestId('probe').textContent).toBe('bayla');
+  });
+
+  it('a memoized subscriber that bails out of the render still reaches the new room', () => {
+    // TopNav and BottomNav are React.memo: they do not re-render when a door
+    // opens on another route, so only the door's announce reaches them.
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, VENUE_ID);
+    const { Probe, renders } = probe();
+    const Memoized = memo(Probe);
+    const { rerender } = render(
+      <>
+        <Memoized />
+        <span />
+      </>,
+    );
+    expect(renders).toEqual([null]);
+    rerender(
+      <>
+        <Memoized />
+        <BungalowDoor id="bayla">
+          <div />
+        </BungalowDoor>
+      </>,
+    );
     expect(screen.getByTestId('probe').textContent).toBe('bayla');
   });
 
