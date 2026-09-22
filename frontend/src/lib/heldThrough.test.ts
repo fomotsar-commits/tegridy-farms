@@ -1,12 +1,9 @@
 // @vitest-environment node
 //
-// NODE, not jsdom: PublicKey.findProgramAddressSync fails every bump under jsdom
-// (the same choice ladder/program.test.ts makes).
-//
+// NODE, not jsdom: PublicKey.findProgramAddressSync fails every bump under jsdom.
 // Every read held-through.json publishes is pinned to a witness outside this module:
-// state.rs and lib.rs for the ladder, the Streamflow SDK and its IDL for the lighthouse
-// pools, the Solidity for EVM, and a recorded mainnet fixture that the published spec
-// alone must reproduce.
+// state.rs and lib.rs, the Streamflow SDK and its IDL, the Solidity for EVM, and a
+// recorded mainnet fixture that the published spec alone must reproduce.
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
