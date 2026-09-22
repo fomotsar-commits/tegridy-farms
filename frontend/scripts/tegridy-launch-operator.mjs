@@ -114,7 +114,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { redactRpcUrl } from './lib/redact-url.mjs';
+import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
 import { register } from 'node:module';
 
 // ─── Self-contained loader: make the bundler-targeted TS module run under Node ───

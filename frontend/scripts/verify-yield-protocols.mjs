@@ -98,7 +98,7 @@ import {
   encodeAbiParameters, HttpRequestError,
 } from 'viem';
 import { readFileSync } from 'node:fs';
-import { redactRpcUrl } from './lib/redact-url.mjs';
+import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
 import { fileURLToPath } from 'node:url';
 import { mainnet } from 'viem/chains';
 

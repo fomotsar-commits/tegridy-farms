@@ -33,7 +33,7 @@
  */
 import { spawn } from 'node:child_process';
 import { startForkRelay } from './fork-relay.mjs';
-import { redactRpcUrl } from './lib/redact-url.mjs';
+import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createServer } from 'node:net';
 import { pathToFileURL } from 'node:url';

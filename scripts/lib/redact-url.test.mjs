@@ -62,17 +62,21 @@ const KEYED = `https://${HOST}/v2/${KEY}`;
  * flags it for a good reason: `https://evil.example.com/?x=eth-mainnet.g.alchemy.com`
  * would satisfy a substring check. The strict form is also the better assertion --
  * it proves the redactor kept the host AS the host, not merely somewhere in its output.
+ *
+ * It EXTRACTS the URL before parsing it, so it also accepts a whole emitted LINE --
+ * `rpc     https://.../v2/***` -- and not only a bare URL. Every surface this file
+ * guards prints the endpoint inside a line, and a helper that could only parse a bare
+ * URL would push the next caller who asserts on a real line straight back into a
+ * substring check. (This form started in frontend/scripts/lib/redact-url.test.mjs,
+ * whose bayla-ladder-ops call site is a two-line header; it lives here now.)
  */
 function assertRedacted(emitted, { key = KEY, host = HOST } = {}) {
-  assert.ok(!emitted.includes(key), `emitted the whole key: ${emitted}`);
-  assert.ok(!emitted.includes(key.slice(0, 8)), `emitted a usable key prefix: ${emitted}`);
-  let parsed;
-  try {
-    parsed = new URL(emitted);
-  } catch {
-    assert.fail(`expected a parseable URL so the host can be compared exactly, got: ${emitted}`);
-  }
-  assert.equal(parsed.host, host, `lost the host, which is why the line exists: ${emitted}`);
+  const text = String(emitted);
+  assert.ok(!text.includes(key), `emitted the whole key: ${text}`);
+  assert.ok(!text.includes(key.slice(0, 8)), `emitted a usable key prefix: ${text}`);
+  const found = text.match(/\bhttps?:\/\/[^\s'"`]+/);
+  if (!found) assert.fail(`expected a parseable URL so the host can be compared exactly, got: ${text}`);
+  assert.equal(new URL(found[0]).host, host, `lost the host, which is why the line exists: ${text}`);
 }
 
 describe('redactRpcUrl -- the host survives, the credential does not', () => {
@@ -98,16 +102,25 @@ describe('redactRpcUrl -- the host survives, the credential does not', () => {
     // `?<key>` with no `=` is masked WHOLE. Read as a parameter NAME it would have been
     // printed in full, because names are kept -- this is the case that catches that.
     assert.equal(redactRpcUrl(`https://x.example.com/?${KEY}`), 'https://x.example.com/?***');
+    // ...and still masked whole when it sits BESIDE a named parameter, rather than the
+    // named one's handling leaking into it.
+    assert.equal(redactRpcUrl(`https://x.example.com/?network=solana&${KEY}`), 'https://x.example.com/?network=***&***');
+    // The other common spelling. Parameter names are not a list the redactor knows.
+    assertRedacted(redactRpcUrl(`https://mainnet.helius-rpc.com/?apikey=${KEY}`), { host: 'mainnet.helius-rpc.com' });
   });
 
   test('masks userinfo, and still says one was there', () => {
     const out = redactRpcUrl(`https://apikey:${KEY}@rpc.example.com/`);
     assertRedacted(out, { host: 'rpc.example.com' });
     assert.equal(out, 'https://***@rpc.example.com');
+    // The key as the USERNAME with no password -- a different field of the parsed URL,
+    // and the shape some providers actually use.
+    assert.equal(redactRpcUrl(`https://${KEY}@rpc.example.com/`), 'https://***@rpc.example.com');
   });
 
   test('masks a fragment', () => {
     assert.equal(redactRpcUrl(`https://${HOST}/rpc#${KEY}`), `https://${HOST}/rpc#***`);
+    assertRedacted(redactRpcUrl(`https://${HOST}/v2/x#${KEY}`));
   });
 
   test('leaves a keyless public endpoint EXACTLY as it was', () => {
@@ -117,7 +130,11 @@ describe('redactRpcUrl -- the host survives, the credential does not', () => {
       'https://ethereum-rpc.publicnode.com',
       'https://eth.drpc.org',
       'https://api.devnet.solana.com',
+      // The Solana ops CLIs' mainnet default: the value an operator reads back to
+      // confirm a ceremony is NOT on devnet, so it must survive untouched.
+      'https://api.mainnet-beta.solana.com',
       'http://127.0.0.1:8545',
+      'http://127.0.0.1:8899',
     ]) {
       assert.equal(redactRpcUrl(url), url);
     }
@@ -245,6 +262,13 @@ describe('the host assertion itself -- pinning the CodeQL fix', () => {
     // to echo something it could not parse. It is not a redacted host, though, and a
     // helper that shrugged at it would stop proving half the invariant.
     assert.throws(() => assertRedacted('rpc     [unreadable endpoint]'), /parseable URL/);
+  });
+
+  test('a whole emitted LINE is checked, not only a bare URL', () => {
+    // What every guarded surface actually prints. A helper that parsed `emitted` whole
+    // would throw here, and the obvious "fix" for that is a substring check.
+    assertRedacted(`rpc     ${redactRpcUrl(KEYED)}`);
+    assert.throws(() => assertRedacted(`rpc     ${KEYED}`), /key/);
   });
 });
 

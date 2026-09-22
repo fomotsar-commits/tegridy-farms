@@ -103,7 +103,7 @@ import {
 // tokens to land in and the instruction fails on a missing account. The IDEMPOTENT
 // form is safe to prepend unconditionally - it is a no-op when the ATA exists.
 import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
-import { redactRpcUrl } from './lib/redact-url.mjs';
+import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -1545,7 +1545,8 @@ const USAGE = `bayla-ladder ops
  * The rpc line exists so an operator can see they are NOT on the devnet default below,
  * which is the only local signal that a mainnet ceremony is pointed at mainnet. It is a
  * function so that what is emitted can be tested: it used to interpolate the raw `--rpc`
- * value, which printed the endpoint's API key on every run. See lib/redact-url.mjs.
+ * value, which printed the endpoint's API key on every run. See scripts/lib/redact-url.mjs
+ * at the repo root, the one copy of the redactor shared with scripts/ and contracts/.
  */
 function headerLines({ programId, rpc }) {
   return [
