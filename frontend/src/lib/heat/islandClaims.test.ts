@@ -25,7 +25,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { extname, join, relative } from 'node:path';
+import ts from 'typescript';
 import * as oracle from './heatOracle';
 import { VENUE } from '../arrival';
 
@@ -151,20 +152,99 @@ describe('the launch floor is the island word', () => {
   });
 });
 
+// Shipped source: src and api (tests excluded), public's text files, index.html and
+// middleware.js. userText() is what a file can put in front of a reader: a script's
+// string literals, template text and JSX text read from the TypeScript AST (so no
+// comment, and no `/*` inside a string, hides or adds anything); any other file whole,
+// minus HTML comments. HTML entities are decoded in both.
+const ROOT = process.cwd();
+const TEXT = /\.(tsx?|jsx?|mjs|cjs|html|json|txt|xml|webmanifest)$/;
+function shipped(): string[] {
+  const files = walk(SRC);
+  const stack = [join(ROOT, 'api'), join(ROOT, 'public')];
+  while (stack.length) {
+    const dir = stack.pop()!;
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name !== '__tests__') stack.push(p);
+      } else if (TEXT.test(e.name) && !/\.test\./.test(e.name)) files.push(p);
+    }
+  }
+  return [...files, join(ROOT, 'index.html'), join(ROOT, 'middleware.js')];
+}
+
+const SCRIPT: Record<string, ts.ScriptKind> = {
+  '.ts': ts.ScriptKind.TS,
+  '.tsx': ts.ScriptKind.TSX,
+  '.js': ts.ScriptKind.JS,
+  '.jsx': ts.ScriptKind.JSX,
+  '.mjs': ts.ScriptKind.JS,
+  '.cjs': ts.ScriptKind.JS,
+};
+const NAMED: Record<string, string> = { times: '×', middot: '·', sdot: '⋅', minus: '−', nbsp: ' ', amp: '&', apos: "'", quot: '"', deg: '°' };
+function decode(s: string): string {
+  return s.replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (m, e: string) => {
+    if (e[0] !== '#') return NAMED[e] ?? m;
+    const n = /^#[xX]/.test(e) ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+    return n <= 0x10ffff ? String.fromCodePoint(n) : m;
+  });
+}
+function userText(file: string): string {
+  const raw = readFileSync(file, 'utf8');
+  const kind = SCRIPT[extname(file)];
+  const parts: string[] = [];
+  if (kind === undefined) {
+    parts.push(/\.(html|xml)$/.test(file) ? raw.replace(/<!--[\s\S]*?-->/g, ' ') : raw);
+  } else {
+    const visit = (n: ts.Node): void => {
+      if (
+        ts.isStringLiteral(n) ||
+        ts.isNoSubstitutionTemplateLiteral(n) ||
+        ts.isTemplateHead(n) ||
+        ts.isTemplateMiddle(n) ||
+        ts.isTemplateTail(n) ||
+        ts.isJsxText(n)
+      ) {
+        parts.push(n.text);
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(ts.createSourceFile(file, raw, ts.ScriptTarget.Latest, false, kind));
+  }
+  return decode(parts.join('\n'));
+}
+// Read once, while the file is collected: parsing every shipped file can outlast one
+// test's timeout on a loaded machine.
+const SHIPPED = new Map(shipped().map((f) => [f, userText(f)] as const));
+const shown = (file: string): string => SHIPPED.get(file) ?? '';
+
+describe('the guards below read what a reader is shown', () => {
+  it('sees strings, JSX text with its entities decoded, and the first frame', () => {
+    expect(SHIPPED.size).toBeGreaterThan(800);
+    expect(shown(join(SRC, 'lib', 'arrival.ts'))).toContain(VENUE.heatDays);
+    // prose() loses this item: its block strip starts at the `/*` in '/splash/*.png'.
+    expect(shown(join(SRC, 'pages', 'ChangelogPage.tsx'))).toContain('Added reentrancy tests for NFT Pool contracts');
+    expect(shown(join(SRC, 'pages', 'SecurityPage.tsx'))).toContain("the venue's record");
+    expect(shown(join(ROOT, 'index.html'))).toContain('Your heat already exists.');
+    expect(shown(join(ROOT, 'middleware.js'))).toContain('Held time counts here.');
+    expect(shown(join(SRC, 'components', 'HeatCard.tsx'))).not.toContain('VENUE.heatPlain');
+  });
+});
+
 // The venue reads heat and never computes it, so it carries sentences, never a
-// formula. User-facing source is what prose() leaves of every src/**/*.{ts,tsx,js,jsx}
-// that is not a test: block comments, // lines and * lines are stripped.
+// formula. An `x` counts as an operator only standing alone, so `?heat=0x…` is not one.
 describe('no formula, TWAB or time-weighted in user-facing source', () => {
   const GUARDS: [string, RegExp][] = [
-    ['a formula line', /\bheat\s*=\s*\w+\s*[×·*x]|weight\s*[×·*]\s*\(|days held\s*[×·*]\s*rate|1\s*[−-]\s*e\s*\^/i],
+    ['a formula line', /\bheat\s*=\s*\w+(?:\s*[×·⋅*]|\s+x\s)|weight\s*[×·⋅*]\s*\(|days held\s*[×·⋅*]\s*rate|1\s*[−-]\s*e\s*\^/i],
     ['TWAB', /\bTWAB\b/],
     ['time-weighted', /time[- ]weighted/i],
   ];
   for (const [name, re] of GUARDS) {
     it(`states no ${name}`, () => {
-      const offenders = walk(SRC).flatMap((f) => {
-        const m = re.exec(prose(f));
-        return m ? [`${f.slice(SRC.length + 1)}: "${m[0]}"`] : [];
+      const offenders = [...SHIPPED].flatMap(([f, text]) => {
+        const m = re.exec(text);
+        return m ? [`${relative(ROOT, f)}: "${m[0]}"`] : [];
       });
       expect(offenders, `${name} in user-facing source:\n${offenders.join('\n')}`).toEqual([]);
     });
@@ -177,37 +257,10 @@ describe('no formula, TWAB or time-weighted in user-facing source', () => {
   });
 });
 
-// The island is linked by its public paths, never memetics.wtf/island. Shipped source
-// is src and api (tests excluded), public's text files, index.html and middleware.js,
-// read line by line minus comment lines: prose()'s block strip can swallow code after
-// a `/*` inside a // comment, and a link must not hide there.
+// The island is linked by its public paths, never memetics.wtf/island.
 describe('no link to memetics.wtf/island', () => {
-  const ROOT = process.cwd();
-  const TEXT = /\.(tsx?|jsx?|mjs|html|json|txt|xml|webmanifest)$/;
-  function shipped(): string[] {
-    const files = walk(SRC);
-    const stack = [join(ROOT, 'api'), join(ROOT, 'public')];
-    while (stack.length) {
-      const dir = stack.pop()!;
-      for (const e of readdirSync(dir, { withFileTypes: true })) {
-        const p = join(dir, e.name);
-        if (e.isDirectory()) {
-          if (e.name !== '__tests__') stack.push(p);
-        } else if (TEXT.test(e.name) && !/\.test\./.test(e.name)) files.push(p);
-      }
-    }
-    return [...files, join(ROOT, 'index.html'), join(ROOT, 'middleware.js')];
-  }
-
   it('names it in no shipped source', () => {
-    const files = shipped();
-    expect(files.length).toBeGreaterThan(800);
-    const code = (f: string) =>
-      readFileSync(f, 'utf8')
-        .split('\n')
-        .filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l))
-        .join('\n');
-    const offenders = files.filter((f) => /memetics\.wtf\/+island/i.test(code(f)));
+    const offenders = [...SHIPPED].filter(([, text]) => /memetics\.wtf\/+island/i.test(text)).map(([f]) => relative(ROOT, f));
     expect(offenders, `memetics.wtf/island is linked from:\n${offenders.join('\n')}`).toEqual([]);
   });
 });
