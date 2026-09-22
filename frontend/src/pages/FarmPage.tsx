@@ -33,6 +33,7 @@ import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
 import { getActiveBungalow, DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
+import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
 import { isToweliVoice } from '../lib/arrival';
 import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
 import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
@@ -54,9 +55,8 @@ import { ArtImg } from '../components/ArtImg';
  * (staking card, LP farming, boosts) is the wrong token and the wrong chain,
  * so the route renders the bungalow's own self-gating farm panel instead.
  * The branch lives in this wrapper — NOT as an early return inside the farm
- * component — so the classic component's hook order is untouched. The active
- * bungalow can only change via persist+reload, so the branch is stable for
- * the lifetime of the document.
+ * component — so the classic component's hook order is untouched. The branch
+ * re-reads when the skin is switched in place (VenuePoolIndex's "Open").
  *
  * ⚠️ THE THIRD STATE, ADDED 2026-09-05, AND THE BUG IT CLOSES.
  * This wrapper had TWO branches, and `getActiveBungalow()` returns null when
@@ -79,9 +79,10 @@ import { ArtImg } from '../components/ArtImg';
  * one door away, and VenuePoolIndex links to it by name.
  */
 export default function FarmPage() {
+  useActiveBungalowId();
   const bungalow = getActiveBungalow();
   if (bungalow && bungalow.id !== DEFAULT_BUNGALOW_ID) {
-    return <BungalowFarmPanel bungalow={bungalow} />;
+    return <BungalowFarmPanel key={bungalow.id} bungalow={bungalow} />;
   }
   // The venue speaks for the whole island, not for one resident.
   if (!isToweliVoice()) return <VenueEarn />;

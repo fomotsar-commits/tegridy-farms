@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router-dom';
 import React from 'react';
 import { useAccount } from 'wagmi';
-import { TRADE_ROUTE } from '../../lib/navConfig';
+import { tradeRoute } from '../../lib/navConfig';
+import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 
 /**
  * Bottom nav tabs — the venue's execution words, on a phone.
@@ -27,12 +28,14 @@ import { TRADE_ROUTE } from '../../lib/navConfig';
  * five hardcoded routes would be more indirection than it removes. The routes
  * ARE section hubs, and navConfig.test.ts asserts every one of them is.
  */
+// Swap's route follows the room (tradeRoute), so it is completed at render.
+const SWAP_TAB = { label: 'Swap', icon: (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <path d="M7 10l5-5 5 5M7 14l5 5 5-5" />
+  </svg>
+)};
+
 const TABS = [
-  { to: TRADE_ROUTE, label: 'Swap', icon: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M7 10l5-5 5 5M7 14l5 5 5-5" />
-    </svg>
-  )},
   { to: '/liquidity', label: 'Pools', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3c3.5 4.2 5.5 7 5.5 9.5a5.5 5.5 0 0 1-11 0C6.5 10 8.5 7.2 12 3z" />
@@ -62,7 +65,8 @@ const DASHBOARD_TAB = { to: '/dashboard', label: 'Dashboard', icon: (
 
 export const BottomNav = React.memo(function BottomNav() {
   const { isConnected } = useAccount();
-  const tabs = isConnected ? [...TABS, DASHBOARD_TAB] : TABS;
+  useActiveBungalowId();
+  const tabs = [{ ...SWAP_TAB, to: tradeRoute() }, ...TABS, ...(isConnected ? [DASHBOARD_TAB] : [])];
   return (
     // R038 / F13, CORRECTED 2026-09-03: this bar hides at >=800px, where the
     // TopNav primary nav switches in (TopNav uses `min-[800px]:flex`). It used to

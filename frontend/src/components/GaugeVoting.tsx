@@ -13,7 +13,7 @@ import { ArtImg } from './ArtImg';
 import { useGaugeList } from '../hooks/useGaugeList';
 import { artImgProps } from '../lib/artSrcSet';
 
-const GAUGE_STAT_ARTS = [pageArt('gauge-voting', 0), pageArt('gauge-voting', 1), pageArt('gauge-voting', 2)];
+const gaugeStatArts = () => [pageArt('gauge-voting', 0), pageArt('gauge-voting', 1), pageArt('gauge-voting', 2)];
 
 // ─── Commit-Reveal Local Storage ────────────────────────────────────
 // We persist {salt, gauges, weights, commitmentHash} per (chainId, voter, tokenId, epoch)
@@ -103,6 +103,7 @@ function useCountdown(targetTimestamp: number) {
 
 export function GaugeVoting() {
   const { address, isConnected } = useAccount();
+  const statArts = gaugeStatArts();
   const chainId = useChainId();
   const [weights, setWeights] = useState<Record<string, number>>({});
   // mode: 'commit' = two-step commit-reveal (default; H-2 mitigation),
@@ -359,7 +360,7 @@ export function GaugeVoting() {
         ].map(({ label, value, sub }, i) => (
           <div key={label} className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
             <div className="absolute inset-0">
-              <img src={GAUGE_STAT_ARTS[i % GAUGE_STAT_ARTS.length]!.src} {...artImgProps(GAUGE_STAT_ARTS[i % GAUGE_STAT_ARTS.length]!.src)} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <img src={statArts[i % statArts.length]!.src} {...artImgProps(statArts[i % statArts.length]!.src)} alt="" loading="lazy" className="w-full h-full object-cover" />
                 </div>
             <div className="relative z-10 p-4">
               <p className="text-[11px] text-white/60 uppercase tracking-wider mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{label}</p>

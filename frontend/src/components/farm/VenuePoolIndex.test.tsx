@@ -2,7 +2,7 @@
 // re-reads the room through the skin store. A document navigation would load
 // the app again for a switch the store already carries.
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { VenuePoolIndex } from './VenuePoolIndex';
@@ -10,7 +10,12 @@ import { BUNGALOW_STORAGE_KEY, BUNGALOWS, subscribeActiveBungalow } from '../../
 
 let realLocation: Location | null = null;
 
+beforeEach(() => {
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+});
+
 afterEach(() => {
+  vi.restoreAllMocks();
   if (realLocation) Object.defineProperty(window, 'location', { configurable: true, writable: true, value: realLocation });
   realLocation = null;
   localStorage.clear();
@@ -41,6 +46,7 @@ describe('VenuePoolIndex', () => {
     expect(assign, 'no document navigation').not.toHaveBeenCalled();
     expect(localStorage.getItem(BUNGALOW_STORAGE_KEY)).toBe(room.id);
     expect(path).toBe('/farm');
+    expect(window.scrollTo, 'the room opens at its top').toHaveBeenCalledWith(0, 0);
   });
 
   it('announces the switch, so the page and the nav read the new room', () => {

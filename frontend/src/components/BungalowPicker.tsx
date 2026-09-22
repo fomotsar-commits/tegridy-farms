@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { Modal } from './ui/Modal';
 import { artSrcSet } from '../lib/artSrcSet';
 import { isToweliVoice } from '../lib/arrival';
@@ -34,16 +35,15 @@ const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
  * picker doesn't re-open on the next visit — it is a welcome, not a gate.
  * The footer's Bungalows button reopens it any time (OPEN_BUNGALOWS_EVENT).
  *
- * Switching to a different bungalow persists the choice and reloads:
- * `pageArt()` is consumed at module scope in places (loader constants,
- * STAT_ARTS), so a reload is the only way every surface re-resolves
- * consistently — and it matches the app's existing splash-replay pattern.
+ * Picking another bungalow walks through its door inside the app: the door
+ * at /<id> switches the skin in place.
  */
 export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () => void }) {
   // ARRIVAL IDENTITY 2026-08-27: no implicit Toweli default. Nothing chosen
   // means the visitor is at the venue itself, so no card claims "You are
   // here" until a door has actually been walked.
   const currentId = getActiveBungalow()?.id ?? null;
+  const navigate = useNavigate();
 
   const dismiss = () => {
     // Persist the status quo so dismissal counts as a choice and the picker
@@ -59,20 +59,13 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
     // still arrives with the community's art drop, so no choice is persisted
     // and the current skin stays.
     if (b.chain === 'tbd') return;
-    if (!b.live) {
-      onClose();
-      window.location.assign(`/${b.id}`);
-      return;
-    }
-    setActiveBungalow(b.id);
+    onClose();
     if (b.id === currentId) {
-      onClose();
+      setActiveBungalow(b.id);
       return;
     }
-    // Enter through the bungalow's front door so the address bar carries the
-    // memetics.finance/<bungalow> format. The choice is already persisted, so
-    // the door renders directly without a second reload.
-    window.location.assign(`/${b.id}`);
+    // The door writes and announces the choice; the address bar carries /<id>.
+    navigate(`/${b.id}`);
   };
 
   return (

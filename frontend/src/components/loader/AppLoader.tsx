@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import type { LoaderState, Particle } from './types';
 import {
-  LOADER_GALLERY, LOADER_WORDS, GOLD,
+  ART_COLLECTION, GOLD,
   T_CRACK_DURATION, T_EXIT_FINALIZE,
   FILM_TIMING, SKIP_DISSOLVE_MS,
 } from './constants';
@@ -21,6 +21,7 @@ import { drawCracks, drawSpiderWeb, buildExitDOM, tickRagdollShards } from './ph
 import { createMorphParticles, updateMorphParticles } from './fx/particleMorph';
 import { AudioEngine } from './fx/audio';
 import { PostFX } from './fx/postfx';
+import { loaderIdentity } from '../../lib/arrival';
 
 // THE OVERLAY ONLY. `children` used to be rendered here, then by an eager shell in
 // ./index.tsx (PERF-16) so the app tree was not held behind this module's lazy
@@ -90,6 +91,8 @@ export function AppLoader({
     vortexCenterY: 0,
     trailParticles: [],
     audioInitialized: false,
+    words: { main: '', sub: '' },
+    subliminal: [],
   });
 
   // A PARENT RE-RENDER IS NOT A NEW FILM.
@@ -198,6 +201,10 @@ export function AppLoader({
     const s = stateRef.current;
     s.dpr = Math.min(window.devicePixelRatio || 1, 2);
     s.isMobile = window.innerWidth < 768;
+    // The arrival voice (words, flash set, gallery) is read when the film starts.
+    const identity = loaderIdentity();
+    s.words = { main: identity.main, sub: identity.sub };
+    s.subliminal = identity.subliminal;
 
     let W = window.innerWidth;
     let H = window.innerHeight;
@@ -242,7 +249,7 @@ export function AppLoader({
     let exitDOMState: ReturnType<typeof buildExitDOM> | null = null;
 
     /* Load images */
-    const chosen = shuffle(LOADER_GALLERY).slice(0, timing.artCount);
+    const chosen = shuffle(identity.gallery ?? ART_COLLECTION).slice(0, timing.artCount);
     const srcs = chosen.map((a) => a.src);
     const titles = chosen.map((a) => a.title);
 
@@ -358,8 +365,8 @@ export function AppLoader({
       // Larger font sizes on mobile so text has enough pixel targets
       const mainSize = s.isMobile ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
       const subSize = s.isMobile ? Math.min(60, W * 0.09) : Math.min(60, W * 0.07);
-      const mainPts = getTextPixels(LOADER_WORDS.main, mainSize, W, H, -subSize * 0.5);
-      const subPts = getTextPixels(LOADER_WORDS.sub, subSize, W, H, mainSize * 0.45);
+      const mainPts = getTextPixels(s.words.main, mainSize, W, H, -subSize * 0.5);
+      const subPts = getTextPixels(s.words.sub, subSize, W, H, mainSize * 0.45);
       // Shuffle text pixel targets so particles spread evenly across the full text
       // Without this, scan-order (L→R, T→B) means the right side gets no coverage
       // when particle count < target count (1000 particles vs 3000+ targets on mobile)
@@ -475,7 +482,7 @@ export function AppLoader({
             }
           }
           if (glitchTime >= 900 && glitchTime < 1040) {
-            drawSubliminalText(ctx!, W, H);
+            drawSubliminalText(ctx!, W, H, s.subliminal);
           }
           // Spawn morph particles at start of glitch
           if (glitchTime < 50 && s.morphParticles.length === 0) {
@@ -573,9 +580,9 @@ export function AppLoader({
         ctx!.font = `bold ${mainSize}px "Inter", "Helvetica Neue", sans-serif`;
         ctx!.textAlign = 'center'; ctx!.textBaseline = 'middle';
         ctx!.fillStyle = '#fff'; ctx!.shadowColor = '#fff'; ctx!.shadowBlur = 20;
-        ctx!.fillText(LOADER_WORDS.main, W / 2, H / 2 - subSize * 0.5);
+        ctx!.fillText(s.words.main, W / 2, H / 2 - subSize * 0.5);
         ctx!.font = `bold ${subSize}px "Inter", "Helvetica Neue", sans-serif`;
-        ctx!.fillText(LOADER_WORDS.sub, W / 2, H / 2 + mainSize * 0.45);
+        ctx!.fillText(s.words.sub, W / 2, H / 2 + mainSize * 0.45);
         ctx!.restore();
         }
 

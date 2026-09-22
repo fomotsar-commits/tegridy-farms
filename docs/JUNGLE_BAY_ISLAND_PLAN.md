@@ -32,9 +32,9 @@ described is now the app's real flow:
   persisted choice); any dismissal persists, so it never nags. Reopen it
   anytime from the footer's **🏝️ Bungalows** entry (Product column), or deep
   link with **`?bungalow=bayla`** (persists and sticks).
-- **Switching = persist + reload.** `pageArt()` is consumed at module scope
-  (loader constants, stat rows), so a reload is the one honest way to
-  re-resolve every surface; within a session the splash doesn't replay.
+- **Switching is in place.** The skin is state: a door writes it during its
+  render and announces it (useActiveBungalowId); nothing reads it at module
+  scope (src/lib/skinIsState.test.ts) and nothing reloads.
 - **The URL format (operator decision 2026-08-24):**
   `memetics.finance/<bungalow>` is each bungalow's address —
   `/bayla`, `/toweli` (with `/towelie` as an alias), `/drb`, … All 13 door

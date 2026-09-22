@@ -133,22 +133,15 @@ export const PREMIUM_LIVE = isDeployed(PREMIUM_ACCESS_ADDRESS);
 export const SOLANA_LIVE = isSolanaSwapLive();
 
 /**
- * Where "Swap" goes. The venue has two swap surfaces — /swap (Ethereum) and
- * /solana (Jupiter) — and the nav used to hardcode the Ethereum one, so a
- * visitor inside a Solana bungalow clicked Trade and landed on a swap that
- * could not touch the token whose page they were standing on. The bungalow's
- * own chain decides the landing surface; ChainSwitch on both pages makes the
- * other one one click away, so this is a default, never a trap.
- *
- * Resolved at module scope, like every other gate in this file: a bungalow
- * switch persists + reloads (see bungalows.ts), so there is no live value to
- * track. Off-browser (`getActiveBungalow` returns null) it is the classic
- * Ethereum default.
+ * Where "Swap" goes: the Solana swap inside a Solana room, else the Ethereum
+ * swap. Read at render, because a door switches the room in place; ChainSwitch
+ * keeps the other chain one click away.
  */
-export const TRADE_ROUTE: string = (() => {
+export function tradeRoute(): string {
   const active = getActiveBungalow();
   return active?.chain === 'solana' && isSolanaSwapLive() ? '/solana' : '/swap';
-})();
+}
+
 
 export interface NavSection {
   /**
@@ -184,8 +177,8 @@ export interface NavSection {
 
   /**
    * Optional override for where the TOP-BAR word points, when that is not the
-   * hub. Exactly one section uses it — Swap, whose landing surface follows the
-   * active bungalow's chain (TRADE_ROUTE above).
+   * hub. Exactly one section uses it: Swap, a getter over tradeRoute() above, so
+   * it follows the active bungalow's chain at every read.
    *
    * It must still be one of this section's own `items`, which navConfig.test.ts
    * asserts: an override pointing outside the section would light no tab.
@@ -238,7 +231,9 @@ export const NAV_SECTIONS: NavSection[] = [
     hub: '/swap',
     // The top-bar word follows the active bungalow's chain; both destinations
     // are in `items`, so whichever one it resolves to lights a real tab.
-    primaryTo: TRADE_ROUTE,
+    get primaryTo() {
+      return tradeRoute();
+    },
     items: [
       { to: '/swap', label: 'Swap', tabLabel: 'Ethereum' },
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap', tabLabel: 'Solana' }] : []),
@@ -678,7 +673,9 @@ export const CHECK_SECTION = requireSection('Check');
  * `primaryTo` exists for exactly one section — see Swap.
  */
 export const PRIMARY_NAV: NavItem[] = NAV_SECTIONS.map((s) => ({
-  to: s.primaryTo ?? s.hub,
+  get to() {
+    return s.primaryTo ?? s.hub;
+  },
   label: s.heading,
 }));
 

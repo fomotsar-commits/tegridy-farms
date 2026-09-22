@@ -28,9 +28,9 @@ import { TOWELI_ADDRESS } from './constants';
  *  - Additive only (feedback_preserve_art) — classic art/copy is layered
  *    over, never edited.
  *  - Zero per-surface edits for art: `pageArt()` is the single choke point.
- *  - Synchronous resolution: `pageArt()` runs at module scope in places, so
- *    the active bungalow is a plain localStorage/query read, and switching
- *    is persist + reload.
+ *  - The skin is state: a synchronous localStorage/query read, never taken
+ *    at module scope. A door writes it during its render and announces after
+ *    commit; a caller outside render writes, then announces. Nothing reloads.
  */
 export interface BungalowIdentity {
   /** H1 first line (the token, big). */
@@ -579,9 +579,24 @@ export function hasChosenBungalow(): boolean {
   return safeGetItem(BUNGALOW_STORAGE_KEY) !== null;
 }
 
-/** Persist a choice. Callers decide whether a reload is needed (it is, when the pool changes). */
+/** Persist a choice. Silent, so a door may call it during render; announce after commit. */
 export function setActiveBungalow(id: string): boolean {
   return safeSetItem(BUNGALOW_STORAGE_KEY, id);
+}
+
+const skinListeners = new Set<() => void>();
+
+/** Subscribe to skin changes (useActiveBungalowId). Returns the unsubscribe. */
+export function subscribeActiveBungalow(listener: () => void): () => void {
+  skinListeners.add(listener);
+  return () => {
+    skinListeners.delete(listener);
+  };
+}
+
+/** Tells subscribers to re-read the skin; each re-renders only if its value moved. */
+export function announceActiveBungalow(): void {
+  for (const listener of [...skinListeners]) listener();
 }
 
 /**

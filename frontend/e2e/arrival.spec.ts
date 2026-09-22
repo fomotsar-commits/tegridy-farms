@@ -119,13 +119,10 @@ test.describe('the film keeps its home on /island', () => {
 
 test.describe('nothing opens unasked on a cold TOWELI route, and the welcomes open on a tap', () => {
   test('a cold /toweli opens no picker and no welcome, and its tour link opens the welcome', async ({ page }) => {
-    // TRULY COLD: nothing stored at all. The old auto-open picker leg needed "no
-    // bungalow chosen at mount", so a seeded 'tegridy-bungalow' switched it off
-    // before this test could see it. A cold /toweli has no choice in its FIRST
-    // document; the door then persists one and reloads in place. A dialog that
-    // opens in that first document and dies with the reload is still a dialog the
-    // visitor saw, so every insertion is stamped into sessionStorage, which the
-    // reload keeps, rather than counted once at the end.
+    // TRULY COLD: nothing stored at all, so no seeded 'tegridy-bungalow' can
+    // hide a dialog that opens before a choice exists. The door writes its choice
+    // on its first render. Every dialog insertion is stamped into sessionStorage,
+    // so a dialog that opened and closed again still counts.
     await page.addInitScript(() => {
       try { localStorage.removeItem('tegridy-onboarding-seen'); } catch { /* private mode */ }
       new MutationObserver((records) => {

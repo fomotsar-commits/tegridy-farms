@@ -9,9 +9,8 @@ import { BUNGALOWS } from '../src/lib/bungalows';
 // bungalow choice to the door under test. reducedMotion comes from
 // playwright.config.
 //
-// The door mechanic is persist + reload-in-place, so each first visit
-// triggers one full navigation; assertions use generous timeouts and the
-// URL checks read the FINAL location.
+// A door switches the skin in place on its first render, with no reload;
+// assertions keep generous timeouts for a cold production build.
 
 async function seedOverlays(page: Page) {
   await page.addInitScript(() => {
@@ -27,7 +26,7 @@ test.describe('bungalow doors', () => {
   test('/bayla enters her bungalow and keeps the address', async ({ page }) => {
     await seedOverlays(page);
     await page.goto('/bayla');
-    // Door persists + reloads in place; the hero is the post-reload proof.
+    // The door switches the skin in place; her hero is the proof.
     await expect(page.locator('h1').first()).toContainText('BAYLA', { timeout: 20_000 });
     expect(new URL(page.url()).pathname).toBe('/bayla');
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('bayla');
@@ -44,11 +43,9 @@ test.describe('bungalow doors', () => {
   test('/towelie aliases the toweli slug back to the default skin', async ({ page }) => {
     await seedOverlays(page);
     // Arrive as a Bayla resident, then walk through the alias door.
-    // SEED ONCE ONLY: init scripts re-run on every document, and the door
-    // works by persist + reload — an unconditional seed would rewrite
-    // 'bayla' after the door's write and reload-loop forever. The
-    // sessionStorage sentinel survives the reload, so only the first
-    // document gets the seed.
+    // SEED ONCE ONLY: init scripts run on every document of the tab, so an
+    // unconditional seed would overwrite the door's write on any later load.
+    // The sessionStorage sentinel keeps the seed to the first document.
     await page.addInitScript(() => {
       try {
         if (!sessionStorage.getItem('__door_test_seeded')) {
@@ -75,7 +72,7 @@ test.describe('bungalow doors', () => {
       } catch { /* ignore */ }
     });
     await page.goto('/drb');
-    // Door persists + reloads in place, same mechanic as /bayla.
+    // The door switches the skin in place, same mechanic as /bayla.
     await expect(page.locator('h1').first()).toContainText('DRB', { timeout: 20_000 });
     await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(0);
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('drb');
@@ -166,7 +163,7 @@ test.describe('bungalow doors', () => {
       await seedOverlays(page);
       await page.addInitScript((door) => {
         try {
-          // Seeded so the door's own persist-and-reload does not double the load.
+          // Seeded so the door has nothing to switch.
           // 'nb1' is deliberately not seeded: it is the QUIET slot, `live: false`,
           // and setActiveBungalow's resolver refuses it — seeding it would assert
           // a switch the app is right to refuse.
@@ -235,9 +232,8 @@ test.describe('bungalow doors', () => {
 
   test('a crafted ?bungalow= param on a door URL cannot reload-loop the tab', async ({ page }) => {
     await seedOverlays(page);
-    // Pre-fix: the param re-persisted 'toweli' on every read while the door
-    // persisted 'bayla' and reloaded — ping-pong forever. The door now strips
-    // the param before deciding, so ONE switch happens and then it settles.
+    // The query outranks storage, so the door strips the param before it
+    // decides: one switch happens and the tab settles on the door.
     await page.goto('/bayla?bungalow=toweli');
     await expect(page.locator('h1').first()).toContainText('BAYLA', { timeout: 20_000 });
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('bayla');

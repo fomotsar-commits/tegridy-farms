@@ -16,9 +16,11 @@ export interface LPPool {
   artPos: string;
 }
 
-/** Token logo URLs (self-hosted) */
+/** Token logo URLs (self-hosted). TOWELI's follows the room, so it is read on access. */
 export const TOKEN_LOGOS: Record<string, string> = {
-  TOWELI: pageArt('token-icon', 0).src,
+  get TOWELI() {
+    return pageArt('token-icon', 0).src;
+  },
   ETH: '/tokens/eth.png',
   WETH: '/tokens/weth.png',
   USDT: '/tokens/usdt.png',
