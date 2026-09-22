@@ -457,7 +457,7 @@ describe('the published spec alone reproduces recorded mainnet positions', () =>
 
 /* --------------------------------- EVM --------------------------------- */
 
-// Selectors read against the live contracts during verification (2026-09-22).
+// The selectors the deployed contracts answer to; toFunctionSelector must agree with them.
 const LIVE_SELECTORS: Record<string, string> = {
   'balanceOf(address)': '0x70a08231',
   'positions(uint256)': '0x99fbab88',
