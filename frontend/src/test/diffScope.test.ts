@@ -143,7 +143,8 @@ describe('outsideScope: only an all-docs change skips', () => {
     expect(outsideScope(files, patterns)).toBe(true);
   });
 
-  it('gives the same answer on the command line the workflows call', () => {
+  // Five node processes: seconds each on a loaded machine, so this test gets 30 s.
+  it('gives the same answer on the command line the workflows call', { timeout: 30_000 }, () => {
     const cli = (input: string, ...args: string[]) =>
       spawnSync(process.execPath, [join(REPO_ROOT, '.github', 'scripts', 'diff-scope.mjs'), ...args], {
         input,
