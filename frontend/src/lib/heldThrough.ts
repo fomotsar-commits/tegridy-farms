@@ -126,6 +126,7 @@ export interface HeldThroughBody {
     offsets: string;
     tokenAccount: string;
     tokenAccountAmountOffset: number;
+    solanaTokenProgram: string;
     evm: string;
     units: string;
   };
@@ -247,7 +248,10 @@ function streamflowRead(): StreamflowRead {
     idlVersion: STREAMFLOW_IDL_VERSION,
     stakeEntry: {
       seeds: ['utf8:stake-entry', 'stakePool', 'authority', 'u32le:nonce'],
-      nonces: 'any u32; the filters find every entry whatever its nonce',
+      nonces:
+        'any u32; the filters find every entry whatever its nonce. Without a program scan, derive the entry ' +
+        'for every n from 0 to 255: this venue stakes on the lowest nonce under 256 the wallet does not hold, ' +
+        'so that range covers every entry it opened. An absent account is a nonce never used.',
       accountSize: STAKE_ENTRY_ACCOUNT_SIZE,
       discriminator: STAKE_ENTRY_DISCRIMINATOR,
       layout: STAKE_ENTRY,
@@ -507,6 +511,10 @@ export function collectHeldThrough(opts: CollectOptions = {}): HeldThroughBody {
         `A vault balance is its token account's amount: u64 at byte ${TOKEN_ACCOUNT_AMOUNT_OFFSET}, ` +
         'the same in SPL Token and Token-2022.',
       tokenAccountAmountOffset: TOKEN_ACCOUNT_AMOUNT_OFFSET,
+      solanaTokenProgram:
+        "A Solana token's program is the owner of its mint account, and these mints are not all on one " +
+        'program: read it before deriving any token account, never assume SPL Token. The lock ladder also ' +
+        'carries it as pool.token_program.',
       evm:
         'A selector is the first 4 bytes of keccak256(signature). Arguments and returned values are 32-byte ' +
         'words; returns names the words in order.',
