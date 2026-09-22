@@ -30,7 +30,7 @@ import {
 import { fetchFlames, insertionRank } from '../lib/heat/flamesClient';
 import { heatLaunchFloor, heatGateMaxAgeDays } from '../lib/heat/heatGateConfig';
 import { shortenAddress } from '../lib/formatting';
-import { heatExampleLine } from '../lib/arrival';
+import { heatExampleLine, VENUE } from '../lib/arrival';
 import { hasInjectedWallet, readInjectedAddress } from '../lib/heat/walletFill';
 import { SITE_URL } from '../lib/constants';
 
@@ -852,32 +852,11 @@ function ScopedReading({
 }
 
 /**
- * WAVE SEVEN, element B: THE LADDER, FIVE RUNGS, FROM THE ISLAND'S OWN DIALS.
- *
- * Drifter 0 - Observer 30 - Resident 80 - Builder 150 - Elder 250, read from
- * TIER_FLOORS rather than typed, so a dial the island moves moves this. FIVE
- * rungs, not the four the explainer fold shows: that one drops Drifter because
- * 0 is not a threshold to aim at, but a ladder is where you are STANDING, and a
- * warm wallet below 30 stands on Drifter. Hiding the rung under someone's feet
- * is how a ladder starts lying about where they are.
- *
- * REACHED RUNGS ARE LIT, and under the next one, one line of arithmetic on two
- * served numbers: the rung's floor minus the degrees the island served. No
- * projection, no date, no rate - the instrument never computes a degree.
- *
- * THE LAUNCH FLOOR'S RUNG CARRIES ITS OWN SENTENCE, and the number in it is READ
- * at render time from heatLaunchFloor(), the same helper the launch gate
- * enforces with. Typing 80 would make this line disagree with the gate the day
- * an operator sets VITE_HEAT_LAUNCH_FLOOR.
- *
- * BOTH DIALS ARE CANONICAL (answer ten, ruling 4), which settles the drift this
- * comment used to name. TIER_FLOORS is the island's standard: what tier a number
- * is. heatLaunchFloor() is the venue's policy: what number opens the launch door.
- * Neither answers the other's question, so neither yields. The defect was the
- * word "Resident", TYPED beside a number that was read. So the sentence hangs
- * under the rung tierFor(floor) returns, and names a tier only when
- * tierAtFloor(floor) finds the floor exactly on one: 150 says Builder under
- * Builder, 123 names nothing under Resident.
+ * The ladder: all five rungs of TIER_FLOORS, lowest first, Drifter included because a
+ * wallet below the first threshold stands on it. Reached rungs are lit; under the next
+ * one, the rung's floor minus the served degrees. The launch sentence hangs under the
+ * rung tierFor(heatLaunchFloor()) returns and names a tier only when tierAtFloor finds
+ * the floor exactly on one. The tier word beside the wallet is the served tier.
  */
 function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeof nextTier> }) {
   const launchFloor = heatLaunchFloor();
@@ -975,34 +954,17 @@ function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
 function Maths({ degrees }: { degrees: number }) {
   return (
     <div className="mt-3 rounded-xl p-4 text-[12.5px] leading-relaxed" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid var(--color-purple-25)' }}>
-      {/* WAVE SEVEN, element K: THE WHOLE LAW, AS THE ISLAND PUBLISHES IT.
-          This block taught the SIZE TERM as if it were the entire formula, and
-          then did arithmetic on it: a what-the-curve-pays table and a
-          single-token share needed for Observer. Under weight and loyalty
-          neither of those is anybody's number, so both are retired rather than
-          corrected. The oracle's served figure is the only complete truth, and
-          the venue quotes the law rather than reproducing it. */}
+      {/* The island's sentences, never its formula: the island's law page carries that. */}
       <p className="text-white/75 mb-3">
-        The island measures one thing: <strong className="text-white">held time</strong>. Your heat
-        is read per token and summed across everything you hold, and each token&apos;s number is
-        built from three published terms:
+        <strong className="text-white">{VENUE.heatPlain}</strong>
       </p>
-
-      <div className="rounded-lg px-3 py-2.5 mb-3 font-mono text-[12px] overflow-x-auto" style={{ background: 'rgba(0,0,0,0.55)', color: 'var(--color-kyle)' }}>
-        heat = weight × ( size + loyalty )
-      </div>
 
       <ul className="space-y-1.5 mb-3 text-white/70">
         <li>
-          <strong className="text-white/85">Size</strong> is the share curve: your time-weighted
-          average balance as a share of that token&apos;s supply.{' '}
-          <span className="text-white/50">
-            TWAB is your balance at every moment rather than a snapshot.
-          </span>
+          <strong className="text-white/85">Days</strong> <span>{VENUE.heatDays}</span>
         </li>
         <li>
-          <strong className="text-white/85">Loyalty</strong> is held days and nothing else.{' '}
-          <span className="text-white/50">It anchors to your first hold and only climbs.</span>
+          <strong className="text-white/85">Size</strong> <span>{VENUE.heatSize}</span>
         </li>
         <li>
           <strong className="text-white/85">Weight</strong> is the island&apos;s published
@@ -1033,16 +995,14 @@ function Maths({ degrees }: { degrees: number }) {
         <strong className="text-white/75">continuous</strong> (your balance at every moment, not a
         snapshot), <strong className="text-white/75">zero-anchored</strong> (time before you first
         held counts as zero), and <strong className="text-white/75">velocity-blind</strong> (churn
-        earns nothing). The average is taken over{' '}
-        <strong className="text-white/75">your whole held time</strong>, which is the island&apos;s
-        own grammar for it: earned in days of staying, never in a single trade.
+        earns nothing).
       </p>
 
       <p className="text-white/40 text-[11px]">
         Three properties make it hard to fake: time before you first held counts as zero, so a new
         bag starts cold however large; churn earns nothing, only balance held across time; and price
-        never enters the formula at all. The venue reads this number — the island computes it, and
-        wherever the two disagree, the island is right.
+        never enters it. The venue reads this number. The island computes it, and wherever the two
+        disagree, the island is right.
       </p>
     </div>
   );

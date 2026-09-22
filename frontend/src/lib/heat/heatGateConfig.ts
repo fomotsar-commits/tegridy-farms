@@ -44,7 +44,7 @@ export function isHeatGateEnabled(): boolean {
 
 /**
  * The launch floor in island_heat degrees. `VITE_HEAT_LAUNCH_FLOOR` overrides.
- * The island has set it: 80 (Resident).
+ * Unset, it is LAUNCH_FLOOR: 180, Resident.
  */
 export function heatLaunchFloor(): number {
   return positiveNumberEnv(import.meta.env.VITE_HEAT_LAUNCH_FLOOR as string | undefined, LAUNCH_FLOOR);

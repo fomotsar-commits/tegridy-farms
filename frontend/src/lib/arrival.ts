@@ -124,38 +124,16 @@ export const VENUE = {
   heatPerWallet:
     "Held time is measured per wallet. A bag moved to a new wallet starts that wallet's clock at the move.",
   /**
-   * HEAT, MECHANICALLY — the sentence that has to be true.
-   *
-   * Every word here is traceable to the island's PUBLISHED law (memetics.wtf/heat,
-   * read 2026-09-06), which is heat = weight · (size + loyalty), read per token
-   * and summed across everything a wallet holds. The launch floor is 80°
-   * (Resident) per heatGateConfig.heatLaunchFloor().
-   *
-   * WAVE SEVEN, element K: this sentence used to say "Each token you hold scores
-   * 0 to 100 degrees". That was the SIZE TERM described as the whole formula, and
-   * under the published law it is false: loyalty adds on top of the share curve
-   * and weight multiplies the pair, so a token's contribution is not bounded at
-   * 100. The island's directive named HeatCard and heatOracle as the stale
-   * surfaces; this one was rendered to every visitor on the venue arrival and was
-   * not on that list. Say what the law says, or say less.
-   *
-   * WHAT THIS DELIBERATELY DOES NOT SAY, and must never say: any averaging
-   * window, any number of days, any decay schedule. The island has confirmed
-   * exactly three properties — continuous, zero-anchored, velocity-blind — and
-   * the venue previously published a 180-day window it had invented and built a
-   * decay mechanic on. islandClaims.test.ts fails the build if a window length
-   * or decay mechanic reappears in user-facing source, and it is right to.
-   *
-   * It also does not say "days held x the size of your bag". That is wrong three
-   * ways: the input is a SHARE of total supply, not an absolute balance; the
-   * curve SATURATES, so more of both stops helping; and a fresh bag reads cold
-   * however large it is.
+   * The island's own sentences, verbatim: the hero, llms.txt and the Maths fold quote
+   * them, and islandClaims.test.ts pins them word for word. Sentences, never a formula.
    */
   heatPlain:
-    'Heat scores how much of a token you have held, and for how long, as a share ' +
-    'of its supply rather than a dollar amount. It is read per token and added ' +
-    'together across everything you hold. Price never enters it, so Heat cannot ' +
-    'be bought, and a fresh bag starts cold however large it is.',
+    'Heat counts the days you have held each token. It is read per token and ' +
+    'added together across everything you hold. Size can raise what a day is ' +
+    'worth, it cannot buy a day, and price never enters it.',
+  heatDays: 'Your clock on a token starts at your first hold.',
+  heatSize:
+    'A real position earns a full day. The largest holders earn up to two. Dust earns nothing.',
   museLine: 'An island in a sea of rugs.',
   museBy: 'Jungle Bay Island',
   /** Meta description: mirrored by index.html and usePageTitle. Names only

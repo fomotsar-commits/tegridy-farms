@@ -1,47 +1,20 @@
-// Heat — Jungle Bay Island's held-time instrument.
-//
-// WHAT THIS IS. Heat prices HELD TIME. It cannot be bought and it cannot be rushed:
-// price never enters the formula, and a fresh bag starts near zero no matter how big
-// it is. Per (wallet, token):
-//
-//     heat_degrees = 100 · ( 1 − e^(−K · TWAB / totalSupply) ),  K = 60,  range 0–100
-//
-// TWAB is the wallet's time-weighted average balance for that token — continuous
-// (per-event), zero-anchored (time before the wallet first held counts as zero, so
-// new money ramps from 0° regardless of size), and velocity-blind (churn adds no
-// warmth; only balance held across time does).
-//
-// island_heat is the SUM of per-token degrees across every token in the island's
-// measured registry.
-//
-// WAVE SEVEN, element K: two sentences that stood here are RETIRED, because the
-// island published the whole law and they were true only of a part of it. They
-// said one token caps at 100° and that the upper tiers are therefore unreachable
-// on a single position. Under the published formula, heat = weight · (size +
-// loyalty), neither holds: loyalty adds on top of the share curve, and weight
-// multiplies the pair, so no cap of 100 belongs to a token and no tier is
-// arithmetically out of reach from one position. The curve BELOW is the SIZE
-// TERM only. It is kept to explain the shape and assigns nothing.
-//
-// THE BOUNDARY (spec §"THE BOUNDARY"). The island computes judgement; the venue
-// reads it. Wherever our number and the oracle disagree, THE ORACLE IS THE RULER.
-// `heatDegreesFor` below exists ONLY to explain and preview the curve in the UI. No
-// criteria state may ever be assigned from it. Enforcement reads the oracle.
+// Heat is Jungle Bay Island's held-time reading. The island computes every degree and
+// every tier; this module parses its envelope, holds the island's tier bands and the
+// launch floor, and takes the launch-gate decision on a served reading.
+// Where a venue number and the oracle disagree, the oracle rules. The tier word beside
+// a wallet is always the served `tier`; tierFor() only places a number on the ladder.
 
 /** Tier words. Rendered VERBATIM — never restyled, never translated into yield language. */
 export type HeatTier = 'Elder' | 'Builder' | 'Resident' | 'Observer' | 'Drifter';
 
-/** Island dials, published with the standard. Floors are on island_heat (the SUM). */
+/** The island's tier bands on island_heat (the sum), highest first, with meanings in time. */
 export const TIER_FLOORS: readonly { tier: HeatTier; floor: number; meaning: string }[] = [
-  { tier: 'Elder',    floor: 250, meaning: 'deep multi-token held time' },
-  { tier: 'Builder',  floor: 150, meaning: 'sustained standing across tokens' },
-  { tier: 'Resident', floor: 80,  meaning: 'settled' },
-  { tier: 'Observer', floor: 30,  meaning: 'the first threshold that counts' },
-  { tier: 'Drifter',  floor: 0,   meaning: 'the cold state' },
+  { tier: 'Elder',    floor: 1000, meaning: 'a thousand days' },
+  { tier: 'Builder',  floor: 365,  meaning: 'a year' },
+  { tier: 'Resident', floor: 180,  meaning: 'half a year' },
+  { tier: 'Observer', floor: 30,   meaning: 'a month' },
+  { tier: 'Drifter',  floor: 0,    meaning: 'the cold state' },
 ] as const;
-
-/** The steepness constant in the island's formula. */
-export const HEAT_K = 60;
 
 /**
  * THE AVERAGING WINDOW IS NOT PUBLISHED, AND WE DO NOT GET TO GUESS IT.
@@ -73,7 +46,7 @@ export const HEAT_K = 60;
  */
 
 /**
- * THE LAUNCH FLOOR, in island_heat degrees. The island has set it: 80 = Resident.
+ * THE LAUNCH FLOOR, in island_heat degrees: 180, the Resident band.
  * "Residents may plant" — the tier word carries the meaning on the door.
  *
  * ## Why this is degrees and NOT a tenure rule (read before "improving" it back)
@@ -104,7 +77,7 @@ export const HEAT_K = 60;
  * Config, never a constant at the call site — pass it in, so the number moves without
  * touching the gate. `heatLaunchFloor()` in heatGateConfig.ts is the operator dial.
  */
-export const LAUNCH_FLOOR = 80;
+export const LAUNCH_FLOOR = 180;
 
 /**
  * THE FRESHNESS WINDOW, in days. A reading reckoned longer ago than this may not pass
@@ -411,7 +384,7 @@ export function tierFor(degrees: number): HeatTier {
 /**
  * The tier a number sits EXACTLY on, or null (answer ten, ruling 4).
  *
- * Not tierFor. tierFor(123) is Resident, because a number between rungs still sits
+ * Not tierFor. tierFor(123) is Observer, because a number between rungs still sits
  * above one, and that is the right answer to "what tier is this number". It is the
  * wrong answer to "which tier do I name beside the launch floor": naming Resident
  * beside 123 is the exact defect the island found. Both dials are canonical, each
@@ -431,28 +404,4 @@ export function nextTier(degrees: number): { tier: HeatTier; floor: number; rema
     if (degrees < t.floor) return { tier: t.tier, floor: t.floor, remaining: t.floor - degrees };
   }
   return null;
-}
-
-/**
- * The island's curve, for EXPLAINING and PREVIEWING only.
- *
- * `share` is the wallet's TIME-WEIGHTED average balance as a fraction of total supply
- * (0–1). The spec permits a local re-implementation for previews and candidate
- * screens — and forbids assigning any criteria state from it. Never call this to
- * decide anything.
- */
-export function heatDegreesFor(share: number): number {
-  if (!(share > 0)) return 0;
-  return 100 * (1 - Math.exp(-HEAT_K * share));
-}
-
-/**
- * Inverse of the curve: the time-weighted supply share a wallet needs to reach
- * `degrees` on ONE token. Used to render "what would this take?" in the explainer.
- * Returns null at/above the 100° asymptote, which is unreachable.
- */
-export function shareForDegrees(degrees: number): number | null {
-  if (degrees <= 0) return 0;
-  if (degrees >= 100) return null;
-  return -Math.log(1 - degrees / 100) / HEAT_K;
 }

@@ -209,7 +209,7 @@ export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGatePr
             </div>
             <p className="text-[11.5px] text-white/45 leading-relaxed mt-3">
               Warmth is held time. It accrues by holding tokens the island measures and holding them
-              across time — it cannot be bought, and a larger bag does not buy it faster. Nobody
+              across time. Size can raise what a day is worth, it cannot buy a day. Nobody
               approves this by hand and there is nobody to ask: the door reads the instrument, and so can you.
             </p>
             {/* The denied wallet is standing HERE, so the record of what it was denied on

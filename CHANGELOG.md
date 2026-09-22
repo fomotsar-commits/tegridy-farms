@@ -34,6 +34,7 @@ ships; a tagged release will cut from here once Wave 0 redeploys are complete.
 ### 2026-09-22
 
 - Staking cards say how the island reads a locked bag.
+- Tier bands and the launch floor read the island's current values.
 
 ### Security — External audit CSV remediated, and ten failed reads that rendered as facts (2026-09-04)
 
