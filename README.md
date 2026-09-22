@@ -669,8 +669,10 @@ tegriddy-farms/
 ├── indexer-solana/      The Solana leg, beside Ponder against the same Postgres
 ├── solana/tegridy-amm/  Raydium CPMM fork + tegridy-launch curve — deployed 2026-08-08,
 │                        CLOSED 2026-08-13; program ids permanently spent. See TEGRIDY_FORK.md
-├── docs/                Architecture, deploy runbooks, island plans, audit ledgers
-└── *.md                 AUDITS, FIX_STATUS, TOKENOMICS, ROADMAP, SECURITY, CHANGELOG, …
+├── docs/                Live docs (FAQ, CONTRACTS, TOKENOMICS, QUICKSTART, ROADMAP, AUDITS,
+│                        HALL_OF_FAME), architecture, runbooks and island plans; audits/ holds
+│                        the audit passes and archive/ the old plans and reports
+└── *.md                 README, CLAUDE, NOTES, CHANGELOG, SECURITY, CONTRIBUTING, CODE_OF_CONDUCT, NOTICE
 ```
 
 ### Deeper docs
