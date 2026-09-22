@@ -48,7 +48,7 @@ describe('the held-time line', () => {
       expect(line.getAttribute('aria-live')).toBeNull();
       expect(line.closest('[role="dialog"],dialog')).toBeNull();
       expect(line.getAttribute('style') ?? '').not.toMatch(/f0b26b|fca5a5|239,\s*68,\s*68|240,\s*178,\s*107/i);
-      expect(line.textContent).not.toContain('—');
+      expect(line.textContent).not.toMatch(/\u2014/);
       unmount();
     }
   });
