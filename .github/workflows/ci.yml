@@ -54,7 +54,8 @@ jobs:
   # Docs do not run the money paths. `scope` answers run=false only for a pull request
   # whose every changed path, old and new for a rename, is markdown or under docs/.
   # lint-typecheck-test then skips, and build, e2e and e2e-anvil skip behind it; a
-  # skipped job reports success. A push and every uncertain answer run everything.
+  # skipped job reports success. A push and every uncertain answer run everything, and
+  # a failed scope job runs the whole chain: each job reads its own need's result.
   # `docs-guards` always runs the tests that read markdown (requiredCheckSynthesis.test.ts
   # derives that list from the test files).
   scope:
@@ -400,6 +401,9 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     needs: lint-typecheck-test
+    if: >-
+      !cancelled() &&
+      needs.lint-typecheck-test.result == 'success'
     defaults:
       run:
         working-directory: frontend
@@ -445,6 +449,9 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     needs: build
+    if: >-
+      !cancelled() &&
+      needs.build.result == 'success'
     defaults:
       run:
         working-directory: frontend
@@ -544,6 +551,9 @@ jobs:
     name: E2E Tests (Anvil fork — money paths)
     runs-on: ubuntu-latest
     needs: build
+    if: >-
+      !cancelled() &&
+      needs.build.result == 'success'
     timeout-minutes: 30
     defaults:
       run:
