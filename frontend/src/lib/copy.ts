@@ -220,7 +220,7 @@ export function poolFlavorLabel(poolId: string, fallback: string): string {
  * whole token list to a single pair.
  *
  * ⚠️ THE TOWELI MENTION IS NOT THE BUG, and deleting it would be a different
- * one. This grid renders behind `isToweliArrival && !bungalowIdentity` — it is
+ * one. This grid renders behind `IS_TOWELI_ARRIVAL && !bungalowIdentity` — it is
  * TOWELI's own bungalow, where the classic stack is his furniture and is true
  * (WAVE SEVEN element D below, and the /farm card beside this one says "Stake
  * TOWELI to earn now" deliberately). What is corrected here is the understatement,
