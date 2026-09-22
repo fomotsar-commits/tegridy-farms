@@ -1,7 +1,8 @@
 # Changelog
 
 What changed for a user of memetics.finance, one plain line per change, newest first,
-grouped by the UTC date it merged to `mvp-launch`. This page keeps the newest thirty days.
+grouped by the UTC date it reached `mvp-launch`, by pull request or by direct push. This
+page keeps the newest thirty days.
 
 ## [Unreleased]
 
@@ -46,7 +47,7 @@ grouped by the UTC date it merged to `mvp-launch`. This page keeps the newest th
 - "Not enough TOWELI" is no longer said about a balance nobody read.
 - Nakamigos: an unread listings feed no longer shows as a healthy empty market.
 - The NFT pool owner's panel no longer hides a queued timelock change behind an unread value.
-- Pool TVL no longer shows volume or a 0.00% POL share computed from a rate that was never read.
+- Pool volume is no longer printed from an unread fee rate, and /treasury no longer shows a 0.00% POL share from an unread LP supply.
 - The home page's /swap card stops describing one pair on one route.
 - An unread input no longer tells a staker they are a Seedling on the score card.
 - Nakamigos: a listings set from one venue no longer speaks for the whole market.
@@ -72,7 +73,7 @@ grouped by the UTC date it merged to `mvp-launch`. This page keeps the newest th
 ### 2026-09-13
 
 - The venue no longer speaks in prose as one of its residents.
-- GeckoTerminal trades and charts load through a caching edge instead of failing on CORS.
+- GeckoTerminal trades and charts load through a caching edge instead of failing under the rate limit.
 - One canonical host for every page and for the sitemap.
 - The TOWELI/ETH pool card no longer labels the venue's own fee as an LP APR.
 - Nakamigos: collection and trait offers name the token that fills them, and can be accepted.
@@ -103,7 +104,7 @@ grouped by the UTC date it merged to `mvp-launch`. This page keeps the newest th
 
 ### 2026-09-07
 
-- The lighthouse lock presets follow the pool's offered ceiling.
+- The lighthouse card's max boost quotes the longest lock you can pick, and /dashboard shows rewards that can no longer be claimed as stranded.
 
 ### 2026-09-06
 
@@ -153,21 +154,73 @@ grouped by the UTC date it merged to `mvp-launch`. This page keeps the newest th
 
 - Phantom appears in both wallet modals, and the Solana swap is rebuilt.
 
+### 2026-09-01
+
+- The lighthouse stake card is a labelled grid that no longer breaks mid-line on a narrow screen.
+- The Tegridy name is retired from every rendered surface, and the venue speaks as itself.
+
+### 2026-08-31
+
+- The venue wears the island mark on every icon, and Tradermigos reads Marketplace where visitors see it.
+- The hall of doors opens under the venue hero, the arrival opens no modal, and every resident gets its own walls.
+- The front door stops saying Tegridy Farms and speaks as the venue.
+- The EVM bungalow dashboard no longer offers staking buttons that could only revert.
+- Every visitor sees the lock ladder's tiers, connected or not.
+- All six EVM lighthouses move to ladder pools.
+- The install offer waits for the first-run dialogs instead of stacking a third.
+- The lighthouse card shows the pool's full rate range and leads with what changes the decision.
+- The EVM lighthouse card offers TOWELI's lock ladder, 7 days to 4 years, with an early exit.
+- PEPE's lighthouse lands, so all thirteen bungalows stake, and six EVM residents are no longer told they are on Solana.
+- A barely funded vault no longer prints a full APR above its own banner saying it pays 0%.
+- Four Base staking cards that could not read their pools now load.
+- The four Solana lighthouses go live: BOBO, SOY, BRAINLET and RIZZ.
+- SOY and BRAINLET point at their real mints instead of look-alike tokens.
+- Five Base lighthouses go live, and RIZZ moves to the chain it lives on.
+
 ### 2026-08-30
 
 - All thirteen bungalows are built out, with a round of lighthouse exit-safety fixes.
+- The BAYLA lighthouse moves to its replacement pool, where a longer lock earns more.
 
 ### 2026-08-29
 
+- The Connect button is no longer cut off on a tablet, and the lighthouse lock warning comes before the wallet prompt.
+- The lighthouse lock picker starts at the shortest lock instead of 30 days, on a pool with no early exit.
+- The /pools status card is readable over bright bungalow art.
+- The Solana LP venue opens on /pools, with a swap client and the venue's own pool router.
+- The Bayla farm no longer claims a swap fee the venue is not taking.
+
+### 2026-08-28
+
+- Bayla's dashboard states the pool's rate and its vault together.
+- Bayla's staking card is rebuilt with preset lock buttons, her Solana swap is wired, and her dashboard is reworked.
 - A frontend audit wave fixes 46 verified findings.
+- Bayla's page shows her market chart, trade tape and holder distribution.
+- /bayla-studio lets art be picked and placed inside a bungalow skin.
+- /eth-curve lists live launches, every launch gets a permanent /eth-curve/:token page, and a creator can claim their fees.
+
+### 2026-08-27
+
+- The lighthouse pool reads through the venue's RPC proxy, and features that are live stop saying they are being built.
+- /nakamigos stops loading a font the site's security policy always blocked.
+- Solana pages stop failing in production builds on a missing Buffer.
+- Solana pages no longer crash in production on a blocked stylesheet import, and the top nav gets a bungalow chooser.
+- Tokens launched on the EVM curve carry an image, a description and socials, signed by their creator.
+- The BAYLA lighthouse card reads its live mainnet pool.
+- BAYLA staking uses the Token-2022 program BAYLA's mint lives on, instead of assuming the legacy one.
 
 ### 2026-08-26
 
+- The BAYLA lighthouse staking card is built, ready to switch on when its pool exists.
+- The TOWELI staking card stops promising a JBAC boost it cannot grant, a dry pool shows a real zero APR, and a claim receipt shows the amount paid.
 - The Base and Robinhood curve launchpads are live.
-- Bungalow doors unfurl, and Bayla gets her dashboard.
+- An NFT loan repay covers the minimum-interest floor, so it no longer reverts.
+- The /bayla page keeps its own title after it loads.
 - Nakamigos: four more places where a failed read looked like a fact.
 - An RPC endpoint that refused every request is dropped from all five failover lists.
+- Bungalow doors unfurl, and Bayla gets her dashboard.
 - 332 KB less JavaScript before first paint.
+- The orderbook's fill checks no longer depend on a single Alchemy key.
 
 ### 2026-08-24
 
