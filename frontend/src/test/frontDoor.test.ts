@@ -2,8 +2,8 @@
 //
 // CLAUDE.md is one screen: it names the build recipe, the one to-do file and the laws.
 // The root holds the community files, the notes, the changelog and config; everything
-// else lives under docs/. Every other plan document opens with a pointer to the one
-// to-do list, and the changelog is one line per change.
+// else lives under docs/. Every other plan in docs/ and docs/archive/ opens with a pointer
+// to the one to-do list, and the changelog is one line per change.
 
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -129,6 +129,22 @@ describe('one to-do list', () => {
   it('lets no plan document claim to outrank it', () => {
     const claims = plans().filter((f) => /this file is now newer/i.test(read(...f.split('/'))));
     expect(claims).toEqual([]);
+  });
+
+  it('lets no plan document call another file the to-do list', () => {
+    // Naming some other plan "the operational to-do list" competes with the one list the
+    // way a precedence claim does. A paragraph that points at TODO_OPERATOR.md is fine.
+    const CLAIM = /\b(?:operational|canonical|single|master|main)\s+to-?do\s+list\b/i;
+    const claims = plans().flatMap((f) =>
+      read(...f.split('/'))
+        .split('\n')
+        .slice(3)
+        .join('\n')
+        .split(/\n\s*\n/)
+        .filter((para) => CLAIM.test(para) && !para.includes('TODO_OPERATOR.md'))
+        .map((para) => `${f}: ${CLAIM.exec(para)![0]}`),
+    );
+    expect(claims, 'only docs/TODO_OPERATOR.md is the to-do list').toEqual([]);
   });
 });
 
