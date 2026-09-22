@@ -14,6 +14,7 @@ import { getTxUrl, getAddressUrl } from '../../lib/explorer';
 import { LOCK_DURATIONS } from '../../lib/copy';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
+import { HeldTimeLine } from './HeldTimeLine';
 
 /**
  * The island's LOCKED EVM lighthouse card (LighthouseLadder.sol).
@@ -211,6 +212,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
               <Stat label="Pool pays (all stakers)" value={view.payingNowRawPerSec === null ? '—' : `${fmtRaw(view.payingNowRawPerSec * 86_400n, decimals)}/day`} title="Pool-wide, shared across every staker by lock weight — not your personal rate." />
               <Stat label="Runway" value={view.everFunded === false ? 'not started' : fmtRunway(view.runwaySecs)} title="Exact seconds to periodFinish, read on-chain." />
             </div>
+            {view.coreKnown && <HeldTimeLine chain={bungalow.chain} pool={bungalow.stakePool} className="mb-4" />}
 
             {view.everFunded === false ? (
               <p className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }}>

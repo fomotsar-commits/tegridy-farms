@@ -9,6 +9,7 @@ import { SolanaProviders } from '../solana/SolanaProviders';
 import type { Bungalow } from '../../lib/bungalows';
 import { staggerContainer } from '../../lib/motion';
 import { Fact, HAIR, DIVIDED_BG } from './ledger';
+import { HeldTimeLine } from './HeldTimeLine';
 import {
   vaultIsMateriallyEmpty,
   payingNowRate,
@@ -653,6 +654,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   ))}
                 </ul>
               )}
+              <HeldTimeLine chain={bungalow.chain} pool={bungalow.stakePool} />
             </section>
 
             {/* The whole model in two sentences, stated before anyone signs.
