@@ -22,21 +22,10 @@ const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
 };
 
 /**
- * Jungle Bay Island bungalow picker — the hall of doors, opened on a tap and
- * never by itself (answer ten, ruling 1: nothing opens over a cold arrival).
- *
- * Thirteen bungalows, one per community token. Entering one re-skins every
- * background surface with that bungalow's art pool (see lib/bungalows.ts);
- * buttons, copy and contracts are untouched. Only live bungalows are
- * selectable; the rest render as locked "Soon" cards so the island's shape
- * is visible before every token is confirmed.
- *
- * Dismissal (Escape / "Stay here") persists the CURRENT bungalow so the
- * picker doesn't re-open on the next visit — it is a welcome, not a gate.
- * The footer's Bungalows button reopens it any time (OPEN_BUNGALOWS_EVENT).
- *
- * Picking another bungalow walks through its door inside the app: the door
- * at /<id> switches the skin in place.
+ * The hall of doors, opened on a tap and never by itself. Live bungalows are
+ * selectable; the quiet slot is locked. Picking another bungalow walks through its
+ * door inside the app, where the skin switches in place. Dismissal keeps the
+ * current skin and counts as a choice; the footer's Bungalows button reopens it.
  */
 export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () => void }) {
   // ARRIVAL IDENTITY 2026-08-27: no implicit Toweli default. Nothing chosen

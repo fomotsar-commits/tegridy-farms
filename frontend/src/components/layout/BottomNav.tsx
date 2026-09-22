@@ -5,28 +5,10 @@ import { tradeRoute } from '../../lib/navConfig';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 
 /**
- * Bottom nav tabs — the venue's execution words, on a phone.
- *
- * ⚠️ FIVE IS THE CEILING, and it is a physical one, not a preference: each tab
- * gets `flex-1` of a 390px viewport, and five is where a 44px tap target and a
- * legible 10px label still both fit. The desktop bar carries SIX words plus a
- * conditional Dashboard; this bar therefore cannot be a straight mirror of it,
- * and does not try to be.
- *
- * WHAT IT DROPS AND WHY THAT IS SAFE. Launch and Island are not here. Both are
- * one tap away in the hamburger drawer, which after 2026-09-05 lists every
- * section EXPANDED (TopNav.tsx) rather than one row per section — so the drawer
- * is a complete nav on a phone, not an overflow bucket. What stays is what a
- * visitor does repeatedly: swap, provide liquidity, earn, check a token.
- *
- * Dashboard is the fifth tab and appears ONLY when connected, matching the
- * desktop rule (navConfig.DASHBOARD_NAV) — which is also what keeps this bar at
- * four tabs for a stranger, its most comfortable width.
- *
- * The icons are why this list is a literal rather than a map over NAV_SECTIONS:
- * there is no icon on a NavItem, and inventing a name→icon registry to avoid
- * five hardcoded routes would be more indirection than it removes. The routes
- * ARE section hubs, and navConfig.test.ts asserts every one of them is.
+ * The phone bar: swap, pools, earn, check, plus Dashboard once connected. Five
+ * tabs is the ceiling (a 44px target and a 10px label at 390px). Launch and
+ * Island live in the drawer, which lists every section expanded (TopNav.tsx).
+ * A literal list, because a NavItem carries no icon.
  */
 // Swap's route follows the room (tradeRoute), so it is completed at render.
 const SWAP_TAB = { label: 'Swap', icon: (
@@ -68,16 +50,9 @@ export const BottomNav = React.memo(function BottomNav() {
   useActiveBungalowId();
   const tabs = [{ ...SWAP_TAB, to: tradeRoute() }, ...TABS, ...(isConnected ? [DASHBOARD_TAB] : [])];
   return (
-    // R038 / F13, CORRECTED 2026-09-03: this bar hides at >=800px, where the
-    // TopNav primary nav switches in (TopNav uses `min-[800px]:flex`). It used to
-    // hide at 640px, which is where the TopNav row starts overflowing — so
-    // 640-790px lost this bar AND the hamburger AND the off-canvas Connect
-    // button at once, leaving no way to navigate or connect. See the long note
-    // at TopNav.tsx's <nav>. The content padding band (index.css
-    // safe-area-content-bottom, AppLayout pb) ends at 799px to match, so no dead
-    // space is reserved for a bar that isn't rendered.
-    // safe-area-inset-bottom keeps the bar above the home indicator on
-    // notched iOS devices. 44px tap target floor is enforced via min-h.
+    // Hides at >=800px, where TopNav's bar appears; AppLayout's pb and index.css's
+    // safe-area-content-bottom end at 799px to match. safe-area-inset-bottom keeps it
+    // above the iOS home indicator.
     <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-50 min-[800px]:hidden"
       style={{
         background: 'rgba(6,12,26,0.95)',
@@ -90,10 +65,7 @@ export const BottomNav = React.memo(function BottomNav() {
         {tabs.map(tab => (
           <NavLink key={tab.to} to={tab.to} aria-label={tab.label}
             className={({ isActive }) =>
-              // F27: `min-w-0` (lets the label truncate) and `min-w-[44px]`
-              // contradicted each other — winner was order-dependent. Keep
-              // `min-w-0`; the 44px tap floor comes from `flex-1` (each of ≤5
-              // tabs gets ≥44px on a phone) + `min-h-[48px]` + padding.
+              // min-w-0 lets the label truncate; the 44px floor comes from flex-1 and min-h.
               `flex flex-col items-center justify-center gap-0.5 flex-1 min-w-0 min-h-[48px] px-1 py-2 transition-colors ${
                 isActive ? 'text-purple-400' : 'text-white/60'
               }`

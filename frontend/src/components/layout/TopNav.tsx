@@ -215,20 +215,9 @@ export const TopNav = React.memo(function TopNav() {
                 cut — deleting the button as written would have taken the venue's
                 identity off the bar, which is an art removal and never allowed
                 without a home to move to. */}
-            {/* THE WAY BACK (owner, 2026-08-31), now handled at the destination
-                (2026-09-04). This used to carry a hand-rolled onClick that
-                persisted the 'venue' sentinel and hard-assigned '/', because a
-                plain <Link to="/"> landed back inside the stored bungalow.
-
-                That was true, and it was true of EVERY link to "/" — the 404
-                page's "Back to Home" and the footer among them — so the
-                wordmark being the only one that worked was the actual bug. The
-                index route is now the venue's own <BungalowDoor id="venue">
-                (App.tsx), which clears the skin in place on arrival, the same
-                way every other door sets one.
-
-                So this is a plain Link again, deliberately: one mechanism for
-                the rule instead of two that can drift apart. */}
+            {/* THE WAY BACK: a plain Link to "/". The index route is the venue's own
+                <BungalowDoor id="venue"> (App.tsx), which clears the skin in place,
+                so every link to "/" (404, footer, this mark) walks home the same way. */}
             <Link
               to="/"
               className="flex items-center gap-1.5 min-[480px]:gap-2"
