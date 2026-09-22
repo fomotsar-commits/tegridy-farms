@@ -1,7 +1,9 @@
 // The skin (the active bungalow) is state. A door changes it in place, with no
 // reload, so a skin read at module scope is frozen at the chunk's first import
 // and paints the previous room. This parses every source file and fails on a
-// skin read outside a function body; an IIFE body counts as module scope.
+// skin read outside a function body. A body the module itself runs counts as
+// module scope: an IIFE, and a callback handed to .map, .filter, Array.from
+// and the rest of EAGER_CALLERS.
 // pageArt on a shared surface never follows the skin and is exempt.
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -63,6 +65,22 @@ function isIIFE(fn: ts.Node): boolean {
   return callee === fn;
 }
 
+/** Calls that run the callback they are handed, so its body runs when the call does. */
+const EAGER_CALLERS = new Set([
+  'map', 'flatMap', 'forEach', 'filter', 'reduce', 'reduceRight',
+  'some', 'every', 'find', 'findLast', 'findIndex', 'findLastIndex', 'sort', 'from',
+]);
+
+/** A callback argument of an eager call: it runs where the call sits, like an IIFE body. */
+function isEagerCallback(fn: ts.Node): boolean {
+  let node: ts.Node = fn;
+  while (node.parent && ts.isParenthesizedExpression(node.parent)) node = node.parent;
+  const p = node.parent;
+  if (!p || !ts.isCallExpression(p) || !p.arguments.includes(node as ts.Expression)) return false;
+  const name = callName(p);
+  return !!name && EAGER_CALLERS.has(name);
+}
+
 function callName(call: ts.CallExpression): string | null {
   const e = call.expression;
   if (ts.isIdentifier(e)) return e.text;
@@ -118,7 +136,7 @@ function moduleScopeSkinReads(sources: Source[], readers: Set<string>): string[]
   const found: string[] = [];
   for (const { rel, sf } of sources) {
     (function visit(n: ts.Node, inFunction: boolean) {
-      const nowIn = inFunction || (isFn(n) && !isIIFE(n));
+      const nowIn = inFunction || (isFn(n) && !isIIFE(n) && !isEagerCallback(n));
       if (!nowIn && ts.isCallExpression(n)) {
         const name = callName(n);
         if (name && readers.has(name) && !isSharedSurfaceRead(n, name)) {
