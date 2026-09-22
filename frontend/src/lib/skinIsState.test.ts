@@ -173,6 +173,13 @@ describe('the scanner can fail', () => {
     expect(scanText(`export const D = { e: loaderIdentity().main };`)).toHaveLength(1);
   });
 
+  it('flags a read inside a callback the module itself runs', () => {
+    expect(scanText(`const E = [0, 1, 2].map((i) => pageArt('transition', i));`)).toHaveLength(1);
+    expect(scanText(`const F = Array.from({ length: 3 }, (_, i) => pageArt('home', i));`)).toHaveLength(1);
+    expect(scanText(`const G = ['a', 'b'].filter(function () { return isToweliVoice(); });`)).toHaveLength(1);
+    expect(scanText(`const H = [0].forEach((i) => { pageArt('home', i); });`)).toHaveLength(1);
+  });
+
   it('passes reads inside functions, getters and hooks, and shared surfaces', () => {
     expect(scanText(`function f() { return pageArt('home', 0); }`)).toEqual([]);
     expect(scanText(`const g = () => getBungalowIdentity();`)).toEqual([]);
