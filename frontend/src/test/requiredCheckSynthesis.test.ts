@@ -246,6 +246,18 @@ describe('the shape that cannot regress into the companion recipe', () => {
     }
   });
 
+  it('ci.yml and codeql.yml run everything when listing the files fails part way', () => {
+    // gh prints each page as it arrives, and the list is sorted by path, so docs/ comes
+    // before frontend/. A failure on a later page leaves a docs-only list behind, and
+    // without -e the script would go on to answer false for a code PR.
+    for (const f of ['ci.yml', 'codeql.yml']) {
+      const src = readFileSync(join(WORKFLOW_DIR, f), 'utf-8');
+      expect(src, `${f}: a failed gh listing must say true`).toMatch(
+        /files=\$\(gh api --paginate [^\n]*\\\n +--jq '[^\n]*'\) \|\| \{\n[^\n]*::warning::[^\n]*\n +say true\n +\}\n/,
+      );
+    }
+  });
+
   it('keeps each scope job in sync with the `push:` filter it was split from', () => {
     // The two lists are one rule written twice: `push: paths:` decides whether
     // the workflow runs on a merge, the scope job decides whether it runs on a
@@ -333,8 +345,10 @@ describe('ci.yml: docs skip the build, never the doc guards', () => {
     expect(head.filter((l) => l.startsWith('if:'))).toEqual(['if: >-']);
   });
 
-  it('keeps build, e2e and e2e-anvil behind it, so a skip reaches all four', () => {
-    // A job with no `if:` runs only when its needs succeeded; a skipped need skips it.
+  it('keeps build, e2e and e2e-anvil behind it, and runs them when the scope job failed', () => {
+    // A job's implicit success() reads every ancestor, so a failed scope job would skip
+    // these even after lint passed. Each reads its direct need's result instead: a
+    // skipped or failed need still skips it, a failed scope job does not.
     const src = CI();
     for (const [id, need] of [
       ['build', 'lint-typecheck-test'],
@@ -343,14 +357,23 @@ describe('ci.yml: docs skip the build, never the doc guards', () => {
     ]) {
       const head = jobHead(src, id);
       expect(head, `${id} must need ${need}`).toContain(`needs: ${need}`);
-      expect(head.filter((l) => l.startsWith('if:')), `${id} must not override the skip`).toEqual([]);
+      expect(gateOf(head), `${id} must run on its need's success alone`).toEqual([
+        'if: >-',
+        '!cancelled() &&',
+        `needs.${need}.result == 'success'`,
+      ]);
+      expect(head.filter((l) => l.startsWith('if:')), `${id} has one gate`).toEqual(['if: >-']);
     }
   });
 
-  it('gates CodeQL the same way', () => {
+  it('gates CodeQL the same way, under a name that is the same when it is skipped', () => {
+    // A matrix job skipped by its `if:` is never expanded, so its one check run carries
+    // the literal `${{ matrix.language }}`. A static name reports the same check either way.
     const head = jobHead(readFileSync(join(WORKFLOW_DIR, 'codeql.yml'), 'utf-8'), 'analyze');
     expect(head).toContain('needs: scope');
     expect(gateOf(head)).toEqual(GATE);
+    expect(head).toContain('name: CodeQL (javascript-typescript)');
+    expect(head.filter((l) => l.includes('${{') || /^(strategy|matrix):/.test(l))).toEqual([]);
   });
 
   it('runs the tests that read markdown on every change, docs-only included', () => {
