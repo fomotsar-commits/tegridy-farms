@@ -471,13 +471,9 @@ describe("the island's retired flag on a breakdown row", () => {
   });
 });
 
-// ANSWER TEN, RULING 4: WHICH TIER A FLOOR SITS EXACTLY ON, IF ANY.
-//
-// tierFor answers "what tier is this number", which for 123 is Observer: a
-// number between rungs still sits above one. That is the right question for
-// picking which rung the launch sentence hangs under, and the WRONG one for
-// naming a tier beside the floor, which would bring the defect straight back.
-// So the naming question is its own function, and this table is why.
+// tierFor answers "what tier is this number" (123 is Observer), which picks the rung the
+// launch sentence hangs under. Naming a tier beside the floor is a different question,
+// answered only when the floor sits exactly on a rung: tierAtFloor, pinned here.
 describe('tierAtFloor', () => {
   it('names the tier only when the floor sits exactly on its rung', () => {
     expect(tierAtFloor(30)).toBe('Observer');

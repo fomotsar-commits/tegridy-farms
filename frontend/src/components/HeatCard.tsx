@@ -844,13 +844,10 @@ function ScopedReading({
   );
 }
 
-/**
- * The ladder: all five rungs of TIER_FLOORS, lowest first, Drifter included because a
- * wallet below the first threshold stands on it. Reached rungs are lit; under the next
- * one, the rung's floor minus the served degrees. The launch sentence hangs under the
- * rung tierFor(heatLaunchFloor()) returns and names a tier only when tierAtFloor finds
- * the floor exactly on one. The tier word beside the wallet is the served tier.
- */
+/** The ladder: every rung of TIER_FLOORS, lowest first (Drifter too: a wallet below the
+ *  first threshold stands on it). Reached rungs are lit; the next shows its floor minus the
+ *  served degrees. The launch sentence hangs under tierFor(heatLaunchFloor()) and names a
+ *  tier only when tierAtFloor finds the floor on one. The wallet's tier word is served. */
 function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeof nextTier> }) {
   const launchFloor = heatLaunchFloor();
   const launchRung = tierFor(launchFloor);

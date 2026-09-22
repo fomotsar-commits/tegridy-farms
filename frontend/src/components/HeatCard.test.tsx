@@ -762,17 +762,10 @@ describe('the ladder', () => {
     expect(await screen.findByText('42.58° to Resident')).toBeTruthy();
   });
 
-  // ANSWER TEN, RULING 4: BOTH DIALS ARE CANONICAL, AND THE WORD IS DERIVED.
-  //
-  // The test this pair replaces asserted "At 123 degrees you reach Resident",
-  // which was the defect itself: the floor was read, the word beside it was
-  // typed. TIER_FLOORS answers "what tier is this number" and heatLaunchFloor()
-  // answers "what number opens the launch door"; neither overrides the other,
-  // so the word must come from asking the first dial about the second.
-  //
-  // The assertions sit on the SENTENCE <p> and the eligibility span, never the
-  // whole rung <li>: each rung prints its own tier label, so the Observer row
-  // legitimately says "Observer" beside a 123 sentence hung under it.
+  // TIER_FLOORS answers "what tier is this number" and heatLaunchFloor() "what number
+  // opens the launch door", so the word beside the floor is derived from both, never
+  // typed. The assertions sit on the sentence <p> and the eligibility span, not the rung
+  // <li>: each rung prints its own label, so "Observer" sits beside a 123 sentence.
   it('names no tier beside a floor that sits between rungs (123)', async () => {
     vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '123');
     h.fetchHeat.mockResolvedValue(wireReading(MID));
