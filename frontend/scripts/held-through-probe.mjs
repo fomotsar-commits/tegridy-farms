@@ -3,14 +3,7 @@
  * Reproduces the reads held-through.json publishes, on the live chains, from nothing but
  * the file: per contract it enumerates the positions, runs the published per-wallet read
  * for up to three wallets and checks the reconcile rule. Read-only JSON-RPC (an allowlist
- * of read methods); no keys, nothing signed or sent. Not part of the build.
- *
- *   node scripts/held-through-probe.mjs --file dist/held-through.json
- *   node scripts/held-through-probe.mjs --url https://memetics.finance/held-through.json
- *
- * --wallet 0x... (repeatable) adds EVM wallets for the pair and the farm; by default they
- * are the TegridyStaking owners this run finds. --only <id> (repeatable) limits the run.
- * RPCs: HELD_THROUGH_SOLANA_RPC, HELD_THROUGH_ETHEREUM_RPC, HELD_THROUGH_BASE_RPC.
+ * of read methods); no keys, nothing signed or sent. Not part of the build; run by hand.
  */
 import { readFileSync } from 'node:fs';
 import { PublicKey } from '@solana/web3.js';
@@ -22,7 +15,17 @@ const [url] = opt('--url');
 const only = new Set(opt('--only'));
 const extraWallets = opt('--wallet');
 if (!file && !url) {
-  console.error('usage: held-through-probe.mjs --file <held-through.json> | --url <https://.../held-through.json>');
+  console.error(
+    [
+      'usage: node scripts/held-through-probe.mjs --file dist/held-through.json',
+      '       node scripts/held-through-probe.mjs --url https://memetics.finance/held-through.json',
+      '',
+      '  --wallet 0x...  (repeatable) EVM wallets for the pair and the farm; the default is the',
+      '                  TegridyStaking owners this run finds',
+      '  --only <id>     (repeatable) probe only these contract ids',
+      '  RPC endpoints:  HELD_THROUGH_SOLANA_RPC, HELD_THROUGH_ETHEREUM_RPC, HELD_THROUGH_BASE_RPC',
+    ].join('\n'),
+  );
   process.exit(2);
 }
 
@@ -98,6 +101,19 @@ async function account(address) {
   const r = await rpc('solana', 'getAccountInfo', [address, { encoding: 'base64', commitment: 'finalized' }]);
   return r.value ? { owner: r.value.owner, data: b64(r.value.data[0]) } : null;
 }
+// SPL Token and Token-2022 share the base mint layout, so decimals is one byte at 44.
+const MINT_DECIMALS_OFFSET = 44;
+async function solanaTokenChecks(c, vaultOwner) {
+  const t = c.tokens[0];
+  const mint = await account(t.address);
+  if (!mint) return [[`${t.symbol} mint ${t.address} exists`, false]];
+  const decimals = mint.data[MINT_DECIMALS_OFFSET];
+  out(`  ${t.symbol} mint ${t.address}: token program ${mint.owner}, decimals ${decimals}`);
+  return [
+    [`${t.symbol} mint decimals == ${t.decimals}`, decimals === t.decimals],
+    ['the vault is a token account of the mint\'s own program', mint.owner === vaultOwner],
+  ];
+}
 async function accounts(addresses) {
   const r = await rpc('solana', 'getMultipleAccounts', [addresses, { encoding: 'base64', commitment: 'finalized' }]);
   return r.value.map((v) => (v ? { owner: v.owner, data: b64(v.data[0]) } : null));
@@ -125,6 +141,7 @@ async function probeLadder(c) {
   checks.push(['pool.decimals == token decimals', field(pool.data, r.pool.layout, 'decimals') === dec]);
   const vaultAcc = await account(c.vault);
   const vault = vaultAcc.data.readBigUInt64LE(conv.tokenAccountAmountOffset);
+  checks.push(...(await solanaTokenChecks(c, vaultAcc.owner)));
 
   const scanFilters = filterValues(r.position.filters, { pool: c.address });
   const scanned = await gpa(c.program, scanFilters);
@@ -173,7 +190,9 @@ async function probeStreamflow(c) {
   checks.push(['pool.vault == vault', field(pool.data, r.stakePool.layout, 'vault') === c.vault]);
   checks.push(['pool.mint == token', field(pool.data, r.stakePool.layout, 'mint') === t.address]);
   const total = field(pool.data, r.stakePool.layout, 'total_stake');
-  const vault = (await account(c.vault)).data.readBigUInt64LE(conv.tokenAccountAmountOffset);
+  const vaultAcc = await account(c.vault);
+  const vault = vaultAcc.data.readBigUInt64LE(conv.tokenAccountAmountOffset);
+  checks.push(...(await solanaTokenChecks(c, vaultAcc.owner)));
   const scanned = await gpa(c.program, filterValues(r.stakeEntry.filters, { stakePool: c.address }));
   const byWallet = new Map(); let open = 0n; let nOpen = 0; let pdaOk = 0; let sizeOk = 0;
   for (const a of scanned) {
@@ -201,9 +220,20 @@ async function probeStreamflow(c) {
     for (const a of mine) {
       if (field(a.data, r.stakeEntry.layout, 'closed_ts') === 0n) { sum += field(a.data, r.stakeEntry.layout, 'amount'); n++; }
     }
-    const ok = sum === scan.sum;
+    // The published fallback for an RPC without getProgramAccounts: derive every nonce.
+    const range = Number(/0 to (\d+)/.exec(r.stakeEntry.nonces)?.[1] ?? -1) + 1;
+    const derivedAddrs = Array.from({ length: range }, (_, i) =>
+      pda(r.stakeEntry.seeds, { stakePool: c.address, authority: wallet, nonce: i }, c.program));
+    let derived = 0n; let nDerived = 0;
+    for (let i = 0; i < derivedAddrs.length; i += 100) {
+      for (const acc of await accounts(derivedAddrs.slice(i, i + 100))) {
+        if (!acc || field(acc.data, r.stakeEntry.layout, 'closed_ts') !== 0n) continue;
+        derived += field(acc.data, r.stakeEntry.layout, 'amount'); nDerived++;
+      }
+    }
+    const ok = sum === scan.sum && derived === sum && nDerived === n;
     if (ok) reproduced++;
-    out(`  wallet ${wallet}: the published filter read finds ${mine.length} entries, ${n} open, ${fmt(sum, dec)}; pool scan ${fmt(scan.sum, dec)} -> ${ok ? 'REPRODUCED' : 'MISMATCH'}`);
+    out(`  wallet ${wallet}: the published filter read finds ${mine.length} entries, ${n} open, ${fmt(sum, dec)}; pool scan ${fmt(scan.sum, dec)}; deriving nonces 0..${range - 1} without a scan finds ${nDerived} open, ${fmt(derived, dec)} -> ${ok ? 'REPRODUCED' : 'MISMATCH'}`);
   }
   return { positions: nOpen, wallets: `${reproduced}/${picked.length}`, reconcile, checks };
 }
