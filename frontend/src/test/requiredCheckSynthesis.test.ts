@@ -41,6 +41,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -223,8 +224,26 @@ describe('the shape that cannot regress into the companion recipe', () => {
   it('finds scope jobs at all, so the rule above is not asserted over nothing', () => {
     const scoped = sources().filter((f) => /^ {2}scope:$/m.test(readFileSync(join(WORKFLOW_DIR, f), 'utf-8')));
     expect(scoped.sort()).toEqual(
-      ['contracts-ci.yml', 'registry-onchain.yml', 'slither.yml', 'solana-ci.yml'].sort(),
+      ['ci.yml', 'codeql.yml', 'contracts-ci.yml', 'registry-onchain.yml', 'slither.yml', 'solana-ci.yml'].sort(),
     );
+  });
+
+  it('ci.yml and codeql.yml narrow pull requests only, and read both sides of a rename', () => {
+    // Neither has a push path filter, so the scope job itself answers run=true for every
+    // event that is not a pull request. A rename lists its old path too: a code file
+    // moved into docs/ is still a code change.
+    for (const f of ['ci.yml', 'codeql.yml']) {
+      const src = readFileSync(join(WORKFLOW_DIR, f), 'utf-8');
+      expect(src, `${f}: a push or schedule must run everything`).toMatch(
+        /\[ -n "\$\{PR:-\}" \] \|\| \{[^\n]*say true; \}/,
+      );
+      expect(src, `${f}: the file list must include previous_filename`).toContain(
+        '.filename, (.previous_filename // empty)',
+      );
+      expect(src, `${f}: only an all-docs diff may skip`).toMatch(
+        /diff-scope\.mjs --outside \\\n +'\*\*\/\*\.md' \\\n +'docs\/\*\*'\)\n/,
+      );
+    }
   });
 
   it('keeps each scope job in sync with the `push:` filter it was split from', () => {
@@ -281,3 +300,103 @@ describe('solana-ci exposes one aggregate check to require', () => {
     expect(job).toContain("if: needs.scope.result != 'success' || needs.scope.outputs.run == 'true'");
   });
 });
+
+describe('ci.yml: docs skip the build, never the doc guards', () => {
+  const CI = () => readFileSync(join(WORKFLOW_DIR, 'ci.yml'), 'utf-8');
+  const GATE = [
+    'if: >-',
+    '!cancelled() &&',
+    "(needs.scope.result != 'success' || needs.scope.outputs.run == 'true')",
+  ];
+
+  /** The config lines of one job before its `steps:`, trimmed, comments dropped. */
+  const jobHead = (src: string, id: string): string[] => {
+    const lines = src.split(/\r?\n/);
+    const start = lines.findIndex((l) => l === `  ${id}:`);
+    expect(start, `no job ${id}`).toBeGreaterThan(-1);
+    const out: string[] = [];
+    for (const l of lines.slice(start + 1)) {
+      if (/^ {2}\S/.test(l) || /^ {4}steps:/.test(l)) break;
+      if (l.trim() && !/^\s*#/.test(l)) out.push(l.trim());
+    }
+    return out;
+  };
+  const gateOf = (head: string[]) => {
+    const i = head.indexOf('if: >-');
+    return i === -1 ? head.filter((l) => l.startsWith('if:')) : head.slice(i, i + 3);
+  };
+
+  it('gates the first job on the scope verdict, failing open', () => {
+    const head = jobHead(CI(), 'lint-typecheck-test');
+    expect(head).toContain('needs: scope');
+    expect(gateOf(head)).toEqual(GATE);
+    expect(head.filter((l) => l.startsWith('if:'))).toEqual(['if: >-']);
+  });
+
+  it('keeps build, e2e and e2e-anvil behind it, so a skip reaches all four', () => {
+    // A job with no `if:` runs only when its needs succeeded; a skipped need skips it.
+    const src = CI();
+    for (const [id, need] of [
+      ['build', 'lint-typecheck-test'],
+      ['e2e', 'build'],
+      ['e2e-anvil', 'build'],
+    ]) {
+      const head = jobHead(src, id);
+      expect(head, `${id} must need ${need}`).toContain(`needs: ${need}`);
+      expect(head.filter((l) => l.startsWith('if:')), `${id} must not override the skip`).toEqual([]);
+    }
+  });
+
+  it('gates CodeQL the same way', () => {
+    const head = jobHead(readFileSync(join(WORKFLOW_DIR, 'codeql.yml'), 'utf-8'), 'analyze');
+    expect(head).toContain('needs: scope');
+    expect(gateOf(head)).toEqual(GATE);
+  });
+
+  it('runs the tests that read markdown on every change, docs-only included', () => {
+    const src = CI();
+    const head = jobHead(src, 'docs-guards');
+    expect(head.filter((l) => l.startsWith('needs:') || l.startsWith('if:'))).toEqual([]);
+    const job = src.slice(src.indexOf('\n  docs-guards:'));
+    const step = job.slice(job.indexOf('- name: Tests that read markdown'));
+    const body = step.slice(0, step.indexOf('\n      - ', 5) === -1 ? undefined : step.indexOf('\n      - ', 5));
+    const listed = [...body.matchAll(/(\S+\.test\.(?:ts|tsx|js|jsx|mjs))\b/g)].map((m) => m[1]).sort();
+    expect(listed, 'the step must run the list below, derived from the test files themselves').toEqual(
+      markdownReaders(),
+    );
+  });
+
+  it('derives that list from something (guards the guard)', () => {
+    expect(markdownReaders().length).toBeGreaterThanOrEqual(8);
+    expect(markdownReaders()).toContain('src/lib/docsClaimHonesty.test.ts');
+    expect(markdownReaders()).toContain('src/test/frontDoor.test.ts');
+  });
+});
+
+/**
+ * Every frontend test file that reads a markdown file or walks docs/, found the same way
+ * each time: a markdown path handed to a reader, a walker filtering on a markdown
+ * extension, or the docs directory joined as a path, in a file that reads the disk.
+ * Paths are relative to frontend/, where the docs-guards job runs vitest.
+ */
+function markdownReaders(): string[] {
+  const REPO_ROOT = join(WORKFLOW_DIR, '..', '..');
+  const ext = String.raw`\.m` + 'd';
+  const SIGNS = [
+    new RegExp(String.raw`(?:join|readFileSync|read|doc)\([^)]*['"\x60][^'"\x60\n]*${ext}['"\x60]`),
+    new RegExp(String.raw`\/\\.\(?(?:md|markdown)\b`),
+    new RegExp(String.raw`\${ext}\$`),
+    new RegExp(String.raw`['"]doc` + String.raw`s['"]`),
+    new RegExp(String.raw`\\.\((?:\?:)?[^)\n]*\bmd\b[^)\n]*\)`),
+  ];
+  return execFileSync('git', ['ls-files', 'frontend'], { cwd: REPO_ROOT, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 })
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((f) => /\.test\.(?:ts|tsx|js|jsx|mjs)$/.test(f))
+    .filter((f) => {
+      const s = readFileSync(join(REPO_ROOT, f), 'utf-8');
+      return /readFileSync|readdirSync/.test(s) && SIGNS.some((re) => re.test(s));
+    })
+    .map((f) => f.slice('frontend/'.length))
+    .sort();
+}

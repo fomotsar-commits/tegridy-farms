@@ -18,11 +18,13 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
   inScope,
+  outsideScope,
   parseFileList,
   patternToRegExp,
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -32,8 +34,15 @@ import {
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const WORKFLOW_DIR = join(REPO_ROOT, '.github', 'workflows');
 
-/** The four that carry a `scope` job, i.e. the ones whose filter moved. */
-const SCOPED = ['slither.yml', 'contracts-ci.yml', 'registry-onchain.yml', 'solana-ci.yml'];
+/** Every workflow with a `scope` job. ci.yml and codeql.yml skip only an all-docs diff. */
+const SCOPED = [
+  'slither.yml',
+  'contracts-ci.yml',
+  'registry-onchain.yml',
+  'solana-ci.yml',
+  'ci.yml',
+  'codeql.yml',
+];
 
 describe('patternToRegExp — GitHub path patterns', () => {
   it('matches everything under a `**` prefix, including the bare directory', () => {
@@ -103,6 +112,55 @@ describe('inScope — the asymmetry is the whole design', () => {
   });
 });
 
+describe('outsideScope: only an all-docs change skips', () => {
+  const DOCS = ['**/*.md', 'docs/**'];
+
+  it('is false when every changed path is markdown or under docs/', () => {
+    expect(
+      outsideScope(['NOTES.md', 'docs/a.md', 'docs/banner.svg', 'frontend/api/SERVERLESS_BUDGET.md'], DOCS),
+    ).toBe(false);
+  });
+
+  it('is true when one path is code, however many are docs', () => {
+    expect(outsideScope(['NOTES.md', 'docs/a.md', 'frontend/src/a.ts'], DOCS)).toBe(true);
+    expect(outsideScope(['.github/workflows/ci.yml'], DOCS)).toBe(true);
+  });
+
+  it('is case-sensitive, so an odd extension runs everything', () => {
+    expect(outsideScope(['notes.MD'], DOCS)).toBe(true);
+  });
+
+  it('does not let a sibling of docs/ pass as docs', () => {
+    expect(outsideScope(['docsx/a.ts'], DOCS)).toBe(true);
+  });
+
+  it.each([
+    ['an empty file list', [] as string[], DOCS],
+    ['a non-array file list', null as unknown as string[], DOCS],
+    ['an empty pattern list', ['NOTES.md'], [] as string[]],
+    ['a non-array pattern list', ['NOTES.md'], undefined as unknown as string[]],
+  ])('RUNS everything on %s', (_label, files, patterns) => {
+    expect(outsideScope(files, patterns)).toBe(true);
+  });
+
+  it('gives the same answer on the command line the workflows call', () => {
+    const cli = (input: string, ...args: string[]) =>
+      spawnSync(process.execPath, [join(REPO_ROOT, '.github', 'scripts', 'diff-scope.mjs'), ...args], {
+        input,
+        encoding: 'utf-8',
+      });
+    const docsOnly = cli('NOTES.md\ndocs/x.md\n', '--outside', ...DOCS);
+    expect(docsOnly.status).toBe(0);
+    expect(docsOnly.stdout).toBe('false');
+    expect(cli('NOTES.md\nfrontend/src/a.ts\n', '--outside', ...DOCS).stdout).toBe('true');
+    // Without the flag the script still asks whether anything matches.
+    expect(cli('NOTES.md\n', ...DOCS).stdout).toBe('true');
+    expect(cli('frontend/src/a.ts\n', ...DOCS).stdout).toBe('false');
+    // A rename lists both paths; the old one keeps a code move in scope.
+    expect(cli('docs/x.ts\nfrontend/src/x.ts\n', '--outside', ...DOCS).stdout).toBe('true');
+  });
+});
+
 describe('the scope jobs call this script correctly', () => {
   // Ownership note: the workflow SHAPE — no companions, no duplicate workflow
   // names, no `paths:` on a pull_request, no gate a broken scope job can skip —
@@ -129,7 +187,7 @@ describe('the scope jobs call this script correctly', () => {
       // `[^\n]*` rather than a trailing `\\?`: the LAST argument line ends with
       // `')` and not a continuation, and a regex that stopped there would check
       // every pattern except the last one of each list, silently.
-      const call = /diff-scope\.mjs \\\n(?<args>(?: +'[^']+'[^\n]*\n)+)/.exec(text);
+      const call = /diff-scope\.mjs (?:--outside )?\\\n(?<args>(?: +'[^']+'[^\n]*\n)+)/.exec(text);
       expect(call, `${file} does not call diff-scope.mjs with a pattern list`).not.toBeNull();
       const patterns = [...call!.groups!.args.matchAll(/'([^']+)'/g)].map((m) => m[1]);
       expect(patterns.length).toBeGreaterThan(0);
