@@ -6,7 +6,7 @@
 // and the rest of EAGER_CALLERS.
 // pageArt on a shared surface never follows the skin and is exempt.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll } from 'vitest';
 import ts from 'typescript';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -166,9 +166,19 @@ afterEach(() => {
   localStorage.removeItem(BUNGALOW_STORAGE_KEY);
 });
 
+// Parsing the whole tree with the TypeScript compiler takes over a second here
+// and longer on a shared or CI runner, so both tests read one scan and that
+// scan carries its own budget rather than vitest's 5 s default for a test.
+const SCAN_MS = 60_000;
+let scan: ReturnType<typeof scanTree>;
+
 describe('the skin is state: nothing reads it at module scope', () => {
+  beforeAll(() => {
+    scan = scanTree();
+  }, SCAN_MS);
+
   it('no source file reads the skin when its module is evaluated', () => {
-    const { reads, files } = scanTree();
+    const { reads, files } = scan;
     expect(files, 'sanity: the walk found the source tree').toBeGreaterThan(300);
     expect(
       reads,
@@ -178,8 +188,7 @@ describe('the skin is state: nothing reads it at module scope', () => {
   });
 
   it('follows readers through the helpers that call them', () => {
-    const { readers } = scanTree();
-    for (const helper of ['pageArtWith', 'onboardingSteps']) expect(readers.has(helper), helper).toBe(true);
+    for (const helper of ['pageArtWith', 'onboardingSteps']) expect(scan.readers.has(helper), helper).toBe(true);
   });
 });
 
