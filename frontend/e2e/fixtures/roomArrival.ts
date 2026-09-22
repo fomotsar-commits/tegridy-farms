@@ -25,12 +25,16 @@ export interface Arrival {
   navTypes: string[];
   at: Record<string, Sample>;
   scrollHeight: number;
+  /** First moment (ms from navigation start) the H1 was in the viewport, polled every 50 ms; null if never by 8 s. */
+  h1FirstMs: number | null;
 }
 
 /** Runs before any page script, on every document of the tab. */
 function instrument(samples: readonly number[]) {
   const KEY = '__roomArrival';
-  type State = { t0: number; loads: number; navTypes: string[]; at: Record<string, unknown>; scrollHeight: number };
+  type State = {
+    t0: number; loads: number; navTypes: string[]; at: Record<string, unknown>; scrollHeight: number; h1FirstMs: number | null;
+  };
   const read = (): State | null => {
     try {
       const raw = sessionStorage.getItem(KEY);
@@ -42,7 +46,7 @@ function instrument(samples: readonly number[]) {
   const write = (s: State) => {
     try { sessionStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage blocked: the spec sees no state */ }
   };
-  const first = read() ?? { t0: performance.timeOrigin, loads: 0, navTypes: [], at: {}, scrollHeight: 0 };
+  const first = read() ?? { t0: performance.timeOrigin, loads: 0, navTypes: [], at: {}, scrollHeight: 0, h1FirstMs: null };
   first.loads += 1;
   write(first);
   document.addEventListener('DOMContentLoaded', () => {
@@ -52,22 +56,31 @@ function instrument(samples: readonly number[]) {
     s.navTypes.push(nav?.type ?? 'unknown');
     write(s);
   });
+  // The document may not have a root element yet when a late timer fires, so every read here tolerates that.
+  const h1InView = () => {
+    const r = document.querySelector('main#main-content h1')?.getBoundingClientRect();
+    return !!r && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
+  };
   for (const ms of samples) {
     const due = first.t0 + ms;
     setTimeout(() => {
       const s = read();
       if (!s || s.at[ms]) return;
-      const h1 = document.querySelector('main#main-content h1');
-      const r = h1?.getBoundingClientRect();
-      s.at[ms] = {
-        y: Math.round(window.scrollY),
-        h1InView: !!r && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight,
-        lateMs: Math.round(Date.now() - due),
-      };
-      s.scrollHeight = document.documentElement.scrollHeight;
+      s.at[ms] = { y: Math.round(window.scrollY), h1InView: h1InView(), lateMs: Math.round(Date.now() - due) };
+      s.scrollHeight = document.documentElement?.scrollHeight ?? 0;
       write(s);
     }, Math.max(0, due - Date.now()));
   }
+  const poll = setInterval(() => {
+    if (!h1InView()) return;
+    clearInterval(poll);
+    const s = read();
+    if (s && s.h1FirstMs === null) {
+      s.h1FirstMs = Math.round(Date.now() - s.t0);
+      write(s);
+    }
+  }, 50);
+  setTimeout(() => clearInterval(poll), Math.max(0, first.t0 + 8000 - Date.now()));
 }
 
 /** A new context (nothing stored), one navigation, samples at 1, 3 and 7 s. */
@@ -98,7 +111,10 @@ export async function coldArrival(browser: Browser, contextOptions: BrowserConte
       await page.waitForTimeout(250);
     }
     if (!state?.at?.[last]) throw new Error(`${url}: no ${last} ms sample within 20 s`);
-    return { url, documents, loads: state.loads, navTypes: state.navTypes, at: state.at, scrollHeight: state.scrollHeight };
+    return {
+      url, documents, loads: state.loads, navTypes: state.navTypes, at: state.at,
+      scrollHeight: state.scrollHeight, h1FirstMs: state.h1FirstMs,
+    };
   } finally {
     await context.close();
   }
@@ -110,11 +126,16 @@ export function summarize(label: string, arrivals: Arrival[]): string {
   const count = (f: (a: Arrival) => boolean) => arrivals.filter(f).length;
   const offHero = (a: Arrival) => SAMPLE_MS.some((ms) => (a.at[ms]?.y ?? -1) !== 0) || !a.at[7000]?.h1InView;
   const h1 = (ms: number) => count((a) => !!a.at[ms]?.h1InView);
+  const firsts = arrivals.map((a) => a.h1FirstMs).filter((v): v is number => v !== null).sort((x, y) => x - y);
+  const h1First = firsts.length
+    ? `${firsts[0]}-${firsts[firsts.length - 1]} ms, median ${firsts[Math.floor((firsts.length - 1) / 2)]}`
+    : 'never';
   return (
     `[room-arrival] ${label}: documents ${arrivals.map((a) => a.documents).join(',')}` +
     ` · loads ${arrivals.map((a) => a.loads).join(',')}` +
     ` · off-hero ${count(offHero)}/${n}` +
     ` · H1@1s ${h1(1000)}/${n} · H1@3s ${h1(3000)}/${n} · H1@7s ${h1(7000)}/${n}` +
+    ` · H1 first in view ${h1First} (${firsts.length}/${n})` +
     ` · y@7s ${arrivals.map((a) => `${a.at[7000]?.y}/${a.scrollHeight}`).join(',')}`
   );
 }
