@@ -73,8 +73,11 @@ jobs:
             *) echo "::warning::diff-scope returned '$verdict', running everything"; say true ;;
           esac
 
+  # One language, so no matrix: a matrix job skipped by its `if:` is not expanded and
+  # would report under the literal `${{ matrix.language }}`. This name is the check a
+  # code PR and a docs PR both see.
   analyze:
-    name: CodeQL (${{ matrix.language }})
+    name: CodeQL (javascript-typescript)
     runs-on: ubuntu-latest
     needs: scope
     if: >-
@@ -85,11 +88,6 @@ jobs:
       contents: read
       security-events: write
 
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [javascript-typescript]
-
     steps:
       - name: Checkout
         # AUDIT R056: SHA-pinned actions (was @v3/@v4 floating).
@@ -98,7 +96,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
-          languages: ${{ matrix.language }}
+          languages: javascript-typescript
           queries: security-and-quality
           # Excludes contracts/lib (vendored upstream Solidity libs and their JS
           # dev scripts). See the file for why, and for what it deliberately does
@@ -111,4 +109,4 @@ jobs:
       - name: Perform analysis
         uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
-          category: "/language:${{ matrix.language }}"
+          category: "/language:javascript-typescript"
