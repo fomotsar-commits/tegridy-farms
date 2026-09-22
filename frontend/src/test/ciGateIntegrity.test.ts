@@ -41,14 +41,28 @@ const configLines = (): { n: number; text: string }[] =>
     .map((text, i) => ({ n: i + 1, text }))
     .filter(({ text }) => !/^\s*#/.test(text));
 
-/** Every `run:` script body in the file, single-line and block form alike. */
-const runScripts = (): { n: number; body: string }[] => {
-  const lines = source().split(/\r?\n/);
+/**
+ * Every step's `run:` script body, single-line and block form alike. A `run:` key is a
+ * step's when it opens a list item or its parent line does; `outputs: run:` and
+ * `defaults: run:` are mappings, not scripts.
+ */
+const runScripts = (src: string = source()): { n: number; body: string }[] => {
+  const lines = src.split(/\r?\n/);
   const out: { n: number; body: string }[] = [];
+  const isStepKey = (i: number, indent: string): boolean => {
+    if (/^\s*-\s/.test(lines[i])) return true;
+    for (let k = i - 1; k >= 0; k--) {
+      const l = lines[k];
+      if (l.trim() === '' || /^\s*#/.test(l)) continue;
+      if (l.length - l.trimStart().length < indent.length) return /^\s*-\s/.test(l);
+    }
+    return false;
+  };
   for (let i = 0; i < lines.length; i++) {
     const m = /^(\s*)-?\s*run:\s*(.*)$/.exec(lines[i]);
     if (!m) continue;
     const [, indent, rest] = m;
+    if (!isStepKey(i, indent)) continue;
     if (rest.trim() !== '' && !/^[|>][-+]?\d*$/.test(rest.trim())) {
       out.push({ n: i + 1, body: rest });
       continue;
@@ -74,6 +88,25 @@ describe('ci.yml cannot swallow a failure', () => {
   it('parses something at all (guards the guard)', () => {
     expect(runScripts().length).toBeGreaterThan(5);
     expect(source()).toContain('jobs:');
+  });
+
+  it('reads a step run: as a script and a job outputs: run: as a mapping', () => {
+    const yml = [
+      'jobs:',
+      '  scope:',
+      '    outputs:',
+      '      run: ${{ steps.q.outputs.run }}',
+      '    defaults:',
+      '      run:',
+      '        working-directory: frontend',
+      '    steps:',
+      '      - run: echo ${{ github.event.a }}',
+      '      - name: b',
+      '        run: |',
+      '          echo ${{ github.event.b }}',
+    ].join('\n');
+    const scripts = runScripts(yml).map(({ body }) => body.trim());
+    expect(scripts).toEqual(['echo ${{ github.event.a }}', 'echo ${{ github.event.b }}']);
   });
 
   it('has no continue-on-error anywhere', () => {
