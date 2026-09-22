@@ -5,7 +5,7 @@ in full; the Base 8453, Robinhood 4663 and Solana surfaces are indexed below und
 [Other chains](#other-chains). All EVM addresses are EIP-55 checksummed. Etherscan links use
 `https://etherscan.io/address/...`.
 
-> **[`frontend/scripts/addresses.json`](frontend/scripts/addresses.json) is the registry of
+> **[`frontend/scripts/addresses.json`](../frontend/scripts/addresses.json) is the registry of
 > record** — **130 entries** across the four chains (Ethereum 75, Solana 24, Base 20,
 > Robinhood 11), live and retired alike, each in full and checked by
 > `verify-addresses.mjs` in CI on every push (structural decode, no truncation, no
@@ -44,7 +44,7 @@ so an old reference can be traced, never mixed into the live set.
 | **TegridyStaking** — veTOWELI lockup (7d–4y), 0.4x–4.0x boost, flat 25% early-exit penalty paid to the treasury, +0.5x JBAC bonus. | [`0xcaDc93E96De58EA554c71ca609974625615E046D`](https://etherscan.io/address/0xcaDc93E96De58EA554c71ca609974625615E046D) | `contracts/src/TegridyStaking.sol` | Live (relaunch 2026-06-06, `DeployMVP`) — `paused() == false`, `treasury() == 0x7D26…Bd7d` |
 | **TegridyStakingAdmin** — EIP-170 admin sister of the staking vault. | [`0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3`](https://etherscan.io/address/0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3) | `contracts/src/TegridyStakingAdmin.sol` | Live (relaunch 2026-06-06) |
 | **TegridyStakingJbacVault** — JBAC custody sister for the staking boost. | [`0x28317bF362d43B40fcECebF2390C43dB558c3F14`](https://etherscan.io/address/0x28317bF362d43B40fcECebF2390C43dB558c3F14) | `contracts/src/TegridyStakingJbacVault.sol` | Live (relaunch 2026-06-06) |
-| **StakingMonitorView** — Read-only view sister (EIP-170 split). | [`0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC`](https://etherscan.io/address/0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC) | `contracts/src/StakingMonitorView.sol` | Live (relaunch 2026-06-06). ⚠️ Deployed before the 2026-09-17 pause fix: while staking is paused, its `earned` keeps adding emission that `getReward` never pays. Redeploy pending ([TODO_OPERATOR O-0917-1](docs/TODO_OPERATOR.md)) |
+| **StakingMonitorView** — Read-only view sister (EIP-170 split). | [`0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC`](https://etherscan.io/address/0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC) | `contracts/src/StakingMonitorView.sol` | Live (relaunch 2026-06-06). ⚠️ Deployed before the 2026-09-17 pause fix: while staking is paused, its `earned` keeps adding emission that `getReward` never pays. Redeploy pending ([TODO_OPERATOR O-0917-1](TODO_OPERATOR.md)) |
 | **TegridyRestaking** — Auto-compounding restake wrapper. | _not deployed_ | `contracts/src/TegridyRestaking.sol` | Deferred — `TEGRIDY_RESTAKING_ADDRESS` is `0x0…0`; the pre-relaunch instance is retired (see below). |
 
 > 🔴 **The live TOWELI is not this repo's `Toweli.sol`.** Selector scan of `cast code` plus live
@@ -179,8 +179,8 @@ mainnet** — presence of code proves nothing about whether an address is curren
 | TegridyLending | `0xd471e5675EaDbD8C192A5dA2fF44372D5713367f` — retired with the relaunch | _not redeployed_ |
 | Treasury | `0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e` — an EOA carrying an EIP-7702 delegation designator (`code == 0xef0100…`), and one of the two owners of the live Safe. Never the treasury itself. | `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d` |
 
-See [docs/MIGRATION_HISTORY.md](docs/MIGRATION_HISTORY.md) for why each migration happened and
-[docs/DEPRECATED_CONTRACTS.md](docs/DEPRECATED_CONTRACTS.md) for orphaned bytecode that was never
+See [docs/MIGRATION_HISTORY.md](MIGRATION_HISTORY.md) for why each migration happened and
+[docs/DEPRECATED_CONTRACTS.md](DEPRECATED_CONTRACTS.md) for orphaned bytecode that was never
 part of the protocol.
 
 ---

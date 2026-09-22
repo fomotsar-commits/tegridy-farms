@@ -6,7 +6,7 @@ This page is where we publicly thank you (with your permission). If you'd prefer
 
 ## How to get listed
 
-- Report a valid vulnerability through the process in [SECURITY.md](SECURITY.md).
+- Report a valid vulnerability through the process in [SECURITY.md](../SECURITY.md).
 - Work with the team through fix, patch, redeploy, and mainnet verification.
 - After a mutually-agreed disclosure window, if you want public credit, we add your name (or handle, or pseudonym) to the table below.
 
@@ -22,11 +22,11 @@ This page is where we publicly thank you (with your permission). If you'd prefer
 
 ## Audit contributors
 
-Formal audit engagements are listed separately in [AUDITS.md](AUDITS.md). Findings from those audits are tracked in [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md).
+Formal audit engagements are listed separately in [AUDITS.md](AUDITS.md). Findings from those audits are tracked in [AUDIT_FINDINGS.md](archive/AUDIT_FINDINGS.md).
 
 ## Bounty scope & rewards
 
-See [SECURITY.md § Bug Bounty](SECURITY.md) for the current scope, reward tiers, and safe-harbor terms.
+See [SECURITY.md § Bug Bounty](../SECURITY.md) for the current scope, reward tiers, and safe-harbor terms.
 
 ---
 

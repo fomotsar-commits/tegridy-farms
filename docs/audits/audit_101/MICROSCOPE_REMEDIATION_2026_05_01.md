@@ -173,8 +173,8 @@ vault redemption pricing).
 ### New regression suites
 
 - [`test/AuditMicroscope_Kick.t.sol`](../contracts/test/AuditMicroscope_Kick.t.sol) — C4 root closure (4 tests)
-- [`test/AuditMicroscope_RevenueDistributor.t.sol`](../contracts/test/AuditMicroscope_RevenueDistributor.t.sol) — C5 + M-R6 (5 tests)
-- [`test/AuditMicroscope_DropV2.t.sol`](../contracts/test/AuditMicroscope_DropV2.t.sol) — C1 + H18 + H19 + H20 (9 tests)
+- [`test/AuditMicroscope_RevenueDistributor.t.sol`](../../../contracts/test/AuditMicroscope_RevenueDistributor.t.sol) — C5 + M-R6 (5 tests)
+- [`test/AuditMicroscope_DropV2.t.sol`](../../../contracts/test/AuditMicroscope_DropV2.t.sol) — C1 + H18 + H19 + H20 (9 tests)
 - [`test/AuditMicroscope_VoteIncentives.t.sol`](../contracts/test/AuditMicroscope_VoteIncentives.t.sol) — C2 (3 tests)
 
 ### Updated tests (test-only changes from API/behavior shifts)

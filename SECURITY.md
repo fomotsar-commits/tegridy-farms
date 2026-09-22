@@ -23,7 +23,7 @@ destructive tests against mainnet — use a fork (Anvil or Tenderly).
 <https://securityalliance.org/our-work/seal-911> — responders never need your keys.
 
 **Bug bounty status:** none is live. No Immunefi page exists. Researchers who report
-responsibly in the interim are credited in the [Hall of Fame](./HALL_OF_FAME.md) and given
+responsibly in the interim are credited in the [Hall of Fame](./docs/HALL_OF_FAME.md) and given
 priority consideration if a program launches.
 
 **On response times:** this file used to promise acknowledgement within 24 hours, triage
@@ -36,7 +36,7 @@ Please do **not** open public GitHub issues for vulnerabilities.
 
 ## Scope
 
-**In scope** — the following deployed mainnet contracts as listed in [CONTRACTS.md](./CONTRACTS.md):
+**In scope** — the following deployed mainnet contracts as listed in [CONTRACTS.md](./docs/CONTRACTS.md):
 
 - TOWELI, the ERC-20 (`contracts/src/Toweli.sol`)
 - TegridyStaking and its admin/vault sisters
@@ -61,7 +61,7 @@ findings but there is nothing live to exploit.
 ## Out of Scope
 
 - **UI / UX bugs** — please open a regular [GitHub issue](https://github.com/fomotsar-commits/tegridy-farms/issues) instead
-- **Known issues** — previously disclosed findings documented in [AUDIT_FINDINGS.md](./AUDIT_FINDINGS.md) are not eligible
+- **Known issues** — previously disclosed findings documented in [AUDIT_FINDINGS.md](./docs/archive/AUDIT_FINDINGS.md) are not eligible
 - **Third-party dependencies** — vulnerabilities in Uniswap V3, Chainlink oracles, OpenZeppelin libraries, or other external protocols should be reported upstream to the respective maintainers
 - **Test, mock, deprecated, or testnet contracts** — anything not explicitly listed as mainnet in CONTRACTS.md
 - **Theoretical attacks** without a concrete proof-of-concept
@@ -74,7 +74,7 @@ findings but there is nothing live to exploit.
 
 ## Bounty Tiers
 
-A formal bug bounty program — including reward tiers, payout currency, and final-severity adjudication — is being prepared and will be published here when live. **Until then, no specific reward amounts are guaranteed.** Researchers who report responsibly during this interim period will be acknowledged in the [Hall of Fame](./HALL_OF_FAME.md) and given priority consideration for rewards once the program launches. Severity classification follows the [Immunefi vulnerability severity classification system](https://immunefi.com/severity-system/) for reference.
+A formal bug bounty program — including reward tiers, payout currency, and final-severity adjudication — is being prepared and will be published here when live. **Until then, no specific reward amounts are guaranteed.** Researchers who report responsibly during this interim period will be acknowledged in the [Hall of Fame](./docs/HALL_OF_FAME.md) and given priority consideration for rewards once the program launches. Severity classification follows the [Immunefi vulnerability severity classification system](https://immunefi.com/severity-system/) for reference.
 
 ## Safe Harbor
 
@@ -113,7 +113,7 @@ If legal action is initiated by a third party against a researcher following thi
 
 ## Acknowledgements
 
-We maintain a [Hall of Fame](./HALL_OF_FAME.md) for researchers who have contributed to securing the protocol. With your permission, we'd be glad to add your handle.
+We maintain a [Hall of Fame](./docs/HALL_OF_FAME.md) for researchers who have contributed to securing the protocol. With your permission, we'd be glad to add your handle.
 
 ## Operational runbooks
 

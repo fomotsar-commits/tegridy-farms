@@ -266,7 +266,7 @@ flowchart LR
 > The dashed edge is the whole story: it is the only way value gets from the splitter back
 > to the staker rail, it is permissionless, and it has never been traversed.
 
-**Where the new fees land (honest version):** the NFT-lending, NFT-pool, launchpad, and premium surfaces went live 2026-07-21/22, and their fees accrue to the **treasury Safe** today — *not* to the staker stream yet. Routing them into `RevenueDistributor` is a deliberate later step (the treasury needs to cover operating costs first — see [`REVENUE_ANALYSIS.md`](REVENUE_ANALYSIS.md)). The front-door swap fee remains the one rail *aimed* at stakers directly — and per the fee-rail bullet in [Live deployment status](#live-deployment-status), it has collected without delivering. Volume on the new surfaces starts from zero — no revenue is implied until the chain shows it.
+**Where the new fees land (honest version):** the NFT-lending, NFT-pool, launchpad, and premium surfaces went live 2026-07-21/22, and their fees accrue to the **treasury Safe** today — *not* to the staker stream yet. Routing them into `RevenueDistributor` is a deliberate later step (the treasury needs to cover operating costs first — see [`REVENUE_ANALYSIS.md`](docs/archive/REVENUE_ANALYSIS.md)). The front-door swap fee remains the one rail *aimed* at stakers directly — and per the fee-rail bullet in [Live deployment status](#live-deployment-status), it has collected without delivering. Volume on the new surfaces starts from zero — no revenue is implied until the chain shows it.
 
 ### 2. The staking position as universal collateral
 
@@ -366,7 +366,7 @@ Hold a [JBAC NFT](https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336
   have **no early exit at all**, so read the lock warning before you sign.
 - **Vote on gauges** — the governance contracts (`GaugeController` + `VoteIncentives`) are **deployed on-chain**; voting un-gates in the app once ownership hands off to the Safe.
 
-New to DeFi? See [QUICKSTART.md](QUICKSTART.md) or [FAQ.md](FAQ.md).
+New to DeFi? See [QUICKSTART.md](docs/QUICKSTART.md) or [FAQ.md](docs/FAQ.md).
 
 ---
 
@@ -535,13 +535,13 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
 
 ## Tokenomics in one minute
 
-- **Total supply:** 1,000,000,000 TOWELI. **Fixed** — `mint(address,uint256)` is not in the live bytecode. `burn(uint256)` and `burnFrom(address,uint256)` **are**: any holder can destroy their own TOWELI, so supply is a ceiling, not a constant. The protocol itself burns nothing. See [TOKENOMICS.md](TOKENOMICS.md) for the on-chain capability read.
+- **Total supply:** 1,000,000,000 TOWELI. **Fixed** — `mint(address,uint256)` is not in the live bytecode. `burn(uint256)` and `burnFrom(address,uint256)` **are**: any holder can destroy their own TOWELI, so supply is a ceiling, not a constant. The protocol itself burns nothing. See [TOKENOMICS.md](docs/TOKENOMICS.md) for the on-chain capability read.
 - **Engagement season:** Season 3 (2026-06-07 → 2026-09-05) — an engagement/leaderboard window. LP-farm reward rate, total funded, and period-end are read **live from the contract**; nothing here renders a number the chain can't back.
 - **Revenue flow (wiring, not history):** the 0.5% smart-front-door fee → `SwapFeeRouter` (collected in ETH) → `ReferralSplitter` (**20% off the top, unremovable**; the rest parked as `callerCredit` awaiting a permissionless `recoverCallerCredit()`) → back to `SwapFeeRouter` → `RevenueDistributor` → stakers claim their share **per epoch** (each epoch needs ≥ 1 ETH pooled and ≥ 4h since the last — it's discrete, not a continuous drip). **Zero epochs have opened.** The native pair's separate 0.3% grows the pool for LPs.
 - **Penalty flow:** 25% early-exit penalty → the **treasury** (`safeTransfer(treasury, penalty)`, emitting `PenaltySentToTreasury`). The penalty-recycle split was removed for EIP-170 size; it does *not* redistribute to stakers.
 - **Treasury take:** the native pair's ⅙ slice of its 0.3% accrues to `feeTo` as **LP tokens** (a treasury asset — *not* staker ETH); the front-door's 0.5% is the leg pointed at stakers, and `stakerShareBps` (default `10000`, floor `5000`) governs the share of what survives the referral split, not of the fee. Lending / launchpad / NFT-pool / premium fees join the same staker stream once those surfaces un-gate — none of them do today.
 
-Full detail: **[TOKENOMICS.md](TOKENOMICS.md)** · **[REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md)** (honest fee-lever benchmarks).
+Full detail: **[TOKENOMICS.md](docs/TOKENOMICS.md)** · **[REVENUE_ANALYSIS.md](docs/archive/REVENUE_ANALYSIS.md)** (honest fee-lever benchmarks).
 
 ---
 
@@ -677,7 +677,7 @@ tegriddy-farms/
 | Doc | For |
 |---|---|
 | [docs/GOLIVE_HANDOFF.md](docs/GOLIVE_HANDOFF.md) | **Current** ownership-handoff state + tx data |
-| [RELAUNCH_RUNBOOK.md](RELAUNCH_RUNBOOK.md) | Relaunch deploy sequence |
+| [RELAUNCH_RUNBOOK.md](docs/archive/RELAUNCH_RUNBOOK.md) | Relaunch deploy sequence |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the contracts fit together |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Mainnet deploy runbook + rollback |
 | [docs/GOVERNANCE.md](docs/GOVERNANCE.md) | Admin keys, timelock, multisig plan |
@@ -704,8 +704,8 @@ Tegridy Farms treats its own custom code as a known-risk attack surface: the sta
   - **2026-08-28** — a frontend audit ([#340](https://github.com/fomotsar-commits/tegridy-farms/pull/340)): 53 verified, 46 fixed.
   - **2026-08-30** — a 45-agent island gap scan, which caught a shipped EIP-55 defect within the hour of it landing.
   - **2026-09-03** — a four-lane review sweep (53 findings survived verification; 50 fixed, 3 declined with reasons) and an external field review of the live site (**20 findings, 9 of them misdiagnosed**).
-  Findings that can be expressed as a regression test have one, and a test only counts once it has been shown to **fail on the pre-fix code**. Historical artifacts are indexed in [`AUDITS.md`](AUDITS.md) and [`FIX_STATUS.md`](FIX_STATUS.md).
-- **One review to an external methodology** (Spartan, [`SPARTAN_AUDIT.txt`](SPARTAN_AUDIT.txt)) has been done. Its own Appendix C says who wrote it: "The reviewer is an AI assistant (Claude, Anthropic) acting at the direction of the repository owner." The *methodology* is external; the *reviewer* was not. It is not a third-party audit and this README does not claim it as one.
+  Findings that can be expressed as a regression test have one, and a test only counts once it has been shown to **fail on the pre-fix code**. Historical artifacts are indexed in [`AUDITS.md`](docs/AUDITS.md) and [`FIX_STATUS.md`](docs/archive/FIX_STATUS.md).
+- **One review to an external methodology** (Spartan, [`SPARTAN_AUDIT.txt`](docs/archive/SPARTAN_AUDIT.txt)) has been done. Its own Appendix C says who wrote it: "The reviewer is an AI assistant (Claude, Anthropic) acting at the direction of the repository owner." The *methodology* is external; the *reviewer* was not. It is not a third-party audit and this README does not claim it as one.
 - **No professional-firm audit yet.** A paid review (OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena) is on the roadmap and **not yet scheduled**. Gated surfaces each get a dedicated audit wave before they deploy.
 - **Responsible disclosure:** see [`SECURITY.md`](SECURITY.md). Please don't file security reports as public issues.
 
@@ -854,7 +854,7 @@ Live directory in the app: [memetics.finance/contracts](https://memetics.finance
 
 ## Roadmap & status
 
-Full roadmap in [`ROADMAP.md`](ROADMAP.md) · shipping cadence in [`CHANGELOG.md`](CHANGELOG.md) ·
+Full roadmap in [`ROADMAP.md`](docs/ROADMAP.md) · shipping cadence in [`CHANGELOG.md`](CHANGELOG.md) ·
 the single operator entry point is [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md).
 
 **Near-term go-live gates:**

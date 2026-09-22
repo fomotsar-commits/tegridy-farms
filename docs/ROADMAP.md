@@ -4,17 +4,17 @@ Reconciled against the repo and the chain on **2026-09-04**. Each item carries a
 one-sentence scope, a success metric, and a **Status** line that says what the tree
 actually contains.
 
-Status vocabulary, used the same way in [`docs/BATTLE_PLAN.md`](docs/BATTLE_PLAN.md):
+Status vocabulary, used the same way in [`docs/BATTLE_PLAN.md`](BATTLE_PLAN.md):
 
 - **shipped** — the metric is met, on-chain or in production.
 - **in the tree** — the code is merged and tested, but the metric names an outcome
   (a deploy, a migration, an epoch) that has not happened. Merged is not live.
 - **not built** — no implementation exists.
 
-Two horizons feed this file: [`docs/YEAR_PLAN_2026_2027.md`](docs/YEAR_PLAN_2026_2027.md)
+Two horizons feed this file: [`docs/YEAR_PLAN_2026_2027.md`](YEAR_PLAN_2026_2027.md)
 is the operational plan for Sep 2026 → Aug 2027, and
-[`docs/BATTLE_PLAN.md`](docs/BATTLE_PLAN.md) carries per-item build instructions. The
-single canonical to-do list is [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md). Where
+[`docs/BATTLE_PLAN.md`](BATTLE_PLAN.md) carries per-item build instructions. The
+single canonical to-do list is [`docs/TODO_OPERATOR.md`](TODO_OPERATOR.md). Where
 this file and any of those disagree, they are newer. `V2_ROADMAP.md` remains the backlog
 of technical issues feeding these quarters.
 
@@ -126,10 +126,10 @@ Push the product out. Marketing, automation, and a credible L2 story.
     - **Status: SHIPPED, and wider than scoped — corrected 2026-09-04.** This item read
       "not started. No memo, no Base deploy scripts" for ten days after the deploy. Both
       halves of the ship-ready metric are met: the go/no-go memo is
-      [`docs/BASE_L2_GO_NO_GO.md`](docs/BASE_L2_GO_NO_GO.md), the deploy scripts are
+      [`docs/BASE_L2_GO_NO_GO.md`](BASE_L2_GO_NO_GO.md), the deploy scripts are
       `DeployBaseMVP` / `DeployCurveLauncher`, and **Base 8453 went live 2026-08-25** with
       every contract slot read back on-chain. A second chain nobody scoped went with it —
-      **Robinhood Chain 4663** ([`docs/ROBINHOOD_L2_LEG.md`](docs/ROBINHOOD_L2_LEG.md)),
+      **Robinhood Chain 4663** ([`docs/ROBINHOOD_L2_LEG.md`](ROBINHOOD_L2_LEG.md)),
       which needed its own `AttestedSequencerUptimeFeed` because Chainlink publishes no
       uptime feed for 4663 and `SequencerCheck` reverts off-mainnet on a zero feed.
       **The TVL half of the metric is unmeasured, and the fee half is deliberately not

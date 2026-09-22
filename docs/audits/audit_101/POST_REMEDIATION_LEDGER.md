@@ -42,7 +42,7 @@
 
 **Why:** The triple-check sweep found TegridyStaking's runtime bytecode at 29,461 bytes — 4,885 bytes OVER the EIP-170 mainnet limit (24,576). The contract could not be redeployed. Source-level fixes from this campaign (Batch F MAX_POSITIONS, Batch H ceiling-div, Wave 1 custom errors) were stuck.
 
-**What changed:** All 7 timelocked admin function triplets (rewardRate, treasury, restakingContract, maxUnsettledRewards, lendingContract, extendFee, penaltyRecycle) plus their pending state moved from TegridyStaking into a new sister contract [`TegridyStakingAdmin.sol`](../contracts/src/TegridyStakingAdmin.sol). TegridyStaking exposes `onlyAdmin`-gated `apply*` setters that the Admin contract calls during execute.
+**What changed:** All 7 timelocked admin function triplets (rewardRate, treasury, restakingContract, maxUnsettledRewards, lendingContract, extendFee, penaltyRecycle) plus their pending state moved from TegridyStaking into a new sister contract [`TegridyStakingAdmin.sol`](../../../contracts/src/TegridyStakingAdmin.sol). TegridyStaking exposes `onlyAdmin`-gated `apply*` setters that the Admin contract calls during execute.
 
 **Result:**
 - TegridyStaking: 29,461 → **22,492 bytes** (saved 6,953 bytes; +2,084 margin under EIP-170)
@@ -65,7 +65,7 @@
 
 **Why:** Same EIP-170 issue surfaced for SwapFeeRouter during the triple-check (25,930 bytes — 1,354 over the 24,576-byte limit). Same playbook as TegridyStaking.
 
-**What changed:** All 9 timelocked admin function triplets (fee, treasury, referralSplitter, pairFee, premiumDiscount, premiumAccess, revenueDistributor, feeSplit, polAccumulator) plus their pending state moved into [`SwapFeeRouterAdmin.sol`](../contracts/src/SwapFeeRouterAdmin.sol). Router exposes 9 `onlyAdmin`-gated `apply*` setters.
+**What changed:** All 9 timelocked admin function triplets (fee, treasury, referralSplitter, pairFee, premiumDiscount, premiumAccess, revenueDistributor, feeSplit, polAccumulator) plus their pending state moved into [`SwapFeeRouterAdmin.sol`](../../../contracts/src/SwapFeeRouterAdmin.sol). Router exposes 9 `onlyAdmin`-gated `apply*` setters.
 
 **Result:**
 - SwapFeeRouter: 25,930 → **16,735 bytes** (saved 9,195 bytes / 35.5%; +7,841 margin under EIP-170)
@@ -260,36 +260,36 @@ Platypus / Poly Network).
 
 | ID | Surface | What changed |
 |---|---|---|
-| LD-NEW-H1 | `TegridyLending.pullEscrowRewards` | `staking.ownerOf(loan.tokenId) == address(this)` gate skips per-tokenId pull when NFT is currently re-escrowed at lending — credits belong to the active loan. ([TegridyLending.sol:1620-1633](../contracts/src/TegridyLending.sol#L1620)) |
-| LD-NEW-H1 mirror | `TegridyRestaking.claimResidualForTokenId` | Returns 0 paid + emits `ResidualPullDeferredCrossHolder` when `staking.ownerOf(tokenId)` is neither this contract nor `msg.sender`. Residual claim stays live for retry. ([TegridyRestaking.sol:1163-1195](../contracts/src/TegridyRestaking.sol#L1163)) |
-| LD-NEW-H2 | `TegridyNFTLending.repayLoan` / `claimDefault` | New `_safeOutboundTransfer` helper performs `transferFrom` then re-checks `ownerOf(tokenId)` post-condition. Mismatch sets `stuckCollateralRecipient[loanId]` + emits `CollateralRedirected`. ([TegridyNFTLending.sol:620-697,755-771](../contracts/src/TegridyNFTLending.sol#L620)) |
-| TWAP HIGH-2 | `TegridyTWAP.consult()` | Reverts `PairDisabled` when `factory.disabledPairs(pair)` is true. ([TegridyTWAP.sol:472](../contracts/src/TegridyTWAP.sol#L472)) |
-| TWAP HIGH-3 | `TegridyTWAP.update()` first observation | First obs now stamped `bypassed = true` + `lastBypassUsed[pair] = block.timestamp`. Bootstrap rolls out of consult lookup window before consumers trust it. ([TegridyTWAP.sol:309-331](../contracts/src/TegridyTWAP.sol#L309)) |
-| SwapFeeRouter HIGH-4 | `convertTokenFeesToETH` + FoT variant — multi-hop branches | Multi-hop now invalidates `lastConversionSnapshot[token]` (`timestamp = 0`). Forces next 2-hop into bootstrap (owner-only). ([SwapFeeRouter.sol:1554-1563](../contracts/src/SwapFeeRouter.sol#L1554) and [L1652-1660](../contracts/src/SwapFeeRouter.sol#L1652)) |
+| LD-NEW-H1 | `TegridyLending.pullEscrowRewards` | `staking.ownerOf(loan.tokenId) == address(this)` gate skips per-tokenId pull when NFT is currently re-escrowed at lending — credits belong to the active loan. ([TegridyLending.sol:1620-1633](../../../contracts/src/TegridyLending.sol#L1620)) |
+| LD-NEW-H1 mirror | `TegridyRestaking.claimResidualForTokenId` | Returns 0 paid + emits `ResidualPullDeferredCrossHolder` when `staking.ownerOf(tokenId)` is neither this contract nor `msg.sender`. Residual claim stays live for retry. ([TegridyRestaking.sol:1163-1195](../../../contracts/src/TegridyRestaking.sol#L1163)) |
+| LD-NEW-H2 | `TegridyNFTLending.repayLoan` / `claimDefault` | New `_safeOutboundTransfer` helper performs `transferFrom` then re-checks `ownerOf(tokenId)` post-condition. Mismatch sets `stuckCollateralRecipient[loanId]` + emits `CollateralRedirected`. ([TegridyNFTLending.sol:620-697,755-771](../../../contracts/src/TegridyNFTLending.sol#L620)) |
+| TWAP HIGH-2 | `TegridyTWAP.consult()` | Reverts `PairDisabled` when `factory.disabledPairs(pair)` is true. ([TegridyTWAP.sol:472](../../../contracts/src/TegridyTWAP.sol#L472)) |
+| TWAP HIGH-3 | `TegridyTWAP.update()` first observation | First obs now stamped `bypassed = true` + `lastBypassUsed[pair] = block.timestamp`. Bootstrap rolls out of consult lookup window before consumers trust it. ([TegridyTWAP.sol:309-331](../../../contracts/src/TegridyTWAP.sol#L309)) |
+| SwapFeeRouter HIGH-4 | `convertTokenFeesToETH` + FoT variant — multi-hop branches | Multi-hop now invalidates `lastConversionSnapshot[token]` (`timestamp = 0`). Forces next 2-hop into bootstrap (owner-only). ([SwapFeeRouter.sol:1554-1563](../../../contracts/src/SwapFeeRouter.sol#L1554) and [L1652-1660](../../../contracts/src/SwapFeeRouter.sol#L1652)) |
 
 #### Contract MEDs (5)
 
 | ID | Surface | What changed |
 |---|---|---|
-| PASS5-PA-L1 (MED) | `PremiumAccess.subscribe` extension | Removed `totalRevenue += consumedEscrow;` — original cost was already counted at first subscribe. ([PremiumAccess.sol:309-330](../contracts/src/PremiumAccess.sol#L309)) |
-| N-1 | `GaugeController.proposeRemoveGauge` | New `error GaugeRemovePending()`; reverts when `pendingGaugeRemove != 0`. ([GaugeController.sol:201,788](../contracts/src/GaugeController.sol#L201)) |
-| F-1 | `TegridyRestaking._boostedAmountAt` | Splits the predicate at `_timestamp < liveLockEnd` — returns `cached` directly for historical lookups in the kick-window. Preserves DR-04 over-credit defense at `_timestamp >= liveLockEnd`. ([TegridyRestaking.sol:486-512](../contracts/src/TegridyRestaking.sol#L486)) |
-| F-2 | `TegridyRestaking.executeAttributeStuckRewards` | Subtracts `totalActivePrincipal` AND `totalPendingUnsettled` from the unattributed pool. ([TegridyRestaking.sol:1389-1408](../contracts/src/TegridyRestaking.sol#L1389)) |
-| LD-NEW-M4 | `TegridyLending` TWAP staleness gates | Directional pre-check `if (latest.timestamp > block.timestamp) revert OracleStale();` ahead of subtraction, mirrored on `lastBypass`. ([TegridyLending.sol:1245,1256](../contracts/src/TegridyLending.sol#L1245)) |
-| MEDIUM-5 | `POLAccumulator.HARVEST_TWAP_DEVIATION_BPS` | Narrowed 200 → 50 bps to match `TWAP_SAFETY_BPS`. ([POLAccumulator.sol:131](../contracts/src/POLAccumulator.sol#L131)) |
+| PASS5-PA-L1 (MED) | `PremiumAccess.subscribe` extension | Removed `totalRevenue += consumedEscrow;` — original cost was already counted at first subscribe. ([PremiumAccess.sol:309-330](../../../contracts/src/PremiumAccess.sol#L309)) |
+| N-1 | `GaugeController.proposeRemoveGauge` | New `error GaugeRemovePending()`; reverts when `pendingGaugeRemove != 0`. ([GaugeController.sol:201,788](../../../contracts/src/GaugeController.sol#L201)) |
+| F-1 | `TegridyRestaking._boostedAmountAt` | Splits the predicate at `_timestamp < liveLockEnd` — returns `cached` directly for historical lookups in the kick-window. Preserves DR-04 over-credit defense at `_timestamp >= liveLockEnd`. ([TegridyRestaking.sol:486-512](../../../contracts/src/TegridyRestaking.sol#L486)) |
+| F-2 | `TegridyRestaking.executeAttributeStuckRewards` | Subtracts `totalActivePrincipal` AND `totalPendingUnsettled` from the unattributed pool. ([TegridyRestaking.sol:1389-1408](../../../contracts/src/TegridyRestaking.sol#L1389)) |
+| LD-NEW-M4 | `TegridyLending` TWAP staleness gates | Directional pre-check `if (latest.timestamp > block.timestamp) revert OracleStale();` ahead of subtraction, mirrored on `lastBypass`. ([TegridyLending.sol:1245,1256](../../../contracts/src/TegridyLending.sol#L1245)) |
+| MEDIUM-5 | `POLAccumulator.HARVEST_TWAP_DEVIATION_BPS` | Narrowed 200 → 50 bps to match `TWAP_SAFETY_BPS`. ([POLAccumulator.sol:131](../../../contracts/src/POLAccumulator.sol#L131)) |
 
 #### Frontend (1 CRIT + 5 HIGH + 1 LOW)
 
 | ID | Surface | What changed |
 |---|---|---|
 | FE-CRIT-01 | `vercel.json` aggregator rewrites (`/api/{odos,cow,lifi,kyber,openocean,paraswap,swapapi}/*`) | 7 rewrites replaced by Vercel serverless wrappers under `frontend/api/{provider}/[...path].js`. Shared `frontend/api/_lib/aggregator-proxy.js` enforces 7 gates: method/origin/rate-limit/path/body+response-cap/query/response-cleanup. 53 NEW tests in `frontend/api/__tests__/aggregator-proxy.test.js`. |
-| FE-HIGH-01 | TegridyDropV2 mint ABI | 2-arg → 3-arg (`mint(uint256 quantity, uint256 allowedAmount, bytes32[] proof)`); `useNFTDropV2.mint()` accepts optional `allowedAmount` (default 0). ([frontend/src/lib/contracts.ts:420-421](../frontend/src/lib/contracts.ts#L420), [frontend/src/hooks/useNFTDropV2.ts](../frontend/src/hooks/useNFTDropV2.ts)) |
-| FE-HIGH-02 | SIWE client | `buildSiweMessage` sets `expirationTime` (5-min, aligned to server `MAX_MESSAGE_TTL_MS`) + `notBefore` (30s skew tolerance). ([frontend/src/nakamigos/lib/siweAuth.js:41-60](../frontend/src/nakamigos/lib/siweAuth.js#L41)) |
-| FE-HIGH-03 | SwapAPI direct fetch | Routed through same-origin `/api/swapapi/*` so the third party never sees user wallet/IP/referer. ([frontend/src/lib/aggregator.ts:86](../frontend/src/lib/aggregator.ts#L86)) |
-| FE-HIGH-04 | DCA hardcoded 5% slippage | Per-schedule `slippageBps` field bounded to `[10, 300]` bps; default 50 bps; UI presets+custom; storage validator updated. ([frontend/src/hooks/useDCA.ts](../frontend/src/hooks/useDCA.ts), [frontend/src/components/swap/DCATab.tsx](../frontend/src/components/swap/DCATab.tsx)) |
-| FE-HIGH-05 | Limit-order minOut | At execute-time re-quote AMM: `minOut = min(targetDerivedMinOut, onChainOut * (1 - slippage))`; stale-target gate; default slippage 5% → 1%. ([frontend/src/hooks/useLimitOrders.ts:284](../frontend/src/hooks/useLimitOrders.ts#L284)) |
-| FE-HIGH-06 | Custom-token decimals/symbol spoofing | On-chain re-verify on hydration + add; mismatches evicted. `useSwapAllowance` refuses `MAX_UINT256` for non-DEFAULT tokens (exact-amount approval). UI banner. ([frontend/src/hooks/useSwap.ts](../frontend/src/hooks/useSwap.ts), [frontend/src/hooks/useSwapAllowance.ts](../frontend/src/hooks/useSwapAllowance.ts), [frontend/src/pages/TradePage.tsx](../frontend/src/pages/TradePage.tsx)) |
-| FE-LOW-04 | `useLPFarming` + `useNFTDropV2` `useWaitForTransactionReceipt` | Pin `chainId: CHAIN_ID`. ([frontend/src/hooks/useLPFarming.ts:24](../frontend/src/hooks/useLPFarming.ts#L24), [frontend/src/hooks/useNFTDropV2.ts:43](../frontend/src/hooks/useNFTDropV2.ts#L43)) |
+| FE-HIGH-01 | TegridyDropV2 mint ABI | 2-arg → 3-arg (`mint(uint256 quantity, uint256 allowedAmount, bytes32[] proof)`); `useNFTDropV2.mint()` accepts optional `allowedAmount` (default 0). ([frontend/src/lib/contracts.ts:420-421](../../../frontend/src/lib/contracts.ts#L420), [frontend/src/hooks/useNFTDropV2.ts](../../../frontend/src/hooks/useNFTDropV2.ts)) |
+| FE-HIGH-02 | SIWE client | `buildSiweMessage` sets `expirationTime` (5-min, aligned to server `MAX_MESSAGE_TTL_MS`) + `notBefore` (30s skew tolerance). ([frontend/src/nakamigos/lib/siweAuth.js:41-60](../../../frontend/src/nakamigos/lib/siweAuth.js#L41)) |
+| FE-HIGH-03 | SwapAPI direct fetch | Routed through same-origin `/api/swapapi/*` so the third party never sees user wallet/IP/referer. ([frontend/src/lib/aggregator.ts:86](../../../frontend/src/lib/aggregator.ts#L86)) |
+| FE-HIGH-04 | DCA hardcoded 5% slippage | Per-schedule `slippageBps` field bounded to `[10, 300]` bps; default 50 bps; UI presets+custom; storage validator updated. ([frontend/src/hooks/useDCA.ts](../../../frontend/src/hooks/useDCA.ts), [frontend/src/components/swap/DCATab.tsx](../../../frontend/src/components/swap/DCATab.tsx)) |
+| FE-HIGH-05 | Limit-order minOut | At execute-time re-quote AMM: `minOut = min(targetDerivedMinOut, onChainOut * (1 - slippage))`; stale-target gate; default slippage 5% → 1%. ([frontend/src/hooks/useLimitOrders.ts:284](../../../frontend/src/hooks/useLimitOrders.ts#L284)) |
+| FE-HIGH-06 | Custom-token decimals/symbol spoofing | On-chain re-verify on hydration + add; mismatches evicted. `useSwapAllowance` refuses `MAX_UINT256` for non-DEFAULT tokens (exact-amount approval). UI banner. ([frontend/src/hooks/useSwap.ts](../../../frontend/src/hooks/useSwap.ts), [frontend/src/hooks/useSwapAllowance.ts](../../../frontend/src/hooks/useSwapAllowance.ts), [frontend/src/pages/TradePage.tsx](../../../frontend/src/pages/TradePage.tsx)) |
+| FE-LOW-04 | `useLPFarming` + `useNFTDropV2` `useWaitForTransactionReceipt` | Pin `chainId: CHAIN_ID`. ([frontend/src/hooks/useLPFarming.ts:24](../../../frontend/src/hooks/useLPFarming.ts#L24), [frontend/src/hooks/useNFTDropV2.ts:43](../../../frontend/src/hooks/useNFTDropV2.ts#L43)) |
 
 ### Tests
 
@@ -301,7 +301,7 @@ adds 4 NEW unit-style PoC tests (commit `21db70b`):
 - `test_LD_NEW_H2_silentNoOpRepay_marksStuck`
 - `test_TWAP_HIGH_2_consultRevertsWhenPairDisabled`
 
-[`contracts/test/invariants/Pass6_*.t.sol`](../contracts/test/invariants/) adds
+[`contracts/test/invariants/Pass6_*.t.sol`](../../../contracts/test/invariants/) adds
 4 NEW stateful-invariant suites (commit `7889f25`) with 13 invariants total,
 each running 256 runs × 500 calls = **1.664M total stateful calls · 0 reverts ·
 ~210s wall clock**:

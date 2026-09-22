@@ -10,7 +10,7 @@ adversarial cross-contract (May 2), pass-6 fresh-eyes meta-audit
 remediation (May 4 → May 6) — plus the [SPARTAN_AUDIT](SPARTAN_AUDIT.txt)
 third-party review, the [AUDIT_FINDINGS.md](AUDIT_FINDINGS.md) ledger,
 the 35-detective audit, and the 300-agent internal review. Per the
-[`AUDITS.md`](AUDITS.md#honest-tldr) Honest TL;DR: 2 third-party reviews
+[`AUDITS.md`](../AUDITS.md#honest-tldr) Honest TL;DR: 2 third-party reviews
 + 14 internal AI-agent passes; not a substitute for a paid human audit.
 See [REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md) for the fee-lever
 calibration.
@@ -25,21 +25,21 @@ posture: **2,574 unit tests pass / 0 fail** on the active scope.
 Contract surface bounded by the regression suites at
 [`contracts/test/Pass6_Regressions.t.sol`](contracts/test/Pass6_Regressions.t.sol),
 the pass-7 PoCs at
-[`contracts/test/PASS7_*.t.sol`](contracts/test/) (9 files, 15 tests),
+[`contracts/test/PASS7_*.t.sol`](../../contracts/test/) (9 files, 15 tests),
 and the pass-8 PoCs at
-[`contracts/test/PASS8_*.t.sol`](contracts/test/) (6 files: GOV_INT_01,
+[`contracts/test/PASS8_*.t.sol`](../../contracts/test/) (6 files: GOV_INT_01,
 PHASE_1_6, PHASE_3_5, HOOK_ALLOWLIST, ROYALTY, ETH_COUNTERS = 46 tests
 total). Source-of-truth master reports:
-[`.audit_101/PASS8_2026_05_04.md`](.audit_101/PASS8_2026_05_04.md) (audit) +
-[`.audit_101/PASS7_2026_05_03.md`](.audit_101/PASS7_2026_05_03.md) (prior pass) +
-[`.audit_101/PASS6_2026_05_03.md`](.audit_101/PASS6_2026_05_03.md).
+[`.audit_101/PASS8_2026_05_04.md`](../audits/audit_101/PASS8_2026_05_04.md) (audit) +
+[`.audit_101/PASS7_2026_05_03.md`](../audits/audit_101/PASS7_2026_05_03.md) (prior pass) +
+[`.audit_101/PASS6_2026_05_03.md`](../audits/audit_101/PASS6_2026_05_03.md).
 
 Last refreshed 2026-05-06 after the pass-8 18-batch remediation
 landed all closure-eligible items using battle-tested patterns:
 Solady ERC721 swap, Aerodrome/Velodrome bribe model, BendDAO offer-
 expiry pattern, Synthetix checkpoint-at-interaction, Uniswap V4 hook
 reference. For a richer Keep-a-Changelog view see
-[CHANGELOG.md](CHANGELOG.md).
+[CHANGELOG.md](../../CHANGELOG.md).
 
 ## ✅ Monster Audit (2026-05-09 → 2026-05-10)
 
@@ -65,30 +65,30 @@ straight ports from canonical patterns.
   GATED the seal on `userPower > 0` so zero-power epochs stay eligible for
   `proposeClaimRecovery`. Pattern of record: Curve `FeeDistributor.claim`.
   Same fix applied symmetrically in the `_pendingETH` view path.
-  [RevenueDistributor.sol:813-826, 846-883, 1671-1683](contracts/src/RevenueDistributor.sol#L813).
+  [RevenueDistributor.sol:813-826, 846-883, 1671-1683](../../contracts/src/RevenueDistributor.sol#L813).
 - **F2** (MED) — TegridyLending constructor F-S4-INCOMPLETE: scan2 S-4
   added a `chainid` require but missed the EOA / EIP-7702 reject.
   Sibling-port the `feedLen == 0 || feedLen == 23 → revert` from
   TegridyNFTLending.sol:468-470 verbatim.
-  [TegridyLending.sol:836-846](contracts/src/TegridyLending.sol#L836).
+  [TegridyLending.sol:836-846](../../contracts/src/TegridyLending.sol#L836).
 - **F3** (MED) — TegridyStaking.getReward autoMaxLock JBAC restaker-aware
   lookup. When TegridyRestaking calls `getReward(tokenId)`, msg.sender is
   the restaking contract (which never holds JBAC). Sibling-port the
   `tokenIdToRestaker(tokenId)` resolution from `revalidateBoost` lines
   1303-1309.
-  [TegridyStaking.sol:1077-1099](contracts/src/TegridyStaking.sol#L1077).
+  [TegridyStaking.sol:1077-1099](../../contracts/src/TegridyStaking.sol#L1077).
 - **F4** (MED) — TegridyStaking.increaseAmount autoMaxLock ordering.
   F-02-K-04's `effectiveBoost` clamp computed `remaining` BEFORE the lockEnd
   extension to MAX, silently downgrading autoMaxLock users. Mirror
   `extendLock`'s order (lockEnd FIRST, then boost).
-  [TegridyStaking.sol:961-986](contracts/src/TegridyStaking.sol#L961).
+  [TegridyStaking.sol:961-986](../../contracts/src/TegridyStaking.sol#L961).
 - **F6** (LOW) — TegridyFeeHook int128.min negation overflow. Typed
   `DeltaTooLarge()` guard before negation preserves typed-revert symmetry.
   [TegridyFeeHook.sol:103-111, 369-374](contracts/src/TegridyFeeHook.sol#L103).
 - **F7** (INFO) — TegridyTWAP `consult()` Panic(0x11) on stale sequencer
   sentinel. Short-circuit on `type(uint256).max` before adding
   `SEQUENCER_GRACE_PERIOD`. Aave V3 `PriceOracleSentinel` pattern.
-  [TegridyTWAP.sol:1066-1075](contracts/src/TegridyTWAP.sol#L1066).
+  [TegridyTWAP.sol:1066-1075](../../contracts/src/TegridyTWAP.sol#L1066).
 
 ### Batch 2 — F-LD + frontend HIGH/MED/LOW (`2deb259`)
 
@@ -97,7 +97,7 @@ straight ports from canonical patterns.
   first claimant walk away with both slices. Aave V3 pull-then-cap pattern:
   pull to lending, transfer `min(received, escrowRewardsOwed[loanId])` to
   recipient, excess feeds the legacy pro-rata path for sibling claims.
-  [TegridyLending.sol:2102-2153](contracts/src/TegridyLending.sol#L2102).
+  [TegridyLending.sol:2102-2153](../../contracts/src/TegridyLending.sol#L2102).
 - **F8** (HIGH) — `frontend/api/etherscan.js` stale `tegridyfarms.com`
   CORS allowlist — removed. Every other API proxy uses `tegridyfarms.vercel.app`.
 - **F9** (HIGH) — JWT revocation fail-open if `SUPABASE_SERVICE_KEY` unset
@@ -116,9 +116,9 @@ straight ports from canonical patterns.
   `005_add_seaport_order_hash.sql` storing the canonical EIP-712
   order-hash; replaced the topic check with ABI-decode of OrderFulfilled's
   `data` field (first bytes32 = orderHash). Helper:
-  [`frontend/api/_lib/seaportHash.js`](frontend/api/_lib/seaportHash.js).
+  [`frontend/api/_lib/seaportHash.js`](../../frontend/api/_lib/seaportHash.js).
   22-test regression suite at
-  [`frontend/api/__tests__/orderbook.fill.test.js`](frontend/api/__tests__/orderbook.fill.test.js).
+  [`frontend/api/__tests__/orderbook.fill.test.js`](../../frontend/api/__tests__/orderbook.fill.test.js).
 
 ### Batch 3 — sweep follow-ons + 4 PoC tests (`dd1a1e6`)
 
@@ -131,7 +131,7 @@ locking in F1 / F-LD / F3 / F4 closures.
   `else if (p.hasJbacBoost) { p.hasJbacBoost = false; }` strip, a transient
   lookup revert (restaking upgrade, paused view) PERMANENTLY zeroed the
   cached flag. Fix: `lookupOk` flag guards the strip-on-fail branch.
-  [TegridyStaking.sol:1095-1117](contracts/src/TegridyStaking.sol#L1095).
+  [TegridyStaking.sol:1095-1117](../../contracts/src/TegridyStaking.sol#L1095).
 - **F-FRESH-1** (LOW) — `me.js` module-load capture vs supabase-proxy.js
   per-request read asymmetry — unified per-request reads.
 - **F-FRESH-2** (MED) — F9's production-only gate missed Vercel preview
@@ -139,10 +139,10 @@ locking in F1 / F-LD / F3 / F4 closures.
   OR-gated `VERCEL_ENV === "preview" || VERCEL_ENV === "production"`.
 
 PoCs at:
-- [`FRESH2026_F1_RevDistExRestakerRecovery.t.sol`](contracts/test/FRESH2026_F1_RevDistExRestakerRecovery.t.sol)
+- [`FRESH2026_F1_RevDistExRestakerRecovery.t.sol`](../../contracts/test/FRESH2026_F1_RevDistExRestakerRecovery.t.sol)
 - [`FRESH2026_F_LD_CrossLoanPullThenCap.t.sol`](contracts/test/FRESH2026_F_LD_CrossLoanPullThenCap.t.sol)
-- [`FRESH2026_F3_StakingJbacRestakerLookup.t.sol`](contracts/test/FRESH2026_F3_StakingJbacRestakerLookup.t.sol)
-- [`FRESH2026_F4_StakingIncreaseAutoMaxLockOrder.t.sol`](contracts/test/FRESH2026_F4_StakingIncreaseAutoMaxLockOrder.t.sol)
+- [`FRESH2026_F3_StakingJbacRestakerLookup.t.sol`](../../contracts/test/FRESH2026_F3_StakingJbacRestakerLookup.t.sol)
+- [`FRESH2026_F4_StakingIncreaseAutoMaxLockOrder.t.sol`](../../contracts/test/FRESH2026_F4_StakingIncreaseAutoMaxLockOrder.t.sol)
 
 ### Batch 4 — minimal-surface frontend hardening (`808abc8`)
 
@@ -159,7 +159,7 @@ scope. Closed all 3 with battle-tested patterns:
   Pattern: Auth0 / Okta require jti for prod tokens.
 - **F-FRESH-4** (LOW) — `siwe.js` + `me.js` inlined separate cookie
   builders with divergent flag gates. Extracted shared
-  [`frontend/api/_lib/authCookie.js`](frontend/api/_lib/authCookie.js)
+  [`frontend/api/_lib/authCookie.js`](../../frontend/api/_lib/authCookie.js)
   source-of-truth. Pattern: Express `res.clearCookie()` mirrors issuance
   flags exactly. Net: ~30 LoC inline → 1 shared module + 2 imports.
 
@@ -218,7 +218,7 @@ MEV / game-theory + 5 specialized compiler/toolchain/size/test-coverage/
 2026-exploit research). Surfaced **~675 raw → ~275 unique findings after
 dedup**, with **10 Critical + ~140 High + ~165 Medium + ~110 Low +
 ~250 Info**. Master report:
-[`.audit_101/PASS8_2026_05_04.md`](.audit_101/PASS8_2026_05_04.md).
+[`.audit_101/PASS8_2026_05_04.md`](../audits/audit_101/PASS8_2026_05_04.md).
 **All in-scope items closed across 18 batches** (commits adfa452 →
 1d058e2). Owner-trust subset (admin treasury rotation, captured-key
 drain paths, single-key pause, etc.) deferred to a dedicated
@@ -235,8 +235,8 @@ multisig-policy phase per scope decision.
   (−27 B), `optimizer_runs` 10→1 (−15 B), 11 constants public→internal
   (−280 B). New sister: `TegridyStakingJbacVault` (1,615 B).
   Closed at
-  [TegridyStaking.sol:2033](contracts/src/TegridyStaking.sol#L2033) +
-  [TegridyStakingJbacVault.sol](contracts/src/TegridyStakingJbacVault.sol).
+  [TegridyStaking.sol:2033](../../contracts/src/TegridyStaking.sol#L2033) +
+  [TegridyStakingJbacVault.sol](../../contracts/src/TegridyStakingJbacVault.sol).
 - **Phase 0.3** — `VoteIncentives` 25,977 → 22,447 B (2,129 B headroom).
   Split into `VoteIncentives` + `VoteIncentivesAdmin` sister.
   Closed in batch 5 (commit 895a183 family).
@@ -251,17 +251,17 @@ multisig-policy phase per scope decision.
   Solady's `_ownerOf[id] == 0` causes any reentrant
   `transferFrom` / `acceptOffer` to revert. Same defense closes
   **CCR-02** on `TegridyRestaking`. Closed at
-  [TegridyStaking.sol:2033-2059](contracts/src/TegridyStaking.sol#L2033).
+  [TegridyStaking.sol:2033-2059](../../contracts/src/TegridyStaking.sol#L2033).
 - **JBAC custody** moved to `TegridyStakingJbacVault` sister contract:
   `returnJbac` / `claimStrandedJbac` / `getStrandedJbac` /
   `onERC721Received`. Closed at
-  [TegridyStakingJbacVault.sol](contracts/src/TegridyStakingJbacVault.sol).
+  [TegridyStakingJbacVault.sol](../../contracts/src/TegridyStakingJbacVault.sol).
 - **Phase 1.6** — VoteIncentives self-bribe arbitrage + sub-quorum claim.
   Added `depositedOnPair[user][epoch][pair]` tracking,
   `MIN_BRIBE_CLAIM_QUORUM = 100e18`, errors `BribePoolBelowQuorum` and
   `SelfBribeClaimForbidden` in both `claimBribes` and `claimBribesBatch`.
   Closed at
-  [VoteIncentives.sol:441,447,767-771,888-889](contracts/src/VoteIncentives.sol#L441).
+  [VoteIncentives.sol:441,447,767-771,888-889](../../contracts/src/VoteIncentives.sol#L441).
 - **Phase 1.7** — governance VP "double-spend" — investigated and
   **confirmed not a real finding**. Each consumer (RevenueDistributor,
   VoteIncentives, MemeBountyBoard, CommunityGrants) operates an
@@ -276,7 +276,7 @@ multisig-policy phase per scope decision.
   `OfferExpired`. Backward-compat 5-arg `createLoanOffer` (auto-defaults
   to MAX) plus new 6-arg `createLoanOfferWithExpiry`. Acceptance gate
   at
-  [TegridyLending.sol:848](contracts/src/TegridyLending.sol#L848).
+  [TegridyLending.sol:848](../../contracts/src/TegridyLending.sol#L848).
   Pattern reference: BendDAO/NFTfi/ParaSpace.
 
 ### Phase 3 — Hook / Pool / NFT
@@ -295,7 +295,7 @@ multisig-policy phase per scope decision.
   `safeTransferETHOrWrapNoRevert`, royalty deduction in BUY (from spot
   revenue) and SELL (from seller payout), `RoyaltyPaid` /
   `RoyaltyFallbackToWETH` events. Closed at
-  [TegridyNFTPool.sol:299-300,359-361,957-983](contracts/src/TegridyNFTPool.sol#L299).
+  [TegridyNFTPool.sol:299-300,359-361,957-983](../../contracts/src/TegridyNFTPool.sol#L299).
 
 ### Phase 4 — Governance / Gauge
 
@@ -303,7 +303,7 @@ multisig-policy phase per scope decision.
   `pairToGauge` / `gaugeToPair` / `pendingPairForAdd` mappings,
   mandatory `pair` arg on `proposeAddGauge`, errors `InvalidPair` /
   `PairAlreadyMapped`. Closed at
-  [GaugeController.sol:107-108,202,247-248,796](contracts/src/GaugeController.sol#L107).
+  [GaugeController.sol:107-108,202,247-248,796](../../contracts/src/GaugeController.sol#L107).
 - **GOV-ECON-01** — `lib/VotePowerOracle` library (no deploy footprint)
   sums staking-side + restaking-side VP into a single read. Wired into
   every governance / fee-eligibility consumer so a user who restakes
@@ -318,9 +318,9 @@ multisig-policy phase per scope decision.
   off-chain reconciliation against contract balance. MemeBountyBoard
   intentionally has no `receive()` (donated ETH cannot land), so out
   of scope. Closed at
-  [POLAccumulator.sol:181,308-318](contracts/src/POLAccumulator.sol#L181)
+  [POLAccumulator.sol:181,308-318](../../contracts/src/POLAccumulator.sol#L181)
   +
-  [SwapFeeRouter.sol:2058-2061](contracts/src/SwapFeeRouter.sol#L2058).
+  [SwapFeeRouter.sol:2058-2061](../../contracts/src/SwapFeeRouter.sol#L2058).
 - **DROP-REVEAL-FORCE-RESOLVE** — investigated and **confirmed not a
   finding**. `TegridyDropV2` is mint-then-reveal (not commit-reveal
   raffle); reveal is optional one-shot owner action; cancellation is
@@ -356,7 +356,7 @@ passes + Spartan, plus the pass-6 invariant suite (13 props × 1.664M
 calls). Surfaced **1 CRITICAL + 6 HIGH + 4 MEDIUM + 1 LOW + 1 INFO** =
 13 NEW findings, all with runnable Foundry PoCs. **All 13 closed in
 same-week remediation.** Master report:
-[`.audit_101/PASS7_2026_05_03.md`](.audit_101/PASS7_2026_05_03.md).
+[`.audit_101/PASS7_2026_05_03.md`](../audits/audit_101/PASS7_2026_05_03.md).
 
 ### Contracts — closed in this pass
 
@@ -369,7 +369,7 @@ same-week remediation.** Master report:
   on day one. Pattern: `lib/v4-core/src/test/FeeTakingHook.sol:48`.
   Closed at [TegridyFeeHook.sol:282-302](contracts/src/TegridyFeeHook.sol#L282).
 - **PASS7-TWAP-01** (HIGH) — dropped V3-AMM-L1 `&& found` carve-out at
-  [TegridyTWAP.sol:738](contracts/src/TegridyTWAP.sol#L738). The
+  [TegridyTWAP.sol:738](../../contracts/src/TegridyTWAP.sol#L738). The
   `!found` fallback path on sparse pairs no longer anchors on the
   bypassed bootstrap; ANY bypassed anchor reverts
   `OracleRebootstrapping`. Closes the FRESH-EYES H-3 invariant gap.
@@ -378,19 +378,19 @@ same-week remediation.** Master report:
   the `executeRemoveNextEpoch → proposeAddGauge → executeAddGauge`
   cycle that previously stranded `pendingGaugeRemove` and
   permanently bricked all future gauge removals. Closed at
-  [GaugeController.sol:743-765](contracts/src/GaugeController.sol#L743).
+  [GaugeController.sol:743-765](../../contracts/src/GaugeController.sol#L743).
 - **PASS7-LENDING-01** (HIGH) — `TegridyLending.acceptOffer` now
   post-condition-checks `staking.ownerOf(_tokenId) == address(this)`
   after the inbound `transferFrom` and reverts `CollateralNotEscrowed`
   if the staking contract no-op'd. Sister to NFTLending L506-508.
   Closed at
-  [TegridyLending.sol:824-834](contracts/src/TegridyLending.sol#L824).
+  [TegridyLending.sol:824-834](../../contracts/src/TegridyLending.sol#L824).
 - **PASS7-LENDING-02** (HIGH) — `TegridyLending.repayLoan` /
   `claimDefaultedCollateral` now wrap outbound `staking.transferFrom`
   in `_safeOutboundTransferStaking` + new `stuckCollateralRecipient`
   map + new `claimStuckCollateral(loanId)` recovery function — full
   mirror of NFTLending's L743-L793 + L721-L741 pattern. Closed across
-  [TegridyLending.sol:993-1163](contracts/src/TegridyLending.sol#L993).
+  [TegridyLending.sol:993-1163](../../contracts/src/TegridyLending.sol#L993).
 - **PASS7-LENDING-03** (HIGH) — settled-vs-settled cross-loan drain
   closed via snapshot-and-delta. `acceptOffer` snapshots
   `unsettledRewardsByTokenId[tokenId]` into
@@ -401,19 +401,19 @@ same-week remediation.** Master report:
   into `escrowRewardsOwed[loanId]`. Closes the cross-loan attribution
   gap that pass-6 LD-NEW-H1 only defended on the active-vs-settled
   axis. Closed across
-  [TegridyLending.sol:840-851 + L955-L1028 + L1108-L1149](contracts/src/TegridyLending.sol#L840).
+  [TegridyLending.sol:840-851 + L955-L1028 + L1108-L1149](../../contracts/src/TegridyLending.sol#L840).
 - **PASS7-NFTLENDING-01** (HIGH) —
   `TegridyNFTLending.claimStuckCollateral` retries the transfer under
   `_safeOutboundTransfer` and reverts `StuckCollateralStillStuck` if
   the collection still no-ops. Pre-fix, the function deleted the
   recovery mapping BEFORE the raw `transferFrom`, silently consuming
   the recovery right on a still-malicious collection. Closed at
-  [TegridyNFTLending.sol:721-744](contracts/src/TegridyNFTLending.sol#L721).
+  [TegridyNFTLending.sol:721-744](../../contracts/src/TegridyNFTLending.sol#L721).
 - **PASS7-POL-02** (MED) — `POLAccumulator._twapMinOut` and
   `_twapHarvestMinOut` mirror TegridyLending's bypass-cooldown defense:
   refuse any TWAP read for `TWAP_PERIOD * 2 = 60 minutes` after a
   bypass observation. Closed at
-  [POLAccumulator.sol:813-822 + L838-L847](contracts/src/POLAccumulator.sol#L813).
+  [POLAccumulator.sol:813-822 + L838-L847](../../contracts/src/POLAccumulator.sol#L813).
 - **PASS7-HOOK-03** (MED) — `TegridyFeeHook.claimFees` no longer
   calls `poolManager.take()` (always reverted ManagerLocked outside
   unlock); now does plain `IERC20.safeTransfer` against the hook's
@@ -424,12 +424,12 @@ same-week remediation.** Master report:
   modifier re-derives `effectiveBalanceOf[account]` from the live
   staking-side boost on every interaction. Pattern of record:
   Synthetix `StakingRewards` checkpoint-at-every-interaction. Closed at
-  [TegridyLPFarming.sol:204-241](contracts/src/TegridyLPFarming.sol#L204).
+  [TegridyLPFarming.sol:204-241](../../contracts/src/TegridyLPFarming.sol#L204).
 - **PASS7-NFTLENDING-02** (MED) —
   `TegridyNFTLending.cancelRemoveCollection` mirrors TegridyLending's
   FRESH-EYES L still-live carve-out: only count cancels of STILL-LIVE
   proposals against the retry budget. Closed at
-  [TegridyNFTLending.sol:996-1018](contracts/src/TegridyNFTLending.sol#L996).
+  [TegridyNFTLending.sol:996-1018](../../contracts/src/TegridyNFTLending.sol#L996).
 - **PASS7-DOC-04** (LOW) — `Pass6_TWAPFirstObsBypass.t.sol` updated
   to reflect the post-PASS7-TWAP-01 contract-level guard;
   `FIX_STATUS.md` (this doc) narrows the TWAP HIGH-3 closure
@@ -442,7 +442,7 @@ same-week remediation.** Master report:
   post-resume freshness gate. Mainnet zero-impact (defaults to
   address(0), all helpers no-op); L2 deploys call setter once. Closed
   at
-  [SwapFeeRouter.sol:172-201 + L494-L515 + L1923-L1946](contracts/src/SwapFeeRouter.sol#L172).
+  [SwapFeeRouter.sol:172-201 + L494-L515 + L1923-L1946](../../contracts/src/SwapFeeRouter.sol#L172).
 - **PASS7-LENDING-04** (HIGH, post-pass-7 surface — surfaced 2026-05-04
   by the new `Pass7_LendingExtSolvency` invariant suite, closed same day)
   — directPaid + legacy double-claim regression introduced by
@@ -454,8 +454,8 @@ same-week remediation.** Master report:
   Trigger preconditions are operational, not adversarial: any admin pause
   on staking that coincides with a loan settlement auto-arms the
   desync. Closed at
-  [TegridyLending.sol:1845-1869](contracts/src/TegridyLending.sol#L1845).
-  See [`.audit_101/PASS7_LENDING_04.md`](.audit_101/PASS7_LENDING_04.md)
+  [TegridyLending.sol:1845-1869](../../contracts/src/TegridyLending.sol#L1845).
+  See [`.audit_101/PASS7_LENDING_04.md`](../audits/audit_101/PASS7_LENDING_04.md)
   for full root-cause + PoC + fix-shape rationale.
 
 ### Tests landed in pass-7
@@ -495,64 +495,64 @@ Sturdy / Inverse / Platypus / Poly Network). Re-aimed deep-microscope agents
 through the exploit-retrospective lens against the cumulative 388-finding
 history of passes 1–5. Surfaced **5 new contract HIGHs + 5 new contract MEDs +
 1 frontend CRIT + 5 frontend HIGHs + 1 frontend LOW**, all closed. Master report:
-[`.audit_101/PASS6_2026_05_03.md`](.audit_101/PASS6_2026_05_03.md).
+[`.audit_101/PASS6_2026_05_03.md`](../audits/audit_101/PASS6_2026_05_03.md).
 
 ### Contracts — closed in this pass
 
 - **LD-NEW-H1** (HIGH) — `TegridyLending.pullEscrowRewards` no longer drains
   the per-tokenId rewards of an active loan via a stale `loanId`. Closed by
   `staking.ownerOf(loan.tokenId) == address(this)` gate at
-  [TegridyLending.sol:1620-1633](contracts/src/TegridyLending.sol#L1620). Commit `722d1f1`.
+  [TegridyLending.sol:1620-1633](../../contracts/src/TegridyLending.sol#L1620). Commit `722d1f1`.
 - **LD-NEW-H1 mirror** (HIGH) — `TegridyRestaking.claimResidualForTokenId`
   now refuses to drain `unsettledRewardsByTokenId` while the NFT is held by
   another tracked holder (lending). Returns 0 paid + emits
   `ResidualPullDeferredCrossHolder`. Closed at
-  [TegridyRestaking.sol:1163-1195](contracts/src/TegridyRestaking.sol#L1163). Commit `8266289`.
+  [TegridyRestaking.sol:1163-1195](../../contracts/src/TegridyRestaking.sol#L1163). Commit `8266289`.
 - **LD-NEW-H2** (HIGH) — `TegridyNFTLending.repayLoan` / `claimDefault`
   outbound NFT leg now verifies the NFT actually moved post-`transferFrom` via
   the new `_safeOutboundTransfer` helper. Silent no-op malicious collections
   trigger `stuckCollateralRecipient` + `CollateralRedirected` event so the
   borrower can recover. Closed at
-  [TegridyNFTLending.sol:620-697,755-771](contracts/src/TegridyNFTLending.sol#L620). Commit `722d1f1`.
+  [TegridyNFTLending.sol:620-697,755-771](../../contracts/src/TegridyNFTLending.sol#L620). Commit `722d1f1`.
 - **TWAP HIGH-2** (HIGH) — `consult()` now reverts `PairDisabled` when the
   factory has flipped `disabledPairs[pair] = true`. Closed at
-  [TegridyTWAP.sol:472](contracts/src/TegridyTWAP.sol#L472). Commit `722d1f1`.
+  [TegridyTWAP.sol:472](../../contracts/src/TegridyTWAP.sol#L472). Commit `722d1f1`.
 - **TWAP HIGH-3** (HIGH) — first observation on a new pair is now stamped
   `bypassed = true` so the bootstrap rolls out of any consult lookup window
   before consumers trust it. Closed at
-  [TegridyTWAP.sol:309-331](contracts/src/TegridyTWAP.sol#L309). Commit `722d1f1`.
+  [TegridyTWAP.sol:309-331](../../contracts/src/TegridyTWAP.sol#L309). Commit `722d1f1`.
 - **SwapFeeRouter HIGH-4** (HIGH) — multi-hop branches now invalidate
   `lastConversionSnapshot[token]` so the next 2-hop call falls into the
   bootstrap (owner-only) path instead of integrating across weeks of price
   drift. Closed at
-  [SwapFeeRouter.sol:1554-1563](contracts/src/SwapFeeRouter.sol#L1554) and
-  [SwapFeeRouter.sol:1652-1660](contracts/src/SwapFeeRouter.sol#L1652). Commit `722d1f1`.
+  [SwapFeeRouter.sol:1554-1563](../../contracts/src/SwapFeeRouter.sol#L1554) and
+  [SwapFeeRouter.sol:1652-1660](../../contracts/src/SwapFeeRouter.sol#L1652). Commit `722d1f1`.
 - **PASS5-PA-L1** (MEDIUM, promoted from pass-5 LOW) —
   `PremiumAccess.subscribe` extension no longer double-counts `consumedEscrow`
   into `totalRevenue`. Closed at
-  [PremiumAccess.sol:309-330](contracts/src/PremiumAccess.sol#L309). Commit `722d1f1`.
+  [PremiumAccess.sol:309-330](../../contracts/src/PremiumAccess.sol#L309). Commit `722d1f1`.
 - **N-1 GaugeController orphan** (MEDIUM) — `proposeRemoveGauge` now reverts
   with `GaugeRemovePending` if a prior `executeRemoveGaugeNextEpoch` left
   `pendingGaugeRemove != 0`. Closed at
-  [GaugeController.sol:201,788](contracts/src/GaugeController.sol#L201). Commit `722d1f1`.
+  [GaugeController.sol:201,788](../../contracts/src/GaugeController.sol#L201). Commit `722d1f1`.
 - **F-1 Restaking under-credit** (MEDIUM) — `_boostedAmountAt` historical
   lookups for `_timestamp < liveLockEnd` now return `cached` directly instead
   of `min(cached, current=0)`. Restores honest historical accounting in the
   kick-window without reopening DR-04 over-credit. Closed at
-  [TegridyRestaking.sol:486-512](contracts/src/TegridyRestaking.sol#L486). Commit `722d1f1`.
+  [TegridyRestaking.sol:486-512](../../contracts/src/TegridyRestaking.sol#L486). Commit `722d1f1`.
 - **F-2 Restaking attribute-cap** (MEDIUM) — `executeAttributeStuckRewards`
   now subtracts both `totalActivePrincipal` and `totalPendingUnsettled` from
   the unattributed pool, not just `totalUnforwardedBase`. Closed at
-  [TegridyRestaking.sol:1389-1408](contracts/src/TegridyRestaking.sol#L1389). Commit `722d1f1`.
+  [TegridyRestaking.sol:1389-1408](../../contracts/src/TegridyRestaking.sol#L1389). Commit `722d1f1`.
 - **LD-NEW-M4** (MEDIUM) — `TegridyLending` TWAP staleness gate adds a
   directional pre-check (`latest.timestamp > block.timestamp` → typed
   `OracleStale`) so a clock-skewed feed does not underflow Solidity 0.8
   checked-math. Closed at
-  [TegridyLending.sol:1245,1256](contracts/src/TegridyLending.sol#L1245). Commit `722d1f1`.
+  [TegridyLending.sol:1245,1256](../../contracts/src/TegridyLending.sol#L1245). Commit `722d1f1`.
 - **MEDIUM-5** (MEDIUM) — `POLAccumulator.HARVEST_TWAP_DEVIATION_BPS`
   narrowed from 200 bps to 50 bps so the deviation gate aligns with the
   per-leg `TWAP_SAFETY_BPS` margin. Closed at
-  [POLAccumulator.sol:131](contracts/src/POLAccumulator.sol#L131). Commit `722d1f1`.
+  [POLAccumulator.sol:131](../../contracts/src/POLAccumulator.sol#L131). Commit `722d1f1`.
 
 ### Frontend — closed in this pass
 
@@ -561,16 +561,16 @@ history of passes 1–5. Surfaced **5 new contract HIGHs + 5 new contract MEDs +
   (`mint(uint256 quantity, uint256 allowedAmount, bytes32[] proof)`).
   `useNFTDropV2.mint()` accepts an optional `allowedAmount` (default 0
   preserves PUBLIC-mint compatibility). Closed in
-  [frontend/src/lib/contracts.ts:420-421](frontend/src/lib/contracts.ts#L420)
-  and [frontend/src/hooks/useNFTDropV2.ts](frontend/src/hooks/useNFTDropV2.ts). Commit `b1fb6d4`.
+  [frontend/src/lib/contracts.ts:420-421](../../frontend/src/lib/contracts.ts#L420)
+  and [frontend/src/hooks/useNFTDropV2.ts](../../frontend/src/hooks/useNFTDropV2.ts). Commit `b1fb6d4`.
 - **FE-HIGH-02** (HIGH) — SIWE client now sets `expirationTime` (5-min
   window aligned to server's `MAX_MESSAGE_TTL_MS`) and `notBefore` (30s
   clock-skew tolerance). Closed in
-  [frontend/src/nakamigos/lib/siweAuth.js:41-60](frontend/src/nakamigos/lib/siweAuth.js#L41). Commit `b1fb6d4`.
+  [frontend/src/nakamigos/lib/siweAuth.js:41-60](../../frontend/src/nakamigos/lib/siweAuth.js#L41). Commit `b1fb6d4`.
 - **FE-LOW-04** (LOW) — `useLPFarming` and `useNFTDropV2`
   `useWaitForTransactionReceipt` now pin `chainId: CHAIN_ID`. Closed in
-  [frontend/src/hooks/useLPFarming.ts:24](frontend/src/hooks/useLPFarming.ts#L24)
-  and [frontend/src/hooks/useNFTDropV2.ts:43](frontend/src/hooks/useNFTDropV2.ts#L43). Commit `b1fb6d4`.
+  [frontend/src/hooks/useLPFarming.ts:24](../../frontend/src/hooks/useLPFarming.ts#L24)
+  and [frontend/src/hooks/useNFTDropV2.ts:43](../../frontend/src/hooks/useNFTDropV2.ts#L43). Commit `b1fb6d4`.
 - **FE-CRIT-01** (CRITICAL) — Seven `vercel.json` open-proxy rewrites
   (`/api/{odos,cow,lifi,kyber,openocean,paraswap,swapapi}/*`) replaced by
   Vercel serverless wrappers under `frontend/api/{provider}/[...path].js`
@@ -584,26 +584,26 @@ history of passes 1–5. Surfaced **5 new contract HIGHs + 5 new contract MEDs +
 - **FE-HIGH-03** (HIGH) — SwapAPI quote routed through same-origin
   `/api/swapapi/*` proxy so the third party no longer sees user wallet/IP/
   referer. Closed in
-  [frontend/src/lib/aggregator.ts:86](frontend/src/lib/aggregator.ts#L86). Commit `4b3a47f`.
+  [frontend/src/lib/aggregator.ts:86](../../frontend/src/lib/aggregator.ts#L86). Commit `4b3a47f`.
 - **FE-HIGH-04** (HIGH) — DCA hardcoded 5% slippage replaced by per-schedule
   `slippageBps` field bounded to `[10, 300]` bps (0.1%-3%) and defaulted to
   50 bps. UI presets+custom input added; storage validator updated. Closed
-  in [frontend/src/hooks/useDCA.ts](frontend/src/hooks/useDCA.ts) and
-  [frontend/src/components/swap/DCATab.tsx](frontend/src/components/swap/DCATab.tsx). Commit `4b3a47f`.
+  in [frontend/src/hooks/useDCA.ts](../../frontend/src/hooks/useDCA.ts) and
+  [frontend/src/components/swap/DCATab.tsx](../../frontend/src/components/swap/DCATab.tsx). Commit `4b3a47f`.
 - **FE-HIGH-05** (HIGH) — Limit-order minOut now derived from on-chain
   `getAmountsOut` re-quote at execute-time:
   `minOut = min(targetDerivedMinOut, onChainOut * (1 - slippage))`. Stale-
   target gate aborts unsatisfiable orders. Default slippage lowered 5% → 1%.
   Closed in
-  [frontend/src/hooks/useLimitOrders.ts:284](frontend/src/hooks/useLimitOrders.ts#L284). Commit `4b3a47f`.
+  [frontend/src/hooks/useLimitOrders.ts:284](../../frontend/src/hooks/useLimitOrders.ts#L284). Commit `4b3a47f`.
 - **FE-HIGH-06** (HIGH) — Custom-token decimals/symbol verified via
   `publicClient.readContract` on hydration + add; mismatches evicted with
   toast. `useSwapAllowance` refuses `approve(MAX_UINT256)` for tokens NOT in
   `DEFAULT_TOKENS` (falls back to exact-amount approval). Permanent
   unverified-token banner above swap form. Closed in
-  [frontend/src/hooks/useSwap.ts](frontend/src/hooks/useSwap.ts),
-  [frontend/src/hooks/useSwapAllowance.ts](frontend/src/hooks/useSwapAllowance.ts),
-  [frontend/src/pages/TradePage.tsx](frontend/src/pages/TradePage.tsx). Commit `4b3a47f`.
+  [frontend/src/hooks/useSwap.ts](../../frontend/src/hooks/useSwap.ts),
+  [frontend/src/hooks/useSwapAllowance.ts](../../frontend/src/hooks/useSwapAllowance.ts),
+  [frontend/src/pages/TradePage.tsx](../../frontend/src/pages/TradePage.tsx). Commit `4b3a47f`.
 
 ### Regression suite
 
@@ -613,7 +613,7 @@ history of passes 1–5. Surfaced **5 new contract HIGHs + 5 new contract MEDs +
   - `test_LD_NEW_H1_mirror_residualClaimantBlockedByLendingEscrow`
   - `test_LD_NEW_H2_silentNoOpRepay_marksStuck`
   - `test_TWAP_HIGH_2_consultRevertsWhenPairDisabled`
-- [`contracts/test/invariants/Pass6_*.t.sol`](contracts/test/invariants/) (commit
+- [`contracts/test/invariants/Pass6_*.t.sol`](../../contracts/test/invariants/) (commit
   `7889f25`) — 4 NEW stateful-invariant suites locking down the pass-6 fix
   surfaces under randomized adversarial sequences (256 runs × 500 calls each):
   - `Pass6_LendingSolvency.t.sol` — INV-E (3 invariants)
@@ -622,9 +622,9 @@ history of passes 1–5. Surfaced **5 new contract HIGHs + 5 new contract MEDs +
   - `Pass6_TWAPFirstObsBypass.t.sol` — INV-I (3 invariants)
   - 13 invariants total · **1.664M stateful calls · 0 reverts · ~210s wall clock**
 - Existing affected suites realigned:
-  - [`contracts/test/PremiumAccess.t.sol`](contracts/test/PremiumAccess.t.sol) — exact-2x revenue trajectory
-  - [`contracts/test/TegridyTWAP.t.sol`](contracts/test/TegridyTWAP.t.sol) — bypass-aware ≥3-obs seeding
-  - [`contracts/test/TegridyLending_ETHFloor.t.sol`](contracts/test/TegridyLending_ETHFloor.t.sol) — `disabledPairs` mock surface
+  - [`contracts/test/PremiumAccess.t.sol`](../../contracts/test/PremiumAccess.t.sol) — exact-2x revenue trajectory
+  - [`contracts/test/TegridyTWAP.t.sol`](../../contracts/test/TegridyTWAP.t.sol) — bypass-aware ≥3-obs seeding
+  - [`contracts/test/TegridyLending_ETHFloor.t.sol`](../../contracts/test/TegridyLending_ETHFloor.t.sol) — `disabledPairs` mock surface
 - 198 tests pass across the affected scope (Lending / NFTLending / TWAP /
   Restaking) per commit `21db70b`.
 
@@ -653,18 +653,18 @@ during the same pass via parallel-agent commits `975e5af` and `4b3a47f`.
 
 ### Contracts — shipped on `main`, **still need mainnet redeploy**
 
-- **[GaugeController.sol](contracts/src/GaugeController.sol)** — commit-reveal
+- **[GaugeController.sol](../../contracts/src/GaugeController.sol)** — commit-reveal
   voting implemented at the contract layer. `commitVote`, `revealVote`,
   `computeCommitment`, `isRevealWindowOpen`, `commitmentOf`, `committerOf`.
   Closes **audit H-2** (bribe arbitrage). 14/14 new tests pass in
   [GaugeCommitReveal.t.sol](contracts/test/GaugeCommitReveal.t.sol).
   All 1921 existing forge tests continue to pass.
-- **[Toweli.sol](contracts/src/Toweli.sol)** — canonical TOWELI source in-repo
+- **[Toweli.sol](../../contracts/src/Toweli.sol)** — canonical TOWELI source in-repo
   for the first time. OpenZeppelin ERC-20 + ERC-2612 permit, 1B fixed
   supply, no admin surface. Closes the "no token source" audit-trail gap.
   Reference deploy script at
-  [DeployToweli.s.sol](contracts/script/DeployToweli.s.sol); mainnet uses
-  CREATE2 vanity per [docs/TOKEN_DEPLOY.md](docs/TOKEN_DEPLOY.md).
+  [DeployToweli.s.sol](../../contracts/script/DeployToweli.s.sol); mainnet uses
+  CREATE2 vanity per [docs/TOKEN_DEPLOY.md](../TOKEN_DEPLOY.md).
 - **[DeployTegridyFeeHook.s.sol](contracts/script/DeployTegridyFeeHook.s.sol)**
   — **closes audit B7**. Self-contained CREATE2 salt-miner that finds a
   deployment address satisfying the Uniswap V4 hook flag bitmask (0x0044).
@@ -672,7 +672,7 @@ during the same pass via parallel-agent commits `975e5af` and `4b3a47f`.
 
 ### Frontend — commit-reveal + refund loop shipped
 
-- **[GaugeVoting.tsx](frontend/src/components/GaugeVoting.tsx)** — two-step
+- **[GaugeVoting.tsx](../../frontend/src/components/GaugeVoting.tsx)** — two-step
   commit-reveal UI with localStorage salt persistence, mode toggle
   (commit-reveal default, legacy emergency path), pending-reveal banner,
   missing-salt warning when on-chain commitment exists but local data is
@@ -684,70 +684,70 @@ during the same pass via parallel-agent commits `975e5af` and `4b3a47f`.
   — new on-chain `mintPhase` read + "Cancelled" chip in the panel header.
   Phase / MerkleRoot / Reveal / Withdraw / CancelSale buttons disable with
   clear labels once the sale is in the CANCELLED terminal state.
-- **TegridyDrop ABI fix** ([contracts.ts](frontend/src/lib/contracts.ts)) —
+- **TegridyDrop ABI fix** ([contracts.ts](../../frontend/src/lib/contracts.ts)) —
   pre-existing bug: `currentPhase()` doesn't exist on the contract (it's
   `mintPhase()`). Every ABI call was reverting. Fixed + added
   `cancelSale`/`refund`/`paidPerWallet`. (V1 TEGRIDY_DROP_ABI block was later
   deleted 2026-04-19 and all readers migrated to TEGRIDY_DROP_V2_ABI, which
   carries the same surface as a strict superset.)
-- **[useToweliPrice](frontend/src/hooks/useToweliPrice.ts)** — `TegridyTWAP`
+- **[useToweliPrice](../../frontend/src/hooks/useToweliPrice.ts)** — `TegridyTWAP`
   wired as third oracle leg. 30-minute TWAP cross-checks pair-reserve spot
   price; divergence > 2% flips to TWAP for manipulation-resistant pricing.
   `twapOverrideActive` signal exposed.
 - **Indexer `TegridyStaking` address** corrected from paused v1
   `0x65D8…a421` to canonical v2 `0x6266…4819`
-  ([ponder.config.ts](indexer/ponder.config.ts)).
+  ([ponder.config.ts](../../indexer/ponder.config.ts)).
 - **Silent catches replaced** across the nakamigos sub-app (Listings,
   MyCollection, MakeOfferModal, OnChainProfile, useSmartAlerts) with
   scoped `console.warn` logging. Closes audit M8.
-- **[usePageTitle](frontend/src/hooks/usePageTitle.ts)** extended: canonical
+- **[usePageTitle](../../frontend/src/hooks/usePageTitle.ts)** extended: canonical
   `<link>`, `og:url`, `twitter:*`, per-page `og:image` override.
 - **E2E Playwright specs** extended in
-  [e2e/trust-pages.spec.ts](frontend/e2e/trust-pages.spec.ts): security,
+  [e2e/trust-pages.spec.ts](../../frontend/e2e/trust-pages.spec.ts): security,
   contracts, treasury, tokenomics, changelog, risks, history pages +
   sitemap/manifest/robots/og.svg asset served checks + SEO metadata checks.
 
 ### Docs & repo hygiene
 
-- **[LICENSE](LICENSE)** (MIT) — was 404 despite README link.
-- **[NOTICE.md](NOTICE.md)** — third-party attributions (OZ, Synthetix,
+- **[LICENSE](../../LICENSE)** (MIT) — was 404 despite README link.
+- **[NOTICE.md](../../NOTICE.md)** — third-party attributions (OZ, Synthetix,
   Curve, Uniswap V2) + South Park fair-use / parody statement.
-- **[HALL_OF_FAME.md](HALL_OF_FAME.md)** — fixes the SECURITY.md broken ref.
-- **[docs/MIGRATION_HISTORY.md](docs/MIGRATION_HISTORY.md)** — canonical vs
+- **[HALL_OF_FAME.md](../HALL_OF_FAME.md)** — fixes the SECURITY.md broken ref.
+- **[docs/MIGRATION_HISTORY.md](../MIGRATION_HISTORY.md)** — canonical vs
   deprecated addresses across every contract with multiple live versions.
-- **[docs/DEPRECATED_CONTRACTS.md](docs/DEPRECATED_CONTRACTS.md)** — ghost
+- **[docs/DEPRECATED_CONTRACTS.md](../DEPRECATED_CONTRACTS.md)** — ghost
   addresses (TegridyFarm, FeeDistributor, WithdrawalFee) documented.
-- **[docs/TOKEN_DEPLOY.md](docs/TOKEN_DEPLOY.md)** — how TOWELI was
+- **[docs/TOKEN_DEPLOY.md](../TOKEN_DEPLOY.md)** — how TOWELI was
   deployed, CREATE2 vanity notes, testnet redeploy reference.
-- **[docs/GOVERNANCE.md](docs/GOVERNANCE.md)** — admin-key model, timelock
+- **[docs/GOVERNANCE.md](../GOVERNANCE.md)** — admin-key model, timelock
   windows per contract, honest threat model ("single EOA; multisig
   migration is a priority"), what admin CAN and CANNOT do.
-- **[docs/DEVELOPING.md](docs/DEVELOPING.md)**,
-  **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**,
-  **[docs/API.md](docs/API.md)** — developer, deploy, and API references.
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — expanded from 2.7KB
+- **[docs/DEVELOPING.md](../DEVELOPING.md)**,
+  **[docs/DEPLOYMENT.md](../DEPLOYMENT.md)**,
+  **[docs/API.md](../API.md)** — developer, deploy, and API references.
+- **[docs/ARCHITECTURE.md](../ARCHITECTURE.md)** — expanded from 2.7KB
   outline to full reference with mermaid diagrams for every surface.
-- **[docs/banner.svg](docs/banner.svg)** + `frontend/public/og.svg` —
+- **[docs/banner.svg](../banner.svg)** + `frontend/public/og.svg` —
   purpose-built 1280×640 social preview. Rendered as README hero + wired
   into `index.html` as `og:image` + `twitter:image`.
-- **[README.md](README.md)** — rewritten with elevator pitch + badges
+- **[README.md](../../README.md)** — rewritten with elevator pitch + badges
   (Contracts CI / CodeQL / Slither / License / Solidity / Chain) + TOC
   + repo layout + honest security section.
-- **[CHANGELOG.md](CHANGELOG.md)** — comprehensive `[Unreleased]` section
+- **[CHANGELOG.md](../../CHANGELOG.md)** — comprehensive `[Unreleased]` section
   covering sessions 3–6 per Keep a Changelog.
 - **GitHub workflows:** new
-  [contracts-ci.yml](.github/workflows/contracts-ci.yml),
-  [codeql.yml](.github/workflows/codeql.yml),
-  [slither.yml](.github/workflows/slither.yml),
-  [release.yml](.github/workflows/release.yml).
-- **[.github/dependabot.yml](.github/dependabot.yml)** + FUNDING.yml
-  + [.gitattributes](.gitattributes) + [.nvmrc](.nvmrc).
+  [contracts-ci.yml](../../.github/workflows/contracts-ci.yml),
+  [codeql.yml](../../.github/workflows/codeql.yml),
+  [slither.yml](../../.github/workflows/slither.yml),
+  [release.yml](../../.github/workflows/release.yml).
+- **[.github/dependabot.yml](../../.github/dependabot.yml)** + FUNDING.yml
+  + [.gitattributes](../../.gitattributes) + [.nvmrc](../../.nvmrc).
 - **Vercel security headers** hardened: HSTS 2y + preload, COOP, CORP,
   X-Permitted-Cross-Domain-Policies, extended Permissions-Policy
-  ([vercel.json](frontend/vercel.json)).
-- **[frontend/public/sitemap.xml](frontend/public/sitemap.xml)** —
+  ([vercel.json](../../frontend/vercel.json)).
+- **[frontend/public/sitemap.xml](../../frontend/public/sitemap.xml)** —
   `lastmod` + `changefreq` on every URL; added `/contracts` + `/treasury`.
-- **[frontend/public/manifest.json](frontend/public/manifest.json)** —
+- **[frontend/public/manifest.json](../../frontend/public/manifest.json)** —
   replaced broken `skeleton.jpg` icon refs with actual `icon-192.png` +
   `icon-512.png`; added `any maskable` purpose.
 - **package.json `license: "MIT"`** + `engines.node ≥20` on both
@@ -859,7 +859,7 @@ Scope cut from the current work to keep changes reviewable. Each can be picked u
    operational run + V4 pool wiring to close B7 fully.
 8. ✅ ~~Regenerate `frontend/src/generated.ts`~~ — **done in session 3** via
    [scripts/extract-missing-abis.mjs](scripts/extract-missing-abis.mjs). 8 missing
-   ABIs now in [abi-supplement.ts](frontend/src/lib/abi-supplement.ts).
+   ABIs now in [abi-supplement.ts](../../frontend/src/lib/abi-supplement.ts).
 9. **Test backfill** — 29 hooks with no unit tests. Session 5-6 added the
    Playwright E2E scaffolding and extended smoke.spec.ts + wrote
    `trust-pages.spec.ts`; significant frontend unit-test coverage is still owed.
@@ -875,7 +875,7 @@ Scope cut from the current work to keep changes reviewable. Each can be picked u
   to git per earlier `git log --all --full-history` check, but rotate anyway.
 - **Wave-0 multisig `acceptOwnership` STILL OPEN** on 3 contracts (LP Farming,
   Gauge Controller, NFT Lending) — Safe `0x0c41e76D2668143b9Dbe6292D34b7e5dE7b28bfe`
-  must call `acceptOwnership()` on each. See [`docs/WAVE_0_TODO.md`](docs/WAVE_0_TODO.md) §3.
+  must call `acceptOwnership()` on each. See [`docs/WAVE_0_TODO.md`](../WAVE_0_TODO.md) §3.
 - **Per-contract constructor-arg deltas** from Wave 1–4 bulletproofing — read
   the change logs in `.audit_101/remediation/` before broadcasting:
   - **R003** — `TegridyLending` constructor now **5 args** (was 4); new `_twap`
@@ -893,7 +893,7 @@ Scope cut from the current work to keep changes reviewable. Each can be picked u
   documented in [`DEPLOY_CHEAT_SHEET.md`](DEPLOY_CHEAT_SHEET.md) (the previous
   one-shot helper `scripts/redeploy-patched-3.sh` was deleted 2026-04-19 with the
   V1 `TegridyDrop` source — use per-contract scripts now). Then run
-  [`scripts/diff-addresses.ts`](scripts/diff-addresses.ts) → apply the constants.ts
+  [`scripts/diff-addresses.ts`](../../scripts/diff-addresses.ts) → apply the constants.ts
   patch + README address-table updates in one commit. Current on-chain versions
   still do **not** have every patch — see [`NEXT_SESSION.md`](NEXT_SESSION.md)
   for the live Wave 0 status.
@@ -901,8 +901,8 @@ Scope cut from the current work to keep changes reviewable. Each can be picked u
 - **Run `DeployTegridyFeeHook.s.sol`** (CREATE2 miner) once POOL_MANAGER +
   REVENUE_DIST env vars are set. Mining typically 10k–200k iterations.
 - **Transfer ownership to a Safe multisig** — biggest trust-model improvement still
-  outstanding. See [docs/GOVERNANCE.md](docs/GOVERNANCE.md).
-- **Finalise [TOKENOMICS.md](TOKENOMICS.md) allocation** — still "TBD placeholder"
+  outstanding. See [docs/GOVERNANCE.md](../GOVERNANCE.md).
+- **Finalise [TOKENOMICS.md](../TOKENOMICS.md) allocation** — still "TBD placeholder"
   on mainnet.
 - **Publish a community surface** — Discord / Twitter / governance forum. Until
   then GitHub Issues / Discussions are the canonical channel per README.

@@ -43,7 +43,7 @@ The attack requires 2 transactions across 2 contracts:
 
 ### Step 1 — Engineer the concentration window
 
-`TegridyStaking.kick(uint256 tokenId)` is permissionless ([line 954](../../contracts/src/TegridyStaking.sol#L954)). When a whale's lock has expired but they haven't acted, anyone can:
+`TegridyStaking.kick(uint256 tokenId)` is permissionless ([line 954](../../../../contracts/src/TegridyStaking.sol#L954)). When a whale's lock has expired but they haven't acted, anyone can:
 
 1. Call `kick(whaleTokenId)`. This:
    - Settles the whale's pre-expiry rewards into `unsettledRewards`

@@ -103,7 +103,7 @@ forge script script/DeployFinal.s.sol \
 > **6th `_twap` arg** for ETH-denominated collateral floor via
 > `TegridyTWAP.consult()` (was 5 args after batch 7d). Set `TWAP=…` env var
 > from Step 9 output (or pre-deploy a TWAP first). Reference:
-> [`.audit_101/remediation/R003.md`](./.audit_101/remediation/R003.md).
+> [`.audit_101/remediation/R003.md`](../audits/audit_101/remediation/R003.md).
 
 Deploys: `TegridyLending`, `TegridyLaunchpadV2` (auto-deploys `TegridyDropV2` template),
 `TegridyNFTPool` (template), `TegridyNFTPoolFactory`.
@@ -128,7 +128,7 @@ Standalone, no staking dep.
 > auto-whitelists JBAC / Nakamigos / GNSS. Post-deploy you MUST call the
 > `proposeWhitelistCollection` → 24h timelock → `executeWhitelistCollection`
 > recipe per collection (see §3 Step 5 below). Reference:
-> [`.audit_101/remediation/R029.md`](./.audit_101/remediation/R029.md).
+> [`.audit_101/remediation/R029.md`](../audits/audit_101/remediation/R029.md).
 
 ```bash
 forge script script/DeployNFTLending.s.sol \
@@ -154,7 +154,7 @@ Reads updated `TEGRIDY_STAKING`.
 > (`0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb`); pass `false` only when
 > intentionally restoring legacy plaintext voting for an emergency window.
 > Also adds `refundUnvotedBribe()` to close Spartan TF-13. Reference:
-> [`.audit_101/remediation/R020.md`](./.audit_101/remediation/R020.md).
+> [`.audit_101/remediation/R020.md`](../audits/audit_101/remediation/R020.md).
 
 ```bash
 forge script script/DeployVoteIncentives.s.sol \
@@ -205,7 +205,7 @@ forge script script/DeployTWAP.s.sol \
 > LP Farming (`0xa7EF711Be3662B9557634502032F98944eC69ec1`),
 > Gauge Controller (`0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb`),
 > and NFT Lending (`0x05409880aDFEa888F2c93568B8D88c7b4aAdB139`).
-> Tracked in [`docs/WAVE_0_TODO.md`](./docs/WAVE_0_TODO.md) §3.
+> Tracked in [`docs/WAVE_0_TODO.md`](../WAVE_0_TODO.md) §3.
 
 With ownership transferred to multisig, the multisig must queue and execute:
 

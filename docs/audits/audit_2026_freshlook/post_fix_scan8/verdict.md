@@ -19,7 +19,7 @@
 
 ## Applied — SE-1: DeployToweli chain-id guard
 
-**File:line:** [DeployToweli.s.sol:17](../../contracts/script/DeployToweli.s.sol)
+**File:line:** [DeployToweli.s.sol:17](../../../../contracts/script/DeployToweli.s.sol)
 
 **Pre-fix:** No chain-id guard. Operator typo (`--rpc-url $MAINNET_RPC` instead of testnet RPC) would deploy a non-vanity TOWELI on mainnet, fragmenting from the vanity-prefix canonical token.
 

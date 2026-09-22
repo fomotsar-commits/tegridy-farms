@@ -3,7 +3,7 @@
 **This file is no longer the handoff. Do not follow it. Retired 2026-08-19.**
 
 > Since 2026-08-21 the single canonical to-do list is
-> [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md). The table below still resolves, but that
+> [`docs/TODO_OPERATOR.md`](../TODO_OPERATOR.md). The table below still resolves, but that
 > file is the one to open first. *(Pointer added 2026-09-04.)*
 
 Everything below the line used to be a session-13 handoff written 2026-04-18. It was
@@ -24,14 +24,14 @@ fossilised at session 13).
 
 | You want | Read |
 |---|---|
-| **The single canonical to-do list — start here** | [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md) |
-| The ordered list of things only the operator can do | [`docs/OPERATOR_NEXT.md`](docs/OPERATOR_NEXT.md) (older; TODO_OPERATOR supersedes it where they disagree) |
-| The same list ranked by unlock-per-minute | [`docs/WHAT_I_NEED_FROM_YOU.md`](docs/WHAT_I_NEED_FROM_YOU.md) |
-| What to build next, per item, with preconditions | [`docs/BATTLE_PLAN.md`](docs/BATTLE_PLAN.md) |
-| The 12-month plan and its quarter gates | [`docs/YEAR_PLAN_2026_2027.md`](docs/YEAR_PLAN_2026_2027.md) |
-| What is unfinished, half-built, dead or stale | [`docs/EVERYTHING_LEFT_2026_08_15.md`](docs/EVERYTHING_LEFT_2026_08_15.md) |
-| Which address is canonical and which is retired | [`docs/MIGRATION_HISTORY.md`](docs/MIGRATION_HISTORY.md), [`frontend/scripts/addresses.json`](frontend/scripts/addresses.json) |
-| The custody re-home ceremony | [`docs/SAFE_REHOME_RUNBOOK.md`](docs/SAFE_REHOME_RUNBOOK.md) |
+| **The single canonical to-do list — start here** | [`docs/TODO_OPERATOR.md`](../TODO_OPERATOR.md) |
+| The ordered list of things only the operator can do | [`docs/OPERATOR_NEXT.md`](../OPERATOR_NEXT.md) (older; TODO_OPERATOR supersedes it where they disagree) |
+| The same list ranked by unlock-per-minute | [`docs/WHAT_I_NEED_FROM_YOU.md`](../WHAT_I_NEED_FROM_YOU.md) |
+| What to build next, per item, with preconditions | [`docs/BATTLE_PLAN.md`](../BATTLE_PLAN.md) |
+| The 12-month plan and its quarter gates | [`docs/YEAR_PLAN_2026_2027.md`](../YEAR_PLAN_2026_2027.md) |
+| What is unfinished, half-built, dead or stale | [`docs/EVERYTHING_LEFT_2026_08_15.md`](../EVERYTHING_LEFT_2026_08_15.md) |
+| Which address is canonical and which is retired | [`docs/MIGRATION_HISTORY.md`](../MIGRATION_HISTORY.md), [`frontend/scripts/addresses.json`](../../frontend/scripts/addresses.json) |
+| The custody re-home ceremony | [`docs/SAFE_REHOME_RUNBOOK.md`](../SAFE_REHOME_RUNBOOK.md) |
 
 `frontend/scripts/addresses.json` is the registry of record for every address, and
 `frontend/scripts/verify-addresses.mjs` fails CI when a doc and the chain disagree.

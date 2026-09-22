@@ -26,7 +26,7 @@ This file documents the cross-contract analysis of the lending suite: TegridyLen
 
 ## 2. Cross-contract reentrancy on liquidation
 
-`TegridyNFTLending.claimDefault` ([line 567](../../contracts/src/TegridyNFTLending.sol#L567)) is `nonReentrant` — entry-protected — and the actual NFT transfer (`safeTransferFrom`) at line 609 happens AFTER state changes.
+`TegridyNFTLending.claimDefault` ([line 567](../../../../contracts/src/TegridyNFTLending.sol#L567)) is `nonReentrant` — entry-protected — and the actual NFT transfer (`safeTransferFrom`) at line 609 happens AFTER state changes.
 
 Sequence:
 1. Borrower defaults on loan
@@ -41,7 +41,7 @@ If the NFT is malicious (calls back into the protocol on `onERC721Received`):
 
 **Cross-contract reentrancy concern:** could the malicious NFT call `TegridyNFTPool.swapNFTsForETH` to dump liquidity? Yes — but `swapNFTsForETH` is its own permissionless function; it doesn't read any TegridyNFTLending state and the lending contract's own state is already finalized. No fund extraction vector.
 
-**`_swapInFlight` in TegridyNFTPool:** the `acceptOwnership` cooldown gate uses `_swapInFlight` ([line 669-693](../../contracts/src/TegridyNFTPool.sol#L669)). This guards transfer-in deposits during swaps — NOT liquidation reentrancy on TegridyNFTLending.
+**`_swapInFlight` in TegridyNFTPool:** the `acceptOwnership` cooldown gate uses `_swapInFlight` ([line 669-693](../../../../contracts/src/TegridyNFTPool.sol#L669)). This guards transfer-in deposits during swaps — NOT liquidation reentrancy on TegridyNFTLending.
 
 ---
 

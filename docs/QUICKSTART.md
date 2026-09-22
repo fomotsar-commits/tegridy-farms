@@ -149,8 +149,8 @@ does not own. `/solana-launch` no longer exists.)*
 
 - [`/learn`](https://memetics.finance/learn) — guides and explainers
 - [`/faq`](https://memetics.finance/faq) · [FAQ.md](FAQ.md)
-- [`/changelog`](https://memetics.finance/changelog) · [CHANGELOG.md](CHANGELOG.md)
-- [`/security`](https://memetics.finance/security) · [SECURITY.md](SECURITY.md)
+- [`/changelog`](https://memetics.finance/changelog) · [CHANGELOG.md](../CHANGELOG.md)
+- [`/security`](https://memetics.finance/security) · [SECURITY.md](../SECURITY.md)
 
 Questions go to this repository's Issues or Discussions — **there is no Discord or Telegram
 yet.** Community channels are unregistered operator work, and this file claimed one for

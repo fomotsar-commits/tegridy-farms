@@ -153,8 +153,8 @@ It is not one multisig, and on mainnet it is **still not a multisig at all**.
   `nonce() == 0` — no ceremony has executed yet, and an N-of-M is unproven until something has
   actually executed at the new threshold.
 
-The re-home is tracked in [`docs/SAFE_REHOME_RUNBOOK.md`](docs/SAFE_REHOME_RUNBOOK.md) and
-[`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md). *(This answer used to point at
+The re-home is tracked in [`docs/SAFE_REHOME_RUNBOOK.md`](SAFE_REHOME_RUNBOOK.md) and
+[`docs/TODO_OPERATOR.md`](TODO_OPERATOR.md). *(This answer used to point at
 `NEXT_SESSION.md`, which was retired on 2026-08-19.)*
 
 ## How do I refer someone?

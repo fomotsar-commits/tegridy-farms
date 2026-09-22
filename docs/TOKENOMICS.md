@@ -12,9 +12,9 @@
 | Mintable | **No.** `mint(address,uint256)` is not in the deployed bytecode. |
 | Burnable | **Yes, by holders.** `burn(uint256)` and `burnFrom(address,uint256)` are both live, so any holder can destroy their own TOWELI. **The protocol burns nothing** — no contract calls either one; see [Sinks](#sinks--how-circulating-supply-can-shrink). |
 | Owner | **Renounced.** The contract is Ownable2Step (`owner`, `pendingOwner`, `transferOwnership`, `acceptOwnership`, `renounceOwnership` all exist) and `owner()` reads `0x0…0`, so every owner-gated path reverts for everybody. No admin, no upgrade path — by renunciation, not by absence. |
-| Deployed | ~2024. See [docs/TOKEN_DEPLOY.md](docs/TOKEN_DEPLOY.md) for the CREATE2 vanity-address deployment story. |
+| Deployed | ~2024. See [docs/TOKEN_DEPLOY.md](TOKEN_DEPLOY.md) for the CREATE2 vanity-address deployment story. |
 
-> ⚠️ **The live contract is not [contracts/src/Toweli.sol](contracts/src/Toweli.sol).** Read on-chain 2026-08-12: it names itself **`Towelie`** (symbol `Toweli`) and is a token-generator template. The repo source is OZ-based with permit and no burn; the deployed bytecode is the reverse on both counts, and adds Ownable2Step. The rows above describe **what is deployed** — the repo file describes what a fresh deploy of this project's own source would produce. When they disagree, the chain wins. See [CONTRACTS.md § Core Token](CONTRACTS.md#core-token--staking) for the full selector read.
+> ⚠️ **The live contract is not [contracts/src/Toweli.sol](../contracts/src/Toweli.sol).** Read on-chain 2026-08-12: it names itself **`Towelie`** (symbol `Toweli`) and is a token-generator template. The repo source is OZ-based with permit and no burn; the deployed bytecode is the reverse on both counts, and adds Ownable2Step. The rows above describe **what is deployed** — the repo file describes what a fresh deploy of this project's own source would produce. When they disagree, the chain wins. See [CONTRACTS.md § Core Token](CONTRACTS.md#core-token--staking) for the full selector read.
 
 **The token has been live for ~2 years at the canonical address above.** Full supply was minted once at deploy. There is no way to issue more TOWELI; no governance vote, no admin action, no upgrade pattern. 1B is therefore a **ceiling**: holder burns can only take the float down.
 
@@ -96,9 +96,9 @@ governance knob: `ReferralSplitter.proposeReferralFee` rejects `0` outright, and
 above zero, so the splitter cannot be zeroed or unwired. The `SwapFeeRouter` additionally has dormant
 levers to route a % to a **Treasury** bucket and to a **POL Accumulator** (protocol-owned liquidity
 sink); those are parameterised but set to zero pending a governance proposal — see
-[REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md).
+[REVENUE_ANALYSIS.md](archive/REVENUE_ANALYSIS.md).
 
-Ceilings, taken from the constants in [contracts/src/SwapFeeRouter.sol](contracts/src/SwapFeeRouter.sol):
+Ceilings, taken from the constants in [contracts/src/SwapFeeRouter.sol](../contracts/src/SwapFeeRouter.sol):
 - **Stakers:** `10000` bps of the recovered pot today, which is ~80% of the fee once the referral share
   is out. `MIN_STAKER_SHARE_BPS = 5_000` is the hard floor on the router's own split, so *that* leg can
   never drop below **50%**.
@@ -161,9 +161,9 @@ Lock-duration multiplier, optional NFT bonus, hard ceiling:
 | JBAC NFT bonus | **+0.5× flat** |
 | Max ceiling | **4.5× (`MAX_BOOST_BPS_CEILING = 45000`)** — defence-in-depth clamp |
 
-Even a 4-year locker holding a JBAC NFT cannot exceed 4.5×. Any computed boost above 45000 bps is clamped. Source: [contracts/src/TegridyLPFarming.sol:64](contracts/src/TegridyLPFarming.sol).
+Even a 4-year locker holding a JBAC NFT cannot exceed 4.5×. Any computed boost above 45000 bps is clamped. Source: [contracts/src/TegridyLPFarming.sol:64](../contracts/src/TegridyLPFarming.sol).
 
-User-facing flavour (from [frontend/src/lib/copy.ts](frontend/src/lib/copy.ts)):
+User-facing flavour (from [frontend/src/lib/copy.ts](../frontend/src/lib/copy.ts)):
 
 | Lock | Boost | Label |
 |---|---|---|
@@ -236,7 +236,7 @@ Any balance not in the contracts above is in EOA wallets, exchange hot-wallets, 
 2. **No mint function:** use Etherscan's "Read Contract" tab. There is no `mint()`, `issue()` or `rebase()`. There *is* an owner-gated surface (Ownable2Step) but `owner()` reads `0x0…0`, so none of it is reachable.
 3. **Burn is real:** call `burn(uint256)` / `burnFrom(address,uint256)` in the Write tab — they exist. `totalSupply()` therefore only ever moves down. Any doc claiming the opposite is out of date; this one was, until 2026-08-12.
 4. **Top holders:** [Etherscan holder list](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D#balances) shows the current distribution. Contracts (TegridyStaking, LP, treasury) will be near the top; individual wallets follow.
-5. **Source:** read the **Etherscan** Contract tab, not this repo. [contracts/src/Toweli.sol](contracts/src/Toweli.sol) is the project's own source and does **not** match the deployed bytecode — it has permit and no burn; the chain has burn and no permit.
+5. **Source:** read the **Etherscan** Contract tab, not this repo. [contracts/src/Toweli.sol](../contracts/src/Toweli.sol) is the project's own source and does **not** match the deployed bytecode — it has permit and no burn; the chain has burn and no permit.
 
 ---
 
@@ -249,7 +249,7 @@ Any balance not in the contracts above is in EOA wallets, exchange hot-wallets, 
 - **A 20% referral cut comes off every fee before stakers see it**, and it cannot be set to zero or unwired. Staker yield is capped at ~80% of the fee, not 100%.
 - **Boost ceiling 4.5×.** 0.4× at 7-day lock → 4.0× at 4-year lock + 0.5× JBAC bonus.
 - **Flat 25% early-exit penalty, paid in full to the treasury** — not recycled to stakers.
-- **POL sink is dormant twice over:** the lever is 0% and `SwapFeeRouter.polAccumulator()` is unset. Activation is a governance decision plus a wiring transaction; see [REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md) § fee calibration.
+- **POL sink is dormant twice over:** the lever is 0% and `SwapFeeRouter.polAccumulator()` is unset. Activation is a governance decision plus a wiring transaction; see [REVENUE_ANALYSIS.md](archive/REVENUE_ANALYSIS.md) § fee calibration.
 
 ---
 

@@ -36,25 +36,25 @@ Each agent operated under the strict minimal-surface mandate: only flag findings
 ## DELETE-CLEAN findings (4 applied)
 
 ### DC-1: TegridyNFTLending.acceptOffer expiry shim
-- **File:line:** [TegridyNFTLending.sol:633](../../contracts/src/TegridyNFTLending.sol)
+- **File:line:** [TegridyNFTLending.sol:633](../../../../contracts/src/TegridyNFTLending.sol)
 - **Pre-fix:** `if (offer.expiry != 0 && block.timestamp > offer.expiry) revert OfferExpired();`
 - **Post-fix:** `if (block.timestamp > offer.expiry) revert OfferExpired();`
 - **Reason:** `createOffer` enforces `_expiry >= block.timestamp + MIN_OFFER_VALIDITY (1h)`; post-relaunch every offer has expiry > 0. Sibling-canonical with TegridyLending.acceptOffer at line 1065 (no shim there). Pre-M10 dead code per `project_relaunch.md`.
 
 ### DC-2: TegridyNFTLending.acceptOffer treasuryAtCreate fallback
-- **File:line:** [TegridyNFTLending.sol:646–647](../../contracts/src/TegridyNFTLending.sol)
+- **File:line:** [TegridyNFTLending.sol:646–647](../../../../contracts/src/TegridyNFTLending.sol)
 - **Pre-fix:** `if (feeRecipient == address(0)) feeRecipient = treasury;`
 - **Post-fix:** removed.
 - **Reason:** Constructor + setter enforce `treasury != address(0)`; `createOffer` always writes `treasuryAtCreate: treasury`. Pre-LD2-M3 offers (the only source of address(0)) don't exist post-relaunch.
 
 ### DC-3: TegridyLending.acceptOffer treasuryAtCreate fallback
-- **File:line:** [TegridyLending.sol:1080–1081](../../contracts/src/TegridyLending.sol)
+- **File:line:** [TegridyLending.sol:1080–1081](../../../../contracts/src/TegridyLending.sol)
 - **Pre-fix:** `if (feeRecipient == address(0)) feeRecipient = treasury;`
 - **Post-fix:** removed.
 - **Reason:** Sister-canonical of DC-2 in the staking-collateral lending sibling. Same dead-fallback shape.
 
 ### DC-5: POLAccumulator dead validity constants
-- **File:line:** [POLAccumulator.sol:942–944](../../contracts/src/POLAccumulator.sol)
+- **File:line:** [POLAccumulator.sol:942–944](../../../../contracts/src/POLAccumulator.sol)
 - **Pre-fix:** 3 public constants (`BACKSTOP_PROPOSAL_VALIDITY`, `SLIPPAGE_PROPOSAL_VALIDITY`, `ACCUMULATE_CAP_PROPOSAL_VALIDITY`).
 - **Post-fix:** all 3 deleted.
 - **Reason:** Comment claimed "test compatibility" but `grep` across the entire repo found ZERO references. Pure surface inflation.
@@ -64,7 +64,7 @@ Each agent operated under the strict minimal-surface mandate: only flag findings
 ## DELETE-CLEAN deferred (1)
 
 ### DC-4: TegridyLending.repayLoan int16 negative-sentinel
-- **File:line:** [TegridyLending.sol:1297–1300](../../contracts/src/TegridyLending.sol)
+- **File:line:** [TegridyLending.sol:1297–1300](../../../../contracts/src/TegridyLending.sol)
 - **Pre-fix:** `int16 snapBps = ...; uint256 effectiveFeeBps = snapBps < 0 ? protocolFeeBps : uint256(uint16(snapBps));`
 - **Attempted post-fix:** `int16 snapBps = ...; uint256 effectiveFeeBps = uint256(uint16(snapBps));`
 - **Status:** DEFERRED — Yul stack-too-deep error in `repayLoan` under via_ir. Both inline (`uint256(uint16(offers[offerId].protocolFeeBpsAtCreate))`) and local-variable forms fail. The original 3-line ternary's `protocolFeeBps` SLOAD branch apparently materializes a stack slot the optimizer needs.

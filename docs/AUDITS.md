@@ -10,8 +10,8 @@ Before you read further, here's the methodology breakdown:
 
 | Type | Count | Description |
 |---|---|---|
-| **Reviews to an external methodology** | 2 | `SPARTAN_AUDIT.txt` (Apr 16, 2026) and the pre-release doc archived at [`docs/audits/archive/tegridy_farms_audit.docx`](./docs/audits/archive/tegridy_farms_audit.docx) (Mar 25, 2026). ⚠️ **Neither is a third-party audit.** Spartan's own Appendix C states "The reviewer is an AI assistant (Claude, Anthropic) acting at the direction of the repository owner" — the *methodology* is external, the *reviewer* was not. This row used to be headed "External, third-party methodology", which read as independent authorship. |
-| **Internal AI-agent reviews** | 14 | Parallel Claude/GPT agent sweeps. Useful as a breadth tool. **Not a substitute for a human audit firm.** Latest: **pass-8 adversarial 100-agent audit (May 4–6, 2026)** — see [`.audit_101/PASS8_2026_05_04.md`](./.audit_101/PASS8_2026_05_04.md). The lineage: 100→200→300→40-agent passes (Mar 2026), 101-agent canonical pass (Apr 25, 2026 — [`.audit_101/MASTER_REPORT.md`](./.audit_101/MASTER_REPORT.md) + remediation R001–R076), microscope (Apr 30), DEEP_2026_05_01 v1/v2/v3 (May 1), pass-5 cross-contract (May 2), pass-6 (May 3), pass-7 (May 3), pass-8 (May 4–6). |
+| **Reviews to an external methodology** | 2 | `SPARTAN_AUDIT.txt` (Apr 16, 2026) and the pre-release doc archived at [`docs/audits/archive/tegridy_farms_audit.docx`](./audits/archive/tegridy_farms_audit.docx) (Mar 25, 2026). ⚠️ **Neither is a third-party audit.** Spartan's own Appendix C states "The reviewer is an AI assistant (Claude, Anthropic) acting at the direction of the repository owner" — the *methodology* is external, the *reviewer* was not. This row used to be headed "External, third-party methodology", which read as independent authorship. |
+| **Internal AI-agent reviews** | 14 | Parallel Claude/GPT agent sweeps. Useful as a breadth tool. **Not a substitute for a human audit firm.** Latest: **pass-8 adversarial 100-agent audit (May 4–6, 2026)** — see [`.audit_101/PASS8_2026_05_04.md`](./audits/audit_101/PASS8_2026_05_04.md). The lineage: 100→200→300→40-agent passes (Mar 2026), 101-agent canonical pass (Apr 25, 2026 — [`.audit_101/MASTER_REPORT.md`](./audits/audit_101/MASTER_REPORT.md) + remediation R001–R076), microscope (Apr 30), DEEP_2026_05_01 v1/v2/v3 (May 1), pass-5 cross-contract (May 2), pass-6 (May 3), pass-7 (May 3), pass-8 (May 4–6). |
 | **Rolling remediation docs** | 3 | `FIX_STATUS.md`, `AUDIT_FINDINGS.md`, `CHANGELOG.md` |
 
 **If you are diligencing this protocol, read `SPARTAN_AUDIT.txt` + `AUDIT_FINDINGS.md` + `FIX_STATUS.md`. The rest is context.**
@@ -24,9 +24,9 @@ A paid human audit by a recognised firm (OpenZeppelin / Trail of Bits / Spearbit
 
 | If you are… | Start with… | Then read… |
 |---|---|---|
-| **A depositor sizing risk** | [`RisksPage` on tegridyfarms.vercel.app](https://tegridyfarms.vercel.app/risks) | [`SPARTAN_AUDIT.txt`](./SPARTAN_AUDIT.txt) + [`FIX_STATUS.md`](./FIX_STATUS.md) |
-| **An auditor / researcher** | [`SECURITY.md`](./SECURITY.md) | [`SECURITY_AUDIT_300_AGENT.md`](./SECURITY_AUDIT_300_AGENT.md) |
-| **A developer / integrator** | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | [`AUDIT_FINDINGS.md`](./AUDIT_FINDINGS.md) |
+| **A depositor sizing risk** | [`RisksPage` on tegridyfarms.vercel.app](https://tegridyfarms.vercel.app/risks) | [`SPARTAN_AUDIT.txt`](./archive/SPARTAN_AUDIT.txt) + [`FIX_STATUS.md`](./archive/FIX_STATUS.md) |
+| **An auditor / researcher** | [`SECURITY.md`](../SECURITY.md) | [`SECURITY_AUDIT_300_AGENT.md`](./archive/SECURITY_AUDIT_300_AGENT.md) |
+| **A developer / integrator** | [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) | [`AUDIT_FINDINGS.md`](./archive/AUDIT_FINDINGS.md) |
 
 ---
 
@@ -36,43 +36,43 @@ These live at the repo root because they are actively referenced:
 
 | File | Purpose |
 |---|---|
-| [`.audit_101/PASS8_2026_05_04.md`](./.audit_101/PASS8_2026_05_04.md) | **NEW (2026-05-04 → 2026-05-06)**: pass-8 adversarial 100-agent audit + 18-batch same-week remediation. Five waves: 30 per-contract deep + 40 vulnerability-class + 15 cross-contract integration + 10 economic / MEV / game-theory + 5 specialized (compiler / toolchain / size / test-coverage / 2026-exploit research). ~675 raw → ~275 unique findings after dedup (10 Critical / ~140 High / ~165 Medium / ~110 Low / ~250 Info). **All in-scope items closed across 18 batches** (commits adfa452 → 1d058e2). Owner-trust subset deferred to dedicated multisig-policy phase. Test posture: 2,574/0. 6 PoC files at `contracts/test/PASS8_*.t.sol` (46 tests). Cumulative: 418 (pass-7) + ~275 (pass-8 deduped) = ~693 audit-tracked items. |
-| [`.audit_101/PASS7_2026_05_03.md`](./.audit_101/PASS7_2026_05_03.md) | **2026-05-03**: pass-7 adversarial multi-agent audit (3 parallel worktree agents on oracle/AMM, staking/governance, lending/NFT). 1 Critical (latent V4-hook accounting), 6 High (cross-contract per-tokenId reward bucket cluster + permanent gauge-removal brick + TWAP fail-open carve-out), 4 Medium, 1 Low, 1 Info — **all closed in same-week remediation** (commits b6b356d → 750e572). 9 runnable Foundry PoCs at `contracts/test/PASS7_*.t.sol`. Cumulative through pass-7: 418 audit-tracked items. |
-| [`.audit_101/PASS6_2026_05_03.md`](./.audit_101/PASS6_2026_05_03.md) | **2026-05-03**: pass-6 fresh-eyes meta-audit informed by 2024-2026 DeFi exploit retrospectives. 5 NEW contract HIGH + 5 NEW contract MED + 1 frontend CRIT + 5 frontend HIGH + 1 frontend LOW — **all closed** in commits `722d1f1` / `b1fb6d4` / `8266289` / `21db70b` / `975e5af` / `4b3a47f` (+ `672e4d8` vercel.json catch-up, `378d70d` AUDITS bump, `eed1c65` polish, `7889f25` 4 NEW invariant suites). Pass-7 subsequently disputed two pass-6 closure descriptions (TWAP HIGH-3 V3-AMM-L1 carve-out, LD-NEW-H1 settled-vs-settled axis, LD-NEW-H2 missing on TegridyLending side and on `claimStuckCollateral`, FRESH-EYES L missing on NFTLending) — see PASS7 §7 disagreements. |
-| [`.audit_101/PASS5_2026_05_02.md`](./.audit_101/PASS5_2026_05_02.md) | Pass-5 adversarial cross-contract audit (2026-05-02). 1 HIGH + 1 LOW + 1 INFO + 4 invariants (all PASS over 128k stateful calls each). |
-| [`.audit_101/POST_REMEDIATION_LEDGER.md`](./.audit_101/POST_REMEDIATION_LEDGER.md) | **2026-04-26**: post-remediation reconciliation. 14 fixes shipped across 11 commits closing 3 Critical + 7 High + 4 Medium findings, including R017/R020/R023/R028 fixes that prior docs claimed had shipped but had not. Pass-6 closures appended below the original ledger. |
-| [`SECURITY_AUDIT_300_AGENT.md`](./SECURITY_AUDIT_300_AGENT.md) | Canonical severity reference. 300-agent internal sweep + Spartan ingest. Apr 16, 2026. |
-| [`AUDIT_FINDINGS.md`](./AUDIT_FINDINGS.md) | Current `main`-branch blocker list. 35-detective parallel sweep. Apr 17, 2026. |
-| [`SPARTAN_AUDIT.txt`](./SPARTAN_AUDIT.txt) | **External** review. 25 contracts, 12,644 LOC. 1 Critical / 1 High / 7 Medium / 9 Low. Apr 16, 2026. |
-| [`API_INDEXER_AUDIT.md`](./API_INDEXER_AUDIT.md) | Domain-specific: serverless API + Ponder indexer. Apr 17, 2026. |
-| [`FIX_STATUS.md`](./FIX_STATUS.md) | Rolling remediation tracker. Updated every session. |
-| [`CHANGELOG.md`](./CHANGELOG.md) | Keep-a-Changelog record of every shipped change. |
-| [`SECURITY.md`](./SECURITY.md) | Disclosure policy, bug-bounty scope. |
+| [`.audit_101/PASS8_2026_05_04.md`](./audits/audit_101/PASS8_2026_05_04.md) | **NEW (2026-05-04 → 2026-05-06)**: pass-8 adversarial 100-agent audit + 18-batch same-week remediation. Five waves: 30 per-contract deep + 40 vulnerability-class + 15 cross-contract integration + 10 economic / MEV / game-theory + 5 specialized (compiler / toolchain / size / test-coverage / 2026-exploit research). ~675 raw → ~275 unique findings after dedup (10 Critical / ~140 High / ~165 Medium / ~110 Low / ~250 Info). **All in-scope items closed across 18 batches** (commits adfa452 → 1d058e2). Owner-trust subset deferred to dedicated multisig-policy phase. Test posture: 2,574/0. 6 PoC files at `contracts/test/PASS8_*.t.sol` (46 tests). Cumulative: 418 (pass-7) + ~275 (pass-8 deduped) = ~693 audit-tracked items. |
+| [`.audit_101/PASS7_2026_05_03.md`](./audits/audit_101/PASS7_2026_05_03.md) | **2026-05-03**: pass-7 adversarial multi-agent audit (3 parallel worktree agents on oracle/AMM, staking/governance, lending/NFT). 1 Critical (latent V4-hook accounting), 6 High (cross-contract per-tokenId reward bucket cluster + permanent gauge-removal brick + TWAP fail-open carve-out), 4 Medium, 1 Low, 1 Info — **all closed in same-week remediation** (commits b6b356d → 750e572). 9 runnable Foundry PoCs at `contracts/test/PASS7_*.t.sol`. Cumulative through pass-7: 418 audit-tracked items. |
+| [`.audit_101/PASS6_2026_05_03.md`](./audits/audit_101/PASS6_2026_05_03.md) | **2026-05-03**: pass-6 fresh-eyes meta-audit informed by 2024-2026 DeFi exploit retrospectives. 5 NEW contract HIGH + 5 NEW contract MED + 1 frontend CRIT + 5 frontend HIGH + 1 frontend LOW — **all closed** in commits `722d1f1` / `b1fb6d4` / `8266289` / `21db70b` / `975e5af` / `4b3a47f` (+ `672e4d8` vercel.json catch-up, `378d70d` AUDITS bump, `eed1c65` polish, `7889f25` 4 NEW invariant suites). Pass-7 subsequently disputed two pass-6 closure descriptions (TWAP HIGH-3 V3-AMM-L1 carve-out, LD-NEW-H1 settled-vs-settled axis, LD-NEW-H2 missing on TegridyLending side and on `claimStuckCollateral`, FRESH-EYES L missing on NFTLending) — see PASS7 §7 disagreements. |
+| [`.audit_101/PASS5_2026_05_02.md`](./audits/audit_101/PASS5_2026_05_02.md) | Pass-5 adversarial cross-contract audit (2026-05-02). 1 HIGH + 1 LOW + 1 INFO + 4 invariants (all PASS over 128k stateful calls each). |
+| [`.audit_101/POST_REMEDIATION_LEDGER.md`](./audits/audit_101/POST_REMEDIATION_LEDGER.md) | **2026-04-26**: post-remediation reconciliation. 14 fixes shipped across 11 commits closing 3 Critical + 7 High + 4 Medium findings, including R017/R020/R023/R028 fixes that prior docs claimed had shipped but had not. Pass-6 closures appended below the original ledger. |
+| [`SECURITY_AUDIT_300_AGENT.md`](./archive/SECURITY_AUDIT_300_AGENT.md) | Canonical severity reference. 300-agent internal sweep + Spartan ingest. Apr 16, 2026. |
+| [`AUDIT_FINDINGS.md`](./archive/AUDIT_FINDINGS.md) | Current `main`-branch blocker list. 35-detective parallel sweep. Apr 17, 2026. |
+| [`SPARTAN_AUDIT.txt`](./archive/SPARTAN_AUDIT.txt) | **External** review. 25 contracts, 12,644 LOC. 1 Critical / 1 High / 7 Medium / 9 Low. Apr 16, 2026. |
+| [`API_INDEXER_AUDIT.md`](./archive/API_INDEXER_AUDIT.md) | Domain-specific: serverless API + Ponder indexer. Apr 17, 2026. |
+| [`FIX_STATUS.md`](./archive/FIX_STATUS.md) | Rolling remediation tracker. Updated every session. |
+| [`CHANGELOG.md`](../CHANGELOG.md) | Keep-a-Changelog record of every shipped change. |
+| [`SECURITY.md`](../SECURITY.md) | Disclosure policy, bug-bounty scope. |
 | [`HALL_OF_FAME.md`](./HALL_OF_FAME.md) | Acknowledged security researchers. |
 
 ## Archived artifacts (context / provenance)
 
 Historical reviews preserved for provenance. **Read `FIX_STATUS.md` to learn what's actually live on `main` today** — these archives describe the protocol at earlier points in time.
 
-Moved to [`docs/audits/archive/`](./docs/audits/archive/):
+Moved to [`docs/audits/archive/`](./audits/archive/):
 
 | File | Date | Methodology | Status |
 |---|---|---|---|
-| [`tegridy_farms_audit.docx`](./docs/audits/archive/tegridy_farms_audit.docx) | 2026-03-25 | External, pre-release | Historical — earliest artifact |
-| [`tegridy_100_findings.docx`](./docs/audits/archive/tegridy_100_findings.docx) | 2026-03-26 | Line-by-line manual + parallel agents | Historical |
-| [`findings_clean.txt`](./docs/audits/archive/findings_clean.txt) | 2026-03-26 | Plaintext mirror of 100-finding doc | Historical |
-| [`findings_text.txt`](./docs/audits/archive/findings_text.txt) | 2026-03-26 | Full unmodified text export | Historical |
-| [`SECURITY_AUDIT_REPORT.md`](./docs/audits/archive/SECURITY_AUDIT_REPORT.md) | 2026-03-29 | 100 AI agents | Historical baseline |
-| [`SECURITY_AUDIT_FINAL.md`](./docs/audits/archive/SECURITY_AUDIT_FINAL.md) | 2026-03-29 | 200 parallel AI + manual | Historical |
-| [`SECURITY_AUDIT_40_AGENT.md`](./docs/audits/archive/SECURITY_AUDIT_40_AGENT.md) | 2026-03-29 | 40 AI agents, test-coverage focus | Historical |
-| [`SECURITY_AUDIT_OPUS.md`](./docs/audits/archive/SECURITY_AUDIT_OPUS.md) | 2026-03-30 | 38 AI agents | Historical |
-| [`SECURITY_AUDIT_200_AGENT.md`](./docs/audits/archive/SECURITY_AUDIT_200_AGENT.md) | 2026-04-04 | 150+ AI agents | Superseded by 300-agent |
+| [`tegridy_farms_audit.docx`](./audits/archive/tegridy_farms_audit.docx) | 2026-03-25 | External, pre-release | Historical — earliest artifact |
+| [`tegridy_100_findings.docx`](./audits/archive/tegridy_100_findings.docx) | 2026-03-26 | Line-by-line manual + parallel agents | Historical |
+| [`findings_clean.txt`](./audits/archive/findings_clean.txt) | 2026-03-26 | Plaintext mirror of 100-finding doc | Historical |
+| [`findings_text.txt`](./audits/archive/findings_text.txt) | 2026-03-26 | Full unmodified text export | Historical |
+| [`SECURITY_AUDIT_REPORT.md`](./audits/archive/SECURITY_AUDIT_REPORT.md) | 2026-03-29 | 100 AI agents | Historical baseline |
+| [`SECURITY_AUDIT_FINAL.md`](./audits/archive/SECURITY_AUDIT_FINAL.md) | 2026-03-29 | 200 parallel AI + manual | Historical |
+| [`SECURITY_AUDIT_40_AGENT.md`](./audits/archive/SECURITY_AUDIT_40_AGENT.md) | 2026-03-29 | 40 AI agents, test-coverage focus | Historical |
+| [`SECURITY_AUDIT_OPUS.md`](./audits/archive/SECURITY_AUDIT_OPUS.md) | 2026-03-30 | 38 AI agents | Historical |
+| [`SECURITY_AUDIT_200_AGENT.md`](./audits/archive/SECURITY_AUDIT_200_AGENT.md) | 2026-04-04 | 150+ AI agents | Superseded by 300-agent |
 
 ---
 
 ## Regression tests
 
-Every finding that can be expressed as a test has one, under [`contracts/test/`](./contracts/test/). Naming convention:
+Every finding that can be expressed as a test has one, under [`contracts/test/`](../contracts/test/). Naming convention:
 
 - `Audit195_*.t.sol` — per-contract harnesses from the 100-finding review
 - `AuditFixes_*.t.sol` — cross-contract fix verification
@@ -82,18 +82,18 @@ Every finding that can be expressed as a test has one, under [`contracts/test/`]
 
 **Current forge test count: 2,574 / 2,574 passing** (post-pass-8 closure).
 
-Post-2026-04-26 additions: 8 demonstration tests in [`contracts/test/AuditDemonstration.t.sol`](./contracts/test/AuditDemonstration.t.sol) prove the new behavior of Batches A–J (commits 393b084 → 5fad774). See [`.audit_101/POST_REMEDIATION_LEDGER.md`](./.audit_101/POST_REMEDIATION_LEDGER.md) for the full per-finding breakdown.
+Post-2026-04-26 additions: 8 demonstration tests in [`contracts/test/AuditDemonstration.t.sol`](./contracts/test/AuditDemonstration.t.sol) prove the new behavior of Batches A–J (commits 393b084 → 5fad774). See [`.audit_101/POST_REMEDIATION_LEDGER.md`](./audits/audit_101/POST_REMEDIATION_LEDGER.md) for the full per-finding breakdown.
 
 **Architectural changes (2026-04-26):**
-- TegridyStaking split into [`TegridyStaking`](./contracts/src/TegridyStaking.sol) + [`TegridyStakingAdmin`](./contracts/src/TegridyStakingAdmin.sol) for EIP-170 fit. Final size: 22,492 bytes (+2,084 margin).
-- SwapFeeRouter split into [`SwapFeeRouter`](./contracts/src/SwapFeeRouter.sol) + [`SwapFeeRouterAdmin`](./contracts/src/SwapFeeRouterAdmin.sol) for the same reason. Final size: 16,735 bytes (+7,841 margin).
+- TegridyStaking split into [`TegridyStaking`](../contracts/src/TegridyStaking.sol) + [`TegridyStakingAdmin`](../contracts/src/TegridyStakingAdmin.sol) for EIP-170 fit. Final size: 22,492 bytes (+2,084 margin).
+- SwapFeeRouter split into [`SwapFeeRouter`](../contracts/src/SwapFeeRouter.sol) + [`SwapFeeRouterAdmin`](../contracts/src/SwapFeeRouterAdmin.sol) for the same reason. Final size: 16,735 bytes (+7,841 margin).
 - All 1,927 tests pass. User-facing swap and stake function signatures unchanged. Admin `propose/execute/cancel` calls moved to the new admin contracts (`staking.*`/`router.*` → `stakingAdmin.*`/`routerAdmin.*`) — frontend ABI imports + deploy scripts need updates. See ledger for details.
 
 ---
 
 ## Known blockers on `main`
 
-State as of 2026-04-18. Cross-check [`FIX_STATUS.md`](./FIX_STATUS.md), which is updated every session.
+State as of 2026-04-18. Cross-check [`FIX_STATUS.md`](./archive/FIX_STATUS.md), which is updated every session.
 
 | Blocker | Source | Patched in working tree? | On-chain? |
 |---|---|---|---|
@@ -182,7 +182,7 @@ Found something not listed? Report privately:
 
 Include: affected contract/file + line, reproduction or PoC, suggested severity, payout address/handle. Do **not** exploit against mainnet; test on fork or Sepolia.
 
-Full policy: [`SECURITY.md`](./SECURITY.md).
+Full policy: [`SECURITY.md`](../SECURITY.md).
 
 ---
 

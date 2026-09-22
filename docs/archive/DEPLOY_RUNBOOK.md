@@ -15,7 +15,7 @@ This runbook is the authoritative deploy plan for shipping the audit-remediation
 |---|---|---|---|
 | **TegridyLPFarming** | **CRITICAL** (C-01 ABI mismatch + defence-in-depth cap) | unchanged | **Pause + migrate** (if live) |
 | TegridyStaking | HIGH (lending whitelist, autoMaxLock preservation, GaugeController TF-04 interface, totalLocked cleanup) | new storage slots | Redeploy OR migrate |
-| TegridyLending | HIGH (grace period, lending caps to state vars, cross-contract whitelist integration). **R003 (2026-04-25):** constructor now **5 args** (was 4) — adds `_twap` for ETH-denominated collateral floor via `TegridyTWAP.consult()` (see [`.audit_101/remediation/R003.md`](./.audit_101/remediation/R003.md)). | **const → state** | Redeploy (not upgradeable) |
+| TegridyLending | HIGH (grace period, lending caps to state vars, cross-contract whitelist integration). **R003 (2026-04-25):** constructor now **5 args** (was 4) — adds `_twap` for ETH-denominated collateral floor via `TegridyTWAP.consult()` (see [`.audit_101/remediation/R003.md`](../audits/audit_101/remediation/R003.md)). | **const → state** | Redeploy (not upgradeable) |
 | TegridyNFTLending | HIGH (createOffer nonReentrant) | unchanged | Redeploy |
 | TegridyNFTPoolFactory | HIGH (CREATE2 cloneDeterministic) | unchanged | Redeploy; pool address scheme changes |
 | TegridyNFTPool | MEDIUM (delta cap 100→10 ETH) | unchanged | Redeploy |
@@ -37,16 +37,16 @@ linked R-file in `.audit_101/remediation/` before broadcasting:
 
 | Contract | R-file | Change | Deploy impact |
 |---|---|---|---|
-| **TegridyLending** | [R003](./.audit_101/remediation/R003.md) | Constructor **5→6 args** *(was already 5 from batch 7d, R003 adds `_twap`)*. ETH collateral floor now reads `TegridyTWAP.consult()` instead of spot reserves. | Redeploy with new `_twap` arg. |
-| **POLAccumulator** | [R015](./.audit_101/remediation/R015.md) | Constructor **4→5 args** — adds `_twap`; `LPMismatch` factory check verifies the LP token matches the pair the TWAP watches. | Redeploy with new `_twap` arg + factory-check ready. |
-| **VoteIncentives** | [R020](./.audit_101/remediation/R020.md) | Constructor **6→7 args** — adds `_commitRevealFromGenesis` boolean; new `refundUnvotedBribe()` closes Spartan TF-13. | Redeploy as commit-reveal-aware partner of GaugeController. |
+| **TegridyLending** | [R003](../audits/audit_101/remediation/R003.md) | Constructor **5→6 args** *(was already 5 from batch 7d, R003 adds `_twap`)*. ETH collateral floor now reads `TegridyTWAP.consult()` instead of spot reserves. | Redeploy with new `_twap` arg. |
+| **POLAccumulator** | [R015](../audits/audit_101/remediation/R015.md) | Constructor **4→5 args** — adds `_twap`; `LPMismatch` factory check verifies the LP token matches the pair the TWAP watches. | Redeploy with new `_twap` arg + factory-check ready. |
+| **VoteIncentives** | [R020](../audits/audit_101/remediation/R020.md) | Constructor **6→7 args** — adds `_commitRevealFromGenesis` boolean; new `refundUnvotedBribe()` closes Spartan TF-13. | Redeploy as commit-reveal-aware partner of GaugeController. |
 | **TegridyFeeHook** | (Wave-0 retry) | Constructor accepts `_owner` arg (Arachnid CREATE2 stranded ownership on first deploy). | Re-mint CREATE2 salt for the new bytecode + redeploy. |
-| **TegridyNFTLending** | [R029](./.audit_101/remediation/R029.md) | Constructor no longer auto-whitelists. Post-deploy: `proposeWhitelistCollection(addr)` → wait 24h → `executeWhitelistCollection(addr)` for each of JBAC, Nakamigos, GNSS. | Redeploy + post-deploy whitelist migration recipe. |
+| **TegridyNFTLending** | [R029](../audits/audit_101/remediation/R029.md) | Constructor no longer auto-whitelists. Post-deploy: `proposeWhitelistCollection(addr)` → wait 24h → `executeWhitelistCollection(addr)` for each of JBAC, Nakamigos, GNSS. | Redeploy + post-deploy whitelist migration recipe. |
 
 See [`DEPLOY_CHEAT_SHEET.md`](./DEPLOY_CHEAT_SHEET.md) for the paste-ready operator
 view of each step. Wave-0 multisig `acceptOwnership` (LP Farming, Gauge Controller,
 NFT Lending) is a **prerequisite** for any further owner-controlled action;
-[`docs/WAVE_0_TODO.md`](./docs/WAVE_0_TODO.md) tracks status.
+[`docs/WAVE_0_TODO.md`](../WAVE_0_TODO.md) tracks status.
 
 ---
 

@@ -2,7 +2,7 @@
 
 > **Status:** Research / strategy reference. Created 2026-06-01.
 > **Purpose:** Catalogue every credible way to make Tegridy Farms more beneficial for users, with each idea grounded in an audited, billion-dollar-protocol precedent and graded against the project's **minimal-attack-surface mandate**.
-> **Companion to:** [`ROADMAP.md`](../ROADMAP.md) (forward plan), [`REVENUE_ANALYSIS.md`](../REVENUE_ANALYSIS.md) (fee calibration), [`docs/ARCHITECTURE.md`](ARCHITECTURE.md).
+> **Companion to:** [`ROADMAP.md`](ROADMAP.md) (forward plan), [`REVENUE_ANALYSIS.md`](archive/REVENUE_ANALYSIS.md) (fee calibration), [`docs/ARCHITECTURE.md`](ARCHITECTURE.md).
 > **Methodology:** One internal map of the live frontend / contracts / off-chain infra, plus six parallel web-research sweeps (automation, liquid lockers, lending pools, DEX intents/MEV, account abstraction, governance/retention) and one oracle feasibility spike. Sources inline per item.
 
 This doc does **not** authorize implementation. It ranks options so the team can greenlight per batch (per the security-hardening check-in cadence). Nothing here changes a contract without a dedicated audit pass.

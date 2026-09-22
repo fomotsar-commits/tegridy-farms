@@ -53,7 +53,7 @@ if (directPaid > 0 && owed > 0) {
 
 Reconcile is `min(directPaid, owed)` — the directPaid economically pays off the same slice that was booked into `escrowRewardsOwed` at deferral. Decrementing them together keeps the legacy ledger honest. Subsequent TOWELI inflows to lending no longer create a phantom debt.
 
-Closed at [`TegridyLending.sol:1845-1869`](../contracts/src/TegridyLending.sol#L1845).
+Closed at [`TegridyLending.sol:1845-1869`](../../../contracts/src/TegridyLending.sol#L1845).
 
 ## 5. Why this didn't get caught earlier
 

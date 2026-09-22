@@ -23,7 +23,7 @@ User Swap → SwapFeeRouter → ReferralSplitter (referral slice + remainder)
 
 **Conservation invariant:** `address(this).balance >= accumulatedETHFees + totalPendingDistribution`
 
-Enforced at [`sweepETH`:1369-1370](../../contracts/src/SwapFeeRouter.sol#L1369): `reserved = accumulatedETHFees + totalPendingDistribution; sweepable = balance - reserved`.
+Enforced at [`sweepETH`:1369-1370](../../../../contracts/src/SwapFeeRouter.sol#L1369): `reserved = accumulatedETHFees + totalPendingDistribution; sweepable = balance - reserved`.
 
 ### ReferralSplitter
 - `pendingETH[referrer]` — claimable referral rewards
@@ -34,7 +34,7 @@ Enforced at [`sweepETH`:1369-1370](../../contracts/src/SwapFeeRouter.sol#L1369):
 
 **Conservation invariant:** `address(this).balance >= totalPendingETH + accumulatedTreasuryETH + totalCallerCredit`
 
-Enforced at [`sweepUnclaimable`:704-708](../../contracts/src/ReferralSplitter.sol#L704). **Fuzz-verified by INV-B over 128k calls.**
+Enforced at [`sweepUnclaimable`:704-708](../../../../contracts/src/ReferralSplitter.sol#L704). **Fuzz-verified by INV-B over 128k calls.**
 
 ### POLAccumulator
 - `address(this).balance` is the working pool
@@ -52,7 +52,7 @@ No reservation aggregate needed; `executeSweepETH` is timelocked + restricted to
 
 **Reservation:** `balance >= (totalEarmarked - totalClaimed) + totalPendingWithdrawals`
 
-Enforced at [`emergencyWithdraw`:387](../../contracts/src/RevenueDistributor.sol#L387) and [`sweepDust`:836-837](../../contracts/src/RevenueDistributor.sol#L836).
+Enforced at [`emergencyWithdraw`:387](../../../../contracts/src/RevenueDistributor.sol#L387) and [`sweepDust`:836-837](../../../../contracts/src/RevenueDistributor.sol#L836).
 
 ---
 

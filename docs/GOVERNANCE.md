@@ -6,7 +6,7 @@ This document describes who controls which parameter of the Tegridy Farms protoc
 
 - Parameter changes on Tegridy Farms contracts are **timelocked** (24–48 hours depending on contract).
 - Ownership is currently held by a **single EOA** using `OwnableNoRenounce` (prevents accidental brick; still a single key).
-- **Migration to multisig is on the roadmap** — see [ROADMAP.md](../ROADMAP.md).
+- **Migration to multisig is on the roadmap** — see [ROADMAP.md](ROADMAP.md).
 - No contract has a backdoor, mint function, or emergency-unlock mechanism that bypasses the timelock.
 
 ## Access-control primitives
@@ -77,7 +77,7 @@ The canonical owner address is documented in each contract's storage and can be 
 
 ## Multisig migration roadmap
 
-See [ROADMAP.md](../ROADMAP.md) for the target milestone. The planned migration:
+See [ROADMAP.md](ROADMAP.md) for the target milestone. The planned migration:
 
 1. **Choose multisig provider** — Safe (Gnosis Safe) is the default for Ethereum DeFi.
 2. **Deploy 3-of-5 multisig** with public signer identities. Signers can be the core team, a trusted external security engineer, and an independent community member.
