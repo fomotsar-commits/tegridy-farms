@@ -153,6 +153,7 @@ describe('finding the invites the site ships', () => {
       '/public/push-sw.js',
       '/api/aggregator.js',
       '/scripts/render-bungalow-doors.mjs',
+      '/scripts/held-through.mjs',
       // Answer twelve's verification pass found these two shipped past the scan.
       // A file is in scope because its TEXT reaches a user, not because of where
       // it sits: the CSV is downloaded from the upload wizard (Step2_Upload.tsx

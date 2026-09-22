@@ -181,6 +181,19 @@ test.describe('SEO & social metadata', () => {
     expect(control.headers()['content-type'] ?? '', 'this server has no SPA fallback, so the check above proves less').toMatch(/text\/html/);
   });
 
+  // held-through.json is read by machines, so the same trap applies: the SPA shell
+  // answers 200 for a file that was never built. Content type and schema, not status.
+  test('held-through.json is a real JSON file, not the SPA shell', async ({ page }) => {
+    const res = await page.request.get('/held-through.json');
+    expect(res.status()).toBe(200);
+    expect(res.headers()['content-type'] ?? '').toMatch(/^application\/json/);
+    const doc = JSON.parse(await res.text());
+    expect(doc.schema).toBe('memetics.finance/held-through/1');
+    expect(doc.site).toBe('https://memetics.finance');
+    const ids = [...doc.chains.solana, ...doc.chains.ethereum, ...doc.chains.base].map((c: { id: string }) => c.id);
+    expect(ids).toEqual(expect.arrayContaining(['lighthouse-bayla', 'tegridy-staking', 'ladder-pepe', 'ladder-qr']));
+  });
+
   test('og.svg hero banner is served', async ({ page }) => {
     const res = await page.request.get('/og.svg');
     expect(res.status()).toBe(200);
