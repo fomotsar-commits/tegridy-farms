@@ -53,6 +53,12 @@ export interface NavItem {
    */
   tabLabel?: string;
   /**
+   * Shorter still: what the tab shows on phones and iPads (the `handheld`
+   * variant in index.css), for a label too wide for a phone-width tab. Visual
+   * only: RouteTabs keeps `tabLabel ?? label` as the accessible name and title.
+   */
+  compactTabLabel?: string;
+  /**
    * Renders a small amber "Soon" pill beside the label. For destinations that
    * are routable and worth discovering but are still flag-gated shut — the
    * link must never read as live, and never as broken either. Reuses the same
@@ -510,7 +516,8 @@ export const NAV_SECTIONS: NavSection[] = [
       // executes anything — there is no keeper, so the user places every mirror — or
       // that a season pays or ever closes, since no prize pool, escrow or settlement
       // exists. Both pages state those from the modules that enforce them.
-      { to: '/copy-trading', label: 'Copy Trading', soon: !hasCopyTapeSource() },
+      // CT on phones and iPads: "Copy Trading" is wider than its tab there.
+      { to: '/copy-trading', label: 'Copy Trading', compactTabLabel: 'CT', soon: !hasCopyTapeSource() },
       { to: '/competitions', label: 'Competitions', soon: !hasScoreableBoard() },
       // Merchant checkout. NOT PILLED since 2026-09-02, and the reason is the same
       // one that keeps /referrals above unpilled: the thing this entry names now
