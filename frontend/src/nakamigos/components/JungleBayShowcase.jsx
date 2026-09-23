@@ -44,8 +44,8 @@ function formatDeployDate(iso) {
 }
 const FAMILY_EVENTS = FAMILY
   .filter((c) => c.deploy?.date)
+  .sort((a, b) => a.deploy.date.localeCompare(b.deploy.date))
   .map((c) => ({
-    sortKey: c.deploy.date,
     date: formatDeployDate(c.deploy.date),
     title: `${c.name} contract deployed`,
     description: `Contract created on ${chainLabel(c)} on ${c.deploy.date}, at block ${c.deploy.block.toLocaleString("en-US")}.`,
@@ -54,22 +54,18 @@ const FAMILY_EVENTS = FAMILY
   }));
 
 // ═══ TIMELINE EVENTS ═══
-const JBAC_EVENTS = [
-  { sortKey: "2021-11-01", date: "Nov 2021", title: "Rug Pull Exposed", description: "Roh (0xRoh) forensically exposes LBAC rug pull -- identical IPFS hashes, ~100 ETH stolen.", color: "var(--gold)", icon: "\u26A0" },
-  { sortKey: "2021-11-16", date: "Nov 16, 2021", title: "@JungleBayAC Created", description: "Community creates new identity the same day the scandal breaks. Refuses to scatter.", color: "var(--naka-blue)", icon: "\u2764" },
-  { sortKey: "2021-11-30", date: "Nov 2021", title: "Sandbox Land Secured", description: "Jungle Bay Island established at coordinates (14, -69) in The Sandbox.", color: "var(--green)", icon: "\u{1F3DD}" },
-  { sortKey: "2022-01-06", date: "Jan 6, 2022", title: "New Collection Minted", description: "5,555 hand-drawn apes launched in just 7-8 weeks. Original LBAC holders get free 1:1 exchange.", color: "var(--green)", icon: "\u2728" },
-  { sortKey: "2022-04-01", date: "Apr 2022", title: "Staking Launched", description: "Community staking system goes live, rewarding diamond hands.", color: "var(--purple)", icon: "\u2B50" },
-  { sortKey: "2022-05-01", date: "May 2022", title: "Otherside Land Acquired", description: "Community treasury purchases land in Yuga Labs' Otherside metaverse.", color: "var(--naka-blue)", icon: "\u{1F30D}" },
-  { sortKey: "2023-06-01", date: "2023", title: "Rebranded to Artists Collective", description: "Evolution from Ape Club to Artists Collective.", color: "var(--gold)", icon: "\u{1F3A8}" },
-];
-const PRESENT_EVENT = { date: "Present", title: "Memetic Finance Era", description: "DM+T = Dank Memes + Time. $JBM token on Base.", color: "var(--gold)", icon: "\u{1F451}" };
-
-// The apes' own history, with each family contract placed on the day it was
-// created, and the present last.
+// The apes' own history, in the order it was written. Several entries are
+// known only to the month or the year, so the family contract deployments,
+// which carry full dates, are their own group rather than merged in.
 const TIMELINE_EVENTS = [
-  ...[...JBAC_EVENTS, ...FAMILY_EVENTS].sort((a, b) => a.sortKey.localeCompare(b.sortKey)),
-  PRESENT_EVENT,
+  { date: "Nov 2021", title: "Rug Pull Exposed", description: "Roh (0xRoh) forensically exposes LBAC rug pull -- identical IPFS hashes, ~100 ETH stolen.", color: "var(--gold)", icon: "\u26A0" },
+  { date: "Nov 16, 2021", title: "@JungleBayAC Created", description: "Community creates new identity the same day the scandal breaks. Refuses to scatter.", color: "var(--naka-blue)", icon: "\u2764" },
+  { date: "Nov 2021", title: "Sandbox Land Secured", description: "Jungle Bay Island established at coordinates (14, -69) in The Sandbox.", color: "var(--green)", icon: "\u{1F3DD}" },
+  { date: "Jan 6, 2022", title: "New Collection Minted", description: "5,555 hand-drawn apes launched in just 7-8 weeks. Original LBAC holders get free 1:1 exchange.", color: "var(--green)", icon: "\u2728" },
+  { date: "Apr 2022", title: "Staking Launched", description: "Community staking system goes live, rewarding diamond hands.", color: "var(--purple)", icon: "\u2B50" },
+  { date: "May 2022", title: "Otherside Land Acquired", description: "Community treasury purchases land in Yuga Labs' Otherside metaverse.", color: "var(--naka-blue)", icon: "\u{1F30D}" },
+  { date: "2023", title: "Rebranded to Artists Collective", description: "Evolution from Ape Club to Artists Collective.", color: "var(--gold)", icon: "\u{1F3A8}" },
+  { date: "Present", title: "Memetic Finance Era", description: "DM+T = Dank Memes + Time. $JBM token on Base.", color: "var(--gold)", icon: "\u{1F451}" },
 ];
 
 // ═══ SKIN TIER DATA ═══
@@ -286,33 +282,33 @@ function SkinTierPyramid() {
 }
 
 // ═══ SECTION: RUG-TO-RICHES TIMELINE ═══
-function RugToRichesTimeline() {
-  const [expanded, setExpanded] = useState(null);
-
+// One list of dated entries; `group` keeps the open entry unique across lists.
+function TimelineGroup({ label, events, group, expanded, setExpanded }) {
   return (
-    <div style={{ marginTop: 40 }}>
-      <h3 style={sectionHeadingStyle}>{"\u{1F4C5}"} RUG-TO-RICHES TIMELINE</h3>
-      <div style={{ position: "relative", paddingLeft: 32, maxWidth: 700 }}>
-        {/* Vertical line */}
-        <div style={{
-          position: "absolute", left: 11, top: 0, bottom: 0, width: 2,
-          background: "linear-gradient(180deg, var(--gold), var(--naka-blue), var(--green), var(--purple))",
-          borderRadius: 2, opacity: 0.4,
-        }} />
+    <div role="group" aria-label={label} style={{ position: "relative", paddingLeft: 32, maxWidth: 700 }}>
+      {/* Vertical line */}
+      <div style={{
+        position: "absolute", left: 11, top: 0, bottom: 0, width: 2,
+        background: "linear-gradient(180deg, var(--gold), var(--naka-blue), var(--green), var(--purple))",
+        borderRadius: 2, opacity: 0.4,
+      }} />
 
-        {TIMELINE_EVENTS.map((evt, idx) => (
+      {events.map((evt, idx) => {
+        const id = `${group}-${idx}`;
+        const open = expanded === id;
+        return (
           <div
-            key={idx}
+            key={id}
             style={{
               position: "relative", marginBottom: 20, cursor: "pointer",
               transition: "transform 0.15s",
             }}
-            onClick={() => setExpanded(expanded === idx ? null : idx)}
+            onClick={() => setExpanded(open ? null : id)}
             role="button"
             tabIndex={0}
-            aria-expanded={expanded === idx}
+            aria-expanded={open}
             aria-label={`${evt.date}: ${evt.title}`}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded(expanded === idx ? null : idx); } }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded(open ? null : id); } }}
           >
             {/* Dot */}
             <div style={{
@@ -320,7 +316,7 @@ function RugToRichesTimeline() {
               borderRadius: "50%", background: evt.color, opacity: 0.8,
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: 8, lineHeight: 1,
-              boxShadow: expanded === idx ? `0 0 8px ${evt.color}` : "none",
+              boxShadow: open ? `0 0 8px ${evt.color}` : "none",
               transition: "box-shadow 0.2s",
             }}>
               {evt.icon}
@@ -328,10 +324,10 @@ function RugToRichesTimeline() {
 
             {/* Content */}
             <div style={{
-              background: expanded === idx
+              background: open
                 ? "linear-gradient(135deg, rgba(200,168,80,0.1), rgba(200,168,80,0.03))"
                 : "var(--surface)",
-              border: expanded === idx ? "1px solid rgba(200,168,80,0.2)" : "1px solid rgba(255,255,255,0.04)",
+              border: open ? "1px solid rgba(200,168,80,0.2)" : "1px solid rgba(255,255,255,0.04)",
               borderRadius: 10, padding: "14px 16px",
               transition: "all 0.2s",
             }}>
@@ -340,13 +336,13 @@ function RugToRichesTimeline() {
                   {evt.date}
                 </span>
                 <span style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", letterSpacing: "0.04em" }}>
-                  {expanded === idx ? "COLLAPSE" : "EXPAND"}
+                  {open ? "COLLAPSE" : "EXPAND"}
                 </span>
               </div>
               <div style={{ fontFamily: "var(--display)", fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
                 {evt.title}
               </div>
-              {expanded === idx && (
+              {open && (
                 <div style={{
                   fontFamily: "var(--display)", fontSize: 11, color: "var(--text-dim)",
                   lineHeight: 1.7, marginTop: 8,
@@ -358,8 +354,25 @@ function RugToRichesTimeline() {
               )}
             </div>
           </div>
-        ))}
-      </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function RugToRichesTimeline() {
+  const [expanded, setExpanded] = useState(null);
+
+  return (
+    <div style={{ marginTop: 40 }}>
+      <h3 style={sectionHeadingStyle}>{"\u{1F4C5}"} RUG-TO-RICHES TIMELINE</h3>
+      <TimelineGroup label="Rug-to-riches timeline" events={TIMELINE_EVENTS} group="apes" expanded={expanded} setExpanded={setExpanded} />
+      {FAMILY_EVENTS.length > 0 && (
+        <>
+          <h4 style={{ ...sectionHeadingStyle, fontSize: 9, marginTop: 28, marginBottom: 16 }}>FAMILY CONTRACTS, BY DEPLOY DATE</h4>
+          <TimelineGroup label="Family contracts, by deploy date" events={FAMILY_EVENTS} group="family" expanded={expanded} setExpanded={setExpanded} />
+        </>
+      )}
     </div>
   );
 }
