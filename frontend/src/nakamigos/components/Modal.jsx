@@ -6,7 +6,7 @@ import MakeOfferModal from "./MakeOfferModal";
 import ErrorBoundary from "./ErrorBoundary";
 import TransactionProgress, { useTransactionProgress } from "./TransactionProgress";
 import { Link } from "react-router-dom";
-import { OPENSEA_ITEM, ETHERSCAN_TOKEN, CHARACTER_TYPES, GNSS_SPECIES, JB_LEGENDARIES, NFT_LOAN_DESK_LIVE, rankTier, PLATFORM_FEE_BPS } from "../constants";
+import { OPENSEA_ITEM, ETHERSCAN_TOKEN, CHARACTER_TYPES, GNSS_SPECIES, JB_LEGENDARIES, loanDeskAccepts, rankTier, PLATFORM_FEE_BPS } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useTradingMode } from "../contexts/TradingModeContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
@@ -578,9 +578,9 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
             </button>
           )}
 
-          {/* NFT Finance funnel — owner-only, and credibility-gated until the
-              relaunch TegridyNFTLending address lands in lib/constants.ts */}
-          {NFT_LOAN_DESK_LIVE && wallet && nft?.owner && wallet.toLowerCase() === nft.owner.toLowerCase() && (
+          {/* NFT Finance funnel: owner-only, and only for a collection the
+              deployed TegridyNFTLending accepts (loanDeskAccepts). */}
+          {loanDeskAccepts(collection) && wallet && nft?.owner && wallet.toLowerCase() === nft.owner.toLowerCase() && (
             <Link
               to="/nft-finance"
               aria-label="Borrow ETH against this NFT in NFT Finance"

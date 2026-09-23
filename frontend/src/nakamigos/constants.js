@@ -330,6 +330,20 @@ export const COLLECTIONS = {
 
 export const DEFAULT_COLLECTION = "nakamigos";
 
+// The collections TegridyNFTLending accepts: its constructor whitelists these
+// three and reverts CollectionNotWhitelisted for any other contract, so a loan
+// link is shown only for them (loanDeskScope.test.jsx pins the .sol list).
+export const NFT_LOAN_DESK_CONTRACTS = new Set(
+  [COLLECTIONS.junglebay, COLLECTIONS.nakamigos, COLLECTIONS.gnssart].map((c) => c.contract.toLowerCase()),
+);
+
+/** True when a loan against this collection can be taken today. */
+export function loanDeskAccepts(collection) {
+  return NFT_LOAN_DESK_LIVE
+    && typeof collection?.contract === "string"
+    && NFT_LOAN_DESK_CONTRACTS.has(collection.contract.toLowerCase());
+}
+
 // Every routable tab. App.jsx parseRoute() 404s anything not in this list, so
 // a tab that ships in any nav but not here is unreachable in production —
 // navRouting.test.jsx enforces nav ⊆ VALID_TABS against this single source.
