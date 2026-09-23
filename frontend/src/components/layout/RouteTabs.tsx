@@ -54,6 +54,24 @@ export interface RouteTabsProps {
   onSelect: (to: string) => void;
 }
 
+/**
+ * A tab's label. With a `compactTabLabel`, phones and iPads see that instead,
+ * aria-hidden, while the full label stays the accessible name (sr-only there;
+ * the tab is `relative` so the sr-only box stays inside it).
+ */
+function TabLabel({ item }: { item: NavItem }) {
+  const label = item.tabLabel ?? item.label;
+  if (!item.compactTabLabel) return <span>{label}</span>;
+  return (
+    <>
+      <span className="handheld:sr-only">{label}</span>
+      <span aria-hidden="true" className="hidden handheld:inline">
+        {item.compactTabLabel}
+      </span>
+    </>
+  );
+}
+
 export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: RouteTabsProps) {
   const keys = items.map((i) => i.to);
   const tabKeys = useTabListKeys(keys, active, onSelect);
@@ -92,6 +110,7 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
               tabIndex={tabKeys.tabIndex(item.to)}
               ref={tabKeys.ref(item.to)}
               onClick={() => onSelect(item.to)}
+              title={item.compactTabLabel ? (item.tabLabel ?? item.label) : undefined}
               /* F402: min-w + the row's overflow-x-auto lets long strips scroll
                  on narrow phones instead of clipping, while flex-1 keeps the
                  equal-width look once there is room. */
@@ -112,14 +131,14 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
                  40px. Measured live across nine hosts at 799px before the fix.
                  e2e/tab-target-size.spec.ts only ever swept 390px, which is why
                  nothing caught it. */
-              className="flex-1 min-w-[64px] px-2 md:px-3 py-2 min-h-[44px] min-[800px]:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
+              className="relative flex-1 min-w-[64px] px-2 md:px-3 py-2 min-h-[44px] min-[800px]:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
               style={
                 active === item.to
                   ? { background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }
                   : undefined
               }
             >
-              <span>{item.tabLabel ?? item.label}</span>
+              <TabLabel item={item} />
               {item.soon && (
                 <span className="rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30 text-[8.5px] font-semibold leading-none px-1 py-0.5 uppercase tracking-wide">
                   Soon
