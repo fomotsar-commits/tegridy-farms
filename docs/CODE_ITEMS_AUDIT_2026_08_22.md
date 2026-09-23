@@ -49,11 +49,11 @@ Total: **18 items, ~128.5 agent-hours.**
 
 **Evidence.** `gh pr view 278 --json state,closedAt` -> {"state":"CLOSED","closedAt":"2026-08-22T20:17:19Z"}. Corroborated by docs/TODO_OPERATOR.md:554-558. The plan line is already `- [x]` and its supersession reasoning checks out: trunk's gate is 657c5170 (#286) and `assertMayLaunch` is wired into both rails.
 
-**Risk.** The line is Q1-scoped and will be archived. The durable fact inside it — that the 180-day floor is now a config knob (`VITE_HEAT_LAUNCH_FLOOR`), not a code change — lives only in this bullet and in TODO_OPERATOR item 2. If both get archived the next person who wants a held-time floor will re-open #278's approach from scratch.
+**Risk.** The line is Q1-scoped and will be archived. The durable fact inside it, that no day-count floor exists and `VITE_HEAT_LAUNCH_FLOOR` is a floor in degrees (unset means `LAUNCH_FLOOR`, 80°, Resident), lives only in this bullet and in TODO_OPERATOR item 2. If both get archived the next person who wants a held-time floor will re-open #278's approach from scratch.
 
 **How to do it.**
 
-Nothing to build. Leave the `[x]` exactly as it is — do NOT re-verify by reopening the PR. One optional 5-minute edit: move the sentence "if the floor is wanted it is a config change (`VITE_HEAT_LAUNCH_FLOOR`), not a re-merge" out of this plan bullet and into the heat/launch-gate docs beside `frontend/src/lib/heat/launchGate.ts`, so it survives the Q1 archive. Verify with `gh pr view 278 --json state` (expect CLOSED) and `grep -rn VITE_HEAT_LAUNCH_FLOOR frontend/src`.
+Nothing to build. Leave the `[x]` exactly as it is — do NOT re-verify by reopening the PR. One optional 5-minute edit: move the sentence "`VITE_HEAT_LAUNCH_FLOOR` is a floor in degrees, never a day count" out of this plan bullet and into the heat/launch-gate docs beside `frontend/src/lib/heat/launchGate.ts`, so it survives the Q1 archive. Verify with `gh pr view 278 --json state` (expect CLOSED) and `grep -rn VITE_HEAT_LAUNCH_FLOOR frontend/src`.
 
 ## Line 74 — Commit Supabase base schema (5 of 10 live tables unbuildable from repo) + restore script; verify backups capture data
 

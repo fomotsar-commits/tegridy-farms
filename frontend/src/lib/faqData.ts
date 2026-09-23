@@ -1,4 +1,5 @@
 import { BUNGALOWS } from './bungalows';
+import { VENUE } from './arrival';
 
 export interface FAQItem {
   q: string;
@@ -11,22 +12,10 @@ export interface FAQSection {
 }
 
 /**
- * WAVE SEVEN, ruling 2 (row Q): THE FAQ SPEAKS AS THE VENUE.
- *
- * The island's reference copy (answer seven, section 2), re-authored only where
- * the venue's own facts are more exact:
- *   - the opener names the four chains, because the network answer below does
- *     and trustCopyHonesty.test.ts holds the two together;
- *   - the launch answer says what the DOOR does. The gate is advisory
- *     (lib/heat/launchGate.ts): a launcher can call the contracts directly, so
- *     this never says the floor is enforced, only that the door broadcasts
- *     nothing before the read;
- *   - the network answer is the old one with its dash parenthetical made a
- *     sentence, because answers are on the page now and element I reads them.
- *
- * Built per call, never at module load: the floor is read per render
- * (heatGateConfig.ts says why), and the bungalow count is the registry's,
- * never typed.
+ * The FAQ in the venue's voice: the island's reference copy (answer seven), re-authored
+ * only where the venue's facts are more exact, with heat in the island's own sentences.
+ * The launch answer never says the floor is enforced: the gate is advisory, and a
+ * launcher can call the contracts directly. Built per call: the floor is read per render.
  */
 export function venueFaq(floor: number): FAQSection[] {
   return [
@@ -52,7 +41,7 @@ export function venueFaq(floor: number): FAQSection[] {
       items: [
         {
           q: 'What is Heat?',
-          a: 'Held time, measured by the island per wallet and per token: how much of a token you have held and for how long, as a share of its supply. Price never enters it. It started counting at your first buy.',
+          a: `${VENUE.heatPlain} ${VENUE.heatDays} Price never enters it.`,
         },
         {
           q: 'Can Heat be bought?',
@@ -80,14 +69,9 @@ export function venueFaq(floor: number): FAQSection[] {
   ];
 }
 
-/**
- * THE TOWELI ROOM'S OWN FAQ. Every answer that describes one resident's
- * protocol, moved here word for word from /faq, which used to speak them as the
- * venue. The TOWELI room renders this list (HomePage's room FAQ); /faq does not.
- *
- * Guards that read these words by path moved with them: ethYieldClaims.test.ts
- * (the Gold Card line) and revenueClaimHonesty.test.ts (the timelock answer).
- */
+/** The TOWELI room's own FAQ: answers about one resident's protocol, rendered by the room
+ *  (HomePage), never by /faq. ethYieldClaims.test.ts and revenueClaimHonesty.test.ts read
+ *  these words by path. */
 export const TOWELI_FAQ_DATA: FAQSection[] = [
   {
     category: 'Getting Started',

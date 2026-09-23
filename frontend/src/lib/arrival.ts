@@ -43,6 +43,12 @@ export function heatExampleLine(floor: number, tier: HeatTier | null): string {
     : `The launch door opens at ${floor} degrees.`;
 }
 
+// The island paragraph's first two sentences: VENUE.heatPlain, and heatParagraph's opening.
+const HEAT_OPENING =
+  'Heat counts your warm days: every day you hold, weighted by size and by the coin. ' +
+  'Your deepest room sets your heat; every other room adds half as much as the one ' +
+  'before it, so breadth amplifies depth and never replaces it.';
+
 export const VENUE = {
   /** Brand wordmark halves (nav, footer, loader formation). */
   markMain: 'MEMETICS',
@@ -65,12 +71,13 @@ export const VENUE = {
   /** Under the instrument, and in llms.txt: one source, so the two cannot disagree. */
   heatPerWallet:
     "Held time is measured per wallet. A bag moved to a new wallet starts that wallet's clock at the move.",
-  /** The island's own sentences, verbatim: the hero, llms.txt and the Maths fold quote
-   *  them, and islandClaims.test.ts pins them word for word. Sentences, never a formula. */
-  heatPlain:
-    'Heat counts the days you have held each token. It is read per token and ' +
-    'added together across everything you hold. Size can raise what a day is ' +
-    'worth, it cannot buy a day, and price never enters it.',
+  /** The island's sentences, verbatim: the hero and llms.txt carry the first two, the
+   *  Maths fold the whole paragraph; islandClaims.test.ts pins them. Never a formula. */
+  heatPlain: HEAT_OPENING,
+  heatParagraph:
+    `${HEAT_OPENING} Degrees are the temperature of that count: one real position held ` +
+    'half a year reads 80°, Resident. Each degree after that takes longer than the last. ' +
+    'Size can raise what a day is worth, it cannot buy a day, and price never enters it.',
   heatDays: 'Your clock on a token starts at your first hold.',
   heatSize:
     'A real position earns a full day. The largest holders earn up to two. Dust earns nothing.',

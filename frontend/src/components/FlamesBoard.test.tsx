@@ -52,6 +52,14 @@ describe('the board renders the island’s ranking', () => {
     expect(text).toContain('18 tokens');
   });
 
+  it('prints each flame by its served tier, even where the bands would name another', async () => {
+    // 524.27° is past the Elder band (250); the island served Builder, so the row says Builder.
+    render(<FlamesBoard limit={5} />);
+    await screen.findByRole('link', { name: '@_seacasa' });
+    expect(screen.getAllByText('Builder')).toHaveLength(1);
+    expect(screen.getAllByText('Elder')).toHaveLength(1);
+  });
+
   it('links a named flame to its profile, with one @', async () => {
     render(<FlamesBoard limit={5} />);
     const link = await screen.findByRole('link', { name: '@_seacasa' });

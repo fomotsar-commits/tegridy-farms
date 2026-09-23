@@ -9,7 +9,7 @@ page keeps the newest thirty days.
 ### 2026-09-22
 
 - Staking cards say how the island reads a locked bag.
-- Tier bands and the launch floor read the island's current values.
+- The heat explainer reads the island's sentences.
 - Bungalow links open once, on the room's hero.
 
 ### 2026-09-21
