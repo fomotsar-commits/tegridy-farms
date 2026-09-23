@@ -4,7 +4,7 @@ import { COLLECTIONS, COLLECTION_LORE } from "../constants";
 import { fetchCollectionStats, fetchTokens } from "../api";
 import { formatPrice } from "../lib/formatPrice";
 import { formatMarketAmount } from "../lib/marketAmount";
-import { canTradeOnVenue, VENUE_COLLECTIONS, chainLabel, supplyLabel } from "../lib/venue";
+import { canTradeOnVenue, VENUE_COLLECTIONS, chainLabel, descriptionSourceTag, supplyLabel } from "../lib/venue";
 import { fetchExternalStats } from "../lib/externalMarket";
 
 const COLLECTION_LIST = Object.values(COLLECTIONS);
@@ -668,6 +668,12 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
         }}>
           {collection.description}
         </div>
+        {/* A collection's own words name their source, so they never read as the venue's. */}
+        {collection.description && descriptionSourceTag(collection) && (
+          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.04em", margin: "0 0 8px" }}>
+            {descriptionSourceTag(collection).charAt(0).toUpperCase() + descriptionSourceTag(collection).slice(1)}
+          </div>
+        )}
 
         {/* Creator */}
         {COLLECTION_LORE[collection.slug]?.creator?.name && (
