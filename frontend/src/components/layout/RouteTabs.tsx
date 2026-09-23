@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import type { NavItem } from '../../lib/navConfig';
 import { tabDomId } from './routeTabId';
-import { revealScrollLeft } from './tabStripScroll';
+import { STRIP_CHEVRON_PX, revealScrollLeft, stripFade, stripFadeMask } from './tabStripScroll';
 
 /**
  * The sticky pill tab strip shared by every route-navigating tabbed host.
@@ -74,6 +74,26 @@ function TabLabel({ item }: { item: NavItem }) {
   );
 }
 
+/** The chevron at an edge of the strip with tabs hidden past it, in the fade's clear band. */
+function EdgeChevron({ side }: { side: 'start' | 'end' }) {
+  return (
+    <span
+      data-more={side}
+      aria-hidden="true"
+      style={{ width: STRIP_CHEVRON_PX }}
+      className={
+        side === 'start'
+          ? 'pointer-events-none absolute inset-y-0 left-0 hidden items-center justify-center text-white/70 group-data-[more-start=true]/strip:flex'
+          : 'pointer-events-none absolute inset-y-0 right-0 hidden items-center justify-center text-white/70 group-data-[more-end=true]/strip:flex'
+      }
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d={side === 'start' ? 'M10 3L5 8l5 5' : 'M6 3l5 5-5 5'} />
+      </svg>
+    </span>
+  );
+}
+
 export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: RouteTabsProps) {
   const keys = items.map((i) => i.to);
   const tabKeys = useTabListKeys(keys, active, onSelect);
@@ -86,20 +106,42 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
   useLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return;
+    /* An edge with tabs hidden past it fades and shows a chevron, so a strip
+       that scrolls reads as one at every width, not only where a tab happens to
+       be cut. Set on the elements, not in state: it follows every scroll
+       without a render. */
+    const frame = list.parentElement;
+    const fade = () => {
+      const edges = stripFade(list);
+      const mask = stripFadeMask(edges);
+      for (const prop of ['mask-image', '-webkit-mask-image']) {
+        if (mask) list.style.setProperty(prop, mask);
+        else list.style.removeProperty(prop);
+      }
+      if (frame) {
+        frame.dataset.moreStart = String(edges.start);
+        frame.dataset.moreEnd = String(edges.end);
+      }
+    };
     const reveal = () => {
       const tab = list.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
-      if (!tab) return;
-      const box = tab.getBoundingClientRect();
-      const start = box.left - list.getBoundingClientRect().left - list.clientLeft + list.scrollLeft;
-      const next = revealScrollLeft({ start, end: start + box.width }, list);
-      if (Math.abs(next - list.scrollLeft) > 0.5) list.scrollLeft = next;
+      if (tab) {
+        const box = tab.getBoundingClientRect();
+        const start = box.left - list.getBoundingClientRect().left - list.clientLeft + list.scrollLeft;
+        const next = revealScrollLeft({ start, end: start + box.width }, list);
+        if (Math.abs(next - list.scrollLeft) > 0.5) list.scrollLeft = next;
+      }
+      fade();
     };
     reveal();
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(reveal);
-    ro.observe(list);
-    for (const tab of list.children) ro.observe(tab);
-    return () => ro.disconnect();
+    list.addEventListener('scroll', fade, { passive: true });
+    const ro = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(reveal);
+    ro?.observe(list);
+    for (const tab of list.children) ro?.observe(tab);
+    return () => {
+      ro?.disconnect();
+      list.removeEventListener('scroll', fade);
+    };
   }, [active, keyList]);
 
   return (
@@ -108,15 +150,11 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
       style={{ top: 'calc(56px + var(--room-band-h, 0px))' }}
     >
       <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
+        {/* The frame holds the strip's look, so the tablist's edge fade dims
+            tabs and never the frame's border or shadow, and the chevrons sit
+            over the fade without scrolling. */}
         <div
-          ref={listRef}
-          role="tablist"
-          aria-label={ariaLabel}
-          onKeyDown={tabKeys.onKeyDown}
-          /* overflow-x-auto is load-bearing, not defensive: the Trust & Safety
-             strip is seven tabs wide and must scroll on a 390px phone rather
-             than clip its last two. */
-          className="flex gap-1 md:gap-1.5 p-1 rounded-2xl overflow-x-auto no-scrollbar"
+          className="group/strip relative rounded-2xl overflow-hidden"
           style={{
             // F509: 0.92 (not 0.72) so headings and footer links underneath stop
             // ghosting through the translucent bar. Matches BottomNav's ~0.95.
@@ -127,60 +165,73 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
             boxShadow: '0 6px 24px rgba(0,0,0,0.45)',
           }}
         >
-          {items.map((item) => (
-            <button
-              key={item.to}
-              role="tab"
-              id={tabDomId(idPrefix, item.to)}
-              aria-selected={active === item.to}
-              aria-controls={`${idPrefix}-panel`}
-              tabIndex={tabKeys.tabIndex(item.to)}
-              ref={tabKeys.ref(item.to)}
-              onClick={() => onSelect(item.to)}
-              /* WIDTH: each tab starts at 64px (the floor) and takes an equal
-                 share of spare room, wider only where its label needs it. It
-                 never shrinks below label plus padding (min-w-max, shrink 0), so
-                 no label paints over the next tab; a strip too wide scrolls
-                 sideways instead. Padding only sets that minimum, and md:px-1
-                 keeps the 13.5px labels inside an iPad strip's equal share. */
-              /* 44px ON TOUCH (A11Y-R07's floor), 40px on desktop. The three
-                 hosts this markup was extracted from all shipped a flat 40px —
-                 about 4px under the repo's own touch floor for the primary way
-                 to move between a page's sections, which is the exact defect
-                 e2e/tab-target-size.spec.ts was written for on /community and
-                 /nft-finance. Desktop keeps the tighter 40px: the floor is a
-                 finger, not a cursor.
+          <div
+            ref={listRef}
+            role="tablist"
+            aria-label={ariaLabel}
+            onKeyDown={tabKeys.onKeyDown}
+            /* overflow-x-auto is load-bearing, not defensive: the Trust & Safety
+               strip is seven tabs wide and must scroll on a 390px phone rather
+               than clip its last two. */
+            className="flex gap-1 md:gap-1.5 p-1 overflow-x-auto no-scrollbar"
+          >
+            {items.map((item) => (
+              <button
+                key={item.to}
+                role="tab"
+                id={tabDomId(idPrefix, item.to)}
+                aria-selected={active === item.to}
+                aria-controls={`${idPrefix}-panel`}
+                tabIndex={tabKeys.tabIndex(item.to)}
+                ref={tabKeys.ref(item.to)}
+                onClick={() => onSelect(item.to)}
+                /* WIDTH: each tab starts at 64px (the floor) and takes an equal
+                   share of spare room, wider only where its label needs it. It
+                   never shrinks below label plus padding (min-w-max, shrink 0), so
+                   no label paints over the next tab; a strip too wide scrolls
+                   sideways instead. Padding only sets that minimum, and md:px-1
+                   keeps the 13.5px labels inside an iPad strip's equal share. */
+                /* 44px ON TOUCH (A11Y-R07's floor), 40px on desktop. The three
+                   hosts this markup was extracted from all shipped a flat 40px —
+                   about 4px under the repo's own touch floor for the primary way
+                   to move between a page's sections, which is the exact defect
+                   e2e/tab-target-size.spec.ts was written for on /community and
+                   /nft-finance. Desktop keeps the tighter 40px: the floor is a
+                   finger, not a cursor.
 
-                 ⚠️ THE BREAKPOINT IS 800, NOT `md` (768), CORRECTED 2026-09-05.
-                 "Desktop" in this app means >=800px — that is where BottomNav
-                 hides and the TopNav row appears, and the seven coupled sites
-                 that define it are listed in TopNav.tsx. Keying the touch floor
-                 to `md` opened a 32px window, 768-799, where the app still
-                 renders its TOUCH chrome (BottomNav) while these tabs shrank to
-                 40px. Measured live across nine hosts at 799px before the fix.
-                 e2e/tab-target-size.spec.ts only ever swept 390px, which is why
-                 nothing caught it. */
-              className="relative flex-[1_0_64px] min-w-max px-2 md:px-1 py-2 min-h-[44px] min-[800px]:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
-              style={
-                active === item.to
-                  ? { background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }
-                  : undefined
-              }
-            >
-              <TabLabel item={item} />
-              {item.soon && (
-                <span className="rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30 text-[8.5px] font-semibold leading-none px-1 py-0.5 uppercase tracking-wide">
-                  Soon
-                </span>
-              )}
-              {item.live && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 text-[8.5px] font-semibold leading-none px-1 py-0.5 uppercase tracking-wide">
-                  <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
-                  Live
-                </span>
-              )}
-            </button>
-          ))}
+                   ⚠️ THE BREAKPOINT IS 800, NOT `md` (768), CORRECTED 2026-09-05.
+                   "Desktop" in this app means >=800px — that is where BottomNav
+                   hides and the TopNav row appears, and the seven coupled sites
+                   that define it are listed in TopNav.tsx. Keying the touch floor
+                   to `md` opened a 32px window, 768-799, where the app still
+                   renders its TOUCH chrome (BottomNav) while these tabs shrank to
+                   40px. Measured live across nine hosts at 799px before the fix.
+                   e2e/tab-target-size.spec.ts only ever swept 390px, which is why
+                   nothing caught it. */
+                className="relative flex-[1_0_64px] min-w-max px-2 md:px-1 py-2 min-h-[44px] min-[800px]:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
+                style={
+                  active === item.to
+                    ? { background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }
+                    : undefined
+                }
+              >
+                <TabLabel item={item} />
+                {item.soon && (
+                  <span className="rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30 text-[8.5px] font-semibold leading-none px-1 py-0.5 uppercase tracking-wide">
+                    Soon
+                  </span>
+                )}
+                {item.live && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 text-[8.5px] font-semibold leading-none px-1 py-0.5 uppercase tracking-wide">
+                    <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
+                    Live
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <EdgeChevron side="start" />
+          <EdgeChevron side="end" />
         </div>
       </div>
     </div>
