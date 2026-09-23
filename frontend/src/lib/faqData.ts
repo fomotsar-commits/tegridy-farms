@@ -1,4 +1,5 @@
 import { BUNGALOWS } from './bungalows';
+import { VENUE } from './arrival';
 
 export interface FAQItem {
   q: string;
@@ -52,7 +53,7 @@ export function venueFaq(floor: number): FAQSection[] {
       items: [
         {
           q: 'What is Heat?',
-          a: 'Held time, measured by the island per wallet and per token: how much of a token you have held and for how long, as a share of its supply. Price never enters it. It started counting at your first buy.',
+          a: `${VENUE.heatPlain} ${VENUE.heatDays} Price never enters it.`,
         },
         {
           q: 'Can Heat be bought?',
