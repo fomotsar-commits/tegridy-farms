@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from '@playwright/test';
+import { test, expect, type Page, type Route, type Locator } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -193,5 +193,110 @@ test.describe('the Jungle Bay family on the marketplace', () => {
       await expect(page.getByRole('heading', { level: 3, name: c.name, exact: true })).toBeVisible();
     }
     await expectNoSidewaysScroll(page);
+  });
+});
+
+// THE ITEM PANELS, WHERE A THUMB HAS TO REACH THE CLOSE BUTTON.
+//
+// On a phone the picture side of an item panel is capped in height. A picture
+// taller than the cap used to paint over the panel's own heading and close
+// button, so a tap on the X landed on the picture. Each case asks the browser
+// which element sits at the centre of the close button and of the title.
+// Pictures are answered with a fixed square PNG, so the layout does not depend
+// on a CDN.
+
+const SQUARE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+async function stubPictures(page: Page) {
+  await page.route((url) => url.hostname !== 'localhost', async (route) => {
+    if (route.request().resourceType() !== 'image') return route.fallback();
+    return route.fulfill({ status: 200, contentType: 'image/png', body: SQUARE_PNG });
+  });
+}
+
+/** What a tap at the element's own centre lands on. */
+async function atCentre(el: Locator) {
+  return el.evaluate((node) => {
+    const r = node.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return {
+      onTop: !!hit && (hit === node || node.contains(hit)),
+      hit: hit ? `${hit.tagName.toLowerCase()}.${String(hit.className)}` : null,
+      width: Math.round(r.width),
+    };
+  });
+}
+
+async function expectReachable(el: Locator, what: string) {
+  await expect(async () => {
+    const r = await atCentre(el);
+    expect(r.onTop, `${what}: a tap at its centre lands on ${r.hit}`).toBe(true);
+  }).toPass({ timeout: 5_000 });
+}
+
+interface PanelCase {
+  label: string;
+  path: string;
+  /** Opens the panel once the page is up; a deep link needs nothing. */
+  open?: (page: Page) => Promise<void>;
+}
+
+const PANELS: PanelCase[] = [
+  { label: 'Bojungles #5', path: '/nakamigos/bojungles/nft/5' },
+  { label: 'RARE TOWELIE CARDS #1', path: '/nakamigos/raretowelie/nft/1' },
+  // A token held by the burn address: no picture, the "Image unavailable" tile.
+  { label: 'Seeds #88', path: '/nakamigos/memeticseeds/nft/88' },
+  {
+    label: 'the first listed Junglet',
+    path: '/nakamigos/junglets',
+    open: async (page) => { await page.locator('.ext-card').first().click({ timeout: 20_000 }); },
+  },
+];
+
+for (const width of [390, 430]) {
+  test.describe(`item panels on a ${width} px phone`, () => {
+    test.use({ viewport: { width, height: 844 } });
+
+    for (const c of PANELS) {
+      test(`${c.label}: the close button and the title are not under the picture`, async ({ page }) => {
+        await stubPictures(page);
+        await openCollection(page, c.path);
+        if (c.open) await c.open(page);
+        const panel = page.locator('.ext-panel');
+        await expect(panel).toBeVisible({ timeout: 20_000 });
+        await expect(panel.locator('.modal-image-side img, .modal-image-side .ext-image-missing')).toBeVisible();
+        await expectReachable(panel.getByRole('button', { name: 'Close' }), 'the close button');
+        await expectReachable(panel.locator('.ext-panel-title'), 'the title');
+        await expectNoSidewaysScroll(page);
+      });
+    }
+
+    test('a Gold Card in the trading modal: the close button and the title are not under the picture', async ({ page }) => {
+      await stubPictures(page);
+      await openCollection(page, '/nakamigos/junglebaygoldcards/nft/1');
+      const dialog = page.getByRole('dialog', { name: /NFT Detail/ });
+      await expect(dialog).toBeVisible({ timeout: 20_000 });
+      await expectReachable(dialog.getByRole('button', { name: 'Close modal' }), 'the close button');
+      await expectReachable(dialog.locator('.modal-details h2').first(), 'the title');
+      await expectNoSidewaysScroll(page);
+    });
+  });
+}
+
+test.describe('the item panel on a tablet', () => {
+  test.use({ viewport: { width: 1024, height: 768 } });
+
+  test('a long item name does not squeeze the close button below its tap size', async ({ page }) => {
+    await stubPictures(page);
+    await openCollection(page, '/nakamigos/raretowelie/nft/1');
+    const panel = page.locator('.ext-panel');
+    await expect(panel.locator('.ext-panel-title')).toHaveText(/CHAMPS NEVER FORGET TO BRING A TOWEL/, { timeout: 20_000 });
+    const close = panel.getByRole('button', { name: 'Close' });
+    const { width } = await atCentre(close);
+    expect(width, 'close button width').toBeGreaterThanOrEqual(36);
+    await expectReachable(close, 'the close button');
   });
 });
