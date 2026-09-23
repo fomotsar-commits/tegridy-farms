@@ -142,10 +142,12 @@ export const COLLECTIONS = {
     metadataBase: null, // every token shares one S3 image; there are no per-id PNGs
     deterministicImage: false,
     image: "https://i2c.seadn.io/ethereum/a83577bfb307408682cd44520d1c00d4/899e287b319c9faf45c57e2626c8a1/21899e287b319c9faf45c57e2626c8a1.png",
-    // The first paragraph of its OpenSea description only. The rest lists holder
-    // benefits, one of them a 1.5x $JBAC multiplier the venue's staking does not honour.
+    // The first paragraph of its OpenSea description only, and every label says
+    // so (descriptionExcerpt). The rest lists holder benefits, one of them a
+    // 1.5x $JBAC multiplier the venue's staking does not honour.
     description: "Gold Cards began as representation of those who invested in JungleBay when the project first emerged from the ashes of a rug. They are now held by the people who believe in the ethos of JungleBay and want to participate to the development of JungleBay island, as well as the governance of its ecosystem.",
     descriptionSource: "opensea",
+    descriptionExcerpt: "first-paragraph",
     tags: ["ERC-721", "ETHEREUM", "JUNGLE BAY"],
     pixelated: false,
     highlights: [],

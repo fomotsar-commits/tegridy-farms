@@ -5,7 +5,7 @@ import {
 import SpeciesEncyclopedia from "./SpeciesEncyclopedia";
 import JungleBayShowcase from "./JungleBayShowcase";
 import { SHORTCUTS_FLAT } from "../lib/shortcuts";
-import { chainLabel, explorerAddressUrl } from "../lib/venue";
+import { chainLabel, descriptionSourceLabel, explorerAddressUrl } from "../lib/venue";
 import { formatPrice } from "../lib/formatPrice";
 
 function formatVol(n) {
@@ -171,11 +171,11 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
             </>
           )}
           {!isNakamigos && !isGnssArt && !isJungleBay && collection.description && (
-            collection.descriptionSource === "opensea" ? (
+            descriptionSourceLabel(collection) ? (
               // The collection's own words, labelled as such: not a venue claim.
               <figure style={{ margin: 0 }}>
                 <figcaption style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.04em", marginBottom: 6 }}>
-                  Description from the collection&apos;s OpenSea page
+                  {descriptionSourceLabel(collection)}
                 </figcaption>
                 <blockquote style={{ margin: 0, whiteSpace: "pre-line" }}>{collection.description}</blockquote>
               </figure>

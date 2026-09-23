@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import NftImage from "./NftImage";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { COLLECTION_LORE } from "../constants";
+import { descriptionSourceTag } from "../lib/venue";
 import Usd from "./Usd";
 
 function HeroShowcase({ tokens, onPick }) {
@@ -146,8 +147,8 @@ export default function Hero({ stats, tokens, onPick }) {
           {collection.description && (
             <p className="hero-desc">
               {collection.description}
-              {collection.descriptionSource === "opensea" && (
-                <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}> (from the collection&apos;s OpenSea page)</span>
+              {descriptionSourceTag(collection) && (
+                <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}> ({descriptionSourceTag(collection)})</span>
               )}
             </p>
           )}

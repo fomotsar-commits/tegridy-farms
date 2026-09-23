@@ -133,14 +133,34 @@ export function explorerAddressUrl(collection) {
 }
 
 // Where a collection's own description was read, so its words are never
-// taken for the venue's. null for the venue's own copy.
+// taken for the venue's, and whether it is an excerpt. A caption, and a short
+// tag for tight spaces; both null for the venue's own copy.
 const DESCRIPTION_SOURCES = {
-  opensea: "Description from the collection's OpenSea page",
-  metadata: "Description from the collection NFT's metadata (IPFS, linked on chain)",
+  opensea: {
+    label: "Description from the collection's OpenSea page",
+    tag: "from its OpenSea page",
+    "first-paragraph": { label: "First paragraph of the collection's OpenSea description", tag: "first paragraph of its OpenSea description" },
+  },
+  metadata: {
+    label: "Description from the collection NFT's metadata (IPFS, linked on chain)",
+    tag: "from its NFT metadata",
+  },
 };
 
+function descriptionSource(collection) {
+  const source = DESCRIPTION_SOURCES[collection?.descriptionSource];
+  if (!source) return null;
+  const excerpt = collection.descriptionExcerpt;
+  return excerpt ? source[excerpt] || null : source;
+}
+
 export function descriptionSourceLabel(collection) {
-  return DESCRIPTION_SOURCES[collection?.descriptionSource] || null;
+  return descriptionSource(collection)?.label || null;
+}
+
+/** Lower case, for "(first paragraph of its OpenSea description)" or a card's tag. */
+export function descriptionSourceTag(collection) {
+  return descriptionSource(collection)?.tag || null;
 }
 
 const CHAIN_LABELS = { ethereum: "Ethereum", base: "Base", solana: "Solana" };
