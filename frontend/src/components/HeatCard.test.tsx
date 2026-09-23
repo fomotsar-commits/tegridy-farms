@@ -951,7 +951,7 @@ describe('the maths fold carries the island paragraph, never a formula', () => {
     const text = container.textContent ?? '';
     expect(text).toContain(PARAGRAPH);
     expect(text).not.toMatch(
-      /heat\s*=|degrees\s*=|weight\s*×|√|TWAB|time-weighted|average is taken|whole held time|the formula|added together|read per token|balance at every|balance held across|not a snapshot/i,
+      /heat\s*=|degrees\s*=|weight\s*×|√|∝|÷|TWAB|time[\s\u00ad\u2010-\u2015-]*weighted|average is taken|whole held time|the formula|added together|read per token|balance at every|balance held across|not a snapshot/i,
     );
     expect(text).toMatch(/The instrument is continuous, zero-anchored/);
   });

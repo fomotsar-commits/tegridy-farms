@@ -140,8 +140,9 @@ describe('the launch floor is the island word', () => {
   });
 });
 
-// Shipped source: src and api (tests excluded), public's text files, index.html and
-// middleware.js. userText() is what a file can put in front of a reader: a script's
+// Shipped source: src and api (tests excluded), public's text files, index.html,
+// middleware.js, vercel.json and the build scripts that write text into dist.
+// userText() is what a file can put in front of a reader: a script's
 // string literals, template text and JSX text read from the TypeScript AST (so no
 // comment, and no `/*` inside a string, hides or adds anything), one per line with its
 // whitespace collapsed; any other file whole, minus HTML comments. Entities are decoded.
@@ -159,7 +160,8 @@ function shipped(): string[] {
       } else if (TEXT.test(e.name) && !/\.test\./.test(e.name)) files.push(p);
     }
   }
-  return [...files, join(ROOT, 'index.html'), join(ROOT, 'middleware.js')];
+  const single = ['index.html', 'middleware.js', 'vercel.json', 'scripts/render-bungalow-doors.mjs', 'scripts/llms-txt.mjs'];
+  return [...files, ...single.map((f) => join(ROOT, f))];
 }
 
 const SCRIPT: Record<string, ts.ScriptKind> = {
@@ -170,7 +172,7 @@ const SCRIPT: Record<string, ts.ScriptKind> = {
   '.mjs': ts.ScriptKind.JS,
   '.cjs': ts.ScriptKind.JS,
 };
-const NAMED: Record<string, string> = { times: '×', middot: '·', sdot: '⋅', minus: '−', nbsp: ' ', amp: '&', apos: "'", quot: '"', deg: '°' };
+const NAMED: Record<string, string> = { times: '×', middot: '·', sdot: '⋅', minus: '−', nbsp: ' ', amp: '&', apos: "'", quot: '"', deg: '°', radic: '√', divide: '÷' };
 function decode(s: string): string {
   return s.replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (m, e: string) => {
     if (e[0] !== '#') return NAMED[e] ?? m;
@@ -230,11 +232,23 @@ describe('the guards below read what a reader is shown', () => {
   });
 });
 
-// The venue reads heat and never computes it, so it carries sentences, never a
-// formula. An `x` counts as an operator only standing alone, so `?heat=0x…` is not one,
-// and Σ only beside heat or rooms, so the scanner's HHI hint `Σ(share²)` is not one.
-const FORMULA =
-  /(?:\b|_)heat\s*=\s*(?:Σ|\w+(?:\s*[×·⋅*]|\s+x\s))|Σ\s*(?:rooms?|tokens?|degrees)|weight\s*[×·⋅*]\s*\(|days held\s*[×·⋅*]\s*rate|1\s*[−-]\s*e\s*\^|\bdeg(?:rees)?\s*=\s*\d+(?:\.\d+)?\s*(?:[×·⋅*]|x\s)|√|\bsqrt\s*\(|\bwarm days\s*=/i;
+// The venue reads heat and never computes it, so it carries sentences, never a formula:
+// a heat term on either side of `=` with an operator on the line, a `Heat:` definition
+// with one, √, ∝, sqrt or Σ beside heat or rooms. A query string (`?heat=0x…`,
+// `resource=heat`) is not one, `x` is an operator only standing alone, and `Σ(share²)`
+// passes.
+const TERM = String.raw`(?:island_heat|heat|deg(?:rees)?|warm days)`;
+const OP = String.raw`(?:[+×·⋅*÷/^√∝−]|\s[-x]\s)`;
+const FORMULA = new RegExp(
+  [
+    String.raw`(?<![?&\w])${TERM}\s*=\s*(?:Σ|[^=\n]*?${OP})`,
+    String.raw`${OP}[^=\n]{0,60}\s=\s*${TERM}\b`,
+    String.raw`\b${TERM}\s*:\s*[\w\s()]{1,40}?[×·⋅*÷/]`,
+    String.raw`Σ\s*(?:rooms?|tokens?|degrees)|weight\s*[×·⋅*]\s*\(|days held\s*[×·⋅*]\s*rate|1\s*[−-]\s*e\s*\^`,
+    String.raw`[√∝]|\bsqrt\s*\(|\bsquare root\b|\bwarm days\s*=`,
+  ].join('|'),
+  'i',
+);
 
 describe('no formula, TWAB or time-weighted in user-facing source', () => {
   it('knows the island law lines as formulas, and the island paragraph as sentences', () => {
@@ -273,8 +287,8 @@ describe('no formula, TWAB or time-weighted in user-facing source', () => {
     expect(FORMULA.test(VENUE.heatParagraph)).toBe(false);
   });
 
-  const TWAB = /\bTWAB\b/;
-  const TIME_WEIGHTED = /time[- ]weighted/i;
+  const TWAB = /\btwab\b/i;
+  const TIME_WEIGHTED = /time[\s\u00ad\u2010-\u2015-]*weighted/i;
   it('knows TWAB in any case, and time-weighted with any hyphen or space', () => {
     for (const s of ['your twab', 'a Twab', 'TWAB']) expect(TWAB.test(s), s).toBe(true);
     for (const sep of ['-', ' ', '\u00a0', '\u00ad', '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '']) {
@@ -315,12 +329,13 @@ describe('no link to memetics.wtf/island', () => {
 });
 
 // The deepest room sets the heat and every other room amplifies it, so no user-facing
-// sentence adds heat up across rooms or tokens, and `summed` is refused anywhere.
+// sentence adds heat up across rooms or tokens, or says the number comes from them, and
+// `summed` is refused anywhere. "adds to your heat" is the island's own sentence.
 describe('no heat-summing sentence in user-facing source', () => {
   const SUMMING =
     /added\s+together|\bsummed\b|\bsum across\b|\brows sum to\b|\bon your total\b|\bsum of (?:your|the|its|every) (?:rooms?|tokens?|degrees|heat)\b|\badds? up across\b/i;
   const HEAT_SUM =
-    /\b(?:heat|degrees?|warmth|flame)\b[^.\n]{0,80}\b(?:added together|summed|sums?|adds? up|combined|totall?ed)\b|\b(?:added together|summed|sums?|adds? up|combined)\b[^.\n]{0,80}\b(?:heat|degrees?|rooms?|everything you hold)\b/i;
+    /\b(?:heat|degrees?|warmth|flame)\b[^.\n]{0,80}\b(?:added together|summed|sums?|adds? up|combined|totall?ed|total of|added to)\b|\b(?:added together|summed|sums?|adds? up|combined|total of)\b[^.\n]{0,80}\b(?:heat|degrees?|rooms?|everything you hold)\b|\bwhere (?:the|your)\b[^.\n]{0,40}?\b(?:heat|degrees?)\s+comes? from\b|°\s*comes? from\b/i;
   const offenders = (re: RegExp) =>
     [...SHIPPED].flatMap(([f, text]) => {
       const m = re.exec(text);
