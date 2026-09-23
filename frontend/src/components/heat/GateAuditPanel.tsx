@@ -67,10 +67,10 @@ export function replayLine(row: GateAuditRow): string {
   }
   const d = row.degrees.toFixed(2);
   if (row.verdict === 'WARM') {
-    return `${d}° measured against a ${row.floor}° floor — clear by ${(row.degrees - row.floor).toFixed(2)}°.`;
+    return `${d}° measured against the ${row.floor}° floor, clear by ${(row.degrees - row.floor).toFixed(2)}°.`;
   }
   if (row.verdict === 'COLD') {
-    return `${d}° measured against a ${row.floor}° floor — short by ${(row.floor - row.degrees).toFixed(2)}°.`;
+    return `${d}° measured against the ${row.floor}° floor, short by ${(row.floor - row.degrees).toFixed(2)}°.`;
   }
   return `${d}° was read, but the ${row.floor}° floor was never applied: a reading that old may not pass or fail anyone.`;
 }
