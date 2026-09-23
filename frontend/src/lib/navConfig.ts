@@ -55,7 +55,7 @@ export interface NavItem {
   /**
    * Shorter still: what the tab shows on phones and iPads (the `handheld`
    * variant in index.css), for a label too wide for a phone-width tab. Visual
-   * only: RouteTabs keeps `tabLabel ?? label` as the accessible name and title.
+   * only: RouteTabs keeps `tabLabel ?? label` as the accessible name.
    */
   compactTabLabel?: string;
   /**

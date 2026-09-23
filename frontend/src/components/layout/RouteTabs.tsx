@@ -110,7 +110,6 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
               tabIndex={tabKeys.tabIndex(item.to)}
               ref={tabKeys.ref(item.to)}
               onClick={() => onSelect(item.to)}
-              title={item.compactTabLabel ? (item.tabLabel ?? item.label) : undefined}
               /* WIDTH: each tab starts at 64px (the floor) and takes an equal
                  share of spare room, wider only where its label needs it. It
                  never shrinks below label plus padding (min-w-max, shrink 0), so
