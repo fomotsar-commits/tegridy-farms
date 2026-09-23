@@ -4,7 +4,7 @@
  * behaviour is measured in e2e/tab-strip-scroll.spec.ts.
  */
 import { describe, it, expect } from 'vitest';
-import { STRIP_EDGE_PX, revealScrollLeft, stripFade, stripFadeMask } from './tabStripScroll';
+import { STRIP_CHEVRON_PX, STRIP_EDGE_PX, revealScrollLeft, stripFade, stripFadeMask } from './tabStripScroll';
 
 // A 382px strip over 600px of tabs: it can scroll 218px.
 const strip = (scrollLeft: number) => ({ scrollLeft, clientWidth: 382, scrollWidth: 600 });
@@ -65,8 +65,8 @@ describe('stripFade', () => {
 
 describe('stripFadeMask', () => {
   // A mask stop that is transparent hides what is under it: that edge fades.
-  const clearFirst = /^linear-gradient\(to right, transparent,/;
-  const clearLast = /, transparent\)$/;
+  const clearFirst = /^linear-gradient\(to right, transparent\b/;
+  const clearLast = /, transparent[^,]*\)$/;
 
   it('masks nothing when neither edge fades', () => {
     expect(stripFadeMask({ start: false, end: false })).toBeUndefined();
@@ -83,5 +83,15 @@ describe('stripFadeMask', () => {
     expect(both).toMatch(clearFirst);
     expect(both).toMatch(clearLast);
     for (const m of [start, end, both]) expect(m).toContain(`${STRIP_EDGE_PX}px`);
+  });
+
+  it('hides the chevron’s band outright, then fades tabs in over the rest of STRIP_EDGE_PX', () => {
+    expect(STRIP_CHEVRON_PX).toBeGreaterThan(0);
+    expect(STRIP_CHEVRON_PX).toBeLessThan(STRIP_EDGE_PX);
+    const start = `transparent ${STRIP_CHEVRON_PX}px, #000 ${STRIP_EDGE_PX}px`;
+    const end = `#000 calc(100% - ${STRIP_EDGE_PX}px), transparent calc(100% - ${STRIP_CHEVRON_PX}px)`;
+    expect(stripFadeMask({ start: true, end: false })).toContain(start);
+    expect(stripFadeMask({ start: false, end: true })).toContain(end);
+    expect(stripFadeMask({ start: true, end: true })).toContain(`${start}, ${end}`);
   });
 });

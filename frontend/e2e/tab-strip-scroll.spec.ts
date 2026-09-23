@@ -37,11 +37,12 @@ function readStrip(list: Element) {
   const sel = tab?.getBoundingClientRect();
   const cs = getComputedStyle(list);
   // A chevron shows when it renders with a size, inside the strip's own box.
+  // Its width is how much of that edge must be clear of tabs under it.
   const chevron = (side: string) => {
     const el = list.parentElement?.querySelector(`[data-more="${side}"]`);
-    if (!el || getComputedStyle(el).display === 'none') return false;
+    if (!el || getComputedStyle(el).display === 'none') return 0;
     const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0 && r.left >= box.left - 1 && r.right <= box.right + 1;
+    return r.width > 0 && r.height > 0 && r.left >= box.left - 1 && r.right <= box.right + 1 ? r.width : 0;
   };
   return {
     mask: cs.getPropertyValue('mask-image') || cs.getPropertyValue('-webkit-mask-image') || 'none',
@@ -108,10 +109,11 @@ test.describe('a phone lands with the selected tab in view', () => {
 
 /**
  * Which edges a strip's mask fades: a gradient whose first or last stop is
- * transparent hides what is under that edge. `px` is the fade's width.
+ * transparent hides what is under that edge. `px` is the fade's full width, and
+ * a band is how far in from its edge that transparent stop reaches.
  */
 function fadedEdges(mask: string) {
-  if (!mask.startsWith('linear-gradient(')) return { start: false, end: false, px: 0 };
+  if (!mask.startsWith('linear-gradient(')) return { start: false, end: false, px: 0, startBand: 0, endBand: 0 };
   const inner = mask.slice(mask.indexOf('(') + 1, mask.lastIndexOf(')'));
   const parts: string[] = [];
   let depth = 0;
@@ -127,7 +129,17 @@ function fadedEdges(mask: string) {
   parts.push(part.trim());
   const stops = parts.filter((p) => !p.startsWith('to '));
   const clear = (stop = '') => /^(transparent|rgba\(0, 0, 0, 0\))/.test(stop);
-  return { start: clear(stops[0]), end: clear(stops[stops.length - 1]), px: Number(/([\d.]+)px/.exec(inner)?.[1] ?? 0) };
+  // "transparent 20px" at the start, "transparent calc(100% - 20px)" at the end.
+  const band = (stop = '') => (clear(stop) ? Number(/([\d.]+)px\)?$/.exec(stop)?.[1] ?? 0) : 0);
+  const first = stops[0];
+  const last = stops[stops.length - 1];
+  return {
+    start: clear(first),
+    end: clear(last),
+    px: Math.max(0, ...[...inner.matchAll(/([\d.]+)px/g)].map((m) => Number(m[1]))),
+    startBand: band(first),
+    endBand: band(last),
+  };
 }
 
 /**
@@ -143,8 +155,11 @@ const fadeFollowsScroll = (onLanding: boolean) => (s: Strip) => {
   const hiddenEnd = s.scrollLeft < s.maxScroll - 1;
   if (fade.start !== hiddenStart) out.push(`the start edge ${fade.start ? 'fades with nothing' : 'does not fade with tabs'} hidden past it (${at})`);
   if (fade.end !== hiddenEnd) out.push(`the end edge ${fade.end ? 'fades with nothing' : 'does not fade with tabs'} hidden past it (${at})`);
-  if (s.chevronStart !== hiddenStart) out.push(`the start edge ${s.chevronStart ? 'shows a chevron with nothing' : 'shows no chevron with tabs'} hidden past it (${at})`);
-  if (s.chevronEnd !== hiddenEnd) out.push(`the end edge ${s.chevronEnd ? 'shows a chevron with nothing' : 'shows no chevron with tabs'} hidden past it (${at})`);
+  if (!!s.chevronStart !== hiddenStart) out.push(`the start edge ${s.chevronStart ? 'shows a chevron with nothing' : 'shows no chevron with tabs'} hidden past it (${at})`);
+  if (!!s.chevronEnd !== hiddenEnd) out.push(`the end edge ${s.chevronEnd ? 'shows a chevron with nothing' : 'shows no chevron with tabs'} hidden past it (${at})`);
+  // Under a chevron the mask is fully clear, so no half-faded label runs into it.
+  if (s.chevronStart > fade.startBand + TOLERANCE_PX) out.push(`the ${round(s.chevronStart)}px start chevron has only ${fade.startBand}px clear under it (${at})`);
+  if (s.chevronEnd > fade.endBand + TOLERANCE_PX) out.push(`the ${round(s.chevronEnd)}px end chevron has only ${fade.endBand}px clear under it (${at})`);
   if (onLanding) {
     const under = Math.max(s.visL + (fade.start ? fade.px : 0) - s.selL, s.selR - (s.visR - (fade.end ? fade.px : 0)));
     if (under > TOLERANCE_PX) out.push(`${s.selected} is ${round(under)}px under a fade or past the edge (${at})`);
@@ -197,8 +212,8 @@ test.describe('a strip that fits neither fades nor shows a chevron', () => {
       const list = await land(page, path, strip, DESKTOP.viewport.width, DESKTOP.viewport.height);
       const s = await list.evaluate(readStrip);
       expect(s.maxScroll, 'the strip scrolls at 1440').toBeLessThanOrEqual(1);
-      expect(fadedEdges(s.mask), `mask ${s.mask}`).toEqual({ start: false, end: false, px: 0 });
-      expect({ start: s.chevronStart, end: s.chevronEnd }, 'chevrons shown').toEqual({ start: false, end: false });
+      expect(fadedEdges(s.mask), `mask ${s.mask}`).toEqual({ start: false, end: false, px: 0, startBand: 0, endBand: 0 });
+      expect({ start: s.chevronStart, end: s.chevronEnd }, 'chevron widths shown').toEqual({ start: 0, end: 0 });
     });
   }
 });
