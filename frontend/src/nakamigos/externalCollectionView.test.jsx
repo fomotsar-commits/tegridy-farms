@@ -338,8 +338,28 @@ describe("the gallery says what it shows", () => {
   });
 
   it("Junglets shows only what is listed, and says so", async () => {
+    const all = { ...meStats.response, listedCount: 5 };
+    override = (u) => (u.searchParams.get("path") === "/collections/junglet/stats" ? reply(all) : null);
     await renderAt("/nakamigos/junglets");
     await findInBody(/Showing the 5 Junglets listed on Magic Eden, of 208\./);
+  });
+
+  // The stats read and the listings read are separate. The captured answers
+  // say 55 are listed and the listings read returned 5, so the gallery must
+  // not call the 5 "the" listed ones: one screen would state two listed counts.
+  it("Junglets fewer than the stats' listed count: N of the M listed, never the N listed", async () => {
+    expect(meStats.response.listedCount).toBe(55);
+    await renderAt("/nakamigos/junglets");
+    await findInBody(/Showing 5 of the 55 Junglets listed on Magic Eden, of 208 in all\./);
+    await findInBody(/55 listed/);
+    notInBody(/Showing the 5 Junglets listed/);
+  });
+
+  it("Junglets with no listed count read: N listed, never the N listed", async () => {
+    override = (u) => (u.searchParams.get("path") === "/collections/junglet/stats" ? reply({ error: "upstream-rate-limited" }, 429, { "retry-after": "60" }) : null);
+    await renderAt("/nakamigos/junglets");
+    await findInBody(/Showing 5 Junglets listed on Magic Eden, of 208\./);
+    notInBody(/Showing the 5 Junglets listed/);
   });
 
   it("a failed item read offers Retry, and never claims No items", async () => {
@@ -463,7 +483,7 @@ describe("the item panel and its market button", () => {
 
   it("a numeric Junglets deep link opens nothing: Junglets are addressed by mint, not number", async () => {
     await renderAt("/nakamigos/junglets/nft/64");
-    await findInBody(/Showing the 5 Junglets listed on Magic Eden/);
+    await findInBody(/Junglets listed on Magic Eden/);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

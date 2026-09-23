@@ -53,7 +53,8 @@ const VIEW_ONLY: ViewOnly[] = [
     name: 'Junglets',
     market: 'Magic Eden',
     marketUrl: 'https://magiceden.us/marketplace/junglet',
-    gallery: /Showing the 5 Junglets listed on Magic Eden, of 208\./,
+    // The captured stats say 55 are listed; the captured listings page holds 5.
+    gallery: /Showing 5 of the 55 Junglets listed on Magic Eden, of 208 in all\./,
   },
   {
     slug: 'bojungles',
