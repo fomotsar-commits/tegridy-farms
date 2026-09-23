@@ -149,7 +149,7 @@ the zero point of every degree the token will ever earn.
 | Variable | Default | Meaning |
 |---|---|---|
 | `VITE_HEAT_GATE` | on | `off` stops the gate denying. It still reads and still logs |
-| `VITE_HEAT_LAUNCH_FLOOR` | unset: `LAUNCH_FLOOR`, 180 (Resident) | Degrees floor. Non-numeric/≤0 overrides are **ignored**, not obeyed |
+| `VITE_HEAT_LAUNCH_FLOOR` | unset: `LAUNCH_FLOOR`, 80 (Resident) | Degrees floor. Non-numeric/≤0 overrides are **ignored**, not obeyed |
 | `VITE_HEAT_MAX_AGE_DAYS` | `7` | Freshness window |
 | `VITE_ISLAND_CERTIFICATION_URL` | unset | Garden lane stays dark while unset |
 | `VITE_CANONICAL_ORIGIN` | `https://memetics.finance` | Origin used to build `record_url`. Must be the CANONICAL host (`SITE_URL`) — the island stores `record_url` verbatim and forever, so an alias minted here is a permanent 301 |
@@ -164,7 +164,7 @@ the zero point of every degree the token will ever earn.
 2. Decide where the JSON birth record is **hosted** — see below. `record_url` already has
    its final shape (`/record/:chain/:ca.json`); only the server that answers it is open.
 3. Leave `VITE_HEAT_LAUNCH_FLOOR` unset, so the gate reads `LAUNCH_FLOOR` in
-   `frontend/src/lib/heat/heatOracle.ts` (180°, Resident). A value set here overrides it.
+   `frontend/src/lib/heat/heatOracle.ts` (80°, Resident). A value set here overrides it.
 4. Verify a real read: connect a warm wallet and confirm the door shows WARM, then confirm
    the audit row on `/admin`.
 
