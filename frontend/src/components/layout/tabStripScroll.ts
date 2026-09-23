@@ -4,8 +4,11 @@
  */
 export const STRIP_EDGE_PX = 40;
 
-/** The band at a faded edge that is fully clear, where that edge's chevron sits. */
-export const STRIP_CHEVRON_PX = 20;
+/**
+ * The band at a faded edge that is fully clear, where that edge's chevron sits.
+ * The chevron is a tap target, so the band is at least 24px (WCAG 2.5.8).
+ */
+export const STRIP_CHEVRON_PX = 24;
 
 type StripBox = { scrollLeft: number; clientWidth: number; scrollWidth: number };
 
@@ -42,4 +45,14 @@ export function stripFadeMask({ start, end }: StripFade): string | undefined {
   const from = start ? `transparent ${STRIP_CHEVRON_PX}px, #000 ${STRIP_EDGE_PX}px` : '#000';
   const to = end ? `#000 calc(100% - ${STRIP_EDGE_PX}px), transparent calc(100% - ${STRIP_CHEVRON_PX}px)` : '#000';
   return `linear-gradient(to right, ${from}, ${to})`;
+}
+
+/**
+ * How far a tap on a chevron scrolls the strip toward that chevron's edge: its
+ * width less both fades, so what sat under that edge's fade lands clear of the
+ * other one. A strip too narrow for that still moves one fade's width.
+ */
+export function chevronScrollBy(side: 'start' | 'end', clientWidth: number): number {
+  const page = Math.max(STRIP_EDGE_PX, clientWidth - 2 * STRIP_EDGE_PX);
+  return side === 'end' ? page : -page;
 }

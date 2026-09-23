@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import type { NavItem } from '../../lib/navConfig';
 import { tabDomId } from './routeTabId';
-import { STRIP_CHEVRON_PX, revealScrollLeft, stripFade, stripFadeMask } from './tabStripScroll';
+import { STRIP_CHEVRON_PX, chevronScrollBy, revealScrollLeft, stripFade, stripFadeMask } from './tabStripScroll';
 
 /**
  * The sticky pill tab strip shared by every route-navigating tabbed host.
@@ -74,17 +74,24 @@ function TabLabel({ item }: { item: NavItem }) {
   );
 }
 
-/** The chevron at an edge of the strip with tabs hidden past it, in the fade's clear band. */
-function EdgeChevron({ side }: { side: 'start' | 'end' }) {
+/**
+ * The chevron at an edge of the strip with tabs hidden past it, in the fade's
+ * clear band. It takes the tap there and pages the strip that way, so the tap
+ * never reaches the masked tab under it. Aria-hidden and out of the tab order:
+ * the arrow keys already move along the strip.
+ */
+function EdgeChevron({ side, onPage }: { side: 'start' | 'end'; onPage: (side: 'start' | 'end') => void }) {
   return (
     <span
       data-more={side}
       aria-hidden="true"
+      onClick={() => onPage(side)}
+      onMouseDown={(e) => e.preventDefault()}
       style={{ width: STRIP_CHEVRON_PX }}
       className={
         side === 'start'
-          ? 'pointer-events-none absolute inset-y-0 left-0 hidden items-center justify-center text-white/70 group-data-[more-start=true]/strip:flex'
-          : 'pointer-events-none absolute inset-y-0 right-0 hidden items-center justify-center text-white/70 group-data-[more-end=true]/strip:flex'
+          ? 'absolute inset-y-0 left-0 hidden cursor-pointer items-center justify-center text-white/70 group-data-[more-start=true]/strip:flex'
+          : 'absolute inset-y-0 right-0 hidden cursor-pointer items-center justify-center text-white/70 group-data-[more-end=true]/strip:flex'
       }
     >
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -99,6 +106,12 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
   const tabKeys = useTabListKeys(keys, active, onSelect);
   const listRef = useRef<HTMLDivElement>(null);
   const keyList = keys.join(' ');
+  const page = (side: 'start' | 'end') => {
+    const list = listRef.current;
+    if (!list) return;
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    list.scrollBy({ left: chevronScrollBy(side, list.clientWidth), behavior: still ? 'auto' : 'smooth' });
+  };
 
   /* A strip that scrolls shows the selected tab whole: on landing, on a new
      selection, and when the strip or a tab resizes (web fonts, rotation). It
@@ -230,8 +243,8 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
               </button>
             ))}
           </div>
-          <EdgeChevron side="start" />
-          <EdgeChevron side="end" />
+          <EdgeChevron side="start" onPage={page} />
+          <EdgeChevron side="end" onPage={page} />
         </div>
       </div>
     </div>
