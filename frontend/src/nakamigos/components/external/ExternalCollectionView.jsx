@@ -89,7 +89,14 @@ export default function ExternalCollectionView({ tab, deepLinkTokenId, collectio
       return (
         <>
           <ExternalHero collection={collection} stats={stats} />
-          <ExternalGallery collection={collection} items={items} onRetry={retry} onPick={setSelected} notice={notFoundNotice} />
+          <ExternalGallery
+            collection={collection}
+            items={items}
+            listedCount={stats.status === "ready" ? stats.data.listedCount : null}
+            onRetry={retry}
+            onPick={setSelected}
+            notice={notFoundNotice}
+          />
         </>
       );
     }
