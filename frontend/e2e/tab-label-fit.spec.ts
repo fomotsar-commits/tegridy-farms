@@ -104,6 +104,8 @@ for (const { name, use, reads } of [
         walletMock: _w,
       }) => {
         const { list, tabs } = await measureStrip(page, path, 'Earn sections');
+        // With every title gone, the name can only come from the tab's own text.
+        await list.evaluate((el) => el.querySelectorAll('[title]').forEach((n) => n.removeAttribute('title')));
         await expect(list.getByRole('tab', { name: 'Copy Trading', exact: true })).toHaveCount(1);
         const copy = tabs.find((t) => t.id === 'earn-tab--copy-trading');
         expect.soft(copy?.shown, 'what a sighted user reads on the Copy Trading tab').toBe(reads);
