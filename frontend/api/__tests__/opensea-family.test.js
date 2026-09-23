@@ -220,6 +220,56 @@ describe("no view-only contract is admitted in an order body", () => {
   });
 });
 
+// The two routes that build fill calldata on the venue's paid key. Both are
+// pinned to Ethereum, and accepting an offer must name a venue contract, so
+// the proxy never builds a fill for a Base or ERC-1155 family order.
+describe("fill calldata is built only for Ethereum venue orders", () => {
+  const FULFILLER = { address: "0x" + "a".repeat(40) };
+  const SEAPORT = "0x0000000000000068f116a894984e2db1123eb395";
+  const buy = (listing) => ({ method: "POST", query: { path: "listings/fulfillment_data" }, body: { listing, fulfiller: FULFILLER } });
+  const accept = (offer, consideration) => ({
+    method: "POST",
+    query: { path: "offers/fulfillment_data" },
+    body: { offer, fulfiller: FULFILLER, ...(consideration ? { consideration } : {}) },
+  });
+
+  it("a buy on Ethereum is forwarded", async () => {
+    const out = await call(buy({ hash: "0xlisting", chain: "ethereum", protocol_address: SEAPORT }));
+    expect(out.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([["base"], ["solana"], [undefined], ["Ethereum"]])("a buy whose listing names chain %s is refused and never forwarded", async (chain) => {
+    const out = await call(buy({ hash: "0xlisting", chain, protocol_address: SEAPORT }));
+    expect(out.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("a buy with no listing at all is refused", async () => {
+    const out = await call({ method: "POST", query: { path: "listings/fulfillment_data" }, body: { fulfiller: FULFILLER } });
+    expect(out.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("an accept on Base is refused even when it names a venue contract", async () => {
+    const out = await call(accept({ hash: "0xoffer", chain: "base", protocol_address: SEAPORT }, { asset_contract_address: GOLD, token_id: "1" }));
+    expect(out.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("an accept that names no NFT contract is refused", async () => {
+    const out = await call(accept({ hash: "0xoffer", chain: "ethereum", protocol_address: SEAPORT }));
+    expect(out.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("an accept on Ethereum for a venue contract is forwarded", async () => {
+    const out = await call(accept({ hash: "0xoffer", chain: "ethereum", protocol_address: SEAPORT }, { asset_contract_address: GOLD, token_id: "1" }));
+    expect(out.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("item image URLs are sanitised like every other URL field", () => {
   it("nulls a javascript: display_image_url and display_animation_url", async () => {
     upstreamBody = {
@@ -252,15 +302,16 @@ describe("browsing cannot spend the checkout's budget", () => {
       body: {
         offer: { hash: "0xoffer", chain: "ethereum", protocol_address: "0x0000000000000068f116a894984e2db1123eb395" },
         fulfiller: { address: "0x" + "a".repeat(40) },
+        consideration: { asset_contract_address: GOLD, token_id: "1" },
       },
     });
-    expect(accept.status).not.toBe(429);
+    expect(accept.status).toBe(200);
     const buy = await call({
       method: "POST",
       query: { path: "listings/fulfillment_data" },
       body: { listing: { hash: "0xlisting", chain: "ethereum" }, fulfiller: { address: "0x" + "a".repeat(40) } },
     });
-    expect(buy.status).not.toBe(429);
+    expect(buy.status).toBe(200);
   });
 
   it("family reads are still rate limited per visitor, on a bucket of their own", async () => {
