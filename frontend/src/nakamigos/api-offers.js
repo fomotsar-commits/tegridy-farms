@@ -1,10 +1,11 @@
 import { parseEther, formatEther } from "viem";
 import { CONTRACT, COLLECTION_SLUG, WETH, SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, OPENSEA_FEE_RECIPIENT, OPENSEA_FEE_BPS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
-import { getActiveWalletProvider, assertSameWallet, SEAPORT_FULFILLMENT_FUNCTIONS } from "./api";
+import { getActiveWalletProvider, assertSameWallet, SEAPORT_FULFILLMENT_FUNCTIONS, fulfillCallRefusal } from "./api";
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 import { cancelSeaportOrder } from "./lib/seaportCancel";
-import { venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError } from "./lib/venue";
+import { venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError, venueSlugRefusal } from "./lib/venue";
+import { seaportCallNftTokens } from "./lib/seaportCalldata";
 
 // AUDIT FIX M-8 (frontend chain guard): assertOnExpectedChain blocks any
 // on-chain action when the wallet is connected to a chain != SEAPORT_DOMAIN.chainId.
@@ -370,7 +371,26 @@ function withCriteriaPlatformFee(consideration, priceWei) {
   ];
 }
 
+// A bid names one token. ownerOf reverts for an id that does not exist, and a
+// bid on one would wrap and approve for an order nobody can ever fill, so it
+// is asked first. An unanswered read refuses too: nothing is funded unconfirmed.
+async function tokenExistenceRefusal(ethers, contract, tokenId) {
+  try {
+    const { getReadProvider } = await import("./lib/rpcProvider");
+    const nft = new ethers.Contract(contract, ["function ownerOf(uint256) view returns (address)"], await getReadProvider());
+    await nft.ownerOf(String(tokenId));
+    return null;
+  } catch (err) {
+    if (err?.code === "CALL_EXCEPTION") {
+      return { error: "no-such-token", message: `Token #${tokenId} does not exist in this collection, so there is nothing to bid on.` };
+    }
+    return { error: "token-unverified", message: `Could not confirm that token #${tokenId} exists right now. Nothing was funded; try again.` };
+  }
+}
+
 export async function createItemOffer({ tokenId, priceEth, expirationHours = 168, contract = CONTRACT }) {
+  const refusal = venueRefusal(contract);
+  if (refusal) return refusal;
   // AUDIT FIX 2026-08-06 [wallet-provider]: resolve the provider from the ACTIVE
   // wagmi connector, not the fixed rdns priority walk — see getActiveWalletProvider().
   const { provider, address: connectedAddress } = await getActiveWalletProvider();
@@ -390,6 +410,9 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
     // before any of that if the signing wallet is not the connected account.
     const _walletErr = assertSameWallet(buyerAddress, connectedAddress);
     if (_walletErr) return _walletErr;
+
+    const _tokenErr = await tokenExistenceRefusal(ethers, contract, tokenId);
+    if (_tokenErr) return _tokenErr;
 
     const priceWei = parseEther(String(priceEth));
 
@@ -520,6 +543,8 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
 // ═══ CREATE COLLECTION OFFER ═══
 
 export async function createCollectionOffer({ priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug }) {
+  const refusal = venueSlugRefusal(openseaSlug || slug, slug);
+  if (refusal) return refusal;
   const osSlug = openseaSlug || slug;
   // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
   const { provider, address: connectedAddress } = await getActiveWalletProvider();
@@ -640,6 +665,8 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
 // ═══ CREATE TRAIT OFFER ═══
 
 export async function createTraitOffer({ traitType, traitValue, priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug }) {
+  const refusal = venueSlugRefusal(openseaSlug || slug, slug);
+  if (refusal) return refusal;
   const osSlug = openseaSlug || slug;
   // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
   const { provider, address: connectedAddress } = await getActiveWalletProvider();
@@ -942,6 +969,10 @@ export async function cancelOrder(order) {
 // ═══ ACCEPT OFFER (for token owners) ═══
 
 export async function acceptOffer(offer) {
+  // The NFT a seller hands over is the offer's own contract. One that does not
+  // trade here, or no contract at all, is refused before any wallet call.
+  const refusal = venueRefusal(offer?.tokenContract);
+  if (refusal) return refusal;
   // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
   const { provider, address: connectedAddress } = await getActiveWalletProvider();
   if (!provider) return { error: "no-wallet", message: "No wallet connected" };
@@ -988,7 +1019,7 @@ export async function acceptOffer(offer) {
     // "needs a real fill to verify — it cannot be confirmed read-only". It can:
     // `offers/fulfillment_data` only BUILDS calldata, it signs and sends nothing,
     // so the whole matrix above cost nothing and settled it.
-    const nftContract = offer.tokenContract || CONTRACT;
+    const nftContract = offer.tokenContract;
     // Sent whenever the token is known, not only for criteria orders. The bottom
     // two rows of that matrix are why: on an exact-token offer the field merely
     // restates what the order already pins and is accepted just the same. So this
@@ -1053,16 +1084,6 @@ export async function acceptOffer(offer) {
     //
     // Everything above this line is a read or a validation. Nothing above it
     // can cost the seller gas.
-    const erc721ABI = [
-      "function isApprovedForAll(address,address) view returns (bool)",
-      "function setApprovalForAll(address,bool)",
-    ];
-    const nft = new ethers.Contract(nftContract, erc721ABI, signer);
-    const isApproved = await nft.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
-    if (!isApproved) {
-      const approveTx = await nft.setApprovalForAll(CONDUIT_ADDRESS, true);
-      await approveTx.wait();
-    }
 
     // Encode calldata using ABI parameter names to avoid
     // depending on Object.values() insertion order from the API.
@@ -1084,6 +1105,23 @@ export async function acceptOffer(offer) {
       inputValues = Object.values(txData.input_data).map(toPositional);
     }
     const encoded = iface.encodeFunctionData(fnName, inputValues);
+
+    // The NFT handed over is read back from the calldata that will be signed.
+    // It must trade here and be the offer's own contract. Encoding is free, so
+    // this runs before the approval below.
+    const nftRefusal = fulfillCallRefusal(seaportCallNftTokens(iface, fnName, encoded), [nftContract]);
+    if (nftRefusal) return nftRefusal;
+
+    const erc721ABI = [
+      "function isApprovedForAll(address,address) view returns (bool)",
+      "function setApprovalForAll(address,bool)",
+    ];
+    const nft = new ethers.Contract(nftContract, erc721ABI, signer);
+    const isApproved = await nft.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
+    if (!isApproved) {
+      const approveTx = await nft.setApprovalForAll(CONDUIT_ADDRESS, true);
+      await approveTx.wait();
+    }
 
     const tx = await signer.sendTransaction({
       to: txData.to,
