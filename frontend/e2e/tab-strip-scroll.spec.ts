@@ -1,8 +1,9 @@
 /**
  * A section strip too wide for a phone scrolls sideways. The tab for the page you
  * are on is whole and in view when you land on it, and an edge with tabs hidden
- * past it fades, so the strip reads as one that scrolls. Measured from rendered
- * boxes against the strip's visible (client) box, and the strip's computed mask.
+ * past it fades and shows a chevron, so the strip reads as one that scrolls at
+ * every width. Measured from rendered boxes against the strip's visible (client)
+ * box, the strip's computed mask, and the chevrons (`data-more`) in its frame.
  */
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
@@ -28,15 +29,24 @@ const LANDINGS = [
   { path: '/alerts', strip: 'Token-checking tools' },
 ];
 
-/** The strip's scroll state, and where its selected tab sits against the visible box. */
+/** The strip's scroll state, its fade and chevrons, and where its selected tab sits. */
 function readStrip(list: Element) {
   const box = list.getBoundingClientRect();
   const visL = box.left + list.clientLeft;
   const tab = list.querySelector('[role="tab"][aria-selected="true"]');
   const sel = tab?.getBoundingClientRect();
   const cs = getComputedStyle(list);
+  // A chevron shows when it renders with a size, inside the strip's own box.
+  const chevron = (side: string) => {
+    const el = list.parentElement?.querySelector(`[data-more="${side}"]`);
+    if (!el || getComputedStyle(el).display === 'none') return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.left >= box.left - 1 && r.right <= box.right + 1;
+  };
   return {
     mask: cs.getPropertyValue('mask-image') || cs.getPropertyValue('-webkit-mask-image') || 'none',
+    chevronStart: chevron('start'),
+    chevronEnd: chevron('end'),
     scrollLeft: list.scrollLeft,
     maxScroll: list.scrollWidth - list.clientWidth,
     visL,
@@ -120,7 +130,11 @@ function fadedEdges(mask: string) {
   return { start: clear(stops[0]), end: clear(stops[stops.length - 1]), px: Number(/([\d.]+)px/.exec(inner)?.[1] ?? 0) };
 }
 
-/** An edge fades exactly while tabs are hidden past it; on landing, never over the selected tab. */
+/**
+ * An edge fades and shows a chevron exactly while tabs are hidden past it; on
+ * landing, the selected tab is never under a fade. A fade alone can land on a
+ * tab's empty padding and change nothing a reader sees; the chevron cannot.
+ */
 const fadeFollowsScroll = (onLanding: boolean) => (s: Strip) => {
   const fade = fadedEdges(s.mask);
   const at = `scrollLeft ${round(s.scrollLeft)} of ${round(s.maxScroll)}`;
@@ -129,6 +143,8 @@ const fadeFollowsScroll = (onLanding: boolean) => (s: Strip) => {
   const hiddenEnd = s.scrollLeft < s.maxScroll - 1;
   if (fade.start !== hiddenStart) out.push(`the start edge ${fade.start ? 'fades with nothing' : 'does not fade with tabs'} hidden past it (${at})`);
   if (fade.end !== hiddenEnd) out.push(`the end edge ${fade.end ? 'fades with nothing' : 'does not fade with tabs'} hidden past it (${at})`);
+  if (s.chevronStart !== hiddenStart) out.push(`the start edge ${s.chevronStart ? 'shows a chevron with nothing' : 'shows no chevron with tabs'} hidden past it (${at})`);
+  if (s.chevronEnd !== hiddenEnd) out.push(`the end edge ${s.chevronEnd ? 'shows a chevron with nothing' : 'shows no chevron with tabs'} hidden past it (${at})`);
   if (onLanding) {
     const under = Math.max(s.visL + (fade.start ? fade.px : 0) - s.selL, s.selR - (s.visR - (fade.end ? fade.px : 0)));
     if (under > TOLERANCE_PX) out.push(`${s.selected} is ${round(under)}px under a fade or past the edge (${at})`);
@@ -145,10 +161,10 @@ const SCROLLING = [
   { path: '/trust', strip: 'Token-checking tools' },
 ];
 
-test.describe('a strip that scrolls fades the edge more tabs wait behind', () => {
+test.describe('a strip that scrolls fades and marks the edge more tabs wait behind', () => {
   test.use(PHONE);
   for (const { path, strip } of SCROLLING) {
-    test(`${path}: at 360 to 430 each ${strip} edge fades exactly while tabs are hidden past it`, async ({
+    test(`${path}: at 360 to 430 each ${strip} edge fades and shows a chevron exactly while tabs are hidden past it`, async ({
       page,
       walletMock: _w,
     }) => {
@@ -165,23 +181,24 @@ test.describe('a strip that scrolls fades the edge more tabs wait behind', () =>
           for (const p of await settle(page, list, fadeFollowsScroll(false))) problems.push(`${width}px ${when}: ${p}`);
         }
       }
-      expect(problems, 'strip edges that hide tabs without a fade, or fade over nothing').toEqual([]);
+      expect(problems, 'strip edges that hide tabs unmarked, or mark nothing').toEqual([]);
     });
   }
 });
 
-test.describe('a strip that fits does not fade', () => {
+test.describe('a strip that fits neither fades nor shows a chevron', () => {
   test.use(DESKTOP);
   for (const { path, strip } of [
     { path: '/farm', strip: 'Earn sections' },
     { path: '/launch', strip: 'Launch sections' },
     { path: '/trust', strip: 'Token-checking tools' },
   ]) {
-    test(`${path}: the ${strip} strip fits at 1440 with neither edge faded`, async ({ page, walletMock: _w }) => {
+    test(`${path}: the ${strip} strip fits at 1440 with neither edge faded or marked`, async ({ page, walletMock: _w }) => {
       const list = await land(page, path, strip, DESKTOP.viewport.width, DESKTOP.viewport.height);
       const s = await list.evaluate(readStrip);
       expect(s.maxScroll, 'the strip scrolls at 1440').toBeLessThanOrEqual(1);
       expect(fadedEdges(s.mask), `mask ${s.mask}`).toEqual({ start: false, end: false, px: 0 });
+      expect({ start: s.chevronStart, end: s.chevronEnd }, 'chevrons shown').toEqual({ start: false, end: false });
     });
   }
 });
