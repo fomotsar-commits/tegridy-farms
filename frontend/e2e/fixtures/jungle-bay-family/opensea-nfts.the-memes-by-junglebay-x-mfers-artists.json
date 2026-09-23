@@ -1,0 +1,206 @@
+{
+  "_provenance": "Captured 2026-09-23 from https://opensea.io/collection/the-memes-by-junglebay-x-mfers-artists (the page's own GraphQL cache: collectionBySlug and collectionItems page 1), reshaped into the OpenSea v2 REST body /api/opensea returns. Every value is as the page carried it; a field the page did not carry is absent, not filled. This is page 1 only (50 of the collection's items), so `next` is null here.",
+  "response": {
+    "nfts": [
+      {
+        "identifier": "1",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "Welcome to the Jungle",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/53b6027a82d3be8ce56fd1de310de1/5953b6027a82d3be8ce56fd1de310de1.png",
+        "metadata_url": "https://arweave.net/25Ruk05cC_NitiVDz0xcZyH5ks2iohSsngmBdsidBnw/"
+      },
+      {
+        "identifier": "2",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "JUNGLE PHOENIX: The Ape Who Saved JungleBay Island from an Apocalypse",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/2be2356dbb02c79c0d3a044a40d298/c32be2356dbb02c79c0d3a044a40d298.gif",
+        "metadata_url": "https://arweave.net/aj5dZpUvwcpbRBUFz3HkoLP6oqik-zFDlldoKxP-eXg/"
+      },
+      {
+        "identifier": "3",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "UNCLE SEIZEMORE",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/2c4aaa5e8f0a3725d90308dee7afcd/7e2c4aaa5e8f0a3725d90308dee7afcd.gif",
+        "metadata_url": "https://arweave.net/QA4ysMEMvzjG-CTLXNkwz7IBl32_TARv0zKHH699sNg/"
+      },
+      {
+        "identifier": "4",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "mfer in the jungle",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/ec1deed31e14c20bc60e2e2dd0a68c/0fec1deed31e14c20bc60e2e2dd0a68c.gif",
+        "metadata_url": "https://lusrhzzwjkjdvdij24if7jyssb5dmoijezepcapjdih4dxoauhiq.arweave.net/XSUT5zZKkjqNCdcQX6cSkHo2OQkmSPEB6RoPwd3AodE/"
+      },
+      {
+        "identifier": "5",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "Every Day in JungleBay",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/db3b980112b8f0633f93a10d3c8864/24db3b980112b8f0633f93a10d3c8864.jpeg",
+        "metadata_url": "https://arweave.net/EVbb-swH4CUpeozbP40epGDeumw8A0Zs820U1viQjNc/"
+      },
+      {
+        "identifier": "6",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "The Rescue at JungleBay",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/fc1cdb8572949c958874d957cfff7b/a5fc1cdb8572949c958874d957cfff7b.gif",
+        "metadata_url": "https://323k6ywtdbxq5mys6zrgqchdoeomirfkcovn5qkttpoumolroc7q.arweave.net/3ravYtMYbw6zEvZiaAjjcRzERKoTqt7BU5vdRjlxcL8/"
+      },
+      {
+        "identifier": "7",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "Demon Hours",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/bb9644736ec1a1d55ce58d469d7ecc/dfbb9644736ec1a1d55ce58d469d7ecc.png",
+        "metadata_url": "https://arweave.net/v96PwCF-mCNIYW0PFkW0bqNif8twmJYGWx_jFtSmE5g/"
+      },
+      {
+        "identifier": "8",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "All Aboard The Creyzie Jungle Train",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/c3ac067c79520f11b3e22e5776c95f/f4c3ac067c79520f11b3e22e5776c95f.png",
+        "metadata_url": "https://arweave.net/PK-4_RB4OLGxJBFXsAJMM6tHud7lNiY8bInAHv2ozAY/"
+      },
+      {
+        "identifier": "9",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "Fine Ape Mfers",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/03dc6fe6306c012bcde8c71d824d7d/7a03dc6fe6306c012bcde8c71d824d7d.gif",
+        "metadata_url": "https://arweave.net/oqxvfYV0umTr6-Wu7-Z1MHolqDUMHoUQhW2ffBS4eBw/"
+      },
+      {
+        "identifier": "10",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "No Sleep in the Jungle",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/6d9f865d7701c13fd49f727bba4d72/bf6d9f865d7701c13fd49f727bba4d72.gif",
+        "metadata_url": "https://arweave.net/HUcR5XELGHN7_B1hA5K32QGBmZma61obxtMPF3BkJFE/"
+      },
+      {
+        "identifier": "11",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "The Pantheon of the Crypto Storm",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/326712ece2db12a4daf03d1cebcf72/d4326712ece2db12a4daf03d1cebcf72.png",
+        "metadata_url": "https://arweave.net/ZTIbrXzFilPFznUYDPtcr1PC9tnTLGQh-htkcRzMJeg/"
+      },
+      {
+        "identifier": "12",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "Hell’s Bay",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/520bb2a6be6614d10919e66abe6242/e8520bb2a6be6614d10919e66abe6242.gif",
+        "metadata_url": "https://arweave.net/Gm-EaL1XoUcfgEa2d7eUla10idx_U1dIaZ2KMDLJXTw/"
+      },
+      {
+        "identifier": "13",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": " The Persistence  of Time",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/a85e5be394084ba1fd77d9886b70b1/fda85e5be394084ba1fd77d9886b70b1.png",
+        "metadata_url": "https://arweave.net/14naVRUhX3Xit_mgJJWCCQbcAE1e5Ctu3KVZbN5qBN4/"
+      },
+      {
+        "identifier": "14",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "“Dank Jungle Juice”",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/6bee1b87b6c3cc79401788244b6357/506bee1b87b6c3cc79401788244b6357.png",
+        "metadata_url": "https://arweave.net/-_DFh6NWgQD4cBOmPVXr6JThVbcCxHoFMLlq9_Oggfo/"
+      },
+      {
+        "identifier": "15",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "Oasis",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/4e1b79bf9759f27a3cfde62b5fed1e/664e1b79bf9759f27a3cfde62b5fed1e.jpeg",
+        "metadata_url": "https://arweave.net/ny21984ijDKgvS9F83STwTKETtxwTQtk-Ze0j4W-oGw/"
+      },
+      {
+        "identifier": "16",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "The Legend of Jungle Bay",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/4b1ef3230e29db519536834dd041b0/b94b1ef3230e29db519536834dd041b0.gif",
+        "metadata_url": "https://arweave.net/DX-OlegexaIMXuF4H8TE_j5CU7StcXanXiyCb7mCY1Y/"
+      },
+      {
+        "identifier": "17",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "Scars and Waves",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/aff099afb450afc7fd184420bc9ec1/f3aff099afb450afc7fd184420bc9ec1.gif",
+        "metadata_url": "https://uwojjuzekqw6xtajcic6bfkiu7mvqy3jfi43ret2zbpov6tichga.arweave.net/pZyU0yRULevMCRIF4JVIp9lYY2kqObiSeshe6vpoEcw/"
+      },
+      {
+        "identifier": "18",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "Jungle Bay Island: Built by the Dank Memes",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/df7bf2e7a0552013aef7eebb77b56c/b0df7bf2e7a0552013aef7eebb77b56c.gif",
+        "metadata_url": "https://arweave.net/J8dwpHrjVh9q0m-4Eg8V2A6Jm7XegZ9rPau1o1UsJeI/"
+      },
+      {
+        "identifier": "19",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "Master of Jungle Bay Card",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/1738196a95a994991dd756a8bbd946/961738196a95a994991dd756a8bbd946.png",
+        "metadata_url": "https://arweave.net/7tTXmgq4-4dw4CiCvIxEOTVioh9Yy65q7FdinOPjbh8/"
+      },
+      {
+        "identifier": "20",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "through the blood & the mud",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/888cecf8871f9c4e97aace96e7a1dc/ad888cecf8871f9c4e97aace96e7a1dc.gif",
+        "metadata_url": "https://d3g6qjey6oxi4lsgelqytb43e6hsfsmxpv6zl5mndpqk252xoq4q.arweave.net/Hs3oJJjzro4uRiLhiYebJ48iyZd9fZX1jRvgrXdXdDk/"
+      },
+      {
+        "identifier": "21",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "Forged in the Fire",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/1f6ff0b53a475d1848169fbd7b6417/9b1f6ff0b53a475d1848169fbd7b6417.gif",
+        "metadata_url": "https://arweave.net/pc1yJ4raQgX4guYY_EOZgNPiYUv8r6fXnwjq7WOycYg/"
+      },
+      {
+        "identifier": "22",
+        "collection": "the-memes-by-junglebay-x-mfers-artists",
+        "contract": "0x9edaba801123866f25993914e389924744a07e89",
+        "token_standard": "erc1155",
+        "name": "Island Euphoria",
+        "image_url": "https://i2c.seadn.io/ethereum/0x9edaba801123866f25993914e389924744a07e89/899332c71039379d09b6f710e6dd29/f0899332c71039379d09b6f710e6dd29.jpeg",
+        "metadata_url": "https://arweave.net/v6po1gjOo5JX-f8zZJ5cGtcn58C_QLJWezX8BxQD_oU/"
+      }
+    ],
+    "next": null
+  }
+}

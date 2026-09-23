@@ -165,3 +165,87 @@ describe('the routes it does not own', () => {
     expect(await res.text()).toContain('Token Scanner');
   });
 });
+
+// ── THE MARKETPLACE'S UNFURLS FOR THE JUNGLE BAY FAMILY ─────────────────────
+//
+// A shared /nakamigos/<slug> link is the first thing most people see of a
+// collection, and a crawler never runs the app that would correct it. So the
+// card must say the same thing the page does: Gold Cards trades here (and
+// has no rarity to advertise: its 123 tokens share one image and carry no
+// traits); the five view-only collections are browsable here and trade on
+// their own market, with no floor fetched from an Ethereum reader that cannot
+// answer for Base, ERC-1155 or Solana.
+describe('the marketplace collection cards', () => {
+  const load = () => import('./middleware.js');
+  const card = async (path) => (await (await middleware(req(path))).text());
+  const meta = (html, prop) => {
+    const m = new RegExp(`<meta (?:property|name)="${prop}" content="([^"]*)">`).exec(html);
+    return m ? m[1] : null;
+  };
+  const decode = (s) => String(s ?? '').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+
+  it('the inline collection map matches the registry, key for key and name for name', async () => {
+    const { OG_COLLECTIONS } = await load();
+    const { COLLECTIONS } = await import('./src/nakamigos/constants.js');
+    expect(Object.keys(OG_COLLECTIONS ?? {})).toEqual(Object.keys(COLLECTIONS));
+    for (const [slug, c] of Object.entries(COLLECTIONS)) {
+      expect(OG_COLLECTIONS[slug].name, slug).toBe(c.name);
+    }
+  });
+
+  it('a view-only collection gets a view-only card, with no floor read', async () => {
+    const html = await card('/nakamigos/bojungles');
+    const d = decode(meta(html, 'og:description'));
+    expect(d).toBe('250 items · On Base. Browse it on Tradermigos; it trades on OpenSea.');
+    expect(d).not.toMatch(/Buy|bid|P2P|rarity|Floor/i);
+    expect(decode(meta(html, 'og:title'))).toBe('Bojungles | Tradermigos');
+    for (const [u] of fetchMock.mock.calls) expect(String(u)).not.toContain('/api/alchemy');
+  });
+
+  it('an ERC-1155 card omits a supply it cannot state as one number', async () => {
+    const d = decode(meta(await card('/nakamigos/raretowelie'), 'og:description'));
+    expect(d).toBe('On Ethereum. Browse it on Tradermigos; it trades on OpenSea.');
+  });
+
+  it('Junglets says Magic Eden', async () => {
+    const d = decode(meta(await card('/nakamigos/junglets'), 'og:description'));
+    expect(d).toBe('208 items · On Solana. Browse it on Tradermigos; it trades on Magic Eden.');
+  });
+
+  it('a token link on a view-only collection falls back to the collection card, with no fetch', async () => {
+    const html = await card('/nakamigos/memeticseeds/gallery?token=86');
+    expect(decode(meta(html, 'og:description'))).toMatch(/Browse it on Tradermigos; it trades on OpenSea\./);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('Gold Cards gets the trading card, with its real supply and no rarity', async () => {
+    fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ openSea: { floorPrice: null } }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    const html = await card('/nakamigos/junglebaygoldcards');
+    const d = decode(meta(html, 'og:description'));
+    expect(d).toMatch(/123 items/);
+    expect(d).not.toMatch(/rarity/i);
+    expect(decode(meta(html, 'og:title'))).toBe('Jungle Bay Gold Cards | Tradermigos');
+  });
+
+  it('control: the three that trade today keep their card copy', async () => {
+    fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ openSea: { floorPrice: null } }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    const d = decode(meta(await card('/nakamigos/gnssart'), 'og:description'));
+    expect(d).toMatch(/9,696 items/);
+    expect(d).toMatch(/rarity/);
+  });
+
+  it('no collection or token card title carries an em dash', async () => {
+    fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ openSea: { floorPrice: null }, nfts: [{ name: 'X #5' }] }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { COLLECTIONS } = await import('./src/nakamigos/constants.js');
+    for (const slug of Object.keys(COLLECTIONS)) {
+      for (const path of [`/nakamigos/${slug}`, `/nakamigos/${slug}/gallery?token=5`]) {
+        const title = decode(meta(await card(path), 'og:title'));
+        expect(title, path).not.toMatch(/\u2014/);
+        expect(title, path).toMatch(/\| Tradermigos$/);
+      }
+    }
+  });
+});

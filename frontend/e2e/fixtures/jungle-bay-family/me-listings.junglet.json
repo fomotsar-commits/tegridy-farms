@@ -1,0 +1,335 @@
+{
+  "_provenance": "Magic Eden v2 GET /collections/junglet/listings?limit=5, as answered 2026-09-23 (5 of the 55 listed).",
+  "response": [
+    {
+      "pdaAddress": "9sEzim7ToNePzvtUNHqbXCEX2jGypnVWLeuCmmEbYHqk",
+      "auctionHouse": "E8cU1WiRWjanGxmn96ewBgk9vPTcL6AEZ1t6F6fkgUWe",
+      "tokenAddress": "JCiUWAY14Mx2zQzau6nUfKYkc7nd1kinWuWDj3C4Voeu",
+      "tokenMint": "DGzxMHMKVdy1SsSRfR1wLXxA1eB5TeNMp22NADsKYPK3",
+      "seller": "97AJVQCXKSqT5nhmbvD3LMEWTXt4P5jgHaRLvcU5LMcN",
+      "sellerReferral": "autMW8SgBkVYeBgqYiTuJZnkvDZMVU2MHJh9Jh7CSQ2",
+      "tokenSize": 1,
+      "price": 0.695,
+      "priceInfo": {
+        "solPrice": {
+          "rawAmount": "695000000",
+          "address": "So11111111111111111111111111111111111111112",
+          "decimals": 9
+        }
+      },
+      "rarity": {
+        "meInstant": {
+          "rank": 52
+        }
+      },
+      "extra": {
+        "img": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/61"
+      },
+      "expiry": -1,
+      "token": {
+        "mintAddress": "DGzxMHMKVdy1SsSRfR1wLXxA1eB5TeNMp22NADsKYPK3",
+        "owner": "97AJVQCXKSqT5nhmbvD3LMEWTXt4P5jgHaRLvcU5LMcN",
+        "supply": 1,
+        "collection": "junglet",
+        "collectionName": "Junglets",
+        "name": "Junglet #64",
+        "updateAuthority": "3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw",
+        "primarySaleHappened": true,
+        "sellerFeeBasisPoints": 250,
+        "image": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/61",
+        "attributes": [
+          {
+            "trait_type": "Artist",
+            "value": "FilthyTrikksEth"
+          },
+          {
+            "trait_type": "Twitter/X",
+            "value": "filthytrikkseth"
+          }
+        ],
+        "properties": {
+          "files": [
+            {
+              "uri": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/61"
+            }
+          ]
+        },
+        "price": 0.695,
+        "listStatus": "listed",
+        "tokenAddress": "JCiUWAY14Mx2zQzau6nUfKYkc7nd1kinWuWDj3C4Voeu",
+        "priceInfo": {
+          "solPrice": {
+            "rawAmount": "695000000",
+            "address": "So11111111111111111111111111111111111111112",
+            "decimals": 9
+          }
+        }
+      },
+      "listingSource": "M2"
+    },
+    {
+      "pdaAddress": "H51q1ioxKjSZJHiCwjM9tnc6JvcdAkN9rE22NRBJw5Pf",
+      "auctionHouse": "E8cU1WiRWjanGxmn96ewBgk9vPTcL6AEZ1t6F6fkgUWe",
+      "tokenAddress": "6eda1eCrzowZ8rt7svfLyNK6Q3vaUvE4pZXRRo9Bp5Bo",
+      "tokenMint": "FmfwobBva7QgPaFJLwU5fVnttDo85s4BVA4vie4DnBxu",
+      "seller": "97AJVQCXKSqT5nhmbvD3LMEWTXt4P5jgHaRLvcU5LMcN",
+      "sellerReferral": "autMW8SgBkVYeBgqYiTuJZnkvDZMVU2MHJh9Jh7CSQ2",
+      "tokenSize": 1,
+      "price": 0.695,
+      "priceInfo": {
+        "solPrice": {
+          "rawAmount": "695000000",
+          "address": "So11111111111111111111111111111111111111112",
+          "decimals": 9
+        }
+      },
+      "rarity": {
+        "meInstant": {
+          "rank": 27
+        }
+      },
+      "extra": {
+        "img": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/161"
+      },
+      "expiry": -1,
+      "token": {
+        "mintAddress": "FmfwobBva7QgPaFJLwU5fVnttDo85s4BVA4vie4DnBxu",
+        "owner": "97AJVQCXKSqT5nhmbvD3LMEWTXt4P5jgHaRLvcU5LMcN",
+        "supply": 1,
+        "collection": "junglet",
+        "collectionName": "Junglets",
+        "name": "Junglet #141",
+        "updateAuthority": "3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw",
+        "primarySaleHappened": true,
+        "sellerFeeBasisPoints": 250,
+        "image": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/161",
+        "attributes": [
+          {
+            "trait_type": "Artist",
+            "value": "puromay"
+          },
+          {
+            "trait_type": "Twitter/X",
+            "value": "puromay"
+          }
+        ],
+        "properties": {
+          "files": [
+            {
+              "uri": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/161"
+            }
+          ]
+        },
+        "price": 0.695,
+        "listStatus": "listed",
+        "tokenAddress": "6eda1eCrzowZ8rt7svfLyNK6Q3vaUvE4pZXRRo9Bp5Bo",
+        "priceInfo": {
+          "solPrice": {
+            "rawAmount": "695000000",
+            "address": "So11111111111111111111111111111111111111112",
+            "decimals": 9
+          }
+        }
+      },
+      "listingSource": "M2"
+    },
+    {
+      "pdaAddress": "D1Z7Hus8tc9XgZfP6tud7danhc5V4zXCPjZmrXqvYB4J",
+      "auctionHouse": "E8cU1WiRWjanGxmn96ewBgk9vPTcL6AEZ1t6F6fkgUWe",
+      "tokenAddress": "HS3xKYAFnvxY2h5khWAzjn8KyAn3TtYrM2RiuytGuu1K",
+      "tokenMint": "GUER2inTd5QrNqPUaShCw6aA44nda2BwTsQS3CLbnZw9",
+      "seller": "97AJVQCXKSqT5nhmbvD3LMEWTXt4P5jgHaRLvcU5LMcN",
+      "sellerReferral": "autMW8SgBkVYeBgqYiTuJZnkvDZMVU2MHJh9Jh7CSQ2",
+      "tokenSize": 1,
+      "price": 0.695,
+      "priceInfo": {
+        "solPrice": {
+          "rawAmount": "695000000",
+          "address": "So11111111111111111111111111111111111111112",
+          "decimals": 9
+        }
+      },
+      "rarity": {
+        "meInstant": {
+          "rank": 27
+        }
+      },
+      "extra": {
+        "img": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/63"
+      },
+      "expiry": -1,
+      "token": {
+        "mintAddress": "GUER2inTd5QrNqPUaShCw6aA44nda2BwTsQS3CLbnZw9",
+        "owner": "97AJVQCXKSqT5nhmbvD3LMEWTXt4P5jgHaRLvcU5LMcN",
+        "supply": 1,
+        "collection": "junglet",
+        "collectionName": "Junglets",
+        "name": "Junglet #143",
+        "updateAuthority": "3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw",
+        "primarySaleHappened": true,
+        "sellerFeeBasisPoints": 250,
+        "image": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/63",
+        "attributes": [
+          {
+            "trait_type": "Artist",
+            "value": "puromay"
+          },
+          {
+            "trait_type": "Twitter/X",
+            "value": "puromay"
+          }
+        ],
+        "properties": {
+          "files": [
+            {
+              "uri": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/63"
+            }
+          ]
+        },
+        "price": 0.695,
+        "listStatus": "listed",
+        "tokenAddress": "HS3xKYAFnvxY2h5khWAzjn8KyAn3TtYrM2RiuytGuu1K",
+        "priceInfo": {
+          "solPrice": {
+            "rawAmount": "695000000",
+            "address": "So11111111111111111111111111111111111111112",
+            "decimals": 9
+          }
+        }
+      },
+      "listingSource": "M2"
+    },
+    {
+      "pdaAddress": "FjnbW976keZYeTbYyCYEB2kMzYmFXFVkar9iChi4auwZ",
+      "auctionHouse": "E8cU1WiRWjanGxmn96ewBgk9vPTcL6AEZ1t6F6fkgUWe",
+      "tokenAddress": "6HrpgWTMxSLx3dT9SwLLBbPox5d9ZHWE6jTgAtTgeadh",
+      "tokenMint": "A1M1VctHkTLS3DMcmAAYvKQzFvP5KNZLPzEo7o4ctgQS",
+      "seller": "FQ7Rut6csuvCAMa2y8omHtpmUw7D8KVJJcMTdoNHWEiD",
+      "sellerReferral": "autMW8SgBkVYeBgqYiTuJZnkvDZMVU2MHJh9Jh7CSQ2",
+      "tokenSize": 1,
+      "price": 0.7,
+      "priceInfo": {
+        "solPrice": {
+          "rawAmount": "700000000",
+          "address": "So11111111111111111111111111111111111111112",
+          "decimals": 9
+        }
+      },
+      "rarity": {
+        "meInstant": {
+          "rank": 93
+        }
+      },
+      "extra": {
+        "img": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/70"
+      },
+      "expiry": -1,
+      "token": {
+        "mintAddress": "A1M1VctHkTLS3DMcmAAYvKQzFvP5KNZLPzEo7o4ctgQS",
+        "owner": "FQ7Rut6csuvCAMa2y8omHtpmUw7D8KVJJcMTdoNHWEiD",
+        "supply": 1,
+        "collection": "junglet",
+        "collectionName": "Junglets",
+        "name": "Junglet #162",
+        "updateAuthority": "3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw",
+        "primarySaleHappened": true,
+        "sellerFeeBasisPoints": 250,
+        "image": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/70",
+        "attributes": [
+          {
+            "trait_type": "Artist",
+            "value": "reymushaka"
+          },
+          {
+            "trait_type": "Twitter/X",
+            "value": "reymushaka"
+          }
+        ],
+        "properties": {
+          "files": [
+            {
+              "uri": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/70"
+            }
+          ]
+        },
+        "price": 0.7,
+        "listStatus": "listed",
+        "tokenAddress": "6HrpgWTMxSLx3dT9SwLLBbPox5d9ZHWE6jTgAtTgeadh",
+        "priceInfo": {
+          "solPrice": {
+            "rawAmount": "700000000",
+            "address": "So11111111111111111111111111111111111111112",
+            "decimals": 9
+          }
+        }
+      },
+      "listingSource": "M2"
+    },
+    {
+      "pdaAddress": "BkgmNjSE2UEVocR8E2wdWgpDsFPFKecTsZtkCwdUiXbh",
+      "auctionHouse": "E8cU1WiRWjanGxmn96ewBgk9vPTcL6AEZ1t6F6fkgUWe",
+      "tokenAddress": "9ZxoqoqDEKSdAhvvSDQe8J6CbogjEFX4ZbjLkbCNo9h1",
+      "tokenMint": "Bq8afhG1WzwXAaZk47x9ZhyF8snd4iseR6jXMyGDXKuL",
+      "seller": "B2jZj89Cash1CRGJ6KJnzC18UcZVD7PRBERAnUMn6TNo",
+      "sellerReferral": "autMW8SgBkVYeBgqYiTuJZnkvDZMVU2MHJh9Jh7CSQ2",
+      "tokenSize": 1,
+      "price": 0.7,
+      "priceInfo": {
+        "solPrice": {
+          "rawAmount": "700000000",
+          "address": "So11111111111111111111111111111111111111112",
+          "decimals": 9
+        }
+      },
+      "rarity": {
+        "meInstant": {
+          "rank": 115
+        }
+      },
+      "extra": {
+        "img": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/171"
+      },
+      "expiry": -1,
+      "token": {
+        "mintAddress": "Bq8afhG1WzwXAaZk47x9ZhyF8snd4iseR6jXMyGDXKuL",
+        "owner": "B2jZj89Cash1CRGJ6KJnzC18UcZVD7PRBERAnUMn6TNo",
+        "supply": 1,
+        "collection": "junglet",
+        "collectionName": "Junglets",
+        "name": "Junglet #186",
+        "updateAuthority": "3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw",
+        "primarySaleHappened": true,
+        "sellerFeeBasisPoints": 250,
+        "image": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/171",
+        "attributes": [
+          {
+            "trait_type": "Artist",
+            "value": "SCREAM.VISION"
+          },
+          {
+            "trait_type": "Twitter/X",
+            "value": "scream_vision"
+          }
+        ],
+        "properties": {
+          "files": [
+            {
+              "uri": "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/171"
+            }
+          ]
+        },
+        "price": 0.7,
+        "listStatus": "listed",
+        "tokenAddress": "9ZxoqoqDEKSdAhvvSDQe8J6CbogjEFX4ZbjLkbCNo9h1",
+        "priceInfo": {
+          "solPrice": {
+            "rawAmount": "700000000",
+            "address": "So11111111111111111111111111111111111111112",
+            "decimals": 9
+          }
+        }
+      },
+      "listingSource": "M2"
+    }
+  ]
+}

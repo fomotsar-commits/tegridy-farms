@@ -1,0 +1,540 @@
+// No money action starts for a collection that does not trade here.
+//
+// Five of the six Jungle Bay family collections are view-only on this venue:
+// two ERC-1155s on Ethereum, two ERC-721s on Base and a Solana pNFT set. The
+// view layer never mounts a money surface for them (externalCollectionView
+// .test.jsx), and this file is the SECOND layer: every function that can move
+// value, sign an order or grant an approval refuses a non-venue contract as
+// its first act, before it resolves a wallet, fetches, approves or wraps.
+//
+// Refused means: the sink answers `not-venue-tradeable`, and NOTHING below
+// happened (a wallet provider request, a transaction, a typed-data signature,
+// a setApprovalForAll, a WETH wrap or approve, an OpenSea POST, a fetch).
+// Each sink also has a positive control: a venue contract passes the check
+// and reaches its next step (with no wallet connected, that step is the
+// no-wallet answer).
+//
+// Cancels are deliberately NOT refused. A cancel moves no value and only
+// protects the signer; refusing one could strand a live signed order if a
+// contract ever left the venue list.
+
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, act } from "@testing-library/react";
+import { ADDR } from "./__fixtures__/jungleBayFamily";
+import {
+  buyFulfillment, acceptFulfillment, fulfillOrderFulfillment, opaqueFulfillment, SEAPORT_16,
+} from "./__fixtures__/seaportFulfillment";
+
+const NON_VENUE = {
+  "Bojungles (Base ERC-721)": ADDR.bojungles,
+  "Seeds (Base ERC-721)": ADDR.memeticseeds,
+  "the memes (Ethereum ERC-1155)": ADDR.junglebaymemes,
+  "Rare Towelie Cards (Ethereum ERC-1155)": ADDR.raretowelie,
+};
+const VENUE = ADDR.gnssart;
+const GOLD = ADDR.junglebaygoldcards;
+const WALLET = "0x" + "a".repeat(40);
+
+const h = vi.hoisted(() => ({
+  account: null,
+  connectorGetProvider: null,
+  providerRequest: null,
+  browserProviders: 0,
+  sendTransaction: null,
+  signTypedData: null,
+  contractCalls: [],
+  contractImpl: null,
+  openseaPost: null,
+  openseaGet: null,
+  wrapEth: null,
+  approveWeth: null,
+}));
+
+vi.mock("./constants", async (importOriginal) => ({
+  ...(await importOriginal()),
+  // The bundle path is behind a feature flag that is off in production. It is
+  // switched on here so the venue check BEHIND the flag is exercised too.
+  BUNDLE_LISTING_ENABLED: true,
+}));
+
+vi.mock("../lib/wagmi", () => ({ config: { __test: true } }));
+vi.mock("wagmi/actions", () => ({ getAccount: () => h.account }));
+
+vi.mock("ethers", async (importOriginal) => {
+  const actual = await importOriginal();
+  class MockBrowserProvider {
+    constructor() { h.browserProviders += 1; }
+    async getNetwork() { return { chainId: 1n }; }
+    async getSigner() {
+      return {
+        getAddress: async () => WALLET,
+        sendTransaction: (...a) => h.sendTransaction(...a),
+        signTypedData: (...a) => h.signTypedData(...a),
+      };
+    }
+    async getBalance() { return 10n ** 20n; }
+  }
+  class MockContract {
+    constructor(target) {
+      this.target = target;
+      return new Proxy(this, {
+        get(obj, prop) {
+          if (prop in obj) return obj[prop];
+          if (typeof prop !== "string" || prop === "then") return undefined;
+          return (...args) => {
+            h.contractCalls.push({ target: String(target), method: prop, args });
+            return h.contractImpl(prop, String(target), args);
+          };
+        },
+      });
+    }
+  }
+  return {
+    ...actual,
+    ethers: { ...actual.ethers, BrowserProvider: MockBrowserProvider, Contract: MockContract },
+  };
+});
+
+vi.mock("./lib/proxy", () => ({
+  alchemyGet: vi.fn(async () => ({})),
+  alchemyPost: vi.fn(async () => ({})),
+  openseaGet: (...a) => h.openseaGet(...a),
+  openseaPost: (...a) => h.openseaPost(...a),
+  ApiError: class ApiError extends Error {},
+}));
+
+vi.mock("./lib/weth", () => ({
+  getWethBalance: vi.fn(async () => 0n),
+  getEthBalance: vi.fn(async () => 10n ** 20n),
+  getWethAllowance: vi.fn(async () => 0n),
+  wrapEth: (...a) => h.wrapEth(...a),
+  approveWeth: (...a) => h.approveWeth(...a),
+  formatEth: (v) => String(v),
+}));
+
+vi.mock("./lib/rpcProvider", () => ({ getReadProvider: async () => ({ __readProvider: true }) }));
+
+let fetchSpy;
+
+function connectWallet() {
+  const provider = { request: (...a) => h.providerRequest(...a) };
+  h.account = { address: WALLET, connector: { getProvider: (...a) => h.connectorGetProvider(provider, ...a) } };
+  window.ethereum = provider;
+}
+
+function disconnectWallet() {
+  h.account = null;
+  delete window.ethereum;
+}
+
+beforeEach(() => {
+  vi.resetModules();
+  h.browserProviders = 0;
+  h.contractCalls = [];
+  h.providerRequest = vi.fn(async () => null);
+  h.connectorGetProvider = vi.fn(async (provider) => provider);
+  h.sendTransaction = vi.fn(async () => ({ hash: "0xsent", wait: async () => ({ status: 1 }) }));
+  h.signTypedData = vi.fn(async () => "0xsig");
+  h.openseaPost = vi.fn(async () => buyFulfillment(VENUE));
+  h.openseaGet = vi.fn(async () => ({}));
+  h.wrapEth = vi.fn(async () => ({ hash: "0xwrap" }));
+  h.approveWeth = vi.fn(async () => ({ hash: "0xapprove" }));
+  h.contractImpl = (method) => {
+    switch (method) {
+      case "isApprovedForAll": return Promise.resolve(false);
+      case "setApprovalForAll": return Promise.resolve({ hash: "0xsetapproval", wait: async () => ({ status: 1 }) });
+      case "ownerOf": return Promise.resolve(WALLET);
+      case "getCounter": return Promise.resolve(0n);
+      case "cancel": return Promise.resolve({ hash: "0xcancel", wait: async () => ({ status: 1 }) });
+      case "getOrderStatus": return Promise.resolve([true, false, 0n, 1n]);
+      default: return Promise.resolve(undefined);
+    }
+  };
+  fetchSpy = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }), text: async () => "{}" }));
+  vi.stubGlobal("fetch", fetchSpy);
+  connectWallet();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  disconnectWallet();
+});
+
+/** Nothing that costs, signs, approves or asks happened. */
+function expectNothingHappened() {
+  expect(h.connectorGetProvider, "a wallet provider was resolved").not.toHaveBeenCalled();
+  expect(h.providerRequest, "the wallet was asked for something").not.toHaveBeenCalled();
+  expect(h.browserProviders, "a BrowserProvider was built").toBe(0);
+  expect(h.sendTransaction, "a transaction was sent").not.toHaveBeenCalled();
+  expect(h.signTypedData, "an order was signed").not.toHaveBeenCalled();
+  expect(h.contractCalls.map((c) => c.method), "an NFT contract was touched").toEqual([]);
+  expect(h.wrapEth, "ETH was wrapped").not.toHaveBeenCalled();
+  expect(h.approveWeth, "WETH was approved").not.toHaveBeenCalled();
+  expect(h.openseaPost, "OpenSea was asked to build or take an order").not.toHaveBeenCalled();
+  expect(fetchSpy, "a request left the page").not.toHaveBeenCalled();
+}
+
+/** A sink that returns `{ error, message }` refused. */
+function expectRefused(res) {
+  expect(res?.error).toBe("not-venue-tradeable");
+  expect(typeof res?.message).toBe("string");
+  expect(res?.success).toBeUndefined();
+}
+
+// ═══ api.js: buying an OpenSea (Seaport) listing ═══
+describe("api.js buys", () => {
+  for (const [label, contract] of Object.entries(NON_VENUE)) {
+    it(`fulfillSeaportOrder refuses a listing of ${label} (token read from the listing)`, async () => {
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract }, { buyerAddress: WALLET });
+      expectRefused(res);
+      expectNothingHappened();
+    });
+  }
+
+  it("reads the token from the signed order when the listing carries one", async () => {
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrder({
+      orderHash: "0xabc",
+      protocolAddress: SEAPORT_16,
+      orderData: { parameters: { offer: [{ itemType: 2, token: ADDR.bojungles, identifierOrCriteria: "0" }] } },
+    }, { buyerAddress: WALLET });
+    expectRefused(res);
+    expectNothingHappened();
+  });
+
+  it("refuses a listing that names no token at all, rather than assuming Nakamigos", async () => {
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16 }, { buyerAddress: WALLET });
+    expectRefused(res);
+    expectNothingHappened();
+  });
+
+  it("fulfillSeaportOrdersBatch refuses the whole cart when one item is not venue-tradeable", async () => {
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrdersBatch([
+      { orderHash: "0x1", protocolAddress: SEAPORT_16, contract: VENUE },
+      { orderHash: "0x2", protocolAddress: SEAPORT_16, contract: ADDR.memeticseeds },
+    ], { buyerAddress: WALLET });
+    expectRefused(res);
+    expectNothingHappened();
+  });
+
+  describe("the calldata is checked, not the listing's word for it", () => {
+    it("refuses when OpenSea's calldata moves a foreign NFT, even though the listing named a venue token", async () => {
+      h.openseaPost = vi.fn(async () => buyFulfillment(ADDR.bojungles));
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
+      expectRefused(res);
+      expect(h.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it("trusts the encoded calldata over the advisory orders array", async () => {
+      // `orders` claims a venue token; the calldata that would be SIGNED moves Seeds.
+      h.openseaPost = vi.fn(async () => buyFulfillment(ADDR.memeticseeds, { ordersToken: VENUE }));
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
+      expectRefused(res);
+      expect(h.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it("reads the offer items of a full fulfillOrder, not only the basic-order fields", async () => {
+      h.openseaPost = vi.fn(async () => fulfillOrderFulfillment(ADDR.raretowelie));
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
+      expectRefused(res);
+      expect(h.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it("names calldata with no decodable NFT as its own failure, and sends nothing", async () => {
+      h.openseaPost = vi.fn(async () => opaqueFulfillment());
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
+      expect(res.error).toBe("no-nft-token");
+      expect(h.sendTransaction).not.toHaveBeenCalled();
+    });
+
+    it("positive control: a venue listing whose calldata moves that venue token is bought", async () => {
+      h.openseaPost = vi.fn(async () => buyFulfillment(VENUE));
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE }, { buyerAddress: WALLET });
+      expect(res.success).toBe(true);
+      expect(h.sendTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it("positive control: Gold Cards buys the same way", async () => {
+      h.openseaPost = vi.fn(async () => fulfillOrderFulfillment(GOLD));
+      const api = await import("./api");
+      const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: GOLD }, { buyerAddress: WALLET });
+      expect(res.success).toBe(true);
+    });
+  });
+
+  it("positive control: a venue listing with no wallet reaches the no-wallet answer", async () => {
+    disconnectWallet();
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrder({ orderHash: "0xabc", protocolAddress: SEAPORT_16, contract: VENUE });
+    expect(res.error).toBe("no-metamask");
+  });
+});
+
+// ═══ lib/orderbook.js: the venue's own order book ═══
+describe("lib/orderbook.js", () => {
+  const nativeOrder = (token) => ({
+    contract_address: token.toLowerCase(),
+    protocol_address: SEAPORT_16,
+    signature: "0xsig",
+    parameters: {
+      offerer: "0x" + "c".repeat(40),
+      offer: [{ itemType: 2, token, identifierOrCriteria: "1", startAmount: "1", endAmount: "1" }],
+      consideration: [{ itemType: 0, token: "0x0000000000000000000000000000000000000000", identifierOrCriteria: "0", startAmount: "1000", endAmount: "1000", recipient: "0x" + "c".repeat(40) }],
+      endTime: String(Math.floor(Date.now() / 1000) + 3600),
+    },
+  });
+
+  for (const [label, contract] of Object.entries(NON_VENUE)) {
+    it(`fulfillNativeOrder refuses ${label}`, async () => {
+      const ob = await import("./lib/orderbook");
+      expectRefused(await ob.fulfillNativeOrder(nativeOrder(contract)));
+      expectNothingHappened();
+    });
+
+    it(`createNativeListing refuses ${label} before any setApprovalForAll`, async () => {
+      const ob = await import("./lib/orderbook");
+      expectRefused(await ob.createNativeListing({ contract, tokenId: "1", priceEth: 0.1 }));
+      expectNothingHappened();
+    });
+  }
+
+  it("createNativeBundleListing refuses a bundle of a non-venue collection", async () => {
+    const ob = await import("./lib/orderbook");
+    const res = await ob.createNativeBundleListing({
+      items: [{ contract: ADDR.bojungles, tokenId: "1" }, { contract: ADDR.bojungles, tokenId: "2" }],
+      priceEth: 0.2,
+    });
+    expectRefused(res);
+    expectNothingHappened();
+  });
+
+  it("positive controls: venue orders reach the no-wallet answer", async () => {
+    disconnectWallet();
+    const ob = await import("./lib/orderbook");
+    expect((await ob.fulfillNativeOrder(nativeOrder(VENUE))).error).toBe("no-wallet");
+    expect((await ob.createNativeListing({ contract: GOLD, tokenId: "1", priceEth: 0.1 })).error).toBe("no-wallet");
+    expect((await ob.createNativeBundleListing({
+      items: [{ contract: VENUE, tokenId: "1" }, { contract: VENUE, tokenId: "2" }], priceEth: 0.2,
+    })).error).toBe("no-wallet");
+  });
+});
+
+// ═══ api-offers.js: bids and accepting bids ═══
+describe("api-offers.js", () => {
+  for (const [label, contract] of Object.entries(NON_VENUE)) {
+    it(`createItemOffer refuses ${label} before the WETH wrap and approve`, async () => {
+      const offers = await import("./api-offers");
+      expectRefused(await offers.createItemOffer({ tokenId: "1", priceEth: 0.01, contract }));
+      expectNothingHappened();
+    });
+
+    it(`acceptOffer refuses a bid on ${label} before any setApprovalForAll`, async () => {
+      const offers = await import("./api-offers");
+      expectRefused(await offers.acceptOffer({ orderHash: "0xoffer", protocolAddress: SEAPORT_16, tokenContract: contract, tokenId: "1" }));
+      expectNothingHappened();
+    });
+  }
+
+  it("createCollectionOffer and createTraitOffer refuse a view-only collection's slug", async () => {
+    const offers = await import("./api-offers");
+    expectRefused(await offers.createCollectionOffer({ priceEth: 0.01, slug: "bojungles", openseaSlug: "bojungless" }));
+    expectRefused(await offers.createTraitOffer({ traitType: "Artist", traitValue: "x", priceEth: 0.01, slug: "memeticseeds", openseaSlug: "seeds-from-the-memetic-garden" }));
+    expectNothingHappened();
+  });
+
+  it("acceptOffer refuses an offer that names no contract, rather than assuming Nakamigos", async () => {
+    const offers = await import("./api-offers");
+    expectRefused(await offers.acceptOffer({ orderHash: "0xoffer", protocolAddress: SEAPORT_16, tokenId: "1" }));
+    expectNothingHappened();
+  });
+
+  it("acceptOffer refuses when the fill's calldata hands over a foreign NFT, before the approval", async () => {
+    h.openseaPost = vi.fn(async () => acceptFulfillment(ADDR.junglebaymemes));
+    const offers = await import("./api-offers");
+    const res = await offers.acceptOffer({ orderHash: "0xoffer", protocolAddress: SEAPORT_16, tokenContract: VENUE, tokenId: "7" });
+    expectRefused(res);
+    expect(h.contractCalls.map((c) => c.method)).not.toContain("setApprovalForAll");
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it("positive control: accepting a venue bid whose calldata hands over that token fills", async () => {
+    h.openseaPost = vi.fn(async () => acceptFulfillment(VENUE));
+    const offers = await import("./api-offers");
+    const res = await offers.acceptOffer({ orderHash: "0xoffer", protocolAddress: SEAPORT_16, tokenContract: VENUE, tokenId: "7" });
+    expect(res.success).toBe(true);
+  });
+
+  it("positive controls: venue bids reach the no-wallet answer", async () => {
+    disconnectWallet();
+    const offers = await import("./api-offers");
+    expect((await offers.createItemOffer({ tokenId: "1", priceEth: 0.01, contract: GOLD })).error).toBe("no-wallet");
+    expect((await offers.createCollectionOffer({ priceEth: 0.01, slug: "gnssart", openseaSlug: "gnssart" })).error).toBe("no-wallet");
+    expect((await offers.createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" })).error).toBe("no-wallet");
+    expect((await offers.acceptOffer({ orderHash: "0xoffer", tokenContract: VENUE, tokenId: "1" })).error).toBe("no-wallet");
+  });
+
+  describe("an item bid names a token that exists", () => {
+    // Gold Cards ids run 1..123; ownerOf(0) and ownerOf(124) revert. A bid on
+    // an id that does not exist used to wrap ETH and approve WETH before
+    // OpenSea could reject it: gas spent on an order nobody can ever fill.
+    it("refuses a bid when ownerOf reverts, before any wrap, approve or signature", async () => {
+      const base = h.contractImpl;
+      h.contractImpl = (method, target, args) => (method === "ownerOf"
+        ? Promise.reject(Object.assign(new Error("execution reverted: ERC721: owner query for nonexistent token"), { code: "CALL_EXCEPTION" }))
+        : base(method, target, args));
+      const offers = await import("./api-offers");
+      const res = await offers.createItemOffer({ tokenId: "0", priceEth: 0.01, contract: GOLD });
+      expect(res.success).toBeUndefined();
+      expect(res.message).toMatch(/does not exist/i);
+      expect(h.contractCalls.some((c) => c.method === "ownerOf" && c.target.toLowerCase() === GOLD.toLowerCase())).toBe(true);
+      expect(h.wrapEth).not.toHaveBeenCalled();
+      expect(h.approveWeth).not.toHaveBeenCalled();
+      expect(h.signTypedData).not.toHaveBeenCalled();
+      expect(h.openseaPost).not.toHaveBeenCalled();
+    });
+
+    it("positive control: a token that exists goes on to fund the bid", async () => {
+      const offers = await import("./api-offers");
+      await offers.createItemOffer({ tokenId: "1", priceEth: 0.01, contract: GOLD });
+      expect(h.wrapEth).toHaveBeenCalled();
+    });
+  });
+});
+
+// ═══ lib/trades.js: P2P trades ═══
+describe("lib/trades.js", () => {
+  const TAKER = "0x" + "d".repeat(40);
+  const trade = ({ offerToken, considerationItem }) => ({
+    protocol_address: SEAPORT_16,
+    signature: "0xsig",
+    offerer: "0x" + "c".repeat(40),
+    parameters: {
+      offerer: "0x" + "c".repeat(40),
+      zone: "0x0000000000000000000000000000000000000000",
+      offer: [{ itemType: 2, token: offerToken, identifierOrCriteria: "1", startAmount: "1", endAmount: "1" }],
+      consideration: [considerationItem],
+      orderType: 0,
+      startTime: String(Math.floor(Date.now() / 1000) - 60),
+      endTime: String(Math.floor(Date.now() / 1000) + 3600),
+      salt: "1",
+    },
+  });
+  const nft = (token, id = "2") => ({ itemType: 2, token, identifierOrCriteria: id, startAmount: "1", endAmount: "1", recipient: "0x" + "c".repeat(40) });
+  const anyOf = (token) => ({ itemType: 4, token, identifierOrCriteria: "0", startAmount: "1", endAmount: "1", recipient: "0x" + "c".repeat(40) });
+
+  for (const [label, contract] of Object.entries(NON_VENUE)) {
+    it(`createTradeOffer refuses giving ${label}`, async () => {
+      const t = await import("./lib/trades");
+      expectRefused(await t.createTradeOffer({ give: [{ contract, tokenId: "1" }], get: [{ contract: VENUE, tokenId: "2" }], taker: TAKER }));
+      expectNothingHappened();
+    });
+
+    it(`createTradeOffer refuses asking for any ${label}`, async () => {
+      const t = await import("./lib/trades");
+      expectRefused(await t.createTradeOffer({ give: [{ contract: VENUE, tokenId: "1" }], get: [{ contract, any: true }], open: true }));
+      expectNothingHappened();
+    });
+
+    it(`acceptTrade refuses a trade carrying ${label}`, async () => {
+      const t = await import("./lib/trades");
+      expectRefused(await t.acceptTrade(trade({ offerToken: contract, considerationItem: nft(VENUE) })));
+      expectNothingHappened();
+    });
+
+    it(`acceptOpenTrade refuses an open trade asking for any ${label}`, async () => {
+      const t = await import("./lib/trades");
+      expectRefused(await t.acceptOpenTrade(trade({ offerToken: VENUE, considerationItem: anyOf(contract) }), { 0: "5" }));
+      expectNothingHappened();
+    });
+  }
+
+  it("cancelTradeOnChain is NOT refused: a cancel moves no value", async () => {
+    const t = await import("./lib/trades");
+    // The connected wallet is the maker here: only a maker can cancel.
+    const mine = trade({ offerToken: ADDR.bojungles, considerationItem: nft(VENUE) });
+    mine.offerer = WALLET;
+    mine.parameters.offerer = WALLET;
+    const res = await t.cancelTradeOnChain(mine);
+    expect(res.error).not.toBe("not-venue-tradeable");
+    expect(h.contractCalls.map((c) => c.method)).toContain("cancel");
+  });
+
+  it("positive controls: venue trades reach the no-wallet answer", async () => {
+    disconnectWallet();
+    const t = await import("./lib/trades");
+    expect((await t.createTradeOffer({ give: [{ contract: GOLD, tokenId: "1" }], get: [{ contract: VENUE, tokenId: "2" }], taker: TAKER })).error).toBe("no-wallet");
+    expect((await t.acceptTrade(trade({ offerToken: VENUE, considerationItem: nft(GOLD) }))).error).toBe("no-wallet");
+    expect((await t.acceptOpenTrade(trade({ offerToken: VENUE, considerationItem: anyOf(VENUE) }), { 0: "5" })).error).toBe("no-wallet");
+  });
+});
+
+// ═══ cancels stay open ═══
+describe("cancels are exempt from the venue check", () => {
+  it("cancelSeaportOrder still cancels an order that carries a non-venue NFT", async () => {
+    const { cancelSeaportOrder } = await import("./lib/seaportCancel");
+    const { ethers } = await import("ethers");
+    const tx = await cancelSeaportOrder({
+      ethers,
+      signer: {},
+      params: { offerer: WALLET, offer: [{ itemType: 2, token: ADDR.bojungles, identifierOrCriteria: "1", startAmount: "1", endAmount: "1" }], consideration: [] },
+      seaportAddress: SEAPORT_16,
+    });
+    expect(tx?.hash).toBe("0xcancel");
+  });
+
+  it("api-offers cancelOrder still cancels an order that carries a non-venue NFT", async () => {
+    const offers = await import("./api-offers");
+    const res = await offers.cancelOrder({
+      protocol_address: SEAPORT_16,
+      protocol_data: { parameters: { offerer: WALLET, offer: [{ itemType: 2, token: ADDR.memeticseeds, identifierOrCriteria: "1" }], consideration: [] } },
+    });
+    expect(res.success).toBe(true);
+  });
+});
+
+// ═══ the cart ═══
+describe("CartContext", () => {
+  it("addToCart does nothing under a view-only collection, and writes nothing to storage", async () => {
+    localStorage.clear();
+    const { CollectionProvider } = await import("./contexts/CollectionContext");
+    const { CartProvider, useCart } = await import("./contexts/CartContext");
+    let cart;
+    function Probe() { cart = useCart(); return null; }
+    const view = render(
+      <CollectionProvider slug="bojungles">
+        <CartProvider><Probe /></CartProvider>
+      </CollectionProvider>,
+    );
+    act(() => cart.addToCart({ id: "0", name: "Bojungles #0", price: 0.1 }));
+    expect(cart.cartCount).toBe(0);
+    for (let i = 0; i < localStorage.length; i++) {
+      expect(localStorage.getItem(localStorage.key(i)), localStorage.key(i)).not.toContain("Bojungles #0");
+    }
+    view.unmount();
+  });
+
+  it("positive control: the cart still works for a venue collection", async () => {
+    localStorage.clear();
+    const { CollectionProvider } = await import("./contexts/CollectionContext");
+    const { CartProvider, useCart } = await import("./contexts/CartContext");
+    let cart;
+    function Probe() { cart = useCart(); return null; }
+    const view = render(
+      <CollectionProvider slug="gnssart">
+        <CartProvider><Probe /></CartProvider>
+      </CollectionProvider>,
+    );
+    act(() => cart.addToCart({ id: "5", name: "GNSS #5", price: 0.1 }));
+    expect(cart.cartCount).toBe(1);
+    view.unmount();
+  });
+});
+

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { acceptFulfillment } from "./__fixtures__/seaportFulfillment";
 
 // ═══ REGRESSION: a criteria offer could not be filled, and a multi-item bid
 //     priced itself 9x too high ═══
@@ -94,19 +95,11 @@ vi.mock("./lib/seaportCancel", () => ({
   buildOrderComponents: vi.fn(),
 }));
 
-// A well-formed fulfillment response. `fulfillOrder` is a real allowlisted
-// entrypoint and the argument shape is simplified — these tests care about what
-// we SEND, not about calldata layout.
-const FULFILLMENT_OK = {
-  fulfillment_data: {
-    transaction: {
-      to: SEAPORT_16,
-      value: "0",
-      function: "fulfillOrder(uint256 hint)",
-      input_data: { hint: 1 },
-    },
-  },
-};
+// A well-formed fulfillment response: accepting a bid hands over a Nakamigos
+// token (the NFT is the basic order's consideration token). These tests care
+// about what we SEND, but acceptOffer also reads the NFT the fill hands over
+// from the calldata and refuses one it cannot name, so the fixture names one.
+const FULFILLMENT_OK = acceptFulfillment(NFT, { to: SEAPORT_16 });
 
 /** The live `offers/collection/{slug}/nfts/{id}/best` shape for a TRAIT offer:
  *  the NFT consideration item is itemType 4 and carries the merkle root. */
