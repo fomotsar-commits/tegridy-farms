@@ -1,15 +1,8 @@
-// Heat — Jungle Bay Island's held-time reading for a wallet, and a plain-English
-// account of how it was arrived at.
-//
-// HONESTY RULES BAKED INTO THIS COMPONENT (do not "simplify" them away):
-//  1. Heat is the ISLAND'S measurement, not ours. The panel says so, every time.
-//  2. Tier words render VERBATIM (Elder / Builder / Resident / Observer / Drifter)
-//     and are never translated into yield, APR, rewards or points language. Heat is
-//     held time. It pays nothing.
-//  3. The reckoning date is always on screen. A stale ruler certifies nothing, so a
-//     stale reading is labelled as stale rather than quietly shown as current.
-//  4. "The instrument is unreachable" and "this wallet is cold" are DIFFERENT states
-//     with different copy. An outage must never render as a zero score.
+// Heat: Jungle Bay Island's held-time reading for a wallet, and how it is read.
+// The island measures, and the panel says so. Tier words render verbatim, never as yield
+// or points. The reckoning date is always on screen, and a stale reading says so.
+// "The instrument is unreachable" and "this wallet is cold" are different states with
+// different copy: an outage never renders as a zero.
 
 import { daysHeld } from '../lib/heat/daysHeld';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -122,24 +115,12 @@ type State =
   | { kind: 'ready'; reading: HeatReading };
 
 export interface HeatCardProps {
-  /**
-   * Read THIS wallet instead of whatever is connected, and hide the lookup form.
-   *
-   * This is what makes one component serve every surface. The leaderboard wants a
-   * free-text instrument anyone can point at any wallet; the gate's COLD state wants
-   * the connected wallet's own reading and nothing else — "the wallet sees its own
-   * degrees and what warmth is". Same card, same copy, same tier words.
-   */
+  /** Read THIS wallet and hide the lookup form: the gate's COLD state shows the connected
+   *  wallet its own reading, with the same copy and tier words as everywhere else. */
   address?: string;
-  /**
-   * Seed the lookup field and read it on mount, WITHOUT hiding the form.
-   *
-   * This is how a shared link arrives: `/read/<address>` and `/?heat=<address>` both
-   * land here, so the reader sees the number they were shown rather than an empty
-   * field they have to be told about. Distinct from `address` on purpose — `address`
-   * pins the card to one wallet and removes the form, which is right for the gate and
-   * wrong for a share, where the next thing a stranger does is read their own.
-   */
+  /** Seed the lookup field and read it on mount, keeping the form: how a shared link
+   *  (`/read/<address>`, `/?heat=<address>`) arrives already reading, one paste from the
+   *  reader's own. `address` instead pins one wallet and removes the form. */
   initialAddress?: string | null;
   /**
    * Put a value in the field WITHOUT reading it: what a visitor typed and did not
@@ -159,20 +140,10 @@ export interface HeatCardProps {
   variant?: 'panel' | 'embedded';
   /** Hide the launch-floor line, for surfaces where launching is not the subject. */
   showEligibility?: boolean;
-  /**
-   * READ THE SAME WALLET, BUT ANSWER ONE TOKEN'S QUESTION (wave seven, element D).
-   *
-   * A bungalow room asks something narrower than the venue does: not "what is
-   * this wallet's whole flame", but "what is this visitor's held time HERE".
-   * The reading is identical — same address, same fetch, same freshness, same
-   * failure sentences — so this is a presentation of it, not a second source.
-   * The directive's own words are "the instrument, element B, scoped".
-   *
-   * Everything that decides anything is untouched: the form, the loading arm,
-   * and the error arm all render exactly as they do on the venue, because an
-   * unreadable instrument in a room must fail the same way it fails anywhere
-   * else and must never read as a zero.
-   */
+  /** Answer one token's question from the same reading: a room shows its own row, then the
+   *  whole flame. Same address, fetch, freshness and failure sentences; the form, loading
+   *  and error arms render as they do on the venue, so an unreadable instrument in a room
+   *  never reads as a zero. */
   scopeTo?: { address: string; symbol: string };
 }
 
@@ -453,14 +424,9 @@ function Reading({
     rememberRead(reading.address, { degrees: reading.degrees, asOf: reading.asOfUnix });
   }, [reading.address, reading.degrees, reading.asOfUnix, reading.isCold]);
 
-  // WHERE THIS NUMBER WOULD SIT. Only for an UNNAMED flame, because a named one is
-  // already on the board and its real position is the island's to state, not ours to
-  // simulate. This is the line that turns a private number into a public place, and
-  // the place is claimed at the island's door.
-  //
-  // The result is tagged with the address it was computed for, so a rank can never be
-  // painted beside a different wallet's reading while the next board read is in
-  // flight, and nothing has to be synchronously cleared on the way through.
+  // Where this number would sit, for an UNNAMED flame only: a named one is on the board and
+  // its position is the island's to state. Tagged with the address it was computed for, so
+  // a rank is never painted beside another wallet's reading.
   const [rank, setRank] = useState<{ forAddress: string; rank: number; of: number } | null>(null);
   useEffect(() => {
     if (reading.isCold || reading.xHandle) return;
@@ -501,14 +467,8 @@ function Reading({
 
   return (
     <div>
-      {/* THE ISLAND'S ORDER, and it is the design rather than a layout preference:
-          tier, then days, then degrees, then since, then tokens.
-
-          The TIER leads because it is a word a stranger already understands. The DAYS
-          lead the numbers because days are the unit the whole world can compare
-          without being taught anything — degrees are the island's grammar, and they
-          come second so nobody has to learn a new unit to feel the number. Both
-          render; neither is dropped. */}
+      {/* The island's order: tier, days, degrees, since, tokens. The word a stranger knows
+          leads, days are the unit anyone compares, and degrees follow. */}
       <div className="mb-4">
         <div
           className="text-[22px] leading-none tracking-[0.10em] uppercase font-semibold"
@@ -703,13 +663,9 @@ function Reading({
         </div>
       )}
 
-      {/* THE SHARE. One button, under a WARM read only: a cold wallet has nothing to
-          post and asking it to would be the one moment this instrument shames someone.
-          The tier and the days lead the text because they are legible to a stranger who
-          has never heard of a degree; the number rides in the sentence; and the single
-          link is element M's read link, which unfurls as this holder's own card. The
-          holder chose to post their address, so nothing here is published on their
-          behalf — this only opens the composer. */}
+      {/* The share: one button, under a WARM read only, since a cold wallet has nothing to
+          post. It opens the composer with served numbers and the read link; nothing is
+          posted on the holder's behalf. */}
       {!reading.isCold && days !== null && (
         <a
           href={shareIntent}
@@ -737,24 +693,10 @@ function Reading({
 }
 
 /**
- * THE ROOM'S OWN READ — wave seven, element D.
- *
- * Two lines, in the order the directive sets: the row for THIS room's contract
- * first, the whole flame second. The scoped number leads because it is the
- * question the room asks; the flame follows so the visitor is never shown a
- * small number without being told it is one token's share of a bigger one.
- *
- * MATCHED BY CONTRACT, CASE-INSENSITIVELY, and that is not a nicety: the
- * registry stores EVM addresses lowercase and Solana mints in base58 with real
- * capitals, while the island echoes back whatever it holds. A case-sensitive
- * compare would silently find no row for every Solana room and print "holds no
- * measured BAYLA yet" to somebody holding plenty.
- *
- * A RETIRED ROW IS GREYED AND LABELED (row R). The island answered what the
- * word means: a mint it no longer scans, a migrated or scrapped token's
- * history. The row's own degrees stay on screen because they are the island's
- * number, painted as served; the whole-flame line under it is the island's
- * served heat, never a venue sum.
+ * A room's own read: this room's row first, then the whole flame as served. Matched by
+ * contract case-insensitively, because the registry keeps Solana mints in base58 with
+ * capitals and the island echoes whatever it holds. A retired row is greyed and labeled,
+ * with its own served degrees.
  */
 function ScopedReading({
   reading,

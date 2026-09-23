@@ -1,16 +1,7 @@
-// HeatCard — the instrument's rendered reading. This component had NO test at all
-// before wave seven, which is why a recut of its result area could otherwise have
-// shipped on a green suite that never looked at it.
-//
-// What is pinned here is the ISLAND'S ORDER and its two honesty states:
-//   tier · days · degrees · since · tokens, in that order, because the order is the
-//   design (a word first, then the unit anyone can compare, then the island's grammar);
-//   a COLD read that names where the clock starts instead of showing a zero-shaped
-//   ladder; and a NAMED flame whose byline can only ever link to an x.com profile.
-//
-// THE CLOCK IS PINNED. Every figure below is absolute, and `Date.now` is mocked to one
-// instant, so the reading can never age past the 7-day staleness gate and turn this
-// suite red in a week. A fixture that rots is not a fixture.
+// HeatCard, the instrument's rendered reading. Pinned: the island's order (tier, days,
+// degrees, since, tokens), a COLD read that names where the clock starts, a named flame
+// that links only to an x.com profile, the served tier word, and the island's sentences.
+// Date.now is mocked to one instant, so no fixture ages past the 7-day freshness law.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
@@ -126,15 +117,8 @@ afterEach(() => {
   localStorage.clear();
 });
 
-/**
- * Wait for the reading to land.
- *
- * THE TIER WORD IS ON THE CARD TWICE NOW - once as the result's own headline and
- * once as its rung on the ladder (element B's remainder) - so `findByText` on it
- * throws "found multiple elements" and every test that used it as a barrier goes
- * red for a reason that has nothing to do with what it asserts. The barrier is
- * the FIRST match, which is the headline: the ladder renders after the result.
- */
+/** Wait for the reading to land. The tier word renders twice (headline and ladder rung),
+ *  so the barrier is the FIRST match: the headline, which renders before the ladder. */
 async function awaitRead(tier = 'Elder'): Promise<HTMLElement> {
   const all = await screen.findAllByText(tier);
   return all[0]!;
@@ -536,17 +520,8 @@ describe("element D — the room's own read", () => {
     h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row()] }));
     const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
 
-    // WAIT ON THE ANSWER, NOT ON THE QUESTION. The heading this used to gate on
-    // renders OUTSIDE the ready state — deliberately, so a cold room still names
-    // what it reads — which means it is on screen from the first frame and was
-    // never a gate at all. On a loaded runner the DOM got read before the scoped
-    // read resolved and BOTH indices came back -1, failing on the race rather
-    // than on the ordering this test exists to pin.
-    //
-    // Both strings below live in ScopedReading, which mounts only once the read
-    // lands, so waiting for both of them IS the read having resolved. The
-    // ordering assertion then compares two indices already known to exist — it
-    // can still go red, but only for the reason it names.
+    // Wait on the answer, not the question: the heading renders before the read lands.
+    // Both strings live in ScopedReading, which mounts only once the read resolves.
     let text = '';
     let scoped = -1;
     let flame = -1;
@@ -610,13 +585,8 @@ describe("element D — the room's own read", () => {
     // effect, the full instrument would render here and this would catch it.
     h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row()] }));
     const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
-    // Gate on the ANSWER, not the heading: the heading is on screen from the
-    // first frame, so gating on it left this asserting an absence against a DOM
-    // that had not rendered the reading yet — an absence is satisfied by an
-    // empty room, so it would have passed just as happily if the scope prop had
-    // stopped working entirely. Wait on the whole-flame degrees, which the read
-    // paints in BOTH renderings: that way a scope regression still reaches the
-    // assertion below and fails there, instead of timing out on a gate.
+    // Gate on the whole-flame degrees, painted in both renderings, so a scope regression
+    // reaches the assertion below instead of timing out on a gate.
     await waitFor(() => expect(container.textContent ?? '').toContain(DEGREES.toFixed(2)));
     expect(container.textContent).not.toMatch(/Where the .* comes from/i);
   });

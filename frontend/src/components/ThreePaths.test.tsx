@@ -1,13 +1,6 @@
-// The three paths. Small surface, three load-bearing properties:
-//
-//  1. THE FLOOR IS READ, NEVER TYPED. This is the one that can rot silently. A
-//     hardcoded 80 renders identically to a read 80 on every screenshot and in every
-//     review, and only diverges the day an operator moves the dial — at which point
-//     the home page promises one number and the gate enforces another. So the test
-//     moves the dial and insists the card follows.
-//  2. EXACTLY THREE DOORS, to the three routes the hero's CTAs used to cover.
-//  3. ZERO EM DASHES, because this component is new venue voice and element I's
-//     rendered guard will walk it.
+// The three paths. The floor is read, never typed: the test moves the dial and the card
+// must follow, because a hardcoded 80 looks identical until an operator moves it.
+// Exactly three doors, and zero em dashes in the rendered copy.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';

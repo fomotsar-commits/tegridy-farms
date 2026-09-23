@@ -1,27 +1,7 @@
-// WHAT THE ISLAND HAS ACTUALLY CONFIRMED ABOUT THE INSTRUMENT — Wave 3, phase 06(b).
-//
-// The venue published a number the island never gave it. `heatOracle.ts` carried
-// `TWAB_WINDOW_DAYS = 180` under the header "CONFIRMED BY THE ISLAND 2026-08-07", and
-// an explainer built a whole mechanic on top of it: that the window ROLLS, so "a wallet
-// that sells decays out of the average over the following 180 days". Both were rendered
-// to users on /leaderboard.
-//
-// Wave 3 says plainly: that constant is not island-confirmed, and the decay story built
-// on it is untrue. The instrument's confirmed properties are exactly three —
-//
-//     continuous · zero-anchored from first hold · velocity-blind
-//
-// — and wallets should be shown HELD TIME SINCE FIRST HOLD. No calendar. No decay
-// schedule. Exact window semantics arrive from the island when they are published.
-//
-// This is the same defect class as the fee claims: an unknown published as a confident
-// value. It is worse here, because the number was attributed to a third party who never
-// said it. So these tests pin the RULE, not the wording: the venue may describe the
-// three properties, and may not state a window length or a decay mechanic anywhere a
-// user can read it.
-//
-// When the island publishes the window, delete the guard in `does not state an averaging
-// window` and nothing else — the three properties stay true either way.
+// The venue explains heat in the island's sentences and states no formula, TWAB, window
+// length, decay mechanic, sum of rooms, share-of-supply definition or link to
+// memetics.wtf/island anywhere a reader is shown. The guards read the strings and JSX
+// text a reader sees (userText), or source with its comments stripped (prose).
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';

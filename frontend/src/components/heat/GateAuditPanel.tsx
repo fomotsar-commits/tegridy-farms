@@ -1,20 +1,8 @@
-// THE DOOR'S RECEIPT. The read half of the audit ring — "every decision is logged
-// replayable" is only true if somebody can actually read it back.
-//
-// WHAT THIS SURFACE MUST NEVER DO (each of these is a way of lying with a table):
-//  1. Render the CURRENT floor against an OLD decision. Every row carries the floor it
-//     was taken against; a floor that moved since must be shown as a separate, present-
-//     tense fact, never substituted into history.
-//  2. Collapse `as_of` (when the ISLAND reckoned) into `decided_at` (when the DOOR
-//     decided). They are hours or days apart and they answer different questions.
-//  3. Show an empty list when storage is unavailable. "Nothing was recorded" and "this
-//     browser will not let the page keep a record" are different facts, and an empty
-//     table shown for both reads as "you were never denied".
-//  4. Print 0° for a decision that never got a reading. `degrees: null` is an outage,
-//     not a cold wallet — the distinction the whole heat surface is built around.
-//
-// LOCAL AND FIRST-PARTY. This reads the user's own device and sends nothing anywhere;
-// see gateAudit.ts for why the record deliberately lives outside the analytics sink.
+// The door's receipt: the audit ring read back, local to this device and sent nowhere
+// (gateAudit.ts keeps it outside analytics). Every row renders the floor it was taken
+// against, never today's; `as_of` (the island reckoned) and `decided_at` (the door
+// decided) stay separate; unavailable storage is not an empty list; and a decision with
+// no reading prints "not read", never 0°.
 
 import { useId, useMemo, useState } from 'react';
 import {
@@ -43,24 +31,14 @@ const REASON_WORDS: Record<GateAuditRow['reason'], string> = {
   unreadable: 'the island could not be read at all',
 };
 
-/**
- * An absolute instant, in UTC, to the minute.
- *
- * UTC and not local time on purpose: this string is quoted into support threads
- * alongside a `gate_decision_id`, and a local-time stamp means the reader and the
- * person helping them are looking at two different numbers for one decision.
- */
+/** An absolute instant in UTC, to the minute: support threads quote it beside a
+ *  gate_decision_id, and a local stamp would show two people two numbers. */
 function stamp(unix: number): string {
   return `${new Date(unix * 1000).toISOString().replace('T', ' ').slice(0, 16)} UTC`;
 }
 
-/**
- * The decision, re-derived from the row's OWN stored inputs.
- *
- * This is what "replayable" buys: the comparison is recomputed at render from
- * `degrees` and `floor` as they were, so the arithmetic on screen is the arithmetic the
- * door did — not the arithmetic today's dials would do.
- */
+/** The decision re-derived from the row's own stored degrees and floor, so the arithmetic
+ *  on screen is the arithmetic the door did, not what today's dials would do. */
 export function replayLine(row: GateAuditRow): string {
   if (row.degrees === null) {
     return `No degrees were read, so nothing was measured against the ${row.floor}° floor. That is an unread instrument, not a zero.`;
@@ -90,13 +68,8 @@ export interface GateAuditPanelProps {
   limit?: number;
 }
 
-/**
- * What the panel has to render, once the ring has been read and narrowed to one wallet.
- *
- * `total` is deliberately kept alongside `mine`: "nothing is recorded" and "plenty is
- * recorded, none of it about you" are different answers and the reader is owed the one
- * that is true.
- */
+/** What the panel renders once the ring is read and narrowed to one wallet. `total` stays
+ *  beside `mine`: "nothing is recorded" and "none of it is about you" are different answers. */
 type View =
   | { kind: 'unavailable' }
   | { kind: 'unreadable' }

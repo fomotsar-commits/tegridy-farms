@@ -1,21 +1,8 @@
 /**
- * llms.txt: A GENERATED FIELD THAT DISAGREES WITH ITS SOURCE FAILS HERE.
- *
- * The island's done-means for llms.txt, verbatim in spirit: "a test fails when a
- * generated field disagrees with its source constant; zero em dashes." Three kinds
- * of disagreement are covered:
- *
- *   1. RENDERING. The renderer must DERIVE percentages, multipliers and durations,
- *      never type them. Proven with synthetic facts nobody would hardcode: a 12.34%
- *      exit and a 123-degree floor.
- *   2. SOURCE. Each staking term equals the constant the app uses AND the Solidity
- *      that constant mirrors, so a stale mirror cannot publish a stale number.
- *   3. LEDGER. Every contract printed is registered LIVE under its own chain in
- *      scripts/addresses.json, which is a history ledger: registered is not wired,
- *      and a retired or third-party entry must never be offered as the venue's.
- *
- * And the island's limits: ASCII only, no community links (owner, 09-17: the old
- * Discord is dead and there will never be a Telegram), no APR, no prices.
+ * llms.txt fails here when a generated field disagrees with its source: the renderer
+ * derives every percentage, multiplier and duration; each staking term equals the app
+ * constant and the Solidity it mirrors; every contract printed is registered live under
+ * its own chain. ASCII only, no community links, no APR, no prices.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';

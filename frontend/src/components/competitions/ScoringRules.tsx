@@ -6,13 +6,9 @@ import {
 } from '../../lib/competitions/scoring';
 import { SETTLEMENT } from '../../lib/competitions/season';
 
-// The rules, above the board rather than behind a link.
-//
-// Three claims a competition page is expected to make and this one does not:
-// that there is a prize, that the season will be settled, and that the ranking
-// measures skill. Each is answered here with the reason, and each sentence is
-// imported from the module that enforces it rather than retyped — a rule that
-// can drift from its own description is a rule nobody can rely on.
+// The rules, above the board rather than behind a link. The page claims no prize, no
+// settlement and no measure of skill, and says why; each sentence is imported from the
+// module that enforces it, so a rule cannot drift from its description.
 
 export function ScoringRules() {
   return (
