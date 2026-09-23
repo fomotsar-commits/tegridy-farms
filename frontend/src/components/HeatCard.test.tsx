@@ -588,7 +588,7 @@ describe("element D — the room's own read", () => {
     // Gate on the whole-flame degrees, painted in both renderings, so a scope regression
     // reaches the assertion below instead of timing out on a gate.
     await waitFor(() => expect(container.textContent ?? '').toContain(DEGREES.toFixed(2)));
-    expect(container.textContent).not.toMatch(/Where the .* comes from/i);
+    expect(container.textContent).not.toContain('Your rooms, deepest first');
   });
 });
 

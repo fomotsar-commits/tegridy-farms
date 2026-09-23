@@ -102,10 +102,11 @@ test.describe('the launch door', () => {
     await expect(door.getByText(/The door opens at 80°,/).first()).toBeVisible();
     await expect(door.getByText(/Size can raise what a day is worth, it cannot buy a day[.]/)).toBeVisible();
 
-    // THIS WALLET'S OWN READING, from the embedded card — the point of the COLD state.
-    // The breakdown heading is HeatCard's alone, so it cannot be satisfied by the
-    // door's one-line detail quoting the same number.
-    await expect(door.getByText(/Where the 62\.40° comes from/)).toBeVisible();
+    // THIS WALLET'S OWN READING, from the embedded card: the rooms heading is HeatCard's
+    // alone, and the room under it prints the wallet's own served degrees.
+    const rooms = door.getByText('Your rooms, deepest first');
+    await expect(rooms).toBeVisible();
+    await expect(rooms.locator('xpath=following-sibling::ul[1]')).toContainText('62.40°');
     // The reckoning date travels with the reading everywhere it is shown — a stale
     // ruler certifies nothing, so the card never renders degrees without it.
     await expect(door.getByText(/Reckoned .+ ago/)).toBeVisible();
@@ -165,7 +166,7 @@ test.describe('the audit panel', () => {
     // 316px settle measured for the live-denial test below, same reason, and the same
     // real content asserted to detect it. This test survived the race only by accident:
     // its `toHaveAttribute` below polls, which happened to buy enough time.
-    await expect(door.getByText(/Where the 62\.40° comes from/)).toBeVisible();
+    await expect(door.getByText('Your rooms, deepest first')).toBeVisible();
     // Collapsed by default: the reading is the answer, the ledger is the working.
     await expect(door.getByText('Floor at the time')).toHaveCount(0);
     const toggle = door.getByRole('button', { name: /why did the door answer this way\?/i });
@@ -199,7 +200,7 @@ test.describe('the audit panel', () => {
 
     // The COLD door keeps growing after the verdict: the embedded card reads on its own and
     // pushes the audit toggle down (316px on a Pixel 5). Wait for the card's own heading.
-    await expect(door.getByText(/Where the 62\.40° comes from/)).toBeVisible();
+    await expect(door.getByText('Your rooms, deepest first')).toBeVisible();
 
     await door.getByRole('button', { name: /why did the door answer this way\?/i }).click();
 
