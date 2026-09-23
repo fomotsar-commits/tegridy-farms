@@ -117,6 +117,215 @@ export const COLLECTIONS = {
       { label: "Hand-Drawn Art", color: "var(--naka-blue)" },
     ],
   },
+
+  // ─── The Jungle Bay family (memetics.wtf/heat: "the family collections") ───
+  // Every value below was READ: an eth_call on Ethereum or Base, a Solana
+  // metadata read, the collection's own OpenSea page or the Magic Eden API
+  // (registry.test.js holds each one to __fixtures__/jungleBayFamily.js).
+  // No lore, loading lines or fun facts exist for them, by design. Only Gold
+  // Cards trades here; the other five open read only on their home market.
+  junglebaygoldcards: {
+    name: "Jungle Bay Gold Cards",
+    contract: "0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3", // src/lib/constants.ts JBAY_GOLD_ADDRESS
+    slug: "junglebaygoldcards", // equals openseaSlug: money paths read OpenSea by either name
+    openseaSlug: "junglebaygoldcards",
+    chain: "ethereum",
+    standard: "erc721",
+    venueTrade: true,
+    chip: "GOLD",
+    symbol: "JBAY",
+    supply: 123,
+    tokenIds: { first: 1 }, // ids 1..123; ownerOf(0) and ownerOf(124) revert
+    supplyNote: "totalSupply() on Ethereum at block 26041301 (ids 1 to 123). maxSupply() is 150, so more can be minted.",
+    mintBlock: 13781371,
+    deploy: { block: 13781371, date: "2021-12-11" },
+    metadataBase: null, // every token shares one S3 image; there are no per-id PNGs
+    deterministicImage: false,
+    image: "https://i2c.seadn.io/ethereum/a83577bfb307408682cd44520d1c00d4/899e287b319c9faf45c57e2626c8a1/21899e287b319c9faf45c57e2626c8a1.png",
+    // The first paragraph of its OpenSea description only. The rest lists holder
+    // benefits, one of them a 1.5x $JBAC multiplier the venue's staking does not honour.
+    description: "Gold Cards began as representation of those who invested in JungleBay when the project first emerged from the ashes of a rug. They are now held by the people who believe in the ethos of JungleBay and want to participate to the development of JungleBay island, as well as the governance of its ecosystem.",
+    descriptionSource: "opensea",
+    tags: ["ERC-721", "ETHEREUM", "JUNGLE BAY"],
+    pixelated: false,
+    highlights: [],
+    market: {
+      name: "OpenSea",
+      collectionUrl: "https://opensea.io/collection/junglebaygoldcards",
+      itemUrlTemplate: "https://opensea.io/item/ethereum/0x6aa03f42c5366e2664c887eb2e90844ca00b92f3/{id}",
+    },
+    explorer: { name: "Etherscan", addressUrl: "https://etherscan.io/address/0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3" },
+    blurSlug: null, // no Blur page was verified
+  },
+  junglebaymemes: {
+    name: "the memes by jungle bay x mfers artists",
+    contract: "0x9EdABa801123866F25993914E389924744a07E89",
+    slug: "junglebaymemes",
+    openseaSlug: "the-memes-by-junglebay-x-mfers-artists",
+    chain: "ethereum",
+    standard: "erc1155",
+    venueTrade: false,
+    symbol: "JBMFERS",
+    supply: null, // an ERC-1155 has no single supply; see editions
+    editions: { tokenIds: 22, total: 975, asOfBlock: 26041365 },
+    supplyNote: "22 token ids (1 to 22) holding 975 editions, totalSupply(id) on Ethereum at block 26041365. The creator contract can add more.",
+    mintBlock: null,
+    deploy: { block: 16531491, date: "2023-02-01" },
+    metadataBase: null,
+    deterministicImage: false,
+    image: "https://i2c.seadn.io/ethereum/c2b8bd39b58546c7b9b4cd57ec000427/e70a60faad9893ac590a8a93ee9d20/1ae70a60faad9893ac590a8a93ee9d20.png",
+    description:
+      "About ‘the memes by jungle bay x mfers artists':\n\n\n"
+      + "Holding a card from this collection is supporting a different artist who stayed during the bear market solely for the art and the culture. They created, with no guaranteed fruitful path forward, and put the community on their backs by seizing the memes of production. They have kept us laughing, inspired, and hopeful throughout the painful and mind-bendingly arduous tests we have collectively endured in this space this past “winter”.\n\n"
+      + "Jungle Bay Island is where the dank memes go to recharge. \n\n"
+      + "The magic is in the memes, and we dive into them alongside like-minded degens who are crazy enough to still be here, and strong enough to survive.\n\n"
+      + "Jungle Bay Genesis Collection: https://opensea.io/collection/junglebay",
+    descriptionSource: "opensea",
+    tags: ["ERC-1155", "ETHEREUM", "JUNGLE BAY"],
+    pixelated: false,
+    highlights: [],
+    market: {
+      name: "OpenSea",
+      collectionUrl: "https://opensea.io/collection/the-memes-by-junglebay-x-mfers-artists",
+      itemUrlTemplate: "https://opensea.io/item/ethereum/0x9edaba801123866f25993914e389924744a07e89/{id}",
+    },
+    explorer: { name: "Etherscan", addressUrl: "https://etherscan.io/address/0x9EdABa801123866F25993914E389924744a07E89" },
+    blurSlug: null,
+  },
+  memeticseeds: {
+    name: "Seeds from the Memetic Garden",
+    // The ERC-721 clone. The other address on its OpenSea page is an item owner.
+    contract: "0xb34bB1d81A4e5F9DcA7360C3043ad50db2ea87F3",
+    slug: "memeticseeds",
+    openseaSlug: "seeds-from-the-memetic-garden",
+    chain: "base",
+    standard: "erc721",
+    venueTrade: false,
+    symbol: "SFTMG",
+    supply: 369,
+    burnedIds: [88], // held by 0x...dEaD: it cannot be bought
+    supplyNote: "totalSupply() on Base at block 51695380 (ids 0 to 368). Token #88 is held by the burn address, so OpenSea lists 368.",
+    mintBlock: null,
+    deploy: { block: 32896090, date: "2025-07-15" },
+    metadataBase: null,
+    deterministicImage: false,
+    image: "https://i2c.seadn.io/base/5e9fe098b5ce43d4bc0693febb0106f6/d270b900f8b40fc5bbc31834b38934/9dd270b900f8b40fc5bbc31834b38934.png",
+    // OpenSea's text with one typographic change: each em dash is set as " - ".
+    description:
+      "Seeds from the Memetic Garden is a collection of 1/1s from ~40 artists - each contributing their own visual language to a tribute rooted in the ethos mfers helped unlock.\n\n"
+      + "“you can state a roadmap that says where you will go, but you can also plant seeds and see where they grow.” - Sartoshi\n"
+      + "That spirit lives here. Not through imitation, but through intent.\n"
+      + "Each piece was created independently, but released together - unified by respect, not rules.\n"
+      + "Formed on Jungle Bay Island, a metaphorical space where memes evolve without instruction, the collection adds new layers to a lineage that never asked for permission.\n\n"
+      + "This isn’t about looking back. It’s about continuing the conditions that let culture grow.",
+    descriptionSource: "opensea",
+    tags: ["ERC-721", "BASE", "JUNGLE BAY"],
+    pixelated: false,
+    highlights: [],
+    market: {
+      name: "OpenSea",
+      collectionUrl: "https://opensea.io/collection/seeds-from-the-memetic-garden",
+      itemUrlTemplate: "https://opensea.io/item/base/0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3/{id}",
+    },
+    explorer: { name: "Basescan", addressUrl: "https://basescan.org/address/0xb34bB1d81A4e5F9DcA7360C3043ad50db2ea87F3" },
+    blurSlug: null,
+  },
+  junglets: {
+    name: "Junglets",
+    // Strictly null, never undefined: undefined would fall through to the
+    // Nakamigos CONTRACT default parameter of the api.js readers.
+    contract: null,
+    slug: "junglets",
+    openseaSlug: null, // OpenSea has no Junglets page
+    magicEdenSymbol: "junglet",
+    solana: {
+      collectionMint: "5csQYUGtJzUveFCKGRrnVCNZrPpkSAEZCZEsu9nBHuuK",
+      updateAuthority: "3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw",
+      firstCreator: "HqV6jua4x3V527W1JgsNQJ8G8nWPtF1igVm7ReY3avap",
+    },
+    chain: "solana",
+    standard: "spl",
+    venueTrade: false,
+    symbol: "JGLETS",
+    supply: 208,
+    supplyNote: "208 Metaplex metadata accounts verified into collection 5csQ...uuK (Junglet #1 to #208), read from Solana mainnet.",
+    mintBlock: null,
+    deploy: null,
+    metadataBase: null,
+    deterministicImage: false,
+    image: "https://wsrv.nl/?url=https%3A%2F%2Fna-assets.pinit.io%2F3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw%2Fb69c398c-8a8f-4b56-8f82-fdb0b1d3a16e%2F0&w=400&output=webp",
+    description: "A love letter to $BRAINLET from jungle bay island\u{1F334}",
+    descriptionSource: "onchain", // the collection NFT's on-chain metadata JSON
+    tags: ["METAPLEX PNFT", "SOLANA", "JUNGLE BAY"],
+    pixelated: false,
+    highlights: [],
+    market: {
+      name: "Magic Eden",
+      collectionUrl: "https://magiceden.us/marketplace/junglet",
+      itemUrlTemplate: null, // no item page pattern was verified
+    },
+    explorer: { name: "Solana Explorer", addressUrl: "https://explorer.solana.com/address/5csQYUGtJzUveFCKGRrnVCNZrPpkSAEZCZEsu9nBHuuK" },
+    blurSlug: null,
+  },
+  bojungles: {
+    name: "Bojungles",
+    contract: "0x36aFeE4FaDC3b77Ff5f1f9a040E264150aFb979A",
+    slug: "bojungles",
+    openseaSlug: "bojungless", // double s, as OpenSea spells it
+    chain: "base",
+    standard: "erc721",
+    venueTrade: false,
+    symbol: "BOJUNG",
+    supply: 250,
+    supplyNote: "totalSupply() on Base at block 51695371 is 250 (ids 0 to 249).",
+    mintBlock: null,
+    deploy: { block: 23975123, date: "2024-12-21" },
+    metadataBase: null,
+    deterministicImage: false,
+    image: "https://i2c.seadn.io/collection/bojungless/image/8adbd4b81493e3f7de25ca395e66a1/b18adbd4b81493e3f7de25ca395e66a1.png",
+    description: "An homage to the powerful $BOBO, from Jungle Bay Island. \u{1F334}\u{1F9F1}",
+    descriptionSource: "opensea",
+    tags: ["ERC-721", "BASE", "JUNGLE BAY"],
+    pixelated: false,
+    highlights: [],
+    market: {
+      name: "OpenSea",
+      collectionUrl: "https://opensea.io/collection/bojungless",
+      itemUrlTemplate: "https://opensea.io/item/base/0x36afee4fadc3b77ff5f1f9a040e264150afb979a/{id}",
+    },
+    explorer: { name: "Basescan", addressUrl: "https://basescan.org/address/0x36aFeE4FaDC3b77Ff5f1f9a040E264150aFb979A" },
+    blurSlug: null,
+  },
+  raretowelie: {
+    name: "RARE TOWELIE CARDS",
+    contract: "0x2BCAaD3cD618D0C0f87E153b3928e02bab757705",
+    slug: "raretowelie",
+    openseaSlug: "rare-towelie-cards",
+    chain: "ethereum",
+    standard: "erc1155",
+    venueTrade: false,
+    symbol: "TOWELIE",
+    supply: null, // an ERC-1155 has no single supply; see editions
+    editions: { tokenIds: 61, total: 3529, asOfBlock: 26041365 },
+    supplyNote: "61 token ids (1 to 61) holding 3,529 editions, totalSupply(id) on Ethereum at block 26041365. The creator contract can add more.",
+    mintBlock: null,
+    deploy: { block: 20479699, date: "2024-08-07" },
+    metadataBase: null,
+    deterministicImage: false,
+    image: "https://i2c.seadn.io/ethereum/0x2bcaad3cd618d0c0f87e153b3928e02bab757705/5580374b3cae2de37b5938be860eee5b.jpeg",
+    description: "", // OpenSea's is empty, and nothing is written in its place
+    descriptionSource: null,
+    tags: ["ERC-1155", "ETHEREUM", "JUNGLE BAY"],
+    pixelated: false,
+    highlights: [],
+    market: {
+      name: "OpenSea",
+      collectionUrl: "https://opensea.io/collection/rare-towelie-cards",
+      itemUrlTemplate: "https://opensea.io/item/ethereum/0x2bcaad3cd618d0c0f87e153b3928e02bab757705/{id}",
+    },
+    explorer: { name: "Etherscan", addressUrl: "https://etherscan.io/address/0x2BCAaD3cD618D0C0f87E153b3928e02bab757705" },
+    blurSlug: null,
+  },
 };
 
 export const DEFAULT_COLLECTION = "nakamigos";

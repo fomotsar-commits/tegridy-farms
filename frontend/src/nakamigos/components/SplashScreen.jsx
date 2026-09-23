@@ -28,6 +28,27 @@ export function resolveSplashCollectionFromPath(pathname) {
   return DEFAULT_COLLECTION;
 }
 
+// A collection with no loading lines of its own gets these, never another
+// collection's: the splash must not speak for a collection it does not know.
+const GENERIC_LOADING_LINES = Object.freeze(["Loading...", "Almost there..."]);
+
+export function splashLoadingLines(slug) {
+  return LOADING_MESSAGES[slug] || GENERIC_LOADING_LINES;
+}
+
+// The plaque under the splash. WORKS is the registry supply, and is left out
+// where there is no single number (an ERC-1155), rather than borrowing 20,000.
+export function splashPlaques(slug) {
+  const col = COLLECTIONS[slug] || COLLECTIONS[DEFAULT_COLLECTION] || {};
+  return [
+    Number.isFinite(col.supply)
+      ? { val: col.supply.toLocaleString("en-US"), label: "WORKS", color: "#ff2244" }
+      : null,
+    { val: col.tags?.[0] || "ERC-721", label: "STANDARD", color: "#ffdd00" },
+    { val: col.tags?.[1] || "ETHEREUM", label: "CHAIN", color: "#44ddff" },
+  ].filter(Boolean);
+}
+
 function resolveSplashCollection() {
   try {
     return resolveSplashCollectionFromPath(
@@ -1475,9 +1496,9 @@ export default function SplashScreen({ onComplete }) {
             >
               {(() => {
                 if (progress >= 100) return "WELCOME";
-                // Only the destination collection's loading copy — a Nakamigos
-                // visitor shouldn't read Jungle Bay lines, and vice-versa (F546).
-                const msgs = LOADING_MESSAGES[splashSlug] || LOADING_MESSAGES[DEFAULT_COLLECTION] || [];
+                // Only the destination collection's loading copy (F546), or the
+                // generic lines for a collection that has none.
+                const msgs = splashLoadingLines(splashSlug);
                 if (msgs.length === 0) return progress < 50 ? "LOADING..." : "ALMOST THERE...";
                 return msgs[Math.floor((progress / 100) * (msgs.length - 1))].toUpperCase();
               })()}
@@ -1497,14 +1518,7 @@ export default function SplashScreen({ onComplete }) {
             imageRendering: "pixelated",
           }}
         >
-          {(() => {
-            const col = COLLECTIONS[splashSlug] || COLLECTIONS[DEFAULT_COLLECTION] || {};
-            return [
-              { val: (col.supply || 20000).toLocaleString(), label: "WORKS", color: "#ff2244" },
-              { val: (col.tags?.[0]) || "ERC-721", label: "STANDARD", color: "#ffdd00" },
-              { val: (col.tags?.[1]) || "ETHEREUM", label: "CHAIN", color: "#44ddff" },
-            ];
-          })().map((s, i) => (
+          {splashPlaques(splashSlug).map((s, i) => (
             <m.div key={i}
               initial={{ opacity: 0 }}
               animate={showContent ? { opacity: 1 } : undefined}
