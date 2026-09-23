@@ -47,6 +47,9 @@ vi.setConfig({ testTimeout: 30000 });
 
 beforeEach(() => {
   vi.resetModules();
+  // resetModules does not re-run a vi.mock factory, so the api spies outlive
+  // each test; clear their calls so a test counts only its own render.
+  vi.clearAllMocks();
   fetchMock = vi.fn(async (input) => {
     const url = new URL(String(input), "https://memetics.finance");
     const body = FIX[url.searchParams.get("path")];
