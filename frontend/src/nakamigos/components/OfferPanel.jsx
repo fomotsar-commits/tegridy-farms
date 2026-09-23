@@ -24,11 +24,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
   const load = useCallback(() => {
     if (!tokenId) return;
     if (!loadedOnceRef.current) setLoading(true);
-    fetchTokenOfferBook(tokenId, {
-      contract: collection.contract,
-      slug: collection.slug,
-      openseaSlug: collection.openseaSlug,
-    }).then(({ offers: allOffers, bestOffer: best, unavailable: down }) => {
+    fetchTokenOfferBook(tokenId, { contract: collection.contract }).then(({ offers: allOffers, bestOffer: best, unavailable: down }) => {
       setUnavailable(down);
       // A failed leg yields empty — don't let it wipe offers already on screen.
       if (!down || allOffers.length) setOffers(allOffers);
@@ -38,7 +34,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
         loadedOnceRef.current = true;
         setLoading(false);
       });
-  }, [tokenId, collection.contract, collection.slug, collection.openseaSlug]);
+  }, [tokenId, collection.contract]);
 
   useEffect(() => {
     if (!tokenId) return;

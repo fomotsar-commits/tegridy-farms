@@ -165,10 +165,10 @@ export async function fetchBestOffer(tokenId, slug = COLLECTION_SLUG, { openseaS
  * empty book: `unavailable` is true when the read failed, so a caller with
  * nothing to show says so instead of claiming zero offers. ONE request answers
  * both questions (is there any offer, and which is best), on the collection the
- * contract names, falling back to the slug only for a contract outside the venue.
+ * contract names. A contract outside the venue is not read at all: unavailable.
  */
-export async function fetchTokenOfferBook(tokenId, { contract = CONTRACT, slug = COLLECTION_SLUG, openseaSlug } = {}) {
-  const collection = venueCollectionByContract(contract) || venueCollectionBySlug(openseaSlug || slug);
+export async function fetchTokenOfferBook(tokenId, { contract = CONTRACT } = {}) {
+  const collection = venueCollectionByContract(contract);
   if (!collection) return { offers: [], bestOffer: null, unavailable: true };
   try {
     const best = await fetchBestOfferOrThrow(tokenId, collection.openseaSlug);
@@ -868,11 +868,11 @@ function isLiveOrder(order, nowSecs) {
 // Paginates through all pages using cursor to avoid truncation at 20 results.
 const MAX_MY_PAGES = 10; // Safety cap: 10 pages * 50 = up to 500 orders
 
-// Read on the CONTRACT's own collection; a contract the venue does not trade has
-// no offers here to read.
+// Read on the CONTRACT's own collection. A contract the venue does not trade is
+// refused (thrown), not answered with an empty list the read never produced.
 export async function fetchMyOffers(wallet, contract = CONTRACT) {
   const collection = venueCollectionByContract(contract);
-  if (!collection) return [];
+  if (!collection) throw venueRefusalError(venueRefusal(contract));
   try {
     const allOrders = await fetchPagesByMaker(`offers/collection/${collection.openseaSlug}/all`, wallet);
     const now = Math.floor(Date.now() / 1000);
