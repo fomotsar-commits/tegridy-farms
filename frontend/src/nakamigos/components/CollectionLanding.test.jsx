@@ -41,6 +41,8 @@ const FIX = {
 };
 
 let fetchMock;
+// A test's own answers for some paths, consulted before FIX.
+let answers = {};
 
 // Rendering the real App costs a first import of several seconds.
 vi.setConfig({ testTimeout: 30000 });
@@ -50,9 +52,11 @@ beforeEach(() => {
   // resetModules does not re-run a vi.mock factory, so the api spies outlive
   // each test; clear their calls so a test counts only its own render.
   vi.clearAllMocks();
+  answers = {};
   fetchMock = vi.fn(async (input) => {
     const url = new URL(String(input), "https://memetics.finance");
-    const body = FIX[url.searchParams.get("path")];
+    const path = url.searchParams.get("path");
+    const body = answers[path] ?? FIX[path];
     return body
       ? { ok: true, status: 200, headers: { get: () => null }, text: async () => JSON.stringify(body), json: async () => body }
       : { ok: false, status: 503, headers: { get: () => null }, text: async () => "{}", json: async () => ({}) };
@@ -169,6 +173,25 @@ describe("numbers in their own unit", () => {
   it("an Ethereum family volume under one keeps its digits", async () => {
     await renderLanding();
     await waitFor(() => expect(text(card("raretowelie"))).toMatch(/0\.0600 ETH/));
+  });
+
+  it("a view-only floor read as 0 says None listed, never a price of 0", async () => {
+    answers["collections/bojungless/stats"] = { total: { floor_price: 0, floor_price_symbol: "", volume: 1.42308, num_owners: 100 }, intervals: [] };
+    await renderLanding();
+    await waitFor(() => expect(text(card("bojungles"))).toMatch(/Stats from OpenSea/));
+    const floor = within(card("bojungles")).getByText(/^Floor$/).parentElement;
+    expect(text(floor)).toMatch(/None listed/);
+    expect(text(floor)).not.toMatch(/ETH/);
+  });
+
+  it("a view-only floor the read did not carry is the unread dash, marked not read, never None listed", async () => {
+    answers["collections/bojungless/stats"] = { total: { volume: 1.42308, num_owners: 100 }, intervals: [] };
+    await renderLanding();
+    await waitFor(() => expect(text(card("bojungles"))).toMatch(/Stats from OpenSea/));
+    const floor = within(card("bojungles")).getByText(/^Floor$/).parentElement;
+    expect(text(floor)).toMatch(/—/);
+    expect(text(floor)).toMatch(/not read/);
+    expect(text(card("bojungles"))).not.toMatch(/None listed/);
   });
 
   it("Gold Cards reads 123 items", async () => {

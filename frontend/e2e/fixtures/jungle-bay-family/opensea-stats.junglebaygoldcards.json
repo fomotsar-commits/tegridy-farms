@@ -1,11 +1,10 @@
 {
-  "_provenance": "Captured 2026-09-23 from https://opensea.io/collection/junglebaygoldcards (the page's own GraphQL cache: collectionBySlug and collectionItems page 1), reshaped into the OpenSea v2 REST body /api/opensea returns. Every value is as the page carried it; a field the page did not carry is absent, not filled.",
+  "_provenance": "Captured 2026-09-23 from https://opensea.io/collection/junglebaygoldcards (the page's own GraphQL cache: collectionBySlug and collectionItems page 1), reshaped into the OpenSea v2 REST body /api/opensea returns. Every value is as the page carried it; a field the page did not carry is absent, not filled. floor_price is the page's floorPrice: null where the page carried null (nothing listed), with no floor_price_symbol, which the page did not carry.",
   "response": {
     "total": {
       "volume": 42.982399999999984,
       "num_owners": 97,
-      "floor_price": null,
-      "floor_price_symbol": ""
+      "floor_price": null
     },
     "intervals": []
   }

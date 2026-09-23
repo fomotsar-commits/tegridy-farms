@@ -84,22 +84,53 @@ describe("OpenSea stats for an EVM family collection", () => {
     expect(zero.owners).toBe(0);
   });
 
-  it("a successful read with no floor means none listed: null, never 0", async () => {
-    answer = () => json(osStats({ floor_price: null, floor_price_symbol: "", volume: 0.06, num_owners: 480 }));
+  // A floor is a price only when it is a number above zero. A floor the read
+  // carried as 0 or null is none listed. A floor the read did not carry at
+  // all is unread: neither a price nor a claim that nothing is listed.
+  it("a successful read with a null floor means none listed: no price, never 0", async () => {
+    answer = () => json(osStats({ floor_price: null, volume: 0.06, num_owners: 480 }));
     const { fetchExternalStats } = await load();
     const s = await fetchExternalStats(COLLECTIONS.raretowelie);
     expect(s.unavailable).toBeFalsy();
     expect(s.floor).toBeNull();
+    expect(s.noneListed).toBe(true);
     expect(s.volume).toBe(0.06);
   });
 
-  it("a missing field is null, not a number the read did not produce", async () => {
+  it("a floor of 0 means none listed, never a price of 0", async () => {
+    answer = () => json(osStats({ floor_price: 0, floor_price_symbol: "", volume: 1.42308, num_owners: 100 }));
+    const { fetchExternalStats } = await load();
+    const s = await fetchExternalStats(COLLECTIONS.bojungles);
+    expect(s.floor).toBeNull();
+    expect(s.floorSymbol).toBeNull();
+    expect(s.noneListed).toBe(true);
+  });
+
+  it("a floor that is not a number is unread, not none listed", async () => {
+    answer = () => json(osStats({ floor_price: "0.1", volume: 1, num_owners: 1 }));
+    const { fetchExternalStats } = await load();
+    const s = await fetchExternalStats(COLLECTIONS.bojungles);
+    expect(s.floor).toBeNull();
+    expect(s.noneListed).toBe(false);
+  });
+
+  it("a missing field is null, not a number the read did not produce, and a missing floor is not none listed", async () => {
     answer = () => json(osStats({}));
     const { fetchExternalStats } = await load();
     const s = await fetchExternalStats(COLLECTIONS.junglebaymemes);
     expect(s.floor).toBeNull();
+    expect(s.noneListed).toBe(false);
     expect(s.volume).toBeNull();
     expect(s.owners).toBeNull();
+  });
+
+  it("a floor above zero is a price, in the symbol the read named", async () => {
+    answer = () => json(osStats({ floor_price: 0.1, floor_price_symbol: "ETH", volume: 5, num_owners: 50 }));
+    const { fetchExternalStats } = await load();
+    const s = await fetchExternalStats(COLLECTIONS.junglebaymemes);
+    expect(s.floor).toBe(0.1);
+    expect(s.floorSymbol).toBe("ETH");
+    expect(s.noneListed).toBe(false);
   });
 
   it("a shape mismatch is unavailable, not an empty success", async () => {
@@ -205,6 +236,26 @@ describe("Magic Eden for Junglets", () => {
     expect(s.volume).toBeNull();
     expect(s.owners).toBeNull();
     expect(s.source).toBe("Magic Eden");
+  });
+
+  it("a floorPrice of 0 or null is none listed; a missing floorPrice is unread", async () => {
+    const { fetchExternalStats } = await load();
+    answer = () => json({ symbol: "junglet", floorPrice: 0, listedCount: 0 });
+    let s = await fetchExternalStats(COLLECTIONS.junglets);
+    expect(s.floor).toBeNull();
+    expect(s.noneListed).toBe(true);
+
+    vi.resetModules();
+    answer = () => json({ symbol: "junglet", floorPrice: null, listedCount: 0 });
+    s = await (await load()).fetchExternalStats(COLLECTIONS.junglets);
+    expect(s.floor).toBeNull();
+    expect(s.noneListed).toBe(true);
+
+    vi.resetModules();
+    answer = () => json({ symbol: "junglet", listedCount: 55 });
+    s = await (await load()).fetchExternalStats(COLLECTIONS.junglets);
+    expect(s.floor).toBeNull();
+    expect(s.noneListed).toBe(false);
   });
 
   it("reads listings a page of 100 at a time", async () => {

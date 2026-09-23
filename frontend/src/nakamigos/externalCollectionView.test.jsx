@@ -289,6 +289,29 @@ describe("stats say what they read, and say so when they could not", () => {
     await findInBody(/None listed/);
   });
 
+  it("a floor read as 0 says None listed, never a price of 0", async () => {
+    override = (u) => (u.searchParams.get("path") === "collections/bojungless/stats"
+      ? reply({ total: { floor_price: 0, floor_price_symbol: "", volume: 1.42308, num_owners: 100 }, intervals: [] })
+      : null);
+    await renderAt("/nakamigos/bojungles");
+    await findInBody(/Stats from OpenSea/);
+    const floor = screen.getByText("FLOOR").closest(".stat-card");
+    expect(floor.textContent).toMatch(/None listed/);
+    expect(floor.textContent).not.toMatch(/ETH/);
+  });
+
+  it("a floor the read did not carry is the unread dash, marked not read, never None listed", async () => {
+    override = (u) => (u.searchParams.get("path") === "collections/bojungless/stats"
+      ? reply({ total: { volume: 1.42308, num_owners: 100 }, intervals: [] })
+      : null);
+    await renderAt("/nakamigos/bojungles");
+    await findInBody(/Stats from OpenSea/);
+    const floor = screen.getByText("FLOOR").closest(".stat-card");
+    expect(floor.querySelector(".stat-value").textContent).toBe("—");
+    expect(floor.textContent).toMatch(/not read/);
+    notInBody(/None listed/);
+  });
+
   it("a failed stats read says Stats unavailable and shows the unread dash, never a zero", async () => {
     override = (u) => (u.searchParams.get("path") === "collections/bojungless/stats" ? reply("<html></html>", 200, { "content-type": "text/html" }) : null);
     await renderAt("/nakamigos/bojungles");
