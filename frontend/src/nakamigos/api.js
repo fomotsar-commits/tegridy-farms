@@ -576,34 +576,30 @@ export async function fetchActivity({ contract = CONTRACT, limit = 50, daysBack 
 }
 
 // ═══ TOKEN SALES HISTORY (per-NFT price chart) ═══
+// Throws when the read fails: [] means the token has no sales, and an outage
+// must not read as that (PriceHistoryChart says "unavailable" instead).
 export async function fetchTokenSalesHistory(tokenId, contract = CONTRACT) {
-  try {
-    const data = await alchemyGet("getNFTSales", {
-      contractAddress: contract,
-      tokenId: String(tokenId),
-      order: "asc",
-      limit: "50",
-    });
-
-    const sales = data.nftSales || [];
-    return sales.map(sale => {
-      const sellerAmt = BigInt(sale.sellerFee?.amount || "0");
-      const protocolAmt = BigInt(sale.protocolFee?.amount || "0");
-      const royaltyAmt = BigInt(sale.royaltyFee?.amount || "0");
-      const totalWei = sellerAmt + protocolAmt + royaltyAmt;
-      return {
-        price: totalWei > 0n ? Number(totalWei * 10000n / BigInt(1e18)) / 10000 : null,
-        time: blockToTimestamp(sale.blockNumber),
-        from: sale.sellerAddress,
-        to: sale.buyerAddress,
-        hash: sale.transactionHash,
-        marketplace: sale.marketplace || null,
-      };
-    }).filter(s => s.price != null);
-  } catch (err) {
-    console.warn("Token sales history unavailable:", err.message);
-    return [];
-  }
+  const data = await alchemyGet("getNFTSales", {
+    contractAddress: contract,
+    tokenId: String(tokenId),
+    order: "asc",
+    limit: "50",
+  });
+  if (!Array.isArray(data?.nftSales)) throw new Error("Token sales history: unexpected answer");
+  return data.nftSales.map(sale => {
+    const sellerAmt = BigInt(sale.sellerFee?.amount || "0");
+    const protocolAmt = BigInt(sale.protocolFee?.amount || "0");
+    const royaltyAmt = BigInt(sale.royaltyFee?.amount || "0");
+    const totalWei = sellerAmt + protocolAmt + royaltyAmt;
+    return {
+      price: totalWei > 0n ? Number(totalWei * 10000n / BigInt(1e18)) / 10000 : null,
+      time: blockToTimestamp(sale.blockNumber),
+      from: sale.sellerAddress,
+      to: sale.buyerAddress,
+      hash: sale.transactionHash,
+      marketplace: sale.marketplace || null,
+    };
+  }).filter(s => s.price != null);
 }
 
 // ═══ TOP HOLDERS ═══

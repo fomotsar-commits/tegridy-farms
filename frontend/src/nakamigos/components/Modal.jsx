@@ -56,21 +56,31 @@ function FairValueBadge({ nft, floorPrice, supply }) {
 
 function PriceHistoryChart({ tokenId, contract }) {
   const [sales, setSales] = useState(null);
+  // A failed read is its own state: "no sales" is said only after a read that answered.
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setSales(null);
+    setFailed(false);
     fetchTokenSalesHistory(tokenId, contract).then((data) => {
       // F709: drop self-sales (same wallet buying from itself) so the price
       // history, average, and min/max can't be skewed by wash trades.
       if (!cancelled) setSales(excludeSelfSales(data));
     }).catch((err) => {
       if (!cancelled) {
-        console.error("Failed to fetch sales history:", err);
-        setSales([]);
+        console.warn("Sales history unavailable:", err?.message || err);
+        setFailed(true);
       }
     });
     return () => { cancelled = true; };
   }, [tokenId, contract]);
+
+  if (failed) return (
+    <div role="status" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 8 }}>
+      Sales history for this token is unavailable right now
+    </div>
+  );
 
   // Reserve space while loading instead of returning null, so the price box
   // and content below don't shift when the chart pops in (F804).
