@@ -36,9 +36,13 @@ describe('revealScrollLeft', () => {
   });
 
   it('lands on a whole pixel on the far side of the room, since WebKit truncates scrollLeft', () => {
-    // 420.8 - 382 + 24 = 62.8: truncated to 62, the tab would sit 0.8px into the room.
-    expect(revealScrollLeft({ start: 340.8, end: 420.8 }, strip(0))).toBe(63);
-    expect(revealScrollLeft({ start: 120.2, end: 200.2 }, strip(150))).toBe(96);
+    // Truncating 62.8 (with 24px of room) to 62 would leave the tab 0.8px into the room.
+    const right = revealScrollLeft({ start: 340.8, end: 420.8 }, strip(0));
+    expect(right).toBe(Math.ceil(420.8 - 382 + STRIP_EDGE_PX));
+    expect(right).toBeGreaterThan(420.8 - 382 + STRIP_EDGE_PX);
+    const left = revealScrollLeft({ start: 120.2, end: 200.2 }, strip(150));
+    expect(left).toBe(Math.floor(120.2 - STRIP_EDGE_PX));
+    expect(left).toBeLessThan(120.2 - STRIP_EDGE_PX);
   });
 
   it('keeps a strip that fits at the start', () => {
