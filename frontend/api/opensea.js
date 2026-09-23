@@ -240,7 +240,8 @@ export default async function handler(req, res) {
   // AUDIT API-M1: 30 req/min per IP. Lower than Alchemy because OpenSea has
   // tighter paid-tier quotas and we want to reserve headroom for buy/sell
   // flows that burst several requests at checkout time. The family reads get a
-  // bucket of their own, so browsing them can never 429 the checkout.
+  // per-IP bucket of their own, so a visitor's browsing of them does not spend
+  // that visitor's checkout budget. The global breaker below stays shared.
   const readOnlyRoute = isReadOnlyPath(req.query?.path);
   const allowed = await checkRateLimit(req, res, {
     limit: 30, windowSec: 60, identifier: readOnlyRoute ? "opensea-read" : "opensea",
@@ -253,6 +254,8 @@ export default async function handler(req, res) {
   // paid OpenSea key, and CORS headers bound browsers only, never curl. This
   // proxy was the last paid-key surface without an aggregate ceiling.
   // Raise OPENSEA_GLOBAL_RPM via env (no redeploy) if a real spike hits it.
+  // One bucket for every route, the family reads included: it guards the one
+  // paid key, and a second bucket would raise the ceiling it exists to hold.
   const underGlobalCap = await checkGlobalLimit(res, {
     // Deliberately below alchemy's 2400: OpenSea's paid tier is the tighter
     // quota of the two, and checkout bursts are the only legitimate peak.
