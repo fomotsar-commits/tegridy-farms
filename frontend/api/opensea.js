@@ -292,9 +292,16 @@ export default async function handler(req, res) {
     }
   }
 
-  // Accepting an offer names the NFT the seller hands over; only a venue contract.
-  if (req.method === "POST" && path === "offers/fulfillment_data" && req.body?.consideration != null) {
-    const nft = req.body.consideration.asset_contract_address;
+  // The two fill builders serve only Ethereum orders, and an accept must name
+  // the NFT the seller hands over, which must be a venue contract.
+  if (path === "listings/fulfillment_data" && req.body?.listing?.chain !== "ethereum") {
+    return res.status(400).json({ error: "Only Ethereum listings are filled here" });
+  }
+  if (path === "offers/fulfillment_data") {
+    if (req.body?.offer?.chain !== "ethereum") {
+      return res.status(400).json({ error: "Only Ethereum offers are filled here" });
+    }
+    const nft = req.body?.consideration?.asset_contract_address;
     if (!isValidAddress(nft)) return res.status(400).json({ error: "Invalid contract address format" });
     if (!ALLOWED_CONTRACTS.has(nft.toLowerCase())) return res.status(403).json({ error: "Contract not supported" });
   }
