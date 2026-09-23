@@ -2,7 +2,7 @@
  * The venue's own hero. The H1 is title, <br />, line, and a <br> is not text, so the H1
  * test reads textContent: it sees the join exactly, as a screen reader or an unfurl does.
  * The launch floor is read (heatLaunchFloor) and the tier word beside it derived, never
- * typed: at 123 no tier is named, at 365 the sentence says Builder.
+ * typed: at 123 no tier is named, at 150 the sentence says Builder.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { Suspense } from 'react';
@@ -59,16 +59,16 @@ describe('the launch floor sentence (ruling 4)', () => {
     vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '123');
     const { container } = mount();
     expect(screen.getByText('The launch door opens at 123 degrees.')).toBeTruthy();
-    // tierFor(123) is Observer, because a floor BETWEEN rungs still sits above
+    // tierFor(123) is Resident, because a floor BETWEEN rungs still sits above
     // one. That is exactly the word that must not appear beside 123.
     expect(container.textContent).not.toMatch(/you reach/);
   });
 
   it('names the tier the floor sits exactly on, derived and never typed', () => {
-    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '365');
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
     const { container } = mount();
     expect(
-      screen.getByText('At 365 degrees you reach Builder, the tier that may plant a launch here.'),
+      screen.getByText('At 150 degrees you reach Builder, the tier that may plant a launch here.'),
     ).toBeTruthy();
     expect(container.textContent).not.toContain('reach Resident');
   });
@@ -76,20 +76,22 @@ describe('the launch floor sentence (ruling 4)', () => {
   it('reads today’s sentence at the default floor', () => {
     mount();
     expect(
-      screen.getByText('At 180 degrees you reach Resident, the tier that may plant a launch here.'),
+      screen.getByText('At 80 degrees you reach Resident, the tier that may plant a launch here.'),
     ).toBeTruthy();
   });
 });
 
-describe('the explainer is the island sentence', () => {
-  it('explains heat in the island words, with no formula', () => {
+describe('the explainer is the island paragraph opening', () => {
+  it('carries exactly its first two sentences, and no sum', () => {
     const { container } = mount();
     expect(
       screen.getByText(
-        'Heat counts the days you have held each token. It is read per token and added together across everything you hold. Size can raise what a day is worth, it cannot buy a day, and price never enters it.',
+        'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it.',
       ),
     ).toBeTruthy();
-    expect(container.textContent).not.toMatch(/as a share of its supply|a fresh bag starts cold/);
+    expect(container.textContent).not.toMatch(
+      /added together|read per token|as a share of its supply|a fresh bag starts cold|Degrees are the temperature/,
+    );
   });
 });
 

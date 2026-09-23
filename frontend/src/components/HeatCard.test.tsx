@@ -626,16 +626,12 @@ describe('element D — the room names its question before it has an answer', ()
   });
 });
 
-// ─── WAVE SEVEN, ROW R: A RETIRED ROW IS LABELED ────────────────────────────
+// ─── ROW R: A RETIRED ROW IS LABELED ────────────────────────────────────────
 //
-// The island's done-means, verbatim: "a fixture reading with one retired: true
-// row renders that row labeled and the count without it; break the fix by
-// dropping the label and watch the test red."
-//
-// Three rows, one retired. token_count is 3 because on the live read
-// token_count equalled the row count, retired rows included.
+// Three rows, one retired: the retired row is greyed with the word, sorted last and left
+// out of the token count. token_count is 3 because the island counts it in the envelope.
 
-describe('row R: a retired row is labeled, not counted, not summed', () => {
+describe('row R: a retired row is labeled and not counted', () => {
   const OLD = row({ token_address: '0xold', symbol: 'OLD', name: 'Old', heat_degrees: 50, retired: true });
   const BBB = row({ token_address: '0xbbb', symbol: 'BBB', name: 'Bee', heat_degrees: 10 });
   const readingWith = (degrees: number) =>
@@ -660,30 +656,43 @@ describe('row R: a retired row is labeled, not counted, not summed', () => {
     expect(retired[0].querySelector('span')?.className).toContain('text-white/40');
   });
 
-  it('sums the live rows only, and says the island total still includes the retired row', async () => {
-    h.fetchHeat.mockResolvedValue(readingWith(398.21));
+  it.each([398.21, 348.21, 500, 60])('prints no sum of the rows beside a served %s°', async (degrees) => {
+    h.fetchHeat.mockResolvedValue(readingWith(degrees));
     mount();
-    await waitFor(() => expect(screen.getByText('Sum across 2 tokens')).toBeTruthy());
-    expect(screen.getByText('348.21°')).toBeTruthy();
-    expect(screen.getByText(/still includes the retired row\./)).toBeTruthy();
-    expect(screen.queryByText(/These rows sum to/)).toBeNull();
-  });
-
-  it('once the island drops it from its sum, nothing more is said', async () => {
-    h.fetchHeat.mockResolvedValue(readingWith(348.21));
-    mount();
-    await waitFor(() => expect(screen.getByText('Sum across 2 tokens')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('2 tokens counted')).toBeTruthy());
+    expect(screen.getByText(degrees.toFixed(2))).toBeTruthy();
+    expect(screen.queryByText(/Sum across/)).toBeNull();
+    expect(screen.queryByText(/rows sum to/)).toBeNull();
     expect(screen.queryByText(/still includes the retired/)).toBeNull();
-    expect(screen.queryByText(/These rows sum to/)).toBeNull();
+    expect(screen.queryByText('348.21°')).toBeNull();
   });
+});
 
-  it('a real disagreement is still flagged, against the live sum', async () => {
-    h.fetchHeat.mockResolvedValue(readingWith(500));
-    mount();
-    await waitFor(() =>
-      expect(screen.getByText(/These rows sum to 348\.21°, but the island reports 500\.00°/)).toBeTruthy(),
-    );
+// The deepest room sets the heat and the rest amplify it, so the rooms never add up to
+// the served number, and the card never adds them. The dEaD shape, 2026-09-23: 311.25°
+// served Elder, its three deepest rooms 250.92, 233.75 and 212.06.
+describe('the card prints the served heat and no sum of its rooms', () => {
+  const DEAD = {
+    degrees: 311.25,
+    tier: 'Elder',
+    token_count: 3,
+    breakdown: [
+      row({ heat_degrees: 250.92 }),
+      row({ token_address: '0xd37264c71e9af940e49795f0d3a8336afaafdda9', symbol: 'JBAC', name: 'Junglebayapeclub', heat_degrees: 233.75 }),
+      row({ token_address: '0x420698cfdeddea6bc78d59bc17798113ad278f9d', symbol: 'TOWELI', name: 'TOWELI', heat_degrees: 212.06 }),
+    ],
+  };
+
+  it('shows 311.25 and each room as served, with no sum line and no disagreement', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading(DEAD));
+    const { container } = mount();
+    await waitFor(() => expect(screen.getByText('3 tokens counted')).toBeTruthy());
+    expect(screen.getByText('311.25')).toBeTruthy();
+    for (const d of ['250.92°', '233.75°', '212.06°']) expect(screen.getByText(d)).toBeTruthy();
+    expect(screen.queryByText(/Sum across/)).toBeNull();
+    expect(screen.queryByText(/rows sum to/)).toBeNull();
     expect(screen.queryByText(/still includes the retired/)).toBeNull();
+    expect(container.textContent).not.toContain('696.73');
   });
 });
 
@@ -716,9 +725,8 @@ describe('the ladder', () => {
     vi.unstubAllEnvs();
   });
 
-  // A board reading served 2026-09-22: 137.42 Observer. Drifter and Observer reached,
-  // Resident next at 180.
-  const MID = { degrees: 137.42, tier: 'Observer' as const };
+  // 95 degrees: Drifter, Observer and Resident reached, Builder next at 150.
+  const MID = { degrees: 95, tier: 'Resident' as const };
 
   it('climbs all five rungs, lowest first', async () => {
     h.fetchHeat.mockResolvedValue(wireReading(MID));
@@ -735,11 +743,11 @@ describe('the ladder', () => {
     expect(rungs[1]).toContain('Observer');
     expect(rungs[1]).toContain('30°');
     expect(rungs[2]).toContain('Resident');
-    expect(rungs[2]).toMatch(/(^|[^0-9])180°/);
+    expect(rungs[2]).toMatch(/(^|[^0-9])80°/);
     expect(rungs[3]).toContain('Builder');
-    expect(rungs[3]).toMatch(/(^|[^0-9])365°/);
+    expect(rungs[3]).toMatch(/(^|[^0-9])150°/);
     expect(rungs[4]).toContain('Elder');
-    expect(rungs[4]).toMatch(/(^|[^0-9])1000°/);
+    expect(rungs[4]).toMatch(/(^|[^0-9])250°/);
   });
 
   it('lights the rungs this wallet has reached, and only those', async () => {
@@ -747,9 +755,8 @@ describe('the ladder', () => {
     mount();
     const rungs = await ladderRows();
     const reached = rungs.filter((r) => r.includes('reached'));
-    expect(reached).toHaveLength(2);
-    expect(reached.every((r) => /Drifter|Observer/.test(r))).toBe(true);
-    expect(rungs[2]).not.toContain('reached');
+    expect(reached).toHaveLength(3);
+    expect(reached.every((r) => /Drifter|Observer|Resident/.test(r))).toBe(true);
     expect(rungs[3]).not.toContain('reached');
     expect(rungs[4]).not.toContain('reached');
   });
@@ -757,36 +764,36 @@ describe('the ladder', () => {
   it('prints the gap to the next rung as arithmetic on two served numbers', async () => {
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
-    // 180 (the rung's floor) minus 137.42 (the degrees the island served). Not a
+    // 150 (the rung's floor) minus 95 (the degrees the island served). Not a
     // rate, not a date, and nothing the instrument computed for itself.
-    expect(await screen.findByText('42.58° to Resident')).toBeTruthy();
+    expect(await screen.findByText('55.00° to Builder')).toBeTruthy();
   });
 
   // TIER_FLOORS answers "what tier is this number" and heatLaunchFloor() "what number
   // opens the launch door", so the word beside the floor is derived from both, never
   // typed. The assertions sit on the sentence <p> and the eligibility span, not the rung
-  // <li>: each rung prints its own label, so "Observer" sits beside a 123 sentence.
+  // <li>: each rung prints its own label, so "Resident" sits beside a 123 sentence.
   it('names no tier beside a floor that sits between rungs (123)', async () => {
     vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '123');
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
     const sentence = await screen.findByText('The launch door opens at 123 degrees.');
     expect(sentence.textContent).not.toMatch(/Elder|Builder|Resident|Observer|Drifter/);
-    // Hung under the rung tierFor returns, which for 123 is Observer.
-    expect(sentence.closest('li')?.textContent).toContain('Observer');
+    // Hung under the rung tierFor returns, which for 123 is Resident.
+    expect(sentence.closest('li')?.textContent).toMatch(/^Resident\s*80°/);
     expect(screen.getByText('the door opens at 123°')).toBeTruthy();
     expect(screen.queryByText(/you reach/)).toBeNull();
   });
 
-  it('names the tier a floor sits exactly on, under that rung (365)', async () => {
-    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '365');
+  it('names the tier a floor sits exactly on, under that rung (150)', async () => {
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
     const sentence = await screen.findByText(
-      'At 365 degrees you reach Builder, the tier that may plant a launch here.',
+      'At 150 degrees you reach Builder, the tier that may plant a launch here.',
     );
-    expect(sentence.closest('li')?.textContent).toMatch(/(^|[^0-9])365°/);
-    expect(screen.getByText('the door opens at 365° · Builder')).toBeTruthy();
+    expect(sentence.closest('li')?.textContent).toMatch(/^Builder\s*150°/);
+    expect(screen.getByText('the door opens at 150° · Builder')).toBeTruthy();
     expect(screen.queryByText(/reach Resident|· Resident/)).toBeNull();
   });
 
@@ -875,34 +882,46 @@ describe('a reading older than the freshness law allows', () => {
   });
 });
 
-describe('the island current values, on the card', () => {
-  it('reads an Observer at 137.42 with Resident unreached and the door at 180', async () => {
-    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 137.42, tier: 'Observer' }));
-    mount();
-    const rungs = await ladderRows();
-    expect(rungs[2]).toMatch(/^Resident\s*180°/);
-    expect(rungs[2]).not.toContain('reached');
-    expect(rungs[2]).toContain('At 180 degrees you reach Resident, the tier that may plant a launch here.');
-    expect(screen.getByText('the door opens at 180° · Resident')).toBeTruthy();
-    expect(screen.getByText('Cannot launch a token yet')).toBeTruthy();
-  });
-
-  it('lights every rung for an Elder and hangs the launch sentence under Resident', async () => {
-    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 20695, tier: 'Elder' }));
+describe('the island dials, on the card', () => {
+  it('lights every rung for the dEaD read (311.25, Elder) and hangs the launch sentence under Resident', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 311.25, tier: 'Elder' }));
     mount();
     const rungs = await ladderRows();
     expect(rungs.map((r) => r.match(/^([A-Za-z]+)\s*(\d+)°/)?.slice(1))).toEqual([
-      ['Drifter', '0'], ['Observer', '30'], ['Resident', '180'], ['Builder', '365'], ['Elder', '1000'],
+      ['Drifter', '0'], ['Observer', '30'], ['Resident', '80'], ['Builder', '150'], ['Elder', '250'],
     ]);
     expect(rungs.every((r) => r.includes('reached'))).toBe(true);
-    expect(rungs[2]).toContain('At 180 degrees you reach Resident, the tier that may plant a launch here.');
-    expect(screen.getByText('the door opens at 180° · Resident')).toBeTruthy();
+    expect(rungs[2]).toContain('At 80 degrees you reach Resident, the tier that may plant a launch here.');
+    expect(screen.getByText('the door opens at 80° · Resident')).toBeTruthy();
+  });
+
+  it('reads an Observer at 73.89 with Resident unreached and the door at 80', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 73.89, tier: 'Observer' }));
+    mount();
+    const rungs = await ladderRows();
+    expect(rungs[2]).toMatch(/^Resident\s*80°/);
+    expect(rungs[2]).not.toContain('reached');
+    expect(screen.getByText('6.11° to Resident')).toBeTruthy();
+    expect(screen.getByText('the door opens at 80° · Resident')).toBeTruthy();
+    expect(screen.getByText('Cannot launch a token yet')).toBeTruthy();
+  });
+
+  it('names the wallet by its served tier, while the rungs come from the bands', async () => {
+    // Served 'Observer' at 95.00: the headline says what the island said, and the
+    // Resident rung (80) is still lit, because rungs place a number and never name a wallet.
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 95, tier: 'Observer' }));
+    mount();
+    expect(await awaitRead('Observer')).toBeTruthy();
+    const rungs = await ladderRows();
+    expect(rungs[2]).toMatch(/^Resident\s*80°/);
+    expect(rungs[2]).toContain('reached');
+    expect(rungs[3]).not.toContain('reached');
   });
 });
 
-describe('the maths fold carries the island sentences, never a formula', () => {
-  const BOLD =
-    'Heat counts the days you have held each token. It is read per token and added together across everything you hold. Size can raise what a day is worth, it cannot buy a day, and price never enters it.';
+describe('the maths fold carries the island paragraph, never a formula', () => {
+  const PARAGRAPH =
+    'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Each degree after that takes longer than the last. Size can raise what a day is worth, it cannot buy a day, and price never enters it.';
 
   async function openMaths() {
     const view = mount();
@@ -910,34 +929,37 @@ describe('the maths fold carries the island sentences, never a formula', () => {
     return view;
   }
 
-  it('opens on the bold sentence, then Days, Size and Weight', async () => {
+  it('opens on the paragraph, word for word, then Days, Size and Weight', async () => {
     await openMaths();
-    expect(screen.getByText(BOLD).tagName).toBe('STRONG');
-    expect(screen.getByText('Your clock on a token starts at your first hold.')).toBeTruthy();
-    expect(
-      screen.getByText('A real position earns a full day. The largest holders earn up to two. Dust earns nothing.'),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(
-        /The Apes carry triple weight, JBM and BAYLA carry their edge, the home team leans warm, and every measured token counts\./,
-      ),
-    ).toBeTruthy();
-    const fold = screen.getByText(BOLD).closest('p')!.parentElement!;
-    const labels = [...fold.querySelectorAll('li > strong')].map((e) => e.textContent);
-    expect(labels).toEqual(['Days', 'Size', 'Weight']);
+    expect(screen.getByText(PARAGRAPH).tagName).toBe('P');
+    const fold = screen.getByText(PARAGRAPH).parentElement!;
+    const items = [...fold.querySelectorAll('ul')[0]!.querySelectorAll(':scope > li')];
+    expect(items.map((li) => li.querySelector('strong')?.textContent)).toEqual(['Days', 'Size', 'Weight']);
+    expect(items[0]!.textContent).toBe('Days Your clock on a token starts at your first hold.');
+    expect(items[1]!.textContent).toBe('Size A real position earns a full day. The largest holders earn up to two. Dust earns nothing.');
+    expect(items[2]!.textContent).toMatch(
+      /^Weight is the island's published\s+multiplier\.\s+The Apes carry triple weight, JBM and BAYLA carry their edge, the home team leans warm,\s+and every measured token counts\.$/,
+    );
   });
 
-  it('prints no formula line, no TWAB and no whole-held-time average', async () => {
+  it('prints no formula line, no TWAB, no averaging and no sum', async () => {
     const { container } = await openMaths();
     const text = container.textContent ?? '';
-    expect(text).toContain(BOLD);
-    expect(text).not.toMatch(/heat\s*=|weight\s*×|TWAB|time-weighted|average is taken|whole held time|the formula/i);
+    expect(text).toContain(PARAGRAPH);
+    expect(text).not.toMatch(
+      /heat\s*=|degrees\s*=|weight\s*×|√|TWAB|time-weighted|average is taken|whole held time|the formula|added together|read per token/i,
+    );
   });
 
-  it('lists the tiers on your total with their meanings in time', async () => {
+  it('lists the tiers on your heat, with no duration and no breadth in their meanings', async () => {
     await openMaths();
-    for (const meaning of ['a month', 'half a year', 'a year', 'a thousand days']) {
-      expect(screen.getByText(meaning)).toBeTruthy();
-    }
+    const heading = screen.getByText('The tiers, on your heat');
+    expect(screen.queryByText(/on your total/)).toBeNull();
+    const list = heading.parentElement!.querySelector('ul')!;
+    const tiers = [...list.querySelectorAll('li')].map((li) => li.querySelector('span')?.textContent);
+    expect(tiers).toEqual(['Elder', 'Builder', 'Resident', 'Observer']);
+    expect(list.textContent).toMatch(/Elder\s*250°/);
+    expect(list.textContent).toMatch(/Resident\s*80°/);
+    expect(list.textContent).not.toMatch(/a thousand days|a year|a month|multi-token|across tokens/);
   });
 });

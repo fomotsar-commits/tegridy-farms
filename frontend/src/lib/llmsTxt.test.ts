@@ -92,7 +92,10 @@ describe('llms.txt says only what the venue itself says', () => {
     const floor = heatLaunchFloor();
     expect(text).toContain(heatExampleLine(floor, tierAtFloor(floor)));
     // Pinned as well as derived: a derived line alone follows any floor.
-    expect(text).toContain('\nAt 180 degrees you reach Resident, the tier that may plant a launch here.\n');
+    expect(text).toContain('\nAt 80 degrees you reach Resident, the tier that may plant a launch here.\n');
+    // The explainer is the island paragraph's first two sentences, and never a sum.
+    expect(text).toContain('\nHeat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it.\n');
+    expect(text).not.toMatch(/added together|read per token/);
   });
 
   it('lists exactly the doors the hall lists as open, and every settled door with its token', () => {

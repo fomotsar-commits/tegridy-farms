@@ -123,16 +123,23 @@ describe('the venue teaches the whole published law, not one term of it', () => 
     expect(userFacing).not.toMatch(/has not been published/i);
   });
 
-  it('explains in the island sentences, word for word', () => {
-    expect(VENUE.heatPlain).toBe(
-      'Heat counts the days you have held each token. It is read per token and added together across everything you hold. Size can raise what a day is worth, it cannot buy a day, and price never enters it.',
-    );
+  it('explains in the island paragraph, word for word', () => {
+    const paragraph = 'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Each degree after that takes longer than the last. Size can raise what a day is worth, it cannot buy a day, and price never enters it.';
+    expect(VENUE.heatParagraph).toBe(paragraph);
+    // The hero and llms.txt carry the paragraph's first two sentences, and only those.
+    expect(VENUE.heatPlain).toBe('Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it.');
+    expect(VENUE.heatParagraph.startsWith(`${VENUE.heatPlain} `)).toBe(true);
     expect(VENUE.heatDays).toBe('Your clock on a token starts at your first hold.');
     expect(VENUE.heatSize).toBe('A real position earns a full day. The largest holders earn up to two. Dust earns nothing.');
     // The Maths fold renders all three from VENUE; Weight stays its own sentence.
     const heatCard = prose(join(SRC, 'components', 'HeatCard.tsx'));
-    for (const key of ['heatPlain', 'heatDays', 'heatSize']) expect(heatCard).toContain(`VENUE.${key}`);
+    for (const key of ['heatParagraph', 'heatDays', 'heatSize']) expect(heatCard).toContain(`VENUE.${key}`);
     expect(heatCard, 'weight is not defined as the published multiplier').toMatch(/published\s*\{?'?\s*\}?\s*multiplier/i);
+  });
+
+  it('names the Resident band the paragraph names, so a band cannot move without the words', () => {
+    const resident = oracle.TIER_FLOORS.find((t) => t.tier === 'Resident');
+    expect(VENUE.heatParagraph).toContain(`reads ${resident?.floor}°, Resident.`);
   });
 
   it('retires the arithmetic it can no longer do honestly', () => {
@@ -145,18 +152,18 @@ describe('the venue teaches the whole published law, not one term of it', () => 
 });
 
 describe('the launch floor is the island word', () => {
-  it('is 180, Resident', () => {
-    expect(oracle.LAUNCH_FLOOR).toBe(180);
+  it('is 80, Resident', () => {
+    expect(oracle.LAUNCH_FLOOR).toBe(80);
     const resident = oracle.TIER_FLOORS.find((t) => t.tier === 'Resident');
-    expect(resident?.floor).toBe(180);
+    expect(resident?.floor).toBe(80);
   });
 });
 
 // Shipped source: src and api (tests excluded), public's text files, index.html and
 // middleware.js. userText() is what a file can put in front of a reader: a script's
 // string literals, template text and JSX text read from the TypeScript AST (so no
-// comment, and no `/*` inside a string, hides or adds anything); any other file whole,
-// minus HTML comments. HTML entities are decoded in both.
+// comment, and no `/*` inside a string, hides or adds anything), one per line with its
+// whitespace collapsed; any other file whole, minus HTML comments. Entities are decoded.
 const ROOT = process.cwd();
 const TEXT = /\.(tsx?|jsx?|mjs|cjs|html|json|txt|xml|webmanifest)$/;
 function shipped(): string[] {
@@ -206,7 +213,7 @@ function userText(file: string): string {
         ts.isTemplateTail(n) ||
         ts.isJsxText(n)
       ) {
-        parts.push(n.text);
+        parts.push(n.text.replace(/\s+/g, ' '));
       }
       ts.forEachChild(n, visit);
     };
@@ -228,15 +235,27 @@ describe('the guards below read what a reader is shown', () => {
     expect(shown(join(SRC, 'pages', 'SecurityPage.tsx'))).toContain("the venue's record");
     expect(shown(join(ROOT, 'index.html'))).toContain('Your heat already exists.');
     expect(shown(join(ROOT, 'middleware.js'))).toContain('Held time counts here.');
-    expect(shown(join(SRC, 'components', 'HeatCard.tsx'))).not.toContain('VENUE.heatPlain');
+    expect(shown(join(SRC, 'components', 'HeatCard.tsx'))).not.toContain('VENUE.heatParagraph');
   });
 });
 
 // The venue reads heat and never computes it, so it carries sentences, never a
 // formula. An `x` counts as an operator only standing alone, so `?heat=0x…` is not one.
+const FORMULA =
+  /\bheat\s*=\s*\w+(?:\s*[×·⋅*]|\s+x\s)|weight\s*[×·⋅*]\s*\(|days held\s*[×·⋅*]\s*rate|1\s*[−-]\s*e\s*\^|\bdegrees\s*=\s*\d+(?:\.\d+)?\s*[×·⋅*]|√|\bwarm days\s*=/i;
+
 describe('no formula, TWAB or time-weighted in user-facing source', () => {
+  it('knows the island law lines as formulas, and the island paragraph as sentences', () => {
+    expect(FORMULA.test('degrees = 80 · √( warm days ÷ 180 )')).toBe(true);
+    expect(FORMULA.test('degrees = 80 · ( warm days ÷ 180 )')).toBe(true);
+    expect(FORMULA.test('warm days = weight · days held · rate')).toBe(true);
+    expect(FORMULA.test('heat = weight × ( size + loyalty )')).toBe(true);
+    expect(FORMULA.test('/?heat=0xabc')).toBe(false);
+    expect(FORMULA.test(VENUE.heatParagraph)).toBe(false);
+  });
+
   const GUARDS: [string, RegExp][] = [
-    ['a formula line', /\bheat\s*=\s*\w+(?:\s*[×·⋅*]|\s+x\s)|weight\s*[×·⋅*]\s*\(|days held\s*[×·⋅*]\s*rate|1\s*[−-]\s*e\s*\^/i],
+    ['a formula line', FORMULA],
     ['TWAB', /\bTWAB\b/],
     ['time-weighted', /time[- ]weighted/i],
   ];
@@ -262,5 +281,58 @@ describe('no link to memetics.wtf/island', () => {
   it('names it in no shipped source', () => {
     const offenders = [...SHIPPED].filter(([, text]) => /memetics\.wtf\/+island/i.test(text)).map(([f]) => relative(ROOT, f));
     expect(offenders, `memetics.wtf/island is linked from:\n${offenders.join('\n')}`).toEqual([]);
+  });
+});
+
+// The deepest room sets the heat and every other room amplifies it, so no user-facing
+// sentence adds heat up across rooms or tokens. `summed` is refused anywhere; the one
+// exemption is the competitions rule, which is about trades and never about heat.
+describe('no heat-summing sentence in user-facing source', () => {
+  const SUMMING =
+    /added\s+together|\bsummed\b|\bsum across\b|\brows sum to\b|\bon your total\b|\bsum of (?:your|the|its|every) (?:rooms?|tokens?|degrees|heat)\b|\badds? up across\b/i;
+  const HEAT_SUM =
+    /\b(?:heat|degrees?|warmth|flame)\b[^.\n]{0,80}\b(?:added together|summed|sums?|adds? up|combined|totall?ed)\b|\b(?:added together|summed|sums?|adds? up|combined)\b[^.\n]{0,80}\b(?:heat|degrees?|rooms?|everything you hold)\b/i;
+  const EXEMPT: [string, string][] = [
+    [join('src', 'components', 'competitions', 'ScoringRules.tsx'), 'Trades in other tokens are counted and shown, never summed in'],
+  ];
+  const offenders = (re: RegExp) =>
+    [...SHIPPED].flatMap(([f, raw]) => {
+      const rel = relative(ROOT, f);
+      const text = EXEMPT.reduce((t, [file, phrase]) => (file === rel ? t.split(phrase).join(' ') : t), raw);
+      const m = re.exec(text);
+      return m ? [`${rel}: "${m[0]}"`] : [];
+    });
+
+  it('says no heat is added together, summed, or totalled across rooms', () => {
+    const found = offenders(SUMMING);
+    expect(found, `a summing sentence in user-facing source:\n${found.join('\n')}`).toEqual([]);
+  });
+
+  it('pairs no heat word with a summing word in one sentence', () => {
+    const found = offenders(HEAT_SUM);
+    expect(found, `heat and a summing word in one sentence:\n${found.join('\n')}`).toEqual([]);
+  });
+
+  it('knows a summing sentence from the island paragraph and from unrelated sums', () => {
+    for (const bad of [
+      'It is read per token and added together across everything you hold.',
+      'Your heat is summed across every token you hold.',
+      'Sum across 10 tokens',
+      'These rows sum to 1979.59°',
+      'The tiers, on your total',
+      'Degrees from each room add up to your heat.',
+    ]) {
+      expect(SUMMING.test(bad) || HEAT_SUM.test(bad), bad).toBe(true);
+    }
+    for (const ok of [
+      VENUE.heatParagraph,
+      'Only swaps that spend the season quote token add to a total.',
+      'Weights must sum to 10000.',
+      'measured against the sum of ETH lent',
+    ]) {
+      expect(SUMMING.test(ok) || HEAT_SUM.test(ok), ok).toBe(false);
+    }
+    const scoring = shown(join(SRC, 'components', 'competitions', 'ScoringRules.tsx'));
+    expect(scoring, 'the exemption names a sentence that is no longer there').toContain(EXEMPT[0]![1]);
   });
 });

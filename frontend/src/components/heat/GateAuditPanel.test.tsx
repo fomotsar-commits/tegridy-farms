@@ -68,7 +68,7 @@ describe('a denial, replayed', () => {
     expect(screen.getByText(/COLD · below the floor/i)).toBeInTheDocument();
     expect(screen.getByText('62.40°')).toBeInTheDocument();
     expect(screen.getByText('Observer')).toBeInTheDocument();
-    expect(screen.getByText(/62\.40° measured against a 180° floor — short by 117\.60°/)).toBeInTheDocument();
+    expect(screen.getByText(/62\.40° measured against a 80° floor — short by 17\.60°/)).toBeInTheDocument();
   });
 
   it('quotes the gate_decision_id a support thread will ask for', () => {
@@ -109,14 +109,14 @@ describe('a denial, replayed', () => {
 
 describe('the floor is the one the decision was taken against', () => {
   it('renders the STORED floor and flags that the dial has since moved', () => {
-    // Decided against 250°; the live dial is 180°. Substituting 180° here would turn a
+    // Decided against 250°; the live dial is 80°. Substituting 80° here would turn a
     // real denial into an apparent pass and erase the reason the wallet was refused.
     recordGateDecision(gateDecision(ADDR, reading(100), NOW, 250));
     render(<GateAuditPanel address={ADDR} />);
     expand();
     expect(screen.getByText('250°')).toBeInTheDocument();
     expect(screen.getByText(/100\.00° measured against a 250° floor — short by 150\.00°/)).toBeInTheDocument();
-    expect(screen.getByText(/The floor is 180° today\. This decision was taken against 250°/)).toBeInTheDocument();
+    expect(screen.getByText(/The floor is 80° today\. This decision was taken against 250°/)).toBeInTheDocument();
   });
 
   it('says nothing about drift when the floor has not moved', () => {
@@ -143,9 +143,9 @@ describe('an outage is never a score', () => {
     recordGateDecision(gateDecision(ADDR, reading(500, 'Elder', old), NOW));
     render(<GateAuditPanel address={ADDR} />);
     expand();
-    // 500° clears 180° comfortably — and it still did not pass, because the reading
+    // 500° clears 80° comfortably — and it still did not pass, because the reading
     // was too old to pass ANYONE. The panel must not imply the floor was the issue.
-    expect(screen.getByText(/the 180° floor was never applied/)).toBeInTheDocument();
+    expect(screen.getByText(/the 80° floor was never applied/)).toBeInTheDocument();
     expect(screen.queryByText(/clear by/)).not.toBeInTheDocument();
   });
 });
