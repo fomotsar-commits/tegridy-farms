@@ -4,7 +4,7 @@
  * behaviour is measured in e2e/tab-strip-scroll.spec.ts.
  */
 import { describe, it, expect } from 'vitest';
-import { STRIP_EDGE_PX, revealScrollLeft } from './tabStripScroll';
+import { STRIP_EDGE_PX, revealScrollLeft, stripFade, stripFadeMask } from './tabStripScroll';
 
 // A 382px strip over 600px of tabs: it can scroll 218px.
 const strip = (scrollLeft: number) => ({ scrollLeft, clientWidth: 382, scrollWidth: 600 });
@@ -37,5 +37,45 @@ describe('revealScrollLeft', () => {
 
   it('keeps a strip that fits at the start', () => {
     expect(revealScrollLeft({ start: 300, end: 378 }, { scrollLeft: 0, clientWidth: 382, scrollWidth: 382 })).toBe(0);
+  });
+});
+
+describe('stripFade', () => {
+  it('fades neither edge of a strip that fits, sub-pixel rounding included', () => {
+    expect(stripFade({ scrollLeft: 0, clientWidth: 382, scrollWidth: 382.6 })).toEqual({ start: false, end: false });
+  });
+
+  it('fades the end at the start, the start at the end, and both in between', () => {
+    expect(stripFade(strip(0))).toEqual({ start: false, end: true });
+    expect(stripFade(strip(218))).toEqual({ start: true, end: false });
+    expect(stripFade(strip(100))).toEqual({ start: true, end: true });
+  });
+
+  it('counts a strip within a pixel of an end as at that end', () => {
+    expect(stripFade(strip(0.5))).toEqual({ start: false, end: true });
+    expect(stripFade(strip(217.5))).toEqual({ start: true, end: false });
+  });
+});
+
+describe('stripFadeMask', () => {
+  // A mask stop that is transparent hides what is under it: that edge fades.
+  const clearFirst = /^linear-gradient\(to right, transparent,/;
+  const clearLast = /, transparent\)$/;
+
+  it('masks nothing when neither edge fades', () => {
+    expect(stripFadeMask({ start: false, end: false })).toBeUndefined();
+  });
+
+  it('clears only the edge that fades, over STRIP_EDGE_PX', () => {
+    const end = stripFadeMask({ start: false, end: true })!;
+    expect(end).toMatch(clearLast);
+    expect(end).not.toMatch(clearFirst);
+    const start = stripFadeMask({ start: true, end: false })!;
+    expect(start).toMatch(clearFirst);
+    expect(start).not.toMatch(clearLast);
+    const both = stripFadeMask({ start: true, end: true })!;
+    expect(both).toMatch(clearFirst);
+    expect(both).toMatch(clearLast);
+    for (const m of [start, end, both]) expect(m).toContain(`${STRIP_EDGE_PX}px`);
   });
 });

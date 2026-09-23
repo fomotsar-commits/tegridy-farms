@@ -1,13 +1,15 @@
 /**
- * A section strip too wide for a phone scrolls sideways, and the tab for the page
- * you are on is whole and in view when you land on it. Measured from rendered
- * boxes against the strip's visible (client) box.
+ * A section strip too wide for a phone scrolls sideways. The tab for the page you
+ * are on is whole and in view when you land on it, and an edge with tabs hidden
+ * past it fades, so the strip reads as one that scrolls. Measured from rendered
+ * boxes against the strip's visible (client) box, and the strip's computed mask.
  */
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
 import { gotoRoute } from './fixtures/routes';
 
 const PHONE = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
+const DESKTOP = { viewport: { width: 1440, height: 900 }, hasTouch: false, isMobile: false };
 const PHONE_WIDTHS = [360, 375, 390, 430];
 
 /** Sub-pixel rounding between a tab and its strip is not a cut. */
@@ -32,7 +34,9 @@ function readStrip(list: Element) {
   const visL = box.left + list.clientLeft;
   const tab = list.querySelector('[role="tab"][aria-selected="true"]');
   const sel = tab?.getBoundingClientRect();
+  const cs = getComputedStyle(list);
   return {
+    mask: cs.getPropertyValue('mask-image') || cs.getPropertyValue('-webkit-mask-image') || 'none',
     scrollLeft: list.scrollLeft,
     maxScroll: list.scrollWidth - list.clientWidth,
     visL,
@@ -60,8 +64,8 @@ async function settle(page: Page, list: Locator, check: (s: Strip) => string[]) 
   return found;
 }
 
-async function land(page: Page, path: string, strip: string, width: number) {
-  await page.setViewportSize({ width, height: PHONE.viewport.height });
+async function land(page: Page, path: string, strip: string, width: number, height = PHONE.viewport.height) {
+  await page.setViewportSize({ width, height });
   await gotoRoute(page, path);
   const list = page.getByRole('tablist', { name: strip });
   await expect(list.getByRole('tab', { selected: true })).toHaveCount(1);
@@ -88,6 +92,96 @@ test.describe('a phone lands with the selected tab in view', () => {
         for (const p of await settle(page, list, selectedCut)) problems.push(`${width}px: ${p}`);
       }
       expect(problems, 'selected tabs out of view on landing').toEqual([]);
+    });
+  }
+});
+
+/**
+ * Which edges a strip's mask fades: a gradient whose first or last stop is
+ * transparent hides what is under that edge. `px` is the fade's width.
+ */
+function fadedEdges(mask: string) {
+  if (!mask.startsWith('linear-gradient(')) return { start: false, end: false, px: 0 };
+  const inner = mask.slice(mask.indexOf('(') + 1, mask.lastIndexOf(')'));
+  const parts: string[] = [];
+  let depth = 0;
+  let part = '';
+  for (const ch of inner) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      parts.push(part.trim());
+      part = '';
+    } else part += ch;
+  }
+  parts.push(part.trim());
+  const stops = parts.filter((p) => !p.startsWith('to '));
+  const clear = (stop = '') => /^(transparent|rgba\(0, 0, 0, 0\))/.test(stop);
+  return { start: clear(stops[0]), end: clear(stops[stops.length - 1]), px: Number(/([\d.]+)px/.exec(inner)?.[1] ?? 0) };
+}
+
+/** An edge fades exactly while tabs are hidden past it; on landing, never over the selected tab. */
+const fadeFollowsScroll = (onLanding: boolean) => (s: Strip) => {
+  const fade = fadedEdges(s.mask);
+  const at = `scrollLeft ${round(s.scrollLeft)} of ${round(s.maxScroll)}`;
+  const out: string[] = [];
+  const hiddenStart = s.scrollLeft > 1;
+  const hiddenEnd = s.scrollLeft < s.maxScroll - 1;
+  if (fade.start !== hiddenStart) out.push(`the start edge ${fade.start ? 'fades with nothing' : 'does not fade with tabs'} hidden past it (${at})`);
+  if (fade.end !== hiddenEnd) out.push(`the end edge ${fade.end ? 'fades with nothing' : 'does not fade with tabs'} hidden past it (${at})`);
+  if (onLanding) {
+    const under = Math.max(s.visL + (fade.start ? fade.px : 0) - s.selL, s.selR - (s.visR - (fade.end ? fade.px : 0)));
+    if (under > TOLERANCE_PX) out.push(`${s.selected} is ${round(under)}px under a fade or past the edge (${at})`);
+  }
+  return out;
+};
+
+// Every strip that scrolls on a phone, landing on a first, a middle and a last tab.
+const SCROLLING = [
+  { path: '/farm', strip: 'Earn sections' },
+  { path: '/copy-trading', strip: 'Earn sections' },
+  { path: '/checkout', strip: 'Earn sections' },
+  { path: '/launch', strip: 'Launch sections' },
+  { path: '/trust', strip: 'Token-checking tools' },
+];
+
+test.describe('a strip that scrolls fades the edge more tabs wait behind', () => {
+  test.use(PHONE);
+  for (const { path, strip } of SCROLLING) {
+    test(`${path}: at 360 to 430 each ${strip} edge fades exactly while tabs are hidden past it`, async ({
+      page,
+      walletMock: _w,
+    }) => {
+      const problems: string[] = [];
+      for (const width of [360, 375, 390, 393, 402, 430]) {
+        const list = await land(page, path, strip, width);
+        for (const p of await settle(page, list, fadeFollowsScroll(true))) problems.push(`${width}px on landing: ${p}`);
+        if ((await list.evaluate(readStrip)).maxScroll <= 1) {
+          problems.push(`${width}px: the strip fits, so this case no longer tests a strip that scrolls`);
+          continue;
+        }
+        for (const [when, share] of [['scrolled to the end', 1], ['scrolled halfway', 0.5], ['scrolled back to the start', 0]] as const) {
+          await list.evaluate((el, f) => { el.scrollLeft = (el.scrollWidth - el.clientWidth) * f; }, share);
+          for (const p of await settle(page, list, fadeFollowsScroll(false))) problems.push(`${width}px ${when}: ${p}`);
+        }
+      }
+      expect(problems, 'strip edges that hide tabs without a fade, or fade over nothing').toEqual([]);
+    });
+  }
+});
+
+test.describe('a strip that fits does not fade', () => {
+  test.use(DESKTOP);
+  for (const { path, strip } of [
+    { path: '/farm', strip: 'Earn sections' },
+    { path: '/launch', strip: 'Launch sections' },
+    { path: '/trust', strip: 'Token-checking tools' },
+  ]) {
+    test(`${path}: the ${strip} strip fits at 1440 with neither edge faded`, async ({ page, walletMock: _w }) => {
+      const list = await land(page, path, strip, DESKTOP.viewport.width, DESKTOP.viewport.height);
+      const s = await list.evaluate(readStrip);
+      expect(s.maxScroll, 'the strip scrolls at 1440').toBeLessThanOrEqual(1);
+      expect(fadedEdges(s.mask), `mask ${s.mask}`).toEqual({ start: false, end: false, px: 0 });
     });
   }
 });
