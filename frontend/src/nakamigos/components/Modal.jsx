@@ -528,8 +528,10 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                 {buying ? "Confirming..." : !wallet ? "Connect Wallet to Buy" : `Buy for ${formatPrice(Number(nft.price ?? 0))} ETH`}
               </button>
             ) : (
-              <button className="btn-primary" style={{ flex: 1 }} aria-label="Buy this NFT" onClick={() => window.open(openSeaUrl, "_blank", "noopener,noreferrer")}>
-                Buy on OpenSea
+              // No listing for this token is known here, so there is nothing to
+              // buy: the button opens its OpenSea page, and says only that.
+              <button className="btn-primary" style={{ flex: 1 }} aria-label="View this NFT on OpenSea" onClick={() => window.open(openSeaUrl, "_blank", "noopener,noreferrer")}>
+                View on OpenSea
               </button>
             )}
             <button
@@ -619,9 +621,11 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
             const typeAttr = attrs.find(a => a.key === "Type")?.value;
             const specieAttr = attrs.find(a => a.key === "Specie")?.value;
             const legendaryAttr = attrs.find(a => a.key === "Legendary Name")?.value;
-            const charType = typeAttr && CHARACTER_TYPES.find(t => typeAttr === t.name || typeAttr.endsWith(t.name) || typeAttr.startsWith(t.name));
-            const species = specieAttr && GNSS_SPECIES.find(s => s.name === specieAttr);
-            const legendary = legendaryAttr && JB_LEGENDARIES.find(l => l.name === legendaryAttr);
+            // Each lore table belongs to one collection; an attribute of the same
+            // name on another collection's token is not that lore.
+            const charType = collection.slug === "nakamigos" && typeAttr && CHARACTER_TYPES.find(t => typeAttr === t.name || typeAttr.endsWith(t.name) || typeAttr.startsWith(t.name));
+            const species = collection.slug === "gnssart" && specieAttr && GNSS_SPECIES.find(s => s.name === specieAttr);
+            const legendary = collection.slug === "junglebay" && legendaryAttr && JB_LEGENDARIES.find(l => l.name === legendaryAttr);
             const loreItem = charType || species || legendary;
             if (!loreItem) return null;
             const isUltra = charType ? charType.count <= 36 : species ? species.rarityTier === "legendary" : !!legendary;

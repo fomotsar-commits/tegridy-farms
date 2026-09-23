@@ -144,7 +144,12 @@ export default function Hero({ stats, tokens, onPick }) {
             {collection.name}
           </h1>
           {collection.description && (
-            <p className="hero-desc">{collection.description}</p>
+            <p className="hero-desc">
+              {collection.description}
+              {collection.descriptionSource === "opensea" && (
+                <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)" }}> (from the collection&apos;s OpenSea page)</span>
+              )}
+            </p>
           )}
           {COLLECTION_LORE[collection.slug]?.tagline && (
             <div style={{

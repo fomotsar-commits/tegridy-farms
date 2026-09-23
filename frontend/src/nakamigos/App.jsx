@@ -469,8 +469,28 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
 
   // ═══ Deep link: /:collection/nft/:id — auto-open modal ═══
   const deepLinkFetchedRef = useRef(null);
+  // An id below the collection's first id, or absent once a live read has
+  // loaded every token, does not exist: it gets a notice, never a placeholder
+  // Modal whose Make Offer would wrap and approve for a token nobody owns.
+  const missingToken = useMemo(() => {
+    if (!deepLinkTokenId) return null;
+    if (nfts.allTokens.some((t) => String(t.id) === deepLinkTokenId)) return null;
+    const firstId = collection.tokenIds?.first;
+    const knownSupply = stats?.supply ?? collection.supply;
+    const belowRange = Number.isFinite(firstId) && Number(deepLinkTokenId) < firstId;
+    const everyTokenRead = nfts.allTokens.length > 0 && nfts.isLive && !nfts.hasMore && !nfts.loading && !nfts.error
+      && (!Number.isFinite(knownSupply) || nfts.allTokens.length >= knownSupply);
+    if (!belowRange && !everyTokenRead) return null;
+    const ids = everyTokenRead ? nfts.allTokens.map((t) => Number(t.id)).filter(Number.isFinite) : [];
+    return {
+      id: deepLinkTokenId,
+      read: ids.length ? { count: ids.length, min: Math.min(...ids), max: Math.max(...ids) } : null,
+      firstId: Number.isFinite(firstId) ? firstId : null,
+    };
+  }, [deepLinkTokenId, nfts.allTokens, nfts.isLive, nfts.hasMore, nfts.loading, nfts.error, collection.tokenIds, collection.supply, stats?.supply]);
+
   useEffect(() => {
-    if (!deepLinkTokenId) return;
+    if (!deepLinkTokenId || missingToken) return;
     const token = nfts.allTokens.find((t) => String(t.id) === deepLinkTokenId);
     if (token) {
       setSelected(token);
@@ -485,7 +505,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         .then((arr) => { if (arr?.[0]) setSelected(arr[0]); })
         .catch(() => { /* bad/burned id — deep link is best-effort */ });
     }
-  }, [deepLinkTokenId, nfts.allTokens, collection.contract, collection.metadataBase]);
+  }, [deepLinkTokenId, missingToken, nfts.allTokens, collection.contract, collection.metadataBase]);
 
   // Update page title on tab change
   useEffect(() => {
@@ -908,6 +928,20 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
             }}
           >
             Switch Network
+          </button>
+        </div>
+      )}
+      {/* A deep link to a token that does not exist says so (see missingToken). */}
+      {missingToken && tab === "gallery" && (
+        <div className="ext-notice" role="status">
+          <span>
+            {`Token #${missingToken.id} is not in this collection.`}
+            {missingToken.read
+              ? ` The ${missingToken.read.count.toLocaleString("en-US")} tokens read here run from #${missingToken.read.min} to #${missingToken.read.max}.`
+              : missingToken.firstId != null ? ` Its token ids start at #${missingToken.firstId}.` : ""}
+          </span>
+          <button type="button" className="ext-secondary-btn" onClick={() => navigate(`/nakamigos/${collectionSlug}/gallery`, { replace: true })}>
+            Dismiss
           </button>
         </div>
       )}

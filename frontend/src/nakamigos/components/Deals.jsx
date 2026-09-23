@@ -755,6 +755,26 @@ export default function Deals({
   }
 
   /* ══════════════════════════════════════════════
+     NO TRAITS: a collection whose metadata carries no traits has no trait
+     floors, so "every listing sits at its trait floor" would be a claim
+     about a comparison that never ran.
+     ══════════════════════════════════════════════ */
+  const noTraits = !hasMore && tokens.length > 0 && tokens.every((t) => !(t.attributes || []).length);
+  if (noTraits && !listingsLoading) {
+    return (
+      <section style={S.page}>
+        <div style={S.header}>
+          <div style={S.title}>DEALS</div>
+          <div style={S.subtitle}>Trait floor arbitrage scanner for {collection.name}</div>
+        </div>
+        <div style={S.emptyState}>
+          {`Deals compares listings with their trait floors. ${collection.name} has no traits in its metadata, so there is nothing to compare.`}
+        </div>
+      </section>
+    );
+  }
+
+  /* ══════════════════════════════════════════════
      EMPTY STATE
      ══════════════════════════════════════════════ */
   if (deals.length === 0 && !listingsLoading) {

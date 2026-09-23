@@ -5,6 +5,7 @@ import {
 import SpeciesEncyclopedia from "./SpeciesEncyclopedia";
 import JungleBayShowcase from "./JungleBayShowcase";
 import { SHORTCUTS_FLAT } from "../lib/shortcuts";
+import { chainLabel, explorerAddressUrl } from "../lib/venue";
 import { formatPrice } from "../lib/formatPrice";
 
 function formatVol(n) {
@@ -83,7 +84,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
   const contractMeta = [
     ["Contract", `${collection.contract.slice(0, 6)}...${collection.contract.slice(-4)}`],
     ["Standard", collection.tags?.find(t => t.startsWith("ERC-")) || "ERC-721"],
-    ["Chain", "Ethereum"],
+    ["Chain", chainLabel(collection) || "Ethereum"],
   ];
   if (lore?.creator?.name) contractMeta.push(["Creator", lore.creator.name]);
   contractMeta.push(["Supply", formatNumber(displaySupply ?? collection.supply)]);
@@ -93,7 +94,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
 
   const links = [
     ["OpenSea", `https://opensea.io/collection/${collection.openseaSlug || collection.slug}`],
-    ["Etherscan", `https://etherscan.io/address/${collection.contract}`],
+    [collection.explorer?.name || "Etherscan", explorerAddressUrl(collection) || `https://etherscan.io/address/${collection.contract}`],
   ];
   if (isGnssArt) links.unshift(...GNSS_EXTRA_LINKS);
   if (isNakamigos) links.unshift(...NAKAMIGOS_EXTRA_LINKS);
@@ -169,7 +170,17 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
               <p>The community rebranded to Jungle Bay Artists Collective, embracing "memetic finance" (DM+T = Dank Memes + Time). With only 0.98% of supply listed and 20 legendary 1/1 hand-drawn apes, this is one of the tightest-held collections on Ethereum.</p>
             </>
           )}
-          {!isNakamigos && !isGnssArt && !isJungleBay && <p>{collection.description}</p>}
+          {!isNakamigos && !isGnssArt && !isJungleBay && collection.description && (
+            collection.descriptionSource === "opensea" ? (
+              // The collection's own words, labelled as such: not a venue claim.
+              <figure style={{ margin: 0 }}>
+                <figcaption style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", letterSpacing: "0.04em", marginBottom: 6 }}>
+                  Description from the collection&apos;s OpenSea page
+                </figcaption>
+                <blockquote style={{ margin: 0, whiteSpace: "pre-line" }}>{collection.description}</blockquote>
+              </figure>
+            ) : <p>{collection.description}</p>
+          )}
 
           {collection.tags?.length > 0 && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
