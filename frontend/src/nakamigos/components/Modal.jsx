@@ -55,28 +55,30 @@ function FairValueBadge({ nft, floorPrice, supply }) {
 }
 
 function PriceHistoryChart({ tokenId, contract }) {
-  const [sales, setSales] = useState(null);
-  // A failed read is its own state: "no sales" is said only after a read that answered.
-  const [failed, setFailed] = useState(false);
+  // Each read's answer is kept with the token it was for. A failed read is its
+  // own state: "no sales" is said only after a read that answered.
+  const readKey = `${contract}:${tokenId}`;
+  const [result, setResult] = useState({ key: null, sales: null, failed: false });
 
   useEffect(() => {
     let cancelled = false;
-    setSales(null);
-    setFailed(false);
     fetchTokenSalesHistory(tokenId, contract).then((data) => {
       // F709: drop self-sales (same wallet buying from itself) so the price
       // history, average, and min/max can't be skewed by wash trades.
-      if (!cancelled) setSales(excludeSelfSales(data));
+      if (!cancelled) setResult({ key: readKey, sales: excludeSelfSales(data), failed: false });
     }).catch((err) => {
       if (!cancelled) {
         console.warn("Sales history unavailable:", err?.message || err);
-        setFailed(true);
+        setResult({ key: readKey, sales: null, failed: true });
       }
     });
     return () => { cancelled = true; };
-  }, [tokenId, contract]);
+  }, [tokenId, contract, readKey]);
 
-  if (failed) return (
+  const current = result.key === readKey;
+  const sales = current ? result.sales : null;
+
+  if (current && result.failed) return (
     <div role="status" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 8 }}>
       Sales history for this token is unavailable right now
     </div>
