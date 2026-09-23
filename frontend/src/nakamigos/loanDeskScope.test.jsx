@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { MemoryRouter } from "react-router-dom";
 import { CollectionProvider } from "./contexts/CollectionContext";
 import { TradingModeProvider } from "./contexts/TradingModeContext";
@@ -119,7 +119,7 @@ async function renderMyNfts(slug) {
 
 describe("the lending whitelist", () => {
   it("the venue's loan collections are exactly the ones TegridyNFTLending whitelists", () => {
-    const sol = readFileSync(fileURLToPath(new URL("../../../contracts/src/TegridyNFTLending.sol", import.meta.url)), "utf8");
+    const sol = readFileSync(join(process.cwd(), "..", "contracts", "src", "TegridyNFTLending.sol"), "utf8");
     const whitelisted = [...sol.matchAll(/whitelistedCollections\[(0x[0-9a-fA-F]{40})\]\s*=\s*true/g)].map((m) => m[1].toLowerCase());
     expect(whitelisted.length).toBe(3);
     const desk = constants.NFT_LOAN_DESK_CONTRACTS;
