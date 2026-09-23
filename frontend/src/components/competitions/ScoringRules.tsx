@@ -36,7 +36,7 @@ export function ScoringRules() {
           <dt className="font-medium text-white">One unit only</dt>
           <dd className="mt-0.5 text-white/80">
             Only swaps that spend the season's quote token add to a total. Trades in other tokens
-            are counted and shown, never summed in — the indexer stores no exchange rate, so a
+            are counted and shown, never added in: the indexer stores no exchange rate, so a
             mixed total would be a figure with no unit that still looked like money.
           </dd>
         </div>
