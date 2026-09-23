@@ -339,3 +339,37 @@ for (const viewport of [{ width: 820, height: 1180 }, { width: 1440, height: 900
     });
   });
 }
+
+// THE CART DRAWER ON A PHONE.
+//
+// On a phone the bottom nav is fixed over the foot of the screen, and the
+// open cart drawer ran under it: the last button, Clear cart, was behind the
+// nav. The cart is seeded with one Gold Card listing so the drawer shows its
+// full footer.
+
+test.describe('the cart on a 390 px phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('an open cart keeps its footer buttons above the bottom nav', async ({ page }) => {
+    await page.addInitScript((item) => {
+      try { localStorage.setItem('junglebaygoldcards_cart', JSON.stringify([item])); } catch { /* private mode */ }
+    }, {
+      id: '6',
+      tokenId: '6',
+      name: 'JungleBay Gold Card #6',
+      image: null,
+      price: 0.25,
+      orderHash: `0x${'ab'.repeat(32)}`,
+      protocolAddress: '0x0000000000000068f116a894984e2db1123eb395',
+      contract: GOLD,
+    });
+    await openCollection(page, '/nakamigos/junglebaygoldcards');
+    await page.getByRole('button', { name: 'Shopping cart' }).click({ timeout: 20_000 });
+    const drawer = page.getByRole('dialog', { name: 'Shopping cart' });
+    await expect(drawer).toBeVisible();
+    const clear = drawer.getByRole('button', { name: /CLEAR CART/ });
+    await expect(clear).toBeVisible();
+    await expectReachable(drawer.getByRole('button', { name: /CONNECT WALLET/ }), 'Connect wallet');
+    await expectReachable(clear, 'Clear cart');
+  });
+});
