@@ -289,9 +289,9 @@ export function HeatCard({
             </span>
           </div>
           <p className="text-white/60 text-[12.5px] leading-relaxed mb-4 max-w-2xl">
-            Heat measures <strong className="text-white/85">how much of a token you held, and for how long</strong>.
-            It is not a venue score and it pays nothing — it is the island&apos;s own instrument, read live.
-            Price never enters it, a fresh bag starts near zero however big it is, and trading in and out earns nothing.
+            {VENUE.heatPlain} It is not a venue score and it pays nothing: it is the island&apos;s own
+            instrument, read live. Price never enters it, a fresh bag starts near zero however big it is,
+            and trading in and out earns nothing.
           </p>
         </>
       )}
@@ -931,7 +931,6 @@ function Maths({ degrees }: { degrees: number }) {
             <li key={t.tier} className="flex items-baseline gap-2 text-white/70">
               <span className="w-[68px] shrink-0" style={{ color: TIER_COLOR[t.tier] }}>{t.tier}</span>
               <span className="w-[46px] shrink-0 stat-value">{t.floor}°</span>
-              <span className="text-white/45 text-[11.5px]">{t.meaning}</span>
               {degrees >= t.floor && <span className="text-[10px]" style={{ color: TIER_COLOR[t.tier] }}>✓ reached</span>}
             </li>
           ))}
@@ -940,17 +939,15 @@ function Maths({ degrees }: { degrees: number }) {
 
       <p className="text-white/50 text-[11.5px] mb-2">
         The instrument is{' '}
-        <strong className="text-white/75">continuous</strong> (your balance at every moment, not a
-        snapshot), <strong className="text-white/75">zero-anchored</strong> (time before you first
-        held counts as zero), and <strong className="text-white/75">velocity-blind</strong> (churn
-        earns nothing).
+        <strong className="text-white/75">continuous</strong>,{' '}
+        <strong className="text-white/75">zero-anchored</strong> (time before you first held counts
+        as zero), and <strong className="text-white/75">velocity-blind</strong> (churn earns nothing).
       </p>
 
       <p className="text-white/40 text-[11px]">
         Three properties make it hard to fake: time before you first held counts as zero, so a new
-        bag starts cold however large; churn earns nothing, only balance held across time; and price
-        never enters it. The venue reads this number. The island computes it, and wherever the two
-        disagree, the island is right.
+        bag starts cold however large; churn earns nothing; and price never enters it. The venue
+        reads this number. The island computes it, and wherever the two disagree, the island is right.
       </p>
     </div>
   );

@@ -8,14 +8,14 @@
 /** Tier words. Rendered VERBATIM — never restyled, never translated into yield language. */
 export type HeatTier = 'Elder' | 'Builder' | 'Resident' | 'Observer' | 'Drifter';
 
-/** The island's tier bands, highest first: the ladder's rungs. The tier word beside a
- *  wallet is the served one, never read from here. */
-export const TIER_FLOORS: readonly { tier: HeatTier; floor: number; meaning: string }[] = [
-  { tier: 'Elder',    floor: 250, meaning: 'deep held time' },
-  { tier: 'Builder',  floor: 150, meaning: 'sustained standing' },
-  { tier: 'Resident', floor: 80,  meaning: 'settled' },
-  { tier: 'Observer', floor: 30,  meaning: 'the first threshold that counts' },
-  { tier: 'Drifter',  floor: 0,   meaning: 'the cold state' },
+/** The island's tier bands, highest first: the ladder's rungs, a name and a floor each, as
+ *  the island's ladder prints them. The tier word beside a wallet is the served one. */
+export const TIER_FLOORS: readonly { tier: HeatTier; floor: number }[] = [
+  { tier: 'Elder',    floor: 250 },
+  { tier: 'Builder',  floor: 150 },
+  { tier: 'Resident', floor: 80 },
+  { tier: 'Observer', floor: 30 },
+  { tier: 'Drifter',  floor: 0 },
 ] as const;
 
 /** The launch floor in degrees: 80, the Resident band. Residents may plant.
