@@ -12,7 +12,7 @@
 // the timeline keeps only the dates a contract creation proves.
 
 import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { COLLECTIONS, COLLECTION_LORE } from "../constants";
 import { FAMILY_SLUGS, EXPECTED_FAMILY } from "../__fixtures__/jungleBayFamily";
@@ -77,6 +77,28 @@ describe("nothing the reads contradict", () => {
     expect(everything).toMatch(/2025-07-15|Jul(y)? 15, 2025/);
     expect(everything).toMatch(/2024-12-21|Dec(ember)? 21, 2024/);
     expect(everything).toMatch(/2023-02-01|Feb(ruary)? 1, 2023/);
+  });
+
+  it("places no contract deployment among the timeline's entries of unknown day", async () => {
+    // "Rebranded to Artists Collective" is known only as 2023, so nothing can
+    // say whether the memes contract (Feb 1, 2023) came before or after it.
+    await renderShowcase();
+    const timeline = screen.getByRole("group", { name: /rug-to-riches timeline/i });
+    const labels = within(timeline).getAllByRole("button").map((b) => b.getAttribute("aria-label"));
+    expect(labels.some((l) => /Rebranded to Artists Collective/.test(l))).toBe(true);
+    for (const l of labels) expect(l).not.toMatch(/contract deployed/i);
+  });
+
+  it("lists the family contract deployments as their own group, in the order of their dates", async () => {
+    await renderShowcase();
+    const group = screen.getByRole("group", { name: /family contracts/i });
+    const labels = within(group).getAllByRole("button").map((b) => b.getAttribute("aria-label"));
+    const dated = FAMILY_SLUGS.map((s) => COLLECTIONS[s]).filter((c) => c?.deploy?.date);
+    expect(labels).toHaveLength(dated.length);
+    for (const l of labels) expect(l).toMatch(/contract deployed/);
+    const times = labels.map((l) => Date.parse(l.split(": ")[0]));
+    for (const t of times) expect(Number.isFinite(t)).toBe(true);
+    expect(times).toEqual([...times].sort((a, b) => a - b));
   });
 
   it("the registry's lore for Jungle Bay carries none of those claims either", () => {
