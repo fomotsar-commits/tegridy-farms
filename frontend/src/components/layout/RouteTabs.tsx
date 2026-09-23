@@ -111,9 +111,12 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
               ref={tabKeys.ref(item.to)}
               onClick={() => onSelect(item.to)}
               title={item.compactTabLabel ? (item.tabLabel ?? item.label) : undefined}
-              /* F402: min-w + the row's overflow-x-auto lets long strips scroll
-                 on narrow phones instead of clipping, while flex-1 keeps the
-                 equal-width look once there is room. */
+              /* WIDTH: each tab starts at 64px (the floor) and takes an equal
+                 share of spare room, wider only where its label needs it. It
+                 never shrinks below label plus padding (min-w-max, shrink 0), so
+                 no label paints over the next tab; a strip too wide scrolls
+                 sideways instead. Padding only sets that minimum, and md:px-1
+                 keeps the 13.5px labels inside an iPad strip's equal share. */
               /* 44px ON TOUCH (A11Y-R07's floor), 40px on desktop. The three
                  hosts this markup was extracted from all shipped a flat 40px —
                  about 4px under the repo's own touch floor for the primary way
@@ -131,7 +134,7 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
                  40px. Measured live across nine hosts at 799px before the fix.
                  e2e/tab-target-size.spec.ts only ever swept 390px, which is why
                  nothing caught it. */
-              className="relative flex-1 min-w-[64px] px-2 md:px-3 py-2 min-h-[44px] min-[800px]:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
+              className="relative flex-[1_0_64px] min-w-max px-2 md:px-1 py-2 min-h-[44px] min-[800px]:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
               style={
                 active === item.to
                   ? { background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }
