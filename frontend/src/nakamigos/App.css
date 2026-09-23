@@ -3798,6 +3798,13 @@
   }
 }
 
+/* The cart drawer ends above the bottom nav (z-index 9999) where it shows:
+   56px of bar plus the nav's own bottom padding, max(6px, the safe area). */
+.nakamigos-app .cart-drawer { bottom: 0; }
+@media (max-width: 768px) {
+  .nakamigos-app .cart-drawer { bottom: calc(56px + max(6px, env(safe-area-inset-bottom, 0px))); }
+}
+
 /* ═══ Micro-interactions ═══ */
 
 

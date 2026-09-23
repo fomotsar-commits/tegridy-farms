@@ -364,6 +364,7 @@ export default function ShoppingCart({
       {/* Drawer */}
       <aside
         ref={panelRef}
+        className="cart-drawer"
         tabIndex={-1}
         role="dialog"
         aria-label="Shopping cart"
@@ -372,11 +373,12 @@ export default function ShoppingCart({
         // `inert` its Close/Remove/Sweep/Clear controls stay in the keyboard tab
         // order and a11y tree. `inert` removes them from both while closed.
         {...(isOpen ? {} : { inert: "" })}
+        // `bottom` lives in App.css (.cart-drawer): on a phone the drawer
+        // ends above the fixed bottom nav.
         style={{
           position: "fixed",
           top: 0,
           right: 0,
-          bottom: 0,
           width: "min(380px, 100vw)",
           maxWidth: "100vw",
           zIndex: 8001,
