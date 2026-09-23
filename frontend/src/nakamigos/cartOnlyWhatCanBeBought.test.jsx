@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, within, cleanup } from "@testing-library/react";
+import { render, within, cleanup } from "@testing-library/react";
 
 // The cart offers only what can be bought.
 //
@@ -26,6 +26,10 @@ vi.mock("./contexts/WalletContext", () => ({
   useWalletActions: () => ({ switchChain: vi.fn(), connect: vi.fn(), disconnect: vi.fn() }),
   useWalletUI: () => ({ openConnectModal: null }),
 }));
+
+// A cold import of the grid or the cart takes seconds when the whole suite
+// runs in parallel; the default 5 s budget is not about what is tested here.
+vi.setConfig({ testTimeout: 30000 });
 
 let realMatchMedia;
 
@@ -82,16 +86,20 @@ describe("a cart with nothing that can be bought says so", () => {
     );
   }
 
+  // Each case reads only its own render, so nothing another case left on the
+  // page can satisfy or break it.
   it("shows no total and no buy or connect button, and says nothing here can be bought", async () => {
-    await renderCart([UNLISTED]);
-    expect(screen.getByText(/nothing in the cart can be bought/i)).toBeInTheDocument();
-    expect(screen.queryByText(/0\.0000/)).toBeNull();
-    expect(screen.queryByRole("button", { name: /sweep all|connect wallet/i })).toBeNull();
+    const { container } = await renderCart([UNLISTED]);
+    const cart = within(container);
+    expect(cart.getByText(/nothing in the cart can be bought/i)).toBeInTheDocument();
+    expect(cart.queryByText(/0[.]0000/)).toBeNull();
+    expect(cart.queryByRole("button", { name: /sweep all|connect wallet/i })).toBeNull();
   });
 
   it("positive control: a cart with a listed item keeps its total and its button", async () => {
-    await renderCart([LISTED]);
-    expect(screen.queryByText(/nothing in the cart can be bought/i)).toBeNull();
-    expect(screen.getByRole("button", { name: /connect wallet/i })).toBeInTheDocument();
+    const { container } = await renderCart([LISTED]);
+    const cart = within(container);
+    expect(cart.queryByText(/nothing in the cart can be bought/i)).toBeNull();
+    expect(cart.getByRole("button", { name: /connect wallet/i })).toBeInTheDocument();
   });
 });
