@@ -387,6 +387,18 @@ describe('the share', () => {
     );
   });
 
+  it('posts the served tier word, even where the bands would name another', async () => {
+    // 95° sits in the Resident band; the island served Observer, so the post says Observer.
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 95, tier: 'Observer' }));
+    mount();
+    const post = await screen.findByRole('link', { name: 'Post my number' });
+    const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
+    expect(text).toBe(
+      `Observer. 1694 days held. 95.0° on Jungle Bay Island's instrument. ` +
+        `Held time counts here. https://memetics.finance/read/${ADDR}`,
+    );
+  });
+
   it('opens the composer rather than posting anything', async () => {
     mount();
     const post = await screen.findByRole('link', { name: 'Post my number' });
@@ -559,6 +571,14 @@ describe("element D — the room's own read", () => {
     // Never a bare "no" — a visitor with nothing HERE still has a flame, and
     // hiding it would read as a zero.
     expect(screen.getByText(/your whole flame reads/i)).toBeTruthy();
+  });
+
+  it('names the whole flame by its served tier, even where the bands would name another', async () => {
+    // 95° sits in the Resident band; the island served Observer, so the flame line says Observer.
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 95, tier: 'Observer', breakdown: [row()] }));
+    mountScoped({ address: PEPE, symbol: 'PEPE' });
+    const line = await screen.findByText(/your whole flame reads/i);
+    expect(line.textContent).toBe('your whole flame reads 95.00° Observer');
   });
 
   it('matches the contract case-insensitively, or every Solana room reads empty', async () => {
@@ -911,7 +931,10 @@ describe('the island dials, on the card', () => {
     // Resident rung (80) is still lit, because rungs place a number and never name a wallet.
     h.fetchHeat.mockResolvedValue(wireReading({ degrees: 95, tier: 'Observer' }));
     mount();
-    expect(await awaitRead('Observer')).toBeTruthy();
+    const headline = await awaitRead('Observer');
+    expect(headline.closest('[data-element="b-ladder"]'), 'the first Observer is a rung, not the headline').toBeNull();
+    const offLadder = screen.queryAllByText('Resident').filter((el) => !el.closest('[data-element="b-ladder"]'));
+    expect(offLadder, 'the bands named the wallet').toEqual([]);
     const rungs = await ladderRows();
     expect(rungs[2]).toMatch(/^Resident\s*80°/);
     expect(rungs[2]).toContain('reached');

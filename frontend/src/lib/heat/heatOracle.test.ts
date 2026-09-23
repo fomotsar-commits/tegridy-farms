@@ -175,6 +175,22 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
     expect(warm.detail).toBe('This wallet reads 195.54° (Builder). The launch lane is open.');
   });
 
+  // 95° sits in the Resident band and the island served Observer: every word and field
+  // the door keeps says Observer, because the tier beside a wallet is the served one.
+  it('names the served tier in WARM, COLD and STALE, even where the bands would name another', () => {
+    const warm = gateDecision(ADDR, at(95, 'Observer'), asOf);
+    expect(warm.state).toBe('WARM');
+    expect(warm.tier).toBe('Observer');
+    expect(warm.detail).toBe('This wallet reads 95.00° (Observer). The launch lane is open.');
+    const cold = gateDecision(ADDR, at(95, 'Observer'), asOf, 100);
+    expect(cold.state).toBe('COLD');
+    expect(cold.tier).toBe('Observer');
+    expect(cold.detail.startsWith('This wallet reads 95.00° (Observer). The door opens at 100°,')).toBe(true);
+    const stale = gateDecision(ADDR, at(95, 'Observer'), asOf + 30 * DAY);
+    expect(stale.state).toBe('STALE');
+    expect(stale.tier).toBe('Observer');
+  });
+
   // Every branch of the same function, not the two the fix was about: a review found the
   // unreadable branch still ending "Nothing has been decided — try again", which the door
   // shows and the launch error banner repeats, and which no walk without a wallet renders.
