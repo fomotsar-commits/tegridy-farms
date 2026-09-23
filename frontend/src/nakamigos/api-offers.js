@@ -542,6 +542,20 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
 
 // ═══ CREATE COLLECTION OFFER ═══
 
+// The NFT leg of a collection or trait bid is OpenSea's offers/build answer,
+// not ours. Every NFT item in it must be a criteria item (itemType 4) on the
+// venue collection's contract, or nothing is funded or signed.
+function criteriaBuildRefusal(consideration, collection) {
+  const want = collection.contract.toLowerCase();
+  const nfts = consideration.filter((c) => NFT_ITEM_TYPES.has(Number(c?.itemType)));
+  const pinned = nfts.length > 0
+    && nfts.every((c) => Number(c.itemType) === 4 && String(c.token || "").toLowerCase() === want);
+  return pinned ? null : {
+    error: "nft-mismatch",
+    message: `OpenSea built this bid for something other than ${collection.name}, so nothing was funded or signed.`,
+  };
+}
+
 export async function createCollectionOffer({ priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug }) {
   const refusal = venueSlugRefusal(openseaSlug || slug, slug);
   if (refusal) return refusal;
@@ -564,23 +578,8 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
     if (_walletErr) return _walletErr;
     const priceWei = parseEther(String(priceEth));
 
-    // Step 1: WETH balance & approval (reserve gas buffer)
-    const wethBal = await getWethBalance(buyerAddress);
-    if (wethBal < priceWei) {
-      const ethBal = await browserProvider.getBalance(buyerAddress);
-      const needed = priceWei - wethBal;
-      if (ethBal < needed + GAS_BUFFER_WEI) {
-        return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
-      }
-      await wrapEth(needed);
-    }
-
-    const allowance = await getWethAllowance(buyerAddress);
-    if (allowance < priceWei) {
-      await approveWeth(priceWei);
-    }
-
-    // Step 2: Build offer via OpenSea (collection-wide, no trait) — via proxy
+    // Step 1: Build offer via OpenSea (collection-wide, no trait) — via proxy.
+    // Asked before any wrap or approve, so a failed or foreign build costs no gas.
     let buildData;
     try {
       buildData = await openseaPost("offers/build", {
@@ -597,6 +596,24 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
     const partial = buildData.partialParameters;
     if (!partial || !partial.consideration) {
       return { error: "build-failed", message: "OpenSea returned incomplete offer parameters" };
+    }
+    const _nftErr = criteriaBuildRefusal(partial.consideration, venueCollectionBySlug(osSlug));
+    if (_nftErr) return _nftErr;
+
+    // Step 2: WETH balance & approval (reserve gas buffer)
+    const wethBal = await getWethBalance(buyerAddress);
+    if (wethBal < priceWei) {
+      const ethBal = await browserProvider.getBalance(buyerAddress);
+      const needed = priceWei - wethBal;
+      if (ethBal < needed + GAS_BUFFER_WEI) {
+        return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
+      }
+      await wrapEth(needed);
+    }
+
+    const allowance = await getWethAllowance(buyerAddress);
+    if (allowance < priceWei) {
+      await approveWeth(priceWei);
     }
 
     // Step 3: Build order parameters
@@ -686,23 +703,8 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
     if (_walletErr) return _walletErr;
     const priceWei = parseEther(String(priceEth));
 
-    // Step 1: WETH balance & approval (reserve gas buffer)
-    const wethBal = await getWethBalance(buyerAddress);
-    if (wethBal < priceWei) {
-      const ethBal = await browserProvider.getBalance(buyerAddress);
-      const needed = priceWei - wethBal;
-      if (ethBal < needed + GAS_BUFFER_WEI) {
-        return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
-      }
-      await wrapEth(needed);
-    }
-
-    const allowance = await getWethAllowance(buyerAddress);
-    if (allowance < priceWei) {
-      await approveWeth(priceWei);
-    }
-
-    // Step 2: Call OpenSea's build_offer endpoint via proxy
+    // Step 1: Call OpenSea's build_offer endpoint via proxy. Asked before any
+    // wrap or approve, so a failed or foreign build costs no gas.
     let buildData;
     try {
       buildData = await openseaPost("offers/build", {
@@ -720,6 +722,24 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
     const partial = buildData.partialParameters;
     if (!partial || !partial.consideration) {
       return { error: "build-failed", message: "OpenSea returned incomplete offer parameters" };
+    }
+    const _nftErr = criteriaBuildRefusal(partial.consideration, venueCollectionBySlug(osSlug));
+    if (_nftErr) return _nftErr;
+
+    // Step 2: WETH balance & approval (reserve gas buffer)
+    const wethBal = await getWethBalance(buyerAddress);
+    if (wethBal < priceWei) {
+      const ethBal = await browserProvider.getBalance(buyerAddress);
+      const needed = priceWei - wethBal;
+      if (ethBal < needed + GAS_BUFFER_WEI) {
+        return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
+      }
+      await wrapEth(needed);
+    }
+
+    const allowance = await getWethAllowance(buyerAddress);
+    if (allowance < priceWei) {
+      await approveWeth(priceWei);
     }
 
     // Step 3: Merge partial params with our offer
