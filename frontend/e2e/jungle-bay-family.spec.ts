@@ -298,8 +298,12 @@ test.describe('the item panel on a tablet', () => {
     const panel = page.locator('.ext-panel');
     await expect(panel.locator('.ext-panel-title')).toHaveText(/CHAMPS NEVER FORGET TO BRING A TOWEL/, { timeout: 20_000 });
     const close = panel.getByRole('button', { name: 'Close' });
-    const { width } = await atCentre(close);
-    expect(width, 'close button width').toBeGreaterThanOrEqual(36);
+    // The panel scales in from 0.92 (modalEnter), so the width is read once
+    // the entrance has settled; a squeezed button never reaches 36.
+    await expect(async () => {
+      const { width } = await atCentre(close);
+      expect(width, 'close button width').toBeGreaterThanOrEqual(36);
+    }).toPass({ timeout: 5_000 });
     await expectReachable(close, 'the close button');
   });
 });
