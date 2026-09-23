@@ -14,9 +14,11 @@
 // and reaches its next step (with no wallet connected, that step is the
 // no-wallet answer).
 //
-// Cancels are deliberately NOT refused. A cancel moves no value and only
-// protects the signer; refusing one could strand a live signed order if a
-// contract ever left the venue list.
+// Cancels are refused only for an order whose NFT sits on another chain (a
+// Base collection in the registry): the cancel goes to Seaport on Ethereum,
+// cannot touch that order, and would report success while it stays live.
+// Every other cancel stays open, Ethereum non-venue contracts included, so a
+// signed Ethereum order is never stranded if a contract leaves the venue list.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act } from "@testing-library/react";
@@ -549,15 +551,28 @@ describe("lib/trades.js", () => {
     });
   }
 
-  it("cancelTradeOnChain is NOT refused: a cancel moves no value", async () => {
+  it("cancelTradeOnChain is NOT refused for an Ethereum contract outside the venue: it can act on the order", async () => {
     const t = await import("./lib/trades");
     // The connected wallet is the maker here: only a maker can cancel.
-    const mine = trade({ offerToken: ADDR.bojungles, considerationItem: nft(VENUE) });
+    const mine = trade({ offerToken: ADDR.junglebaymemes, considerationItem: nft(VENUE) });
     mine.offerer = WALLET;
     mine.parameters.offerer = WALLET;
     const res = await t.cancelTradeOnChain(mine);
     expect(res.error).not.toBe("not-venue-tradeable");
     expect(h.contractCalls.map((c) => c.method)).toContain("cancel");
+  });
+
+  it("cancelTradeOnChain refuses a trade carrying a Base NFT, before any wallet call", async () => {
+    const t = await import("./lib/trades");
+    const mine = trade({ offerToken: VENUE, considerationItem: nft(ADDR.bojungles) });
+    mine.offerer = WALLET;
+    mine.parameters.offerer = WALLET;
+    const res = await t.cancelTradeOnChain(mine);
+    expectRefused(res);
+    expect(res.message).toMatch(/Bojungles/);
+    expect(res.message).toMatch(/Base/);
+    expect(res.message).toMatch(/OpenSea/);
+    expectNothingHappened();
   });
 
   it("positive controls: venue trades reach the no-wallet answer", async () => {
@@ -569,27 +584,71 @@ describe("lib/trades.js", () => {
   });
 });
 
-// ═══ cancels stay open ═══
-describe("cancels are exempt from the venue check", () => {
-  it("cancelSeaportOrder still cancels an order that carries a non-venue NFT", async () => {
-    const { cancelSeaportOrder } = await import("./lib/seaportCancel");
-    const { ethers } = await import("ethers");
-    const tx = await cancelSeaportOrder({
-      ethers,
-      signer: {},
-      params: { offerer: WALLET, offer: [{ itemType: 2, token: ADDR.bojungles, identifierOrCriteria: "1", startAmount: "1", endAmount: "1" }], consideration: [] },
-      seaportAddress: SEAPORT_16,
-    });
-    expect(tx?.hash).toBe("0xcancel");
+// ═══ cancels: open on Ethereum, refused for an order on another chain ═══
+describe("cancels", () => {
+  const ETHEREUM_NON_VENUE = {
+    "the memes (Ethereum ERC-1155)": ADDR.junglebaymemes,
+    "Rare Towelie Cards (Ethereum ERC-1155)": ADDR.raretowelie,
+  };
+  const ON_BASE = {
+    "Bojungles (Base ERC-721)": [ADDR.bojungles, "Bojungles"],
+    "Seeds (Base ERC-721)": [ADDR.memeticseeds, "Seeds from the Memetic Garden"],
+  };
+  const listingParams = (token) => ({ offerer: WALLET, offer: [{ itemType: 2, token, identifierOrCriteria: "1", startAmount: "1", endAmount: "1" }], consideration: [] });
+  // A bid: the NFT the offerer wants sits in the consideration.
+  const bidParams = (token) => ({
+    offerer: WALLET,
+    offer: [{ itemType: 1, token: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", identifierOrCriteria: "0", startAmount: "1", endAmount: "1" }],
+    consideration: [{ itemType: 2, token, identifierOrCriteria: "1", startAmount: "1", endAmount: "1", recipient: WALLET }],
   });
 
-  it("api-offers cancelOrder still cancels an order that carries a non-venue NFT", async () => {
-    const offers = await import("./api-offers");
-    const res = await offers.cancelOrder({
-      protocol_address: SEAPORT_16,
-      protocol_data: { parameters: { offerer: WALLET, offer: [{ itemType: 2, token: ADDR.memeticseeds, identifierOrCriteria: "1" }], consideration: [] } },
+  for (const [label, contract] of Object.entries(ETHEREUM_NON_VENUE)) {
+    it(`cancelSeaportOrder still cancels an order that carries ${label}`, async () => {
+      const { cancelSeaportOrder } = await import("./lib/seaportCancel");
+      const { ethers } = await import("ethers");
+      const tx = await cancelSeaportOrder({ ethers, signer: {}, params: listingParams(contract), seaportAddress: SEAPORT_16 });
+      expect(tx?.hash).toBe("0xcancel");
     });
+
+    it(`api-offers cancelOrder still cancels an order that carries ${label}`, async () => {
+      const offers = await import("./api-offers");
+      const res = await offers.cancelOrder({ protocol_address: SEAPORT_16, protocol_data: { parameters: listingParams(contract) } });
+      expect(res.success).toBe(true);
+    });
+  }
+
+  for (const [label, [contract, name]] of Object.entries(ON_BASE)) {
+    it(`api-offers cancelOrder refuses a listing of ${label}: an Ethereum cancel cannot reach it`, async () => {
+      const offers = await import("./api-offers");
+      const res = await offers.cancelOrder({ protocol_address: SEAPORT_16, protocol_data: { parameters: listingParams(contract) } });
+      expectRefused(res);
+      expect(res.message).toContain(name);
+      expect(res.message).toMatch(/Base/);
+      expect(res.message).toMatch(/cancel it on OpenSea/i);
+      expectNothingHappened();
+    });
+
+    it(`api-offers cancelOrder refuses a bid on ${label} (the NFT in the consideration)`, async () => {
+      const offers = await import("./api-offers");
+      const res = await offers.cancelOrder({ rawOrder: { protocol_address: SEAPORT_16, protocol_data: { parameters: bidParams(contract) } } });
+      expectRefused(res);
+      expectNothingHappened();
+    });
+
+    it(`cancelSeaportOrder refuses an order that carries ${label}, before reading a counter`, async () => {
+      const { cancelSeaportOrder } = await import("./lib/seaportCancel");
+      const { ethers } = await import("ethers");
+      await expect(cancelSeaportOrder({ ethers, signer: {}, params: listingParams(contract), seaportAddress: SEAPORT_16 }))
+        .rejects.toMatchObject({ code: "not-venue-tradeable" });
+      expect(h.contractCalls).toEqual([]);
+    });
+  }
+
+  it("positive control: a venue cancel still reaches the chain", async () => {
+    const offers = await import("./api-offers");
+    const res = await offers.cancelOrder({ protocol_address: SEAPORT_16, protocol_data: { parameters: listingParams(GOLD) } });
     expect(res.success).toBe(true);
+    expect(h.contractCalls.map((c) => c.method)).toEqual(["getCounter", "cancel"]);
   });
 });
 
