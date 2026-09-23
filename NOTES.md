@@ -15,17 +15,15 @@ Rules for entries, so this stays worth reading:
 
 ---
 
-## 2026-09-22 — a `toContain('80°')` pin cannot go red when the floor moves to 180
+## 2026-09-22 — a `toContain('80°')` pin stays green on a page that says 180°
 
-**Believed:** repinning a threshold is find-and-replace, and the tests that assert the old
-number will catch anything still showing it.
+**Believed:** a test that asserts a threshold goes red when the page shows a different
+threshold.
 
-**Measured:** `'180°'.includes('80°')` is true, so every assertion written as
-`toContain('80°')` stays green after the floor moves from 80 to 180. Those pins could not
-fail on the one value they existed to pin. Each was rewritten to match a standalone number
-(`(^|[^0-9])180°`) or the whole sentence, and the leftovers were then hunted with
-`rg "(?:^|[^0-9.])80\s*(?:°|&deg;|degrees)"` over `frontend/src`, `e2e`, `e2e-prod`,
-`scripts`, `api`, `middleware.js`, `index.html`, `public` and `.env.example`: 0 hits.
+**Measured:** `'180°'.includes('80°')` is true (node), so an assertion written as
+`toContain('80°')` passes against a page that reads 180°. Such a pin cannot fail on the one
+value it exists to pin. The heat floor and band pins match a standalone number
+(`(^|[^0-9])80°`) or the whole sentence instead.
 
 **Do:** anchor a numeric assertion. Substring matching on a number is safe only while no
 longer number contains it, which is a fact about the future value, not the present one. The
