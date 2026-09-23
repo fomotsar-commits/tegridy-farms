@@ -570,11 +570,16 @@ export const COLLECTION_LORE = {
       website: "https://junglebayisland.com",
       governance: "https://collective.xyz/junglebayapeclub",
     },
+    // The six family collections are COLLECTIONS entries above (`slug`), with the
+    // chain and supply read there. Nothing is said of them here that their reads
+    // do not support: no artist credit, no launch year, no mechanics.
     ecosystem: [
-      { name: "Meme Cards", supply: null, chain: "Ethereum", description: "Collab with mfers artists featuring dark authentic artwork with burn mechanics." },
-      { name: "Seeds from the Memetic Garden", supply: 369, chain: "Base", description: "Tribute rooted in mfers ethos." },
-      { name: "Bojungles", supply: 250, chain: "Base", description: "Honoring $BOBO." },
-      { name: "Junglets", supply: 208, chain: "Solana", description: "Hand-painted Brainlet Apes by core team artist @rodritoh89." },
+      { name: "Jungle Bay Gold Cards", slug: "junglebaygoldcards", supply: 123, chain: "Ethereum", description: null },
+      { name: "the memes by jungle bay x mfers artists", slug: "junglebaymemes", supply: null, chain: "Ethereum", description: null },
+      { name: "Seeds from the Memetic Garden", slug: "memeticseeds", supply: 369, chain: "Base", description: null },
+      { name: "Junglets", slug: "junglets", supply: 208, chain: "Solana", description: null },
+      { name: "Bojungles", slug: "bojungles", supply: 250, chain: "Base", description: null },
+      { name: "RARE TOWELIE CARDS", slug: "raretowelie", supply: null, chain: "Ethereum", description: null },
       { name: "The Sandbox Land", supply: 1, chain: "Ethereum", description: "Jungle Bay Island at coordinates (14, -69)." },
       { name: "Otherside Land", supply: 1, chain: "Ethereum", description: "Land in Yuga Labs metaverse acquired with community treasury." },
     ],
