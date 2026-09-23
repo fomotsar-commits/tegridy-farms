@@ -26,14 +26,16 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import NotFound from "./components/NotFound";
 import MobileNav from "./components/MobileNav";
 import InstallPrompt from "./components/InstallPrompt";
+// A collection that trades on its own market opens in its own view (see AppInner).
+// Loaded with the marketplace, like CollectionView, so its first render never
+// waits on a second chunk.
+import ExternalCollectionView from "./components/external/ExternalCollectionView";
 
 // Lazy-loaded: only rendered conditionally (modal open, cart open, landing route)
 const Modal = lazy(() => import("./components/Modal"));
 const ShoppingCart = lazy(() => import("./components/ShoppingCart"));
 const NotificationCenter = lazy(() => import("./components/NotificationCenter"));
 const CollectionLanding = lazy(() => import("./components/CollectionLanding"));
-// A collection that trades on its own market opens in its own view (see below).
-const ExternalCollectionView = lazy(() => import("./components/external/ExternalCollectionView"));
 import { GallerySkeleton } from "./components/SkeletonFallback";
 import useNfts from "./hooks/useNfts";
 import useCollection from "./hooks/useCollection";
@@ -255,19 +257,17 @@ function AppInner() {
   if (!canTradeOnVenue(COLLECTIONS[collectionSlug])) {
     return (
       <CollectionProvider slug={collectionSlug}>
-        <Suspense fallback={<LazyFallback />}>
-          <ExternalCollectionView
-            key={collectionSlug}
-            tab={tab}
-            deepLinkTokenId={deepLinkTokenId}
-            collectionSlug={collectionSlug}
-            themeName={themeName}
-            cycleTheme={cycleTheme}
-            wallet={wallet}
-            walletName={walletName}
-            disconnect={disconnect}
-          />
-        </Suspense>
+        <ExternalCollectionView
+          key={collectionSlug}
+          tab={tab}
+          deepLinkTokenId={deepLinkTokenId}
+          collectionSlug={collectionSlug}
+          themeName={themeName}
+          cycleTheme={cycleTheme}
+          wallet={wallet}
+          walletName={walletName}
+          disconnect={disconnect}
+        />
       </CollectionProvider>
     );
   }
