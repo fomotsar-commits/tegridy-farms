@@ -946,9 +946,7 @@ function Maths({ degrees }: { degrees: number }) {
   return (
     <div className="mt-3 rounded-xl p-4 text-[12.5px] leading-relaxed" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid var(--color-purple-25)' }}>
       {/* The island's sentences, never its formula: the island's law page carries that. */}
-      <p className="text-white/75 mb-3">
-        <strong className="text-white">{VENUE.heatPlain}</strong>
-      </p>
+      <p className="text-white/85 mb-3">{VENUE.heatParagraph}</p>
 
       <ul className="space-y-1.5 mb-3 text-white/70">
         <li>
@@ -968,7 +966,7 @@ function Maths({ degrees }: { degrees: number }) {
       </ul>
 
       <div className="mb-3">
-        <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-1.5">The tiers, on your total</div>
+        <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-1.5">The tiers, on your heat</div>
         <ul className="space-y-1">
           {TIER_FLOORS.filter((t) => t.floor > 0).map((t) => (
             <li key={t.tier} className="flex items-baseline gap-2 text-white/70">
