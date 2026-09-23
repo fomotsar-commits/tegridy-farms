@@ -29,6 +29,7 @@ import { fmtRaw, fmtRawParts, toPlain, toRaw, humanDuration, lockLabel, boostLab
 import { basisBehindWrite, confirmedSlotOf, slotOrNull, type WriteFence } from '../../lib/ladder/writeFence';
 import { useAccrualMeter } from '../../hooks/useAccrualMeter';
 import { Fact, HEAD, PANEL_BG, LEDGER_BG, HAIR, DIVIDED_BG } from './ledger';
+import { HeldTimeLine } from './HeldTimeLine';
 import { Reveal } from '../motion/Reveal';
 import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../lib/motion';
 
@@ -648,6 +649,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                   </m.div>
                 )}
               </div>
+              <HeldTimeLine chain={bungalow.chain} pool={bungalow.ladderPool} className="mt-3" />
             </section>
 
             {/* ── 2. THE STAIRCASE, and the action rail ─────────────────── */}

@@ -281,6 +281,29 @@ const BAYLA_LADDER_POOL =
   (import.meta.env?.VITE_BAYLA_LADDER_POOL as string | undefined)?.trim() || '';
 
 /**
+ * The island's read list: staking pools whose locked bags the island counts as held.
+ * The staking cards' held-time line reads it through poolReadByIsland, never a flag
+ * on a card. Keyed by pool address, so a pool repointed by env reads no until listed.
+ * When the island publishes its list, that list replaces this one.
+ */
+export const ISLAND_READ_POOLS: readonly { chain: Bungalow['chain']; pool: string }[] = [
+  { chain: 'solana', pool: 'Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV' }, // lock ladder
+  { chain: 'solana', pool: 'EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f' }, // BAYLA lighthouse
+];
+
+/** Read by the island: yes or no. Exact on Solana (base58), case-blind on EVM. */
+export function poolReadByIsland(
+  chain: Bungalow['chain'],
+  pool: string | undefined,
+  list: readonly { chain: Bungalow['chain']; pool: string }[] = ISLAND_READ_POOLS,
+): boolean {
+  const raw = pool?.trim();
+  if (!raw) return false;
+  const key = (a: string) => (chain === 'solana' ? a.trim() : a.trim().toLowerCase());
+  return list.some((r) => r.chain === chain && key(r.pool) === key(raw));
+}
+
+/**
  * Identity for a settled resident wearing the PLACEHOLDER skin (owner call,
  * 2026-08-30: "put something on so at least they are functional; we will
  * custom art them later"). Honest by construction — registry facts only, no

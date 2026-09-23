@@ -21,6 +21,8 @@ import {
   bungalowScanRoute,
   residentLabelForPool,
   bungalowByAddress,
+  poolReadByIsland,
+  ISLAND_READ_POOLS,
 } from './bungalows';
 import { pageArt } from './artConfig';
 import { SITE_URL } from './constants';
@@ -518,5 +520,52 @@ describe('bungalowByAddress', () => {
     for (const b of BUNGALOWS.filter((x) => !x.address)) {
       expect(bungalowByAddress(b.chain, 'anything')).toBeNull();
     }
+  });
+});
+
+describe('read by the island, per pool', () => {
+  const LADDER = 'Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV';
+  const LIGHTHOUSE = 'EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f';
+
+  it('reads yes for the lock ladder and the BAYLA lighthouse pool', () => {
+    expect(poolReadByIsland('solana', LADDER)).toBe(true);
+    expect(poolReadByIsland('solana', LIGHTHOUSE)).toBe(true);
+    expect(poolReadByIsland('solana', `  ${LADDER}  `)).toBe(true);
+  });
+
+  it('reads no for every other staking pool the registry carries', () => {
+    const no = ['pepe', 'qr', 'mfer', 'bnkr', 'drb', 'jbm', 'bobo', 'soy', 'brainlet', 'rizz'];
+    for (const id of no) {
+      const b = BUNGALOWS.find((x) => x.id === id)!;
+      expect(b.stakePool, `${id} carries a pool`).toBeTruthy();
+      expect(poolReadByIsland(b.chain, b.stakePool), id).toBe(false);
+    }
+    expect(BUNGALOWS.filter((b) => poolReadByIsland(b.chain, b.stakePool)).map((b) => b.id)).toEqual(['bayla']);
+  });
+
+  it('compares exactly on Solana, case-blind on EVM, and never across chains', () => {
+    expect(poolReadByIsland('solana', LADDER.toLowerCase())).toBe(false);
+    expect(poolReadByIsland('base', LIGHTHOUSE)).toBe(false);
+    const evm = [{ chain: 'base' as const, pool: '0x55B72f09d31f43834bf7Eba42f53a419a716F554' }];
+    expect(poolReadByIsland('base', '0x55b72f09d31f43834bf7eba42f53a419a716f554', evm)).toBe(true);
+    expect(poolReadByIsland('ethereum', '0x55B72f09d31f43834bf7Eba42f53a419a716F554', evm)).toBe(false);
+  });
+
+  it('reads no for a pool that is not there', () => {
+    expect(poolReadByIsland('solana', undefined)).toBe(false);
+    expect(poolReadByIsland('solana', '')).toBe(false);
+    expect(poolReadByIsland('solana', '   ')).toBe(false);
+  });
+
+  it('lists only pools the venue ships (a typo here would read no on a read pool)', () => {
+    const registry = JSON.parse(readFileSync(resolve(__dirname, '../../scripts/addresses.json'), 'utf-8')) as {
+      solana: { id: string; address: string }[];
+    };
+    const shipped = new Set([
+      registry.solana.find((e) => e.id === 'bayla-ladder-pool')!.address,
+      ...BUNGALOWS.filter((b) => b.chain === 'solana' && b.stakePool).map((b) => b.stakePool!),
+    ]);
+    expect(ISLAND_READ_POOLS.length).toBeGreaterThan(0);
+    for (const r of ISLAND_READ_POOLS) expect(shipped.has(r.pool), r.pool).toBe(true);
   });
 });
