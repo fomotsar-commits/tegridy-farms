@@ -570,7 +570,7 @@ describe("lib/trades.js", () => {
     const res = await t.cancelTradeOnChain(mine);
     expectRefused(res);
     expect(res.message).toMatch(/Bojungles/);
-    expect(res.message).toMatch(/Base/);
+    expect(res.message).toMatch(/\bBase\b/);
     expect(res.message).toMatch(/OpenSea/);
     expectNothingHappened();
   });
@@ -623,7 +623,7 @@ describe("cancels", () => {
       const res = await offers.cancelOrder({ protocol_address: SEAPORT_16, protocol_data: { parameters: listingParams(contract) } });
       expectRefused(res);
       expect(res.message).toContain(name);
-      expect(res.message).toMatch(/Base/);
+      expect(res.message).toMatch(/\bBase\b/);
       expect(res.message).toMatch(/cancel it on OpenSea/i);
       expectNothingHappened();
     });
