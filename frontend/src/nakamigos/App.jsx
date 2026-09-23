@@ -11,6 +11,7 @@ import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { FavoritesProvider, useFavorites } from "./contexts/FavoritesContext";
 import { CartProvider, useCart } from "./contexts/CartContext";
 import { COLLECTIONS, DEFAULT_COLLECTION, VALID_TABS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
+import { canTradeOnVenue } from "./lib/venue";
 import Background from "./components/Background";
 import Header from "./components/Header";
 import Hero from "./components/Hero";
@@ -31,6 +32,8 @@ const Modal = lazy(() => import("./components/Modal"));
 const ShoppingCart = lazy(() => import("./components/ShoppingCart"));
 const NotificationCenter = lazy(() => import("./components/NotificationCenter"));
 const CollectionLanding = lazy(() => import("./components/CollectionLanding"));
+// A collection that trades on its own market opens in its own view (see below).
+const ExternalCollectionView = lazy(() => import("./components/external/ExternalCollectionView"));
 import { GallerySkeleton } from "./components/SkeletonFallback";
 import useNfts from "./hooks/useNfts";
 import useCollection from "./hooks/useCollection";
@@ -243,6 +246,29 @@ function AppInner() {
       <LandingShell themeName={themeName} onCycleTheme={cycleTheme} walletName={walletName} disconnect={disconnect}>
         <NotFound onGoHome={() => navigate("/nakamigos")} />
       </LandingShell>
+    );
+  }
+
+  // A collection this venue cannot settle (not an Ethereum ERC-721 flagged
+  // venueTrade) opens browse-only: none of the trading app below mounts, so no
+  // cart, order book, Alchemy read or wallet-gated tab runs for it.
+  if (!canTradeOnVenue(COLLECTIONS[collectionSlug])) {
+    return (
+      <CollectionProvider slug={collectionSlug}>
+        <Suspense fallback={<LazyFallback />}>
+          <ExternalCollectionView
+            key={collectionSlug}
+            tab={tab}
+            deepLinkTokenId={deepLinkTokenId}
+            collectionSlug={collectionSlug}
+            themeName={themeName}
+            cycleTheme={cycleTheme}
+            wallet={wallet}
+            walletName={walletName}
+            disconnect={disconnect}
+          />
+        </Suspense>
+      </CollectionProvider>
     );
   }
 
