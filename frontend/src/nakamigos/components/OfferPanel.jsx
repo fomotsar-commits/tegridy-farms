@@ -56,6 +56,14 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
     return () => clearInterval(interval);
   }, [tokenId, load]);
 
+  // acceptOffer fills the offer's OWN contract, so Accept is offered only for an
+  // offer on the collection the owner is looking at, whatever the book returned.
+  const isOnActiveCollection = useCallback(
+    (offer) => !!offer?.tokenContract && !!collection.contract
+      && offer.tokenContract.toLowerCase() === collection.contract.toLowerCase(),
+    [collection.contract],
+  );
+
   const handleAccept = useCallback(async (offer) => {
     if (!wallet) return;
     if (offer.expiry && (offer.expiry instanceof Date ? offer.expiry.getTime() : offer.expiry * 1000) < Date.now()) {
@@ -65,9 +73,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
     setAccepting(offer.orderHash);
     try {
       addToast?.("Accepting offer...", "info");
-      // Ensure tokenContract is set for NFT approval check in acceptOffer
-      const offerWithContract = { ...offer, tokenContract: offer.tokenContract || collection.contract };
-      const result = await acceptOffer(offerWithContract);
+      const result = await acceptOffer(offer);
       if (result.success) {
         addToast?.("Offer accepted successfully!", "success");
         // F646 (T5): refetch so the filled offer disappears immediately rather
@@ -85,7 +91,7 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
     } finally {
       setAccepting(null);
     }
-  }, [wallet, addToast, collection.contract, load]);
+  }, [wallet, addToast, load]);
 
   const timeLeft = (expiry) => {
     if (!expiry) return "";
@@ -128,7 +134,8 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
         // F666: the seller (token owner) can accept this offer — show what they
         // NET after fees/royalty before they confirm. Display only; the accept
         // tx is unchanged.
-        const isOwner = wallet && ownerAddress?.toLowerCase() === wallet?.toLowerCase() && bestOffer.maker?.toLowerCase() !== wallet?.toLowerCase();
+        const isOwner = wallet && ownerAddress?.toLowerCase() === wallet?.toLowerCase() && bestOffer.maker?.toLowerCase() !== wallet?.toLowerCase()
+          && isOnActiveCollection(bestOffer);
         return (
         <div style={{
           background: "rgba(74,222,128,0.04)", border: "1px solid rgba(74,222,128,0.12)",
@@ -208,7 +215,8 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
           }).map((offer, i) => {
             // F666: gate the net-proceeds preview on the same owner check as the
             // Accept button — only the seller about to accept needs it.
-            const canAccept = wallet && ownerAddress?.toLowerCase() === wallet?.toLowerCase() && offer.maker?.toLowerCase() !== wallet?.toLowerCase();
+            const canAccept = wallet && ownerAddress?.toLowerCase() === wallet?.toLowerCase() && offer.maker?.toLowerCase() !== wallet?.toLowerCase()
+              && isOnActiveCollection(offer);
             return (
             <div
               key={offer.orderHash || i}

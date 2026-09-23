@@ -4,6 +4,7 @@ import { getActiveWalletProvider, assertSameWallet, SEAPORT_FULFILLMENT_FUNCTION
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 import { cancelSeaportOrder } from "./lib/seaportCancel";
+import { venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError } from "./lib/venue";
 
 // AUDIT FIX M-8 (frontend chain guard): assertOnExpectedChain blocks any
 // on-chain action when the wallet is connected to a chain != SEAPORT_DOMAIN.chainId.
@@ -101,10 +102,15 @@ const GAS_BUFFER_WEI = parseEther("0.005");
 //
 // TO RESTORE THE LADDER: it needs an order source we control (the indexer), or an
 // OpenSea route that filters by token. Do not restore it by paging the collection.
-async function fetchTokenOffersOrThrow(tokenId, _contract = CONTRACT, { slug = COLLECTION_SLUG, openseaSlug } = {}) {
+//
+// The route is the CONTRACT's own collection: a contract the venue does not trade
+// is refused, never read as Nakamigos.
+async function fetchTokenOffersOrThrow(tokenId, contract = CONTRACT) {
+  const collection = venueCollectionByContract(contract);
+  if (!collection) throw venueRefusalError(venueRefusal(contract));
   // The one token-scoped read OpenSea still serves. It answers BOTH questions the
   // panel needs: whether any offer exists at all, and what the top one is.
-  const best = await fetchBestOfferOrThrow(tokenId, slug, { openseaSlug });
+  const best = await fetchBestOfferOrThrow(tokenId, collection.openseaSlug);
   return best ? [best] : [];
 }
 
@@ -154,30 +160,22 @@ export async function fetchBestOffer(tokenId, slug = COLLECTION_SLUG, { openseaS
 }
 
 /**
- * Both offer lookups for one token, with the outage kept distinguishable from
- * an empty book.
- *
- * The swallowing wrappers above turn a 429/502 from the OpenSea proxy into `[]`
- * and `null` — indistinguishable from a token nobody has bid on. A surface that
- * paints "No Offers Yet" off that is telling the user a fact it does not have,
- * and the venue's own proxy rate-limits under normal browsing, so this is the
- * common case rather than the rare one. `unavailable` is true when either leg
- * failed; a caller with nothing to show must say so instead of claiming zero.
- * Partial success still returns its data — a failed best-offer highlight is no
- * reason to hide offers that did load.
+ * The offer book for one token, with the outage kept distinguishable from an
+ * empty book: `unavailable` is true when the read failed, so a caller with
+ * nothing to show says so instead of claiming zero offers. ONE request answers
+ * both questions (is there any offer, and which is best), on the collection the
+ * contract names, falling back to the slug only for a contract outside the venue.
  */
 export async function fetchTokenOfferBook(tokenId, { contract = CONTRACT, slug = COLLECTION_SLUG, openseaSlug } = {}) {
-  const [offersRes, bestRes] = await Promise.allSettled([
-    fetchTokenOffersOrThrow(tokenId, contract),
-    fetchBestOfferOrThrow(tokenId, slug, { openseaSlug }),
-  ]);
-  if (offersRes.status === "rejected") console.warn("Fetch token offers failed:", offersRes.reason?.message);
-  if (bestRes.status === "rejected") console.warn("Fetch best offer failed:", bestRes.reason?.message);
-  return {
-    offers: offersRes.status === "fulfilled" ? offersRes.value : [],
-    bestOffer: bestRes.status === "fulfilled" ? bestRes.value : null,
-    unavailable: offersRes.status === "rejected" || bestRes.status === "rejected",
-  };
+  const collection = venueCollectionByContract(contract) || venueCollectionBySlug(openseaSlug || slug);
+  if (!collection) return { offers: [], bestOffer: null, unavailable: true };
+  try {
+    const best = await fetchBestOfferOrThrow(tokenId, collection.openseaSlug);
+    return { offers: best ? [best] : [], bestOffer: best, unavailable: false };
+  } catch (err) {
+    console.warn("Fetch token offer book failed:", err?.message);
+    return { offers: [], bestOffer: null, unavailable: true };
+  }
 }
 
 // Seaport item types that can carry the NFT leg of a criteria offer:
@@ -823,9 +821,13 @@ function isLiveOrder(order, nowSecs) {
 // Paginates through all pages using cursor to avoid truncation at 20 results.
 const MAX_MY_PAGES = 10; // Safety cap: 10 pages * 50 = up to 500 orders
 
-export async function fetchMyOffers(wallet, _contract = CONTRACT, { slug = COLLECTION_SLUG } = {}) {
+// Read on the CONTRACT's own collection; a contract the venue does not trade has
+// no offers here to read.
+export async function fetchMyOffers(wallet, contract = CONTRACT) {
+  const collection = venueCollectionByContract(contract);
+  if (!collection) return [];
   try {
-    const allOrders = await fetchPagesByMaker(`offers/collection/${slug}/all`, wallet);
+    const allOrders = await fetchPagesByMaker(`offers/collection/${collection.openseaSlug}/all`, wallet);
     const now = Math.floor(Date.now() / 1000);
     return allOrders
       .filter(o => isLiveOrder(o, now))
@@ -849,9 +851,12 @@ export async function fetchMyOffers(wallet, _contract = CONTRACT, { slug = COLLE
 //
 // `fallback: true` means WE COULD NOT ASK. `listings: []` with `fallback: false`
 // means genuinely nothing listed. Callers must branch on the two separately.
-export async function fetchMyListings(wallet, _contract = CONTRACT, { slug = COLLECTION_SLUG } = {}) {
+// Read on the CONTRACT's own collection; one the venue does not trade is not asked.
+export async function fetchMyListings(wallet, contract = CONTRACT) {
+  const collection = venueCollectionByContract(contract);
+  if (!collection) return { listings: [], fallback: true };
   try {
-    const allOrders = await fetchPagesByMaker(`listings/collection/${slug}/all`, wallet);
+    const allOrders = await fetchPagesByMaker(`listings/collection/${collection.openseaSlug}/all`, wallet);
     const now = Math.floor(Date.now() / 1000);
     const listings = allOrders
       .filter(o => isLiveOrder(o, now))

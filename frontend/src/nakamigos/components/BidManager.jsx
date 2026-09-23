@@ -343,7 +343,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
     try {
       // `orders/ethereum/seaport/offers` is POST-only upstream since 2026-09-05.
       // The collection route replaces it and honours `maker` as a real filter.
-      const data = await openseaGet(`offers/collection/${collection.slug}/all`, {
+      const data = await openseaGet(`offers/collection/${collection.openseaSlug}/all`, {
         maker: wallet,
         limit: 50,
       });
@@ -357,7 +357,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
     } finally {
       setLoadingBids(false);
     }
-  }, [wallet, collection.slug]);
+  }, [wallet, collection.openseaSlug]);
 
   // ═══ FETCH RECEIVED OFFERS ═══
   const fetchReceivedOffers = useCallback(async () => {
