@@ -8,18 +8,19 @@
 /** Tier words. Rendered VERBATIM — never restyled, never translated into yield language. */
 export type HeatTier = 'Elder' | 'Builder' | 'Resident' | 'Observer' | 'Drifter';
 
-/** The island's tier bands on island_heat (the sum), highest first, with meanings in time. */
+/** The island's tier bands, highest first: the ladder's rungs. The tier word beside a
+ *  wallet is the served one, never read from here. */
 export const TIER_FLOORS: readonly { tier: HeatTier; floor: number; meaning: string }[] = [
-  { tier: 'Elder',    floor: 1000, meaning: 'a thousand days' },
-  { tier: 'Builder',  floor: 365,  meaning: 'a year' },
-  { tier: 'Resident', floor: 180,  meaning: 'half a year' },
-  { tier: 'Observer', floor: 30,   meaning: 'a month' },
-  { tier: 'Drifter',  floor: 0,    meaning: 'the cold state' },
+  { tier: 'Elder',    floor: 250, meaning: 'deep held time' },
+  { tier: 'Builder',  floor: 150, meaning: 'sustained standing' },
+  { tier: 'Resident', floor: 80,  meaning: 'settled' },
+  { tier: 'Observer', floor: 30,  meaning: 'the first threshold that counts' },
+  { tier: 'Drifter',  floor: 0,   meaning: 'the cold state' },
 ] as const;
 
-/** The launch floor in island_heat degrees: 180, the Resident band. Residents may plant.
+/** The launch floor in degrees: 80, the Resident band. Residents may plant.
  *  A degrees floor, never a tenure rule. heatLaunchFloor() is the operator override. */
-export const LAUNCH_FLOOR = 180;
+export const LAUNCH_FLOOR = 80;
 
 /** The freshness window in days: an older reading may not pass or fail anyone. */
 export const GATE_MAX_AGE_DAYS = 7;
@@ -227,7 +228,7 @@ export function tierFor(degrees: number): HeatTier {
 }
 
 /** The tier a floor sits exactly on, or null between rungs: the word named beside the
- *  launch floor. tierFor(123) is Observer, but no tier opens a door at 123. */
+ *  launch floor. tierFor(123) is Resident, but no tier opens a door at 123. */
 export function tierAtFloor(degrees: number): HeatTier | null {
   const tier = tierFor(degrees);
   return TIER_FLOORS.find((t) => t.tier === tier)?.floor === degrees ? tier : null;
