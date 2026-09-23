@@ -95,6 +95,8 @@ export const EXPECTED_FAMILY = Object.freeze({
     image: "https://i2c.seadn.io/ethereum/a83577bfb307408682cd44520d1c00d4/899e287b319c9faf45c57e2626c8a1/21899e287b319c9faf45c57e2626c8a1.png",
     description: GOLD_DESCRIPTION_STORED,
     descriptionSource: "opensea",
+    // Stored as an excerpt, and every label must say so.
+    descriptionExcerpt: "first-paragraph",
     tags: ["ERC-721", "ETHEREUM", "JUNGLE BAY"],
     market: {
       name: "OpenSea",

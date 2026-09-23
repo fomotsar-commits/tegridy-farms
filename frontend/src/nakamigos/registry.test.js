@@ -52,7 +52,7 @@ describe("every family entry equals what was read", () => {
         });
       }
 
-      for (const field of ["editions", "magicEdenSymbol", "solana", "tokenIds", "burnedIds", "chip"]) {
+      for (const field of ["editions", "magicEdenSymbol", "solana", "tokenIds", "burnedIds", "chip", "descriptionExcerpt"]) {
         if (!(field in want)) continue;
         it(`${field} equals the read`, () => {
           expect(entry(slug)?.[field]).toEqual(want[field]);
@@ -188,6 +188,12 @@ describe("nothing is invented for the new collections", () => {
     expect(SEEDS_DESCRIPTION_STORED).toContain("~40 artists - each contributing");
     expect(SEEDS_DESCRIPTION_STORED).toContain("grow.” - Sartoshi");
     expect(SEEDS_DESCRIPTION_STORED).toContain("together - unified");
+  });
+
+  it("only Gold Cards stores an excerpt of its description, and says which part", () => {
+    const excerpts = Object.entries(COLLECTIONS).filter(([, c]) => c.descriptionExcerpt != null).map(([slug]) => slug);
+    expect(excerpts).toEqual(["junglebaygoldcards"]);
+    expect(entry("junglebaygoldcards")?.descriptionExcerpt).toBe("first-paragraph");
   });
 
   it("Gold Cards stores its provenance paragraph only, never the benefit list", () => {

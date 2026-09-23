@@ -182,7 +182,9 @@ describe("About", () => {
     const { default: About } = await import("./components/About.jsx");
     render(withCollection("junglebaygoldcards", <About stats={{ floor: null, volume: 43, owners: 97, supply: 123 }} />));
     await waitFor(() => expect(bodyText()).toMatch(/JUNGLE BAY GOLD CARDS/));
-    expect(bodyText()).toMatch(/Description from the collection's OpenSea page/);
+    // An excerpt: the venue keeps the first paragraph only, and says so.
+    expect(bodyText()).toMatch(/First paragraph of the collection's OpenSea description/);
+    expect(bodyText()).not.toMatch(/Description from the collection's OpenSea page/);
     expect(bodyText()).toMatch(/Ethereum/);
     expect(bodyText()).not.toMatch(/1\.5x/);
   });
@@ -196,6 +198,14 @@ describe("Hero", () => {
     expect(bodyText()).not.toMatch(/1\.5x/);
     expect(bodyText()).not.toMatch(/multiplier/i);
     expect(bodyText()).not.toMatch(/airdrop/i);
+  });
+
+  it("says its description is the first paragraph of the collection's OpenSea text", async () => {
+    const { default: Hero } = await import("./components/Hero.jsx");
+    render(withCollection("junglebaygoldcards", <Hero stats={{ floor: null, volume: 43, owners: 97, supply: 123 }} tokens={[]} onPick={() => {}} />));
+    await waitFor(() => expect(bodyText()).toMatch(/Jungle Bay Gold Cards/));
+    expect(bodyText()).toMatch(/\(first paragraph of its OpenSea description\)/);
+    expect(bodyText()).not.toMatch(/\(from the collection's OpenSea page\)/);
   });
 });
 
