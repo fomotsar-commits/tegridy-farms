@@ -34,6 +34,7 @@ ships; a tagged release will cut from here once Wave 0 redeploys are complete.
 ### 2026-09-23
 
 - The marketplace lists the six Jungle Bay family collections: Gold Cards trade here with the same flat 1% fee, and the other five can be browsed here and trade on OpenSea or Magic Eden.
+- In the marketplace, Back to top no longer covers the sound and Keys buttons on iPads and desktops, an open cart keeps its buttons above the bottom bar on phones, and a token's sales history that could not be read says so instead of reporting no sales.
 
 ### 2026-09-22
 
