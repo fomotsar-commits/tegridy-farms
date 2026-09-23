@@ -2145,8 +2145,9 @@ than taken from the PR's own claims.
 - **`#278`** Heat launch gate — **CLOSED**, superseded on every file. Trunk's gate is *newer*
   (`657c5170`, #286, 08-11 — three days after #278 opened) and this PR's actual purpose is already
   delivered: `assertMayLaunch` is wired into both rails. The one thing not carried over, the
-  180-day floor, was removed on purpose per the island spec and is documented twice. If you want
-  that floor it is a config change (`VITE_HEAT_LAUNCH_FLOOR`), not a re-merge.
+  180-day floor, was removed on purpose per the island spec and is documented twice. No day-count
+  floor exists or can be configured: `VITE_HEAT_LAUNCH_FLOOR` is a floor in degrees, and unset it
+  is `LAUNCH_FLOOR` (80°, Resident).
 - **`#304`** restaking ABI alignment — ✅ **MERGED** (`0d4ec7e4`).
   Real live drift: `TegridyRestaking.sol` declares a **6-field** `RestakeInfo`, trunk's frontend ABI
   declares 5. The four `docs(todo)` commits were dropped (redundant with trunk, and the only files

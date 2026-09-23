@@ -1,27 +1,7 @@
-// WHAT THE ISLAND HAS ACTUALLY CONFIRMED ABOUT THE INSTRUMENT — Wave 3, phase 06(b).
-//
-// The venue published a number the island never gave it. `heatOracle.ts` carried
-// `TWAB_WINDOW_DAYS = 180` under the header "CONFIRMED BY THE ISLAND 2026-08-07", and
-// an explainer built a whole mechanic on top of it: that the window ROLLS, so "a wallet
-// that sells decays out of the average over the following 180 days". Both were rendered
-// to users on /leaderboard.
-//
-// Wave 3 says plainly: that constant is not island-confirmed, and the decay story built
-// on it is untrue. The instrument's confirmed properties are exactly three —
-//
-//     continuous · zero-anchored from first hold · velocity-blind
-//
-// — and wallets should be shown HELD TIME SINCE FIRST HOLD. No calendar. No decay
-// schedule. Exact window semantics arrive from the island when they are published.
-//
-// This is the same defect class as the fee claims: an unknown published as a confident
-// value. It is worse here, because the number was attributed to a third party who never
-// said it. So these tests pin the RULE, not the wording: the venue may describe the
-// three properties, and may not state a window length or a decay mechanic anywhere a
-// user can read it.
-//
-// When the island publishes the window, delete the guard in `does not state an averaging
-// window` and nothing else — the three properties stay true either way.
+// The venue explains heat in the island's sentences and states no formula, TWAB, window
+// length, decay mechanic, sum of rooms, share-of-supply definition or link to
+// memetics.wtf/island anywhere a reader is shown. The guards read the strings and JSX
+// text a reader sees (userText), or source with its comments stripped (prose).
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -29,6 +9,7 @@ import { extname, join, relative } from 'node:path';
 import ts from 'typescript';
 import * as oracle from './heatOracle';
 import { VENUE } from '../arrival';
+import { venueFaq } from '../faqData';
 
 const SRC = join(process.cwd(), 'src');
 
@@ -99,8 +80,8 @@ describe('the three confirmed properties survive', () => {
     expect(heatCard).toMatch(/churn earns nothing|velocity[- ]blind/i);
   });
 
-  it('still explains that it is continuous, not a snapshot', () => {
-    expect(heatCard).toMatch(/balance at every\s+moment|continuous/i);
+  it('still names it continuous, the island label with no gloss of its own', () => {
+    expect(heatCard).toMatch(/\bcontinuous\b/i);
   });
 });
 
@@ -123,16 +104,23 @@ describe('the venue teaches the whole published law, not one term of it', () => 
     expect(userFacing).not.toMatch(/has not been published/i);
   });
 
-  it('explains in the island sentences, word for word', () => {
-    expect(VENUE.heatPlain).toBe(
-      'Heat counts the days you have held each token. It is read per token and added together across everything you hold. Size can raise what a day is worth, it cannot buy a day, and price never enters it.',
-    );
+  it('explains in the island paragraph, word for word', () => {
+    const paragraph = 'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Each degree after that takes longer than the last. Size can raise what a day is worth, it cannot buy a day, and price never enters it.';
+    expect(VENUE.heatParagraph).toBe(paragraph);
+    // The hero and llms.txt carry the paragraph's first two sentences, and only those.
+    expect(VENUE.heatPlain).toBe('Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it.');
+    expect(VENUE.heatParagraph.startsWith(`${VENUE.heatPlain} `)).toBe(true);
     expect(VENUE.heatDays).toBe('Your clock on a token starts at your first hold.');
     expect(VENUE.heatSize).toBe('A real position earns a full day. The largest holders earn up to two. Dust earns nothing.');
     // The Maths fold renders all three from VENUE; Weight stays its own sentence.
     const heatCard = prose(join(SRC, 'components', 'HeatCard.tsx'));
-    for (const key of ['heatPlain', 'heatDays', 'heatSize']) expect(heatCard).toContain(`VENUE.${key}`);
+    for (const key of ['heatParagraph', 'heatDays', 'heatSize']) expect(heatCard).toContain(`VENUE.${key}`);
     expect(heatCard, 'weight is not defined as the published multiplier').toMatch(/published\s*\{?'?\s*\}?\s*multiplier/i);
+  });
+
+  it('names the Resident band the paragraph names, so a band cannot move without the words', () => {
+    const resident = oracle.TIER_FLOORS.find((t) => t.tier === 'Resident');
+    expect(VENUE.heatParagraph).toContain(`reads ${resident?.floor}°, Resident.`);
   });
 
   it('retires the arithmetic it can no longer do honestly', () => {
@@ -145,18 +133,18 @@ describe('the venue teaches the whole published law, not one term of it', () => 
 });
 
 describe('the launch floor is the island word', () => {
-  it('is 180, Resident', () => {
-    expect(oracle.LAUNCH_FLOOR).toBe(180);
+  it('is 80, Resident', () => {
+    expect(oracle.LAUNCH_FLOOR).toBe(80);
     const resident = oracle.TIER_FLOORS.find((t) => t.tier === 'Resident');
-    expect(resident?.floor).toBe(180);
+    expect(resident?.floor).toBe(80);
   });
 });
 
 // Shipped source: src and api (tests excluded), public's text files, index.html and
 // middleware.js. userText() is what a file can put in front of a reader: a script's
 // string literals, template text and JSX text read from the TypeScript AST (so no
-// comment, and no `/*` inside a string, hides or adds anything); any other file whole,
-// minus HTML comments. HTML entities are decoded in both.
+// comment, and no `/*` inside a string, hides or adds anything), one per line with its
+// whitespace collapsed; any other file whole, minus HTML comments. Entities are decoded.
 const ROOT = process.cwd();
 const TEXT = /\.(tsx?|jsx?|mjs|cjs|html|json|txt|xml|webmanifest)$/;
 function shipped(): string[] {
@@ -206,7 +194,7 @@ function userText(file: string): string {
         ts.isTemplateTail(n) ||
         ts.isJsxText(n)
       ) {
-        parts.push(n.text);
+        parts.push(n.text.replace(/\s+/g, ' '));
       }
       ts.forEachChild(n, visit);
     };
@@ -228,17 +216,38 @@ describe('the guards below read what a reader is shown', () => {
     expect(shown(join(SRC, 'pages', 'SecurityPage.tsx'))).toContain("the venue's record");
     expect(shown(join(ROOT, 'index.html'))).toContain('Your heat already exists.');
     expect(shown(join(ROOT, 'middleware.js'))).toContain('Held time counts here.');
-    expect(shown(join(SRC, 'components', 'HeatCard.tsx'))).not.toContain('VENUE.heatPlain');
+    expect(shown(join(SRC, 'components', 'HeatCard.tsx'))).not.toContain('VENUE.heatParagraph');
   });
 });
 
 // The venue reads heat and never computes it, so it carries sentences, never a
-// formula. An `x` counts as an operator only standing alone, so `?heat=0x…` is not one.
+// formula. An `x` counts as an operator only standing alone, so `?heat=0x…` is not one,
+// and Σ only beside heat or rooms, so the scanner's HHI hint `Σ(share²)` is not one.
+const FORMULA =
+  /(?:\b|_)heat\s*=\s*(?:Σ|\w+(?:\s*[×·⋅*]|\s+x\s))|Σ\s*(?:rooms?|tokens?|degrees)|weight\s*[×·⋅*]\s*\(|days held\s*[×·⋅*]\s*rate|1\s*[−-]\s*e\s*\^|\bdeg(?:rees)?\s*=\s*\d+(?:\.\d+)?\s*(?:[×·⋅*]|x\s)|√|\bsqrt\s*\(|\bwarm days\s*=/i;
+
 describe('no formula, TWAB or time-weighted in user-facing source', () => {
+  it('knows the island law lines as formulas, and the island paragraph as sentences', () => {
+    expect(FORMULA.test('degrees = 80 · √( warm days ÷ 180 )')).toBe(true);
+    expect(FORMULA.test('degrees = 80 · ( warm days ÷ 180 )')).toBe(true);
+    expect(FORMULA.test('warm days = weight · days held · rate')).toBe(true);
+    expect(FORMULA.test('heat = weight × ( size + loyalty )')).toBe(true);
+    expect(FORMULA.test('degrees = 80 x ( warm days ÷ 180 )')).toBe(true);
+    expect(FORMULA.test('80 · sqrt( warm days ÷ 180 )')).toBe(true);
+    expect(FORMULA.test('deg = 80 · sqrt(d/180)')).toBe(true);
+    expect(FORMULA.test('heat = Σ rooms')).toBe(true);
+    expect(FORMULA.test('island_heat = weight × days')).toBe(true);
+    expect(FORMULA.test('/?heat=0xabc')).toBe(false);
+    expect(FORMULA.test('https://memetics.finance/?heat=0x000000000000000000000000000000000000dEaD')).toBe(false);
+    expect(FORMULA.test('Σ(share²)')).toBe(false);
+    expect(FORMULA.test(VENUE.heatParagraph)).toBe(false);
+  });
+
   const GUARDS: [string, RegExp][] = [
-    ['a formula line', /\bheat\s*=\s*\w+(?:\s*[×·⋅*]|\s+x\s)|weight\s*[×·⋅*]\s*\(|days held\s*[×·⋅*]\s*rate|1\s*[−-]\s*e\s*\^/i],
+    ['a formula line', FORMULA],
     ['TWAB', /\bTWAB\b/],
     ['time-weighted', /time[- ]weighted/i],
+    ['TWAB gloss', /balance at every\s+moment|balance held across time/i],
   ];
   for (const [name, re] of GUARDS) {
     it(`states no ${name}`, () => {
@@ -262,5 +271,67 @@ describe('no link to memetics.wtf/island', () => {
   it('names it in no shipped source', () => {
     const offenders = [...SHIPPED].filter(([, text]) => /memetics\.wtf\/+island/i.test(text)).map(([f]) => relative(ROOT, f));
     expect(offenders, `memetics.wtf/island is linked from:\n${offenders.join('\n')}`).toEqual([]);
+  });
+});
+
+// The deepest room sets the heat and every other room amplifies it, so no user-facing
+// sentence adds heat up across rooms or tokens, and `summed` is refused anywhere.
+describe('no heat-summing sentence in user-facing source', () => {
+  const SUMMING =
+    /added\s+together|\bsummed\b|\bsum across\b|\brows sum to\b|\bon your total\b|\bsum of (?:your|the|its|every) (?:rooms?|tokens?|degrees|heat)\b|\badds? up across\b/i;
+  const HEAT_SUM =
+    /\b(?:heat|degrees?|warmth|flame)\b[^.\n]{0,80}\b(?:added together|summed|sums?|adds? up|combined|totall?ed)\b|\b(?:added together|summed|sums?|adds? up|combined)\b[^.\n]{0,80}\b(?:heat|degrees?|rooms?|everything you hold)\b/i;
+  const offenders = (re: RegExp) =>
+    [...SHIPPED].flatMap(([f, text]) => {
+      const m = re.exec(text);
+      return m ? [`${relative(ROOT, f)}: "${m[0]}"`] : [];
+    });
+
+  it('says no heat is added together, summed, or totalled across rooms', () => {
+    const found = offenders(SUMMING);
+    expect(found, `a summing sentence in user-facing source:\n${found.join('\n')}`).toEqual([]);
+  });
+
+  it('pairs no heat word with a summing word in one sentence', () => {
+    const found = offenders(HEAT_SUM);
+    expect(found, `heat and a summing word in one sentence:\n${found.join('\n')}`).toEqual([]);
+  });
+
+  it('knows a summing sentence from the island paragraph and from unrelated sums', () => {
+    for (const bad of [
+      'It is read per token and added together across everything you hold.',
+      'Your heat is summed across every token you hold.',
+      'Sum across 10 tokens',
+      'These rows sum to 1979.59°',
+      'The tiers, on your total',
+      'Degrees from each room add up to your heat.',
+    ]) {
+      expect(SUMMING.test(bad) || HEAT_SUM.test(bad), bad).toBe(true);
+    }
+    for (const ok of [
+      VENUE.heatParagraph,
+      'Only swaps that spend the season quote token add to a total.',
+      'Weights must sum to 10000.',
+      'measured against the sum of ETH lent',
+    ]) {
+      expect(SUMMING.test(ok) || HEAT_SUM.test(ok), ok).toBe(false);
+    }
+  });
+});
+
+// Every heat explainer speaks in the island's sentences: none defines heat as a share of
+// a supply, and the FAQ answers "What is Heat?" with the paragraph's own words.
+describe('every heat explainer carries the island sentences', () => {
+  it('defines heat by no share of supply anywhere a reader is shown', () => {
+    const found = [...SHIPPED].flatMap(([f, text]) => {
+      const m = /how much of a token you (?:have )?held|as a share of its supply/i.exec(text);
+      return m ? [`${relative(ROOT, f)}: "${m[0]}"`] : [];
+    });
+    expect(found, `a share-of-supply definition of heat:\n${found.join('\n')}`).toEqual([]);
+  });
+
+  it('answers "What is Heat?" in the island sentences', () => {
+    const answer = venueFaq(80).flatMap((s) => s.items).find((i) => i.q === 'What is Heat?')?.a;
+    expect(answer).toBe(`${VENUE.heatPlain} ${VENUE.heatDays} Price never enters it.`);
   });
 });

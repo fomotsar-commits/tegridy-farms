@@ -1,21 +1,13 @@
-// HeatCard — the instrument's rendered reading. This component had NO test at all
-// before wave seven, which is why a recut of its result area could otherwise have
-// shipped on a green suite that never looked at it.
-//
-// What is pinned here is the ISLAND'S ORDER and its two honesty states:
-//   tier · days · degrees · since · tokens, in that order, because the order is the
-//   design (a word first, then the unit anyone can compare, then the island's grammar);
-//   a COLD read that names where the clock starts instead of showing a zero-shaped
-//   ladder; and a NAMED flame whose byline can only ever link to an x.com profile.
-//
-// THE CLOCK IS PINNED. Every figure below is absolute, and `Date.now` is mocked to one
-// instant, so the reading can never age past the 7-day staleness gate and turn this
-// suite red in a week. A fixture that rots is not a fixture.
+// HeatCard, the instrument's rendered reading. Pinned: the island's order (tier, days,
+// degrees, since, tokens), a COLD read that names where the clock starts, a named flame
+// that links only to an x.com profile, the served tier word, and the island's sentences.
+// Date.now is mocked to one instant, so no fixture ages past the 7-day freshness law.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { parseHeatReading } from '../lib/heat/heatOracle';
+import { VENUE } from '../lib/arrival';
 
 const ADDR = '0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca';
 
@@ -125,15 +117,8 @@ afterEach(() => {
   localStorage.clear();
 });
 
-/**
- * Wait for the reading to land.
- *
- * THE TIER WORD IS ON THE CARD TWICE NOW - once as the result's own headline and
- * once as its rung on the ladder (element B's remainder) - so `findByText` on it
- * throws "found multiple elements" and every test that used it as a barrier goes
- * red for a reason that has nothing to do with what it asserts. The barrier is
- * the FIRST match, which is the headline: the ladder renders after the result.
- */
+/** Wait for the reading to land. The tier word renders twice (headline and ladder rung),
+ *  so the barrier is the FIRST match: the headline, which renders before the ladder. */
 async function awaitRead(tier = 'Elder'): Promise<HTMLElement> {
   const all = await screen.findAllByText(tier);
   return all[0]!;
@@ -387,6 +372,18 @@ describe('the share', () => {
     );
   });
 
+  it('posts the served tier word, even where the bands would name another', async () => {
+    // 95° sits in the Resident band; the island served Observer, so the post says Observer.
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 95, tier: 'Observer' }));
+    mount();
+    const post = await screen.findByRole('link', { name: 'Post my number' });
+    const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
+    expect(text).toBe(
+      `Observer. 1694 days held. 95.0° on Jungle Bay Island's instrument. ` +
+        `Held time counts here. https://memetics.finance/read/${ADDR}`,
+    );
+  });
+
   it('opens the composer rather than posting anything', async () => {
     mount();
     const post = await screen.findByRole('link', { name: 'Post my number' });
@@ -523,17 +520,8 @@ describe("element D — the room's own read", () => {
     h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row()] }));
     const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
 
-    // WAIT ON THE ANSWER, NOT ON THE QUESTION. The heading this used to gate on
-    // renders OUTSIDE the ready state — deliberately, so a cold room still names
-    // what it reads — which means it is on screen from the first frame and was
-    // never a gate at all. On a loaded runner the DOM got read before the scoped
-    // read resolved and BOTH indices came back -1, failing on the race rather
-    // than on the ordering this test exists to pin.
-    //
-    // Both strings below live in ScopedReading, which mounts only once the read
-    // lands, so waiting for both of them IS the read having resolved. The
-    // ordering assertion then compares two indices already known to exist — it
-    // can still go red, but only for the reason it names.
+    // Wait on the answer, not the question: the heading renders before the read lands.
+    // Both strings live in ScopedReading, which mounts only once the read resolves.
     let text = '';
     let scoped = -1;
     let flame = -1;
@@ -559,6 +547,14 @@ describe("element D — the room's own read", () => {
     // Never a bare "no" — a visitor with nothing HERE still has a flame, and
     // hiding it would read as a zero.
     expect(screen.getByText(/your whole flame reads/i)).toBeTruthy();
+  });
+
+  it('names the whole flame by its served tier, even where the bands would name another', async () => {
+    // 95° sits in the Resident band; the island served Observer, so the flame line says Observer.
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 95, tier: 'Observer', breakdown: [row()] }));
+    mountScoped({ address: PEPE, symbol: 'PEPE' });
+    const line = await screen.findByText(/your whole flame reads/i);
+    expect(line.textContent).toBe('your whole flame reads 95.00° Observer');
   });
 
   it('matches the contract case-insensitively, or every Solana room reads empty', async () => {
@@ -589,13 +585,8 @@ describe("element D — the room's own read", () => {
     // effect, the full instrument would render here and this would catch it.
     h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row()] }));
     const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
-    // Gate on the ANSWER, not the heading: the heading is on screen from the
-    // first frame, so gating on it left this asserting an absence against a DOM
-    // that had not rendered the reading yet — an absence is satisfied by an
-    // empty room, so it would have passed just as happily if the scope prop had
-    // stopped working entirely. Wait on the whole-flame degrees, which the read
-    // paints in BOTH renderings: that way a scope regression still reaches the
-    // assertion below and fails there, instead of timing out on a gate.
+    // Gate on the whole-flame degrees, painted in both renderings, so a scope regression
+    // reaches the assertion below instead of timing out on a gate.
     await waitFor(() => expect(container.textContent ?? '').toContain(DEGREES.toFixed(2)));
     expect(container.textContent).not.toMatch(/Where the .* comes from/i);
   });
@@ -626,16 +617,12 @@ describe('element D — the room names its question before it has an answer', ()
   });
 });
 
-// ─── WAVE SEVEN, ROW R: A RETIRED ROW IS LABELED ────────────────────────────
+// ─── ROW R: A RETIRED ROW IS LABELED ────────────────────────────────────────
 //
-// The island's done-means, verbatim: "a fixture reading with one retired: true
-// row renders that row labeled and the count without it; break the fix by
-// dropping the label and watch the test red."
-//
-// Three rows, one retired. token_count is 3 because on the live read
-// token_count equalled the row count, retired rows included.
+// Three rows, one retired: the retired row is greyed with the word, sorted last and left
+// out of the token count. token_count is 3 because the island counts it in the envelope.
 
-describe('row R: a retired row is labeled, not counted, not summed', () => {
+describe('row R: a retired row is labeled and not counted', () => {
   const OLD = row({ token_address: '0xold', symbol: 'OLD', name: 'Old', heat_degrees: 50, retired: true });
   const BBB = row({ token_address: '0xbbb', symbol: 'BBB', name: 'Bee', heat_degrees: 10 });
   const readingWith = (degrees: number) =>
@@ -660,30 +647,43 @@ describe('row R: a retired row is labeled, not counted, not summed', () => {
     expect(retired[0].querySelector('span')?.className).toContain('text-white/40');
   });
 
-  it('sums the live rows only, and says the island total still includes the retired row', async () => {
-    h.fetchHeat.mockResolvedValue(readingWith(398.21));
+  it.each([398.21, 348.21, 500, 60])('prints no sum of the rows beside a served %s°', async (degrees) => {
+    h.fetchHeat.mockResolvedValue(readingWith(degrees));
     mount();
-    await waitFor(() => expect(screen.getByText('Sum across 2 tokens')).toBeTruthy());
-    expect(screen.getByText('348.21°')).toBeTruthy();
-    expect(screen.getByText(/still includes the retired row\./)).toBeTruthy();
-    expect(screen.queryByText(/These rows sum to/)).toBeNull();
-  });
-
-  it('once the island drops it from its sum, nothing more is said', async () => {
-    h.fetchHeat.mockResolvedValue(readingWith(348.21));
-    mount();
-    await waitFor(() => expect(screen.getByText('Sum across 2 tokens')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('2 tokens counted')).toBeTruthy());
+    expect(screen.getByText(degrees.toFixed(2))).toBeTruthy();
+    expect(screen.queryByText(/Sum across/)).toBeNull();
+    expect(screen.queryByText(/rows sum to/)).toBeNull();
     expect(screen.queryByText(/still includes the retired/)).toBeNull();
-    expect(screen.queryByText(/These rows sum to/)).toBeNull();
+    expect(screen.queryByText('348.21°')).toBeNull();
   });
+});
 
-  it('a real disagreement is still flagged, against the live sum', async () => {
-    h.fetchHeat.mockResolvedValue(readingWith(500));
-    mount();
-    await waitFor(() =>
-      expect(screen.getByText(/These rows sum to 348\.21°, but the island reports 500\.00°/)).toBeTruthy(),
-    );
+// The deepest room sets the heat and the rest amplify it, so the rooms never add up to
+// the served number, and the card never adds them. The dEaD shape, 2026-09-23: 311.25°
+// served Elder, its three deepest rooms 250.92, 233.75 and 212.06.
+describe('the card prints the served heat and no sum of its rooms', () => {
+  const DEAD = {
+    degrees: 311.25,
+    tier: 'Elder',
+    token_count: 3,
+    breakdown: [
+      row({ heat_degrees: 250.92 }),
+      row({ token_address: '0xd37264c71e9af940e49795f0d3a8336afaafdda9', symbol: 'JBAC', name: 'Junglebayapeclub', heat_degrees: 233.75 }),
+      row({ token_address: '0x420698cfdeddea6bc78d59bc17798113ad278f9d', symbol: 'TOWELI', name: 'TOWELI', heat_degrees: 212.06 }),
+    ],
+  };
+
+  it('shows 311.25 and each room as served, with no sum line and no disagreement', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading(DEAD));
+    const { container } = mount();
+    await waitFor(() => expect(screen.getByText('3 tokens counted')).toBeTruthy());
+    expect(screen.getByText('311.25')).toBeTruthy();
+    for (const d of ['250.92°', '233.75°', '212.06°']) expect(screen.getByText(d)).toBeTruthy();
+    expect(screen.queryByText(/Sum across/)).toBeNull();
+    expect(screen.queryByText(/rows sum to/)).toBeNull();
     expect(screen.queryByText(/still includes the retired/)).toBeNull();
+    expect(container.textContent).not.toContain('696.73');
   });
 });
 
@@ -716,9 +716,8 @@ describe('the ladder', () => {
     vi.unstubAllEnvs();
   });
 
-  // A board reading served 2026-09-22: 137.42 Observer. Drifter and Observer reached,
-  // Resident next at 180.
-  const MID = { degrees: 137.42, tier: 'Observer' as const };
+  // 95 degrees: Drifter, Observer and Resident reached, Builder next at 150.
+  const MID = { degrees: 95, tier: 'Resident' as const };
 
   it('climbs all five rungs, lowest first', async () => {
     h.fetchHeat.mockResolvedValue(wireReading(MID));
@@ -735,11 +734,11 @@ describe('the ladder', () => {
     expect(rungs[1]).toContain('Observer');
     expect(rungs[1]).toContain('30°');
     expect(rungs[2]).toContain('Resident');
-    expect(rungs[2]).toMatch(/(^|[^0-9])180°/);
+    expect(rungs[2]).toMatch(/(^|[^0-9])80°/);
     expect(rungs[3]).toContain('Builder');
-    expect(rungs[3]).toMatch(/(^|[^0-9])365°/);
+    expect(rungs[3]).toMatch(/(^|[^0-9])150°/);
     expect(rungs[4]).toContain('Elder');
-    expect(rungs[4]).toMatch(/(^|[^0-9])1000°/);
+    expect(rungs[4]).toMatch(/(^|[^0-9])250°/);
   });
 
   it('lights the rungs this wallet has reached, and only those', async () => {
@@ -747,9 +746,8 @@ describe('the ladder', () => {
     mount();
     const rungs = await ladderRows();
     const reached = rungs.filter((r) => r.includes('reached'));
-    expect(reached).toHaveLength(2);
-    expect(reached.every((r) => /Drifter|Observer/.test(r))).toBe(true);
-    expect(rungs[2]).not.toContain('reached');
+    expect(reached).toHaveLength(3);
+    expect(reached.every((r) => /Drifter|Observer|Resident/.test(r))).toBe(true);
     expect(rungs[3]).not.toContain('reached');
     expect(rungs[4]).not.toContain('reached');
   });
@@ -757,36 +755,36 @@ describe('the ladder', () => {
   it('prints the gap to the next rung as arithmetic on two served numbers', async () => {
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
-    // 180 (the rung's floor) minus 137.42 (the degrees the island served). Not a
+    // 150 (the rung's floor) minus 95 (the degrees the island served). Not a
     // rate, not a date, and nothing the instrument computed for itself.
-    expect(await screen.findByText('42.58° to Resident')).toBeTruthy();
+    expect(await screen.findByText('55.00° to Builder')).toBeTruthy();
   });
 
   // TIER_FLOORS answers "what tier is this number" and heatLaunchFloor() "what number
   // opens the launch door", so the word beside the floor is derived from both, never
   // typed. The assertions sit on the sentence <p> and the eligibility span, not the rung
-  // <li>: each rung prints its own label, so "Observer" sits beside a 123 sentence.
+  // <li>: each rung prints its own label, so "Resident" sits beside a 123 sentence.
   it('names no tier beside a floor that sits between rungs (123)', async () => {
     vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '123');
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
     const sentence = await screen.findByText('The launch door opens at 123 degrees.');
     expect(sentence.textContent).not.toMatch(/Elder|Builder|Resident|Observer|Drifter/);
-    // Hung under the rung tierFor returns, which for 123 is Observer.
-    expect(sentence.closest('li')?.textContent).toContain('Observer');
+    // Hung under the rung tierFor returns, which for 123 is Resident.
+    expect(sentence.closest('li')?.textContent).toMatch(/^Resident\s*80°/);
     expect(screen.getByText('the door opens at 123°')).toBeTruthy();
     expect(screen.queryByText(/you reach/)).toBeNull();
   });
 
-  it('names the tier a floor sits exactly on, under that rung (365)', async () => {
-    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '365');
+  it('names the tier a floor sits exactly on, under that rung (150)', async () => {
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
     const sentence = await screen.findByText(
-      'At 365 degrees you reach Builder, the tier that may plant a launch here.',
+      'At 150 degrees you reach Builder, the tier that may plant a launch here.',
     );
-    expect(sentence.closest('li')?.textContent).toMatch(/(^|[^0-9])365°/);
-    expect(screen.getByText('the door opens at 365° · Builder')).toBeTruthy();
+    expect(sentence.closest('li')?.textContent).toMatch(/^Builder\s*150°/);
+    expect(screen.getByText('the door opens at 150° · Builder')).toBeTruthy();
     expect(screen.queryByText(/reach Resident|· Resident/)).toBeNull();
   });
 
@@ -875,34 +873,49 @@ describe('a reading older than the freshness law allows', () => {
   });
 });
 
-describe('the island current values, on the card', () => {
-  it('reads an Observer at 137.42 with Resident unreached and the door at 180', async () => {
-    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 137.42, tier: 'Observer' }));
-    mount();
-    const rungs = await ladderRows();
-    expect(rungs[2]).toMatch(/^Resident\s*180°/);
-    expect(rungs[2]).not.toContain('reached');
-    expect(rungs[2]).toContain('At 180 degrees you reach Resident, the tier that may plant a launch here.');
-    expect(screen.getByText('the door opens at 180° · Resident')).toBeTruthy();
-    expect(screen.getByText('Cannot launch a token yet')).toBeTruthy();
-  });
-
-  it('lights every rung for an Elder and hangs the launch sentence under Resident', async () => {
-    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 20695, tier: 'Elder' }));
+describe('the island dials, on the card', () => {
+  it('lights every rung for the dEaD read (311.25, Elder) and hangs the launch sentence under Resident', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 311.25, tier: 'Elder' }));
     mount();
     const rungs = await ladderRows();
     expect(rungs.map((r) => r.match(/^([A-Za-z]+)\s*(\d+)°/)?.slice(1))).toEqual([
-      ['Drifter', '0'], ['Observer', '30'], ['Resident', '180'], ['Builder', '365'], ['Elder', '1000'],
+      ['Drifter', '0'], ['Observer', '30'], ['Resident', '80'], ['Builder', '150'], ['Elder', '250'],
     ]);
     expect(rungs.every((r) => r.includes('reached'))).toBe(true);
-    expect(rungs[2]).toContain('At 180 degrees you reach Resident, the tier that may plant a launch here.');
-    expect(screen.getByText('the door opens at 180° · Resident')).toBeTruthy();
+    expect(rungs[2]).toContain('At 80 degrees you reach Resident, the tier that may plant a launch here.');
+    expect(screen.getByText('the door opens at 80° · Resident')).toBeTruthy();
+  });
+
+  it('reads an Observer at 73.89 with Resident unreached and the door at 80', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 73.89, tier: 'Observer' }));
+    mount();
+    const rungs = await ladderRows();
+    expect(rungs[2]).toMatch(/^Resident\s*80°/);
+    expect(rungs[2]).not.toContain('reached');
+    expect(screen.getByText('6.11° to Resident')).toBeTruthy();
+    expect(screen.getByText('the door opens at 80° · Resident')).toBeTruthy();
+    expect(screen.getByText('Cannot launch a token yet')).toBeTruthy();
+  });
+
+  it('names the wallet by its served tier, while the rungs come from the bands', async () => {
+    // Served 'Observer' at 95.00: the headline says what the island said, and the
+    // Resident rung (80) is still lit, because rungs place a number and never name a wallet.
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 95, tier: 'Observer' }));
+    mount();
+    const headline = await awaitRead('Observer');
+    expect(headline.closest('[data-element="b-ladder"]'), 'the first Observer is a rung, not the headline').toBeNull();
+    const offLadder = screen.queryAllByText('Resident').filter((el) => !el.closest('[data-element="b-ladder"]'));
+    expect(offLadder, 'the bands named the wallet').toEqual([]);
+    const rungs = await ladderRows();
+    expect(rungs[2]).toMatch(/^Resident\s*80°/);
+    expect(rungs[2]).toContain('reached');
+    expect(rungs[3]).not.toContain('reached');
   });
 });
 
-describe('the maths fold carries the island sentences, never a formula', () => {
-  const BOLD =
-    'Heat counts the days you have held each token. It is read per token and added together across everything you hold. Size can raise what a day is worth, it cannot buy a day, and price never enters it.';
+describe('the maths fold carries the island paragraph, never a formula', () => {
+  const PARAGRAPH =
+    'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Each degree after that takes longer than the last. Size can raise what a day is worth, it cannot buy a day, and price never enters it.';
 
   async function openMaths() {
     const view = mount();
@@ -910,34 +923,52 @@ describe('the maths fold carries the island sentences, never a formula', () => {
     return view;
   }
 
-  it('opens on the bold sentence, then Days, Size and Weight', async () => {
+  it('opens on the paragraph, word for word, then Days, Size and Weight', async () => {
     await openMaths();
-    expect(screen.getByText(BOLD).tagName).toBe('STRONG');
-    expect(screen.getByText('Your clock on a token starts at your first hold.')).toBeTruthy();
-    expect(
-      screen.getByText('A real position earns a full day. The largest holders earn up to two. Dust earns nothing.'),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(
-        /The Apes carry triple weight, JBM and BAYLA carry their edge, the home team leans warm, and every measured token counts\./,
-      ),
-    ).toBeTruthy();
-    const fold = screen.getByText(BOLD).closest('p')!.parentElement!;
-    const labels = [...fold.querySelectorAll('li > strong')].map((e) => e.textContent);
-    expect(labels).toEqual(['Days', 'Size', 'Weight']);
+    expect(screen.getByText(PARAGRAPH).tagName).toBe('P');
+    const fold = screen.getByText(PARAGRAPH).parentElement!;
+    const items = [...fold.querySelectorAll('ul')[0]!.querySelectorAll(':scope > li')];
+    expect(items.map((li) => li.querySelector('strong')?.textContent)).toEqual(['Days', 'Size', 'Weight']);
+    expect(items[0]!.textContent).toBe('Days Your clock on a token starts at your first hold.');
+    expect(items[1]!.textContent).toBe('Size A real position earns a full day. The largest holders earn up to two. Dust earns nothing.');
+    expect(items[2]!.textContent).toMatch(
+      /^Weight is the island's published\s+multiplier\.\s+The Apes carry triple weight, JBM and BAYLA carry their edge, the home team leans warm,\s+and every measured token counts\.$/,
+    );
   });
 
-  it('prints no formula line, no TWAB and no whole-held-time average', async () => {
+  it('prints no formula line, no TWAB, no averaging and no sum', async () => {
     const { container } = await openMaths();
     const text = container.textContent ?? '';
-    expect(text).toContain(BOLD);
-    expect(text).not.toMatch(/heat\s*=|weight\s*×|TWAB|time-weighted|average is taken|whole held time|the formula/i);
+    expect(text).toContain(PARAGRAPH);
+    expect(text).not.toMatch(
+      /heat\s*=|degrees\s*=|weight\s*×|√|TWAB|time-weighted|average is taken|whole held time|the formula|added together|read per token|balance at every|balance held across|not a snapshot/i,
+    );
+    expect(text).toMatch(/The instrument is continuous, zero-anchored/);
   });
 
-  it('lists the tiers on your total with their meanings in time', async () => {
+  it('lists the tiers on your heat as the island ladder does: a name and a floor', async () => {
     await openMaths();
-    for (const meaning of ['a month', 'half a year', 'a year', 'a thousand days']) {
-      expect(screen.getByText(meaning)).toBeTruthy();
-    }
+    const heading = screen.getByText('The tiers, on your heat');
+    expect(screen.queryByText(/on your total/)).toBeNull();
+    const list = heading.parentElement!.querySelector('ul')!;
+    const rows = [...list.querySelectorAll('li')].map((li) => li.textContent);
+    expect(rows).toEqual(['Elder250°✓ reached', 'Builder150°✓ reached', 'Resident80°✓ reached', 'Observer30°✓ reached']);
+  });
+});
+
+describe('the panel opens on the island sentences', () => {
+  it('says what heat is in the island paragraph first two sentences, with no dash', async () => {
+    const { container } = render(
+      <MemoryRouter>
+        <HeatCard address={ADDR} />
+      </MemoryRouter>,
+    );
+    await awaitRead();
+    const intro = [...container.querySelectorAll('p')].find((p) => p.textContent?.includes('not a venue score'));
+    expect(intro?.textContent).toBe(
+      `${VENUE.heatPlain} It is not a venue score and it pays nothing: it is the island's own ` +
+        'instrument, read live. Price never enters it, a fresh bag starts near zero however big it is, ' +
+        'and trading in and out earns nothing.',
+    );
   });
 });

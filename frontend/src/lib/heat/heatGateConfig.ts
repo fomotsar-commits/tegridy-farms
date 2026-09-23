@@ -17,7 +17,7 @@ export function isHeatGateEnabled(): boolean {
   return (import.meta.env.VITE_HEAT_GATE as string | undefined)?.trim().toLowerCase() !== 'off';
 }
 
-/** The launch floor in degrees: VITE_HEAT_LAUNCH_FLOOR, else LAUNCH_FLOOR (180, Resident). */
+/** The launch floor in degrees: VITE_HEAT_LAUNCH_FLOOR, else LAUNCH_FLOOR (80, Resident). */
 export function heatLaunchFloor(): number {
   return positiveNumberEnv(import.meta.env.VITE_HEAT_LAUNCH_FLOOR as string | undefined, LAUNCH_FLOOR);
 }
