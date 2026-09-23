@@ -303,3 +303,39 @@ test.describe('the item panel on a tablet', () => {
     await expectReachable(close, 'the close button');
   });
 });
+
+// THE TRADING VIEW'S CORNER BUTTONS.
+//
+// Gold Cards opens the full trading view, and with it the fixed buttons in
+// the bottom-left corner: Mute sounds and Keys, and Back to top once the page
+// is scrolled. Above the phone layout all three are on screen together, and
+// Back to top used to sit on top of the other two. Each case scrolls the
+// gallery, then asks the browser what a tap at each button's centre lands on.
+
+const overlaps = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+for (const viewport of [{ width: 820, height: 1180 }, { width: 1440, height: 900 }]) {
+  test.describe(`the corner buttons at ${viewport.width} px`, () => {
+    test.use({ viewport });
+
+    test('Back to top sits clear of Mute sounds and Keys once the page is scrolled', async ({ page }) => {
+      await openCollection(page, '/nakamigos/junglebaygoldcards');
+      await expect(page.getByText('JUNGLE BAY GOLD CARDS', { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+      await page.evaluate(() => window.scrollTo(0, 1600));
+      const top = page.getByRole('button', { name: 'Back to top' });
+      await expect(top).toHaveClass(/visible/, { timeout: 10_000 });
+      const mute = page.getByRole('button', { name: /^(Mute|Unmute) sounds$/ });
+      const keys = page.getByRole('button', { name: 'Keyboard shortcuts' });
+      await expect(mute).toBeVisible();
+      await expect(keys).toBeVisible();
+
+      await expectReachable(top, 'Back to top');
+      await expectReachable(mute, 'Mute sounds');
+      await expectReachable(keys, 'Keys');
+      const [t, m, k] = await Promise.all([top.boundingBox(), mute.boundingBox(), keys.boundingBox()]);
+      expect(t && m && overlaps(t, m), `Back to top ${JSON.stringify(t)} overlaps Mute sounds ${JSON.stringify(m)}`).toBe(false);
+      expect(t && k && overlaps(t, k), `Back to top ${JSON.stringify(t)} overlaps Keys ${JSON.stringify(k)}`).toBe(false);
+    });
+  });
+}
