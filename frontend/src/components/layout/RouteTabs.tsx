@@ -139,9 +139,15 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
     const reveal = () => {
       const tab = list.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
       if (tab) {
+        /* In layout px, which scrollLeft uses: a tab tapped in the app remounts
+           this inside a page entering at scale(0.994), and a scaled box would
+           stop the tab short of its room with nothing to run this again. */
         const box = tab.getBoundingClientRect();
-        const start = box.left - list.getBoundingClientRect().left - list.clientLeft + list.scrollLeft;
-        const next = revealScrollLeft({ start, end: start + box.width }, list);
+        const strip = list.getBoundingClientRect();
+        const ratio = strip.width / parseFloat(getComputedStyle(list).width);
+        const scale = Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+        const start = (box.left - strip.left) / scale - list.clientLeft + list.scrollLeft;
+        const next = revealScrollLeft({ start, end: start + box.width / scale }, list);
         if (Math.abs(next - list.scrollLeft) > 0.5) list.scrollLeft = next;
       }
       fade();
