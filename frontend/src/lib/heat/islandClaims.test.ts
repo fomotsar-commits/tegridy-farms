@@ -241,9 +241,10 @@ describe('the guards below read what a reader is shown', () => {
 });
 
 // The venue reads heat and never computes it, so it carries sentences, never a
-// formula. An `x` counts as an operator only standing alone, so `?heat=0x…` is not one.
+// formula. An `x` counts as an operator only standing alone, so `?heat=0x…` is not one,
+// and Σ only beside heat or rooms, so the scanner's HHI hint `Σ(share²)` is not one.
 const FORMULA =
-  /\bheat\s*=\s*\w+(?:\s*[×·⋅*]|\s+x\s)|weight\s*[×·⋅*]\s*\(|days held\s*[×·⋅*]\s*rate|1\s*[−-]\s*e\s*\^|\bdegrees\s*=\s*\d+(?:\.\d+)?\s*[×·⋅*]|√|\bwarm days\s*=/i;
+  /(?:\b|_)heat\s*=\s*(?:Σ|\w+(?:\s*[×·⋅*]|\s+x\s))|Σ\s*(?:rooms?|tokens?|degrees)|weight\s*[×·⋅*]\s*\(|days held\s*[×·⋅*]\s*rate|1\s*[−-]\s*e\s*\^|\bdeg(?:rees)?\s*=\s*\d+(?:\.\d+)?\s*(?:[×·⋅*]|x\s)|√|\bsqrt\s*\(|\bwarm days\s*=/i;
 
 describe('no formula, TWAB or time-weighted in user-facing source', () => {
   it('knows the island law lines as formulas, and the island paragraph as sentences', () => {
