@@ -291,14 +291,13 @@ export default function LendingPage() {
           )}
         </AnimatePresence>
 
-        {/* Section Toggle — horizontal scroll on mobile.
-            F510: the chip row scrolls horizontally but `no-scrollbar` hides the
-            scrollbar, so the 4th chip ("Launchpad") clipped mid-word with zero
-            affordance at 390-414px. A right-edge fade mask (mobile only — the
-            row is `md:w-fit` and never scrolls on desktop) signals there's more
-            to scroll. Additive CSS, pointer-events untouched. */}
+        {/* Section Toggle. The row never grows past the page: where its chips do
+            not fit (below about 1143px, with the md+ subtitles) it scrolls inside
+            it, and since `no-scrollbar` hides the bar, its end fades to say there
+            is more (F510). From 1144px it fits and neither scrolls nor fades;
+            e2e/tab-target-size.spec.ts pins both. */}
         <m.div
-          className="flex overflow-x-auto gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit no-scrollbar snap-x snap-mandatory [mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)] md:[mask-image:none]"
+          className="flex overflow-x-auto gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit md:max-w-full no-scrollbar snap-x snap-mandatory [mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)] min-[1144px]:[mask-image:none]"
           style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
           aria-label="NFT Finance sections"
