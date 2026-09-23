@@ -218,6 +218,16 @@ describe('the guards below read what a reader is shown', () => {
     expect(shown(join(ROOT, 'middleware.js'))).toContain('Held time counts here.');
     expect(shown(join(SRC, 'components', 'HeatCard.tsx'))).not.toContain('VENUE.heatParagraph');
   });
+
+  it('reads the build scripts that write text into dist, and the deploy config', () => {
+    expect(shown(join(ROOT, 'scripts', 'render-bungalow-doors.mjs'))).toContain('hold her for heat');
+    expect(shown(join(ROOT, 'scripts', 'llms-txt.mjs'))).toContain('dist/llms.txt did not read back as written');
+    expect(shown(join(ROOT, 'vercel.json'))).toContain('"outputDirectory": "dist"');
+  });
+
+  it('decodes the entities a formula can be written with', () => {
+    expect(decode('80 &middot; &radic;(warm days &divide; 180) &times; 2')).toBe('80 · √(warm days ÷ 180) × 2');
+  });
 });
 
 // The venue reads heat and never computes it, so it carries sentences, never a
@@ -237,16 +247,46 @@ describe('no formula, TWAB or time-weighted in user-facing source', () => {
     expect(FORMULA.test('deg = 80 · sqrt(d/180)')).toBe(true);
     expect(FORMULA.test('heat = Σ rooms')).toBe(true);
     expect(FORMULA.test('island_heat = weight × days')).toBe(true);
+    for (const line of [
+      'heat = size + loyalty',
+      'degrees = warm days ÷ 180',
+      'heat = warm days / 180',
+      'heat = days held ÷ 180',
+      'heat = days held / 180',
+      'heat = (weight × days) ÷ 180',
+      'Heat: weight × days × rate',
+      'warm days × weight × rate = heat',
+      'degrees ∝ square root of warm days',
+    ]) {
+      expect(FORMULA.test(line), line).toBe(true);
+    }
+    for (const line of [
+      '/api/aggregator?resource=heat',
+      'https://memetics.wtf/heat?address=0x000000000000000000000000000000000000dEaD&x=1',
+      'Dank Memes + Time = Memetic Finance.',
+    ]) {
+      expect(FORMULA.test(line), line).toBe(false);
+    }
     expect(FORMULA.test('/?heat=0xabc')).toBe(false);
     expect(FORMULA.test('https://memetics.finance/?heat=0x000000000000000000000000000000000000dEaD')).toBe(false);
     expect(FORMULA.test('Σ(share²)')).toBe(false);
     expect(FORMULA.test(VENUE.heatParagraph)).toBe(false);
   });
 
+  const TWAB = /\bTWAB\b/;
+  const TIME_WEIGHTED = /time[- ]weighted/i;
+  it('knows TWAB in any case, and time-weighted with any hyphen or space', () => {
+    for (const s of ['your twab', 'a Twab', 'TWAB']) expect(TWAB.test(s), s).toBe(true);
+    for (const sep of ['-', ' ', '\u00a0', '\u00ad', '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '']) {
+      expect(TIME_WEIGHTED.test(`time${sep}weighted`), JSON.stringify(sep)).toBe(true);
+    }
+    expect(TWAB.test('TWAP orders')).toBe(false);
+  });
+
   const GUARDS: [string, RegExp][] = [
     ['a formula line', FORMULA],
-    ['TWAB', /\bTWAB\b/],
-    ['time-weighted', /time[- ]weighted/i],
+    ['TWAB', TWAB],
+    ['time-weighted', TIME_WEIGHTED],
     ['TWAB gloss', /balance at every\s+moment|balance held across time/i],
   ];
   for (const [name, re] of GUARDS) {
@@ -305,11 +345,19 @@ describe('no heat-summing sentence in user-facing source', () => {
       'These rows sum to 1979.59°',
       'The tiers, on your total',
       'Degrees from each room add up to your heat.',
+      'Your heat is the total of your rooms.',
+      "Each room's degrees are added to your heat.",
+      'Where your heat comes from',
+      '° comes from',
     ]) {
       expect(SUMMING.test(bad) || HEAT_SUM.test(bad), bad).toBe(true);
     }
     for (const ok of [
       VENUE.heatParagraph,
+      'Every fill below comes from GeckoTerminal’s public trade feed.',
+      'Heat measures how long a wallet has held island tokens.',
+      // The island's own sentence: every token adds, and the paragraph says how much.
+      'Every token the island measures adds to your heat.',
       'Only swaps that spend the season quote token add to a total.',
       'Weights must sum to 10000.',
       'measured against the sum of ETH lent',

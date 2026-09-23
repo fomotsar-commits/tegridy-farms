@@ -685,6 +685,16 @@ describe('the card prints the served heat and no sum of its rooms', () => {
     expect(screen.queryByText(/still includes the retired/)).toBeNull();
     expect(container.textContent).not.toContain('696.73');
   });
+
+  it('heads the rooms as rooms, deepest first, and never says the number comes from them', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading(DEAD));
+    const { container } = mount();
+    await waitFor(() => expect(screen.getByText('3 tokens counted')).toBeTruthy());
+    const heading = screen.getByText('Your rooms, deepest first');
+    const rows = [...heading.nextElementSibling!.querySelectorAll('li')].map((li) => li.textContent);
+    expect(rows.map((r) => r?.match(/[\d.]+°$/)?.[0])).toEqual(['250.92°', '233.75°', '212.06°']);
+    expect(container.textContent).not.toMatch(/comes from/i);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
