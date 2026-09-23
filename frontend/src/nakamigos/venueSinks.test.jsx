@@ -381,6 +381,99 @@ describe("api-offers.js", () => {
     expect((await offers.acceptOffer({ orderHash: "0xoffer", tokenContract: VENUE, tokenId: "1" })).error).toBe("no-wallet");
   });
 
+  describe("a collection or trait bid signs only for the collection it names", () => {
+    // The NFT leg of a criteria bid comes from OpenSea's offers/build answer.
+    // The slug check above cannot see it, so the answer itself is held to the
+    // venue collection's contract, before any wrap, approve or signature.
+    const criteria = (token, itemType = 4) => ({
+      itemType, token, identifierOrCriteria: "0", startAmount: "1", endAmount: "1", recipient: WALLET,
+    });
+    const build = (consideration) => ({
+      partialParameters: {
+        consideration,
+        zone: "0x" + "0".repeat(40),
+        zoneHash: "0x" + "0".repeat(64),
+      },
+    });
+    function answerBuild(consideration) {
+      h.openseaPost = vi.fn(async (path) => (path === "offers/build" ? build(consideration) : { ok: true }));
+    }
+    const posted = () => h.openseaPost.mock.calls.map(([path]) => path);
+
+    function expectNothingFundedOrSigned(res) {
+      expect(res.success).toBeUndefined();
+      expect(res.error).toBe("nft-mismatch");
+      expect(typeof res.message).toBe("string");
+      expect(h.wrapEth, "ETH was wrapped").not.toHaveBeenCalled();
+      expect(h.approveWeth, "WETH was approved").not.toHaveBeenCalled();
+      expect(h.signTypedData, "an order was signed").not.toHaveBeenCalled();
+      expect(h.contractCalls.map((c) => c.method)).not.toContain("getCounter");
+      expect(posted()).toEqual(["offers/build"]);
+    }
+
+    it("createCollectionOffer refuses a Gold Cards build whose NFT is Bojungles", async () => {
+      answerBuild([criteria(ADDR.bojungles)]);
+      const offers = await import("./api-offers");
+      expectNothingFundedOrSigned(await offers.createCollectionOffer({ priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" }));
+    });
+
+    it("createTraitOffer refuses a gnssart build whose NFT is the memes", async () => {
+      answerBuild([criteria(ADDR.junglebaymemes)]);
+      const offers = await import("./api-offers");
+      expectNothingFundedOrSigned(await offers.createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "gnssart", openseaSlug: "gnssart" }));
+    });
+
+    it("refuses a build that names the right contract with a second, foreign NFT beside it", async () => {
+      answerBuild([criteria(GOLD), criteria(ADDR.raretowelie)]);
+      const offers = await import("./api-offers");
+      expectNothingFundedOrSigned(await offers.createCollectionOffer({ priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" }));
+    });
+
+    it("refuses a build whose NFT is one token rather than a criteria item", async () => {
+      answerBuild([criteria(GOLD, 2)]);
+      const offers = await import("./api-offers");
+      expectNothingFundedOrSigned(await offers.createCollectionOffer({ priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" }));
+    });
+
+    it("refuses a build that names no NFT at all", async () => {
+      answerBuild([{ itemType: 1, token: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", identifierOrCriteria: "0", startAmount: "1", endAmount: "1", recipient: WALLET }]);
+      const offers = await import("./api-offers");
+      expectNothingFundedOrSigned(await offers.createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" }));
+    });
+
+    it("a build that fails costs no gas: nothing is wrapped or approved", async () => {
+      h.openseaPost = vi.fn(async () => { throw new Error("build down"); });
+      const offers = await import("./api-offers");
+      const res = await offers.createCollectionOffer({ priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" });
+      expect(res.error).toBe("build-failed");
+      expect(h.wrapEth).not.toHaveBeenCalled();
+      expect(h.approveWeth).not.toHaveBeenCalled();
+      expect(h.signTypedData).not.toHaveBeenCalled();
+    });
+
+    it("positive control: a Gold Cards build naming Gold Cards (any case) is funded, signed and posted", async () => {
+      answerBuild([criteria(GOLD.toLowerCase())]);
+      const offers = await import("./api-offers");
+      const res = await offers.createCollectionOffer({ priceEth: 0.01, slug: "junglebaygoldcards", openseaSlug: "junglebaygoldcards" });
+      expect(res.success).toBe(true);
+      expect(h.wrapEth).toHaveBeenCalledTimes(1);
+      expect(h.approveWeth).toHaveBeenCalledTimes(1);
+      expect(h.signTypedData).toHaveBeenCalledTimes(1);
+      const signed = h.signTypedData.mock.calls[0][2];
+      const nftTokens = signed.consideration.filter((c) => [2, 3, 4, 5].includes(Number(c.itemType))).map((c) => c.token.toLowerCase());
+      expect(nftTokens).toEqual([GOLD.toLowerCase()]);
+      expect(posted()).toEqual(["offers/build", "criteria_offers"]);
+    });
+
+    it("positive control: a gnssart trait build naming gnssart is signed", async () => {
+      answerBuild([criteria(VENUE)]);
+      const offers = await import("./api-offers");
+      const res = await offers.createTraitOffer({ traitType: "a", traitValue: "b", priceEth: 0.01, slug: "gnssart", openseaSlug: "gnssart" });
+      expect(res.success).toBe(true);
+      expect(h.signTypedData).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("an item bid names a token that exists", () => {
     // Gold Cards ids run 1..123; ownerOf(0) and ownerOf(124) revert. A bid on
     // an id that does not exist used to wrap ETH and approve WETH before
