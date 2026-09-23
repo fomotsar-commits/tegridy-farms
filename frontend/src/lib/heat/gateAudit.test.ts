@@ -50,6 +50,14 @@ describe('recordGateDecision', () => {
     expect(findGateDecision(row.id)).toMatchObject({ id: row.id, verdict: 'WARM' });
   });
 
+  // 95° sits in the Resident band and the island served Observer. The row keeps the
+  // served word, so a replay names the tier the door was shown.
+  it('keeps the served tier word where the bands would name another', () => {
+    const row = recordGateDecision(gateDecision(ADDR, reading(95, 'Observer'), NOW));
+    expect(row).toMatchObject({ degrees: 95, tier: 'Observer', verdict: 'WARM' });
+    expect(findGateDecision(row.id)?.tier).toBe('Observer');
+  });
+
   it('newest first', () => {
     recordGateDecision(gateDecision(ADDR, reading(10, 'Drifter'), NOW));
     recordGateDecision(gateDecision(ADDR, reading(195.54), NOW));

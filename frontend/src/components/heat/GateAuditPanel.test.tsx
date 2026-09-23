@@ -107,6 +107,18 @@ describe('a denial, replayed', () => {
   });
 });
 
+describe('the tier is the one the island served', () => {
+  it('prints the served word where the bands would name another', () => {
+    // 95° sits in the Resident band and the island served Observer.
+    recordGateDecision(gateDecision(ADDR, reading(95, 'Observer'), NOW));
+    render(<GateAuditPanel address={ADDR} />);
+    expand();
+    const tierField = screen.getByText('Tier').parentElement as HTMLElement;
+    expect(within(tierField).getByText('Observer')).toBeInTheDocument();
+    expect(screen.queryByText('Resident')).not.toBeInTheDocument();
+  });
+});
+
 describe('the floor is the one the decision was taken against', () => {
   it('renders the STORED floor and flags that the dial has since moved', () => {
     // Decided against 250°; the live dial is 80°. Substituting 80° here would turn a
