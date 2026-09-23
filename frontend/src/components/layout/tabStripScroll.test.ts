@@ -35,6 +35,12 @@ describe('revealScrollLeft', () => {
     expect(revealScrollLeft({ start: 100, end: 520 }, strip(0))).toBe(100 - STRIP_EDGE_PX);
   });
 
+  it('lands on a whole pixel on the far side of the room, since WebKit truncates scrollLeft', () => {
+    // 420.8 - 382 + 24 = 62.8: truncated to 62, the tab would sit 0.8px into the room.
+    expect(revealScrollLeft({ start: 340.8, end: 420.8 }, strip(0))).toBe(63);
+    expect(revealScrollLeft({ start: 120.2, end: 200.2 }, strip(150))).toBe(96);
+  });
+
   it('keeps a strip that fits at the start', () => {
     expect(revealScrollLeft({ start: 300, end: 378 }, { scrollLeft: 0, clientWidth: 382, scrollWidth: 382 })).toBe(0);
   });
