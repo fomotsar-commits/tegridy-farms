@@ -132,6 +132,17 @@ export function explorerAddressUrl(collection) {
   return collection?.explorer?.addressUrl || null;
 }
 
+// Where a collection's own description was read, so its words are never
+// taken for the venue's. null for the venue's own copy.
+const DESCRIPTION_SOURCES = {
+  opensea: "Description from the collection's OpenSea page",
+  metadata: "Description from the collection NFT's metadata (IPFS, linked on chain)",
+};
+
+export function descriptionSourceLabel(collection) {
+  return DESCRIPTION_SOURCES[collection?.descriptionSource] || null;
+}
+
 const CHAIN_LABELS = { ethereum: "Ethereum", base: "Base", solana: "Solana" };
 const STANDARD_LABELS = { erc721: "ERC-721", erc1155: "ERC-1155", spl: "Metaplex pNFT" };
 

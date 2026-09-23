@@ -1,11 +1,6 @@
-import { chainLabel, standardLabel, supplyLabel, explorerAddressUrl } from "../../lib/venue";
+import { chainLabel, standardLabel, supplyLabel, explorerAddressUrl, descriptionSourceLabel } from "../../lib/venue";
 import MarketButton from "./MarketButton";
 import { explainerLine } from "./externalCopy";
-
-const DESCRIPTION_SOURCE = {
-  opensea: "Description from the collection's OpenSea page",
-  onchain: "Description from the collection's on-chain metadata",
-};
 
 function short(addr) {
   return typeof addr === "string" && addr.length > 12 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr;
@@ -17,7 +12,7 @@ function short(addr) {
 export default function ExternalAbout({ collection }) {
   const explorer = explorerAddressUrl(collection);
   const address = collection.contract || collection.solana?.collectionMint || null;
-  const sourceLabel = DESCRIPTION_SOURCE[collection.descriptionSource];
+  const sourceLabel = descriptionSourceLabel(collection);
   const facts = [
     ["Chain", chainLabel(collection)],
     ["Standard", standardLabel(collection)],

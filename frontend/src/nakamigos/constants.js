@@ -255,7 +255,9 @@ export const COLLECTIONS = {
     deterministicImage: false,
     image: "https://wsrv.nl/?url=https%3A%2F%2Fna-assets.pinit.io%2F3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw%2Fb69c398c-8a8f-4b56-8f82-fdb0b1d3a16e%2F0&w=400&output=webp",
     description: "A love letter to $BRAINLET from jungle bay island\u{1F334}",
-    descriptionSource: "onchain", // the collection NFT's on-chain metadata JSON
+    // The collection NFT's metadata JSON on IPFS; the Metaplex account on
+    // chain holds only its uri, so the text is not itself on chain.
+    descriptionSource: "metadata",
     tags: ["METAPLEX PNFT", "SOLANA", "JUNGLE BAY"],
     pixelated: false,
     highlights: [],
