@@ -432,10 +432,10 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
   // A collection that trades on its own market states its numbers in that
   // market's units and says where it trades.
   const viewOnly = !canTradeOnVenue(collection);
+  // A view-only card's Supply stat carries its label, and the long ERC-1155
+  // labels would cover the picture, so only a venue card gets the badge.
   const venueSupply = stats?.supply ?? collection.supply;
-  const supplyBadge = viewOnly
-    ? supplyLabel(collection)
-    : venueSupply != null ? `${venueSupply.toLocaleString()} items` : null;
+  const supplyBadge = !viewOnly && venueSupply != null ? `${venueSupply.toLocaleString()} items` : null;
   const [imgError, setImgError] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [visible, setVisible] = useState(false);
