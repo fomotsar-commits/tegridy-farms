@@ -13,6 +13,9 @@ const PHONE = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile:
 const IPAD_PORTRAIT = { viewport: { width: 820, height: 1180 }, hasTouch: true, isMobile: false };
 const IPAD_LANDSCAPE = { viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: false };
 const DESKTOP = { viewport: { width: 1440, height: 900 }, hasTouch: false, isMobile: false };
+// A mouse, so only the width half of `handheld` (narrower than 1024px) can apply.
+const MOUSE_900 = { viewport: { width: 900, height: 900 }, hasTouch: false, isMobile: false };
+const MOUSE_1024 = { viewport: { width: 1024, height: 900 }, hasTouch: false, isMobile: false };
 
 /** Sub-pixel rounding between a label and its tab is not paint-over. */
 const TOLERANCE_PX = 0.5;
@@ -95,6 +98,8 @@ for (const { name, use, reads } of [
   { name: '820px iPad portrait', use: IPAD_PORTRAIT, reads: 'CT' },
   { name: '1180px iPad landscape', use: IPAD_LANDSCAPE, reads: 'CT' },
   { name: '1440px desktop', use: DESKTOP, reads: 'Copy Trading' },
+  { name: '900px mouse window', use: MOUSE_900, reads: 'CT' },
+  { name: '1024px mouse window', use: MOUSE_1024, reads: 'Copy Trading' },
 ]) {
   test.describe(`Earn strip at ${name}`, () => {
     test.use(use);
