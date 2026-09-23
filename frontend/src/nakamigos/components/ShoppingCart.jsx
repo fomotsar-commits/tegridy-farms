@@ -97,6 +97,8 @@ export default function ShoppingCart({
   const purchasableItems = cart.filter(item => item.orderHash);
 
   const totalPrice = purchasableItems.reduce((sum, item) => sum + (item.price || 0), 0);
+  // No item has a live order: there is no total to state and no purchase to start.
+  const nothingPurchasable = cart.length > 0 && purchasableItems.length === 0;
 
   // Estimate gas for the batch purchase
   const estimateGas = useCallback(async () => {
@@ -601,7 +603,17 @@ export default function ShoppingCart({
             borderTop: "1px solid var(--border, #222)",
             padding: "16px 20px 20px",
           }}>
+            {nothingPurchasable && (
+              <div role="status" style={{
+                fontFamily: "var(--mono)", fontSize: 11, lineHeight: 1.6,
+                color: "var(--text-dim)", marginBottom: 12, letterSpacing: "0.02em",
+              }}>
+                Nothing in the cart can be bought right now: no item in it has a live listing.
+              </div>
+            )}
+
             {/* Summary */}
+            {!nothingPurchasable && (
             <div style={{ marginBottom: 14 }}>
               <div style={{
                 display: "flex",
@@ -707,6 +719,7 @@ export default function ShoppingCart({
 
               {/* Gas estimation shown above when available */}
             </div>
+            )}
 
             {/* Stale price warning */}
             {staleItems.length > 0 && !buying && (
@@ -872,7 +885,7 @@ export default function ShoppingCart({
             )}
 
             {/* Sweep All */}
-            {!confirming && (
+            {!confirming && !nothingPurchasable && (
               <button
                 onClick={handleSweepClick}
                 disabled={buying || validating}
