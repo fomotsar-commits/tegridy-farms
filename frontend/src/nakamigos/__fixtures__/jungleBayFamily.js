@@ -71,7 +71,9 @@ export const SEEDS_DESCRIPTION_OPENSEA_VERBATIM =
 export const normalizeEmDashes = (text) => text.replace(/\s*\u2014\s*/g, " - ");
 export const SEEDS_DESCRIPTION_STORED = normalizeEmDashes(SEEDS_DESCRIPTION_OPENSEA_VERBATIM);
 
-export const JUNGLETS_DESCRIPTION_ONCHAIN = "A love letter to $BRAINLET from jungle bay island\u{1F334}";
+// The collection NFT's metadata JSON (IPFS). The Metaplex account on chain
+// holds only its name, symbol and the uri of that JSON; the text is not on chain.
+export const JUNGLETS_DESCRIPTION_METADATA = "A love letter to $BRAINLET from jungle bay island\u{1F334}";
 export const BOJUNGLES_DESCRIPTION_OPENSEA = "An homage to the powerful $BOBO, from Jungle Bay Island. \u{1F334}\u{1F9F1}";
 
 /** What each of the six new registry entries must say, field by field. */
@@ -173,8 +175,8 @@ export const EXPECTED_FAMILY = Object.freeze({
     mintBlock: null,
     deploy: null,
     image: "https://wsrv.nl/?url=https%3A%2F%2Fna-assets.pinit.io%2F3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw%2Fb69c398c-8a8f-4b56-8f82-fdb0b1d3a16e%2F0&w=400&output=webp",
-    description: JUNGLETS_DESCRIPTION_ONCHAIN,
-    descriptionSource: "onchain",
+    description: JUNGLETS_DESCRIPTION_METADATA,
+    descriptionSource: "metadata",
     tags: ["METAPLEX PNFT", "SOLANA", "JUNGLE BAY"],
     market: {
       name: "Magic Eden",

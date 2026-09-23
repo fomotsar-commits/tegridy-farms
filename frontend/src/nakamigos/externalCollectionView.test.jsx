@@ -498,9 +498,12 @@ describe("About states the collection's own facts, with their sources", () => {
     expect(explorer).toBeTruthy();
   });
 
-  it("Junglets: a description from its on-chain metadata, and its collection mint", async () => {
+  // The text lives in an IPFS JSON the Metaplex account points to by uri;
+  // the account itself holds only the name, symbol and that uri.
+  it("Junglets: a description from its collection NFT's metadata, not said to be on chain, and its collection mint", async () => {
     await renderAt("/nakamigos/junglets/about");
-    await findInBody(/on-chain metadata/i);
+    await findInBody(/Description from the collection NFT's metadata \(IPFS, linked on chain\)/);
+    notInBody(/on-chain metadata/i);
     await findInBody(/5csQ/);
   });
 
