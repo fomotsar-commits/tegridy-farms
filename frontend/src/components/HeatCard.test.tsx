@@ -16,6 +16,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { parseHeatReading } from '../lib/heat/heatOracle';
+import { VENUE } from '../lib/arrival';
 
 const ADDR = '0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca';
 
@@ -970,19 +971,34 @@ describe('the maths fold carries the island paragraph, never a formula', () => {
     const text = container.textContent ?? '';
     expect(text).toContain(PARAGRAPH);
     expect(text).not.toMatch(
-      /heat\s*=|degrees\s*=|weight\s*×|√|TWAB|time-weighted|average is taken|whole held time|the formula|added together|read per token/i,
+      /heat\s*=|degrees\s*=|weight\s*×|√|TWAB|time-weighted|average is taken|whole held time|the formula|added together|read per token|balance at every|balance held across|not a snapshot/i,
     );
+    expect(text).toMatch(/The instrument is continuous, zero-anchored/);
   });
 
-  it('lists the tiers on your heat, with no duration and no breadth in their meanings', async () => {
+  it('lists the tiers on your heat as the island ladder does: a name and a floor', async () => {
     await openMaths();
     const heading = screen.getByText('The tiers, on your heat');
     expect(screen.queryByText(/on your total/)).toBeNull();
     const list = heading.parentElement!.querySelector('ul')!;
-    const tiers = [...list.querySelectorAll('li')].map((li) => li.querySelector('span')?.textContent);
-    expect(tiers).toEqual(['Elder', 'Builder', 'Resident', 'Observer']);
-    expect(list.textContent).toMatch(/Elder\s*250°/);
-    expect(list.textContent).toMatch(/Resident\s*80°/);
-    expect(list.textContent).not.toMatch(/a thousand days|a year|a month|multi-token|across tokens/);
+    const rows = [...list.querySelectorAll('li')].map((li) => li.textContent);
+    expect(rows).toEqual(['Elder250°✓ reached', 'Builder150°✓ reached', 'Resident80°✓ reached', 'Observer30°✓ reached']);
+  });
+});
+
+describe('the panel opens on the island sentences', () => {
+  it('says what heat is in the island paragraph first two sentences, with no dash', async () => {
+    const { container } = render(
+      <MemoryRouter>
+        <HeatCard address={ADDR} />
+      </MemoryRouter>,
+    );
+    await awaitRead();
+    const intro = [...container.querySelectorAll('p')].find((p) => p.textContent?.includes('not a venue score'));
+    expect(intro?.textContent).toBe(
+      `${VENUE.heatPlain} It is not a venue score and it pays nothing: it is the island's own ` +
+        'instrument, read live. Price never enters it, a fresh bag starts near zero however big it is, ' +
+        'and trading in and out earns nothing.',
+    );
   });
 });

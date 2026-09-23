@@ -231,7 +231,7 @@ test.describe('the audit panel', () => {
     await expect(
       priorRow.getByText('Floor at the time', { exact: true }).locator('xpath=following-sibling::dd[1]'),
     ).toHaveText('250°');
-    await expect(door.getByText(/41\.20° measured against a 250° floor — short by 208\.80°/)).toBeVisible();
+    await expect(door.getByText('41.20° measured against the 250° floor, short by 208.80°.')).toBeVisible();
     // A moved floor is disclosed as a present-tense fact, never substituted into history.
     await expect(door.getByText(/The floor is 80° today\. This decision was taken against 250°/)).toBeVisible();
 
@@ -271,7 +271,7 @@ test.describe('the audit panel', () => {
 
     // Written by the door on read, read back by the panel — the whole round trip, in a
     // browser, which is the half no unit test can reach.
-    await expect(door.getByText(/62\.40° measured against a 80° floor — short by 17\.60°/)).toBeVisible();
+    await expect(door.getByText('62.40° measured against the 80° floor, short by 17.60°.')).toBeVisible();
     await expect(door.getByText(/never sent anywhere, and it is not analytics/i)).toBeVisible();
 
     const stored = await page.evaluate((key) => localStorage.getItem(key), AUDIT_KEY);

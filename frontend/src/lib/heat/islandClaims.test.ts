@@ -29,6 +29,7 @@ import { extname, join, relative } from 'node:path';
 import ts from 'typescript';
 import * as oracle from './heatOracle';
 import { VENUE } from '../arrival';
+import { venueFaq } from '../faqData';
 
 const SRC = join(process.cwd(), 'src');
 
@@ -99,8 +100,8 @@ describe('the three confirmed properties survive', () => {
     expect(heatCard).toMatch(/churn earns nothing|velocity[- ]blind/i);
   });
 
-  it('still explains that it is continuous, not a snapshot', () => {
-    expect(heatCard).toMatch(/balance at every\s+moment|continuous/i);
+  it('still names it continuous, the island label with no gloss of its own', () => {
+    expect(heatCard).toMatch(/\bcontinuous\b/i);
   });
 });
 
@@ -250,7 +251,14 @@ describe('no formula, TWAB or time-weighted in user-facing source', () => {
     expect(FORMULA.test('degrees = 80 · ( warm days ÷ 180 )')).toBe(true);
     expect(FORMULA.test('warm days = weight · days held · rate')).toBe(true);
     expect(FORMULA.test('heat = weight × ( size + loyalty )')).toBe(true);
+    expect(FORMULA.test('degrees = 80 x ( warm days ÷ 180 )')).toBe(true);
+    expect(FORMULA.test('80 · sqrt( warm days ÷ 180 )')).toBe(true);
+    expect(FORMULA.test('deg = 80 · sqrt(d/180)')).toBe(true);
+    expect(FORMULA.test('heat = Σ rooms')).toBe(true);
+    expect(FORMULA.test('island_heat = weight × days')).toBe(true);
     expect(FORMULA.test('/?heat=0xabc')).toBe(false);
+    expect(FORMULA.test('https://memetics.finance/?heat=0x000000000000000000000000000000000000dEaD')).toBe(false);
+    expect(FORMULA.test('Σ(share²)')).toBe(false);
     expect(FORMULA.test(VENUE.heatParagraph)).toBe(false);
   });
 
@@ -258,6 +266,7 @@ describe('no formula, TWAB or time-weighted in user-facing source', () => {
     ['a formula line', FORMULA],
     ['TWAB', /\bTWAB\b/],
     ['time-weighted', /time[- ]weighted/i],
+    ['TWAB gloss', /balance at every\s+moment|balance held across time/i],
   ];
   for (const [name, re] of GUARDS) {
     it(`states no ${name}`, () => {
@@ -285,22 +294,16 @@ describe('no link to memetics.wtf/island', () => {
 });
 
 // The deepest room sets the heat and every other room amplifies it, so no user-facing
-// sentence adds heat up across rooms or tokens. `summed` is refused anywhere; the one
-// exemption is the competitions rule, which is about trades and never about heat.
+// sentence adds heat up across rooms or tokens, and `summed` is refused anywhere.
 describe('no heat-summing sentence in user-facing source', () => {
   const SUMMING =
     /added\s+together|\bsummed\b|\bsum across\b|\brows sum to\b|\bon your total\b|\bsum of (?:your|the|its|every) (?:rooms?|tokens?|degrees|heat)\b|\badds? up across\b/i;
   const HEAT_SUM =
     /\b(?:heat|degrees?|warmth|flame)\b[^.\n]{0,80}\b(?:added together|summed|sums?|adds? up|combined|totall?ed)\b|\b(?:added together|summed|sums?|adds? up|combined)\b[^.\n]{0,80}\b(?:heat|degrees?|rooms?|everything you hold)\b/i;
-  const EXEMPT: [string, string][] = [
-    [join('src', 'components', 'competitions', 'ScoringRules.tsx'), 'Trades in other tokens are counted and shown, never summed in'],
-  ];
   const offenders = (re: RegExp) =>
-    [...SHIPPED].flatMap(([f, raw]) => {
-      const rel = relative(ROOT, f);
-      const text = EXEMPT.reduce((t, [file, phrase]) => (file === rel ? t.split(phrase).join(' ') : t), raw);
+    [...SHIPPED].flatMap(([f, text]) => {
       const m = re.exec(text);
-      return m ? [`${rel}: "${m[0]}"`] : [];
+      return m ? [`${relative(ROOT, f)}: "${m[0]}"`] : [];
     });
 
   it('says no heat is added together, summed, or totalled across rooms', () => {
@@ -332,7 +335,22 @@ describe('no heat-summing sentence in user-facing source', () => {
     ]) {
       expect(SUMMING.test(ok) || HEAT_SUM.test(ok), ok).toBe(false);
     }
-    const scoring = shown(join(SRC, 'components', 'competitions', 'ScoringRules.tsx'));
-    expect(scoring, 'the exemption names a sentence that is no longer there').toContain(EXEMPT[0]![1]);
+  });
+});
+
+// Every heat explainer speaks in the island's sentences: none defines heat as a share of
+// a supply, and the FAQ answers "What is Heat?" with the paragraph's own words.
+describe('every heat explainer carries the island sentences', () => {
+  it('defines heat by no share of supply anywhere a reader is shown', () => {
+    const found = [...SHIPPED].flatMap(([f, text]) => {
+      const m = /how much of a token you (?:have )?held|as a share of its supply/i.exec(text);
+      return m ? [`${relative(ROOT, f)}: "${m[0]}"`] : [];
+    });
+    expect(found, `a share-of-supply definition of heat:\n${found.join('\n')}`).toEqual([]);
+  });
+
+  it('answers "What is Heat?" in the island sentences', () => {
+    const answer = venueFaq(80).flatMap((s) => s.items).find((i) => i.q === 'What is Heat?')?.a;
+    expect(answer).toBe(`${VENUE.heatPlain} ${VENUE.heatDays} Price never enters it.`);
   });
 });

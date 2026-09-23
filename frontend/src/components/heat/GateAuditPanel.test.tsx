@@ -68,7 +68,7 @@ describe('a denial, replayed', () => {
     expect(screen.getByText(/COLD · below the floor/i)).toBeInTheDocument();
     expect(screen.getByText('62.40°')).toBeInTheDocument();
     expect(screen.getByText('Observer')).toBeInTheDocument();
-    expect(screen.getByText(/62\.40° measured against a 80° floor — short by 17\.60°/)).toBeInTheDocument();
+    expect(screen.getByText('62.40° measured against the 80° floor, short by 17.60°.')).toBeInTheDocument();
   });
 
   it('quotes the gate_decision_id a support thread will ask for', () => {
@@ -115,7 +115,7 @@ describe('the floor is the one the decision was taken against', () => {
     render(<GateAuditPanel address={ADDR} />);
     expand();
     expect(screen.getByText('250°')).toBeInTheDocument();
-    expect(screen.getByText(/100\.00° measured against a 250° floor — short by 150\.00°/)).toBeInTheDocument();
+    expect(screen.getByText('100.00° measured against the 250° floor, short by 150.00°.')).toBeInTheDocument();
     expect(screen.getByText(/The floor is 80° today\. This decision was taken against 250°/)).toBeInTheDocument();
   });
 
@@ -242,12 +242,12 @@ describe('replayLine', () => {
   });
 
   it('derives the comparison from the row, not from the live dial', () => {
-    expect(replayLine(row({ degrees: 50, floor: 300 }))).toContain('300° floor — short by 250.00°');
+    expect(replayLine(row({ degrees: 50, floor: 300 }))).toBe('50.00° measured against the 300° floor, short by 250.00°.');
   });
 
   it('states the margin on a pass', () => {
-    expect(replayLine(row({ degrees: 195.54, verdict: 'WARM', reason: 'qualified' }))).toContain(
-      'clear by 115.54°',
+    expect(replayLine(row({ degrees: 195.54, verdict: 'WARM', reason: 'qualified' }))).toBe(
+      '195.54° measured against the 80° floor, clear by 115.54°.',
     );
   });
 
@@ -255,5 +255,18 @@ describe('replayLine', () => {
     const line = replayLine(row({ degrees: null, tier: null, verdict: 'STALE', reason: 'unreadable' }));
     expect(line).toMatch(/not a zero/);
     expect(line).not.toMatch(/0\.00°/);
+  });
+
+  it('reads every verdict against "the" floor, with no prose em dash', () => {
+    const lines = [
+      replayLine(row({ verdict: 'COLD' })),
+      replayLine(row({ degrees: 195.54, verdict: 'WARM', reason: 'qualified' })),
+      replayLine(row({ verdict: 'STALE', reason: 'stale-reading' })),
+      replayLine(row({ degrees: null, tier: null, verdict: 'STALE', reason: 'unreadable' })),
+    ];
+    for (const line of lines) {
+      expect(line).not.toContain('—');
+      expect(line).not.toMatch(/\ba \d/);
+    }
   });
 });

@@ -325,14 +325,8 @@ describe('the island dials', () => {
     ]);
   });
 
-  it('gives each band a meaning with no breadth and no duration', () => {
-    expect(TIER_FLOORS.map((t) => t.meaning)).toEqual([
-      'deep held time',
-      'sustained standing',
-      'settled',
-      'the first threshold that counts',
-      'the cold state',
-    ]);
+  it('carries the island ladder and nothing the venue wrote: a name and a floor per band', () => {
+    for (const band of TIER_FLOORS) expect(Object.keys(band).sort(), band.tier).toEqual(['floor', 'tier']);
   });
 
   it('pins the launch floor and the freshness window', () => {
