@@ -127,3 +127,48 @@ for (const path of ['/', '/liquidity', '/farm', '/island', '/swap', '/trust']) {
     ).toBe(moved.before);
   });
 }
+
+/**
+ * NOR ON AN IPAD. /nft-finance's section row is `md:w-fit`, sized to its five
+ * chips with their subtitles, about 1095px. From 768 until the page is wide
+ * enough to hold that, the row ran past the viewport with no fade and dragged
+ * the whole page sideways. It must scroll inside the page instead, with its end
+ * faded while chips wait past it, and neither fade nor scroll once it fits.
+ */
+test.describe('/nft-finance on an iPad', () => {
+  test.use({ hasTouch: true, isMobile: false });
+  test('the NFT Finance section row scrolls inside the page at 744 to 1366, fading its end only while it scrolls', async ({
+    page,
+    walletMock: _w,
+  }) => {
+    const problems: string[] = [];
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await gotoRoute(page, '/nft-finance');
+    const row = page.getByRole('tablist', { name: 'NFT Finance sections' });
+    await expect(row.getByRole('tab').first()).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    for (const width of [744, 768, 820, 834, 1024, 1100, 1180, 1280, 1366]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      const slid = await page.evaluate(() => {
+        const before = window.scrollX;
+        window.scrollTo(500, window.scrollY);
+        const after = window.scrollX;
+        window.scrollTo(before, window.scrollY);
+        return after - before;
+      });
+      if (slid) problems.push(`${width}px: the page slides ${slid}px sideways`);
+      const s = await row.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          scrolls: el.scrollWidth > el.clientWidth + 1,
+          fades: (cs.getPropertyValue('mask-image') || cs.getPropertyValue('-webkit-mask-image') || 'none') !== 'none',
+          right: el.getBoundingClientRect().right,
+        };
+      });
+      if (s.right > width + 0.5) problems.push(`${width}px: the row runs to ${Math.round(s.right)}px, past the viewport`);
+      if (s.scrolls !== s.fades) problems.push(`${width}px: the row ${s.scrolls ? 'scrolls with no fade' : 'fits but fades its end'}`);
+    }
+    expect(problems, 'the NFT Finance section row on an iPad').toEqual([]);
+  });
+});
