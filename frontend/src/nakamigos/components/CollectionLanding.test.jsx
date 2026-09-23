@@ -155,6 +155,20 @@ describe("numbers in their own unit", () => {
     for (const slug of VIEW_ONLY_SLUGS) expect(text(card(slug))).not.toMatch(/\?\s*items/);
   });
 
+  it("a view-only card states its supply once, in its Supply stat, with no badge over its picture", async () => {
+    // The ERC-1155 labels are long enough to cover a third of the artwork on
+    // a phone, and the Supply stat under the picture already says the same.
+    await renderLanding();
+    await settle();
+    for (const slug of VIEW_ONLY_SLUGS) {
+      const el = card(slug);
+      const supply = within(el).getByText(/^Supply$/).parentElement;
+      const label = text(supply).replace(/^Supply\s*/, "").trim();
+      expect(label, slug).toMatch(/items|editions/);
+      expect(text(el).split(label).length - 1, `${slug} says "${label}" more than once`).toBe(1);
+    }
+  });
+
   it("Junglets counts its items and prices in SOL, with no ETH anywhere on its card", async () => {
     await renderLanding();
     await waitFor(() => expect(text(card("junglets"))).toMatch(/0\.695 SOL/));
