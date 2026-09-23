@@ -31,6 +31,10 @@ ships; a tagged release will cut from here once Wave 0 redeploys are complete.
 > runs are attributed to the commit that recorded them. They are internally
 > consistent but are **not** reproducible from the repository.
 
+### 2026-09-23
+
+- On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
+
 ### 2026-09-22
 
 - Staking cards say how the island reads a locked bag.
