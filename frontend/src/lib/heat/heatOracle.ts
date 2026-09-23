@@ -25,7 +25,7 @@ export const LAUNCH_FLOOR = 80;
 /** The freshness window in days: an older reading may not pass or fail anyone. */
 export const GATE_MAX_AGE_DAYS = 7;
 
-/** A single measured token's contribution to island_heat. */
+/** One measured token's room, as the island serves it. */
 export interface HeatBreakdownRow {
   tokenAddress: string;
   chain: string;
@@ -34,14 +34,14 @@ export interface HeatBreakdownRow {
   degrees: number;
   firstSeenAtUnix: number | null;
   lastTransferAtUnix: number | null;
-  /** The island's flag for a mint it no longer scans. The row still counts in the served
-   *  total; HeatCard greys it. Absent or non-boolean reads false. */
+  /** The island's flag for a mint it no longer scans; HeatCard greys the row. Absent or
+   *  non-boolean reads false. */
   retired: boolean;
 }
 
 export interface HeatReading {
   address: string;
-  /** island_heat — the SUM of per-token degrees. Not capped at 100. */
+  /** The wallet's heat as the island serves it, never recomputed from the rows. */
   degrees: number;
   tier: HeatTier;
   /** True only when the wallet has no heat rows at all. */

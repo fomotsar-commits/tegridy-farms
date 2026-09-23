@@ -754,7 +754,7 @@ function Reading({
  * word means: a mint it no longer scans, a migrated or scrapped token's
  * history. The row's own degrees stay on screen because they are the island's
  * number, painted as served; the whole-flame line under it is the island's
- * total, never a venue sum.
+ * served heat, never a venue sum.
  */
 function ScopedReading({
   reading,
