@@ -138,10 +138,11 @@ not after**.
 
 ### 3.1 The Heat argument is real, and it is the strongest one on this page
 
-The launch gate reads Heat from the island. Heat is per-wallet, summed across the island's
-measured registry, and **the registry demonstrably measures Base tokens.** The captured real
-reading in `frontend/src/lib/heat/heatOracle.test.ts` — documented there as "a real Elder: 12
-measured tokens, island_heat 195.54", trimmed to four rows — breaks down as:
+The launch gate reads Heat from the island. Heat is per-wallet, read across the island's
+measured registry: the deepest room sets it and the rest amplify. **The registry demonstrably
+measures Base tokens.** The captured real reading in `frontend/src/lib/heat/heatOracle.test.ts`
+(a real Builder reading: 12 measured tokens, 195.54 degrees, trimmed to four rows) has these
+rooms:
 
 | token | chain | degrees |
 |---|---|---|
@@ -150,7 +151,7 @@ measured tokens, island_heat 195.54", trimmed to four rows — breaks down as:
 | Jungle Bay Memes | **base** | 32.85 |
 | TOWELI | ethereum | 1.44 |
 
-Three Base rows supply 181.06° of that wallet's 195.54°. The mainnet row supplies 1.44°. The
+Its three deepest rooms are Base tokens; its one mainnet room reads 1.44°. The
 reputational instrument this venue gates launches on already lives, overwhelmingly, on Base.
 That is not a vibe; it is the fixture.
 
