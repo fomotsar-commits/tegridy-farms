@@ -1,8 +1,9 @@
 /**
  * Every tab label paints inside its own tab, and on phones and iPads the Copy
- * Trading tab reads CT while its accessible name stays "Copy Trading".
- * Measured from rendered boxes: a label wider than its tab paints over the next
- * one, which is what a 430px iPhone showed on the Earn strip.
+ * Trading tab reads CT while its accessible name stays "Copy Trading". No tab is
+ * under 64px, and a strip that fits keeps its tabs equal. Measured from rendered
+ * boxes: a label wider than its tab paints over the next one, which is what a
+ * 430px iPhone showed on the Earn strip.
  */
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
@@ -16,11 +17,12 @@ const DESKTOP = { viewport: { width: 1440, height: 900 }, hasTouch: false, isMob
 /** Sub-pixel rounding between a label and its tab is not paint-over. */
 const TOLERANCE_PX = 0.5;
 
-// One route per RouteTabs host; the Earn strip has its own cases below.
-const OTHER_STRIPS = [
+// One route per RouteTabs host.
+const STRIPS = [
   { path: '/swap', strip: 'Swap destinations' },
   { path: '/liquidity', strip: 'Liquidity sections' },
   { path: '/launch', strip: 'Launch sections' },
+  { path: '/farm', strip: 'Earn sections' },
   { path: '/trust', strip: 'Token-checking tools' },
   { path: '/tokenomics', strip: 'Treasury and numbers sections' },
   { path: '/leaderboard', strip: 'Activity sections' },
@@ -107,13 +109,38 @@ for (const { name, use, reads } of [
   });
 }
 
-test.describe('every other section strip at 390px phone', () => {
-  test.use(PHONE);
-  for (const { path, strip } of OTHER_STRIPS) {
-    test(`${path}: no ${strip} tab paints past its own edge`, async ({ page, walletMock: _w }) => {
-      const { tabs } = await measureStrip(page, path, strip);
-      expect(tabs.length, 'no tab strip found: the page changed shape').toBeGreaterThan(1);
-      expect(overflowing(tabs), 'tab labels painting over their neighbours').toEqual([]);
-    });
-  }
-});
+// Each sweep resizes one page through its widths, with touch or a mouse as the device has.
+const SWEEPS = [
+  { name: 'phone widths', use: PHONE, widths: [360, 375, 390, 430] },
+  { name: 'iPad widths', use: IPAD_PORTRAIT, widths: [744, 768, 820, 834, 1024, 1180, 1366] },
+  { name: 'desktop widths', use: DESKTOP, widths: [1280, 1440] },
+];
+
+for (const { name, use, widths } of SWEEPS) {
+  test.describe(`every section strip at ${name}`, () => {
+    test.use(use);
+    for (const { path, strip } of STRIPS) {
+      test(`${path}: each ${strip} tab holds its label and the 64px floor, and a strip that fits keeps equal tabs`, async ({
+        page,
+        walletMock: _w,
+      }) => {
+        const { list } = await measureStrip(page, path, strip);
+        const problems: string[] = [];
+        for (const width of widths) {
+          await page.setViewportSize({ width, height: use.viewport.height });
+          await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+          const tabs = await list.getByRole('tab').evaluateAll(measureTabs);
+          const scrolls = await list.evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+          expect(tabs.length, 'no tab strip found: the page changed shape').toBeGreaterThan(1);
+          for (const o of overflowing(tabs)) problems.push(`${width}px: ${o}`);
+          for (const t of tabs) if (t.width < 64 - TOLERANCE_PX) problems.push(`${width}px: "${t.shown}" is ${t.width}px, under the 64px floor`);
+          const sizes = tabs.map((t) => t.width);
+          if (!scrolls && Math.max(...sizes) - Math.min(...sizes) > 1) {
+            problems.push(`${width}px: the strip fits, but its tabs are ${sizes.join(' / ')}px wide`);
+          }
+        }
+        expect(problems, 'tab strip layout').toEqual([]);
+      });
+    }
+  });
+}
