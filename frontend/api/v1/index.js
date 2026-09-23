@@ -27,6 +27,7 @@ import { checkRateLimit, checkGlobalLimit } from "../_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "../_lib/bodycap.js";
 import { logSafe } from "../_lib/logSafe.js";
 import { fetchAlchemyWithFailover, alchemyKeyChain } from "../_lib/alchemy-failover.js";
+import { VENUE_SLUG_CONTRACTS, VENUE_CONTRACTS } from "../_lib/venue-registry.js";
 import { readErc20Distribution, readBaseErc20Distribution, handleScanRoute } from "../_lib/scannerApi.js";
 import {
   admitKeyedCall,
@@ -78,17 +79,10 @@ function alchemyAuthHeadersFor(key, extra = {}) {
   return headers;
 }
 
-const ALLOWED_CONTRACTS = new Set([
-  "0xd774557b647330c91bf44cfeab205095f7e6c367", // Nakamigos
-  "0xa1de9f93c56c290c48849b1393b09eb616d55dbb", // GNSS Art
-  "0xd37264c71e9af940e49795f0d3a8336afaafdda9", // Jungle Bay
-]);
-
-const SLUG_TO_CONTRACT = {
-  nakamigos: "0xd774557b647330c91bf44cfeab205095f7e6c367",
-  gnssart: "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
-  junglebay: "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
-};
+// The venue's collections (_lib/venue-registry.js). Each slug is also its
+// OpenSea slug, which the listings route builds its upstream path from.
+export const ALLOWED_CONTRACTS = VENUE_CONTRACTS;
+export const SLUG_TO_CONTRACT = VENUE_SLUG_CONTRACTS;
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetic.fun";
 

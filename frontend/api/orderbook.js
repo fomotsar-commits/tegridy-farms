@@ -13,6 +13,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "crypto";
 import { recoverMessageAddress, decodeAbiParameters, parseAbiParameters } from "viem";
 import { checkRateLimit } from "./_lib/ratelimit.js";
+import { VENUE_CONTRACTS } from "./_lib/venue-registry.js";
 import { verifySeaportSignature, verifyNftOwnership, verifyBundleOwnership, fetchNftOwner, MAX_PRICE_WEI, priceWeiToEthNumber } from "./_lib/seaport-verify.js";
 import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaportHash.js";
 // AUDIT FIX 2026-05-26 [H-20]: bound the Alchemy RPC response so a hostile /
@@ -22,12 +23,9 @@ import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { fetchAlchemyWithFailover, alchemyKeyChain } from "./_lib/alchemy-failover.js";
 import { sendPushToWallet } from "./_lib/push.js";
 
-// Whitelist allowed contract addresses (lowercase)
-const ALLOWED_CONTRACTS = new Set([
-  "0xd774557b647330c91bf44cfeab205095f7e6c367", // Nakamigos
-  "0xa1de9f93c56c290c48849b1393b09eb616d55dbb", // GNSS Art
-  "0xd37264c71e9af940e49795f0d3a8336afaafdda9", // Jungle Bay
-]);
+// The venue's collections (lowercase): the only contracts the book stores,
+// serves or trades.
+export const ALLOWED_CONTRACTS = VENUE_CONTRACTS;
 
 // Max NFTs in one bundle listing. Bounds the per-item ownership RPC fan-out (one
 // ownerOf call each) and the signed-message size.
@@ -605,7 +603,7 @@ export default async function handler(req, res) {
       res.setHeader("Cache-Control", "s-maxage=20, stale-while-revalidate=60");
     }
     const orders = (data || []).map(redactInactiveOrder);
-    return res.json({ orders, count: orders.length });
+    return res.status(200).json({ orders, count: orders.length });
   }
 
   // ── POST: Create or cancel orders ──
