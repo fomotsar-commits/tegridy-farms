@@ -346,6 +346,15 @@ export default async function handler(req, res) {
     return handleFlames(req, res);
   }
 
+  // `?resource=me-read` reads Junglets (Solana, not on OpenSea) from Magic Eden's
+  // keyless v2 API, which sends no CORS header for this site: two fixed paths,
+  // three fixed pages, edge-cached. Lazy import. See _lib/me-read.js header.
+  // MUST stay above the `const provider` line below: same placement law as heat.
+  if (req.query.resource === "me-read") {
+    const { handleMeRead } = await import("./_lib/me-read.js");
+    return handleMeRead(req, res);
+  }
+
   // `?resource=births` signs a birth notify with the venue's shared secret and relays it
   // to the island's enrollment socket. Server-side because the SECRET is the whole
   // guarantee — a signature the browser could produce is one anybody could produce.
