@@ -136,7 +136,7 @@ export const COLLECTIONS = {
     symbol: "JBAY",
     supply: 123,
     tokenIds: { first: 1 }, // ids 1..123; ownerOf(0) and ownerOf(124) revert
-    supplyNote: "totalSupply() on Ethereum at block 26041301 (ids 1 to 123). maxSupply() is 150, so more can be minted.",
+    supplyNote: "totalSupply() on Ethereum at block 26041301 (ids 1 to 123). maxSupply() is 150.",
     mintBlock: 13781371,
     deploy: { block: 13781371, date: "2021-12-11" },
     metadataBase: null, // every token shares one S3 image; there are no per-id PNGs
