@@ -201,6 +201,40 @@ test.describe('a strip that scrolls fades and marks the edge more tabs wait behi
   }
 });
 
+/**
+ * A tab chosen in the app lands like a fresh load: clear of both fades. The page
+ * enters scaled (PageTransition), so a reveal measured from transformed boxes
+ * falls short by the scale, and nothing re-runs it once the entrance ends.
+ */
+test.describe('a tab tapped in the app lands clear of the fades', () => {
+  test.use(PHONE);
+  test('/farm: at 360 to 430 a tap on Competitions, CT or Checkout lands that Earn tab clear of both fades', async ({
+    page,
+    walletMock: _w,
+  }) => {
+    const problems: string[] = [];
+    for (const width of PHONE_WIDTHS) {
+      for (const to of ['/competitions', '/copy-trading', '/checkout']) {
+        const list = await land(page, '/farm', 'Earn sections', width);
+        const tab = list.locator(`#earn-tab--${to.slice(1)}`);
+        await tab.evaluate((el) => el.scrollIntoView({ block: 'nearest', inline: 'center' }));
+        await frames(page);
+        await tab.tap();
+        await page.waitForURL(`**${to}`);
+        await expect(list.getByRole('tab', { selected: true })).toHaveId(`earn-tab--${to.slice(1)}`);
+        // The entrance is over when nothing above the strip is transformed.
+        await page.waitForFunction((el) => {
+          for (let n: Element | null = el; n; n = n.parentElement) if (getComputedStyle(n).transform !== 'none') return false;
+          return true;
+        }, await list.elementHandle());
+        await frames(page);
+        for (const p of await settle(page, list, fadeFollowsScroll(true))) problems.push(`${width}px, tapped ${to}: ${p}`);
+      }
+    }
+    expect(problems, 'tabs chosen in the app landing under a fade').toEqual([]);
+  });
+});
+
 /** scrollLeft once a smooth scroll has stopped: three frames in a row unchanged, or ~1.5s. */
 async function restingScrollLeft(page: Page, list: Locator) {
   let last = await list.evaluate((el) => el.scrollLeft);
