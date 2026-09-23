@@ -102,6 +102,9 @@ export const EXPECTED_FAMILY = Object.freeze({
     explorer: { name: "Etherscan", addressUrl: "https://etherscan.io/address/0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3" },
     blurSlug: null,
     supplyNoteMentions: ["26041301", "150"],
+    // paused() reads true, and what it gates was not read: the note may state
+    // maxSupply, not that more can be minted.
+    supplyNoteNever: [/can be minted/i, /could mint/i, /more can/i],
   },
   junglebaymemes: {
     name: "the memes by jungle bay x mfers artists",

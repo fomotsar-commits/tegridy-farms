@@ -65,6 +65,11 @@ describe("every family entry equals what was read", () => {
         for (const fact of want.supplyNoteMentions) expect(note).toContain(fact);
       });
 
+      it("claims nothing about its supply that no read produced", () => {
+        const note = entry(slug)?.supplyNote ?? "";
+        for (const claim of want.supplyNoteNever ?? []) expect(note).not.toMatch(claim);
+      });
+
       it("never borrows a Nakamigos default for its images", () => {
         // null, not undefined: an undefined metadataBase lets the METADATA_BASE
         // default parameter in api.js apply, which is Nakamigos' IPFS CID.
