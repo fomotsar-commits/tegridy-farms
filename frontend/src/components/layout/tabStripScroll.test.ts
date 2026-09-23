@@ -4,7 +4,7 @@
  * behaviour is measured in e2e/tab-strip-scroll.spec.ts.
  */
 import { describe, it, expect } from 'vitest';
-import { STRIP_CHEVRON_PX, STRIP_EDGE_PX, revealScrollLeft, stripFade, stripFadeMask } from './tabStripScroll';
+import { STRIP_CHEVRON_PX, STRIP_EDGE_PX, chevronScrollBy, revealScrollLeft, stripFade, stripFadeMask } from './tabStripScroll';
 
 // A 382px strip over 600px of tabs: it can scroll 218px.
 const strip = (scrollLeft: number) => ({ scrollLeft, clientWidth: 382, scrollWidth: 600 });
@@ -97,5 +97,22 @@ describe('stripFadeMask', () => {
     expect(stripFadeMask({ start: true, end: false })).toContain(start);
     expect(stripFadeMask({ start: false, end: true })).toContain(end);
     expect(stripFadeMask({ start: true, end: true })).toContain(`${start}, ${end}`);
+  });
+});
+
+describe('chevronScrollBy', () => {
+  it('pages the strip toward the chevron’s edge by its width less both fades', () => {
+    // What sat under the end fade lands just clear of the start fade, and back.
+    expect(chevronScrollBy('end', 382)).toBe(382 - 2 * STRIP_EDGE_PX);
+    expect(chevronScrollBy('start', 382)).toBe(-(382 - 2 * STRIP_EDGE_PX));
+  });
+
+  it('still moves a strip too narrow for two fades by one fade’s width', () => {
+    expect(chevronScrollBy('end', 60)).toBe(STRIP_EDGE_PX);
+    expect(chevronScrollBy('start', 60)).toBe(-STRIP_EDGE_PX);
+  });
+
+  it('gives the chevron a band at least 24px wide, so it is a whole tap target (WCAG 2.5.8)', () => {
+    expect(STRIP_CHEVRON_PX).toBeGreaterThanOrEqual(24);
   });
 });

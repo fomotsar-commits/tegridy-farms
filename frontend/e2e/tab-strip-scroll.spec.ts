@@ -201,6 +201,67 @@ test.describe('a strip that scrolls fades and marks the edge more tabs wait behi
   }
 });
 
+/** scrollLeft once a smooth scroll has stopped: three frames in a row unchanged, or ~1.5s. */
+async function restingScrollLeft(page: Page, list: Locator) {
+  let last = await list.evaluate((el) => el.scrollLeft);
+  for (let i = 0, still = 0; i < 45 && still < 3; i++) {
+    await frames(page);
+    const now = await list.evaluate((el) => el.scrollLeft);
+    still = now === last ? still + 1 : 0;
+    last = now;
+  }
+  return last;
+}
+
+/**
+ * A chevron looks like a control, so a tap on it scrolls its strip a page toward
+ * that edge and never reaches the masked tab under it, which the reader cannot
+ * see and did not choose. Its box is at least 24px each way (WCAG 2.5.8).
+ */
+test.describe('a tap on an edge chevron scrolls the strip and opens nothing', () => {
+  test.use(PHONE);
+  for (const { path, strip } of [
+    { path: '/farm', strip: 'Earn sections' },
+    { path: '/launch', strip: 'Launch sections' },
+    { path: '/trust', strip: 'Token-checking tools' },
+  ]) {
+    test(`${path}: at 360 to 430 a tap on each ${strip} chevron scrolls toward its edge and stays on ${path}`, async ({
+      page,
+      walletMock: _w,
+    }) => {
+      const problems: string[] = [];
+      for (const width of PHONE_WIDTHS) {
+        for (const side of ['end', 'start'] as const) {
+          const list = await land(page, path, strip, width);
+          if (side === 'start') {
+            await list.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
+            await settle(page, list, (s) => (s.chevronStart ? [] : ['no start chevron yet']));
+          }
+          const chevron = list.locator('xpath=..').locator(`[data-more="${side}"]`);
+          const box = await chevron.boundingBox();
+          if (!box) {
+            problems.push(`${width}px: no ${side} chevron shows`);
+            continue;
+          }
+          if (box.width < 24 || box.height < 24) problems.push(`${width}px: the ${side} chevron is ${round(box.width)}x${round(box.height)}px, under 24x24`);
+          const before = await list.evaluate((el) => el.scrollLeft);
+          await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+          const after = await restingScrollLeft(page, list);
+          const now = new URL(page.url()).pathname;
+          if (now !== path) {
+            problems.push(`${width}px: a tap on the ${side} chevron opened ${now}`);
+            continue;
+          }
+          if (side === 'end' ? after <= before : after >= before) {
+            problems.push(`${width}px: a tap on the ${side} chevron left scrollLeft at ${round(after)} (was ${round(before)})`);
+          }
+        }
+      }
+      expect(problems, 'chevron taps').toEqual([]);
+    });
+  }
+});
+
 test.describe('a strip that fits neither fades nor shows a chevron', () => {
   test.use(DESKTOP);
   for (const { path, strip } of [
