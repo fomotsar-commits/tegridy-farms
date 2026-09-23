@@ -159,6 +159,8 @@ test.describe('the Jungle Bay family on the marketplace', () => {
       await expect(button).toBeVisible();
       await expect(button).toHaveAttribute('href', c.marketUrl);
       await expect(button).toHaveAttribute('target', '_blank');
+      // Dark label on light blue: the page's dark text shadow would smear it.
+      await expect(button).toHaveCSS('text-shadow', 'none');
 
       await expect(page.getByText(c.gallery)).toBeVisible({ timeout: 20_000 });
       await expect(page.getByRole('button', { name: 'Shopping cart' })).toHaveCount(0);
