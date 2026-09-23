@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { JB_LEGENDARIES, TRAIT_LORE } from "../constants";
+import { Link } from "react-router-dom";
+import { COLLECTIONS, COLLECTION_LORE, JB_LEGENDARIES, TRAIT_LORE } from "../constants";
+import { canTradeOnVenue, chainLabel, standardLabel, supplyLabel } from "../lib/venue";
 
 // ═══ CATEGORY LABELS FOR LEGENDARIES ═══
 const LEGENDARY_CATEGORIES = {
@@ -25,17 +27,49 @@ const LEGENDARY_CATEGORIES = {
   "Devil Ape": "Mythology",
 };
 
+// ═══ THE FAMILY COLLECTIONS ═══
+// The island's six family collections, drawn from the registry (name, chain,
+// standard, supply, where it trades), in the order the lore lists them. No
+// description is written for them here: nothing read supports one.
+const FAMILY = (COLLECTION_LORE.junglebay.ecosystem || [])
+  .map((e) => (e.slug ? COLLECTIONS[e.slug] : null))
+  .filter(Boolean);
+
+// A family contract's creation date, as a timeline entry. Only what the
+// contract proves: the day it was deployed, on which chain.
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function formatDeployDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return `${MONTHS[m - 1]} ${d}, ${y}`;
+}
+const FAMILY_EVENTS = FAMILY
+  .filter((c) => c.deploy?.date)
+  .map((c) => ({
+    sortKey: c.deploy.date,
+    date: formatDeployDate(c.deploy.date),
+    title: `${c.name} contract deployed`,
+    description: `Contract created on ${chainLabel(c)} on ${c.deploy.date}, at block ${c.deploy.block.toLocaleString("en-US")}.`,
+    color: "var(--purple)",
+    icon: "\u{1F4DC}",
+  }));
+
 // ═══ TIMELINE EVENTS ═══
+const JBAC_EVENTS = [
+  { sortKey: "2021-11-01", date: "Nov 2021", title: "Rug Pull Exposed", description: "Roh (0xRoh) forensically exposes LBAC rug pull -- identical IPFS hashes, ~100 ETH stolen.", color: "var(--gold)", icon: "\u26A0" },
+  { sortKey: "2021-11-16", date: "Nov 16, 2021", title: "@JungleBayAC Created", description: "Community creates new identity the same day the scandal breaks. Refuses to scatter.", color: "var(--naka-blue)", icon: "\u2764" },
+  { sortKey: "2021-11-30", date: "Nov 2021", title: "Sandbox Land Secured", description: "Jungle Bay Island established at coordinates (14, -69) in The Sandbox.", color: "var(--green)", icon: "\u{1F3DD}" },
+  { sortKey: "2022-01-06", date: "Jan 6, 2022", title: "New Collection Minted", description: "5,555 hand-drawn apes launched in just 7-8 weeks. Original LBAC holders get free 1:1 exchange.", color: "var(--green)", icon: "\u2728" },
+  { sortKey: "2022-04-01", date: "Apr 2022", title: "Staking Launched", description: "Community staking system goes live, rewarding diamond hands.", color: "var(--purple)", icon: "\u2B50" },
+  { sortKey: "2022-05-01", date: "May 2022", title: "Otherside Land Acquired", description: "Community treasury purchases land in Yuga Labs' Otherside metaverse.", color: "var(--naka-blue)", icon: "\u{1F30D}" },
+  { sortKey: "2023-06-01", date: "2023", title: "Rebranded to Artists Collective", description: "Evolution from Ape Club to Artists Collective.", color: "var(--gold)", icon: "\u{1F3A8}" },
+];
+const PRESENT_EVENT = { date: "Present", title: "Memetic Finance Era", description: "DM+T = Dank Memes + Time. $JBM token on Base.", color: "var(--gold)", icon: "\u{1F451}" };
+
+// The apes' own history, with each family contract placed on the day it was
+// created, and the present last.
 const TIMELINE_EVENTS = [
-  { date: "Nov 2021", title: "Rug Pull Exposed", description: "Roh (0xRoh) forensically exposes LBAC rug pull -- identical IPFS hashes, ~100 ETH stolen.", color: "var(--gold)", icon: "\u26A0" },
-  { date: "Nov 16, 2021", title: "@JungleBayAC Created", description: "Community creates new identity the same day the scandal breaks. Refuses to scatter.", color: "var(--naka-blue)", icon: "\u2764" },
-  { date: "Nov 2021", title: "Sandbox Land Secured", description: "Jungle Bay Island established at coordinates (14, -69) in The Sandbox.", color: "var(--green)", icon: "\u{1F3DD}" },
-  { date: "Jan 6, 2022", title: "New Collection Minted", description: "5,555 hand-drawn apes launched in just 7-8 weeks. Original LBAC holders get free 1:1 exchange.", color: "var(--green)", icon: "\u2728" },
-  { date: "Apr 2022", title: "Staking Launched", description: "Community staking system goes live, rewarding diamond hands.", color: "var(--purple)", icon: "\u2B50" },
-  { date: "May 2022", title: "Otherside Land Acquired", description: "Community treasury purchases land in Yuga Labs' Otherside metaverse.", color: "var(--naka-blue)", icon: "\u{1F30D}" },
-  { date: "2023", title: "Rebranded to Artists Collective", description: "Evolution from Ape Club to Artists Collective. Meme Cards collab with mfers artists launched.", color: "var(--gold)", icon: "\u{1F3A8}" },
-  { date: "2024", title: "Multi-Chain Expansion", description: "Seeds (369, Base), Bojungles (250, Base), Junglets (208, Solana) launched across chains.", color: "var(--purple)", icon: "\u{1F680}" },
-  { date: "Present", title: "Memetic Finance Era", description: "DM+T = Dank Memes + Time. $JBM token on Base.", color: "var(--gold)", icon: "\u{1F451}" },
+  ...[...JBAC_EVENTS, ...FAMILY_EVENTS].sort((a, b) => a.sortKey.localeCompare(b.sortKey)),
+  PRESENT_EVENT,
 ];
 
 // ═══ SKIN TIER DATA ═══
@@ -47,20 +81,25 @@ const SKIN_TIERS = [
 ];
 
 // ═══ ECOSYSTEM DATA ═══
+// A family entry carries its registry collection; its line says only the
+// registry's facts and where it trades.
+const familyItems = (chain) => FAMILY.filter((c) => chainLabel(c) === chain).map((c) => ({ name: c.name, collection: c }));
 const ECOSYSTEM_CHAINS = [
   {
     chain: "Ethereum",
     color: "var(--naka-blue)",
     bg: "rgba(100,160,255,0.1)",
-    items: [{ name: "Jungle Bay Ape Club", supply: 5555, description: "Main collection -- 5,555 hand-drawn apes" }],
+    items: [
+      { name: "Jungle Bay Ape Club", supply: 5555, description: "Main collection -- 5,555 hand-drawn apes" },
+      ...familyItems("Ethereum"),
+    ],
   },
   {
     chain: "Base",
     color: "#0052ff",
     bg: "rgba(0,82,255,0.1)",
     items: [
-      { name: "Bojungles", supply: 250, description: "Honoring $BOBO" },
-      { name: "Seeds", supply: 369, description: "Tribute rooted in mfers ethos" },
+      ...familyItems("Base"),
       { name: "$JBM Token", supply: null, description: "Community token" },
     ],
   },
@@ -68,7 +107,7 @@ const ECOSYSTEM_CHAINS = [
     chain: "Solana",
     color: "#9945ff",
     bg: "rgba(153,69,255,0.1)",
-    items: [{ name: "Junglets", supply: 208, description: "Hand-painted by @rodritoh89" }],
+    items: familyItems("Solana"),
   },
   {
     chain: "Metaverse",
@@ -325,6 +364,28 @@ function RugToRichesTimeline() {
   );
 }
 
+// A family collection: its page here, its chain, standard and supply as the
+// registry read them, and where it trades.
+function FamilyEntry({ collection }) {
+  const supply = supplyLabel(collection);
+  const trades = canTradeOnVenue(collection) ? "Trades here" : `Trades on ${collection.market?.name}`;
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+        <Link
+          to={`/nakamigos/${collection.slug}`}
+          style={{ fontFamily: "var(--display)", fontSize: 12, fontWeight: 600, color: "var(--text)", textDecoration: "underline", textUnderlineOffset: 3, overflowWrap: "anywhere" }}
+        >
+          {collection.name}
+        </Link>
+      </div>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", lineHeight: 1.6, marginTop: 2 }}>
+        {[chainLabel(collection), standardLabel(collection), supply, trades].filter(Boolean).join(" \u00b7 ")}
+      </div>
+    </div>
+  );
+}
+
 // ═══ SECTION: ECOSYSTEM MAP ═══
 function EcosystemMap() {
   return (
@@ -344,7 +405,9 @@ function EcosystemMap() {
               {chain.toUpperCase()}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {items.map(item => (
+              {items.map(item => item.collection ? (
+                <FamilyEntry key={item.name} collection={item.collection} />
+              ) : (
                 <div key={item.name}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div style={{ fontFamily: "var(--display)", fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
