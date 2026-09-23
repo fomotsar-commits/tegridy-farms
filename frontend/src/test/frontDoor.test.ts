@@ -164,8 +164,8 @@ describe('the changelog is one line per change', () => {
     const odd = body
       .split('\n')
       .filter((l) => l.trim() !== '')
-      .filter((l) => !/^### \d{4}-\d{2}-\d{2}$/.test(l) && !/^- \S/.test(l) && !/^<!--.*-->$/.test(l));
-    expect(odd, 'every line under Unreleased is a date heading, one entry, or the slot marker').toEqual([]);
+      .filter((l) => !/^### \d{4}-\d{2}-\d{2}$/.test(l) && !/^- \S/.test(l));
+    expect(odd, 'every line under Unreleased is a date heading or one entry').toEqual([]);
     expect(body.split('\n').filter((l) => l.startsWith('- ')).length).toBeGreaterThan(10);
     expect(text).not.toContain(EM_DASH);
   });
