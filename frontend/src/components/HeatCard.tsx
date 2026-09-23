@@ -484,12 +484,8 @@ function Reading({
     };
   }, [reading.address, reading.degrees, reading.isCold, reading.xHandle]);
 
-  // WAVE SEVEN, row R: A RETIRED ROW IS LABELED, NOT COUNTED, NOT SUMMED.
-  // The island sets `retired: true` on a mint it no longer scans (a migrated or
-  // scrapped token's history). Those rows sort after the live ones, render
-  // greyed with the word, and stay out of both the token count and the sum line
-  // below. Their own degrees are still printed: that number is the island's,
-  // painted as served.
+  // Retired rows sort last, grey, and leave the token count; every row prints the
+  // degrees the island served. The rooms are never added up: the served number rules.
   const rows = useMemo(
     () =>
       [...reading.breakdown].sort(
@@ -500,29 +496,7 @@ function Reading({
   const liveRows = rows.filter((r) => !r.retired);
   const retiredCount = rows.length - liveRows.length;
   const max = liveRows[0]?.degrees || 1;
-  // The island states island_heat as the SUM of its rows, and its number is the
-  // ruler: it is painted as served and never replaced. The sum line prints the
-  // LIVE rows only, and what follows only decides which true sentence to print
-  // under it.
-  const summed = liveRows.reduce((a, r) => a + r.degrees, 0);
-  const matchesLive = Math.abs(summed - reading.degrees) <= 0.05;
-  // THE ISLAND'S DROP LANDED 2026-09-16, and this stays anyway, as the guard for
-  // the next retirement. Measured through our own proxy that day: the envelope
-  // serves 10 rows, none retired, degrees 1341.7, and the rows sum to 1341.7 -
-  // so matchesLive is true and nothing below it renders.
-  //
-  // While a retired row DOES arrive inside the total (as it did for months), its
-  // sum is not a mismatch and must not be flagged as one, or every holder of a
-  // retired token is told the island disagrees with itself. So the envelope is
-  // added up once, here, only to tell those two cases apart, and never printed.
-  const matchesEnvelope =
-    Math.abs(rows.reduce((a, r) => a + r.degrees, 0) - reading.degrees) <= 0.05;
-  const includesRetired = retiredCount > 0 && !matchesLive && matchesEnvelope;
-  const mismatch = rows.length > 0 && !matchesLive && !includesRetired;
-  // The count under the number. token_count equalled the row count on the live
-  // 18-row read, retired rows included, so the retired rows come off it. With
-  // the drop landed retiredCount is 0 and this IS token_count, which the same
-  // proxy read confirms: 10 rows, token_count 10.
+  // token_count includes the retired rows, so they come off the count under the number.
   const countedTokens = Math.max(0, reading.tokenCount - retiredCount);
 
   return (
@@ -674,7 +648,7 @@ function Reading({
           <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-2">
             Where the {reading.degrees.toFixed(2)}° comes from
           </div>
-          <ul className="space-y-1.5 mb-2">
+          <ul className="space-y-1.5 mb-4">
             {rows.map((r) => (
               <li
                 key={`${r.chain}:${r.tokenAddress}`}
@@ -705,21 +679,6 @@ function Reading({
               </li>
             ))}
           </ul>
-          <div className="flex justify-between text-[12px] pt-2 mb-4" style={{ borderTop: '1px solid var(--color-purple-25)' }}>
-            <span className="text-white/50">Sum across {liveRows.length} token{liveRows.length === 1 ? '' : 's'}</span>
-            <span className="stat-value" style={{ color }}>{summed.toFixed(2)}°</span>
-          </div>
-          {mismatch && (
-            <p className="text-[11px] mb-4" style={{ color: '#fbbf24' }}>
-              These rows sum to {summed.toFixed(2)}°, but the island reports {reading.degrees.toFixed(2)}°.
-              The island&apos;s number is the one that counts.
-            </p>
-          )}
-          {includesRetired && (
-            <p className="text-[11px] text-white/50 mb-4">
-              The island&apos;s {reading.degrees.toFixed(2)}&deg; still includes the retired {retiredCount === 1 ? 'row' : 'rows'}.
-            </p>
-          )}
         </>
       )}
 
