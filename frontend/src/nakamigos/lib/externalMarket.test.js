@@ -184,8 +184,36 @@ describe("OpenSea items for an EVM family collection", () => {
       next: null,
     });
     const { fetchExternalItems } = await load();
-    const { items } = await fetchExternalItems(COLLECTIONS.bojungles);
+    const { items, dropped } = await fetchExternalItems(COLLECTIONS.bojungles);
     expect(items.map((i) => i.id)).toEqual(["1"]);
+    expect(dropped).toBe(3);
+  });
+
+  it("a page whose rows all fail validation is unavailable, never an empty success", async () => {
+    // A field renamed upstream: every row misses `contract`.
+    answer = () => json({ nfts: [{ identifier: "5", contract_address: ADDR.bojungles.toLowerCase() }, { identifier: "6", contract_address: ADDR.bojungles.toLowerCase() }], next: null });
+    const { fetchExternalItems } = await load();
+    const res = await fetchExternalItems(COLLECTIONS.bojungles);
+    expect(res.unavailable).toBe(true);
+    expect(res.reason).toBe("shape");
+    expect(res.items).toBeUndefined();
+  });
+
+  it("a page with no rows at all is an empty success, with nothing dropped", async () => {
+    answer = () => json({ nfts: [], next: null });
+    const { fetchExternalItems } = await load();
+    const res = await fetchExternalItems(COLLECTIONS.bojungles);
+    expect(res.unavailable).toBeFalsy();
+    expect(res.items).toEqual([]);
+    expect(res.dropped).toBe(0);
+  });
+
+  it("a page that drops nothing says so", async () => {
+    answer = () => json({ nfts: [osItem({ identifier: "1" }), osItem({ identifier: "2" })], next: null });
+    const { fetchExternalItems } = await load();
+    const res = await fetchExternalItems(COLLECTIONS.bojungles);
+    expect(res.items).toHaveLength(2);
+    expect(res.dropped).toBe(0);
   });
 
   it("nulls an image that is not https on *.seadn.io", async () => {
@@ -287,11 +315,33 @@ describe("Magic Eden for Junglets", () => {
     ["the wrong decimals", (l) => ({ ...l, priceInfo: { solPrice: { ...l.priceInfo.solPrice, decimals: 6 } } })],
     ["a rawAmount that is not digits", (l) => ({ ...l, priceInfo: { solPrice: { ...l.priceInfo.solPrice, rawAmount: "6.95e8" } } })],
     ["no price info at all", (l) => ({ ...l, priceInfo: undefined })],
-  ])("drops a listing with %s", async (_label, mutate) => {
-    answer = () => json([mutate(listing())]);
+  ])("drops a listing with %s, and counts it", async (_label, mutate) => {
+    const valid = listing({ tokenMint: "5kL2Jz7q3sQnUe7Fq9yL2B8pA1s3d4f5g6h7j8k9m1n2", token: { ...listing().token, name: "Junglet #65" } });
+    answer = () => json([valid, mutate(listing())]);
     const { fetchExternalItems } = await load();
-    const { items } = await fetchExternalItems(COLLECTIONS.junglets);
-    expect(items).toEqual([]);
+    const { items, dropped } = await fetchExternalItems(COLLECTIONS.junglets);
+    expect(items.map((i) => i.name)).toEqual(["Junglet #65"]);
+    expect(dropped).toBe(1);
+  });
+
+  it("a page of listings that all fail validation is unavailable, never an empty success", async () => {
+    answer = () => json([
+      listing({ priceInfo: undefined }),
+      listing({ tokenMint: "5kL2Jz7q3sQnUe7Fq9yL2B8pA1s3d4f5g6h7j8k9m1n2", priceInfo: undefined }),
+    ]);
+    const { fetchExternalItems } = await load();
+    const res = await fetchExternalItems(COLLECTIONS.junglets);
+    expect(res.unavailable).toBe(true);
+    expect(res.reason).toBe("shape");
+  });
+
+  it("no listings at all is an empty success", async () => {
+    answer = () => json([]);
+    const { fetchExternalItems } = await load();
+    const res = await fetchExternalItems(COLLECTIONS.junglets);
+    expect(res.unavailable).toBeFalsy();
+    expect(res.items).toEqual([]);
+    expect(res.dropped).toBe(0);
   });
 
   it("nulls an image that is not on na-assets.pinit.io, rather than proxying it", async () => {

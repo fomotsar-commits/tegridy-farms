@@ -378,6 +378,31 @@ describe("the gallery says what it shows", () => {
     await findInBody(/No items/);
   });
 
+  it("rows OpenSea returned that none could be read are a failed read, never No items", async () => {
+    // A field renamed upstream: every row misses `contract`.
+    const renamed = bojNfts.response.nfts.map(({ contract, ...row }) => ({ ...row, contract_address: contract }));
+    override = (u) => (u.searchParams.get("path") === "collection/bojungless/nfts" ? reply({ nfts: renamed, next: null }) : null);
+    await renderAt("/nakamigos/bojungles");
+    await findInBody(/Items could not be read from OpenSea right now/);
+    notInBody(/No items/);
+    notInBody(/Showing 0 items/);
+  });
+
+  it("rows that could not be read are counted, never silently left out", async () => {
+    const nfts = bojNfts.response.nfts.map((row, i) => (i < 2 ? { ...row, identifier: "not-a-number" } : row));
+    override = (u) => (u.searchParams.get("path") === "collection/bojungless/nfts" ? reply({ nfts, next: null }) : null);
+    await renderAt("/nakamigos/bojungles");
+    await findInBody(/Showing 48 items read from OpenSea\. 2 more could not be read and are not shown\./);
+  });
+
+  it("an id that may be among the rows that could not be read is never called not found", async () => {
+    const nfts = bojNfts.response.nfts.map((row) => (row.identifier === "248" ? { ...row, identifier: "not-a-number" } : row));
+    override = (u) => (u.searchParams.get("path") === "collection/bojungless/nfts" ? reply({ nfts, next: null }) : null);
+    await renderAt("/nakamigos/bojungles/nft/248");
+    await findInBody(/1 more could not be read and is not shown/);
+    notInBody(/not found in this collection's OpenSea items/i);
+  });
+
   it("a partial read is counted as at least N, never as the whole collection", async () => {
     override = (u) => {
       if (u.searchParams.get("path") !== "collection/bojungless/nfts") return null;
