@@ -318,6 +318,12 @@ export default memo(function Header({
   dmUnread = 0,
   incomingTrades = 0,
   onOpenDms,
+  // A Set of the only tabs this collection has. Given, the nav shows exactly
+  // those as primary tabs, with no More menu and no Lite/Pro toggle.
+  allowedTabs,
+  // False hides the LIVE/DEMO badge, for a view whose reads are labelled at
+  // the point they are shown.
+  showStatus = true,
 }) {
   const navigate = useNavigate();
   const { isLite } = useTradingMode();
@@ -330,15 +336,15 @@ export default memo(function Header({
   const [accountPos, setAccountPos] = useState({ top: 44, right: 16 });
   const [copied, setCopied] = useState(false);
 
-  // Filter nav items based on trading mode
-  const visiblePrimary = useMemo(
-    () => isLite ? PRIMARY_NAV.filter(([k]) => !LITE_HIDDEN_PRIMARY.has(k)) : PRIMARY_NAV,
-    [isLite],
-  );
-  const visibleMore = useMemo(
-    () => isLite ? MORE_NAV.filter(([k]) => !LITE_HIDDEN_MORE.has(k)) : MORE_NAV,
-    [isLite],
-  );
+  // Filter nav items based on trading mode, or on the collection's own tabs.
+  const visiblePrimary = useMemo(() => {
+    if (allowedTabs) return [...PRIMARY_NAV, ...MORE_NAV].filter(([k]) => allowedTabs.has(k));
+    return isLite ? PRIMARY_NAV.filter(([k]) => !LITE_HIDDEN_PRIMARY.has(k)) : PRIMARY_NAV;
+  }, [isLite, allowedTabs]);
+  const visibleMore = useMemo(() => {
+    if (allowedTabs) return [];
+    return isLite ? MORE_NAV.filter(([k]) => !LITE_HIDDEN_MORE.has(k)) : MORE_NAV;
+  }, [isLite, allowedTabs]);
   const visibleAll = useMemo(() => [...visiblePrimary, ...visibleMore], [visiblePrimary, visibleMore]);
 
   const siwe = useSiweAuth();
@@ -473,8 +479,17 @@ export default memo(function Header({
               className="header-logo-icon"
               style={{ objectFit: "cover", imageRendering: collectionPixelated ? "pixelated" : "auto" }}
             />
-            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              <span style={{ fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)", letterSpacing: "0.04em", lineHeight: 1 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+              {/* A long name ellipsises (the whole name stays in the title)
+                  rather than pushing the nav into the next element. */}
+              <span
+                className="header-collection-name"
+                title={isLanding ? undefined : (collectionName || undefined)}
+                style={{
+                  fontFamily: "var(--pixel)", fontSize: 11, color: "var(--naka-blue)", letterSpacing: "0.04em", lineHeight: 1.2,
+                  maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block",
+                }}
+              >
                 {isLanding ? "TRADERMIGOS" : (collectionName || "COLLECTION").toUpperCase()}
               </span>
               <span className="header-badge">
@@ -499,6 +514,7 @@ export default memo(function Header({
               {v}
             </button>
           ))}
+          {visibleMore.length > 0 && (
           <div className="more-dropdown" style={{ position: "relative" }}>
             <button
               ref={moreBtnRef}
@@ -555,6 +571,7 @@ export default memo(function Header({
               document.body
             )}
           </div>
+          )}
         </nav>
 
         {/* Mobile hamburger */}
@@ -565,6 +582,7 @@ export default memo(function Header({
         </button>
 
         <div className="header-actions" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {showStatus && (
           <div className="header-status-group" style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span
               className={`api-badge ${isLive ? "live" : "demo"}`}
@@ -576,10 +594,11 @@ export default memo(function Header({
             </span>
             <StaleIndicator lastRefresh={lastRefresh} />
           </div>
+          )}
           <Ticker activities={activities} />
 
-          {/* Lite / Pro Toggle */}
-          <TradingModeToggle />
+          {/* Lite / Pro Toggle: it only filters the nav, so not where the tabs are fixed */}
+          {!allowedTabs && <TradingModeToggle />}
 
           {/* Theme Toggle */}
           <button
@@ -623,7 +642,8 @@ export default memo(function Header({
             </button>
           )}
 
-          {/* Cart Button */}
+          {/* Cart Button: only where there is a cart to toggle */}
+          {typeof onCartToggle === "function" && (
           <button
             onClick={onCartToggle}
             style={cartBtnStyle}
@@ -650,6 +670,7 @@ export default memo(function Header({
               </span>
             )}
           </button>
+          )}
 
           {/* SIWE Sign In button hidden — infrastructure (useSiweAuth + /api/auth/*)
               is intact and will be re-surfaced when a feature actually gates on
