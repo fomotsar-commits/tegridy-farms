@@ -31,9 +31,10 @@ const STRIPS = [
 ];
 
 /**
- * Per tab: the text a sighted user sees, and how far anything visible in the tab
- * (label, pill) paints past the tab's own left or right edge. Visually hidden
- * text (display:none, or a 1px clipped sr-only box) is not seen, so not counted.
+ * Per tab: the text a sighted user sees, how far anything visible in it (label,
+ * pill) paints past its own left or right edge, and the width that content needs
+ * with the tab's padding. Visually hidden text (display:none, or a 1px clipped
+ * sr-only box) is not seen, so not counted.
  */
 function measureTabs(tabs: Element[]) {
   const seen = (from: Element | null, tab: Element) => {
@@ -48,8 +49,8 @@ function measureTabs(tabs: Element[]) {
   };
   return tabs.map((tab) => {
     const edge = tab.getBoundingClientRect();
-    let left = edge.left;
-    let right = edge.right;
+    let left = Infinity;
+    let right = -Infinity;
     const include = (r: DOMRect) => {
       if (r.width === 0 && r.height === 0) return;
       left = Math.min(left, r.left);
@@ -66,11 +67,14 @@ function measureTabs(tabs: Element[]) {
       range.selectNodeContents(n);
       include(range.getBoundingClientRect());
     }
+    const cs = getComputedStyle(tab);
+    const content = right > left ? right - left : 0;
     return {
       id: tab.id,
       shown: words.join(' '),
       width: Math.round(edge.width * 100) / 100,
-      overflowPx: Math.round(Math.max(edge.left - left, right - edge.right) * 100) / 100,
+      overflowPx: Math.round(Math.max(0, edge.left - left, right - edge.right) * 100) / 100,
+      needsPx: Math.round((content + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) * 100) / 100,
     };
   });
 }
@@ -134,9 +138,13 @@ for (const { name, use, widths } of SWEEPS) {
           expect(tabs.length, 'no tab strip found: the page changed shape').toBeGreaterThan(1);
           for (const o of overflowing(tabs)) problems.push(`${width}px: ${o}`);
           for (const t of tabs) if (t.width < 64 - TOLERANCE_PX) problems.push(`${width}px: "${t.shown}" is ${t.width}px, under the 64px floor`);
-          const sizes = tabs.map((t) => t.width);
-          if (!scrolls && Math.max(...sizes) - Math.min(...sizes) > 1) {
-            problems.push(`${width}px: the strip fits, but its tabs are ${sizes.join(' / ')}px wide`);
+          // A strip that fits shares its spare room equally: a tab is wider than the
+          // narrowest only when its own label and padding need that width.
+          const share = Math.min(...tabs.map((t) => t.width));
+          for (const t of tabs) {
+            if (!scrolls && t.width > share + 1 && t.width > Math.max(64, t.needsPx) + 1) {
+              problems.push(`${width}px: "${t.shown}" is ${t.width}px, wider than the ${share}px share, needing ${t.needsPx}px`);
+            }
           }
         }
         expect(problems, 'tab strip layout').toEqual([]);
