@@ -1,4 +1,5 @@
-import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, SEAPORT_DOMAIN } from "./constants";
+import { CONTRACT, COLLECTION_SLUG, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, SEAPORT_DOMAIN } from "./constants";
+import { venueCollectionByContract } from "./lib/venue";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
 // Seaport fulfillment entrypoints that OpenSea's fulfillment_data API
@@ -106,9 +107,7 @@ function resolveIpfs(url) {
 // 404s); gnss/junglebay do. Default to true when unknown so we don't regress
 // collections that rely on the fallback.
 function hasDeterministicImage(contract) {
-  const entry = Object.values(COLLECTIONS).find(
-    c => contract && c.contract.toLowerCase() === String(contract).toLowerCase()
-  );
+  const entry = venueCollectionByContract(contract);
   return entry ? entry.deterministicImage !== false : true;
 }
 
@@ -172,12 +171,9 @@ export async function fetchTokens({ contract = CONTRACT, metadataBase = METADATA
 }
 
 // ═══ COLLECTION STATS (Alchemy primary, OpenSea secondary) ═══
-// Look up the known supply from COLLECTIONS config so we always have a reliable fallback
+// The registry supply of a venue collection, the fallback when no live read answers.
 function configSupplyFor(contract) {
-  const entry = Object.values(COLLECTIONS).find(
-    c => c.contract.toLowerCase() === contract.toLowerCase()
-  );
-  return entry?.supply ?? null;
+  return venueCollectionByContract(contract)?.supply ?? null;
 }
 
 // F516: in-flight de-dupe for collection stats. Several components mount at
@@ -340,18 +336,13 @@ async function getCurrentBlock() {
 // ═══ ACTIVITY (OpenSea events primary, Alchemy getNFTSales fallback) ═══
 // Look up the configured slug for a contract (for OpenSea events API)
 function slugFor(contract) {
-  const entry = Object.values(COLLECTIONS).find(
-    c => c.contract.toLowerCase() === contract.toLowerCase()
-  );
+  const entry = venueCollectionByContract(contract);
   return entry?.openseaSlug ?? entry?.slug ?? null;
 }
 
 // Look up the configured mintBlock for a contract (used as fromBlock lower bound)
 function mintBlockFor(contract) {
-  const entry = Object.values(COLLECTIONS).find(
-    c => c.contract.toLowerCase() === contract.toLowerCase()
-  );
-  return entry?.mintBlock ?? null;
+  return venueCollectionByContract(contract)?.mintBlock ?? null;
 }
 
 // Helper: parse OpenSea event objects into normalized activity objects

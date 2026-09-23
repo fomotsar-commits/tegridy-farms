@@ -47,12 +47,13 @@ function PushToggle({ wallet, addToast }) {
     </button>
   );
 }
-import { COLLECTIONS } from "../constants";
+import { VENUE_COLLECTIONS } from "../lib/venue";
 
-const COLLECTION_BY_CONTRACT = Object.values(COLLECTIONS).reduce((m, c) => {
+// Only venue collections settle a P2P trade, so only they are read for holdings.
+export const COLLECTION_BY_CONTRACT = Object.freeze(VENUE_COLLECTIONS.reduce((m, c) => {
   m[c.contract.toLowerCase()] = c;
   return m;
-}, {});
+}, {}));
 
 /**
  * Accept flow for an OPEN (board) trade: pick which of YOUR tokens fill each
@@ -460,7 +461,7 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
     holdingsWalletRef.current = w;
     let cancelled = false;
     (async () => {
-      const entries = await Promise.all(Object.values(COLLECTIONS).map(async (col) => {
+      const entries = await Promise.all(VENUE_COLLECTIONS.map(async (col) => {
         try {
           // totalCount is the wallet's real holding count and is reported on
           // every page, so the fillable badge stays right even when the token

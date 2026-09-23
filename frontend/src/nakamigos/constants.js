@@ -25,12 +25,27 @@ export function rankTier(rank, supply) {
 }
 
 // ═══ MULTI-COLLECTION CONFIG ═══
+// Every entry names its chain, standard and home market. venueTrade is true
+// only for an Ethereum ERC-721 (registry.test.js pins it), and lib/venue.js
+// canTradeOnVenue is the one rule money paths and surfaces read. This file
+// stays data only: it never imports lib/venue.js.
 export const COLLECTIONS = {
   nakamigos: {
     name: "Nakamigos",
     contract: "0xd774557b647330C91Bf44cfEAB205095f7E6c367",
     slug: "nakamigos",
     openseaSlug: "nakamigos",
+    chain: "ethereum",
+    standard: "erc721",
+    venueTrade: true,
+    chip: "NAKA",
+    market: {
+      name: "OpenSea",
+      collectionUrl: "https://opensea.io/collection/nakamigos",
+      itemUrlTemplate: "https://opensea.io/item/ethereum/0xd774557b647330c91bf44cfeab205095f7e6c367/{id}",
+    },
+    explorer: { name: "Etherscan", addressUrl: "https://etherscan.io/address/0xd774557b647330C91Bf44cfEAB205095f7E6c367" },
+    blurSlug: "nakamigos",
     supply: 20000,
     mintBlock: 16893743, // March 2023 — post-merge
     metadataBase: "https://alchemy.mypinata.cloud/ipfs/QmaN1jRPtmzeqhp6s3mR1SRK4q1xWPvFvwqW1jyN6trir9",
@@ -52,6 +67,17 @@ export const COLLECTIONS = {
     contract: "0xa1De9f93c56C290C48849B1393b09eB616D55dbb",
     slug: "gnssart",
     openseaSlug: "gnssart",
+    chain: "ethereum",
+    standard: "erc721",
+    venueTrade: true,
+    chip: "GNSS",
+    market: {
+      name: "OpenSea",
+      collectionUrl: "https://opensea.io/collection/gnssart",
+      itemUrlTemplate: "https://opensea.io/item/ethereum/0xa1de9f93c56c290c48849b1393b09eb616d55dbb/{id}",
+    },
+    explorer: { name: "Etherscan", addressUrl: "https://etherscan.io/address/0xa1De9f93c56C290C48849B1393b09eB616D55dbb" },
+    blurSlug: "gnssart",
     supply: 9696, // On-chain totalSupply (token IDs go up to 9000+)
     mintBlock: 18400000, // Oct 2023 — post-merge
     metadataBase: "https://assets.mgxs.co",
@@ -68,6 +94,17 @@ export const COLLECTIONS = {
     contract: "0xd37264c71e9af940e49795F0d3a8336afAaFDdA9",
     slug: "junglebay",
     openseaSlug: "junglebay",
+    chain: "ethereum",
+    standard: "erc721",
+    venueTrade: true,
+    chip: "JBAC",
+    market: {
+      name: "OpenSea",
+      collectionUrl: "https://opensea.io/collection/junglebay",
+      itemUrlTemplate: "https://opensea.io/item/ethereum/0xd37264c71e9af940e49795f0d3a8336afaafdda9/{id}",
+    },
+    explorer: { name: "Etherscan", addressUrl: "https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336afAaFDdA9" },
+    blurSlug: "junglebay",
     supply: 5555, // On-chain totalSupply (reflects burns); fallback if API unavailable
     mintBlock: 14150000, // Feb 2022 — pre-merge (PoW era)
     metadataBase: "https://ipfs.io/ipfs/QmaTrk9RrN3yhwyB1EbRFrxBEEtcbBaGs2NppJGn262Bid",

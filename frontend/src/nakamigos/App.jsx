@@ -1072,7 +1072,8 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
           <div className="footer-links">
             {[
               ["OpenSea", `https://opensea.io/collection/${collection.openseaSlug || collection.slug}`],
-              ["Blur", `https://blur.io/eth/collection/${collection.slug}`],
+              // A Blur page only where one was verified (the registry's blurSlug).
+              collection.blurSlug ? ["Blur", `https://blur.io/eth/collection/${collection.blurSlug}`] : null,
               ["Etherscan", `https://etherscan.io/address/${collection.contract}`],
               collection.twitter ? ["X / Twitter", `https://x.com/${collection.twitter}`] : null,
               collection.discord ? ["Discord", collection.discord] : null,
