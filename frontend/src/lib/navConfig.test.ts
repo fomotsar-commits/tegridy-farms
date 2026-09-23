@@ -391,6 +391,25 @@ describe('navConfig', () => {
     }
   });
 
+  // A phone or iPad tab shows `compactTabLabel` in place of its label (RouteTabs.tsx).
+  // It is a shorthand for the tab, never its name: shorter than what it replaces, and
+  // still unique within its strip.
+  it('shortens the Copy Trading tab to CT, and keeps every compact tab label a shorthand', () => {
+    const copy = NAV_SECTIONS.find((s) => s.heading === 'Earn')?.items.find((i) => i.to === '/copy-trading');
+    expect(copy?.label, 'the canonical name stays Copy Trading').toBe('Copy Trading');
+    expect(copy?.compactTabLabel).toBe('CT');
+    for (const s of [...NAV_SECTIONS, { heading: 'Numbers', items: NUMBERS_TABS }]) {
+      for (const i of s.items) {
+        if (i.compactTabLabel === undefined) continue;
+        const full = i.tabLabel ?? i.label;
+        expect(i.compactTabLabel.trim().length, `${i.to} has an empty compact label`).toBeGreaterThan(0);
+        expect(i.compactTabLabel.length, `${i.to}'s compact label is no shorter than "${full}"`).toBeLessThan(full.length);
+      }
+      const compact = s.items.map((i) => i.compactTabLabel ?? i.tabLabel ?? i.label);
+      expect(new Set(compact).size, `duplicate compact tab labels in the ${s.heading} strip`).toBe(compact.length);
+    }
+  });
+
   // THE FINDABILITY BUG, 2026-09-04. This entry read 'Memetics Curve (EVM)' with
   // `soon`/`live` keyed to the MAINNET address alone, while the launcher has been
   // live on Base and Robinhood Chain since 2026-08-25. "(EVM)" is not a string
