@@ -297,11 +297,19 @@ describe('no formula, TWAB or time-weighted in user-facing source', () => {
     expect(TWAB.test('TWAP orders')).toBe(false);
   });
 
+  // The retired Maths-fold sentence averaged over held time; the island paragraph replaced it.
+  const AVERAGING = /average is taken|whole held time/i;
+  it('knows the retired averaging sentence, and the island paragraph is not it', () => {
+    expect(AVERAGING.test('The average is taken over your whole held time.')).toBe(true);
+    expect(AVERAGING.test(VENUE.heatParagraph)).toBe(false);
+  });
+
   const GUARDS: [string, RegExp][] = [
     ['a formula line', FORMULA],
     ['TWAB', TWAB],
     ['time-weighted', TIME_WEIGHTED],
     ['TWAB gloss', /balance at every\s+moment|balance held across time/i],
+    ['averaging sentence', AVERAGING],
   ];
   for (const [name, re] of GUARDS) {
     it(`states no ${name}`, () => {
