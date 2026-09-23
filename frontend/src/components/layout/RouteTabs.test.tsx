@@ -18,7 +18,9 @@ describe('RouteTabs compact labels', () => {
     strip(EARN_SECTION.items);
     const tab = screen.getByRole('tab', { name: 'Copy Trading' });
     expect(within(tab).getByText('CT')).toHaveAttribute('aria-hidden', 'true');
-    expect(tab).toHaveAttribute('title', 'Copy Trading');
+    // The name comes from the tab's own text. A title would repeat it as the
+    // description, read out a second time on a phone that never shows a tooltip.
+    expect(tab).not.toHaveAttribute('title');
     // No tab in the strip is announced as "CT".
     expect(screen.queryByRole('tab', { name: /\bCT\b/ })).toBeNull();
   });
@@ -30,7 +32,7 @@ describe('RouteTabs compact labels', () => {
     ]);
     const tab = screen.getByRole('tab', { name: /^Long Dest/ });
     expect(within(tab).getByText('LD')).toHaveAttribute('aria-hidden', 'true');
-    expect(tab).toHaveAttribute('title', 'Long Dest');
+    expect(tab).not.toHaveAttribute('title');
   });
 
   it('renders an entry without a compact label exactly as before: one label, no hidden text, no title', () => {
