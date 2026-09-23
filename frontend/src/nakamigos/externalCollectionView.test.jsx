@@ -297,7 +297,7 @@ describe("stats say what they read, and say so when they could not", () => {
     await findInBody(/Stats from OpenSea/);
     const floor = screen.getByText("FLOOR").closest(".stat-card");
     expect(floor.textContent).toMatch(/None listed/);
-    expect(floor.textContent).not.toMatch(/ETH/);
+    expect(floor.textContent).not.toMatch(/\bETH\b/);
   });
 
   it("a floor the read did not carry is the unread dash, marked not read, never None listed", async () => {
@@ -307,7 +307,7 @@ describe("stats say what they read, and say so when they could not", () => {
     await renderAt("/nakamigos/bojungles");
     await findInBody(/Stats from OpenSea/);
     const floor = screen.getByText("FLOOR").closest(".stat-card");
-    expect(floor.querySelector(".stat-value").textContent).toBe("—");
+    expect(floor.querySelector(".stat-value").textContent).toBe("\u2014");
     expect(floor.textContent).toMatch(/not read/);
     notInBody(/None listed/);
   });

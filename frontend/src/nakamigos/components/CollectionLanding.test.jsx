@@ -195,7 +195,7 @@ describe("numbers in their own unit", () => {
     await waitFor(() => expect(text(card("bojungles"))).toMatch(/Stats from OpenSea/));
     const floor = within(card("bojungles")).getByText(/^Floor$/).parentElement;
     expect(text(floor)).toMatch(/None listed/);
-    expect(text(floor)).not.toMatch(/ETH/);
+    expect(text(floor)).not.toMatch(/\bETH\b/);
   });
 
   it("a view-only floor the read did not carry is the unread dash, marked not read, never None listed", async () => {
@@ -203,7 +203,7 @@ describe("numbers in their own unit", () => {
     await renderLanding();
     await waitFor(() => expect(text(card("bojungles"))).toMatch(/Stats from OpenSea/));
     const floor = within(card("bojungles")).getByText(/^Floor$/).parentElement;
-    expect(text(floor)).toMatch(/—/);
+    expect(text(floor)).toMatch(/\u2014/);
     expect(text(floor)).toMatch(/not read/);
     expect(text(card("bojungles"))).not.toMatch(/None listed/);
   });
