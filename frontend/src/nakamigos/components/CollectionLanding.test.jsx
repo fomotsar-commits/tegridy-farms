@@ -250,3 +250,31 @@ describe("cross-collection search", () => {
     expect(hits.some((h) => /Gold Cards #0/.test(h))).toBe(false);
   });
 });
+
+// A family collection's card shows that collection's own words, read from its
+// OpenSea page or its NFT metadata. Clamped and unlabelled in the venue's own
+// style they read as the venue speaking, so each card names the source, as
+// About and the Hero do. The three the venue wrote copy for carry no tag.
+describe("a card names where its description came from", () => {
+  const TAGS = {
+    junglebaygoldcards: "First paragraph of its OpenSea description",
+    junglebaymemes: "From its OpenSea page",
+    memeticseeds: "From its OpenSea page",
+    junglets: "From its NFT metadata",
+    bojungles: "From its OpenSea page",
+  };
+
+  it("each family card with a description carries its source tag", async () => {
+    await renderLanding();
+    for (const [slug, tag] of Object.entries(TAGS)) {
+      expect(text(card(slug)), slug).toContain(tag);
+    }
+  });
+
+  it("a card with no description, and the venue's own three, carry no tag", async () => {
+    await renderLanding();
+    for (const slug of ["raretowelie", "nakamigos", "gnssart", "junglebay"]) {
+      expect(text(card(slug)), slug).not.toMatch(/From its OpenSea page|From its NFT metadata|of its OpenSea description/);
+    }
+  });
+});
