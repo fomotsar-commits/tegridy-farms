@@ -154,6 +154,17 @@ describe('heat-tier', () => {
     }
   });
 
+  it('names the wallet by the tier the island served, where the bands would name another', async () => {
+    // 95 degrees is Resident by the bands; the island serves Observer, and a tier change
+    // is a change in the served word, never a band crossing.
+    fetchHeatMock.mockResolvedValue(heatReading({ degrees: 95, tier: 'Observer' }));
+    const result = await readHeatTier(rule('heat-tier'));
+    expect(result.status === 'ok' && result.value.kind === 'heat-tier' && result.value.change).toMatchObject({
+      signature: 'Observer',
+      label: 'Observer (95.00°)',
+    });
+  });
+
   it('asks for a FRESH read — a change rule comparing two cached copies proves nothing', async () => {
     fetchHeatMock.mockResolvedValue(heatReading());
     await readHeatTier(rule('heat-tier'));

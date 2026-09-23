@@ -606,7 +606,7 @@ function Reading({
       {rows.length > 0 && (
         <>
           <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-2">
-            Where the {reading.degrees.toFixed(2)}° comes from
+            Your rooms, deepest first
           </div>
           <ul className="space-y-1.5 mb-4">
             {rows.map((r) => (

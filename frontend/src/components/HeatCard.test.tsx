@@ -588,7 +588,7 @@ describe("element D — the room's own read", () => {
     // Gate on the whole-flame degrees, painted in both renderings, so a scope regression
     // reaches the assertion below instead of timing out on a gate.
     await waitFor(() => expect(container.textContent ?? '').toContain(DEGREES.toFixed(2)));
-    expect(container.textContent).not.toMatch(/Where the .* comes from/i);
+    expect(container.textContent).not.toContain('Your rooms, deepest first');
   });
 });
 
@@ -684,6 +684,16 @@ describe('the card prints the served heat and no sum of its rooms', () => {
     expect(screen.queryByText(/rows sum to/)).toBeNull();
     expect(screen.queryByText(/still includes the retired/)).toBeNull();
     expect(container.textContent).not.toContain('696.73');
+  });
+
+  it('heads the rooms as rooms, deepest first, and never says the number comes from them', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading(DEAD));
+    const { container } = mount();
+    await waitFor(() => expect(screen.getByText('3 tokens counted')).toBeTruthy());
+    const heading = screen.getByText('Your rooms, deepest first');
+    const rows = [...heading.nextElementSibling!.querySelectorAll('li')].map((li) => li.textContent);
+    expect(rows.map((r) => r?.match(/[\d.]+°$/)?.[0])).toEqual(['250.92°', '233.75°', '212.06°']);
+    expect(container.textContent).not.toMatch(/comes from/i);
   });
 });
 
@@ -941,7 +951,7 @@ describe('the maths fold carries the island paragraph, never a formula', () => {
     const text = container.textContent ?? '';
     expect(text).toContain(PARAGRAPH);
     expect(text).not.toMatch(
-      /heat\s*=|degrees\s*=|weight\s*×|√|TWAB|time-weighted|average is taken|whole held time|the formula|added together|read per token|balance at every|balance held across|not a snapshot/i,
+      /heat\s*=|degrees\s*=|weight\s*×|√|∝|÷|TWAB|time[\s\u00ad\u2010-\u2015-]*weighted|average is taken|whole held time|the formula|added together|read per token|balance at every|balance held across|not a snapshot/i,
     );
     expect(text).toMatch(/The instrument is continuous, zero-anchored/);
   });
