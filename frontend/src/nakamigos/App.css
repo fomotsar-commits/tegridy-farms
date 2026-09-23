@@ -926,8 +926,9 @@
 }
 
 /* ═══ Back to Top ═══ */
+/* Above the sound and Keys buttons (bottom 16px, 32px tall), 12px clear. */
 .back-to-top {
-  position: fixed; bottom: 28px; left: 28px; z-index: 900;
+  position: fixed; bottom: 60px; left: 16px; z-index: 900;
   width: 42px; height: 42px; border-radius: 12px; cursor: pointer;
   background: linear-gradient(145deg, rgba(111, 168, 220, 0.1), rgba(200, 170, 100, 0.05));
   border: 1px solid rgba(111, 168, 220, 0.15);
@@ -951,9 +952,9 @@
   transform: translateY(0) scale(0.95);
   transition-duration: 0.1s;
 }
-/* On phones the bottom nav occupies the bottom-left corner; lift the
+/* Where the bottom nav shows (768px and below, as it does), lift the
    back-to-top button clear of it so the two tap targets don't abut (F837). */
-@media (max-width: 767px) {
+@media (max-width: 768px) {
   .back-to-top { bottom: 80px; }
 }
 
