@@ -6,13 +6,9 @@ import {
 } from '../../lib/competitions/scoring';
 import { SETTLEMENT } from '../../lib/competitions/season';
 
-// The rules, above the board rather than behind a link.
-//
-// Three claims a competition page is expected to make and this one does not:
-// that there is a prize, that the season will be settled, and that the ranking
-// measures skill. Each is answered here with the reason, and each sentence is
-// imported from the module that enforces it rather than retyped — a rule that
-// can drift from its own description is a rule nobody can rely on.
+// The rules, above the board rather than behind a link. The page claims no prize, no
+// settlement and no measure of skill, and says why; each sentence is imported from the
+// module that enforces it, so a rule cannot drift from its description.
 
 export function ScoringRules() {
   return (
@@ -36,7 +32,7 @@ export function ScoringRules() {
           <dt className="font-medium text-white">One unit only</dt>
           <dd className="mt-0.5 text-white/80">
             Only swaps that spend the season's quote token add to a total. Trades in other tokens
-            are counted and shown, never summed in — the indexer stores no exchange rate, so a
+            are counted and shown, never added in: the indexer stores no exchange rate, so a
             mixed total would be a figure with no unit that still looked like money.
           </dd>
         </div>

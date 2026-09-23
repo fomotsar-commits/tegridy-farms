@@ -1,21 +1,8 @@
 /**
- * llms.txt: A GENERATED FIELD THAT DISAGREES WITH ITS SOURCE FAILS HERE.
- *
- * The island's done-means for llms.txt, verbatim in spirit: "a test fails when a
- * generated field disagrees with its source constant; zero em dashes." Three kinds
- * of disagreement are covered:
- *
- *   1. RENDERING. The renderer must DERIVE percentages, multipliers and durations,
- *      never type them. Proven with synthetic facts nobody would hardcode: a 12.34%
- *      exit and a 123-degree floor.
- *   2. SOURCE. Each staking term equals the constant the app uses AND the Solidity
- *      that constant mirrors, so a stale mirror cannot publish a stale number.
- *   3. LEDGER. Every contract printed is registered LIVE under its own chain in
- *      scripts/addresses.json, which is a history ledger: registered is not wired,
- *      and a retired or third-party entry must never be offered as the venue's.
- *
- * And the island's limits: ASCII only, no community links (owner, 09-17: the old
- * Discord is dead and there will never be a Telegram), no APR, no prices.
+ * llms.txt fails here when a generated field disagrees with its source: the renderer
+ * derives every percentage, multiplier and duration; each staking term equals the app
+ * constant and the Solidity it mirrors; every contract printed is registered live under
+ * its own chain. ASCII only, no community links, no APR, no prices.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -92,7 +79,10 @@ describe('llms.txt says only what the venue itself says', () => {
     const floor = heatLaunchFloor();
     expect(text).toContain(heatExampleLine(floor, tierAtFloor(floor)));
     // Pinned as well as derived: a derived line alone follows any floor.
-    expect(text).toContain('\nAt 180 degrees you reach Resident, the tier that may plant a launch here.\n');
+    expect(text).toContain('\nAt 80 degrees you reach Resident, the tier that may plant a launch here.\n');
+    // The explainer is the island paragraph's first two sentences, and never a sum.
+    expect(text).toContain('\nHeat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it.\n');
+    expect(text).not.toMatch(/added together|read per token/);
   });
 
   it('lists exactly the doors the hall lists as open, and every settled door with its token', () => {

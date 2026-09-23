@@ -23,8 +23,8 @@ The build directive's own conflict rule is *"where any two documents disagree, t
 one wins, and you flag the disagreement instead of resolving it silently"* — so the newer
 spec was implemented and this section is the flag.
 
-**Why the island's version is defensible on the merits:** heat is TWAB-based and
-zero-anchored, so held time is already priced *inside* the number. A fresh bag reads cold
+**Why the island's version is defensible on the merits:** heat counts held days from the
+first hold, so held time is already priced *inside* the number. A fresh bag reads cold
 and cannot buy the floor however large it is; a wallet that held through the year reads
 warm. A separate day-counter adds no safety the curve does not already provide, while
 failing the wallet that has held several measured tokens deeply for five months and
@@ -134,8 +134,8 @@ breaks the signature, which is the failure the island's card warns about. Six ke
 a seventh is rejected locally and named, never silently dropped.
 
 **Chain truth, never approximated.** If `birth_block` cannot be read, the notify is
-**withheld** rather than sent with a guess — heat is time-weighted, so the birth block is
-the zero point of every degree the token will ever earn.
+**withheld** rather than sent with a guess: a holder's clock starts at their first hold, so
+the birth block is the zero point of every degree the token will ever earn.
 
 **Covenant.** `COVENANT_SPLIT` (50/20/15/10/5) is declared, sums to 100%, and is
 **dormant**: `isCovenantActive()` returns false with no env var that can flip it.
@@ -149,7 +149,7 @@ the zero point of every degree the token will ever earn.
 | Variable | Default | Meaning |
 |---|---|---|
 | `VITE_HEAT_GATE` | on | `off` stops the gate denying. It still reads and still logs |
-| `VITE_HEAT_LAUNCH_FLOOR` | unset: `LAUNCH_FLOOR`, 180 (Resident) | Degrees floor. Non-numeric/≤0 overrides are **ignored**, not obeyed |
+| `VITE_HEAT_LAUNCH_FLOOR` | unset: `LAUNCH_FLOOR`, 80 (Resident) | Degrees floor. Non-numeric/≤0 overrides are **ignored**, not obeyed |
 | `VITE_HEAT_MAX_AGE_DAYS` | `7` | Freshness window |
 | `VITE_ISLAND_CERTIFICATION_URL` | unset | Garden lane stays dark while unset |
 | `VITE_CANONICAL_ORIGIN` | `https://memetics.finance` | Origin used to build `record_url`. Must be the CANONICAL host (`SITE_URL`) — the island stores `record_url` verbatim and forever, so an alias minted here is a permanent 301 |
@@ -164,7 +164,7 @@ the zero point of every degree the token will ever earn.
 2. Decide where the JSON birth record is **hosted** — see below. `record_url` already has
    its final shape (`/record/:chain/:ca.json`); only the server that answers it is open.
 3. Leave `VITE_HEAT_LAUNCH_FLOOR` unset, so the gate reads `LAUNCH_FLOOR` in
-   `frontend/src/lib/heat/heatOracle.ts` (180°, Resident). A value set here overrides it.
+   `frontend/src/lib/heat/heatOracle.ts` (80°, Resident). A value set here overrides it.
 4. Verify a real read: connect a warm wallet and confirm the door shows WARM, then confirm
    the audit row on `/admin`.
 

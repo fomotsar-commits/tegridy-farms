@@ -1,13 +1,6 @@
-// The three paths. Small surface, three load-bearing properties:
-//
-//  1. THE FLOOR IS READ, NEVER TYPED. This is the one that can rot silently. A
-//     hardcoded 80 renders identically to a read 80 on every screenshot and in every
-//     review, and only diverges the day an operator moves the dial — at which point
-//     the home page promises one number and the gate enforces another. So the test
-//     moves the dial and insists the card follows.
-//  2. EXACTLY THREE DOORS, to the three routes the hero's CTAs used to cover.
-//  3. ZERO EM DASHES, because this component is new venue voice and element I's
-//     rendered guard will walk it.
+// The three paths. The floor is read, never typed: the test moves the dial and the card
+// must follow, because a hardcoded 80 looks identical until an operator moves it.
+// Exactly three doors, and zero em dashes in the rendered copy.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -38,7 +31,7 @@ describe('the launch floor is read, never typed', () => {
 
   it('falls back to the island’s published floor with no override', () => {
     const { container } = mount();
-    expect(container.textContent).toContain('Residents may plant. The floor is 180°.');
+    expect(container.textContent).toContain('Residents may plant. The floor is 80°.');
   });
 
   // ANSWER TEN, RULING 4: the word beside the floor is derived, never typed.
@@ -49,10 +42,10 @@ describe('the launch floor is read, never typed', () => {
     expect(container.textContent).not.toMatch(/Elder|Builder|Resident|Observer|Drifter/);
   });
 
-  it('names the tier a floor sits exactly on (365 is Builder)', () => {
-    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '365');
+  it('names the tier a floor sits exactly on (150 is Builder)', () => {
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
     const { container } = mount();
-    expect(container.textContent).toContain('Builders may plant. The floor is 365°.');
+    expect(container.textContent).toContain('Builders may plant. The floor is 150°.');
     expect(container.textContent).not.toContain('Residents');
   });
 
@@ -62,7 +55,7 @@ describe('the launch floor is read, never typed', () => {
     vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '0');
     const { container } = mount();
     expect(container.textContent).toContain(`${LAUNCH_FLOOR}°`);
-    // Anchored on the sentence, not the bare glyphs: the fallback "The floor is 180°."
+    // Anchored on the sentence, not the bare glyphs: the fallback "The floor is 80°."
     // legitimately ends in "0°.", so a looser assertion fails on correct output.
     expect(container.textContent).not.toContain('The floor is 0°');
   });

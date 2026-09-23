@@ -1,16 +1,7 @@
-// THE DOOR. "Elsewhere the launch button is open to anyone with gas. Here it reads
-// held time, live, from an instrument nobody can argue with. Equally instant.
-// Opposite meaning."
-//
-// EXACTLY THREE VERDICT STATES — WARM / COLD / STALE. The spec is emphatic that there
-// are three, and a fourth would be a verdict the instrument never gave. The two
-// non-verdict states below (no wallet connected, reading in flight) are the absence of
-// a question, not an answer to one: neither claims anything about a wallet.
-//
-// THE COLD STATE RENDERS THE PHASE 1 HEAT CARD. That is the point of building the card
-// first — a cold builder sees exactly what the door measured and what warmth is, in the
-// same component, with the same tier words, as everywhere else on the site. "The door
-// explains itself; nobody DMs screenshots to a human."
+// The launch door: it reads held time live from the island before anything is signed.
+// Exactly three verdict states, WARM / COLD / STALE; no wallet and a read in flight are
+// the absence of a question, not a fourth answer. The COLD state renders the HeatCard, so
+// a cold builder sees what the door measured in the same words as everywhere else.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
@@ -24,13 +15,10 @@ import { GateAuditPanel } from './heat/GateAuditPanel';
 import { shortenAddress } from '../lib/formatting';
 
 /**
- * The message the wallet signs to prove it is theirs.
- *
- * SIGNING PROVES, NEVER SPENDS — and the message says so in words the signer reads in
- * their own wallet, because "sign this to continue" with opaque text is how people get
- * drained. There is no nonce and no server: this signature authenticates nothing to
- * anybody, it only binds the reading on screen to the wallet standing in front of the
- * door. Never send it anywhere, and never treat it as authorisation for anything.
+ * The message the wallet signs to prove it is theirs. Signing proves, never spends, and
+ * the message says so in the signer's own wallet. No nonce and no server: it only binds
+ * the reading on screen to the wallet at the door. Never send it anywhere, and never
+ * treat it as authorisation.
  */
 export function ownershipMessage(address: string, nowIso: string): string {
   return [

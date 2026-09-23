@@ -68,7 +68,7 @@ describe('a denial, replayed', () => {
     expect(screen.getByText(/COLD · below the floor/i)).toBeInTheDocument();
     expect(screen.getByText('62.40°')).toBeInTheDocument();
     expect(screen.getByText('Observer')).toBeInTheDocument();
-    expect(screen.getByText(/62\.40° measured against a 180° floor — short by 117\.60°/)).toBeInTheDocument();
+    expect(screen.getByText('62.40° measured against the 80° floor, short by 17.60°.')).toBeInTheDocument();
   });
 
   it('quotes the gate_decision_id a support thread will ask for', () => {
@@ -109,14 +109,14 @@ describe('a denial, replayed', () => {
 
 describe('the floor is the one the decision was taken against', () => {
   it('renders the STORED floor and flags that the dial has since moved', () => {
-    // Decided against 250°; the live dial is 180°. Substituting 180° here would turn a
+    // Decided against 250°; the live dial is 80°. Substituting 80° here would turn a
     // real denial into an apparent pass and erase the reason the wallet was refused.
     recordGateDecision(gateDecision(ADDR, reading(100), NOW, 250));
     render(<GateAuditPanel address={ADDR} />);
     expand();
     expect(screen.getByText('250°')).toBeInTheDocument();
-    expect(screen.getByText(/100\.00° measured against a 250° floor — short by 150\.00°/)).toBeInTheDocument();
-    expect(screen.getByText(/The floor is 180° today\. This decision was taken against 250°/)).toBeInTheDocument();
+    expect(screen.getByText('100.00° measured against the 250° floor, short by 150.00°.')).toBeInTheDocument();
+    expect(screen.getByText(/The floor is 80° today\. This decision was taken against 250°/)).toBeInTheDocument();
   });
 
   it('says nothing about drift when the floor has not moved', () => {
@@ -143,9 +143,9 @@ describe('an outage is never a score', () => {
     recordGateDecision(gateDecision(ADDR, reading(500, 'Elder', old), NOW));
     render(<GateAuditPanel address={ADDR} />);
     expand();
-    // 500° clears 180° comfortably — and it still did not pass, because the reading
+    // 500° clears 80° comfortably — and it still did not pass, because the reading
     // was too old to pass ANYONE. The panel must not imply the floor was the issue.
-    expect(screen.getByText(/the 180° floor was never applied/)).toBeInTheDocument();
+    expect(screen.getByText(/the 80° floor was never applied/)).toBeInTheDocument();
     expect(screen.queryByText(/clear by/)).not.toBeInTheDocument();
   });
 });
@@ -242,12 +242,12 @@ describe('replayLine', () => {
   });
 
   it('derives the comparison from the row, not from the live dial', () => {
-    expect(replayLine(row({ degrees: 50, floor: 300 }))).toContain('300° floor — short by 250.00°');
+    expect(replayLine(row({ degrees: 50, floor: 300 }))).toBe('50.00° measured against the 300° floor, short by 250.00°.');
   });
 
   it('states the margin on a pass', () => {
-    expect(replayLine(row({ degrees: 195.54, verdict: 'WARM', reason: 'qualified' }))).toContain(
-      'clear by 115.54°',
+    expect(replayLine(row({ degrees: 195.54, verdict: 'WARM', reason: 'qualified' }))).toBe(
+      '195.54° measured against the 80° floor, clear by 115.54°.',
     );
   });
 
@@ -255,5 +255,18 @@ describe('replayLine', () => {
     const line = replayLine(row({ degrees: null, tier: null, verdict: 'STALE', reason: 'unreadable' }));
     expect(line).toMatch(/not a zero/);
     expect(line).not.toMatch(/0\.00°/);
+  });
+
+  it('reads every verdict against "the" floor, with no prose em dash', () => {
+    const lines = [
+      replayLine(row({ verdict: 'COLD' })),
+      replayLine(row({ degrees: 195.54, verdict: 'WARM', reason: 'qualified' })),
+      replayLine(row({ verdict: 'STALE', reason: 'stale-reading' })),
+      replayLine(row({ degrees: null, tier: null, verdict: 'STALE', reason: 'unreadable' })),
+    ];
+    for (const line of lines) {
+      expect(line).not.toContain('—');
+      expect(line).not.toMatch(/\ba \d/);
+    }
   });
 });
