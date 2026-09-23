@@ -98,6 +98,15 @@ describe("the token offer book reads the active collection", () => {
     expect(h.paths).toEqual(["offers/collection/gnssart/nfts/5/best"]);
   });
 
+  it("fetchTokenOfferBook reads by contract only: a contract outside the venue is unavailable, whatever the slug says", async () => {
+    // Bojungles' contract with gnssart's slug: the slug used to be the
+    // fallback, and the book of gnssart #5 was read for a Bojungles token.
+    h.get = async () => bestOfferFor(ADDR.gnssart);
+    const book = await apiOffers.fetchTokenOfferBook("5", { contract: ADDR.bojungles, slug: "gnssart", openseaSlug: "gnssart" });
+    expect(book).toEqual({ offers: [], bestOffer: null, unavailable: true });
+    expect(h.paths).toEqual([]);
+  });
+
   it("fetchTokenOffers asks nothing for a contract the venue does not trade, rather than defaulting to Nakamigos", async () => {
     const res = await apiOffers.fetchTokenOffers("5", ADDR.bojungles);
     expect(res).toEqual([]);
@@ -123,6 +132,11 @@ describe("a wallet's own orders are read for the active collection", () => {
       "offers/collection/junglebaygoldcards/all",
       "listings/collection/junglebaygoldcards/all",
     ]);
+  });
+
+  it("fetchMyOffers says it could not ask for a contract outside the venue, instead of answering an empty list", async () => {
+    await expect(apiOffers.fetchMyOffers(WALLET, ADDR.bojungles)).rejects.toMatchObject({ code: "not-venue-tradeable" });
+    expect(h.paths).toEqual([]);
   });
 
   it("a caller that passes no contract still means Nakamigos (the default is unchanged)", async () => {
