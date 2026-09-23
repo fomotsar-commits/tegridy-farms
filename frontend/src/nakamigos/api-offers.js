@@ -4,7 +4,7 @@ import { getActiveWalletProvider, assertSameWallet, SEAPORT_FULFILLMENT_FUNCTION
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 import { cancelSeaportOrder } from "./lib/seaportCancel";
-import { venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError, venueSlugRefusal } from "./lib/venue";
+import { cancelRefusal, venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError, venueSlugRefusal } from "./lib/venue";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
 
 // AUDIT FIX M-8 (frontend chain guard): assertOnExpectedChain blocks any
@@ -935,6 +935,10 @@ export async function fetchMyListings(wallet, contract = CONTRACT) {
 // ═══ CANCEL ORDER (listings or bids) ═══
 
 export async function cancelOrder(order) {
+  const params = order?.rawOrder?.protocol_data?.parameters || order?.protocol_data?.parameters;
+  // An order on another chain cannot be cancelled on Ethereum (lib/venue.js).
+  const refusal = cancelRefusal(params);
+  if (refusal) return refusal;
   // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
   const { provider, address: connectedAddress } = await getActiveWalletProvider();
   if (!provider) return { error: "no-wallet", message: "No wallet connected" };
@@ -951,7 +955,6 @@ export async function cancelOrder(order) {
     const _walletErr = assertSameWallet(await signer.getAddress(), connectedAddress);
     if (_walletErr) return _walletErr;
 
-    const params = order.rawOrder?.protocol_data?.parameters || order.protocol_data?.parameters;
     if (!params) return { error: "failed", message: "Missing order parameters" };
 
     // F630: cancel via the shared helper — reads the offerer's live counter and

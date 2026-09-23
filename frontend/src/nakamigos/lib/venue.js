@@ -4,7 +4,8 @@ import { COLLECTIONS } from "../constants";
 // with ERC-721 ownerOf pre-flights, so a collection trades here only as an
 // Ethereum ERC-721 the registry flags venueTrade, with a real address. Every
 // money sink asks venueRefusal before it touches a wallet, and every surface
-// reads canTradeOnVenue. Cancels are exempt: they move no value.
+// reads canTradeOnVenue. Cancels move no value and stay open, except for an
+// order on another chain: cancelRefusal.
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const TOKEN_ID_RE = /^\d{1,10}$/;
@@ -81,6 +82,28 @@ export function venueSlugRefusal(...slugs) {
   if (given.length === 0) return refusalFor(null);
   for (const slug of given) {
     if (!venueCollectionBySlug(slug)) return refusalFor(collectionBySlugAnyChain(slug));
+  }
+  return null;
+}
+
+/**
+ * null unless a Seaport order moves an NFT of a registry collection on another
+ * chain. Every cancel here is sent on Ethereum and cannot reach such an order,
+ * so it is refused with the market to cancel on. Any other cancel stays open,
+ * so a signed Ethereum order is never stranded.
+ */
+export function cancelRefusal(parameters) {
+  const list = (v) => (Array.isArray(v) ? v : []);
+  for (const item of [...list(parameters?.offer), ...list(parameters?.consideration)]) {
+    const type = Number(item?.itemType);
+    if (type < 2 || type > 5) continue;
+    const c = collectionByContractAnyChain(item.token);
+    if (c && c.chain !== "ethereum") {
+      return {
+        error: NOT_VENUE_TRADEABLE,
+        message: `${c.name} orders live on ${chainLabel(c) || c.chain}, and this venue cancels only on Ethereum. Cancel it on ${c.market?.name || "its own market"}.`,
+      };
+    }
   }
   return null;
 }
