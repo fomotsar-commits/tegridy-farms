@@ -49,18 +49,25 @@ function RetryButton({ retryAt, onRetry }) {
   );
 }
 
+// Rows the market returned that failed validation are counted, never hidden.
+function droppedLine(dropped) {
+  if (!(dropped > 0)) return "";
+  return ` ${dropped.toLocaleString("en-US")} more could not be read and ${dropped === 1 ? "is" : "are"} not shown.`;
+}
+
 function countLine(collection, items) {
   const source = items.source || collection.market.name;
   const n = items.list.length.toLocaleString("en-US");
+  const more = droppedLine(items.dropped);
   if (collection.chain === "solana") {
     const of = collection.supply != null ? `, of ${collection.supply.toLocaleString("en-US")}` : "";
-    return items.status === "partial"
-      ? `Showing at least ${n} ${collection.name} listed on ${source}${of}.`
+    return items.status === "partial" || items.dropped > 0
+      ? `Showing at least ${n} ${collection.name} listed on ${source}${of}.${more}`
       : `Showing the ${n} ${collection.name} listed on ${source}${of}.`;
   }
   return items.status === "partial"
-    ? `Showing at least ${n} items read from ${source}; the rest could not be read.`
-    : `Showing ${n} items read from ${source}.`;
+    ? `Showing at least ${n} items read from ${source}; the rest could not be read.${more}`
+    : `Showing ${n} items read from ${source}.${more}`;
 }
 
 // What the market read produced: every item it returned, a count that says

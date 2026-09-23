@@ -55,10 +55,11 @@ export default function ExternalCollectionView({ tab, deepLinkTokenId, collectio
   }, [deepLinkId, burnedDeepLink, items.list]);
   const panelItem = selected || deepLinkItem;
 
-  // "Not found" only after every page was read. A read that failed part way
-  // leaves the gallery's own "could not be read" state to speak instead.
+  // "Not found" only after every page was read and every row could be read.
+  // Otherwise the gallery's own "could not be read" line speaks instead.
   const deepLinkNotFound = deepLinkId != null && !burnedDeepLink
     && (items.status === "ready" || items.status === "empty")
+    && !(items.dropped > 0)
     && !items.list.some((i) => i.id === deepLinkId);
 
   const handleTabChange = useCallback((next) => {

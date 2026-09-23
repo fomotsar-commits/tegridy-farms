@@ -1,9 +1,10 @@
 // Stats and items for a view-only collection, read from its home market.
 // The four EVM family collections read OpenSea by slug (/api/opensea, two
 // read-only routes); Junglets read Magic Eden (/api/aggregator?resource=
-// me-read). Every row is validated and every failure is `{ unavailable,
-// reason }`, never an empty success. Numbers keep full precision, and a
-// field the read did not produce is null, never 0.
+// me-read). Every row is validated; a page carries how many rows it
+// dropped, and a page whose rows all fail is `{ unavailable, reason }`, as
+// is every failed read: never an empty success. Numbers keep full
+// precision, and a field the read did not produce is null, never 0.
 
 const CACHE_MS = 60_000;
 const OPENSEA_ITEMS_PAGE = 200;
@@ -167,7 +168,8 @@ function normalizeOpenSeaItems(collection, data) {
     if (!TOKEN_ID_RE.test(id)) continue;
     items.push({ id, name: stringOrNull(row.name), image: seadnImage(row.display_image_url || row.image_url) });
   }
-  return { items, next: stringOrNull(data.next), source: "OpenSea" };
+  if (data.nfts.length > 0 && items.length === 0) return unavailable("shape");
+  return { items, next: stringOrNull(data.next), source: "OpenSea", dropped: data.nfts.length - items.length };
 }
 
 function normalizeMagicEdenListings(collection, data, offset) {
@@ -193,16 +195,19 @@ function normalizeMagicEdenListings(collection, data, offset) {
       attributes,
     });
   }
+  if (data.length > 0 && items.length === 0) return unavailable("shape");
   const nextOffset = offset + ME_PAGE;
   return {
     items,
     next: data.length === ME_PAGE && ME_OFFSETS.has(nextOffset) ? String(nextOffset) : null,
     source: "Magic Eden",
+    dropped: data.length - items.length,
   };
 }
 
 /**
- * One page of items: `{ items, next, source }`, or `{ unavailable, reason }`.
+ * One page of items: `{ items, next, source, dropped }`, or `{ unavailable,
+ * reason }`. `dropped` counts the rows that failed validation.
  * OpenSea items are `{ id, name, image }`; Magic Eden listings are
  * `{ mint, name, image, priceSol, attributes }`. Pass `next` back as `cursor`.
  */

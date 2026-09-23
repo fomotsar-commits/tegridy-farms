@@ -6,7 +6,8 @@ import { fetchExternalItems, fetchExternalStats } from "../lib/externalMarket";
 //   items: loading | ready | empty | partial | unavailable
 // "empty" is reachable only from a successful read that returned nothing, and
 // "partial" means some pages read and a later one failed, so the count is a
-// lower bound. A retry never asks sooner than the market's own Retry-After.
+// lower bound. `dropped` counts rows the market returned that failed
+// validation. A retry never asks sooner than the market's own Retry-After.
 
 const MAX_PAGES = 10;
 
@@ -38,6 +39,7 @@ export default function useExternalCollection(collection) {
     setItems({ status: "loading", list: [] });
     (async () => {
       const list = [];
+      let dropped = 0;
       let cursor = null;
       let source = null;
       for (let page = 0; page < MAX_PAGES; page++) {
@@ -48,6 +50,7 @@ export default function useExternalCollection(collection) {
           setItems({
             status: list.length > 0 ? "partial" : "unavailable",
             list,
+            dropped,
             source,
             reason: result.reason,
             retryAt: retryAtRef.current,
@@ -56,16 +59,17 @@ export default function useExternalCollection(collection) {
         }
         source = result.source;
         list.push(...result.items);
+        dropped += result.dropped || 0;
         cursor = result.next;
         if (!cursor) break;
       }
       retryAtRef.current = null;
       if (cursor) {
         // More pages than this view reads: say so rather than call it whole.
-        setItems({ status: "partial", list, source, reason: "page-limit", retryAt: null });
+        setItems({ status: "partial", list, dropped, source, reason: "page-limit", retryAt: null });
         return;
       }
-      setItems({ status: list.length > 0 ? "ready" : "empty", list, source });
+      setItems({ status: list.length > 0 ? "ready" : "empty", list, dropped, source });
     })();
     return () => { cancelled = true; };
   }, [collection, attempt]);
