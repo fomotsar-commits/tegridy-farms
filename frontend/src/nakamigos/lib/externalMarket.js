@@ -64,6 +64,15 @@ function cachedRead(url, normalize) {
 }
 
 const finiteOrNull = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+// A floor is a price only above zero. 0 or null in a floor the read carried
+// means none listed; a floor missing or not a number is unread, and neither.
+function readFloor(source, key) {
+  const v = source[key];
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) return { value: v, noneListed: false };
+  const carried = Object.prototype.hasOwnProperty.call(source, key);
+  return { value: null, noneListed: carried && (v === 0 || v === null) };
+}
 const stringOrNull = (v) => (typeof v === "string" && v.length > 0 ? v : null);
 const isPlainObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 
@@ -105,18 +114,21 @@ function readsOpenSea(collection) {
 }
 
 /**
- * The collection's market stats: `{ floor, floorSymbol, volume, owners,
- * listedCount, source }`, or `{ unavailable, reason, retryAfter? }`.
+ * The collection's market stats: `{ floor, floorSymbol, noneListed, volume,
+ * owners, listedCount, source }`, or `{ unavailable, reason, retryAfter? }`.
+ * `floor` is a price above zero or null; `noneListed` says the read carried
+ * no floor because nothing is listed, as opposed to not carrying one.
  */
 export function fetchExternalStats(collection) {
   if (readsMagicEden(collection)) {
     const symbol = collection.magicEdenSymbol;
     return cachedRead(meUrl(`/collections/${symbol}/stats`), (data) => {
       if (!isPlainObject(data) || (data.symbol != null && data.symbol !== symbol)) return unavailable("shape");
-      const lamports = finiteOrNull(data.floorPrice);
+      const floor = readFloor(data, "floorPrice");
       return {
-        floor: lamports != null && lamports >= 0 ? lamports / 1e9 : null,
-        floorSymbol: "SOL",
+        floor: floor.value != null ? floor.value / 1e9 : null,
+        floorSymbol: floor.value != null ? "SOL" : null,
+        noneListed: floor.noneListed,
         // Magic Eden's stats route reads neither of these.
         volume: null,
         owners: null,
@@ -129,10 +141,11 @@ export function fetchExternalStats(collection) {
     return cachedRead(openseaUrl(`collections/${collection.openseaSlug}/stats`), (data) => {
       if (!isPlainObject(data) || !isPlainObject(data.total)) return unavailable("shape");
       const t = data.total;
-      const floor = finiteOrNull(t.floor_price);
+      const floor = readFloor(t, "floor_price");
       return {
-        floor,
-        floorSymbol: floor != null ? stringOrNull(t.floor_price_symbol) : null,
+        floor: floor.value,
+        floorSymbol: floor.value != null ? stringOrNull(t.floor_price_symbol) : null,
+        noneListed: floor.noneListed,
         volume: finiteOrNull(t.volume),
         owners: finiteOrNull(t.num_owners),
         listedCount: null,

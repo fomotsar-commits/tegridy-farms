@@ -58,12 +58,12 @@ function StatsRow({ collection, stats }) {
   }
 
   const s = stats.data;
-  const floor = s.floor != null ? formatMarketAmount(s.floor, s.floorSymbol, collection) : "None listed";
+  const floor = s.floor != null ? formatMarketAmount(s.floor, s.floorSymbol, collection) : s.noneListed ? "None listed" : null;
   const readsVolume = s.source !== "Magic Eden";
   return (
     <>
       <div className="stats-row">
-        <StatCard label="FLOOR" value={floor ?? DASH} color="var(--gold)" />
+        <StatCard label="FLOOR" value={floor ?? DASH} note={floor == null ? "not read" : null} color="var(--gold)" />
         {!readsVolume && (
           <StatCard label="LISTED" value={s.listedCount != null ? `${s.listedCount.toLocaleString("en-US")} listed` : DASH} color="var(--naka-blue)" />
         )}

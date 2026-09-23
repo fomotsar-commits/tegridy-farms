@@ -27,7 +27,7 @@ function StatShimmer({ width = "60%" }) {
 }
 
 /* ─── Single stat cell ─── */
-function Stat({ label, value, loading, shimmerWidth, cached, wrap = false }) {
+function Stat({ label, value, loading, shimmerWidth, cached, wrap = false, note = null }) {
   return (
     <div style={{ minWidth: 0 }}>
       <div style={{
@@ -64,6 +64,11 @@ function Stat({ label, value, loading, shimmerWidth, cached, wrap = false }) {
             : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }),
         }}>
           {value}
+        </div>
+      )}
+      {!loading && note && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 2, letterSpacing: "0.04em" }}>
+          {note}
         </div>
       )}
     </div>
@@ -393,12 +398,14 @@ function ViewOnlyStats({ collection, stats, loading, error }) {
   const dash = "\u2014";
   const unread = error || !stats;
   const fromMagicEden = stats?.source === "Magic Eden";
-  const floor = unread ? dash
-    : stats.floor != null ? (formatMarketAmount(stats.floor, stats.floorSymbol, collection) ?? dash) : "None listed";
+  const floorRead = unread ? null
+    : stats.floor != null ? formatMarketAmount(stats.floor, stats.floorSymbol, collection)
+      : stats.noneListed ? "None listed" : null;
   return (
     <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 14 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 16px" }}>
-        <Stat label="Floor" loading={loading} shimmerWidth="55%" wrap value={floor} />
+        <Stat label="Floor" loading={loading} shimmerWidth="55%" wrap value={floorRead ?? dash}
+          note={!unread && floorRead == null ? "not read" : null} />
         {fromMagicEden ? (
           <Stat label="Listed" loading={loading} shimmerWidth="40%" wrap
             value={stats.listedCount != null ? stats.listedCount.toLocaleString("en-US") : dash} />
