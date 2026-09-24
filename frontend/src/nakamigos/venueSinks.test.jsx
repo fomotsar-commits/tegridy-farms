@@ -327,6 +327,53 @@ describe("lib/orderbook.js", () => {
       items: [{ contract: VENUE, tokenId: "1" }, { contract: VENUE, tokenId: "2" }], priceEth: 0.2,
     })).error).toBe("no-wallet");
   });
+
+  describe("fulfillNativeOrder reads what the order asks of the buyer, not only what it offers", () => {
+    // A stored row is attacker-writable data. Seaport pulls every consideration
+    // item from the buyer, so an item that is not ETH takes the buyer's own tokens.
+    const goldAsking = (item) => {
+      const order = nativeOrder(GOLD);
+      order.parameters.consideration.push({ recipient: order.parameters.offerer, ...item });
+      return order;
+    };
+    // Seaport would fill whatever reaches it, so a refusal is the only thing between.
+    beforeEach(() => {
+      const base = h.contractImpl;
+      h.contractImpl = (method, target, args) => (method === "fulfillOrder"
+        ? Promise.resolve({ hash: "0xfilled", wait: async () => ({ status: 1 }) })
+        : base(method, target, args));
+    });
+
+    it("refuses a Gold Card offer whose consideration asks for a memes ERC-1155", async () => {
+      const ob = await import("./lib/orderbook");
+      const res = await ob.fulfillNativeOrder(goldAsking({
+        itemType: 3, token: ADDR.junglebaymemes, identifierOrCriteria: "1", startAmount: "1", endAmount: "1",
+      }));
+      expectRefused(res);
+      expectNothingHappened();
+    });
+
+    it("refuses a Gold Card offer whose consideration asks for WETH, which is not native ETH", async () => {
+      const ob = await import("./lib/orderbook");
+      const res = await ob.fulfillNativeOrder(goldAsking({
+        itemType: 1, token: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", identifierOrCriteria: "0", startAmount: "1000", endAmount: "1000",
+      }));
+      expect(res.error).toBe("not-eth-priced");
+      expect(res.message).not.toMatch(/—/);
+      expect(res.success).toBeUndefined();
+      expectNothingHappened();
+    });
+
+    it("positive control: a Gold Card native listing priced in ETH fills", async () => {
+      const ob = await import("./lib/orderbook");
+      const res = await ob.fulfillNativeOrder(nativeOrder(GOLD));
+      expect(res.success).toBe(true);
+      expect(h.browserProviders).toBe(1);
+      const fill = h.contractCalls.find((c) => c.method === "fulfillOrder");
+      expect(fill.args[0].parameters.offer[0].token).toBe(GOLD);
+      expect(fill.args[2]).toEqual({ value: 1000n });
+    });
+  });
 });
 
 // ═══ api-offers.js: bids and accepting bids ═══
