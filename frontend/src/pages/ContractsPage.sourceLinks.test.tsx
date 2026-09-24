@@ -2,9 +2,9 @@
  * /contracts links each row's source to GitHub. A link to a path the repo does not
  * track is a 404, and GitHub paths are case-sensitive, so the check reads
  * `git ls-files` rather than the filesystem (Windows would call TOWELI.sol present).
- * A row with no link must say why ('external (...)' or 'not in this repo (...)'), so a
- * mistyped path cannot quietly lose its link. Our live contracts whose deployed source
- * the repo does not hold get no link and stay in the Etherscan verification query.
+ * A row with no link says why ('external (...)' or 'not in this repo (...)'), and the
+ * rows that say so are pinned by name, so no row can quietly lose its link. Unlinked
+ * own rows stay in the Etherscan verification query.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/react';
@@ -41,12 +41,33 @@ const NOT_IN_REPO: Array<[string, string]> = [
   ['Tegridy Fee Hook (V4)', TEGRIDY_FEE_HOOK_ADDRESS],
 ];
 
-function sourceLinks(container: Element): { href: string; path: string }[] {
+/** Rows that are not ours to publish: third-party contracts and retired deployments. */
+const EXTERNAL = [
+  'Treasury',
+  'Tegridy Staking (retired — withdraw only)',
+  'Tegridy Staking (retired — withdraw only)',
+  'JBAC NFT',
+  'JBAY Gold',
+  'Uniswap V2 Router',
+  'Uniswap V2 Factory',
+  'WETH',
+  'TOWELI/WETH LP (Uniswap)',
+  'Chainlink ETH/USD Feed',
+];
+
+function labelOf(row: Element | null): string {
+  return row?.querySelector('span')?.textContent ?? '(outside any row)';
+}
+
+function sourceLinks(container: Element): { href: string; path: string; label: string }[] {
   const prefix = `${GITHUB_BLOB_BASE}/`;
   return [...container.querySelectorAll('a[href]')]
-    .map((a) => a.getAttribute('href')!)
-    .filter((href) => href.startsWith(prefix))
-    .map((href) => ({ href, path: decodeURIComponent(href.slice(prefix.length)) }));
+    .filter((a) => a.getAttribute('href')!.startsWith(prefix))
+    .map((a) => {
+      const href = a.getAttribute('href')!;
+      const path = decodeURIComponent(href.slice(prefix.length));
+      return { href, path, label: labelOf(a.closest('div.grid')) };
+    });
 }
 
 function rows(container: HTMLElement): HTMLElement[] {
@@ -81,7 +102,7 @@ describe('/contracts source links', () => {
     const links = sourceLinks(record);
     // A page that rendered no links would pass vacuously.
     expect(links.length).toBeGreaterThan(20);
-    const broken = links.filter((l) => !TRACKED.has(l.path)).map((l) => l.path);
+    const broken = links.filter((l) => !TRACKED.has(l.path)).map((l) => `${l.label}: ${l.path}`);
     expect(broken, `source links that 404 on GitHub:\n${broken.join('\n')}`).toEqual([]);
   });
 
@@ -94,8 +115,17 @@ describe('/contracts source links', () => {
         const n = sourceLinks(row).length;
         return n > 1 || (n === 0 && plainSource(row) === undefined);
       })
-      .map((row) => row.querySelector('span')?.textContent);
+      .map(labelOf);
     expect(silent, `rows with no source link and no stated reason:\n${silent.join('\n')}`).toEqual([]);
+  });
+
+  it('leaves unlinked exactly the rows it names, so a row cannot quietly lose its link', () => {
+    const { container } = render(<ContractsPage />);
+    const saying = (reason: string) =>
+      rows(container).filter((r) => plainSource(r)?.startsWith(reason)).map(labelOf).sort();
+    expect(saying('not in this repo (')).toEqual(NOT_IN_REPO.map(([label]) => label).sort());
+    // An 'external' row also leaves the Etherscan query, so that set is pinned too.
+    expect(saying('external (')).toEqual([...EXTERNAL].sort());
   });
 
   it.each(NOT_IN_REPO)('does not link the live %s row to a repo file', (label) => {
@@ -111,14 +141,25 @@ describe('/contracts source links', () => {
     expect(queried.flat().map((a) => a.toLowerCase())).toContain(address.toLowerCase());
   });
 
-  it('does not promise a source link for every contract while a row has none', () => {
+  it.each(NOT_IN_REPO)('does not say the %s source was patched, with no source here to patch', (label) => {
+    const { container } = render(<ContractsPage />);
+    expect(rowOf(container, label).textContent).not.toMatch(/patched|redeploy queued/i);
+  });
+
+  it('still says the fee hook owner is stranded', () => {
+    const { container } = render(<ContractsPage />);
+    expect(rowOf(container, 'Tegridy Fee Hook (V4)').textContent).toMatch(/Owner stranded/);
+  });
+
+  it('does not promise a source link for every contract while an own row has none', () => {
     const { container } = render(<ContractsPage />);
     const ownUnlinked = rows(container).filter((r) => plainSource(r)?.startsWith('not in this repo ('));
-    expect(ownUnlinked.length).toBeGreaterThan(0);
-    const universal = leadSentences(container).filter(
-      (s) => /\blinked\b/i.test(s) && /\b(every|each|all)\b/i.test(s),
+    const promises = leadSentences(container).filter(
+      (s) => /\blink(s|ed)?\b/i.test(s) && /\b(every|each|all)\b/i.test(s),
     );
-    expect(universal).toEqual([]);
+    // Once every own row links its source, the promise is true and may come back.
+    const broken = ownUnlinked.length > 0 ? promises : [];
+    expect(broken, `unlinked: ${ownUnlinked.map(labelOf).join(', ')}`).toEqual([]);
   });
 
   it('says a link to a branch can be newer than the deployed code', () => {

@@ -211,6 +211,13 @@ describe('CONTRACTS.md names only source files the repo tracks', () => {
     const missing = paths.filter(([, p]) => !tracked.has(p)).map(([n, p]) => `CONTRACTS.md:${n} ${p}`);
     expect(missing).toEqual([]);
   });
+
+  it('does not call a source patched when the repo does not hold it', () => {
+    const lines = DOCS['CONTRACTS.md'].split('\n');
+    const absent = cells.filter(([, cell]) => cell.startsWith('not in this repo'));
+    const claims = absent.filter(([n]) => /patched|redeploy pending/i.test(lines[n - 1]));
+    expect(claims.map(([n]) => `CONTRACTS.md:${n}`)).toEqual([]);
+  });
 });
 
 describe('early-exit penalty is described the way the contract behaves', () => {
