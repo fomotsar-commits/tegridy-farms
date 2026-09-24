@@ -23,6 +23,8 @@ import {
   bungalowByAddress,
   poolReadByIsland,
   ISLAND_READ_POOLS,
+  RETIRED_STAKE_POOLS,
+  stakePoolMembersOnly,
   subscribeActiveBungalow,
   announceActiveBungalow,
 } from './bungalows';
@@ -569,6 +571,41 @@ describe('read by the island, per pool', () => {
     ]);
     expect(ISLAND_READ_POOLS.length).toBeGreaterThan(0);
     for (const r of ISLAND_READ_POOLS) expect(shipped.has(r.pool), r.pool).toBe(true);
+  });
+});
+
+// Owner, 2026-09-21: a Streamflow pool closed in favour of the ladder is shown only to
+// the wallets still staked in it. Every UI surface that names the pool asks this one
+// predicate, so they cannot drift into gating it differently.
+describe('stakePoolMembersOnly', () => {
+  const CLOSED = { chain: 'solana', stakePool: 'POOL', ladderPool: 'LADDER', depositsClosed: true as const };
+
+  it('is true for a closed Solana Streamflow pool with a ladder beside it', () => {
+    expect(stakePoolMembersOnly(CLOSED)).toBe(true);
+  });
+
+  it.each([
+    ['still open', { ...CLOSED, depositsClosed: undefined }],
+    ['no ladder: hiding it would leave no pool at all', { ...CLOSED, ladderPool: undefined }],
+    ['an empty ladder env', { ...CLOSED, ladderPool: '' }],
+    ['no Streamflow pool', { ...CLOSED, stakePool: undefined }],
+    ['not Solana', { ...CLOSED, chain: 'base' }],
+  ])('is false when %s', (_label, b) => {
+    expect(stakePoolMembersOnly(b)).toBe(false);
+  });
+
+  it('flips BAYLA alone, and only once the ladder env is set', () => {
+    // No ladder env under test, so no registry row is members-only here.
+    expect(BUNGALOWS.filter((b) => stakePoolMembersOnly(b))).toEqual([]);
+    const flipped = BUNGALOWS.filter((b) => stakePoolMembersOnly({ ...b, ladderPool: 'LADDER' })).map((b) => b.id);
+    expect(flipped).toEqual(['bayla']);
+  });
+
+  it('leaves the machine surfaces alone: the pool is not moved to the retired list', () => {
+    // RETIRED_STAKE_POOLS means "no card reads them"; the claim strip still reads EFWp.
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    expect(RETIRED_STAKE_POOLS.map((r) => r.pool)).not.toContain(bayla.stakePool);
+    expect(ISLAND_READ_POOLS.map((r) => r.pool)).toContain(bayla.stakePool);
   });
 });
 
