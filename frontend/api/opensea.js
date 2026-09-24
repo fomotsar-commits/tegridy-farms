@@ -130,6 +130,25 @@ function readOnlyQueryProblem(path, params) {
   return null;
 }
 
+// A fill is built from an order hash, so what it moves is known only from the
+// answer. Every NFT item (itemType 2 to 5) in its orders, offer and consideration
+// alike, must be a venue contract, and equal `named` when the request named one.
+const FULFILLMENT_PATHS = new Set(["listings/fulfillment_data", "offers/fulfillment_data"]);
+const listOf = (value) => (Array.isArray(value) ? value : []);
+function fillMovesOnlyVenueNfts(data, named) {
+  const want = typeof named === "string" ? named.toLowerCase() : null;
+  for (const order of listOf(data?.fulfillment_data?.orders)) {
+    const p = order?.parameters;
+    for (const item of [...listOf(p?.offer), ...listOf(p?.consideration)]) {
+      const itemType = Number(item?.itemType);
+      if (!(itemType >= 2 && itemType <= 5)) continue;
+      const token = typeof item?.token === "string" ? item.token.toLowerCase() : "";
+      if (!ALLOWED_CONTRACTS.has(token) || (want && token !== want)) return false;
+    }
+  }
+  return true;
+}
+
 // Criteria offers name their collection by slug in the body. Only a venue
 // collection may be bid on here.
 const CRITERIA_OFFER_PATHS = new Set(["offers/build", "criteria_offers"]);
@@ -443,6 +462,11 @@ export default async function handler(req, res) {
     } catch (err) {
       console.error("OpenSea schema mismatch:", logSafe(err));
       return res.status(502).json({ error: "Upstream returned data of unexpected shape" });
+    }
+
+    if (FULFILLMENT_PATHS.has(path)) {
+      const named = path === "offers/fulfillment_data" ? req.body?.consideration?.asset_contract_address : null;
+      if (!fillMovesOnlyVenueNfts(data, named)) return res.status(403).json({ error: "Contract not supported" });
     }
 
     // AUDIT R053: cache-control varies by endpoint and per-user binding.
