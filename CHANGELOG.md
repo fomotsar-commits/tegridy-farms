@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-09-24
+
+- The closed BAYLA lighthouse pool is shown only to wallets still staked in it, as a claim box under the lock ladder.
+
 ### 2026-09-22
 
 - Staking cards say how the island reads a locked bag.
