@@ -186,8 +186,8 @@ describe('no published doc presents a closed program id as live', () => {
     const files = statusDocs().map((f) => f.slice(ROOT.length + 1));
     expect(files.length).toBeGreaterThan(40);
     for (const must of [
-      'ROADMAP.md',
-      'NEXT_SESSION.md',
+      'docs/ROADMAP.md',
+      'docs/archive/NEXT_SESSION.md',
       'docs/BATTLE_PLAN.md',
       'docs/YEAR_PLAN_2026_2027.md',
       'docs/TOP_100_BUILDS.md',
@@ -229,11 +229,11 @@ describe('no published doc presents a closed program id as live', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. NEXT_SESSION.md is a redirect, not a runbook
+// 3. docs/archive/NEXT_SESSION.md is a redirect, not a runbook
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('the retired handoff cannot be executed', () => {
-  const doc = read('NEXT_SESSION.md');
+  const doc = read('docs', 'archive', 'NEXT_SESSION.md');
 
   it('names no contract address', () => {
     // Not a list of banned addresses — a list would need maintaining and would have
@@ -348,7 +348,7 @@ describe('the plans distinguish merged from shipped', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('the roadmap states where each item actually stands', () => {
-  const roadmap = read('ROADMAP.md');
+  const roadmap = read('docs', 'ROADMAP.md');
 
   it('does not re-assert the fee split that was never implemented', () => {
     // No 70/20/10 exists anywhere in the system; the live router has a staker-share

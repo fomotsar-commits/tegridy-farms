@@ -1,5 +1,7 @@
 # Wave 0 — remaining deploy + wiring tasks
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 > **Why this file exists**
 >
 > Wave 0 deploy landed on 2026-04-18 but did not finish — deployer ran out of

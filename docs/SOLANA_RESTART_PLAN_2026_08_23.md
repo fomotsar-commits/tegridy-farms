@@ -1,3 +1,5 @@
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 > ### ⚠️ STATUS 2026-08-23 — the three code blockers below are ALREADY CLOSED
 >
 > This plan was written before the work. Since then, on `mvp-launch`:

@@ -1,5 +1,7 @@
 # What I need from you
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 Everything that could be built without you has been built. This is the list of things that
 **structurally cannot** be done by an agent — because they need a key, a credential, a payment,
 a human signature, a legal identity, or a decision that is yours to make.

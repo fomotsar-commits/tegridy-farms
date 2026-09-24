@@ -199,9 +199,14 @@ describe('CI runs the live check', () => {
       'if: ${{ !cancelled() }}',
       'run: node scripts/verify-discord-invites.mjs',
     ]);
-    // And nothing at the job level switches the whole job off or makes it advisory.
+    // At the job level only the docs scope gate may switch the job off, and it fails open;
+    // nothing makes the job advisory.
     const jobHead = job.slice(0, job.indexOf('steps:'));
-    expect(jobHead).not.toMatch(/^\s*if:/m);
+    const gates = jobHead.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('if:'));
+    expect(gates, 'only the docs scope gate may switch this job off').toEqual(['if: >-']);
+    expect(jobHead).toContain(
+      "!cancelled() &&\n      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')",
+    );
     expect(jobHead).not.toMatch(/continue-on-error/);
   });
 });
