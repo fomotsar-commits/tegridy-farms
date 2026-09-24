@@ -313,3 +313,15 @@
     border-radius: 8px;
     color: #fff;
 }
+
+/* NOT upstream — the one line components/solana/SolanaWalletModal.tsx adds
+   under the list. It says why an EVM-only wallet (Rainbow, Rabby, Safe) is
+   not here, since the site's EVM connect modal does list them. */
+.wallet-adapter-modal-note {
+    margin: 0;
+    padding: 0 24px 24px 24px;
+    font-size: 13px;
+    line-height: 18px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.55);
+}
