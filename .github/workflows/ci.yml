@@ -130,6 +130,7 @@ jobs:
           src/lib/docsReconciliation.test.ts
           src/lib/launcher/solana/spentProgramIds.test.ts
           src/lib/whetstonePetitionTruth.test.ts
+          src/test/botOrigins.test.ts
           src/test/frontDoor.test.ts
 
   lint-typecheck-test:
