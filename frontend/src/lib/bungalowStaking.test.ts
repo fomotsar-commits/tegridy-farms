@@ -22,7 +22,7 @@ const prepareStakeInstructions = vi.fn();
 const prepareCreateRewardEntryInstructions = vi.fn();
 const execute = vi.fn();
 const getMultipleAccountsInfo = vi.fn();
-// The DYNAMIC reward program's half of searchAllRewardPools. Absent from the canned
+// The DYNAMIC reward program's half of searchAllRewardPoolsChecked. Absent from the canned
 // client before 2026-09-21, so that half always failed here, silently.
 // readShareBasis reads through the ...AndContext variant so it can carry the call's slot.
 // It delegates to the bare mock above, so each case sets the accounts one way.

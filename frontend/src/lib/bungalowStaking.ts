@@ -361,34 +361,11 @@ function bnToNumber(v: unknown, fallback = 0): number {
 }
 
 /**
- * Reward pools for a stake pool, from BOTH reward programs, each tagged with
- * which one it came from.
- *
- * WHY THIS EXISTS. `client.searchRewardPools` is hardwired to the FIXED
- * program — its body is `this.programs.rewardPoolProgram.account.rewardPool
- * .all(...)`. A dynamic pool attached to the same stake pool is therefore
- * INVISIBLE to it, and every number derived from it would silently omit the
- * pool that is actually paying. So the dynamic program is queried directly.
- *
- * The memcmp offset is 10 (Anchor's 8-byte discriminator + bump + nonce), the
- * same layout the SDK uses for the fixed program — verified empirically
- * against a live dynamic pool (stake pool Fgwemm7V…, reward pool HBLhyss5…),
- * because sharing a struct shape across sibling programs is an assumption, not
- * a guarantee. A filtered query is also required rather than a bare scan: the
- * venue's own RPC proxy caps response size and an unfiltered
- * getProgramAccounts over this program exceeds it.
- *
- * Either half failing is survivable and does NOT fail the read — a pool we
- * cannot see is reported as absent by the caller, never as a zero rate.
- */
-async function searchAllRewardPools(client: any, stakePool: string): Promise<{ acc: any; kind: 'fixed' | 'dynamic' }[]> {
-  return (await searchAllRewardPoolsChecked(client, stakePool)).pools;
-}
-
-/**
- * `searchAllRewardPools`, plus whether BOTH halves answered. A caller that SUMS over
- * the pools (readEntries' accruals) must know when one half was silently absent: the
- * pools it did find are real, but a total over them is partial.
+ * Reward pools for a stake pool from BOTH reward programs (the SDK's own search sees
+ * only the fixed one), and whether both halves answered. Filtered at memcmp offset 10,
+ * verified against a live dynamic pool; the RPC proxy refuses an unfiltered scan. A
+ * missing half makes the list partial: readPool fails on it, readEntries marks
+ * every open entry pendingUnread.
  */
 async function searchAllRewardPoolsChecked(
   client: any,
@@ -708,8 +685,10 @@ export async function readPool(stakePool: string): Promise<Result<{ pool: PoolVi
     // is gone. Saying "could not be read right now" there disguises a
     // permanent misconfig as a transient outage.
     if (!pool) return { ok: false, reason: 'No stake pool exists at this address. If this persists, the configured pool address is wrong.' };
-    // BOTH programs — the SDK's own search covers only the fixed one.
-    const rewardAccounts = await searchAllRewardPools(client, stakePool);
+    // A partial list is an outage: an exit claims only the listed pools, then closes.
+    const found = await searchAllRewardPoolsChecked(client, stakePool);
+    if (!found.complete) return { ok: false, reason: READ_FAIL };
+    const rewardAccounts = found.pools;
 
     const stakeMint = String(pool?.mint ?? '');
     // Decimals decide every human number on this surface (and the reward RATE,
