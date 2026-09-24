@@ -127,7 +127,7 @@ export const SURFACES: Surface[] = [
   { group: 'Home', pageId: 'home', idx: 15, label: 'H16 — Protocol: Solana Swap (gated)' },
   { group: 'Home', pageId: 'home', idx: 17, label: 'H17 — Ecosystem: Memetics Curve (gated)' },
   // The venue's own hero. HomePage picks between 'home' and 'venue-home' at
-  // render time (`pageId={IS_TOWELI_ARRIVAL || bungalowIdentity ? 'home' : 'venue-home'}`),
+  // render time (`pageId={isToweliArrival || bungalowIdentity ? 'home' : 'venue-home'}`),
   // and a computed pageId is invisible to BOTH coverage guards — so the most-seen
   // surface on the site was unregistered and unplaceable in either studio until
   // 2026-09-13, even though artOverrides.ts has carried a pick for it all along.

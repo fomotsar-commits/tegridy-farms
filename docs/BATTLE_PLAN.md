@@ -1,7 +1,9 @@
 # The Tegridy Battle Plan
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 **Instructions from Claude to future Claude: how to build all one hundred.**
-Drafted 2026-08-18 against the live repo. Companion to [YEAR_PLAN_2026_2027.md](YEAR_PLAN_2026_2027.md) (the operational to-do list) and [TOP_100_BUILDS.md](TOP_100_BUILDS.md) (the ranked list with revenue evidence). This document is the third leg: **per-item implementation instructions**, organized so any future session can open it, pick the next unstarted item, and build it correctly without re-deriving context.
+Drafted 2026-08-18 against the live repo. Companion to [YEAR_PLAN_2026_2027.md](YEAR_PLAN_2026_2027.md) (the 12-month build plan) and [TOP_100_BUILDS.md](TOP_100_BUILDS.md) (the ranked list with revenue evidence). This document is the third leg: **per-item implementation instructions**, organized so any future session can open it, pick the next unstarted item, and build it correctly without re-deriving context.
 
 ---
 

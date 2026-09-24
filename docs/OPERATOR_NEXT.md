@@ -1,5 +1,7 @@
 # Operator: what to do next
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 Written 2026-08-18. This is the short list of things **only you can do**, in the order that
 makes each one safe, with the exact steps and the exact traps. Everything else in
 [BATTLE_PLAN.md](BATTLE_PLAN.md) is blocked behind these.

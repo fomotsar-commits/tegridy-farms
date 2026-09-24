@@ -1,5 +1,3 @@
-import { SUBLIMINAL } from '../constants';
-
 export function drawGlitchCut(
   ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement,
   W: number, H: number, progress: number, dpr: number, elapsed: number, isMobile = false,
@@ -164,8 +162,8 @@ export function drawGlitchCut(
   ctx.restore();
 }
 
-export function drawSubliminalText(ctx: CanvasRenderingContext2D, W: number, H: number) {
-  const word = SUBLIMINAL[Math.floor(Math.random() * SUBLIMINAL.length)]!;
+export function drawSubliminalText(ctx: CanvasRenderingContext2D, W: number, H: number, words: readonly string[]) {
+  const word = words[Math.floor(Math.random() * words.length)] ?? '';
   const fontSize = Math.min(72, W * 0.15);
   ctx.save();
   ctx.translate(W / 2, H / 2);

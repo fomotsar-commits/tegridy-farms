@@ -1,5 +1,7 @@
 # The ultimate launchpad — every rail graduates to us, every launch gets a war chest, nobody needs to know what a blockchain is
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 **Written 2026-08-22, from the owner directive of the same day.** Everything below is
 grounded in verified mechanics (on-chain reads, SDK dist, verified contract sources) — the
 research citations live in the session that produced this; the load-bearing ones are

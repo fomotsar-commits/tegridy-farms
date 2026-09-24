@@ -7,6 +7,7 @@ dist/
 Thumbs.db
 standard-json-farm.json
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 .vercel/
 
 # Test + build artifacts

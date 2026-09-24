@@ -1,5 +1,7 @@
 # Everything left — updated 2026-08-22
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 This is the exhaustive remaining-work ledger. First written 2026-08-15 from a twelve-lane
 verified sweep (220 candidates → 211 open → ~151 distinct). **Rewritten 2026-08-22** after a
 five-lane reconciliation of every item against the tree, the chain, and live production —
@@ -10,7 +12,7 @@ document had accumulated in a week.
 layer · the 08-21 backend/env/nakamigos layer that lived only on `claude/sad-almeida-bde63d` ·
 the M.1–M.18 multichain addenda that live only on `claude/jolly-ritchie-0d4dda` ·
 `TODO_OPERATOR.md`'s 08-22 curated queue · and 186 per-item verdicts from today's
-reconciliation. Where this file and `TODO_OPERATOR.md` disagree, **this file is now newer.**
+reconciliation.
 
 **The score since 08-15:** of the original ~151 distinct items, roughly **45 closed**, **14
 parked by your explicit instruction** (the custody chain), the rest still open — and the

@@ -1,5 +1,5 @@
-import { Link } from 'react-router-dom';
-import { BUNGALOWS, DEFAULT_BUNGALOW_ID, setActiveBungalow } from '../../lib/bungalows';
+import { Link, useNavigate } from 'react-router-dom';
+import { announceActiveBungalow, BUNGALOWS, DEFAULT_BUNGALOW_ID, setActiveBungalow } from '../../lib/bungalows';
 import { TEGRIDY_STAKING_ADDRESS, isDeployed } from '../../lib/constants';
 import { poolShape } from '../../lib/poolShape';
 
@@ -50,6 +50,14 @@ interface PoolRow {
 }
 
 export function VenuePoolIndex() {
+  const navigate = useNavigate();
+  // A room switch is in place: /farm re-reads the skin and renders that room's pool.
+  const openRoom = (id: string) => {
+    setActiveBungalow(id);
+    announceActiveBungalow();
+    navigate('/farm');
+    window.scrollTo(0, 0);
+  };
   // Every settled resident that actually has a staking program registered. A
   // bungalow with no `stakePool` has nothing to list, and listing it with a
   // dash would advertise a pool that does not exist.
@@ -143,17 +151,11 @@ export function VenuePoolIndex() {
                   <td className="px-4 py-3.5 text-white/75 text-[13px]">{CHAIN_LABEL[b.chain] ?? b.chain}</td>
                   <td className="px-4 py-3.5 text-white/60 text-[12.5px]">{b.terms}</td>
                   <td className="px-4 py-3.5 text-right">
-                    {/* Entering a bungalow RE-SKINS the app and resolves at module
-                        scope, so it is persist + reload — the same mechanism every
-                        door uses (bungalows.ts). A client-side <Link> would land on
-                        /farm still wearing the venue's skin and render this index
-                        again, which is a dead click. */}
+                    {/* A plain <Link> would land on /farm still wearing the
+                        venue's skin and render this index again: a dead click. */}
                     <button
                       type="button"
-                      onClick={() => {
-                        setActiveBungalow(b.id);
-                        window.location.assign('/farm');
-                      }}
+                      onClick={() => openRoom(b.id)}
                       className="inline-flex items-center justify-center whitespace-nowrap px-3.5 py-2 min-h-[36px] rounded-lg text-[12.5px] font-semibold transition-all hover:brightness-110"
                       style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)' }}
                     >

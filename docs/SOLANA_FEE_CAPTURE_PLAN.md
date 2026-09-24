@@ -1,5 +1,7 @@
 # Solana Fee-Capture Plan
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 **Status:** Surface A **SHIPPED** to `mvp-launch` (2026-06-18), gated OFF until activated. Decided via research + red-team (23 agents across 4 workflow runs).
 **Owner decision driver:** "Be the multichain hub" → fee capture off Solana swaps, **any pair** (not a curated list).
 

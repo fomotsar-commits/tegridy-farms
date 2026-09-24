@@ -22,7 +22,7 @@ import { artImgProps } from '../../lib/artSrcSet';
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address;
 const CARD_BORDER = 'var(--color-purple-12)';
-const STAT_ARTS = [pageArt('vote-incentives', 0), pageArt('vote-incentives', 1), pageArt('vote-incentives', 2)];
+const statArts = () => [pageArt('vote-incentives', 0), pageArt('vote-incentives', 1), pageArt('vote-incentives', 2)];
 const DEFAULT_VOTE_DEADLINE_SEC = 7 * 24 * 60 * 60;
 const DEPOSIT_CARD_ID = 'vi-deposit';
 const LEADERBOARD_ID = 'vi-leaderboard';
@@ -284,6 +284,7 @@ function HowItWorks() {
 
 // ─── Overview stats strip (responsive) ─────────────────────────────
 function OverviewStrip({ epoch, epochCount, feeBps }: { epoch: number; epochCount: number; feeBps: number }) {
+  const arts = statArts();
   const items = [
     { label: 'Current Epoch', value: epoch > 0 ? `#${epoch}` : '--' },
     { label: 'Total Epochs', value: epochCount > 0 ? epochCount.toString() : '--' },
@@ -294,7 +295,7 @@ function OverviewStrip({ epoch, epochCount, feeBps }: { epoch: number; epochCoun
       {items.map(({ label, value, tip }, i) => (
         <div key={label} className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
           <div className="absolute inset-0">
-            <img src={STAT_ARTS[i % STAT_ARTS.length]!.src} {...artImgProps(STAT_ARTS[i % STAT_ARTS.length]!.src)} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={arts[i % arts.length]!.src} {...artImgProps(arts[i % arts.length]!.src)} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.72)' }} />
           <div className="relative z-10 p-4">

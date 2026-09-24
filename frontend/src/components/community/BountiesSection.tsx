@@ -18,7 +18,7 @@ import { SafeText } from '../ui/SafeText';
 import { artImgProps } from '../../lib/artSrcSet';
 
 const CARD_BORDER = 'var(--color-purple-12)';
-const STAT_ARTS = [pageArt('bounties', 0), pageArt('bounties', 1), pageArt('bounties', 2), pageArt('bounties', 3)];
+const statArts = () => [pageArt('bounties', 0), pageArt('bounties', 1), pageArt('bounties', 2), pageArt('bounties', 3)];
 
 const STATUS_LABELS: Record<number, { label: string; color: string }> = {
   0: { label: 'Open', color: 'text-emerald-400' },
@@ -28,6 +28,7 @@ const STATUS_LABELS: Record<number, { label: string; color: string }> = {
 
 export function BountiesSection() {
   const { address } = useAccount();
+  const arts = statArts();
   const [showCreate, setShowCreate] = useState(false);
   const [expandedBounty, setExpandedBounty] = useState<number | null>(null);
   const [newDescription, setNewDescription] = useState('');
@@ -244,7 +245,7 @@ export function BountiesSection() {
         ].map(({ label, value, highlight }, i) => (
           <div key={label} className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
             <div className="absolute inset-0">
-              <img src={STAT_ARTS[i % STAT_ARTS.length]!.src} {...artImgProps(STAT_ARTS[i % STAT_ARTS.length]!.src)} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <img src={arts[i % arts.length]!.src} {...artImgProps(arts[i % arts.length]!.src)} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-3">
               <p className="text-[10px] text-white/60 uppercase tracking-wider mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{label}</p>

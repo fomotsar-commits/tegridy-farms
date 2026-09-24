@@ -17,7 +17,7 @@ For the addresses the app wires, see [`frontend/src/lib/constants.ts`](../fronte
 — but note that `GAUGE_CONTROLLER_ADDRESS`, `VOTE_INCENTIVES_ADDRESS`, `COMMUNITY_GRANTS_ADDRESS`
 and `MEME_BOUNTY_BOARD_ADDRESS` are deliberately zeroed there as a **UI gate**. Those contracts are
 deployed and unpaused; the zero means "not surfaced", not "not deployed". The full live index is
-[`CONTRACTS.md`](../CONTRACTS.md).
+[`CONTRACTS.md`](CONTRACTS.md).
 
 ---
 
@@ -194,7 +194,7 @@ See [DEPRECATED_CONTRACTS.md](DEPRECATED_CONTRACTS.md) for contracts that have l
 1. Deploy new contract via forge script.
 2. Wire new address to any consumers (via `setX()` calls with timelock where applicable). **Check first whether the setter is one-shot.**
 3. Pause the old contract (if pausable) — and if it is not pausable, say so here, because an unpausable deprecated contract will still accept user funds.
-4. Update [constants.ts](../frontend/src/lib/constants.ts) + [CONTRACTS.md](../CONTRACTS.md) + [README.md](../README.md) addresses in the same commit.
+4. Update [constants.ts](../frontend/src/lib/constants.ts) + [CONTRACTS.md](CONTRACTS.md) + [README.md](../README.md) addresses in the same commit.
 5. Add a row to the tables above, and move the old address to a deprecated row in the same edit.
 6. Post a notice in the release changelog ([CHANGELOG.md](../CHANGELOG.md)) pointing to this file.
 7. Commit the refreshed `contracts/broadcast/**/run-latest.json`. The broadcast JSON on this branch is stale for the 2026-07-16 batch, which is precisely how this file drifted.

@@ -115,8 +115,8 @@ test.describe('HomePage yield calculator (wallet-less)', () => {
   test('YieldCalculator renders for disconnected visitors in the TOWELI room', async ({ page }) => {
     // MOVED, not deleted. The calculator computes TOWELI staking yield, so the
     // arrival wave relocated it with the rest of the classic cluster: HomePage
-    // gates it on `!address && !bungalowIdentity && IS_TOWELI_ARRIVAL`
-    // (HomePage.tsx:421). On the venue front door it is correctly absent —
+    // gates it on `!address && !bungalowIdentity && isToweliArrival`
+    // (HomePage.tsx:471). On the venue front door it is correctly absent —
     // asserting it at '/' was asserting the pre-relocation design.
     //
     // The gate reads arrivalVoice() at MODULE SCOPE (HomePage.tsx:58), so the

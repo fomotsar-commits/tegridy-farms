@@ -15,6 +15,79 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-22 — a `toContain('80°')` pin stays green on a page that says 180°
+
+**Believed:** a test that asserts a threshold goes red when the page shows a different
+threshold.
+
+**Measured:** `'180°'.includes('80°')` is true (node), so an assertion written as
+`toContain('80°')` passes against a page that reads 180°. Such a pin cannot fail on the one
+value it exists to pin. The heat floor and band pins match a standalone number
+(`(^|[^0-9])80°`) or the whole sentence instead.
+
+**Do:** anchor a numeric assertion. Substring matching on a number is safe only while no
+longer number contains it, which is a fact about the future value, not the present one. The
+same shape hides 3 inside 13 and 30 inside 130.
+
+---
+
+## 2026-09-22 — a regex comment stripper turns one `//` line into a 93-line blind spot
+
+**Believed:** a `prose()` helper that deletes comments before scanning source is a fair way
+to ask "does the shipped text still say this".
+
+**Measured:** `prose()` removes `/* ... */` with a regex. Line 4 of
+`frontend/api/_lib/flames.js` is a `//` line that contains `/*`, so the strip ran from there
+to the next `*/` on line 97 and the guard read nothing for 93 lines of real code. It was
+passing against an empty string. The replacement reads strings and JSX text through the
+TypeScript compiler instead of stripping text. Mutation check over 22 single-mutation runs:
+9 mutations the old guard passed are red under the new one, the 8 it already caught stay
+red, and 3 negative controls (the same sentence in a `//` comment, in a JSX comment, and
+inside a URL string) stay green.
+
+**Do:** a guard that answers "is this text shipped" has to parse, not strip. Prove it the
+way a mutation proves a test: put the forbidden text in code and in a comment, and check the
+guard goes red exactly once.
+
+---
+
+## 2026-09-22 — a fixed `webServer` port with `reuseExistingServer` makes the second checkout test the first one's build
+
+**Believed:** two worktrees of one repo can run Playwright at the same time, because each
+has its own `dist`.
+
+**Measured:** `frontend/playwright.config.ts` sets `baseURL: 'http://localhost:4173'`,
+`webServer.command: 'npx vite preview --port 4173'`, `port: 4173` and
+`reuseExistingServer: !process.env.CI`. The second run finds 4173 already listening, does
+not start its own preview, and drives every spec against the other worktree's build. It
+reports a clean pass and names no tree. Five worktrees shared this box this session; each
+run used an uncommitted `frontend/playwright.local.config.ts` with its own port, and none
+went near 4173.
+
+**Do:** when a runner can reuse a server, the port belongs to the checkout, not to the repo.
+Give each worktree its own port in a local, uncommitted config, and do not trust a green
+e2e run that could not say which build it loaded.
+
+---
+
+## 2026-09-22 — an exact-count pin over prose from a live read fails downward, and that is not a regression
+
+**Believed:** `e2e/em-dash-zero.spec.ts` counts em dashes per route, so a red means someone
+added one.
+
+**Measured:** one run went red on four routes for counting FEWER than pinned: `/yield` 14 of
+21, `/launch` 23 of 26, `/eth-curve` 14 of 15, `/curve-launch` 12 of 14, with no shipped
+source changed in that pass. Those routes render prose out of live reads, so a failed read
+or a loaded box renders less prose and the count drops. The spec's own failure message then
+invites you to lower the pin. All four passed on retry, and the same command run again was
+103 passed, 0 failed.
+
+**Do:** read the direction before believing a count pin. Lowering it on a downward failure
+writes a bad reading into the guard. A count over content the build does not contain wants
+an upper bound plus a separate assertion that the section rendered at all.
+
+---
+
 ## 2026-09-21 — to find everything a key controls, search the field that names the key
 
 **The belief:** "which Streamflow pools does this key run?" can be answered by listing

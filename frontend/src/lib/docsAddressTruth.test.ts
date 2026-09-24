@@ -39,9 +39,9 @@ const repoRoot = join(process.cwd(), '..');
 const doc = (...p: string[]) => readFileSync(join(repoRoot, ...p), 'utf8');
 
 const DOCS: Record<string, string> = {
-  'CONTRACTS.md': doc('CONTRACTS.md'),
-  'FAQ.md': doc('FAQ.md'),
-  'TOKENOMICS.md': doc('TOKENOMICS.md'),
+  'CONTRACTS.md': doc('docs', 'CONTRACTS.md'),
+  'FAQ.md': doc('docs', 'FAQ.md'),
+  'TOKENOMICS.md': doc('docs', 'TOKENOMICS.md'),
   'docs/MIGRATION_HISTORY.md': doc('docs', 'MIGRATION_HISTORY.md'),
 };
 
