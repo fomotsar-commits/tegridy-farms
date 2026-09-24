@@ -9,6 +9,7 @@ page keeps the newest thirty days.
 ### 2026-09-24
 
 - On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
+- Every source link on /contracts opens a file, and the TOWELI and fee hook rows say their source is not in the repo.
 
 ### 2026-09-22
 
