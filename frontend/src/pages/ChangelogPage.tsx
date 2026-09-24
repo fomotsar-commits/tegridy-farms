@@ -26,9 +26,10 @@ interface ChangelogEntry {
 }
 
 // Each card rotates through a distinct art piece so every entry feels its own.
-// Uses pageArt with a dedicated changelog-cards pageId so card art stays
-// disjoint from the page background (which uses the 'changelog' pageId).
-const CARD_ART = Array.from({ length: 16 }, (_, i) => pageArt('changelog-cards', i));
+// A dedicated changelog-cards pageId keeps card art disjoint from the page
+// background (which uses the 'changelog' pageId). Read at render, not at
+// import: pageArt follows the skin, and a door changes the skin in place.
+const cardArt = () => Array.from({ length: 16 }, (_, i) => pageArt('changelog-cards', i));
 
 const CHANGELOG: ChangelogEntry[] = [
   {
@@ -454,6 +455,7 @@ export function EntryBadges({ date, by }: { date: string; by?: string }) {
 
 export default function ChangelogPage() {
   usePageTitle('Changelog', 'Protocol development history and updates');
+  const CARD_ART = cardArt();
 
   return (
     <div className="-mt-14 relative min-h-screen">

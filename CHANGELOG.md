@@ -35,6 +35,7 @@ ships; a tagged release will cut from here once Wave 0 redeploys are complete.
 
 - Staking cards say how the island reads a locked bag.
 - The heat explainer reads the island's sentences.
+- Bungalow links open once, on the room's hero.
 
 ### Security — External audit CSV remediated, and ten failed reads that rendered as facts (2026-09-04)
 

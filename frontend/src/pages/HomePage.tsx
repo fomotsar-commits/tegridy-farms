@@ -51,16 +51,14 @@ import { BungalowHolders } from '../components/bungalow/BungalowHolders';
 // the safe storage wrapper, never overwrites an existing stash.
 const REF_STORAGE_KEY = 'tegridy_ref';
 
-// ARRIVAL IDENTITY 2026-08-27: the loop and how-it-works copy follow the
-// arrival voice. Same mechanics both ways (the fee loop is a venue fact);
-// only the Tegridy personality words are contained to the TOWELI bungalow.
-const IS_TOWELI_ARRIVAL = arrivalVoice() === 'toweli';
 
 /** Answer ten, ruling 2: flipped by the first home mount, so only that one skips the hero's entrance. */
 let homeMountedOnce = false;
 
-const CORE_LOOP_STEPS = [
-  IS_TOWELI_ARRIVAL
+// The loop and how-it-works copy follow the arrival voice: same mechanics both
+// ways, Tegridy words only inside the TOWELI bungalow.
+const coreLoopSteps = (toweli: boolean) => [
+  toweli
     ? { label: 'People trade TOWELI', sub: 'on the venue DEX' }
     : { label: 'People trade here', sub: 'on the venue DEX' },
   // F82: sub no longer just restates the label — it adds the "where" (router,
@@ -77,7 +75,7 @@ const CORE_LOOP_STEPS = [
   { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH' },
 ];
 
-const HOW_IT_WORKS_STEPS = IS_TOWELI_ARRIVAL ? [
+const howItWorksSteps = (toweli: boolean) => toweli ? [
   {
     step: '1',
     title: 'Get Some Towelies',
@@ -130,8 +128,11 @@ export default function HomePage() {
   // Jungle Bay bungalows: resolved FIRST because the title below depends on
   // it — the /bayla door serves her <title> statically for crawlers, and
   // without this the SPA would overwrite it back to the venue title the
-  // moment it hydrates. Stable per document (switching reloads).
+  // moment it hydrates. The door above has already written this room's skin.
   const bungalowIdentity = getBungalowIdentity();
+  const isToweliArrival = arrivalVoice() === 'toweli';
+  const coreLoop = coreLoopSteps(isToweliArrival);
+  const howItWorks = howItWorksSteps(isToweliArrival);
   // 2026-08-07: the meta description said "Stake TOWELI on Ethereum" and stopped there,
   // so every search result, every link preview, and every share of the front door
   // described a single-chain product. Both halves below are separately checkable:
@@ -141,7 +142,7 @@ export default function HomePage() {
     bungalowIdentity ? `${bungalowIdentity.symbol} — ${bungalowIdentity.identity.heroLine}` : 'Home',
     bungalowIdentity
       ? `${bungalowIdentity.name} bungalow on Jungle Bay Island. ${bungalowIdentity.identity.museLine} ${bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}`
-      : IS_TOWELI_ARRIVAL
+      : isToweliArrival
         ? 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens via Jupiter, and scan any token on either chain.'
         : VENUE.description,
   );
@@ -251,7 +252,7 @@ export default function HomePage() {
             it — the two pictures have different aspect ratios and want different
             object-positions. */}
         <ArtImg
-          pageId={IS_TOWELI_ARRIVAL || bungalowIdentity ? 'home' : 'venue-home'}
+          pageId={isToweliArrival || bungalowIdentity ? 'home' : 'venue-home'}
           idx={0}
           alt=""
           fetchPriority="high"
@@ -326,7 +327,7 @@ export default function HomePage() {
                 render, below. */}
             {bungalowIdentity ? (
               <BungalowHero bungalow={bungalowIdentity} />
-            ) : !IS_TOWELI_ARRIVAL ? (
+            ) : !isToweliArrival ? (
               /* ARRIVAL IDENTITY 2026-08-27: the venue's own hero is the
                  default first impression. The classic Tegridy cluster below
                  is byte-identical and renders inside the TOWELI bungalow. */
@@ -467,7 +468,7 @@ export default function HomePage() {
               and Dashboard are the better signal. Suppressed in a token-first
               bungalow: it computes TOWELI staking yield, which is the wrong
               token there (Bayla's farm panel owns that story). */}
-          {!address && !bungalowIdentity && IS_TOWELI_ARRIVAL && (
+          {!address && !bungalowIdentity && isToweliArrival && (
             <div className="mt-10 max-w-xl">
               <YieldCalculator />
             </div>
@@ -490,7 +491,7 @@ export default function HomePage() {
               the TOWELI contract strip are the wrong token there — the
               BungalowHero carries its own contract chip. Everything inside
               this gate is untouched for the Toweli default. */}
-          {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
+          {isToweliArrival && !bungalowIdentity && (
           <>
           <m.div className="mt-14 flex flex-wrap gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
             {([
@@ -710,7 +711,7 @@ export default function HomePage() {
             the open ones lit and the settled ones greyed while their people
             move in. Venue voice only: toweli keeps the classic home whole,
             an identity bungalow keeps its token-first home. */}
-        {!bungalowIdentity && !IS_TOWELI_ARRIVAL && <VenueDoors />}
+        {!bungalowIdentity && !isToweliArrival && <VenueDoors />}
 
         {/* WAVE SEVEN, element C: THE THREE PATHS, on the same gate and directly
             after the hall. This is where the hero's three CTAs went. A visitor
@@ -718,14 +719,14 @@ export default function HomePage() {
             the choice is made with context instead of before it. Each card states
             its own requirement at the point of intent, and the launch floor is
             read from the same config the gate enforces with, never typed. */}
-        {!bungalowIdentity && !IS_TOWELI_ARRIVAL && <ThreePaths />}
+        {!bungalowIdentity && !isToweliArrival && <ThreePaths />}
 
         {/* WAVE SEVEN, element G: THE ISLAND'S BOARD, on the venue. Five named flames,
             so a stranger sees held time attached to people before they are asked to
             care about it. It unmounts itself when the island's board is off or
             unreadable, so this gate is the only thing that decides whether it may
             appear, never whether it has anything to say. */}
-        {!bungalowIdentity && !IS_TOWELI_ARRIVAL && <FlamesBoard limit={5} />}
+        {!bungalowIdentity && !isToweliArrival && <FlamesBoard limit={5} />}
 
         {/* ARRIVAL FLOW 2026-08-31 (the noise cut): the farm's body speaks
             only in the farm's room. Core Loop, By the Numbers, the pulse and
@@ -734,7 +735,7 @@ export default function HomePage() {
             resident's numbers wearing the venue's name. The venue line is
             now: hero → the hall → Launch & Verify → Ecosystem → the
             Collection → FAQ. Nothing deleted; it all renders inside /toweli. */}
-        {!bungalowIdentity && IS_TOWELI_ARRIVAL && (
+        {!bungalowIdentity && isToweliArrival && (
         <>
         {/* Core Loop — the 10-second explainer.
             Directly addresses the critique that new visitors don't grasp
@@ -762,7 +763,7 @@ export default function HomePage() {
                 <span className="text-[10px] uppercase tracking-[0.18em] text-white/90" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>The Core Loop &middot; Ethereum</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] items-stretch gap-3 md:gap-2">
-                {CORE_LOOP_STEPS.flatMap((step, i) => {
+                {coreLoop.flatMap((step, i) => {
                   const box = (
                     <div
                       key={`loop-step-${i}`}
@@ -778,7 +779,7 @@ export default function HomePage() {
                       </div>
                     </div>
                   );
-                  const isLast = i === CORE_LOOP_STEPS.length - 1;
+                  const isLast = i === coreLoop.length - 1;
                   if (isLast) return [box];
                   const arrow = (
                     <div
@@ -839,7 +840,7 @@ export default function HomePage() {
             furniture and it is true there. Every other door drops it, and what
             replaces it is the room's own held-time read (element B, scoped) —
             a number about the token whose room you are standing in. */}
-        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
+        {isToweliArrival && !bungalowIdentity && (
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Protocol Overview</h2>
@@ -920,7 +921,7 @@ export default function HomePage() {
             and "Check a deployer" under their token. Nothing is deleted:
             /toweli renders it whole, and /launch and /scan are their own
             rooms. */}
-        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
+        {isToweliArrival && !bungalowIdentity && (
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Launch &amp; Verify</h2>
@@ -1005,7 +1006,7 @@ export default function HomePage() {
         {/* How It Works — the three-step TOWELI farm walkthrough; TOWELI room
             only (ARRIVAL FLOW 2026-08-31: the venue teaches the island, not
             the farm; a bungalow's farm story lives on its own /farm panel). */}
-        {!bungalowIdentity && IS_TOWELI_ARRIVAL && (
+        {!bungalowIdentity && isToweliArrival && (
         <div className="pb-16">
           <m.div initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             {/* 2026-08-07: "How It Works" -> "How the Farm Works". All three steps are
@@ -1015,10 +1016,10 @@ export default function HomePage() {
                 told the product is a three-step TOWELI farm. Scoping the title, not the
                 steps. */}
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-1 text-center" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>How the Farm Works</h2>
-            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{IS_TOWELI_ARRIVAL ? 'Three steps, on Ethereum. No bullshit. Held time counts.' : 'Three steps, on Ethereum. No bullshit. Held time counts.'}</p>
+            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{isToweliArrival ? 'Three steps, on Ethereum. No bullshit. Held time counts.' : 'Three steps, on Ethereum. No bullshit. Held time counts.'}</p>
           </m.div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {HOW_IT_WORKS_STEPS.map((s, i) => (
+            {howItWorks.map((s, i) => (
               <m.div key={s.step} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.1 }}>
                 <Link to={s.to} className="relative block rounded-xl overflow-hidden transition-transform hover:scale-[1.015] h-full"
                   style={{ border: '1px solid var(--color-purple-40)' }}>
@@ -1050,7 +1051,7 @@ export default function HomePage() {
             /toweli and redundant on the venue arrival — that page IS the island
             now, with the hall on it — and simply someone else's furniture
             inside a bungalow. */}
-        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
+        {isToweliArrival && !bungalowIdentity && (
         <div className="pb-16">
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Ecosystem</h2>
           <p className="text-white text-[12px] mb-5">Jungle Bay Island. The world this venue lives on.</p>
@@ -1108,7 +1109,7 @@ export default function HomePage() {
             spending a screen on it before a visitor has been given a reason to
             care, and a resident's bungalow stops rendering the venue's gallery
             underneath their own token. */}
-        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
+        {isToweliArrival && !bungalowIdentity && (
         <div className="pb-16">
           <div className="flex items-end justify-between mb-6">
             <div>
@@ -1173,7 +1174,7 @@ export default function HomePage() {
             The venue-voice copy goes with the gate rather than sitting behind
             an unreachable ternary: a branch that cannot render is not a
             decision somebody can read, it is a decision nobody can see. */}
-        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
+        {isToweliArrival && !bungalowIdentity && (
         <div className="pb-16">
           <m.div
             className="rounded-2xl p-6 md:p-8 text-center"
@@ -1238,7 +1239,7 @@ export default function HomePage() {
             three-part predicate; this one was simply missed. The venue has no
             referral programme of its own — if one is ever built it has to be
             built, not inherited. */}
-        {address && !bungalowIdentity && IS_TOWELI_ARRIVAL && (
+        {address && !bungalowIdentity && isToweliArrival && (
           <div className="pb-16">
             <ReferralWidget
               address={address}

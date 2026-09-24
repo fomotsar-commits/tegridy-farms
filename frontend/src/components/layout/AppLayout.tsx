@@ -46,6 +46,7 @@ import { BUNGALOWS, getBungalowIdentity, OPEN_BUNGALOWS_EVENT, OPEN_BUNGALOW_ABO
 import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
 import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
+import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 
 const NAV_ORDER = [
   '/', '/dashboard', '/farm', '/swap', '/nft-finance', '/gallery', '/tokenomics',
@@ -92,6 +93,8 @@ function RouteGlitch() {
 
 export function AppLayout() {
   const location = useLocation();
+  // Everything below that reads the skin re-renders when a door switches it.
+  useActiveBungalowId();
 
   /* WAVE SEVEN, answer eight, ruling 1: THE BAND IS NEVER COVERED.
    *
@@ -203,8 +206,7 @@ export function AppLayout() {
   const closePicker = () => setPickerRequested(false);
   // Token-first bungalow (Bayla): mute the Towelie personality surfaces —
   // the assistant bubble and the TOWELI-scripted onboarding are the wrong
-  // voice there. Both return untouched in the Toweli default. Stable per
-  // document (bungalow switches reload).
+  // voice there. Both return untouched in the Toweli default.
   const bungalowIdentity = getBungalowIdentity();
 
   // F44: announce route changes to screen readers. SPA navigations are otherwise
