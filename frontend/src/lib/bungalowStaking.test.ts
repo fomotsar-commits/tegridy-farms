@@ -308,7 +308,10 @@ describe('stake', () => {
     getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
     const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe('You declined the signature — nothing moved.');
+    if (!r.ok) {
+      expect(r.reason).toMatch(/declined the signature/);
+      expect(r.reason).toMatch(/nothing moved/i);
+    }
   });
 
   it('NEVER claims "nothing moved" for a post-broadcast confirmation timeout — outcome unknown + signature', async () => {
@@ -327,7 +330,7 @@ describe('stake', () => {
     if (!r.ok) {
       expect(r.reason).toContain('Outcome unknown');
       expect(r.reason).toContain('S1gnatuRE111');
-      expect(r.reason).not.toContain('nothing moved');
+      expect(r.reason).not.toMatch(/nothing moved/i);
     }
   });
 
@@ -342,6 +345,44 @@ describe('stake', () => {
       expect(r.reason).toContain('vault');
       expect(r.reason).toContain('topped up');
     }
+  });
+
+  // The claim strip and the full card print these verbatim, and venue copy has no em dash.
+  it('no failure a write can return carries an em dash', async () => {
+    const lib = await import('./bungalowStaking');
+    prepareStakeInstructions.mockResolvedValue({ ixs: [] });
+    prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [] });
+    getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
+    const errors = [
+      new Error('User rejected the request'),
+      new Error('custom program error 6012'),
+      new Error('Error Code: ArithmeticError. Error Number: 6000.'),
+      new Error('Error Code: RewardPoolDrained. Error Number: 6013.'),
+      Object.assign(new Error('Transaction was not confirmed in 30.00 seconds.'), { signature: 'S1g' }),
+      new Error('something else'),
+    ];
+    const writes = [
+      () => stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] }),
+      () => lib.unstakeAndClaim({ invoker, pool, entryNonce: 0 }),
+      () => lib.claimRewards({ invoker, pool, rewardPool: pool.rewardPools[0]!, entryNonce: 0 }),
+      // Its claim fails first, so this is the rescue's own stop line.
+      () => unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: 0, entry: { createdTs: 1, pendingRaw: { 3: 5n } } }),
+    ];
+    const reasons: string[] = [];
+    for (const err of errors) {
+      for (const sdk of [execute, unstakeAndClaim, claimRewards, unstakeAndClose]) sdk.mockReset().mockRejectedValue(err);
+      for (const w of writes) {
+        const r = await w();
+        if (!r.ok) reasons.push(r.reason);
+      }
+    }
+    // Closing past a permanent claim failure reaches unstakeAndClose's own fallback.
+    claimRewards.mockReset().mockRejectedValue(new Error('Error Number: 6000.'));
+    unstakeAndClose.mockReset().mockRejectedValue(new Error('something else'));
+    const closed = await unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: 0, entry: { createdTs: 1, pendingRaw: { 3: 5n } } });
+    if (!closed.ok) reasons.push(closed.reason);
+    expect(reasons).toHaveLength(errors.length * writes.length + 1);
+    for (const reason of reasons) expect(reason).not.toContain('—');
   });
 });
 
@@ -515,6 +556,24 @@ describe('unstakeAndCloseForfeitingRewards', () => {
     });
     expect(r.ok).toBe(false);
     expect(claimRewards).toHaveBeenCalledTimes(1);
+    expect(unstakeAndClose).not.toHaveBeenCalled();
+    if (!r.ok) expect(r.reason).toMatch(/wallet changed/i);
+  });
+
+  it('⚠️ with ONE pool to claim, the check before the close is what stops it', async () => {
+    // No second claim runs, so no per-claim check can catch the switch.
+    let key = 'StakerA';
+    const switching = { get publicKey() { return { toBase58: () => key }; } } as never;
+    claimRewards.mockImplementation(async () => { key = 'StakerB'; return { txId: 'CLAIM_SIG' }; });
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker: switching,
+      pool: poolWith([rp(0, 'fixed')]),
+      entryNonce: 7,
+      entry: { createdTs: 1_000, pendingRaw: { 0: 4_000n } },
+    });
+    expect(claimRewards).toHaveBeenCalledTimes(1);
+    expect(r.ok).toBe(false);
     expect(unstakeAndClose).not.toHaveBeenCalled();
     if (!r.ok) expect(r.reason).toMatch(/wallet changed/i);
   });
