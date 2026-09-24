@@ -52,6 +52,13 @@ vi.mock("./hooks/useActivityWebSocket", () => ({
   default: vi.fn(() => ({ liveActivities: [], isWebSocketConnected: false })),
 }));
 vi.mock("./hooks/useEns", () => ({ default: () => ({ ensName: null }) }));
+// The item Modal mounts OfferPanel. Its real offer-book read retries a failed
+// fetch for about ten seconds, which outlives this file; a retry that lands
+// after the environment is gone throws "window is not defined".
+vi.mock("./api-offers", async (importOriginal) => ({
+  ...(await importOriginal()),
+  fetchTokenOfferBook: vi.fn(async () => ({ offers: [], bestOffer: null, unavailable: false })),
+}));
 vi.mock("./api", async (importOriginal) => {
   const actual = await importOriginal();
   // Gold Cards' 123 tokens (ids 1..123, read on chain), shaped as api.js
