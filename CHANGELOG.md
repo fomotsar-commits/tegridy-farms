@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-09-24
+
+- The indexer no longer treats memetic.fun as a name for this venue.
+
 ### 2026-09-22
 
 - Staking cards say how the island reads a locked bag.

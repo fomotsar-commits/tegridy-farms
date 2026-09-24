@@ -15,6 +15,26 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-24 — a CORS allowlist in a framework's user routes does not decide who can read
+
+**Believed:** the indexer's `allowedOrigins` in `indexer/src/api/index.ts` is its CORS policy,
+so removing a host there stops that host reading the indexer.
+
+**Measured:** against the live indexer, `OPTIONS /graphql` from four origins (three on the list,
+one invented) all answered `204` with `Access-Control-Allow-Origin: *`, and
+`allow-methods: GET,HEAD,PUT,POST,DELETE,PATCH`. That is Hono's default method list, not the
+`GET, POST, OPTIONS` the file sets, so a different layer answered. Ponder 0.8.33 mounts
+`cors({ origin: "*" })` before user routes (`src/server/index.ts:94` in its source), and
+Hono's cors answers OPTIONS without calling `next`. On `POST`, a listed origin was echoed by
+name and an invented one kept `*`. Every response also carried `allow-credentials: true`,
+which neither layer sets.
+
+**Do:** before trusting a CORS change, send the preflight and compare the answered
+`allow-methods` with the ones you configured. If they differ, your middleware never saw the
+request.
+
+---
+
 ## 2026-09-22 — a `toContain('80°')` pin stays green on a page that says 180°
 
 **Believed:** a test that asserts a threshold goes red when the page shows a different
