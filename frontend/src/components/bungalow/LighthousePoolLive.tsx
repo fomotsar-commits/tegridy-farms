@@ -598,8 +598,18 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 
         {poolRead === null && <p className="text-white/70 text-[13px]">Reading the pool…</p>}
 
+        {/* Nothing else re-reads a failed pool for a visitor with no wallet. */}
         {poolRead && !poolRead.ok && (
-          <p className="text-[13px]" style={{ color: '#f0b26b' }}>{poolRead.reason}</p>
+          <p className="text-[13px]" style={{ color: '#f0b26b' }}>
+            {poolRead.reason}{' '}
+            <button
+              type="button"
+              onClick={() => { setPoolRead(null); reread(); }}
+              className="min-h-[44px] underline underline-offset-2"
+            >
+              Try again
+            </button>
+          </p>
         )}
 
         {/* AUDIT FIX TF-035: a configuration error, not a network problem — so
