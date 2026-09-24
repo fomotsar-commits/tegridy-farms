@@ -208,6 +208,17 @@ describe("numbers in their own unit", () => {
     expect(text(card("bojungles"))).not.toMatch(/None listed/);
   });
 
+  it("a view-only floor read with no unit is the unread dash, marked not read, never a price in ETH", async () => {
+    answers["collections/seeds-from-the-memetic-garden/stats"] = { total: { floor_price: 0.11, volume: 0.052768, num_owners: 89 }, intervals: [] };
+    await renderLanding();
+    await waitFor(() => expect(text(card("memeticseeds"))).toMatch(/Stats from OpenSea/));
+    const floor = within(card("memeticseeds")).getByText(/^Floor$/).parentElement;
+    expect(text(floor)).toMatch(/\u2014/);
+    expect(text(floor)).toMatch(/not read/);
+    expect(text(floor)).not.toMatch(/\bETH\b/);
+    expect(text(floor)).not.toMatch(/0\.11/);
+  });
+
   it("Gold Cards reads 123 items", async () => {
     await renderLanding();
     await settle();

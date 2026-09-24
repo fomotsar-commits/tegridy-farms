@@ -317,6 +317,19 @@ describe("stats say what they read, and say so when they could not", () => {
     notInBody(/None listed/);
   });
 
+  it("a floor read with no unit is the unread dash, marked not read, never a price in ETH", async () => {
+    override = (u) => (u.searchParams.get("path") === "collections/seeds-from-the-memetic-garden/stats"
+      ? reply({ total: { floor_price: 0.11, volume: 0.052768, num_owners: 89 }, intervals: [] })
+      : null);
+    await renderAt("/nakamigos/memeticseeds");
+    await findInBody(/Stats from OpenSea/);
+    const floor = screen.getByText("FLOOR").closest(".stat-card");
+    expect(floor.querySelector(".stat-value").textContent).toBe("\u2014");
+    expect(floor.textContent).toMatch(/not read/);
+    expect(floor.textContent).not.toMatch(/\bETH\b/);
+    expect(floor.textContent).not.toMatch(/0\.11/);
+  });
+
   it("a failed stats read says Stats unavailable and shows the unread dash, never a zero", async () => {
     override = (u) => (u.searchParams.get("path") === "collections/bojungless/stats" ? reply("<html></html>", 200, { "content-type": "text/html" }) : null);
     await renderAt("/nakamigos/bojungles");
