@@ -9,6 +9,7 @@ page keeps the newest thirty days.
 ### 2026-09-24
 
 - The closed BAYLA lighthouse pool is shown only to wallets still staked in it, as a claim box under the lock ladder.
+- On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
 
 ### 2026-09-22
 
