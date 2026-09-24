@@ -512,6 +512,16 @@ describe('the shell and its tap targets', () => {
     expect(tall(link)).toBe(true);
   });
 
+  // jsdom cannot measure width, so this pins the wrap rule on the note line. An outcome-unknown
+  // note carries an 88-character signature, and above the failed-read line nothing clips it.
+  it('a receipt note may break inside a word, so a signature never runs past a phone\'s width', async () => {
+    reply(WALLET_A, [LOCKED]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    fireEvent.click(await screen.findByRole('button', { name: /^claim rewards$/i }));
+    const note = (await screen.findByText(/claim confirmed/i)).closest('p')!;
+    expect(note.className).toMatch(/\bbreak-words\b/);
+  });
+
   it('sits back like the closed full card: no glow loop, the quiet border, the 0.62 scrim', async () => {
     reply(WALLET_A, [LOCKED]);
     render(<LighthouseClaimStrip bungalow={BAYLA} />);
