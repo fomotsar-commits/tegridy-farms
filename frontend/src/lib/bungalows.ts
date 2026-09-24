@@ -444,3 +444,15 @@ export function bungalowExplorerUrl(b: Bungalow): string | null {
     default: return null;
   }
 }
+
+/**
+ * Owner, 2026-09-21: a Streamflow pool closed in favour of the ladder is shown only to
+ * wallets still staked in it. Every UI surface naming the pool asks this. It needs the
+ * ladder too: with none configured, hiding the pool would leave no pool at all. Machine
+ * surfaces (held-through.json, llms.txt, ISLAND_READ_POOLS) keep listing it.
+ */
+export function stakePoolMembersOnly<T extends { chain: string; stakePool?: string; ladderPool?: string; depositsClosed?: true }>(
+  b: T,
+): b is T & { stakePool: string; ladderPool: string } {
+  return b.chain === 'solana' && Boolean(b.stakePool) && Boolean(b.ladderPool) && b.depositsClosed === true;
+}
