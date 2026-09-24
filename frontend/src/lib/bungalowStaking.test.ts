@@ -150,6 +150,32 @@ describe('readPool', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/outage, not a zero/);
   });
+
+  // ⚠️ A PARTIAL REWARD-POOL LIST IS AN OUTAGE. unstakeAndClaim builds one claim per
+  // listed reward pool and then closes the entry, and a closed entry's rewards can never
+  // be claimed again. A list missing a pool because its search half failed would exit
+  // without claiming it.
+  it.each([
+    ['the fixed half', () => searchRewardPools.mockRejectedValueOnce(new Error('429'))],
+    ['the dynamic half', () => dynamicRewardPoolAll.mockRejectedValueOnce(new Error('429'))],
+  ])('fails the read when %s of the reward-pool search failed', async (_half, fail) => {
+    getStakePool.mockResolvedValue({ mint: 'M', minDuration: bn(1), maxDuration: bn(2), totalStake: bn(0), minWeight: bn('1000000000'), maxWeight: bn('1000000000'), unstakePeriod: bn(0), totalEffectiveStake: bn(0) });
+    searchRewardPools.mockResolvedValue([
+      { publicKey: 'Rp1', account: { mint: 'M', nonce: bn(0), vault: 'V', rewardAmount: bn(1), rewardPeriod: bn(1) } },
+    ]);
+    getTokenAccountBalance.mockResolvedValue({ value: { amount: '5' } });
+    fail();
+    const r = await readPool(POOL);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/outage, not a zero/);
+  });
+
+  it('both halves answering with no reward pool is still a read, not an outage', async () => {
+    getStakePool.mockResolvedValue({ mint: 'M', minDuration: bn(1), maxDuration: bn(2), totalStake: bn(0), minWeight: bn('1000000000'), maxWeight: bn('1000000000'), unstakePeriod: bn(0), totalEffectiveStake: bn(0) });
+    searchRewardPools.mockResolvedValue([]);
+    const r = await readPool(POOL);
+    expect(r.ok && r.pool.rewardPools).toEqual([]);
+  });
 });
 
 describe('readEntries + nextVacantNonce', () => {
