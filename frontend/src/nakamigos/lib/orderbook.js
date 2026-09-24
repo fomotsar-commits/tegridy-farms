@@ -132,19 +132,33 @@ export async function fetchNativeBundles(contract, opts = {}) {
 // Buy an NFT from a native orderbook listing by calling Seaport directly.
 // The order was signed with EIP-712 for Seaport v1.5, so we can fulfillOrder on-chain.
 
-// The NFT contracts a stored order moves: its NFT items and the row's contract.
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const isNftItem = (i) => Number(i?.itemType) >= 2 && Number(i?.itemType) <= 5;
+const itemsOf = (list) => (Array.isArray(list) ? list : []);
+
+// The NFT contracts a stored order moves, either way: the NFT items of its offer
+// and its consideration, and the row's contract.
 function nativeOrderNftTokens(order) {
-  const offer = order?.parameters?.offer;
-  const tokens = Array.isArray(offer)
-    ? offer.filter((i) => Number(i?.itemType) >= 2 && Number(i?.itemType) <= 5).map((i) => i.token)
-    : [];
+  const p = order?.parameters;
+  const tokens = [...itemsOf(p?.offer), ...itemsOf(p?.consideration)].filter(isNftItem).map((i) => i.token);
   if (order?.contract_address) tokens.push(order.contract_address);
   return tokens;
+}
+
+// Seaport takes every consideration item from the buyer, and msg.value pays only
+// native ETH. So, as on the server (api/orderbook.js, ETH-ONLY), each item must be
+// itemType 0 at the zero address; any other item would take the buyer's own tokens.
+function nativeOrderAsksBeyondEth(order) {
+  return itemsOf(order?.parameters?.consideration).some((i) => Number(i?.itemType) !== 0
+    || String(i?.token || ZERO_ADDRESS).toLowerCase() !== ZERO_ADDRESS);
 }
 
 export async function fulfillNativeOrder(order) {
   const refusal = venueRefusalForAll(nativeOrderNftTokens(order));
   if (refusal) return refusal;
+  if (nativeOrderAsksBeyondEth(order)) {
+    return { error: "not-eth-priced", message: "This order asks for something other than ETH. This venue fills only orders paid in ETH." };
+  }
   const ethProvider = getProvider();
   if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
 
