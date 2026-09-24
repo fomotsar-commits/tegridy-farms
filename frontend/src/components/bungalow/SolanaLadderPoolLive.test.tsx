@@ -26,9 +26,17 @@ const OWNER = 'Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj';
 
 /* ─────────────────────────── the rig ─────────────────────────── */
 
-vi.mock('../solana/SolanaProviders', () => ({
-  SolanaProviders: ({ children }: { children: React.ReactNode }) => children,
-}));
+// Counts mounts: the bare card must mount none, so SolanaPoolStack can share one.
+const providerMounts = vi.hoisted(() => ({ n: 0 }));
+vi.mock('../solana/SolanaProviders', async () => {
+  const { useEffect } = await import('react');
+  return {
+    SolanaProviders: ({ children }: { children: React.ReactNode }) => {
+      useEffect(() => { providerMounts.n += 1; }, []);
+      return children;
+    },
+  };
+});
 
 const walletState = vi.hoisted(() => ({ publicKey: null as { toBase58: () => string } | null }));
 // STABLE. `useConnection` returns the same object across renders in the real
@@ -97,7 +105,7 @@ vi.mock('../../lib/ladder/write', () => ({
   ladderClaimCarried: writes.carried,
 }));
 
-const { SolanaLadderPoolLive } = await import('./SolanaLadderPoolLive');
+const { SolanaLadderPoolLive, SolanaLadderPoolCard } = await import('./SolanaLadderPoolLive');
 
 /* ─────────────────────────── fixtures ─────────────────────────── */
 
@@ -516,6 +524,18 @@ describe('with no wallet connected', () => {
     draw();
     await screen.findByText(/no account at this pool address/);
     expect(connects()).toHaveLength(0);
+  });
+
+  // A second WalletProvider reads the saved wallet only when it mounts, so a member who
+  // connected through this card would not appear in the strip under it until a reload.
+  it('the bare card mounts no wallet context, so the claim strip under it shares one', async () => {
+    providerMounts.n = 0;
+    walletState.publicKey = null;
+    render(<SolanaLadderPoolCard bungalow={BUNGALOW} />);
+    await screen.findByText('Reward vault');
+    expect(providerMounts.n).toBe(0);
+    draw();
+    await waitFor(() => expect(providerMounts.n).toBe(1));
   });
 });
 

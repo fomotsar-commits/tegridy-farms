@@ -2,6 +2,7 @@
 // EVERYONE WHO IS. A strip that rendered nothing at all would pass every "is it
 // hidden" case here; the load-bearing half is that a member still gets a working
 // claim, the exit once a lock opens, and never "no positions" because a read failed.
+// The one exception: a connected wallet whose read failed is told it could not be checked.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -35,9 +36,17 @@ const POOL = {
   }],
 };
 
-vi.mock('../solana/SolanaProviders', () => ({
-  SolanaProviders: ({ children }: { children: React.ReactNode }) => children,
-}));
+// Counts mounts: the strip lives inside SolanaPoolStack's one context and mounts none.
+const providerMounts = vi.hoisted(() => ({ n: 0 }));
+vi.mock('../solana/SolanaProviders', async () => {
+  const { useEffect } = await import('react');
+  return {
+    SolanaProviders: ({ children }: { children: React.ReactNode }) => {
+      useEffect(() => { providerMounts.n += 1; }, []);
+      return children;
+    },
+  };
+});
 vi.mock('../solana/useSolanaConnect', () => ({
   useSolanaConnect: () => () => {},
 }));
@@ -67,6 +76,8 @@ const LOCKED = entry({});
 const MATURED = entry({ createdTs: RATE_CHANGED_AT + 100, durationSecs: 1 });
 // Lock open, opened BEFORE the rate change: the claim may revert (6000 band).
 const MATURED_AT_RISK = entry({ createdTs: 1, durationSecs: 1 });
+// Lock open, and no reward pool priced it: nothing but the list itself says a pool is missing.
+const UNPRICED_MATURED = entry({ createdTs: RATE_CHANGED_AT + 100, durationSecs: 1, pendingRaw: {}, accountedRaw: {}, pendingUnread: true });
 
 const WALLET_A = 'WalletA111111111111111111111111111111111111';
 const WALLET_B = 'WalletB111111111111111111111111111111111111';
@@ -90,6 +101,7 @@ vi.mock('../../lib/bungalowStaking', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/bungalowStaking')>()),
   claimRewards: vi.fn(write),
   unstakeAndClaim: vi.fn(write),
+  unstakeAndCloseForfeitingRewards: vi.fn(write),
   readPool: vi.fn(async () => (poolState.pool === 'fail'
     ? { ok: false as const, reason: 'The pool could not be read right now. That is an outage, not a zero.' }
     : { ok: true as const, pool: poolState.pool })),
@@ -120,6 +132,8 @@ beforeEach(() => {
   vi.mocked(staking.readPool).mockClear();
   vi.mocked(staking.claimRewards).mockClear();
   vi.mocked(staking.unstakeAndClaim).mockClear();
+  vi.mocked(staking.unstakeAndCloseForfeitingRewards).mockClear();
+  providerMounts.n = 0;
   entriesState.byWallet = {};
   poolState.pool = POOL;
   writeState.hold = false;
@@ -224,6 +238,9 @@ describe('what a member sees', () => {
     expect(title).toMatch(/first tries to claim/i);
     expect(title).toMatch(/stops/i);
     expect(title).not.toMatch(/cannot be blocked/i);
+    // Each claim is its own transaction: one can pay before a later one stops the rescue.
+    expect(title).not.toMatch(/before anything moves/i);
+    expect(title).toMatch(/principal/i);
   });
 
   it('a LOCKED position in the 6000 band gets no rescue: the program refuses any unstake', async () => {
@@ -340,8 +357,10 @@ describe('the rescue confirm is armed against one read', () => {
 
 describe('the reads and the receipts', () => {
   it('⚠️ a pool read that lost its reward pools draws NO exit: that unstake would claim nothing and close the entry', async () => {
+    // No pending figure either (an unpriced entry, or entries read from the same empty
+    // search), so only the empty-list rule can catch it.
     poolState.pool = { ...POOL, rewardPools: [] };
-    reply(WALLET_A, [MATURED]);
+    reply(WALLET_A, [UNPRICED_MATURED]);
     render(<LighthouseClaimStrip bungalow={BAYLA} />);
     expect(await screen.findByText(/reward program could not be read/i)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /unstake|claim|take principal/i })).toBeNull();
@@ -433,7 +452,7 @@ describe('the shell and its tap targets', () => {
   it.each([
     ['a failed stakes read', () => reply(WALLET_A, 'fail')],
     ['a failed pool read', () => { poolState.pool = 'fail'; reply(WALLET_A, [LOCKED]); }],
-    ['a lost reward-pool list', () => { poolState.pool = { ...POOL, rewardPools: [] }; reply(WALLET_A, [LOCKED]); }],
+    ['a lost reward-pool list', () => { poolState.pool = { ...POOL, rewardPools: [] }; reply(WALLET_A, [UNPRICED_MATURED]); }],
   ])('Try again after %s is a 44px tap target', async (_label, arrange) => {
     arrange();
     render(<LighthouseClaimStrip bungalow={BAYLA} />);
@@ -475,9 +494,111 @@ describe('the held-time line', () => {
     ['the reward-pool list was lost', () => { poolState.pool = { ...POOL, rewardPools: [] }; }],
   ])('is absent when no figures show: %s', async (_label, arrange) => {
     arrange();
-    reply(WALLET_A, [LOCKED]);
+    reply(WALLET_A, [UNPRICED_MATURED]);
     render(<LighthouseClaimStrip bungalow={{ ...BAYLA, stakePool: EFWP }} />);
     await screen.findByRole('button', { name: /try again/i });
     expect(lineOf()).toBeNull();
+  });
+});
+
+describe('what each write sends', () => {
+  // Two same-mint reward pools, so a list that lost one is visibly shorter.
+  const TWO_POOLS = { ...POOL, rewardPools: [POOL.rewardPools[0]!, { ...POOL.rewardPools[0]!, address: 'Rp1', nonce: 1, vault: 'V1' }] };
+
+  it('Claim sends the row\'s own entry and the reward pool on its button', async () => {
+    poolState.pool = TWO_POOLS;
+    reply(WALLET_A, [entry({ nonce: 3, pendingRaw: { 0: 5n, 1: 7n } })]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    fireEvent.click(await screen.findByRole('button', { name: /^claim rewards · pool #1$/i }));
+    await waitFor(() => expect(staking.claimRewards).toHaveBeenCalledTimes(1));
+    const args = vi.mocked(staking.claimRewards).mock.calls[0]![0];
+    expect(args.entryNonce).toBe(3);
+    expect(args.rewardPool.nonce).toBe(1);
+  });
+
+  it('⚠️ Unstake & claim hands over EVERY listed reward pool: a pool left out is closed unclaimed', async () => {
+    poolState.pool = TWO_POOLS;
+    reply(WALLET_A, [entry({ nonce: 3, createdTs: RATE_CHANGED_AT + 100, durationSecs: 1, pendingRaw: { 0: 5n, 1: 7n } })]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    fireEvent.click(await screen.findByRole('button', { name: /^unstake & claim$/i }));
+    await waitFor(() => expect(staking.unstakeAndClaim).toHaveBeenCalledTimes(1));
+    const args = vi.mocked(staking.unstakeAndClaim).mock.calls[0]![0];
+    expect(args.entryNonce).toBe(3);
+    expect(args.pool.rewardPools.map((rp) => rp.nonce)).toEqual([0, 1]);
+  });
+
+  it('⚠️ the rescue hands over the row\'s own entry with its real pending figures: they decide what is claimed before the close', async () => {
+    poolState.pool = TWO_POOLS;
+    const row = entry({ nonce: 3, createdTs: 1, durationSecs: 1, pendingRaw: { 0: 5n, 1: 7n } });
+    reply(WALLET_A, [row]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    fireEvent.click(await screen.findByRole('button', { name: ARM }));
+    fireEvent.click(screen.getByRole('button', { name: FIRE }));
+    await waitFor(() => expect(staking.unstakeAndCloseForfeitingRewards).toHaveBeenCalledTimes(1));
+    const args = vi.mocked(staking.unstakeAndCloseForfeitingRewards).mock.calls[0]![0];
+    expect(args.entryNonce).toBe(3);
+    expect(args.entry.pendingRaw).toEqual({ 0: 5n, 1: 7n });
+    expect(args.entry.createdTs).toBe(1);
+    expect(args.pool.rewardPools.map((rp) => rp.nonce)).toEqual([0, 1]);
+  });
+
+  it('⚠️ a rescue that FAILS still re-reads: a claim it made first may have paid', async () => {
+    writeState.fail = true;
+    reply(WALLET_A, [MATURED_AT_RISK]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    fireEvent.click(await screen.findByRole('button', { name: ARM }));
+    const before = vi.mocked(staking.readEntries).mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: FIRE }));
+    expect(await screen.findByText(/did not go through/i)).toBeTruthy();
+    await waitFor(() => expect(vi.mocked(staking.readEntries).mock.calls.length).toBeGreaterThan(before));
+  });
+});
+
+describe('one write at a time', () => {
+  it('⚠️ while a write waits on the wallet, every write button on every row is disabled', async () => {
+    writeState.hold = true;
+    reply(WALLET_A, [MATURED_AT_RISK, entry({ address: 'Entry1', nonce: 1, createdTs: RATE_CHANGED_AT + 100, durationSecs: 1 })]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    const claims = await screen.findAllByRole('button', { name: /^claim rewards/i });
+    const writes = () => screen.getAllByRole('button', { name: /claim rewards|unstake|take principal|forfeit/i }) as HTMLButtonElement[];
+    expect(writes().every((b) => !b.disabled)).toBe(true);
+    fireEvent.click(claims[0]!);
+    expect(await screen.findByText(/waiting for the wallet/i)).toBeTruthy();
+    const held = writes();
+    // Two claims, two exits and the rescue's first step: the whole row set, not one button.
+    expect(held.length).toBeGreaterThanOrEqual(5);
+    for (const b of held) expect(b.disabled, b.textContent ?? '').toBe(true);
+    await act(async () => { writeState.release!({ ok: true, txId: 'TX1' }); });
+    await settle();
+    expect(writes().some((b) => !b.disabled)).toBe(true);
+  });
+
+  it('an open lock whose accrual is past the vault holds the EXIT too, not only the claim', async () => {
+    reply(WALLET_A, [entry({ createdTs: RATE_CHANGED_AT + 100, durationSecs: 1, pendingRaw: { 0: 2_000_000_000n } })]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    const exit = await screen.findByRole('button', { name: /exit waits for a vault top-up/i });
+    expect((exit as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('the earned figure', () => {
+  it('counts only reward pools paying in the staked token: another mint has other decimals', async () => {
+    poolState.pool = {
+      ...POOL,
+      rewardPools: [POOL.rewardPools[0]!, { ...POOL.rewardPools[0]!, address: 'Rp1', nonce: 1, vault: 'V1', mint: 'OtherMint', decimals: 9 }],
+    };
+    reply(WALLET_A, [entry({ pendingRaw: { 0: 19_524_569n, 1: 5_000_000_000n } })]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    await screen.findAllByRole('button', { name: /^claim rewards/i });
+    expect(screen.getByText(/^19\.524569 BAYLA earned$/)).toBeTruthy();
+  });
+});
+
+describe('the wallet context', () => {
+  it('the strip mounts no wallet context of its own: it shares the ladder card\'s', async () => {
+    reply(WALLET_A, [LOCKED]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    await screen.findByRole('button', { name: /^claim rewards$/i });
+    expect(providerMounts.n).toBe(0);
   });
 });
