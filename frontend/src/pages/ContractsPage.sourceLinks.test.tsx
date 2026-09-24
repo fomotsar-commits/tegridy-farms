@@ -67,6 +67,13 @@ describe('/contracts source links', () => {
     expect(sourceLinks(row)).toEqual([]);
   });
 
+  it('does not promise a source link for every contract while a row has none', () => {
+    const { container } = render(<ContractsPage />);
+    const lead = container.querySelector('header p')!.textContent!.replace(/\s+/g, ' ');
+    expect(sourceLinks(rowOf(container, 'TOWELI Token'))).toEqual([]);
+    expect(lead).not.toMatch(/source for every contract is linked/i);
+  });
+
   it('still asks Etherscan about the live TOWELI', () => {
     queried.length = 0;
     render(<ContractsPage />);
