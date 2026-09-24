@@ -595,8 +595,10 @@ describe('stakePoolMembersOnly', () => {
   });
 
   it('flips BAYLA alone, and only once the ladder env is set', () => {
-    // No ladder env under test, so no registry row is members-only here.
-    expect(BUNGALOWS.filter((b) => stakePoolMembersOnly(b))).toEqual([]);
+    // vitest loads a developer's .env, so the expectation follows the env as read.
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    const asRead = BUNGALOWS.filter((b) => stakePoolMembersOnly(b)).map((b) => b.id);
+    expect(asRead).toEqual(bayla.ladderPool ? ['bayla'] : []);
     const flipped = BUNGALOWS.filter((b) => stakePoolMembersOnly({ ...b, ladderPool: 'LADDER' })).map((b) => b.id);
     expect(flipped).toEqual(['bayla']);
   });

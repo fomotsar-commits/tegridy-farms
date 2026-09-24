@@ -180,10 +180,10 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         </div>
         )}
 
-        {/* Funding routes card — where incentives come from. Secondary to the
-            live pool, so no glow loop. It spans the row only when it would
-            otherwise sit alone beside an empty cell (a ladder with no
-            lighthouse pool). */}
+        {/* Funding routes card: where incentives come from. Secondary to the
+            live pool, so no glow loop. It spans the row when a ladder has no
+            open lighthouse card beside it: none, or a members-only one stacked
+            in the ladder's cell. */}
         <div
           className={`relative overflow-hidden rounded-2xl min-w-0 ${fundingAlone ? 'lg:col-span-2' : ''}`}
           style={{ border: '1px solid var(--color-purple-25)' }}
