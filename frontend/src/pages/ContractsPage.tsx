@@ -59,7 +59,10 @@ import { getChainConfig } from '../lib/chains/registry';
 interface ContractEntry {
   label: string;
   address: string;
-  source: string; // relative path under repo root
+  // A path under the repo root links to GitHub. Anything else renders as plain text:
+  // 'external (...)' for third-party contracts, or a label for our own live contract
+  // whose deployed source the repo does not hold. ContractsPage.sourceLinks.test.tsx.
+  source: string;
   // AUDIT LAUNCHPAD-SEC: optional status surfaces placeholder/deprecated
   // entries so users aren't presented with a zero address that looks live.
   // 'redeploy' marks live addresses whose source has been patched and is
@@ -102,7 +105,8 @@ const GROUPS: ContractGroup[] = [
     title: 'Core',
     description: 'TOWELI token and staking primitives.',
     entries: [
-      { label: 'TOWELI Token', address: TOWELI_ADDRESS, source: 'contracts/src/TOWELI.sol' },
+      // The live token came from a token-generator template; the repo's Toweli.sol is not it.
+      { label: 'TOWELI Token', address: TOWELI_ADDRESS, source: 'not in this repo (token-generator template)' },
       { label: 'Tegridy Staking', address: TEGRIDY_STAKING_ADDRESS, source: 'contracts/src/TegridyStaking.sol' },
       { label: 'Tegridy Restaking', address: TEGRIDY_RESTAKING_ADDRESS, source: 'contracts/src/TegridyRestaking.sol' },
       { label: 'Treasury', address: TREASURY_ADDRESS, source: 'external (Safe multisig)' },
@@ -135,7 +139,7 @@ const GROUPS: ContractGroup[] = [
       {
         label: 'Tegridy Fee Hook (V4)',
         address: TEGRIDY_FEE_HOOK_ADDRESS,
-        source: 'contracts/src/TegridyFeeHook.sol',
+        source: 'not in this repo (source removed after deploy)',
         status: 'redeploy',
         note: 'Owner stranded on Arachnid CREATE2 proxy. Constructor patched to accept _owner — redeploy queued before activation.',
       },
@@ -246,7 +250,7 @@ const GROUPS: ContractGroup[] = [
         address: TEGRIDY_NFT_LENDING_ADDRESS,
         source: 'contracts/src/TegridyNFTLending.sol',
       },
-      { label: 'Token URI Reader', address: TEGRIDY_TOKEN_URI_READER_ADDRESS, source: 'contracts/src/TokenURIReader.sol' },
+      { label: 'Token URI Reader', address: TEGRIDY_TOKEN_URI_READER_ADDRESS, source: 'contracts/src/TegridyTokenURIReader.sol' },
       { label: 'JBAC NFT', address: JBAC_NFT_ADDRESS, source: 'external (Jungle Bay Apes)' },
       { label: 'JBAY Gold', address: JBAY_GOLD_ADDRESS, source: 'external (Jungle Bay Gold)' },
     ],
@@ -266,7 +270,7 @@ const GROUPS: ContractGroup[] = [
 
 function ContractRow({ entry, verification }: { entry: ContractEntry; verification: VerificationState }) {
   const isExternal = entry.source.startsWith('external');
-  const sourceHref = isExternal ? undefined : `${GITHUB_BLOB_BASE}/${entry.source}`;
+  const sourceHref = entry.source.startsWith('contracts/') ? `${GITHUB_BLOB_BASE}/${entry.source}` : undefined;
   // Our own contracts with an unset (zero) address aren't part of the current
   // deployment — route them through the clean "pending deploy" path so we never
   // surface a 0x0 as live or render a stale "redeploy live / awaiting multisig"
@@ -320,7 +324,7 @@ function ContractRow({ entry, verification }: { entry: ContractEntry; verificati
             <VerifiedBadge state={verification} address={entry.address} label={entry.label} />
           )}
         </div>
-        {isExternal ? (
+        {!sourceHref ? (
           <div className="text-white/40 text-[11px] mt-0.5">{entry.source}</div>
         ) : (
           <a
@@ -433,7 +437,7 @@ export default function ContractsPage() {
           <h1 className="heading-luxury text-3xl md:text-5xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>Contract Index</h1>
           <p className="text-white/75 text-[13px] md:text-[14px] max-w-[720px] leading-relaxed mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
             Canonical, on-chain addresses for every memetics.finance contract, grouped by role. Source
-            for every contract is linked below. Source mirrored from the repo{' '}
+            is linked below wherever this repo holds it. Source mirrored from the repo{' '}
             <a
               href={`${GITHUB_BLOB_BASE}/docs/CONTRACTS.md`}
               target="_blank"
