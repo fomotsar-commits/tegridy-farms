@@ -1236,7 +1236,16 @@ export async function unstakeAndCloseForfeitingRewards(args: {
     // exactly as before. It becomes load-bearing the day the dynamic pool is
     // attached, when closing blind would forfeit a WORKING reward balance.
     const savable = claimablePoolsBefore(args.entry, args.pool.rewardPools);
+    // Each step is built on invoker.publicKey as it is THEN, and an adapter swaps it in
+    // place on an account change; `savable` was chosen from the first account's figures.
+    const signer = args.invoker.publicKey?.toBase58() ?? null;
+    const switched = () => (args.invoker.publicKey?.toBase58() ?? null) !== signer;
+    const stopped: Failure = {
+      ok: false,
+      reason: 'The wallet changed partway through, so the rescue stopped before closing. Your stake is untouched.',
+    };
     for (const rp of savable) {
+      if (switched()) return stopped;
       const claimed = await claimRewards({
         invoker: args.invoker,
         pool: args.pool,
@@ -1269,6 +1278,7 @@ export async function unstakeAndCloseForfeitingRewards(args: {
         }
       }
     }
+    if (switched()) return stopped;
     const client = await makeClient();
     // Same argument shape as unstakeAndClaim — the SDK aliases
     // UnstakeAndClaimArgs = UnstakeAndCloseArgs.
