@@ -31,6 +31,16 @@ ships; a tagged release will cut from here once Wave 0 redeploys are complete.
 > runs are attributed to the commit that recorded them. They are internally
 > consistent but are **not** reproducible from the repository.
 
+### 2026-09-24
+
+- The indexer's CORS allowlist no longer names `memetic.fun` or `www.memetic.fun`,
+  finishing what [#671](https://github.com/fomotsar-commits/tegridy-farms/pull/671) did for
+  `frontend/api`. It takes effect when the indexer is next deployed. Ponder answers every
+  preflight with its own `*` first, so this narrows what our code grants, not who can read
+  the indexer.
+- `frontend/.env.example` now says `VITE_CANONICAL_ORIGIN` falls back to
+  `https://memetics.finance`, which is what `recordOrigin()` has done since #478.
+
 ### 2026-09-22
 
 - Staking cards say how the island reads a locked bag.

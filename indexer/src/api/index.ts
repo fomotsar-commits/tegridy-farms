@@ -48,10 +48,17 @@ const graphqlMiddleware = graphql({
 // pointed at a hosted indexer, every browser fetch would have been CORS-blocked
 // while curl probes passed. Keep in lock-step with the frontend's canonical
 // origin set (api/__tests__/origin-allowlist-parity.test.js parses it from
-// launcher-outcomes.js).
+// launcher-outcomes.js). No test reads THIS copy; the parity test covers
+// frontend/api only.
+// 2026-09-24: memetic.fun and www.memetic.fun are removed. Since 2026-09-20
+// both hosts are bound to the separate memetic-fun-lab-proxy Vercel project and
+// serve the Island Lab, not this venue, so nothing here may grant them (#671
+// removed them from frontend/api for the same reason). Do not re-add them via
+// ALLOWED_ORIGINS either.
+// Ponder 0.8 mounts its own cors({ origin: "*" }) ahead of this middleware, so
+// it answers every preflight first and an unlisted origin's response keeps "*".
+// This list only decides which origins are echoed back by name.
 const allowedOrigins = [
-  "https://memetic.fun",
-  "https://www.memetic.fun",
   "https://memetics.finance",
   "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",
