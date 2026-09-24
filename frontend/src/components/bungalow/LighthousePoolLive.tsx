@@ -1354,7 +1354,7 @@ export function LighthouseClaimStrip({ bungalow }: { bungalow: Bungalow & { stak
     <>
       {act?.busy && <p role="status" className="text-white/70 text-[12px] mt-3 mb-0">{act.busy}: waiting for the wallet…</p>}
       {act?.note && (
-        <p className="text-[12px] mt-3 mb-0 text-white/85">
+        <p className="text-[12px] mt-3 mb-0 text-white/85 break-words">
           {act.note}{' '}
           {act.tx && (
             <a href={`https://solscan.io/tx/${act.tx}`} target="_blank" rel="noopener noreferrer"
