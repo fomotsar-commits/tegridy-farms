@@ -83,7 +83,7 @@ function leafRows() {
 }
 
 function makeReq({ method = "GET", headers = {}, body = undefined, query = {} } = {}) {
-  return { method, query, body, headers: { origin: "https://memetic.fun", ...headers } };
+  return { method, query, body, headers: { origin: "https://memetics.finance", ...headers } };
 }
 
 function makeRes() {

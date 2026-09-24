@@ -199,7 +199,7 @@ describe("origin gate — production mode", () => {
   it("serves an allowlisted origin in production with 200", async () => {
     const { res, statusSpy } = makeRes();
     await handleHeat(
-      makeReq({ query: { address: ETH }, headers: { origin: "https://memetic.fun" } }),
+      makeReq({ query: { address: ETH }, headers: { origin: "https://memetics.finance" } }),
       res,
     );
     expect(statusSpy).toHaveBeenCalledWith(200);

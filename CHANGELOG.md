@@ -31,6 +31,39 @@ ships; a tagged release will cut from here once Wave 0 redeploys are complete.
 > runs are attributed to the commit that recorded them. They are internally
 > consistent but are **not** reproducible from the repository.
 
+### Security — memetic.fun left every API origin allowlist; it has not been this venue since 2026-09-20 (2026-09-23)
+
+Since 2026-09-20 `memetic.fun` and `www.memetic.fun` are bound to the separate
+`memetic-fun-lab-proxy` Vercel project and serve the Island Lab. The venue must not answer
+there (#478, inverted), but all eighteen origin allowlists under `frontend/api/` still
+named both hosts. Verified live before the fix: `OPTIONS /api/auth/me` and
+`/api/supabase-proxy` with `Origin: https://memetic.fun` answered
+`Access-Control-Allow-Origin: https://memetic.fun` with `Allow-Credentials: true`.
+Five of those sets feed credentialed CORS: `supabase-proxy.js`, `auth/siwe.js`,
+`auth/me.js`, `v1/index.js`, and `_lib/aggregator-proxy.js`, which is the set for airdrop,
+alerts, botLink, commerce and referrals. `auth/siwe.js` derives its SIWE `domain` and `uri`
+allowlists from the same set, so a message a wallet signed *for* memetic.fun was
+redeemable here as a venue session.
+
+- Both hosts are removed from all eighteen sets. `memetics.finance`,
+  `www.memetics.finance` and `tegridyfarms.vercel.app` stay.
+- The `ALLOWED_ORIGIN` default in `alchemy.js`, `opensea.js`, `orderbook.js` and
+  `v1/index.js` was `https://memetic.fun`. That default is echoed to every origin that is
+  *not* allowlisted, so it handed memetic.fun its own name back anyway. It is now
+  `https://memetics.finance`.
+- `_lib/births.js` derives the hosts it will sign a `record_url` for from its origin set,
+  so it no longer signs a record on memetic.fun. `notifyBirth.ts` has minted on the
+  canonical host since #478.
+- [`canonical-origin.test.js`](frontend/api/__tests__/canonical-origin.test.js) now fails
+  the build if any `api/` file names memetic.fun in executable code. It also sends a real
+  preflight from both hosts to all ten directly routed handlers and asserts nothing is
+  granted, with the canonical origin as a control. `auth-siwe.test.js`,
+  `same-origin-gate.test.js`, `births.test.js` and the parity test pin the individual
+  legs. Mutation-checked: re-adding the host to `supabase-proxy.js` or the shared helper,
+  or restoring the v1 fallback, turns the suite red.
+- The Vercel domain bindings are unchanged, and production sets neither `ALLOWED_ORIGIN`
+  nor `ALLOWED_ORIGINS`, so no environment variable can add the host back.
+
 ### 2026-09-22
 
 - Staking cards say how the island reads a locked bag.
