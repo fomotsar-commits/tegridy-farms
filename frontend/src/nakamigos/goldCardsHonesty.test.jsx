@@ -103,6 +103,11 @@ afterEach(() => {
 });
 
 const bodyText = () => (document.body.textContent || "").replace(/\s+/g, " ");
+// A Blur link is one whose host is blur.io or a subdomain of it.
+const isBlurLink = (href) => {
+  const { hostname } = new URL(href ?? "", "https://venue.invalid/");
+  return hostname === "blur.io" || hostname.endsWith(".blur.io");
+};
 
 function withCollection(slug, node) {
   return (
@@ -255,7 +260,7 @@ describe("the Gold Cards trading view", () => {
     await waitFor(() => expect(bodyText()).toMatch(/JUNGLE BAY GOLD CARDS/));
     const footer = document.querySelector("footer");
     const hrefs = [...footer.querySelectorAll("a")].map((a) => a.getAttribute("href"));
-    expect(hrefs.some((h) => /blur\.io/.test(h))).toBe(false);
+    expect(hrefs.some(isBlurLink)).toBe(false);
     expect(hrefs).toContain("https://opensea.io/collection/junglebaygoldcards");
     expect(hrefs).toContain(`https://etherscan.io/address/${GOLD}`);
   });

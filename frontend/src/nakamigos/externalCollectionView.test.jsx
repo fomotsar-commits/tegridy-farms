@@ -155,6 +155,11 @@ function escapeRe(s) {
 const bodyText = () => (document.body.textContent || "").replace(/\s+/g, " ");
 const findInBody = (re, timeout = 3000) => waitFor(() => expect(bodyText()).toMatch(re), { timeout });
 const notInBody = (re) => expect(bodyText()).not.toMatch(re);
+// A Blur link is one whose host is blur.io or a subdomain of it.
+const isBlurLink = (href) => {
+  const { hostname } = new URL(href ?? "", "https://venue.invalid/");
+  return hostname === "blur.io" || hostname.endsWith(".blur.io");
+};
 
 const marketName = (slug) => EXPECTED_FAMILY[slug].market.name;
 const marketLinks = (slug, root = document.body) =>
@@ -245,7 +250,7 @@ describe("a view-only collection opens its own view", () => {
         const hrefs = [...footer.querySelectorAll("a")].map((a) => a.getAttribute("href"));
         expect(hrefs).toContain(EXPECTED_FAMILY[slug].market.collectionUrl);
         expect(hrefs).toContain(EXPECTED_FAMILY[slug].explorer.addressUrl);
-        expect(hrefs.some((h) => /blur\.io/.test(h))).toBe(false);
+        expect(hrefs.some(isBlurLink)).toBe(false);
         expect(footer.textContent).not.toMatch(/Seaport/);
         expect(footer.textContent).not.toMatch(/platform fee/i);
       });

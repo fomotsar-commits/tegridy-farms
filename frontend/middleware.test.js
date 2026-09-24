@@ -182,7 +182,8 @@ describe('the marketplace collection cards', () => {
     const m = new RegExp(`<meta (?:property|name)="${prop}" content="([^"]*)">`).exec(html);
     return m ? m[1] : null;
   };
-  const decode = (s) => String(s ?? '').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+  // &amp; goes last, so "&amp;quot;" decodes once, to "&quot;", and never on to '"'.
+  const decode = (s) => String(s ?? '').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
 
   it('the inline collection map matches the registry, key for key and name for name', async () => {
     const { OG_COLLECTIONS } = await load();
