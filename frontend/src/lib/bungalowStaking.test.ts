@@ -500,6 +500,25 @@ describe('unstakeAndCloseForfeitingRewards', () => {
     expect(unstakeAndClose).toHaveBeenCalledTimes(1);
   });
 
+  it('⚠️ a wallet switched mid-rescue closes nothing: the claims were chosen for the first account', async () => {
+    // The SDK reads invoker.publicKey on every call, and an adapter swaps it in place
+    // when the extension changes account, so later steps would act on the new one.
+    let key = 'StakerA';
+    const switching = { get publicKey() { return { toBase58: () => key }; } } as never;
+    claimRewards.mockImplementation(async () => { key = 'StakerB'; return { txId: 'CLAIM_SIG' }; });
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker: switching,
+      pool: poolWith([rp(0, 'fixed'), rp(1, 'dynamic')]),
+      entryNonce: 7,
+      entry: BROKEN_CLASSIC_LIVE_DYNAMIC,
+    });
+    expect(r.ok).toBe(false);
+    expect(claimRewards).toHaveBeenCalledTimes(1);
+    expect(unstakeAndClose).not.toHaveBeenCalled();
+    if (!r.ok) expect(r.reason).toMatch(/wallet changed/i);
+  });
+
   it('a NON-permanent failure still aborts — a dry vault is not a death certificate', async () => {
     claimRewards.mockRejectedValue(new Error('Error Code: RewardPoolDrained. Error Number: 6013.'));
     unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
