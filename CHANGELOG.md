@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-09-24
+
+- The security policy no longer puts memetic.fun in scope.
+
 ### 2026-09-22
 
 - Staking cards say how the island reads a locked bag.
