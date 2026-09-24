@@ -33,6 +33,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const repoRoot = join(process.cwd(), '..');
@@ -180,6 +181,36 @@ describe('CONTRACTS.md names the addresses that are actually deployed', () => {
       expect(DOCS['CONTRACTS.md'].toLowerCase()).toContain(constant(key));
     });
   }
+});
+
+describe('CONTRACTS.md names only source files the repo tracks', () => {
+  // /contracts links this doc as its mirror, and each Source cell is a path a reader
+  // opens on GitHub. git ls-files, not the filesystem: GitHub paths are case-exact.
+  const tracked = new Set(
+    execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 })
+      .split('\n')
+      .map((l) => l.trim()),
+  );
+  const cells: Array<[number, string]> = [];
+  let sourceCol = -1;
+  DOCS['CONTRACTS.md'].split('\n').forEach((line, i) => {
+    const cols = line.split('|').slice(1, -1).map((c) => c.trim());
+    if (!line.startsWith('|')) sourceCol = -1;
+    else if (sourceCol < 0) sourceCol = cols.indexOf('Source');
+    else if (cols[sourceCol]) cells.push([i + 1, cols[sourceCol]]);
+  });
+  const paths = cells.flatMap(([n, cell]) =>
+    [...cell.matchAll(/`([^`\s]+\.[a-z]+)`/g)].map((m) => [n, m[1]] as const),
+  );
+
+  it('reads the Source column of every contract table', () => {
+    expect(paths.length).toBeGreaterThan(20);
+  });
+
+  it('names a tracked file in every Source cell', () => {
+    const missing = paths.filter(([, p]) => !tracked.has(p)).map(([n, p]) => `CONTRACTS.md:${n} ${p}`);
+    expect(missing).toEqual([]);
+  });
 });
 
 describe('early-exit penalty is described the way the contract behaves', () => {
