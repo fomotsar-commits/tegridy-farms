@@ -81,7 +81,7 @@ const HISTORICAL_RECORD = [
   // protocols end to end. Do NOT reach for this list to silence a shape that fires
   // on a doc which DOES talk about us; narrowing the shape or fixing the sentence is
   // the answer there. Adding a file here is a claim that the file makes no claims.
-  /^novel-defi-yield-mechanisms\.md$/,
+  /^docs\/archive\/novel-defi-yield-mechanisms\.md$/,
 ];
 
 // A tempered gap: crosses ordinary words but refuses to step over a negator, so the
@@ -243,9 +243,9 @@ describe('published docs make no revenue claim the chain contradicts', () => {
     expect(files.length).toBeGreaterThan(40);
     for (const must of [
       'README.md',
-      'FAQ.md',
-      'CONTRACTS.md',
-      'TOKENOMICS.md',
+      'docs/FAQ.md',
+      'docs/CONTRACTS.md',
+      'docs/TOKENOMICS.md',
       'docs/banner.svg',
       'docs/COMMUNITY_LAUNCH.md',
       'docs/ARCHITECTURE.md',

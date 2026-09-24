@@ -87,8 +87,6 @@ const toweliSteps = [
   },
 ];
 
-const steps = isToweliVoice() ? toweliSteps : venueSteps;
-
 const variants = {
   enter: (dir: number) => ({ x: dir > 0 ? 120 : -120, opacity: 0 }),
   center: { x: 0, opacity: 1 },
@@ -117,6 +115,7 @@ export function OnboardingModal({
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
   const open = invited ? invitedOpen : autoOpen;
+  const steps = isToweliVoice() ? toweliSteps : venueSteps;
 
   const close = () => {
     try { localStorage.setItem(STORAGE_KEY, '1'); } catch { /* seen-marker only */ }

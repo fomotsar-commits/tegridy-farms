@@ -4,7 +4,7 @@ How to hand ownership of every Tegridy Farms contract from a single deployer EOA
 
 This is the single most consequential operational action in the protocol's lifetime. Done correctly, it removes single-key risk forever. Done incorrectly, it can brick admin authority on a $X TVL contract permanently. Read this end-to-end before doing anything on-chain.
 
-**Pre-reads:** [GOVERNANCE.md](./GOVERNANCE.md) (what the owner controls), [INCIDENT_RESPONSE.md](./INCIDENT_RESPONSE.md) (what happens when it breaks), [RELAUNCH_RUNBOOK.md](../RELAUNCH_RUNBOOK.md) (deploy ordering).
+**Pre-reads:** [GOVERNANCE.md](./GOVERNANCE.md) (what the owner controls), [INCIDENT_RESPONSE.md](./INCIDENT_RESPONSE.md) (what happens when it breaks), [RELAUNCH_RUNBOOK.md](archive/RELAUNCH_RUNBOOK.md) (deploy ordering).
 
 ---
 
@@ -14,7 +14,7 @@ This is the single most consequential operational action in the protocol's lifet
 
 **After** the post-relaunch smoke tests are all green and the contract set is stable. Migrating mid-redeploy means re-doing the migration on the new addresses.
 
-The sweet spot is the relaunch window itself: deploy → smoke-test → migrate → announce in one continuous session. See [RELAUNCH_RUNBOOK.md § Stage E](../RELAUNCH_RUNBOOK.md).
+The sweet spot is the relaunch window itself: deploy → smoke-test → migrate → announce in one continuous session. See [RELAUNCH_RUNBOOK.md § Stage E](archive/RELAUNCH_RUNBOOK.md).
 
 ---
 
@@ -134,7 +134,7 @@ cast call $ADDR "owner()(address)" --rpc-url $RPC
 
 If any contract returns a different owner (e.g. an old multisig, a CREATE2 proxy, zero), flag it. Special cases:
 
-- **TegridyFeeHook** (`0xB6cf…0044`): deployed via Arachnid CREATE2 proxy. Owner is the proxy (`0x4e59b44…`), not the deployer. **This contract requires a constructor patch + redeploy before it can be migrated.** Track in [NEXT_SESSION.md § Wave-0 redeploys](../NEXT_SESSION.md).
+- **TegridyFeeHook** (`0xB6cf…0044`): deployed via Arachnid CREATE2 proxy. Owner is the proxy (`0x4e59b44…`), not the deployer. **This contract requires a constructor patch + redeploy before it can be migrated.** Track in [NEXT_SESSION.md § Wave-0 redeploys](archive/NEXT_SESSION.md).
 - **Admin sister contracts** (`TegridyStakingAdmin`, `SwapFeeRouterAdmin`): own themselves via timelocked propose/execute. Migration is via their `proposeAdminReplacement(multisig)` → 7-day wait → `executeAdminReplacement()` flow, not direct `transferOwnership`. See [§7](#7-admin-sister-contracts).
 
 ### 4.3 Canonical owner-controlled list

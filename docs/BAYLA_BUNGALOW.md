@@ -56,8 +56,8 @@ skin. With `?bungalow=bayla` (or the picker):
 - **The URL format** — `memetics.finance/<bungalow>` is each bungalow's
   address. All 13 doors exist from day one (`BungalowDoor` + one route per
   island slug in App.tsx; `/towelie` is an alias for the `toweli` slug).
-  Visiting a door IS entering the bungalow: persist + in-place reload, the
-  address bar keeps the door path, and the picker now enters through doors
+  Visiting a door IS entering the bungalow: the skin switches in place with
+  no reload, the address bar keeps the door path, and the picker enters through doors
   so the format shows everywhere. Doors for not-yet-live bungalows render
   the current skin and start working the moment their slot flips live.
 - **In-venue BAYLA trading** — BAYLA is a featured BUY-side token on

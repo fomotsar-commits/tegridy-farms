@@ -153,6 +153,7 @@ describe('finding the invites the site ships', () => {
       '/public/push-sw.js',
       '/api/aggregator.js',
       '/scripts/render-bungalow-doors.mjs',
+      '/scripts/held-through.mjs',
       // Answer twelve's verification pass found these two shipped past the scan.
       // A file is in scope because its TEXT reaches a user, not because of where
       // it sits: the CSV is downloaded from the upload wizard (Step2_Upload.tsx
@@ -198,9 +199,14 @@ describe('CI runs the live check', () => {
       'if: ${{ !cancelled() }}',
       'run: node scripts/verify-discord-invites.mjs',
     ]);
-    // And nothing at the job level switches the whole job off or makes it advisory.
+    // At the job level only the docs scope gate may switch the job off, and it fails open;
+    // nothing makes the job advisory.
     const jobHead = job.slice(0, job.indexOf('steps:'));
-    expect(jobHead).not.toMatch(/^\s*if:/m);
+    const gates = jobHead.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('if:'));
+    expect(gates, 'only the docs scope gate may switch this job off').toEqual(['if: >-']);
+    expect(jobHead).toContain(
+      "!cancelled() &&\n      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')",
+    );
     expect(jobHead).not.toMatch(/continue-on-error/);
   });
 });

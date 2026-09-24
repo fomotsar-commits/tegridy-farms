@@ -205,7 +205,7 @@ export default function SecurityPage() {
             {/* Audit C-03: the prior "/audit-report.pdf" link was a 404; audit artifacts
                 live in the repo as markdown so they version with the code. */}
             <div className="flex flex-wrap gap-3 mt-5">
-              <a href={`${GITHUB_BLOB_BASE}/SECURITY_AUDIT_300_AGENT.md`}
+              <a href={`${GITHUB_BLOB_BASE}/docs/archive/SECURITY_AUDIT_300_AGENT.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors">
                 View Full Audit (GitHub)
@@ -232,28 +232,28 @@ export default function SecurityPage() {
             </p>
             <div className="flex flex-wrap gap-3">
               <a
-                href={`${GITHUB_BLOB_BASE}/.audit_101/PASS7_2026_05_03.md`}
+                href={`${GITHUB_BLOB_BASE}/docs/audits/audit_101/PASS7_2026_05_03.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
               >
                 Pass-7 audit + remediation (May 3)
               </a>
               <a
-                href={`${GITHUB_BLOB_BASE}/.audit_101/PASS6_2026_05_03.md`}
+                href={`${GITHUB_BLOB_BASE}/docs/audits/audit_101/PASS6_2026_05_03.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
               >
                 Pass-6 fresh-eyes audit (May 3)
               </a>
               <a
-                href={`${GITHUB_BLOB_BASE}/.audit_101/POST_REMEDIATION_LEDGER.md`}
+                href={`${GITHUB_BLOB_BASE}/docs/audits/audit_101/POST_REMEDIATION_LEDGER.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
               >
                 Post-remediation ledger (Apr 26)
               </a>
               <a
-                href={`${GITHUB_BLOB_BASE}/SECURITY_AUDIT_300_AGENT.md`}
+                href={`${GITHUB_BLOB_BASE}/docs/archive/SECURITY_AUDIT_300_AGENT.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors"
               >

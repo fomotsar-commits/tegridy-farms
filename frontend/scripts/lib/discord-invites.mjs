@@ -145,7 +145,7 @@ export function shippedFiles(frontendRoot) {
   // script: scripts/llms-txt.mjs reads it as the ledger and renders it into
   // dist/llms.txt. Scanning the writer while leaving its source unread is the
   // hole this list closes.
-  const single = ['index.html', 'vercel.json', 'middleware.js', 'scripts/render-bungalow-doors.mjs', 'scripts/llms-txt.mjs', 'scripts/addresses.json']
+  const single = ['index.html', 'vercel.json', 'middleware.js', 'scripts/render-bungalow-doors.mjs', 'scripts/llms-txt.mjs', 'scripts/held-through.mjs', 'scripts/addresses.json']
     .map((f) => join(frontendRoot, f))
     .filter((f) => {
       try { return statSync(f).isFile(); } catch { return false; }

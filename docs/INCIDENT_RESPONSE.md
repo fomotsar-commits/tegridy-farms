@@ -149,7 +149,7 @@ The order roughly mirrors latency, fastest first.
 5. **Direct user reports** — Twitter mentions, Discord #report-bug, the team via our community channels. Treat *every* report as potentially valid until proven otherwise.
 6. **External monitors** — DeFiLlama TVL drop, Etherscan label changes, Chainalysis tags. Slower but high-signal when they fire.
 
-Until Tenderly / Defender / Dune are live, the team is operating with detection sources 4–6 only. **This is itself a SEV-2-class operational gap** — see the open work in [NEXT_SESSION.md](../NEXT_SESSION.md) § Observability.
+Until Tenderly / Defender / Dune are live, the team is operating with detection sources 4–6 only. **This is itself a SEV-2-class operational gap** — see the open work in [NEXT_SESSION.md](archive/NEXT_SESSION.md) § Observability.
 
 ---
 

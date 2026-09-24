@@ -9,6 +9,7 @@ import { shortenAddress } from '../../lib/formatting';
 import { CopyButton } from '../ui/CopyButton';
 import { isToweliVoice, VENUE } from '../../lib/arrival';
 import { isToweliRoomPage } from '../../lib/routeVoice';
+import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 
 /**
  * Footer — four-column IA: Product / Resources / Community / Legal.
@@ -75,7 +76,8 @@ const TRUST_LINKS: { to: string; label: string }[] = [
 
 export function Footer() {
   // Jungle Bay bungalows: token-first footer identity (blurb + contract card)
-  // when the active bungalow carries one. Stable per document.
+  // when the active bungalow carries one, re-read when a door switches it.
+  useActiveBungalowId();
   // ANSWER EIGHT, ruling 1: THE DOOR DECIDES THE CHROME.
   //
   // getBungalowIdentity() reads ambient storage, never the route, so a

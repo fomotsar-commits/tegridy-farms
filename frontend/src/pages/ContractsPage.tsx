@@ -435,7 +435,7 @@ export default function ContractsPage() {
             Canonical, on-chain addresses for every memetics.finance contract, grouped by role. Source
             for every contract is linked below. Source mirrored from the repo{' '}
             <a
-              href={`${GITHUB_BLOB_BASE}/CONTRACTS.md`}
+              href={`${GITHUB_BLOB_BASE}/docs/CONTRACTS.md`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-white underline hover:text-white/70 transition-colors"

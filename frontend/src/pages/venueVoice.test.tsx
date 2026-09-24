@@ -301,7 +301,7 @@ describe('the venue-voiced PROSE speaks for the island, not for one resident', (
  * THE HOME SURFACE CARDS, WHICH DESCRIBE ROOMS THEY DO NOT OWN.
  *
  * ⚠️ READ THE GATE BEFORE READING THE COPY. This grid renders behind
- * `IS_TOWELI_ARRIVAL && !bungalowIdentity` (HomePage.tsx) — it is inside TOWELI's
+ * `isToweliArrival && !bungalowIdentity` (HomePage.tsx) — it is inside TOWELI's
  * own bungalow, and the ruling at the top of this file does NOT reach it. The
  * venue is not speaking here; a resident is, in his own house. The card beside
  * this one says "Stake TOWELI to earn now" (lpEmissions.farmCardDesc) and is

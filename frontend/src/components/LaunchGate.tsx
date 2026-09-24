@@ -1,16 +1,7 @@
-// THE DOOR. "Elsewhere the launch button is open to anyone with gas. Here it reads
-// held time, live, from an instrument nobody can argue with. Equally instant.
-// Opposite meaning."
-//
-// EXACTLY THREE VERDICT STATES — WARM / COLD / STALE. The spec is emphatic that there
-// are three, and a fourth would be a verdict the instrument never gave. The two
-// non-verdict states below (no wallet connected, reading in flight) are the absence of
-// a question, not an answer to one: neither claims anything about a wallet.
-//
-// THE COLD STATE RENDERS THE PHASE 1 HEAT CARD. That is the point of building the card
-// first — a cold builder sees exactly what the door measured and what warmth is, in the
-// same component, with the same tier words, as everywhere else on the site. "The door
-// explains itself; nobody DMs screenshots to a human."
+// The launch door: it reads held time live from the island before anything is signed.
+// Exactly three verdict states, WARM / COLD / STALE; no wallet and a read in flight are
+// the absence of a question, not a fourth answer. The COLD state renders the HeatCard, so
+// a cold builder sees what the door measured in the same words as everywhere else.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
@@ -24,13 +15,10 @@ import { GateAuditPanel } from './heat/GateAuditPanel';
 import { shortenAddress } from '../lib/formatting';
 
 /**
- * The message the wallet signs to prove it is theirs.
- *
- * SIGNING PROVES, NEVER SPENDS — and the message says so in words the signer reads in
- * their own wallet, because "sign this to continue" with opaque text is how people get
- * drained. There is no nonce and no server: this signature authenticates nothing to
- * anybody, it only binds the reading on screen to the wallet standing in front of the
- * door. Never send it anywhere, and never treat it as authorisation for anything.
+ * The message the wallet signs to prove it is theirs. Signing proves, never spends, and
+ * the message says so in the signer's own wallet. No nonce and no server: it only binds
+ * the reading on screen to the wallet at the door. Never send it anywhere, and never
+ * treat it as authorisation.
  */
 export function ownershipMessage(address: string, nowIso: string): string {
   return [
@@ -128,24 +116,9 @@ export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGatePr
           )}
         </p>
 
-        {/* WAVE SEVEN, element F: THE GATE READS A PASTED ADDRESS.
-            Before this the door had nothing to say to anyone without a wallet
-            connected, which is the state every first visitor arrives in: it
-            named held time as the thing that matters and then offered no way to
-            find out what yours is.
-
-            The instrument goes here whole, exactly as VenueHero mounts it — no
-            `address` prop, so it renders its own labelled field and reads
-            whatever is pasted. That is the element B card, not a second one.
-
-            IT READS; IT DOES NOT OPEN. Opening the lane needs a SIGNATURE
-            (`prove()` below), and a pasted address cannot sign — which is the
-            whole enforcement order this gate exists to hold: heat, then
-            custody, then the signature. A reading here is advisory and the copy
-            says so, because a visitor who sees WARM and then cannot launch
-            deserves to have been told why before they tried. The launch call
-            itself re-reads the CONNECTED wallet at submit
-            (`assertMayLaunch(cfg.userAddress)`), so nothing here can move it. */}
+        {/* The card reads a pasted address, as VenueHero mounts it. It reads; it does not
+            open: the lane needs the connected wallet's signature (heat, then custody, then
+            the signature), and the launch call re-reads that wallet at submit. */}
         <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <HeatCard variant="embedded" showEligibility />
           <p className="text-[12px] text-white/45 mt-3">
@@ -209,7 +182,7 @@ export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGatePr
             </div>
             <p className="text-[11.5px] text-white/45 leading-relaxed mt-3">
               Warmth is held time. It accrues by holding tokens the island measures and holding them
-              across time — it cannot be bought, and a larger bag does not buy it faster. Nobody
+              across time. Size can raise what a day is worth, it cannot buy a day. Nobody
               approves this by hand and there is nobody to ask: the door reads the instrument, and so can you.
             </p>
             {/* The denied wallet is standing HERE, so the record of what it was denied on
