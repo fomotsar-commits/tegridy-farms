@@ -6,6 +6,7 @@ import type { ArtPiece } from '../../lib/artConfig';
 // be rejected by safeUrl()'s https/ipfs/ar/data: allowlist (which exists for
 // untrusted on-chain URIs). onError still falls back to PLACEHOLDER_NFT.
 import { PLACEHOLDER_NFT } from '../../lib/imageSafety';
+import { OverlayPortal } from './OverlayPortal';
 
 interface ArtLightboxProps {
   pieces: ArtPiece[];
@@ -122,7 +123,12 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
     else handlePrev();
   }, [handleNext, handlePrev]);
 
+  /* Through OverlayPortal: this dialog is opened BY A PAGE, so without it the
+     whole thing painted inside AppLayout's `relative z-10` wrapper and the app
+     header and the phone tab bar were drawn on top of the artwork — and stayed
+     tappable over it. See OverlayPortal.tsx for the measurement. */
   return (
+    <OverlayPortal>
     <AnimatePresence>
       {isOpen && piece && (
         <m.div
@@ -173,5 +179,6 @@ export function ArtLightbox({ pieces, selectedIndex, onClose, onNavigate }: ArtL
         </m.div>
       )}
     </AnimatePresence>
+    </OverlayPortal>
   );
 }

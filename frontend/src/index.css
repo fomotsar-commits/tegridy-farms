@@ -167,6 +167,54 @@
   }
 }
 
+/* A FORM CONTROL MUST BE ABLE TO SHRINK WHEN IT IS A FLEX ITEM.
+   A flex item's default `min-width: auto` resolves to its MIN-CONTENT size, and
+   for <input>/<select>/<textarea> that is an INTRINSIC default (roughly 20
+   characters) rather than anything the layout asked for. So the classic
+   "amount field + MAX button" row cannot be satisfied on a narrow phone: the
+   input refuses to go below ~215px, and whatever sits beside it is pushed out
+   of the row and paints outside it. Measured on /farm at 360px: a 244px row
+   holding a 215px input, an 8px gap and a 47px MAX button — 270px of content,
+   with the button's label printed 14px past the row's edge.
+   `min-width: 0` is a no-op everywhere else: for a box that is NOT a flex or
+   grid item, `min-width: auto` already computes to 0. And it is only a DEFAULT —
+   the deliberate floors in the app (`min-w-[140px]` on the vote-incentive
+   inputs, for instance) are classes and still win.
+   This is one rule instead of `min-w-0` on the ~18 `flex-1` inputs in the app,
+   and unlike those it also covers the next one somebody writes. */
+input,
+select,
+textarea {
+  min-width: 0;
+}
+
+/* A BOTTOM-FIXED BANNER MUST CLEAR THE BOTTOM NAV, NOT BURY IT.
+   WalletConnectWatchdog is `fixed bottom-0` and sits above RainbowKit's modal,
+   so it comfortably outranks BottomNav's z-50 and painted across the whole
+   Swap/Pools/Earn/Check bar: after a wallet stall, the app's navigation was
+   simply gone underneath the advisory.
+   The consent ask had the identical defect at z-[120] and is NOT fixed by this
+   rule — wave eight answered it by deleting the overlay, so the ask is an
+   in-flow footer row now (ui/ConsentRow.tsx). That is the better fix where it
+   is available; this class is for the overlays that must stay overlays.
+   The 799px edge and the 5rem band are deliberately the SAME ones
+   .safe-area-content-bottom above uses. That makes this one more site in the
+   set that must move together whenever BottomNav's breakpoint moves — TopNav.tsx
+   enumerates that set; add this rule to it rather than re-deriving the number.
+   It sets padding-bottom OUTRIGHT rather than leaving a `pb-*` utility in
+   place, because both components also set `paddingBottom` inline — and an
+   inline style beats any class, so a Tailwind-only fix here is a silent no-op.
+   Those inline declarations were removed with this rule; the `max(1rem, …)`
+   floor they carried is the >=800px case below. */
+.clears-bottom-nav {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+}
+@media (max-width: 799px) {
+  .clears-bottom-nav {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 /* Prevent iOS zoom on input focus (inputs must be >= 16px) */
 @media (max-width: 767px) {
   input, select, textarea {

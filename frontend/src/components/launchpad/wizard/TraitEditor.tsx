@@ -5,6 +5,7 @@ import { ArtCard } from '../launchpadShared';
 import { pageArt } from '../../../lib/artConfig';
 import { BTN_EMERALD, INPUT, LABEL } from '../launchpadConstants';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
+import { OverlayPortal } from '../../ui/OverlayPortal';
 
 export function TraitEditor({
   row,
@@ -65,7 +66,11 @@ export function TraitEditor({
     });
   };
 
+  /* OverlayPortal: opened by a PAGE, so without it this dialog renders inside
+     AppLayout's `relative z-10` wrapper and the app header and phone tab bar
+     paint over it — and stay tappable through it. See OverlayPortal.tsx. */
   return (
+    <OverlayPortal>
     <m.div
       ref={dialogRef}
       tabIndex={-1}
@@ -184,5 +189,6 @@ export function TraitEditor({
         </ArtCard>
       </m.div>
     </m.div>
+    </OverlayPortal>
   );
 }

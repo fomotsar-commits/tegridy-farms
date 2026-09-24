@@ -162,6 +162,46 @@ export function AppLayout() {
   // guard is structurally unreachable dead code.
   const wrongNetwork = isConnected && walletChainId != null && !isChainConfigured(walletChainId);
 
+  /**
+   * PUBLISH THE BANNER'S HEIGHT SO THE TAB STRIP CAN GET OUT OF ITS WAY.
+   *
+   * The banner below is `sticky` at the header offset with z-50, and it lives
+   * inside this wrapper's z-10 stacking context — the same one that holds
+   * RouteTabs' `fixed` z-30 strip. z-50 beats z-30, so while the banner was up
+   * it painted straight across the section tabs on all nine tabbed hosts, and
+   * the only way to the rest of a section was to switch networks first.
+   *
+   * A constant will not do: the copy wraps to one line on a desktop and three
+   * at 390px, and the height changes again with the "Switch network" button. So
+   * the banner measures itself and RouteTabs adds `--chrome-banner-h` to its own
+   * `top`. Unset — which is every ordinary page load — it resolves to 0px and
+   * the strip sits exactly where it always did.
+   */
+  const bannerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = document.documentElement;
+    const clear = () => root.style.removeProperty('--chrome-banner-h');
+    if (!wrongNetwork) {
+      clear();
+      return;
+    }
+    const el = bannerRef.current;
+    if (!el) {
+      clear();
+      return;
+    }
+    const publish = () =>
+      root.style.setProperty('--chrome-banner-h', `${Math.round(el.getBoundingClientRect().height)}px`);
+    publish();
+    if (typeof ResizeObserver === 'undefined') return clear;
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      clear();
+    };
+  }, [wrongNetwork]);
+
   useEffect(() => {
     if (isConnected && connector?.name) trackWalletConnect(connector.name);
   }, [isConnected, connector?.name]);
@@ -261,6 +301,7 @@ export function AppLayout() {
             it fixed in the first place: it stays visible as the page scrolls. */}
         {wrongNetwork && (
           <div
+            ref={bannerRef}
             className="sticky z-50 bg-red-600/95 backdrop-blur-sm text-white text-center py-2 px-4 text-[12px] md:text-[13px] font-medium shadow-lg"
             style={{
               top: 'calc(56px + env(safe-area-inset-top, 0px))',

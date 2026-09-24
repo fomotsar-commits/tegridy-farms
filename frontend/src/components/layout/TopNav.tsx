@@ -503,7 +503,22 @@ export const TopNav = React.memo(function TopNav() {
       <AnimatePresence>
         {open && (
           <>
-            <m.div className="fixed inset-0 z-50 bg-black/50 min-[800px]:hidden"
+            {/* z-[70], NOT z-50, ON BOTH THE BACKDROP AND THE PANEL BELOW.
+                Two things were being painted over an open drawer, and both are
+                siblings of it that come LATER in AppLayout — at equal z-index
+                document order decides, so neither needed a higher number to win:
+                  · BottomNav, z-50 — the Swap/Pools/Earn/Check bar was drawn
+                    across the bottom ~64px + safe area of both the dim backdrop
+                    AND the panel, which on a short phone is where the drawer's
+                    last rows sit.
+                  · TowelieAssistant, z-[60] (AppLayout renders it last) — the
+                    floating bubble sat on the drawer's bottom-right corner. That
+                    one predates this fix and z-[60] would not have cleared it.
+                70 clears both. The things that SHOULD outrank a nav drawer are far
+                above it and stay there: ConsentBanner z-[120], the wallet watchdog
+                above the RainbowKit modal, TransactionReceipt z-[9999], and any
+                dialog that goes through ui/OverlayPortal. */}
+            <m.div className="fixed inset-0 z-[70] bg-black/50 min-[800px]:hidden"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setOpen(false)} />
             <m.div
@@ -511,7 +526,7 @@ export const TopNav = React.memo(function TopNav() {
               role="dialog"
               aria-modal="true"
               aria-label="Navigation menu"
-              className="fixed right-0 top-0 bottom-0 z-50 w-56 min-[800px]:hidden flex flex-col overflow-hidden"
+              className="fixed right-0 top-0 bottom-0 z-[70] w-56 min-[800px]:hidden flex flex-col overflow-hidden"
               style={{ background: 'var(--color-bg-surface)', borderLeft: '1px solid var(--color-purple-75)' }}
               initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}>
