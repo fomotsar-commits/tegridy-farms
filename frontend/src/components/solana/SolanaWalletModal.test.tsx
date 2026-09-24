@@ -293,17 +293,54 @@ describe('useSolanaConnect — a saved wallet that is not installed', () => {
     expect(open).not.toHaveBeenCalled();
   });
 
-  it('still connects a saved wallet that is reachable, without the list', async () => {
-    localStorage.setItem('walletName', JSON.stringify('Trust'));
-    const trust = new FakeWallet('Trust', WalletReadyState.Loadable);
-    mount([new FakeWallet('Phantom', WalletReadyState.NotDetected), trust]);
+  it('still connects a saved INSTALLED wallet directly, without the list', async () => {
+    localStorage.setItem('walletName', JSON.stringify('Phantom'));
+    const phantom = new FakeWallet('Phantom', WalletReadyState.Installed);
+    mount([phantom, new FakeWallet('Trust', WalletReadyState.NotDetected)]);
     // Let the mount-time restore of the saved wallet finish: while it runs the
     // provider reports `connecting`, and the hook rightly opens the list then.
     await act(async () => {
       await Promise.resolve();
     });
     fireEvent.click(screen.getByRole('button', { name: 'connect' }));
-    await waitFor(() => expect(trust.connectCalls).toBe(1));
+    await waitFor(() => expect(phantom.connectCalls).toBe(1));
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+describe('useSolanaConnect — a saved "Open app" wallet on a phone', () => {
+  // A phone visitor tapped "MetaMask — Open app" without the MetaMask app.
+  // The handoff returns without throwing, so the choice stays saved. Before
+  // the fix every later Connect tap handed them to MetaMask again and the
+  // list never came back; the BAYLA cards have no other way to reach it.
+  it('opens the list instead of handing the page to the app again', async () => {
+    localStorage.setItem('walletName', JSON.stringify('MetaMask'));
+    const metamask = new FakeWallet('MetaMask', WalletReadyState.Loadable);
+    mount([new FakeWallet('Phantom', WalletReadyState.Loadable), metamask]);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'connect' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(metamask.connectCalls).toBe(0);
+    // Someone who does have the app gets there from the list, one tap later.
+    fireEvent.click(within(dialog).getByText('MetaMask'));
+    await waitFor(() => expect(metamask.connectCalls).toBe(1));
+  });
+
+  it('and picking a different wallet from that list is possible', async () => {
+    localStorage.setItem('walletName', JSON.stringify('MetaMask'));
+    const phantom = new FakeWallet('Phantom', WalletReadyState.Loadable);
+    const metamask = new FakeWallet('MetaMask', WalletReadyState.Loadable);
+    mount([phantom, metamask]);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'connect' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByText('Phantom'));
+    await waitFor(() => expect(phantom.connectCalls).toBe(1));
+    expect(metamask.connectCalls).toBe(0);
+    expect(JSON.parse(localStorage.getItem('walletName') ?? 'null')).toBe('Phantom');
   });
 });

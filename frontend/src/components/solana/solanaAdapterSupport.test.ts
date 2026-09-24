@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import {
   CoinbaseWalletAdapter,
+  IPadAwarePhantomWalletAdapter,
   MetaMaskWalletAdapter,
   TrustWalletAdapter,
 } from '../../lib/solanaWallets';
@@ -47,7 +48,7 @@ import type { Adapter } from '@solana/wallet-adapter-base';
  * change — a legacy adapter absent from this list is an unguarded one.
  */
 const LEGACY_ADAPTERS: ReadonlyArray<readonly [name: string, adapter: () => Adapter]> = [
-  ['Phantom', () => new PhantomWalletAdapter() as unknown as Adapter],
+  ['Phantom', () => new IPadAwarePhantomWalletAdapter() as unknown as Adapter],
   ['Trust', () => new TrustWalletAdapter() as unknown as Adapter],
   ['MetaMask', () => new MetaMaskWalletAdapter() as unknown as Adapter],
   ['Coinbase Wallet', () => new CoinbaseWalletAdapter() as unknown as Adapter],
@@ -84,7 +85,12 @@ describe('Solana legacy adapters can send what this venue sends', () => {
     const mounted = [...source.matchAll(/new\s+(\w+WalletAdapter)\(/g)].map((m) => m[1]);
     expect(mounted.length).toBeGreaterThan(0);
     expect(new Set(mounted)).toEqual(
-      new Set(['PhantomWalletAdapter', 'TrustWalletAdapter', 'MetaMaskWalletAdapter', 'CoinbaseWalletAdapter']),
+      new Set([
+        'IPadAwarePhantomWalletAdapter',
+        'TrustWalletAdapter',
+        'MetaMaskWalletAdapter',
+        'CoinbaseWalletAdapter',
+      ]),
     );
     expect(mounted.length).toBe(LEGACY_ADAPTERS.length);
   });

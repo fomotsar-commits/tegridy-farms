@@ -13,28 +13,30 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
  * localStorage under `walletName`), re-picking it in the modal is a silent
  * no-op — WalletProvider.changeWallet early-returns on the same name, so no
  * adapter change fires and the auto-connect effect never runs. Only a direct
- * connect() call reaches the adapter again. That call is also what makes the
- * Loadable state work: on a phone browser it deep-links the current URL into
- * the wallet's in-app browser. Errors are surfaced by the provider's error
- * handler, so they are deliberately swallowed here, exactly like upstream.
- * (Do NOT pass an onError to WalletProvider without re-implementing its
- * WalletNotReadyError branch, which opens adapter.url.)
+ * connect() call reaches the adapter again. Errors are surfaced by the
+ * provider's error handler, so they are deliberately swallowed here, exactly
+ * like upstream. (Do NOT pass an onError to WalletProvider without
+ * re-implementing its WalletNotReadyError branch, which opens adapter.url.)
  *
- * A selected wallet that is NOT installed here opens the list instead
- * (2026-09-24). Upstream calls connect() on it, which opens the install page
- * — and because the choice is saved in localStorage, every later Connect
- * click did the same and the list never came back. A visitor who once tapped
- * the wrong wallet could not pick another one from the BAYLA card, which has
- * no "pick another wallet" link. The list shows that wallet with its own
- * Install link.
+ * ONLY AN INSTALLED WALLET IS CONNECTED DIRECTLY (2026-09-24). Every other
+ * saved wallet opens the list, where tapping it again does the same thing a
+ * direct connect() would (SolanaWalletModal connects the selected row). The
+ * reason is the saved choice: it lives in localStorage, and upstream clears
+ * it only when connect() THROWS. Two states never throw, and each one turned
+ * the Connect button into a trap with no way back to the list — the BAYLA
+ * cards have no "pick another wallet" link:
+ *  - NotDetected: connect() opened the wallet's install page, on every click;
+ *  - Loadable (every offered wallet in a phone browser): connect() hands the
+ *    page to the wallet's app and returns. Someone who tapped "MetaMask" with
+ *    no MetaMask app was sent to MetaMask on every later click, and on every
+ *    visit after, while the list they needed never opened again.
+ * The cost is one extra tap for someone who really does have that app.
  */
 export function useSolanaConnect() {
   const { wallet, connected, connecting, connect } = useWallet();
   const { setVisible } = useWalletModal();
   return useCallback(() => {
-    const reachable =
-      wallet?.readyState === WalletReadyState.Installed || wallet?.readyState === WalletReadyState.Loadable;
-    if (wallet && reachable && !connected && !connecting) {
+    if (wallet?.readyState === WalletReadyState.Installed && !connected && !connecting) {
       connect().catch(() => {
         /* surfaced by the provider's error handler */
       });

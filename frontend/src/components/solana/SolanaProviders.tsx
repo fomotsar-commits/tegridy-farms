@@ -2,8 +2,12 @@
 import '../../lib/solanaPolyfill';
 import { useMemo, type ReactNode } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
-import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
-import { CoinbaseWalletAdapter, MetaMaskWalletAdapter, TrustWalletAdapter } from '../../lib/solanaWallets';
+import {
+  CoinbaseWalletAdapter,
+  IPadAwarePhantomWalletAdapter,
+  MetaMaskWalletAdapter,
+  TrustWalletAdapter,
+} from '../../lib/solanaWallets';
 // VENDORED, not the package css: the upstream file opens with a Google-Fonts
 // @import that the CSP blocks, and Vite 8 turned that block into a fatal
 // CSS-preload failure — every Solana-stack page crashed in prod (2026-08-26).
@@ -24,7 +28,8 @@ import { SolanaWalletModalProvider } from './SolanaWalletModal';
  * Safari (readyState=Loadable → connect() deep-links the current URL into
  * Phantom's in-app browser via phantom.app/ul/browse). When the extension IS
  * present, useStandardWalletAdapters drops this adapter by name ("Phantom"),
- * so the modal never shows a duplicate entry.
+ * so the modal never shows a duplicate entry. It is upstream's adapter behind a
+ * one-getter subclass that also recognises an iPad (lib/solanaWallets.ts).
  *
  * Trust is here for exactly the same reasons, plus one of its own: it is the
  * wallet a Solana staker on this island most often arrives with, and until
@@ -48,7 +53,7 @@ export function SolanaProviders({ children }: { children: ReactNode }) {
   const endpoint = useMemo(() => solanaRpcEndpoint(), []);
   const wallets = useMemo(
     () => [
-      new PhantomWalletAdapter(),
+      new IPadAwarePhantomWalletAdapter(),
       new TrustWalletAdapter(),
       new MetaMaskWalletAdapter(),
       new CoinbaseWalletAdapter(),

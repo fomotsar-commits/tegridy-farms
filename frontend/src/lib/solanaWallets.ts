@@ -29,6 +29,7 @@ import {
   type TransactionSignature,
   type VersionedTransaction,
 } from '@solana/web3.js';
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import { METAMASK_ICON, TRUST_ICON } from './walletIcons';
 
 /**
@@ -125,13 +126,68 @@ function trustProvider(): TrustSolanaProvider | undefined {
  * browser. The Android half is the same idea with Android's own tell — a
  * WebView UA carries "; wv". Callers must ALSO check that no Trust provider is
  * injected; a redirect out of Trust's own browser would be a loop.
+ *
+ * iPad (2026-09-24): since iPadOS 13, iPad Safari sends a UA byte-identical to
+ * a Mac's, with no "ipad" in it, so the iOS branch above was unreachable there
+ * and every iPad row read "Install" even with the app on the device. The tell
+ * that separates the two is touch: a Mac reports maxTouchPoints 0. The
+ * "safari" requirement still applies, so an in-app WKWebView on iPad (no
+ * "safari" token) is not bounced. Upstream Phantom's own helper has the same
+ * blind spot; IPadAwarePhantomWalletAdapter below covers it.
  */
 function isMobileAndRedirectable(): boolean {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent.toLowerCase();
-  if (ua.includes('iphone') || ua.includes('ipad')) return ua.includes('safari');
+  if (ua.includes('iphone') || ua.includes('ipad') || isDesktopClassIPad()) return ua.includes('safari');
   if (ua.includes('android')) return !ua.includes('; wv');
   return false;
+}
+
+/** iPadOS 13+ Safari: a Mac's user agent, on a device that reports touch. */
+function isDesktopClassIPad(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return navigator.userAgent.toLowerCase().includes('macintosh') && (navigator.maxTouchPoints ?? 0) > 1;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phantom on iPad
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Upstream's PhantomWalletAdapter, unchanged except on an iPad.
+ *
+ * Upstream decides "open the page inside Phantom" with isIosAndRedirectable,
+ * which looks for "iphone"/"ipad" in the user agent. iPad Safari has sent a
+ * Mac's user agent since iPadOS 13, so on an iPad Phantom read "Install" and a
+ * tap opened phantom.app, even with the app on the device — the same blind
+ * spot fixed for Trust, MetaMask and Coinbase in isMobileAndRedirectable
+ * above. This subclass reports Loadable in exactly that case. Everything else
+ * is upstream's: its connect() and autoConnect() both read `this.readyState`,
+ * so the deep link (phantom.app/ul/browse/...) and the no-redirect-on-page-load
+ * guard follow from this one getter. The name stays "Phantom", so Phantom's
+ * own Wallet Standard registration still replaces it wherever it exists.
+ */
+export class IPadAwarePhantomWalletAdapter extends PhantomWalletAdapter {
+  override get readyState(): WalletReadyState {
+    const upstream = super.readyState;
+    if (upstream === WalletReadyState.NotDetected && isMobileAndRedirectable() && isDesktopClassIPad() && !phantomInjected()) {
+      return WalletReadyState.Loadable;
+    }
+    return upstream;
+  }
+}
+
+/**
+ * Any sign of Phantom's Solana provider. Deliberately LOOSER than upstream's
+ * Installed test (adapter.js also requires window.isPhantomInstalled): this
+ * only decides whether to offer a hop INTO Phantom, and any trace of its
+ * provider means the page is already inside Phantom, where that hop would
+ * be a loop.
+ */
+function phantomInjected(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = window as unknown as { phantom?: { solana?: { isPhantom?: boolean } }; solana?: { isPhantom?: boolean } };
+  return Boolean(w.phantom?.solana?.isPhantom || w.solana?.isPhantom);
 }
 
 /**
@@ -403,6 +459,24 @@ export const MetaMaskWalletName = 'MetaMask' as WalletName<'MetaMask'>;
 const METAMASK_DAPP_LINK = 'https://metamask.app.link/dapp/';
 
 /**
+ * The page's own query string, minus any key Branch (metamask.app.link's link
+ * host) reads as an instruction — `$fallback_url`, `$ios_url`, `~channel`,
+ * `+clicked_branch_link` and the rest all start with `$`, `~` or `+`. The
+ * target is written into the link unencoded, so the page's query BECOMES the
+ * link's query; without this a crafted link to our own page could ask Branch
+ * to send a visitor with no MetaMask app somewhere else. No page of ours uses
+ * such a key, so nothing real is lost.
+ */
+function searchWithoutBranchKeys(search: string): string {
+  const params = new URLSearchParams(search);
+  for (const key of [...params.keys()]) {
+    if (/^[$~+]/.test(key)) params.delete(key);
+  }
+  const kept = params.toString();
+  return kept ? `?${kept}` : '';
+}
+
+/**
  * MetaMask on the Solana modal — a deep-link row, never a signer.
  *
  * Why no package: `@metamask/connect-solana` registers a Wallet Standard
@@ -476,7 +550,7 @@ export class MetaMaskWalletAdapter extends BaseMessageSignerWalletAdapter {
     try {
       if (this._readyState === WalletReadyState.Loadable) {
         const { host, pathname, search } = window.location;
-        window.location.href = `${METAMASK_DAPP_LINK}${host}${pathname}${search}`;
+        window.location.href = `${METAMASK_DAPP_LINK}${host}${pathname}${searchWithoutBranchKeys(search)}`;
         return;
       }
       throw new WalletNotReadyError();

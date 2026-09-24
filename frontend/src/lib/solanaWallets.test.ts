@@ -9,6 +9,7 @@ import {
 import {
   CoinbaseWalletAdapter,
   CoinbaseWalletName,
+  IPadAwarePhantomWalletAdapter,
   MetaMaskWalletAdapter,
   MetaMaskWalletName,
   TrustWalletAdapter,
@@ -42,6 +43,16 @@ const UA = {
 function setUserAgent(ua: string) {
   Object.defineProperty(window.navigator, 'userAgent', { value: ua, configurable: true });
 }
+
+function setTouchPoints(n: number) {
+  Object.defineProperty(window.navigator, 'maxTouchPoints', { value: n, configurable: true });
+}
+
+// iPadOS 13+ Safari sends exactly a Mac's UA; only touch tells them apart.
+const MAC_SAFARI_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15';
+// An in-app WKWebView on that iPad: same UA shape, but no Safari token.
+const IPAD_WEBVIEW_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)';
 
 /** Replace location with a plain object so href assignment is observable. */
 function setLocation(href: string) {
@@ -92,6 +103,7 @@ function injectTrust(overrides: Partial<FakeProvider> = {}): FakeProvider {
 beforeEach(() => {
   setLocation(PAGE);
   setUserAgent(UA.desktopChrome);
+  setTouchPoints(0);
   delete (window as unknown as { trustwallet?: unknown }).trustwallet;
   delete (window as unknown as { coinbaseSolana?: unknown }).coinbaseSolana;
   delete (window as unknown as { ethereum?: unknown }).ethereum;
@@ -463,5 +475,118 @@ describe('CoinbaseWalletAdapter', () => {
     await adapter.connect();
     provider.emit('disconnect');
     expect(adapter.connected).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// iPad, and MetaMask's link host
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('iPad Safari (a Mac user agent with touch)', () => {
+  it.each([
+    ['Trust', () => new TrustWalletAdapter()],
+    ['MetaMask', () => new MetaMaskWalletAdapter()],
+    ['Coinbase Wallet', () => new CoinbaseWalletAdapter()],
+  ])('%s is Loadable on an iPad, so the row opens the app instead of "Install"', (_name, make) => {
+    setUserAgent(MAC_SAFARI_UA);
+    setTouchPoints(5);
+    expect(make().readyState).toBe(WalletReadyState.Loadable);
+  });
+
+  it.each([
+    ['Trust', () => new TrustWalletAdapter()],
+    ['MetaMask', () => new MetaMaskWalletAdapter()],
+    ['Coinbase Wallet', () => new CoinbaseWalletAdapter()],
+  ])('%s stays NotDetected on a real Mac, and in an in-app webview on iPad', (_name, make) => {
+    setUserAgent(MAC_SAFARI_UA);
+    setTouchPoints(0);
+    expect(make().readyState).toBe(WalletReadyState.NotDetected);
+    setUserAgent(IPAD_WEBVIEW_UA);
+    setTouchPoints(5);
+    expect(make().readyState).toBe(WalletReadyState.NotDetected);
+  });
+});
+
+describe('MetaMaskWalletAdapter — the link host cannot be steered', () => {
+  it('drops query keys the link host reads as redirect instructions, keeps ours', async () => {
+    // metamask.app.link is a Branch link. Branch treats `$…`, `~…` and `+…`
+    // keys as its own settings — `$fallback_url` among them — and the page's
+    // query is copied straight into the link.
+    setLocation(
+      'https://memetics.finance/farm?bungalow=bayla&$fallback_url=https%3A%2F%2Fevil.example&~channel=x&%2Bnon_branch_link=y&$ios_url=z',
+    );
+    setUserAgent(UA.iosSafari);
+    await new MetaMaskWalletAdapter().connect();
+    expect(window.location.href).toBe('https://metamask.app.link/dapp/memetics.finance/farm?bungalow=bayla');
+  });
+
+  it('a page with no query gets a link with no query', async () => {
+    setLocation('https://memetics.finance/solana');
+    setUserAgent(UA.iosSafari);
+    await new MetaMaskWalletAdapter().connect();
+    expect(window.location.href).toBe('https://metamask.app.link/dapp/memetics.finance/solana');
+  });
+});
+
+describe('IPadAwarePhantomWalletAdapter — upstream Phantom, plus the iPad', () => {
+  afterEach(() => {
+    delete (window as unknown as { phantom?: unknown }).phantom;
+    delete (window as unknown as { isPhantomInstalled?: unknown }).isPhantomInstalled;
+  });
+
+  it('keeps the name "Phantom", so Phantom’s own registration still replaces it', () => {
+    expect(new IPadAwarePhantomWalletAdapter().name).toBe('Phantom');
+  });
+
+  it('an iPad (Mac UA with touch) is Loadable and opens the page inside Phantom', async () => {
+    setLocation(BAYLA_CARD);
+    setUserAgent(MAC_SAFARI_UA);
+    setTouchPoints(5);
+    const adapter = new IPadAwarePhantomWalletAdapter();
+    expect(adapter.readyState).toBe(WalletReadyState.Loadable);
+    await adapter.connect();
+    expect(window.location.href).toBe(
+      `https://phantom.app/ul/browse/${encodeURIComponent(BAYLA_CARD)}?ref=${encodeURIComponent('https://memetics.finance')}`,
+    );
+  });
+
+  it('autoConnect on an iPad never navigates', async () => {
+    setLocation(BAYLA_CARD);
+    setUserAgent(MAC_SAFARI_UA);
+    setTouchPoints(5);
+    await new IPadAwarePhantomWalletAdapter().autoConnect();
+    expect(window.location.href).toBe(BAYLA_CARD);
+  });
+
+  it('a real Mac, and an in-app webview on iPad, stay NotDetected', () => {
+    setUserAgent(MAC_SAFARI_UA);
+    setTouchPoints(0);
+    expect(new IPadAwarePhantomWalletAdapter().readyState).toBe(WalletReadyState.NotDetected);
+    setUserAgent(IPAD_WEBVIEW_UA);
+    setTouchPoints(5);
+    expect(new IPadAwarePhantomWalletAdapter().readyState).toBe(WalletReadyState.NotDetected);
+  });
+
+  it('inside Phantom on an iPad (provider injected) it is Installed, never a loop', () => {
+    setUserAgent(MAC_SAFARI_UA);
+    setTouchPoints(5);
+    // What Phantom's in-app browser injects; upstream needs both flags.
+    (window as unknown as { isPhantomInstalled?: boolean }).isPhantomInstalled = true;
+    (window as unknown as { phantom?: unknown }).phantom = { solana: { isPhantom: true } };
+    const adapter = new IPadAwarePhantomWalletAdapter();
+    vi.advanceTimersByTime(1100);
+    expect(adapter.readyState).toBe(WalletReadyState.Installed);
+  });
+
+  it('a half-injected Phantom (no isPhantomInstalled yet) is not offered the hop', () => {
+    setUserAgent(MAC_SAFARI_UA);
+    setTouchPoints(5);
+    (window as unknown as { phantom?: unknown }).phantom = { solana: { isPhantom: true } };
+    expect(new IPadAwarePhantomWalletAdapter().readyState).not.toBe(WalletReadyState.Loadable);
+  });
+
+  it('an iPhone still takes upstream’s own path', () => {
+    setUserAgent(UA.iosSafari);
+    expect(new IPadAwarePhantomWalletAdapter().readyState).toBe(WalletReadyState.Loadable);
   });
 });
