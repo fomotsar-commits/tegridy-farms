@@ -34,6 +34,7 @@ ships; a tagged release will cut from here once Wave 0 redeploys are complete.
 ### 2026-09-22
 
 - Staking cards say how the island reads a locked bag.
+- The heat explainer reads the island's sentences.
 
 ### Security — External audit CSV remediated, and ten failed reads that rendered as facts (2026-09-04)
 

@@ -18,6 +18,7 @@ import {
   componentUnread,
   deployerReadFrom,
   distributionReadFrom,
+  heatReadFrom,
   isKnownSafe,
   passesSafetyFilter,
   safetyBadge,
@@ -31,6 +32,7 @@ import {
   type RowSafety,
   type SafetyFilter,
 } from './rowSafety';
+import { parseHeatReading } from '../heat/heatOracle';
 import type { DeployerReputation } from '../detection/deployerReputation';
 import type { DistributionAnalysis } from '../detection';
 
@@ -616,5 +618,14 @@ describe('the buy acknowledgement cannot contradict the badge beside it', () => 
     expect(safety.kind === 'scored' && safety.observed).toBe('clean');
     expect(buyAcknowledgement(safety)).toMatch(/carries no safety result/i);
     expect(safetyBadge(safety).tone).toBe('unknown');
+  });
+});
+
+describe('the heat standing carries the tier the island served', () => {
+  it('reads 95 degrees served as Observer as Observer, where the bands would say Resident', () => {
+    const read = heatReadFrom(
+      parseHeatReading({ address: '0xabc', degrees: 95, tier: 'Observer', is_cold: false, as_of_unix: 1, breakdown: [] }),
+    );
+    expect(read.state === 'read' && read.value).toEqual({ tier: 'Observer', degrees: 95, isCold: false });
   });
 });

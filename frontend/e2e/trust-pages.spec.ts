@@ -181,6 +181,14 @@ test.describe('SEO & social metadata', () => {
     expect(control.headers()['content-type'] ?? '', 'this server has no SPA fallback, so the check above proves less').toMatch(/text\/html/);
   });
 
+  // The built file names the launch floor the island gave: 80, Resident.
+  test('llms.txt names the 80-degree Resident launch floor', async ({ page }) => {
+    const res = await page.request.get('/llms.txt');
+    expect(res.status()).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('At 80 degrees you reach Resident, the tier that may plant a launch here.');
+  });
+
   test('og.svg hero banner is served', async ({ page }) => {
     const res = await page.request.get('/og.svg');
     expect(res.status()).toBe(200);

@@ -1,22 +1,8 @@
 /**
- * WAVE SEVEN, answer ten, rulings 3 and 4, on the venue's own hero.
- *
- * NOTHING RENDERED THIS HERO IN A TEST BEFORE, which is how a period after
- * FINANCE stood on the largest words of the venue for sixteen days. The e2e
- * checks used toContainText('MEMETICS.FINANCE'), a substring that passes with
- * the period and without it, so they could never have seen it.
- *
- * RULING 3. The H1 is title, <br />, line. A <br> is not text, so with the
- * period gone the H1's text reads "MEMETICS.FINANCEHeld time counts here." to
- * anything that reads text rather than pixels: a screen reader, a search engine,
- * a link unfurl. So the test reads textContent, which sees the join exactly, and
- * not an accessible-name helper, some of which pad a <br> with spaces and would
- * pass the defect.
- *
- * RULING 4. The launch floor is read (heatLaunchFloor) and the tier word beside
- * it must be derived from it, never typed: at 123 no tier is named, at 150 the
- * sentence says Builder. The island's own mutation for this is "retype Resident
- * and the 150 fixture goes red".
+ * The venue's own hero. The H1 is title, <br />, line, and a <br> is not text, so the H1
+ * test reads textContent: it sees the join exactly, as a screen reader or an unfurl does.
+ * The launch floor is read (heatLaunchFloor) and the tier word beside it derived, never
+ * typed: at 123 no tier is named, at 150 the sentence says Builder.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { Suspense } from 'react';
@@ -92,6 +78,20 @@ describe('the launch floor sentence (ruling 4)', () => {
     expect(
       screen.getByText('At 80 degrees you reach Resident, the tier that may plant a launch here.'),
     ).toBeTruthy();
+  });
+});
+
+describe('the explainer is the island paragraph opening', () => {
+  it('carries exactly its first two sentences, and no sum', () => {
+    const { container } = mount();
+    expect(
+      screen.getByText(
+        'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it.',
+      ),
+    ).toBeTruthy();
+    expect(container.textContent).not.toMatch(
+      /added together|read per token|as a share of its supply|a fresh bag starts cold|Degrees are the temperature/,
+    );
   });
 });
 

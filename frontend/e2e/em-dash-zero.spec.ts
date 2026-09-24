@@ -8,94 +8,28 @@ import {
   GECKO_EDGE_GLOB,
 } from './fixtures/routes';
 
-// ELEMENT I — ZERO EM DASHES IN VENUE-VOICE PROSE, AND THE DEBT ON THE WAY THERE.
-//
-// THE DISCRIMINATOR, which is the whole reason this guard can exist.
-//
-// The em dash is two different things in this repo and only one of them is
-// copy. `usePoolMarket.ts:13` states the other outright: "null means NOT READ,
-// and the UI must render it as '—', never as 0". A dozen surfaces emit that
-// bare dash when a read fails, and it must never be edited away — a zero where
-// a read failed is the repo's most repeated bug class.
-//
-// So a body-wide count cannot answer this element's question, and neither can a
-// copy review: somebody has to decide, per dash, which of the two it is. That
-// is an exemption list, and an exemption list rots.
-//
-// The rule that replaces it is structural, and it needs no judgement at all:
-//
-//   a text node that CONTAINS U+2014 and whose trimmed content is NOT exactly
-//   U+2014 is PROSE and fails; a node whose trimmed content IS exactly U+2014
-//   is the unreadable placeholder and passes BY CONSTRUCTION.
-//
-// The placeholder emitters are all `{cond ? value : '—'}` — their own JSX
-// expression child, therefore their own text node, therefore exactly U+2014.
-// They are safe without being named, and they stay safe as new ones are added.
-//
-// TEXT NODES, NEVER innerText. innerText flattens an element's whole subtree
-// into one string, which glues a placeholder to the prose beside it and reports
-// both as one prose hit. The walker below reads the nodes themselves.
-//
-// ── THE DEBT ────────────────────────────────────────────────────────────────
-//
-// 214 prose dashes across 44 routes (487 at the guard's landing). 22 routes
-// are finished, two of them records whose entries leave the count by
-// structure (ruling 1), so this cannot land as `toBe(0)`
-// without landing red, and a permanently red gate is a gate people learn to
-// ignore. It lands as the repo's own knownViolations idiom instead
-// (e2e/fixtures/routes.ts): an EXACT count per route, asserted both ways.
-//
-// Both ways is the point. A new dash fails the route, AND a fixed one fails it
-// too, until the number here comes down with it. A list that can only be
-// appended to is a list that stops being read.
-//
-// Where the count is 0 the route is finished, and the assertion is the island's
-// ruling exactly: it fails on the first prose node, and it prints that node's
-// text so the failure names the copy rather than a number.
-//
-// ── SCOPE ───────────────────────────────────────────────────────────────────
-//
-// Every venue-voice route: everything AUDITABLE_ROUTES reaches whose census
-// voice (e2e/fixtures/routes.ts) is not 'bungalow' or 'toweli'. The doors and
-// the TOWELI room speak their own token's voice and are not this element's
-// subject; the last test in this file holds the table to that.
-//
-// The nine routes measured before this guard existed were the ones the island
-// and the venue had both been walking by hand; they came to 141. They are nine
-// of fifty-one. The venue's own nav reaches the rest.
+// Element I: zero em dashes in venue-voice prose, and an exact count per route until then.
+// A text node that contains U+2014 and whose trimmed content is not exactly U+2014 is prose
+// and counts; a node that is exactly U+2014 is the placeholder a failed read renders, and
+// passes by construction. Text nodes, never innerText, which glues a placeholder to the
+// prose beside it. Each count holds both ways: a new dash fails its route, and so does a
+// fixed one until the number comes down.
 
-// ── WHERE THESE NUMBERS HOLD ─────────────────────────────────────────────────
-//
-// They are a CI measurement: `vite preview` runs no /api function, the build has
-// no VITE_INDEXER_URL, and no push keys are set. Production has all three, so it
-// renders branches this table never walks. Walked on production with
-// this same spec (2026-09-11, merge a08ec8a6), five routes read differently:
-// /chart 36 (the indexed chart's gap tooltips and rows, since cut to zero),
-// /developers 11 and /copy-trading 12 (one configured-branch line each, since
-// cut), and /alerts 14 and /launch 30 (fewer: a configured deployment shows fewer
-// outage and setup notices). The GeckoTerminal abort below held on production
-// too; the chart's candles there come from the indexer. The chart's own source
-// guard (src/components/chart/chartCopyDashes.test.ts) holds the branch CI cannot
-// reach.
+// A CI measurement under `vite preview`: no /api function, no VITE_INDEXER_URL and no push
+// keys, so production renders branches this table never walks. The chart's own branches are
+// guarded in src/components/chart/chartCopyDashes.test.ts.
 
-/** Routes whose numbers are not a guess. Measured 2026-09-09 against the
- *  production build under `vite preview`, twice, identical both passes. */
+/** Venue-voice routes, counted on the desktop production build. At 0 a route is finished
+ *  and fails on its first prose node, naming the copy. */
 const VENUE_VOICE_DEBT: Record<string, number> = {
   '/': 0,
-  // THE 404 CATCH-ALL (App.tsx's `path="*"` -> NotFoundPage). Added 2026-09-20,
-  // answer thirteen: it was the one venue-voice route in neither table, so a
-  // prose dash landing there would have been caught by nobody. It reads 0 today
-  // and is pinned at 0, which means it fails on its FIRST prose node like every
-  // other finished route. The route fixture reaches it by a path that matches
-  // nothing (navigablePath), which is exactly how a user meets this page.
+  // The 404 catch-all, reached by a path that matches no route (navigablePath).
   '/this-path-matches-no-route-a11y-sweep': 0,
   '/faq': 0,
   '/history': 0,
   '/start': 0,
   '/admin': 0,
   '/launch/0x0000000000000000000000000000000000000000': 0,
-  // Swept to zero 2026-09-10. A route at zero stops carrying a budget and
-  // starts failing on the FIRST prose node, naming the copy that broke it.
   '/vesting': 0,
   '/farm': 0,
   '/island': 0,
@@ -109,28 +43,16 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/swap': 0,
   '/eth-curve/0x0000000000000000000000000000000000000000': 0,
   '/gallery': 0,
-  // Row Q put /security's classic protocol under TOWELI's name and cut the
-  // banner's last dash: finished.
   '/security': 0,
-  // RECORDS (the island's ruling 1). Each page's record subtree is skipped by
-  // structure; its chrome, including the label naming it the venue's record, is
-  // walked and held at zero like any finished route.
+  // Records: the record subtree is skipped by structure, and the chrome around it is held at 0.
   '/changelog': 0,
   '/contracts': 0,
-  // TOWELI'S PROTOCOL PAGES LEFT THIS TABLE with row Q: /tokenomics, /treasury,
-  // /premium, /lore, /referrals and /zap open in the TOWELI room and speak its
-  // voice, like the doors (29 dashes went with them, /zap already at zero).
   '/nakamigos': 1,
   '/terms': 3,
   '/terminal': 2,
   '/solana': 4,
   '/launch-simulator': 4,
-  '/leaderboard': 4,
-  // 5 -> 2 on answer eight's ruling 3, and the three that left are MOVED, not
-  // cut: the tab intro, the deployed-not-wired title and its receipt line all
-  // sit inside the declared TOWELI section now, because all four tabs are
-  // TOWELI's own contracts. The two that remain are the venue's own: the
-  // page header and the venue-score card.
+  '/leaderboard': 3,
   '/community': 2,
   '/liquidity': 6,
   '/privacy': 7,
@@ -144,65 +66,17 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/curve-launch': 14,
   '/eth-curve': 15,
   '/alerts': 17,
-  // 17 UNTIL THE LEDGER LEFT BY STRUCTURE, 2026-09-12. Thirteen of that
-  // seventeen were the Island Cup's coverage notice reporting a failed read:
-  // twelve `not read — <why>` chips, one per resident pool, plus one sentence
-  // for the distinct failure reason. None of it is copy anybody wrote for this
-  // page, and all of it moves when a third party answers differently — which is
-  // how it landed here, reading 16 against a table that said 17 with no edit to
-  // any competitions file. `data-unread-ledger` takes it out of the walk
-  // (CupCoverageNotice.tsx); the 4 that remain are ScoringRules' four written
-  // paragraphs, and they no longer depend on the feed at all: measured 4 with
-  // the read aborted, 4 with it failing at the parse, and 4 unstubbed.
-  // Not #563's 16: that was the SPA-fallback reading of a dead stub, not a copy change.
-  '/competitions': 4,
+  // ScoringRules' written paragraphs; the Cup's coverage notice is a data-unread-ledger.
+  '/competitions': 3,
   '/yield': 21,
-  // 32 until element F cut the header to one sentence; that sentence carried a
-  // prose dash. The fold itself moved none of them — a closed <details> keeps its
-  // children in the DOM, which is exactly why the fold uses one.
-  // 31 -> 27 on answer eight's ruling 5: the Afterlife card's TOWELI claim
-  // moved under a declared TOWELI section, taking three dash-bearing nodes
-  // with it, and the card's own title dash became a colon. MOVED, not cut -
-  // the words still render, and the section is what the census reads them
-  // under. src/pages/recordSurfaces.test.ts pins who may declare one.
-  // 27 -> 26 on answer ten's ruling 5: the ledger a stranger actually sees
-  // (LaunchAfterlife's header, OUTSIDE the fold) opens on the holders' clocks
-  // now, and its old opening carried one prose dash. The empty-state line
-  // below it keeps one; the ruling named only the opening.
   '/launch': 26,
 
 };
 
-/**
- * The four GeckoTerminal routes, with the feed aborted at the browser.
- *
- * e2e/fixtures/routes.ts already measured what these routes do: /copy-trading
- * is a 154-row table of ~31.8k chars when the feed answers and a ~5.5k-char
- * list of "could not be read" notices when it does not. Its own note says a
- * stub is warranted for "a route whose two branches DO differ" — an a11y rule
- * set survives that difference, a CHARACTER COUNT plainly might not.
- *
- * So the feed is aborted here and the degraded branch is what is pinned. The
- * abort needs TWO things to be true, and only one of them was written down:
- * playwright.config must set serviceWorkers: 'block' (without it public/sw.js
- * answers first), AND the glob must match the URL the browser actually asks
- * for. It stopped doing so on 2026-09-10, when every GeckoTerminal read moved
- * to the same-origin edge, and `'**api.geckoterminal.com/**'` quietly became a
- * stub that intercepts nothing. Import GECKO_EDGE_GLOB; do not write a literal.
- *
- * A DEAD STUB DOES NOT FAIL, it measures the unstubbed page — and here that is
- * not even the live branch, because `vite preview` serves no /api function and
- * the SPA fallback answers the edge with 200 text/html. The read then dies at
- * the JSON parse rather than at the socket, which is a DIFFERENT failure reason
- * with different words. That is what reddened trunk: /competitions read 16
- * against a table saying 17, with no competitions file touched.
- *
- * MEASURED, NOT ASSUMED: aborted, these four read 3 / 2 / 12 / 18, which is
- * what the unstubbed sweep read too. OWED, and not claimed: I cannot make a
- * third party answer on demand, so I have not walked the ready branch's copy
- * with the feed certainly live. If those tables carry dashes, they are not in
- * this baseline.
- */
+/** The four GeckoTerminal routes, read with the feed aborted, so the degraded branch is
+ *  what is pinned. The abort needs serviceWorkers: 'block' in playwright.config and a glob
+ *  that matches the same-origin edge: import GECKO_EDGE_GLOB, never a literal. A dead stub
+ *  fails nothing; it measures the SPA fallback's parse failure instead. */
 const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading', '/competitions']);
 
 /** `/nakamigos` opens on a full-viewport splash with no `main` behind it, so it
@@ -229,29 +103,12 @@ async function proseDashes(page: Page): Promise<ProseHit[]> {
       // Never rendered, or hidden from everyone: not copy anybody reads.
       if (SKIP.has(el.tagName)) continue;
       if (el.closest('[aria-hidden="true"]')) continue;
-      // A RECORD KEEPS ITS WORDS (the island's ruling 1). A page marks its
-      // record subtree `data-record` and the walk skips it BY STRUCTURE:
-      // /changelog's entries and /contracts' registry. The chrome around a
-      // record is still walked
-      // and still held at zero. src/pages/recordSurfaces.test.ts pins which
-      // files may declare a record at all, so this is not an escape hatch.
+      // A record keeps its words; src/pages/recordSurfaces.test.ts pins who may declare one.
       if (el.closest('[data-record]')) continue;
-      // A TOWELI SECTION ON A VENUE PAGE, OR THE TOWELI ROOM'S BAND (row Q):
-      // TOWELI's voice, not the venue's. Skipped by structure; the same source
-      // guard pins which files may declare a TOWELI section.
+      // TOWELI's voice (a toweli data-voice section or data-room band), not the venue's.
       if (el.closest('[data-voice="toweli"]') || el.closest('[data-room="toweli"]')) continue;
-      // A REPORT OF A FAILED READ IS NOT COPY EITHER, and its LENGTH is not a
-      // property of this repo. `data-unread-ledger` marks a subtree whose words
-      // are assembled from what the network answered: /competitions' coverage
-      // notice prints one `not read — <why>` per resident pool that failed and
-      // one sentence per distinct failure reason. An exact count over that is a
-      // count of a third party's behaviour, and it fails the moment a pool joins
-      // the registry or a read fails for a different reason.
-      //
-      // This is the bare-`—` discriminator's own argument at sentence length: the
-      // placeholder is exempt BY CONSTRUCTION because an unreadable read is not
-      // the venue speaking, and neither is the paragraph explaining it.
-      // src/pages/recordSurfaces.test.ts pins who may declare one.
+      // A report of failed reads (data-unread-ledger) is assembled from what the network
+      // answered, so it is not copy and its length is not this repo's.
       if (el.closest('[data-unread-ledger]')) continue;
       // THE DISCRIMINATOR. Exactly U+2014 is the unreadable placeholder.
       if (data.trim() === '—') continue;
@@ -271,29 +128,14 @@ async function settle(page: Page, path: string) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(500);
   }
-  // The repo's settle, rather than a fixed sleep: routes.ts's own header
-  // records that a fixed wait under-reported findings on /farm.
+  // The repo's settle, not a fixed sleep, which under-reported findings on /farm.
   await waitForQuiescence(page, { quietMs: 600, timeout: 12_000 });
 }
 
 test.describe('element I: em dashes in venue-voice prose', () => {
-  // THE DESKTOP PROJECT ONLY, AND IT MUST BE MATCHED BY PROJECT NAME.
-  //
-  // `browserName !== 'chromium'` is the wrong test and it cost a CI run to
-  // learn: the `mobile-chrome` project is a Pixel 5, so its browserName is
-  // 'chromium' too, and the guard ran there with the desktop baseline. At a
-  // phone width /exposure reads 2 where the desktop reads 1 — not different
-  // copy, a different set of components rendering. The numbers below are a
-  // desktop measurement and only the desktop project may be judged by them.
-  //
-  // Rendered copy is not engine-dependent, so one project is the honest amount
-  // of work here; four would also put a fifty-route serial sweep on the two
-  // WebKit projects, which this box already collapses under load.
-  //
-  // NOT WALKED, and therefore not claimed: copy that only a narrow viewport
-  // renders — the BottomNav's four tabs and the hamburger drawer. A mobile
-  // baseline is its own list, and this element has not asked for one yet.
-  // (asserted per test below, via test.info().project.name)
+  // Desktop project only, matched by name: mobile-chrome is chromium too, and a phone width
+  // renders a different set of components. Copy only a narrow viewport renders (BottomNav,
+  // the drawer) is not walked and not claimed.
 
   for (const [path, budget] of Object.entries(VENUE_VOICE_DEBT)) {
     test(`${path} carries ${budget} prose em dash${budget === 1 ? '' : 'es'}`, async ({ page }) => {
@@ -303,11 +145,8 @@ test.describe('element I: em dashes in venue-voice prose', () => {
         try {
           localStorage.setItem('tegridy-onboarding-seen', '1');
           localStorage.setItem('tegridy_telemetry_consent', 'denied');
-          // 'venue', NOT the wallet fixture's 'toweli'. Footer.tsx:180 renders
-          // `🏝️ Bungalows — Toweli` as its own text node whenever any registry
-          // bungalow is active, which would put one prose dash in the footer of
-          // every route on this list and blame each page for its chrome.
-          // 'venue' is the "seen, chose nothing" sentinel and resolves to null.
+          // 'venue', not the wallet fixture's 'toweli': an active bungalow puts a dashed
+          // footer node (Footer.tsx) on every route.
           localStorage.setItem('tegridy-bungalow', 'venue');
         } catch { /* private mode */ }
       });
@@ -321,15 +160,12 @@ test.describe('element I: em dashes in venue-voice prose', () => {
       const shown = hits.slice(0, 8).map((h) => `  ${h.owner}: ${h.text}`).join('\n');
 
       if (budget === 0) {
-        // FINISHED ROUTE. The island's ruling, exactly: fail on the first prose
-        // node, and name the copy rather than a count.
+        // Finished: fail on the first prose node, and name the copy.
         expect(hits.length, `${path} is at zero and gained prose em dashes:\n${shown}`).toBe(0);
         return;
       }
 
-      // BOTH WAYS. Fewer than the number here is a fix, and it fails until the
-      // number comes down with it -- that is what stops this list from becoming
-      // an append-only tally nobody reads.
+      // Both ways: fewer than the number here is a fix, and it fails until the number follows.
       expect(
         hits.length,
         hits.length > budget
@@ -339,11 +175,8 @@ test.describe('element I: em dashes in venue-voice prose', () => {
     });
   }
 
-  // RULING 1's OTHER HALF. Skipping a record is honest only while the record is
-  // really on the page and really labeled as the venue's: a route that failed
-  // to render would read zero too. And a record keeps its words, so it still
-  // holds the dashes it was written with. If it ever reads clean, somebody
-  // swept a record, which is the thing the ruling says not to do.
+  // A skipped record is honest only while it renders, labeled as the venue's, and still
+  // holds the dashes it was written with; a record that reads clean was swept.
   for (const path of ['/changelog', '/contracts']) {
     test(`${path} keeps its record, labeled as the venue's`, async ({ page }) => {
       test.skip(test.info().project.name !== 'chromium', 'measured on the desktop project only');
@@ -368,8 +201,7 @@ test.describe('element I: em dashes in venue-voice prose', () => {
     });
   }
 
-  // ROW Q. This table walks venue-voice routes only: a route the census puts in
-  // the TOWELI room or behind another resident's door is not the venue's copy.
+  // The venue table walks venue-voice routes only, by the route census.
   test('the debt table walks only routes the census gives the venue', () => {
     for (const path of Object.keys(VENUE_VOICE_DEBT)) {
       const route = ROUTES.find((r) => navigablePath(r) === path);
@@ -379,37 +211,12 @@ test.describe('element I: em dashes in venue-voice prose', () => {
   });
 });
 
-// ── ELEMENT I REACHES THE ROOMS (answer eight, ruling 8) ──────────────
-//
-// FOURTEEN paths, not the thirteen the ruling names: App.tsx maps the registry
-// and appends the /towelie alias, and a table built on "thirteen" leaves one
-// door unwalked - the exact drift routes.ts records as having hidden 14 routes
-// from the a11y sweep for months.
-//
-// A SECOND TABLE, not more rows in the first. The guard below the venue table
-// forbids a non-venue voice as a key there, deliberately: a room's copy is not
-// the venue speaking, and the two debts are owed by different people. The
-// island's own Bayla copy is its canon, rewritten by the island itself in
-// answer eight; the settled doors' shared hero and the market footnote are the
-// venue's, and they ratchet down like any other venue prose.
-//
-// ON /toweli AND /towelie nothing carries the data-room or data-voice markers
-// the walker skips, so TOWELI's protocol copy counts here. That is correct: in
-// TOWELI's OWN room it is that room's prose, not a resident's copy leaking into
-// the venue's.
+// Element I in the rooms: a second table, owed by different people. Fourteen doors, the
+// thirteen registry ids plus the /towelie alias. On /toweli and /towelie TOWELI's protocol
+// copy counts, because in its own room it is that room's prose.
 const ROOM_VOICE_DEBT: Record<string, number> = {
-  // THE ELEVEN SETTLED ROOMS ARE AT ZERO (answer ten, ruling 6). They sat at 6,
-  // 5 and 4, and not one of those dashes was a room's own copy: the six EVM
-  // rooms carried six shared nodes (settled hero, market footnote, scoped read
-  // intro, holders idle line, footer card, footer chart line), the four Solana
-  // rooms five (their footer trade line had no dash), and /bayla four (its hero
-  // is island canon). Punctuation only, words unchanged, in one commit - and at
-  // zero a room now fails on its FIRST prose dash, like every finished route.
-  // src/components/bungalow/roomProse.test.tsx guards the same sources on every
-  // push, for every resident, including the byline dash no walker can see.
-  //
-  // The two TOWELI-skin doors carry the whole protocol cluster, which is why
-  // they are an order above the rest; the quiet slot says almost nothing.
+  // The settled rooms are at 0 and fail on their first prose dash (roomProse.test.tsx guards
+  // the same sources on every push). The TOWELI-skin doors carry the protocol cluster.
   '/toweli': 22,
   '/towelie': 22,
   '/bayla': 0,
@@ -435,8 +242,7 @@ test.describe('element I: em dashes in the rooms', () => {
         try {
           localStorage.setItem('tegridy-onboarding-seen', '1');
           localStorage.setItem('tegridy_telemetry_consent', 'denied');
-          // The door sets its own skin on arrival; this is the sentinel a
-          // stranger carries in, not a skin of its own.
+          // The door sets its own skin; this is the sentinel a stranger carries in.
           localStorage.setItem('tegridy-bungalow', 'venue');
         } catch { /* private mode */ }
       });
@@ -458,13 +264,9 @@ test.describe('element I: em dashes in the rooms', () => {
     });
   }
 
-  // The rooms table walks DOORS, and all of them. A door added to the registry
-  // without a row here is a room nobody is counting.
+  // Every door the app routes, and only doors: a door is the home page under a resident's
+  // skin, which leaves out TOWELI's protocol rooms (counted above, under the census).
   test('the room table walks every door the app routes, and only doors', () => {
-    // A DOOR is a route that renders the home page under a resident's skin.
-    // Filtering on voice alone would drag in TOWELI's six protocol rooms,
-    // which are rooms but not doors, and they are the venue's own pages
-    // wearing the band - counted in the table above, under the census.
     const doors = ROUTES
       .filter((r) => r.owner === 'pages/HomePage.tsx' && r.voice !== 'venue')
       .map(navigablePath);
