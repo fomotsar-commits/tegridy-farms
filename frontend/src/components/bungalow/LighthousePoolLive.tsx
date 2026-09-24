@@ -567,9 +567,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   };
 
   return (
-    // SECONDARY, WHOLE (2026-09-20). The live Lock Ladder now leads the panel; this
-    // card sits back — a quieter border, no glow loop, a heavier scrim — and keeps
-    // every control and notice it has: its stakers still claim and unstake here.
+    // SECONDARY, WHOLE (2026-09-20): a quieter border, no glow loop, a heavier scrim,
+    // and every control it has. Drawn for an open pool, or a closed one with no ladder;
+    // a closed pool beside a ladder is members-only and gets LighthouseClaimStrip.
     <div className="relative overflow-hidden rounded-2xl" style={{ border: '1px solid var(--color-purple-25)' }}>
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim

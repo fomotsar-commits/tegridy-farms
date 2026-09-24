@@ -113,11 +113,10 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         </p>
       </div>
 
-      {/* THE LIVE POOL LEADS (2026-09-20). The closed Streamflow card used to sit
-          first, so on a phone the pool anyone can stake into began ~1,360px down.
-          The ladder now comes first in the DOM and spans the row; the closed pool
-          and the funding card share row 2. DOM order IS visual order — no CSS
-          `order` — so tab and screen-reader order match what is on screen. */}
+      {/* THE LIVE POOL LEADS (2026-09-20): the ladder comes first in the DOM and spans
+          the row. An open lighthouse pool shares row 2 with the funding card; a
+          members-only one stacks under the ladder in its cell. DOM order IS visual
+          order (no CSS `order`), so tab and screen-reader order match the screen. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Pool slot: the honest dark card until a pool address is configured
             (VITE_BAYLA_STAKE_POOL), the live Streamflow section after. The
