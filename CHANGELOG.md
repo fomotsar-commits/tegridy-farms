@@ -9,7 +9,7 @@ page keeps the newest thirty days.
 ### 2026-09-24
 
 - On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
-- Every source link on /contracts opens a file, the TOWELI and fee hook rows say their source is not in the repo, and the page says a linked file can be newer than the deployed code.
+- Every source link on /contracts opens a file, the TOWELI and fee hook rows say their source is not in the repo, the fee hook row no longer says a redeploy is queued, and the page says a linked file can be newer than the deployed code.
 
 ### 2026-09-22
 

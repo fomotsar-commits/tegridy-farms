@@ -73,7 +73,7 @@ interface ContractEntry {
   // zero address collapsed to "awaiting deployment", and /community linked the
   // very same contracts to Etherscan as live — two opposite answers on one site.
   status?: 'pending' | 'deprecated' | 'redeploy' | 'multisig' | 'unwired';
-  note?: string; // shown under the label when status is redeploy/multisig/unwired
+  note?: string; // shown under the label unless the row is pending deploy
   /**
    * 2026-08-28: non-mainnet entries (the L2 curve launchers) link to their own
    * explorer instead of etherscan.io, and are EXCLUDED from the mainnet
@@ -140,8 +140,7 @@ const GROUPS: ContractGroup[] = [
         label: 'Tegridy Fee Hook (V4)',
         address: TEGRIDY_FEE_HOOK_ADDRESS,
         source: 'not in this repo (source removed after deploy)',
-        status: 'redeploy',
-        note: 'Owner stranded on Arachnid CREATE2 proxy. Constructor patched to accept _owner — redeploy queued before activation.',
+        note: 'Owner stranded on Arachnid CREATE2 proxy.',
       },
     ],
   },
@@ -339,7 +338,7 @@ function ContractRow({ entry, verification }: { entry: ContractEntry; verificati
             {entry.source} <span className="text-white/15">↗</span>
           </a>
         )}
-        {entry.note && (isRedeploy || isMultisig || isUnwired || entry.explorer) && (
+        {entry.note && (!isPending || entry.explorer) && (
           <div
             className={`text-[11px] mt-1 leading-relaxed ${isRedeploy ? 'text-orange-200/75' : isUnwired ? 'text-emerald-200/75' : 'text-sky-200/75'}`}
             style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
