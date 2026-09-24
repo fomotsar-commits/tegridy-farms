@@ -156,7 +156,8 @@ describe('a members-only pool on the dashboard', () => {
     expect(await screen.findByText(MEMBER_KICKER)).toBeTruthy();
     expect(screen.getByText('Staked')).toBeTruthy();
     expect(pageText()).toContain('50,000');
-    expect(screen.getByText(/takes no new stakes/)).toBeTruthy();
+    // The claim strip sits UNDER the ladder on the pool page, and the card says so.
+    expect(screen.getByText(/takes no new stakes/).textContent).toMatch(/under the lock ladder/);
     expect(screen.getByRole('link', { name: 'Manage position' }).getAttribute('href')).toBe('/farm');
     // The member card takes the slot, and still never advertises the pool's rate.
     expect(ladderCard()).toBeNull();
@@ -166,9 +167,11 @@ describe('a members-only pool on the dashboard', () => {
   it('⚠️ a failed read is an outage, never "no position", and Try again brings the member back', async () => {
     reply(WALLET_A, 'fail');
     mount(MEMBERS_ONLY);
-    const outage = await screen.findByText(/could not be checked for positions in the retired lighthouse pool/);
+    const outage = await screen.findByText(/Your BAYLA positions could not be checked/);
     expect(outage.textContent).toMatch(/outage, not an empty result/);
     expect(pageText()).not.toMatch(/no open stake|Nothing staked|Nothing in the lighthouse pool/i);
+    // A non-member may be the one reading it, so the closed pool is never named.
+    expect(pageText()).not.toMatch(/lighthouse|retired/i);
 
     reply(WALLET_A, [POSITION]);
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));

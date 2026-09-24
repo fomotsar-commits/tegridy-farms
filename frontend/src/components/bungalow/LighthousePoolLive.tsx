@@ -1381,13 +1381,19 @@ export function LighthouseClaimStrip({ bungalow }: { bungalow: Bungalow & { stak
     </section>
   );
 
+  // A non-member may be reading this, so it never names the closed pool. Try again drops
+  // the failure first, so a retry that fails again is not a dead click.
   if (mine.list === null) {
+    const retryEntries = () => {
+      setEntriesRead((s) => (s && s.list === null ? null : s));
+      reread();
+    };
     return (
       <div>
         <p role="status" className="text-[12px] rounded-lg px-3 py-2 m-0" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
-          This wallet could not be checked for positions in the retired lighthouse pool. That is an outage,
-          not an empty result.{' '}
-          {tryAgain(reread)}
+          Your {bungalow.symbol} positions could not be checked right now. That is an outage, not an
+          empty result.{' '}
+          {tryAgain(retryEntries)}
         </p>
         {actionLines}
       </div>

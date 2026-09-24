@@ -4,7 +4,7 @@
 // claim, the exit once a lock opens, and never "no positions" because a read failed.
 // The one exception: a connected wallet whose read failed is told it could not be checked.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Bungalow } from '../../lib/bungalows';
 
@@ -183,6 +183,26 @@ describe('who sees the closed pool', () => {
     fireEvent.click(screen.getByRole('button', { name: /try again/i }));
     await waitFor(() => expect(vi.mocked(staking.readEntries).mock.calls.length).toBeGreaterThan(calls));
   });
+
+  it('⚠️ the outage line never names the closed pool: a non-member may be the one reading it', async () => {
+    reply(WALLET_A, 'fail');
+    const { container } = render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    const line = await screen.findByText(/could not be checked/i);
+    expect(line.textContent).toMatch(/BAYLA positions/);
+    expect(line.textContent).toMatch(/outage, not an empty result/);
+    expect(container.textContent).not.toMatch(/lighthouse|retired/i);
+  });
+
+  it('Try again drops the failed result while it re-reads, so a retry that fails again is not a dead click', async () => {
+    reply(WALLET_A, 'fail');
+    const { container } = render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    await screen.findByText(/could not be checked/i);
+    reply(WALLET_A, 'pending');
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    expect(screen.queryByText(/could not be checked/i)).toBeNull();
+    await settle();
+    expect(container.innerHTML).toBe('');
+  });
 });
 
 describe('what a member sees', () => {
@@ -340,6 +360,30 @@ describe('the rescue confirm is armed against one read', () => {
     fireEvent.click(screen.getByRole('button', { name: /claim rewards \(may revert\)/i }));
     expect(await screen.findByText(/claim confirmed/i)).toBeTruthy();
     await settle();
+    expect(screen.queryByRole('button', { name: FIRE })).toBeNull();
+    expect(screen.getByRole('button', { name: ARM })).toBeTruthy();
+  });
+
+  it('⚠️ the write itself disarms it, before any re-read: a claim still waiting on the wallet leaves no armed rescue', async () => {
+    writeState.hold = true;
+    reply(WALLET_A, [MATURED_AT_RISK]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    fireEvent.click(await screen.findByRole('button', { name: ARM }));
+    const reads = vi.mocked(staking.readEntries).mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /claim rewards \(may revert\)/i }));
+    expect(await screen.findByText(/waiting for the wallet/i)).toBeTruthy();
+    // No re-read has started, so only the write's own clear can have removed it.
+    expect(vi.mocked(staking.readEntries).mock.calls.length).toBe(reads);
+    expect(screen.queryByRole('button', { name: FIRE })).toBeNull();
+    await act(async () => { writeState.release!({ ok: true, txId: 'TX1' }); });
+    await settle();
+  });
+
+  it('Cancel disarms it', async () => {
+    reply(WALLET_A, [MATURED_AT_RISK]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    fireEvent.click(await screen.findByRole('button', { name: ARM }));
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
     expect(screen.queryByRole('button', { name: FIRE })).toBeNull();
     expect(screen.getByRole('button', { name: ARM })).toBeTruthy();
   });
@@ -578,6 +622,31 @@ describe('one write at a time', () => {
     render(<LighthouseClaimStrip bungalow={BAYLA} />);
     const exit = await screen.findByRole('button', { name: /exit waits for a vault top-up/i });
     expect((exit as HTMLButtonElement).disabled).toBe(true);
+    // A short vault is not the 6000 band: the rescue would only forfeit rewards that pay after a top-up.
+    expect(screen.queryByRole('button', { name: /take principal/i })).toBeNull();
+  });
+
+  it('the rescue is offered for an open lock in the 6000 band, and not for an open lock outside it', async () => {
+    reply(WALLET_A, [MATURED_AT_RISK, entry({ address: 'Entry1', nonce: 1, createdTs: RATE_CHANGED_AT + 100, durationSecs: 1 })]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    expect(await screen.findAllByRole('button', { name: ARM })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /unstake & claim/i })).toHaveLength(2);
+  });
+});
+
+describe('the strip keeps its own clock', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('a lock that opens while the page is open shows Unstake & claim within a minute', async () => {
+    // Only the interval and the clock are faked: the mocked reads still settle on real timers.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    const t0 = Math.floor(Date.now() / 1000);
+    reply(WALLET_A, [entry({ createdTs: t0 - 10, durationSecs: 40 })]);
+    render(<LighthouseClaimStrip bungalow={BAYLA} />);
+    await screen.findByRole('button', { name: /^claim rewards$/i });
+    expect(screen.queryByRole('button', { name: /unstake/i })).toBeNull();
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(screen.getByRole('button', { name: /^unstake & claim$/i })).toBeTruthy();
   });
 });
 

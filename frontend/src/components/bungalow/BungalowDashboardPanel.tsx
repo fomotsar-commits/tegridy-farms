@@ -421,7 +421,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
               <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The lighthouse pool · retired</p>
               <p className="text-white/60 text-[11px] leading-relaxed mb-3">
                 This pool takes no new stakes. Claims and withdrawals are on the pool page,
-                beside the lock ladder.
+                under the lock ladder.
               </p>
               {position}
             </div>
@@ -436,8 +436,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
               <Link to="/farm" className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
               {stakeReadFailed && (
                 <p role="status" className="text-[12px] mt-3 mb-0" style={{ color: '#f0b26b' }}>
-                  This wallet could not be checked for positions in the retired lighthouse pool.
-                  That is an outage, not an empty result.{' '}
+                  Your {bungalow.symbol} positions could not be checked right now. That is an
+                  outage, not an empty result.{' '}
                   <button type="button" onClick={retryReads} className="min-h-[44px] underline underline-offset-2">Try again</button>
                 </p>
               )}
