@@ -43,8 +43,13 @@ export const robinhoodChain: Chain = defineChain({
   },
 });
 
+// wagmi's metaMask() sends a connected wallet's reads (eth_call, eth_estimateGas,
+// receipts) to rpcUrls.default, never to TRANSPORTS, and viem's mainnet default is
+// outside our CSP. So mainnet's default is the first host of our own roster.
+const MAINNET_RPC = 'https://ethereum-rpc.publicnode.com';
+
 const VIEM_CHAINS: Record<number, Chain> = {
-  [mainnet.id]: mainnet,
+  [mainnet.id]: { ...mainnet, rpcUrls: { ...mainnet.rpcUrls, default: { http: [MAINNET_RPC] } } },
   [base.id]: base,
   [robinhoodChain.id]: robinhoodChain,
 };
@@ -105,7 +110,7 @@ const TRANSPORTS: Record<number, Transport> = {
     [
       // Roster re-verified live 2026-06-14 via a REAL read; see wagmi.ts history
       // for why cloudflare-eth / ankr / llamarpc are out.
-      http('https://ethereum-rpc.publicnode.com'),
+      http(MAINNET_RPC),
       http('https://eth.drpc.org'),
       // eth.merkle.io DROPPED 2026-08-25: 429s every request — dead third slot
       // that burned a retry per rotation. Re-verify with a real read before re-adding.
