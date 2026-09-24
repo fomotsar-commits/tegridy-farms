@@ -9,6 +9,7 @@ page keeps the newest thirty days.
 ### 2026-09-24
 
 - The marketplace lists the six Jungle Bay family collections: Gold Cards trade here with the same flat 1% fee, and the other five can be browsed here and trade on OpenSea or Magic Eden.
+- On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
 
 ### 2026-09-22
 
