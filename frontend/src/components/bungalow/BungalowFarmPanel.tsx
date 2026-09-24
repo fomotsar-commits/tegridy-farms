@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
-import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute } from '../../lib/bungalows';
+import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute, stakePoolMembersOnly } from '../../lib/bungalows';
 import { isSolanaSwapLive, isSolanaFeeConfigured } from '../../lib/solana';
 import { HeatCard } from './HeatCard';
 import { usePageTitle } from '../../hooks/usePageTitle';
@@ -28,6 +28,10 @@ const EvmLadderPoolLive = lazy(() =>
 const SolanaLadderPoolLive = lazy(() =>
   import('./SolanaLadderPoolLive').then((m) => ({ default: m.SolanaLadderPoolLive })),
 );
+// The ladder with a members-only Streamflow pool's claim strip under it, one wallet context.
+const SolanaPoolStack = lazy(() =>
+  import('./SolanaPoolStack').then((m) => ({ default: m.SolanaPoolStack })),
+);
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
@@ -52,22 +56,25 @@ import { ArtImg } from '../ArtImg';
  * the status card.
  */
 export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
-  // The hero must not keep saying "being built" once the pool exists — the
-  // 2026-08-27 audit caught exactly that stale claim in prod after the BAYLA
-  // lighthouse went live on-chain. Copy branches on the same registry fact
-  // (stakePool) that swaps the dark card for the live section below.
-  const poolIsLive = Boolean(bungalow.stakePool);
+  // Copy branches on the same registry facts as the pool slot below, so the hero never
+  // says "being built" beside a live pool. A members-only Streamflow pool is shown only
+  // to its stakers (owner, 2026-09-21), so the page names the ladder instead, as it does
+  // when the ladder is the only pool.
+  const poolIsLive = Boolean(bungalow.stakePool || bungalow.ladderPool);
+  const membersOnly = stakePoolMembersOnly(bungalow);
+  const namesLadder = membersOnly || (bungalow.chain === 'solana' && !bungalow.stakePool && Boolean(bungalow.ladderPool));
+  const liveName = namesLadder ? 'The lock ladder' : 'The lighthouse pool';
   usePageTitle(
     `Farm — ${bungalow.symbol}`,
     poolIsLive
-      ? `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain} — the lighthouse pool is live at Jungle Bay Island.`
+      ? `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain}. ${liveName} is live at Jungle Bay Island.`
       : `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain} — arriving at Jungle Bay Island.`,
   );
   const explorer = bungalowExplorerUrl(bungalow);
   const chainLabel = bungalow.chain === 'solana' ? 'Solana' : bungalow.chain === 'base' ? 'Base' : 'Ethereum';
-  // Row 2 holds the lighthouse pool and the funding card side by side. With a
-  // ladder and no lighthouse pool, funding would be alone beside a hole.
-  const fundingAlone = bungalow.chain === 'solana' && Boolean(bungalow.ladderPool) && !bungalow.stakePool;
+  // Row 2 holds the lighthouse pool and the funding card side by side. With a ladder and
+  // no lighthouse card (none, or members-only in the ladder's row), funding spans it.
+  const fundingAlone = bungalow.chain === 'solana' && Boolean(bungalow.ladderPool) && (!bungalow.stakePool || membersOnly);
 
   return (
     <div className="relative min-h-screen">
@@ -92,8 +99,8 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         <p className="text-white/85 text-[15px] max-w-lg leading-relaxed">
           {poolIsLive ? (
             <>
-              {bungalow.tagline} The lighthouse pool is live for {bungalow.symbol} on{' '}
-              {chainLabel} — created on-chain, readable by anyone. The numbers below
+              {bungalow.tagline} {liveName} is live for {bungalow.symbol} on{' '}
+              {chainLabel}, created on-chain and readable by anyone. The numbers below
               are read straight from the pool.
             </>
           ) : (
@@ -120,15 +127,18 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           <Suspense fallback={
             <div className={`relative overflow-hidden rounded-2xl glass-card-animated ${bungalow.chain === 'solana' && bungalow.ladderPool ? 'lg:col-span-2' : ''}`} style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.85)' }} />
-              <div className="relative z-10 p-6"><p className="text-white/70 text-[13px]">Loading the lighthouse…</p></div>
+              <div className="relative z-10 p-6"><p className="text-white/70 text-[13px]">{namesLadder ? 'Loading the lock ladder…' : 'Loading the lighthouse…'}</p></div>
             </div>
           }>
-            {bungalow.chain === 'solana' ? (
-              // BOTH, when both exist. The Streamflow pool holds locks that do not
-              // open until 2027, and a card that disappeared the moment a ladder pool
-              // was configured would hide those positions rather than migrate them.
-              // Each card reads its OWN program; neither is ever handed the other's
-              // account.
+            {membersOnly ? (
+              // The ladder, with the closed pool's members-only claim strip under it,
+              // in ONE full-row cell.
+              <div className="lg:col-span-2 min-w-0">
+                <SolanaPoolStack bungalow={bungalow} />
+              </div>
+            ) : bungalow.chain === 'solana' ? (
+              // BOTH full cards while the Streamflow pool is open, or its full card alone
+              // with no ladder. Each reads its OWN program, never the other's account.
               <>
                 {bungalow.ladderPool && (
                   <div className="lg:col-span-2 min-w-0">
