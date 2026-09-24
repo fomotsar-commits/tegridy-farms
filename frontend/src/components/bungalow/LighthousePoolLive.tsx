@@ -1417,17 +1417,14 @@ export function LighthouseClaimStrip({ bungalow }: { bungalow: Bungalow & { stak
   const rescueArmed = rescueFor !== null && rescueFor.read === entriesRead ? rescueFor.nonce : null;
 
   // Busy disables every button whichever wallet sent it; only its lines are scoped.
+  // Re-read after a failure too: a rescue that stopped may already have paid a claim.
   const run = async (label: string, fn: () => Promise<{ ok: true; txId: string } | { ok: false; reason: string }>) => {
     const key = walletKey;
     setRescueFor(null);
     setAction({ key, busy: label });
     const res = await fn();
-    if (res.ok) {
-      setAction({ key, note: `${label} confirmed.`, tx: res.txId });
-      reread();
-    } else {
-      setAction({ key, note: res.reason });
-    }
+    setAction(res.ok ? { key, note: `${label} confirmed.`, tx: res.txId } : { key, note: res.reason });
+    reread();
   };
 
   const btn = 'btn-secondary min-h-[44px] px-4 py-2 text-[12px] disabled:opacity-40';
@@ -1555,7 +1552,7 @@ export function LighthouseClaimStrip({ bungalow }: { bungalow: Bungalow & { stak
                         <button
                           type="button"
                           disabled={!invoker || !!action?.busy}
-                          title="First tries to claim every reward pool with something pending, and stops before anything moves if a claim fails for any reason the chain has not called permanent. Where it has, it withdraws your principal and closes the reward entry, giving those rewards up."
+                          title="First tries to claim every reward pool with something pending, one transaction each. If a claim fails for any reason the chain has not called permanent, it stops there: claims already paid stay paid, and your principal stays staked. Where the chain has, it withdraws your principal and closes the reward entry, giving those rewards up."
                           onClick={() => setRescueFor({ read: entriesRead, nonce: e.nonce })}
                           className={btn}
                           style={{ borderColor: 'rgba(227,179,65,0.5)', color: '#e3b341' }}
