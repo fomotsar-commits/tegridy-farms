@@ -1,18 +1,8 @@
 /**
- * The wagmi/viem side of the chain registry: one viem `Chain` object and one
- * ranked keyless-RPC transport per configured chain.
- *
- * `registry.ts` says WHAT we serve; this file says HOW the wallet layer reaches
- * it. They are keyed to each other by chain id, and `wagmi.ts` derives its
- * `chains`/`transports` from here so the served set has exactly one author.
- *
- * RPC ROSTER RULES (learned the hard way — see reference_rpc_roster):
- *   - every endpoint below was verified with a REAL read (eth_blockNumber, with
- *     an Origin header) on 2026-08-20, never the eth_chainId trap;
- *   - every endpoint answered `access-control-allow-origin: *`, so the browser
- *     can actually use it;
- *   - every non-publicnode host must ALSO be in vercel.json's CSP connect-src
- *     (`*.publicnode.com` is already wildcarded there).
+ * How the wallet layer reaches what registry.ts serves: one viem Chain and one ranked
+ * keyless-RPC transport per configured chain, keyed by id; wagmi.ts takes both from here.
+ * A roster endpoint must answer a REAL read (eth_blockNumber with an Origin header, never
+ * eth_chainId), send `access-control-allow-origin: *`, and sit in vercel.json's connect-src.
  */
 
 import { fallback, http } from 'wagmi';
@@ -54,50 +44,11 @@ const VIEM_CHAINS: Record<number, Chain> = {
   [robinhoodChain.id]: robinhoodChain,
 };
 
-/**
- * HEALTH-RANKING OPTIONS — shared by every chain, and the reason this is not
- * just `{ rank: true }`.
- *
- * viem's ranker (clients/transports/fallback.js:101) defaults to pinging
- * `net_listening` every 4s, forever, against EVERY endpoint of EVERY configured
- * chain. Two things went wrong with that here, both measured 2026-09-03 with a
- * browser Origin header:
- *
- *   mainnet.base.org                 net_listening -> HTTP 403, err -32601
- *                                    eth_blockNumber -> HTTP 200, acao: *
- *   rpc.mainnet.chain.robinhood.com  net_listening -> HTTP 200, err -32601
- *                                    eth_blockNumber -> HTTP 200, acao: *
- *
- * Both endpoints serve real reads perfectly and simply do not implement
- * `net_listening`. So the ranker scored two working endpoints at zero stability
- * permanently, and filled devtools with 403s from a host that was never failing.
- * A field review read that console and concluded "mainnet.base.org refuses
- * browser origins outright — drop it". Dropping it would have removed a healthy
- * Base RPC and left the noise running, because the noise is ours.
- *
- * The volume was the larger half. Measured on an idle homepage, same 45s window,
- * only this option object changed:
- *
- *              rank: true          RANK_OPTIONS
- *   POSTs      157                 17
- *   methods    154 net_listening   0 net_listening, 14 eth_blockNumber
- *              3 eth_call          3 eth_call
- *   failures   22x 403 from        none
- *              mainnet.base.org
- *
- * So the ranker was 98.1% of all outbound RPC traffic and 100% of the visible
- * failures. It is also what kept tripping dRPC's rate limiter.
- *
- * `ping` therefore uses a method every Ethereum JSON-RPC endpoint implements, so
- * the check finally measures node liveness instead of a proxy's method
- * allowlist. `interval` is 60s rather than 4s: this picks a healthy endpoint, it
- * is not a monitoring system, and the fallback still fails over on a real error
- * the moment a request actually fails.
- *
- * BEFORE ADDING AN ENDPOINT: verify it under BOTH methods, not just one. An
- * endpoint that answers eth_blockNumber but not the ping is exactly the trap
- * above.
- */
+// viem's ranker pings net_listening every 4s at every endpoint. mainnet.base.org (403) and
+// Robinhood (-32601) refuse it while serving real reads, so the default scored healthy
+// hosts at zero and was 98% of all RPC traffic. The ping is therefore eth_blockNumber, every
+// 60s: this picks an endpoint, the fallback still fails over on a real error. Verify a new
+// endpoint under BOTH methods.
 const RANK_OPTIONS = {
   interval: 60_000,
   timeout: 2_000,
