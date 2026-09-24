@@ -1,18 +1,8 @@
-// The one call a launch path makes to announce a birth.
-//
-// Everything hard lives elsewhere — `birthNotify.ts` owns the queue, `births.js` owns the
-// signature. This module is the small, awkward middle: turning what a launch RESULT
-// carries into the six fields the island's socket wants, and in particular resolving
-// `birth_block`, which no launch result carries because both SDKs return a transaction
-// hash rather than a receipt.
-//
-// ## Why birth_block is worth this trouble
-//
-// "The island enrols the token, anchors its birth from birth_block (CHAIN TRUTH, NEVER
-// APPROXIMATED), and the next daily scan begins measuring it." Heat is time-weighted, so
-// the birth block is the zero point of every degree the token will ever earn. Guessing it
-// from a wall clock would mis-date the token's whole history — so if the block cannot be
-// read, the notify is queued WITHOUT being sent rather than sent with a fabricated one.
+// The one call a launch path makes to announce a birth: a launch result becomes the six
+// fields the island's socket wants (birthNotify.ts queues them, births.js signs them).
+// birth_block is read from the receipt, since both SDKs return only a hash. A holder's
+// clock starts at their first hold, so the birth block is the zero point of every degree
+// the token will ever earn: an unreadable block queues nothing, never a wall-clock guess.
 
 import type { PublicClient } from 'viem';
 import { enqueueBirth, flushBirthQueue, type BirthNotifyBody } from './birthNotify';
@@ -34,21 +24,13 @@ export interface NotifyBirthInput {
   origin?: string;
 }
 
-/**
- * The public origin the island will fetch `record_url` from.
- *
- * `window.location.origin` is deliberately NOT used: a launch made from a preview
- * deployment or a localhost dev server would publish a record_url nobody else can
- * resolve, and the island would store that dead URL permanently. The canonical origin is
- * configuration.
- */
+/** The origin the island fetches `record_url` from: configuration, never
+ *  window.location.origin, which on a preview or localhost would publish a dead URL the
+ *  island stores permanently. */
 export function recordOrigin(explicit?: string): string {
   if (explicit) return explicit;
   const configured = (import.meta.env.VITE_CANONICAL_ORIGIN as string | undefined)?.trim();
-  // The fallback is the CANONICAL host (SITE_URL), not the redirect alias. It was
-  // memetic.fun, which the island stored verbatim and permanently — so every record
-  // published without VITE_CANONICAL_ORIGIN set minted an immutable URL that now
-  // costs a 301 on every fetch, on a host the venue no longer claims as its own.
+  // The fallback is the canonical host (SITE_URL), never the memetic.fun redirect alias.
   return configured || 'https://memetics.finance';
 }
 
@@ -69,21 +51,14 @@ export type NotifyOutcome =
   /** Queued nothing: we could not establish a fact the socket requires. */
   | { queued: false; reason: string };
 
-/**
- * Announce a birth. NEVER THROWS, never blocks a launch.
- *
- * Resolves the block, builds the six fields, queues them, and kicks a flush. The caller
- * fires this with `void` on its success path — the returned promise exists for tests and
- * for the ops surface, not for a UI to await.
- */
+/** Announce a birth: resolve the block, build the six fields, queue them, kick a flush.
+ *  Never throws and never blocks a launch; callers fire it with `void`. */
 export async function notifyBirth(input: NotifyBirthInput): Promise<NotifyOutcome> {
   try {
     const birthBlock =
       input.chain === 'solana' ? (input.slot ?? null) : await readBirthBlock(input.publicClient, input.txHash);
 
-    // The two facts the socket will reject without. Both are refusals to fabricate:
-    // a wrong birth block mis-dates every degree the token will ever earn, and a missing
-    // gate_decision_id breaks the link back to the decision that permitted the launch.
+    // The two facts the socket rejects without; neither is ever fabricated.
     if (birthBlock === null) {
       return { queued: false, reason: 'The birth block could not be read, and the island anchors births from chain truth rather than an approximation.' };
     }
