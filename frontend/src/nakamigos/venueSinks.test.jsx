@@ -359,7 +359,7 @@ describe("lib/orderbook.js", () => {
         itemType: 1, token: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", identifierOrCriteria: "0", startAmount: "1000", endAmount: "1000",
       }));
       expect(res.error).toBe("not-eth-priced");
-      expect(res.message).not.toMatch(/—/);
+      expect(res.message).not.toMatch(/\u2014/);
       expect(res.success).toBeUndefined();
       expectNothingHappened();
     });

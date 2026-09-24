@@ -411,7 +411,7 @@ describe("listings sub-path allowlist", () => {
 // known from its answer. Every NFT item (itemType 2 to 5) in the answer's
 // orders must be a venue contract, and an accepted offer must hand over the
 // contract its request named. Anything else is refused before it is returned.
-describe("opensea — a fill answer moves only venue NFTs", () => {
+describe("opensea: a fill answer moves only venue NFTs", () => {
   const GOLD = "0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3";
   const RARE_TOWELIE = "0x2BCAaD3cD618D0C0f87E153b3928e02bab757705";
   const SEAPORT = "0x0000000000000068f116a894984e2db1123eb395";
