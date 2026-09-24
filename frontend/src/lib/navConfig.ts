@@ -27,6 +27,8 @@ export interface NavItem {
   label: string;
   /** Shorter label when shown as a tab on the section's host; `label` stays the canonical, pinned name. */
   tabLabel?: string;
+  /** Shown instead on phones and iPads (the `handheld` variant); visual only, `tabLabel ?? label` stays the accessible name. */
+  compactTabLabel?: string;
   /** Amber "Soon" pill: routable and worth finding, not yet usable. */
   soon?: boolean;
   /** Green "Live" pill, opt-in, driven by the page's own live read (never a literal `true`). */
@@ -170,7 +172,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { to: '/yield', label: 'Yield Routing', tabLabel: 'Yield', soon: !hasRoutableYieldVenue() },
       // Both read the island tape; each pill clears when a readable pool is registered,
       // never on a live read. Neither promises execution or a payout.
-      { to: '/copy-trading', label: 'Copy Trading', soon: !hasCopyTapeSource() },
+      // CT on phones and iPads: "Copy Trading" is wider than its tab there.
+      { to: '/copy-trading', label: 'Copy Trading', compactTabLabel: 'CT', soon: !hasCopyTapeSource() },
       { to: '/competitions', label: 'Competitions', soon: !hasScoreableBoard() },
       // Browser-only (signed invoice in the URL fragment); pilled only while no served
       // chain has a verified settlement asset.

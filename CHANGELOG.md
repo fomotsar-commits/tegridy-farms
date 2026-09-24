@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-09-24
+
+- On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
+
 ### 2026-09-22
 
 - Staking cards say how the island reads a locked bag.
