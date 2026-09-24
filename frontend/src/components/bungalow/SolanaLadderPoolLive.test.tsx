@@ -464,6 +464,59 @@ describe('with no wallet connected', () => {
     // card look broken to anyone deciding whether to connect at all.
     expect(screen.getByText('Reward vault')).toBeTruthy();
   });
+
+  // THE WAY IN WHEN THE BODY CANNOT DRAW. Under SolanaPoolStack this card is the only
+  // Connect for a member of the closed Streamflow pool, whose claim strip stays hidden
+  // until a wallet connects. A ladder that fails to read must not take that claim with it.
+  const connects = () => screen.queryAllByRole('button', { name: /Connect a Solana wallet/ });
+
+  it('a readable pool shows exactly ONE connect button, not the fallback as well', async () => {
+    walletState.publicKey = null;
+    draw();
+    await screen.findByText('Reward vault');
+    expect(connects()).toHaveLength(1);
+  });
+
+  it('a failed pool read still offers exactly one connect button', async () => {
+    walletState.publicKey = null;
+    reads.pool = { ok: false, unreadable: true, reason: 'there is no account at this pool address' };
+    draw();
+    await screen.findByText(/no account at this pool address/);
+    expect(connects()).toHaveLength(1);
+    // Its own wrapper: a direct child of the card's flex column stretches full width.
+    expect(connects()[0]!.parentElement!.className).not.toMatch(/flex-col/);
+  });
+
+  it('an unconfigured deployment still offers exactly one connect button', async () => {
+    walletState.publicKey = null;
+    cfg.configured = false;
+    draw();
+    await screen.findByText(/not configured yet/);
+    expect(connects()).toHaveLength(1);
+  });
+
+  it('a pool staking a different mint still offers exactly one connect button', async () => {
+    walletState.publicKey = null;
+    reads.pool = { ok: true, value: poolView({ mint: 'So11111111111111111111111111111111111111112' }) };
+    draw();
+    await screen.findByText(/does not stake BAYLA/);
+    expect(connects()).toHaveLength(1);
+  });
+
+  it('no connect button flashes while the pool is still being read', async () => {
+    walletState.publicKey = null;
+    reads.pool = new Promise(() => {});
+    draw();
+    await screen.findByText('Reading the pool…');
+    expect(connects()).toHaveLength(0);
+  });
+
+  it('a CONNECTED wallet never sees the fallback on a failed read', async () => {
+    reads.pool = { ok: false, unreadable: true, reason: 'there is no account at this pool address' };
+    draw();
+    await screen.findByText(/no account at this pool address/);
+    expect(connects()).toHaveLength(0);
+  });
 });
 
 /* ────────── 8. pool-level reward figures: never annualised ────────── */
