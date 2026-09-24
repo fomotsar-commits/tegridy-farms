@@ -59,9 +59,9 @@ import { getChainConfig } from '../lib/chains/registry';
 interface ContractEntry {
   label: string;
   address: string;
-  // A path under the repo root links to GitHub. Anything else renders as plain text:
-  // 'external (...)' for third-party contracts, or a label for our own live contract
-  // whose deployed source the repo does not hold. ContractsPage.sourceLinks.test.tsx.
+  // A path under the repo root, linked to GitHub, unless it is 'external (...)' for a
+  // third-party contract or 'not in this repo (...)' for our own live contract whose
+  // deployed source the repo does not hold. ContractsPage.sourceLinks.test.tsx.
   source: string;
   // AUDIT LAUNCHPAD-SEC: optional status surfaces placeholder/deprecated
   // entries so users aren't presented with a zero address that looks live.
@@ -270,7 +270,9 @@ const GROUPS: ContractGroup[] = [
 
 function ContractRow({ entry, verification }: { entry: ContractEntry; verification: VerificationState }) {
   const isExternal = entry.source.startsWith('external');
-  const sourceHref = entry.source.startsWith('contracts/') ? `${GITHUB_BLOB_BASE}/${entry.source}` : undefined;
+  const sourceHref = isExternal || entry.source.startsWith('not in this repo (')
+    ? undefined
+    : `${GITHUB_BLOB_BASE}/${entry.source}`;
   // Our own contracts with an unset (zero) address aren't part of the current
   // deployment — route them through the clean "pending deploy" path so we never
   // surface a 0x0 as live or render a stale "redeploy live / awaiting multisig"
@@ -437,7 +439,8 @@ export default function ContractsPage() {
           <h1 className="heading-luxury text-3xl md:text-5xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>Contract Index</h1>
           <p className="text-white/75 text-[13px] md:text-[14px] max-w-[720px] leading-relaxed mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
             Canonical, on-chain addresses for every memetics.finance contract, grouped by role. Source
-            is linked below wherever this repo holds it. Source mirrored from the repo{' '}
+            is linked below wherever this repo holds it. Links open the file as it is today, which
+            can be newer than the code deployed at that address. Source mirrored from the repo{' '}
             <a
               href={`${GITHUB_BLOB_BASE}/docs/CONTRACTS.md`}
               target="_blank"
