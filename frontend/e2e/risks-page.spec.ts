@@ -100,8 +100,8 @@ test.describe('RisksPage — protocol-specific risks', () => {
       'mvp-launch',
     );
 
-    await expect(fixStatusLink).toHaveAttribute('href', `${GITHUB_BLOB_BASE}/FIX_STATUS.md`);
-    await expect(auditsLink).toHaveAttribute('href', `${GITHUB_BLOB_BASE}/AUDITS.md`);
+    await expect(fixStatusLink).toHaveAttribute('href', `${GITHUB_BLOB_BASE}/docs/archive/FIX_STATUS.md`);
+    await expect(auditsLink).toHaveAttribute('href', `${GITHUB_BLOB_BASE}/docs/AUDITS.md`);
     // External links must not leak opener.
     for (const link of [fixStatusLink, auditsLink]) {
       await expect(link).toHaveAttribute('target', '_blank');

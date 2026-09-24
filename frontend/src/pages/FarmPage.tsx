@@ -33,6 +33,7 @@ import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
 import { getActiveBungalow, DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
+import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
 import { isToweliVoice } from '../lib/arrival';
 import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
 import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
@@ -50,38 +51,16 @@ import { UpcomingPoolCard } from '../components/farm/UpcomingPoolCard';
 import { ArtImg } from '../components/ArtImg';
 
 /**
- * Jungle Bay bungalows: in a non-default bungalow the whole TOWELI farm stack
- * (staking card, LP farming, boosts) is the wrong token and the wrong chain,
- * so the route renders the bungalow's own self-gating farm panel instead.
- * The branch lives in this wrapper — NOT as an early return inside the farm
- * component — so the classic component's hook order is untouched. The active
- * bungalow can only change via persist+reload, so the branch is stable for
- * the lifetime of the document.
- *
- * ⚠️ THE THIRD STATE, ADDED 2026-09-05, AND THE BUG IT CLOSES.
- * This wrapper had TWO branches, and `getActiveBungalow()` returns null when
- * nothing is chosen — so "the venue, speaking as itself" fell into the same
- * branch as "the TOWELI bungalow". A stranger's first visit to /farm was
- * therefore the classic TOWELI stack in full dress: "Stake TOWELI and earn
- * rewards · FAFO", TOWELI price, TOWELI balance, about thirty occurrences of one
- * resident's ticker on a page the VENUE was supposed to be speaking on.
- *
- * `arrival.ts` has had the right three-state gate the whole time —
- * arrivalVoice() is 'venue' | 'toweli' | 'bungalow', and HomePage already uses
- * it correctly. This page (and DashboardPage) branched on the coarser
- * getActiveBungalow(), which collapses the first two. That is the whole defect;
- * `isToweliVoice()` is the fix.
- *
- * NOTHING ABOUT THE CLASSIC FARM CHANGED. ToweliFarm is byte-identical and still
- * mounts StakingCard, LPFarmingSection, IncentivesStrip, BoostScheduleTable,
- * FarmStatsRow, LivePoolCard, LegacyStakingExit and RealYieldProof — it is
- * simply reached by its own voice now instead of by everyone's. Real staking is
- * one door away, and VenuePoolIndex links to it by name.
+ * Three voices, one route: a room with its own token gets its self-gating farm
+ * panel, the venue gets VenueEarn (every resident pool), and the TOWELI room gets
+ * the classic farm. The branch lives in this wrapper so ToweliFarm's hook order
+ * never changes, and it re-reads when the skin switches in place.
  */
 export default function FarmPage() {
+  useActiveBungalowId();
   const bungalow = getActiveBungalow();
   if (bungalow && bungalow.id !== DEFAULT_BUNGALOW_ID) {
-    return <BungalowFarmPanel bungalow={bungalow} />;
+    return <BungalowFarmPanel key={bungalow.id} bungalow={bungalow} />;
   }
   // The venue speaks for the whole island, not for one resident.
   if (!isToweliVoice()) return <VenueEarn />;

@@ -63,7 +63,7 @@ The live mainnet bytecode remains the authoritative reference — always verify 
 
 ## Ownership & treasury
 
-The entire 1B supply was minted to `0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e` and has been distributed per the allocation in [`TOKENOMICS.md`](../TOKENOMICS.md).
+The entire 1B supply was minted to `0xE9B7aB8e367bE5AC0e0c865136f1907bd73df53e` and has been distributed per the allocation in [`TOKENOMICS.md`](TOKENOMICS.md).
 
 **That address is not the treasury and never was** (corrected 2026-08-12; this paragraph called it "the project treasury" and pointed at `TREASURY_ADDRESS`, which resolves elsewhere). Read on-chain: `0xE9B7…f53e` is an **EOA carrying an EIP-7702 delegation designator** (`code == 0xef0100…`) and is one of the two owners of the treasury Safe — an owner key, not the fund sink. The protocol treasury is the Safe at [`0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`](https://etherscan.io/address/0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d) (`getThreshold() == 2` over 2 owners), which is what `TREASURY_ADDRESS` in [`constants.ts`](../frontend/src/lib/constants.ts) and `SwapFeeRouter.treasury()` both return. Never solicit or send funds to `0xE9B7…f53e`.
 

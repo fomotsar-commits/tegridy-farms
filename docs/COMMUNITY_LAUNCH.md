@@ -44,12 +44,12 @@ Paste this as the first pinned thread under Announcements:
 >
 > **Before posting:**
 > - Security vulnerability? **Do not post here.** Email `the team via our community channels` — see [SECURITY.md](../SECURITY.md) for the disclosure process and bounty tiers.
-> - Read the [README](../README.md) and [FAQ](../FAQ.md) first.
+> - Read the [README](../README.md) and [FAQ](FAQ.md) first.
 >
 > **What the team will answer:**
 > - Protocol mechanics, contract behaviour, deploy status
 > - Roadmap + timelines
-> - Anything under [AUDITS.md](../AUDITS.md)
+> - Anything under [AUDITS.md](AUDITS.md)
 >
 > **What the team won't answer:**
 > - Price predictions, "wen moon," financial advice
@@ -90,7 +90,7 @@ Desired handles in priority order (grab the first one available):
 > come back. **(1)** any totality claim about the swap fee reaching lockers — false: `ReferralSplitter`
 > takes `referralFeeBps` (20%) off every fee before the staker rail sees it, and that share cannot be
 > set to zero or unwired. **(2)** "Audited" — false as an unqualified word: the reviews are internal, and
-> [FAQ.md](../FAQ.md) says plainly that no third-party audit has been commissioned. Say
+> [FAQ.md](FAQ.md) says plainly that no third-party audit has been commissioned. Say
 > "self-audited, findings published" or say nothing.
 >
 > A third rule, for anything written from here on: **the staker rail has collected fees and has never
@@ -154,7 +154,7 @@ Pinned bio fields:
 
 ### Response protocol
 
-- Reply to tech questions in-thread with links to [README](../README.md) / [FAQ](../FAQ.md) / [AUDITS.md](../AUDITS.md).
+- Reply to tech questions in-thread with links to [README](../README.md) / [FAQ](FAQ.md) / [AUDITS.md](AUDITS.md).
 - Never DM first. If someone DMs claiming to be team — it's a scammer. Pin this warning.
 - Don't engage with "wen airdrop" replies. Mute, move on.
 - Re-tweet coverage only after verifying the source.
