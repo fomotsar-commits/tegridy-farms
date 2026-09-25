@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { m } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useSolanaConnect } from '../solana/useSolanaConnect';
@@ -567,9 +567,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   };
 
   return (
-    // SECONDARY, WHOLE (2026-09-20). The live Lock Ladder now leads the panel; this
-    // card sits back — a quieter border, no glow loop, a heavier scrim — and keeps
-    // every control and notice it has: its stakers still claim and unstake here.
+    // SECONDARY, WHOLE (2026-09-20): a quieter border, no glow loop, a heavier scrim,
+    // and every control it has. Drawn for an open pool, or a closed one with no ladder;
+    // a closed pool beside a ladder is members-only and gets LighthouseClaimStrip.
     <div className="relative overflow-hidden rounded-2xl" style={{ border: '1px solid var(--color-purple-25)' }}>
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim
@@ -598,8 +598,18 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 
         {poolRead === null && <p className="text-white/70 text-[13px]">Reading the pool…</p>}
 
+        {/* Nothing else re-reads a failed pool for a visitor with no wallet. */}
         {poolRead && !poolRead.ok && (
-          <p className="text-[13px]" style={{ color: '#f0b26b' }}>{poolRead.reason}</p>
+          <p className="text-[13px]" style={{ color: '#f0b26b' }}>
+            {poolRead.reason}{' '}
+            <button
+              type="button"
+              onClick={() => { setPoolRead(null); reread(); }}
+              className="min-h-[44px] underline underline-offset-2"
+            >
+              Try again
+            </button>
+          </p>
         )}
 
         {/* AUDIT FIX TF-035: a configuration error, not a network problem — so
@@ -1287,6 +1297,303 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * A CLOSED Streamflow pool beside a ladder, for its members only (owner, 2026-09-21).
+ * SolanaPoolStack draws it under the ladder card and shares that card's wallet context.
+ * No open position here: nothing. A failed read: an outage, never "not a member".
+ * Unstake appears once a lock opens (Streamflow never returns principal by itself), and
+ * the principal rescue only on an open lock in the 6000 band, never for a dry vault.
+ */
+export function LighthouseClaimStrip({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
+  const { publicKey, wallet } = useWallet();
+  const walletKey = publicKey?.toBase58() ?? '';
+  const titleId = useId();
+
+  const [poolRead, setPoolRead] = useState<{ ok: true; pool: PoolView } | { ok: false; reason: string } | null>(null);
+  // Keyed by wallet and DERIVED by key match: a switch never shows the last wallet's rows.
+  const [entriesRead, setEntriesRead] = useState<{ key: string; list: StakeEntryView[] | null; reason: string | null } | null>(null);
+  // Keyed by the wallet that SENT it: under the next wallet's rows a receipt reads as theirs.
+  const [action, setAction] = useState<{ key: string; busy?: string; note?: string; tx?: string } | null>(null);
+  // The rescue confirm is armed against ONE entries read (the full card's rule): another
+  // wallet's read, a fresh read and any write all disarm it.
+  const [rescueFor, setRescueFor] = useState<{ read: typeof entriesRead; nonce: number } | null>(null);
+  // Every read goes through the one effect below, so a newer read cancels an older one.
+  const [readGen, setReadGen] = useState(0);
+  const reread = () => setReadGen((n) => n + 1);
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const t = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // No wallet, no reads: a visitor who cannot be a member costs this pool nothing.
+  useEffect(() => {
+    if (!walletKey) return;
+    let cancelled = false;
+    readEntries(bungalow.stakePool, walletKey).then((r) => {
+      if (cancelled) return;
+      if (r.ok) setEntriesRead({ key: walletKey, list: r.entries, reason: null });
+      else setEntriesRead({ key: walletKey, list: null, reason: r.reason });
+    });
+    readPool(bungalow.stakePool).then((r) => { if (!cancelled) setPoolRead(r); });
+    return () => { cancelled = true; };
+  }, [bungalow.stakePool, walletKey, readGen]);
+
+  const mine = walletKey && entriesRead?.key === walletKey ? entriesRead : null;
+  // Disconnected or still reading: nothing, so a non-member never sees a flash.
+  if (!mine) return null;
+
+  const act = action && action.key === walletKey ? action : null;
+  const tryAgain = (onClick: () => void) => (
+    <button type="button" onClick={onClick} className="min-h-[44px] underline underline-offset-2">Try again</button>
+  );
+  const actionLines = (
+    <>
+      {act?.busy && <p role="status" className="text-white/70 text-[12px] mt-3 mb-0">{act.busy}: waiting for the wallet…</p>}
+      {act?.note && (
+        <p className="text-[12px] mt-3 mb-0 text-white/85 break-words">
+          {act.note}{' '}
+          {act.tx && (
+            <a href={`https://solscan.io/tx/${act.tx}`} target="_blank" rel="noopener noreferrer"
+              aria-label="View transaction on Solscan (opens in new tab)"
+              className="inline-flex min-h-[44px] items-center underline underline-offset-2 text-white/70 hover:text-white">
+              view tx ↗
+            </a>
+          )}
+        </p>
+      )}
+    </>
+  );
+  // The closed full card's quiet shell: no glow loop, the quiet border, the 0.62 scrim.
+  const shell = (body: ReactNode) => (
+    <section aria-labelledby={titleId} className="relative overflow-hidden rounded-2xl" style={{ border: '1px solid var(--color-purple-25)' }}>
+      <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.62)' }} />
+      <div className="relative z-10 p-5">
+        <p id={titleId} className="text-[11px] uppercase tracking-wider mb-1" style={{ color: 'rgba(255,255,255,0.7)' }}>
+          The lighthouse pool · retired
+        </p>
+        {body}
+        {actionLines}
+      </div>
+    </section>
+  );
+
+  // A non-member may be reading this, so it never names the closed pool. Try again drops
+  // the failure first, so a retry that fails again is not a dead click.
+  if (mine.list === null) {
+    const retryEntries = () => {
+      setEntriesRead((s) => (s && s.list === null ? null : s));
+      reread();
+    };
+    return (
+      <div>
+        <p role="status" className="text-[12px] rounded-lg px-3 py-2 m-0" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
+          Your {bungalow.symbol} positions could not be checked right now. That is an outage, not an
+          empty result.{' '}
+          {tryAgain(retryEntries)}
+        </p>
+        {actionLines}
+      </div>
+    );
+  }
+
+  const openEntries = mine.list.filter((e) => e.closedTs === 0);
+  // Exiting the last position closes it; its receipt stays on screen.
+  if (openEntries.length === 0) return act?.note ? shell(null) : null;
+
+  const pool = poolRead?.ok ? poolRead.pool : null;
+  const poolMint = pool?.mint ?? '';
+  const identityMismatch = poolMint !== '' && poolMint !== (bungalow.address ?? '');
+  const decimals = pool?.decimals ?? bungalow.decimals ?? 6;
+  const sym = bungalow.symbol;
+  const invoker = wallet?.adapter as SignerWalletAdapter | undefined;
+  const multiReward = (pool?.rewardPools.length ?? 0) > 1;
+  // An empty reward-pool list, or one missing a pool an entry has a figure for, is an
+  // outage: an exit claims only the listed pools and then closes the entry for good.
+  const rewardPoolsIncomplete = pool !== null && (
+    pool.rewardPools.length === 0
+    || openEntries.some((e) => Object.keys(e.pendingRaw).some((n) => !pool.rewardPools.some((rp) => rp.nonce === Number(n))))
+  );
+  const retryPool = () => {
+    setPoolRead((p) => (p && !p.ok ? null : p));
+    reread();
+  };
+
+  // An ABSENT pending figure is unknown, not zero, so it never disables a claim.
+  const pendingOf = (e: StakeEntryView, rp: RewardPoolView): bigint | null => e.pendingRaw[rp.nonce] ?? null;
+  // Per reward pool, in its own units: a claim reverts (6012) past what its vault holds.
+  const exceedsVault = (e: StakeEntryView, rp: RewardPoolView): boolean => {
+    const v = pendingOf(e, rp);
+    return v !== null && rp.fundedRaw !== null && v > rp.fundedRaw;
+  };
+  const anyExceedsVault = pool ? openEntries.some((e) => pool.rewardPools.some((rp) => exceedsVault(e, rp))) : false;
+  const rescueArmed = rescueFor !== null && rescueFor.read === entriesRead ? rescueFor.nonce : null;
+
+  // Busy disables every button whichever wallet sent it; only its lines are scoped.
+  // Re-read after a failure too: a rescue that stopped may already have paid a claim.
+  const run = async (label: string, fn: () => Promise<{ ok: true; txId: string } | { ok: false; reason: string }>) => {
+    const key = walletKey;
+    setRescueFor(null);
+    setAction({ key, busy: label });
+    const res = await fn();
+    setAction(res.ok ? { key, note: `${label} confirmed.`, tx: res.txId } : { key, note: res.reason });
+    reread();
+  };
+
+  const btn = 'btn-secondary min-h-[44px] px-4 py-2 text-[12px] disabled:opacity-40';
+  return shell(
+    <>
+      <p className="text-white/60 text-[11px] leading-relaxed mb-3">
+        This pool takes no new stakes.{' '}
+        {openEntries.length === 1
+          ? 'Claim what your position has earned here, and withdraw it here once its lock opens.'
+          : 'Claim what your positions have earned here, and withdraw each one here once its lock opens.'}
+      </p>
+
+      {poolRead === null && <p role="status" className="text-white/70 text-[12px] m-0">Reading the pool…</p>}
+      {poolRead && !poolRead.ok && (
+        <p role="alert" className="text-[12px] m-0" style={{ color: '#f0b26b' }}>
+          {poolRead.reason}{' '}
+          {tryAgain(retryPool)}
+        </p>
+      )}
+      {identityMismatch && (
+        <p role="alert" className="text-[12px] rounded-lg p-3 m-0" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
+          This pool does not stake {sym}. It reports {poolMint.slice(0, 6)}…{poolMint.slice(-4)} as its staking
+          mint, which is a configuration error, so nothing here will send a transaction.
+        </p>
+      )}
+      {pool && !identityMismatch && rewardPoolsIncomplete && (
+        <p role="alert" className="text-[12px] rounded-lg px-3 py-2 m-0" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
+          The reward program could not be read, so what your {openEntries.length === 1 ? 'position has' : 'positions have'} earned
+          is unknown right now. That is an outage, not a zero, and nothing here can be claimed or withdrawn safely
+          until it reads.{' '}
+          {tryAgain(retryPool)}
+        </p>
+      )}
+
+      {pool && !identityMismatch && !rewardPoolsIncomplete && (
+        <>
+          <ul className="space-y-2 m-0 p-0 list-none">
+            {openEntries.map((e) => {
+              const opensAt = unlockTs(e);
+              const locked = nowSec < opensAt;
+              const atRisk = anyClaimBrokenByRateChange(e, pool.rewardPools);
+              const exitBlocked = pool.rewardPools.some((rp) => exceedsVault(e, rp));
+              // Same-mint pools only (a foreign mint has other decimals), all known, and
+              // never for an entry this read did not fully price (pendingUnread).
+              const sameMint = pool.rewardPools.filter((rp) => rp.mint === pool.mint);
+              const earned = e.pendingUnread || sameMint.length === 0 ? null : sameMint.reduce<bigint | null>((acc, rp) => {
+                const v = pendingOf(e, rp);
+                return acc === null || v === null ? null : acc + v;
+              }, 0n);
+              return (
+                <li key={e.address || e.nonce} className="rounded-lg p-3" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-purple-25)' }}>
+                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mb-2.5">
+                    <p className="text-white text-[15px] font-semibold m-0 tabular-nums">
+                      {fmt(e.amountRaw, decimals)} <span className="text-white/60 text-[11px] font-normal">{sym}</span>
+                    </p>
+                    <p className="text-white/70 text-[12px] m-0">
+                      {locked ? `unlocks in ${humanDuration(opensAt - nowSec)}` : 'unlocked'}
+                    </p>
+                    {earned !== null && (
+                      <p className="text-white/70 text-[12px] m-0 tabular-nums">
+                        {fmt(earned, decimals, decimals)} {sym} earned
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {pool.rewardPools.map((rp) => {
+                      const pending = pendingOf(e, rp);
+                      const blocked = exceedsVault(e, rp);
+                      const rpAtRisk = claimBrokenByRateChange(e, rp);
+                      return (
+                        <button
+                          key={rp.address || rp.nonce}
+                          type="button"
+                          disabled={!invoker || !!action?.busy || pending === 0n || blocked}
+                          title={blocked
+                            ? 'The reward vault cannot cover this claim yet. It works again after a top-up, and nothing accrued is lost.'
+                            : rpAtRisk
+                              ? 'This position is deep enough into the reward program’s accounting that the claim may revert. It may also pay in full; only the chain knows, and trying is how you ask. A revert costs the network fee and nothing else.'
+                              : pending === 0n ? 'Nothing accrued yet.' : undefined}
+                          onClick={() => invoker && void run('Claim', () => claimRewards({ invoker, pool, rewardPool: rp, entryNonce: e.nonce }))}
+                          className={btn}
+                        >
+                          {blocked ? 'Nothing claimable yet' : rpAtRisk ? 'Claim rewards (may revert)' : 'Claim rewards'}
+                          {multiReward ? ` · pool #${rp.nonce}` : ''}
+                        </button>
+                      );
+                    })}
+
+                    {!locked && (
+                      <button
+                        type="button"
+                        disabled={!invoker || !!action?.busy || exitBlocked}
+                        title={exitBlocked
+                          ? 'The exit pays rewards in the same transaction, so it waits until the vault covers them. Nothing is lost.'
+                          : atRisk
+                            ? 'This exit claims rewards in the same transaction and may revert. If it does, nothing moves, and taking the principal without rewards is still there. Try this first: it is the only way out that keeps the rewards.'
+                            : undefined}
+                        onClick={() => invoker && void run('Unstake', () => unstakeAndClaim({ invoker, pool, entryNonce: e.nonce }))}
+                        className={btn}
+                      >
+                        {exitBlocked ? 'Exit waits for a vault top-up' : atRisk ? 'Unstake & claim (may revert)' : 'Unstake & claim'}
+                      </button>
+                    )}
+
+                    {!locked && atRisk && (
+                      rescueArmed === e.nonce ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={!invoker || !!action?.busy}
+                            onClick={() => {
+                              if (invoker) void run('Rescue', () => unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: e.nonce, entry: e }));
+                            }}
+                            className="min-h-[44px] px-4 py-2 text-[12px] rounded-lg disabled:opacity-40"
+                            style={{ background: 'rgba(227,179,65,0.18)', border: '1px solid #e3b341', color: '#e3b341' }}
+                          >
+                            Forfeit rewards &amp; take principal
+                          </button>
+                          <button type="button" onClick={() => setRescueFor(null)} className="btn-secondary min-h-[44px] px-3 py-2 text-[12px]">
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!invoker || !!action?.busy}
+                          title="First tries to claim every reward pool with something pending, one transaction each. If a claim fails for any reason the chain has not called permanent, it stops there: claims already paid stay paid, and your principal stays staked. Where the chain has, it withdraws your principal and closes the reward entry, giving those rewards up."
+                          onClick={() => setRescueFor({ read: entriesRead, nonce: e.nonce })}
+                          className={btn}
+                          style={{ borderColor: 'rgba(227,179,65,0.5)', color: '#e3b341' }}
+                        >
+                          Take principal without rewards
+                        </button>
+                      )
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          <HeldTimeLine chain={bungalow.chain} pool={bungalow.stakePool} className="mt-3" />
+
+          {anyExceedsVault && (
+            <p className="text-white/55 text-[11px] mt-3 mb-0 leading-relaxed">
+              The reward vault cannot cover what has accrued right now, so claims wait for a top-up.
+              Accrual keeps counting, and nothing is lost.
+            </p>
+          )}
+        </>
+      )}
+    </>,
   );
 }
 

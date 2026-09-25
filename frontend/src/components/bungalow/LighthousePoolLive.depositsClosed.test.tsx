@@ -1,17 +1,9 @@
-// CLOSING THE DOOR MUST NOT LOCK ANYONE IN.
-//
-// `depositsClosed` stops the venue offering the BAYLA Streamflow pool to new
-// stakers while it keeps running for up to a year, because its stakers are
-// locked. (The venue's lock ladder is a separate product, not its replacement.)
-// The whole risk of a flag like this is scope: it is supposed to
-// remove ONE control — the stake form — and it sits in the same component as
-// every exit those stakers have.
-//
-// So the load-bearing assertions here are the NEGATIVE ones. "The stake button
-// is gone" is easy and would pass even if the flag had hidden the entire card.
-// What only this file can catch is a closed door that also took the claim, the
-// unstake, or the principal rescue with it — and that failure traps exactly the
-// cohort the flag exists to protect.
+// CLOSING THE DOOR MUST NOT LOCK ANYONE IN. This is the full closed card, drawn when
+// no ladder is configured; beside a ladder the pool is members-only and /farm draws
+// LighthouseClaimStrip instead (LighthousePoolLive.claimStrip.test.tsx). The flag must
+// remove ONE control, the stake form, so the load-bearing assertions are the negative
+// ones: a closed door that also took the claim, the unstake or the rescue traps exactly
+// the cohort the flag exists to protect.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -152,10 +144,9 @@ describe('a pool closed to new deposits', () => {
     // successor and a migration as the missing step. What is true: the locks stay
     // where they are and keep running, and nothing is moved.
     //
-    // ⚠️ AND NO OTHER POOL. A later wording said "the venue's lock ladder IS a separate
-    // pool" — to every BAYLA visitor on production, where no ladder pool exists and no
-    // ladder card is mounted. CLOSED_POOL has no `ladderPool`, which is exactly
-    // production's setup, so the notice must not name one.
+    // ⚠️ AND NO OTHER POOL. This card is drawn only when no ladder is configured (with
+    // one, the pool is members-only and gets the claim strip), so the notice must not
+    // name a pool the page does not show. CLOSED_POOL has no `ladderPool`.
     render(<LighthousePoolLive bungalow={CLOSED_POOL} />);
     const notice = await screen.findByText(/closed to new deposits/i);
     const text = notice.parentElement?.textContent ?? '';
