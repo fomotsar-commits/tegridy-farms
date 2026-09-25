@@ -405,4 +405,26 @@ describe('every heat explainer carries the island sentences', () => {
     const answer = venueFaq(80).flatMap((s) => s.items).find((i) => i.q === 'What is Heat?')?.a;
     expect(answer).toBe(`${VENUE.heatPlain} ${VENUE.heatDays} Price never enters it.`);
   });
+
+  it('says one person, every wallet, under the instrument and in the FAQ', () => {
+    expect(VENUE.heatOnePerson).toBe('One person, every wallet: linked wallets read as a single flame.');
+    const answer = venueFaq(80).flatMap((s) => s.items).find((i) => i.q === 'Can Heat be bought?')?.a;
+    expect(answer).toBe(
+      'No. A fresh bag starts near zero however big it is. Only time held moves it. One person, every wallet: linked wallets read as a single flame.',
+    );
+  });
+
+  // Wording the island has retired reaches no reader, so no two surfaces disagree.
+  const RETIRED: [string, RegExp][] = [
+    ['a per-wallet clock', /measured per wallet|wallet['’]s clock|clock at the move/i],
+  ];
+  for (const [name, re] of RETIRED) {
+    it(`retires ${name}`, () => {
+      const found = [...SHIPPED].flatMap(([f, text]) => {
+        const m = re.exec(text);
+        return m ? [`${relative(ROOT, f)}: "${m[0]}"`] : [];
+      });
+      expect(found, `${name} in user-facing source:\n${found.join('\n')}`).toEqual([]);
+    });
+  }
 });

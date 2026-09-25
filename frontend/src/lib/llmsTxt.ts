@@ -80,7 +80,7 @@ export interface LlmsFacts {
   description: string;
   heroLine: string;
   heatPlain: string;
-  heatPerWallet: string;
+  heatOnePerson: string;
   launchFloorLine: string;
   doors: DoorFact[];
   toweliStaking: StakingTerms;
@@ -177,7 +177,7 @@ export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfi
     description: VENUE.description,
     heroLine: VENUE.heroLine,
     heatPlain: VENUE.heatPlain,
-    heatPerWallet: VENUE.heatPerWallet,
+    heatOnePerson: VENUE.heatOnePerson,
     launchFloorLine: heatExampleLine(floor, tierAtFloor(floor)),
     doors,
     toweliStaking: {
@@ -257,7 +257,7 @@ export function renderLlmsTxt(f: LlmsFacts, meta: { date: string; commit?: strin
   out.push('# memetics.finance', '', `> ${f.description}`, '');
 
   out.push('## Held time', '');
-  out.push(f.heroLine, '', f.heatPlain, '', f.heatPerWallet, '');
+  out.push(f.heroLine, '', f.heatPlain, '', f.heatOnePerson, '');
   out.push('Jungle Bay Island computes Heat and this venue reads it. Where the two disagree, the island is right.', '');
   out.push(f.launchFloorLine, '');
 
