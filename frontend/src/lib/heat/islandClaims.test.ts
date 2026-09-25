@@ -417,6 +417,7 @@ describe('every heat explainer carries the island sentences', () => {
   // Wording the island has retired reaches no reader, so no two surfaces disagree.
   const RETIRED: [string, RegExp][] = [
     ['a per-wallet clock', /measured per wallet|wallet['’]s clock|clock at the move/i],
+    ['the calculation fold label', /how is this calculated|hide the maths/i],
   ];
   for (const [name, re] of RETIRED) {
     it(`retires ${name}`, () => {
