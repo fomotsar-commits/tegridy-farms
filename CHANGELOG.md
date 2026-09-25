@@ -9,6 +9,7 @@ page keeps the newest thirty days.
 ### 2026-09-24
 
 - On a phone, connecting MetaMask no longer stalls after the MetaMask app opens, and MetaMask can estimate gas on Ethereum.
+- The Solana wallet list shows every wallet, adds MetaMask and Coinbase Wallet, and a wallet saved on a phone no longer traps Connect.
 - The closed BAYLA lighthouse pool is shown only to wallets still staked in it, as a claim box under the lock ladder.
 - A Solana staking pool or position that could not be read says so and offers Try again, on /farm and the dashboard.
 - On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
