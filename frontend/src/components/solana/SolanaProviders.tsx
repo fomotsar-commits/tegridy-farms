@@ -2,16 +2,19 @@
 import '../../lib/solanaPolyfill';
 import { useMemo, type ReactNode } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
-import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
-import { TrustWalletAdapter } from '../../lib/solanaWallets';
+import {
+  CoinbaseWalletAdapter,
+  IPadAwarePhantomWalletAdapter,
+  MetaMaskWalletAdapter,
+  TrustWalletAdapter,
+} from '../../lib/solanaWallets';
 // VENDORED, not the package css: the upstream file opens with a Google-Fonts
 // @import that the CSP blocks, and Vite 8 turned that block into a fatal
 // CSS-preload failure — every Solana-stack page crashed in prod (2026-08-26).
 // See the header in the vendored file before touching this.
 import '../../styles/wallet-adapter-ui.css';
 import { solanaRpcEndpoint } from '../../lib/solana';
-import { SolanaWalletModalA11y } from './SolanaWalletModalA11y';
+import { SolanaWalletModalProvider } from './SolanaWalletModal';
 
 /**
  * Solana wallet context — mounted ONLY around the lazy Solana swap page, so the
@@ -25,7 +28,8 @@ import { SolanaWalletModalA11y } from './SolanaWalletModalA11y';
  * Safari (readyState=Loadable → connect() deep-links the current URL into
  * Phantom's in-app browser via phantom.app/ul/browse). When the extension IS
  * present, useStandardWalletAdapters drops this adapter by name ("Phantom"),
- * so the modal never shows a duplicate entry.
+ * so the modal never shows a duplicate entry. It is upstream's adapter behind a
+ * one-getter subclass that also recognises an iPad (lib/solanaWallets.ts).
  *
  * Trust is here for exactly the same reasons, plus one of its own: it is the
  * wallet a Solana staker on this island most often arrives with, and until
@@ -34,17 +38,32 @@ import { SolanaWalletModalA11y } from './SolanaWalletModalA11y';
  * transaction-version support is stale and wrong — the full evidence, and the
  * reversal of the 2026-09-02 decision, is in lib/solanaWallets.ts. It dedupes
  * against Trust's own Wallet Standard registration by the name "Trust".
+ *
+ * MetaMask and Coinbase Wallet (2026-09-24) are the rest of the EVM connect
+ * modal's list that can hold a Solana token; Rainbow, Rabby and Safe cannot,
+ * and Base's passkey account has no Solana address. Both are vendored for the
+ * reasons in lib/solanaWallets.ts, and both dedupe against their own Wallet
+ * Standard registrations by exact name.
+ *
+ * The modal is ours, not upstream's: upstream folds every wallet that is not
+ * installed behind "More options" as soon as one is, which is how a Phantom
+ * user came to see no Trust at all. See SolanaWalletModal.tsx.
  */
 export function SolanaProviders({ children }: { children: ReactNode }) {
   const endpoint = useMemo(() => solanaRpcEndpoint(), []);
-  const wallets = useMemo(() => [new PhantomWalletAdapter(), new TrustWalletAdapter()], []);
+  const wallets = useMemo(
+    () => [
+      new IPadAwarePhantomWalletAdapter(),
+      new TrustWalletAdapter(),
+      new MetaMaskWalletAdapter(),
+      new CoinbaseWalletAdapter(),
+    ],
+    [],
+  );
   return (
     <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
       <WalletProvider wallets={wallets} autoConnect>
-        <WalletModalProvider>
-          <SolanaWalletModalA11y />
-          {children}
-        </WalletModalProvider>
+        <SolanaWalletModalProvider>{children}</SolanaWalletModalProvider>
       </WalletProvider>
     </ConnectionProvider>
   );
