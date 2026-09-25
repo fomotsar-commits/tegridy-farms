@@ -37,23 +37,9 @@ import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 
 /**
- * The Farm surface while a non-default bungalow is active (Bayla today).
- *
- * FarmPage's whole TOWELI stack (staking card, LP farming, boost tables,
- * incentives strip) is Ethereum/TOWELI machinery — none of it applies to a
- * Solana bungalow token, so in bungalow mode the route renders this panel
- * INSTEAD, and the classic farm returns untouched the moment the visitor
- * switches back to Toweli.
- *
- * HONESTY CONTRACT (same convention as every gated surface in this repo —
- * CurveLaunchPage, AirdropPage, VestingPage): no staking program for this
- * token exists yet, so this panel states exactly that, asks for nothing,
- * and holds no wallet interaction. It describes how the pool will be funded
- * (the routes under evaluation in docs/BAYLA_BUNGALOW.md) and routes the
- * visitor to the surfaces that ARE live: the trade route, the scanner, and
- * the token's real liquidity pools. When a pool ships, this panel is where
- * its address lands (registry-driven), and the live staking card replaces
- * the status card.
+ * The Farm while a room with its own token is active. The room's pool cards lead, picked
+ * from the registry (stakePool, ladderPool, poolKind); then how the pool gets funded, the
+ * live surfaces and the heat card. With no pool yet it says so and asks for nothing.
  */
 export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
   // Copy branches on the same registry facts as the pool slot below, so the hero never
@@ -82,9 +68,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           every established page (fixed, scrimmed, content above). */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="bungalow-farm" idx={2} alt="" loading="lazy" className="w-full h-full object-cover" />
-        {/* ART VISIBILITY 2026-08-31 (owner): 0.55 -> 0.38. The card scrims
-            above it were lightened in the same pass; leaving this heavy would
-            have kept the resident's art muddy anyway. */}
+        {/* A light scrim (0.38), so the resident's art reads through. */}
         <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.38)' }} />
       </div>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16">
@@ -106,7 +90,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           ) : (
             <>
               {bungalow.tagline} The lighthouse pool is being built for {bungalow.symbol} on{' '}
-              {chainLabel} — and until it is deployed and verified, this page makes no
+              {chainLabel}. Until it is deployed and verified, this page makes no
               promises and asks for nothing.
             </>
           )}
@@ -118,10 +102,8 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           members-only one stacks under the ladder in its cell. DOM order IS visual
           order (no CSS `order`), so tab and screen-reader order match the screen. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Pool slot: the honest dark card until a pool address is configured
-            (VITE_BAYLA_STAKE_POOL), the live Streamflow section after. The
-            live section renders an EMPTY reward vault as a labeled real zero
-            — funding is allowed to come last without the page ever lying. */}
+        {/* Pool slot: the dark card until a pool address is configured, the live card
+            after. An empty reward vault reads as a labeled real zero. */}
         {(bungalow.stakePool || bungalow.ladderPool) ? (
           <Suspense fallback={
             <div className={`relative overflow-hidden rounded-2xl glass-card-animated ${bungalow.chain === 'solana' && bungalow.ladderPool ? 'lg:col-span-2' : ''}`} style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -167,13 +149,13 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             <h2 className="heading-luxury text-xl text-white mb-3">Not deployed yet</h2>
             <p className="text-white/85 text-[13px] leading-relaxed mb-4">
               No {bungalow.symbol} staking program exists on-chain today. There is no
-              pool address, so nothing on this page can take a deposit — that is the
+              pool address, so nothing on this page can take a deposit. That is the
               point. When the pool ships it appears here with its address, its verified
               program, and the funded reward balance, in that order.
             </p>
             <p className="text-white/85 text-[13px] leading-relaxed">
               The shape it takes: stake {bungalow.symbol}, earn from a reward pool
-              whose vault balance is always shown as it is — an unfunded pool reads
+              whose vault balance is always shown as it is. An unfunded pool reads
               as a real, labeled zero, never as a promise.
             </p>
           </div>
@@ -199,24 +181,17 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
               {/* pump.fun creator fees only exist for pump-born mints — the
                   vanity suffix is how those mints identify themselves. */}
               {bungalow.address?.endsWith('pump') && (
-                <li><strong>Creator-fee share</strong> from the graduated pump.fun pool — trading fees the pool already generates.</li>
+                <li><strong>Creator-fee share</strong> from the graduated pump.fun pool: trading fees the pool already generates.</li>
               )}
-              {/* This read "captures a platform fee" while the venue had no fee
-                  recipient configured, i.e. while it captured nothing. The claim
-                  now follows the same gate the swap's own fee line does. */}
+              {/* The fee claim follows the same gate as the swap's own fee line. */}
               <li>
-                <strong>Venue swap fees</strong> —{' '}
+                <strong>Venue swap fees</strong>:{' '}
                 {isSolanaFeeConfigured()
                   ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
-                  : 'the Solana swap surface is live here, but it takes no platform fee today — there is nothing to share until one is switched on.'}
+                  : 'the Solana swap surface is live here, but it takes no platform fee today, so there is nothing to share until one is switched on.'}
               </li>
-              {/* NAMED THE MECHANISM, NOT A NEIGHBOUR, 2026-09-05. This read
-                  "the same way the TOWELI seed was funded" — one resident's
-                  ticker quoted as the reference implementation inside every
-                  OTHER resident's room. The sentence loses nothing by naming
-                  what actually happens, and the venue stops speaking about one
-                  bungalow while standing in another. */}
-              <li><strong>Community top-ups</strong> — direct, visible transfers into the reward pool, the same way every pool here is seeded.</li>
+              {/* Names the mechanism, never another resident. */}
+              <li><strong>Community top-ups</strong>: direct, visible transfers into the reward pool, the same way every pool here is seeded.</li>
             </ul>
           </div>
         </div>

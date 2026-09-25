@@ -50,7 +50,7 @@ export function HeatCard({ defaultAddress }: { defaultAddress?: string }) {
     <div className="mt-6 rounded-2xl p-6" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
       <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)' }}>Check your heat</p>
       <p className="text-white/70 text-[12px] mb-3">
-        Time held is what counts. Give the Island an address — it answers with what you held.
+        Time held is what counts. Give the Island an address and it answers with what you held.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor="bungalow-heat-address" className="sr-only">Wallet address</label>
@@ -90,7 +90,7 @@ export function HeatCard({ defaultAddress }: { defaultAddress?: string }) {
           <span className="text-white"><span className="text-white/60">Standing:</span> <strong>{reading.tier}</strong></span>
           <span className="text-white/80">
             {reading.isCold
-              ? 'Cold — the Island has no held-time rows for this wallet yet.'
+              ? 'Cold. The Island has no held-time rows for this wallet yet.'
               : `${reading.tokenCount} held token${reading.tokenCount === 1 ? '' : 's'}${reading.heldSinceUnix ? ` · holding since ${new Date(reading.heldSinceUnix * 1000).toLocaleDateString()}` : ''}`}
           </span>
         </div>
