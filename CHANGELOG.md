@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-09-24
 
+- On a phone, connecting MetaMask no longer stalls after the MetaMask app opens, and MetaMask can estimate gas on Ethereum.
 - On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
 
 ### 2026-09-22
