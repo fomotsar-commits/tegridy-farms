@@ -14,6 +14,24 @@ first (`deploy-devnet.sh`).
 > below — several of them are the steps that produced that outcome, and they have been
 > corrected in place rather than deleted, so the trap stays visible.
 
+> ⛔ **2026-09-26: for the restart, do NOT follow the steps below — follow the go-live
+> checklist instead.** It lives with the release files, off-repo:
+> `C:\Users\jimbo\solana-launch-release-2026-09-26\MAINNET_GO_LIVE.md`. The keys, the build
+> and the rehearsal are already done, and several steps below would now undo them:
+> - **Do not generate keys** (§3). The new ids are chosen and committed at `dd9e367d`: cp-swap
+>   `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, tegridy-launch
+>   `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`, deployer
+>   `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, cp-swap admin = the vault `GRMtSx…`.
+> - **Do not rebuild.** Deploy the rehearsed files: cp_swap.mainnet.so (sha256 `88b98aa9…`) and
+>   tegridy_launch.mainnet.so (sha256 `9b78be02…`), built with Agave 2.3.0. A `solana-verify`
+>   build made now would produce different bytes that nobody rehearsed.
+> - The deploy command below has no `--keypair` or `--upgrade-authority`, so the CLI's
+>   default key would pay and become the upgrade authority. The checklist's command has both.
+> - The vault needs **at least 4,572,000 lamports** before the two cp-swap admin steps, not
+>   ~0.0019 SOL. Both steps are Squads proposals now, because `admin::ID` is the vault.
+> - The whole flow passed on a local validator (the exact mainnet bytes, through a stand-in of
+>   the real 2-of-2 multisig) and on devnet at the real program ids.
+
 Legend: 🔑 = needs a key/signature · 💰 = costs SOL · 🌐 = external submission
 
 ---
