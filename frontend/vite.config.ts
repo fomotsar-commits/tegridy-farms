@@ -2,7 +2,7 @@ import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { visualizer } from 'rollup-plugin-visualizer';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseOverrideModule, mergeScoped, type OverrideEntry } from './src/lib/dev/overrideFileMerge';
 
@@ -209,6 +209,24 @@ function firstFrameStylesheetsPlugin(): Plugin {
   };
 }
 
+// Vercel serves dist/<door>/index.html at /<door> before the SPA rewrite; vite preview
+// would serve the stock shell there (only /<door>/ reaches the file). Preview only.
+function doorPagesPreviewPlugin(): Plugin {
+  return {
+    name: 'door-pages-preview',
+    configurePreviewServer(server) {
+      const outDir = resolve(server.config.root, server.config.build.outDir);
+      server.middlewares.use((req, _res, next) => {
+        const m = /^\/([a-z0-9-]+)(\?.*)?$/.exec(req.url ?? '');
+        if ((req.method === 'GET' || req.method === 'HEAD') && m && existsSync(resolve(outDir, m[1]!, 'index.html'))) {
+          req.url = `/${m[1]}/index.html${m[2] ?? ''}`;
+        }
+        next();
+      });
+    },
+  };
+}
+
 // The studio endpoints render their whole module source, so the file stays deterministic.
 function artStudioPlugin(): Plugin {
   return overrideSavePlugin({
@@ -328,6 +346,7 @@ export default defineConfig(({ mode }) => {
       bungalowStudioPlugin(),
       doorStudioPlugin(),
       firstFrameStylesheetsPlugin(),
+      doorPagesPreviewPlugin(),
       ...(process.env.ANALYZE ? [visualizer({ open: true, gzipSize: true, filename: 'dist/bundle-analysis.html' })] : []),
     ],
     resolve: {
