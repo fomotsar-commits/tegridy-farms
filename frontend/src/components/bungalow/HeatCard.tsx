@@ -3,17 +3,9 @@ import { fetchHeat, isSupportedHeatAddress } from '../../lib/heat/heatClient';
 import type { HeatReading } from '../../lib/heat/heatOracle';
 
 /**
- * "Check your heat" — the island's held-time oracle, on the bungalow farm page.
- *
- * Heat IS the island's thesis ("time held is what counts") and the Bayla hero
- * says "hold her for heat", so the farm page answers the obvious next
- * question. Read-only: one address in, the oracle's reading out, through the
- * same hardened proxy every other heat surface uses (heatClient — CORS makes
- * a direct browser call impossible by design).
- *
- * Honesty rules inherited from heatClient: an unreachable oracle is an ERROR
- * state ("the island is quiet"), never rendered as cold/zero — "we could not
- * ask" and "you are cold" are different facts.
+ * "Check your heat" on a room's farm: one address in, the island oracle's reading out,
+ * read-only, through heatClient's proxy like every heat surface. An unreachable oracle is
+ * an error ("the island is quiet"), never cold or zero: "we could not ask" is not "you are cold".
  */
 export function HeatCard({ defaultAddress }: { defaultAddress?: string }) {
   const [address, setAddress] = useState(defaultAddress ?? '');

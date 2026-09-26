@@ -1,27 +1,8 @@
 /**
- * llms.txt: WHAT AN AI ASSISTANT MAY SAY ABOUT THIS VENUE, IN THE VENUE'S OWN WORDS.
- *
- * Adopted from a holder's notes and ruled in by the island (answer ten, §2). An
- * assistant is now a front door: a stranger asks it what this venue is before they
- * load it. So /llms.txt is served as a static file, generated at build by
- * scripts/llms-txt.mjs, which loads THIS module and writes its output to dist.
- *
- * NOTHING HERE IS TYPED THAT THE APP ALREADY KNOWS. The holder's own guide, written
- * 09-16, said an early exit costs 25%. The BAYLA ladder's 75% made that false for one
- * rail within a day, and the same day the 75% became a cap on a time-left schedule
- * (trunk #592), which made "75%" false too. So every number and every address below is read from the
- * constant the app itself uses, and src/lib/llmsTxt.test.ts fails the moment a
- * rendered field disagrees with its source (and, for the staking terms, with the
- * Solidity the constant mirrors).
- *
- * WHAT IT NEVER CARRIES, by the island's terms: a price, an APR, a balance, a cap,
- * instructions to the reading assistant beyond the safety facts, and any community
- * link (the owner ruled 09-17 that the old Discord invite is dead and that there
- * will never be a Telegram). ASCII only, so zero em dashes by construction.
- *
- * A PURE MODULE. collectFacts() reads the app's constants plus the address ledger
- * it is handed; renderLlmsTxt() turns facts into text. They are split so the test
- * can render SYNTHETIC facts and prove the renderer derives rather than hardcodes.
+ * /llms.txt: what an AI assistant may say about this venue, written to dist by scripts/llms-txt.mjs.
+ * Every number and address is read from the constant the app uses; llmsTxt.test.ts fails on drift.
+ * It never carries a price, an APR, a balance, a cap, a community link, or an instruction beyond
+ * the safety facts, and it is ASCII only. collectFacts() gathers and renderLlmsTxt() only renders.
  */
 import { VENUE, heatExampleLine } from './arrival';
 import { BUNGALOWS, type Bungalow } from './bungalows';
@@ -105,13 +86,9 @@ export interface RedirectConfig {
 }
 
 /**
- * The alias hosts vercel.json redirects, permanently, onto `siteUrl`'s origin.
- *
- * ONLY WHAT CI RESOLVES (answer eleven). These come from the deploy config itself, never
- * typed: src/lib/__tests__/canonicalHost.test.ts pins the redirect (permanent, one hop,
- * onto the canonical origin), and .github/workflows/synthetic-monitor.yml requests each
- * alias live every 30 minutes and fails unless it lands there. llmsTxt.test.ts fails if a
- * host stated here is one the monitor does not request.
+ * The alias hosts vercel.json permanently redirects onto `siteUrl`'s origin, read from the deploy
+ * config and never typed. canonicalHost.test.ts pins the redirect, synthetic-monitor.yml requests
+ * each alias live, and llmsTxt.test.ts fails on a host the monitor does not request.
  */
 export function aliasHostsFrom(config: RedirectConfig | undefined, siteUrl: string): string[] {
   const origin = new URL(siteUrl).origin;

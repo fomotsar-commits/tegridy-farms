@@ -40,7 +40,7 @@ export function VenueHero() {
         {VENUE.heroHook}
       </p>
 
-      {/* The instrument answers the hook, always open and wallet-free. */}
+      {/* The instrument answers the hook, always open and wallet-free; its Read is the hero's only filled button. */}
       <div className="mb-6 max-w-md">
         <HeatCard
           variant="embedded"
