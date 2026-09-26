@@ -22,7 +22,7 @@ const frame = doc.getElementById('first-frame');
 const spoken = (el: Element | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 
 describe('the first frame ships in the HTML', () => {
-  it('exists, inside #root, between the markers the door prerender strips', () => {
+  it('exists, inside #root, between the markers a door prerender replaces with its own', () => {
     expect(frame, 'index.html carries no first frame').not.toBeNull();
     expect(frame!.parentElement?.id).toBe('root');
     expect(html).toContain('<!-- first-frame -->');
