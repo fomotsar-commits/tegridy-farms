@@ -8,14 +8,17 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type MouseEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { Cuer } from 'cuer';
 import { WalletReadyState } from '@solana/wallet-adapter-base';
 import { useWallet, type Wallet } from '@solana/wallet-adapter-react';
 import { WalletModalContext, useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { orderWallets, rowStatus, walletLabel } from '../../lib/solanaWalletOrder';
+import { WalletConnectWalletAdapter, type WalletConnectPairing } from '../../lib/solanaWalletConnect';
 
 /**
  * The Solana connect modal — upstream's WalletModal (wallet-adapter-react-ui
@@ -66,9 +69,32 @@ import { orderWallets, rowStatus, walletLabel } from '../../lib/solanaWalletOrde
  *     trigger on close, Tab kept inside, a title the dialog is really labelled
  *     by. That replaces SolanaWalletModalA11y, which patched upstream's modal
  *     from outside and is deleted with it.
+ *  6. WalletConnect (lib/solanaWalletConnect.ts, 2026-09-25) draws its QR code
+ *     HERE, in place of the list, rather than in a second dialog that would
+ *     fight this one's focus trap and scroll-lock restore. Its row keeps the
+ *     dialog open. Back, Close, Escape, the backdrop and unmount all abandon
+ *     the attempt, in any phase — "Starting WalletConnect…" included. A
+ *     failure shows its reason above the list, and an attempt that ends
+ *     connected closes the dialog.
  */
 
 const FADE_MS = 150;
+
+const IDLE_PAIRING: WalletConnectPairing = { phase: 'idle' };
+const noSubscription = () => () => {};
+const idlePairing = () => IDLE_PAIRING;
+
+/**
+ * The WalletConnect row's QR state. The QR is drawn HERE, in this dialog, so
+ * it inherits the dialog's focus trap, Escape, backdrop and scroll lock — a
+ * second dialog would fight this one's scroll-lock restore.
+ */
+function useWalletConnectPairing(adapter: WalletConnectWalletAdapter | null): WalletConnectPairing {
+  return useSyncExternalStore(
+    adapter ? adapter.subscribePairing : noSubscription,
+    adapter ? adapter.getPairing : idlePairing,
+  );
+}
 
 function SolanaWalletModal() {
   const ref = useRef<HTMLDivElement>(null);
@@ -80,12 +106,40 @@ function SolanaWalletModal() {
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const ordered = useMemo(() => orderWallets(wallets), [wallets]);
+  const walletConnect = useMemo(
+    () =>
+      wallets
+        .map((w) => w.adapter)
+        .find((a): a is WalletConnectWalletAdapter => a instanceof WalletConnectWalletAdapter) ?? null,
+    [wallets],
+  );
+  const pairing = useWalletConnectPairing(walletConnect);
+  const pairingActive = pairing.phase === 'starting' || pairing.phase === 'scan';
 
   const hideModal = useCallback(() => {
+    // Closing the dialog abandons a QR in progress (connect() rejects with
+    // WalletWindowClosedError, which clears the saved choice) and clears a
+    // failure notice that has now been seen.
+    walletConnect?.cancelPairing();
+    walletConnect?.dismissPairing();
     setFadeIn(false);
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => setVisible(false), FADE_MS);
-  }, [setVisible]);
+  }, [setVisible, walletConnect]);
+
+  // A WalletConnect attempt that ends CONNECTED closes the dialog. One that
+  // fails leaves it open, showing the reason above the list.
+  const sawPairing = useRef(false);
+  useEffect(() => {
+    if (pairingActive) sawPairing.current = true;
+    else if (pairing.phase === 'failed') sawPairing.current = false;
+  }, [pairingActive, pairing.phase]);
+  useEffect(() => {
+    if (connected && sawPairing.current) {
+      sawPairing.current = false;
+      hideModal();
+    }
+  }, [connected, hideModal]);
 
   const handleClose = useCallback(
     (event: MouseEvent) => {
@@ -103,6 +157,9 @@ function SolanaWalletModal() {
         window.open(wallet.adapter.url, '_blank', 'noopener,noreferrer');
         return;
       }
+      // WalletConnect's QR is drawn in this dialog, so its row does not close it.
+      const keepOpen = wallet.adapter === walletConnect;
+      if (keepOpen) walletConnect.dismissPairing();
       if (selected?.adapter.name === wallet.adapter.name) {
         // Change 4: select() would be a no-op for the same name.
         if (!connected && !connecting) {
@@ -110,13 +167,13 @@ function SolanaWalletModal() {
             /* surfaced by the provider's error handler */
           });
         }
-        hideModal();
+        if (!keepOpen) hideModal();
         return;
       }
       select(wallet.adapter.name);
-      hideModal();
+      if (!keepOpen) hideModal();
     },
-    [selected, connected, connecting, connect, select, hideModal],
+    [selected, connected, connecting, connect, select, hideModal, walletConnect],
   );
 
   // Focus in, Escape, Tab kept inside, scroll lock, focus back out.
@@ -174,6 +231,9 @@ function SolanaWalletModal() {
     [],
   );
 
+  // However the dialog goes away, a QR nobody can see is not left pairing.
+  useEffect(() => () => walletConnect?.cancelPairing(), [walletConnect]);
+
   return createPortal(
     <div
       aria-labelledby={titleId}
@@ -195,11 +255,18 @@ function SolanaWalletModal() {
               <path d="M14 12.461 8.3 6.772l5.234-5.233L12.006 0 6.772 5.234 1.54 0 0 1.539l5.234 5.233L0 12.006l1.539 1.528L6.772 8.3l5.69 5.7L14 12.461z" />
             </svg>
           </button>
-          {ordered.length > 0 ? (
+          {pairingActive && walletConnect ? (
+            <WalletConnectQr pairing={pairing} titleId={titleId} onBack={() => walletConnect.cancelPairing()} />
+          ) : ordered.length > 0 ? (
             <>
               <h1 id={titleId} className="wallet-adapter-modal-title">
                 Connect a wallet on Solana to continue
               </h1>
+              {pairing.phase === 'failed' && (
+                <p role="alert" className="wallet-adapter-modal-note">
+                  {pairing.reason}
+                </p>
+              )}
               <ul className="wallet-adapter-modal-list">
                 {ordered.map((wallet) => (
                   <WalletRow key={wallet.adapter.name} wallet={wallet} onClick={handleWalletClick} />
@@ -235,9 +302,66 @@ function WalletRow({
           <img src={wallet.adapter.icon} alt="" />
         </i>
         {label}
-        <span>{rowStatus(wallet.readyState)}</span>
+        <span>{rowStatus(wallet.readyState, wallet.adapter.name)}</span>
       </button>
     </li>
+  );
+}
+
+/**
+ * The QR, drawn with cuer — RainbowKit's own QR component (rainbowkit
+ * dist/index.js:4350-4410: the same Cuer.Root / Cells / Finder parts and
+ * radii), already in the eager vendor-wagmi chunk. Dark cells on white
+ * whatever the theme, because phone cameras read that.
+ */
+function WalletConnectQr({
+  pairing,
+  titleId,
+  onBack,
+}: {
+  pairing: WalletConnectPairing;
+  titleId: string;
+  onBack: () => void;
+}) {
+  const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const uri = pairing.phase === 'scan' ? pairing.uri : null;
+  const copyLink = useCallback(() => {
+    if (!uri) return;
+    // Say "copied" only when the browser said so.
+    if (!navigator.clipboard) {
+      setCopy('failed');
+      return;
+    }
+    navigator.clipboard.writeText(uri).then(
+      () => setCopy('copied'),
+      () => setCopy('failed'),
+    );
+  }, [uri]);
+  return (
+    <>
+      <h1 id={titleId} className="wallet-adapter-modal-title">
+        {uri ? 'Scan with your phone’s wallet' : 'Starting WalletConnect…'}
+      </h1>
+      {uri && (
+        <>
+          <div style={{ background: '#fff', color: '#000', padding: 16, borderRadius: 12, margin: '0 auto', width: 'max-content' }}>
+            <Cuer.Root errorCorrection="medium" size={240} value={uri} role="img" aria-label="WalletConnect QR code">
+              <Cuer.Cells fill="currentColor" radius={1} />
+              <Cuer.Finder fill="currentColor" radius={0.25} />
+            </Cuer.Root>
+          </div>
+          <p className="wallet-adapter-modal-note">
+            Use a wallet app that supports Solana through WalletConnect. Phantom and Solflare can’t connect this way.
+          </p>
+          <button type="button" className="wallet-adapter-button" onClick={copyLink}>
+            {copy === 'copied' ? 'Link copied' : copy === 'failed' ? 'Couldn’t copy — scan instead' : 'Copy link'}
+          </button>
+        </>
+      )}
+      <button type="button" className="wallet-adapter-button" onClick={onBack}>
+        Back to wallets
+      </button>
+    </>
   );
 }
 

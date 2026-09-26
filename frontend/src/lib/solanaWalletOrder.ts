@@ -26,6 +26,18 @@ export const OFFERED_WALLETS: ReadonlyArray<{ readonly name: string; readonly la
   { name: 'Coinbase Wallet', label: 'Coinbase Wallet' },
 ];
 
+/**
+ * The WalletConnect row (lib/solanaWalletConnect.ts): ALWAYS the last row,
+ * after every other wallet, offered or not. It is a QR code for a wallet on
+ * ANOTHER device — the fallback, not a peer of the wallets in this browser.
+ * It is deliberately not in OFFERED_WALLETS: the offered order puts a wallet
+ * after the offered ones only while every wallet outside that list is
+ * Installed, and a Loadable or NotDetected wallet outside it (Backpack, say)
+ * ranks after all of them. Its label is its name. It exists only when a
+ * WalletConnect project id is set, and never on a phone.
+ */
+const WALLETCONNECT_ROW = 'WalletConnect';
+
 const LABELS = new Map(OFFERED_WALLETS.map((w) => [w.name, w.label]));
 const PRIORITY = new Map(OFFERED_WALLETS.map((w, i) => [w.name, i]));
 
@@ -35,14 +47,18 @@ export function walletLabel(name: string): string {
 }
 
 /**
- * Detected first; then the offered order; then everything else as given.
- * Fixed on purpose: Standard wallets register in whatever order their
- * extensions happen to load, so registration order is not stable per visit.
+ * Detected first; then the offered order; then everything else as given;
+ * WalletConnect last of all. Fixed on purpose: Standard wallets register in
+ * whatever order their extensions happen to load, so registration order is not
+ * stable per visit.
  */
 export function orderWallets(wallets: readonly Wallet[]): Wallet[] {
   return wallets
     .map((wallet, index) => ({ wallet, index }))
     .sort((a, b) => {
+      const lastA = a.wallet.adapter.name === WALLETCONNECT_ROW ? 1 : 0;
+      const lastB = b.wallet.adapter.name === WALLETCONNECT_ROW ? 1 : 0;
+      if (lastA !== lastB) return lastA - lastB;
       const installedA = a.wallet.readyState === WalletReadyState.Installed ? 0 : 1;
       const installedB = b.wallet.readyState === WalletReadyState.Installed ? 0 : 1;
       if (installedA !== installedB) return installedA - installedB;
@@ -54,7 +70,9 @@ export function orderWallets(wallets: readonly Wallet[]): Wallet[] {
 }
 
 /** What a click on this row will do, in the row's own words. */
-export function rowStatus(readyState: WalletReadyState): string {
+export function rowStatus(readyState: WalletReadyState, name?: string): string {
+  // Always Loadable, but a click shows a QR code — it opens no app.
+  if (name === WALLETCONNECT_ROW) return 'Scan QR code';
   if (readyState === WalletReadyState.Installed) return 'Detected';
   if (readyState === WalletReadyState.Loadable) return 'Open app';
   return 'Install';
