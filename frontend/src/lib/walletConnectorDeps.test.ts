@@ -85,7 +85,7 @@ describe('wallet connector runtime dependencies', () => {
  * SOLANA WALLETCONNECT — no second copy of anything (2026-09-25).
  *
  * The Solana connect modal's WalletConnect row (lib/solanaWalletConnect.ts)
- * declares four packages that were ALREADY in the tree, each pinned EXACTLY
+ * declares five packages that were ALREADY in the tree, each pinned EXACTLY
  * to the copy that is already bundled. Each one is free only while it stays
  * the SAME copy as its owner's: the day an upgrade moves the owner and not us,
  * npm nests a second copy and the bundle quietly grows — for sign-client that
@@ -117,6 +117,8 @@ const copyUsedBy = (owner: string, pkg: string) => locate(pkg, dirname(ours(owne
 const SAME_COPY: ReadonlyArray<readonly [ours: string, owner: string, why: string]> = [
   ['@walletconnect/sign-client', '@walletconnect/universal-provider', 'the EVM connector’s WalletConnect core'],
   ['@walletconnect/universal-provider', '@walletconnect/ethereum-provider', 'the link that makes the line above the EVM path'],
+  ['@walletconnect/keyvaluestorage', '@walletconnect/core', 'the storage every WalletConnect core on the page already opens'],
+  ['@walletconnect/core', '@walletconnect/sign-client', 'the link that makes the line above sign-client’s own'],
   ['cuer', '@rainbow-me/rainbowkit', 'RainbowKit’s QR component, in the eager vendor-wagmi chunk'],
   ['@noble/curves', '@solana/web3.js', 'web3.js’s own ed25519, in the eager vendor-crypto chunk'],
   ['@scure/base', '@walletconnect/utils', 'base58/base64 already in vendor-crypto'],
