@@ -169,8 +169,8 @@ describe('the WalletConnect row', () => {
     // after WalletConnect.
     const qr = new WalletConnectWalletAdapter({ projectId: 'test-project' }) as unknown as FakeWallet;
     const others = [
-      new FakeWallet('Backpack', WalletReadyState.Loadable),
-      new FakeWallet('Solflare', WalletReadyState.NotDetected),
+      new FakeWallet('Glow', WalletReadyState.Loadable),
+      new FakeWallet('Nightly', WalletReadyState.NotDetected),
       new FakeWallet('Phantom', WalletReadyState.Installed),
       new FakeWallet('Trust', WalletReadyState.Loadable),
     ];

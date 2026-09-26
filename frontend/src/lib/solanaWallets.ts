@@ -30,13 +30,14 @@ import {
   type VersionedTransaction,
 } from '@solana/web3.js';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
-import { METAMASK_ICON, TRUST_ICON } from './walletIcons';
+import { BACKPACK_ICON, METAMASK_ICON, SOLFLARE_ICON, TRUST_ICON } from './walletIcons';
 
 /**
  * The Solana sibling of rainbowkitWallets.ts: wallets this venue adds to the
- * Solana connect modal that the packaged adapters get wrong — Trust, MetaMask
- * and Coinbase Wallet. Each section below says why it is vendored rather than
- * installed. The Trust history comes first because it set the pattern.
+ * Solana connect modal that the packaged adapters get wrong — Trust, MetaMask,
+ * Coinbase Wallet, Solflare and Backpack. Each section below says why it is
+ * vendored rather than installed. The Trust history comes first because it set
+ * the pattern.
  *
  * ── WHY THIS FILE EXISTS, AND WHY IT IS NOT `@solana/wallet-adapter-trust` ──
  *
@@ -858,4 +859,181 @@ export class CoinbaseWalletAdapter extends BaseMessageSignerWalletAdapter {
       this.emit('disconnect');
     }
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Solflare and Backpack — "Open app" rows
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A row that only ever hands this page to a wallet's own app, or refuses.
+ *
+ * Solflare and Backpack both register a Solana wallet through the Wallet
+ * Standard — from their desktop extensions, and from inside their own apps'
+ * browsers. Wherever that registration exists, `useStandardWalletAdapters`
+ * drops a legacy adapter of the SAME name and the real wallet takes the row.
+ * So a row here is only ever seen where the wallet is not in this browser:
+ *
+ *  - desktop without the extension: NotDetected, and the modal's Install row
+ *    opens `url`;
+ *  - a phone browser that is not the wallet's own: Loadable, and connect()
+ *    opens this page inside the app, where the real wallet registers;
+ *  - inside the app before its registration lands: NotDetected, never a hop
+ *    INTO the app from inside the app.
+ *
+ * This is the shape Jupiter's wallet kit ships for the same two wallets
+ * (@jup-ag/wallet-adapter 0.2.6, HARDCODED_WALLET_STANDARDS: a named
+ * placeholder with a deep link, replaced by the real Standard wallet in-app),
+ * and the shape of the MetaMask row above. It never holds a connection, so
+ * every signing method refuses.
+ */
+abstract class OpenInAppWalletAdapter extends BaseMessageSignerWalletAdapter {
+  readonly supportedTransactionVersions: SupportedTransactionVersions = new Set([
+    'legacy' as const,
+    0 as const,
+  ]);
+
+  /** The universal link that opens THIS page inside the wallet's browser. */
+  protected abstract browseLink(): string;
+  /** Any trace of the wallet's own provider: the page is already inside it. */
+  protected abstract insideApp(): boolean;
+
+  private _readyState: WalletReadyState =
+    typeof window === 'undefined' || typeof document === 'undefined'
+      ? WalletReadyState.Unsupported
+      : WalletReadyState.NotDetected;
+
+  constructor() {
+    super();
+    if (this._readyState === WalletReadyState.Unsupported) return;
+    if (!this.insideApp() && isMobileAndRedirectable()) {
+      this._readyState = WalletReadyState.Loadable;
+      this.emit('readyStateChange', this._readyState);
+    }
+  }
+
+  get publicKey(): PublicKey | null {
+    return null;
+  }
+
+  get connecting(): boolean {
+    return false;
+  }
+
+  get readyState(): WalletReadyState {
+    return this._readyState;
+  }
+
+  /** Never navigates: a returning phone visitor is not sent away on load. */
+  override async autoConnect(): Promise<void> {}
+
+  async connect(): Promise<void> {
+    try {
+      if (this._readyState === WalletReadyState.Loadable && !this.insideApp()) {
+        window.location.href = this.browseLink();
+        return;
+      }
+      throw new WalletNotReadyError();
+    } catch (error) {
+      this.emit('error', error as WalletError);
+      throw error;
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    this.emit('disconnect');
+  }
+
+  async signTransaction<T extends Transaction | VersionedTransaction>(_transaction: T): Promise<T> {
+    const error = new WalletNotConnectedError();
+    this.emit('error', error);
+    throw error;
+  }
+
+  async signMessage(_message: Uint8Array): Promise<Uint8Array> {
+    const error = new WalletNotConnectedError();
+    this.emit('error', error);
+    throw error;
+  }
+}
+
+/** `<base>/<encoded page>?ref=<encoded origin>` — Phantom's, Solflare's and Backpack's shape. */
+function browseUrl(base: string): string {
+  const url = encodeURIComponent(window.location.href);
+  const ref = encodeURIComponent(window.location.origin);
+  return `${base}/${url}?ref=${ref}`;
+}
+
+/**
+ * MUST be exactly "Solflare" — the name Solflare's own Wallet Standard wallet
+ * registers under (@solflare-wallet/extension-wallet-standard 0.4.0
+ * src/wallet.ts; the shipped extension's inpage.js). It is also the name
+ * upstream @solana/wallet-adapter-solflare uses.
+ */
+export const SolflareWalletName = 'Solflare' as WalletName<'Solflare'>;
+
+/**
+ * Solflare — the largest Solana-only wallet, and the one Solana stakers use
+ * most after Phantom. Not on the EVM connect modal's list, but it cannot be
+ * reached over WalletConnect, so without this row a phone user of Solflare had
+ * no way in at all.
+ *
+ * Why not upstream @solana/wallet-adapter-solflare: it connects everywhere
+ * except iOS Safari through @solflare-wallet/sdk's iframe, which needs
+ * `frame-src https://connect.solflare.com` in the CSP and opens a full-screen
+ * overlay on autoConnect; 0.6.34 also peers on @solana/web3.js ^1.99.
+ *
+ * The in-app guard is Solflare's own and AppKit's: Solflare's connect iframe
+ * chooses its mobile mode on `window.SolflareApp`, and Reown's AppKit deep-links
+ * only when `!('solflare' in window)` (appkit-controllers MobileWallet.ts).
+ * The link is Jupiter's and upstream's, character for character.
+ */
+export class SolflareWalletAdapter extends OpenInAppWalletAdapter {
+  name = SolflareWalletName;
+  url = 'https://solflare.com';
+  icon = SOLFLARE_ICON;
+
+  protected browseLink(): string {
+    return browseUrl('https://solflare.com/ul/v1/browse');
+  }
+
+  protected insideApp(): boolean {
+    if (typeof window === 'undefined') return false;
+    return 'SolflareApp' in window || 'solflare' in window;
+  }
+}
+
+/**
+ * MUST be exactly "Backpack" — the name Backpack's own Wallet Standard wallet
+ * registers under (coral-xyz/backpack packages/wallet-standard/src/wallet.ts,
+ * `#name = 'Backpack'`), which its mobile app's injected provider also
+ * registers (packages/provider-injection, bundled into app-mobile).
+ */
+export const BackpackWalletName = 'Backpack' as WalletName<'Backpack'>;
+
+/**
+ * Backpack — a Solana-and-EVM wallet. Its link is Backpack's documented
+ * universal link, `https://backpack.app/ul/v1/browse/<page>?ref=<app>`.
+ *
+ * Never upstream @solana/wallet-adapter-backpack: npm marks it "no longer
+ * supported", it declares `supportedTransactionVersions = null` (legacy-only:
+ * every v0 send would throw), and it expects signMessage to return bytes where
+ * Backpack returns `{ signature }`.
+ *
+ * The in-app guard: Backpack's injected provider sets `window.backpack` and
+ * `window._backpack_injected_provider` (packages/provider-injection).
+ */
+export class BackpackWalletAdapter extends OpenInAppWalletAdapter {
+  name = BackpackWalletName;
+  url = 'https://backpack.app/downloads';
+  icon = BACKPACK_ICON;
+
+  protected browseLink(): string {
+    return browseUrl('https://backpack.app/ul/v1/browse');
+  }
+
+  protected insideApp(): boolean {
+    if (typeof window === 'undefined') return false;
+    return 'backpack' in window || '_backpack_injected_provider' in window;
+  }
 }

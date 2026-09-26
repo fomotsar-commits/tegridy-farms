@@ -2,9 +2,11 @@
 import { describe, it, expect } from 'vitest';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import {
+  BackpackWalletAdapter,
   CoinbaseWalletAdapter,
   IPadAwarePhantomWalletAdapter,
   MetaMaskWalletAdapter,
+  SolflareWalletAdapter,
   TrustWalletAdapter,
 } from '../../lib/solanaWallets';
 import { WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
@@ -53,6 +55,8 @@ const LEGACY_ADAPTERS: ReadonlyArray<readonly [name: string, adapter: () => Adap
   ['Trust', () => new TrustWalletAdapter() as unknown as Adapter],
   ['MetaMask', () => new MetaMaskWalletAdapter() as unknown as Adapter],
   ['Coinbase Wallet', () => new CoinbaseWalletAdapter() as unknown as Adapter],
+  ['Solflare', () => new SolflareWalletAdapter() as unknown as Adapter],
+  ['Backpack', () => new BackpackWalletAdapter() as unknown as Adapter],
   ['WalletConnect', () => new WalletConnectWalletAdapter({ projectId: 'test' }) as unknown as Adapter],
 ];
 
@@ -92,6 +96,8 @@ describe('Solana legacy adapters can send what this venue sends', () => {
         'TrustWalletAdapter',
         'MetaMaskWalletAdapter',
         'CoinbaseWalletAdapter',
+        'SolflareWalletAdapter',
+        'BackpackWalletAdapter',
         'WalletConnectWalletAdapter',
       ]),
     );

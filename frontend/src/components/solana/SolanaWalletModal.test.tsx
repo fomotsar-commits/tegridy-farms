@@ -189,21 +189,27 @@ describe('SolanaWalletModal — nothing is folded away', () => {
 
 describe('SolanaWalletModal — order', () => {
   it('detected first, then the offered order, then everything else as given', () => {
+    // Glow and Nightly stand for wallets this venue does not offer (they only
+    // ever arrive as Wallet Standard registrations); the rest are offered.
     const wallets = [
+      new FakeWallet('Glow', WalletReadyState.NotDetected),
       new FakeWallet('Backpack', WalletReadyState.NotDetected),
       new FakeWallet('Coinbase Wallet', WalletReadyState.NotDetected),
       new FakeWallet('MetaMask', WalletReadyState.Installed),
       new FakeWallet('Trust', WalletReadyState.Loadable),
-      new FakeWallet('Solflare', WalletReadyState.Installed),
+      new FakeWallet('Nightly', WalletReadyState.Installed),
+      new FakeWallet('Solflare', WalletReadyState.Loadable),
       new FakeWallet('Phantom', WalletReadyState.NotDetected),
     ].map((adapter) => ({ adapter, readyState: adapter.readyState }));
     expect(orderWallets(wallets).map((w) => w.adapter.name)).toEqual([
       'MetaMask',
-      'Solflare',
+      'Nightly',
       'Phantom',
       'Trust',
       'Coinbase Wallet',
+      'Solflare',
       'Backpack',
+      'Glow',
     ]);
   });
 });
