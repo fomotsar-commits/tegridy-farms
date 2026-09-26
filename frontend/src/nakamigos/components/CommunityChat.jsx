@@ -12,6 +12,7 @@ import {
 } from "../lib/supabase";
 
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { advanceIpfsImg } from "../../lib/ipfsGateways";
 import { useSiweAuth } from "../hooks/useSiweAuth";
 import DirectMessages from "./DirectMessages";
 
@@ -351,7 +352,7 @@ function renderMessageText(text, metadataBase, pixelated) {
             src={`${metadataBase}/${tokenId}.png`}
             alt={`#${tokenId}`}
             style={{ width: 16, height: 16, borderRadius: 2, imageRendering: pixelated ? "pixelated" : "auto" }}
-            onError={(e) => { e.target.style.display = "none"; }}
+            onError={(e) => { if (!advanceIpfsImg(e.currentTarget)) e.currentTarget.style.display = "none"; }}
           />}
           #{tokenId}
         </span>

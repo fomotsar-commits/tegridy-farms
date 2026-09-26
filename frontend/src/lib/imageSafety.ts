@@ -15,7 +15,7 @@
 // Battle-tested defaults:
 //   - schemes per OpenSea metadata standard: https, ipfs, ar, data
 //   - data: limited to a fixed image MIME allowlist (NO svg+xml — see below)
-//   - IPFS round-robin: cloudflare-ipfs → dweb.link → ipfs.io
+//   - IPFS gateways: the one ordered list in lib/ipfsGateways.ts
 //   - concurrency cap of 5 for parallel metadata fetches (Alchemy / OpenSea)
 //
 // SVG note: rather than ship DOMPurify and parse-then-sanitise, we reject
@@ -23,6 +23,14 @@
 // for sanitising SVG before render — the safest sanitiser is "don't render
 // SVG you didn't author". If a future surface needs SVG, swap this single
 // helper to allow it through DOMPurify behind an explicit feature flag.
+
+import {
+  IPFS_GATEWAYS,
+  IPFS_STEP_TIMEOUT_MS,
+  fetchIpfsStep,
+  ipfsGatewayUrls,
+  liveIpfsUrl,
+} from './ipfsGateways';
 
 const HTTPS_RE = /^https:\/\//i;
 const IPFS_RE = /^ipfs:\/\//i;
@@ -50,41 +58,29 @@ export function isAllowedUri(uri: string | null | undefined): boolean {
 }
 
 // ─── IPFS gateway round-robin ───────────────────────────────────────
-// Order matters: the FIRST entry is what single-host resolvers (resolveSafeUrl
-// / safeUrl) hand to `<img src>` with no fallback, so it must be a live public
-// gateway. Cloudflare sunset its public IPFS gateway in 2024 — leading with it
-// rendered every ipfs:// image broken — so ipfs.io leads, dweb.link is the
-// IPFS-native fallback, and cloudflare is kept only as a harmless tail for the
-// race in `fetchWithIpfsFallback`. `ipfsCandidates` returns every gateway URL
-// for a given `ipfs://...` URI so the caller can race them or fall through one
-// by one.
-export const IPFS_GATEWAYS = [
-  'https://ipfs.io/ipfs/',
-  'https://dweb.link/ipfs/',
-  'https://cloudflare-ipfs.com/ipfs/',
-] as const;
+// The gateway list and its order live in ./ipfsGateways (one list for the whole
+// site, with the 2026-09-26 measurements and the dead hosts it must not re-add).
+// Re-exported here because this module was their first home.
+export { IPFS_GATEWAYS };
 
+/// Every gateway URL for an IPFS URI (`ipfs://` or a known gateway URL, dead
+/// ones included), in order; any other URI comes back alone.
 export function ipfsCandidates(uri: string): string[] {
   if (!uri) return [];
-  const trimmed = uri.trim();
-  if (!IPFS_RE.test(trimmed)) return [trimmed];
-  const path = trimmed.slice('ipfs://'.length).replace(/^ipfs\//, '');
-  return IPFS_GATEWAYS.map((g) => `${g}${path}`);
+  const gateways = ipfsGatewayUrls(uri);
+  return gateways.length ? gateways : [uri.trim()];
 }
 
 /// Resolve any allowlisted URI into an HTTPS URL the browser can actually
 /// fetch. Returns `null` for disallowed schemes (caller should treat as
-/// "no image"). For ipfs:// returns the first gateway URL; use
-/// `ipfsCandidates` if you need the full round-robin list.
+/// "no image"). For ipfs:// and for a URL on a dead gateway (ipfs.io,
+/// dweb.link...) returns the first live gateway URL; an `<img>` should pass
+/// `advanceIpfsImg` as its onError to walk the rest of the list.
 export function resolveSafeUrl(uri: string | null | undefined): string | null {
   if (!isAllowedUri(uri)) return null;
   const trimmed = (uri as string).trim();
-  if (HTTPS_RE.test(trimmed)) return trimmed;
+  if (HTTPS_RE.test(trimmed) || IPFS_RE.test(trimmed)) return liveIpfsUrl(trimmed);
   if (AR_RE.test(trimmed)) return `https://arweave.net/${trimmed.slice(5)}`;
-  if (IPFS_RE.test(trimmed)) {
-    const path = trimmed.slice('ipfs://'.length).replace(/^ipfs\//, '');
-    return `${IPFS_GATEWAYS[0]}${path}`;
-  }
   // data: passes through after isAllowedUri vetted the MIME
   return trimmed;
 }
@@ -95,21 +91,23 @@ export async function fetchWithIpfsFallback(
   uri: string,
   init?: RequestInit,
 ): Promise<Response> {
-  const urls = isAllowedUri(uri)
-    ? IPFS_RE.test(uri.trim())
-      ? ipfsCandidates(uri)
-      : [resolveSafeUrl(uri) as string]
-    : [];
-  if (urls.length === 0) throw new Error('Disallowed URI scheme');
+  if (!isAllowedUri(uri)) throw new Error('Disallowed URI scheme');
+  const gateways = ipfsGatewayUrls(uri);
+  const urls = gateways.length ? gateways : [resolveSafeUrl(uri) as string];
   let lastErr: unknown = null;
   for (const url of urls) {
     try {
-      const r = await fetch(url, init);
+      // Each gateway gets its own time limit: some hang instead of failing,
+      // and a hang would otherwise keep every later gateway from being tried.
+      const r = gateways.length
+        ? await fetchIpfsStep(fetch, url, init?.signal, IPFS_STEP_TIMEOUT_MS, init)
+        : await fetch(url, init);
       if (r.ok) return r;
       lastErr = new Error(`HTTP ${r.status}`);
     } catch (err) {
-      // Re-throw aborts so the caller's controller takes effect immediately
-      if ((err as { name?: string })?.name === 'AbortError') throw err;
+      // The CALLER's abort stops the walk immediately; a step timeout only
+      // moves on to the next gateway.
+      if (init?.signal?.aborted) throw err;
       lastErr = err;
     }
   }

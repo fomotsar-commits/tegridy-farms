@@ -1,5 +1,6 @@
-import { useState, useEffect, memo } from "react";
+import { useState, useEffect, useRef, memo } from "react";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { IPFS_STEP_TIMEOUT_MS, ipfsGatewayUrls, liveIpfsUrl, nextIpfsGatewayUrl } from "../../lib/ipfsGateways";
 
 // Respect the user's reduced-motion preference for the image fade-in.
 // Guard matchMedia itself — jsdom defines window but not matchMedia, and this
@@ -27,11 +28,17 @@ const IS_COARSE_POINTER =
 const alchemyMetadataProxy = (tokenId, contract) =>
   `/api/alchemy?endpoint=getNFTMetadata&contractAddress=${contract}&tokenId=${tokenId}`;
 
-// Convert ipfs:// URLs to an HTTP gateway
-function resolveIpfs(url) {
-  if (!url) return url;
-  if (url.startsWith("ipfs://")) return url.replace("ipfs://", "https://ipfs.io/ipfs/");
-  return url;
+// ipfs:// URIs and URLs on a retired gateway (ipfs.io, dweb.link... dead since
+// 2026-09-21) move onto the first live gateway of the site-wide list
+// (lib/ipfsGateways.ts). A failing gateway is walked forward in handleError and
+// by the hang timer below; everything else passes through unchanged.
+const resolveIpfs = liveIpfsUrl;
+
+// Same image? Two gateway URLs for one CID path are, so a fallback that only
+// changes the gateway is not a new candidate (it would walk the list again).
+function sameImage(a, b) {
+  const x = ipfsGatewayUrls(a)[0];
+  return x ? x === ipfsGatewayUrls(b)[0] : a === b;
 }
 
 // Cache: maps tokenId -> { url, ts } (survives across renders, TTL for failed entries)
@@ -97,10 +104,11 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
   const [failCount, setFailCount] = useState(() => (isCachedFailure(`${collection.contract}:${nft.id}`) ? 3 : 0));
   const [dynamicSrc, setDynamicSrc] = useState(() => getCachedUrl(`${collection.contract}:${nft.id}`));
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef(null);
 
-  const primarySrc = large
+  const primarySrc = resolveIpfs(large
     ? (nft.imageLarge || nft.image)
-    : nft.image;
+    : nft.image);
 
   const src = dynamicSrc || primarySrc;
 
@@ -116,6 +124,33 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
   // Re-arm the fade whenever the actual image source changes (e.g. a metadata
   // fetch resolves a real URL after the placeholder) so the new art fades in.
   useEffect(() => { setLoaded(false); }, [src]);
+
+  // A gateway that HANGS never fires onError, so the walk down the gateway list
+  // would stop at it. Give each gateway IPFS_STEP_TIMEOUT_MS once the image is
+  // actually loading, then move on. "Actually loading" matters: a lazy card far
+  // below the fold has not requested anything yet, so its clock starts only when
+  // it nears the viewport (the same margin the browser's lazy loader uses).
+  useEffect(() => {
+    const next = nextIpfsGatewayUrl(src);
+    const node = imgRef.current;
+    if (loaded || !next || !node) return undefined;
+    let timer = null;
+    const arm = () => {
+      if (timer !== null) return;
+      timer = setTimeout(() => {
+        if (!(node.complete && node.naturalWidth > 0)) setDynamicSrc(next);
+      }, IPFS_STEP_TIMEOUT_MS);
+    };
+    if (priority || typeof IntersectionObserver !== "function") {
+      arm();
+      return () => { if (timer !== null) clearTimeout(timer); };
+    }
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { io.disconnect(); arm(); }
+    }, { rootMargin: "1250px" });
+    io.observe(node);
+    return () => { io.disconnect(); if (timer !== null) clearTimeout(timer); };
+  }, [src, loaded, priority]);
 
   useEffect(() => {
     // A cached failure within TTL: go straight to the placeholder and skip the
@@ -136,7 +171,7 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
           const res = await fetch(alchemyMetadataProxy(nft.id, collection.contract));
           if (res.ok) {
             const data = await res.json();
-            const url = data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || resolveIpfs(data.raw?.metadata?.image);
+            const url = resolveIpfs(data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || data.raw?.metadata?.image);
             if (url) {
               setDynamicSrc(url);
               setCachedUrl(cacheKey, url);
@@ -151,6 +186,15 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
   }, [cacheKey, primarySrc, nft.id, collection.contract, noSelfFetch]);
 
   const handleError = async () => {
+    // An IPFS image that failed on one gateway is tried on the next one first.
+    // Not cached (a success entry has no TTL) and costs no metadata request, so
+    // it runs even under noSelfFetch. After the last gateway, the chain below.
+    const nextGateway = nextIpfsGatewayUrl(src);
+    if (nextGateway) {
+      setDynamicSrc(nextGateway);
+      return;
+    }
+
     // When a caller is batch-fetching this token's metadata (noSelfFetch), don't
     // fire a per-card /api/alchemy fetch — that's the rate-limit storm the batch
     // path exists to avoid. Mirror the mount-effect guard (F592): leave the
@@ -166,9 +210,10 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
     // Deliberately NOT written to `resolvedUrls`: a success entry has no TTL, so
     // caching a step-down would pin every later hero and theater view of this
     // token to the thumbnail for the rest of the session over one transient 503.
-    if (large && failCount === 0 && nft.image && nft.image !== src) {
+    const thumb = resolveIpfs(nft.image);
+    if (large && failCount === 0 && thumb && !sameImage(thumb, src)) {
       setFailCount(1);
-      setDynamicSrc(nft.image);
+      setDynamicSrc(thumb);
       return;
     }
 
@@ -182,8 +227,8 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
         const res = await fetch(alchemyMetadataProxy(nft.id, collection.contract));
         if (res.ok) {
           const data = await res.json();
-          const url = data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || resolveIpfs(data.raw?.metadata?.image);
-          if (url && url !== src) {
+          const url = resolveIpfs(data.image?.cachedUrl || data.image?.pngUrl || data.image?.thumbnailUrl || data.image?.originalUrl || data.raw?.metadata?.image);
+          if (url && !sameImage(url, src)) {
             setDynamicSrc(url);
             setCachedUrl(cacheKey, url);
             return;
@@ -228,7 +273,7 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
       decoding={priority ? "sync" : "async"}
       onError={handleError}
       onLoad={() => setLoaded(true)}
-      ref={(node) => { if (node && node.complete && node.naturalWidth > 0) setLoaded(true); }}
+      ref={(node) => { imgRef.current = node; if (node && node.complete && node.naturalWidth > 0) setLoaded(true); }}
       className={className || ""}
       style={{
         ...style,

@@ -11,6 +11,7 @@ import { OwnerAdminPanelV2 } from './OwnerAdminPanelV2';
 // R071: route external_link through the strict allowlist so a creator-supplied
 // `javascript:` / `file:` / `data:text/html` URI never lands as a clickable href.
 import { resolveSafeUrl } from '../../lib/imageSafety';
+import { advanceIpfsImg } from '../../lib/ipfsGateways';
 
 /// Detail view for TegridyDropV2 clones — mirrors the legacy v1
 /// `CollectionDetail` layout but consumes `useNFTDropV2`, renders the
@@ -156,6 +157,7 @@ export function CollectionDetailV2({
             alt={`${displayName} banner`}
             className="absolute inset-0 w-full h-full object-cover"
             loading="lazy"
+            onError={(e) => { advanceIpfsImg(e.currentTarget); }}
           />
           <div
             className="absolute inset-0"
@@ -172,6 +174,7 @@ export function CollectionDetailV2({
                   alt=""
                   className="w-16 h-16 rounded-xl border border-white/30 object-cover"
                   loading="lazy"
+                  onError={(e) => { advanceIpfsImg(e.currentTarget); }}
                 />
               )}
               <div>

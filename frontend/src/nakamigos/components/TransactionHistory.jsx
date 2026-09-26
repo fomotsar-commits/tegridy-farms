@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Eth } from "./Icons";
 import { formatPrice } from "../lib/formatPrice";
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { advanceIpfsImg } from "../../lib/ipfsGateways";
 
 // Re-export from lib so existing lazy-import consumers still work
 export { recordTransaction } from "../lib/transactions";
@@ -204,7 +205,7 @@ export default function TransactionHistory({ wallet, onConnect }) {
           }}>
             <div style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", flexShrink: 0, border: "1px solid var(--border)" }}>
               {tx.image ? (
-                <img src={tx.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
+                <img src={tx.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" onError={(e) => { advanceIpfsImg(e.currentTarget); }} />
               ) : (
                 <div style={{ width: "100%", height: "100%", background: "var(--surface)", display: "grid", placeItems: "center", fontFamily: "var(--pixel)", fontSize: 8, color: "var(--text-dim)" }}>?</div>
               )}

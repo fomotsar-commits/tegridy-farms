@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { COLLECTIONS, COLLECTION_LORE } from "../constants";
 import { fetchCollectionStats, fetchTokens } from "../api";
 import { formatPrice } from "../lib/formatPrice";
+import { advanceIpfsImg } from "../../lib/ipfsGateways";
 
 const COLLECTION_LIST = Object.values(COLLECTIONS);
 
@@ -293,7 +294,7 @@ function CrossCollectionSearch() {
                   objectFit: "cover",
                   background: "rgba(255,255,255,0.03)",
                 }}
-                onError={(e) => { e.target.style.display = "none"; }}
+                onError={(e) => { if (!advanceIpfsImg(e.currentTarget)) e.currentTarget.style.display = "none"; }}
               />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
@@ -498,7 +499,7 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
               position: "relative",
               zIndex: 1,
             }}
-            onError={() => setImgError(true)}
+            onError={(e) => { if (!advanceIpfsImg(e.currentTarget)) setImgError(true); }}
           />
         ) : (
           <div style={{

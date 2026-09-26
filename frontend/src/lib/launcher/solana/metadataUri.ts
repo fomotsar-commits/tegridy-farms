@@ -11,6 +11,8 @@
 // Everything here is pure or dependency-injected so it can be tested without a
 // network, and the shape check runs before any signature is requested.
 
+import { IPFS_STEP_TIMEOUT_MS, fetchIpfsStep, ipfsGatewayUrls } from '../../ipfsGateways';
+
 /** Schemes a wallet or explorer will actually resolve. */
 const ALLOWED_SCHEMES = ['ipfs://', 'https://', 'ar://'] as const;
 
@@ -56,18 +58,16 @@ export function validateMetadataUri(raw: string): UriShape {
  * `ipfs://`/`ar://` URI, which is the durable form. This exists solely so the
  * pre-launch check can look at the document.
  *
- * Returns every URL worth trying, in order. Only `ipfs://` has more than one:
- * see {@link checkMetadataDocument} for why a single gateway's 404 is not an
- * answer about the content.
+ * Returns every URL worth trying, in order. Only `ipfs://` has more than one
+ * (the site-wide gateway list in lib/ipfsGateways.ts): see
+ * {@link checkMetadataDocument} for why one gateway's answer is not an answer
+ * about the content.
  */
 export function toFetchableUrls(uri: string): string[] {
   const u = uri.trim();
   if (u.startsWith('https://')) return [u];
   if (u.startsWith('ar://')) return [`https://arweave.net/${u.slice('ar://'.length)}`];
-  if (u.startsWith('ipfs://')) {
-    const cid = u.slice('ipfs://'.length);
-    return [`https://ipfs.io/ipfs/${cid}`, `https://dweb.link/ipfs/${cid}`];
-  }
+  if (u.startsWith('ipfs://')) return ipfsGatewayUrls(u);
   return [];
 }
 
@@ -105,6 +105,7 @@ export async function checkMetadataDocument(
   uri: string,
   fetchImpl: typeof fetch = fetch,
   timeoutMs = 8000,
+  ipfsStepMs = IPFS_STEP_TIMEOUT_MS,
 ): Promise<DocumentVerdict> {
   const urls = toFetchableUrls(uri);
   if (urls.length === 0) return { status: 'unknown', reason: 'Unsupported URI scheme.' };
@@ -114,26 +115,42 @@ export async function checkMetadataDocument(
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
     let res: Response | undefined;
+    // Stays true only while every gateway that answered said 404.
+    let every404 = true;
     for (const url of urls) {
-      res = await fetchImpl(url, { signal: ac.signal });
+      if (!isIpfs) {
+        res = await fetchImpl(url, { signal: ac.signal });
+        break;
+      }
       // ── WHY IPFS RETRIES AND THE OTHERS DO NOT ────────────────────────────
-      // A public IPFS gateway's 404 is a statement about that gateway, not
+      // A public IPFS gateway's answer is a statement about that gateway, not
       // about the content. Freshly pinned CIDs routinely 404 for minutes while
-      // the announcement propagates, and gateways prune and rate-limit. Reading
-      // it as "nothing is published there" would block a launcher whose upload
-      // is perfectly fine — an outage rendered as a finding, which is the one
-      // thing this module is built not to do. https:// and ar:// hosts ARE
-      // authoritative for their own paths, so their 404 stands.
-      if (res.status !== 404 || !isIpfs) break;
+      // the announcement propagates; gateways prune, rate-limit (429), sit
+      // behind bot challenges (403), hang, or are retired outright (ipfs.io and
+      // dweb.link, 2026-09-21). Reading any of that as "nothing is published
+      // there" would block a launcher whose upload is perfectly fine: an outage
+      // rendered as a finding, which is the one thing this module is built not
+      // to do. So every gateway failure moves on to the next gateway, and each
+      // gets its own time limit so one hang cannot starve the rest. https://
+      // and ar:// hosts ARE authoritative for their own paths, so their answer
+      // stands.
+      try {
+        res = await fetchIpfsStep(fetchImpl, url, ac.signal, ipfsStepMs);
+      } catch (e) {
+        if (ac.signal.aborted) throw e; // the overall deadline, not this gateway
+        every404 = false;
+        continue;
+      }
+      if (res.ok) break;
+      if (res.status !== 404) every404 = false;
     }
     if (!res) return { status: 'unknown', reason: 'Could not read it from this browser.' };
     if (!res.ok) {
-      if (res.status === 404) {
-        if (isIpfs) {
-          // Both gateways said 404 — stronger, but still not proof. They are not
-          // fully independent (both are Protocol Labs infrastructure), and IPFS
-          // has no authoritative "this CID does not exist" answer to give. So
-          // this stays a warning the launcher must read, never a block.
+      if (isIpfs) {
+        if (every404) {
+          // Every gateway said 404: stronger, but still not proof. IPFS has no
+          // authoritative "this CID does not exist" answer to give, so this
+          // stays a warning the launcher must read, never a block.
           return {
             status: 'unknown',
             severity: 'warning',
@@ -141,8 +158,11 @@ export async function checkMetadataDocument(
               'No IPFS gateway could find this CID. That often means it has not propagated yet — but if the upload failed, this URI is permanent. Confirm it resolves before launching.',
           };
         }
-        return { status: 'invalid', reason: 'Nothing is published at that URI (404).' };
+        // A mix of refusals, hangs and 404s says the gateways are unwell, not
+        // that the content is missing.
+        return { status: 'unknown', reason: `No IPFS gateway could serve it right now (the last one returned ${res.status}).` };
       }
+      if (res.status === 404) return { status: 'invalid', reason: 'Nothing is published at that URI (404).' };
       return { status: 'unknown', reason: `The host returned ${res.status}.` };
     }
     const text = await res.text();

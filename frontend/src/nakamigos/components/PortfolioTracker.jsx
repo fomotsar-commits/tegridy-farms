@@ -6,6 +6,7 @@ import { Eth } from "./Icons";
 import Skeleton from "./Skeleton";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useEthUsd } from "../hooks/useEthUsd";
+import { advanceIpfsImg } from "../../lib/ipfsGateways";
 
 // ── Helpers ────────────────────────────────────────────────────
 function pnlColor(value) {
@@ -488,6 +489,7 @@ export default function PortfolioTracker({ wallet, onConnect, onPick }) {
                       height={32}
                       style={{ borderRadius: 4, objectFit: "cover" }}
                       loading="lazy"
+                      onError={(e) => { advanceIpfsImg(e.currentTarget); }}
                     />
                   ) : (
                     <div style={{ width: 32, height: 32, borderRadius: 4, background: "var(--surface)" }} />
