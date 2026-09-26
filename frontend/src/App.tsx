@@ -9,6 +9,7 @@ import { config } from './lib/wagmi';
 import { AppLayout } from './components/layout/AppLayout';
 import { PageSkeleton } from './components/PageSkeleton';
 import { FirstFrame } from './components/FirstFrame';
+import { DoorFrame } from './components/DoorFrame';
 import { SwapSkeleton, FarmSkeleton, DashboardSkeleton } from './components/PageSkeletons';
 import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -259,14 +260,15 @@ function AnimatedRoutes() {
           }
         />
         {/* One door per island slug, plus 'towelie' for toweli: home under that
-            bungalow's skin (BungalowDoor). */}
+            bungalow's skin (BungalowDoor). While the home page's chunk arrives, a
+            door with a hero of its own keeps its heading on screen (DoorFrame). */}
         {[...BUNGALOWS.map((b) => ({ path: b.id, id: b.id })), { path: 'towelie', id: 'toweli' }].map(({ path, id }) => (
           <Route
             key={path}
             path={path}
             element={
               <BungalowDoor id={id}>
-                <Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>
+                <Suspense fallback={<DoorFrame id={id} />}><HomePage /></Suspense>
               </BungalowDoor>
             }
           />
