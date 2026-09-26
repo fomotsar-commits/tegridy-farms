@@ -195,13 +195,14 @@ for (const route of ['/bayla', '/pepe']) {
     await expect.poll(async () => (await readWatch(page).catch(() => null))?.done ?? false, { timeout: 150_000 }).toBe(true);
     const w = await readWatch(page);
     console.log(`[door-first-frame] ${test.info().project.name} ${route}: painted ${w.paint} ms, in view ${w.first} ms, hero ${w.hero} ms, ${w.frames} frames, gaps ${w.gaps.length}`);
-    expect(w.paint, `${route}: no Element Timing entry for the heading`).not.toBeNull();
-    expect(w.paint!, `${route}: the heading painted too late`).toBeLessThan(1_000);
+    // Soft first, so a red run reports every one of these, not only the first.
     for (const ms of [1_000, 3_000, 7_000]) {
       expect.soft(w.at[ms]?.visible, `${route}: heading in the viewport at ${ms} ms`).toBe(true);
     }
-    expect(w.gaps, `${route}: moments with no heading on screen after it first appeared`).toEqual([]);
-    expect(w.loading, `${route}: "Loading" entered the page`).toEqual([]);
+    expect.soft(w.gaps, `${route}: moments with no heading on screen after it first appeared`).toEqual([]);
+    expect.soft(w.loading, `${route}: "Loading" entered the page`).toEqual([]);
+    expect(w.paint, `${route}: no Element Timing entry for the heading`).not.toBeNull();
+    expect(w.paint!, `${route}: the heading painted too late`).toBeLessThan(1_000);
   });
 }
 
