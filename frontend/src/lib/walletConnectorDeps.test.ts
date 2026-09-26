@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
+import { existsSync, realpathSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const requireFrom = createRequire(import.meta.url);
 
@@ -75,5 +78,58 @@ describe('wallet connector runtime dependencies', () => {
     );
 
     expect(unaccounted).toEqual([]);
+  });
+});
+
+/**
+ * SOLANA WALLETCONNECT — no second copy of anything (2026-09-25).
+ *
+ * The Solana connect modal's WalletConnect row (lib/solanaWalletConnect.ts)
+ * declares four packages that were ALREADY in the tree, each pinned EXACTLY
+ * to the copy that is already bundled. Each one is free only while it stays
+ * the SAME copy as its owner's: the day an upgrade moves the owner and not us,
+ * npm nests a second copy and the bundle quietly grows — for sign-client that
+ * is a whole second WalletConnect core, beside the one the EVM connector
+ * loads. These fail that day, naming the pair to bump together.
+ *
+ * They pass on the tree they were written against, by design: they guard an
+ * upgrade, not today. The last test is what shows the comparison can fail at
+ * all — AppKit nests its own sign-client, and it must read as a different
+ * copy.
+ */
+
+/**
+ * Node's own lookup (node_modules, walking up), done by hand: these packages'
+ * `exports` maps hide ./package.json from require.resolve.
+ */
+function locate(pkg: string, fromDir: string): string {
+  for (let dir = fromDir; ; dir = dirname(dir)) {
+    const candidate = join(dir, 'node_modules', pkg, 'package.json');
+    if (existsSync(candidate)) return realpathSync(candidate);
+    if (dirname(dir) === dir) throw new Error(`${pkg} is not installed (looked from ${fromDir})`);
+  }
+}
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ours = (pkg: string) => locate(pkg, HERE);
+/** The copy of `pkg` that `owner` gets when it imports it. */
+const copyUsedBy = (owner: string, pkg: string) => locate(pkg, dirname(ours(owner)));
+
+const SAME_COPY: ReadonlyArray<readonly [ours: string, owner: string, why: string]> = [
+  ['@walletconnect/sign-client', '@walletconnect/universal-provider', 'the EVM connector’s WalletConnect core'],
+  ['@walletconnect/universal-provider', '@walletconnect/ethereum-provider', 'the link that makes the line above the EVM path'],
+  ['cuer', '@rainbow-me/rainbowkit', 'RainbowKit’s QR component, in the eager vendor-wagmi chunk'],
+  ['@noble/curves', '@solana/web3.js', 'web3.js’s own ed25519, in the eager vendor-crypto chunk'],
+  ['@scure/base', '@walletconnect/utils', 'base58/base64 already in vendor-crypto'],
+];
+
+describe('Solana WalletConnect adds no second copy of anything', () => {
+  it.each(SAME_COPY)('%s is the same copy %s uses (%s)', (pkg, owner) => {
+    expect(ours(pkg)).toBe(copyUsedBy(owner, pkg));
+  });
+
+  it('the check can see a second copy (AppKit still nests WalletConnect 2.23.7)', () => {
+    // Mutation check kept in the file: a nested copy exists in this tree today,
+    // and the comparison above must tell it apart from ours.
+    expect(copyUsedBy('@reown/appkit', '@walletconnect/sign-client')).not.toBe(ours('@walletconnect/sign-client'));
   });
 });
