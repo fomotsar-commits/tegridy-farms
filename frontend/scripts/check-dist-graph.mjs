@@ -16,7 +16,7 @@
 //      enforced ONLY BY COMMENTS until this script.
 //
 // Runs as part of `npm run build`, directly after `vite build`, over dist/.
-// Three invariants, each of which failed silently in instance 2:
+// Three invariants (A-C), each of which failed silently in instance 2:
 //   A. The ENTRY chunk installs the Buffer/global polyfill — minification
 //      keeps property names, so `.Buffer=` / `.global=` survive as markers.
 //   B. vendor-solana is NOT in the entry's STATIC import closure. Static ESM
@@ -25,6 +25,17 @@
 //      that's how the lazy Solana pages are supposed to load it.
 //   C. dist/index.html does not modulepreload vendor-solana (a preload defeats
 //      the laziness even without a static import).
+// And one for the Solana WalletConnect row (2026-09-25):
+//   D. @walletconnect/sign-client stays LAZY. src/lib/solanaWalletConnect.ts
+//      loads it with a dynamic import(), so a Solana page pays nothing for it
+//      until someone connects. Found by a string only sign-client ships
+//      (SIGN_CLIENT_MARKER), every chunk holding it must be: outside the
+//      entry's static closure, outside the static closure of the chunk
+//      holding the adapter (found by SOLANA_WALLETCONNECT_MARKER, a phrase of
+//      its own notice), and never modulepreloaded. Both markers must be FOUND:
+//      a gate that found neither checked nothing. If the Solana WalletConnect
+//      row is ever removed, remove D with it.
+//      Fixtures for every branch: scripts/check-dist-graph.test.mjs.
 //
 // Silent-gate discipline: this script FAILS on a missing/empty dist, on an
 // unreadable entry, and on a suspiciously tiny closure — "checked nothing"
@@ -77,21 +88,26 @@ if (!/\.Buffer\s*=/.test(entrySrc) || !/\.global\s*=/.test(entrySrc)) {
 // Dynamic form to IGNORE: import("./a.js")
 const STATIC_RE = /(?:^|[;}{)\s])(?:import|export)\s*(?:[^"'()]*?from\s*)?["']\.\/([^"']+\.js)["']/g;
 
-const closure = new Set();
-const queue = [entryRel];
-while (queue.length) {
-  const f = queue.pop();
-  if (closure.has(f)) continue;
-  closure.add(f);
-  const src = read(f);
-  for (const m of src.matchAll(STATIC_RE)) {
-    const dep = m[1];
-    if (!closure.has(dep)) {
-      if (!chunkFiles.includes(dep)) die(`chunk ${f} statically imports missing ${dep}`);
-      queue.push(dep);
+function staticClosure(start) {
+  const seen = new Set();
+  const queue = [start];
+  while (queue.length) {
+    const f = queue.pop();
+    if (seen.has(f)) continue;
+    seen.add(f);
+    const src = read(f);
+    for (const m of src.matchAll(STATIC_RE)) {
+      const dep = m[1];
+      if (!seen.has(dep)) {
+        if (!chunkFiles.includes(dep)) die(`chunk ${f} statically imports missing ${dep}`);
+        queue.push(dep);
+      }
     }
   }
+  return seen;
 }
+
+const closure = staticClosure(entryRel);
 if (closure.size < 2) {
   die(`static closure from ${entryRel} is only ${closure.size} chunk(s) — the import scanner matched nothing; the gate cannot vouch for a graph it failed to walk`);
 }
@@ -115,7 +131,57 @@ if (solanaPreload.length) {
   die(`index.html modulepreloads ${solanaPreload.join(', ')} — vendor-solana must stay lazy`);
 }
 
+// ── D: WalletConnect's sign-client stays lazy ─────────────────────────────
+// Log text sign-client itself prints on init; minification keeps string
+// literals. NOT `WALLETCONNECT_DEEPLINK_CHOICE`: RainbowKit carries that key
+// too, in the eager vendor-wagmi chunk. AppKit's nested 2.23.7 copy carries
+// this marker as well, and is held to the same rules.
+const SIGN_CLIENT_MARKER = 'SignClient Initialization Success';
+// A phrase of PAIRING_REASONS.startFailed in src/lib/solanaWalletConnect.ts.
+const SOLANA_WALLETCONNECT_MARKER = 'Check your connection, or pick another wallet';
+
+const holding = (marker) => chunkFiles.filter((f) => read(f).includes(marker));
+const signClientChunks = holding(SIGN_CLIENT_MARKER);
+if (!signClientChunks.length) {
+  die(
+    `no chunk contains "${SIGN_CLIENT_MARKER}", so invariant D checked nothing. Either ` +
+      `@walletconnect/sign-client no longer prints it (pick a new string only its dist ships), ` +
+      `or nothing loads sign-client any more — then the Solana WalletConnect row is gone, and D goes with it.`,
+  );
+}
+const adapterChunks = holding(SOLANA_WALLETCONNECT_MARKER);
+if (!adapterChunks.length) {
+  die(
+    `no chunk contains "${SOLANA_WALLETCONNECT_MARKER}", so invariant D cannot find the Solana ` +
+      `WalletConnect adapter. It is a phrase of PAIRING_REASONS.startFailed in ` +
+      `src/lib/solanaWalletConnect.ts: reworded there, it must be reworded here.`,
+  );
+}
+const eagerSignClient = signClientChunks.filter((f) => closure.has(f));
+if (eagerSignClient.length) {
+  die(
+    `sign-client (${eagerSignClient.join(', ')}) is STATICALLY reachable from the entry chunk — ` +
+      `WalletConnect's core would load on every first paint. Find the new static import chain ` +
+      `(ANALYZE=true vite build).`,
+  );
+}
+for (const adapterChunk of adapterChunks) {
+  const reached = signClientChunks.filter((f) => staticClosure(adapterChunk).has(f));
+  if (reached.length) {
+    die(
+      `sign-client (${reached.join(', ')}) is STATICALLY reachable from ${adapterChunk}, the chunk holding ` +
+        `the Solana WalletConnect adapter. src/lib/solanaWalletConnect.ts must load it with import() ` +
+        `inside getClient(), never a static import.`,
+    );
+  }
+}
+const preloadedSignClient = signClientChunks.filter((f) => preloads.includes(f));
+if (preloadedSignClient.length) {
+  die(`index.html modulepreloads ${preloadedSignClient.join(', ')} — sign-client must stay lazy`);
+}
+
 console.log(
   `✔ dist-graph gate: entry=${entryRel}, static closure ${closure.size} chunk(s), ` +
-    `polyfill markers present, vendor-solana lazy (${preloads.length} preloads checked).`,
+    `polyfill markers present, vendor-solana lazy (${preloads.length} preloads checked), ` +
+    `sign-client lazy (${signClientChunks.join(', ')}; adapter in ${adapterChunks.join(', ')}).`,
 );
