@@ -64,7 +64,7 @@ The per-swap **protocol fee is config-driven**, not hardcoded:
 
 So Tegridy earns by creating an `AmmConfig` with a chosen **`protocol_fee_rate`** (via
 `create_config`, admin-only). Note: `create_config` sets **`protocol_owner = fund_owner = the
-admin caller`** (the multisig) — there is no treasury parameter; to hand collection authority to
+admin caller`** (the `admin::ID` key) — there is no treasury parameter; to hand collection authority to
 a *distinct* treasury, call `update_config` (param 3 / 4) afterward. Either way, **every swap on
 every pool using that config** accrues a protocol cut (per `protocol_fee_rate`) the treasury
 receives at collection time — regardless of who provides the liquidity. That is the venue
@@ -78,11 +78,12 @@ economics the operator wanted. `protocol_fee_rate` is a fraction of the trade fe
 
 1. **Regenerate a dedicated mainnet program keypair** (`solana-keygen new`) → put its pubkey in the two mainnet `declare_id!` lines.
 2. Set `admin::ID` (mainnet) → a **plain system-owned wallet that can both sign and pay**, and back it up. **NOT the Squads multisig account.** This step used to say "your Squads multisig", and following it is what bricked graduation on the 2026-08-08 deploy: `CreateAmmConfig` has `payer = owner`, the multisig account is a program-owned Squads account that the System Program cannot debit and that does not itself sign (a Squads v4 transaction signs as its *vault* PDA, which is a different address again), so `create_amm_config` became uncallable with no upgrade path — and closing the program was the only way out. Whatever you choose here must be provably able to sign *and* hold SOL **before** the build, because this constant is baked into the binary. See `docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md` and the `squads-vault` correction in `frontend/scripts/addresses.json`.
-3. Set `create_pool_fee_reveiver::ID` (mainnet) → your **treasury**.
+3. Set `create_pool_fee_reveiver::ID` (mainnet) → your treasury's **WSOL token account** (`2sa31zce…`, the vault's WSOL ATA), not the treasury wallet — the create path reads it as a token account.
 4. Build for mainnet (`anchor build` / `cargo build-sbf`, no `devnet` feature) + **verifiable build** so anyone can confirm on-chain bytecode == this source.
 5. **Professional audit of the diff** (see below) — do not deploy fund-holding code before this.
-6. Deploy; set the **program upgrade authority** to the multisig (or burn it).
+6. Deploy; set the **program upgrade authority** to the Squads **vault PDA** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (or burn it) — **never the multisig account `EVGSnRZ…`**. Squads v4 signs as the vault; nothing can sign as the multisig account, so an upgrade authority set there can never upgrade again, a burn nobody chose. Same rule, same reason, for tegridy-launch's upgrade authority and its `GlobalConfig.authority` (MAINNET_RUNBOOK §0, "Which Squads address").
 7. `create_config` with `protocol_fee_rate = <chosen>` (protocol_owner defaults to the admin caller — `update_config` param 3/4 to repoint to a distinct treasury); the `create_pool_fee` receiver must be the treasury's **WSOL ATA**; seed a pool with treasury capital.
+7b. Create cp-swap's `Permission` account for tegridy-launch's migration authority `["migauth"]` (`create_permission_pda`, admin-only). Without it every graduation fails `MigrationPermissionMissing` (6021). MAINNET_RUNBOOK §5c.
 8. **Submit to Jupiter's DEX integration** so retail routes to it (until then it's invisible — we drive volume via our own swap UI, which prefers our pools).
 
 ---
@@ -94,8 +95,8 @@ math, checked arithmetic, oracle, fee calc. Risk here ≈ the risk Raydium CPMM 
 production. We do not modify it.
 
 **New surface introduced by the fork (the whole audit focus):**
-- **`admin::ID`** — `create_config` / `update_config` / `update_pool_status` AND a fallback collector on `collect_protocol_fee` / `collect_fund_fee` (can sweep accrued protocol+fund fees to any recipient) — a **fund-touching** key, not config-only. Compromise ⇒ hostile configs, paused pools, swept fees. **Mitigation:** mainnet admin = Squads multisig, disjoint signer set; the non-devnet default is a fail-closed sentinel until set.
-- **Program upgrade authority** — whoever holds it can replace the program bytecode (drain-class). **Mitigation:** multisig or burned upgrade authority; verifiable build so the deployed bytes are provably this source.
+- **`admin::ID`** — `create_config` / `update_config` / `update_pool_status` AND a fallback collector on `collect_protocol_fee` / `collect_fund_fee` (can sweep accrued protocol+fund fees to any recipient) — a **fund-touching** key, not config-only. Compromise ⇒ hostile configs, paused pools, swept fees. It also reaches **graduated launches**: it can freeze any pool's swaps (`update_pool_status`), burned-LP pools included; close the migration `Permission` account (`close_permission_pda`), which blocks every graduation; turn pool creation off (`update_config` param 6, `disable_create_pool`), which also blocks every graduation until it is set back; raise `create_pool_fee` (`update_config` param 5, unbounded) above `migration_reserve − 42,156,720`, which bricks every pending curve's graduation at once; and change the trade and creator fee rates (`update_config` params 0 and 7) of every pool on the config, graduated burned-LP pools included, since swaps read them live. **Mitigation:** an explicit owner decision on who holds it (MAINNET_RUNBOOK §5, "OWNER DECISION"). It must be a key that can sign AND pay, so never the multisig account. The non-devnet arm currently carries a single operator-held key, not a sentinel; moving it is a program upgrade.
+- **Program upgrade authority** — whoever holds it can replace the program bytecode (drain-class). **Mitigation:** the Squads vault PDA (not the multisig account) or a burned upgrade authority; verifiable build so the deployed bytes are provably this source.
 - **Config misconfiguration** — wrong rates at `create_config`. The enforced bound is `protocol_fee_rate + fund_fee_rate ≤ 1_000_000` (NOT ≤ trade_fee_rate); the `create_pool_fee` receiver MUST be a WSOL token account or every pool creation reverts. **Mitigation:** the create_config step is scripted + reviewed in Phase 2.
 - **`create_pool_fee_reveiver`** — only receives the flat creation fee; low impact.
 - **`create_support_mint_associated_owner`** — alt authority for the niche Token-2022

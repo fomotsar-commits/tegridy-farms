@@ -49,6 +49,10 @@ pub enum LaunchError {
     CreatorMismatch,
     #[msg("cp-swap permission account for the migration authority does not exist — a cp-swap admin must create it before any launch can graduate")]
     MigrationPermissionMissing,
+    #[msg("The platform reserve is released only after the launch graduates")]
+    PlatformReserveLocked,
+    #[msg("The platform reserve for this launch was already released")]
+    PlatformReserveAlreadyReleased,
 }
 
 /// Lift a pure-curve error into the program's error space.
@@ -65,6 +69,8 @@ impl From<CurveError> for LaunchError {
             // A share above 100% is a config-shaped mistake, and config
             // validation is where it should have been caught.
             CurveError::ShareTooHigh => LaunchError::InvalidParameter,
+            // Same shape: a reserve above the cap is a config value out of range.
+            CurveError::ReserveTooHigh => LaunchError::InvalidParameter,
         }
     }
 }

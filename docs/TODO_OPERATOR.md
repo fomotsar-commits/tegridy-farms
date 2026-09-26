@@ -992,7 +992,7 @@ surface**, built to the deploy boundary.
 
 ### 🔴 THE SOLANA LP VENUE — only you can unblock it, and it is ONE instruction from live
 
-Everything on the client side is written, tested and merged. The venue itself needs five things,
+Everything on the client side is written, tested and merged. The venue itself needs six things,
 in this order. Detail and the traps are in `SOLANA_LP_VENUE_2026_08_29.md` §3.
 
 1. **Generate a fresh keypair** for cp-swap and put its pubkey in `declare_id!`. The old id
@@ -1001,7 +1001,12 @@ in this order. Detail and the traps are in `SOLANA_LP_VENUE_2026_08_29.md` §3.
    time, so getting it wrong costs another program upgrade. ⚠️ This is exactly what bricked
    2026-08-08: it was set to the Squads MULTISIG ACCOUNT, which can neither sign a CPI nor pay
    rent, which made `create_amm_config` permanently uncallable. Fund it above AmmConfig rent —
-   the audit found it holding 0.001 SOL.
+   the audit found it holding 0.001 SOL. ⚖️ Whoever holds it can also freeze any pool
+   (graduated, burned-LP pools included), close the migration permission from step 5, turn
+   pool creation off (`update_config` param 6, which fails every graduation until it is set
+   back), raise `create_pool_fee` high enough to brick every pending graduation, and change
+   the trade and creator fees of every pool on the config (params 0 and 7, graduated pools
+   included) — decide who holds it on purpose (MAINNET_RUNBOOK §5, "OWNER DECISION").
 3. **`create_pool_fee_reveiver::ID` must be a WSOL TOKEN ACCOUNT, not a wallet** — the create path
    deserializes it as `InterfaceAccount<TokenAccount>` and calls `sync_native`. Also compile-time.
    Create the treasury's WSOL ATA **before** the deploy.
@@ -1009,9 +1014,19 @@ in this order. Detail and the traps are in `SOLANA_LP_VENUE_2026_08_29.md` §3.
    program's history. Recommended args (0.25% trade / 12% protocol / 4% fund / 0.15 SOL create /
    0% creator → trader pays 0.25%, LPs keep 0.21%, venue takes 0.04%):
    `create_amm_config(0, 2500, 120000, 40000, 150000000, 0)`
-5. **Publish the new id as `VITE_SOLANA_CPSWAP_PROGRAM`.** `/pools` goes live, the fee sheet starts
-   reading off chain, and the swap starts quoting our own pools — no code change, no frontend
-   redeploy needed beyond the env var.
+5. **Run `create_permission_pda` for tegridy-launch's migration authority** (`["migauth"]`,
+   one per program). Same admin key as step 4. This needs **tegridy-launch deployed and
+   initialised first** (MAINNET_RUNBOOK R6/R7, then R7b), so it is not a cp-swap-only step:
+   `node scripts/tegridy-launch-operator.mjs create-permission --cp-swap-program <new cp-swap id> --program-id <new tegridy-launch id>`.
+   Both flags are required: both defaults are spent 2026-08 ids, and the harness refuses them.
+   Detail in MAINNET_RUNBOOK §5c.
+   Without it every launch graduation fails `MigrationPermissionMissing` (6021) when the curve
+   fills; nothing earlier warns. The pool venue itself works without it; graduation does not.
+6. **Publish the new id as `VITE_SOLANA_CPSWAP_PROGRAM`, then REBUILD and redeploy the
+   frontend.** `/pools` goes live, the fee sheet starts reading off chain, and the swap starts
+   quoting our own pools — no code change. ⚠️ This used to say "no frontend redeploy needed
+   beyond the env var", which is wrong: Vite bakes every `VITE_` variable into the bundle at
+   BUILD time, so setting it in Vercel does nothing to the site until a new build ships.
 
 Optional but cheap, and it protects the whole thing: **arm branch protection on `mvp-launch`.**
 `diff-guard` — which proves the AMM is still verbatim Raydium — has **zero required checks**, so it
@@ -1679,6 +1694,19 @@ You asked me to study the competition and recommend. The answer is **no decay at
 
 `trade_fee_bps = 100`, `creator_fee_share_bps = 5000`. **Creator nets 50 bps, protocol
 nets 50 bps.** No code changes — both fields already exist and are snapshotted per launch.
+
+**Added 2026-09-25 — `platform_reserve_bps = 369`**, the owner's "retain the 3.69% the
+platform takes at launch", matching the EVM launcher. 3.69% of each launch's supply is held
+by the program in the curve's own vault, never sold on the curve and never put in the pool,
+and released to the treasury (`fee_recipient`'s token account) only after that launch
+graduates, by the permissionless `release-reserve`. A launch that never graduates never
+releases it. Unlike the two fields above this one IS a program change (a new `GlobalConfig`
+field and a new instruction), so it must land before the first `initialize_global`. Two
+things go with it: pass `initial_virtual_token` scaled by (1 − 3.69%) at init so the
+graduation target does not move (`check-config` prints the number; unscaled, every pool
+lists ~4.9% above the curve; the program does not reject that, since it is inside its ±5%
+band, but `init-global` refuses it unless `--accept-listing-gap` is passed), and the launch
+page's terms must disclose the reserve. Details: MAINNET_RUNBOOK §5b.
 
 **Two source facts killed the decay design before any market argument.** `curve.rs:37` sets
 `MAX_FEE_BPS = 1_000`, so a 2000 bps opening fee would require **raising a deliberate safety

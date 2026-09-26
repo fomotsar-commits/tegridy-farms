@@ -3,7 +3,10 @@
  * tegridy-launch — OPERATOR SIGNING HARNESS.
  *
  * The out-of-band driver for OUR OWN bonding curve's protocol-level instructions:
- * `initialize_global` and `update_global`. Read-only commands need no key at all.
+ * `initialize_global` and `update_global`, the two cp-swap admin steps graduation
+ * needs (`create_amm_config`, `create_permission_pda`), and the two permissionless
+ * post-launch calls (`migrate_to_amm`, `release_platform_reserve`). Read-only
+ * commands need no key at all.
  * Mirrors `solana-dbc-operator.mjs` in shape and safety posture; the pure logic it
  * drives lives in `src/lib/launcher/solana/tegridyLaunch.ts` (unit-tested, and its
  * config math diffed against the real `curve.rs` over 50,009 cases).
@@ -41,9 +44,12 @@
  *   • Secrets come from ENV/CLI ONLY. Nothing is hardcoded or committed: the RPC URL
  *     and the operator keypair (a LOCAL file path) both arrive at runtime.
  *   • DEFAULT is PRINT (partial-signed base64) for out-of-band Squads co-signing.
- *     `--send` is opt-in. On mainnet `global.authority` is the Squads multisig, so
- *     the local key is NOT a sufficient signer set and the authority pre-check below
- *     fails closed before anything is built.
+ *     `--send` is opt-in. On mainnet `global.authority` is the Squads VAULT PDA
+ *     (GRMtSx…, never the multisig account EVGSnRZ…, which cannot sign), so the local
+ *     key is NOT a sufficient signer set and the authority pre-check below fails
+ *     closed before anything is built.
+ *   • The two PERMISSIONLESS commands (`migrate`, `release-reserve`) SIMULATE by
+ *     default and send only with `--send`; they need a key only to send.
  *   • Every guard the program enforces is ALSO checked here, against state read from
  *     chain, so an operator gets a sentence instead of a bare Anchor code (6000+)
  *     after a multisig ceremony.
@@ -64,11 +70,19 @@
  *   1. deploy the program under that keypair (not the placeholder, not a spent id)
  *   2. `init-global`      — AMM addresses may be zero; the AmmConfig need not exist
  *   3. `create-amm-config`  — cp-swap admin creates the AmmConfig
- *   4. `update-global --cp-swap-program … --amm-config …`   ← the ONLY way to set them
- *   5. migration is possible; until step 4 `migrate_to_amm` fails AmmNotConfigured (6015)
+ *   4. `create-permission`  — cp-swap admin creates the Permission account for our
+ *      program-wide migration authority `["migauth"]`. cp-swap's pool-creating
+ *      instruction reads it from its payer, and that payer is the migration
+ *      authority, so without it every graduation fails MigrationPermissionMissing
+ *      (6021). The 2026-08-08 sequence had no such step at all.
+ *   5. `update-global --cp-swap-program … --amm-config …`   ← the ONLY way to set them
+ *   6. migration is possible (`migrate`, permissionless); until step 5 it fails
+ *      AmmNotConfigured (6015)
+ *   7. after each graduation, `release-reserve` (permissionless) sends that launch's
+ *      platform reserve to the treasury's token account
  *
  * Steps 1 and 2 were done once, on 2026-08-08, and undone by the 2026-08-13 close.
- * Steps 3-5 have never run.
+ * Steps 3-7 have never run.
  *
  * There is no venue-shape step any more. `set-curve-segments` published the
  * Meteora-shaped curve for `create_launch --mode 1` to snapshot; segmented mode was
@@ -101,13 +115,17 @@
  *
  *   SOLANA_RPC_URL=… OPERATOR_KEYPAIR=/abs/path/authority.json \
  *   node scripts/tegridy-launch-operator.mjs init-global \
- *     --fee-bps 100 --creator-fee-share-bps 4800 \
- *     --virtual-sol 30000000000 --virtual-token 1073000000000000 \
+ *     --fee-bps 100 --creator-fee-share-bps 5000 --platform-reserve-bps 369 \
+ *     --virtual-sol 30000000000 --virtual-token 1033406300000000 \
  *     --supply 1000000000000000 --target 11685689681 --reserve 42156720 \
  *     --fee-recipient <base58>
  *
+ * (`--virtual-token` there is 1,073,000,000,000,000 scaled by (1 - 3.69%), which keeps
+ * the graduation target of the no-reserve book to the lamport. `check-config` prints
+ * the recipe for any book.)
+ *
  * Commands: status | derive | check-config | init-global | update-global |
- *           create-amm-config | help
+ *           create-amm-config | create-permission | migrate | release-reserve | help
  */
 
 import fs from 'node:fs';
@@ -116,6 +134,24 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
 import { register } from 'node:module';
+import {
+  CP_SWAP_PERMISSION_LEN,
+  createPermissionPdaIx,
+  endsWithSomeU64,
+  endsWithU64,
+  graduationSplit,
+  LISTING_GAP_TOLERANCE_BPS,
+  listingGap,
+  migratePayerFloat,
+  optionalFlagValue,
+  parsePlatformReserveBps,
+  pct3,
+  permissionAuthorityOf,
+  scaledVirtualToken,
+  simulatedErrorLabel,
+  unsignableReason,
+  updateNeedsListingGate,
+} from './lib/tegridy-launch-ops.mjs';
 
 // ─── Self-contained loader: make the bundler-targeted TS module run under Node ───
 const loaderSource = `
@@ -141,7 +177,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CURVE = path.join(HERE, '..', 'src', 'lib', 'launcher', 'solana', 'curve');
 const mod = (name) => import(pathToFileURL(path.join(CURVE, `${name}.ts`)).href);
 
-const { Connection, Keypair, PublicKey, Transaction } = await import('@solana/web3.js');
+const { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction } = await import('@solana/web3.js');
 
 // The specific modules, not `index.ts`: the barrel also re-exports `rpc.ts`, which
 // pulls the browser transport (and `frontend/src/lib/solana.ts` behind it) into a
@@ -170,7 +206,7 @@ const BLOCKHASH_COMMITMENT = 'finalized';
 // Valueless flags MUST be listed so they never swallow the token that follows them:
 // `--send init-global …` would otherwise consume the subcommand as `--send`'s value
 // and silently fall through to help.
-const BOOLEAN_FLAGS = new Set(['send', 'pause', 'unpause']);
+const BOOLEAN_FLAGS = new Set(['send', 'pause', 'unpause', 'accept-listing-gap']);
 
 function parseArgs(argv) {
   const positional = [];
@@ -230,9 +266,19 @@ function requireU64Flag(flags, name) {
   return v;
 }
 
+/**
+ * The value of an optional flag, or `undefined` when it was not passed. A flag
+ * typed with no value fails (`optionalFlagValue`): on update-global it would
+ * otherwise read as "leave unchanged" and drop out of an update that still goes.
+ */
+function optionalFlag(flags, name) {
+  const r = optionalFlagValue(flags, name);
+  if (!r.ok) fail(r.error);
+  return r.value;
+}
+
 function optionalU64Flag(flags, name) {
-  const raw = flags[name];
-  if (raw === undefined || raw === true) return undefined;
+  if (optionalFlag(flags, name) === undefined) return undefined;
   return requireU64Flag(flags, name);
 }
 
@@ -244,9 +290,9 @@ function optionalU64Flag(flags, name) {
  * like a setup mistake.
  */
 function optionalPubkeyFlag(flags, name, { rejectZero = true } = {}) {
-  const raw = flags[name];
-  if (raw === undefined || raw === true) return undefined;
-  const s = String(raw).trim();
+  const raw = optionalFlag(flags, name);
+  if (raw === undefined) return undefined;
+  const s = raw.trim();
   let pk;
   try {
     pk = new PublicKey(s);
@@ -476,6 +522,10 @@ function printGlobal(g, address, programKind) {
   console.log(`    token_total_supply    : ${c.tokenTotalSupply}`);
   console.log(`    graduation_target     : ${c.graduationTargetLamports} (${sol(c.graduationTargetLamports)})`);
   console.log(`    migration_reserve     : ${c.migrationReserveLamports} (${sol(c.migrationReserveLamports)})`);
+  console.log(
+    `    platform_reserve_bps  : ${c.platformReserveBps ?? '(not decoded — this client predates the field)'}` +
+      (c.platformReserveBps !== undefined ? ` (${Number(c.platformReserveBps) / 100}% of each NEW launch's supply)` : ''),
+  );
   console.log(`    paused                : ${c.paused}${c.paused ? '  (buys blocked; SELLS STAY OPEN)' : ''}`);
   if (ammConfigured) {
     console.log(`    cp_swap_program       : ${c.cpSwapProgram.toBase58()}`);
@@ -635,6 +685,146 @@ async function classifyPayer(connection, pubkey) {
   return { ok: true, lamports: BigInt(info.lamports) };
 }
 
+/**
+ * Refuse an address that can never sign, for a flag whose address must.
+ *
+ * Two flags need this. `--new-authority`: `update_global` is `has_one = authority`
+ * with the authority as a `Signer`, so an authority that cannot sign locks `global`
+ * for good (no pause, no fee change, no AMM addresses, no handover).
+ * `--fee-recipient`: it receives the protocol's trade fees and migration residuals,
+ * and it OWNS the token account every released platform reserve lands in, so only
+ * a signer can ever spend any of it.
+ *
+ * The Squads MULTISIG account (EVGSnRZ…) is exactly the address to catch: owned by
+ * the Squads program, with data, while Squads v4 signs as the VAULT PDA (GRMtSx…),
+ * a different address. It is the 2026-08-08 `admin::ID` mistake in a new place. An
+ * account that does not exist yet is allowed (a fresh wallet can still sign); one
+ * that exists and is not System-owned is not (`unsignableReason`).
+ */
+async function refuseUnsignableAddress(connection, base58, flag, consequence) {
+  let info;
+  try {
+    info = await connection.getAccountInfo(new PublicKey(base58));
+  } catch (e) {
+    fail(`could not read ${flag} ${base58} (${e?.message ?? e}). Refusing to use an address that was not checked.`);
+  }
+  const reason = unsignableReason(info, new PublicKey(SYSTEM_SENTINEL));
+  if (reason) {
+    fail(
+      `${flag} ${base58} is ${reason}.\n` +
+        `  Nothing can sign as a program-owned account, so ${consequence}.\n` +
+        '  For Squads, pass the VAULT PDA (System-owned, 0 bytes), never the multisig account.',
+    );
+  }
+}
+
+const AUTHORITY_LOCKED = 'global would be locked forever';
+const FEE_RECIPIENT_LOCKED =
+  'every trade fee, migration residual and released platform reserve paid to it would be stuck';
+
+/**
+ * Refuse a book that lists away from the curve's final price (`listingGap`), unless
+ * `--accept-listing-gap` says the gap is deliberate. The program cannot stop this:
+ * its band is ±5%, and an untuned 3.69% reserve lists at +4.88%.
+ */
+function refuseListingGap(flags, ratioBps, recipe) {
+  const gap = listingGap(ratioBps);
+  if (!gap) return;
+  if (flags['accept-listing-gap']) {
+    console.log(`  ⚠ listing gap ACCEPTED by --accept-listing-gap: ${gap}`);
+    return;
+  }
+  fail(
+    `${gap}.\n` +
+      '  The program accepts anything within ±5%, so it will not stop this: every launch would\n' +
+      `  list its pool away from the price its last buyer paid. To fix it:\n${recipe}\n` +
+      `  If the gap is deliberate, pass --accept-listing-gap. Nothing was built.`,
+  );
+}
+
+// ─── Migration authority + cp-swap permission ───────────────────────────────────
+
+/**
+ * The program-wide migration authority, `["migauth"]` with NO mint (state.rs
+ * `MIGRATION_AUTH_SEED`, and the `seeds = [MIGRATION_AUTH_SEED]` on `MigrateToAmm`).
+ *
+ * Taken from the curve core, then re-derived here from the bare seed and compared.
+ * The core used to derive `["migauth", mint]`, which is not the address the program
+ * checks — every migration it built would have failed its seeds constraint, and a
+ * permission account created for it would have been for the wrong authority. A
+ * permission account is admin-signed, so building one for a wrong address wastes a
+ * ceremony and still leaves graduation blocked. The comparison makes that bug a
+ * refusal here instead.
+ */
+function migrationAuthorityOf(pid) {
+  const programKey = new PublicKey(pid);
+  const fromCore = L.migrationAuthorityPda(programKey);
+  const [bare] = PublicKey.findProgramAddressSync([L.MIGRATION_AUTH_SEED], programKey);
+  if (!(fromCore instanceof PublicKey) || !fromCore.equals(bare)) {
+    fail(
+      'the curve core derives the migration authority differently from the program.\n' +
+        `    program seeds ["migauth"] : ${bare.toBase58()}\n` +
+        `    core returned            : ${fromCore?.toBase58?.() ?? String(fromCore)}\n` +
+        '  The core must derive ["migauth"] with no mint. Refusing to build against the wrong authority.',
+    );
+  }
+  return bare;
+}
+
+/**
+ * Read cp-swap's `Permission` account for `authority`. `present` only when the
+ * account is owned by cp-swap AND stores that authority; anything else at the
+ * address is reported, never treated as usable.
+ */
+async function readPermission(connection, cpSwapId, authority) {
+  const address = L.cpPermissionPda(authority, cpSwapId);
+  let info;
+  try {
+    info = await connection.getAccountInfo(address);
+  } catch (e) {
+    return { kind: 'unreadable', address, detail: e?.message ?? String(e) };
+  }
+  if (!info) return { kind: 'absent', address };
+  if (!info.owner.equals(cpSwapId)) return { kind: 'foreign', address, owner: info.owner.toBase58() };
+  const stored = permissionAuthorityOf(info.data);
+  if (!stored || !stored.equals(authority)) {
+    return { kind: 'foreign', address, owner: `cp-swap, authority ${stored?.toBase58() ?? '(unreadable)'}` };
+  }
+  return { kind: 'present', address };
+}
+
+/**
+ * The payer for a PERMISSIONLESS command. With `--send` it must be a local key.
+ * Without it, `--payer <base58>` is enough to simulate: nothing is signed.
+ */
+async function payerFor(flags) {
+  if (!flags.send) {
+    const p = optionalPubkeyFlag(flags, 'payer');
+    if (p) return { publicKey: new PublicKey(p), keypair: undefined };
+  }
+  const kp = await loadKeypair('OPERATOR_KEYPAIR');
+  return { publicKey: kp.publicKey, keypair: kp };
+}
+
+/**
+ * Simulate without sending. Signatures are not verified, so this needs no key; it
+ * runs the real program against real state, which catches what a pre-flight read
+ * cannot (account order, a constraint the harness does not mirror).
+ */
+async function simulate(connection, tx, label, { launchProgramId } = {}) {
+  const sim = await connection.simulateTransaction(tx);
+  const v = sim.value;
+  console.log(`\n── ${label}: SIMULATION ONLY — nothing was sent ──`);
+  // Named only when tegridy-launch itself raised the code: a cp-swap failure inside
+  // migrate_to_amm comes back as the same Custom(6000+) range (simulatedErrorLabel).
+  const custom = v.err?.InstructionError?.[1]?.Custom;
+  const named = launchProgramId ? simulatedErrorLabel(custom, v.logs, launchProgramId, L.launchErrorName) : '';
+  console.log(`  result        : ${v.err ? `FAILED ${JSON.stringify(v.err)}${named}` : 'ok'}`);
+  if (typeof v.unitsConsumed === 'number') console.log(`  compute units : ${v.unitsConsumed}`);
+  for (const line of v.logs ?? []) console.log(`    ${line}`);
+  return v;
+}
+
 // ─── Commands ───────────────────────────────────────────────────────────────────
 
 async function cmdStatus(flags) {
@@ -667,18 +857,37 @@ async function cmdStatus(flags) {
   } else if (status.program.kind !== 'deployed') {
     console.log('    1. deploy the program under a real keypair   ← NEXT');
     console.log('    2. init-global');
-    console.log('    3. cp-swap admin creates the AmmConfig');
-    console.log('    4. update-global --cp-swap-program … --amm-config …');
+    console.log('    3. cp-swap admin: create-amm-config');
+    console.log('    4. cp-swap admin: create-permission');
+    console.log('    5. update-global --cp-swap-program … --amm-config …');
   } else if (status.global?.kind === 'absent') {
     console.log('    2. init-global   ← NEXT  (AMM addresses may be left zero here)');
-    console.log('    3. cp-swap admin creates the AmmConfig');
-    console.log('    4. update-global --cp-swap-program … --amm-config …');
+    console.log('    3. cp-swap admin: create-amm-config');
+    console.log('    4. cp-swap admin: create-permission');
+    console.log('    5. update-global --cp-swap-program … --amm-config …');
   } else if (status.global?.kind === 'ok') {
     if (!L.isAmmConfigured(status.global.value)) {
-      console.log('    3. cp-swap admin creates the AmmConfig (if it does not exist)');
-      console.log('    4. update-global --cp-swap-program … --amm-config …   ← NEXT');
+      console.log('    3. cp-swap admin: create-amm-config (if it does not exist)');
+      console.log('    4. cp-swap admin: create-permission (if it does not exist)');
+      console.log('    5. update-global --cp-swap-program … --amm-config …   ← NEXT');
     } else {
-      console.log('    none — the protocol is configured and migration is possible.');
+      // The AMM addresses are set, but graduation ALSO needs cp-swap's Permission
+      // account for our migration authority, and nothing in `global` records it.
+      // Read it rather than print "configured" over a missing account.
+      const cpSwapId = status.global.value.cpSwapProgram;
+      const perm = await readPermission(connection, cpSwapId, migrationAuthorityOf(pid));
+      if (perm.kind === 'present') {
+        console.log('    none — the protocol is configured and migration is possible.');
+      } else if (perm.kind === 'absent') {
+        console.log(`    4. cp-swap admin: create-permission --cp-swap-program ${cpSwapId.toBase58()}   ← NEXT`);
+        console.log(`       ${perm.address.toBase58()} does not exist, so every migrate_to_amm`);
+        console.log('       fails MigrationPermissionMissing (6021).');
+      } else if (perm.kind === 'foreign') {
+        console.log(`    ⚠ the permission address ${perm.address.toBase58()} holds something else (${perm.owner}).`);
+        console.log('      Graduation cannot use it. Investigate before any launch fills.');
+      } else {
+        console.log(`    UNKNOWN — the permission account could not be read (${perm.detail}).`);
+      }
     }
   } else {
     console.log('    (indeterminate — resolve the global read above first)');
@@ -690,6 +899,7 @@ function cmdDerive(flags) {
   console.log('[operator] derived addresses');
   console.log(`  program id : ${pid}`);
   console.log(`  global PDA : ${globalPdaOf(pid)}   seeds ["global"]`);
+  console.log(`  migauth    : ${migrationAuthorityOf(pid).toBase58()}   seeds ["migauth"] — one per program, no mint`);
   if (SPENT_PROGRAM_IDS.has(pid)) {
     console.log(`\n  ⛔ ${pid} is SPENT (${SPENT_PROGRAM_IDS.get(pid)}). These addresses`);
     console.log('     are where the rail used to derive; a restart re-derives all of them.');
@@ -720,6 +930,108 @@ function requireCreatorFeeShareBps(flags) {
   return v;
 }
 
+/**
+ * `platform_reserve_bps` — the LAST argument to `initialize_global`: the share of
+ * every launch's supply the protocol holds back (369 = 3.69%). Held in the curve's
+ * own vault, never sold on the curve, never put in the pool, and released to the
+ * treasury only after the launch graduates (`release-reserve`).
+ *
+ * No default, for the reason `--creator-fee-share-bps` has none: it is decided once
+ * at `initialize_global`, snapshotted onto every launch, and a default would let the
+ * share of supply the protocol takes be chosen by omission.
+ */
+function requirePlatformReserveBps(flags) {
+  const r = parsePlatformReserveBps(flags['platform-reserve-bps'], { required: true, max: L.MAX_PLATFORM_RESERVE_BPS });
+  if (!r.ok) fail(r.error);
+  return r.value;
+}
+
+/**
+ * Print where the supply goes, and the scaled `initial_virtual_token` recipe.
+ *
+ * Also the one check that the curve core actually priced the CURVE supply, not the
+ * whole supply: the program runs every config check against `supply - reserve`
+ * (the reserve is never sold and never pooled). A core that ignored the reserve
+ * would pass a config the program rejects, or, worse, hide a listing gap. When its
+ * ratio disagrees with the ratio for the curve supply, the disagreement is added to
+ * `report.problems`, so `init-global` refuses.
+ */
+function printReserveSplit(params, report) {
+  const S = params.tokenTotalSupply;
+  const split = L.curveSupply(S, params.platformReserveBps);
+  if (!split.ok) {
+    report.problems.push(`platform reserve: ${split.error}`);
+    return;
+  }
+  const { curveTokens, reserveTokens } = split.value;
+  const vs = params.initialVirtualSol;
+  const vt = params.initialVirtualToken;
+  const T = params.graduationTargetLamports;
+  const R = params.migrationReserveLamports;
+
+  const expected = L.graduationPriceRatioBps(vs, vt, curveTokens, T, R);
+  const expectedRatio = expected.ok ? expected.value : null;
+  if (report.graduationPriceRatioBps !== expectedRatio) {
+    report.problems.push(
+      `the curve core priced ${report.graduationPriceRatioBps ?? 'nothing'} bps, but the program prices the ` +
+        `curve supply (${curveTokens}) at ${expectedRatio ?? '(not computable)'} bps. The core is not applying ` +
+        'the platform reserve; do not sign anything it pre-flighted.',
+    );
+  }
+
+  if (reserveTokens === 0n) {
+    console.log('\n  platform reserve       : none (0 bps) — the whole supply is on the curve');
+  } else {
+    console.log('\n  platform reserve       : ' +
+      `${params.platformReserveBps} bps = ${reserveTokens} base units, held in the curve vault,`);
+    console.log('                           never sold on the curve, never pooled, released to the');
+    console.log('                           treasury ATA only after graduation (release-reserve)');
+    console.log(`  curve supply           : ${curveTokens}  (supply - reserve; every check above uses this)`);
+  }
+  const g = graduationSplit({ supply: S, curveTokens, virtualSol: vs, virtualToken: vt, target: T, migrationReserve: R });
+  if (g) {
+    console.log(`  at graduation          : sold ${pct3(g.sold, S)} / LP ${pct3(g.lp, S)} / reserve ${pct3(g.reserve, S)} of supply`);
+    if (g.reserve > 0n) {
+      console.log(`                           reserve = ${pct3(g.reserve, g.lp)} of the pool's token side once released`);
+    }
+  } else {
+    console.log('  at graduation          : (could not compute — the book cannot reach this target)');
+  }
+
+  if (reserveTokens === 0n) return;
+  // The recipe. Scaling Vt with the carve keeps (Vt + S) / Vt, and with it the
+  // continuity target, unchanged — so the SOL raise is what it was without a reserve.
+  //
+  // Printed only when it applies. A book that is already tuned for the reserve
+  // would be scaled twice by an operator who followed an unconditional recipe.
+  if (report.continuityTarget !== null && report.continuityTarget === T) {
+    console.log('\n  Vt                     : already tuned for the reserve — the target IS this book\'s');
+    console.log('                           continuity target on the curve supply. No rescaling.');
+  } else {
+    const scaled = scaledVirtualToken(vt, curveTokens, S);
+    const before = L.continuityTarget(vs, vt, S, R);
+    const after = L.continuityTarget(vs, scaled, curveTokens, R);
+    const wasUnscaled = before.ok && before.value === T;
+    console.log(
+      wasUnscaled
+        ? '\n  ⚠ scaled Vt recipe     : --target is the continuity target of this book WITHOUT a reserve.\n' +
+            '                           To keep that target (and the SOL raise) with the reserve, pass'
+        : '\n  scaled Vt recipe       : to carry a NO-reserve book over with its target unchanged, pass',
+    );
+    console.log(`                           --virtual-token ${scaled}   (= ${vt} x ${curveTokens} / ${S}, rounded down)`);
+    console.log(
+      `                           continuity target: ${before.ok ? before.value : '?'} without a reserve, ` +
+        `${after.ok ? after.value : '?'} with the scaled Vt` +
+        (before.ok && after.ok && before.value === after.value ? ' — identical' : ''),
+    );
+    if (!wasUnscaled) {
+      console.log(`                           Or keep this Vt and move --target to ${report.continuityTarget ?? '?'} (above).`);
+    }
+  }
+  console.log('                           Only initialize_global sets Vt. update_global cannot, so a later');
+  console.log('                           reserve change must be absorbed by virtual SOL, target or reserve.');
+}
+
 /** Pure pre-flight of the economics, with no RPC and no key. */
 function cmdCheckConfig(flags) {
   const params = {
@@ -729,13 +1041,15 @@ function cmdCheckConfig(flags) {
     tokenTotalSupply: requireU64Flag(flags, 'supply'),
     graduationTargetLamports: requireU64Flag(flags, 'target'),
     migrationReserveLamports: requireU64Flag(flags, 'reserve'),
+    platformReserveBps: requirePlatformReserveBps(flags),
   };
   const report = L.checkLaunchEconomics(params);
-  console.log('[operator] config pre-flight (pure — mirrors lib.rs:199-248)');
+  console.log('[operator] config pre-flight (pure — mirrors initialize_global)');
   console.log(`  max reachable real SOL : ${report.maxReachableRealSol ?? '(could not compute)'}`);
   console.log(`  lists at               : ${report.graduationPriceRatioBps ?? '(could not compute)'} bps of the final curve price`);
   console.log(`  continuity target      : ${report.continuityTarget ?? '(could not compute)'}${report.continuityTarget !== null ? ` (${sol(report.continuityTarget)})` : ''}`);
   console.log('                           ^ the target that lists at exactly the curve price');
+  printReserveSplit(params, report);
   if (report.problems.length === 0) {
     console.log('\n  ✅ the program\'s config guards all pass. (Not a claim that the economics are wise.)');
     return report;
@@ -770,9 +1084,28 @@ async function cmdInitGlobal(flags) {
     `  creator fee share      : ${creatorFeeShareBps} bps ` +
       `(creator ${Number(creatorFeeShareBps) / 100}% / protocol ${(10_000 - Number(creatorFeeShareBps)) / 100}% of each trade fee)`,
   );
+  // Same treatment, same reason: validated before the key, echoed because nothing
+  // else says it out loud. It must also appear in the launch page's terms.
+  const reserveBps = requirePlatformReserveBps(flags);
+  console.log(`  platform reserve       : ${reserveBps} bps (${Number(reserveBps) / 100}% of every launch's supply, to the treasury after graduation)`);
+  // A reserve moves the listing price, and the program's ±5% band accepts the move
+  // an untuned book makes (10488 bps at 369). The pre-flight above only printed it.
+  if (reserveBps > 0n) {
+    const S = requireU64Flag(flags, 'supply');
+    const split = L.curveSupply(S, reserveBps);
+    const scaled = split.ok ? scaledVirtualToken(requireU64Flag(flags, 'virtual-token'), split.value.curveTokens, S) : null;
+    refuseListingGap(
+      flags,
+      report.graduationPriceRatioBps,
+      `    • if --target is this book's target WITHOUT a reserve, pass --virtual-token ${scaled ?? '?'}\n` +
+        '      (Vt scaled by the reserve; only initialize_global can ever set it), or\n' +
+        `    • keep --virtual-token and pass --target ${report.continuityTarget ?? '?'} (the continuity target on the curve supply).`,
+    );
+  }
 
   const feeRecipient = optionalPubkeyFlag(flags, 'fee-recipient');
   if (!feeRecipient) fail('missing required --fee-recipient <base58> (mainnet: the treasury Squads vault)');
+  await refuseUnsignableAddress(connection, feeRecipient, '--fee-recipient', FEE_RECIPIENT_LOCKED);
   // Zero is LEGAL here and is the normal case — the AmmConfig does not exist yet.
   const ZERO = PublicKey.default.toBase58();
   const cpSwapProgram = optionalPubkeyFlag(flags, 'cp-swap-program', { rejectZero: false }) ?? ZERO;
@@ -808,26 +1141,33 @@ async function cmdInitGlobal(flags) {
     console.log('        Set them afterwards with `update-global`; migration is blocked until then.');
   }
 
-  const tx = new Transaction().add(
+  const platformReserveBps = requirePlatformReserveBps(flags);
+  const ix = L.initializeGlobalIx(
     // Accounts AND data from `curve/ix.ts`; the `global` PDA is derived inside it
     // from the same `programId`, so the address here cannot drift from the one the
     // encoder targets.
-    L.initializeGlobalIx(
-      { authority, feeRecipient: new PublicKey(feeRecipient) },
-      {
-        tradeFeeBps: requireU64Flag(flags, 'fee-bps'),
-        creatorFeeShareBps: requireCreatorFeeShareBps(flags),
-        initialVirtualSol: requireU64Flag(flags, 'virtual-sol'),
-        initialVirtualToken: requireU64Flag(flags, 'virtual-token'),
-        tokenTotalSupply: requireU64Flag(flags, 'supply'),
-        graduationTargetLamports: requireU64Flag(flags, 'target'),
-        migrationReserveLamports: requireU64Flag(flags, 'reserve'),
-        cpSwapProgram: new PublicKey(cpSwapProgram),
-        ammConfig: new PublicKey(ammConfig),
-      },
-      { programId: pid },
-    ),
+    { authority, feeRecipient: new PublicKey(feeRecipient) },
+    {
+      tradeFeeBps: requireU64Flag(flags, 'fee-bps'),
+      creatorFeeShareBps: requireCreatorFeeShareBps(flags),
+      initialVirtualSol: requireU64Flag(flags, 'virtual-sol'),
+      initialVirtualToken: requireU64Flag(flags, 'virtual-token'),
+      tokenTotalSupply: requireU64Flag(flags, 'supply'),
+      graduationTargetLamports: requireU64Flag(flags, 'target'),
+      migrationReserveLamports: requireU64Flag(flags, 'reserve'),
+      cpSwapProgram: new PublicKey(cpSwapProgram),
+      ammConfig: new PublicKey(ammConfig),
+      platformReserveBps,
+    },
+    { programId: pid },
   );
+  // The reserve is the LAST argument. Prove it reached the wire: an encoder that
+  // does not know the field would drop it, the program would fail to deserialize,
+  // and the ceremony would be spent on a transaction that could never land.
+  if (!endsWithU64(ix.data, platformReserveBps)) {
+    fail('the encoded initialize_global does not end with platform_reserve_bps — the curve core predates the field. Nothing was built.');
+  }
+  const tx = new Transaction().add(ix);
   await prepareAndSign(connection, tx, authority, flags.send ? payer : undefined);
   const sent = await maybeSend(connection, tx, flags);
   await emitTransaction(connection, tx, sent, 'initialize_global');
@@ -867,9 +1207,21 @@ async function cmdUpdateGlobal(flags) {
       }
       return v;
     })(),
+    // The eleventh and last Option. Optional here, unlike init-global: omitting it
+    // is `None`, "leave unchanged". A value moves only FUTURE launches; each live
+    // launch keeps the reserve amount it was created with.
+    newPlatformReserveBps: (() => {
+      const r = parsePlatformReserveBps(flags['platform-reserve-bps'], { required: false, max: L.MAX_PLATFORM_RESERVE_BPS });
+      if (!r.ok) fail(r.error);
+      return r.value;
+    })(),
   };
   if (Object.values(args).every((v) => v === undefined)) {
-    fail('nothing to update — pass at least one of --fee-bps --creator-fee-share-bps --target --reserve --virtual-sol\n  --pause/--unpause --new-authority --fee-recipient --cp-swap-program --amm-config');
+    fail('nothing to update — pass at least one of --fee-bps --creator-fee-share-bps --target --reserve --virtual-sol\n  --platform-reserve-bps --pause/--unpause --new-authority --fee-recipient --cp-swap-program --amm-config');
+  }
+  if (args.newAuthority) await refuseUnsignableAddress(connection, args.newAuthority, '--new-authority', AUTHORITY_LOCKED);
+  if (args.newFeeRecipient) {
+    await refuseUnsignableAddress(connection, args.newFeeRecipient, '--fee-recipient', FEE_RECIPIENT_LOCKED);
   }
 
   // `has_one = authority` (lib.rs:1248). Check it against CHAIN state rather than
@@ -880,7 +1232,7 @@ async function cmdUpdateGlobal(flags) {
       `the loaded key is not \`global.authority\`.\n` +
         `    loaded    : ${payer.publicKey.toBase58()}\n` +
         `    authority : ${current.authority.toBase58()}\n` +
-        '  On mainnet the authority is the Squads multisig, so this is expected: build the\n' +
+        '  On mainnet the authority is the Squads VAULT PDA, so this is expected: build the\n' +
         '  instruction inside a Squads proposal rather than signing locally.',
     );
   }
@@ -891,6 +1243,16 @@ async function cmdUpdateGlobal(flags) {
   // The resolution lives in `curve/config.ts` so it is unit-tested rather than
   // asserted by this script's shape (config.test.ts).
   const check = L.checkUpdateGlobal(args, current);
+  // A reserve-only change moves the listing price, so the program re-runs the
+  // launch-economics check for it. If the pre-flight did not, it is not modelling
+  // the program, and "no problems" below would mean nothing.
+  if (args.newPlatformReserveBps !== undefined && !check.economics) {
+    fail(
+      'the curve core did not re-run the launch-economics check for a --platform-reserve-bps change,\n' +
+        '  but the program does (the reserve changes the curve supply, and with it the listing price).\n' +
+        '  The core predates the field. Nothing was built.',
+    );
+  }
   if (check.economics) {
     console.log('[operator] post-update economics pre-flight');
     console.log(`  lists at          : ${check.economics.graduationPriceRatioBps ?? '(could not compute)'} bps of the final curve price`);
@@ -901,6 +1263,25 @@ async function cmdUpdateGlobal(flags) {
     for (const p of check.problems) console.log(`     • ${p}`);
     fail('the program would reject this update — nothing was built.');
   }
+  // A reserve change moves the listing price of every NEW launch, and the program's
+  // ±5% band accepts most such moves (a tuned 369 book reads ~9550 at 0 and ~10170 at
+  // 500). So does a target, reserve or virtual-SOL change on a book that carries a
+  // reserve: `--target 11685689681` on a 369 book tuned by its target lists at 10488.
+  // Vt cannot be changed here, so the fix is the target or the virtual SOL.
+  if (
+    updateNeedsListingGate({
+      economics: check.economics,
+      newPlatformReserveBps: args.newPlatformReserveBps,
+      currentPlatformReserveBps: current.platformReserveBps,
+    })
+  ) {
+    refuseListingGap(
+      flags,
+      check.economics.graduationPriceRatioBps,
+      `    • pass --target ${check.economics.continuityTarget ?? '?'} in the same update (the continuity target\n` +
+        "      for this book's reserve after the update), or retune --virtual-sol with check-config.",
+    );
+  }
 
   console.log('\n[operator] update_global');
   console.log(`  authority (signer) : ${payer.publicKey.toBase58()}`);
@@ -908,21 +1289,36 @@ async function cmdUpdateGlobal(flags) {
     if (v !== undefined) console.log(`  ${k.padEnd(18)}: ${v}`);
   }
 
-  const tx = new Transaction().add(
-    L.updateGlobalIx(
-      { authority: payer.publicKey },
-      {
-        ...args,
-        // `ix.ts` types the address options as `PublicKey`; the flags parse to
-        // base58. `undefined` stays `undefined` — that is `None`, "leave unchanged".
-        newAuthority: args.newAuthority ? new PublicKey(args.newAuthority) : undefined,
-        newFeeRecipient: args.newFeeRecipient ? new PublicKey(args.newFeeRecipient) : undefined,
-        newCpSwapProgram: args.newCpSwapProgram ? new PublicKey(args.newCpSwapProgram) : undefined,
-        newAmmConfig: args.newAmmConfig ? new PublicKey(args.newAmmConfig) : undefined,
-      },
-      { programId: pid },
-    ),
+  if (args.newPlatformReserveBps !== undefined) {
+    console.log('  note: initial_virtual_token cannot be changed by update_global, so this reserve');
+    console.log('        change is absorbed by the book as it stands. The listed ratio above is the');
+    console.log('        one every NEW launch gets; live launches keep their own snapshot.');
+  }
+  if (args.newFeeRecipient && args.newFeeRecipient !== current.feeRecipient.toBase58()) {
+    console.log('  note: fee_recipient is read when a reserve is RELEASED, not when it is carved.');
+    console.log('        Every graduated-but-unreleased reserve now goes to the new recipient.');
+  }
+
+  const ix = L.updateGlobalIx(
+    { authority: payer.publicKey },
+    {
+      ...args,
+      // `ix.ts` types the address options as `PublicKey`; the flags parse to
+      // base58. `undefined` stays `undefined` — that is `None`, "leave unchanged".
+      newAuthority: args.newAuthority ? new PublicKey(args.newAuthority) : undefined,
+      newFeeRecipient: args.newFeeRecipient ? new PublicKey(args.newFeeRecipient) : undefined,
+      newCpSwapProgram: args.newCpSwapProgram ? new PublicKey(args.newCpSwapProgram) : undefined,
+      newAmmConfig: args.newAmmConfig ? new PublicKey(args.newAmmConfig) : undefined,
+    },
+    { programId: pid },
   );
+  // The encoder writes `None` for any argument it does not recognise. For the last
+  // Option that is silent: the program leaves the reserve alone and the operator
+  // believes it changed. Check the value is what actually ended the data.
+  if (args.newPlatformReserveBps !== undefined && !endsWithSomeU64(ix.data, args.newPlatformReserveBps)) {
+    fail('the encoded update_global does not carry --platform-reserve-bps as its last Option — the curve core predates the field. Nothing was built.');
+  }
+  const tx = new Transaction().add(ix);
   await prepareAndSign(connection, tx, payer.publicKey, flags.send ? payer : undefined);
   const sent = await maybeSend(connection, tx, flags);
   await emitTransaction(connection, tx, sent, 'update_global');
@@ -1080,6 +1476,9 @@ async function cmdCreateAmmConfig(flags) {
       fail(`the owner holds ${payerCheck.lamports} lamports (${sol(payerCheck.lamports)}), below the ${rent} needed for rent plus fees.`);
     }
   } catch (e) {
+    // The balance refusal above is thrown INSIDE this try. Without the re-throw it
+    // was caught here, printed as a failed lookup, and the build went on.
+    if (e instanceof OperatorError) throw e;
     console.log(`  rent                : (lookup failed: ${e?.message ?? e}) — balance NOT checked`);
   }
 
@@ -1098,8 +1497,315 @@ async function cmdCreateAmmConfig(flags) {
   await emitTransaction(connection, tx, sent, 'create_amm_config');
 
   console.log('\n  NEXT: this config is inert until tegridy-launch knows about it. Run');
+  console.log(`    create-permission --cp-swap-program ${cpSwapId.toBase58()}   (same admin key)`);
   console.log(`    update-global --cp-swap-program ${cpSwapId.toBase58()} --amm-config ${ammConfig.toBase58()}`);
-  console.log('  Until then migrate_to_amm still fails AmmNotConfigured (6015).');
+  console.log('  Until then migrate_to_amm fails AmmNotConfigured (6015) or MigrationPermissionMissing (6021).');
+}
+
+// ─── create-permission (cp-swap) ────────────────────────────────────────────────
+
+/**
+ * cp-swap `create_permission_pda` for tegridy-launch's migration authority.
+ *
+ * Graduation calls cp-swap's `initialize_with_permission`, which requires an
+ * existing `Permission` account at `["permission", payer]`, and the payer there is
+ * our program-wide migration authority `["migauth"]`. Only cp-swap's compile-time
+ * `admin::ID` can create that account (create_permission_pda.rs, `address =
+ * crate::admin::ID`), and it pays the rent (`payer = owner`). Without it, every
+ * `migrate_to_amm` fails MigrationPermissionMissing (6021) — after a launch has
+ * already filled. One account for the whole program, created once.
+ *
+ * The same key can also CLOSE it (`close_permission_pda`), which blocks every
+ * graduation until it is re-created. That power is part of what admin::ID is.
+ */
+async function cmdCreatePermission(flags) {
+  const connection = connect();
+  const cpSwapId = new PublicKey(cpSwapProgramId(flags));
+  refuseSpentProgramId(cpSwapId.toBase58(), 'create_permission_pda');
+  const cpDeployment = await L.readDeployment(connection, cpSwapId);
+  if (cpDeployment.kind === 'unreadable') {
+    fail(`could not read the cp-swap program account: ${cpDeployment.detail}\n  Refusing to build blind.`);
+  }
+  if (cpDeployment.kind !== 'deployed') {
+    fail(`no cp-swap program is deployed at ${cpSwapId.toBase58()} (${cpDeployment.kind}).`);
+  }
+
+  // The authority is derived from the tegridy-launch id, so a typo'd --program-id
+  // would create a permission for an address no program signs as. Read it first.
+  const launchPid = programId(flags);
+  const launch = await requireDeployed(connection, launchPid, 'create_permission_pda (for its migration authority)');
+  if (launch.global?.kind === 'ok' && L.isAmmConfigured(launch.global.value)
+      && !launch.global.value.cpSwapProgram.equals(cpSwapId)) {
+    fail(
+      `global.cp_swap_program is ${launch.global.value.cpSwapProgram.toBase58()}, not ${cpSwapId.toBase58()}.\n` +
+        '  A permission on a cp-swap that tegridy-launch does not graduate into unblocks nothing.',
+    );
+  }
+  const migAuth = migrationAuthorityOf(launchPid);
+  const existing = await readPermission(connection, cpSwapId, migAuth);
+  console.log('[operator] create_permission_pda');
+  console.log(`  cp-swap program      : ${cpSwapId.toBase58()}`);
+  console.log(`  tegridy-launch       : ${launchPid}`);
+  console.log(`  migration authority  : ${migAuth.toBase58()}   seeds ["migauth"] (program-wide)`);
+  console.log(`  permission PDA       : ${existing.address.toBase58()}   seeds ["permission", migration authority]`);
+  if (existing.kind === 'present') {
+    console.log('\n  ✅ it already exists and names this authority. Nothing to do.');
+    return;
+  }
+  if (existing.kind === 'unreadable') fail(`could not read the permission address: ${existing.detail}`);
+  if (existing.kind === 'foreign') {
+    fail(`something else is at the permission address (${existing.owner}). \`init\` would fail; investigate first.`);
+  }
+
+  const payer = await loadKeypair('OPERATOR_KEYPAIR');
+  const owner = payer.publicKey;
+  console.log(`  owner (signer+payer) : ${owner.toBase58()}`);
+  // Same bytecode check as create-amm-config: a key that is not in the binary
+  // cannot be admin::ID, and this instruction would fail InvalidOwner.
+  const bakedIn = await deployerIsBakedIntoProgram(connection, cpSwapId, owner);
+  if (bakedIn === false) {
+    fail(
+      `this key does NOT appear in the deployed cp-swap bytecode, so it cannot be \`admin::ID\`.\n` +
+        `    loaded : ${owner.toBase58()}\n` +
+        '  `create_permission_pda` is gated on `address = crate::admin::ID` and would fail InvalidOwner.',
+    );
+  }
+  console.log(bakedIn === true
+    ? '  admin::ID            : ✅ this key is present in the deployed cp-swap bytecode'
+    : '  admin::ID            : (could not fetch bytecode to check — proceeding, UNVERIFIED)');
+  const payerCheck = await classifyPayer(connection, owner);
+  if (!payerCheck.ok) fail(`the owner cannot pay for the Permission account: ${payerCheck.reason}`);
+  try {
+    const rent = BigInt(await connection.getMinimumBalanceForRentExemption(CP_SWAP_PERMISSION_LEN));
+    console.log(`  rent for ${CP_SWAP_PERMISSION_LEN} bytes    : ${rent} (${sol(rent)})`);
+    if (payerCheck.lamports < rent) {
+      fail(`the owner holds ${payerCheck.lamports} lamports (${sol(payerCheck.lamports)}), below the ${rent} needed for rent plus fees.`);
+    }
+  } catch (e) {
+    if (e instanceof OperatorError) throw e;
+    console.log(`  rent                 : (lookup failed: ${e?.message ?? e}) — balance NOT checked`);
+  }
+
+  const tx = new Transaction().add(
+    createPermissionPdaIx({ owner, permissionAuthority: migAuth, permission: existing.address }, cpSwapId),
+  );
+  await prepareAndSign(connection, tx, owner, flags.send ? payer : undefined);
+  if (!flags.send) {
+    const sim = await simulate(connection, tx, 'create_permission_pda');
+    if (sim.err) fail('the simulation failed — nothing to co-sign. Read the logs above.');
+  }
+  const sent = await maybeSend(connection, tx, flags);
+  await emitTransaction(connection, tx, sent, 'create_permission_pda');
+  console.log('\n  ⚠ admin::ID can also CLOSE this account (close_permission_pda). Closing it blocks every');
+  console.log('    graduation until it is re-created. `status` re-reads it.');
+}
+
+// ─── migrate (permissionless) ───────────────────────────────────────────────────
+
+/**
+ * `migrate_to_amm` for one launch. Permissionless: anyone may push a funded curve
+ * into its pool, and the payer only fronts rent it gets back.
+ *
+ * Every precondition the program checks is read first, so a refusal is a sentence
+ * here and not a 400k-CU failure. Simulates by default; `--send` broadcasts.
+ */
+async function cmdMigrate(flags) {
+  const pid = programId(flags);
+  const pidKey = new PublicKey(pid);
+  const connection = connect();
+  const status = await requireDeployed(connection, pid, 'migrate_to_amm');
+  if (status.global?.kind !== 'ok') fail(`global is "${status.global?.kind}" — nothing can graduate before init-global.`);
+  const g = status.global.value;
+  const mint = new PublicKey(optionalPubkeyFlag(flags, 'mint') ?? fail('missing required --mint <base58>'));
+
+  if (g.paused) fail('the protocol is PAUSED — migrate_to_amm fails Paused. (Sells stay open.)');
+  if (!L.isAmmConfigured(g)) fail('the AMM is not configured — migrate_to_amm fails AmmNotConfigured (6015). Run update-global first.');
+  const cpSwapId = g.cpSwapProgram;
+  refuseSpentProgramId(cpSwapId.toBase58(), 'migrate_to_amm');
+
+  const cr = await L.readCurve(connection, mint, pidKey);
+  if (cr.kind === 'absent') fail(`no curve for ${mint.toBase58()} — this mint was never launched here.`);
+  if (cr.kind !== 'ok') fail(`could not read the curve (${cr.kind}: ${cr.detail ?? cr.reason ?? '?'}).`);
+  const c = cr.value.curve;
+  if (c.complete) fail('this launch has already graduated. If its platform reserve is still held, run release-reserve.');
+  // The program's gate is target PLUS reserve (the accounting quantity it debits).
+  const need = c.graduationTargetLamports + c.migrationReserveLamports;
+  if (c.realSolReserves < need) {
+    fail(`not funded: real_sol_reserves ${c.realSolReserves} < target + reserve ${need} (${sol(need)}) — NotReadyToGraduate.`);
+  }
+  const curveRent = BigInt(await connection.getMinimumBalanceForRentExemption(L.BONDING_CURVE_SIZE));
+  if (cr.value.lamports - curveRent < need) {
+    fail(`the curve holds ${cr.value.lamports} lamports; after its rent floor ${curveRent} it cannot fund ${need} — MigrationReserveTooLow.`);
+  }
+
+  // The permission account is what nothing in `global` records. Read it.
+  const migAuth = migrationAuthorityOf(pid);
+  const perm = await readPermission(connection, cpSwapId, migAuth);
+  if (perm.kind !== 'present') {
+    fail(
+      `cp-swap's permission account ${perm.address.toBase58()} is ${perm.kind}` +
+        `${perm.kind === 'foreign' ? ` (${perm.owner})` : ''}${perm.kind === 'unreadable' ? ` (${perm.detail})` : ''}.\n` +
+        '  migrate_to_amm would fail MigrationPermissionMissing (6021). cp-swap\'s admin must run\n' +
+        `  create-permission --cp-swap-program ${cpSwapId.toBase58()} first.`,
+    );
+  }
+
+  // cp-swap's create_pool_fee_reveiver::ID is a compile-time constant no account
+  // records, so it is a flag — and it is checked to be what cp-swap will accept.
+  const feeAcct = new PublicKey(
+    optionalPubkeyFlag(flags, 'create-pool-fee-account') ??
+      fail('missing required --create-pool-fee-account <base58> — cp-swap\'s create_pool_fee_reveiver::ID\n  (the non-devnet arm in programs/cp-swap/src/lib.rs), a WSOL token account.'),
+  );
+  const feeInfo = await connection.getAccountInfo(feeAcct);
+  if (!feeInfo || !feeInfo.owner.equals(L.TOKEN_PROGRAM_ID) || feeInfo.data.length !== 165
+      || !new PublicKey(feeInfo.data.subarray(0, 32)).equals(L.WSOL_MINT)) {
+    fail(`--create-pool-fee-account ${feeAcct.toBase58()} is not a WSOL token account on this cluster; cp-swap would reject the pool.`);
+  }
+
+  const payer = await payerFor(flags);
+  const payerCheck = await classifyPayer(connection, payer.publicKey);
+  if (!payerCheck.ok) fail(`the payer cannot fund rent: ${payerCheck.reason}`);
+  // The float, INCLUDING the seed top-up: the program tops the migration authority
+  // up to minimum_balance(0) out of the payer's pocket before anything else moves.
+  const [ataRent, zeroRent, authLamports, wsolAta, tokenAta, feeRecipientInfo] = await Promise.all([
+    connection.getMinimumBalanceForRentExemption(165).then(BigInt),
+    connection.getMinimumBalanceForRentExemption(0).then(BigInt),
+    connection.getBalance(migAuth).then(BigInt),
+    connection.getAccountInfo(L.associatedTokenAddress(L.WSOL_MINT, migAuth)),
+    connection.getAccountInfo(L.associatedTokenAddress(mint, migAuth)),
+    connection.getAccountInfo(g.feeRecipient),
+  ]);
+  const float = migratePayerFloat({
+    ataRent, zeroDataRent: zeroRent, authorityLamports: authLamports,
+    existingAtas: (wsolAta ? 1 : 0) + (tokenAta ? 1 : 0),
+  });
+
+  console.log('[operator] migrate_to_amm');
+  console.log(`  mint                 : ${mint.toBase58()}`);
+  console.log(`  raised               : ${c.realSolReserves} (${sol(c.realSolReserves)}) of target + reserve ${need}`);
+  console.log(`  pool gets            : ${c.graduationTargetLamports} lamports + ${c.realTokenReserves} tokens`);
+  if (c.platformReserveTokens !== undefined) {
+    console.log(`  stays in the vault   : ${c.platformReserveTokens} tokens (platform reserve — release-reserve after this)`);
+  }
+  console.log(`  migration authority  : ${migAuth.toBase58()} (holds ${authLamports})`);
+  console.log(`  payer                : ${payer.publicKey.toBase58()} (holds ${payerCheck.lamports})`);
+  console.log(`  payer float          : ${float.total} = ATAs ${float.atas} + seed top-up ${float.seedTopup} (refunded at the end), plus fees`);
+  if (payerCheck.lamports < float.total) {
+    fail(`the payer holds ${payerCheck.lamports} lamports, below the ${float.total} it must front.`);
+  }
+  // The unspent reserve is swept to fee_recipient. A credit that leaves an account
+  // strictly between 0 and minimum_balance(0) is rejected, so a near-empty
+  // recipient plus a small residual would revert the whole graduation.
+  const frLamports = BigInt(feeRecipientInfo?.lamports ?? 0);
+  if (frLamports < zeroRent) {
+    console.log(`  ⚠ fee_recipient holds ${frLamports} lamports, below minimum_balance(0) = ${zeroRent}. A residual`);
+    console.log('    smaller than that would leave it in the rejected rent band and revert this. Fund it first.');
+  }
+
+  const ix = L.migrateToAmmIx(
+    {
+      payer: payer.publicKey,
+      creator: c.creator,
+      feeRecipient: g.feeRecipient,
+      launchMint: mint,
+      ammConfig: g.ammConfig,
+      createPoolFee: feeAcct,
+      permission: perm.address,
+    },
+    { programId: pidKey, cpSwapProgram: cpSwapId },
+  );
+  // The builder derives the migration authority itself. It must be the one the
+  // program checks; a stale per-mint derivation fails the seeds constraint.
+  if (!ix.keys.some((k) => k.pubkey.equals(migAuth))) {
+    fail('the built migrate_to_amm does not carry the program-wide migration authority — the curve core derives it wrong. Nothing was built.');
+  }
+  const tx = new Transaction().add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: L.MIGRATE_COMPUTE_UNITS }),
+    ix,
+  );
+  await prepareAndSign(connection, tx, payer.publicKey, flags.send ? payer.keypair : undefined);
+  if (!flags.send) {
+    await simulate(connection, tx, 'migrate_to_amm', { launchProgramId: pid });
+    console.log('\n  Dry run. Add --send (with OPERATOR_KEYPAIR) to broadcast.');
+    return;
+  }
+  await maybeSend(connection, tx, flags);
+  console.log('  NEXT: release-reserve --mint ' + mint.toBase58());
+}
+
+// ─── release-reserve (permissionless) ───────────────────────────────────────────
+
+/**
+ * `release_platform_reserve` for one graduated launch: moves the platform reserve
+ * from the curve vault to `global.fee_recipient`'s token account, once.
+ *
+ * Permissionless, like migrate. The recipient is read from `global` at release
+ * time, so it always goes to the treasury as configured NOW. Simulates by default.
+ */
+async function cmdReleaseReserve(flags) {
+  const pid = programId(flags);
+  const pidKey = new PublicKey(pid);
+  const connection = connect();
+  const status = await requireDeployed(connection, pid, 'release_platform_reserve');
+  if (status.global?.kind !== 'ok') fail(`global is "${status.global?.kind}".`);
+  const g = status.global.value;
+  const mint = new PublicKey(optionalPubkeyFlag(flags, 'mint') ?? fail('missing required --mint <base58>'));
+
+  const cr = await L.readCurve(connection, mint, pidKey);
+  if (cr.kind === 'absent') fail(`no curve for ${mint.toBase58()} — this mint was never launched here.`);
+  if (cr.kind !== 'ok') fail(`could not read the curve (${cr.kind}: ${cr.detail ?? cr.reason ?? '?'}).`);
+  const c = cr.value.curve;
+  if (c.platformReserveTokens === undefined || c.platformReserveReleased === undefined) {
+    fail('the curve core does not decode the platform-reserve fields — it predates them. Nothing was built.');
+  }
+  if (!c.complete) {
+    fail('this launch has not graduated. The reserve is released only after migrate — PlatformReserveLocked (6022).');
+  }
+  if (c.platformReserveReleased) {
+    fail('this launch\'s reserve was already released — PlatformReserveAlreadyReleased (6023).');
+  }
+  const amount = c.platformReserveTokens;
+  const vault = L.curveVaultPda(mint, pidKey);
+  const recipientAta = L.associatedTokenAddress(mint, g.feeRecipient);
+  const [vaultBal, ataInfo, ataRent] = await Promise.all([
+    connection.getTokenAccountBalance(vault).then((r) => BigInt(r.value.amount)),
+    connection.getAccountInfo(recipientAta),
+    connection.getMinimumBalanceForRentExemption(165).then(BigInt),
+  ]);
+  if (vaultBal < amount) {
+    fail(`the curve vault holds ${vaultBal}, less than the ${amount} reserve. Investigate before sending anything.`);
+  }
+
+  const payer = await payerFor(flags);
+  const payerCheck = await classifyPayer(connection, payer.publicKey);
+  if (!payerCheck.ok) fail(`the payer cannot fund rent: ${payerCheck.reason}`);
+  const needs = ataInfo ? 0n : ataRent;
+
+  console.log('[operator] release_platform_reserve');
+  console.log(`  mint                 : ${mint.toBase58()}`);
+  console.log(`  amount               : ${amount} base units${amount === 0n ? '  (none was carved; this only records the release)' : ''}`);
+  console.log(`  recipient            : ${g.feeRecipient.toBase58()}  (global.fee_recipient, read NOW)`);
+  console.log(`  recipient token acct : ${recipientAta.toBase58()}${ataInfo ? '' : `  (created by this call, ${ataRent} lamports from the payer)`}`);
+  console.log(`  payer                : ${payer.publicKey.toBase58()} (holds ${payerCheck.lamports})`);
+  if (payerCheck.lamports < needs) fail(`the payer holds ${payerCheck.lamports} lamports, below the ${needs} ATA rent it must pay.`);
+
+  const ix = L.releasePlatformReserveIx(
+    { payer: payer.publicKey, feeRecipient: g.feeRecipient, mint },
+    { programId: pidKey },
+  );
+  // Whatever the builder derived, the tokens must land in the treasury's own ATA.
+  if (!ix.keys.some((k) => k.pubkey.equals(recipientAta) && k.isWritable)
+      || !ix.keys.some((k) => k.pubkey.equals(g.feeRecipient))) {
+    fail('the built release_platform_reserve does not pay global.fee_recipient\'s token account. Nothing was built.');
+  }
+  const tx = new Transaction().add(ix);
+  await prepareAndSign(connection, tx, payer.publicKey, flags.send ? payer.keypair : undefined);
+  if (!flags.send) {
+    await simulate(connection, tx, 'release_platform_reserve', { launchProgramId: pid });
+    console.log('\n  Dry run. Add --send (with OPERATOR_KEYPAIR) to broadcast.');
+    return;
+  }
+  await maybeSend(connection, tx, flags);
 }
 
 function printHelp() {
@@ -1130,29 +1836,51 @@ COMMANDS
   init-global        build initialize_global   (runs exactly once — global is a singleton)
   update-global      build update_global       (the ONLY way to set the AMM addresses)
   create-amm-config  build cp-swap create_amm_config  (once per index — the PDA is one-shot)
+  create-permission  build cp-swap create_permission_pda for our migration authority
+                     ["migauth"] (once per program; without it EVERY graduation fails
+                     MigrationPermissionMissing, 6021)
+  migrate            migrate_to_amm for --mint (permissionless; SIMULATES unless --send)
+  release-reserve    release_platform_reserve for --mint (permissionless, after
+                     graduation; SIMULATES unless --send)
   help
 
 GLOBAL FLAGS
   --program-id <id>  override the tegridy-launch program id
-  --send             broadcast instead of printing. OPT-IN. Only completes when the
-                     local key is a sufficient signer set — on mainnet the authority
-                     is a Squads multisig, so the authority pre-check fails closed.
+  --send             broadcast instead of printing (or, for migrate/release-reserve,
+                     instead of simulating). OPT-IN. Only completes when the local key
+                     is a sufficient signer set — on mainnet global.authority is the
+                     Squads VAULT PDA, so the authority pre-check fails closed.
 
 CONFIG FLAGS (init-global / check-config; all values are RAW integers, not decimals)
   --fee-bps <n>          trade fee, <= 1000 (MAX_FEE_BPS)
   --creator-fee-share-bps <n>  REQUIRED, no default. Share OF THE FEE paid to the
-                         token's creator, <= 10000. 4800 = 48% (Meteora parity).
+                         token's creator, <= 10000. 5000 = 50%, the settled value.
+  --platform-reserve-bps <n>  REQUIRED, no default. Share of every launch's SUPPLY held
+                         back for the protocol, <= 1000 (10%). 369 = 3.69%. Held in the
+                         curve vault, never sold or pooled, released to the treasury
+                         only after graduation. check-config prints the split and the
+                         scaled --virtual-token that keeps the graduation target.
   --virtual-sol <lamports>
   --virtual-token <base units>
   --supply <base units>
   --target <lamports>    graduation target — EXCLUDES the migration reserve
   --reserve <lamports>   migration reserve, >= 42156720 (MIN_MIGRATION_RESERVE_LAMPORTS)
-  --fee-recipient <base58>
+  --fee-recipient <base58>  must be able to sign (the Squads VAULT, never the multisig
+                         account): it owns every released reserve. A program-owned
+                         address is refused, here and on update-global.
   --cp-swap-program <base58>   optional at init — zero is the NORMAL case
   --amm-config <base58>        optional at init — zero is the NORMAL case
+  --accept-listing-gap   with a reserve, init-global REFUSES a book that lists more than
+                         ${LISTING_GAP_TOLERANCE_BPS} bps from the final curve price (the program's own band is
+                         ±5%, and an untuned 3.69% reserve lists at +4.88%). This flag
+                         signs it anyway. Same gate on update-global, for a
+                         --platform-reserve-bps change and for a --target, --reserve
+                         or --virtual-sol change on a book that carries a reserve.
 
 UPDATE FLAGS (update-global; pass only what changes)
   --fee-bps --target --reserve --virtual-sol --creator-fee-share-bps
+  --platform-reserve-bps       NEW launches only; re-runs the economics check. There is
+                               no --virtual-token here: update_global cannot change it.
   --pause | --unpause          pause blocks BUYS and migration; SELLS STAY OPEN
   --new-authority <base58>     --fee-recipient <base58>
   --cp-swap-program <base58>   --amm-config <base58>
@@ -1175,12 +1903,29 @@ CREATE-AMM-CONFIG FLAGS (cp-swap; every *_rate is out of 1,000,000, NOT basis po
   That has nothing to read for the 2026-08-08 fork: closing it deleted the ProgramData
   account the bytecode lived in. It answers again only for a new deploy.
 
-ORDERING — the opposite of the obvious guess
-  1. deploy under a real keypair                                        ✅ 2026-08-08
-  2. init-global                       AMM addresses MAY be zero; no AmmConfig needed yet  ✅
-  3. create-amm-config                 cp-swap admin creates the AmmConfig   ← OUTSTANDING
-  4. update-global --cp-swap-program … --amm-config …
-  5. migration possible
+CREATE-PERMISSION FLAGS
+  --cp-swap-program <id>     the cp-swap program (the default is the SPENT 2026-08 id)
+  --program-id <id>          the tegridy-launch program whose ["migauth"] is authorised
+  Same signer rule as create-amm-config: admin::ID, System-owned, funded.
+
+MIGRATE / RELEASE-RESERVE FLAGS
+  --mint <base58>            the launch
+  --create-pool-fee-account <base58>   migrate only: cp-swap's create_pool_fee_reveiver::ID
+                             (a WSOL token account; a compile-time constant, so a flag)
+  --payer <base58>           simulate as this payer without loading a key (no --send)
+  migrate sets a 400,000 compute-unit limit, and its payer fronts two ATA rents plus the
+  migration authority's seed top-up to minimum_balance(0); all of it comes back.
+
+ORDERING — the opposite of the obvious guess. NOTHING below is done: both 2026-08
+program ids are closed, so every step restarts at 0 on fresh ids.
+  0. fresh program keypairs + declare_id!
+  1. deploy under a real keypair
+  2. init-global                       AMM addresses MAY be zero; no AmmConfig needed yet
+  3. create-amm-config                 cp-swap admin creates the AmmConfig
+  4. create-permission                 cp-swap admin authorises our migration authority
+  5. update-global --cp-swap-program … --amm-config …
+  6. migrate                           per launch, once it is funded
+  7. release-reserve                   per launch, after it graduates
 
   \`initialize_global\` does NOT require an AmmConfig (lib.rs:184-187, 259-263), and
   \`update_global\` CAN set both AMM addresses (lib.rs:360-367). lib.rs:347-355 records
@@ -1189,7 +1934,8 @@ ORDERING — the opposite of the obvious guess
 EXAMPLES
   SOLANA_RPC_URL=… node scripts/tegridy-launch-operator.mjs status
   node scripts/tegridy-launch-operator.mjs check-config --fee-bps 100 \\
-    --virtual-sol 30000000000 --virtual-token 1073000000000000 \\
+    --platform-reserve-bps 369 \\
+    --virtual-sol 30000000000 --virtual-token 1033406300000000 \\
     --supply 1000000000000000 --target 11685689681 --reserve 42156720
 `);
 }
@@ -1210,6 +1956,12 @@ async function main() {
       return cmdUpdateGlobal(flags);
     case 'create-amm-config':
       return cmdCreateAmmConfig(flags);
+    case 'create-permission':
+      return cmdCreatePermission(flags);
+    case 'migrate':
+      return cmdMigrate(flags);
+    case 'release-reserve':
+      return cmdReleaseReserve(flags);
     case 'help':
     case '--help':
     case '-h':

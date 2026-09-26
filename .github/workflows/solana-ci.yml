@@ -10,8 +10,9 @@ name: solana-ci
 #      SCOPED TO cp-swap ONLY — tegridy-launch is our own code with no upstream
 #      to diff against, so it is deliberately NOT covered by this job.
 #   2. build       — compiles the SBF program (validates our diff compiles).
-#   3. launch-curve — host-tests tegridy-launch's dependency-free curve math and
-#      SBF-builds the program. This is the ONLY compile gate for that program:
+#   3. launch-curve — host-tests tegridy-launch's dependency-free curve math,
+#      SBF-builds the program, and runs its layout and error-code pins under both
+#      feature configs. This is the ONLY compile gate for that program:
 #      it cannot be built on the Windows dev box (platform-tools install needs
 #      the symlink privilege, os error 1314; cargo build scripts are blocked by
 #      Application Control, os error 4551 — both hit the existing cp-swap too).
@@ -463,6 +464,19 @@ jobs:
             exit 1
           fi
           ls -l "$SO"
+      # The host-side layout and error-code pins (lib.rs `mod layout_tests`), the
+      # same two steps as bayla-ladder. They need the Anchor dependency graph, so
+      # they cannot run under the bare rustc above. They are the only check on the
+      # BYTE OFFSETS the frontend decoders read (program.ts): the validator suites
+      # decode through the IDL, so a reordered field with an unchanged size passes
+      # them and the client misreads it.
+      #
+      # Both feature configs: `deployer::ID` is cfg-gated, so one run only ever
+      # compiles one arm.
+      - name: Layout and error-code pins (default features)
+        run: cargo test --lib -- layout_tests
+      - name: Layout and error-code pins (--features devnet)
+        run: cargo test --lib --features devnet -- layout_tests
       - name: Publish compiled .so (DEVNET — never a mainnet artifact)
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
         with:

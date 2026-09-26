@@ -31,11 +31,16 @@
  *                                                     partial burn makes it false)
  *   - migrating twice fails                          (replay safety)
  *   - buy and sell both fail afterwards              (curve really is closed)
+ *   - the 3.69% platform reserve stays in the vault  (the pool gets only the
+ *     through migration, is paid to the treasury's    sellable tokens; the reserve
+ *     ATA exactly once afterwards, and supply is      is paid only on graduation,
+ *     conserved end to end                            as on the EVM launcher)
  */
 import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, BN, Idl, Program } from "@coral-xyz/anchor";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  createAccount,
   createAssociatedTokenAccount,
   createAssociatedTokenAccountInstruction,
   createMint,
@@ -99,8 +104,15 @@ const AUTH_SEED = Buffer.from("vault_and_lp_mint_auth_seed");
 // curve::continuity_target. 30 SOL here with a 2 SOL target opened the pool at
 // 14% of the curve price, a ~7x listing gap, and is now rejected at config time.
 const V_SOL = new BN(5_329_495_216);
-const V_TOK = new BN("1073000000000000");
 const SUPPLY = new BN("1000000000000000");
+/** The platform reserve: 3.69% of each launch's supply, held in the curve's vault
+ *  outside the sellable reserves and paid to the treasury only after graduation. */
+const PLATFORM_RESERVE_BPS = new BN(369);
+/** 369 bps of SUPPLY, rounded down. */
+const CARVE = SUPPLY.mul(PLATFORM_RESERVE_BPS).div(new BN(10_000));
+/** 1.073e15 scaled by the same (1 - 3.69%) as the supply, which keeps the 2 SOL
+ *  target at the curve's final price (9999 bps) — the operator retune. */
+const V_TOK = new BN("1033406300000000");
 const TRADE_FEE_BPS = new BN(100);
 /** Creator's share OF THE FEE (bps of the fee, not the trade). 4,800 = exact
  *  parity with the live Meteora partner config's 48 bps (CREATOR_FEE_SPEC.md §1).
@@ -147,6 +159,22 @@ describe("tegridy-launch full migration rehearsal", () => {
   let launchMint: PublicKey;
   let curve: PublicKey;
   let curveVault: PublicKey;
+
+  /** Accounts for `release_platform_reserve`, paying into `recipient`'s ATA. */
+  const releaseAccounts = (mint: PublicKey, recipient: PublicKey) => ({
+    payer: wallet.publicKey,
+    global: pda([GLOBAL_SEED], launch.programId),
+    feeRecipient: recipient,
+    mint,
+    curve: pda([CURVE_SEED, mint.toBuffer()], launch.programId),
+    curveVault: pda([VAULT_SEED, mint.toBuffer()], launch.programId),
+    recipientToken: getAssociatedTokenAddressSync(mint, recipient, true),
+    tokenProgram: TOKEN_PROGRAM_ID,
+    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+    systemProgram: SystemProgram.programId,
+  });
+  const tokenBalance = async (account: PublicKey): Promise<bigint> =>
+    BigInt((await provider.connection.getTokenAccountBalance(account)).value.amount);
 
   before(async () => {
     launch = loadIdlProgram(provider, "tegridy_launch");
@@ -213,7 +241,8 @@ describe("tegridy-launch full migration rehearsal", () => {
         GRAD_TARGET,
         MIGRATION_RESERVE,
         cpSwap.programId,
-        ammConfig
+        ammConfig,
+        PLATFORM_RESERVE_BPS
       )
       .accountsPartial({
         authority: wallet.publicKey,
@@ -243,6 +272,19 @@ describe("tegridy-launch full migration rehearsal", () => {
         rent: SYSVAR_RENT_PUBKEY,
       })
       .rpc();
+
+    // The platform reserve is carved here: the vault holds the whole supply, the
+    // curve may sell only the rest.
+    {
+      const c: any = await (launch.account as any).bondingCurve.fetch(curve);
+      assert.equal(
+        (await provider.connection.getTokenAccountBalance(curveVault)).value.amount,
+        SUPPLY.toString(),
+        "the vault must hold the whole supply"
+      );
+      assert.equal(c.realTokenReserves.toString(), SUPPLY.sub(CARVE).toString());
+      assert.equal(c.platformReserveTokens.toString(), CARVE.toString());
+    }
 
     // ── buy past the target, so the reserve is funded too ─────────────────────
     const buyerAta = getAssociatedTokenAddressSync(launchMint, wallet.publicKey);
@@ -346,6 +388,29 @@ describe("tegridy-launch full migration rehearsal", () => {
       `curve did not reach the target: ${preMigrate.realSolReserves.toString()}`
     );
     assert.isFalse(preMigrate.complete, "curve should still be open before migrating");
+
+    // FULLY FUNDED is not graduated: the reserve stays locked until `complete`.
+    // This is the closest a caller can get to graduation without migrating, so it
+    // is the release gate's hardest case.
+    {
+      const vaultBefore = (await provider.connection.getTokenAccountBalance(curveVault)).value
+        .amount;
+      let err = "";
+      try {
+        await launch.methods
+          .releasePlatformReserve()
+          .accountsPartial(releaseAccounts(launchMint, cfgFeeRecipient))
+          .rpc();
+      } catch (e) {
+        err = String(e);
+      }
+      assert.include(err, "PlatformReserveLocked", "a funded curve must not release the reserve");
+      assert.equal(
+        (await provider.connection.getTokenAccountBalance(curveVault)).value.amount,
+        vaultBefore,
+        "a refused release must move nothing"
+      );
+    }
 
     // ── migrate ──────────────────────────────────────────────────────────────
     const migAuth = pda([MIGRATION_AUTH_SEED], launch.programId);
@@ -530,7 +595,22 @@ describe("tegridy-launch full migration rehearsal", () => {
     const post: any = await (launch.account as any).bondingCurve.fetch(curve);
     assert.isTrue(post.complete, "curve must be closed by migration");
     assert.equal(post.pool.toBase58(), poolState.toBase58(), "curve must record its pool");
-    assert.equal(post.realTokenReserves.toString(), "0", "all tokens should have moved to the pool");
+    assert.equal(post.realTokenReserves.toString(), "0", "all sellable tokens should have moved to the pool");
+
+    // The pool got EXACTLY the curve's sellable reserves — not the platform reserve.
+    // Pre-reserve code deposited the vault's whole unsold balance; a deposit that
+    // swept the carve in too would show here as CARVE extra tokens.
+    assert.equal(
+      (
+        await provider.connection.getTokenAccountBalance(
+          pda([POOL_VAULT_SEED, poolState.toBuffer(), launchMint.toBuffer()], cpSwap.programId)
+        )
+      ).value.amount,
+      preMigrate.realTokenReserves.toString(),
+      "the pool must receive exactly the pre-migrate real_token_reserves"
+    );
+    assert.equal(post.platformReserveTokens.toString(), CARVE.toString(), "the snapshot never moves");
+    assert.isFalse(post.platformReserveReleased, "migration must not release the reserve");
 
     const poolAccount = await provider.connection.getAccountInfo(poolState);
     assert.isNotNull(poolAccount, "the pool must exist on-chain");
@@ -687,11 +767,12 @@ describe("tegridy-launch full migration rehearsal", () => {
     // The donated dust was drained rather than left to block the close. Asserting
     // where it LANDED, not merely that migration survived: a close made conditional
     // instead of draining would also pass the checks above while silently stranding
-    // the rent, so pin the actual destination.
+    // the rent, so pin the actual destination. The vault also still holds the
+    // whole unreleased platform reserve, which migration must never touch.
     assert.equal(
       (await provider.connection.getTokenAccountBalance(curveVault)).value.amount,
-      "1",
-      "the donated token unit must be swept into the curve vault before the close"
+      CARVE.addn(1).toString(),
+      "the vault must hold the platform reserve plus the swept dust unit"
     );
 
     // THE ASSERTION THIS FILE EXISTS FOR. Operator decision: burn the LP so
@@ -814,5 +895,241 @@ describe("tegridy-launch full migration rehearsal", () => {
       if (!sellFailed) throw new Error(`sell failed for the WRONG reason: ${e}`);
     }
     assert.isTrue(sellFailed, "sell must be refused with AlreadyComplete");
+  });
+
+  // ─── the platform reserve, after graduation ─────────────────────────────────
+
+  /** Expect a rejection naming `code`, with nothing else to say about it. */
+  const expectRejected = async (p: Promise<unknown>, code: string) => {
+    let err = "";
+    try {
+      await p;
+    } catch (e) {
+      err = String(e);
+    }
+    assert.include(err, code, `expected ${code}, got: ${err || "success"}`);
+  };
+
+  it("refuses a recipient token account that is not the treasury's ATA", async () => {
+    const vaultBefore = await tokenBalance(curveVault);
+
+    // The caller's own token account: right mint, wrong owner.
+    const callerAta = getAssociatedTokenAddressSync(launchMint, wallet.publicKey);
+    await expectRejected(
+      launch.methods
+        .releasePlatformReserve()
+        .accountsPartial({ ...releaseAccounts(launchMint, cfgFeeRecipient), recipientToken: callerAta })
+        .rpc(),
+      "ConstraintTokenOwner"
+    );
+
+    // Subtler: a token account the treasury DOES own, for the right mint, but at an
+    // address that is not its ATA. Only the associated-token address check stops it.
+    const stray = await createAccount(
+      provider.connection,
+      wallet,
+      launchMint,
+      cfgFeeRecipient,
+      Keypair.generate()
+    );
+    await expectRejected(
+      launch.methods
+        .releasePlatformReserve()
+        .accountsPartial({ ...releaseAccounts(launchMint, cfgFeeRecipient), recipientToken: stray })
+        .rpc(),
+      "AccountNotAssociatedTokenAccount"
+    );
+
+    assert.equal(await tokenBalance(curveVault), vaultBefore, "nothing may move on a refusal");
+  });
+
+  it("pays exactly the reserve to the treasury ATA — even one a stranger created first — and only once", async () => {
+    const treasuryAta = getAssociatedTokenAddressSync(launchMint, cfgFeeRecipient, true);
+
+    // DENIAL-OF-SERVICE NEGATIVE CONTROL: the ATA's address is public, so anyone can
+    // create it before the release. That must not block or redirect anything.
+    const stranger = Keypair.generate();
+    await provider.connection.confirmTransaction(
+      await provider.connection.requestAirdrop(stranger.publicKey, LAMPORTS_PER_SOL),
+      "confirmed"
+    );
+    await createAssociatedTokenAccount(provider.connection, stranger, launchMint, cfgFeeRecipient);
+    assert.equal(await tokenBalance(treasuryAta), 0n, "precondition: pre-created and empty");
+
+    const vaultBefore = await tokenBalance(curveVault);
+    await launch.methods
+      .releasePlatformReserve()
+      .accountsPartial(releaseAccounts(launchMint, cfgFeeRecipient))
+      .rpc();
+
+    assert.equal(
+      (await tokenBalance(treasuryAta)).toString(),
+      CARVE.toString(),
+      "the treasury must receive exactly the snapshotted reserve"
+    );
+    assert.equal(
+      (vaultBefore - (await tokenBalance(curveVault))).toString(),
+      CARVE.toString(),
+      "exactly the reserve leaves the vault"
+    );
+    // What is left is the migration's swept dust unit, which nothing can move —
+    // harmless, and expected rather than zero.
+    assert.equal(await tokenBalance(curveVault), 1n);
+    const c: any = await (launch.account as any).bondingCurve.fetch(curve);
+    assert.isTrue(c.platformReserveReleased, "the curve must record the release");
+
+    // Replay: the second call is refused by name, and pays nothing.
+    await expectRejected(
+      launch.methods
+        .releasePlatformReserve()
+        .accountsPartial(releaseAccounts(launchMint, cfgFeeRecipient))
+        .rpc(),
+      "PlatformReserveAlreadyReleased"
+    );
+    assert.equal((await tokenBalance(treasuryAta)).toString(), CARVE.toString());
+
+    // SUPPLY IS CONSERVED, end to end: every token minted is in exactly one of the
+    // places this launch can have put it. The squatter's pool holds the 1,000,000
+    // units the adversarial precondition seeded it with.
+    const [mint0, mint1] =
+      NATIVE_MINT.toBuffer() < launchMint.toBuffer()
+        ? [NATIVE_MINT, launchMint]
+        : [launchMint, NATIVE_MINT];
+    const squattedPool = pda(
+      [POOL_SEED, ammConfig.toBuffer(), mint0.toBuffer(), mint1.toBuffer()],
+      cpSwap.programId
+    );
+    const vaultOf = (pool: PublicKey) =>
+      pda([POOL_VAULT_SEED, pool.toBuffer(), launchMint.toBuffer()], cpSwap.programId);
+    const held =
+      (await tokenBalance(curveVault)) +
+      (await tokenBalance(vaultOf(c.pool))) +
+      (await tokenBalance(vaultOf(squattedPool))) +
+      (await tokenBalance(getAssociatedTokenAddressSync(launchMint, wallet.publicKey))) +
+      (await tokenBalance(treasuryAta));
+    const supply = (await getMint(provider.connection, launchMint)).supply;
+    assert.equal(held.toString(), supply.toString(), "supply must be conserved");
+    assert.equal(supply.toString(), SUPPLY.toString());
+  });
+
+  it("pays a ROTATED fee_recipient, creating its ATA, and refuses the old one", async () => {
+    // The recipient is read at release time, not snapshotted — the same policy the
+    // trade fees follow. A second launch, graduated under the old recipient, then
+    // released after rotating it.
+    const globalKey = pda([GLOBAL_SEED], launch.programId);
+    const mint2 = await createMint(provider.connection, wallet, wallet.publicKey, null, 9);
+    const curve2 = pda([CURVE_SEED, mint2.toBuffer()], launch.programId);
+    const vault2 = pda([VAULT_SEED, mint2.toBuffer()], launch.programId);
+    await launch.methods
+      .createLaunch()
+      .accountsPartial({
+        creator: wallet.publicKey,
+        global: globalKey,
+        mint: mint2,
+        curve: curve2,
+        curveVault: vault2,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+      })
+      .rpc();
+    const buyer2 = await createAssociatedTokenAccount(
+      provider.connection,
+      wallet,
+      mint2,
+      wallet.publicKey
+    );
+    for (let i = 0; i < 24; i++) {
+      try {
+        await launch.methods
+          .buy(new BN(LAMPORTS_PER_SOL).div(new BN(2)), new BN(0))
+          .accountsPartial({
+            trader: wallet.publicKey,
+            global: globalKey,
+            feeRecipient: cfgFeeRecipient,
+            creator: wallet.publicKey,
+            mint: mint2,
+            curve: curve2,
+            curveVault: vault2,
+            traderTokenAccount: buyer2,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+      } catch (e) {
+        if (!String(e).includes("AwaitingMigration")) throw e;
+        break;
+      }
+    }
+
+    const migAuth = pda([MIGRATION_AUTH_SEED], launch.programId);
+    const pool2 = pda([LAUNCH_POOL_SEED, mint2.toBuffer()], launch.programId);
+    const lp2 = pda([POOL_LP_MINT_SEED, pool2.toBuffer()], cpSwap.programId);
+    const [m0, m1] =
+      NATIVE_MINT.toBuffer() < mint2.toBuffer() ? [NATIVE_MINT, mint2] : [mint2, NATIVE_MINT];
+    await launch.methods
+      .migrateToAmm()
+      .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
+      .accountsPartial({
+        payer: wallet.publicKey,
+        global: globalKey,
+        feeRecipient: cfgFeeRecipient,
+        launchMint: mint2,
+        curve: curve2,
+        curveVault: vault2,
+        wsolMint: NATIVE_MINT,
+        creator: wallet.publicKey,
+        migrationAuthority: migAuth,
+        authWsol: getAssociatedTokenAddressSync(NATIVE_MINT, migAuth, true),
+        authToken: getAssociatedTokenAddressSync(mint2, migAuth, true),
+        authLp: getAssociatedTokenAddressSync(lp2, migAuth, true),
+        cpSwapProgram: cpSwap.programId,
+        ammConfig,
+        cpSwapPermission: pda([PERMISSION_SEED, migAuth.toBuffer()], cpSwap.programId),
+        ammAuthority: pda([AUTH_SEED], cpSwap.programId),
+        poolState: pool2,
+        lpMint: lp2,
+        token0Vault: pda([POOL_VAULT_SEED, pool2.toBuffer(), m0.toBuffer()], cpSwap.programId),
+        token1Vault: pda([POOL_VAULT_SEED, pool2.toBuffer(), m1.toBuffer()], cpSwap.programId),
+        createPoolFee: feeReceiver,
+        observationState: pda([OBSERVATION_SEED, pool2.toBuffer()], cpSwap.programId),
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    assert.isTrue(
+      ((await (launch.account as any).bondingCurve.fetch(curve2)) as any).complete,
+      "precondition: the second launch graduated"
+    );
+
+    // Rotate the treasury (new_fee_recipient is update_global's 5th argument).
+    const rotated = Keypair.generate().publicKey;
+    await launch.methods
+      .updateGlobal(null, null, null, null, rotated, null, null, null, null, null, null)
+      .accountsPartial({ global: globalKey, authority: wallet.publicKey })
+      .rpc();
+
+    // The old recipient is no longer the config's, so it cannot be named.
+    await expectRejected(
+      launch.methods.releasePlatformReserve().accountsPartial(releaseAccounts(mint2, cfgFeeRecipient)).rpc(),
+      "Unauthorized"
+    );
+
+    const rotatedAta = getAssociatedTokenAddressSync(mint2, rotated, true);
+    assert.isNull(
+      await provider.connection.getAccountInfo(rotatedAta),
+      "precondition: the rotated treasury has no ATA yet"
+    );
+    await launch.methods
+      .releasePlatformReserve()
+      .accountsPartial(releaseAccounts(mint2, rotated))
+      .rpc();
+    assert.equal(
+      (await tokenBalance(rotatedAta)).toString(),
+      CARVE.toString(),
+      "the release must create the rotated treasury's ATA and pay the reserve into it"
+    );
+    assert.equal(await tokenBalance(vault2), 0n, "no dust was donated here, so the vault empties");
   });
 });

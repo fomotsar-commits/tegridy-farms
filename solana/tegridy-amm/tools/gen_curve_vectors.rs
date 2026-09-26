@@ -48,6 +48,8 @@ fn err_name(e: CurveError) -> &'static str {
         CurveError::InsufficientLiquidity => "InsufficientLiquidity",
         CurveError::ZeroAmount => "ZeroAmount",
         CurveError::FeeTooHigh => "FeeTooHigh",
+        CurveError::ShareTooHigh => "ShareTooHigh",
+        CurveError::ReserveTooHigh => "ReserveTooHigh",
     }
 }
 
@@ -64,6 +66,8 @@ fn row(inputs: &[u64], out: Result<Vec<u64>, CurveError>) -> String {
 }
 
 const FEES: [u64; 10] = [0, 1, 25, 100, 300, 999, 1000, 1001, 9999, 10000];
+/// Either side of `MAX_PLATFORM_RESERVE_BPS` (1000) and `BPS_DENOMINATOR`, plus 369.
+const RESERVE_BPS: [u64; 8] = [0, 1, 369, 999, 1000, 1001, 9999, 10000];
 
 fn main() {
     let mut r = Rng(0x9E3779B97F4A7C15);
@@ -235,6 +239,23 @@ fn main() {
         (0, 1, 1, 0), (1, 0, 1, 0), (1, 1, 0, 0), (1, 1, 1, 0),
     ] {
         println!("  {},", row(&[vs, vt, s, res], continuity_target(vs, vt, s, res).map(|v| vec![v])));
+    }
+    println!("];");
+
+    // `curve_supply` — the platform-reserve carve. Appended LAST so the RNG stream,
+    // and so every row above, is byte-identical to the previous generation.
+    println!("export const CURVE_SUPPLY_VECTORS: readonly CurveVector[] = [");
+    for _ in 0..200 {
+        let total = r.mag(64);
+        let bps = RESERVE_BPS[(r.next() % RESERVE_BPS.len() as u64) as usize];
+        let q = curve_supply(total, bps).map(|(c, res)| vec![c, res]);
+        println!("  {},", row(&[total, bps], q));
+    }
+    for &total in &[0u64, 1, 9_999, 10_000, 10_001, 1_000_000_000_000_000, u64::MAX] {
+        for &bps in RESERVE_BPS.iter() {
+            let q = curve_supply(total, bps).map(|(c, res)| vec![c, res]);
+            println!("  {},", row(&[total, bps], q));
+        }
     }
     println!("];");
 }

@@ -102,6 +102,19 @@ function Row({ label, value, mono = true }: { label: string; value: string; mono
   );
 }
 
+/** Basis points as a percentage with two decimals: 369n → "3.69%". */
+const bpsPercent = (bps: bigint) => `${(Number(bps) / 100).toFixed(2)}%`;
+
+/**
+ * How the trade fee is split. `creatorFeeShareBps` is a share OF THE FEE, not of
+ * the trade; the protocol keeps the rest. `null` for a share over 100%, which the
+ * program never writes, so no split is invented for it.
+ */
+function feeSplitLabel(creatorFeeShareBps: bigint): string | null {
+  if (creatorFeeShareBps < 0n || creatorFeeShareBps > 10_000n) return null;
+  return `creator ${bpsPercent(creatorFeeShareBps)} · protocol ${bpsPercent(10_000n - creatorFeeShareBps)} of the fee`;
+}
+
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="block mb-3">
@@ -304,6 +317,13 @@ function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: numb
   // curve's own terms overflow a u64 — an arithmetic refusal, not a zero.
   const p = curveProgress(curve);
   const sold = formatTokenAmount(curve.realTokenReserves, decimals);
+  const reserve = formatTokenAmount(curve.platformReserveTokens, decimals);
+  const reserveStatus = curve.platformReserveReleased
+    ? 'released to the treasury'
+    : curve.complete
+      ? 'graduated, so anyone can now release it to the treasury'
+      : 'held by the program until the launch graduates';
+  const split = feeSplitLabel(curve.creatorFeeShareBps);
   // Spot is an exact numerator/denominator pair so nothing is rounded on the way
   // out. `spotPriceLabel` decides the UNIT, and refuses to assume 9 decimals.
   const spot =
@@ -357,7 +377,17 @@ function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: numb
       <Row label="Graduation target" value={`${formatSol(curve.graduationTargetLamports)} SOL`} />
       <Row label="Migration reserve" value={`${formatSol(curve.migrationReserveLamports)} SOL`} />
       <Row label="Trade fee (this launch)" value={`${(Number(curve.tradeFeeBps) / 100).toFixed(2)}%`} />
+      <Row label="Fee split (this launch)" value={split ?? '—'} mono={false} />
       <Row label={`Tokens still on the curve${sold.isBaseUnits ? ' (base units)' : ''}`} value={sold.text} />
+      <Row
+        label={`Platform reserve${reserve.isBaseUnits ? ' (base units)' : ''}`}
+        value={curve.platformReserveTokens === 0n ? 'none' : reserve.text}
+      />
+      {curve.platformReserveTokens > 0n && (
+        <p className="text-white/40 text-[10px]">
+          Platform reserve: {reserveStatus}. It is never sold on the curve and never goes into the pool.
+        </p>
+      )}
       <Row label="Spot price" value={spot === null ? '—' : `${spot.value} ${spot.unit}`} />
       <p className="text-white/35 text-[10px] leading-relaxed">
         Spot is a display ratio off the curve&apos;s virtual + real reserves. Any real trade moves it, so it is not an
@@ -606,8 +636,10 @@ export function CreateChecklist({
   return (
     <Card title="Open a launch">
       <p>
-        Launching mints the entire supply onto a fresh curve and permanently revokes the mint authority in the same
-        instruction, so no further supply can ever exist. The curve&apos;s terms are not chosen per launch — they are
+        Launching mints the entire supply into a fresh curve&apos;s vault and permanently revokes the mint authority in
+        the same instruction, so no further supply can ever exist. The curve can sell all of it except the platform
+        reserve listed below; whatever it has not sold when it graduates goes into the pool. The curve&apos;s terms
+        are not chosen per launch — they are
         copied from the protocol config at creation and frozen, so nothing can rewrite a live launch&apos;s economics
         afterwards.
       </p>
@@ -646,9 +678,20 @@ export function CreateChecklist({
         {g ? (
           <>
             <Row label="Trade fee" value={`${(Number(g.tradeFeeBps) / 100).toFixed(2)}%`} />
+            <Row label="Fee split" value={feeSplitLabel(g.creatorFeeShareBps) ?? '—'} mono={false} />
             <Row label="Graduation target" value={`${formatSol(g.graduationTargetLamports)} SOL`} />
             <Row label="Migration reserve" value={`${formatSol(g.migrationReserveLamports)} SOL`} />
             <Row label="Total supply (base units)" value={g.tokenTotalSupply.toString()} />
+            <Row
+              label="Platform reserve"
+              value={g.platformReserveBps === 0n ? 'none' : `${bpsPercent(g.platformReserveBps)} of supply`}
+            />
+            {g.platformReserveBps > 0n && (
+              <p className="text-white/40 text-[10px]">
+                Platform reserve: {bpsPercent(g.platformReserveBps)} of supply, held by the program, released to the
+                treasury only if the launch graduates; never sold on the curve.
+              </p>
+            )}
             <Row label="Graduation venue" value={isAmmConfigured(g) ? 'configured' : 'not configured yet'} />
             {g.paused && <p className="text-amber-300/90">New launches are paused.</p>}
           </>
@@ -826,8 +869,14 @@ function CurveExplainer() {
         </p>
         <p>
           A launch raises SOL along a constant-product curve priced on virtual plus real reserves. When it has raised its
-          target and the cost of migrating, one instruction opens the AMM pool, deposits everything, burns the LP tokens
-          and closes the curve — all or nothing, so there is no half-migrated state to get stuck in.
+          target and the cost of migrating, one instruction opens the AMM pool, burns the LP tokens and closes the curve
+          — all or nothing, so there is no half-migrated state to get stuck in.
+        </p>
+        <p>
+          What goes into the pool: the graduation target in SOL, and every token the curve did not sell. The migration
+          reserve pays the pool&apos;s setup costs, and whatever it does not use goes to the treasury. The platform
+          reserve does not go into the pool: it stays with the program until it is released to the treasury, which can
+          only happen after graduation.
         </p>
         <p className="text-white/40">
           The Meteora rail was retired on 2026-08-23 — this curve is now the only Solana launch surface here.
@@ -848,6 +897,11 @@ function CurveExplainer() {
           <li>
             Migration is permissionless and pays its caller nothing. It can also fail temporarily — a sell landing first
             can leave the curve a lamport short — in which case it is retried, not broken.
+          </li>
+          <li>
+            Graduation unlocks the platform reserve. After that, anyone can send it to the treasury, once; a launch that
+            never graduates never releases it. Once released, the treasury holds those tokens like any other holder, and
+            the program does not limit what it does with them.
           </li>
         </ul>
       </Card>

@@ -218,12 +218,12 @@ describe('launchErrorName', () => {
     expect(launchErrorName(6004)).toBe('Paused');
     expect(launchErrorName(6005)).toBe('AlreadyComplete');
     expect(launchErrorName(6019)).toBe('AwaitingMigration');
-    expect(Object.keys(LAUNCH_ERROR_CODES).length).toBe(20);
+    expect(Object.keys(LAUNCH_ERROR_CODES).length).toBe(24);
   });
 
   it('returns null for a code outside the program rather than guessing', () => {
     expect(launchErrorName(5999)).toBeNull();
-    expect(launchErrorName(6020)).toBeNull();
+    expect(launchErrorName(6024)).toBeNull();
     expect(launchErrorName(0)).toBeNull();
   });
 });
