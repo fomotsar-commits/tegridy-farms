@@ -15,7 +15,7 @@
 // THE ARITHMETIC IS NOT HERE. An earlier draft of this file restated
 // `lamports_until_target` and the fee constants locally, with a TODO saying to
 // consolidate when the quote module landed. It has landed: `math.ts` is the single
-// port of curve.rs, proven differentially against 3,815 Rust-generated vectors,
+// port of curve.rs, proven differentially against 4,071 Rust-generated vectors,
 // and this file imports from it. A plot that disagrees with the quote engine is a
 // cosmetic bug rather than a money bug — but a second copy of the model is how the
 // money bug arrives later, so there is one copy.

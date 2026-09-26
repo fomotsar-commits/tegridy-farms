@@ -11,6 +11,7 @@ import {
   createLaunchIx,
   initializeGlobalIx,
   migrateToAmmIx,
+  releasePlatformReserveIx,
   sellIx,
   updateGlobalIx,
   createAmmConfigIx,
@@ -125,6 +126,20 @@ const MIGRATE_ACCOUNTS = [
   'token_1_vault',
   'create_pool_fee',
   'observation_state',
+  'token_program',
+  'associated_token_program',
+  'system_program',
+] as const;
+
+/** `ReleasePlatformReserve`, in declaration order. */
+const RELEASE_RESERVE_ACCOUNTS = [
+  'payer',
+  'global',
+  'fee_recipient',
+  'mint',
+  'curve',
+  'curve_vault',
+  'recipient_token',
   'token_program',
   'associated_token_program',
   'system_program',
@@ -301,7 +316,7 @@ describe('migrate_to_amm', () => {
   });
 
   it('fills every field of the MigrateToAmm context, by name, in declaration order', () => {
-    const migAuth = migrationAuthorityPda(MINT);
+    const migAuth = migrationAuthorityPda();
     const poolState = poolStatePda(MINT);
     const lpMint = cpLpMintPda(poolState);
     const [mint0, mint1] = sortMints(WSOL_MINT, MINT);
@@ -377,11 +392,34 @@ describe('migrate_to_amm', () => {
     expect(slot(ix, MIGRATE_ACCOUNTS, 'creator').equals(curveVaultPda(MINT))).toBe(false);
   });
 
+  it('uses the program-wide migration authority — the SAME account for every launch', () => {
+    // `MigrateToAmm` seeds it `["migauth"]` with no mint. The client used to add the
+    // mint, so every migration it built carried an address that fails the seeds
+    // constraint, and a permission account keyed off that wrong address.
+    const programWide = PublicKey.findProgramAddressSync([Buffer.from('migauth')], PROGRAM_ID)[0];
+    expect(slot(ix, MIGRATE_ACCOUNTS, 'migration_authority').equals(programWide)).toBe(true);
+    const otherMint = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
+    const otherIx = migrateToAmmIx({
+      payer,
+      creator: CREATOR,
+      feeRecipient: FEE_RECIPIENT,
+      launchMint: otherMint,
+      ammConfig,
+      createPoolFee,
+    });
+    expect(slot(otherIx, MIGRATE_ACCOUNTS, 'migration_authority').equals(programWide)).toBe(true);
+    // Its token accounts are still per mint, because they hold that mint.
+    expect(slot(otherIx, MIGRATE_ACCOUNTS, 'auth_token').equals(slot(ix, MIGRATE_ACCOUNTS, 'auth_token'))).toBe(
+      false,
+    );
+  });
+
   it('derives `permission` on cp-swap from the migration authority, and lets it be overridden', () => {
     // cp-swap seeds it from `initialize_with_permission`'s own payer, which is the
-    // migration authority — so it moves per launch.
+    // migration authority. That authority is program-wide, so the permission is too:
+    // one admin-created account serves every graduation.
     expect(
-      slot(ix, MIGRATE_ACCOUNTS, 'permission').equals(cpPermissionPda(migrationAuthorityPda(MINT))),
+      slot(ix, MIGRATE_ACCOUNTS, 'permission').equals(cpPermissionPda(migrationAuthorityPda())),
     ).toBe(true);
     const otherMint = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
     const otherIx = migrateToAmmIx({
@@ -394,7 +432,7 @@ describe('migrate_to_amm', () => {
     });
     expect(
       slot(otherIx, MIGRATE_ACCOUNTS, 'permission').equals(slot(ix, MIGRATE_ACCOUNTS, 'permission')),
-    ).toBe(false);
+    ).toBe(true);
 
     // The default is an inference, so an operator who learns the real authority can
     // supply the address without waiting on a code change.
@@ -466,9 +504,58 @@ describe('migrate_to_amm', () => {
   });
 });
 
+describe('release_platform_reserve', () => {
+  const payer = TRADER;
+  const ix = releasePlatformReserveIx({ payer, feeRecipient: FEE_RECIPIENT, mint: MINT });
+
+  it('takes no args and carries its own discriminator', () => {
+    expect(ix.programId.equals(PROGRAM_ID)).toBe(true);
+    expect(ix.data.length).toBe(8);
+    expect(disc(ix)).toEqual(IX_DISCRIMINATOR.releasePlatformReserve);
+  });
+
+  it('fills every field of the ReleasePlatformReserve context, by name, in declaration order', () => {
+    expect(byName(ix, RELEASE_RESERVE_ACCOUNTS)).toEqual({
+      payer: [payer.toBase58(), true, true],
+      global: [globalPda().toBase58(), false, false],
+      // Read-only: only its key is used, as the owner of the token account below.
+      fee_recipient: [FEE_RECIPIENT.toBase58(), false, false],
+      mint: [MINT.toBase58(), false, false],
+      curve: [curvePda(MINT).toBase58(), false, true],
+      curve_vault: [curveVaultPda(MINT).toBase58(), false, true],
+      recipient_token: [associatedTokenAddress(MINT, FEE_RECIPIENT).toBase58(), false, true],
+      token_program: [TOKEN_PROGRAM_ID.toBase58(), false, false],
+      associated_token_program: [ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(), false, false],
+      system_program: [SYSTEM_PROGRAM_ID.toBase58(), false, false],
+    });
+  });
+
+  it("pays the treasury's classic-SPL ATA for this mint, even when the treasury is a PDA", () => {
+    // The mainnet treasury is a Squads vault, which is off the curve; spl-token only
+    // derives an ATA for it with allowOwnerOffCurve.
+    const vault = migrationAuthorityPda(); // any off-curve address will do
+    const toVault = releasePlatformReserveIx({ payer, feeRecipient: vault, mint: MINT });
+    expect(
+      slot(toVault, RELEASE_RESERVE_ACCOUNTS, 'recipient_token').equals(
+        getAssociatedTokenAddressSync(MINT, vault, true),
+      ),
+    ).toBe(true);
+    expect(slot(toVault, RELEASE_RESERVE_ACCOUNTS, 'fee_recipient').equals(vault)).toBe(true);
+  });
+
+  it('retargets every derived account under a program-id override', () => {
+    const alt = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
+    const altIx = releasePlatformReserveIx({ payer, feeRecipient: FEE_RECIPIENT, mint: MINT }, { programId: alt });
+    expect(altIx.programId.equals(alt)).toBe(true);
+    expect(slot(altIx, RELEASE_RESERVE_ACCOUNTS, 'global').equals(globalPda(alt))).toBe(true);
+    expect(slot(altIx, RELEASE_RESERVE_ACCOUNTS, 'curve').equals(curvePda(MINT, alt))).toBe(true);
+    expect(slot(altIx, RELEASE_RESERVE_ACCOUNTS, 'curve_vault').equals(curveVaultPda(MINT, alt))).toBe(true);
+  });
+});
+
 describe('associatedTokenAddress', () => {
   it('matches spl-token, including for a PDA owner (allowOwnerOffCurve)', () => {
-    const migAuth = migrationAuthorityPda(MINT);
+    const migAuth = migrationAuthorityPda();
     expect(associatedTokenAddress(MINT, TRADER).equals(getAssociatedTokenAddressSync(MINT, TRADER))).toBe(true);
     // The migration authority is a PDA, so spl-token needs the flag; we always
     // behave as if it were passed, which is what migration requires.
@@ -488,7 +575,7 @@ describe('operator-only instructions', () => {
   // landing one slot early: `initial_virtual_sol` would have been read as the creator
   // fee share, and so on down the line. Silent, total mis-configuration of the
   // protocol — not a revert. This is why the layout is asserted offset by offset.
-  it('initialize_global encodes SEVEN u64s then two pubkeys, creatorFeeShareBps second', () => {
+  it('initialize_global encodes SEVEN u64s, two pubkeys, then platformReserveBps last', () => {
     const cpSwapProgram = CP_SWAP_PROGRAM_ID;
     const ammConfig = MINT;
     const ix = initializeGlobalIx(
@@ -503,10 +590,11 @@ describe('operator-only instructions', () => {
         migrationReserveLamports: 250_000_000n,
         cpSwapProgram,
         ammConfig,
+        platformReserveBps: 369n,
       },
     );
     expect(disc(ix)).toEqual(IX_DISCRIMINATOR.initializeGlobal);
-    expect(ix.data.length).toBe(8 + 7 * 8 + 2 * 32);
+    expect(ix.data.length).toBe(8 + 7 * 8 + 2 * 32 + 8);
     expect(u64At(ix, 8)).toBe(100n);                        // trade_fee_bps
     expect(u64At(ix, 16)).toBe(4_800n);                     // creator_fee_share_bps
     expect(u64At(ix, 24)).toBe(30_000_000_000n);            // initial_virtual_sol
@@ -516,6 +604,9 @@ describe('operator-only instructions', () => {
     expect(u64At(ix, 56)).toBe(250_000_000n);               // migration_reserve_lamports
     expect(new PublicKey(ix.data.subarray(64, 96)).equals(cpSwapProgram)).toBe(true);
     expect(new PublicKey(ix.data.subarray(96, 128)).equals(ammConfig)).toBe(true);
+    // The trailing argument. Without it Borsh runs out of bytes and the program
+    // rejects the instruction outright.
+    expect(u64At(ix, 128)).toBe(369n);                      // platform_reserve_bps
     expect(keyTable(ix)).toEqual([
       [authority.toBase58(), true, true],
       [FEE_RECIPIENT.toBase58(), false, false],
@@ -524,16 +615,17 @@ describe('operator-only instructions', () => {
     ]);
   });
 
-  // `update_global` takes TEN Options (lib.rs:467-476). This asserted NINE, which is
-  // what the encoder wrote — test and encoder shared one wrong belief, so CI was
+  // `update_global` takes ELEVEN Options: ten, plus `new_platform_reserve_bps`.
+  // When it took ten, this asserted NINE, which was what the encoder wrote — test
+  // and encoder shared one wrong belief, so CI was
   // green while EVERY update_global reverted: a trailing Option that is never
   // written leaves the buffer one byte under the minimum and Borsh refuses it. That
   // silently blocked setting the AMM addresses and handing over authority.
   //
   // The count is the invariant, so it is stated once here and reused.
-  const UPDATE_GLOBAL_OPTION_COUNT = 10;
+  const UPDATE_GLOBAL_OPTION_COUNT = 11;
 
-  it('update_global writes one None byte per Option — all ten of them', () => {
+  it('update_global writes one None byte per Option — all eleven of them', () => {
     const ix = updateGlobalIx({ authority }, {});
     expect(disc(ix)).toEqual(IX_DISCRIMINATOR.updateGlobal);
     expect(ix.data.length).toBe(8 + UPDATE_GLOBAL_OPTION_COUNT);
@@ -547,7 +639,7 @@ describe('operator-only instructions', () => {
   });
 
   it('update_global encodes EVERY field it accepts — no arg may be silently dropped', () => {
-    // Set all ten, so a field present in UpdateGlobalArgs but missing from the
+    // Set all eleven, so a field present in UpdateGlobalArgs but missing from the
     // Writer chain changes the length and fails here. A None-only test cannot catch
     // that: it would just count one byte fewer and look self-consistent.
     const ix = updateGlobalIx(
@@ -563,25 +655,37 @@ describe('operator-only instructions', () => {
         newAmmConfig: MINT,
         newInitialVirtualSol: 30_000_000_000n,
         newCreatorFeeShareBps: 4_800n,
+        newPlatformReserveBps: 369n,
       },
     );
     // tag+payload per field: u64 -> 9, bool -> 2, Pubkey -> 33.
     const SOME_U64 = 9;
     const SOME_BOOL = 2;
     const SOME_PUBKEY = 33;
-    expect(ix.data.length).toBe(8 + 5 * SOME_U64 + SOME_BOOL + 4 * SOME_PUBKEY);
+    expect(ix.data.length).toBe(8 + 6 * SOME_U64 + SOME_BOOL + 4 * SOME_PUBKEY);
   });
 
-  it('update_global puts creator_fee_share_bps LAST, after initial_virtual_sol', () => {
+  it('update_global puts creator_fee_share_bps TENTH, after initial_virtual_sol', () => {
     // Order matters as much as presence: Borsh is positional, so encoding this
     // value in the wrong slot would reprice something else instead.
     const ix = updateGlobalIx({ authority }, { newCreatorFeeShareBps: 4_800n });
-    // nine leading Nones, then Some(4800) as 1 tag byte + 8 LE bytes.
-    expect(ix.data.length).toBe(8 + 9 + 1 + 8);
+    // nine leading Nones, then Some(4800) as 1 tag byte + 8 LE bytes, then the
+    // platform reserve's None.
+    expect(ix.data.length).toBe(8 + 9 + 1 + 8 + 1);
     expect(Array.from(ix.data.subarray(8, 17))).toEqual(new Array(9).fill(0));
     expect(ix.data[17]).toBe(1);
     const v = new DataView(ix.data.buffer, ix.data.byteOffset, ix.data.byteLength);
     expect(v.getBigUint64(18, true)).toBe(4_800n);
+    expect(ix.data[26]).toBe(0);
+  });
+
+  it('update_global puts platform_reserve_bps LAST, after creator_fee_share_bps', () => {
+    const ix = updateGlobalIx({ authority }, { newPlatformReserveBps: 369n });
+    // ten leading Nones, then Some(369).
+    expect(ix.data.length).toBe(8 + 10 + 1 + 8);
+    expect(Array.from(ix.data.subarray(8, 18))).toEqual(new Array(10).fill(0));
+    expect(ix.data[18]).toBe(1);
+    expect(u64At(ix, 19)).toBe(369n);
   });
 
   it('update_global encodes Some in field order, and false is Some(false) not None', () => {
@@ -608,12 +712,13 @@ describe('operator-only instructions', () => {
 
   // The instruction table is the client's whole record of what the program answers
   // to; a stale entry invites building something the program has no handler for.
-  it('exposes only the six instructions the program still has', () => {
+  it('exposes only the seven instructions the program has', () => {
     expect(Object.keys(IX_DISCRIMINATOR).sort()).toEqual([
       'buy',
       'createLaunch',
       'initializeGlobal',
       'migrateToAmm',
+      'releasePlatformReserve',
       'sell',
       'updateGlobal',
     ]);

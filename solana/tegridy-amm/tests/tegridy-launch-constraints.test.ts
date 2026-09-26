@@ -26,9 +26,11 @@
 import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, BN, Idl, Program } from "@coral-xyz/anchor";
 import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   createAssociatedTokenAccount,
   createInitializeMintInstruction,
   createMint,
+  getAssociatedTokenAddressSync,
   getMinimumBalanceForRentExemptMint,
   MINT_SIZE,
   TOKEN_PROGRAM_ID,
@@ -60,8 +62,18 @@ const VAULT_SEED = Buffer.from("vault");
 /** Curve parameters used across the suite. Chosen so the graduation target is
  *  comfortably reachable: max real SOL = V_s * S / V_t (see curve.rs). */
 const V_SOL = new BN(30).mul(new BN(LAMPORTS_PER_SOL));
-const V_TOK = new BN("1073000000000000");
 const SUPPLY = new BN("1000000000000000");
+/** The platform reserve: 3.69% of every launch's supply, held back from the curve
+ *  and paid to the treasury only after graduation. See design note 8 in lib.rs. */
+const PLATFORM_RESERVE_BPS = new BN(369);
+/** 369 bps of SUPPLY, rounded down — what each launch carves. */
+const CARVE = SUPPLY.mul(PLATFORM_RESERVE_BPS).div(new BN(10_000));
+/** What the curve may actually sell. */
+const CURVE_SUPPLY = SUPPLY.sub(CARVE);
+/** 1.073e15 scaled by the same (1 - 3.69%) as the supply — the operator retune.
+ *  Scaling both keeps every continuity target below unchanged (curve.rs,
+ *  `scaling_virtual_tokens_with_the_carve_keeps_the_continuity_target`). */
+const V_TOK = new BN("1033406300000000");
 const TRADE_FEE_BPS = new BN(100);
 /** Creator's share OF THE FEE, in bps of the fee. 4,800 = EXACT PARITY with the
  *  live Meteora partner config's 48 bps, per CREATOR_FEE_SPEC.md §1 — so the
@@ -127,19 +139,31 @@ async function fund(provider: AnchorProvider, to: PublicKey, sol: number): Promi
   await provider.connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
 }
 
-/** Assert a promise rejects, and that the error names the expected Anchor error. */
+/**
+ * Assert a promise rejects, and that the error names the expected Anchor error.
+ *
+ * The success check sits OUTSIDE the try. It used to be an `assert.fail` inside it,
+ * whose own AssertionError was caught by the `catch` below — and its message names
+ * `code`, so the `include` passed. Every reject test in this file therefore passed
+ * even when the transaction SUCCEEDED; the mutation check for the reserve-only
+ * re-check in `update_global` is what exposed it.
+ */
 async function expectAnchorError(p: Promise<unknown>, code: string): Promise<void> {
+  let rejected: unknown = undefined;
   try {
     await p;
-    assert.fail(`expected the transaction to be rejected with ${code}, but it succeeded`);
   } catch (e) {
-    const msg = String(e);
-    assert.include(
-      msg,
-      code,
-      `rejected, but not with ${code} — the constraint under test may not be what fired. Got: ${msg}`
-    );
+    rejected = e ?? new Error("rejected with no error value");
   }
+  if (rejected === undefined) {
+    assert.fail(`expected the transaction to be rejected with ${code}, but it succeeded`);
+  }
+  const msg = String(rejected);
+  assert.include(
+    msg,
+    code,
+    `rejected, but not with ${code} — the constraint under test may not be what fired. Got: ${msg}`
+  );
 }
 
 describe("tegridy-launch security constraints", () => {
@@ -167,7 +191,7 @@ describe("tegridy-launch security constraints", () => {
 
     await expectAnchorError(
       program.methods
-        .initializeGlobal(TRADE_FEE_BPS, CREATOR_FEE_SHARE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
+        .initializeGlobal(TRADE_FEE_BPS, CREATOR_FEE_SHARE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK, PLATFORM_RESERVE_BPS)
         .accountsPartial({
           authority: impostor.publicKey,
           feeRecipient,
@@ -180,12 +204,30 @@ describe("tegridy-launch security constraints", () => {
     );
   });
 
+  it("initialize_global rejects a platform reserve above the 10% cap", async () => {
+    // The designated deployer this time, so ONLY the cap can reject it. Runs before
+    // the successful init below for the same singleton reason as the test above.
+    // 1,000 bps is the cap (inclusive, as on the EVM); 1,001 must fail.
+    await expectAnchorError(
+      program.methods
+        .initializeGlobal(TRADE_FEE_BPS, CREATOR_FEE_SHARE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK, new BN(1_001))
+        .accountsPartial({
+          authority: deployer.publicKey,
+          feeRecipient,
+          global: globalPda(program.programId),
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc(),
+      "InvalidParameter"
+    );
+  });
+
   it("initialize_global succeeds for the designated deployer", async () => {
     // POSITIVE CONTROL for the above, and setup for everything below. The program
     // is built with --features devnet, whose `deployer` key is the local wallet; a
     // default build embeds a fail-closed sentinel and cannot be initialized at all.
     await program.methods
-      .initializeGlobal(TRADE_FEE_BPS, CREATOR_FEE_SHARE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
+      .initializeGlobal(TRADE_FEE_BPS, CREATOR_FEE_SHARE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK, PLATFORM_RESERVE_BPS)
       .accountsPartial({
         authority: deployer.publicKey,
         feeRecipient,
@@ -196,6 +238,8 @@ describe("tegridy-launch security constraints", () => {
 
     const g: any = await (program.account as any).globalConfig.fetch(globalPda(program.programId));
     assert.equal(g.authority.toBase58(), deployer.publicKey.toBase58());
+    // POSITIVE CONTROL for the cap test above: the intended 369 is accepted and stored.
+    assert.equal(g.platformReserveBps.toString(), PLATFORM_RESERVE_BPS.toString());
   });
 
   // ─── CRITICAL: freeze authority ────────────────────────────────────────────
@@ -260,8 +304,8 @@ describe("tegridy-launch security constraints", () => {
       assert.isFalse(curve.complete, "a fresh curve must not be complete");
       assert.equal(
         curve.realTokenReserves.toString(),
-        SUPPLY.toString(),
-        "the whole supply should be on the curve"
+        CURVE_SUPPLY.toString(),
+        "the curve may sell the supply minus the platform reserve"
       );
     });
 
@@ -308,7 +352,7 @@ describe("tegridy-launch security constraints", () => {
       const unreachable = new BN(1000).mul(new BN(LAMPORTS_PER_SOL));
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, unreachable, null, null, null, null, null, null, null, null)
+          .updateGlobal(null, unreachable, null, null, null, null, null, null, null, null, null)
           .accountsPartial({
             global: globalPda(program.programId),
             authority: deployer.publicKey,
@@ -318,11 +362,36 @@ describe("tegridy-launch security constraints", () => {
       );
     });
 
+    /**
+     * The ceiling is on the CURVE supply (supply minus the platform reserve), not
+     * the whole supply: the carve is never sold, so it can never raise SOL. Every
+     * other case in this file asks for far more than either ceiling, so pricing on
+     * the whole supply would pass them all. This one lands BETWEEN the two ceilings
+     * (~27.96 SOL on the curve supply, ~29.03 SOL on the whole supply), where only
+     * the right ceiling says "unreachable". On the whole-supply version it fails
+     * later, as InsufficientLiquidity, which is the wrong reason.
+     */
+    it("measures the ceiling on the curve supply, not the whole supply", async () => {
+      const onCurve = V_SOL.mul(CURVE_SUPPLY).div(V_TOK);
+      const onTotal = V_SOL.mul(SUPPLY).div(V_TOK);
+      const reserve = new BN(17).mul(new BN(LAMPORTS_PER_SOL));
+      const required = GRAD_TARGET.add(reserve);
+      assert.isTrue(onCurve.lte(required), "precondition: over the curve-supply ceiling");
+      assert.isTrue(required.lt(onTotal), "precondition: under the whole-supply ceiling");
+      await expectAnchorError(
+        program.methods
+          .updateGlobal(null, null, null, null, null, reserve, null, null, null, null, null)
+          .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+          .rpc(),
+        "GraduationTargetUnreachable"
+      );
+    });
+
     /** POSITIVE CONTROL — a target under the ceiling is accepted. */
     it("accepts a target below the ceiling", async () => {
       const reachable = GRAD_TARGET; // under the ceiling AND price-continuous
       await program.methods
-        .updateGlobal(null, reachable, null, null, null, null, null, null, null, null)
+        .updateGlobal(null, reachable, null, null, null, null, null, null, null, null, null)
         .accountsPartial({
           global: globalPda(program.programId),
           authority: deployer.publicKey,
@@ -334,7 +403,7 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore for any later test.
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, null, null, null, null, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, null, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
@@ -359,7 +428,7 @@ describe("tegridy-launch security constraints", () => {
       const cpProgram = Keypair.generate().publicKey;
       const cfg = Keypair.generate().publicKey;
       await program.methods
-        .updateGlobal(null, null, null, null, null, null, cpProgram, cfg, null, null)
+        .updateGlobal(null, null, null, null, null, null, cpProgram, cfg, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -372,7 +441,7 @@ describe("tegridy-launch security constraints", () => {
     it("refuses to ZERO them — that reads as misconfiguration; `paused` is the switch", async () => {
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, null, null, null, null, null, ZERO_PK, null, null, null)
+          .updateGlobal(null, null, null, null, null, null, ZERO_PK, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "InvalidParameter"
@@ -396,7 +465,7 @@ describe("tegridy-launch security constraints", () => {
       const reserve = new BN(10).mul(new BN(LAMPORTS_PER_SOL)); // sum 30: over
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, target, null, null, null, reserve, null, null, null, null)
+          .updateGlobal(null, target, null, null, null, reserve, null, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "GraduationTargetUnreachable"
@@ -407,7 +476,7 @@ describe("tegridy-launch security constraints", () => {
       const reserve = new BN(25).mul(new BN(LAMPORTS_PER_SOL));
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, null, null, null, null, reserve, null, null, null, null)
+          .updateGlobal(null, null, null, null, null, reserve, null, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "GraduationTargetUnreachable"
@@ -424,7 +493,7 @@ describe("tegridy-launch security constraints", () => {
     it("rejects a migration reserve below cp-swap's rent floor", async () => {
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, GRAD_TARGET, null, null, null, new BN(1_000), null, null, null, null)
+          .updateGlobal(null, GRAD_TARGET, null, null, null, new BN(1_000), null, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "MigrationReserveTooLow"
@@ -438,7 +507,7 @@ describe("tegridy-launch security constraints", () => {
       const target = new BN(10_039_591_158);
       const reserve = new BN(5).mul(new BN(LAMPORTS_PER_SOL));
       await program.methods
-        .updateGlobal(null, target, null, null, null, reserve, null, null, null, null)
+        .updateGlobal(null, target, null, null, null, reserve, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -449,7 +518,7 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore for the tests that follow.
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
@@ -474,7 +543,7 @@ describe("tegridy-launch security constraints", () => {
       const gapping = new BN(10).mul(new BN(LAMPORTS_PER_SOL));
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, gapping, null, null, null, null, null, null, null, null)
+          .updateGlobal(null, gapping, null, null, null, null, null, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "GraduationPriceGap"
@@ -484,7 +553,7 @@ describe("tegridy-launch security constraints", () => {
     /** POSITIVE CONTROL — the continuity target for these reserves is accepted. */
     it("accepts the continuity target", async () => {
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -504,7 +573,7 @@ describe("tegridy-launch security constraints", () => {
       const target = new BN(6).mul(new BN(LAMPORTS_PER_SOL));
       const vsol = new BN(15_784_562_498); // continuity partner for 6 SOL + 0.5 reserve
       await program.methods
-        .updateGlobal(null, target, null, null, null, MIGRATION_RESERVE, null, null, vsol, null)
+        .updateGlobal(null, target, null, null, null, MIGRATION_RESERVE, null, null, vsol, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -515,7 +584,7 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore the suite's baseline for anything that follows.
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, V_SOL, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, V_SOL, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
@@ -532,7 +601,7 @@ describe("tegridy-launch security constraints", () => {
     it("blocks create_launch while paused, and allows it again when unpaused", async () => {
       const globalKey = globalPda(program.programId);
       await program.methods
-        .updateGlobal(null, null, true, null, null, null, null, null, null, null)
+        .updateGlobal(null, null, true, null, null, null, null, null, null, null, null)
         .accountsPartial({ global: globalKey, authority: deployer.publicKey })
         .rpc();
 
@@ -560,7 +629,7 @@ describe("tegridy-launch security constraints", () => {
 
       // POSITIVE CONTROL: unpause and the identical call goes through.
       await program.methods
-        .updateGlobal(null, null, false, null, null, null, null, null, null, null)
+        .updateGlobal(null, null, false, null, null, null, null, null, null, null, null)
         .accountsPartial({ global: globalKey, authority: deployer.publicKey })
         .rpc();
 
@@ -852,7 +921,7 @@ describe("tegridy-launch security constraints", () => {
     it("rejects a share above 100% of the fee", async () => {
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, null, null, null, null, null, null, null, null, new BN(10_001))
+          .updateGlobal(null, null, null, null, null, null, null, null, null, new BN(10_001), null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "InvalidParameter"
@@ -861,7 +930,7 @@ describe("tegridy-launch security constraints", () => {
 
     it("stores a legal share, and it lands in the 10th slot not the 9th", async () => {
       await program.methods
-        .updateGlobal(null, null, null, null, null, null, null, null, null, new BN(3_000))
+        .updateGlobal(null, null, null, null, null, null, null, null, null, new BN(3_000), null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
 
@@ -875,9 +944,172 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore the suite default for anything ordered after this.
       await program.methods
-        .updateGlobal(null, null, null, null, null, null, null, null, null, CREATOR_FEE_SHARE_BPS)
+        .updateGlobal(null, null, null, null, null, null, null, null, null, CREATOR_FEE_SHARE_BPS, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
+    });
+  });
+
+  // ─── The platform reserve: carved at launch, locked until graduation ───────
+
+  describe("the platform reserve is carved at launch and locked until graduation", () => {
+    /**
+     * 3.69% of every launch's supply is held back for the protocol, matching the EVM
+     * launcher. It sits in the curve's own vault but OUTSIDE `real_token_reserves`,
+     * so the curve can never sell it, and `release_platform_reserve` pays it out
+     * only once the launch has graduated. Pre-reserve code put the whole supply in
+     * `real_token_reserves`, so the first test fails on it.
+     *
+     * The successful release (the positive control for the locked case) needs a
+     * graduated curve, so it lives in tegridy-launch-migration.test.ts.
+     */
+    const creator = Keypair.generate();
+    let mint: PublicKey;
+
+    const fetchCurve = async (m: PublicKey): Promise<any> =>
+      (program.account as any).bondingCurve.fetch(curvePda(program.programId, m));
+    const vaultBalance = async (m: PublicKey): Promise<string> =>
+      (await provider.connection.getTokenAccountBalance(vaultPda(program.programId, m))).value
+        .amount;
+    const launchFor = async (who: Keypair, m: PublicKey) =>
+      program.methods
+        .createLaunch()
+        .accountsPartial({
+          creator: who.publicKey,
+          global: globalPda(program.programId),
+          mint: m,
+          curve: curvePda(program.programId, m),
+          curveVault: vaultPda(program.programId, m),
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .signers([who])
+        .rpc();
+    const releaseAccounts = (m: PublicKey) => ({
+      payer: deployer.publicKey,
+      global: globalPda(program.programId),
+      feeRecipient,
+      mint: m,
+      curve: curvePda(program.programId, m),
+      curveVault: vaultPda(program.programId, m),
+      recipientToken: getAssociatedTokenAddressSync(m, feeRecipient, true),
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    });
+    const setReserveBps = (bps: BN) =>
+      program.methods
+        .updateGlobal(null, null, null, null, null, null, null, null, null, null, bps)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+
+    it("holds the whole supply in the vault but lets the curve sell only the rest", async () => {
+      await fund(provider, creator.publicKey, 5);
+      mint = await makeMint(provider, creator, null);
+      await launchFor(creator, mint);
+
+      const c = await fetchCurve(mint);
+      assert.equal(await vaultBalance(mint), SUPPLY.toString(), "the vault holds every token minted");
+      assert.equal(
+        c.realTokenReserves.toString(),
+        CURVE_SUPPLY.toString(),
+        "the curve may sell only the supply minus the carve"
+      );
+      assert.equal(c.platformReserveTokens.toString(), CARVE.toString(), "the carve is 3.69%");
+      assert.isFalse(c.platformReserveReleased, "nothing is released at launch");
+    });
+
+    it("moves the vault and the sellable reserves together on trades, never the carve", async () => {
+      const traderAta = await createAssociatedTokenAccount(
+        provider.connection,
+        deployer,
+        mint,
+        deployer.publicKey
+      );
+      const trade = {
+        trader: deployer.publicKey,
+        global: globalPda(program.programId),
+        feeRecipient,
+        creator: creator.publicKey,
+        mint,
+        curve: curvePda(program.programId, mint),
+        curveVault: vaultPda(program.programId, mint),
+        traderTokenAccount: traderAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      };
+      await program.methods.buy(new BN(LAMPORTS_PER_SOL), new BN(0)).accountsPartial(trade).rpc();
+      const held = BigInt(
+        (await provider.connection.getTokenAccountBalance(traderAta)).value.amount
+      );
+      await program.methods
+        .sell(new BN((held / 3n).toString()), new BN(0))
+        .accountsPartial(trade)
+        .rpc();
+
+      const c = await fetchCurve(mint);
+      assert.isTrue(c.realTokenReserves.lt(CURVE_SUPPLY), "precondition: tokens were sold");
+      assert.equal(
+        new BN(await vaultBalance(mint)).sub(c.realTokenReserves).toString(),
+        CARVE.toString(),
+        "vault minus sellable reserves must still be exactly the carve"
+      );
+    });
+
+    it("refuses to release the reserve before graduation, and moves nothing", async () => {
+      const vaultBefore = await vaultBalance(mint);
+      await expectAnchorError(
+        program.methods.releasePlatformReserve().accountsPartial(releaseAccounts(mint)).rpc(),
+        "PlatformReserveLocked"
+      );
+      assert.equal(await vaultBalance(mint), vaultBefore, "the vault must be untouched");
+      assert.isNull(
+        await provider.connection.getAccountInfo(releaseAccounts(mint).recipientToken),
+        "a refused release must not leave the treasury ATA behind either"
+      );
+      assert.isFalse((await fetchCurve(mint)).platformReserveReleased);
+    });
+
+    it("re-runs the economics check when ONLY the reserve changes", async () => {
+      // 1,000 bps is within the cap, and nothing else changes, so only the
+      // continuity re-check can reject it: virtual tokens are tuned for 369, and at
+      // 1,000 the curve supply shrinks enough to list the pool ~9.4% above the
+      // curve's final price (10,943 bps). Skipping the re-check on a reserve-only
+      // update would store it silently.
+      await expectAnchorError(setReserveBps(new BN(1_000)), "GraduationPriceGap");
+      const g: any = await (program.account as any).globalConfig.fetch(globalPda(program.programId));
+      assert.equal(g.platformReserveBps.toString(), PLATFORM_RESERVE_BPS.toString());
+    });
+
+    it("rejects a reserve above the 10% cap on update too", async () => {
+      await expectAnchorError(setReserveBps(new BN(1_001)), "InvalidParameter");
+    });
+
+    it("applies a reserve change to future launches only", async () => {
+      // POSITIVE CONTROL for the gap test: 400 bps lists at ~10,041, inside the band.
+      await setReserveBps(new BN(400));
+      const g: any = await (program.account as any).globalConfig.fetch(globalPda(program.programId));
+      assert.equal(g.platformReserveBps.toString(), "400");
+
+      // The launch made at 369 keeps its snapshot...
+      assert.equal(
+        (await fetchCurve(mint)).platformReserveTokens.toString(),
+        CARVE.toString(),
+        "a live launch's reserve must never move"
+      );
+      // ...and a new one carves at 400.
+      const later = Keypair.generate();
+      await fund(provider, later.publicKey, 5);
+      const laterMint = await makeMint(provider, later, null);
+      await launchFor(later, laterMint);
+      const carve400 = SUPPLY.muln(400).divn(10_000);
+      const c = await fetchCurve(laterMint);
+      assert.equal(c.platformReserveTokens.toString(), carve400.toString());
+      assert.equal(c.realTokenReserves.toString(), SUPPLY.sub(carve400).toString());
+
+      // Restore the suite default.
+      await setReserveBps(PLATFORM_RESERVE_BPS);
     });
   });
 });

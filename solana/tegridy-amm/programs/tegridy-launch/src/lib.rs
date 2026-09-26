@@ -50,6 +50,15 @@
 //!    upgrade, and handing it to the creator is a rug vector. Burning forecloses
 //!    ever reclaiming that capital — accepted cost, not an oversight.
 //!
+//! 8. **The platform reserve is taken at launch and paid at graduation.** Owner
+//!    decision, matching the EVM launcher: `create_launch` sets aside
+//!    `platform_reserve_bps` of the supply (3.69%) inside the curve's own vault,
+//!    outside `real_token_reserves`, so the curve never sells it and migration
+//!    never deposits it. Only after `complete` does the permissionless
+//!    `release_platform_reserve` send it to the treasury. A launch that never
+//!    graduates pays the protocol nothing, and the treasury can never sell into
+//!    a live curve against its own buyers.
+//!
 //! ## `migrate_to_amm` — the highest-risk instruction here
 //!
 //! CPIs `raydium_cp_swap::initialize` to open the pool, seeds it, burns the LP,
@@ -95,17 +104,46 @@ pub mod errors;
 pub mod state;
 
 use crate::curve::{
-    graduation_price_ratio_bps, lamports_until_target, max_reachable_real_sol, quote_buy,
-    quote_sell, split_fee, BPS_DENOMINATOR, MAX_FEE_BPS, PRICE_CONTINUITY_BAND_BPS,
+    curve_supply, graduation_price_ratio_bps, lamports_until_target, max_reachable_real_sol,
+    quote_buy, quote_sell, split_fee, BPS_DENOMINATOR, MAX_FEE_BPS, PRICE_CONTINUITY_BAND_BPS,
 };
 use crate::errors::LaunchError;
 use crate::state::*;
 
-// PLACEHOLDER program id — a throwaway keypair generated only so the crate has a
-// syntactically valid base58 id to compile against. It corresponds to no key
-// anybody holds, and it MUST be replaced with a dedicated keypair before any
-// deploy (devnet or mainnet), exactly as cp-swap's is. See MAINNET_RUNBOOK.md.
-declare_id!("8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8");
+// The MAINNET program id: a dedicated keypair generated for the restart and chosen
+// by owner ruling 2026-09-25 (REGISTERED, not yet deployed). The throwaway it
+// replaces (8YVjjc…) corresponded to no key anybody holds; the 2026-08 id CpFnacr…
+// is SPENT and can never hold a program again.
+//
+// ONE program-id macro, deliberately with NO cfg arms (unlike cp-swap's). Three CI
+// patchers — solana-ci.yml's launch-constraints and migration-rehearsal jobs, and
+// solana-deploy-artifact.yml — each rewrite it with a single regex and assert it
+// matched EXACTLY ONCE. A devnet build therefore also carries this id unless one of
+// those patchers pins another; every CI test build does.
+declare_id!("64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2");
+
+/// The cp-swap program every graduation must go to, pinned at COMPILE TIME.
+///
+/// `global.cp_swap_program` is runtime state that `global.authority` can set with
+/// no timelock and no second signature, and `migrate_to_amm` — permissionless —
+/// hands that program signer authority over the account holding a launch's ENTIRE
+/// raise. So a single stolen authority key could point every future graduation at a
+/// hostile program (docs/SOLANA_RESTART_PLAN_2026_08_23.md §5, "Recommended in step
+/// 0"). A non-devnet build now refuses, in both `initialize_global` and
+/// `update_global`, any value but this one. `migrate_to_amm` is untouched: it still
+/// matches the passed program against `global.cp_swap_program`, which can now only
+/// ever hold this id (or zero, which it already refuses).
+///
+/// Mainnet = cp-swap's own non-devnet program id (EKS4C6x…, owner ruling
+/// 2026-09-25). There is NO devnet arm: CI deploys cp-swap at a freshly generated
+/// id on every run, so a devnet build skips the check instead (see
+/// `check_cp_swap_program`). Declared ABOVE `mod deployer` on purpose —
+/// solana-deploy-artifact.yml patches the LAST key literal after that module, which
+/// must stay the deployer's mainnet arm.
+pub mod cp_swap {
+    use super::{pubkey, Pubkey};
+    pub const ID: Pubkey = pubkey!("EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT");
+}
 
 /// The only key permitted to call [`tegridy_launch::initialize_global`].
 ///
@@ -114,10 +152,9 @@ declare_id!("8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8");
 /// the protocol and receives every trade fee, permanently. Anyone watching the
 /// deploy could take it in the block after the program lands.
 ///
-/// Fail-closed by default, matching cp-swap's authority pattern: a non-devnet
-/// build embeds the System Program id, which no one can sign for, so a mainnet
-/// binary refuses to initialize until an operator sets a real key here. That is
-/// deliberate — a placeholder that *works* is how this hole gets shipped.
+/// The non-devnet arm is the MAINNET deployer CqcVva… (owner ruling 2026-09-25):
+/// the key that pays for both deploys and is their initial upgrade authority. Until
+/// then it was the System Program id, a fail-closed sentinel nobody can sign for.
 /// NOTE: `pubkey!`, NOT `declare_id!`. `declare_id!` emits a whole program-identity
 /// surface (`ID`, `id()`, `check_id()`), and a second one in the crate makes the
 /// program's address ambiguous — Anchor's IDL generator picked THIS key as the
@@ -130,7 +167,7 @@ pub mod deployer {
     // `anchor_lang::solana_program::pubkey` instead brings in the MODULE, not the
     // macro, and fails with "cannot find macro `pubkey` in this scope".
     use super::{pubkey, Pubkey};
-    // PLACEHOLDER, and deliberately NOT the program-id value above — see
+    // The devnet arm is a PLACEHOLDER, and deliberately NOT the program id — see
     // bayla-ladder's audit note (L-5, 2026-09-06), where the two were identical and
     // the initializer became uncallable. `launch-constraints` overwrites this with a
     // fresh CI wallet before every build, so the committed value is never the one
@@ -144,7 +181,24 @@ pub mod deployer {
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("EMQVYMPe2UffGAVNYK6ZveCFM2tHjc5DBiXGKYFE6DXA");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed)
+    pub const ID: Pubkey = pubkey!("CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg");
+}
+
+/// Refuse any cp-swap program but the compile-time pin (`cp_swap::ID`) on a
+/// non-devnet build. `allow_unset` lets `initialize_global` keep its documented
+/// normal case — both AMM addresses zero until the AmmConfig exists, set later by
+/// `update_global` — because `migrate_to_amm` already refuses a zero program.
+///
+/// Under `--features devnet` it checks nothing: CI deploys cp-swap at a fresh id per
+/// run, so no committed constant could match. The mainnet bytes are what the
+/// local-validator rehearsal exercises; the host tests below pin the constant.
+fn check_cp_swap_program(program: &Pubkey, allow_unset: bool) -> Result<()> {
+    if allow_unset && *program == Pubkey::default() {
+        return Ok(());
+    }
+    #[cfg(not(feature = "devnet"))]
+    require_keys_eq!(*program, cp_swap::ID, LaunchError::CpSwapProgramNotPinned);
+    Ok(())
 }
 
 /// Every economic sanity check a launch configuration must pass.
@@ -154,13 +208,41 @@ pub mod deployer {
 /// claimed to be "the same reachability check as initialize_global" while silently
 /// omitting the migration reserve. Anything added here is added to both by
 /// construction.
+///
+/// Every check runs on the CURVE supply — the total minus the platform reserve —
+/// because that is all the curve can sell and all the pool can receive. The
+/// reachability check used to be written out separately in both callers; it lives
+/// here now so the reserve cannot be applied in one and forgotten in the other.
 fn check_launch_economics(
     virtual_sol: u64,
     virtual_token: u64,
     token_supply: u64,
+    platform_reserve_bps: u64,
     graduation_target: u64,
     migration_reserve: u64,
 ) -> Result<()> {
+    // Rejects a reserve above the cap (as InvalidParameter).
+    let (curve_tokens, _) =
+        curve_supply(token_supply, platform_reserve_bps).map_err(LaunchError::from)?;
+
+    // A target above the curve's own reachable ceiling produces launches that can
+    // NEVER graduate: buyers pay in until the token reserve runs down, `buy` then
+    // fails its reserve check, and the curve never qualifies. That is not fund loss
+    // (holders can still sell out) but the launch is dead and can never reach the
+    // AMM, which is the whole point. Reject the config rather than let it be
+    // discovered by a launch that silently cannot finish.
+    //
+    // Checked against target PLUS reserve, not the target alone: the migration
+    // reserve is also raised by traders, so it counts toward the ceiling.
+    // Validating only the target would let a reserve push the real requirement past
+    // what the curve can ever produce — reintroducing the exact bug this guards.
+    let required = graduation_target
+        .checked_add(migration_reserve)
+        .ok_or(LaunchError::Overflow)?;
+    let ceiling = max_reachable_real_sol(virtual_sol, virtual_token, curve_tokens)
+        .map_err(LaunchError::from)?;
+    require!(required < ceiling, LaunchError::GraduationTargetUnreachable);
+
     // The reserve must at least cover the rent cp-swap charges the creator. It is
     // snapshotted onto every curve at creation, so setting it too low does not fail
     // here — it fails at the finish line of every launch created afterwards, with
@@ -174,7 +256,7 @@ fn check_launch_economics(
     let ratio = graduation_price_ratio_bps(
         virtual_sol,
         virtual_token,
-        token_supply,
+        curve_tokens,
         graduation_target,
         migration_reserve,
     )
@@ -307,6 +389,11 @@ pub mod tegridy_launch {
     /// created by a cp-swap admin action AFTER this program is deployed. They are
     /// configured rather than hardcoded, and `migrate_to_amm` must refuse to run
     /// while either is zero.
+    ///
+    /// `platform_reserve_bps` is the share of each launch's supply held back for
+    /// the protocol (design note 8). Trailing, so every earlier argument keeps its
+    /// position. Scale `initial_virtual_token` by the same `(1 - bps)` to keep the
+    /// continuity target — this is the only instruction that can set it.
     pub fn initialize_global(
         ctx: Context<InitializeGlobal>,
         trade_fee_bps: u64,
@@ -318,6 +405,7 @@ pub mod tegridy_launch {
         migration_reserve_lamports: u64,
         cp_swap_program: Pubkey,
         amm_config: Pubkey,
+        platform_reserve_bps: u64,
     ) -> Result<()> {
         require!(trade_fee_bps <= MAX_FEE_BPS, LaunchError::FeeTooHigh);
         // A share of the FEE, so 100% is the natural bound — anything above it
@@ -334,28 +422,9 @@ pub mod tegridy_launch {
         require!(token_total_supply > 0, LaunchError::InvalidParameter);
         require!(graduation_target_lamports > 0, LaunchError::InvalidParameter);
 
-        // A target above the curve's own reachable ceiling produces launches that
-        // can NEVER graduate: buyers pay in until the token reserve runs down,
-        // `buy` then fails its reserve check, and the curve never qualifies. That
-        // is not fund loss (holders can still sell out) but the launch is dead and
-        // can never reach the AMM, which is the whole point. Reject the config
-        // rather than let it be discovered by a launch that silently cannot finish.
+        // The target must be reachable (target + reserve under the curve's
+        // ceiling) — see `check_launch_economics`, which owns that check now.
         //
-        // Checked against target PLUS reserve, not the target alone: the reserve is
-        // also raised by traders, so it counts toward the ceiling. Validating only
-        // the target would let a reserve push the real requirement past what the
-        // curve can ever produce — reintroducing the exact bug this guards.
-        let required = graduation_target_lamports
-            .checked_add(migration_reserve_lamports)
-            .ok_or(LaunchError::Overflow)?;
-        let ceiling = max_reachable_real_sol(
-            initial_virtual_sol,
-            initial_virtual_token,
-            token_total_supply,
-        )
-        .map_err(LaunchError::from)?;
-        require!(required < ceiling, LaunchError::GraduationTargetUnreachable);
-
         // The launch must LIST at roughly the price its last curve buyer paid.
         //
         // The curve prices on virtual+real; the pool is seeded with real reserves
@@ -372,9 +441,12 @@ pub mod tegridy_launch {
             initial_virtual_sol,
             initial_virtual_token,
             token_total_supply,
+            platform_reserve_bps,
             graduation_target_lamports,
             migration_reserve_lamports,
         )?;
+        // Zero, or the compile-time pin. Nothing else, ever — see `mod cp_swap`.
+        check_cp_swap_program(&cp_swap_program, true)?;
 
         let g = &mut ctx.accounts.global;
         g.authority = ctx.accounts.authority.key();
@@ -393,6 +465,7 @@ pub mod tegridy_launch {
         g.amm_config = amm_config;
         g.paused = false;
         g.bump = ctx.bumps.global;
+        g.platform_reserve_bps = platform_reserve_bps;
         Ok(())
     }
 
@@ -414,6 +487,7 @@ pub mod tegridy_launch {
         new_amm_config: Option<Pubkey>,
         new_initial_virtual_sol: Option<u64>,
         new_creator_fee_share_bps: Option<u64>,
+        new_platform_reserve_bps: Option<u64>,
     ) -> Result<()> {
         let g = &mut ctx.accounts.global;
         if let Some(f) = trade_fee_bps {
@@ -442,43 +516,40 @@ pub mod tegridy_launch {
         // be changed at all once set — every alternative value would gap. Each launch
         // snapshots its own virtual reserves at `create_launch` (lib.rs:361), so this
         // moves future launches only and can never reprice a live curve.
+        //
+        // The platform reserve joins this block because it changes the CURVE supply,
+        // and with it the listing price: a reserve-only change that skipped the
+        // re-check could move a valid config out of the band with nothing noticing.
+        // It is snapshotted per curve as an amount, so it too moves future launches
+        // only.
         if graduation_target_lamports.is_some()
             || migration_reserve_lamports.is_some()
             || new_initial_virtual_sol.is_some()
+            || new_platform_reserve_bps.is_some()
         {
             let new_target = graduation_target_lamports.unwrap_or(g.graduation_target_lamports);
             let new_reserve = migration_reserve_lamports.unwrap_or(g.migration_reserve_lamports);
             let new_vsol = new_initial_virtual_sol.unwrap_or(g.initial_virtual_sol);
+            let new_reserve_bps = new_platform_reserve_bps.unwrap_or(g.platform_reserve_bps);
             require!(
                 new_target > 0 && new_vsol > 0,
                 LaunchError::InvalidParameter
             );
-            let required = new_target
-                .checked_add(new_reserve)
-                .ok_or(LaunchError::Overflow)?;
-            let ceiling = max_reachable_real_sol(
-                new_vsol,
-                g.initial_virtual_token,
-                g.token_total_supply,
-            )
-            .map_err(LaunchError::from)?;
-            require!(
-                required < ceiling,
-                LaunchError::GraduationTargetUnreachable
-            );
-            // Same continuity gate as initialize_global — actually shared this time,
-            // via one helper, rather than a comment claiming the checks match while
-            // one of them quietly omits a term.
+            // Same reachability and continuity gates as initialize_global — actually
+            // shared this time, via one helper, rather than a comment claiming the
+            // checks match while one of them quietly omits a term.
             check_launch_economics(
                 new_vsol,
                 g.initial_virtual_token,
                 g.token_total_supply,
+                new_reserve_bps,
                 new_target,
                 new_reserve,
             )?;
             g.graduation_target_lamports = new_target;
             g.migration_reserve_lamports = new_reserve;
             g.initial_virtual_sol = new_vsol;
+            g.platform_reserve_bps = new_reserve_bps;
         }
 
         // The AMM addresses MUST be settable after initialization.
@@ -496,6 +567,8 @@ pub mod tegridy_launch {
         // `paused` is the intended kill switch — it blocks `migrate_to_amm` too.
         if let Some(p) = new_cp_swap_program {
             require!(p != Pubkey::default(), LaunchError::InvalidParameter);
+            // The authority can SET the venue, never CHOOSE it: only the pin passes.
+            check_cp_swap_program(&p, false)?;
             g.cp_swap_program = p;
         }
         if let Some(c) = new_amm_config {
@@ -523,14 +596,20 @@ pub mod tegridy_launch {
     /// revoke the mint authority.
     ///
     /// Takes no curve parameters. Every economic term — fee, creator share, virtual
-    /// reserves, supply, target, reserve — is copied from [`GlobalConfig`], which has
-    /// already passed [`check_launch_economics`]. A creator chooses WHETHER to launch,
-    /// never on what shape, so no launch can exist whose economics were not gated.
+    /// reserves, supply, target, reserve, platform reserve — is copied from
+    /// [`GlobalConfig`], which has already passed [`check_launch_economics`]. A
+    /// creator chooses WHETHER to launch, never on what shape, so no launch can
+    /// exist whose economics were not gated.
     pub fn create_launch(ctx: Context<CreateLaunch>) -> Result<()> {
         let g = &ctx.accounts.global;
         require!(!g.paused, LaunchError::Paused);
 
         let supply = g.token_total_supply;
+        // The platform reserve is carved here, once, and snapshotted as an AMOUNT
+        // (design note 8). The whole supply still goes into the vault; the reserve
+        // is simply left out of `real_token_reserves`, so no trade can reach it.
+        let (curve_tokens, reserve_tokens) =
+            curve_supply(supply, g.platform_reserve_bps).map_err(LaunchError::from)?;
 
         // Mint the entire supply to the curve's vault while the creator still
         // holds the authority...
@@ -568,13 +647,18 @@ pub mod tegridy_launch {
         c.virtual_sol_reserves = g.initial_virtual_sol;
         c.virtual_token_reserves = g.initial_virtual_token;
         c.real_sol_reserves = 0;
-        c.real_token_reserves = supply;
+        // What the curve may sell — NOT the whole supply. `buy` pays out of this
+        // number and refuses anything above it, and `migrate_to_amm` deposits
+        // exactly this number, so the reserve stays in the vault through both.
+        c.real_token_reserves = curve_tokens;
         c.trade_fee_bps = g.trade_fee_bps;
         c.creator_fee_share_bps = g.creator_fee_share_bps;
         c.graduation_target_lamports = g.graduation_target_lamports;
         c.migration_reserve_lamports = g.migration_reserve_lamports;
         c.complete = false;
         c.bump = ctx.bumps.curve;
+        c.platform_reserve_tokens = reserve_tokens;
+        c.platform_reserve_released = false;
 
         emit!(LaunchCreated {
             mint: c.mint,
@@ -582,6 +666,7 @@ pub mod tegridy_launch {
             virtual_sol_reserves: c.virtual_sol_reserves,
             virtual_token_reserves: c.virtual_token_reserves,
             token_total_supply: supply,
+            platform_reserve_tokens: reserve_tokens,
         });
         Ok(())
     }
@@ -979,6 +1064,10 @@ pub mod tegridy_launch {
         );
 
         let deposit_lamports = curve.graduation_target_lamports;
+        // Every unsold token the curve could sell — and ONLY those. The platform
+        // reserve is not in `real_token_reserves` (see `create_launch`), so it
+        // stays in `curve_vault` through this whole instruction and leaves only via
+        // `release_platform_reserve`, once `complete` is set below.
         let deposit_tokens = curve.real_token_reserves;
         let mint_key = curve.mint;
         let curve_bump = curve.bump;
@@ -1526,6 +1615,8 @@ pub mod tegridy_launch {
             .real_sol_reserves
             .checked_sub(move_lamports)
             .ok_or(LaunchError::Overflow)?;
+        // Zero sellable tokens remain. The vault still holds the unreleased platform
+        // reserve (plus any swept dust); `platform_reserve_tokens` accounts for it.
         curve.real_token_reserves = 0;
         curve.complete = true;
         curve.pool = pool;
@@ -1535,6 +1626,69 @@ pub mod tegridy_launch {
             sol_reserves: deposit_lamports,
             token_reserves: deposit_tokens,
             pool_creator: pool_creator_key,
+        });
+        Ok(())
+    }
+
+    /// Pay a graduated launch's platform reserve to the treasury.
+    ///
+    /// The reserve was set aside at `create_launch` (design note 8) and has sat in
+    /// `curve_vault`, outside `real_token_reserves`, ever since. It moves here, and
+    /// only here, once `complete` is set — the EVM launcher pays its reserve at
+    /// graduation the same way. A launch that never graduates never pays it.
+    ///
+    /// ## Why a separate instruction rather than a step inside `migrate_to_amm`
+    ///
+    /// Migration is already at SBF's 4 KB stack limit, and a recipient account that
+    /// can fail (a missing or hostile ATA) would put graduation itself at risk. Here
+    /// a failure blocks only this payout, never the pool.
+    ///
+    /// ## Permissionless, deliberately
+    ///
+    /// Like migration, it has exactly one legal outcome: the snapshotted amount goes
+    /// to the ATA of the CURRENT `global.fee_recipient`, pinned by the accounts. The
+    /// caller only pays rent for that ATA if it does not exist yet. Not gated on
+    /// `paused`: it moves no lamports off the curve and opens nothing, and a pause
+    /// must not strand a payout that is already owed.
+    ///
+    /// The recipient is read at release time, not snapshotted, so rotating
+    /// `fee_recipient` redirects every reserve not yet released — the same policy
+    /// the trade fees already follow.
+    pub fn release_platform_reserve(ctx: Context<ReleasePlatformReserve>) -> Result<()> {
+        let curve = &ctx.accounts.curve;
+        require!(curve.complete, LaunchError::PlatformReserveLocked);
+        require!(
+            !curve.platform_reserve_released,
+            LaunchError::PlatformReserveAlreadyReleased
+        );
+
+        let amount = curve.platform_reserve_tokens;
+        let mint_key = curve.mint;
+        let curve_bump = curve.bump;
+        // Zero only when the config's reserve was zero at creation; the flag is
+        // still set below so the curve reads as settled.
+        if amount > 0 {
+            let seeds: &[&[u8]] = &[CURVE_SEED, mint_key.as_ref(), &[curve_bump]];
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.curve_vault.to_account_info(),
+                        to: ctx.accounts.recipient_token.to_account_info(),
+                        authority: ctx.accounts.curve.to_account_info(),
+                    },
+                    &[seeds],
+                ),
+                amount,
+            )?;
+        }
+
+        ctx.accounts.curve.platform_reserve_released = true;
+
+        emit!(PlatformReserveReleased {
+            mint: mint_key,
+            recipient: ctx.accounts.fee_recipient.key(),
+            amount,
         });
         Ok(())
     }
@@ -1868,6 +2022,66 @@ pub struct MigrateToAmm<'info> {
     // already sits near SBF's stack ceiling is cost with no purpose.
 }
 
+/// Accounts for [`tegridy_launch::release_platform_reserve`].
+///
+/// Every account is BOXED, like `MigrateToAmm`'s: Anchor's generated
+/// `try_accounts` deserializes onto the stack, SBF's 4 KB frame overflow is only a
+/// linker warning, and `init_if_needed` adds its own frame weight.
+#[derive(Accounts)]
+pub struct ReleasePlatformReserve<'info> {
+    /// Anyone. Pays rent for `recipient_token` if it does not exist yet, and gets
+    /// nothing else.
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(seeds = [GLOBAL_SEED], bump = global.bump)]
+    pub global: Box<Account<'info, GlobalConfig>>,
+
+    /// CHECK: owner of the token account that receives the reserve. Pinned to the
+    /// config so the caller cannot name themselves. Declared AFTER `global` because
+    /// Anchor evaluates constraints in field order — the same ordering
+    /// requirement `Trade::creator` documents. Not `mut`: only its key is used.
+    #[account(address = global.fee_recipient @ LaunchError::Unauthorized)]
+    pub fee_recipient: UncheckedAccount<'info>,
+
+    pub mint: Box<Account<'info, Mint>>,
+
+    #[account(
+        mut,
+        seeds = [CURVE_SEED, mint.key().as_ref()],
+        bump = curve.bump,
+        has_one = mint @ LaunchError::InvalidParameter
+    )]
+    pub curve: Box<Account<'info, BondingCurve>>,
+
+    #[account(
+        mut,
+        seeds = [VAULT_SEED, mint.key().as_ref()],
+        bump,
+        constraint = curve_vault.mint == mint.key() @ LaunchError::InvalidParameter
+    )]
+    pub curve_vault: Box<Account<'info, TokenAccount>>,
+
+    /// The treasury's associated token account for this mint.
+    ///
+    /// `init_if_needed` so the first release creates it. A stranger creating it
+    /// first changes nothing: the Associated Token Program fixes its owner and
+    /// mint, and Anchor re-checks both when the account already exists. The mint
+    /// has no freeze authority (`create_launch` rejects one), so the reserve can
+    /// never be frozen in it either.
+    #[account(
+        init_if_needed,
+        payer = payer,
+        associated_token::mint = mint,
+        associated_token::authority = fee_recipient
+    )]
+    pub recipient_token: Box<Account<'info, TokenAccount>>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
 #[derive(Accounts)]
 pub struct Trade<'info> {
     #[account(mut)]
@@ -1943,17 +2157,19 @@ mod layout_tests {
     ///
     /// 716 was the size WITH the segmented curve's 16-entry table (546 bytes of mode,
     /// two sqrt-prices, a count and the table). With that mode removed it is 170.
+    /// The platform reserve appended 9 (a u64 amount and a bool) to make 179, and 8
+    /// (a u64 bps) to GlobalConfig to make 202.
     #[test]
     fn account_sizes_are_pinned() {
         assert_eq!(
             8 + BondingCurve::INIT_SPACE,
-            170,
+            179,
             "BondingCurve size moved — every off-chain decoder and rent-floor read must \
              move with it, in the same change"
         );
         assert_eq!(
             8 + GlobalConfig::INIT_SPACE,
-            194,
+            202,
             "GlobalConfig size moved — see above"
         );
     }
@@ -1968,6 +2184,162 @@ mod layout_tests {
         assert_eq!(LaunchError::AmmNotConfigured as u32 + 6000, 6015);
         assert_eq!(LaunchError::CreatorMismatch as u32 + 6000, 6020);
         assert_eq!(LaunchError::MigrationPermissionMissing as u32 + 6000, 6021);
+        assert_eq!(LaunchError::PlatformReserveLocked as u32 + 6000, 6022);
+        assert_eq!(LaunchError::PlatformReserveAlreadyReleased as u32 + 6000, 6023);
+        assert_eq!(LaunchError::CpSwapProgramNotPinned as u32 + 6000, 6024);
+    }
+
+    /// THE COMPILE-TIME VENUE PIN. Compared as base58 TEXT, not through the key macro,
+    /// because solana-deploy-artifact.yml patches the last key literal after
+    /// `mod deployer` — a literal in this module would become that target.
+    #[test]
+    fn the_cp_swap_pin_is_the_restart_id() {
+        assert_eq!(
+            crate::cp_swap::ID.to_string(),
+            "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT",
+            "cp_swap::ID moved — every mainnet graduation goes to this program"
+        );
+        // Neither spent id may come back, and the pin is not our own id or a signer.
+        for spent in [
+            "3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y",
+            "CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED",
+        ] {
+            assert_ne!(crate::cp_swap::ID.to_string(), spent);
+        }
+        assert_ne!(crate::cp_swap::ID, crate::ID);
+        assert_ne!(crate::cp_swap::ID, crate::deployer::ID);
+    }
+
+    /// The pin must be the id the cp-swap crate itself declares on its mainnet arm,
+    /// so the two programs cannot drift apart. The dependency is built without its
+    /// `devnet` feature (tegridy-launch's `devnet` does not forward it).
+    #[cfg(not(feature = "devnet"))]
+    #[test]
+    fn the_cp_swap_pin_matches_cp_swaps_own_program_id() {
+        assert_eq!(crate::cp_swap::ID, raydium_cp_swap::ID);
+    }
+
+    /// The mainnet identities of THIS program, as base58 text (same reason as above).
+    #[cfg(not(feature = "devnet"))]
+    #[test]
+    fn the_mainnet_identities_are_the_restart_ids() {
+        assert_eq!(crate::ID.to_string(), "64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2");
+        assert_eq!(
+            crate::deployer::ID.to_string(),
+            "CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg"
+        );
+        // Audit L-5: the initializer's signer must never be the program's own address.
+        assert_ne!(crate::deployer::ID, crate::ID);
+        assert_ne!(crate::deployer::ID, Pubkey::default());
+    }
+
+    fn error_number(r: Result<()>) -> Option<u32> {
+        match r {
+            Ok(()) => None,
+            Err(anchor_lang::error::Error::AnchorError(e)) => Some(e.error_code_number),
+            Err(other) => panic!("unexpected non-Anchor error: {other:?}"),
+        }
+    }
+
+    /// The check itself, in both feature configs. Positive control first: the pin
+    /// (and, at init only, zero) must PASS, or a rejection below proves nothing.
+    #[test]
+    fn the_cp_swap_check_accepts_only_the_pin() {
+        assert_eq!(error_number(check_cp_swap_program(&crate::cp_swap::ID, false)), None);
+        assert_eq!(error_number(check_cp_swap_program(&crate::cp_swap::ID, true)), None);
+        assert_eq!(error_number(check_cp_swap_program(&Pubkey::default(), true)), None);
+
+        let hostile = Pubkey::new_unique();
+        #[cfg(not(feature = "devnet"))]
+        {
+            assert_eq!(error_number(check_cp_swap_program(&hostile, false)), Some(6024));
+            assert_eq!(error_number(check_cp_swap_program(&hostile, true)), Some(6024));
+            // Zero is "unset" only at init; update_global rejects it before this
+            // check, and this check must not wave it through either.
+            assert_eq!(
+                error_number(check_cp_swap_program(&Pubkey::default(), false)),
+                Some(6024)
+            );
+        }
+        // A devnet build (CI's validator suites) deliberately checks nothing.
+        #[cfg(feature = "devnet")]
+        assert_eq!(error_number(check_cp_swap_program(&hostile, false)), None);
+    }
+
+    /// Both WRITERS of `global.cp_swap_program` call the check. The handlers need a
+    /// runtime to execute, and CI's validator suites run devnet builds where the check
+    /// is off, so this reads the source: deleting either call fails here, on the host,
+    /// before the mainnet-bytes rehearsal ever runs.
+    #[test]
+    fn both_writers_of_the_venue_call_the_check() {
+        let src = include_str!("lib.rs");
+        let body = |name: &str| {
+            let start = src.find(name).expect("handler not found");
+            let rest = &src[start + name.len()..];
+            let end = rest.find("\n    pub fn ").unwrap_or(rest.len());
+            &rest[..end]
+        };
+        let init = body("pub fn initialize_global(");
+        assert!(init.contains("check_cp_swap_program(&cp_swap_program, true)?;"));
+        assert!(init.find("check_cp_swap_program").unwrap() < init.find("g.cp_swap_program =").unwrap());
+        let update = body("pub fn update_global(");
+        assert!(update.contains("check_cp_swap_program(&p, false)?;"));
+        assert!(update.find("check_cp_swap_program").unwrap() < update.find("g.cp_swap_program = p").unwrap());
+        // ...and nothing else in the program (everything above the tests) writes it.
+        let program = &src[..src.find("\nmod layout_tests {").expect("tests module")];
+        assert_eq!(program.matches("cp_swap_program = ").count(), 2);
+    }
+
+    /// The reserve fields were APPENDED, so every older field keeps the byte offset
+    /// clients already decode it at. Offsets are measured on real serialized bytes
+    /// (after the 8-byte discriminator), not recomputed from the field list.
+    #[test]
+    fn the_reserve_fields_are_appended_after_every_old_offset() {
+        let c = BondingCurve {
+            mint: Pubkey::default(),
+            creator: Pubkey::default(),
+            virtual_sol_reserves: 0,
+            virtual_token_reserves: 0,
+            real_sol_reserves: 0,
+            real_token_reserves: 0,
+            trade_fee_bps: 0,
+            creator_fee_share_bps: 0,
+            graduation_target_lamports: 0,
+            migration_reserve_lamports: 0,
+            complete: false,
+            pool: Pubkey::default(),
+            bump: 0xAB,
+            platform_reserve_tokens: 0x0102_0304_0506_0708,
+            platform_reserve_released: true,
+        };
+        let mut buf = Vec::new();
+        c.try_serialize(&mut buf).unwrap();
+        assert_eq!(buf.len(), 179);
+        assert_eq!(buf[169], 0xAB, "bump must stay at offset 169");
+        assert_eq!(&buf[170..178], &0x0102_0304_0506_0708u64.to_le_bytes());
+        assert_eq!(buf[178], 1);
+
+        let g = GlobalConfig {
+            authority: Pubkey::default(),
+            fee_recipient: Pubkey::default(),
+            trade_fee_bps: 0,
+            creator_fee_share_bps: 0,
+            initial_virtual_sol: 0,
+            initial_virtual_token: 0,
+            token_total_supply: 0,
+            graduation_target_lamports: 0,
+            migration_reserve_lamports: 0,
+            cp_swap_program: Pubkey::default(),
+            amm_config: Pubkey::default(),
+            paused: false,
+            bump: 0xCD,
+            platform_reserve_bps: 369,
+        };
+        let mut buf = Vec::new();
+        g.try_serialize(&mut buf).unwrap();
+        assert_eq!(buf.len(), 202);
+        assert_eq!(buf[193], 0xCD, "bump must stay at offset 193");
+        assert_eq!(&buf[194..202], &369u64.to_le_bytes());
     }
 
     /// The migration authority is derivable WITHOUT the launch mint. That is the

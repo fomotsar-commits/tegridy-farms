@@ -15,6 +15,8 @@ import {
   raiseCeiling,
   quoteBuyOnCurve,
   quoteSellOnCurve,
+  curveSupply,
+  MAX_PLATFORM_RESERVE_BPS,
   type CurveResult,
   type CurveTerms,
 } from './math';
@@ -26,6 +28,7 @@ import {
   MAX_REACHABLE_VECTORS,
   PRICE_RATIO_VECTORS,
   CONTINUITY_TARGET_VECTORS,
+  CURVE_SUPPLY_VECTORS,
   type CurveVector,
 } from './curveVectors.fixture';
 
@@ -45,7 +48,9 @@ const SUPPLY = 1_000_000_000_000_000n;
 function differential<T>(
   name: string,
   vectors: readonly CurveVector[],
-  fn: (args: readonly bigint[]) => CurveResult<T>,
+  // Wider than `CurveResult<T>` so `curveSupply`, whose error set adds
+  // `ReserveTooHigh`, replays through the same harness.
+  fn: (args: readonly bigint[]) => CurveResult<T> | { ok: false; error: string },
   outputs: (v: T) => readonly string[],
 ): void {
   it(`${name}: matches curve.rs on all ${vectors.length} generated vectors`, () => {
@@ -114,6 +119,15 @@ describe('curve math — differential against the real curve.rs', () => {
     CONTINUITY_TARGET_VECTORS,
     ([vs, vt, s, r]) => continuityTarget(vs!, vt!, s!, r!),
     (v) => [v.toString()],
+  );
+
+  // The platform-reserve carve. The hand-written cases below cover 369 bps and
+  // the cap edge; this is what catches a rounding drift at large totals.
+  differential(
+    'curveSupply',
+    CURVE_SUPPLY_VECTORS,
+    ([t, b]) => curveSupply(t!, b!),
+    (v) => [v.curveTokens.toString(), v.reserveTokens.toString()],
   );
 });
 
@@ -519,5 +533,74 @@ describe('constants match curve.rs', () => {
   it('BPS_DENOMINATOR and MAX_FEE_BPS (curve.rs:32, 37)', () => {
     expect(BPS_DENOMINATOR).toBe(10_000n);
     expect(MAX_FEE_BPS).toBe(1_000n);
+  });
+
+  it('MAX_PLATFORM_RESERVE_BPS is 10%, the EVM launcher cap', () => {
+    expect(MAX_PLATFORM_RESERVE_BPS).toBe(1_000n);
+  });
+});
+
+// The same literal cases as curve.rs's own `curve_supply` tests, so the two suites
+// pin the same numbers. The reserve is 3.69% of the program's test supply.
+describe('curveSupply — the platform reserve carve', () => {
+  const unwrap = <T,>(r: { ok: true; value: T } | { ok: false; error: string }): T => {
+    if (!r.ok) throw new Error(`expected ok, got ${r.error}`);
+    return r.value;
+  };
+  const RESERVE_BPS = 369n;
+  const MIN_RESERVE = 42_156_720n;
+
+  it('carves 3.69% of the supply and gives the curve the rest', () => {
+    expect(curveSupply(SUPPLY, RESERVE_BPS)).toEqual({
+      ok: true,
+      value: { curveTokens: 963_100_000_000_000n, reserveTokens: 36_900_000_000_000n },
+    });
+  });
+
+  it('rounds the reserve DOWN, so the curve keeps the dust', () => {
+    // 10_001 × 369 / 10_000 = 369.0369
+    expect(unwrap(curveSupply(10_001n, RESERVE_BPS))).toEqual({
+      curveTokens: 9_632n,
+      reserveTokens: 369n,
+    });
+  });
+
+  it('a zero reserve leaves the supply whole', () => {
+    expect(unwrap(curveSupply(SUPPLY, 0n))).toEqual({ curveTokens: SUPPLY, reserveTokens: 0n });
+  });
+
+  it('accepts the 10% cap and refuses one bps past it', () => {
+    expect(unwrap(curveSupply(SUPPLY, 1_000n)).reserveTokens).toBe(SUPPLY / 10n);
+    expect(curveSupply(SUPPLY, 1_001n)).toEqual({ ok: false, error: 'ReserveTooHigh' });
+  });
+
+  it('the two parts always add back up to the supply', () => {
+    for (const total of [1n, 9_999n, 10_001n, SUPPLY, U64_MAX]) {
+      for (const bps of [0n, 1n, 369n, 999n, 1_000n]) {
+        const s = unwrap(curveSupply(total, bps));
+        expect(s.curveTokens + s.reserveTokens).toBe(total);
+      }
+    }
+  });
+
+  it('scaling virtual tokens by the same share keeps the continuity target to the lamport', () => {
+    // Vt × (1 − 3.69%). The raise is unchanged, so only the token split moves.
+    const scaledVt = 1_033_406_300_000_000n;
+    const curveTokens = unwrap(curveSupply(SUPPLY, RESERVE_BPS)).curveTokens;
+    const before = unwrap(continuityTarget(V_SOL, V_TOK, SUPPLY, MIN_RESERVE));
+    const after = unwrap(continuityTarget(V_SOL, scaledVt, curveTokens, MIN_RESERVE));
+    expect(before).toBe(11_685_689_681n);
+    expect(after).toBe(before);
+    expect(unwrap(graduationPriceRatioBps(V_SOL, scaledVt, curveTokens, after, MIN_RESERVE))).toBe(9_999n);
+  });
+
+  it('an unretuned config lists 4.9% ABOVE the curve and still passes the band', () => {
+    // Why a config must be checked against the curve supply: carving the reserve
+    // without retuning reads 10488 bps, inside the 10500 ceiling, so the program accepts
+    // it. Only the operator tool's listing gate refuses it.
+    const curveTokens = unwrap(curveSupply(SUPPLY, RESERVE_BPS)).curveTokens;
+    expect(unwrap(graduationPriceRatioBps(V_SOL, V_TOK, curveTokens, 11_685_689_681n, MIN_RESERVE))).toBe(
+      10_488n,
+    );
   });
 });

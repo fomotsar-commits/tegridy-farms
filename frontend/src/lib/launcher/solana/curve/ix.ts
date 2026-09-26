@@ -354,7 +354,9 @@ export interface MigrateAccounts {
   createPoolFee: PublicKey;
   /**
    * cp-swap's `permission` PDA, defaulting to
-   * `cpPermissionPda(migrationAuthorityPda(launchMint))`.
+   * `cpPermissionPda(migrationAuthorityPda())`. The migration authority is one per
+   * program, so this is the SAME account for every launch: a cp-swap admin creates
+   * it once and every graduation after that can use it.
    *
    * The override exists because the default is an INFERENCE — see
    * `POST_REMOVAL_PROGRAM.UNVERIFIED`. `initialize_with_permission` seeds the
@@ -408,7 +410,8 @@ export function migrateToAmmIx(
   const cpSwapProgram = ids.cpSwapProgram ?? CP_SWAP_PROGRAM_ID;
   const { launchMint } = accounts;
 
-  const migrationAuthority = migrationAuthorityPda(launchMint, programId);
+  // Program-wide: ONE authority for every launch, so no mint here.
+  const migrationAuthority = migrationAuthorityPda(programId);
   // OURS, not cp-swap's canonical derivation — see LAUNCH_POOL_SEED.
   const poolState = poolStatePda(launchMint, programId);
   const lpMint = cpLpMintPda(poolState, cpSwapProgram);
@@ -456,6 +459,57 @@ export function migrateToAmmIx(
   });
 }
 
+// ── release_platform_reserve (the `ReleasePlatformReserve` context struct) ───
+
+export interface ReleasePlatformReserveAccounts {
+  /** Signs and pays for the treasury's token account if it does not exist yet. Anyone may. */
+  payer: PublicKey;
+  /**
+   * MUST equal `global.fee_recipient` — read it off the decoded global, never derive
+   * or default it. The program pins it (`address = global.fee_recipient`), so a wrong
+   * value fails with `Unauthorized` (6008). It is read at release time, so a
+   * `fee_recipient` rotated after a launch still receives that launch's reserve.
+   */
+  feeRecipient: PublicKey;
+  mint: PublicKey;
+}
+
+/**
+ * `release_platform_reserve()` — no args, permissionless. Sends a graduated launch's
+ * platform reserve (`curve.platform_reserve_tokens`) from the curve's vault to the
+ * treasury's token account, exactly once.
+ *
+ * Fails `PlatformReserveLocked` (6022) until the curve has graduated, and
+ * `PlatformReserveAlreadyReleased` (6023) the second time. A launch that never
+ * graduates never releases its reserve.
+ *
+ * The treasury's token account is the ATA of `feeRecipient` for the mint, on the
+ * classic token program. The program creates it if it is missing, paid by `payer`.
+ */
+export function releasePlatformReserveIx(
+  accounts: ReleasePlatformReserveAccounts,
+  ids: ProgramIds = {},
+): TransactionInstruction {
+  const programId = ids.programId ?? PROGRAM_ID;
+  const { mint, feeRecipient } = accounts;
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      acc(accounts.payer, true, true),
+      acc(globalPda(programId), false, false),
+      acc(feeRecipient, false, false),
+      acc(mint, false, false),
+      acc(curvePda(mint, programId), false, true),
+      acc(curveVaultPda(mint, programId), false, true),
+      acc(associatedTokenAddress(mint, feeRecipient), false, true),
+      acc(TOKEN_PROGRAM_ID, false, false),
+      acc(ASSOCIATED_TOKEN_PROGRAM_ID, false, false),
+      acc(SYSTEM_PROGRAM_ID, false, false),
+    ],
+    data: new Writer().disc(IX_DISCRIMINATOR.releasePlatformReserve).finish(),
+  });
+}
+
 // ── operator-only (lib.rs:1222-1252) ─────────────────────────────────────────
 //
 // Neither of these belongs on a user-facing surface. They are here because there
@@ -487,6 +541,12 @@ export function initializeGlobalIx(
     migrationReserveLamports: bigint;
     cpSwapProgram: PublicKey;
     ammConfig: PublicKey;
+    /**
+     * Share of each launch's supply held back for the protocol, in bps (369 =
+     * 3.69%, cap 1000). The LAST argument, after the two pubkeys. Required: the
+     * program has no default, and neither does this.
+     */
+    platformReserveBps: bigint;
   },
   ids: ProgramIds = {},
 ): TransactionInstruction {
@@ -510,6 +570,7 @@ export function initializeGlobalIx(
       .u64(args.migrationReserveLamports, 'migrationReserveLamports')
       .pubkey(args.cpSwapProgram)
       .pubkey(args.ammConfig)
+      .u64(args.platformReserveBps, 'platformReserveBps')
       .finish(),
   });
 }
@@ -534,7 +595,7 @@ export interface UpdateGlobalArgs {
   newAmmConfig?: PublicKey | null;
   newInitialVirtualSol?: bigint | null;
   /**
-   * The TENTH and last `Option` (lib.rs:476). Omitting it did not produce a
+   * The TENTH `Option` (lib.rs:476). Omitting it did not produce a
    * mis-shifted argument the way a missing REQUIRED field does — a trailing
    * `Option` that is never written simply leaves the buffer one byte short of the
    * minimum, so Borsh cannot deserialize and the program rejects the instruction
@@ -542,6 +603,13 @@ export interface UpdateGlobalArgs {
    * not be set and authority could not be handed over.
    */
   newCreatorFeeShareBps?: bigint | null;
+  /**
+   * The ELEVENTH and last `Option`: the platform reserve for launches created from
+   * now on. A live launch keeps the amount it was created with. Changing it moves
+   * the listing price, so the program re-runs its economics check, and so does
+   * `checkUpdateGlobal`.
+   */
+  newPlatformReserveBps?: bigint | null;
 }
 
 export function updateGlobalIx(
@@ -565,6 +633,7 @@ export function updateGlobalIx(
       .optPubkey(args.newAmmConfig)
       .optU64(args.newInitialVirtualSol, 'newInitialVirtualSol')
       .optU64(args.newCreatorFeeShareBps, 'newCreatorFeeShareBps')
+      .optU64(args.newPlatformReserveBps, 'newPlatformReserveBps')
       .finish(),
   });
 }

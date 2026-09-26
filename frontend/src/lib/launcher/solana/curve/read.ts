@@ -502,8 +502,13 @@ export interface CurveProgress {
     | { kind: 'fully-funded' }
     | { kind: 'unknown'; error: CurveErrorCode };
   /**
-   * Tokens sold so far, in raw base units. Needs `token_total_supply` from
-   * `global` — the curve does not carry it — so it is `null` without one.
+   * Tokens sold so far, in raw base units:
+   * `token_total_supply − platform_reserve_tokens − real_token_reserves`.
+   *
+   * Needs `token_total_supply` from `global` — the curve does not carry it — AND
+   * the curve's own `platformReserveTokens`, so it is `null` without either. The
+   * reserve sits in the same vault but is never sold; leaving it out would count
+   * 3.69% of the supply as sold before anyone had bought a token.
    * Divide by the MINT's decimals, which are not stored on either account.
    */
   tokensSold: bigint | null;
@@ -516,7 +521,10 @@ export interface CurveProgress {
   spot: { numerator: bigint; denominator: bigint } | null;
 }
 
-export function curveProgress(c: CurveTerms, tokenTotalSupply?: bigint): CurveProgress | null {
+export function curveProgress(
+  c: CurveTerms & { platformReserveTokens?: bigint },
+  tokenTotalSupply?: bigint,
+): CurveProgress | null {
   const ceiling = raiseCeiling(c);
   if (!ceiling.ok) return null;
   const remaining = lamportsUntilTarget(c.realSolReserves, ceiling.value, c.tradeFeeBps);
@@ -541,8 +549,10 @@ export function curveProgress(c: CurveTerms, tokenTotalSupply?: bigint): CurvePr
         ? { kind: 'fully-funded' }
         : { kind: 'amount', lamports: remaining.value },
     tokensSold:
-      tokenTotalSupply !== undefined && tokenTotalSupply >= c.realTokenReserves
-        ? tokenTotalSupply - c.realTokenReserves
+      tokenTotalSupply !== undefined &&
+      c.platformReserveTokens !== undefined &&
+      tokenTotalSupply >= c.platformReserveTokens + c.realTokenReserves
+        ? tokenTotalSupply - c.platformReserveTokens - c.realTokenReserves
         : null,
     spot: eff.ok && eff.value.tokens > 0n
       ? { numerator: eff.value.sol, denominator: eff.value.tokens }

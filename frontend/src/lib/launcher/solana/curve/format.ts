@@ -191,6 +191,13 @@ export const LAUNCH_ERROR_COPY: Record<LaunchErrorName, string> = {
   MigrationReserveTooLow: 'The curve cannot yet afford migration. Retryable — it is a stall, not a break.',
   LpNotBurned: 'Migration aborted rather than leave a false "liquidity locked" claim.',
   AwaitingMigration: 'Fully funded and waiting on migration. It has NOT graduated yet — sells still work.',
+  CreatorMismatch: 'The creator account does not match the creator recorded on this launch.',
+  MigrationPermissionMissing:
+    'The graduation venue has not granted this program permission to create pools yet. Not a problem with this launch.',
+  PlatformReserveLocked: 'The platform reserve is released only after the launch graduates.',
+  PlatformReserveAlreadyReleased: "This launch's platform reserve has already been released.",
+  CpSwapProgramNotPinned:
+    'Operator configuration: that cp-swap program is not the graduation venue compiled into this program.',
 };
 
 // ── what a phase permits ─────────────────────────────────────────────────────

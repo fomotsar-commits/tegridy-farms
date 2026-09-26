@@ -14,6 +14,7 @@ import { PublicKey } from '@solana/web3.js';
 
 import {
   SPENT_PROGRAM_ID,
+  REGISTERED_PROGRAM_ID,
   LIVE_PROGRAM_ID,
   hasProgramId,
   AMM_CONFIG_OFFSETS,
@@ -118,10 +119,22 @@ describe('identity', () => {
     expect(hasProgramId()).toBe(false);
   });
 
-  it('the spent id matches the one the program source declares', () => {
+  // This used to pin the SPENT id as the source's declare_id!. The source moved to
+  // the restart id on 2026-09-26 (owner ruling 2026-09-25); the spent id must now be
+  // absent from it, and the registered id is what it declares.
+  it('the program source declares the registered restart id, never the spent one', () => {
     const lib = rust('lib.rs');
     const declared = /#\[cfg\(not\(feature = "devnet"\)\)\]\s*declare_id!\("([1-9A-HJ-NP-Za-km-z]+)"\)/.exec(lib);
-    expect(declared?.[1]).toBe(SPENT_PROGRAM_ID.toBase58());
+    expect(declared?.[1]).toBe(REGISTERED_PROGRAM_ID.toBase58());
+    expect(REGISTERED_PROGRAM_ID.toBase58()).toBe('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
+    expect(lib.includes(SPENT_PROGRAM_ID.toBase58())).toBe(false);
+  });
+
+  it('the registered id is a record, not a default: no env, no program id', () => {
+    // Registered is not deployed. Without VITE_SOLANA_CPSWAP_PROGRAM the client has
+    // no program to talk to, exactly as before the restart ids were chosen.
+    expect(LIVE_PROGRAM_ID).toBe(null);
+    expect(REGISTERED_PROGRAM_ID.equals(SPENT_PROGRAM_ID)).toBe(false);
   });
 });
 

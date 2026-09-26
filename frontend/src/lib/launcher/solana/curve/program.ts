@@ -47,8 +47,34 @@ import { PublicKey } from '@solana/web3.js';
  */
 export const PROGRAM_ID = new PublicKey('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED');
 
-/** The pre-deploy throwaway. Kept so the predicate below has something to compare against. */
+/**
+ * The old throwaway the crate compiled against until 2026-09-26, when its
+ * `declare_id!` became `REGISTERED_PROGRAM_ID` below. It corresponds to no key anybody
+ * holds. Kept so the predicate below has something to compare against, and so an
+ * operator who still passes it is told what it is.
+ */
 export const PLACEHOLDER_PROGRAM_ID = new PublicKey('8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8');
+
+/**
+ * REGISTERED, NOT DEPLOYED (as of 2026-09-26). The restart's mainnet id for
+ * `tegridy-launch` — the program's committed `declare_id!` since that date, a fresh
+ * keypair chosen by owner ruling 2026-09-25. Read absent on mainnet the same day.
+ *
+ * Deliberately NOT the default of anything below. Every derivation, reader and page
+ * still defaults to `PROGRAM_ID`, so a shipped build never names an id that holds no
+ * program. Flip `PROGRAM_ID` to this value in the same change that records the deploy
+ * (ProgramData read on chain + registry entry moved to deployed) — not before.
+ * The operator harness is the exception: it targets this id by default, and every
+ * write it builds reads the deployment first and refuses if nothing is there.
+ */
+export const REGISTERED_PROGRAM_ID = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
+
+/**
+ * REGISTERED, NOT DEPLOYED (as of 2026-09-26). The restart's cp-swap fork id — the
+ * fork's committed non-devnet `declare_id!`, and `cp_swap::ID`, the graduation venue
+ * `tegridy-launch` now pins at compile time. Same gating as `REGISTERED_PROGRAM_ID`.
+ */
+export const REGISTERED_CP_SWAP_PROGRAM_ID = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
 
 /**
  * ⛔ SPENT. The cp-swap fork a launch was to graduate into, deployed 2026-08-08 and
@@ -60,7 +86,7 @@ export const PLACEHOLDER_PROGRAM_ID = new PublicKey('8YVjjc5ibXQRewh7xtUQMTVR9rr
 export const CP_SWAP_PROGRAM_ID = new PublicKey('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
 
 /**
- * True while an id is still the throwaway the crate was written against.
+ * True for the old throwaway (`PLACEHOLDER_PROGRAM_ID`).
  *
  * ⚠️ This compares against `PLACEHOLDER_PROGRAM_ID`, not `PROGRAM_ID`. It used to be
  * `id.equals(PROGRAM_ID)`, which was self-referential: called with its default
@@ -161,9 +187,20 @@ export function curveVaultPda(mint: PublicKey, programId: PublicKey = PROGRAM_ID
   return pda([VAULT_SEED, mint.toBytes()], programId);
 }
 
-/** `["migauth", mint]` on tegridy-launch — the data-less rent-payer/signer for migration. */
-export function migrationAuthorityPda(mint: PublicKey, programId: PublicKey = PROGRAM_ID): PublicKey {
-  return pda([MIGRATION_AUTH_SEED, mint.toBytes()], programId);
+/**
+ * `["migauth"]` on tegridy-launch — the data-less rent-payer/signer for migration.
+ *
+ * ONE PER PROGRAM, with no mint in the seeds (state.rs `MIGRATION_AUTH_SEED`, and the
+ * `MigrateToAmm` seeds). cp-swap keys its permission account by this address, and a
+ * cp-swap admin must create that account by hand, so a per-launch authority would
+ * need a per-launch admin ceremony before anything could graduate.
+ *
+ * This used to derive `["migauth", mint]`. That address is not the one the program
+ * checks, so every client-built `migrate_to_amm` would have failed its seeds
+ * constraint, and the permission address derived from it was wrong too.
+ */
+export function migrationAuthorityPda(programId: PublicKey = PROGRAM_ID): PublicKey {
+  return pda([MIGRATION_AUTH_SEED], programId);
 }
 
 /**
@@ -269,6 +306,7 @@ export const IX_DISCRIMINATOR = {
   buy: Uint8Array.from([102, 6, 61, 18, 1, 218, 235, 234]),
   sell: Uint8Array.from([51, 230, 133, 164, 1, 127, 131, 173]),
   migrateToAmm: Uint8Array.from([207, 82, 192, 145, 254, 207, 145, 223]),
+  releasePlatformReserve: Uint8Array.from([128, 102, 63, 208, 162, 203, 156, 180]),
 } as const;
 
 /**
@@ -294,6 +332,7 @@ export const EVENT_DISCRIMINATOR = {
   LaunchCreated: Uint8Array.from([59, 38, 190, 230, 33, 34, 89, 20]),
   Traded: Uint8Array.from([225, 202, 73, 175, 147, 43, 160, 150]),
   Graduated: Uint8Array.from([51, 241, 66, 50, 140, 245, 156, 192]),
+  PlatformReserveReleased: Uint8Array.from([143, 33, 128, 143, 197, 116, 19, 134]),
 } as const;
 
 // ── errors (errors.rs:5-48) ──────────────────────────────────────────────────
@@ -324,6 +363,11 @@ export const LAUNCH_ERROR_CODES = {
   6017: 'MigrationReserveTooLow',
   6018: 'LpNotBurned',
   6019: 'AwaitingMigration',
+  6020: 'CreatorMismatch',
+  6021: 'MigrationPermissionMissing',
+  6022: 'PlatformReserveLocked',
+  6023: 'PlatformReserveAlreadyReleased',
+  6024: 'CpSwapProgramNotPinned',
 } as const;
 
 export type LaunchErrorName = (typeof LAUNCH_ERROR_CODES)[keyof typeof LAUNCH_ERROR_CODES];
@@ -432,23 +476,26 @@ export const GLOBAL_CONFIG_LAYOUT = {
   ammConfig: 160,
   paused: 192,
   bump: 193,
-  size: 194,
+  /** Appended after `bump`, so every offset above it is unchanged. */
+  platformReserveBps: 194,
+  size: 202,
 } as const;
 
 /**
- * `8 + InitSpace(186)`.
+ * `8 + InitSpace(194)`.
  *
- * The mainnet `global` — now stranded under a closed program, its rent unrecoverable —
- * is 723 bytes because it was written by the PRE-removal
- * program, and the first 194 of those bytes are byte-identical to this layout —
- * nothing before `bump` moved. `program.test.ts` decodes exactly that prefix of a
- * captured mainnet account, which is the only real-bytes evidence available for any
- * of these offsets.
+ * 194 until `platform_reserve_bps` was appended after `bump`. The mainnet `global` —
+ * now stranded under a closed program, its rent unrecoverable — is 723 bytes because
+ * it was written by the PRE-removal program, and its first 194 bytes are
+ * byte-identical to this layout up to `bump`. `program.test.ts` decodes exactly that
+ * prefix of a captured mainnet account, which is the only real-bytes evidence
+ * available for any of these offsets.
  *
- * ⚠ A 723-byte account therefore now reads `bad-length`, correctly: the removal
- * cannot be applied to a deployed program in place, and both program ids were
- * recorded CLOSED on mainnet 2026-08-13, so a post-removal build means new ids and
- * a freshly-allocated `global`.
+ * ⚠ A 723-byte account therefore reads `bad-length`, correctly: the removal cannot
+ * be applied to a deployed program in place, and both program ids were recorded
+ * CLOSED on mainnet 2026-08-13, so a post-removal build means new ids and a
+ * freshly-allocated `global`. The same length check means this client and the
+ * program with the new field must ship together: each rejects the other's accounts.
  */
 export const GLOBAL_CONFIG_SIZE = GLOBAL_CONFIG_LAYOUT.size;
 
@@ -470,11 +517,14 @@ export const BONDING_CURVE_LAYOUT = {
   complete: 136,
   pool: 137,
   bump: 169,
-  size: 170,
+  /** Appended after `bump`, so every offset above it is unchanged. */
+  platformReserveTokens: 170,
+  platformReserveReleased: 178,
+  size: 179,
 } as const;
 
 /**
- * `8 + InitSpace(162)`.
+ * `8 + InitSpace(171)`. 170 until the two platform-reserve fields were appended.
  *
  * NOT pinned against a captured account: `getProgramAccounts` on the launch program
  * returns EMPTY — no curve has ever been created — so there are no real bytes to
@@ -515,6 +565,12 @@ export interface GlobalConfig {
   /** Blocks buys and graduation. Sells stay open (state.rs:116-118). */
   paused: boolean;
   bump: number;
+  /**
+   * Share of each NEW launch's supply the protocol holds back, in bps of
+   * `tokenTotalSupply`. Capped at 1000 (10%). A live launch keeps the amount it
+   * was created with — see {@link BondingCurve.platformReserveTokens}.
+   */
+  platformReserveBps: bigint;
 }
 
 /** `BondingCurve`, state.rs:123-166. One per launched token. */
@@ -548,6 +604,18 @@ export interface BondingCurve {
   /** The cp-swap pool. All-zero until migration (state.rs:159-163). */
   pool: PublicKey;
   bump: number;
+  /**
+   * The platform reserve, in raw token units, fixed at creation. These tokens sit
+   * in the curve's vault but OUTSIDE `realTokenReserves`: the curve never sells
+   * them and migration never puts them in the pool. After graduation anyone can
+   * call `release_platform_reserve`, which sends them to the treasury once.
+   *
+   * So tokens sold = total supply − this − `realTokenReserves`. Leaving this out
+   * counts the reserve as sold.
+   */
+  platformReserveTokens: bigint;
+  /** Set once the reserve has gone to the treasury. Never true before `complete`. */
+  platformReserveReleased: boolean;
 }
 
 /** Why a decode returned nothing. Each renders differently; none of them is "zero". */
@@ -597,6 +665,7 @@ export function decodeGlobalConfig(data: Uint8Array | null | undefined): Decoded
   const G = GLOBAL_CONFIG_LAYOUT;
   const paused = readBool(data, G.paused);
   if (paused === null) return { ok: false, reason: 'malformed' };
+  const platformReserveBps = readU64(v, G.platformReserveBps);
   return {
     ok: true,
     value: {
@@ -613,6 +682,7 @@ export function decodeGlobalConfig(data: Uint8Array | null | undefined): Decoded
       ammConfig: readPubkey(data, G.ammConfig),
       paused,
       bump: data[G.bump]!,
+      platformReserveBps,
     },
   };
 }
@@ -628,6 +698,8 @@ export function decodeBondingCurve(data: Uint8Array | null | undefined): Decoded
   const C = BONDING_CURVE_LAYOUT;
   const complete = readBool(data, C.complete);
   if (complete === null) return { ok: false, reason: 'malformed' };
+  const platformReserveReleased = readBool(data, C.platformReserveReleased);
+  if (platformReserveReleased === null) return { ok: false, reason: 'malformed' };
   return {
     ok: true,
     value: {
@@ -644,6 +716,8 @@ export function decodeBondingCurve(data: Uint8Array | null | undefined): Decoded
       complete,
       pool: readPubkey(data, C.pool),
       bump: data[C.bump]!,
+      platformReserveTokens: readU64(v, C.platformReserveTokens),
+      platformReserveReleased,
     },
   };
 }

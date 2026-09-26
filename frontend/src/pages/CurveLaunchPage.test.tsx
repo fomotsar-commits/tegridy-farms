@@ -64,6 +64,9 @@ function curve(over: Partial<BondingCurve> = {}): BondingCurve {
     complete: false,
     pool: new PublicKey(new Uint8Array(32)),
     bump: 255,
+    // 3.69% of the 1e15 supply, held outside `realTokenReserves`.
+    platformReserveTokens: 36_900_000_000_000n,
+    platformReserveReleased: false,
     ...over,
   };
 }
@@ -84,6 +87,7 @@ function globalCfg(over: Partial<GlobalConfig> = {}): GlobalConfig {
     ammConfig: KEY(6),
     paused: false,
     bump: 254,
+    platformReserveBps: 369n,
     ...over,
   };
 }
@@ -517,5 +521,97 @@ describe('curve chart is mounted', () => {
     // The "illustrative" badge naming a hand-drawn shape must never appear on a
     // page that just decoded a real account.
     expect(document.body.textContent ?? '').not.toMatch(/illustrative/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The platform reserve, the fee split, and what graduation really deposits
+// ---------------------------------------------------------------------------
+
+describe('platform reserve and fee split', () => {
+  const RESERVE_LINE =
+    /Platform reserve: 3\.69% of supply, held by the program, released to the treasury only if the launch graduates; never sold on the curve\./;
+
+  it('states the platform reserve in the terms a launch would be created with', () => {
+    renderView({ probe: DEPLOYED, snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'absent' }) });
+    expect(screen.getByText(RESERVE_LINE)).toBeInTheDocument();
+    expect(screen.getByText('3.69% of supply')).toBeInTheDocument();
+  });
+
+  it('reads the reserve from the config, not from a constant', () => {
+    renderView({
+      probe: DEPLOYED,
+      snapshot: snapshot({ kind: 'ok', value: globalCfg({ platformReserveBps: 500n }) }, { kind: 'absent' }),
+    });
+    expect(screen.getByText(/Platform reserve: 5\.00% of supply, held by the program/)).toBeInTheDocument();
+    expect(screen.queryByText(/3\.69%/)).not.toBeInTheDocument();
+  });
+
+  it('says "none" for a zero reserve rather than describing one that does not exist', () => {
+    renderView({
+      probe: DEPLOYED,
+      snapshot: snapshot({ kind: 'ok', value: globalCfg({ platformReserveBps: 0n }) }, { kind: 'absent' }),
+    });
+    expect(screen.queryByText(/held by the program/)).not.toBeInTheDocument();
+  });
+
+  it('shows the creator / protocol split of the fee in the terms', () => {
+    renderView({ probe: DEPLOYED, snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'absent' }) });
+    expect(screen.getByText('creator 48.00% · protocol 52.00% of the fee')).toBeInTheDocument();
+  });
+
+  it("shows a live launch's own split and reserve, from its snapshot", () => {
+    renderView({
+      probe: DEPLOYED,
+      snapshot: snapshot(
+        { kind: 'ok', value: globalCfg({ creatorFeeShareBps: 5_000n }) },
+        { kind: 'ok', value: curveAccount(curve({ creatorFeeShareBps: 4_800n })) },
+      ),
+      mint: mintFacts(),
+    });
+    // The curve's snapshot, not the global's newer value.
+    expect(screen.getByText('creator 48.00% · protocol 52.00% of the fee')).toBeInTheDocument();
+    expect(screen.getByText('36,900')).toBeInTheDocument();
+    expect(screen.getByText(/Platform reserve: held by the program until the launch graduates/)).toBeInTheDocument();
+  });
+
+  it('tracks the reserve through graduation and release', () => {
+    const g: Read<GlobalConfig> = { kind: 'ok', value: globalCfg() };
+    const { unmount } = renderView({
+      probe: DEPLOYED,
+      snapshot: snapshot(g, { kind: 'ok', value: curveAccount(curve({ complete: true })) }),
+      mint: mintFacts(),
+    });
+    expect(screen.getByText(/Platform reserve: graduated, so anyone can now release it/)).toBeInTheDocument();
+    unmount();
+    renderView({
+      probe: DEPLOYED,
+      snapshot: snapshot(g, {
+        kind: 'ok',
+        value: curveAccount(curve({ complete: true, platformReserveReleased: true })),
+      }),
+      mint: mintFacts(),
+    });
+    expect(screen.getByText(/Platform reserve: released to the treasury/)).toBeInTheDocument();
+  });
+
+  it('does not say the curve sells everything but the reserve: unsold tokens go into the pool', () => {
+    // A launch graduates on its SOL target, not when it runs out of tokens. At the
+    // operator book it has sold about 56% of supply and pools about 40%.
+    renderView({ probe: DEPLOYED, snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'absent' }) });
+    const card = screen.getByText('Open a launch').closest('section') as HTMLElement;
+    const text = (card.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).not.toMatch(/curve sells all of it/);
+    expect(text).toMatch(
+      /The curve can sell all of it except the platform reserve listed below; whatever it has not sold when it graduates goes into the pool\./,
+    );
+  });
+
+  it('says what graduation puts in the pool, and that the reserve is not part of it', () => {
+    renderView();
+    const text = document.body.textContent ?? '';
+    expect(text).not.toMatch(/deposits everything/);
+    expect(text).toMatch(/What goes into the pool: the graduation target in SOL, and every token the curve did not sell/);
+    expect(text).toMatch(/The platform\s+reserve does not go into the pool/);
   });
 });

@@ -7,6 +7,9 @@
 // as `dbcClient.test.ts`.
 import { describe, it, expect } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   ACCOUNT_DISCRIMINATOR,
   ALREADY_COMPLETE_CODE,
@@ -23,6 +26,8 @@ import {
   LAUNCH_ERROR_CODES,
   POST_REMOVAL_PROGRAM,
   PROGRAM_ID,
+  REGISTERED_CP_SWAP_PROGRAM_ID,
+  REGISTERED_PROGRAM_ID,
   cpAmmAuthorityPda,
   cpAmmConfigPda,
   cpLpMintPda,
@@ -42,6 +47,12 @@ import {
   poolStatePda,
   sortMints,
 } from './program';
+
+/** `solana/tegridy-amm/programs`, from `frontend/src/lib/launcher/solana/curve`. */
+const SOLANA_PROGRAMS = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..', '..', '..', '..', '..', '..', 'solana', 'tegridy-amm', 'programs',
+);
 
 const MINT = new PublicKey('So11111111111111111111111111111111111111112');
 
@@ -65,6 +76,7 @@ describe('discriminators are Anchor default derivation, recomputed', () => {
     buy: 'buy',
     sell: 'sell',
     migrateToAmm: 'migrate_to_amm',
+    releasePlatformReserve: 'release_platform_reserve',
   };
 
   it.each(Object.entries(IX_NAMES))('global:%s', async (key, snake) => {
@@ -93,23 +105,25 @@ describe('account sizes are 8 + InitSpace, summed from the field widths', () => 
   const U8 = 1;
   const DISC = 8;
 
-  it('GlobalConfig = 194 once the segmented tail is gone', () => {
+  it('GlobalConfig = 202: the post-removal 194, plus platform_reserve_bps', () => {
     // authority, fee_recipient | 7 × u64 | cp_swap_program, amm_config | paused, bump
-    expect(DISC + 2 * PUBKEY + 7 * U64 + 2 * PUBKEY + BOOL + U8).toBe(GLOBAL_CONFIG_SIZE);
-    expect(GLOBAL_CONFIG_SIZE).toBe(194);
+    // | platform_reserve_bps
+    expect(DISC + 2 * PUBKEY + 7 * U64 + 2 * PUBKEY + BOOL + U8 + U64).toBe(GLOBAL_CONFIG_SIZE);
+    expect(GLOBAL_CONFIG_SIZE).toBe(202);
     // The 529 bytes that went: sqrt_price_start_x64 (16) + segment_count (1) +
     // [Segment; 16] (512). The live mainnet account still carries them, which is why
-    // it is 723 and why this decoder now rejects it — see the mainnet case below.
-    expect(723 - GLOBAL_CONFIG_SIZE).toBe(16 + 1 + 16 * 32);
+    // it is 723 and why this decoder rejects it — see the mainnet case below.
+    expect(723 - 194).toBe(16 + 1 + 16 * 32);
   });
 
-  it('BondingCurve = 170 once the mode snapshot is gone', () => {
-    // mint, creator | 8 × u64 | complete | pool | bump
-    expect(DISC + 2 * PUBKEY + 8 * U64 + BOOL + PUBKEY + U8).toBe(BONDING_CURVE_SIZE);
-    expect(BONDING_CURVE_SIZE).toBe(170);
+  it('BondingCurve = 179: the post-removal 170, plus the two platform-reserve fields', () => {
+    // mint, creator | 8 × u64 | complete | pool | bump | platform_reserve_tokens,
+    // platform_reserve_released
+    expect(DISC + 2 * PUBKEY + 8 * U64 + BOOL + PUBKEY + U8 + U64 + BOOL).toBe(BONDING_CURVE_SIZE);
+    expect(BONDING_CURVE_SIZE).toBe(179);
     // mode (1) + sqrt_price_x64 (16) + sqrt_price_start_x64 (16) + segment_count (1)
     // + [Segment; 16] (512).
-    expect(716 - BONDING_CURVE_SIZE).toBe(1 + 16 + 16 + 1 + 16 * 32);
+    expect(716 - 170).toBe(1 + 16 + 16 + 1 + 16 * 32);
   });
 
   // The offset tables are the decoders' ONLY source of offsets, so a field left at
@@ -140,6 +154,7 @@ describe('account sizes are 8 + InitSpace, summed from the field widths', () => 
         ['ammConfig', GLOBAL_CONFIG_LAYOUT.ammConfig, PUBKEY],
         ['paused', GLOBAL_CONFIG_LAYOUT.paused, BOOL],
         ['bump', GLOBAL_CONFIG_LAYOUT.bump, U8],
+        ['platformReserveBps', GLOBAL_CONFIG_LAYOUT.platformReserveBps, U64],
       ],
       GLOBAL_CONFIG_LAYOUT.size,
     );
@@ -159,6 +174,8 @@ describe('account sizes are 8 + InitSpace, summed from the field widths', () => 
         ['complete', BONDING_CURVE_LAYOUT.complete, BOOL],
         ['pool', BONDING_CURVE_LAYOUT.pool, PUBKEY],
         ['bump', BONDING_CURVE_LAYOUT.bump, U8],
+        ['platformReserveTokens', BONDING_CURVE_LAYOUT.platformReserveTokens, U64],
+        ['platformReserveReleased', BONDING_CURVE_LAYOUT.platformReserveReleased, BOOL],
       ],
       BONDING_CURVE_LAYOUT.size,
     );
@@ -182,7 +199,32 @@ describe('account sizes are 8 + InitSpace, summed from the field widths', () => 
       complete: 136,
       pool: 137,
       bump: 169,
-      size: 170,
+      platformReserveTokens: 170,
+      platformReserveReleased: 178,
+      size: 179,
+    });
+  });
+
+  // The new fields went AFTER `bump`, so nothing that was already there moved.
+  // Inserting them anywhere else would shift every later field, and every decoder
+  // and rent read built on the old offsets would read the wrong bytes.
+  it('GlobalConfig offsets: the post-removal layout, with the reserve appended', () => {
+    expect(GLOBAL_CONFIG_LAYOUT).toEqual({
+      authority: 8,
+      feeRecipient: 40,
+      tradeFeeBps: 72,
+      creatorFeeShareBps: 80,
+      initialVirtualSol: 88,
+      initialVirtualToken: 96,
+      tokenTotalSupply: 104,
+      graduationTargetLamports: 112,
+      migrationReserveLamports: 120,
+      cpSwapProgram: 128,
+      ammConfig: 160,
+      paused: 192,
+      bump: 193,
+      platformReserveBps: 194,
+      size: 202,
     });
   });
 });
@@ -241,7 +283,10 @@ describe('PDA derivation', () => {
     expect(globalPda().toBase58()).toBe('7hrjMjYxoMKxrBvNkHYfyfJfFPxHi2ovXNLhownm1B6e');
     expect(curvePda(MINT).toBase58()).toBe('4LaVwaxeQDWQLQk98E7JnZzqZXttBADsH9q3osPDCsqH');
     expect(curveVaultPda(MINT).toBase58()).toBe('8CSq1f5LHCfAv73WEb34zUpeyCyJKXNjmC5znFfyww5R');
-    expect(migrationAuthorityPda(MINT).toBase58()).toBe('4URospGA9UuXnqPp74MHTrexf8erjgnyGsF11d8ABhRM');
+    // `["migauth"]`, no mint: the program's own seeds. The old `["migauth", mint]`
+    // pin was 4URospGA9UuXnqPp74MHTrexf8erjgnyGsF11d8ABhRM, an address the program
+    // never checks against.
+    expect(migrationAuthorityPda().toBase58()).toBe('77L3BhJFfSJnDeHLFT2vZhmjR6ZazsFPrdqvRBMZy6Yp');
     expect(poolStatePda(MINT).toBase58()).toBe('hFBoCWt59BriJ8b5ZSXFGtZM5vLsTW19nB2Fum5wie6');
   });
 
@@ -250,21 +295,33 @@ describe('PDA derivation', () => {
     expect(cpAmmConfigPda(0).toBase58()).toBe('DpaUiYQPRk6WNqmGVPZB4LPCMQUSoUxGmc8XXto9FGMk');
   });
 
-  it('the permission PDA is keyed by its authority, and lives on CP-SWAP', () => {
+  it('the migration authority is program-wide: seeded on "migauth" alone, never on a mint', () => {
+    // Mirrors lib.rs `the_migration_authority_is_program_wide`. These seeds are what
+    // `MigrateToAmm` checks, so any other derivation fails account validation.
+    const auth = migrationAuthorityPda();
+    expect(auth.equals(PublicKey.findProgramAddressSync([ascii('migauth')], PROGRAM_ID)[0])).toBe(true);
+    const perMint = PublicKey.findProgramAddressSync([ascii('migauth'), MINT.toBytes()], PROGRAM_ID)[0];
+    expect(auth.equals(perMint)).toBe(false);
+    // It still moves with the program id.
+    const other = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
+    expect(migrationAuthorityPda(other).equals(auth)).toBe(false);
+  });
+
+  it('the permission PDA is keyed by the migration authority, and lives on CP-SWAP', () => {
     // `["permission", authority]` — cp-swap's own seed, so it must derive against
     // cp-swap's program id. Deriving it on tegridy-launch would produce a
     // syntactically fine address that cp-swap can never have created.
-    const perMint = cpPermissionPda(migrationAuthorityPda(MINT));
-    expect(perMint.equals(cpPermissionPda(migrationAuthorityPda(PROGRAM_ID)))).toBe(false);
+    const permission = cpPermissionPda(migrationAuthorityPda());
+    expect(permission.toBase58()).toBe('8ZFcjaL9aCjnoih6iDFqjsie6EiWnFCM6ySjL4fSABuC');
     expect(
-      perMint.equals(
+      permission.equals(
         PublicKey.findProgramAddressSync(
-          [ascii('permission'), migrationAuthorityPda(MINT).toBytes()],
+          [ascii('permission'), migrationAuthorityPda().toBytes()],
           CP_SWAP_PROGRAM_ID,
         )[0],
       ),
     ).toBe(true);
-    expect(perMint.equals(cpPermissionPda(migrationAuthorityPda(MINT), PROGRAM_ID))).toBe(false);
+    expect(permission.equals(cpPermissionPda(migrationAuthorityPda(), PROGRAM_ID))).toBe(false);
   });
 
   it('amm_config uses BIG-endian u16, so index 1 is not index 256', () => {
@@ -370,6 +427,7 @@ function encodeGlobal(
     cpSwap: PublicKey;
     ammConfig: PublicKey;
     creatorFeeShareBps: bigint;
+    platformReserveBps: bigint;
   }> = {},
 ) {
   return cat(
@@ -387,6 +445,7 @@ function encodeGlobal(
     key(over.ammConfig ?? AUTHORITY),
     byte(over.paused ?? 0),
     byte(254),
+    u64le(over.platformReserveBps ?? 369n),
   );
 }
 
@@ -403,6 +462,8 @@ function encodeCurve(
     complete: number;
     pool: PublicKey;
     creatorFeeShareBps: bigint;
+    platformReserveTokens: bigint;
+    released: number;
   }> = {},
 ) {
   return cat(
@@ -420,6 +481,8 @@ function encodeCurve(
     byte(over.complete ?? 0),
     key(over.pool ?? DEFAULT_PUBKEY),
     byte(253),
+    u64le(over.platformReserveTokens ?? 36_900_000_000_000n),
+    byte(over.released ?? 0),
   );
 }
 
@@ -441,6 +504,16 @@ describe('decodeGlobalConfig', () => {
     expect(d.value.cpSwapProgram.equals(CP_SWAP_PROGRAM_ID)).toBe(true);
     expect(d.value.paused).toBe(false);
     expect(d.value.bump).toBe(254);
+    expect(d.value.platformReserveBps).toBe(369n);
+  });
+
+  it('reads platform_reserve_bps from 194, straight after bump', () => {
+    const bytes = encodeGlobal({ platformReserveBps: 1_000n });
+    expect(new DataView(bytes.buffer).getBigUint64(194, true)).toBe(1_000n);
+    const d = decodeGlobalConfig(bytes);
+    expect(d.ok && d.value.platformReserveBps).toBe(1_000n);
+    // …and the byte before it is still `bump`, not the start of the new field.
+    expect(d.ok && d.value.bump).toBe(254);
   });
 
   it('reads u64 as bigint, exactly, past Number.MAX_SAFE_INTEGER', () => {
@@ -466,6 +539,7 @@ describe('decodeGlobalConfig', () => {
       key(AUTHORITY),
       byte(0),
       byte(254),
+      u64le(369n), // platform_reserve_bps
     );
     const d = decodeGlobalConfig(withMax);
     expect(d.ok).toBe(true);
@@ -513,8 +587,10 @@ describe('decodeGlobalConfig', () => {
     // `segment_count`, both zero at initialization. The 512 segment slots that
     // followed on chain were zero too and are not reproduced.
     expect(head.length).toBe(211);
-    const real = head.subarray(0, GLOBAL_CONFIG_SIZE);
-    expect(real.length).toBe(194);
+    // The real bytes run up to `bump`. `platform_reserve_bps` did not exist when this
+    // account was written, so it is appended here; everything before it is chain data.
+    const real = cat(head.subarray(0, 194), u64le(369n));
+    expect(real.length).toBe(GLOBAL_CONFIG_SIZE);
 
     const d = decodeGlobalConfig(real);
     expect(d.ok).toBe(true);
@@ -534,6 +610,14 @@ describe('decodeGlobalConfig', () => {
     expect(isDefaultPubkey(d.value.ammConfig)).toBe(true);
     expect(d.value.paused).toBe(false);
     expect(d.value.bump).toBe(255);
+    expect(d.value.platformReserveBps).toBe(369n);
+  });
+
+  it('rejects a 194-byte config written before the platform reserve existed', () => {
+    // A strict length check is the only thing that stops the old layout decoding
+    // with an invented reserve. It must say "not my account", not "reserve 0".
+    const beforeReserve = encodeGlobal().subarray(0, 194);
+    expect(decodeGlobalConfig(beforeReserve)).toEqual({ ok: false, reason: 'bad-length' });
   });
 
   it('rejects a pre-removal 723-byte account instead of decoding its prefix', () => {
@@ -542,7 +626,7 @@ describe('decodeGlobalConfig', () => {
     // correct-looking config read from a program that is not the one this client
     // builds instructions for. It has to be `bad-length` — the honest answer is
     // "this is not my account", not a plausible struct.
-    const preRemoval = cat(encodeGlobal(), new Uint8Array(723 - GLOBAL_CONFIG_SIZE));
+    const preRemoval = cat(encodeGlobal().subarray(0, 194), new Uint8Array(723 - 194));
     expect(preRemoval.length).toBe(723);
     expect(decodeGlobalConfig(preRemoval)).toEqual({ ok: false, reason: 'bad-length' });
   });
@@ -590,6 +674,29 @@ describe('decodeBondingCurve', () => {
     expect(d.value.migrationReserveLamports).toBe(250_000_000n);
     expect(d.value.complete).toBe(false);
     expect(d.value.bump).toBe(253);
+    expect(d.value.platformReserveTokens).toBe(36_900_000_000_000n);
+    expect(d.value.platformReserveReleased).toBe(false);
+  });
+
+  it('reads the platform reserve from 170 and its released flag from 178', () => {
+    const bytes = encodeCurve({ complete: 1, platformReserveTokens: 123_456n, released: 1 });
+    expect(new DataView(bytes.buffer).getBigUint64(170, true)).toBe(123_456n);
+    expect(bytes[178]).toBe(1);
+    const d = decodeBondingCurve(bytes);
+    expect(d.ok).toBe(true);
+    if (!d.ok) return;
+    expect(d.value.platformReserveTokens).toBe(123_456n);
+    expect(d.value.platformReserveReleased).toBe(true);
+    expect(d.value.bump).toBe(253);
+  });
+
+  it('a released byte the program cannot write is malformed, not "released"', () => {
+    expect(decodeBondingCurve(encodeCurve({ released: 2 }))).toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  it('rejects a 170-byte curve written before the platform reserve existed', () => {
+    const beforeReserve = encodeCurve().subarray(0, 170);
+    expect(decodeBondingCurve(beforeReserve)).toEqual({ ok: false, reason: 'bad-length' });
   });
 
   it('reads `complete` from 136, where the mode snapshot used to begin', () => {
@@ -612,7 +719,7 @@ describe('decodeBondingCurve', () => {
     // pre-removal curve decode to correct reserves, so a permissive length check
     // would quote real-looking prices off an account whose `complete` and `pool` it
     // is reading from the wrong place entirely.
-    const preRemoval = cat(encodeCurve(), new Uint8Array(716 - BONDING_CURVE_SIZE));
+    const preRemoval = cat(encodeCurve().subarray(0, 170), new Uint8Array(716 - 170));
     expect(preRemoval.length).toBe(716);
     expect(decodeBondingCurve(preRemoval)).toEqual({ ok: false, reason: 'bad-length' });
   });
@@ -657,16 +764,24 @@ describe('decodeBondingCurve', () => {
 
 describe('error table', () => {
   it('numbers from 6000 in declaration order (errors.rs:5-48)', () => {
-    expect(Object.keys(LAUNCH_ERROR_CODES).length).toBe(20);
+    expect(Object.keys(LAUNCH_ERROR_CODES).length).toBe(25);
     expect(LAUNCH_ERROR_CODES[6000]).toBe('Overflow');
     expect(LAUNCH_ERROR_CODES[6019]).toBe('AwaitingMigration');
+    // The two the program already had and this table was missing, then the two the
+    // platform reserve added. Appended, so nothing above moved.
+    expect(LAUNCH_ERROR_CODES[6020]).toBe('CreatorMismatch');
+    expect(LAUNCH_ERROR_CODES[6021]).toBe('MigrationPermissionMissing');
+    expect(LAUNCH_ERROR_CODES[6022]).toBe('PlatformReserveLocked');
+    expect(LAUNCH_ERROR_CODES[6023]).toBe('PlatformReserveAlreadyReleased');
+    // The compile-time venue pin (2026-09-26). Appended, so nothing above moved.
+    expect(LAUNCH_ERROR_CODES[6024]).toBe('CpSwapProgramNotPinned');
     expect(launchErrorName(6004)).toBe('Paused');
     expect(launchErrorName(6011)).toBe('MintHasFreezeAuthority');
   });
 
   it('an error that is not ours resolves to null, never to a generic in-house message', () => {
     expect(launchErrorName(5999)).toBeNull();
-    expect(launchErrorName(6020)).toBeNull();
+    expect(launchErrorName(6025)).toBeNull();
     expect(launchErrorName(1)).toBeNull();
   });
 
@@ -700,6 +815,29 @@ describe('deployment honesty', () => {
 
   it('CP_SWAP_PROGRAM_ID is still the fork address, closed the same day', () => {
     expect(CP_SWAP_PROGRAM_ID.toBase58()).toBe('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
+  });
+
+  // The restart ids (owner ruling 2026-09-25) are CHOSEN, not deployed. The contract
+  // this block keeps: a shipped build never names an id that holds no program. So the
+  // new ids are declared and pinned here, and nothing defaults to them yet — flipping
+  // `PROGRAM_ID` is one edit, made together with the on-chain proof of the deploy.
+  it('the restart ids are declared, and are not yet the default of anything', () => {
+    expect(REGISTERED_PROGRAM_ID.toBase58()).toBe('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
+    expect(REGISTERED_CP_SWAP_PROGRAM_ID.toBase58()).toBe('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
+    expect(PROGRAM_ID.equals(REGISTERED_PROGRAM_ID)).toBe(false);
+    expect(CP_SWAP_PROGRAM_ID.equals(REGISTERED_CP_SWAP_PROGRAM_ID)).toBe(false);
+    expect(globalPda().equals(globalPda(REGISTERED_PROGRAM_ID))).toBe(false);
+    expect(isPlaceholderProgramId(REGISTERED_PROGRAM_ID)).toBe(false);
+  });
+
+  it('the restart ids are the ones the program source declares', () => {
+    const src = (p: string) => readFileSync(join(SOLANA_PROGRAMS, p), 'utf8');
+    const launch = [...src('tegridy-launch/src/lib.rs').matchAll(/declare_id!\("([1-9A-HJ-NP-Za-km-z]+)"\)/g)];
+    expect(launch.map((m) => m[1])).toEqual([REGISTERED_PROGRAM_ID.toBase58()]);
+    const pin = /pub mod cp_swap \{[\s\S]*?pubkey!\("([1-9A-HJ-NP-Za-km-z]+)"\)/.exec(src('tegridy-launch/src/lib.rs'));
+    expect(pin?.[1]).toBe(REGISTERED_CP_SWAP_PROGRAM_ID.toBase58());
+    const cp = /#\[cfg\(not\(feature = "devnet"\)\)\]\s*declare_id!\("([1-9A-HJ-NP-Za-km-z]+)"\)/.exec(src('cp-swap/src/lib.rs'));
+    expect(cp?.[1]).toBe(REGISTERED_CP_SWAP_PROGRAM_ID.toBase58());
   });
 
   it('the default pubkey is the System Program address', () => {

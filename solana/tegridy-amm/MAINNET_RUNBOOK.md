@@ -1,8 +1,10 @@
 # Tegridy CP-AMM — Mainnet Runbook
 
 Step-by-step to take the audited fork live. **Do not start before the diff-audit is
-complete** (`AUDIT_RFQ.md`). Every signing step is the operator's; a Squads multisig
-should hold all authorities. Devnet dry-run first (`deploy-devnet.sh`).
+complete** (`AUDIT_RFQ.md`). Every signing step is the operator's. Every authority that
+must later sign goes to the Squads **vault PDA** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`,
+never to the multisig account `EVGSnRZ…` (see "Which Squads address" in §0). Devnet dry-run
+first (`deploy-devnet.sh`).
 
 > **This runbook has been executed once, and the result was closed.** Both programs went
 > to mainnet on 2026-08-08 ahead of the diff-audit this document opens by requiring, and
@@ -12,6 +14,24 @@ should hold all authorities. Devnet dry-run first (`deploy-devnet.sh`).
 > below — several of them are the steps that produced that outcome, and they have been
 > corrected in place rather than deleted, so the trap stays visible.
 
+> ⛔ **2026-09-26: for the restart, do NOT follow the steps below — follow the go-live
+> checklist instead.** It lives with the release files, off-repo:
+> `C:\Users\jimbo\solana-launch-release-2026-09-26\MAINNET_GO_LIVE.md`. The keys, the build
+> and the rehearsal are already done, and several steps below would now undo them:
+> - **Do not generate keys** (§3). The new ids are chosen and committed at `dd9e367d`: cp-swap
+>   `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, tegridy-launch
+>   `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`, deployer
+>   `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, cp-swap admin = the vault `GRMtSx…`.
+> - **Do not rebuild.** Deploy the rehearsed files: cp_swap.mainnet.so (sha256 `88b98aa9…`) and
+>   tegridy_launch.mainnet.so (sha256 `9b78be02…`), built with Agave 2.3.0. A `solana-verify`
+>   build made now would produce different bytes that nobody rehearsed.
+> - The deploy command below has no `--keypair` or `--upgrade-authority`, so the CLI's
+>   default key would pay and become the upgrade authority. The checklist's command has both.
+> - The vault needs **at least 4,572,000 lamports** before the two cp-swap admin steps, not
+>   ~0.0019 SOL. Both steps are Squads proposals now, because `admin::ID` is the vault.
+> - The whole flow passed on a local validator (the exact mainnet bytes, through a stand-in of
+>   the real 2-of-2 multisig) and on devnet at the real program ids.
+
 Legend: 🔑 = needs a key/signature · 💰 = costs SOL · 🌐 = external submission
 
 ---
@@ -19,26 +39,29 @@ Legend: 🔑 = needs a key/signature · 💰 = costs SOL · 🌐 = external subm
 ## THE RESTART, IN ORDER (added 2026-08-22 — the zero-toll directive)
 
 The owner's standing decision: relaunch on our own curve and keep **100% of the 1% trade
-fee in-house** (split with the launch creator per §5b — recommended 48/52), instead of
+fee in-house** (split with the launch creator per §5b — settled 50/50), instead of
 Meteora DBC's 20% carve. This is a RESTART, not a top-up: both prior program ids are spent
 (§4/§5b banners), so everything program-shaped regenerates while the Squads-side
 identities survive. The sequence, threading the sections below:
 
 | step | what | where | survives / regenerates |
 |---|---|---|---|
-| R1 | Confirm float on hand: **~8.4 SOL deploy rent (MEASURED, §0) + pool seed + fee buffer ≈ 13.4 SOL total**. Rent is lamport-denominated — a SOL price move changes the dollar cost, never the SOL needed | §0 | — |
+| R1 | Confirm float on hand: **~6.0 SOL deploy rent at today's rate (§0, re-quoted 2026-09-26: cp-swap ~3.51 SOL + tegridy-launch ~2.45 SOL, from Agave 2.3.0 default-feature builds of this branch) + pool seed + fee buffer**. Re-measure the final deployer-patched build before deploying. Rent is lamport-denominated — a SOL price move changes the dollar cost, never the SOL needed; the RATE can change, so re-read it on the day | §0 | — |
 | R2 | 🔑 Generate **two fresh program keypairs** + the tegridy-launch deploy authority. Back all three up OFFLINE before the first build — the 08-01 identities were gitignored and UNBACKED-UP, which is one machine failure away from a re-restart | §1 | REGENERATES (old ids spent) |
 | R3 | Re-derive (never trust the table) the Squads multisig / **vault PDA** / fee-receiver WSOL ATA. All three exist and survive the restart | §0 identities | SURVIVES |
 | R4 | 🔑 Patch the 4 authority constants — cp-swap `admin::ID` = an address **proven to sign AND pay on mainnet first** (the §0 post-mortem; the multisig account address bricked the last deploy), fee receiver = the vault's WSOL **token account**, both `declare_id!`s, tegridy-launch `deployer::ID` (fail-closed sentinel otherwise) | §2, §5b step 1 | — |
 | R5 | Build verifiably, **read the linker output**: an SBF stack-frame overflow is a linker WARNING that `cargo check` never surfaces — a warned build ships and then faults at runtime | §3 | — |
-| R6 | 🔑💰 Deploy both programs; move upgrade authority to the vault PDA | §4 | — |
-| R7 | 🔑 `create_amm_config` (cp-swap) and `initialize_global` (tegridy-launch). The three non-free parameters in §5b — creator share, migration reserve, **computed** graduation target — decide whether every launch lists at its curve price or gaps | §5, §5b | — |
+| R6 | 🔑💰 Deploy both programs; move upgrade authority to the **vault PDA** `GRMtSx…` (never the multisig account — it cannot sign, so the program would be frozen for good) | §4 | — |
+| R7 | 🔑 `create_amm_config` (cp-swap) and `initialize_global` (tegridy-launch), then hand `GlobalConfig.authority` to the vault PDA with `update-global --new-authority GRMtSx…`. The four non-free parameters in §5b — creator share, platform reserve, migration reserve, **computed** graduation target — decide whether every launch lists at its curve price or gaps | §5, §5b | — |
+| R7b | 🔑 `create-permission` (cp-swap admin): the `Permission` account for tegridy-launch's migration authority `["migauth"]`. **Without it every graduation fails `MigrationPermissionMissing` (6021)**, after the launch has already filled. Once per program, not per launch | §5c | — |
 | R8 | 🔑💰 Seed the flagship pool; graduation flows land in **our** `[b"launchpool", mint]` PDA (the canonical-PDA squat is why graduation never targets the stock cp-swap pool address) | §6 | — |
 | R9 | 🌐 Jupiter DEX-integration submission + frontend wiring (assistant task once addresses exist) | §8, §9 | — |
+| R10 | Per graduated launch: `migrate`, then `release-reserve` (both permissionless) sends that launch's platform reserve to the treasury's token account. A launch that never graduates never releases it | §5c | — |
 
 Two program-behavior notes an operator reading logs will want: creator fee legs FOLD into
-the trade instead of crediting a drained wallet (crediting into the 1..890,879-lamport
-rent band would revert the whole tx — the fold is the fix, not a bug), and lamport
+the trade instead of crediting a drained wallet (crediting into the band between 1 lamport
+and `minimum_balance(0)` — 650,240 lamports at today's rate — would revert the whole tx;
+the fold is the fix, not a bug), and lamport
 mutations reconcile per-CPI, so the first CPI in an instruction names every account it
 will touch. Both are inside the audited program; neither needs operator action.
 
@@ -46,27 +69,50 @@ will touch. Both are inside the audited program; neither needs operator action.
 
 ## 0. Prereqs
 
-### DEPLOY FLOAT — **~8.4 SOL**, MEASURED
+### DEPLOY FLOAT — **~6.0 SOL** at today's rent rate (re-quoted 2026-09-25)
 
-Corrected twice on 2026-08-08. Get this from a measurement, not from arithmetic:
+Mainnet rent today is **(bytes + 128) × 5,080 lamports**. Read on 2026-09-25 from
+`getMinimumBalanceForRentExemption`: 0 bytes → **650,240** (the old 890,880 figure is the
+previous rate), 165 bytes (a token account) → 1,488,440. Every rent figure in this runbook
+written before that date used the old rate of about 6,960 lamports per byte, so re-read
+the rate on the day rather than trusting any number here:
 
-| program | binary | on-chain account | rent |
-|---|---|---|---|
-| `tegridy_launch` | 514,320 B | 514,320 B | **3.5809 SOL** ← measured on devnet |
-| `raydium_cp_swap` | 691,640 B | 691,640 B | **4.8154 SOL** (same rate) |
-| fee-receiver WSOL ATA | | | 0.0020 SOL |
-| tx fees | | | ~0.0100 SOL |
-| | | **TOTAL** | **~8.4 SOL** |
+Both program rows are **Agave 2.3.0** builds with default features: the `Anchor.toml` and
+CI pin, which is what `anchor build` and the deploy artifact use. A newer toolchain builds a
+different size (3.1.11 made tegridy_launch about 4.4 KB smaller), so measure with the pinned
+one. Rent assumes an exact `--max-len` (ProgramData = binary + 45 B header).
 
-**Two wrong numbers preceded this one, both from reasoning instead of measuring:**
+| program | ProgramData account | rent at 5,080/byte |
+|---|---|---|
+| `raydium_cp_swap` | **691,672 B**, the current build (the 2026-08-08 deploy put ~701,925 B on chain, but the restart deploys a fresh binary; not the 793,824 in `solana-ci.yml` either) | **~3.51 SOL** |
+| `tegridy_launch` | **481,584 B**, measured 2026-09-26 from a build of this branch. That is about 32 KB SMALLER than the 2026-08 binary (514,320 B), because segmented curve mode was removed since; the platform reserve adds back about 25 KB (the devnet build went 456,432 → 481,680 B). Re-measure the final deployer-patched build | **~2.45 SOL** at an exact `--max-len` |
+| fee-receiver WSOL ATA | already exists (`2sa31zce…`) | 0 |
+| tx fees | | ~0.01 SOL |
+| | **TOTAL** | **~6.0 SOL** |
+
+**One copy of the rent, not two.** The upgradeable loader's deploy drains the write
+buffer's lamports back to the payer *before* it funds the ProgramData account, so the
+payer never holds both at once: a deploy needs about one copy of the program's rent plus
+fees. The comment in `.github/workflows/solana-ci.yml` ("peak = buffer + programdata",
+and the "peak float" rows its deploy-cost step prints) is wrong for the same reason; it
+overstates the float. That file is not edited here, so read its peak rows with this in
+mind. What DOES double the cost is a ProgramData account sized larger than the program:
+pass an explicit `--max-len` equal to the binary size, then check `solana program show`
+before trusting any figure.
+
+**Three wrong numbers preceded this one, all from reasoning instead of measuring:**
 
 1. *"~5 SOL rent"* per program — a guess written before the binaries existed.
 2. *"~17.3 SOL"* — I assumed `solana program deploy` reserves **2× the binary**, doubled
    the rent, and wrote it down. It does not. A real devnet deploy of the 514,320-byte
    binary produced `Data Length: 514320` and `Balance: 3.58087128 SOL` — **exact size**.
    The 2× reservation happens only when you pass `--max-len`.
+3. *"~8.4 SOL, MEASURED"* — this table's 2026-08-08 form. It priced a 691,640-byte cp-swap
+   at the old rent rate; what went on chain was ~701,925 bytes, and the rate has since
+   fallen to 5,080 lamports per byte.
 
-So: deploy at the default, and if a later build is larger, grow the account with
+So: deploy with no headroom (an explicit `--max-len` equal to the binary size), and if a
+later build is larger, grow the account with
 `solana program extend <PROGRAM_ID> <additional_bytes>` rather than paying for
 headroom up front.
 
@@ -77,7 +123,8 @@ solana rent $(stat -c%s target/deploy/tegridy_launch.so) --url mainnet-beta
 ```
 
 Rent is **recoverable** by closing the program — but NOT if §4's burn-the-upgrade-
-authority option is taken. Decide knowing that.
+authority option is taken, and closing SPENDS the program id forever (that is how both
+2026-08 ids were lost). Decide knowing that.
 
 - Diff-audit passed; findings (if any) fixed and re-diffed (CI `diff-guard` still green).
 - `solana` CLI installed; `solana config set --url mainnet-beta`.
@@ -98,6 +145,33 @@ Verified on mainnet 2026-08-01. The first two exist **now**; do not regenerate t
 Re-derive any vault address rather than trusting this table — the derivation is what binds
 it to the multisig. Checking "owner == System Program" is **not** sufficient; every
 ordinary wallet is System-owned too.
+
+> ### Which Squads address goes where
+>
+> Squads v4 signs every transaction it executes **as the vault PDA**
+> (`GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, System-owned, 0 bytes). The multisig
+> account `EVGSnRZ…` is a Squads-owned data account: nothing can ever sign as it. So every
+> role that must later SIGN goes to the vault:
+>
+> - **both programs' upgrade authority** (§4) — the loader's upgrade needs the authority's
+>   signature; set to the multisig account, the program can never be upgraded again, a burn
+>   nobody chose;
+> - **`GlobalConfig.authority`** (§5b) — `update_global` is `has_one = authority` with the
+>   authority as a `Signer`; set to the multisig account, `global` is frozen for good: no
+>   pause, no fee change, no AMM addresses. `update-global --new-authority` refuses a
+>   program-owned address for this reason;
+> - **`global.fee_recipient`** — the vault too; it receives trade fees, migration residuals
+>   and every released platform reserve, and only a signer can spend them. Its token
+>   account for each reserve is created with it as the owner, so a program-owned address
+>   would strand every reserve released to it. `init-global --fee-recipient` and
+>   `update-global --fee-recipient` both refuse a program-owned address, like
+>   `--new-authority`.
+>
+> The multisig account is the right address for exactly one thing: deriving the vault. It is
+> also a **2-of-2** today (threshold 2, 2 members, time lock 0, read 2026-09-25), so moving
+> anything the vault holds needs both keys; `docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md`
+> records doubts about the second member's ability to sign. Confirm both can sign before the
+> vault is made an authority of anything.
 
 > ### The `admin::ID` post-mortem — read before filling row 2
 >
@@ -189,13 +263,15 @@ program id — not the sentinels, not the devnet keys.
 ## 2b. 💰 Create the fee-receiver WSOL ATA — BEFORE any pool is created
 `create_pool_fee_reveiver::ID` is consumed as `InterfaceAccount<TokenAccount>`
 (`instructions/initialize.rs:131-135`). Hardcoding an address that does not yet exist
-compiles fine and then makes **every `create_pool` fail**. As of 2026-08-01 the ATA
-`2sa31zce…` does not exist.
+compiles fine and then makes **every `create_pool` fail**. The ATA `2sa31zce…` was created
+on 2026-08-08 and still exists (read 2026-09-25: Tokenkeg-owned, 165 bytes), so this step
+is only needed if the treasury changes.
 
 ```bash
 spl-token create-account So11111111111111111111111111111111111111112   --owner GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd --url mainnet-beta
 ```
-Costs ~0.00204 SOL of rent — this is **not** part of the deploy float (see §0). Verify it
+Costs ~0.0015 SOL of rent at today's rate (it cost 0.00204 at the 2026-08 rate) — this is
+**not** part of the deploy float (see §0). Verify it
 landed and is a token account:
 ```bash
 solana account 2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa --url mainnet-beta
@@ -210,10 +286,14 @@ Confirm the built program-id matches step 1 and that the sentinels are gone.
 
 ## 4. 🔑💰 Deploy + lock down the upgrade authority
 ```bash
-solana program deploy <artifact>.so --program-id keys/mainnet-program.json   # see §0 for real rent
-# Move upgrade authority to the multisig (or burn it if you want immutability):
-solana program set-upgrade-authority <PROGRAM_ID> --new-upgrade-authority <MULTISIG>
-solana program show <PROGRAM_ID>   # verify authority + last-deployed slot
+solana program deploy <artifact>.so --program-id keys/mainnet-program.json --max-len <binary bytes>   # see §0 for real rent
+# Move upgrade authority to the Squads VAULT PDA — NOT the multisig account EVGSnRZ…,
+# which can never sign an upgrade (§0 "Which Squads address"). The vault cannot sign
+# this handover either, hence the skip flag. Or burn it if you want immutability.
+solana program set-upgrade-authority <PROGRAM_ID> \
+  --new-upgrade-authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd \
+  --skip-new-upgrade-authority-signer-check
+solana program show <PROGRAM_ID>   # verify authority == GRMtSx… + last-deployed slot
 ```
 > Optionally publish a verifiable build so explorers show source == bytecode.
 
@@ -222,7 +302,7 @@ solana program show <PROGRAM_ID>   # verify authority + last-deployed slot
 > ⚠️ **`create_config` is signed by `admin::ID` and PAYS the AmmConfig rent from it.**
 > Whoever you baked in at step 2 must therefore be a system-owned, funded account. If
 > `admin::ID` is a Squads **vault**, this is a 2-of-N vault transaction and the vault needs
-> ~0.0026 SOL. If it is a plain wallet, it is an ordinary single-key transaction. If it is
+> ~0.0019 SOL (236 bytes at today's rate). If it is a plain wallet, it is an ordinary single-key transaction. If it is
 > the multisig **account**, this step is impossible and the only fix is a program upgrade —
 > which is exactly what happened here on 2026-08-08.
 
@@ -287,10 +367,38 @@ source fix is not in the deployed bytecode, so this step remains blocked on a pr
 - **`create_pool_fee` receiver** must be a **WSOL token account** (`create_pool_fee_reveiver::ID`
   from step 2 = the treasury's WSOL ATA), not a wallet.
 
-`create_config` sets **`protocol_owner = fund_owner = the admin caller`** (the multisig) — there
-is no treasury parameter. To hand fee-collection authority to a *distinct* treasury, call
+`create_config` sets **`protocol_owner = fund_owner = the admin caller`** (the `admin::ID` key) —
+there is no treasury parameter. To hand fee-collection authority to a *distinct* treasury, call
 `update_config` (param 3 = new protocol owner, param 4 = new fund owner) after this. Fees land at
 whatever token account you name at collection time regardless.
+
+### ⚖️ OWNER DECISION — who holds `admin::ID`, knowing what it can do
+
+`admin::ID` is baked into the binary, so choosing it is choosing, for the life of the
+program, who holds these powers. They reach **graduated launches**, not just fee settings,
+and burning the LP does not protect a pool from any of them:
+
+- **Freeze any pool** — `update_pool_status` sets a pool's status bits (deposit, withdraw,
+  swap) with no other check. That includes every graduated launch's pool, whose LP is burned:
+  burned LP means nobody can pull the liquidity, not that nobody can stop the trading.
+- **Close the migration permission** — `close_permission_pda` deletes the account from §5c.
+  Every graduation then fails `MigrationPermissionMissing` (6021) until it is re-created.
+- **Change `create_pool_fee`** — `update_config` param 5, with no bound. Migration pays that
+  fee out of each curve's migration reserve, which was snapshotted at creation, so a fee above
+  `migration_reserve − 42,156,720` bricks the graduation of **every pending curve** at once.
+  (`create-amm-config` checks this ceiling at creation; nothing checks it on a later update.)
+- **Disable pool creation** — `update_config` param 6 sets `disable_create_pool`, and
+  `initialize_with_permission` then refuses every pool, so every graduation fails until it is
+  set back. Same effect as closing the permission.
+- **Reprice every pool on the config** — `update_config` params 0 and 7 change the trade fee
+  and the creator fee, and swaps read both live. The only bound is trade + creator < 100%. This
+  reaches graduated burned-LP pools too.
+- **Sweep accrued protocol and fund fees** to any recipient (the fallback collector).
+
+Today the source bakes a single operator-held key (the comment on `admin::ID` in
+`programs/cp-swap/src/lib.rs` says why: to prove graduation before a 2-of-N ceremony). A
+single key holding the powers above is a decision the owner makes explicitly, with a
+date to move it — not a default the build inherits. Moving it later is a program upgrade.
 
 ## 5b. 🔑 Deploy + configure `tegridy-launch` (the bonding curve)
 
@@ -318,9 +426,14 @@ A **separate program** from cp-swap, deliberately — folding it in would break
 1. Generate its own mainnet keypair, then patch **both** `declare_id!(...)` and
    `deployer::ID` (the `#[cfg(not(feature = "devnet"))]` arm, which ships a
    fail-closed System-Program sentinel so a mainnet binary refuses to initialize
-   until you set a real key). Build, deploy, move upgrade authority to the multisig.
-2. Call `initialize_global`. **Three parameters are not free choices — get them
-   wrong and the launcher misbehaves in ways nothing will warn you about later.**
+   until you set a real key). Build, deploy, move upgrade authority to the Squads
+   **vault PDA** `GRMtSx…` (§4 — never the multisig account).
+2. Call `initialize_global` (`init-global` on the operator harness). **Four parameters
+   are not free choices — get them wrong and the launcher misbehaves in ways nothing
+   will warn you about later.** Then hand `GlobalConfig.authority` to the vault PDA:
+   `update-global --new-authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`. The
+   deployer key signs `initialize_global`, so until this handover a single key holds
+   the protocol.
 3. ~~Publish the segmented curve with `set-curve-segments`.~~ **REMOVED 2026-08-23.**
    Segmented (Meteora-shaped) mode is gone from the program — `segmented.rs` and the
    vendored Raydium CLMM math were deleted before the redeploy. The command, the mode
@@ -329,7 +442,15 @@ A **separate program** from cp-swap, deliberately — folding it in would break
    Every launch is ConstantProduct. **Renumber nothing below — the step count changed,
    the order did not.**
 
-### `creator_fee_share_bps` — the volume magnet; recommended **4_800** (48% of the fee)
+### `creator_fee_share_bps` — the volume magnet; settled at **5_000** (50% of the fee)
+
+> **Settled 2026-08-23: `creator_fee_share_bps = 5000`** with `trade_fee_bps = 100` —
+> creator nets 50 bps, protocol nets 50 bps (`docs/TODO_OPERATOR.md`, "The curve numbers
+> are settled — a flat 100 bps, 50/50 split"). This section used to recommend 4,800. Its
+> whole argument was parity with the Meteora partner rail, and the same day the owner
+> retired every Meteora rail ("0 Meteora"), so there is nothing left to be at parity with.
+> The 4,800 reasoning below is kept as the record of why it was once recommended; do not
+> pass 4800.
 
 The creator's share OF THE TRADE FEE, paid instantly and non-custodially to the
 launch creator on every buy and sell (2026-08-02 economics synthesis). Every
@@ -351,12 +472,11 @@ like-for-like comparison.
 > The EVM `TegridyCurveLauncher` runs a THREE-way split — 40% creator / 25% Jungle
 > Bay treasury / 35% protocol — because the owner wanted an explicit on-chain
 > treasury stream and the EVM contract has the surface for it. Solana STAYS 2-way
-> at 48/52 on purpose: the Rust program has one house bucket, and 48% is held at
-> Meteora parity for the checkable claim above (a Rust treasury bucket is a
-> program change + re-audit, out of scope for the restart). On Solana the treasury
-> funding therefore comes OUT OF the 52% protocol share off-chain — same three
-> stakeholders funded, one fewer on-chain bucket. If you later add a Solana
-> treasury bucket, align it to the EVM 40/25/35 and drop the parity claim.
+> at 50/50 on purpose (the settled value above): the Rust program has one house
+> bucket (a Rust treasury bucket is a program change + re-audit, out of scope for
+> the restart). On Solana the treasury funding therefore comes OUT OF the 50%
+> protocol share off-chain — same three stakeholders funded, one fewer on-chain
+> bucket. If you later add a Solana treasury bucket, align it to the EVM 40/25/35.
 
 Snapshotted per launch like the fee itself; `update_global` moves future launches
 only. Bounded at 10_000 (100% of the fee).
@@ -366,7 +486,52 @@ only. Bounded at 10_000 (100% of the fee).
 uses a governable `GlobalConfig` field. The field is kept because the per-curve
 snapshot already delivers the spec's actual goal — no signature can reprice a
 launch people have bought into — while leaving the ratio tunable for FUTURE
-launches without a program upgrade. The spec's value (4,800) is adopted verbatim.
+launches without a program upgrade. The spec's value (4,800) was adopted verbatim, and
+superseded by the settled 5,000 above.
+
+### ⚠️ `platform_reserve_bps` — **369** (3.69% of each launch's supply), and it must be disclosed
+
+The owner's intent: keep the 3.69% the platform takes at launch, the same as the EVM
+launcher. How the program does it:
+
+- **Carved at `create_launch`.** `floor(supply × bps / 10,000)` tokens stay in the curve's
+  own vault but outside `real_token_reserves`. The curve can never sell them, and migration
+  never puts them in the pool. At 369 bps on a 1e15 supply that is 36,900,000,000,000 base
+  units.
+- **Paid out only after graduation.** Once a launch has migrated, anyone can call
+  `release_platform_reserve` (`release-reserve` on the harness) to send it, once, to
+  `global.fee_recipient`'s token account. A launch that never graduates keeps it locked
+  forever. This matches the EVM launcher, which carves at create and transfers at
+  graduation, and has the same 10% cap (`MAX_PLATFORM_RESERVE_BPS = 1000`).
+- **Snapshotted per launch as an amount**, like the fee; `update_global` moves new launches
+  only. The **recipient is not snapshotted**: it is read at release time, so rotating
+  `fee_recipient` redirects every graduated-but-unreleased reserve.
+- **Required, no default** on `init-global`, for the same reason as the creator share.
+
+**Scale `initial_virtual_token` with it, at `initialize_global`.** The program runs every
+config check against the curve supply (supply minus the reserve). Pass
+`initial_virtual_token × (1 − b)`: for the operator example, 1,073,000,000,000,000 becomes
+**1,033,406,300,000,000**, and the graduation target (and the SOL raise) stays the same to the
+lamport. Leave it unscaled and the pool lists at **10,488 bps** of the final curve price —
+inside the ±5% band, so `initialize_global` does NOT reject it, and every pool opens ~4.9%
+above the curve. `check-config` prints the recipe and warns when the target is the no-reserve
+book's. `update_global` has no argument for `initial_virtual_token`, so this works on day one
+only; a later reserve change must be absorbed by virtual SOL, the target or the migration
+reserve (and `update_global` re-runs the economics check even for a reserve-only change).
+
+With the scaled book, a graduating launch splits **sold 56.11% / pool 40.20% / reserve
+3.69%** of supply. The reserve is about **9.2% of the pool's token side**: selling all of it
+into the pool at a ~75 SOL target returns ~6.3 SOL and leaves the price at ~84% of listing.
+
+**Disclosure — do not launch without it.** The launch page's terms must say it in plain
+words, e.g. *"Platform reserve: 3.69% of supply, held by the program, released to the
+treasury only if the launch graduates, never sold on the curve."* A holder scanner will
+show the treasury holding 3.69% of every graduated token.
+
+⚖️ **Owner decision — what happens after release.** Once released, the program cannot stop
+the treasury selling. The EVM intent for its reserve is LP incentives, bounties and bribes:
+publish that rule, or put released reserves into a vesting lock. The recipient is the Squads
+vault, a 2-of-2 today (§0), so both keys are needed to move any of it.
 
 ### ⚠️ `migration_reserve_lamports` — minimum **192,156,720** (~0.1922 SOL)
 
@@ -416,6 +581,11 @@ Vs, Vt, S, R = D(30_000_000_000), D('1.073e15'), D('1e15'), D(500_000_000)
 print(int((Vs*(Vt+S)*(Vs+R)/Vt).sqrt() - Vs - R))   # -> 11544610844
 ```
 
+`S` there is the **curve** supply — the whole supply minus the platform reserve — because
+that is what the program checks against. With a reserve, either scale `Vt` as in the
+platform-reserve section above or recompute `T` on the curve supply; `check-config` does
+both sums.
+
 `curve::continuity_target` is the same calculation on-chain. Any target you actually
 want stays reachable — scale `initial_virtual_sol` with it (they are proportional),
 and retune both together via `update_global`.
@@ -435,6 +605,44 @@ and has already cost one debugging cycle here.
 4. Sanity-check on devnet first: create a launch, buy it out, migrate, confirm LP
    supply is zero and the pool exists at `[b"launchpool", mint]` — **our** PDA, not
    cp-swap's canonical derivation, which anyone can occupy to brick a graduation.
+   Then release the reserve and confirm the treasury's token account received exactly
+   `platform_reserve_tokens`, and that a second release fails (6023).
+
+## 5c. 🔑 The migration permission, then per-launch graduation and release
+
+**Before any launch can graduate: cp-swap's `Permission` account for our migration
+authority.** Graduation calls cp-swap's `initialize_with_permission`, which requires an
+existing `Permission` account at `["permission", payer]` — and the payer there is
+tegridy-launch's migration authority, the PDA `["migauth"]` (ONE per program, no mint).
+Only cp-swap's `admin::ID` can create it, and it pays the rent (~0.0021 SOL at today's
+rate). Without it **every `migrate_to_amm` fails `MigrationPermissionMissing` (6021)** —
+discovered when the first launch fills, not before. The 2026-08-08 sequence had no such
+step. (Until 2026-09-25 the frontend also derived the authority as `["migauth", mint]`,
+which is not the address the program checks; the harness now refuses to build against a
+derivation that disagrees with the program's.)
+
+```bash
+SOLANA_RPC_URL=… OPERATOR_KEYPAIR=/abs/path/admin.json \
+node scripts/tegridy-launch-operator.mjs create-permission \
+  --cp-swap-program <cp-swap id> --program-id <tegridy-launch id>
+```
+
+It simulates, then prints a partial-signed transaction; `--send` broadcasts. It refuses on
+the same signer checks as `create-amm-config` (`admin::ID` in the deployed bytecode,
+System-owned, funded), and does nothing if the account already exists. `status` reads the
+account and names it as the next step while it is missing.
+
+**Per launch, once it is funded: `migrate`.** Permissionless. The harness sets the
+400,000 compute-unit limit, reads every precondition first (not paused, AMM set, funded to
+`target + reserve`, the permission account, a WSOL `--create-pool-fee-account`), and
+simulates unless `--send`. The payer fronts two token-account rents plus the migration
+authority's **seed top-up** to `minimum_balance(0)` (650,240 lamports today) and gets it
+back at the end; the unspent migration reserve goes to `fee_recipient`, never the caller.
+
+**Per launch, after it graduates: `release-reserve`.** Permissionless. Sends that
+launch's platform reserve from the curve vault to `global.fee_recipient`'s token account,
+creating the account if needed (the payer covers ~0.0015 SOL of rent). Fails 6022 before
+graduation and 6023 the second time. Simulates unless `--send`.
 
 ## 6. 🔑💰 Create + seed a pool
 Via `client/` (`initialize` / `initialize_customizable`): pick the Solana-native pair, seed
@@ -442,7 +650,7 @@ with treasury capital. Withdrawable — you keep the LP position (no permanent l
 deep enough to stay above Jupiter's routing threshold (§8).
 
 ## 7. 🔑 Collect fees (recurring)
-`collect_protocol_fee` → treasury (multisig signs). Protocol fee accrues on every swap.
+`collect_protocol_fee` → treasury (the fee owner signs — through the vault if it is the vault). Protocol fee accrues on every swap.
 
 ## 8. 🌐 Get routed + drive volume
 - **Submit to Jupiter's DEX integration** — until then retail won't auto-route to our AMM.
@@ -459,6 +667,6 @@ fee-wallet env var).
 ---
 
 ### Rollback / safety
-- Program upgrade authority at the multisig can patch a bug (or was burned for immutability).
+- Program upgrade authority at the Squads vault PDA can patch a bug (or was burned for immutability).
 - Positions are **withdrawable** — treasury can pull capital from any pool at any time.
 - If a pool underperforms, withdraw + redeploy capital elsewhere; the program keeps running.

@@ -7,9 +7,9 @@ import { PublicKey } from '@solana/web3.js';
  * mainnet 2026-08-08 and CLOSED on 2026-08-13; its ProgramData account is
  * deleted, which makes the id permanently SPENT — Solana never lets a closed
  * upgradeable program id hold a program again. The constant below is a RECORD
- * of where the venue ran, never a deploy target. A restart declares a new id
- * under a fresh keypair, and `LIVE_PROGRAM_ID` picks it up from env with no
- * code change.
+ * of where the venue ran, never a deploy target. The restart's new id is
+ * `REGISTERED_PROGRAM_ID` (declared in source 2026-09-26; no program there yet), and
+ * `LIVE_PROGRAM_ID` picks it up from env, with no code change, once it is.
  *
  * The same trap the bonding-curve client documents applies here and is the
  * reason `probeDeployment` in read.ts reads ProgramData and not the program
@@ -43,8 +43,17 @@ import { PublicKey } from '@solana/web3.js';
 export const SPENT_PROGRAM_ID = new PublicKey('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
 
 /**
- * The program id this client talks to. Empty until the operator redeploys under
- * a fresh keypair and publishes it as `VITE_SOLANA_CPSWAP_PROGRAM`.
+ * REGISTERED, NOT DEPLOYED (as of 2026-09-26). The fork's committed non-devnet
+ * `declare_id!` for the restart, a fresh keypair chosen by owner ruling 2026-09-25;
+ * absent on mainnet when read that day. A record, not a default: `LIVE_PROGRAM_ID`
+ * stays env-gated, so no shipped build talks to it until the operator has deployed
+ * it and published it as `VITE_SOLANA_CPSWAP_PROGRAM`.
+ */
+export const REGISTERED_PROGRAM_ID = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
+
+/**
+ * The program id this client talks to. Empty until the operator deploys
+ * `REGISTERED_PROGRAM_ID` and publishes it as `VITE_SOLANA_CPSWAP_PROGRAM`.
  *
  * Deliberately NOT defaulted to `SPENT_PROGRAM_ID`: a default that points at a
  * spent id is how a surface ends up quoting against a program that cannot
