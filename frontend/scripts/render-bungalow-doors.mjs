@@ -4,8 +4,8 @@
 // renders, so a crawler reads the door and a visitor sees no swap when React takes over.
 // FAIL-LOUD: every transform matches exactly once or the build dies. DOORS is plain JS
 // (no TS loader here); src/lib/bungalowDoors.test.ts pins it to the registry and pageArt.
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { derivedUrl, widthsForEntry } from './derivative-url.mjs';
 
@@ -278,8 +278,15 @@ export function transform(html, door, manifest = JSON.parse(readFileSync(MANIFES
   return out;
 }
 
-const cliPath = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
-if (process.argv[1] && cliPath(resolve(process.argv[1])) === cliPath(fileURLToPath(import.meta.url))) {
+// Run only when launched, not when a test imports DOORS. Compare real paths: Node reports
+// import.meta.url through links, argv[1] as typed, and a mismatch must never skip silently.
+const cliPath = (p) => { const r = realpathSync(p); return process.platform === 'win32' ? r.toLowerCase() : r; };
+const self = fileURLToPath(import.meta.url);
+const launched = process.argv[1] && basename(process.argv[1]) === basename(self);
+if (launched && cliPath(resolve(process.argv[1])) !== cliPath(self)) {
+  throw new Error(`[bungalow-doors] launched as ${process.argv[1]} but this file is ${self}: refusing to skip the door pages.`);
+}
+if (launched) {
   const shellPath = resolve(DIST, 'index.html');
   if (!existsSync(shellPath)) {
     throw new Error('[bungalow-doors] dist/index.html not found: run after `vite build`.');
