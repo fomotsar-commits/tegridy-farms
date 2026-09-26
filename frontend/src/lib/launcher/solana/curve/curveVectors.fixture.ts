@@ -33,21 +33,18 @@
 // in Rust and used to return `ok(13333)` here. These sections now sample the full
 // u64 range and pin the u128 ceiling from both sides.
 //
-// HOW TO REGENERATE (Windows dev box, no SBF toolchain needed — curve.rs is
-// deliberately Solana-free so it builds with plain rustc, see curve.rs:1-3)
+// HOW TO REGENERATE (plain rustc, no SBF toolchain: curve.rs is Solana-free)
 //
 //   cd solana/tegridy-amm
 //   cp programs/tegridy-launch/src/curve.rs /tmp/curve_pub.rs
-//   # the generator calls `fee_up`, which is private in the original:
-//   sed -i 's/^fn fee_up(/pub fn fee_up(/' /tmp/curve_pub.rs
-//   diff /tmp/curve_pub.rs programs/tegridy-launch/src/curve.rs   # must be that ONE line
 //   cp tools/gen_curve_vectors.rs /tmp/ && cd /tmp
-//   rustc --edition 2021 -O -o gen gen_curve_vectors.rs && ./gen
+//   rustc --edition 2021 -O --diagnostic-width=200 -o gen gen_curve_vectors.rs
+//   ./gen | tail -n +2     # drop its GENERATED line, splice the rest under this header
 //
-// Then splice the output under this header. Keep the header.
-//
-// Generated 2026-08-01 against curve.rs at commit 3cc2b0ba, whose own
-// `#[cfg(test)] mod tests` was run in the same session: 23 passed, 0 failed.
+// The width flag avoids a diagnostics ICE reported on rustc 1.94 and is harmless
+// elsewhere. Regenerated in full 2026-09-26 against curve.rs as it stands after the
+// reserve-at-create merge (94eb0065). The output is spliced unedited, every section;
+// curve.rs's own `#[cfg(test)] mod tests` ran the same session: 42 passed.
 
 /**
  * One case: `[inputs, outputs]` on success, `[inputs, errorName]` on failure.
@@ -1248,7 +1245,7 @@ export const QUOTE_SELL_VECTORS: readonly CurveVector[] = [
   [['102519578939502','25','579270678319','10000'],'FeeTooHigh'],
   [['918519565659437488','2767745768','189639','10000'],'FeeTooHigh'],
   [['527480436546031','112514025519567376','2095488229985715','10000'],'FeeTooHigh'],
-  [['2','3621528399','136688427815','999'],['1','1','0']],
+  [['2','3621528399','136688427815','999'],'ZeroAmount'],
   [['5706105042740729380','14637952495880868','16','10000'],'FeeTooHigh'],
   [['15','17124','505676','300'],['14','1','13']],
   [['1305492795342023','158217268868','4148039788698175','300'],['1305443002274211','39163290068227','1266279712205984']],
@@ -1343,7 +1340,7 @@ export const QUOTE_SELL_VECTORS: readonly CurveVector[] = [
   [['242796283','224054365394434509','1042985','100'],'ZeroAmount'],
   [['126829638020833','1169815355996878513','223799196','0'],['24263','0','24263']],
   [['278754351881906490','3873','389012','9999'],'FeeTooHigh'],
-  [['5','23960854114085','14538921647537','999'],['1','1','0']],
+  [['5','23960854114085','14538921647537','999'],'ZeroAmount'],
   [['24577320439399331','66','175078888','9999'],'FeeTooHigh'],
   [['90586204','336','829114920677','100'],['90586203','905863','89680340']],
   [['6250502677','750','553113','25'],['6242038712','15605097','6226433615']],
@@ -1555,7 +1552,7 @@ export const QUOTE_SELL_VECTORS: readonly CurveVector[] = [
   [['217170882228','579522853102','138','9999'],'FeeTooHigh'],
   [['2416557427774','4521687458452346758','2','300'],'ZeroAmount'],
   [['1914419277','2738085','3784063393901498','1001'],'FeeTooHigh'],
-  [['1868521638861','19044523296083','12','1'],['1','1','0']],
+  [['1868521638861','19044523296083','12','1'],'ZeroAmount'],
   [['8008048619366','9004765920258398911','13955612446506','300'],['12410877','372327','12038550']],
   [['29','22940587073001','269','999'],'ZeroAmount'],
   [['41707955884068564','7239','444805094934702','1'],['41707955883389786','4170795588339','41703785087801447']],
@@ -1713,7 +1710,7 @@ export const QUOTE_SELL_VECTORS: readonly CurveVector[] = [
   [['33','659239','769292730395','10000'],'FeeTooHigh'],
   [['1290226842','37157149266','2426','9999'],'FeeTooHigh'],
   [['11746872213','19663936824335','82','100'],'ZeroAmount'],
-  [['1723766150','50318027780044','50107','300'],['1','1','0']],
+  [['1723766150','50318027780044','50107','300'],'ZeroAmount'],
   [['64898849','142041833405976445','2210476175382380681','1000'],['60980344','6098035','54882309']],
   [['419638783149242','56','126041','300'],['419452420493061','12583572614792','406868847878269']],
   [['102627477480821','240884844930','10878','100'],['4634503','46346','4588157']],
@@ -1804,7 +1801,7 @@ export const QUOTE_SELL_VECTORS: readonly CurveVector[] = [
   [['2004','209','28039292637','999'],['2003','201','1802']],
   [['161907125754155642','4180851335880','285100423','100'],['11040010471420','110400104715','10929610366705']],
   [['144773193916037944','100901','523753772825885','10000'],'FeeTooHigh'],
-  [['12238100797','199937188267','20','100'],['1','1','0']],
+  [['12238100797','199937188267','20','100'],'ZeroAmount'],
   [['232553','137','41992935183','10000'],'FeeTooHigh'],
   [['22','13','3','1'],['4','1','3']],
   [['3681','3930','89253','9999'],'FeeTooHigh'],
@@ -1831,7 +1828,7 @@ export const QUOTE_SELL_VECTORS: readonly CurveVector[] = [
   [['1','38009079716634','1197814','300'],'ZeroAmount'],
   [['395114782920280','2191689290304801301','140496257018525995','25'],['23802629321967','59506573305','23743122748662']],
   [['218054601097','113185401050','8656471895','10000'],'FeeTooHigh'],
-  [['123898','502970592591336','6368406151','100'],['1','1','0']],
+  [['123898','502970592591336','6368406151','100'],'ZeroAmount'],
   [['914245','8144108268306538085','1501','1000'],'ZeroAmount'],
   [['3352872398023','6','1','999'],['478981771146','47850278938','431131492208']],
   [['1511145','4561063731759','3661833','1001'],'FeeTooHigh'],
@@ -3887,14 +3884,6 @@ export const CONTINUITY_TARGET_VECTORS: readonly CurveVector[] = [
   [['1','1','0','0'],'ZeroAmount'],
   [['1','1','1','0'],['0']],
 ];
-
-// `curve_supply` — the platform-reserve carve. Appended 2026-09-25 from the
-// generator this block came with; it is LAST on the RNG stream, so adding it moved
-// no row above. Only this block was spliced in. The blocks above were NOT
-// regenerated: a full run today changes 6 quoteSell rows, because curve.rs now
-// rejects a sell whose whole proceeds go to the fee (ZeroAmount, b990f8b2) and
-// math.ts still returns ok with 0 out. That drift predates the reserve and is
-// left for its own change.
 export const CURVE_SUPPLY_VECTORS: readonly CurveVector[] = [
   [['220383685766155','1'],['220361647397579','22038368576']],
   [['871309283099317008','1000'],['784178354789385308','87130928309931700']],

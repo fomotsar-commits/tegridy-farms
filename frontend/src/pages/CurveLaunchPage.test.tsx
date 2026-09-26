@@ -411,6 +411,15 @@ describe('trade quote', () => {
     expect(screen.getByText(/decimals could not be read, so this is in raw base units/i)).toBeInTheDocument();
   });
 
+  it('refuses a sell the fee would eat whole, rather than quoting "you receive 0 SOL"', () => {
+    // 60,000 base units gross 1 lamport on this curve, and the 1% fee rounds up to it.
+    renderView(deployedCurve({ realSolReserves: 10n * SOL }));
+    fireEvent.click(screen.getByRole('button', { name: /^sell$/i }));
+    fireEvent.change(screen.getByLabelText(/Amount of tokens to sell/i), { target: { value: '0.00006' } });
+    expect(screen.getByText(/resolves to zero/i)).toBeInTheDocument();
+    expect(screen.queryByText('You receive')).not.toBeInTheDocument();
+  });
+
   it('surfaces a rejected quote as the program\'s own reason', () => {
     renderView(deployedCurve({ realSolReserves: 1n, realTokenReserves: 1_000n }));
     fireEvent.change(screen.getByLabelText('Spend (SOL)'), { target: { value: '50' } });

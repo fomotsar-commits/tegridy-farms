@@ -11,14 +11,12 @@
 //
 // RUN (needs only plain rustc — curve.rs is deliberately Solana-free, curve.rs:1-3):
 //   cp programs/tegridy-launch/src/curve.rs /tmp/curve_pub.rs
-//   sed -i 's/^fn fee_up(/pub fn fee_up(/' /tmp/curve_pub.rs   # it is private upstream
-//   diff /tmp/curve_pub.rs programs/tegridy-launch/src/curve.rs  # must be that ONE line
 //   cp tools/gen_curve_vectors.rs /tmp/ && cd /tmp
-//   rustc --edition 2021 -O -o gen gen_curve_vectors.rs && ./gen
-// Splice the output under the existing header in curveVectors.fixture.ts.
-//
-// curve_pub.rs is that byte-identical copy with `fee_up` made `pub`; the `diff`
-// above is the check that it is a copy and not a rewrite.
+//   rustc --edition 2021 -O --diagnostic-width=200 -o gen gen_curve_vectors.rs
+//   ./gen | tail -n +2
+// Splice that under the existing header in curveVectors.fixture.ts. curve_pub.rs is
+// an unedited copy: everything called here is `pub` in curve.rs. `err_name` must
+// name every `CurveError` variant or this does not compile.
 #[path = "curve_pub.rs"]
 mod curve;
 use curve::*;

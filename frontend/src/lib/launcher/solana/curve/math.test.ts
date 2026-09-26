@@ -211,6 +211,22 @@ describe('curve math — the properties curve.rs pins', () => {
     expect(quoteBuy(V_SOL, V_TOK, 1n, MAX_FEE_BPS)).toEqual({ ok: false, error: 'ZeroAmount' });
   });
 
+  it('a sell whose whole proceeds go to the fee is rejected (curve.rs:1004-1025)', () => {
+    // Reserves at the live graduation point: a 35,472-unit sell grosses 1 lamport,
+    // and 100 bps rounds up to that same lamport.
+    const effSol = 41_871_942_308n;
+    const effTok = 1_485_242_000_000_000n;
+    expect((effSol * 35_472n) / (effTok + 35_472n), 'this case needs gross == 1').toBe(1n);
+    expect(quoteSell(effSol, effTok, 35_472n, 100n)).toEqual({ ok: false, error: 'ZeroAmount' });
+    expect(quoteSell(effSol, effTok, 35_472n, 0n).ok).toBe(true);
+    // The property, over every generated input: an accepted sell always pays something.
+    for (const [inputs] of QUOTE_SELL_VECTORS) {
+      const [s, t, i, f] = inputs.map((v) => BigInt(v));
+      const q = quoteSell(s!, t!, i!, f!);
+      if (q.ok) expect(q.value.lamportsOut, inputs.join(',')).toBeGreaterThan(0n);
+    }
+  });
+
   it('the entire token reserve can never be taken (curve.rs:541-553)', () => {
     for (const reserves of [1_000n, 1_000_000n, V_TOK]) {
       for (const spend of [U64_MAX / 4n, U64_MAX / 2n]) {
@@ -515,6 +531,15 @@ describe('quoteSellOnCurve', () => {
       ok: false,
       error: 'SlippageExceeded',
     });
+  });
+
+  it('a sell the fee eats whole is ZeroAmount, even at a zero slippage floor', () => {
+    // The trade page quotes with the default floor of 0, so nothing downstream of
+    // quoteSell stops a "you receive 0 SOL" quote. Guard: with no fee it grosses 1.
+    const dust = 60_000n;
+    const free = quoteSellOnCurve({ ...held, tradeFeeBps: 0n }, dust);
+    expect(free.ok && free.value.grossLamports).toBe(1n);
+    expect(quoteSellOnCurve(held, dust)).toEqual({ ok: false, error: 'ZeroAmount' });
   });
 
   it('quotes from the CURVE fee snapshot — a different global fee changes nothing', () => {
