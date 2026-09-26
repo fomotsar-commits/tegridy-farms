@@ -306,7 +306,6 @@ export const IX_DISCRIMINATOR = {
   buy: Uint8Array.from([102, 6, 61, 18, 1, 218, 235, 234]),
   sell: Uint8Array.from([51, 230, 133, 164, 1, 127, 131, 173]),
   migrateToAmm: Uint8Array.from([207, 82, 192, 145, 254, 207, 145, 223]),
-  releasePlatformReserve: Uint8Array.from([128, 102, 63, 208, 162, 203, 156, 180]),
 } as const;
 
 /**
@@ -332,7 +331,6 @@ export const EVENT_DISCRIMINATOR = {
   LaunchCreated: Uint8Array.from([59, 38, 190, 230, 33, 34, 89, 20]),
   Traded: Uint8Array.from([225, 202, 73, 175, 147, 43, 160, 150]),
   Graduated: Uint8Array.from([51, 241, 66, 50, 140, 245, 156, 192]),
-  PlatformReserveReleased: Uint8Array.from([143, 33, 128, 143, 197, 116, 19, 134]),
 } as const;
 
 // ── errors (errors.rs:5-48) ──────────────────────────────────────────────────
@@ -365,6 +363,8 @@ export const LAUNCH_ERROR_CODES = {
   6019: 'AwaitingMigration',
   6020: 'CreatorMismatch',
   6021: 'MigrationPermissionMissing',
+  // 6022 and 6023 are RETIRED: nothing returns them since the platform reserve
+  // moved to create_launch. They keep their slots so 6024 keeps its number.
   6022: 'PlatformReserveLocked',
   6023: 'PlatformReserveAlreadyReleased',
   6024: 'CpSwapProgramNotPinned',
@@ -566,9 +566,10 @@ export interface GlobalConfig {
   paused: boolean;
   bump: number;
   /**
-   * Share of each NEW launch's supply the protocol holds back, in bps of
-   * `tokenTotalSupply`. Capped at 1000 (10%). A live launch keeps the amount it
-   * was created with — see {@link BondingCurve.platformReserveTokens}.
+   * Share of each NEW launch's supply paid to the platform treasury when the
+   * launch is created, in bps of `tokenTotalSupply`. Capped at 1000 (10%). A live
+   * launch keeps the amount it was created with — see
+   * {@link BondingCurve.platformReserveTokens}.
    */
   platformReserveBps: bigint;
 }
@@ -605,16 +606,18 @@ export interface BondingCurve {
   pool: PublicKey;
   bump: number;
   /**
-   * The platform reserve, in raw token units, fixed at creation. These tokens sit
-   * in the curve's vault but OUTSIDE `realTokenReserves`: the curve never sells
-   * them and migration never puts them in the pool. After graduation anyone can
-   * call `release_platform_reserve`, which sends them to the treasury once.
+   * The platform reserve, in raw token units, fixed at creation. `create_launch`
+   * sends these tokens to the platform treasury (the token account of
+   * `global.fee_recipient`) in the same instruction that opens the curve. They
+   * are never in `realTokenReserves` or the curve's vault: the curve never sells
+   * them and migration never puts them in the pool.
    *
    * So tokens sold = total supply − this − `realTokenReserves`. Leaving this out
    * counts the reserve as sold.
    */
   platformReserveTokens: bigint;
-  /** Set once the reserve has gone to the treasury. Never true before `complete`. */
+  /** True from creation: `create_launch` pays the reserve and sets it. Kept so the
+   *  account layout does not move. */
   platformReserveReleased: boolean;
 }
 

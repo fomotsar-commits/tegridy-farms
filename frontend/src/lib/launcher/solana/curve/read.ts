@@ -507,8 +507,11 @@ export interface CurveProgress {
    *
    * Needs `token_total_supply` from `global` — the curve does not carry it — AND
    * the curve's own `platformReserveTokens`, so it is `null` without either. The
-   * reserve sits in the same vault but is never sold; leaving it out would count
-   * 3.69% of the supply as sold before anyone had bought a token.
+   * reserve goes to the platform treasury at creation and is never sold on the
+   * curve; leaving it out would count 3.69% of the supply as sold before anyone had
+   * bought a token. (If the treasury sells some of it back into the curve,
+   * `real_token_reserves` can exceed `supply − reserve`; the guard then returns
+   * `null`, never a wrong number.)
    * Divide by the MINT's decimals, which are not stored on either account.
    */
   tokensSold: bigint | null;

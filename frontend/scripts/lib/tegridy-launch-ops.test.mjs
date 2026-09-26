@@ -471,9 +471,11 @@ describe('the operator commands call the gates', () => {
     for (const n of switches) expect(set.has(n), n).toBe(true);
   });
 
-  it('migrate and release-reserve tell simulate which program is ours', () => {
+  it('migrate tells simulate which program is ours', () => {
     expect(body('cmdMigrate')).toMatch(/simulate\(connection, tx, 'migrate_to_amm', \{ launchProgramId: pid \}\)/);
-    expect(body('cmdReleaseReserve')).toMatch(/simulate\(connection, tx, 'release_platform_reserve', \{ launchProgramId: pid \}\)/);
+    // The platform reserve is paid inside create_launch (owner decision 2026-09-26),
+    // so there is no release command left to drive.
+    expect(src).not.toMatch(/cmdReleaseReserve|release_platform_reserve|releasePlatformReserveIx/);
     expect(body('simulate')).not.toMatch(/L\.launchErrorName\(custom\)/);
   });
 });

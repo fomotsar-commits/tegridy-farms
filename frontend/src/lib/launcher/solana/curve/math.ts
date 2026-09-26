@@ -433,8 +433,9 @@ export function continuityTarget(
  * never gets fewer tokens than the exact share would leave it.
  *
  * Every config-time check must be run against `curveTokens`, not the whole supply:
- * the reserve sits in the curve's vault but is never sold on the curve and never
- * goes into the pool, so to the pricing math it does not exist.
+ * the reserve is paid to the platform treasury when the launch is created, is never
+ * sold on the curve and never goes into the pool, so to the pricing math it does not
+ * exist.
  */
 export function curveSupply(
   totalSupply: bigint,

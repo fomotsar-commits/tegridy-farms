@@ -14,6 +14,16 @@ first (`deploy-devnet.sh`).
 > below — several of them are the steps that produced that outcome, and they have been
 > corrected in place rather than deleted, so the trap stays visible.
 
+> 🛑 **SUPERSEDED BINARY (later on 2026-09-26): the platform reserve is now paid AT LAUNCH.**
+> Owner decision, the same on every chain: `create_launch` pays the 3.69% platform reserve to
+> the treasury's token account (the ATA of `global.fee_recipient`) in the same instruction,
+> and `release_platform_reserve` no longer exists. That changed `tegridy-launch`'s bytes, so
+> **the rehearsed `tegridy_launch.mainnet.so` (sha256 `9b78be02…`), its IDL, its size and
+> rent quote, and both rehearsals (local and devnet) describe the OLD program. Do not deploy
+> them.** Rebuild with Agave 2.3.0, re-run both rehearsals on the new bytes, and publish new
+> hashes first. The "Do not rebuild" bullet below applies to cp-swap only until then
+> (cp-swap is unchanged). The go-live checklist carries the same HOLD.
+>
 > ⛔ **2026-09-26: for the restart, do NOT follow the steps below — follow the go-live
 > checklist instead.** It lives with the release files, off-repo:
 > `C:\Users\jimbo\solana-launch-release-2026-09-26\MAINNET_GO_LIVE.md`. The keys, the build
@@ -22,8 +32,9 @@ first (`deploy-devnet.sh`).
 >   `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, tegridy-launch
 >   `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`, deployer
 >   `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, cp-swap admin = the vault `GRMtSx…`.
-> - **Do not rebuild.** Deploy the rehearsed files: cp_swap.mainnet.so (sha256 `88b98aa9…`) and
->   tegridy_launch.mainnet.so (sha256 `9b78be02…`), built with Agave 2.3.0. A `solana-verify`
+> - **Do not rebuild cp-swap.** Deploy the rehearsed cp_swap.mainnet.so (sha256 `88b98aa9…`),
+>   built with Agave 2.3.0. (tegridy_launch.mainnet.so `9b78be02…` is superseded: see the
+>   banner above.) A `solana-verify`
 >   build made now would produce different bytes that nobody rehearsed.
 > - The deploy command below has no `--keypair` or `--upgrade-authority`, so the CLI's
 >   default key would pay and become the upgrade authority. The checklist's command has both.
@@ -56,7 +67,7 @@ identities survive. The sequence, threading the sections below:
 | R7b | 🔑 `create-permission` (cp-swap admin): the `Permission` account for tegridy-launch's migration authority `["migauth"]`. **Without it every graduation fails `MigrationPermissionMissing` (6021)**, after the launch has already filled. Once per program, not per launch | §5c | — |
 | R8 | 🔑💰 Seed the flagship pool; graduation flows land in **our** `[b"launchpool", mint]` PDA (the canonical-PDA squat is why graduation never targets the stock cp-swap pool address) | §6 | — |
 | R9 | 🌐 Jupiter DEX-integration submission + frontend wiring (assistant task once addresses exist) | §8, §9 | — |
-| R10 | Per graduated launch: `migrate`, then `release-reserve` (both permissionless) sends that launch's platform reserve to the treasury's token account. A launch that never graduates never releases it | §5c | — |
+| R10 | Per funded launch: `migrate` (permissionless). The platform reserve needs no step: every `create_launch` already paid it to the treasury's token account, whether or not the launch ever graduates | §5c | — |
 
 Two program-behavior notes an operator reading logs will want: creator fee legs FOLD into
 the trade instead of crediting a drained wallet (crediting into the band between 1 lamport
@@ -85,7 +96,7 @@ one. Rent assumes an exact `--max-len` (ProgramData = binary + 45 B header).
 | program | ProgramData account | rent at 5,080/byte |
 |---|---|---|
 | `raydium_cp_swap` | **691,672 B**, the current build (the 2026-08-08 deploy put ~701,925 B on chain, but the restart deploys a fresh binary; not the 793,824 in `solana-ci.yml` either) | **~3.51 SOL** |
-| `tegridy_launch` | **481,584 B**, measured 2026-09-26 from a build of this branch. That is about 32 KB SMALLER than the 2026-08 binary (514,320 B), because segmented curve mode was removed since; the platform reserve adds back about 25 KB (the devnet build went 456,432 → 481,680 B). Re-measure the final deployer-patched build | **~2.45 SOL** at an exact `--max-len` |
+| `tegridy_launch` | **481,584 B** was measured 2026-09-26 on the escrow design, which is now superseded. Paying the reserve at launch removed `release_platform_reserve`: the devnet test build went 481,680 → 469,504 B. **Re-measure the final mainnet build** and recompute the rent before quoting a total | **~2.45 SOL** for the old size; re-measure |
 | fee-receiver WSOL ATA | already exists (`2sa31zce…`) | 0 |
 | tx fees | | ~0.01 SOL |
 | | **TOTAL** | **~6.0 SOL** |
@@ -161,9 +172,9 @@ ordinary wallet is System-owned too.
 >   pause, no fee change, no AMM addresses. `update-global --new-authority` refuses a
 >   program-owned address for this reason;
 > - **`global.fee_recipient`** — the vault too; it receives trade fees, migration residuals
->   and every released platform reserve, and only a signer can spend them. Its token
->   account for each reserve is created with it as the owner, so a program-owned address
->   would strand every reserve released to it. `init-global --fee-recipient` and
+>   and every platform reserve (paid at launch), and only a signer can spend them. Its
+>   token account for each launch's reserve is created with it as the owner, so a
+>   program-owned address would strand every reserve paid to it. `init-global --fee-recipient` and
 >   `update-global --fee-recipient` both refuse a program-owned address, like
 >   `--new-authority`.
 >
@@ -491,22 +502,25 @@ superseded by the settled 5,000 above.
 
 ### ⚠️ `platform_reserve_bps` — **369** (3.69% of each launch's supply), and it must be disclosed
 
-The owner's intent: keep the 3.69% the platform takes at launch, the same as the EVM
-launcher. How the program does it:
+The owner's intent: the platform receives 3.69% of every token's supply **when the token
+is created**, on every chain (owner decision 2026-09-26). How the program does it:
 
-- **Carved at `create_launch`.** `floor(supply × bps / 10,000)` tokens stay in the curve's
-  own vault but outside `real_token_reserves`. The curve can never sell them, and migration
+- **Carved AND paid at `create_launch`.** `floor(supply × bps / 10,000)` tokens are left out
+  of `real_token_reserves` and, in the same instruction, sent to `global.fee_recipient`'s
+  associated token account (classic SPL Token). The curve can never sell them, and migration
   never puts them in the pool. At 369 bps on a 1e15 supply that is 36,900,000,000,000 base
-  units.
-- **Paid out only after graduation.** Once a launch has migrated, anyone can call
-  `release_platform_reserve` (`release-reserve` on the harness) to send it, once, to
-  `global.fee_recipient`'s token account. A launch that never graduates keeps it locked
-  forever. This matches the EVM launcher, which carves at create and transfers at
-  graduation, and has the same 10% cap (`MAX_PLATFORM_RESERVE_BPS = 1000`).
+  units. A launch that never graduates has still paid it. Same 10% cap
+  (`MAX_PLATFORM_RESERVE_BPS = 1000`) as the EVM launcher.
+- **The creator pays the treasury ATA's rent** (1,488,440 lamports at mainnet rent) when the
+  account does not exist yet, on top of the curve and vault rent: about 5,613,240 lamports per
+  launch including fees, up from 4,124,800. A stranger pre-creating that ATA cannot block a
+  launch; a wrong recipient fails `Unauthorized` (6008).
 - **Snapshotted per launch as an amount**, like the fee; `update_global` moves new launches
-  only. The **recipient is not snapshotted**: it is read at release time, so rotating
-  `fee_recipient` redirects every graduated-but-unreleased reserve.
+  only. The **recipient is read at create time**: rotating `fee_recipient` changes where
+  future launches pay; nothing already paid moves.
 - **Required, no default** on `init-global`, for the same reason as the creator share.
+- Errors 6022 and 6023 (`PlatformReserveLocked`, `PlatformReserveAlreadyReleased`) are
+  retired: nothing returns them, and they keep their slots so 6024 keeps its number.
 
 **Scale `initial_virtual_token` with it, at `initialize_global`.** The program runs every
 config check against the curve supply (supply minus the reserve). Pass
@@ -524,14 +538,17 @@ With the scaled book, a graduating launch splits **sold 56.11% / pool 40.20% / r
 into the pool at a ~75 SOL target returns ~6.3 SOL and leaves the price at ~84% of listing.
 
 **Disclosure — do not launch without it.** The launch page's terms must say it in plain
-words, e.g. *"Platform reserve: 3.69% of supply, held by the program, released to the
-treasury only if the launch graduates, never sold on the curve."* A holder scanner will
-show the treasury holding 3.69% of every graduated token.
+words: *"Platform reserve: the platform receives 3.69% of supply when the token is created.
+It goes to the platform treasury, which is a multisig."* A holder scanner will show the
+treasury holding 3.69% of **every** launched token from its first block, graduated or not.
 
-⚖️ **Owner decision — what happens after release.** Once released, the program cannot stop
-the treasury selling. The EVM intent for its reserve is LP incentives, bounties and bribes:
-publish that rule, or put released reserves into a vesting lock. The recipient is the Squads
-vault, a 2-of-2 today (§0), so both keys are needed to move any of it.
+⚖️ **Treasury policy — the program no longer enforces this.** The escrow design guaranteed
+the treasury could never sell into a live curve against its own buyers. Paid at launch, the
+treasury holds 3.69% before anyone has bought, and a sell into the curve would take SOL that
+buyers put in (at the planned 25 SOL book, roughly 2.2 SOL at the opening price — an
+estimate). Only policy stops that now: publish the rule (the EVM intent is LP incentives,
+bounties and bribes), or lock the reserves. The recipient is the Squads vault, a 2-of-2
+today (§0), so both keys are needed to move any of it.
 
 ### ⚠️ `migration_reserve_lamports` — minimum **192,156,720** (~0.1922 SOL)
 
@@ -605,10 +622,11 @@ and has already cost one debugging cycle here.
 4. Sanity-check on devnet first: create a launch, buy it out, migrate, confirm LP
    supply is zero and the pool exists at `[b"launchpool", mint]` — **our** PDA, not
    cp-swap's canonical derivation, which anyone can occupy to brick a graduation.
-   Then release the reserve and confirm the treasury's token account received exactly
-   `platform_reserve_tokens`, and that a second release fails (6023).
+   Also confirm, right after `create_launch`, that the treasury's token account holds
+   exactly `platform_reserve_tokens` and the curve vault holds exactly
+   `real_token_reserves`.
 
-## 5c. 🔑 The migration permission, then per-launch graduation and release
+## 5c. 🔑 The migration permission, then per-launch graduation
 
 **Before any launch can graduate: cp-swap's `Permission` account for our migration
 authority.** Graduation calls cp-swap's `initialize_with_permission`, which requires an
@@ -639,10 +657,9 @@ simulates unless `--send`. The payer fronts two token-account rents plus the mig
 authority's **seed top-up** to `minimum_balance(0)` (650,240 lamports today) and gets it
 back at the end; the unspent migration reserve goes to `fee_recipient`, never the caller.
 
-**Per launch, after it graduates: `release-reserve`.** Permissionless. Sends that
-launch's platform reserve from the curve vault to `global.fee_recipient`'s token account,
-creating the account if needed (the payer covers ~0.0015 SOL of rent). Fails 6022 before
-graduation and 6023 the second time. Simulates unless `--send`.
+**No release step.** The platform reserve left the curve vault at `create_launch`, paid to
+`global.fee_recipient`'s token account (the creator covered its ~0.0015 SOL rent). After
+migration the vault holds only any dust a stranger donated to the migration authority.
 
 ## 6. 🔑💰 Create + seed a pool
 Via `client/` (`initialize` / `initialize_customizable`): pick the Solana-native pair, seed

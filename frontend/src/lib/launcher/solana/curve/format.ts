@@ -194,8 +194,10 @@ export const LAUNCH_ERROR_COPY: Record<LaunchErrorName, string> = {
   CreatorMismatch: 'The creator account does not match the creator recorded on this launch.',
   MigrationPermissionMissing:
     'The graduation venue has not granted this program permission to create pools yet. Not a problem with this launch.',
-  PlatformReserveLocked: 'The platform reserve is released only after the launch graduates.',
-  PlatformReserveAlreadyReleased: "This launch's platform reserve has already been released.",
+  // Retired codes (6022, 6023): the program no longer returns them. Worded so a
+  // stray one still reads truthfully.
+  PlatformReserveLocked: 'No longer used: the platform reserve is paid when the launch is created.',
+  PlatformReserveAlreadyReleased: 'No longer used: the platform reserve is paid when the launch is created.',
   CpSwapProgramNotPinned:
     'Operator configuration: that cp-swap program is not the graduation venue compiled into this program.',
 };

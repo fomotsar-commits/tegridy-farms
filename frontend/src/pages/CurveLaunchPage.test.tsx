@@ -64,9 +64,11 @@ function curve(over: Partial<BondingCurve> = {}): BondingCurve {
     complete: false,
     pool: new PublicKey(new Uint8Array(32)),
     bump: 255,
-    // 3.69% of the 1e15 supply, held outside `realTokenReserves`.
+    // 3.69% of the 1e15 supply, paid to the treasury at creation and never in
+    // `realTokenReserves`. The program sets the flag in that same instruction, so
+    // every curve it creates reads true.
     platformReserveTokens: 36_900_000_000_000n,
-    platformReserveReleased: false,
+    platformReserveReleased: true,
     ...over,
   };
 }
@@ -529,8 +531,10 @@ describe('curve chart is mounted', () => {
 // ---------------------------------------------------------------------------
 
 describe('platform reserve and fee split', () => {
+  // Owner decision 2026-09-26: the reserve is paid when the token is created, and
+  // the copy must say so, and say the treasury is a multisig, in plain words.
   const RESERVE_LINE =
-    /Platform reserve: 3\.69% of supply, held by the program, released to the treasury only if the launch graduates; never sold on the curve\./;
+    /Platform reserve: the platform receives 3\.69% of supply when the token is created\. It goes to the platform treasury, which is a multisig\./;
 
   it('states the platform reserve in the terms a launch would be created with', () => {
     renderView({ probe: DEPLOYED, snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'absent' }) });
@@ -543,7 +547,7 @@ describe('platform reserve and fee split', () => {
       probe: DEPLOYED,
       snapshot: snapshot({ kind: 'ok', value: globalCfg({ platformReserveBps: 500n }) }, { kind: 'absent' }),
     });
-    expect(screen.getByText(/Platform reserve: 5\.00% of supply, held by the program/)).toBeInTheDocument();
+    expect(screen.getByText(/Platform reserve: the platform receives 5\.00% of supply when the token is created/)).toBeInTheDocument();
     expect(screen.queryByText(/3\.69%/)).not.toBeInTheDocument();
   });
 
@@ -552,7 +556,7 @@ describe('platform reserve and fee split', () => {
       probe: DEPLOYED,
       snapshot: snapshot({ kind: 'ok', value: globalCfg({ platformReserveBps: 0n }) }, { kind: 'absent' }),
     });
-    expect(screen.queryByText(/held by the program/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Platform reserve: the platform receives/)).not.toBeInTheDocument();
   });
 
   it('shows the creator / protocol split of the fee in the terms', () => {
@@ -572,27 +576,32 @@ describe('platform reserve and fee split', () => {
     // The curve's snapshot, not the global's newer value.
     expect(screen.getByText('creator 48.00% · protocol 52.00% of the fee')).toBeInTheDocument();
     expect(screen.getByText('36,900')).toBeInTheDocument();
-    expect(screen.getByText(/Platform reserve: held by the program until the launch graduates/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Platform reserve: sent to the platform treasury \(a multisig\) when this token was created/),
+    ).toBeInTheDocument();
   });
 
-  it('tracks the reserve through graduation and release', () => {
+  it('states the reserve as paid at creation, before and after graduation alike', () => {
     const g: Read<GlobalConfig> = { kind: 'ok', value: globalCfg() };
     const { unmount } = renderView({
       probe: DEPLOYED,
       snapshot: snapshot(g, { kind: 'ok', value: curveAccount(curve({ complete: true })) }),
       mint: mintFacts(),
     });
-    expect(screen.getByText(/Platform reserve: graduated, so anyone can now release it/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Platform reserve: sent to the platform treasury \(a multisig\) when this token was created/),
+    ).toBeInTheDocument();
+    // Nothing waits on graduation any more, so no "release" wording may survive.
+    expect(document.body.textContent ?? '').not.toMatch(/release it|released to the treasury|until the launch graduates/);
     unmount();
+    // An account that does not record the payment is described as exactly that,
+    // never as paid.
     renderView({
       probe: DEPLOYED,
-      snapshot: snapshot(g, {
-        kind: 'ok',
-        value: curveAccount(curve({ complete: true, platformReserveReleased: true })),
-      }),
+      snapshot: snapshot(g, { kind: 'ok', value: curveAccount(curve({ platformReserveReleased: false })) }),
       mint: mintFacts(),
     });
-    expect(screen.getByText(/Platform reserve: released to the treasury/)).toBeInTheDocument();
+    expect(screen.getByText(/Platform reserve: this curve account does not record it as paid/)).toBeInTheDocument();
   });
 
   it('does not say the curve sells everything but the reserve: unsold tokens go into the pool', () => {
@@ -603,7 +612,10 @@ describe('platform reserve and fee split', () => {
     const text = (card.textContent ?? '').replace(/\s+/g, ' ');
     expect(text).not.toMatch(/curve sells all of it/);
     expect(text).toMatch(
-      /The curve can sell all of it except the platform reserve listed below; whatever it has not sold when it graduates goes into the pool\./,
+      /sends the platform reserve listed below to the platform treasury \(a multisig\), puts the rest into a fresh curve's vault/,
+    );
+    expect(text).toMatch(
+      /The curve can sell everything in its vault; whatever it has not sold when it graduates goes into the pool\./,
     );
   });
 
@@ -613,5 +625,8 @@ describe('platform reserve and fee split', () => {
     expect(text).not.toMatch(/deposits everything/);
     expect(text).toMatch(/What goes into the pool: the graduation target in SOL, and every token the curve did not sell/);
     expect(text).toMatch(/The platform\s+reserve does not go into the pool/);
+    expect(text).toMatch(/the platform treasury, a multisig, receives it when the token is created/);
+    // The old escrow copy must be gone everywhere on the page.
+    expect(text).not.toMatch(/only (?:happen )?after graduation|only if the launch graduates|Graduation unlocks/);
   });
 });

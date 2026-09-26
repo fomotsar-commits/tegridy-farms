@@ -336,8 +336,9 @@ pub fn lamports_until_target(
 ///
 /// ## Why every economic check takes the CURVE supply, not the total
 ///
-/// The reserve sits in the curve's vault but outside `real_token_reserves`: the
-/// curve never sells it and migration never deposits it. So as far as pricing,
+/// The reserve is paid to the treasury at `create_launch` and is never in
+/// `real_token_reserves`: the curve never sells it and migration never deposits
+/// it. So as far as pricing,
 /// reachability and the listing price are concerned, the launch has
 /// `curve_supply` tokens, and checking against the total would pass configs that
 /// list above the curve's final price. At 369 bps an unretuned config reads

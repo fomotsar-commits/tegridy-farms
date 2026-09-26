@@ -318,11 +318,12 @@ function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: numb
   const p = curveProgress(curve);
   const sold = formatTokenAmount(curve.realTokenReserves, decimals);
   const reserve = formatTokenAmount(curve.platformReserveTokens, decimals);
+  // The program pays the reserve inside create_launch and sets this flag there, so a
+  // curve it created always reads true. The other branch says what the account says
+  // rather than claiming a payment it does not record.
   const reserveStatus = curve.platformReserveReleased
-    ? 'released to the treasury'
-    : curve.complete
-      ? 'graduated, so anyone can now release it to the treasury'
-      : 'held by the program until the launch graduates';
+    ? 'sent to the platform treasury (a multisig) when this token was created'
+    : 'this curve account does not record it as paid';
   const split = feeSplitLabel(curve.creatorFeeShareBps);
   // Spot is an exact numerator/denominator pair so nothing is rounded on the way
   // out. `spotPriceLabel` decides the UNIT, and refuses to assume 9 decimals.
@@ -385,7 +386,8 @@ function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: numb
       />
       {curve.platformReserveTokens > 0n && (
         <p className="text-white/40 text-[10px]">
-          Platform reserve: {reserveStatus}. It is never sold on the curve and never goes into the pool.
+          Platform reserve: {reserveStatus}. It was never part of what the curve sells, and it never goes into the
+          pool.
         </p>
       )}
       <Row label="Spot price" value={spot === null ? '—' : `${spot.value} ${spot.unit}`} />
@@ -636,9 +638,10 @@ export function CreateChecklist({
   return (
     <Card title="Open a launch">
       <p>
-        Launching mints the entire supply into a fresh curve&apos;s vault and permanently revokes the mint authority in
-        the same instruction, so no further supply can ever exist. The curve can sell all of it except the platform
-        reserve listed below; whatever it has not sold when it graduates goes into the pool. The curve&apos;s terms
+        Launching mints the entire supply, sends the platform reserve listed below to the platform treasury (a
+        multisig), puts the rest into a fresh curve&apos;s vault and permanently revokes the mint authority, all in the
+        same instruction, so no further supply can ever exist. The curve can sell everything in its vault; whatever it
+        has not sold when it graduates goes into the pool. The curve&apos;s terms
         are not chosen per launch — they are
         copied from the protocol config at creation and frozen, so nothing can rewrite a live launch&apos;s economics
         afterwards.
@@ -688,8 +691,8 @@ export function CreateChecklist({
             />
             {g.platformReserveBps > 0n && (
               <p className="text-white/40 text-[10px]">
-                Platform reserve: {bpsPercent(g.platformReserveBps)} of supply, held by the program, released to the
-                treasury only if the launch graduates; never sold on the curve.
+                Platform reserve: the platform receives {bpsPercent(g.platformReserveBps)} of supply when the token is
+                created. It goes to the platform treasury, which is a multisig.
               </p>
             )}
             <Row label="Graduation venue" value={isAmmConfigured(g) ? 'configured' : 'not configured yet'} />
@@ -875,8 +878,7 @@ function CurveExplainer() {
         <p>
           What goes into the pool: the graduation target in SOL, and every token the curve did not sell. The migration
           reserve pays the pool&apos;s setup costs, and whatever it does not use goes to the treasury. The platform
-          reserve does not go into the pool: it stays with the program until it is released to the treasury, which can
-          only happen after graduation.
+          reserve does not go into the pool: the platform treasury, a multisig, receives it when the token is created.
         </p>
         <p className="text-white/40">
           The Meteora rail was retired on 2026-08-23 — this curve is now the only Solana launch surface here.
@@ -899,9 +901,9 @@ function CurveExplainer() {
             can leave the curve a lamport short — in which case it is retried, not broken.
           </li>
           <li>
-            Graduation unlocks the platform reserve. After that, anyone can send it to the treasury, once; a launch that
-            never graduates never releases it. Once released, the treasury holds those tokens like any other holder, and
-            the program does not limit what it does with them.
+            Graduation does not touch the platform reserve. The platform treasury (a multisig) received it when the
+            token was created, whether or not the launch ever graduates. It holds those tokens like any other holder,
+            and the program does not limit what it does with them, including selling them while the curve is live.
           </li>
         </ul>
       </Card>

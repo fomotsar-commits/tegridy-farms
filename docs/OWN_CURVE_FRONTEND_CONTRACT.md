@@ -22,16 +22,25 @@ this file is wrong and must be fixed.
 > `frontend/src/lib/launcher/solana/curve/program.ts` is the authority for layouts, sizes,
 > discriminators and error codes. What changed, in short:
 >
-> - **Platform reserve.** `GlobalConfig.platform_reserve_bps: u64` at offset 194 (size
->   **202**), passed as the LAST argument to `initialize_global` and as the last `Option`
->   to `update_global`. `BondingCurve.platform_reserve_tokens: u64` at 170 and
->   `platform_reserve_released: bool` at 178 (size **179**). At `create_launch` that share
->   of supply is held in the curve vault OUTSIDE `real_token_reserves`: never sold, never
->   pooled, and sent to `global.fee_recipient`'s token account only after graduation, by
->   the permissionless `release_platform_reserve`.
-> - **Errors** now run to 6023: 6020 `CreatorMismatch`, 6021 `MigrationPermissionMissing`,
->   6022 `PlatformReserveLocked` (release before graduation), 6023
->   `PlatformReserveAlreadyReleased`.
+> - **Platform reserve, paid AT LAUNCH (owner decision 2026-09-26).**
+>   `GlobalConfig.platform_reserve_bps: u64` at offset 194 (size **202**), passed as the
+>   LAST argument to `initialize_global` and as the last `Option` to `update_global`.
+>   `BondingCurve.platform_reserve_tokens: u64` at 170 and `platform_reserve_released: bool`
+>   at 178 (size **179**). `create_launch` carves that share of supply out of
+>   `real_token_reserves` and, in the same instruction, pays it to `global.fee_recipient`'s
+>   associated token account (classic SPL Token): never sold on the curve, never pooled,
+>   paid even if the launch never graduates. `platform_reserve_released` is therefore
+>   `true` from creation. There is no `release_platform_reserve` instruction.
+> - **`create_launch` takes 11 accounts**: the 8 in §2.3, then `fee_recipient` (read-only,
+>   `address = global.fee_recipient`, else `Unauthorized` 6008), `treasury_token` (writable,
+>   `init_if_needed` ATA of `fee_recipient` for the mint, paid by the creator) and
+>   `associated_token_program`. Read `fee_recipient` off the decoded `global`; never
+>   default it.
+> - **`LaunchCreated`** gained `platform_reserve_tokens: u64` and
+>   `platform_reserve_recipient: Pubkey`, appended after `token_total_supply`.
+> - **Errors** run to 6024: 6020 `CreatorMismatch`, 6021 `MigrationPermissionMissing`,
+>   6022 `PlatformReserveLocked` and 6023 `PlatformReserveAlreadyReleased` (both RETIRED:
+>   nothing returns them; they keep their slots), 6024 `CpSwapProgramNotPinned`.
 > - **The migration authority is `["migauth"]`, one for the whole program** (state.rs
 >   `MIGRATION_AUTH_SEED`). It took the mint until b990f8b2 made it program-wide; the client
 >   kept the old `["migauth", mint]` shape until this change. §2.6 and §4 are corrected below.
@@ -305,7 +314,7 @@ Accounts (`CreateLaunch`, lib.rs:1254-1314):
 
 | # | account | signer | writable | constraint |
 | --- | --- | --- | --- | --- |
-| 1 | `creator` | ✅ | ✅ | pays rent for `curve` + `curve_vault` |
+| 1 | `creator` | ✅ | ✅ | pays rent for `curve` + `curve_vault` (and, since 2026-09-26, the treasury ATA — see the banner at the top) |
 | 2 | `global` | — | — | PDA `["global"]`, `bump = global.bump` |
 | 3 | `mint` | — | ✅ | `mint_authority == Some(creator)`; `supply == 0`; **`freeze_authority.is_none()`** (lib.rs:1283-1289) |
 | 4 | `curve` | — | ✅ | `init`, PDA `["curve", mint]` |
@@ -899,7 +908,9 @@ index. Treat events as a nice-to-have; **account reads are the source of truth.*
 
 ### `LaunchCreated` — state.rs:185-192
 `mint: Pubkey`, `creator: Pubkey`, `virtual_sol_reserves: u64`,
-`virtual_token_reserves: u64`, `token_total_supply: u64`.
+`virtual_token_reserves: u64`, `token_total_supply: u64`, `platform_reserve_tokens: u64`,
+`platform_reserve_recipient: Pubkey` (the owner of the token account the reserve was paid
+into at creation — `global.fee_recipient` at that moment).
 
 ### `Traded` — state.rs:194-205
 `mint: Pubkey`, `trader: Pubkey`, `is_buy: bool`, `sol_amount: u64`,
