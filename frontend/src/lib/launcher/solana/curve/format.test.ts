@@ -148,6 +148,16 @@ describe('spotPriceLabel', () => {
     expect(spotPriceLabel(Number.NaN)).toEqual({ value: '—', unit: 'unreadable' });
     expect(spotPriceLabel(Number.POSITIVE_INFINITY).unit).toBe('unreadable');
   });
+
+  // F13/UX7: every launch's price read "1.502e-9 SOL per token".
+  it('writes a tiny price out in full, four significant digits, never in e-notation', () => {
+    // 1.502e-6 lamports per base unit at 6 decimals = 1.502e-9 SOL per token.
+    expect(spotPriceLabel(1.502e-6, 6)).toEqual({ value: '0.000000001502', unit: 'SOL per token' });
+    expect(spotPriceLabel(1e-5, 6).value).toBe('0.00000001');
+    expect(spotPriceLabel(3.3e-12).value).toBe('0.000000000003300'.replace(/0+$/, ''));
+    expect(spotPriceLabel(2.5e12).value).toBe('2500000000000');
+    for (const p of [1.502e-6, 1e-5, 3.3e-12, 2.5e12, 7e-20]) expect(spotPriceLabel(p, 6).value).not.toMatch(/e/i);
+  });
 });
 
 describe('buy/sell gating', () => {

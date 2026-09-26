@@ -1,16 +1,23 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode, type Ref } from 'react';
 import { formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
-import { Notice, Row } from './ui';
-import { DIVIDER, sharePercent } from './uiFormat';
+import { ImpactRows, Notice, Row } from './ui';
+import { DIVIDER, fractionToBps, sharePercent } from './uiFormat';
 import type { FeeSplitView, PreparedTx, SolanaCluster, TxOutcome, TxSigner, TxSummary, WriteApi } from './ports';
 import type { TxFlow } from './useTxFlow';
 
 // What the user sees between pressing a Review button and the chain's answer.
 // Every word here is about THIS transaction, and the numbers come from the
 // prepared transaction, never from the form the user typed into.
+//
+// Screen readers: this view replaces the panel's form, so the button that had focus
+// is gone. Each step moves focus to its own heading or notice (tabIndex -1), which
+// also reads it out. Progress notes are role="status"; an outcome that needs the
+// user's attention (refused, not sent, not confirmed) is role="alert". A review that
+// goes stale moves focus to the alert saying so. A button whose work is running
+// (Check again) stays focusable and says so in a status line, instead of switching
+// off under the keyboard.
 
 const SOL = (l: bigint) => `${formatSol(l)} SOL`;
-const pct = (bps: bigint) => `${(Number(bps) / 100).toFixed(2)}%`;
 const signedSol = (l: bigint) => `${l < 0n ? '-' : '+'}${SOL(l < 0n ? -l : l)}`;
 function tokenText(v: bigint, d: number | null): string {
   const f = formatTokenAmount(v, d);
@@ -103,7 +110,7 @@ export function SummaryRows({
           <FeeSplitRows split={summary.feeSplit} />
           <Row label="You receive (quoted)" value={tok(summary.quote.tokensOut)} />
           <Row label="You receive at least" value={tok(summary.minTokensOut)} />
-          <Row label="Price impact" value={pct(summary.priceImpactBps)} />
+          <ImpactRows bps={summary.priceImpactBps} />
         </>
       );
     case 'sell':
@@ -115,7 +122,7 @@ export function SummaryRows({
           <Row label="Trade fee" value={SOL(summary.quote.feeLamports)} />
           <FeeSplitRows split={summary.feeSplit} />
           <Row label="You receive at least" value={SOL(summary.minLamportsOut)} />
-          <Row label="Price impact" value={pct(summary.priceImpactBps)} />
+          <ImpactRows bps={summary.priceImpactBps} />
         </>
       );
     case 'migrate':
@@ -125,8 +132,8 @@ export function SummaryRows({
           <Row label="Pool it opens" value={summary.pool.toBase58()} />
           <Notice>
             Finishing graduation moves the curve&apos;s SOL and unsold tokens into the pool and burns the pool&apos;s
-            LP tokens. Anyone can do it. You pay the network fee. The rent for the accounts it opens for you is paid
-            back to you inside the same transaction.
+            LP tokens. Anyone can do it. You pay the transaction fees shown below. The rent for the accounts it opens
+            for you is paid back to you inside the same transaction.
           </Notice>
         </>
       );
@@ -153,7 +160,8 @@ export function SummaryRows({
             label="Pool fee (inside what you pay)"
             value={buying ? SOL(summary.quote.result.tradeFee) : tok(summary.quote.result.tradeFee)}
           />
-          <Row label="Price impact" value={`${(summary.quote.priceImpact * 100).toFixed(2)}%`} />
+          <PoolCreatorFeeRow quote={summary.quote} buying={buying} sol={SOL} tok={tok} />
+          <ImpactRows bps={fractionToBps(summary.quote.priceImpact)} />
           <Notice>
             {buying
               ? 'Your SOL is wrapped into a token account for the swap'
@@ -166,6 +174,34 @@ export function SummaryRows({
       );
     }
   }
+}
+
+/**
+ * The pool creator's cut, when the pool charges one. cp-swap takes it on top of the
+ * trade fee: from what you pay, or from what you receive, depending on the pool.
+ */
+export function PoolCreatorFeeRow({
+  quote,
+  buying,
+  sol,
+  tok,
+}: {
+  quote: { result: { creatorFee: bigint }; creatorFeeOnInput: boolean };
+  buying: boolean;
+  sol: (v: bigint) => string;
+  tok: (v: bigint) => string;
+}) {
+  const fee = quote.result.creatorFee;
+  if (fee <= 0n) return null;
+  const onInput = quote.creatorFeeOnInput;
+  // Buying pays SOL and receives tokens; selling the other way round.
+  const inSol = onInput === buying;
+  return (
+    <Row
+      label={onInput ? 'Creator fee (on top, from what you pay)' : 'Creator fee (taken from what you receive)'}
+      value={inSol ? sol(fee) : tok(fee)}
+    />
+  );
 }
 
 export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals: number | null }) {
@@ -233,25 +269,27 @@ export function TxReview({
   decimals,
   display,
   extra,
+  headingRef,
 }: {
   prepared: PreparedTx;
   decimals: number | null;
   display: (s: string, max: number) => string;
   /** Anything the kind needs on top, such as the create flow's public-forever list. */
   extra?: ReactNode;
+  /** Focus lands here when the review appears. */
+  headingRef?: Ref<HTMLHeadingElement>;
 }) {
   return (
     <div className="space-y-2" data-testid="tx-review">
-      <p className="text-white font-semibold text-[12px]">{TITLES[prepared.kind]}</p>
+      <h3 ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[12px] outline-none">
+        {TITLES[prepared.kind]}
+      </h3>
       {extra}
       <SummaryRows summary={prepared.summary} decimals={decimals} display={display} />
       <div className="pt-2 space-y-1.5" style={DIVIDER}>
         <FeeRows prepared={prepared} decimals={prepared.kind === 'create' ? 6 : decimals} />
       </div>
-      <Notice tone="good">
-        Test run passed: the network ran this exact transaction without sending it
-        ({prepared.simulation.unitsConsumed.toLocaleString('en-US')} compute units).
-      </Notice>
+      <Notice tone="good">Test run passed: the network ran this exact transaction without sending it.</Notice>
     </div>
   );
 }
@@ -268,6 +306,15 @@ function SignatureRow({ signature }: { signature: string }) {
   return <Row label="Transaction signature" value={signature} />;
 }
 
+/** What a refused transaction cost: both fees are charged when the program refuses it. */
+function feesSpentText(fees: PreparedTx['fees'] | null | undefined): string {
+  if (!fees) return 'Nothing moved except the fees (the network fee and any priority fee).';
+  const which = fees.priorityLamports > 0n ? 'the network fee and the priority fee' : 'the network fee';
+  return `Nothing moved except the fees: ${SOL(fees.baseLamports + fees.priorityLamports)} (${which}).`;
+}
+
+const EXPIRED_TEXT = 'Did not go through, and it can no longer go through. Nothing was charged. It is safe to try again.';
+
 const NOT_SENT_COPY: Record<'build' | 'simulate' | 'sign' | 'send', string> = {
   build: 'Not sent. We could not build this transaction.',
   simulate: 'Not sent. A test run of this transaction was refused, so we did not ask your wallet to sign it.',
@@ -281,6 +328,9 @@ export function TxOutcomeCard({
   onRecheck,
   onReset,
   rechecking,
+  boxRef,
+  fees,
+  checks = 0,
 }: {
   outcome: TxOutcome;
   /** `null` when there is no signature to link. */
@@ -288,11 +338,24 @@ export function TxOutcomeCard({
   onRecheck: () => void;
   onReset: () => void;
   rechecking: boolean;
+  /** Focus lands here when the outcome appears. */
+  boxRef?: Ref<HTMLDivElement>;
+  /** The fees the transaction carried, so a refusal can say what it cost. */
+  fees?: PreparedTx['fees'] | null;
+  /** How many times Check again has answered. */
+  checks?: number;
 }) {
+  // Done is news; everything else needs the user to read it before acting.
+  const a11y = {
+    ref: boxRef,
+    tabIndex: -1,
+    role: outcome.status === 'confirmed' ? 'status' : 'alert',
+    className: 'space-y-1.5 outline-none',
+  } as const;
   switch (outcome.status) {
     case 'confirmed':
       return (
-        <div className="space-y-1.5" data-testid="tx-outcome" data-status="confirmed">
+        <div {...a11y} data-testid="tx-outcome" data-status="confirmed">
           <Notice tone="good">Done. The network confirmed it.</Notice>
           <SignatureRow signature={outcome.signature} />
           {explorerUrl && <ExplorerLink href={explorerUrl} />}
@@ -303,10 +366,10 @@ export function TxOutcomeCard({
       );
     case 'reverted':
       return (
-        <div className="space-y-1.5" data-testid="tx-outcome" data-status="reverted">
+        <div {...a11y} data-testid="tx-outcome" data-status="reverted">
           <Notice tone="bad">It did not go through. The network ran it and the program refused it.</Notice>
-          <Notice>{outcome.message}</Notice>
-          <Notice>Nothing moved except the network fee.</Notice>
+          {outcome.message && <Notice>{outcome.message}</Notice>}
+          <Notice>{feesSpentText(fees)}</Notice>
           <SignatureRow signature={outcome.signature} />
           {explorerUrl && <ExplorerLink href={explorerUrl} />}
           <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
@@ -316,9 +379,8 @@ export function TxOutcomeCard({
       );
     case 'expired':
       return (
-        <div className="space-y-1.5" data-testid="tx-outcome" data-status="expired">
-          <Notice tone="warn">Did not go through. Nothing was charged. It is safe to try again.</Notice>
-          {outcome.message && <Notice>{outcome.message}</Notice>}
+        <div {...a11y} data-testid="tx-outcome" data-status="expired">
+          <Notice tone="warn">{EXPIRED_TEXT}</Notice>
           {outcome.signature && <SignatureRow signature={outcome.signature} />}
           <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
             Start over
@@ -326,42 +388,58 @@ export function TxOutcomeCard({
         </div>
       );
     case 'unknown':
-      return (
-        <div className="space-y-1.5" data-testid="tx-outcome" data-status="unknown">
-          {outcome.signature ? (
-            <>
+      if (outcome.signature) {
+        // The alert (what this is, what not to do) is read once, when it appears. What
+        // each check found goes in the status line under it, so a new answer is read
+        // out on its own, and pressing Check again does not re-read the whole alert.
+        const found = rechecking
+          ? 'Checking the network…'
+          : checks > 0
+            ? `Check ${checks}: ${outcome.message}`
+            : outcome.message;
+        return (
+          <div className="space-y-1.5" data-testid="tx-outcome" data-status="unknown">
+            <div ref={boxRef} tabIndex={-1} role="alert" className="space-y-1.5 outline-none">
               <Notice tone="warn">Sent, not confirmed yet. Do not retry until you check.</Notice>
               <Notice>
                 It may still land. Sending again could make you pay twice. Check again, or look it up on the explorer.
               </Notice>
               <SignatureRow signature={outcome.signature} />
               {explorerUrl && <ExplorerLink href={explorerUrl} />}
-              <button
-                type="button"
-                onClick={onRecheck}
-                disabled={rechecking}
-                className="btn-primary w-full py-2 text-[12px] mt-1 disabled:opacity-60"
-              >
-                {rechecking ? 'Checking…' : 'Check again'}
-              </button>
-              <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px]">
-                I checked my wallet: start over
-              </button>
-            </>
-          ) : (
-            <>
-              <Notice tone="warn">We cannot tell whether this was sent.</Notice>
-              <Notice>{outcome.message}</Notice>
-              <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
-                I checked my wallet: start over
-              </button>
-            </>
-          )}
+            </div>
+            <p role="status" className="text-white/55" data-testid="tx-check-result">
+              {found}
+            </p>
+            <button
+              type="button"
+              // Not `disabled`: a button switched off under the keyboard drops focus to
+              // the page. It stays focusable and does nothing while a check runs.
+              aria-disabled={rechecking || undefined}
+              onClick={() => {
+                if (!rechecking) onRecheck();
+              }}
+              className={`btn-primary w-full py-2 text-[12px] mt-1 ${rechecking ? 'opacity-60' : ''}`}
+            >
+              Check again
+            </button>
+            <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px]">
+              I checked my wallet: start over
+            </button>
+          </div>
+        );
+      }
+      return (
+        <div {...a11y} data-testid="tx-outcome" data-status="unknown">
+          <Notice tone="warn">We cannot tell whether this was sent.</Notice>
+          <Notice>{outcome.message}</Notice>
+          <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
+            I checked my wallet: start over
+          </button>
         </div>
       );
     case 'not-sent':
       return (
-        <div className="space-y-1.5" data-testid="tx-outcome" data-status="not-sent">
+        <div {...a11y} data-testid="tx-outcome" data-status="not-sent">
           <Notice tone="warn">{NOT_SENT_COPY[outcome.stage]}</Notice>
           {outcome.message && <Notice>{outcome.message}</Notice>}
           <Notice>Nothing was charged.</Notice>
@@ -385,6 +463,7 @@ export function TxFlowView({
   decimals,
   signer,
   extraReview,
+  preparingText,
 }: {
   flow: TxFlow;
   api: Pick<WriteApi, 'explorerTxUrl' | 'meta'>;
@@ -393,33 +472,64 @@ export function TxFlowView({
   /** `null` when no wallet that can sign is connected. */
   signer: TxSigner | null;
   extraReview?: ReactNode;
+  /** What is happening while it builds, when that is more than building (the launch's upload request). */
+  preparingText?: string;
 }) {
   const s = flow.state;
+  // One focus target per step. Moving focus both keeps keyboard users in place (the
+  // form's button is gone) and makes a screen reader read the new step. A review
+  // going stale is a step of its own: its Sign button is switched off, so focus
+  // moves to the alert that says why.
+  const focusRef = useRef<HTMLElement | null>(null);
+  const staleRef = useRef<HTMLParagraphElement | null>(null);
+  const stepKey =
+    s.step === 'outcome' ? `outcome:${s.outcome.status}` : s.step === 'review' && s.expired ? 'review:stale' : s.step;
+  useEffect(() => {
+    (stepKey === 'review:stale' ? staleRef.current : focusRef.current)?.focus();
+  }, [stepKey]);
+  const setFocus = (el: HTMLElement | null) => {
+    focusRef.current = el;
+  };
   if (s.step === 'idle') return null;
   if (s.step === 'preparing') {
-    return <Notice>Building the transaction and test-running it on the network…</Notice>;
+    return (
+      <p ref={setFocus} tabIndex={-1} role="status" className="text-white/55 outline-none">
+        {preparingText ?? 'Building the transaction and test-running it on the network…'}
+      </p>
+    );
   }
   if (s.step === 'review') {
     return (
       <div className="space-y-3">
-        <TxReview prepared={s.prepared} decimals={decimals} display={api.meta.displaySafe} extra={extraReview} />
+        <TxReview
+          prepared={s.prepared}
+          decimals={decimals}
+          display={api.meta.displaySafe}
+          extra={extraReview}
+          headingRef={setFocus}
+        />
         {s.expired ? (
-          <Notice tone="warn">
+          <p ref={staleRef} tabIndex={-1} role="alert" className="text-amber-300/90 outline-none">
             This quote is too old to sign: the network would soon refuse it. Start over for a fresh one.
-          </Notice>
+          </p>
         ) : signer === null ? (
           <Notice tone="warn">Connect a wallet that can sign to continue.</Notice>
         ) : (
-          <p className="text-white/40 text-[10px]">
-            Your wallet will show this transaction next. Sign only if it matches what is above.
+          // A status line: between Sign and the wallet opening, the block height is read
+          // (up to a few seconds), and this says so instead of nothing changing.
+          <p role="status" className="text-white/40 text-[10px]">
+            {s.checking
+              ? 'Checking the network before your wallet opens…'
+              : 'Your wallet will show this transaction next. Sign only if it matches what is above.'}
           </p>
         )}
         <div className="flex flex-col sm:flex-row gap-2">
           <button
             type="button"
-            className="btn-primary w-full py-2.5 text-[13px] disabled:opacity-60"
+            className={`btn-primary w-full py-2.5 text-[13px] disabled:opacity-60 ${s.checking ? 'opacity-60' : ''}`}
             disabled={s.expired || signer === null}
-            onClick={() => signer && flow.confirm(signer)}
+            aria-disabled={s.checking || undefined}
+            onClick={() => signer && !s.checking && flow.confirm(signer)}
           >
             Sign in wallet
           </button>
@@ -432,10 +542,23 @@ export function TxFlowView({
   }
   if (s.step === 'submitting') {
     return (
-      <Notice>
-        Waiting for your wallet. Once you approve, we send it and wait for the network to confirm it. Keep this page
-        open.
-      </Notice>
+      <p ref={setFocus} tabIndex={-1} role="status" className="text-white/55 outline-none">
+        Waiting for your wallet. Approve the transaction there to send it.
+      </p>
+    );
+  }
+  if (s.step === 'sent') {
+    const url = api.explorerTxUrl(s.signature, cluster);
+    return (
+      <div ref={setFocus} tabIndex={-1} role="status" className="space-y-1.5 outline-none" data-testid="tx-sent">
+        <Notice>Sent. Waiting for the network to confirm it. This can take up to two minutes.</Notice>
+        <Notice tone="warn">
+          Do not send it again. If you leave or reload, this browser keeps a note of it, and the page checks it when you
+          come back.
+        </Notice>
+        <SignatureRow signature={s.signature} />
+        <ExplorerLink href={url} />
+      </div>
     );
   }
   const sig = 'signature' in s.outcome ? s.outcome.signature : '';
@@ -446,6 +569,9 @@ export function TxFlowView({
       onRecheck={() => void flow.recheck()}
       onReset={flow.reset}
       rechecking={s.rechecking}
+      boxRef={setFocus}
+      fees={s.prepared?.fees ?? null}
+      checks={s.checks ?? 0}
     />
   );
 }

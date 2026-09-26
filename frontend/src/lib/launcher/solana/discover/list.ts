@@ -347,12 +347,22 @@ async function scan(
         exhausted = true;
         break;
       }
-      scanned += sigs.length;
-      before = sigs[sigs.length - 1]!.signature;
       const ok = sigs.filter((s) => s.err === null || s.err === undefined);
       const txs = await Promise.all(ok.map((s) => fetchTx(rpc, s.signature)));
-      for (let i = 0; i < ok.length && origins.length < limit; i++) {
-        const o = parseLaunchTransaction(txs[i], ok[i]!.signature, cfg.programId);
+      const txOf = new Map(ok.map((s, i) => [s.signature, txs[i]] as const));
+      // The cursor moves one entry at a time, and only past entries actually looked
+      // at. Once the list is full, the rest of this page is left for the next load:
+      // jumping to the page's end would skip those launches for good.
+      let full = false;
+      for (const s of sigs) {
+        if (origins.length >= limit) {
+          full = true;
+          break;
+        }
+        scanned++;
+        before = s.signature;
+        if (!txOf.has(s.signature)) continue;
+        const o = parseLaunchTransaction(txOf.get(s.signature), s.signature, cfg.programId);
         if (!o || !keep(o) || seen.has(o.mint.toBase58())) continue;
         seen.add(o.mint.toBase58());
         if (HIDDEN_MINTS.has(o.mint.toBase58())) {
@@ -361,6 +371,7 @@ async function scan(
         }
         origins.push(o);
       }
+      if (full) break;
       if (sigs.length < LIST_PAGE_SIZE) {
         exhausted = true;
         break;

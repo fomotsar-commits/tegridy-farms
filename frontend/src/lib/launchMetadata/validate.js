@@ -475,26 +475,40 @@ export function hasEmbeddedMetadata(bytes, mime) {
 
 // ── content addresses ───────────────────────────────────────────────────────
 
-const IPFS_URI = /^https:\/\/ipfs\.io\/ipfs\/(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{50,70})$/;
+// An IPFS content id: v0 (Qm…) or lower-case base32 v1 (b…).
+const CID = "(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{50,70})";
+const IPFS_SCHEME_URI = new RegExp(`^ipfs://(?:ipfs/)?${CID}$`);
+// Any https gateway, path form (https://host/ipfs/<cid>) or subdomain form
+// (https://<cid v1>.ipfs.host/). Only the content id is kept: the host is never
+// contacted, so a gateway that shuts down cannot take the link with it.
+const IPFS_GATEWAY_URI = new RegExp(`^https://[a-z0-9-]+(?:\\.[a-z0-9-]+)+/ipfs/${CID}$`);
+const IPFS_SUBDOMAIN_URI = /^https:\/\/(b[a-z2-7]{50,70})\.ipfs\.[a-z0-9-]+(?:\.[a-z0-9-]+)+\/?$/;
 const ARWEAVE_URI = /^https:\/\/arweave\.net\/[A-Za-z0-9_-]{43}$/;
 
 /**
  * Only content-addressed locations are accepted for a picture or metadata file: the
  * bytes behind them cannot be swapped after people have seen them. Matched as an
  * exact string (no URL parsing, so no normalisation tricks), no query, no fragment.
+ *
+ * Every IPFS form comes back as `ipfs://<cid>`, the one form that names no gateway.
+ * The metadata link is written on chain forever, and gateways do not last: ipfs.io
+ * and dweb.link were retired on 2026-09-21. Reads go through the site's gateway
+ * list (src/lib/ipfsGateways.ts).
  */
 export function checkContentUri(uri) {
   if (typeof uri !== "string") return { ok: false, reason: "No link was given." };
   const s = uri.trim();
   if (utf8Bytes(s) > LIMITS.uriBytes) return { ok: false, reason: `Too long: at most ${LIMITS.uriBytes} characters.` };
-  if (IPFS_URI.test(s) || ARWEAVE_URI.test(s)) return { ok: true, value: s };
-  return { ok: false, reason: "Use an https://ipfs.io/ipfs/… or https://arweave.net/… link." };
+  const cid = (IPFS_SCHEME_URI.exec(s) ?? IPFS_GATEWAY_URI.exec(s) ?? IPFS_SUBDOMAIN_URI.exec(s))?.[1];
+  if (cid) return { ok: true, value: `ipfs://${cid}` };
+  if (ARWEAVE_URI.test(s)) return { ok: true, value: s };
+  return { ok: false, reason: "Use an ipfs://… link, an https link that has /ipfs/ and then the file's id, or an https://arweave.net/… link." };
 }
 
-/** The IPFS link for a content id, or null if the id is not one we accept. */
+/** The IPFS link for a content id (`ipfs://<cid>`), or null if the id is not one we accept. */
 export function ipfsUri(cid) {
-  const uri = `https://ipfs.io/ipfs/${cid}`;
-  return typeof cid === "string" && IPFS_URI.test(uri) ? uri : null;
+  const uri = `ipfs://${cid}`;
+  return typeof cid === "string" && IPFS_SCHEME_URI.test(uri) ? uri : null;
 }
 
 // ── keys ────────────────────────────────────────────────────────────────────

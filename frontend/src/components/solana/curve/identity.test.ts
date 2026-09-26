@@ -4,7 +4,8 @@
 // accusation.
 import { describe, expect, it } from 'vitest';
 import { fakeApi, MINT, CREATOR } from './fakeWriteApi.fixture';
-import { identityWarnings } from './identity';
+import { identityWarnings, safeImageUrl } from './identity';
+import { IPFS_GATEWAYS } from '../../../lib/ipfsGateways';
 import type { MetadataRead } from './ports';
 
 const meta = fakeApi().meta;
@@ -28,5 +29,25 @@ describe('identityWarnings: the details file and the token it names', () => {
   });
   it('a file naming this token earns neither', () => {
     expect(identityWarnings(meta, null, file(MINT.toBase58(), true))).toEqual([]);
+  });
+});
+
+describe('safeImageUrl: a picture is shown from a gateway that still works', () => {
+  // ipfs.io and dweb.link were retired on 2026-09-21. Pictures named on them, or as
+  // ipfs://, must render from the site's live gateway list.
+  const withImage = (image: string): MetadataRead => ({
+    kind: 'ok',
+    json: { name: 'Farm Fresh', symbol: 'FRESH', description: '', image, mint: null },
+    mintMatches: false,
+    issues: [],
+  });
+  const CID = `bafkrei${'a'.repeat(52)}`;
+  it.each([`ipfs://${CID}`, `https://ipfs.io/ipfs/${CID}`, `https://dweb.link/ipfs/${CID}`])('%s', (image) => {
+    expect(safeImageUrl(meta, withImage(image))).toBe(`${IPFS_GATEWAYS[0]}${CID}`);
+  });
+  it('Arweave is shown as it is, and a mutable web address is not shown at all', () => {
+    const ar = `https://arweave.net/${'A'.repeat(43)}`;
+    expect(safeImageUrl(meta, withImage(ar))).toBe(ar);
+    expect(safeImageUrl(meta, withImage('https://evil.example/p.png'))).toBeNull();
   });
 });

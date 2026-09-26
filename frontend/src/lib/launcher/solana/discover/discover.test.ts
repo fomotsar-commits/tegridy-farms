@@ -327,6 +327,49 @@ describe('listRecentLaunches', () => {
     expect(next.kind === 'ok' && next.value.before).toBeNull();
   });
 
+  // R6-1: the cursor jumped to the end of a page even when the list filled up halfway
+  // through it, so "Load more" never showed the rest of that page (1 noise entry then
+  // 44 launches: 25 of 44 were ever listed).
+  it('"Load more" lists EVERY launch once, when the list fills up partway through a page', async () => {
+    const f = new FakeJsonRpc();
+    const spam = Keypair.generate();
+    const launches: Launch[] = Array.from({ length: 44 }, (_, i) => ({ sig: sig(10_000 + i), creator: Keypair.generate(), mint: Keypair.generate() }));
+    f.index(INDEX, [{ sig: sig(9_999), tx: noiseTx(spam) }, ...launches.map((l) => ({ sig: l.sig, tx: launchTx(l) }))]);
+    for (const l of launches) f.curve(l.mint.publicKey, l.creator.publicKey);
+    const listed: string[] = [];
+    let before: string | undefined;
+    let scanned = 0;
+    for (let load = 0; load < 10; load++) {
+      const r = await listRecentLaunches(f.rpc, cfgLocal, before ? { before } : {});
+      expect(r.kind).toBe('ok');
+      if (r.kind !== 'ok') return;
+      listed.push(...r.value.items.map((i) => i.mint.toBase58()));
+      scanned += r.value.scanned;
+      if (r.value.before === null) break;
+      before = r.value.before;
+    }
+    expect(listed).toEqual(launches.map((l) => l.mint.publicKey.toBase58()));
+    // Every entry is counted once across the loads.
+    expect(scanned).toBe(45);
+  });
+
+  it('by creator pages the same way: no launch skipped', async () => {
+    const f = new FakeJsonRpc();
+    const me = Keypair.generate();
+    const mine: Launch[] = Array.from({ length: 30 }, (_, i) => ({ sig: sig(20_000 + i), creator: me, mint: Keypair.generate() }));
+    f.index(me.publicKey, [{ sig: sig(19_999), tx: noiseTx(me) }, ...mine.map((l) => ({ sig: l.sig, tx: launchTx(l) }))]);
+    const listed: string[] = [];
+    let before: string | undefined;
+    for (let load = 0; load < 10; load++) {
+      const r = await listLaunchesByCreator(f.rpc, cfgLocal, me.publicKey, { limit: 7, ...(before ? { before } : {}) });
+      if (r.kind !== 'ok') throw new Error(r.kind);
+      listed.push(...r.value.items.map((i) => i.mint.toBase58()));
+      if (r.value.before === null) break;
+      before = r.value.before;
+    }
+    expect(listed).toEqual(mine.map((l) => l.mint.publicKey.toBase58()));
+  });
+
   it('a mint on the committed hide list is never listed, and is counted', async () => {
     const f = new FakeJsonRpc();
     const l: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate() };

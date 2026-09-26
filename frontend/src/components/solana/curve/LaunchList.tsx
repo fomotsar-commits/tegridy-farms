@@ -12,6 +12,7 @@ import {
   type SolanaRpc,
 } from '../../../lib/launcher/solana/curve';
 import { Card, Notice } from './ui';
+import { TOGGLE_CLS } from './uiFormat';
 import { CreatorStakeFacts, LaunchImage } from './LaunchIdentity';
 import { identityWarnings, safeImageUrl } from './identity';
 import { holdingFact, openingBuyFact, type Fact } from './facts';
@@ -104,7 +105,7 @@ export function LaunchList({
             onClick={() => setView(v)}
             aria-pressed={view === v}
             disabled={v === 'mine' && !wallet}
-            className="flex-1 py-1.5 rounded-lg text-[12px] text-white disabled:opacity-50"
+            className={`${TOGGLE_CLS} disabled:opacity-50`}
             style={{
               background: view === v ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
               border: view === v ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
@@ -137,13 +138,25 @@ export function LaunchList({
         </Notice>
       )}
       {state.status === 'ok' && items.length === 0 && (
-        <Notice>No launches found in the latest {state.scanned.toLocaleString('en-US')} entries we read.</Notice>
+        <Notice>
+          {state.scanned === 0
+            ? view === 'mine'
+              ? 'No launches from this wallet yet.'
+              : 'No launches yet.'
+            : `No launches in the most recent ${state.scanned.toLocaleString('en-US')} transactions we checked.`}
+        </Notice>
       )}
-      {state.status === 'ok' && state.before && state.loads < MAX_LOADS && (
+      {((state.status === 'ok' && state.before && state.loads < MAX_LOADS) ||
+        (state.status === 'loading' && state.loads > 0)) && (
+        // Stays on screen (and focused) while the next page loads: removing it would
+        // drop keyboard focus to the page. It does nothing until the page is in.
         <button
           type="button"
-          className="btn-secondary w-full py-2 text-[12px]"
-          onClick={() => void load(view, state.before ?? undefined, state)}
+          className={`btn-secondary w-full py-2 text-[12px] ${state.status === 'loading' ? 'opacity-60' : ''}`}
+          aria-disabled={state.status === 'loading' || undefined}
+          onClick={() => {
+            if (state.status === 'ok') void load(view, state.before ?? undefined, state);
+          }}
         >
           Show more
         </button>

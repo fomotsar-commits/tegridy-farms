@@ -15,11 +15,12 @@ import {
 } from './upload';
 import { buildMetadataJson, sha256Hex } from './validate.js';
 import { PNG_1X1, SVG, gif, jpeg, png, webpVp8x } from './testImages.fixture';
+import { IPFS_GATEWAYS } from '../ipfsGateways';
 
 const MINT = 'So11111111111111111111111111111111111111112';
 const CREATOR = '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R';
-const IMG = `https://ipfs.io/ipfs/bafkrei${'a'.repeat(52)}`;
-const META = `https://ipfs.io/ipfs/bafkrei${'b'.repeat(52)}`;
+const IMG = `ipfs://bafkrei${'a'.repeat(52)}`;
+const META = `ipfs://bafkrei${'b'.repeat(52)}`;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8' } });
@@ -28,22 +29,27 @@ const fetchReturning = (r: Response | (() => Promise<Response>)) =>
   vi.fn(async () => (typeof r === 'function' ? r() : r)) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
 
 describe('uploadsAvailable', () => {
-  it('is true only for JSON saying configured: true', async () => {
-    expect(await uploadsAvailable(fetchReturning(json({ configured: true })))).toBe(true);
-    expect(await uploadsAvailable(fetchReturning(json({ configured: false })))).toBe(false);
-    expect(await uploadsAvailable(fetchReturning(json({ configured: 'true' })))).toBe(false);
+  it('is yes only for JSON saying configured: true, and no only when the server says it is off', async () => {
+    expect(await uploadsAvailable(fetchReturning(json({ configured: true })))).toBe('yes');
+    expect(await uploadsAvailable(fetchReturning(json({ configured: false })))).toBe('no');
+    expect(await uploadsAvailable(fetchReturning(json({ error: 'x', reason: 'not-configured' }, 503)))).toBe('no');
+    expect(await uploadsAvailable(fetchReturning(json({ configured: 'true' })))).toBe('unknown');
   });
 
-  it('treats the SPA fallback (200 text/html for a missing route) as off', async () => {
-    expect(await uploadsAvailable(fetchReturning(html(200)))).toBe(false);
+  it('never reads the SPA fallback (200 text/html for a missing route) as on', async () => {
+    expect(await uploadsAvailable(fetchReturning(html(200)))).not.toBe('yes');
     // Even an HTML-typed page whose text happens to parse as {"configured":true}.
     const lookalike = new Response('{"configured":true}', { status: 200, headers: { 'content-type': 'text/html' } });
-    expect(await uploadsAvailable(fetchReturning(lookalike))).toBe(false);
+    expect(await uploadsAvailable(fetchReturning(lookalike))).not.toBe('yes');
   });
 
-  it('treats errors and outages as off', async () => {
-    expect(await uploadsAvailable(fetchReturning(json({ configured: true }, 503)))).toBe(false);
-    expect(await uploadsAvailable(vi.fn(async () => { throw new TypeError('offline'); }) as unknown as typeof fetch)).toBe(false);
+  // One slow or failed check must not switch the form to paste mode for the visit
+  // and tell the user uploads "are not available on this site".
+  it('calls errors, outages and timeouts unknown, never off', async () => {
+    expect(await uploadsAvailable(fetchReturning(json({ configured: true }, 503)))).toBe('unknown');
+    expect(await uploadsAvailable(fetchReturning(json({ configured: false }, 500)))).toBe('unknown');
+    expect(await uploadsAvailable(vi.fn(async () => { throw new TypeError('offline'); }) as unknown as typeof fetch)).toBe('unknown');
+    expect(await uploadsAvailable(fetchReturning(html(200)))).toBe('unknown');
   });
 });
 
@@ -206,6 +212,27 @@ describe('readLaunchMetadataJson', () => {
   it('reads a good file and checks the mint it names', async () => {
     expect(await readLaunchMetadataJson(META, MINT, fetchReturning(json(file)))).toMatchObject({ kind: 'ok', mintMatches: true });
     expect(await readLaunchMetadataJson(META, CREATOR, fetchReturning(json(file)))).toMatchObject({ kind: 'ok', mintMatches: false });
+  });
+
+  // ipfs.io and dweb.link were retired on 2026-09-21. A launch's link is on chain
+  // forever, so it is read through the site's gateway list, whatever gateway the
+  // link itself names.
+  it('reads IPFS through the live gateways, never the gateway the link names', async () => {
+    const f = fetchReturning(json(file));
+    const legacy = `https://ipfs.io/ipfs/bafkrei${'b'.repeat(52)}`;
+    expect(await readLaunchMetadataJson(legacy, MINT, f)).toMatchObject({ kind: 'ok' });
+    expect(f.mock.calls[0][0]).toBe(`${IPFS_GATEWAYS[0]}bafkrei${'b'.repeat(52)}`);
+  });
+
+  it('moves on to the next gateway when one refuses, hangs or sends a web page', async () => {
+    const answers = [
+      () => Promise.resolve(new Response('Just a moment...', { status: 403 })),
+      () => Promise.resolve(html(200)),
+      () => Promise.resolve(json(file)),
+    ];
+    const f = vi.fn(async () => answers.shift()!()) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+    expect(await readLaunchMetadataJson(META, MINT, f)).toMatchObject({ kind: 'ok', mintMatches: true });
+    expect(f.mock.calls.map((c) => c[0])).toEqual(IPFS_GATEWAYS.slice(0, 3).map((g) => `${g}bafkrei${'b'.repeat(52)}`));
   });
 
   it('never fetches a location that is not a content address', async () => {

@@ -5,8 +5,13 @@ import type { Prepared, PreparedTx, TxOutcome, TxSigner, WriteApi, WriteRpc } fr
 /**
  * One transaction, start to finish, for any of the seven kinds.
  *
- *   idle → preparing → review → submitting → outcome
+ *   idle → preparing → review → submitting → sent → outcome
  *                  ↘ outcome (not-sent: nothing was signed)
+ *
+ * `submitting` is the wallet's turn. `sent` starts the moment the signature is known,
+ * BEFORE the first byte leaves: from then on the transaction may land even if this
+ * tab goes away. So `onSent` is called right then (the page writes its "may still
+ * land" note there, which survives a reload), and leaving the page asks first.
  *
  * The rules this machine exists to hold:
  *  - Nothing reaches the wallet without a `review` step, and the review shows the
@@ -23,7 +28,8 @@ import type { Prepared, PreparedTx, TxOutcome, TxSigner, WriteApi, WriteRpc } fr
  *    it stands, the panel's action stays locked until the user checks again, so the
  *    easy mistake (paying twice) takes a deliberate step.
  *  - If the submit call itself throws, we cannot say whether anything was sent, so
- *    that too is `unknown`, with no signature, and never "failed".
+ *    that too is `unknown`, and never "failed". It carries the signature when the
+ *    transaction had already reached `sent`.
  */
 export const REVIEW_TTL_MS = 45_000;
 /** Blocks (~0.4 s each) the wallet prompt and the first send must still have. */
@@ -52,9 +58,21 @@ async function confirmedHeight(rpc: WriteRpc): Promise<number | null> {
 export type TxFlowState =
   | { step: 'idle' }
   | { step: 'preparing' }
-  | { step: 'review'; prepared: PreparedTx; expired: boolean; expiresAt: number }
+  /** `checking`: Sign was pressed and the block height is being read before the wallet opens. */
+  | { step: 'review'; prepared: PreparedTx; expired: boolean; expiresAt: number; checking?: boolean }
   | { step: 'submitting'; prepared: PreparedTx }
-  | { step: 'outcome'; outcome: TxOutcome; prepared: PreparedTx | null; rechecking: boolean };
+  | { step: 'sent'; prepared: PreparedTx; signature: string }
+  /** `checks`: how many times "Check again" has answered, so each answer reads as new. */
+  | { step: 'outcome'; outcome: TxOutcome; prepared: PreparedTx | null; rechecking: boolean; checks?: number };
+
+/**
+ * A settled transaction, for the page. `sentSignature` is the signature it had once
+ * it reached `sent`, or null: a `not-sent` outcome after `sent` (the network turned it
+ * away at the first send) still names the note to clear.
+ */
+export type OnSettled = (outcome: TxOutcome, prepared: PreparedTx | null, sentSignature?: string | null) => void;
+/** The signature is known and the transaction is about to be sent. Write the note here. */
+export type OnSent = (signature: string, prepared: PreparedTx) => void;
 
 export interface TxFlow {
   state: TxFlowState;
@@ -69,14 +87,30 @@ export interface TxFlow {
 export function useTxFlow(
   api: Pick<WriteApi, 'submitPrepared' | 'recheckOutcome'>,
   rpc: WriteRpc,
-  onSettled?: (outcome: TxOutcome, prepared: PreparedTx | null) => void,
+  onSettled?: OnSettled,
+  onSent?: OnSent,
 ): TxFlow {
   const [state, setState] = useState<TxFlowState>({ step: 'idle' });
   const busy = useRef(false);
   const settledRef = useRef(onSettled);
+  const sentRef = useRef(onSent);
   useEffect(() => {
     settledRef.current = onSettled;
-  }, [onSettled]);
+    sentRef.current = onSent;
+  }, [onSettled, onSent]);
+
+  // Sent and not answered yet: a reload or a closed tab would drop the page's watch on
+  // it. The note survives that, but the browser asks first.
+  const inFlight = state.step === 'sent';
+  useEffect(() => {
+    if (!inFlight) return;
+    const ask = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', ask);
+    return () => window.removeEventListener('beforeunload', ask);
+  }, [inFlight]);
 
   // Expire the review. The timer is tied to the prepared transaction it guards.
   const reviewing = state.step === 'review' ? state.prepared : null;
@@ -127,26 +161,42 @@ export function useTxFlow(
       // A signature the network can no longer accept is wasted: read the height first.
       // Unreadable is not "fine", but it is not "stale" either; the first send runs
       // with preflight, which refuses an expired blockhash before anything is sent.
+      setState((cur) => (cur.step === 'review' && cur.prepared === prepared ? { ...cur, checking: true } : cur));
       const height = await confirmedHeight(rpc);
       if (height !== null && height + SIGN_MARGIN_BLOCKS >= prepared.lastValidBlockHeight) {
         busy.current = false;
-        setState((cur) => (cur.step === 'review' && cur.prepared === prepared ? { ...cur, expired: true } : cur));
+        setState((cur) =>
+          cur.step === 'review' && cur.prepared === prepared ? { ...cur, expired: true, checking: false } : cur,
+        );
         return;
       }
       setState({ step: 'submitting', prepared });
+      let sentSignature: string | null = null;
       let outcome: TxOutcome;
       try {
-        outcome = await api.submitPrepared(rpc, signer, prepared);
+        outcome = await api.submitPrepared(rpc, signer, prepared, {
+          onSent: (signature) => {
+            sentSignature = signature;
+            try {
+              sentRef.current?.(signature, prepared);
+            } catch {
+              /* a note that could not be written does not stop the send */
+            }
+            setState((cur) =>
+              cur.step === 'submitting' && cur.prepared === prepared ? { step: 'sent', prepared, signature } : cur,
+            );
+          },
+        });
       } catch (e) {
         outcome = {
           status: 'unknown',
-          signature: '',
+          signature: sentSignature ?? '',
           message: `We lost track of this transaction (${clipDetail(e)}). Check your wallet's activity before trying again.`,
         };
       }
       busy.current = false;
-      setState({ step: 'outcome', outcome, prepared, rechecking: false });
-      settledRef.current?.(outcome, prepared);
+      setState({ step: 'outcome', outcome, prepared, rechecking: false, checks: 0 });
+      settledRef.current?.(outcome, prepared, sentSignature);
     },
     [api, rpc, state],
   );
@@ -172,8 +222,8 @@ export function useTxFlow(
       outcome = { status: 'unknown', signature: sig, message: `Could not check just now (${clipDetail(e)}).` };
     }
     busy.current = false;
-    setState({ step: 'outcome', outcome, prepared: s.prepared, rechecking: false });
-    settledRef.current?.(outcome, s.prepared);
+    setState({ step: 'outcome', outcome, prepared: s.prepared, rechecking: false, checks: (s.checks ?? 0) + 1 });
+    settledRef.current?.(outcome, s.prepared, sig);
   }, [api, rpc, state]);
 
   const reset = useCallback(() => {
@@ -183,4 +233,25 @@ export function useTxFlow(
 
   const locked = state.step === 'outcome' && state.outcome.status === 'unknown' && state.outcome.signature !== '';
   return { state, locked, prepare, confirm, recheck, reset };
+}
+
+/**
+ * Where focus goes when a flow ends (Cancel, Close, Start over). The flow's own
+ * buttons are gone, so without this focus falls to the page body. `target` is the
+ * panel's Review button; `fallback` (the card heading) is used when that button is
+ * missing or switched off.
+ */
+export function useReturnFocus(step: TxFlowState['step']) {
+  const target = useRef<HTMLButtonElement | null>(null);
+  const fallback = useRef<HTMLHeadingElement | null>(null);
+  const prev = useRef(step);
+  useEffect(() => {
+    const was = prev.current;
+    prev.current = step;
+    if (was === 'idle' || step !== 'idle') return;
+    const t = target.current;
+    if (t && t.isConnected && !t.disabled) t.focus();
+    else fallback.current?.focus();
+  }, [step]);
+  return { target, fallback };
 }

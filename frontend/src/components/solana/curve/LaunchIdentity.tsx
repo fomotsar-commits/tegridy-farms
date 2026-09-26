@@ -4,6 +4,7 @@ import { Notice, Row } from './ui';
 import { sharePercent } from './uiFormat';
 import type { LaunchLinks, MetadataApi, MetadataRead, TokenMetadata } from './ports';
 import { identityWarnings, safeImageUrl } from './identity';
+import { advanceIpfsImg } from '../../../lib/ipfsGateways';
 import type { Fact } from './facts';
 
 // Who a launch says it is, and the facts that decide whether to believe it.
@@ -12,10 +13,11 @@ import type { Fact } from './facts';
 // site, possibly to impersonate a coin people already know. So: every name, symbol
 // and description goes through `displaySafe`; the symbol and name are re-checked
 // against the reserved list and the lookalike rules on READ, not just on upload;
-// a picture is shown only from the two content-addressed hosts; links are re-checked
+// a picture is shown only from a content address (IPFS or Arweave); links are re-checked
 // and open with no referrer and no follow.
 
-const LINK_LABEL: Record<keyof LaunchLinks, string> = { website: 'Website', twitter: 'X', telegram: 'Telegram' };
+// 'X (Twitter)', not 'X': a one-letter link name means nothing read aloud.
+const LINK_LABEL: Record<keyof LaunchLinks, string> = { website: 'Website', twitter: 'X (Twitter)', telegram: 'Telegram' };
 
 export function LaunchImage({ src, size = 64 }: { src: string | null; size?: number }) {
   return src ? (
@@ -27,6 +29,7 @@ export function LaunchImage({ src, size = 64 }: { src: string | null; size?: num
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
+      onError={(e) => advanceIpfsImg(e.currentTarget)}
       className="rounded-xl object-cover shrink-0 bg-black/40"
       style={{ width: size, height: size }}
     />
@@ -68,14 +71,20 @@ export function LaunchIdentity({
         <LaunchImage src={image} />
         <div className="min-w-0">
           <p className="text-white text-[16px] font-semibold break-words">
-            {metadata === null ? 'Reading…' : name || 'No name'}
+            {metadata === null
+              ? 'Reading…'
+              : md
+                ? name || 'No name'
+                : metadata.kind === 'absent'
+                  ? 'No name (made outside this site)'
+                  : 'Name could not be read'}
           </p>
           {symbol && <p className="text-white/70 font-mono text-[12px] break-all">{symbol}</p>}
         </div>
       </div>
       <Row label="Token address (mint)" value={mint.toBase58()} />
       <p className="text-amber-200/90 text-[11px]">
-        Not endorsed by Tegridy. Anyone can launch here. Check the full token address above before you buy.
+        Not endorsed by memetics.finance. Anyone can launch here. Check the full token address above before you buy.
       </p>
       {warnings.map((w) => (
         <Notice key={w} tone="warn">
@@ -85,7 +94,8 @@ export function LaunchIdentity({
       {description && <p className="text-white/70 break-words whitespace-pre-line">{description}</p>}
       {json?.kind === 'unreadable' && <Notice>The picture and description could not be loaded right now.</Notice>}
       {links?.ok && (
-        <div className="flex flex-wrap gap-3">
+        // A row of their own, not links in a sentence: each gets a full-size touch target.
+        <div className="flex flex-wrap gap-x-1">
           {(Object.keys(LINK_LABEL) as (keyof LaunchLinks)[]).map((k) =>
             links.value[k] ? (
               <a
@@ -93,7 +103,8 @@ export function LaunchIdentity({
                 href={links.value[k]}
                 target="_blank"
                 rel="noopener noreferrer nofollow"
-                className="underline text-white/75"
+                aria-label={`${LINK_LABEL[k]} (opens in a new tab)`}
+                className="underline text-white/75 inline-flex items-center min-h-[44px] px-2"
               >
                 {LINK_LABEL[k]}
               </a>
@@ -128,9 +139,10 @@ export function CreatorStakeFacts({
   };
   return (
     <div className="space-y-1" data-testid="creator-stake">
+      {/* Each reason sits under its own row, so it cannot read as explaining the other. */}
       <Row label="Bought in the launch transaction (any wallet)" value={fmt(openingBuy)} mono={false} />
-      <Row label="Creator holds now (main token account)" value={fmt(holding)} mono={false} />
       {openingBuy?.kind === 'unreadable' && <p className="text-white/40 text-[10px]">{openingBuy.detail}</p>}
+      <Row label="Creator's wallet holds now (its usual account)" value={fmt(holding)} mono={false} />
       {holding?.kind === 'unreadable' && <p className="text-white/40 text-[10px]">{holding.detail}</p>}
     </div>
   );

@@ -42,15 +42,75 @@ describe('outcome copy', () => {
     expect(screen.queryByRole('button', { name: 'Check again' })).not.toBeInTheDocument();
   });
 
-  it('expired: did not go through, nothing charged, safe to retry', () => {
-    outcome({ status: 'expired', signature: SIG, message: '' });
-    expect(screen.getByText(/Did not go through\. Nothing was charged\. It is safe to try again\./)).toBeInTheDocument();
+  // UXR12: the card's line and the write layer's message said the same thing twice.
+  it('expired: did not go through, nothing charged, safe to retry, said ONCE', () => {
+    outcome({
+      status: 'expired',
+      signature: SIG,
+      message: 'This did not go through, and it can no longer go through. Nothing was charged. It is safe to try again.',
+    });
+    const text = screen.getByTestId('tx-outcome').textContent ?? '';
+    expect(text).toMatch(/Did not go through, and it can no longer go through\. Nothing was charged\. It is safe to try again\./);
+    expect(text.match(/Nothing was charged/g)).toHaveLength(1);
+    expect(text.match(/safe to try again/g)).toHaveLength(1);
   });
 
-  it('reverted: names the program reason and says only the fee was spent', () => {
-    outcome({ status: 'reverted', signature: SIG, program: 'launch', code: 6007, message: 'The price moved past your limit.' });
+  // R6-3: a refused transaction pays the priority fee too, and the review shows it as
+  // its own row. The outcome names both fees and what they came to, once.
+  it('reverted: names the program reason and says the network AND priority fee were spent, once', () => {
+    render(
+      <TxOutcomeCard
+        outcome={{ status: 'reverted', signature: SIG, program: 'launch', code: 6007, message: 'The price moved past your limit.' }}
+        explorerUrl={null}
+        onRecheck={vi.fn()}
+        onReset={vi.fn()}
+        rechecking={false}
+        fees={{ baseLamports: 5_000n, priorityLamports: 12_000n, priorityFeeRead: true, newAccountRentLamports: 0n }}
+      />,
+    );
     expect(screen.getByText('The price moved past your limit.')).toBeInTheDocument();
-    expect(screen.getByText(/Nothing moved except the network fee/)).toBeInTheDocument();
+    const text = screen.getByTestId('tx-outcome').textContent ?? '';
+    // The amount is in the review's own format (5,000 + 12,000 lamports is under 0.0001 SOL).
+    expect(text).toMatch(/Nothing moved except the fees: <0\.0001 SOL \(the network fee and the priority fee\)\./);
+    expect(text).not.toMatch(/only the network fee|except the network fee\./);
+    expect(text.match(/fee/g)?.length).toBe(3);
+  });
+
+  // UXR1: "Check again" on a sent-but-unconfirmed transaction said nothing new: what
+  // each check found was never shown, or read out.
+  it('unknown: what the first watch saw and what each check finds is on screen, in a status line', () => {
+    const props = { explorerUrl: `https://x/${SIG}`, onRecheck: vi.fn(), onReset: vi.fn() };
+    const view = render(
+      <TxOutcomeCard outcome={{ status: 'unknown', signature: SIG, message: 'The network did not confirm it while this page was watching.' }} rechecking={false} {...props} />,
+    );
+    const line = screen.getByTestId('tx-check-result');
+    expect(line).toHaveAttribute('role', 'status');
+    expect(line).toHaveTextContent('The network did not confirm it while this page was watching.');
+    view.rerender(
+      <TxOutcomeCard outcome={{ status: 'unknown', signature: SIG, message: 'The network did not confirm it while this page was watching.' }} rechecking {...props} />,
+    );
+    expect(line).toHaveTextContent('Checking the network…');
+    view.rerender(
+      <TxOutcomeCard
+        outcome={{ status: 'unknown', signature: SIG, message: 'The network has no record of it yet. It may still be landing.' }}
+        rechecking={false}
+        checks={1}
+        {...props}
+      />,
+    );
+    expect(line).toHaveTextContent('Check 1: The network has no record of it yet. It may still be landing.');
+    // The same answer twice still reads as a new answer.
+    view.rerender(
+      <TxOutcomeCard
+        outcome={{ status: 'unknown', signature: SIG, message: 'The network has no record of it yet. It may still be landing.' }}
+        rechecking={false}
+        checks={2}
+        {...props}
+      />,
+    );
+    expect(line).toHaveTextContent('Check 2: The network has no record of it yet.');
+    // The alert (what this is, what not to do) is not the status line: it does not change per check.
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/Check 2/);
   });
 
   it('not sent at simulation: says the wallet was never asked, and nothing was charged', () => {
@@ -155,7 +215,7 @@ describe('review', () => {
     const api = fakeApi();
     const { result } = flowAt(api);
     const quote = {
-      poolAddress: CREATOR.toBase58(), outAmount: 900n, reserveIn: 1n, reserveOut: 1n, priceImpact: 0.01,
+      poolAddress: CREATOR.toBase58(), outAmount: 900n, reserveIn: 1n, reserveOut: 1n, priceImpact: 0.01, creatorFeeOnInput: true,
       result: { outputAmount: 900n, tradeFee: 2_500_000n, protocolFee: 300_000n, fundFee: 0n, creatorFee: 0n, newInputVaultAmount: 0n, newOutputVaultAmount: 0n },
     };
     const pool: TxSummary = { kind: 'pool-buy', mint: CREATOR, pool: CREATOR, amountIn: SOL_1, minimumAmountOut: 800n, quote, unwrapsWsol: true };
@@ -164,12 +224,80 @@ describe('review', () => {
     expect(screen.getByText('Pool fee (inside what you pay)').parentElement).toHaveTextContent('0.0025 SOL');
   });
 
+  // F3: the review showed "0.00%" for an impact it could not compute, and warned at no size.
+  it('price impact on the review: "could not compute" when unknown, and a warning when large', async () => {
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    const s = buySummary();
+    if (s.kind !== 'buy') throw new Error('kind');
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared({ ...s, priceImpactBps: null }) })));
+    const view = render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    expect(screen.getByText('Price impact').parentElement).toHaveTextContent('could not compute');
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared({ ...s, priceImpactBps: 1_600n }) })));
+    view.rerender(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    expect(screen.getByText(/This trade moves the price by 16\.00%\. You get far less/)).toBeInTheDocument();
+  });
+
+  // F13: the compute-unit count means nothing to a buyer.
+  it('the test-run line is plain words, with no compute-unit count', async () => {
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    expect(screen.getByText(/Test run passed/)).not.toHaveTextContent(/compute|61,234/);
+  });
+
   it('cannot be signed without a wallet that signs', async () => {
     const api = fakeApi();
     const { result } = flowAt(api);
     await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
     render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={null} />);
     expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Screen readers and keyboard focus (F8/UX4). The flow replaces the panel's form,
+// so the Review button that had focus is gone: each step takes focus, and says
+// what it is.
+// ---------------------------------------------------------------------------
+
+describe('announced and focused', () => {
+  it('building is a status that takes focus', async () => {
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    let finish: (v: { ok: true; prepared: ReturnType<typeof prepared> }) => void = () => undefined;
+    void act(() => {
+      void result.current.prepare(() => new Promise((r) => (finish = r)));
+    });
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent(/Building the transaction/);
+    expect(document.activeElement).toBe(status);
+    await act(async () => finish({ ok: true, prepared: prepared(buySummary()) }));
+  });
+
+  it('the review takes focus on its heading', async () => {
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Review your buy' }));
+  });
+
+  it('an outcome that needs attention is an alert and takes focus; done is a status', async () => {
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    await act(() =>
+      result.current.prepare(async () => ({ ok: false, outcome: { status: 'not-sent', stage: 'simulate', message: 'x' } })),
+    );
+    const view = render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/Not sent/);
+    expect(document.activeElement).toBe(alert);
+    view.unmount();
+    outcome({ status: 'confirmed', signature: SIG, slot: 1 });
+    expect(screen.getByRole('status')).toHaveTextContent(/Done\. The network confirmed it/);
   });
 });
 
@@ -293,6 +421,133 @@ describe('useTxFlow', () => {
     await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
     await act(() => result.current.confirm(signer));
     expect(api.submitPrepared).toHaveBeenCalledTimes(1);
+  });
+
+  // FS-1: the wait for the network (up to two minutes) had nothing saved and nothing
+  // said: a reload in it brought back an open form while the first one could land.
+  it('once the signature is known: the page is told BEFORE the wait, the step shows the signature, and leaving asks first', async () => {
+    let release: (o: TxOutcome) => void = () => undefined;
+    const api = fakeApi({
+      submitPrepared: vi.fn((_r, _s, _p, deps) => {
+        deps?.onSent?.(SIG, 1234);
+        return new Promise<TxOutcome>((r) => (release = r));
+      }),
+    });
+    const sent = vi.fn();
+    const settled = vi.fn();
+    const { result } = renderHook(() => useTxFlow(api, rpc, settled, sent));
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = result.current.confirm(signer);
+      await vi.waitFor(() => expect(sent).toHaveBeenCalled());
+    });
+    expect(sent).toHaveBeenCalledWith(SIG, expect.objectContaining({ lastValidBlockHeight: 1234 }));
+    expect(settled).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: 'sent', signature: SIG });
+    const view = render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    const step = screen.getByTestId('tx-sent');
+    expect(step).toHaveTextContent(SIG);
+    expect(step).toHaveTextContent(/Sent\. Waiting for the network to confirm it/);
+    expect(step).not.toHaveTextContent(/Waiting for your wallet/);
+    expect(screen.getByRole('link', { name: /explorer/i })).toHaveAttribute('href', `https://explorer.test/tx/${SIG}`);
+    expect(document.activeElement).toBe(step);
+    // Reloading or closing the tab now asks first.
+    const leave = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(leave);
+    expect(leave.defaultPrevented).toBe(true);
+    await act(async () => {
+      release({ status: 'confirmed', signature: SIG, slot: 1 });
+      await done;
+    });
+    view.unmount();
+    expect(settled).toHaveBeenCalledWith({ status: 'confirmed', signature: SIG, slot: 1 }, expect.anything(), SIG);
+    // Settled: leaving no longer asks.
+    const after = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(after);
+    expect(after.defaultPrevented).toBe(false);
+  });
+
+  it('a submit that throws AFTER the signature was known keeps that signature, so it can still be checked', async () => {
+    const api = fakeApi({
+      submitPrepared: vi.fn(async (_r, _s, _p, deps) => {
+        deps?.onSent?.(SIG, 1234);
+        throw new Error('socket closed');
+      }),
+    });
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
+    await act(() => result.current.confirm(signer));
+    expect(result.current.state).toMatchObject({ step: 'outcome', outcome: { status: 'unknown', signature: SIG } });
+    expect(result.current.locked).toBe(true);
+  });
+
+  // UXR2: a stale review switched Sign off under the keyboard; focus fell to the page
+  // and a screen reader heard nothing.
+  it('a review going stale moves focus to an alert that says so', async () => {
+    vi.useFakeTimers();
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
+    const view = render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    screen.getByRole('button', { name: 'Sign in wallet' }).focus();
+    act(() => {
+      vi.advanceTimersByTime(REVIEW_TTL_MS + 1);
+    });
+    view.rerender(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/too old to sign/);
+    expect(document.activeElement).toBe(alert);
+  });
+
+  it('while the block height is read after Sign, a status line says so', async () => {
+    let answer: (h: number) => void = () => undefined;
+    const heightRpc = { getBlockHeight: vi.fn(() => new Promise<number>((r) => (answer = r))) } as unknown as WriteRpc;
+    const api = fakeApi({ submitPrepared: vi.fn(async () => ({ status: 'confirmed' as const, signature: SIG, slot: 1 })) });
+    const { result } = renderHook(() => useTxFlow(api, heightRpc));
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
+    let done: Promise<void> = Promise.resolve();
+    act(() => {
+      done = result.current.confirm(signer);
+    });
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Checking the network before your wallet opens…');
+    await act(async () => {
+      answer(1_000);
+      await done;
+    });
+  });
+
+  // UXR2: Check again was switched off while checking, dropping focus to the page.
+  it('Check again keeps focus while it checks, and does nothing on a second press', async () => {
+    let answer: (o: TxOutcome) => void = () => undefined;
+    const api = fakeApi({
+      submitPrepared: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'slow' })),
+      recheckOutcome: vi.fn(() => new Promise<TxOutcome>((r) => (answer = r))),
+    });
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
+    await act(() => result.current.confirm(signer));
+    const view = render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    const btn = screen.getByRole('button', { name: 'Check again' });
+    btn.focus();
+    act(() => {
+      fireEvent.click(btn);
+    });
+    view.rerender(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    const during = screen.getByRole('button', { name: 'Check again' });
+    expect(during).not.toBeDisabled();
+    expect(during).toHaveAttribute('aria-disabled', 'true');
+    expect(document.activeElement).toBe(during);
+    expect(screen.getByTestId('tx-check-result')).toHaveTextContent('Checking the network…');
+    fireEvent.click(during);
+    expect(api.recheckOutcome).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      answer({ status: 'unknown', signature: SIG, message: 'The network has no record of it yet. It may still be landing.' });
+    });
+    view.rerender(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    expect(screen.getByTestId('tx-check-result')).toHaveTextContent('Check 1: The network has no record of it yet.');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Check again' }));
   });
 
   it('renders Check again from the outcome and wires it to recheck', async () => {

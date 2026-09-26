@@ -4,7 +4,20 @@ import { WriteGateBanner } from './WriteGateBanner';
 import { GraduationPanel, type GraduationPanelProps } from './GraduationPanel';
 import { PoolSwapPanel, type PoolSwapPanelProps } from './PoolSwapPanel';
 import { useWriteGate } from './useWriteGate';
-import { CREATOR, KEY, MINT, SOL, ammConfig, bondingCurve, curveAccount, fakeApi, launchState, openGate } from './fakeWriteApi.fixture';
+import {
+  CREATOR,
+  KEY,
+  MINT,
+  SIG,
+  SOL,
+  ammConfig,
+  bondingCurve,
+  curveAccount,
+  fakeApi,
+  launchState,
+  openGate,
+  prepared,
+} from './fakeWriteApi.fixture';
 import type { CurveSignerState } from './useCurveSigner';
 import type { GateRpc, LaunchPool, WriteApi, WriteRpc } from './ports';
 import type { PoolStateView } from '../../../lib/solana/cpswap/program';
@@ -122,7 +135,9 @@ describe('graduation panel', () => {
   it('pool side not set up: says so, and the button stays off', () => {
     renderGrad({ gate: openGate({ graduation: { permission: null, createPoolFeeReceiver: false } }), actions: { ...NONE, sell: true } });
     expect(screen.getByText('could not read')).toBeInTheDocument();
-    expect(screen.getByText(/cannot succeed until the pool program side is set up/)).toBeInTheDocument();
+    expect(screen.getByText(/cannot succeed until the pool side is set up/)).toBeInTheDocument();
+    // F13: the readiness rows are pool-program detail, kept behind "Technical details".
+    expect(screen.getByText('could not read').closest('details')).toHaveTextContent(/^Technical details/);
     expect(screen.getByRole('button', { name: 'Review: finish graduation' })).toBeDisabled();
   });
 
@@ -167,8 +182,52 @@ describe('graduation panel', () => {
         onSettled={vi.fn()}
       />,
     );
-    expect(screen.getByText(/has been released to the treasury/)).toBeInTheDocument();
+    expect(screen.getByText(/has been released to the platform treasury/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /release platform reserve/ })).not.toBeInTheDocument();
+  });
+
+  // UXR7: a finished graduation flips the phase to 'graduated' while its result is
+  // still on screen; the card must not then be titled "Platform reserve".
+  it('a graduation that just finished keeps its own title over its result', async () => {
+    const api = fakeApi({
+      prepareMigrate: vi.fn(async () => ({ ok: true as const, prepared: prepared({ kind: 'migrate', mint: MINT, pool: KEY(40) }) })),
+      submitPrepared: vi.fn(async () => ({ status: 'confirmed' as const, signature: SIG, slot: 1 })),
+    });
+    const c = bondingCurve({ realSolReserves: 26n * SOL });
+    const props: GraduationPanelProps = {
+      api,
+      rpc: {} as WriteRpc,
+      gate: openGate(),
+      launch: launchState(c),
+      curve: curveAccount(c, 26n * SOL + 5_000_000n),
+      mint: MINT,
+      decimals: 6,
+      rentFloor: 2_000_000n,
+      actions: { ...NONE, sell: true, migrate: true },
+      signerState: ready,
+      onSettled: vi.fn(),
+    };
+    const view = render(<GraduationPanel {...props} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review: finish graduation' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(screen.getByText(/Done\. The network confirmed it\./)).toBeInTheDocument();
+    // The page reads the chain again: the launch is now graduated.
+    const g = bondingCurve({ complete: true, pool: KEY(40) });
+    view.rerender(
+      <GraduationPanel {...props} launch={launchState(g)} curve={curveAccount(g)} actions={{ ...NONE, release: true, poolSwap: true }} />,
+    );
+    expect(screen.getByText(/Done\. The network confirmed it\./)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Finish graduation');
+    expect(screen.queryByText('Platform reserve')).not.toBeInTheDocument();
+    // Closing it shows the graduated card, with focus on its release button.
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Review: release platform reserve' }));
   });
 
   it('renders nothing while the curve is still bonding', () => {
@@ -237,7 +296,7 @@ function renderPool(over: Partial<PoolSwapPanelProps> = {}) {
 describe('pool swap panel', () => {
   it('quotes against the launch pool and builds a swap with a non-zero floor', async () => {
     const p = renderPool();
-    fireEvent.change(screen.getByLabelText('Amount of SOL to pay in the pool'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Pay (SOL)'), { target: { value: '1' } });
     expect(screen.getByText('You receive at least')).toBeInTheDocument();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Review pool buy' }));
@@ -247,6 +306,22 @@ describe('pool swap panel', () => {
       p.gate,
       expect.objectContaining({ owner: CREATOR, mint: MINT, side: 'buy', amountIn: SOL, slippageBps: 100n }),
     );
+  });
+
+  // F7/UX5: the pool's sell side had no balance and no Max either.
+  it('the sell side shows what the wallet holds and Max fills it exactly; an unread balance offers no Max', () => {
+    renderPool({ walletHolding: { kind: 'ok', value: 1_234_500_000n } });
+    fireEvent.click(screen.getByRole('button', { name: 'sell' }));
+    expect(screen.getByTestId('your-holding')).toHaveTextContent('You hold 1,234.5');
+    fireEvent.click(screen.getByRole('button', { name: 'Max' }));
+    expect(screen.getByLabelText('Sell (tokens)')).toHaveValue('1234.5');
+  });
+
+  it('an unread pool-side balance says so and offers no Max', () => {
+    renderPool({ walletHolding: { kind: 'unreadable', detail: 'HTTP 500' } });
+    fireEvent.click(screen.getByRole('button', { name: 'sell' }));
+    expect(screen.getByText(/You hold: could not read/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Max' })).not.toBeInTheDocument();
   });
 
   it('a pool that does not match graduation is refused, with its reason', () => {
@@ -276,16 +351,55 @@ describe('pool swap panel', () => {
       snapshot: { ...p.snapshot, pool: { ...p.snapshot.pool, openTime } as PoolStateView },
     };
     renderPool({ pool: { kind: 'ok', value: opened } });
-    fireEvent.change(screen.getByLabelText('Amount of SOL to pay in the pool'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Pay (SOL)'), { target: { value: '1' } });
     expect(screen.queryByText(/would refuse this swap/)).not.toBeInTheDocument();
     expect(screen.getByText('You receive at least')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Review pool buy' })).not.toBeDisabled();
   });
 
+  // UXR8: a tiny amount turned Review off with no reason given.
+  it('an amount too small to receive anything says so', () => {
+    renderPool();
+    fireEvent.change(screen.getByLabelText('Pay (SOL)'), { target: { value: '0.000000001' } });
+    expect(screen.getByText(/This amount is too small/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review pool buy' })).toBeDisabled();
+  });
+
+  // UXR8: with pool swaps off, the form's controls stayed usable, unlike the curve panel.
+  it('pool swaps off: the amount, the sides, Max and the tolerance are all off too', () => {
+    renderPool({ actions: { ...NONE }, walletHolding: { kind: 'ok', value: 5_000_000n } });
+    expect(screen.getByText('Pool swaps are not available right now.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Pay (SOL)')).toBeDisabled();
+    expect(screen.getByLabelText('Other slippage percent')).toBeDisabled();
+    for (const b of screen.getAllByRole('button', { name: /^(0\.5|1|3)%$/ })) expect(b).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'sell' })).toBeDisabled();
+  });
+
+  // R6-2: graduation opens the pool with the creator fee allowed; once a rate is set
+  // it is charged on top, and the panel must show it rather than hide it.
+  it('a pool with a creator fee shows its rate and the amount, on top of the pool fee', () => {
+    const p = pool();
+    const withCreator: LaunchPool = {
+      ...p,
+      ammConfig: { ...ammConfig, creatorFeeRate: 1_000n },
+      snapshot: { ...p.snapshot, pool: { ...p.snapshot.pool, enableCreatorFee: true, creatorFeeOn: 0 } as PoolStateView },
+    };
+    renderPool({ pool: { kind: 'ok', value: withCreator } });
+    expect(screen.getByText('Creator fee (on top of the pool fee)').parentElement).toHaveTextContent('0.10%');
+    fireEvent.change(screen.getByLabelText('Pay (SOL)'), { target: { value: '1' } });
+    expect(screen.getByText('Creator fee (on top, from what you pay)').parentElement).toHaveTextContent('0.001 SOL');
+  });
+
+  it('a pool whose creator fee is switched off shows none, whatever its settings say', () => {
+    const p = pool();
+    renderPool({ pool: { kind: 'ok', value: { ...p, ammConfig: { ...ammConfig, creatorFeeRate: 1_000n } } } });
+    expect(screen.queryByText(/Creator fee/)).not.toBeInTheDocument();
+  });
+
   // UX2: the pool fee is shown as an amount, not only a rate.
   it('shows the pool fee amount inside what you pay', () => {
     renderPool();
-    fireEvent.change(screen.getByLabelText('Amount of SOL to pay in the pool'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Pay (SOL)'), { target: { value: '1' } });
     // 0.25% of 1 SOL, rounded up by the program's ceil_div.
     expect(screen.getByText('Pool fee (inside what you pay)').parentElement).toHaveTextContent('0.0025 SOL');
   });

@@ -34,6 +34,7 @@ import {
   type ReadLaunchMetadata,
 } from './validate.js';
 import { base58 } from '@scure/base';
+import { IPFS_STEP_TIMEOUT_MS, fetchIpfsStep, ipfsGatewayUrls } from '../ipfsGateways';
 
 export type { ImageMime, LaunchLinks, LaunchMetadataJson, ReadLaunchMetadata };
 
@@ -53,24 +54,33 @@ export const MAX_SOURCE_BYTES = 30 * 1024 * 1024;
 
 const STATUS_TIMEOUT_MS = 8_000;
 const UPLOAD_TIMEOUT_MS = 60_000;
-const READ_TIMEOUT_MS = 10_000;
+// Long enough for the IPFS gateway walk: each gateway gets IPFS_STEP_TIMEOUT_MS.
+const READ_TIMEOUT_MS = 20_000;
 
 // ── is the upload service on ────────────────────────────────────────────────
 
+/** `no` only when the server SAYS uploads are off; a failed or odd answer is `unknown`. */
+export type UploadStatus = 'yes' | 'no' | 'unknown';
+
 /**
- * True only when the endpoint answers JSON with `configured: true`. Any other
- * answer (HTML from a fallback, an error, a timeout) means "use paste-a-link mode".
+ * `yes` only when the endpoint answers JSON with `configured: true`; `no` only when
+ * it answers JSON saying it is not configured. Anything else (HTML from a fallback,
+ * an error, a timeout) is `unknown`: one slow or failed check says nothing about
+ * whether uploads are on, so the form offers to check again.
  */
-export async function uploadsAvailable(fetchImpl: typeof fetch = fetch): Promise<boolean> {
+export async function uploadsAvailable(fetchImpl: typeof fetch = fetch): Promise<UploadStatus> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), STATUS_TIMEOUT_MS);
   try {
     const res = await fetchImpl(UPLOAD_ENDPOINT, { method: 'GET', credentials: 'same-origin', signal: ctl.signal });
-    if (!res.ok || !isJson(res)) return false;
-    const body = (await res.json()) as unknown;
-    return !!body && typeof body === 'object' && (body as { configured?: unknown }).configured === true;
+    if (!isJson(res)) return 'unknown';
+    const body = (await res.json()) as { configured?: unknown; reason?: unknown } | null;
+    if (!body || typeof body !== 'object') return 'unknown';
+    if (res.status === 503 && body.reason === 'not-configured') return 'no';
+    if (!res.ok) return 'unknown';
+    return body.configured === true ? 'yes' : body.configured === false ? 'no' : 'unknown';
   } catch {
-    return false;
+    return 'unknown';
   } finally {
     clearTimeout(timer);
   }
@@ -395,33 +405,51 @@ export async function readLaunchMetadataJson(
 ): Promise<MetadataRead> {
   const at = checkContentUri(uri);
   if (!at.ok) return { kind: 'invalid', reason: 'The details are not stored at a content address, so they are not shown.' };
+  // IPFS is read through the site's gateway list, one after another: a single
+  // gateway failing (retired, rate-limited, hanging) says nothing about the file.
+  const gateways = ipfsGatewayUrls(at.value);
+  const urls = gateways.length ? gateways : [at.value];
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const init: RequestInit = { credentials: 'omit', referrerPolicy: 'no-referrer' };
+  let detail = 'Could not reach the file host.';
   try {
-    let res: Response;
-    try {
-      res = await fetchImpl(at.value, { credentials: 'omit', referrerPolicy: 'no-referrer', signal: ctl.signal });
-    } catch {
-      return { kind: 'unreadable', detail: 'Could not reach the file host.' };
+    for (const url of urls) {
+      let res: Response;
+      try {
+        res = gateways.length
+          ? await fetchIpfsStep(fetchImpl, url, ctl.signal, IPFS_STEP_TIMEOUT_MS, init)
+          : await fetchImpl(url, { ...init, signal: ctl.signal });
+      } catch {
+        if (ctl.signal.aborted) break;
+        detail = 'Could not reach the file host.';
+        continue;
+      }
+      if (!res.ok) {
+        detail = `The file host answered ${res.status}.`;
+        continue;
+      }
+      if (/^text\/html\b/i.test(res.headers.get('content-type') ?? '')) {
+        detail = 'The file host sent a web page instead of the file.';
+        continue;
+      }
+      let bytes: Uint8Array | null;
+      try {
+        bytes = await readCapped(res, LIMITS.metadataJsonBytes);
+      } catch {
+        detail = 'The file stopped arriving part way.';
+        continue;
+      }
+      if (bytes === null) return { kind: 'invalid', reason: 'The details file is larger than 64 KB.' };
+      let text: string;
+      try {
+        text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      } catch {
+        return { kind: 'invalid', reason: 'The details file is not text.' };
+      }
+      return parseLaunchMetadataJson(text, expectedMint);
     }
-    if (!res.ok) return { kind: 'unreadable', detail: `The file host answered ${res.status}.` };
-    if (/^text\/html\b/i.test(res.headers.get('content-type') ?? '')) {
-      return { kind: 'unreadable', detail: 'The file host sent a web page instead of the file.' };
-    }
-    let bytes: Uint8Array | null;
-    try {
-      bytes = await readCapped(res, LIMITS.metadataJsonBytes);
-    } catch {
-      return { kind: 'unreadable', detail: 'The file stopped arriving part way.' };
-    }
-    if (bytes === null) return { kind: 'invalid', reason: 'The details file is larger than 64 KB.' };
-    let text: string;
-    try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    } catch {
-      return { kind: 'invalid', reason: 'The details file is not text.' };
-    }
-    return parseLaunchMetadataJson(text, expectedMint);
+    return { kind: 'unreadable', detail };
   } finally {
     clearTimeout(timer);
   }

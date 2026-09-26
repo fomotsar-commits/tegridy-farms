@@ -7,7 +7,7 @@
 // priority fee, and that the summary equals what the bytes encode.
 import { describe, it, expect } from 'vitest';
 import { Keypair } from '@solana/web3.js';
-import { WSOL_MINT, poolStatePda } from '../curve/program';
+import { WSOL_MINT, globalPda, poolStatePda } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { quoteBuyOnCurve, quoteSellOnCurve } from '../curve/math';
 import { readCurve, type CurveAccount } from '../curve/read';
@@ -16,10 +16,10 @@ import type { LaunchPool } from '../discover/pool';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, launchIndexAddress, readWriteGate } from './config';
 import { prepareMigrate, prepareRelease } from './graduate';
-import { prepareCreateLaunch, quoteOpeningBuy } from './launch';
+import { LAUNCH_TERMS_CHANGED, prepareCreateLaunch, quoteOpeningBuy } from './launch';
 import { preparePoolSwap } from './poolSwap';
 import { TX_SIZE_LIMIT } from './prepare';
-import { prepareCurveBuy, prepareCurveSell } from './trade';
+import { prepareCurveBuy, prepareCurveSell, priceImpactBps } from './trade';
 import {
   AMM_CONFIG,
   CPSWAP,
@@ -27,6 +27,7 @@ import {
   LAUNCH,
   VAULT,
   addLaunchPool,
+  encodeGlobal,
   cfgLocal,
   freshCurve,
   globalValue,
@@ -361,6 +362,47 @@ describe('create', () => {
     expect(!r.ok && r.outcome.stage).toBe('build');
     expect(chain.simulateCalls).toHaveLength(0);
   });
+
+  // R6-4: create_launch copies the program's settings AS THEY ARE when it runs. The
+  // form showed the settings read when the page loaded; an operator change since then
+  // would launch the creator on terms the page never showed.
+  it('re-reads the launch terms: changed since the page loaded = refused, nothing simulated', async () => {
+    for (const change of [
+      { tradeFeeBps: 200n },
+      { creatorFeeShareBps: 1_000n },
+      { platformReserveBps: 900n },
+      { graduationTargetLamports: 1n },
+      { migrationReserveLamports: 1n },
+      { initialVirtualSol: 1n },
+      { initialVirtualToken: 1n },
+    ]) {
+      const { chain, gate } = await setup();
+      chain.set(globalPda(LAUNCH), { lamports: rent(202), owner: LAUNCH, data: encodeGlobal(globalValue(change)) });
+      simulating(chain, { [ME.toBase58()]: { lamportsDelta: -(rent(82) + rent(179) + TOKEN_RENT + rent(607)) } });
+      const r = await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: Keypair.generate(), metadata: worst });
+      expect(r.ok, JSON.stringify(change, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).toBe(false);
+      expect(!r.ok && r.outcome).toMatchObject({ stage: 'build', message: LAUNCH_TERMS_CHANGED });
+      expect(chain.simulateCalls).toHaveLength(0);
+    }
+    // Paused since the page loaded: refused as paused.
+    const { chain, gate } = await setup();
+    chain.set(globalPda(LAUNCH), { lamports: rent(202), owner: LAUNCH, data: encodeGlobal(globalValue({ paused: true })) });
+    const p = await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: Keypair.generate(), metadata: worst });
+    expect(!p.ok && p.outcome.message).toMatch(/paused/);
+    // Unreadable is not "unchanged".
+    const u = await setup();
+    u.chain.getAccountInfo = async () => {
+      throw new Error('down');
+    };
+    const q = await prepareCreateLaunch(W(u.chain), u.gate, { creator: ME, mint: Keypair.generate(), metadata: worst });
+    expect(!q.ok && q.outcome.message).toMatch(/Could not read the launch terms/);
+  });
+
+  it('the same terms as the page showed: builds as before', async () => {
+    const { chain, gate } = await setup();
+    simulating(chain, { [ME.toBase58()]: { lamportsDelta: -(rent(82) + rent(179) + TOKEN_RENT + rent(607)) } });
+    ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: Keypair.generate(), metadata: worst }));
+  });
 });
 
 describe('graduate and release', () => {
@@ -543,5 +585,23 @@ describe('pool swap', () => {
     const p = ok(await preparePoolSwap(W(chain), moved, { owner: ME, mint: MINT, pool: lp, side: 'buy', amountIn: 100_000_000n, slippageBps: 100n }));
     const swap = p.tx.instructions.find((ix) => ix.programId.equals(CPSWAP))!;
     expect(swap.keys[2]!.pubkey.equals(AMM_CONFIG)).toBe(true);
+  });
+});
+
+// F3: an impact that could not be computed came back as 0n and showed as "0.00%".
+describe('priceImpactBps', () => {
+  const k = Keypair.generate().publicKey;
+  it('is null, never 0, when the curve gives no price to measure against', () => {
+    const c = freshCurve(k, k);
+    expect(priceImpactBps({ ...c, virtualSolReserves: 0n, realSolReserves: 0n }, 'buy', 1_000n, 1n)).toBeNull();
+    expect(priceImpactBps({ ...c, virtualSolReserves: 2n ** 64n }, 'sell', 1_000n, 1n)).toBeNull();
+  });
+  it('is a real number for a real trade', () => {
+    const c = freshCurve(k, k);
+    const q = quoteBuyOnCurve(c, 5_000_000_000n);
+    if (!q.ok) throw new Error('quote');
+    const bps = priceImpactBps(c, 'buy', q.value.lamportsToCurve, q.value.tokensOut);
+    expect(bps).not.toBeNull();
+    expect(bps!).toBeGreaterThan(0n);
   });
 });

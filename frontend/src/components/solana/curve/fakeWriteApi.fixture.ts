@@ -173,7 +173,7 @@ export function fakeApi(over: Partial<WriteApi> = {}): WriteApi {
       checkContentUri: validate.checkContentUri,
       displaySafe: validate.displaySafe,
       impersonationWarning: validate.impersonationWarning,
-      uploadsAvailable: vi.fn(async () => true),
+      uploadsAvailable: vi.fn(async () => 'yes' as const),
       prepareLaunchImage: vi.fn(),
       uploadLaunchMetadata: vi.fn(),
       readLaunchMetadataJson: vi.fn(async () => ({ kind: 'unreadable' as const, detail: 'not fetched in tests' })),

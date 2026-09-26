@@ -28,7 +28,7 @@ import {
   type Keypair,
   type TransactionInstruction,
 } from '@solana/web3.js';
-import { clipDetail } from '../curve/read';
+import { clipDetail, type CurveRpc } from '../curve/read';
 import {
   LAMPORTS_PER_SIGNATURE,
   MAX_COMPUTE_UNITS,
@@ -54,6 +54,14 @@ import type {
   WatchList,
   WriteRpc,
 } from './types';
+
+/** Account reads at 'confirmed', the level the write path confirms at. */
+export function confirmedReads(rpc: WriteRpc): CurveRpc {
+  return {
+    getAccountInfo: (k) => rpc.getAccountInfo(k, 'confirmed'),
+    getMinimumBalanceForRentExemption: (n) => rpc.getMinimumBalanceForRentExemption(n),
+  };
+}
 
 /** Solana's packet limit for a serialized transaction. */
 export const TX_SIZE_LIMIT = 1_232;

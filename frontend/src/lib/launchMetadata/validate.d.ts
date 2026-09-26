@@ -92,7 +92,11 @@ export declare function sniffImage(bytes: Uint8Array):
 /** EXIF / XMP / IPTC / PNG text chunks present. */
 export declare function hasEmbeddedMetadata(bytes: Uint8Array, mime: ImageMime): boolean;
 
-/** Exactly https://ipfs.io/ipfs/<cid> or https://arweave.net/<43-char id>, at most 100 bytes. */
+/**
+ * An IPFS content address (ipfs://<cid>, or any https gateway's /ipfs/<cid> or
+ * <cid>.ipfs.<host> link), always returned as ipfs://<cid>; or exactly
+ * https://arweave.net/<43-char id>. At most 100 bytes.
+ */
 export declare function checkContentUri(uri: unknown): Checked<string>;
 export declare function ipfsUri(cid: string): string | null;
 

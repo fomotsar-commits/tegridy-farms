@@ -21,10 +21,10 @@ import {
   quoteSellOnCurve,
   type CurveTerms,
 } from '../curve/math';
-import { clipDetail, readCurve, type CurveAccount, type CurveRpc } from '../curve/read';
+import { clipDetail, readCurve, type CurveAccount } from '../curve/read';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { describeQuoteError } from './errors';
-import { bodySteps, buildAndSimulate, notSent } from './prepare';
+import { bodySteps, buildAndSimulate, confirmedReads, notSent } from './prepare';
 import type { FeeSplitView, OpenGate, Prepared, TxSummary, WriteRpc } from './types';
 
 /** 1%. */
@@ -55,10 +55,14 @@ export function feeSplit(fee: bigint, creatorShareBps: bigint): FeeSplitView {
  *
  * buy:  `amountIn` = lamports that reach the curve, `amountOut` = tokens out.
  * sell: `amountIn` = tokens in, `amountOut` = gross lamports before the fee.
+ *
+ * `null` when the curve's reserves give no price to measure against: "could not
+ * compute" must never read as a 0.00% impact.
  */
-export function priceImpactBps(c: CurveTerms, side: 'buy' | 'sell', amountIn: bigint, amountOut: bigint): bigint {
+export function priceImpactBps(c: CurveTerms, side: 'buy' | 'sell', amountIn: bigint, amountOut: bigint): bigint | null {
   const eff = effectiveReserves(c);
-  if (!eff.ok || eff.value.sol === 0n || eff.value.tokens === 0n || amountIn <= 0n) return 0n;
+  if (!eff.ok || eff.value.sol === 0n || eff.value.tokens === 0n) return null;
+  if (amountIn <= 0n) return 0n;
   const ideal =
     side === 'buy'
       ? (amountIn * eff.value.tokens) / eff.value.sol
@@ -81,14 +85,6 @@ function ctxFor(gate: OpenGate, trader: PublicKey, mint: PublicKey, curve: Curve
 
 function curveMatches(curve: CurveAccount, mint: PublicKey): boolean {
   return curve.curve.mint.equals(mint);
-}
-
-/** Account reads at 'confirmed', the level the write path confirms at. */
-function confirmedReads(rpc: WriteRpc): CurveRpc {
-  return {
-    getAccountInfo: (k) => rpc.getAccountInfo(k, 'confirmed'),
-    getMinimumBalanceForRentExemption: (n) => rpc.getMinimumBalanceForRentExemption(n),
-  };
 }
 
 /**

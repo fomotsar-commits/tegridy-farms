@@ -29,7 +29,7 @@ export const METADATA_SYMBOL_MAX_BYTES = 10;
 /**
  * OUR ceiling, not Metaplex's (theirs is 200). 100 keeps the launch transaction
  * well inside the 1,232-byte packet limit with room for a wallet's own guard
- * instructions, and every URI we accept fits (`https://ipfs.io/ipfs/<cid>` is at
+ * instructions, and every URI we accept fits (`ipfs://<cid>` is at
  * most ~80 bytes; `https://arweave.net/<43>` is 62).
  */
 export const METADATA_URI_MAX_BYTES = 100;

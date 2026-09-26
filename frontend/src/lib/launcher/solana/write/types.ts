@@ -155,7 +155,8 @@ export type TxSummary =
       quote: CurveBuyQuote;
       /** The buy reaches the curve's ceiling, so `maxLamportsIn` is capped at what the curve can take, below `requestedLamports`. */
       fillsCurve: boolean;
-      priceImpactBps: bigint;
+      /** `null` when it could not be computed; never shown as 0. */
+      priceImpactBps: bigint | null;
       /** How the fee inside `quote.feeLamports` is meant to split. Either leg can be folded or waived on chain (see `feeSplit`). */
       feeSplit: FeeSplitView;
     }
@@ -165,7 +166,8 @@ export type TxSummary =
       tokensIn: bigint;
       minLamportsOut: bigint;
       quote: SellQuote;
-      priceImpactBps: bigint;
+      /** `null` when it could not be computed; never shown as 0. */
+      priceImpactBps: bigint | null;
       feeSplit: FeeSplitView;
     }
   | { kind: 'migrate'; mint: PublicKey; pool: PublicKey }
@@ -328,9 +330,16 @@ export type WriteRpc = Pick<
   | 'getMinimumBalanceForRentExemption'
   | 'getMultipleAccountsInfo'
   | 'getBlockHeight'
+  | 'getSlot'
 >;
 
 export interface SubmitDeps {
+  /**
+   * Called once the signature is known and BEFORE the first send, with the
+   * transaction's blockhash window. From that moment it may land even if the page
+   * goes away, so this is where a page writes the note that survives a reload.
+   */
+  onSent?: (signature: string, lastValidBlockHeight: number) => void;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   /** Hard ceiling on how long to keep watching, whatever the block height says. */

@@ -13,6 +13,15 @@ export interface BeforeYouTradeProps {
   poolFeePpm: bigint | null;
   /** The platform's cut OF the pool fee (cp-swap `protocol_fee_rate`), ppm. `null` = not read. */
   poolProtocolPpm: bigint | null;
+  /** The pool program's fund cut, also OUT OF the pool fee (cp-swap `fund_fee_rate`), ppm. `null` = not read. */
+  poolFundPpm: bigint | null;
+  /**
+   * The creator's pool fee (cp-swap `creator_fee_rate`, charged ON TOP of the pool fee),
+   * ppm, already 0 when the pool has it switched off. `null` = not read. Graduation
+   * opens the pool with the creator fee allowed, so this is a live setting the pool
+   * program's operator can change: never assume it is 0.
+   */
+  poolCreatorPpm: bigint | null;
   /** The platform reserve as words ("3.69% of the supply"), or `null` when the launch has none. */
   reserve: string | null;
   /** Inside another card (the launch review): a heading and the list, no card of its own. */
@@ -30,10 +39,19 @@ export function BeforeYouTrade({
   creatorShareBps,
   poolFeePpm,
   poolProtocolPpm,
+  poolFundPpm,
+  poolCreatorPpm,
   reserve,
   bare = false,
 }: BeforeYouTradeProps) {
   const shareOk = creatorShareBps >= 0n && creatorShareBps <= 10_000n;
+  const fundPart = poolFundPpm !== null && poolFundPpm > 0n ? `, ${ppmPercent(poolFundPpm)} to the pool program's fund` : '';
+  const creatorPart =
+    poolCreatorPpm === null
+      ? 'Whether the creator gets a share of pool trades could not be read.'
+      : poolCreatorPpm > 0n
+        ? `The creator also gets ${ppmPercent(poolCreatorPpm)} of each pool trade, charged on top of the pool fee.`
+        : 'The creator gets nothing from pool trades.';
   const list = (
     <ul className="list-disc pl-4 space-y-1.5 text-white/80">
       <li>
@@ -45,9 +63,9 @@ export function BeforeYouTrade({
         {shareOk
           ? `: ${bpsPercent(creatorShareBps)} of it goes to the creator and ${bpsPercent(10_000n - creatorShareBps)} to the platform.`
           : '.'}{' '}
-        {poolFeePpm !== null && poolProtocolPpm !== null
-          ? `After graduation the pool charges ${ppmPercent(poolFeePpm)} per trade; ${ppmPercent(poolProtocolPpm)} of that goes to the platform and the rest stays in the pool. The creator gets nothing from pool trades.`
-          : 'After graduation the pool charges its own fee, and the creator gets nothing from pool trades.'}
+        {poolFeePpm !== null && poolProtocolPpm !== null && poolFundPpm !== null
+          ? `After graduation the pool charges ${ppmPercent(poolFeePpm)} per trade; ${ppmPercent(poolProtocolPpm)} of that goes to the platform${fundPart}${fundPart ? ',' : ''} and the rest stays in the pool. ${creatorPart}`
+          : `After graduation the pool charges its own fee, which could not be read just now. ${creatorPart}`}
       </li>
       <li>At graduation the pool&apos;s LP tokens are burned, so its liquidity can never be pulled.</li>
       {reserve && (

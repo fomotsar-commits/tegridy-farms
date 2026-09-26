@@ -1,7 +1,7 @@
 // Every selector the /curve-launch e2e uses, in one place.
 //
 // They follow set U's components (src/components/solana/curve/*, pages/CurveLaunchDetailPage.tsx):
-// Card test ids, the inputs' aria-labels, and the buttons' visible words. If U renames
+// Card test ids, the inputs' visible labels, and the buttons' visible words. If U renames
 // one, this file is the only one to change. Buttons are always found by their words
 // (what a person reads), never by a class.
 //
@@ -17,6 +17,10 @@ export const ui = {
   publicForever: (p: Page) => p.getByTestId('public-forever'),
   review: (p: Page) => p.getByTestId('tx-review'),
   outcome: (p: Page) => p.getByTestId('tx-outcome'),
+  /** Signed and on its way: the wait for the network, with the signature. */
+  sent: (p: Page) => p.getByTestId('tx-sent'),
+  /** Launches this browser sent before, on the create form. */
+  earlierLaunch: (p: Page) => p.getByTestId('earlier-launch'),
   list: (p: Page) => p.getByTestId('launch-list'),
   listRows: (p: Page) => p.getByTestId('launch-row'),
   tradePanel: (p: Page) => p.getByTestId('curve-trade-panel'),
@@ -33,22 +37,25 @@ export const ui = {
   walletModal: (p: Page) => p.getByRole('dialog'),
   signButton: (p: Page) => p.getByRole('button', { name: 'Sign in wallet' }),
   form: {
-    name: (p: Page) => p.getByLabel('Token name'),
-    symbol: (p: Page) => p.getByLabel('Token symbol'),
-    picture: (p: Page) => p.getByLabel('Token picture'),
-    description: (p: Page) => p.getByLabel('Token description'),
+    // Each field is named by its visible label (WCAG 2.5.3), so these are the words on screen.
+    name: (p: Page) => p.getByLabel('Name', { exact: true }),
+    symbol: (p: Page) => p.getByLabel('Symbol', { exact: true }),
+    picture: (p: Page) => p.getByLabel('Picture', { exact: true }),
+    description: (p: Page) => p.getByLabel('Description (optional)', { exact: true }),
     openingBuyToggle: (p: Page) => p.getByLabel(/Your opening buy \(optional\)/),
-    openingBuy: (p: Page) => p.getByLabel('Opening buy in SOL'),
+    openingBuy: (p: Page) => p.getByLabel('Opening buy (SOL)', { exact: true }),
     reviewButton: (p: Page) => p.getByRole('button', { name: 'Review launch' }),
   },
   trade: {
     side: (p: Page, side: 'buy' | 'sell') => ui.tradePanel(p).getByRole('group', { name: 'Buy or sell' }).getByRole('button', { name: side }),
-    amount: (p: Page, side: 'buy' | 'sell') => p.getByLabel(side === 'buy' ? 'Amount of SOL to spend' : 'Amount of tokens to sell'),
+    amount: (p: Page, side: 'buy' | 'sell') =>
+      ui.tradePanel(p).getByLabel(side === 'buy' ? 'Spend at most (SOL)' : /^Sell \((tokens|token base units)\)$/),
     reviewButton: (p: Page, side: 'buy' | 'sell') => ui.tradePanel(p).getByRole('button', { name: `Review ${side}` }),
   },
   pool: {
     side: (p: Page, side: 'buy' | 'sell') => ui.poolPanel(p).getByRole('group', { name: 'Buy or sell in the pool' }).getByRole('button', { name: side }),
-    amount: (p: Page, side: 'buy' | 'sell') => p.getByLabel(side === 'buy' ? 'Amount of SOL to pay in the pool' : 'Amount of tokens to sell in the pool'),
+    amount: (p: Page, side: 'buy' | 'sell') =>
+      ui.poolPanel(p).getByLabel(side === 'buy' ? 'Pay (SOL)' : /^Sell \((tokens|token base units)\)$/),
     reviewButton: (p: Page, side: 'buy' | 'sell') => ui.poolPanel(p).getByRole('button', { name: `Review pool ${side}` }),
   },
   graduate: (p: Page) => p.getByRole('button', { name: 'Review: finish graduation' }),

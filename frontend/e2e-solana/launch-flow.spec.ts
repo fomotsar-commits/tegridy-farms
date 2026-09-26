@@ -136,6 +136,7 @@ test('launch, trade, graduate, release and trade in the pool, all from the site'
     expect(md?.name).toBe('E2E Corn');
     expect(md?.symbol).toBe('ECORN');
     expect(md?.uri).toBe(creator.upload.uploads.at(-1)?.metadataUri);
+    expect(md?.uri, 'the on-chain link must not name a gateway: gateways get retired, the link is forever').toMatch(/^ipfs:\/\/b[a-z2-7]+$/);
     expect(md?.isMutable, 'name, symbol and picture are locked forever').toBe(false);
     expect(md?.updateAuthority.equals(creator.kp.publicKey)).toBe(true);
     expect((await curveOwner(mint))?.equals(LAUNCH_PROGRAM)).toBe(true);

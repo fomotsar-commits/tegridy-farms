@@ -8,12 +8,14 @@ import {
   parseDecimalToBaseUnits,
 } from '../../../lib/launcher/solana/curve';
 import { quoteOwnPool } from '../../../lib/solana/cpswap/read';
-import { Card, Field, Notice, Row, SlippagePicker } from './ui';
-import { DEFAULT_SLIPPAGE_BPS, inputCls, inputStyle } from './uiFormat';
-import { TxFlowView } from './TxFlowView';
+import { Card, Field, ImpactRows, Notice, Row, SlippagePicker } from './ui';
+import { DEFAULT_SLIPPAGE_BPS, TOGGLE_CLS, fractionToBps, inputCls, inputStyle } from './uiFormat';
+import { PoolCreatorFeeRow, TxFlowView } from './TxFlowView';
+import { YourHolding } from './YourHolding';
+import type { Fact } from './facts';
 import { WalletNeeded } from './WalletNeeded';
-import { useTxFlow } from './useTxFlow';
-import type { ActionAvailability, LaunchPoolRead, OpenGate, PreparedTx, TxOutcome, WriteApi, WriteRpc } from './ports';
+import { useReturnFocus, useTxFlow, type OnSent, type OnSettled } from './useTxFlow';
+import type { ActionAvailability, LaunchPoolRead, OpenGate, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
 
 type Side = 'buy' | 'sell';
@@ -50,7 +52,11 @@ export interface PoolSwapPanelProps {
   decimals: number | null;
   actions: ActionAvailability;
   signerState: CurveSignerState;
-  onSettled: (outcome: TxOutcome, prepared: PreparedTx | null) => void;
+  onSettled: OnSettled;
+  /** The transaction is about to be sent: the page writes its "may still land" note. */
+  onSent?: OnSent;
+  /** The connected wallet's tokens of this mint, for the sell side. `null` while reading. */
+  walletHolding?: Fact<bigint> | null;
 }
 
 /**
@@ -58,11 +64,24 @@ export interface PoolSwapPanelProps {
  * recorded at graduation, never the pool program's standard address for the pair,
  * which anyone could have created first.
  */
-export function PoolSwapPanel({ api, rpc, gate, mint, pool, decimals, actions, signerState, onSettled }: PoolSwapPanelProps) {
+export function PoolSwapPanel({
+  api,
+  rpc,
+  gate,
+  mint,
+  pool,
+  decimals,
+  actions,
+  signerState,
+  onSettled,
+  onSent,
+  walletHolding,
+}: PoolSwapPanelProps) {
   const [side, setSide] = useState<Side>('buy');
   const [amount, setAmount] = useState('');
   const [slippageBps, setSlippageBps] = useState<bigint | null>(DEFAULT_SLIPPAGE_BPS);
-  const flow = useTxFlow(api, rpc, onSettled);
+  const flow = useTxFlow(api, rpc, onSettled, onSent);
+  const { target: reviewRef, fallback: headingRef } = useReturnFocus(flow.state.step);
   const signer = signerState.kind === 'ready' ? signerState.signer : null;
   const p = pool?.kind === 'ok' ? pool.value : null;
 
@@ -100,16 +119,23 @@ export function PoolSwapPanel({ api, rpc, gate, mint, pool, decimals, actions, s
 
   const canReview =
     !!signer && actions.poolSwap && !!quote && floor !== null && floor > 0n && slippageBps !== null && !flow.locked;
+  // Pool swaps switched off: the form stays visible (so the numbers can be read) but
+  // nothing in it can be used, the same as the curve panel.
+  const off = !actions.poolSwap;
+  // The pool's own creator fee: cp-swap charges it on top of the trade fee, when the
+  // pool has it switched on and its fee settings set a rate.
+  const creatorPpm = p.snapshot.pool.enableCreatorFee ? p.ammConfig.creatorFeeRate : 0n;
 
   return (
-    <Card title="Trade in the pool" testId="pool-swap-panel">
+    <Card title="Trade in the pool" testId="pool-swap-panel" headingRef={headingRef}>
       {flow.state.step !== 'idle' ? (
         <TxFlowView flow={flow} api={api} cluster={gate.cfg.cluster} decimals={decimals} signer={signer} />
       ) : (
         <>
           <Row label="Pool" value={p.address.toBase58()} />
           <Row label="Pool fee" value={ppmPercent(p.ammConfig.tradeFeeRate)} />
-          {!actions.poolSwap && <Notice tone="warn">Pool swaps are not available right now.</Notice>}
+          {creatorPpm > 0n && <Row label="Creator fee (on top of the pool fee)" value={ppmPercent(creatorPpm)} />}
+          {off && <Notice tone="warn">Pool swaps are not available right now.</Notice>}
           <div className="flex gap-1.5 my-3" role="group" aria-label="Buy or sell in the pool">
             {(['buy', 'sell'] as const).map((s) => (
               <button
@@ -120,7 +146,8 @@ export function PoolSwapPanel({ api, rpc, gate, mint, pool, decimals, actions, s
                   setAmount('');
                 }}
                 aria-pressed={side === s}
-                className="flex-1 py-1.5 rounded-lg text-[12px] font-medium text-white capitalize"
+                disabled={off}
+                className={`${TOGGLE_CLS} font-medium capitalize disabled:opacity-50`}
                 style={{
                   background: side === s ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
                   border: side === s ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
@@ -130,19 +157,28 @@ export function PoolSwapPanel({ api, rpc, gate, mint, pool, decimals, actions, s
               </button>
             ))}
           </div>
-          <Field label={side === 'buy' ? 'Pay (SOL)' : decimals === null ? 'Sell (token base units)' : 'Sell (tokens)'}>
-            <input
-              className={inputCls}
-              style={inputStyle}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.0"
-              inputMode="decimal"
-              spellCheck={false}
-              aria-label={side === 'buy' ? 'Amount of SOL to pay in the pool' : 'Amount of tokens to sell in the pool'}
-            />
+          <Field
+            label={side === 'buy' ? 'Pay (SOL)' : decimals === null ? 'Sell (token base units)' : 'Sell (tokens)'}
+            error={amount.trim() !== '' && raw === null ? 'That is not an amount this token can hold.' : null}
+          >
+            {(a11y) => (
+              <input
+                className={`${inputCls} disabled:opacity-50`}
+                style={inputStyle}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.0"
+                inputMode="decimal"
+                spellCheck={false}
+                disabled={off}
+                {...a11y}
+              />
+            )}
           </Field>
-          <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} />
+          {side === 'sell' && signer && walletHolding !== undefined && (
+            <YourHolding holding={walletHolding} decimals={decimals} onPick={setAmount} disabled={off} />
+          )}
+          <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} disabled={off} />
           {raw !== null && raw > 0n && !quote && (
             <Notice tone="warn">The pool would refuse this swap right now (closed to swaps, not open yet, or too large).</Notice>
           )}
@@ -154,7 +190,14 @@ export function PoolSwapPanel({ api, rpc, gate, mint, pool, decimals, actions, s
                 label="Pool fee (inside what you pay)"
                 value={side === 'buy' ? `${formatSol(quote.result.tradeFee)} SOL` : tok(quote.result.tradeFee)}
               />
-              <Row label="Price impact" value={`${(quote.priceImpact * 100).toFixed(2)}%`} />
+              <PoolCreatorFeeRow quote={quote} buying={side === 'buy'} sol={(v) => `${formatSol(v)} SOL`} tok={tok} />
+              <ImpactRows bps={fractionToBps(quote.priceImpact)} />
+              {floor === 0n && (
+                <Notice tone="warn">
+                  This amount is too small: after the pool fee and your price tolerance you would receive nothing. Enter
+                  a larger amount.
+                </Notice>
+              )}
               <p className="text-white/35 text-[10px]">
                 SOL is wrapped for the swap and unwrapped after it, inside the same transaction.
               </p>
@@ -162,6 +205,7 @@ export function PoolSwapPanel({ api, rpc, gate, mint, pool, decimals, actions, s
           )}
           <WalletNeeded state={signerState} />
           <button
+            ref={reviewRef}
             type="button"
             className="btn-primary w-full py-2.5 text-[13px] mt-2 disabled:opacity-60"
             disabled={!canReview}

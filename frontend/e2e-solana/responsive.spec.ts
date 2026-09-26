@@ -26,6 +26,19 @@ async function expectFieldsAtLeast16px(page: Page, scope: Locator): Promise<void
   for (const s of sizes) expect(s.px, `${s.label} font-size at ${page.viewportSize()?.width}px`).toBeGreaterThanOrEqual(16);
 }
 
+/**
+ * Every button in `scope` is at least 44px tall: the Buy/Sell toggles, the slippage
+ * presets, Recent/Yours and 25%/50%/Max were about 30px (F12), below the site's own
+ * 44px rule for .btn-* buttons.
+ */
+async function expectTouchTargets(page: Page, scope: Locator): Promise<void> {
+  const buttons = await scope.locator('button:visible').evaluateAll((els) =>
+    els.map((e) => ({ label: (e.textContent ?? '').trim().slice(0, 30), h: e.getBoundingClientRect().height })),
+  );
+  expect(buttons.length).toBeGreaterThan(0);
+  for (const b of buttons) expect(b.h, `"${b.label}" is ${b.h}px tall at ${page.viewportSize()?.width}px`).toBeGreaterThanOrEqual(44);
+}
+
 let mint: PublicKey;
 test.beforeAll(async () => {
   mint = await createLaunchDirect(await fundedKeypair(1));
@@ -47,6 +60,7 @@ for (const size of SIZES) {
     await expectClickable(ui.form.reviewButton(page), 'Review launch');
     // UX3: iOS zooms the page when a field under 16px gets focus (iPhone and iPad).
     await expectFieldsAtLeast16px(page, ui.createForm(page));
+    await expectTouchTargets(page, ui.list(page));
     await connectWallet(page, ui.createForm(page));
 
     await page.goto(`/curve-launch/${mint.toBase58()}`);
@@ -55,9 +69,15 @@ for (const size of SIZES) {
     for (const side of ['buy', 'sell'] as const) await expectClickable(ui.trade.side(page, side), `${side} toggle`);
     await expectClickable(ui.trade.reviewButton(page, 'buy'), 'Review buy');
     await expectFieldsAtLeast16px(page, ui.tradePanel(page));
+    await expectTouchTargets(page, ui.tradePanel(page));
     // UX2: the venue, fee and loss facts sit above the trade form at every size.
     await expect(ui.beforeYouTrade(page)).toBeVisible();
     await expect(ui.beforeYouTrade(page)).toContainText('You can lose everything');
+    // F7: the wallet connected on the launch form is still connected here, and the sell
+    // side reads that wallet's own balance for the token (it holds none).
+    await ui.trade.side(page, 'sell').click();
+    await expect(ui.tradePanel(page).getByText(/^You hold 0$/)).toBeVisible({ timeout: 15_000 });
+    await expectTouchTargets(page, ui.tradePanel(page));
     expect(rpc.violations).toEqual([]);
     await ctx.close();
   });

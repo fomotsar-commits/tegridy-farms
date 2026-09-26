@@ -165,10 +165,10 @@ describe("POST", () => {
     const out = await post(await signedBody());
     expect(out.status).toBe(200);
     expect(out.body).toMatchObject({
-      imageUri: `https://ipfs.io/ipfs/${IMG_CID}`,
-      metadataUri: `https://ipfs.io/ipfs/${JSON_CID}`,
+      imageUri: `ipfs://${IMG_CID}`,
+      metadataUri: `ipfs://${JSON_CID}`,
       metadata: buildMetadataJson({
-        name: "Pepe", symbol: "PEPE", description: "a frog", imageUri: `https://ipfs.io/ipfs/${IMG_CID}`,
+        name: "Pepe", symbol: "PEPE", description: "a frog", imageUri: `ipfs://${IMG_CID}`,
         links: { twitter: "https://x.com/pepe" }, mint: MINT,
       }),
     });
@@ -284,7 +284,7 @@ describe("the browser client against this handler", () => {
       mint: MINT, creator: CREATOR,
       signMessage: async (m) => ed25519.sign(m, creatorKey),
     }, bridge);
-    expect(r).toMatchObject({ ok: true, imageUri: `https://ipfs.io/ipfs/${IMG_CID}`, metadataUri: `https://ipfs.io/ipfs/${JSON_CID}` });
+    expect(r).toMatchObject({ ok: true, imageUri: `ipfs://${IMG_CID}`, metadataUri: `ipfs://${JSON_CID}` });
     expect(r.metadata).toMatchObject({ name: "Pepe", symbol: "PEPE", description: "a frog", twitter: "https://x.com/pepe", mint: MINT });
   });
 });

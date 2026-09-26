@@ -17,6 +17,7 @@ import {
   CARD,
   CARD_STYLE,
   SHADOW,
+  TOGGLE_CLS,
   bpsPercent,
   feeSplitLabel,
   inputCls,
@@ -212,12 +213,18 @@ export function TradePanel({
   decimals,
   paused,
   writeClient,
+  gateNotOpen = false,
 }: {
   phase: LaunchPhase;
   curve: BondingCurve | null;
   decimals: number | null;
   paused: boolean | null;
   writeClient: CurveWriteClient | null;
+  /**
+   * Writes are switched on for this site, but the check above did not open them.
+   * The status card above says why; this panel must not claim a different reason.
+   */
+  gateNotOpen?: boolean;
 }) {
   const [side, setSide] = useState<Side>('buy');
   const [amount, setAmount] = useState('');
@@ -251,14 +258,14 @@ export function TradePanel({
 
   return (
     <Card title="Trade the curve">
-      <div className="flex gap-1.5 mb-3">
+      <div className="flex gap-1.5 mb-3" role="group" aria-label="Buy or sell">
         {(['buy', 'sell'] as const).map((s) => (
           <button
             key={s}
             type="button"
             onClick={() => setSide(s)}
             aria-pressed={side === s}
-            className="flex-1 py-1.5 rounded-lg text-[12px] font-medium text-white capitalize transition-colors"
+            className={`${TOGGLE_CLS} font-medium capitalize`}
             style={{
               background: side === s ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
               border: side === s ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
@@ -281,20 +288,27 @@ export function TradePanel({
               : undefined
         }
       >
-        <input
-          className={`${inputCls} disabled:opacity-50`}
-          style={inputStyle}
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="0.0"
-          inputMode="decimal"
-          spellCheck={false}
-          disabled={disabled}
-          aria-label={side === 'buy' ? 'Amount of SOL to spend' : 'Amount of tokens to sell'}
-        />
+        {(a11y) => (
+          <input
+            className={`${inputCls} disabled:opacity-50`}
+            style={inputStyle}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.0"
+            inputMode="decimal"
+            spellCheck={false}
+            disabled={disabled}
+            {...a11y}
+          />
+        )}
       </Field>
 
-      <Field label="Slippage tolerance">
+      {/* A fieldset, not a <label>: a label wrapping buttons forwards a tap on its text
+          to the first button, which would silently set 0.5%. */}
+      <fieldset className="block mb-3 min-w-0">
+        <legend className="text-white text-[11px] block mb-1.5" style={SHADOW}>
+          Slippage tolerance
+        </legend>
         <div className="flex gap-1.5">
           {SLIPPAGE_OPTIONS.map((bps) => (
             <button
@@ -303,7 +317,7 @@ export function TradePanel({
               onClick={() => setSlippageBps(bps)}
               aria-pressed={slippageBps === bps}
               disabled={disabled}
-              className="flex-1 py-1.5 rounded-lg text-[12px] text-white transition-colors disabled:opacity-50"
+              className={`${TOGGLE_CLS} disabled:opacity-50`}
               style={{
                 background: slippageBps === bps ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
                 border: slippageBps === bps ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
@@ -313,7 +327,7 @@ export function TradePanel({
             </button>
           ))}
         </div>
-      </Field>
+      </fieldset>
 
       {quote?.side === 'error' && <p className="text-amber-300/90">{LAUNCH_ERROR_COPY[quote.code]}</p>}
       {quote?.side === 'buy' && <BuyQuoteRows quote={quote} decimals={decimals} slippageBps={slippageBps} />}
@@ -322,9 +336,9 @@ export function TradePanel({
       {/* The write seam. No transaction is built here — see the file header. */}
       {writeClient === null ? (
         <p className="text-white/40 text-[10px] leading-relaxed mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          There is no signing path on this page. Launching and trading here stay switched off until the new program
-          is deployed and this site is pointed at it. The quote above is the same arithmetic the program runs, shown so
-          the terms can be checked before any of this goes live.
+          {gateNotOpen
+            ? 'Launching and trading are not available right now; see the note above. The quote above is the same arithmetic the program runs.'
+            : 'There is no signing path on this page. Launching and trading here stay switched off until the new program is deployed and this site is pointed at it. The quote above is the same arithmetic the program runs, shown so the terms can be checked before any of this goes live.'}
         </p>
       ) : (
         <button type="button" className="btn-primary w-full py-2.5 text-[13px] mt-3 disabled:opacity-60" disabled={disabled || !quote}>
@@ -594,11 +608,7 @@ export function CurveLaunchView({
         <LaunchGate rail="solana" />
 
         <Card title="Look up a launch">
-          <p>
-            Launches are found by mint address. They cannot be listed: enumerating them needs an RPC scan our proxy
-            deliberately does not allow, so there is no &quot;all launches&quot; view to show — and inventing one would
-            mean showing a list we cannot claim is complete.
-          </p>
+          <p>Open a launch by its token address (mint). This view has no list of launches.</p>
           <Field label="Token mint address">
             <input
               className={`${inputCls} disabled:opacity-50`}
@@ -646,6 +656,7 @@ export function CurveLaunchView({
           decimals={decimals}
           paused={paused}
           writeClient={writeClient}
+          gateNotOpen={gateBanner != null}
         />
 
         <CreateChecklist mint={mint} global={snapshot?.global ?? null} globalPhase={lookedUp ? phase : null} />
@@ -688,9 +699,9 @@ function CurveExplainer() {
           ran on Meteora&apos;s curve and migrated into Meteora&apos;s pool.
         </p>
         <p>
-          A launch raises SOL along a constant-product curve priced on virtual plus real reserves. When it has raised its
-          target and the cost of migrating, one instruction opens the AMM pool, burns the LP tokens and closes the curve
-          — all or nothing, so there is no half-migrated state to get stuck in.
+          A launch raises SOL along a curve: each buy raises the price a little, each sell lowers it. When it has raised
+          its target and the cost of opening a pool, one step opens the pool, burns the pool&apos;s LP tokens and closes
+          the curve. It all happens or none of it does, so a launch can never get stuck half moved.
         </p>
         <p>
           What goes into the pool: the graduation target in SOL, and every token the curve did not sell. The migration
@@ -715,8 +726,8 @@ function CurveExplainer() {
             whose listing price sits more than 5% from the curve&apos;s, and that band is the whole promise.
           </li>
           <li>
-            Migration is permissionless and pays its caller nothing. It can also fail temporarily — a sell landing first
-            can leave the curve a lamport short — in which case it is retried, not broken.
+            Anyone can finish a graduation, and it pays them nothing. It can fail for a moment (a sell that lands first
+            can leave the curve a tiny amount short of its target); then it is simply tried again, nothing is broken.
           </li>
           <li>
             Graduation unlocks the platform reserve. After that, anyone can send it to the treasury, once; a launch that

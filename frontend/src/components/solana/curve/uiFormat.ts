@@ -9,6 +9,9 @@ export const SHADOW = { textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0
 // invalid CSS that browsers drop.
 export const inputCls = 'w-full px-3 py-2 rounded-lg bg-black/55 text-white text-[16px] outline-none';
 export const inputStyle = { border: '1px solid rgba(255,255,255,0.18)' } as const;
+// Buy/Sell, slippage presets, Recent/Yours: 44px tall, the same touch target the
+// site's .btn-* classes get (index.css). py-1.5 with 12px text is only about 30px.
+export const TOGGLE_CLS = 'flex-1 min-h-[44px] py-1.5 rounded-lg text-[12px] text-white transition-colors';
 export const DIVIDER = { borderTop: '1px solid rgba(255,255,255,0.08)' } as const;
 
 /** Basis points as a percentage with two decimals: 369n → "3.69%". */
@@ -51,6 +54,48 @@ export function sharePercent(part: bigint, whole: bigint): string | null {
   const s = `${bps / 100n}.${(bps % 100n).toString().padStart(2, '0')}%`;
   // A real holding that rounds to 0.00% says so rather than reading as nothing.
   return bps === 0n && part > 0n ? '<0.01%' : s;
+}
+
+/** Price impact for a row. `null` (no price to measure against) is said, never "0.00%". */
+export const impactText = (bps: bigint | null) => (bps === null ? 'could not compute' : bpsPercent(bps));
+
+/** A price impact at or above these gets a warning, then a stronger one. */
+export const IMPACT_WARN_BPS = 500n;
+export const IMPACT_HIGH_BPS = 1500n;
+
+/** The warning a price impact earns, or null. The same words on the form and the review. */
+export function impactWarning(bps: bigint | null): { tone: 'warn' | 'bad'; text: string } | null {
+  if (bps === null) {
+    return { tone: 'warn', text: 'The price impact could not be computed. Check what you receive below before you continue.' };
+  }
+  if (bps >= IMPACT_HIGH_BPS) {
+    return {
+      tone: 'bad',
+      text: `This trade moves the price by ${bpsPercent(bps)}. You get far less than the current price suggests. A smaller amount moves it less.`,
+    };
+  }
+  if (bps >= IMPACT_WARN_BPS) {
+    return {
+      tone: 'warn',
+      text: `This trade moves the price by ${bpsPercent(bps)}. You get noticeably less than the current price suggests.`,
+    };
+  }
+  return null;
+}
+
+/** A pool quote's price impact (a fraction, 0.05 = 5%) in bps, for the same warnings. */
+export const fractionToBps = (f: number): bigint | null => (Number.isFinite(f) && f >= 0 ? BigInt(Math.round(f * 10_000)) : null);
+
+/**
+ * Base units as text the amount field accepts: 98612106050692 at 6 decimals is
+ * "98612106.050692". No thousands separators and no rounding, so the amount parses
+ * back to exactly these base units. `null` decimals: the field takes base units.
+ */
+export function baseUnitsToInput(v: bigint, decimals: number | null): string {
+  if (decimals === null || decimals <= 0) return v.toString();
+  const scale = 10n ** BigInt(decimals);
+  const frac = (v % scale).toString().padStart(decimals, '0').replace(/0+$/, '');
+  return `${v / scale}${frac ? `.${frac}` : ''}`;
 }
 
 /**

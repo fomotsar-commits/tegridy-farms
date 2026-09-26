@@ -242,6 +242,8 @@ export interface OwnPoolQuote {
   reserveOut: bigint;
   /** Price impact as a fraction (0.01 = 1%), derived from the reserves. */
   priceImpact: number;
+  /** Where `result.creatorFee` is taken: from the input (on top of it) or off the output. */
+  creatorFeeOnInput: boolean;
 }
 
 /**
@@ -298,6 +300,7 @@ export function quoteOwnPool(
     reserveIn,
     reserveOut,
     priceImpact,
+    creatorFeeOnInput: feeOnInput,
   };
 }
 

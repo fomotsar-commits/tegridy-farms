@@ -336,7 +336,7 @@ export class FakeChain {
     this.calls.push('sendRawTransaction');
     return 'sent';
   };
-  getSignatureStatuses = async (_s: string[], _o?: unknown): Promise<{ value: unknown[] }> => {
+  getSignatureStatuses = async (_s: string[], _o?: unknown): Promise<{ context?: { slot: number }; value: unknown[] }> => {
     this.calls.push('getSignatureStatuses');
     return { value: [{ err: null, confirmationStatus: 'confirmed', slot: 7 }] };
   };
@@ -344,6 +344,12 @@ export class FakeChain {
     this.calls.push('getBlockHeight');
     return 10;
   };
+  /** The finalized slot. A status answer counts as "no record" only from a server at or past it. */
+  getSlot = async (_c?: unknown): Promise<number> => {
+    this.calls.push('getSlot');
+    return FakeChain.FINALIZED_SLOT;
+  };
+  static readonly FINALIZED_SLOT = 500;
   getTransaction = async (_s: string, _o?: unknown): Promise<unknown> => {
     this.calls.push('getTransaction');
     return null;

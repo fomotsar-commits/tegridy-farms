@@ -35,19 +35,18 @@ import { browserGateRpc } from '../components/solana/curve/gateRpc';
 import { withReadCommitment } from '../components/solana/curve/confirmedRpc';
 import { useWriteGate, type WriteGateState } from '../components/solana/curve/useWriteGate';
 import { useCurveSigner, type CurveSignerState } from '../components/solana/curve/useCurveSigner';
-import { clearPendingLaunch, readPendingLaunch, type PendingLaunch } from '../components/solana/curve/pendingLaunch';
+import {
+  awaitingOwnLaunch,
+  clearPendingLaunch,
+  readPendingLaunch,
+  type PendingLaunch,
+} from '../components/solana/curve/pendingLaunch';
 import { holdingFact, openingBuyFromOrigin, type Fact } from '../components/solana/curve/facts';
 import { usePendingTrades, type PendingTradesState } from '../components/solana/curve/usePendingTrades';
 import { BeforeYouTrade } from '../components/solana/curve/BeforeYouTrade';
 import { sharePercent } from '../components/solana/curve/uiFormat';
-import type {
-  LaunchPoolRead,
-  MetadataRead,
-  PreparedTx,
-  TokenMetadata,
-  TxOutcome,
-  WriteRpc,
-} from '../components/solana/curve/ports';
+import type { OnSettled } from '../components/solana/curve/useTxFlow';
+import type { LaunchPoolRead, MetadataRead, TokenMetadata, WriteRpc } from '../components/solana/curve/ports';
 
 // /curve-launch/:mint: one launch on our own Solana curve. Identity, the creator's
 // stake, the curve's state, and, only while the write gate is open, the trade,
@@ -78,14 +77,24 @@ export interface SolanaLaunchViewProps {
   pending: PendingLaunch | null;
   signerState: CurveSignerState;
   writeRpc: WriteRpc;
-  onSettled: (outcome: TxOutcome, prepared: PreparedTx | null) => void;
+  onSettled: OnSettled;
   onRecheckPending: () => void;
   recheckingPending: boolean;
+  /** What the last check of this browser's pending launch found, in plain words. */
+  pendingCheckMessage?: string | null;
+  /** Read the launch again (offered when a read failed). */
+  onReload?: () => void;
+  /** The connected wallet's tokens of this mint, for the sell side. `null` while reading. */
+  walletHolding?: Fact<bigint> | null;
   /**
    * Trades on this mint this browser sent and could not confirm, kept across a
-   * reload. While any stands, no trade form is shown.
+   * reload. While any stands, no trade form is shown. Its `sent` is what every panel
+   * calls the moment a transaction is sent, so the note exists before the wait.
    */
-  pendingTrade?: Pick<PendingTradesState, 'notes' | 'checking' | 'message' | 'recheck' | 'dismiss'> | null;
+  pendingTrade?:
+    | (Pick<PendingTradesState, 'notes' | 'checking' | 'message' | 'recheck' | 'dismiss'> &
+        Partial<Pick<PendingTradesState, 'sent'>>)
+    | null;
 }
 
 /** A trade sent from this browser that the chain has not answered for yet. Trading stays off until it has. */
@@ -100,8 +109,10 @@ function PendingTradeCard({
     <Card title="Your last trade may still be landing" testId="pending-trade">
       <Notice tone="warn">Sent, not confirmed yet. Trading here stays off until it is checked.</Notice>
       <Notice>It may still go through. Sending another trade now could make you pay twice.</Notice>
-      {state.checking && <Notice>Checking it on the network…</Notice>}
-      {!state.checking && state.message && <Notice>{state.message}</Notice>}
+      {/* Always there, so each check's answer is read out when it arrives. */}
+      <p role="status" className="text-white/55">
+        {state.checking ? 'Checking it on the network…' : (state.message ?? '')}
+      </p>
       {state.notes.map((n) => (
         <div key={n.signature} className="space-y-1">
           <Row label="Transaction signature" value={n.signature} />
@@ -115,19 +126,20 @@ function PendingTradeCard({
           </a>
         </div>
       ))}
+      {/* aria-disabled, not disabled: a button switched off under the keyboard drops focus to the page. */}
       <button
         type="button"
-        className="btn-primary w-full py-2 text-[12px] disabled:opacity-60"
-        disabled={state.checking}
-        onClick={state.recheck}
+        className={`btn-primary w-full py-2 text-[12px] ${state.checking ? 'opacity-60' : ''}`}
+        aria-disabled={state.checking || undefined}
+        onClick={() => !state.checking && state.recheck()}
       >
-        {state.checking ? 'Checking…' : 'Check again'}
+        Check again
       </button>
       <button
         type="button"
-        className="btn-secondary w-full py-2 text-[12px]"
-        disabled={state.checking}
-        onClick={state.dismiss}
+        className={`btn-secondary w-full py-2 text-[12px] ${state.checking ? 'opacity-60' : ''}`}
+        aria-disabled={state.checking || undefined}
+        onClick={() => !state.checking && state.dismiss()}
       >
         I checked my wallet: start over
       </button>
@@ -152,6 +164,9 @@ export function SolanaLaunchView({
   onSettled,
   onRecheckPending,
   recheckingPending,
+  pendingCheckMessage = null,
+  onReload,
+  walletHolding,
   pendingTrade = null,
 }: SolanaLaunchViewProps) {
   if (gateState.status === 'disabled') {
@@ -192,7 +207,31 @@ export function SolanaLaunchView({
   const tradable = phase === 'trading' || phase === 'at-target' || phase === 'awaiting-migration';
   // A trade this browser sent may still land: no form until the chain has answered.
   const tradeHeld = !!pendingTrade && pendingTrade.notes.length > 0;
+  const onSent = pendingTrade?.sent;
   const c = curve?.curve ?? null;
+  // The pool's fee settings. A graduated launch is traded in ITS pool, under that
+  // pool's own settings account; before graduation, the pool it will open uses the
+  // launch program's current one (and switches the creator fee on).
+  const poolRead = data?.pool ?? null;
+  const livePool = poolRead && (poolRead.kind === 'ok' || poolRead.kind === 'closed-to-swaps') ? poolRead.value : null;
+  const poolFees =
+    phase === 'graduated'
+      ? livePool
+        ? {
+            fee: livePool.ammConfig.tradeFeeRate,
+            protocol: livePool.ammConfig.protocolFeeRate,
+            fund: livePool.ammConfig.fundFeeRate,
+            creator: livePool.snapshot.pool.enableCreatorFee ? livePool.ammConfig.creatorFeeRate : 0n,
+          }
+        : null
+      : open
+        ? {
+            fee: open.ammConfig.tradeFeeRate,
+            protocol: open.ammConfig.protocolFeeRate,
+            fund: open.ammConfig.fundFeeRate,
+            creator: open.ammConfig.creatorFeeRate,
+          }
+        : null;
   const reserveWords =
     !c || c.platformReserveTokens === 0n
       ? null
@@ -220,33 +259,41 @@ export function SolanaLaunchView({
 
       {data === null && <Notice>Reading this launch from the network…</Notice>}
 
-      {phase === 'pre-launch' &&
-        (pending ? (
-          <Card title="Not found yet" testId="pending-launch">
-            <Notice tone="warn">Not found yet. Your launch may still be landing. Do not launch it again.</Notice>
-            <Row label="Transaction signature" value={pending.signature} />
-            <a
-              href={api.explorerTxUrl(pending.signature, gateState.cfg.cluster)}
-              target="_blank"
-              rel="noopener noreferrer nofollow"
-              className="underline text-white/80"
-            >
-              View on the explorer
-            </a>
-            <button
-              type="button"
-              className="btn-primary w-full py-2 text-[12px] disabled:opacity-60"
-              disabled={recheckingPending}
-              onClick={onRecheckPending}
-            >
-              {recheckingPending ? 'Checking…' : 'Check again'}
-            </button>
-          </Card>
-        ) : (
+      {awaitingOwnLaunch(pending, phase) && pending ? (
+        <Card title={phase === 'unreadable' ? 'Could not check yet' : 'Not found yet'} testId="pending-launch">
+          <Notice tone="warn">
+            {phase === 'unreadable'
+              ? 'We could not read the network just now. Your launch may still be landing. Do not launch it again.'
+              : 'Not found yet. Your launch may still be landing. Do not launch it again.'}
+          </Notice>
+          <Row label="Transaction signature" value={pending.signature} />
+          <a
+            href={api.explorerTxUrl(pending.signature, gateState.cfg.cluster)}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            className="underline text-white/80"
+          >
+            View on the explorer
+          </a>
+          <p role="status" className="text-white/55">
+            {recheckingPending ? 'Checking it on the network…' : (pendingCheckMessage ?? '')}
+          </p>
+          <button
+            type="button"
+            className={`btn-primary w-full py-2 text-[12px] ${recheckingPending ? 'opacity-60' : ''}`}
+            aria-disabled={recheckingPending || undefined}
+            onClick={() => !recheckingPending && onRecheckPending()}
+          >
+            Check again
+          </button>
+        </Card>
+      ) : (
+        phase === 'pre-launch' && (
           <Card title="No launch at this address">
             <p>This token address has no curve on this program. Check the address you were given.</p>
           </Card>
-        ))}
+        )
+      )}
 
       {launch && (
         <CurveStateCard
@@ -257,13 +304,20 @@ export function SolanaLaunchView({
           lookedUp
         />
       )}
+      {phase === 'unreadable' && !pending && onReload && (
+        <button type="button" className="btn-primary w-full py-2 text-[12px]" onClick={onReload}>
+          Read again
+        </button>
+      )}
 
       {open && c && actions && (
         <BeforeYouTrade
           curveFeeBps={c.tradeFeeBps}
           creatorShareBps={c.creatorFeeShareBps}
-          poolFeePpm={open.ammConfig.tradeFeeRate}
-          poolProtocolPpm={open.ammConfig.protocolFeeRate}
+          poolFeePpm={poolFees?.fee ?? null}
+          poolProtocolPpm={poolFees?.protocol ?? null}
+          poolFundPpm={poolFees?.fund ?? null}
+          poolCreatorPpm={poolFees?.creator ?? null}
           reserve={reserveWords}
         />
       )}
@@ -283,6 +337,8 @@ export function SolanaLaunchView({
           actions={actions}
           signerState={signerState}
           onSettled={onSettled}
+          onSent={onSent}
+          walletHolding={walletHolding}
         />
       )}
       {open && launch && curve && actions && !tradeHeld && (
@@ -298,6 +354,7 @@ export function SolanaLaunchView({
           actions={actions}
           signerState={signerState}
           onSettled={onSettled}
+          onSent={onSent}
         />
       )}
       {open && actions && phase === 'graduated' && !tradeHeld && (
@@ -311,6 +368,8 @@ export function SolanaLaunchView({
           actions={actions}
           signerState={signerState}
           onSettled={onSettled}
+          onSent={onSent}
+          walletHolding={walletHolding}
         />
       )}
       {backLink}
@@ -380,6 +439,7 @@ function SolanaLaunchInner({ mint }: { mint: PublicKey }) {
   const [data, setData] = useState<LaunchData | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [rechecking, setRechecking] = useState(false);
+  const [pendingCheckMessage, setPendingCheckMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (gateState.status !== 'ready' || !gateState.cfg) return;
@@ -417,6 +477,31 @@ function SolanaLaunchInner({ mint }: { mint: PublicKey }) {
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
+  // What the connected wallet holds of this token, for the sell side's balance and
+  // Max. Read again after every reload (a trade changes it). An unread balance is a
+  // Fact, shown as "could not read", never 0.
+  const walletAddress = signerState.kind === 'ready' ? signerState.address : null;
+  const [walletHolding, setWalletHolding] = useState<Fact<bigint> | null>(null);
+  useEffect(() => {
+    if (gateState.status !== 'ready' || !walletAddress) return;
+    let live = true;
+    let owner: PublicKey;
+    try {
+      owner = new PublicKey(walletAddress);
+    } catch {
+      return;
+    }
+    gateState.api
+      .readCreatorHolding(curveRpc, mint, owner)
+      .then(holdingFact)
+      .catch((e: unknown): Fact<bigint> => ({ kind: 'unreadable', detail: clipDetail(e) }))
+      .then((f) => live && setWalletHolding(f));
+    return () => {
+      live = false;
+      setWalletHolding(null);
+    };
+  }, [gateState, curveRpc, mint, walletAddress, reloadKey]);
+
   // A trade sent from this browser and not confirmed survives a reload: it is checked
   // against the chain before any trade form for this mint is shown again.
   const checkTrade = useMemo(
@@ -429,9 +514,9 @@ function SolanaLaunchInner({ mint }: { mint: PublicKey }) {
   );
   const pendingTrade = usePendingTrades(mintStr, checkTrade, reload);
   const recordTrade = pendingTrade.record;
-  const onSettled = useCallback(
-    (outcome: TxOutcome, prepared: PreparedTx | null) => {
-      recordTrade(outcome, prepared);
+  const onSettled = useCallback<OnSettled>(
+    (outcome, prepared, sentSignature) => {
+      recordTrade(outcome, prepared, sentSignature);
       reload();
     },
     [recordTrade, reload],
@@ -440,7 +525,7 @@ function SolanaLaunchInner({ mint }: { mint: PublicKey }) {
   // A launch this browser just sent and the chain does not show yet: look again on
   // our own, so the page turns into the launch once it lands without a click. Stops
   // when it appears, or when the note expires (readPendingLaunch's TTL).
-  const waitingForLaunch = !!pending && data?.launch.phase.kind === 'pre-launch';
+  const waitingForLaunch = awaitingOwnLaunch(pending, data?.launch.phase.kind);
   useEffect(() => {
     if (!waitingForLaunch) return;
     const t = setTimeout(() => {
@@ -464,8 +549,12 @@ function SolanaLaunchInner({ mint }: { mint: PublicKey }) {
         clearPendingLaunch(mintStr);
         setPending(null);
       }
-    } catch {
-      /* a failed check changes nothing we know */
+      setPendingCheckMessage(
+        o.status === 'unknown' ? o.message : o.status === 'confirmed' ? 'The network confirmed it. Reading the launch…' : null,
+      );
+    } catch (e) {
+      // A failed check changes nothing we know, and says so.
+      setPendingCheckMessage(`Could not check just now (${clipDetail(e)}).`);
     } finally {
       setRechecking(false);
       reload();
@@ -483,6 +572,9 @@ function SolanaLaunchInner({ mint }: { mint: PublicKey }) {
       onSettled={onSettled}
       onRecheckPending={() => void onRecheckPending()}
       recheckingPending={rechecking}
+      pendingCheckMessage={pendingCheckMessage}
+      onReload={reload}
+      walletHolding={walletAddress ? walletHolding : undefined}
       pendingTrade={pendingTrade}
     />
   );

@@ -146,7 +146,13 @@ export function spotPriceLabel(price: number, tokenDecimals?: number | null): { 
 
 function formatRatio(v: number): string {
   if (v === 0) return '0';
-  if (v < 0.000001 || v >= 1e9) return v.toExponential(3);
+  // Never scientific notation: a launch's price is about 0.0000000015 SOL a token,
+  // and "1.502e-9" means nothing to most buyers. Four significant digits, written out.
+  if (v >= 1e9) return Math.round(v).toString();
+  if (v < 0.000001) {
+    const digits = Math.min(100, 3 - Math.floor(Math.log10(v)));
+    return v.toFixed(digits).replace(/0+$/, '');
+  }
   const s = v.toPrecision(4);
   // Only strip trailing zeros from a FRACTION. Applying it to "1000" leaves "1",
   // i.e. a price understated by 1000x — the exact silent-wrong-number bug this

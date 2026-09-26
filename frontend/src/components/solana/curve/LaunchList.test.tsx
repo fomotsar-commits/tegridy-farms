@@ -44,14 +44,25 @@ describe('launch list', () => {
 
   it('an empty list says how far it looked, never "no launches"', async () => {
     renderList(fakeApi());
-    expect(await screen.findByText('No launches found in the latest 60 entries we read.')).toBeInTheDocument();
+    expect(await screen.findByText('No launches in the most recent 60 transactions we checked.')).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/no launches exist|there are no launches/i);
+  });
+
+  // UX9: a program with no history at all used to read "in the latest 0 entries we read".
+  it('a program with no history yet says "No launches yet.", never "the latest 0 entries"', async () => {
+    renderList(
+      fakeApi({
+        listRecentLaunches: vi.fn(async () => ({ kind: 'ok' as const, value: { items: [], before: null, scanned: 0, hidden: 0 } })),
+      }),
+    );
+    expect(await screen.findByText('No launches yet.')).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/\b0 (entries|transactions)/);
   });
 
   it('a failed read says the list could not be read, not that it is empty', async () => {
     renderList(fakeApi({ listRecentLaunches: vi.fn(async () => ({ kind: 'unreadable' as const, detail: 'HTTP 429' })) }));
     expect(await screen.findByText(/could not be read right now \(HTTP 429\)/)).toBeInTheDocument();
-    expect(screen.queryByText(/No launches found/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No launches/)).not.toBeInTheDocument();
   });
 
   it('flags a copied ticker, editable details and missing metadata on the row itself', async () => {
@@ -95,5 +106,29 @@ describe('launch list', () => {
     renderList(api, CREATOR);
     fireEvent.click(screen.getByRole('button', { name: 'Yours' }));
     await waitFor(() => expect(api.listLaunchesByCreator).toHaveBeenCalledWith(rpc, expect.anything(), CREATOR, {}));
+  });
+
+  // The sibling of UXR2: "Show more" vanished while the next page loaded, dropping
+  // keyboard focus to the page.
+  it('"Show more" stays focused while the next page loads, and does nothing on a second press', async () => {
+    let answer: (v: Awaited<ReturnType<WriteApi['listRecentLaunches']>>) => void = () => undefined;
+    const api = fakeApi({
+      listRecentLaunches: vi
+        .fn()
+        .mockResolvedValueOnce({ kind: 'ok', value: { items: [item()], before: 'cursor', scanned: 20, hidden: 0 } })
+        .mockImplementationOnce(() => new Promise((r) => (answer = r))),
+    });
+    renderList(api);
+    const more = await screen.findByRole('button', { name: 'Show more' });
+    more.focus();
+    fireEvent.click(more);
+    const during = screen.getByRole('button', { name: 'Show more' });
+    expect(during).toHaveAttribute('aria-disabled', 'true');
+    expect(document.activeElement).toBe(during);
+    fireEvent.click(during);
+    expect(api.listRecentLaunches).toHaveBeenCalledTimes(2);
+    answer({ kind: 'ok', value: { items: [], before: 'cursor2', scanned: 20, hidden: 0 } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Show more' })).not.toHaveAttribute('aria-disabled'));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show more' }));
   });
 });

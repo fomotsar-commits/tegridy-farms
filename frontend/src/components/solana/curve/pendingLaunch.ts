@@ -47,10 +47,41 @@ export function readPendingLaunch(mint: string, now: number = Date.now()): Pendi
   }
 }
 
+/**
+ * Every live launch note this browser holds, newest first. The create form reads
+ * these: a launch sent before a reload may still land, and a second Review would
+ * build a second launch with a new token address.
+ */
+export function readPendingLaunches(now: number = Date.now()): Array<PendingLaunch & { mint: string }> {
+  const out: Array<PendingLaunch & { mint: string }> = [];
+  try {
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (!k || !k.startsWith(KEY)) continue;
+      const mint = k.slice(KEY.length);
+      if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) continue;
+      const p = readPendingLaunch(mint, now);
+      if (p) out.push({ ...p, mint });
+    }
+  } catch {
+    return [];
+  }
+  return out.sort((a, b) => b.sentAt - a.sentAt);
+}
+
 export function clearPendingLaunch(mint: string): void {
   try {
     sessionStorage.removeItem(KEY + mint);
   } catch {
     /* nothing to clear */
   }
+}
+
+/**
+ * This browser sent a launch for this mint and the chain has not shown it as live
+ * yet: not found, OR a read that failed. A failed read is not "no launch", so the
+ * "still landing, do not launch it again" card and the automatic re-check stay on.
+ */
+export function awaitingOwnLaunch(pending: PendingLaunch | null, phase: string | undefined): boolean {
+  return !!pending && (phase === 'pre-launch' || phase === 'unreadable');
 }

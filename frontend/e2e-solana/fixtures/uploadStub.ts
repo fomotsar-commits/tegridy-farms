@@ -5,14 +5,18 @@
 // rebuilds the exact message the wallet was asked to sign and verifies the Ed25519
 // signature over it before "pinning". The content ids it returns are real CIDv1 (raw,
 // sha2-256) of the bytes it serves, so the page's content-address checks see genuine
-// values. What it serves back at https://ipfs.io/ipfs/<cid> is exactly what was posted.
+// values. It answers with ipfs://<cid> links, as the real endpoint does, and what it
+// serves back on every live gateway (src/lib/ipfsGateways.ts) is exactly what was
+// posted. The retired gateways (ipfs.io, dweb.link, ...) answer 403 here as they do in
+// production, so a page that still read through one of them fails this e2e.
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import type { BrowserContext, Route } from '@playwright/test';
 import { PublicKey } from '@solana/web3.js';
 import {
-  buildMetadataJson, checkDescription, checkLinks, checkName, checkSymbol, detailsDigestInput, sniffImage, uploadAuthMessage,
+  buildMetadataJson, checkDescription, checkLinks, checkName, checkSymbol, detailsDigestInput, ipfsUri, sniffImage, uploadAuthMessage,
 } from '../../src/lib/launchMetadata/validate.js';
+import { DEAD_IPFS_GATEWAY_HOSTS, IPFS_GATEWAYS } from '../../src/lib/ipfsGateways';
 
 export interface UploadRecord { at: string; mint: string; creator: string; name: string; symbol: string; imageBytes: number; metadataUri: string; imageUri: string }
 export interface UploadStub {
@@ -121,22 +125,27 @@ export async function installUploadStub(context: BrowserContext): Promise<Upload
 
     const imageCid = cidV1Raw(bytes);
     served.set(imageCid, { body: bytes, type: sniff.mime });
-    const imageUri = `https://ipfs.io/ipfs/${imageCid}`;
+    const imageUri = ipfsUri(imageCid)!;
     const metadata = buildMetadataJson({ ...details, imageUri, mint: String(b.mint) });
     const metaBytes = Buffer.from(JSON.stringify(metadata));
     const metaCid = cidV1Raw(metaBytes);
     served.set(metaCid, { body: metaBytes, type: 'application/json' });
-    const metadataUri = `https://ipfs.io/ipfs/${metaCid}`;
+    const metadataUri = ipfsUri(metaCid)!;
     uploads.push({ at: new Date().toISOString(), mint: String(b.mint), creator: String(b.creator), name: name.value, symbol: symbol.value, imageBytes: bytes.length, metadataUri, imageUri });
     return json(route, 200, { metadataUri, imageUri, metadata, pinnedAt: new Date().toISOString() });
   });
 
-  await context.route('https://ipfs.io/ipfs/**', async (route) => {
-    const cid = new URL(route.request().url()).pathname.split('/').pop() ?? '';
-    const hit = served.get(cid);
-    if (!hit) return route.fulfill({ status: 404, contentType: 'text/plain', body: 'not found' });
-    return route.fulfill({ status: 200, contentType: hit.type, body: hit.body, headers: { 'access-control-allow-origin': '*' } });
-  });
+  for (const gateway of IPFS_GATEWAYS) {
+    await context.route(`${gateway}**`, async (route) => {
+      const cid = new URL(route.request().url()).pathname.split('/').pop() ?? '';
+      const hit = served.get(cid);
+      if (!hit) return route.fulfill({ status: 404, contentType: 'text/plain', body: 'not found' });
+      return route.fulfill({ status: 200, contentType: hit.type, body: hit.body, headers: { 'access-control-allow-origin': '*' } });
+    });
+  }
+  for (const host of DEAD_IPFS_GATEWAY_HOSTS) {
+    await context.route(`https://${host}/**`, (route) => route.fulfill({ status: 403, contentType: 'text/html', body: 'Just a moment...' }));
+  }
 
   return { uploads, refusals, setConfigured(on) { configured = on; } };
 }

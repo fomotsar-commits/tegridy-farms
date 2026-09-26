@@ -47,6 +47,7 @@ import type {
   PreparedImageResult,
   UploadInput,
   UploadResult,
+  UploadStatus,
 } from '../../../lib/launchMetadata/upload';
 import type { quoteBuyOnCurve } from '../../../lib/launcher/solana/curve';
 
@@ -85,7 +86,7 @@ export interface MetadataApi {
   checkContentUri: typeof checkContentUri;
   displaySafe: typeof displaySafe;
   impersonationWarning: typeof impersonationWarning;
-  uploadsAvailable(): Promise<boolean>;
+  uploadsAvailable(): Promise<UploadStatus>;
   /** Shrinks a photo to at most 1024px and strips its EXIF (GPS). GIFs are kept as they are. */
   prepareLaunchImage(file: Blob): Promise<PreparedImageResult>;
   uploadLaunchMetadata(input: UploadInput): Promise<UploadResult>;
@@ -107,7 +108,7 @@ export interface WriteApi {
   explorerTxUrl(signature: string, cluster: SolanaCluster): string;
 
   quoteOpeningBuy(global: GlobalConfig, lamportsIn: bigint): OpeningBuyQuote;
-  priceImpactBps(c: CurveTerms, side: 'buy' | 'sell', amountIn: bigint, amountOut: bigint): bigint;
+  priceImpactBps(c: CurveTerms, side: 'buy' | 'sell', amountIn: bigint, amountOut: bigint): bigint | null;
 
   prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: CreateLaunchInput): Promise<Prepared>;
   prepareCurveBuy(

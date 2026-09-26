@@ -26,6 +26,7 @@ import {
 } from './validate.js';
 import { PNG_1X1, SVG, gif, jpeg, png, webpVp8, webpVp8l, webpVp8x } from './testImages.fixture';
 import { cspAllows } from '../../test/csp';
+import { ipfsGatewayUrls } from '../ipfsGateways';
 
 const MINT = 'So11111111111111111111111111111111111111112';
 const OTHER = '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R';
@@ -258,33 +259,57 @@ describe('hasEmbeddedMetadata', () => {
 });
 
 describe('checkContentUri', () => {
-  const V0 = `https://ipfs.io/ipfs/Qm${'a'.repeat(44)}`;
-  const V1 = `https://ipfs.io/ipfs/bafkrei${'a'.repeat(52)}`;
+  const CID0 = `Qm${'a'.repeat(44)}`;
+  const CID1 = `bafkrei${'a'.repeat(52)}`;
+  const V0 = `https://ipfs.io/ipfs/${CID0}`;
+  const V1 = `https://ipfs.io/ipfs/${CID1}`;
   const AR = `https://arweave.net/${'A'.repeat(43)}`;
 
   it('accepts IPFS (v0 and v1) and Arweave content addresses', () => {
-    for (const u of [V0, V1, AR]) expect(value(checkContentUri(u))).toBe(u);
+    expect(value(checkContentUri(V0))).toBe(`ipfs://${CID0}`);
+    expect(value(checkContentUri(V1))).toBe(`ipfs://${CID1}`);
+    expect(value(checkContentUri(AR))).toBe(AR);
+  });
+
+  // The metadata link is written on chain forever. ipfs.io and dweb.link were
+  // retired on 2026-09-21, so a link that names a gateway dies with it: every IPFS
+  // form must come back as the gateway-free ipfs://<cid>.
+  it.each([
+    ['ipfs://', `ipfs://${CID1}`],
+    ['ipfs://ipfs/', `ipfs://ipfs/${CID1}`],
+    ['a retired gateway', V1],
+    ['another gateway', V1.replace('ipfs.io', 'gateway.pinata.cloud')],
+    ['a lookalike host (never contacted: only the id is kept)', V1.replace('ipfs.io', 'ipfs.io.evil.com')],
+    ['the subdomain form', `https://${CID1}.ipfs.w3s.link/`],
+  ])('keeps only the content id of %s', (_l, u) => {
+    expect(value(checkContentUri(u))).toBe(`ipfs://${CID1}`);
   });
 
   it.each([
     ['plain http', V1.replace('https', 'http')],
-    ['another gateway', V1.replace('ipfs.io', 'gateway.pinata.cloud')],
-    ['a lookalike host', V1.replace('ipfs.io', 'ipfs.io.evil.com')],
     ['a query', `${V1}?x=1`],
     ['a fragment', `${V1}#x`],
     ['a path after the CID', `${V1}/x.json`],
+    ['a path after an ipfs:// CID', `ipfs://${CID1}/x.json`],
     ['an upper-case v1 CID', V1.toUpperCase().replace('HTTPS://IPFS.IO/IPFS/', 'https://ipfs.io/ipfs/')],
     ['a mutable web page', 'https://pepe.io/meta.json'],
     ['a short Arweave id', `https://arweave.net/${'A'.repeat(42)}`],
   ])('refuses %s', (_l, u) => refused(checkContentUri(u)));
 
-  it('caps the URI at 100 bytes and every accepted form fits', () => {
-    expect(LIMITS.uriBytes).toBe(100);
-    for (const u of [V0, V1, AR]) expect(new TextEncoder().encode(u).length).toBeLessThanOrEqual(LIMITS.uriBytes);
+  it('never tells people to use a retired gateway', () => {
+    const r = checkContentUri('https://pepe.io/meta.json');
+    expect(r.ok ? '' : r.reason).not.toMatch(/ipfs\.io|dweb\.link/);
   });
 
-  it('the page is allowed to fetch and show them (vercel.json CSP)', () => {
-    for (const u of [V1, AR]) {
+  it('caps the URI at 100 bytes and every accepted form fits', () => {
+    expect(LIMITS.uriBytes).toBe(100);
+    for (const u of [V0, V1, AR]) expect(new TextEncoder().encode(value(checkContentUri(u))).length).toBeLessThanOrEqual(LIMITS.uriBytes);
+  });
+
+  it('the page is allowed to fetch and show them through every gateway it uses (vercel.json CSP)', () => {
+    const urls = [...ipfsGatewayUrls(value(checkContentUri(V1))), AR];
+    expect(urls.length).toBeGreaterThan(1);
+    for (const u of urls) {
       expect(cspAllows('connect-src', u), `connect-src blocks ${u}`).toBe(true);
       expect(cspAllows('img-src', u), `img-src blocks ${u}`).toBe(true);
     }
@@ -309,7 +334,7 @@ describe('isPubkeyString', () => {
 
 describe('parseLaunchMetadataJson (a file ANY client may have written)', () => {
   const good = buildMetadataJson({
-    name: 'Pepe', symbol: 'PEPE', description: 'frog', imageUri: `https://ipfs.io/ipfs/bafkrei${'a'.repeat(52)}`,
+    name: 'Pepe', symbol: 'PEPE', description: 'frog', imageUri: `ipfs://bafkrei${'a'.repeat(52)}`,
     links: { website: 'https://pepe.io/' }, mint: MINT,
   });
 

@@ -9,8 +9,8 @@ import type { Keypair, PublicKey } from '@solana/web3.js';
 import { ata, buyDirect, createLaunchDirect, fundedKeypair, lamports, landedTx, sol, tokenAmount } from './fixtures/chain';
 import { installTestWallet } from './fixtures/testWallet';
 import { installRpcGuard } from './fixtures/rpcGuard';
-import { installUploadStub } from './fixtures/uploadStub';
-import { ui, checkAtSizes, clickReal, connectWallet } from './fixtures/ui';
+import { installUploadStub, makePng } from './fixtures/uploadStub';
+import { ui, checkAtSizes, clickReal, connectWallet, expectConnected } from './fixtures/ui';
 
 async function trader(browser: Browser, kp: Keypair) {
   const ctx = await browser.newContext();
@@ -107,6 +107,103 @@ test('sent, not confirmed, then a reload: no trade form until the chain answers'
   await expect(ui.pendingTrade(t.page)).toHaveCount(0, { timeout: 60_000 });
   await expect(ui.tradePanel(t.page)).toBeVisible({ timeout: 30_000 });
   expect(await t.page.evaluate((m) => sessionStorage.getItem(`curve-launch:pending-trade:${m}`), mint.toBase58())).toBeNull();
+  expect(t.rpc.violations).toEqual([]);
+  await t.ctx.close();
+});
+
+// FS-1: the note used to be written only when the wait for the network ENDED (up to two
+// minutes). A reload during that wait gave back an open trade form while the first trade
+// could still land. Now the note exists from the moment the transaction is sent, and
+// leaving the page asks first.
+test('a reload WHILE the trade is still in the air: leaving asks first, and the page comes back held, not open', async ({ browser }) => {
+  test.setTimeout(8 * 60_000);
+  const kp = await fundedKeypair(2);
+  const t = await trader(browser, kp);
+  const dialogs: string[] = [];
+  t.page.on('dialog', (d) => {
+    dialogs.push(d.type());
+    void d.accept();
+  });
+  await t.page.goto(`/curve-launch/${mint.toBase58()}`);
+  await connectWallet(t.page, ui.tradePanel(t.page));
+  await clickReal(ui.trade.side(t.page, 'buy'), 'buy');
+  await ui.trade.amount(t.page, 'buy').fill('0.02');
+  await clickReal(ui.trade.reviewButton(t.page, 'buy'), 'Review buy');
+  await expect(ui.review(t.page)).toBeVisible({ timeout: 60_000 });
+  // No status can be read, so the page keeps waiting: this is the window that was unsafe.
+  t.rpc.fail('getSignatureStatuses', 500, 10 * 60_000);
+  await clickReal(ui.signButton(t.page), 'Sign in wallet');
+  const sent = ui.sent(t.page);
+  await expect(sent).toBeVisible({ timeout: 60_000 });
+  const signature = t.wallet.lastSigned().signature!;
+  await expect(sent).toContainText(signature);
+  await expect(sent).not.toContainText(/Waiting for your wallet/);
+  await expect(ui.outcome(t.page)).toHaveCount(0);
+  // The note is already there, before any answer.
+  expect(await t.page.evaluate((m) => sessionStorage.getItem(`curve-launch:pending-trade:${m}`), mint.toBase58())).toContain(signature);
+
+  await t.page.reload();
+  expect(dialogs, 'leaving while it was in the air asked first').toContain('beforeunload');
+  const card = ui.pendingTrade(t.page);
+  await expect(card).toBeVisible({ timeout: 30_000 });
+  await expect(card).toContainText(signature);
+  await expect(ui.tradePanel(t.page)).toHaveCount(0);
+
+  // It landed; once the chain can be read, Check again settles it and the form comes back.
+  expect((await landedTx(signature)).meta?.err ?? null).toBeNull();
+  t.rpc.release('getSignatureStatuses');
+  await clickReal(card.getByRole('button', { name: 'Check again' }), 'Check again');
+  await expect(ui.pendingTrade(t.page)).toHaveCount(0, { timeout: 60_000 });
+  await expect(ui.tradePanel(t.page)).toBeVisible({ timeout: 30_000 });
+  expect(t.rpc.violations).toEqual([]);
+  await t.ctx.close();
+});
+
+// FS-1, the launch: the new token's key lived only in memory, so a reload during the
+// wait gave a fresh form that would build a SECOND launch with a new key.
+test('a reload WHILE a launch is in the air: the form comes back holding Review until the creator decides', async ({ browser }) => {
+  test.setTimeout(8 * 60_000);
+  const kp = await fundedKeypair(3);
+  const t = await trader(browser, kp);
+  t.page.on('dialog', (d) => void d.accept());
+  await t.page.goto('/curve-launch');
+  await connectWallet(t.page, ui.createForm(t.page));
+  const fill = async () => {
+    await ui.form.picture(t.page).setInputFiles({ name: 'corn.png', mimeType: 'image/png', buffer: makePng() });
+    await ui.form.name(t.page).fill('Reload Corn');
+    await ui.form.symbol(t.page).fill('RCORN');
+  };
+  await fill();
+  await clickReal(ui.form.reviewButton(t.page), 'Review launch');
+  await expect(ui.review(t.page)).toBeVisible({ timeout: 60_000 });
+  t.rpc.fail('getSignatureStatuses', 500, 10 * 60_000);
+  await clickReal(ui.signButton(t.page), 'Sign in wallet');
+  await expect(ui.sent(t.page)).toBeVisible({ timeout: 60_000 });
+  const signature = t.wallet.lastSigned().signature!;
+  const launched = t.wallet.lastIx('create_launch').accounts.mint;
+
+  await t.page.reload();
+  // The wallet reconnects on its own after a reload.
+  await expectConnected(ui.createForm(t.page), kp.publicKey.toBase58());
+  const earlier = ui.earlierLaunch(t.page);
+  await expect(earlier).toBeVisible({ timeout: 30_000 });
+  await expect(earlier).toContainText(launched);
+  await expect(earlier).toContainText(/may still be landing/, { timeout: 60_000 });
+  await fill();
+  await expect(ui.form.reviewButton(t.page)).toBeDisabled();
+  await checkAtSizes(t.page, 'earlier-launch', [
+    [earlier.getByRole('button', { name: 'My earlier launch did not land: start a new one' }), 'did not land'],
+  ]);
+
+  // The chain can be read again and the launch landed: a fresh visit says it went through
+  // and no longer holds Review.
+  expect((await landedTx(signature)).meta?.err ?? null).toBeNull();
+  t.rpc.release('getSignatureStatuses');
+  await t.page.reload();
+  await expectConnected(ui.createForm(t.page), kp.publicKey.toBase58());
+  await expect(ui.earlierLaunch(t.page)).toContainText(/went through/, { timeout: 60_000 });
+  await fill();
+  await expect(ui.form.reviewButton(t.page)).toBeEnabled({ timeout: 30_000 });
   expect(t.rpc.violations).toEqual([]);
   await t.ctx.close();
 });

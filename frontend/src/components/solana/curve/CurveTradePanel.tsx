@@ -13,12 +13,14 @@ import {
   type CurveAccount,
   type LaunchState,
 } from '../../../lib/launcher/solana/curve';
-import { Card, Field, Notice, Row, SlippagePicker } from './ui';
-import { DEFAULT_SLIPPAGE_BPS, feeSplitLabel, inputCls, inputStyle } from './uiFormat';
+import { Card, Field, ImpactRows, Notice, Row, SlippagePicker } from './ui';
+import { DEFAULT_SLIPPAGE_BPS, TOGGLE_CLS, feeSplitLabel, inputCls, inputStyle } from './uiFormat';
 import { TxFlowView } from './TxFlowView';
+import { YourHolding } from './YourHolding';
+import type { Fact } from './facts';
 import { WalletNeeded } from './WalletNeeded';
-import { useTxFlow } from './useTxFlow';
-import type { ActionAvailability, OpenGate, PreparedTx, TxOutcome, WriteApi, WriteRpc } from './ports';
+import { useReturnFocus, useTxFlow, type OnSent, type OnSettled } from './useTxFlow';
+import type { ActionAvailability, OpenGate, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
 
 type Side = 'buy' | 'sell';
@@ -36,7 +38,11 @@ export interface CurveTradePanelProps {
   rentFloor: bigint | null;
   actions: ActionAvailability;
   signerState: CurveSignerState;
-  onSettled: (outcome: TxOutcome, prepared: PreparedTx | null) => void;
+  onSettled: OnSettled;
+  /** The transaction is about to be sent: the page writes its "may still land" note. */
+  onSent?: OnSent;
+  /** The connected wallet's tokens of this mint, for the sell side. `null` while reading. */
+  walletHolding?: Fact<bigint> | null;
 }
 
 /**
@@ -56,11 +62,14 @@ export function CurveTradePanel({
   actions,
   signerState,
   onSettled,
+  onSent,
+  walletHolding,
 }: CurveTradePanelProps) {
   const [side, setSide] = useState<Side>('buy');
   const [amount, setAmount] = useState('');
   const [slippageBps, setSlippageBps] = useState<bigint | null>(DEFAULT_SLIPPAGE_BPS);
-  const flow = useTxFlow(api, rpc, onSettled);
+  const flow = useTxFlow(api, rpc, onSettled, onSent);
+  const { target: reviewRef, fallback: headingRef } = useReturnFocus(flow.state.step);
   const c = curve.curve;
 
   // Paused stops buys only; sells are open on chain by design, so they stay open here.
@@ -129,7 +138,7 @@ export function CurveTradePanel({
   };
 
   return (
-    <Card title="Trade on the curve" testId="curve-trade-panel">
+    <Card title="Trade on the curve" testId="curve-trade-panel" headingRef={headingRef}>
       {flow.state.step !== 'idle' ? (
         <TxFlowView flow={flow} api={api} cluster={gate.cfg.cluster} decimals={decimals} signer={signer} />
       ) : (
@@ -144,7 +153,7 @@ export function CurveTradePanel({
                   setAmount('');
                 }}
                 aria-pressed={side === s}
-                className="flex-1 py-1.5 rounded-lg text-[12px] font-medium text-white capitalize transition-colors"
+                className={`${TOGGLE_CLS} font-medium capitalize`}
                 style={{
                   background: side === s ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
                   border: side === s ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
@@ -166,20 +175,25 @@ export function CurveTradePanel({
                   ? "The token's decimals could not be read, so this is in raw base units."
                   : undefined
             }
+            error={amount.trim() !== '' && raw === null ? 'That is not an amount this token can hold.' : null}
           >
-            <input
-              className={`${inputCls} disabled:opacity-50`}
-              style={inputStyle}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.0"
-              inputMode="decimal"
-              spellCheck={false}
-              disabled={!!reasonCopy}
-              aria-label={side === 'buy' ? 'Amount of SOL to spend' : 'Amount of tokens to sell'}
-            />
+            {(a11y) => (
+              <input
+                className={`${inputCls} disabled:opacity-50`}
+                style={inputStyle}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.0"
+                inputMode="decimal"
+                spellCheck={false}
+                disabled={!!reasonCopy}
+                {...a11y}
+              />
+            )}
           </Field>
-          {amount.trim() !== '' && raw === null && <Notice tone="warn">That is not an amount this token can hold.</Notice>}
+          {side === 'sell' && signer && walletHolding !== undefined && (
+            <YourHolding holding={walletHolding} decimals={decimals} onPick={setAmount} disabled={!!reasonCopy} />
+          )}
 
           <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} disabled={!!reasonCopy} />
 
@@ -203,10 +217,7 @@ export function CurveTradePanel({
                   return f === null ? 'set a tolerance' : tok(f);
                 })()}
               />
-              <Row
-                label="Price impact"
-                value={`${(Number(api.priceImpactBps(c, 'buy', quote.lamportsToCurve, quote.tokensOut)) / 100).toFixed(2)}%`}
-              />
+              <ImpactRows bps={api.priceImpactBps(c, 'buy', quote.lamportsToCurve, quote.tokensOut)} />
             </div>
           )}
           {quote?.side === 'sell' && raw !== null && (
@@ -221,10 +232,7 @@ export function CurveTradePanel({
                   return f === null ? 'set a tolerance' : `${formatSol(f)} SOL`;
                 })()}
               />
-              <Row
-                label="Price impact"
-                value={`${(Number(api.priceImpactBps(c, 'sell', raw, quote.grossLamports)) / 100).toFixed(2)}%`}
-              />
+              <ImpactRows bps={api.priceImpactBps(c, 'sell', raw, quote.grossLamports)} />
             </div>
           )}
 
@@ -232,6 +240,7 @@ export function CurveTradePanel({
             <WalletNeeded state={signerState} />
           </div>
           <button
+            ref={reviewRef}
             type="button"
             className="btn-primary w-full py-2.5 text-[13px] mt-2 disabled:opacity-60"
             disabled={!canReview}

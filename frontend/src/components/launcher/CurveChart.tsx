@@ -297,8 +297,8 @@ export function CurveChart({ state, tokenDecimals, className }: CurveChartProps)
         against.
       </p>
       <p className="text-[11px] leading-relaxed mt-1" style={{ color: 'var(--color-text-muted)' }}>
-        This is the curve&rsquo;s shape, not its history. Spot price is a display ratio — any trade
-        moves it, and the price you get is the one the program quotes at signing time.
+        This is the curve&rsquo;s shape, not its history. The spot price is the price right now: any
+        trade moves it, and the price you get is the one the program quotes at signing time.
         {g.pastCeiling && ' This curve holds more than the amount needed, so the plot extends past the graduation line.'}
       </p>
     </Frame>

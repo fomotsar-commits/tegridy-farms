@@ -7,6 +7,11 @@ import type { PreparedTx, TxOutcome } from './ports';
  * The page-level half of "sent, not confirmed yet": a trade on this mint that this
  * browser sent and could not confirm survives a reload or a trip away from the page.
  *
+ * The note is written the moment the transaction is SENT (`sent`, called before the
+ * first byte leaves), not when the wait for it ends: a reload during that wait must
+ * not bring back an open trade form while the first trade can still land. It is
+ * cleared or kept by the final answer (`record`).
+ *
  * While any note stands, the page shows it instead of the trade forms, and checks it
  * against the chain (once on its own, then on "Check again"). A note goes away only
  * when the chain answers (confirmed, refused, or expired: past its blockhash window
@@ -22,7 +27,9 @@ export interface PendingTradesState {
   /** "I checked my wallet": drop every note for this mint. */
   dismiss(): void;
   /** Feed every settled transaction here (a panel's onSettled). */
-  record(outcome: TxOutcome, prepared: PreparedTx | null): void;
+  record(outcome: TxOutcome, prepared: PreparedTx | null, sentSignature?: string | null): void;
+  /** A trade is about to be sent (a panel's onSent): write its note now. */
+  sent(signature: string, prepared: PreparedTx): void;
 }
 
 export type CheckSignature = (signature: string, lastValidBlockHeight: number | null) => Promise<TxOutcome>;
@@ -91,10 +98,22 @@ export function usePendingTrades(
     setMessage(null);
   }, [mint]);
 
+  const sent = useCallback(
+    (signature: string, prepared: PreparedTx) => {
+      if (prepared.kind === 'create') return;
+      // Storage only: the panel that sent it keeps showing its own "sent" step. The
+      // note is what a reload, or a trip away and back, finds.
+      savePendingTrade(mint, { kind: prepared.kind, signature, lastValidBlockHeight: prepared.lastValidBlockHeight });
+    },
+    [mint],
+  );
+
   const record = useCallback(
-    (outcome: TxOutcome, prepared: PreparedTx | null) => {
+    (outcome: TxOutcome, prepared: PreparedTx | null, sentSignature?: string | null) => {
       if (!prepared || prepared.kind === 'create') return;
-      const sig = 'signature' in outcome ? outcome.signature : '';
+      // A `not-sent` after `sent` (turned away at the first send) has no signature of
+      // its own; the one it was sent with names the note to clear.
+      const sig = ('signature' in outcome && outcome.signature) || sentSignature || '';
       if (!sig) return;
       if (outcome.status === 'unknown') {
         savePendingTrade(mint, { kind: prepared.kind, signature: sig, lastValidBlockHeight: prepared.lastValidBlockHeight });
@@ -106,5 +125,5 @@ export function usePendingTrades(
     [mint],
   );
 
-  return { notes, checking, message, recheck: () => void recheck(), dismiss, record };
+  return { notes, checking, message, recheck: () => void recheck(), dismiss, record, sent };
 }

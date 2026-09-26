@@ -6,7 +6,7 @@
 // network's own status; expired needs the block height PAST the transaction's last
 // valid height AND no record in history; everything short of that is "unknown",
 // carrying the signature.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { base58 } from '@scure/base';
 import { Keypair, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { WSOL_MINT, cpPermissionPda, migrationAuthorityPda } from '../curve/program';
@@ -169,12 +169,79 @@ describe('after it is sent', () => {
     expect(o).toMatchObject({ status: 'confirmed', slot: 9 });
   });
 
-  it('landed and reverted: names the program and says only the fee was spent', async () => {
+  // UXR12/R6-3: the card around a refusal says what it cost (network AND priority
+  // fee). The message carries only the reason, so the cost is never said twice, and
+  // never as "only the network fee".
+  it('landed and reverted: names the program and gives the reason, without a fee sentence of its own', async () => {
     const { chain, p } = await preparedBuy();
     chain.getSignatureStatuses = async () => ({ value: [{ err: { InstructionError: [3, { Custom: 6007 }] }, confirmationStatus: 'confirmed', slot: 3 }] });
     chain.getTransaction = async () => ({ meta: { logMessages: [`Program ${LAUNCH.toBase58()} failed: custom program error: 0x1777`] } });
     const o = await submitPrepared(W(chain), walletSigner(), p, deps);
-    expect(o).toMatchObject({ status: 'reverted', program: 'launch', code: 6007, message: expect.stringMatching(/only the network fee/) });
+    expect(o).toMatchObject({ status: 'reverted', program: 'launch', code: 6007, message: expect.stringMatching(/price moved past your limit/) });
+    expect(o.status === 'reverted' && o.message).not.toMatch(/fee/i);
+  });
+
+  // FS-1: the page must be able to write its "may still land" note BEFORE anything
+  // leaves the browser, so a reload during the wait cannot hand back a fresh form.
+  it('tells the page the signature and blockhash window before the first send, and not at all when nothing is signed', async () => {
+    const { chain, p } = await preparedBuy();
+    const order: string[] = [];
+    let told: [string, number] | null = null;
+    chain.sendRawTransaction = async (raw: Uint8Array) => {
+      order.push(`send:${base58.encode(Transaction.from(raw).signature!)}`);
+      return 'x';
+    };
+    const o = await submitPrepared(W(chain), walletSigner(), p, {
+      ...deps,
+      onSent: (sig, lvbh) => {
+        told = [sig, lvbh];
+        order.push(`sent:${sig}`);
+      },
+    });
+    expect(o.status).toBe('confirmed');
+    expect(told).toEqual([o.status === 'confirmed' ? o.signature : '', p.lastValidBlockHeight]);
+    expect(order[0]).toBe(`sent:${told![0]}`);
+    expect(order[1]).toBe(`send:${told![0]}`);
+
+    const declined = vi.fn();
+    const { chain: c2, p: p2 } = await preparedBuy();
+    await submitPrepared(W(c2), { publicKey: ME, signTransaction: async () => { throw new Error('User rejected the request.'); } }, p2, { ...deps, onSent: declined });
+    expect(declined).not.toHaveBeenCalled();
+  });
+
+  it('a page note that cannot be written does not stop the send', async () => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), walletSigner(), p, { ...deps, onSent: () => { throw new Error('storage full'); } });
+    expect(o.status).toBe('confirmed');
+  });
+
+  // FS-2: past the height, "no record" is proof only from a server that has caught up
+  // to the finalized slot. A lagging server behind a load balancer has simply not
+  // seen the block yet; told "safe to try again", the person pays twice.
+  it('past the height, "no record" from servers BEHIND the finalized slot is UNKNOWN, never expired', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.getBlockHeight = async () => p.lastValidBlockHeight + 1;
+    chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT - 40 }, value: [null] });
+    const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+    expect(o.status).toBe('unknown');
+    neverFailed(o);
+    // A server that does not say where it is proves nothing either.
+    chain.getSignatureStatuses = async () => ({ value: [null] });
+    expect((await submitPrepared(W(chain), walletSigner(), p, deps)).status).toBe('unknown');
+    // Nor when the finalized slot itself cannot be read.
+    chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT + 40 }, value: [null] });
+    chain.getSlot = async () => {
+      throw new Error('down');
+    };
+    expect((await submitPrepared(W(chain), walletSigner(), p, deps)).status).toBe('unknown');
+  });
+
+  it('past the height, one lagging "no record" and one caught-up "no record" is still not proof', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.getBlockHeight = async () => p.lastValidBlockHeight + 1;
+    let n = 0;
+    chain.getSignatureStatuses = async () => ({ context: { slot: n++ % 2 ? FakeChain.FINALIZED_SLOT : FakeChain.FINALIZED_SLOT - 1 }, value: [null] });
+    expect((await submitPrepared(W(chain), walletSigner(), p, deps)).status).toBe('unknown');
   });
 
   it('keeps RE-SENDING the same bytes, and reports EXPIRED only past the last valid height with no record', async () => {
@@ -189,7 +256,7 @@ describe('after it is sent', () => {
     const history: boolean[] = [];
     chain.getSignatureStatuses = async (_s, o?: unknown) => {
       history.push(!!(o as { searchTransactionHistory?: boolean })?.searchTransactionHistory);
-      return { value: [null] };
+      return { context: { slot: FakeChain.FINALIZED_SLOT + 40 }, value: [null] };
     };
     const o = await submitPrepared(W(chain), walletSigner(), p, deps);
     expect(o.status).toBe('expired');
@@ -314,7 +381,7 @@ describe('recheckOutcome', () => {
     chain.getSignatureStatuses = async () => ({ value: [{ err: { InstructionError: [0, { Custom: 6005 }] }, confirmationStatus: 'confirmed' }] });
     chain.getTransaction = async () => ({ meta: { logMessages: [`Program ${LAUNCH.toBase58()} failed: custom program error: 0x1775`] } });
     expect(await recheckOutcome(W(chain), 'sig', { cfg: cfgLocal })).toMatchObject({ status: 'reverted', program: 'launch', code: 6005 });
-    chain.getSignatureStatuses = async () => ({ value: [null] });
+    chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT }, value: [null] });
     chain.getBlockHeight = async () => 2_000;
     expect((await recheckOutcome(W(chain), 'sig', { lastValidBlockHeight: 1_000 })).status).toBe('expired');
     const u = await recheckOutcome(W(chain), 'sig');
@@ -336,6 +403,21 @@ describe('recheckOutcome', () => {
     const u2 = await recheckOutcome(W(chain), 'sig', { lastValidBlockHeight: 1_000 });
     expect(u2.status).toBe('unknown');
     neverFailed(u2);
+  });
+
+  // FS-2: the page's "Check again" deletes its pending note on "expired", so the same
+  // proof applies there.
+  it('expired only from servers caught up to the finalized slot', async () => {
+    const chain = new FakeChain();
+    chain.getBlockHeight = async () => 2_000;
+    chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT - 1 }, value: [null] });
+    const lag = await recheckOutcome(W(chain), 'sig', { lastValidBlockHeight: 1_000 });
+    expect(lag.status).toBe('unknown');
+    neverFailed(lag);
+    chain.getSignatureStatuses = async () => ({ value: [null] });
+    expect((await recheckOutcome(W(chain), 'sig', { lastValidBlockHeight: 1_000 })).status).toBe('unknown');
+    chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT }, value: [null] });
+    expect((await recheckOutcome(W(chain), 'sig', { lastValidBlockHeight: 1_000 })).status).toBe('expired');
   });
 });
 

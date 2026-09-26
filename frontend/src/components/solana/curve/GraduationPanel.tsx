@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { PublicKey } from '@solana/web3.js';
 import {
   formatTokenAmount,
@@ -8,8 +9,8 @@ import {
 import { Card, Notice, Row } from './ui';
 import { TxFlowView } from './TxFlowView';
 import { WalletNeeded } from './WalletNeeded';
-import { useTxFlow } from './useTxFlow';
-import type { ActionAvailability, OpenGate, PreparedTx, TxOutcome, WriteApi, WriteRpc } from './ports';
+import { useReturnFocus, useTxFlow, type OnSent, type OnSettled } from './useTxFlow';
+import type { ActionAvailability, OpenGate, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
 
 const BLOCKED_COPY = {
@@ -34,7 +35,9 @@ export interface GraduationPanelProps {
   rentFloor: bigint | null;
   actions: ActionAvailability;
   signerState: CurveSignerState;
-  onSettled: (outcome: TxOutcome, prepared: PreparedTx | null) => void;
+  onSettled: OnSettled;
+  /** The transaction is about to be sent: the page writes its "may still land" note. */
+  onSent?: OnSent;
 }
 
 /**
@@ -56,8 +59,14 @@ export function GraduationPanel({
   actions,
   signerState,
   onSettled,
+  onSent,
 }: GraduationPanelProps) {
-  const flow = useTxFlow(api, rpc, onSettled);
+  const flow = useTxFlow(api, rpc, onSettled, onSent);
+  const { target: reviewRef, fallback: headingRef } = useReturnFocus(flow.state.step);
+  // What the running flow is FOR, fixed when its Review is pressed. A finished
+  // graduation turns the launch's phase to 'graduated' while its result is still on
+  // screen, so a title picked from the phase would call it "Platform reserve".
+  const [action, setAction] = useState<'migrate' | 'release'>('migrate');
   const phase = launch.phase.kind;
   if (phase !== 'awaiting-migration' && phase !== 'graduated') return null;
   const signer = signerState.kind === 'ready' ? signerState.signer : null;
@@ -65,7 +74,11 @@ export function GraduationPanel({
 
   if (flow.state.step !== 'idle') {
     return (
-      <Card title={phase === 'graduated' ? 'Platform reserve' : 'Finish graduation'} testId="graduation-panel">
+      <Card
+        title={action === 'release' ? 'Platform reserve' : 'Finish graduation'}
+        testId="graduation-panel"
+        headingRef={headingRef}
+      >
         <TxFlowView flow={flow} api={api} cluster={gate.cfg.cluster} decimals={decimals} signer={signer} />
       </Card>
     );
@@ -74,7 +87,7 @@ export function GraduationPanel({
   if (phase === 'awaiting-migration') {
     const e = migrationEligibility(gate.global, curve, rentFloor);
     return (
-      <Card title="Finish graduation" testId="graduation-panel">
+      <Card title="Finish graduation" testId="graduation-panel" headingRef={headingRef}>
         <p>
           This launch has raised everything it needs. Finishing graduation opens its pool with the curve&apos;s SOL and
           unsold tokens, and burns the pool&apos;s LP tokens so that liquidity can never be pulled.
@@ -82,23 +95,33 @@ export function GraduationPanel({
         {e.eligible === true && <Notice tone="good">Ready to finish now.</Notice>}
         {e.eligible === false && <Notice tone="warn">{BLOCKED_COPY[e.blockedBy]}</Notice>}
         {e.eligible === null && <Notice tone="warn">Could not check whether it is ready: {e.detail}.</Notice>}
-        <Row label="Pool program lets this launch program open pools" value={yesNo(gate.graduation.permission)} mono={false} />
-        <Row label="Pool creation fee account exists" value={yesNo(gate.graduation.createPoolFeeReceiver)} mono={false} />
         {(gate.graduation.permission === false || gate.graduation.createPoolFeeReceiver === false) && (
-          <Notice tone="warn">Graduation cannot succeed until the pool program side is set up. Not a problem with this launch.</Notice>
+          <Notice tone="warn">Graduation cannot succeed until the pool side is set up. Not a problem with this launch.</Notice>
         )}
+        <details className="text-white/60">
+          <summary className="cursor-pointer min-h-[44px] flex items-center">Technical details</summary>
+          <div className="space-y-1.5 pb-1">
+            <Row label="Pool program lets this launch program open pools" value={yesNo(gate.graduation.permission)} mono={false} />
+            <Row label="Pool creation fee account exists" value={yesNo(gate.graduation.createPoolFeeReceiver)} mono={false} />
+          </div>
+        </details>
         <WalletNeeded state={signerState} />
         <button
+          ref={reviewRef}
           type="button"
           className="btn-primary w-full py-2.5 text-[13px] disabled:opacity-60"
           disabled={!signer || !actions.migrate || flow.locked}
-          onClick={() => signer && void flow.prepare(() => api.prepareMigrate(rpc, gate, { payer: signer.publicKey, mint, curve }))}
+          onClick={() => {
+            if (!signer) return;
+            setAction('migrate');
+            void flow.prepare(() => api.prepareMigrate(rpc, gate, { payer: signer.publicKey, mint, curve }));
+          }}
         >
           Review: finish graduation
         </button>
         <p className="text-white/35 text-[10px]">
-          Anyone can do this. You pay the network fee. The account rent it needs is paid back to you in the same
-          transaction. The exact change to your SOL is shown before you sign.
+          Anyone can do this. You pay the transaction fees (the network fee and any priority fee). The account rent it
+          needs is paid back to you in the same transaction. The exact change to your SOL is shown before you sign.
         </p>
       </Card>
     );
@@ -106,12 +129,12 @@ export function GraduationPanel({
 
   const reserve = formatTokenAmount(c.platformReserveTokens, decimals);
   return (
-    <Card title="Graduated" testId="graduation-panel">
+    <Card title="Graduated" testId="graduation-panel" headingRef={headingRef}>
       <Row label="Pool" value={c.pool.toBase58()} />
       {c.platformReserveTokens === 0n ? (
         <Notice>This launch has no platform reserve.</Notice>
       ) : c.platformReserveReleased ? (
-        <Notice>The platform reserve has been released to the treasury.</Notice>
+        <Notice>The platform reserve has been released to the platform treasury.</Notice>
       ) : (
         <>
           <Row label={`Platform reserve still held${reserve.isBaseUnits ? ' (base units)' : ''}`} value={reserve.text} />
@@ -120,15 +143,21 @@ export function GraduationPanel({
           </p>
           <WalletNeeded state={signerState} />
           <button
+            ref={reviewRef}
             type="button"
             className="btn-primary w-full py-2.5 text-[13px] disabled:opacity-60"
             disabled={!signer || !actions.release || flow.locked}
-            onClick={() => signer && void flow.prepare(() => api.prepareRelease(rpc, gate, { payer: signer.publicKey, mint, curve }))}
+            onClick={() => {
+              if (!signer) return;
+              setAction('release');
+              void flow.prepare(() => api.prepareRelease(rpc, gate, { payer: signer.publicKey, mint, curve }));
+            }}
           >
             Review: release platform reserve
           </button>
           <p className="text-white/35 text-[10px]">
-            It pays you nothing. You pay the network fee and possibly the rent for the treasury&apos;s token account.
+            It pays you nothing. You pay the transaction fees (the network fee and any priority fee) and possibly the
+            rent for the treasury&apos;s token account.
           </p>
         </>
       )}

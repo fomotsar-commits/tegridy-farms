@@ -312,7 +312,7 @@ describe('phase rendering', () => {
     });
     expect(screen.getByText('98.83%')).toBeInTheDocument();
     expect(screen.queryByText('100.00%')).not.toBeInTheDocument();
-    expect(screen.getByText(/graduation target plus\s+the migration reserve/i)).toBeInTheDocument();
+    expect(screen.getByText(/Buying stops there:\s+the graduation target plus a small amount that pays for opening the pool/i)).toBeInTheDocument();
   });
 });
 
@@ -333,11 +333,11 @@ describe('pause', () => {
     expect(screen.getByText(/BUYS PAUSED · SELLS OPEN/)).toBeInTheDocument();
     // Buy side is blocked...
     expect(screen.getByText(/Buys are paused\. Selling is still open/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Amount of SOL to spend/i)).toBeDisabled();
+    expect(screen.getByLabelText('Spend (SOL)')).toBeDisabled();
 
     // ...but switching to sell must NOT be greyed out.
     fireEvent.click(screen.getByRole('button', { name: /^sell$/i }));
-    expect(screen.getByLabelText(/Amount of tokens to sell/i)).not.toBeDisabled();
+    expect(screen.getByLabelText('Sell (tokens)')).not.toBeDisabled();
   });
 });
 
@@ -354,7 +354,7 @@ describe('trade quote', () => {
 
   it('quotes a buy before anything is signed, with a minimum received', () => {
     renderView(deployedCurve());
-    fireEvent.change(screen.getByLabelText(/Amount of SOL to spend/i), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Spend (SOL)'), { target: { value: '1' } });
     expect(screen.getByText('You pay')).toBeInTheDocument();
     // 1 SOL at 1% → 0.01 SOL fee, and the tokens the program's own formula gives.
     expect(screen.getByText('0.01 SOL')).toBeInTheDocument();
@@ -365,11 +365,30 @@ describe('trade quote', () => {
     // `max_lamports_in` is a ceiling, not a spend — a UI that echoes it back is
     // wrong on the last buy of every launch.
     renderView(deployedCurve({ realSolReserves: 86n * SOL - 1n }));
-    fireEvent.change(screen.getByLabelText(/Amount of SOL to spend/i), { target: { value: '500' } });
+    fireEvent.change(screen.getByLabelText('Spend (SOL)'), { target: { value: '500' } });
     expect(screen.getByText(/Capped at the graduation line/i)).toBeInTheDocument();
     expect(screen.getByText(/remainder is never taken and never leaves your wallet/i)).toBeInTheDocument();
     // The entered 500 SOL must not be presented as the debit.
     expect(screen.queryByText('500 SOL')).not.toBeInTheDocument();
+  });
+
+  // UXR6: the read-only panel production shows kept 33px toggles, and its tolerance
+  // buttons sat inside a <label>, so a tap on the label text silently set 0.5%.
+  it('the read-only panel: 44px toggles, and a tap on the tolerance heading changes nothing', () => {
+    renderView(deployedCurve());
+    for (const name of [/^buy$/i, /^sell$/i, /^0\.50%$/, /^1%$/, /^3%$/]) {
+      expect(screen.getByRole('button', { name })).toHaveClass('min-h-[44px]');
+    }
+    const one = screen.getByRole('button', { name: /^1%$/ });
+    fireEvent.click(one);
+    expect(one).toHaveAttribute('aria-pressed', 'true');
+    const heading = screen.getByText('Slippage tolerance');
+    expect(heading.closest('label')).toBeNull();
+    fireEvent.click(heading);
+    expect(one).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^0\.50%$/ })).toHaveAttribute('aria-pressed', 'false');
+    // Its amount field is named by its visible label (WCAG 2.5.3).
+    expect(screen.getByRole('textbox', { name: 'Spend (SOL)' })).toBeInTheDocument();
   });
 
   it('refuses to quote a buy on a fully funded curve, and says which state it is in', () => {
@@ -382,13 +401,13 @@ describe('trade quote', () => {
     // program.
     renderView({ ...deployedCurve(), mint: { kind: 'unreadable', detail: 'mint read failed' } });
     fireEvent.click(screen.getByRole('button', { name: /^sell$/i }));
-    expect(screen.getByLabelText(/Amount of tokens to sell/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Sell (token base units)')).toBeInTheDocument();
     expect(screen.getByText(/decimals could not be read, so this is in raw base units/i)).toBeInTheDocument();
   });
 
   it('surfaces a rejected quote as the program\'s own reason', () => {
     renderView(deployedCurve({ realSolReserves: 1n, realTokenReserves: 1_000n }));
-    fireEvent.change(screen.getByLabelText(/Amount of SOL to spend/i), { target: { value: '50' } });
+    fireEvent.change(screen.getByLabelText('Spend (SOL)'), { target: { value: '50' } });
     expect(screen.getByText(/cannot fill a trade this size/i)).toBeInTheDocument();
   });
 });
@@ -469,9 +488,12 @@ describe('create checklist', () => {
 // ---------------------------------------------------------------------------
 
 describe('enumeration', () => {
-  it('says launches cannot be listed rather than showing an incomplete list as complete', () => {
+  // UXR6: the read-only view has no list, but launches CAN be listed (the write
+  // section's list does it), so the card must not claim listing is impossible.
+  it('the lookup card opens a launch by address, and does not claim launches cannot be listed', () => {
     renderView({ probe: DEPLOYED });
-    expect(screen.getByText(/cannot be listed/i)).toBeInTheDocument();
+    expect(screen.getByText(/Open a launch by its token address \(mint\)\. This view has no list of launches\./)).toBeInTheDocument();
+    expect(screen.queryByText(/cannot be listed/i)).not.toBeInTheDocument();
   });
 });
 
@@ -572,7 +594,7 @@ describe('platform reserve and fee split', () => {
     // The curve's snapshot, not the global's newer value.
     expect(screen.getByText('creator 48.00% · protocol 52.00% of the fee')).toBeInTheDocument();
     expect(screen.getByText('36,900')).toBeInTheDocument();
-    expect(screen.getByText(/Platform reserve: held by the program until the launch graduates/)).toBeInTheDocument();
+    expect(screen.getByText(/Platform reserve: held by the program; it goes to the platform treasury if this launch graduates/)).toBeInTheDocument();
   });
 
   it('tracks the reserve through graduation and release', () => {
@@ -592,7 +614,7 @@ describe('platform reserve and fee split', () => {
       }),
       mint: mintFacts(),
     });
-    expect(screen.getByText(/Platform reserve: released to the treasury/)).toBeInTheDocument();
+    expect(screen.getByText(/Platform reserve: released to the platform treasury/)).toBeInTheDocument();
   });
 
   it('does not say the curve sells everything but the reserve: unsold tokens go into the pool', () => {

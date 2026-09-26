@@ -6,14 +6,16 @@
 //   confirmed  the network reports it confirmed.
 //   reverted   the network reports it landed with an error AT 'confirmed' or
 //              'finalized'. We read its logs to say which program refused and why.
-//              Only the network fee was spent. An error seen only at 'processed'
+//              Only the fees were spent (the network fee AND the priority fee: a
+//              refused transaction pays both). An error seen only at 'processed'
 //              is in a block that can still be dropped, and the same signed bytes
 //              can then land and succeed, so it is NOT an ending: we keep watching.
 //   expired    the FINALIZED block height has passed the transaction's last valid
 //              height and the network has NO record of the signature (history
-//              searched, twice). A transaction past that height can never land,
-//              and every block it could have landed in is final, so trying again
-//              is safe, and we say so.
+//              searched, twice, each answer from a server that has caught up to the
+//              finalized slot read after that height). A transaction past that
+//              height can never land, and every block it could have landed in is
+//              final, so trying again is safe, and we say so.
 //   unknown    anything short of those proofs, e.g. we could not read the block
 //              height, or the watch hit its hard time limit. Said as "sent, not
 //              confirmed yet", with the signature, NEVER as "failed": someone told
@@ -24,7 +26,9 @@
 // chain choice. The signature is taken from the signed bytes BEFORE broadcast, so
 // every ending after signing carries it. The same signed bytes are re-sent every
 // couple of seconds until one of the endings above is proven. Same bytes, same
-// signature, so a re-send can never make it run twice.
+// signature, so a re-send can never make it run twice. Once the signature is known,
+// and before the first byte leaves, `deps.onSent` is told it, so the page can keep a
+// note that survives a reload while the transaction may still land.
 //
 // IF THE WALLET CHANGES THE TRANSACTION: we re-check what came back with the same
 // rules as before signing. A wallet may append its own assertion-only guard
@@ -48,8 +52,9 @@ const notSent = (stage: NotSent['stage'], message: string, logs?: string[]): Not
   ...(logs && logs.length ? { logs } : {}),
 });
 
-const UNKNOWN_COPY =
-  'Sent, not confirmed yet. It may still go through. Do not try again until you have checked it.';
+// The card around an unknown outcome already says "sent, not confirmed yet, do not
+// retry". The message says only what this watch saw, so nothing is read out twice.
+const UNKNOWN_COPY = 'The network did not confirm it while this page was watching.';
 const EXPIRED_COPY = 'This did not go through, and it can no longer go through. Nothing was charged. It is safe to try again.';
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -143,7 +148,9 @@ async function revertedOutcome(rpc: WriteRpc, p: PreparedTx, signature: string, 
     signature,
     program: why.program,
     code: why.code,
-    message: `${why.message} It reached the network and was refused, so only the network fee was spent.`,
+    // The card around this message says what it cost (the fees). Saying it here as
+    // well made a screen reader read the same sentence twice.
+    message: why.message,
   };
 }
 
@@ -164,23 +171,45 @@ async function finalizedHeight(rpc: WriteRpc): Promise<number | null> {
   }
 }
 
-/**
- * Past the last valid height: is there really no record? Two history reads, both
- * empty, before "nothing happened". A single read through a proxy can reach a
- * server that is behind the one that saw the block.
- */
-async function recordAfterExpiry(rpc: WriteRpc, signature: string): Promise<Status | 'unread'> {
-  const first = await readStatus(rpc, signature, true);
-  if (first !== null) return first;
-  return readStatus(rpc, signature, true);
+/** The FINALIZED slot, or null. Read AFTER the finalized height, so it is at or past that height's block. */
+async function finalizedSlot(rpc: WriteRpc): Promise<number | null> {
+  try {
+    const s = await rpc.getSlot('finalized');
+    return typeof s === 'number' && Number.isFinite(s) ? s : null;
+  } catch {
+    return null;
+  }
 }
 
-async function readStatus(rpc: WriteRpc, signature: string, history: boolean): Promise<Status | 'unread'> {
+/** One status answer, with the slot of the server that gave it (`null` = it did not say). */
+type StatusRead = { status: Status; slot: number | null } | 'unread';
+
+/**
+ * Past the last valid height: is there really no record? Two history reads, both
+ * empty, before "nothing happened". And an empty answer counts only from a server
+ * that has caught up to `minSlot`, the finalized slot read after the height: every
+ * block the transaction could have landed in is at or before it. A read through a
+ * proxy can reach a server that is behind the one that saw the block. Its "no
+ * record" proves nothing, so it is 'unread', never "nothing happened".
+ */
+async function recordAfterExpiry(rpc: WriteRpc, signature: string, minSlot: number | null): Promise<Status | 'unread'> {
+  let proven = true;
+  for (let i = 0; i < 2; i++) {
+    const r = await readStatus(rpc, signature, true);
+    // A record, from any server, is the answer.
+    if (r !== 'unread' && r.status !== null) return r.status;
+    if (r === 'unread' || minSlot === null || r.slot === null || r.slot < minSlot) proven = false;
+  }
+  return proven ? null : 'unread';
+}
+
+async function readStatus(rpc: WriteRpc, signature: string, history: boolean): Promise<StatusRead> {
   try {
     const r = await rpc.getSignatureStatuses([signature], { searchTransactionHistory: history });
     const v = r?.value;
     if (!Array.isArray(v)) return 'unread';
-    return (v[0] as Status) ?? null;
+    const slot = (r as { context?: { slot?: unknown } }).context?.slot;
+    return { status: (v[0] as Status) ?? null, slot: typeof slot === 'number' && Number.isFinite(slot) ? slot : null };
   } catch {
     return 'unread';
   }
@@ -260,6 +289,14 @@ export async function submitPrepared(
     return notSent('sign', `The signed transaction could not be put together (${clipDetail(e)}). Nothing was sent.`);
   }
 
+  // From here on the transaction may land even if this tab closes, so the page's
+  // note of it must exist before the first send.
+  try {
+    deps.onSent?.(signature, p.lastValidBlockHeight);
+  } catch {
+    /* a note that could not be written does not stop the send */
+  }
+
   // 5. First send WITH preflight: a rejection here provably never reached the network.
   try {
     await rpc.sendRawTransaction(raw, { skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 0 });
@@ -281,8 +318,9 @@ export async function submitPrepared(
   // 6. Watch, re-sending the same bytes, until a proven ending.
   const start = now();
   for (;;) {
-    const st = await readStatus(rpc, signature, false);
-    if (st !== 'unread' && st && settled(st)) {
+    const read = await readStatus(rpc, signature, false);
+    const st = read === 'unread' ? null : read.status;
+    if (st && settled(st)) {
       if (st.err) return revertedOutcome(rpc, p, signature, st.err);
       return { status: 'confirmed', signature, slot: typeof st.slot === 'number' ? st.slot : null };
     }
@@ -292,7 +330,7 @@ export async function submitPrepared(
     if (height !== null && height > p.lastValidBlockHeight) {
       // Past its last valid height, by the FINALIZED chain: it can never land, and
       // any block it did land in is final. Did it land before that?
-      const final = await recordAfterExpiry(rpc, signature);
+      const final = await recordAfterExpiry(rpc, signature, await finalizedSlot(rpc));
       if (final === 'unread') return { status: 'unknown', signature, message: UNKNOWN_COPY };
       if (final === null) return { status: 'expired', signature, message: EXPIRED_COPY };
       if (!settled(final)) return { status: 'unknown', signature, message: UNKNOWN_COPY };
@@ -330,8 +368,9 @@ export async function recheckOutcome(
   signature: string,
   opts: { lastValidBlockHeight?: number; cfg?: PreparedTx['check']['intent']['cfg'] } = {},
 ): Promise<TxOutcome> {
-  const st = await readStatus(rpc, signature, true);
-  if (st === 'unread') return { status: 'unknown', signature, message: 'Could not check right now. Try again in a moment.' };
+  const read = await readStatus(rpc, signature, true);
+  if (read === 'unread') return { status: 'unknown', signature, message: 'Could not check right now. Try again in a moment.' };
+  const st = read.status;
   if (st) {
     if (!settled(st)) {
       // Only 'processed': a failure there can still be undone, and so can a success.
@@ -353,7 +392,7 @@ export async function recheckOutcome(
         signature,
         program: why.program,
         code: why.code,
-        message: `${why.message} It reached the network and was refused, so only the network fee was spent.`,
+        message: why.message,
       };
     }
     return { status: 'confirmed', signature, slot: typeof st.slot === 'number' ? st.slot : null };
@@ -361,10 +400,14 @@ export async function recheckOutcome(
   if (opts.lastValidBlockHeight !== undefined) {
     const h = await finalizedHeight(rpc);
     if (h !== null && h > opts.lastValidBlockHeight) {
-      // Same proof as the watch: finalized past the window AND a second empty read.
-      const again = await readStatus(rpc, signature, true);
+      // Same proof as the watch: finalized past the window, then two empty history
+      // reads, each from a server caught up to the finalized slot.
+      const again = await recordAfterExpiry(rpc, signature, await finalizedSlot(rpc));
       if (again === null) return { status: 'expired', signature, message: EXPIRED_COPY };
       if (again !== 'unread' && settled(again)) return recheckOutcome(rpc, signature, { cfg: opts.cfg });
+      if (again !== 'unread') {
+        return { status: 'unknown', signature, message: 'The network has seen it but has not confirmed it yet.' };
+      }
     }
   }
   return { status: 'unknown', signature, message: 'The network has no record of it yet. It may still be landing.' };

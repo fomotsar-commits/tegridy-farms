@@ -1,4 +1,5 @@
 import type { Read } from '../../../lib/launcher/solana/curve';
+import { liveIpfsUrl } from '../../../lib/ipfsGateways';
 import type { MetadataApi, MetadataRead, TokenMetadata } from './ports';
 
 // Pure checks on what a launch says about itself. Shared by the list rows and the
@@ -41,9 +42,13 @@ export function identityWarnings(meta: MetadataApi, md: Read<TokenMetadata> | nu
   return out;
 }
 
-/** The picture, only from the two content-addressed hosts. Re-checked here even though the reader checks it. */
+/**
+ * The picture, only from a content address. Re-checked here even though the reader
+ * checks it. IPFS is shown from the first gateway in the site's list (never the one
+ * the file names); the <img> walks the rest on error (advanceIpfsImg).
+ */
 export function safeImageUrl(meta: MetadataApi, json: MetadataRead | null): string | null {
   if (json?.kind !== 'ok' || typeof json.json.image !== 'string') return null;
   const c = meta.checkContentUri(json.json.image);
-  return c.ok ? c.value : null;
+  return c.ok ? liveIpfsUrl(c.value) : null;
 }

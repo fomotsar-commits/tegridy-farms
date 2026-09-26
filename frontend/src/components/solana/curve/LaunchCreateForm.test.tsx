@@ -3,8 +3,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { LaunchCreateForm } from './LaunchCreateForm';
 import { CREATOR, SIG, SOL, fakeApi, openGate, prepared } from './fakeWriteApi.fixture';
-import { readPendingLaunch } from './pendingLaunch';
-import type { CreateLaunchInput, TxSummary, UploadInput, WriteApi, WriteRpc } from './ports';
+import { readPendingLaunch, savePendingLaunch } from './pendingLaunch';
+import type { CreateLaunchInput, TxOutcome, TxSummary, UploadInput, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
 
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
@@ -25,7 +25,11 @@ function MintPage() {
 }
 
 function renderForm(api: WriteApi = fakeApi(), signerState: CurveSignerState = ready) {
-  render(
+  return renderFormView(api, signerState).api;
+}
+
+function renderFormView(api: WriteApi = fakeApi(), signerState: CurveSignerState = ready) {
+  const view = render(
     <MemoryRouter initialEntries={['/curve-launch']}>
       <Routes>
         <Route
@@ -44,7 +48,7 @@ function renderForm(api: WriteApi = fakeApi(), signerState: CurveSignerState = r
       </Routes>
     </MemoryRouter>,
   );
-  return api;
+  return { api, view };
 }
 
 function createApi(over: Partial<WriteApi> = {}) {
@@ -81,10 +85,10 @@ function createApi(over: Partial<WriteApi> = {}) {
 }
 
 async function fillValid() {
-  fireEvent.change(screen.getByLabelText('Token name'), { target: { value: 'Farm Fresh' } });
-  fireEvent.change(screen.getByLabelText('Token symbol'), { target: { value: 'fresh' } });
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Farm Fresh' } });
+  fireEvent.change(screen.getByLabelText('Symbol'), { target: { value: 'fresh' } });
   const file = new File([new Uint8Array([1, 2, 3])], 'photo.jpg', { type: 'image/jpeg' });
-  const input = await screen.findByLabelText('Token picture');
+  const input = await screen.findByLabelText('Picture');
   await act(async () => {
     fireEvent.change(input, { target: { files: [file] } });
   });
@@ -102,8 +106,8 @@ afterEach(() => {
 describe('launch form: validation happens before anything is signed', () => {
   it('refuses a name with hidden direction characters and a reserved ticker, and cannot be reviewed', async () => {
     const api = renderForm(createApi());
-    fireEvent.change(screen.getByLabelText('Token name'), { target: { value: 'Safe‮token' } });
-    fireEvent.change(screen.getByLabelText('Token symbol'), { target: { value: 'SOL' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Safe‮token' } });
+    fireEvent.change(screen.getByLabelText('Symbol'), { target: { value: 'SOL' } });
     const form = screen.getByTestId('launch-create-form');
     expect(form.querySelectorAll('.text-rose-300\\/90').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole('button', { name: 'Review launch' })).toBeDisabled();
@@ -113,12 +117,35 @@ describe('launch form: validation happens before anything is signed', () => {
 
   it('turns to paste-a-link mode when uploads are not available', async () => {
     const api = createApi();
-    vi.mocked(api.meta.uploadsAvailable).mockResolvedValue(false);
+    vi.mocked(api.meta.uploadsAvailable).mockResolvedValue('no');
     renderForm(api);
-    expect(await screen.findByLabelText('Token details link')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Token picture')).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Token details link'), { target: { value: 'https://example.com/x.json' } });
+    expect(await screen.findByLabelText('Details link')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Picture')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Details link'), { target: { value: 'https://example.com/x.json' } });
     expect(screen.getByRole('button', { name: 'Review launch' })).toBeDisabled();
+  });
+
+  // F6: one slow or failed status check used to switch the form to paste mode for
+  // the whole visit and say uploads "are not available on this site yet".
+  it('a failed upload-status check is not "uploads are off": it offers to check again', async () => {
+    const api = createApi();
+    vi.mocked(api.meta.uploadsAvailable).mockResolvedValueOnce('unknown').mockResolvedValueOnce('yes');
+    renderForm(api);
+    expect(await screen.findByText(/could not reach the picture upload service/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Details link')).not.toBeInTheDocument();
+    expect(screen.queryByText(/not switched on|not available on this site/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByLabelText('Picture')).toBeInTheDocument();
+    expect(api.meta.uploadsAvailable).toHaveBeenCalledTimes(2);
+  });
+
+  it('paste mode is still there as a choice when the check fails, without claiming uploads are off', async () => {
+    const api = createApi();
+    vi.mocked(api.meta.uploadsAvailable).mockResolvedValue('unknown');
+    renderForm(api);
+    fireEvent.click(await screen.findByRole('button', { name: 'Paste a details link instead' }));
+    expect(screen.getByLabelText('Details link')).toBeInTheDocument();
+    expect(screen.queryByText(/not switched on/)).not.toBeInTheDocument();
   });
 
   it('a wallet that cannot sign messages cannot upload, and is offered paste mode', async () => {
@@ -139,12 +166,104 @@ describe('launch form: the terms it states match the program', () => {
     expect(form).not.toHaveTextContent(/whole supply/i);
   });
 
+  // F1: the reserve row said "released only after graduation" and named nobody.
+  it('the reserve row says who gets the reserve, and when', async () => {
+    renderForm(createApi());
+    await screen.findByTestId('launch-create-form');
+    expect(screen.getByText('Platform reserve').parentElement).toHaveTextContent(
+      '3.69% of supply, goes to the platform treasury only if the launch graduates',
+    );
+  });
+
   // F4: buy caps and migrate_to_amm require target + migration reserve (lib.rs), not the target alone.
   it('graduation needs the target plus the migration reserve (25 + 1 SOL in the fixture)', async () => {
     renderForm(createApi());
     await screen.findByTestId('launch-create-form');
     expect(screen.getByText('Graduates at').parentElement).toHaveTextContent('26 SOL raised');
     expect(screen.getByText('…of which migration reserve').parentElement).toHaveTextContent('1 SOL');
+  });
+});
+
+describe('launch form: it says what is wrong, and screen readers hear it', () => {
+  // UX8: "abc" or "0" as the opening buy silently turned Review off.
+  it('a bad opening-buy amount says what to enter', async () => {
+    renderForm(createApi());
+    await fillValid();
+    fireEvent.click(screen.getByRole('checkbox'));
+    const buy = screen.getByLabelText('Opening buy (SOL)');
+    for (const v of ['abc', '0', '1.2.3']) {
+      fireEvent.change(buy, { target: { value: v } });
+      expect(buy).toHaveAttribute('aria-invalid', 'true');
+      expect(buy).toHaveAccessibleDescription(/Enter an amount of SOL, like 0\.5\./);
+    }
+    expect(screen.getByRole('button', { name: 'Review launch' })).toBeDisabled();
+    fireEvent.change(buy, { target: { value: '0.5' } });
+    expect(buy).not.toHaveAttribute('aria-invalid');
+  });
+
+  // UX8: the picture requirement was never stated, and a disabled Review said nothing.
+  it('a disabled Review lists what is missing, the picture included, and says the picture is required', async () => {
+    renderForm(createApi());
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Farm Fresh' } });
+    fireEvent.change(screen.getByLabelText('Symbol'), { target: { value: 'FRESH' } });
+    const picture = await screen.findByLabelText('Picture');
+    expect(picture).toHaveAccessibleDescription(/Required\./);
+    const reviewBtn = screen.getByRole('button', { name: 'Review launch' });
+    expect(reviewBtn).toBeDisabled();
+    expect(reviewBtn).toHaveAccessibleDescription('Before you can review your launch: add a picture.');
+    await act(async () => {
+      fireEvent.change(picture, { target: { files: [new File([new Uint8Array([1])], 'p.png', { type: 'image/png' })] } });
+    });
+    expect(screen.getByRole('button', { name: 'Review launch' })).not.toBeDisabled();
+    expect(screen.queryByTestId('review-missing')).not.toBeInTheDocument();
+  });
+
+  // UXR9: every reason read after "add", so "add the picture upload check to finish".
+  it('the reasons Review is off read as whole instructions, whatever they are', async () => {
+    const api = createApi();
+    vi.mocked(api.meta.uploadsAvailable).mockReturnValue(new Promise(() => undefined)); // still checking
+    renderForm(api);
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Farm Fresh' } });
+    fireEvent.change(screen.getByLabelText('Symbol'), { target: { value: 'FRESH' } });
+    fireEvent.change(screen.getByLabelText('Description (optional)'), { target: { value: 'x'.repeat(2_000) } });
+    const why = screen.getByTestId('review-missing');
+    expect(why).toHaveTextContent(
+      'Before you can review your launch: wait for the picture upload check to finish; shorten the description.',
+    );
+    expect(why).not.toHaveTextContent(/add the picture upload|add a shorter/);
+    expect(screen.getByRole('button', { name: 'Review launch' })).toHaveAccessibleDescription(why.textContent!);
+  });
+
+  // UXR4 (WCAG 2.5.3): each field's spoken name is its visible label.
+  it('every field is named by its visible label', async () => {
+    renderForm(createApi());
+    for (const name of ['Name', 'Symbol', 'Description (optional)', 'Website link (optional)', 'X link (optional)', 'Telegram link (optional)']) {
+      expect(screen.getByRole('textbox', { name })).toBeInTheDocument();
+    }
+    expect(await screen.findByLabelText('Picture')).toHaveAccessibleName('Picture');
+  });
+
+  // UX10: a bad link printed the internal key ("twitter: ...") below all three inputs.
+  it('a bad link is named the way the form names it, under its own input', async () => {
+    renderForm(createApi());
+    await fillValid();
+    const x = screen.getByLabelText('X link (optional)');
+    fireEvent.change(x, { target: { value: 'javascript:alert(1)' } });
+    expect(x).toHaveAttribute('aria-invalid', 'true');
+    expect(x).toHaveAccessibleDescription(/^X link: /);
+    expect(screen.getByTestId('launch-create-form')).not.toHaveTextContent(/twitter:/);
+    expect(screen.getByLabelText('Website link (optional)')).not.toHaveAttribute('aria-invalid');
+  });
+
+  // F8/UX4: every input carries an aria-label, which hid the hint and the error.
+  it('hints and errors are read out with their field', async () => {
+    renderForm(createApi());
+    const nameInput = await screen.findByLabelText('Name');
+    // F13: "bytes" means nothing to a creator.
+    expect(nameInput).toHaveAccessibleDescription(/Up to 32 characters \(emoji and accented letters count as more than one\)\./);
+    fireEvent.change(nameInput, { target: { value: 'Safe\u202Etoken' } });
+    expect(nameInput).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Symbol')).toHaveAccessibleDescription(/letters A to Z or digits/);
   });
 });
 
@@ -189,7 +308,7 @@ describe('launch form: review and send', () => {
   // show "Copied details". The creator is told before signing.
   it('paste mode: a details file naming another token is flagged BEFORE the wallet opens', async () => {
     const api = createApi();
-    vi.mocked(api.meta.uploadsAvailable).mockResolvedValue(false);
+    vi.mocked(api.meta.uploadsAvailable).mockResolvedValue('no');
     vi.mocked(api.meta.readLaunchMetadataJson).mockResolvedValue({
       kind: 'ok',
       json: { name: 'Farm Fresh', symbol: 'FRESH', description: '', image: null, mint: CREATOR.toBase58() },
@@ -197,11 +316,11 @@ describe('launch form: review and send', () => {
       issues: [],
     });
     renderForm(api);
-    fireEvent.change(await screen.findByLabelText('Token details link'), {
+    fireEvent.change(await screen.findByLabelText('Details link'), {
       target: { value: 'https://ipfs.io/ipfs/bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy' },
     });
-    fireEvent.change(screen.getByLabelText('Token name'), { target: { value: 'Farm Fresh' } });
-    fireEvent.change(screen.getByLabelText('Token symbol'), { target: { value: 'FRESH' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Farm Fresh' } });
+    fireEvent.change(screen.getByLabelText('Symbol'), { target: { value: 'FRESH' } });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
     });
@@ -212,7 +331,7 @@ describe('launch form: review and send', () => {
     const api = renderForm(createApi());
     await fillValid();
     fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.change(screen.getByLabelText('Opening buy in SOL'), { target: { value: '0.1' } });
+    fireEvent.change(screen.getByLabelText('Opening buy (SOL)'), { target: { value: '0.1' } });
     expect(screen.getByText(/of supply\)/)).toBeInTheDocument();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
@@ -242,7 +361,7 @@ describe('launch form: review and send', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
     });
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
-    fireEvent.change(screen.getByLabelText('Token name'), { target: { value: 'Farm Fresher' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Farm Fresher' } });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
     });
@@ -277,6 +396,107 @@ describe('launch form: review and send', () => {
     const mint = vi.mocked(api.prepareCreateLaunch).mock.calls[0]![2].mint.publicKey.toBase58();
     await waitFor(() => expect(screen.getByText(`launch page ${mint}`)).toBeInTheDocument());
     expect(readPendingLaunch(mint)).toMatchObject({ signature: SIG, lastValidBlockHeight: 1234 });
+  });
+
+  // UXR11: the wallet opened for the upload request while the screen said only
+  // "Building the transaction", so the prompt came with no explanation.
+  it('while preparing, it says the wallet will ask to sign the upload request, and that it is not a transaction', async () => {
+    const api = createApi();
+    let finish: (v: Awaited<ReturnType<WriteApi['meta']['uploadLaunchMetadata']>>) => void = () => undefined;
+    vi.mocked(api.meta.uploadLaunchMetadata).mockImplementation(() => new Promise((r) => (finish = r)));
+    renderForm(api);
+    await fillValid();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
+    });
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent(/Approve the upload request in your wallet\. It is a message to sign, not a transaction/);
+    expect(document.activeElement).toBe(status);
+    await act(async () => finish({ ok: false, reason: 'x', notConfigured: false, retryable: false }));
+  });
+
+  // UXR3: Cancel left focus on the page body.
+  it('Cancel puts focus back on Review launch', async () => {
+    renderForm(createApi());
+    await fillValid();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
+    });
+    const cancel = await screen.findByRole('button', { name: 'Cancel' });
+    cancel.focus();
+    act(() => {
+      fireEvent.click(cancel);
+    });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Review launch' }));
+  });
+
+  // FS-1: during the wait for the network nothing was saved, and the mint key lived
+  // only in memory, so a reload gave a fresh form with a NEW mint: a second launch.
+  it('a launch still waiting for the network survives a reload: the note exists before the wait ends, and Review is held', async () => {
+    const api = createApi({
+      submitPrepared: vi.fn((_r, _s, _p, deps) => {
+        deps?.onSent?.(SIG, 1234);
+        return new Promise<TxOutcome>(() => undefined); // the network never answers here
+      }),
+      recheckOutcome: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'The network has no record of it yet.' })),
+    });
+    const first = renderFormView(api);
+    await fillValid();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign in wallet' }));
+    });
+    const mint = vi.mocked(api.prepareCreateLaunch).mock.calls[0]![2].mint.publicKey.toBase58();
+    expect(await screen.findByTestId('tx-sent')).toHaveTextContent(SIG);
+    // Written while the launch is still in the air.
+    expect(readPendingLaunch(mint)).toMatchObject({ signature: SIG, lastValidBlockHeight: 1234 });
+
+    first.view.unmount(); // the reload
+    renderForm(api);
+    const earlier = await screen.findByTestId('earlier-launch');
+    await waitFor(() => expect(earlier).toHaveTextContent(/may still be landing/));
+    expect(earlier).toHaveTextContent(mint);
+    expect(screen.getByRole('link', { name: /Open that launch/ })).toHaveAttribute('href', `/curve-launch/${mint}`);
+    await fillValid();
+    const reviewBtn = screen.getByRole('button', { name: 'Review launch' });
+    expect(reviewBtn).toBeDisabled();
+    expect(reviewBtn).toHaveAccessibleDescription(/check your earlier launch above/);
+    // A deliberate step, then a new launch can be reviewed.
+    fireEvent.click(screen.getByRole('button', { name: 'My earlier launch did not land: start a new one' }));
+    expect(screen.getByRole('button', { name: 'Review launch' })).not.toBeDisabled();
+  });
+
+  it('an earlier launch the network refused or let expire does not hold Review, and its note goes', async () => {
+    const other = '7'.repeat(88);
+    savePendingLaunch(CREATOR.toBase58(), other, 99);
+    const api = createApi({ recheckOutcome: vi.fn(async () => ({ status: 'expired' as const, signature: other, message: '' })) });
+    renderForm(api);
+    await waitFor(() => expect(api.recheckOutcome).toHaveBeenCalledWith(expect.anything(), other, { lastValidBlockHeight: 99 }));
+    await waitFor(() => expect(screen.queryByTestId('earlier-launch')).not.toBeInTheDocument());
+    expect(readPendingLaunch(CREATOR.toBase58())).toBeNull();
+    await fillValid();
+    expect(screen.getByRole('button', { name: 'Review launch' })).not.toBeDisabled();
+  });
+
+  it('a launch the network turned away at the first send clears the note written when it was sent', async () => {
+    const api = createApi({
+      submitPrepared: vi.fn(async (_r, _s, _p, deps) => {
+        deps?.onSent?.(SIG, 1234);
+        return { status: 'not-sent' as const, stage: 'send' as const, message: 'Blockhash not found.' };
+      }),
+    });
+    renderForm(api);
+    await fillValid();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign in wallet' }));
+    });
+    const mint = vi.mocked(api.prepareCreateLaunch).mock.calls[0]![2].mint.publicKey.toBase58();
+    expect(readPendingLaunch(mint)).toBeNull();
   });
 
   it('a transaction that expired stays on the form and says it is safe to try again', async () => {

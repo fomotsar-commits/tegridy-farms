@@ -1,7 +1,7 @@
 // Polyfill MUST load before any @solana/* import — keep this first.
 import '../../../lib/solanaPolyfill';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { Keypair } from '@solana/web3.js';
 import { formatSol, formatTokenAmount, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve';
 import { Card, Field, Notice, Row } from './ui';
@@ -9,15 +9,15 @@ import { DIVIDER, bpsPercent, feeSplitLabel, inputCls, inputStyle, sharePercent,
 import { TxFlowView } from './TxFlowView';
 import { BeforeYouTrade } from './BeforeYouTrade';
 import { WalletNeeded } from './WalletNeeded';
-import { savePendingLaunch } from './pendingLaunch';
-import { useTxFlow } from './useTxFlow';
+import { clearPendingLaunch, readPendingLaunches, savePendingLaunch, type PendingLaunch } from './pendingLaunch';
+import { useReturnFocus, useTxFlow, type OnSent, type OnSettled } from './useTxFlow';
+import { advanceIpfsImg, liveIpfsUrl } from '../../../lib/ipfsGateways';
 import type {
   ActionAvailability,
   LaunchLinks,
   OpenGate,
   PreparedImage,
   Prepared,
-  PreparedTx,
   TxOutcome,
   UploadResult,
   WriteApi,
@@ -30,7 +30,10 @@ const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
 /** An opening buy above this share of supply gets a plain warning. The program itself sets no limit. */
 const LARGE_OPENING_BUY_BPS = 500n;
 
-type Mode = 'checking' | 'upload' | 'paste';
+type Mode = 'checking' | 'upload' | 'paste' | 'unreachable';
+
+/** A launch this browser sent before (a reload, or a trip away), and what the chain says about it now. */
+type EarlierLaunch = PendingLaunch & { mint: string; state: 'checking' | 'unknown' | 'landed'; message?: string };
 
 const LINK_NAME = { website: 'Website', twitter: 'X', telegram: 'Telegram' } as const;
 
@@ -54,7 +57,15 @@ function PublicForever({ copy, display }: { copy: PublicCopy; display: (s: strin
       <p className="text-amber-200 font-semibold text-[11px]">Public forever</p>
       <div className="flex items-center gap-3">
         {copy.imageSrc ? (
-          <img src={copy.imageSrc} alt="Your token picture" width={56} height={56} className="rounded-lg object-cover" />
+          <img
+            src={copy.imageSrc}
+            alt="Your token picture"
+            width={56}
+            height={56}
+            referrerPolicy="no-referrer"
+            onError={(e) => advanceIpfsImg(e.currentTarget)}
+            className="rounded-lg object-cover"
+          />
         ) : (
           <span className="text-white/50">No picture could be shown.</span>
         )}
@@ -97,6 +108,9 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
   const [imageError, setImageError] = useState<string | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
   const [mode, setMode] = useState<Mode>('checking');
+  const [statusCheck, setStatusCheck] = useState(0);
+  // Set only when the upload service itself said it is switched off.
+  const [uploadsOff, setUploadsOff] = useState(false);
   const [pastedUri, setPastedUri] = useState('');
   const [buyOn, setBuyOn] = useState(false);
   const [buySol, setBuySol] = useState('');
@@ -104,17 +118,22 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
   const [jsonMismatch, setJsonMismatch] = useState(false);
   const [jsonOtherMint, setJsonOtherMint] = useState(false);
 
-  // Is the upload service there? Anything but a clear yes means paste mode.
+  // Is the upload service there? Only the server saying "off" means paste mode. A
+  // failed or slow check is not an answer, so it offers to check again.
   useEffect(() => {
     let live = true;
     meta
       .uploadsAvailable()
-      .then((ok) => live && setMode(ok ? 'upload' : 'paste'))
-      .catch(() => live && setMode('paste'));
+      .then((s) => {
+        if (!live) return;
+        setUploadsOff(s === 'no');
+        setMode(s === 'yes' ? 'upload' : s === 'no' ? 'paste' : 'unreachable');
+      })
+      .catch(() => live && setMode('unreachable'));
     return () => {
       live = false;
     };
-  }, [meta]);
+  }, [meta, statusCheck]);
 
   // The preview URL belongs to this component; release it when replaced or unmounted.
   useEffect(() => {
@@ -166,8 +185,8 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
     [meta],
   );
 
-  const onSettled = useCallback(
-    (outcome: TxOutcome, prepared: PreparedTx | null) => {
+  const onSettled = useCallback<OnSettled>(
+    (outcome, prepared, sentSignature) => {
       if (!prepared || prepared.summary.kind !== 'create') return;
       const mint = prepared.summary.mint.toBase58();
       // Confirmed, or sent and not yet confirmed: the launch page is where the chain
@@ -176,11 +195,75 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
       if (outcome.status === 'confirmed' || (outcome.status === 'unknown' && outcome.signature)) {
         savePendingLaunch(mint, outcome.signature, prepared.lastValidBlockHeight);
         navigate(`/curve-launch/${mint}`);
+      } else if (sentSignature) {
+        // Refused, expired, or turned away at the first send: this launch will never
+        // appear, so its note (written when it was sent) goes.
+        clearPendingLaunch(mint);
       }
     },
     [navigate],
   );
-  const flow = useTxFlow(api, rpc, onSettled);
+  // The note is written the moment the launch is SENT, before the wait for the
+  // network: a reload during that wait must not hand back a fresh form while the first
+  // launch can still land.
+  const onSent = useCallback<OnSent>((signature, prepared) => {
+    if (prepared.summary.kind !== 'create') return;
+    savePendingLaunch(prepared.summary.mint.toBase58(), signature, prepared.lastValidBlockHeight);
+  }, []);
+  const flow = useTxFlow(api, rpc, onSettled, onSent);
+  const { target: reviewRef, fallback: headingRef } = useReturnFocus(flow.state.step);
+  const [prepNote, setPrepNote] = useState<string | undefined>(undefined);
+
+  // Launches this browser sent that the chain has not answered for. Read whenever the
+  // form is (back) on screen, and checked against the chain: refused or expired ones
+  // are dropped, one that landed is shown as landed, and anything else holds Review
+  // until the creator says their earlier launch did not land.
+  const idle = flow.state.step === 'idle';
+  const [earlier, setEarlier] = useState<EarlierLaunch[]>(() =>
+    readPendingLaunches().map((p) => ({ ...p, state: 'checking' as const })),
+  );
+  const [earlierDismissed, setEarlierDismissed] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    if (!idle) return;
+    // The first list comes from the state initializer; later ones replace it when
+    // their check is in.
+    const notes = readPendingLaunches();
+    let live = true;
+    void Promise.all(
+      notes.map(async (n) => {
+        let o: TxOutcome | undefined;
+        try {
+          o = await api.recheckOutcome(
+            rpc,
+            n.signature,
+            n.lastValidBlockHeight === null ? undefined : { lastValidBlockHeight: n.lastValidBlockHeight },
+          );
+        } catch {
+          o = undefined;
+        }
+        return { n, o };
+      }),
+    ).then((checked) => {
+      if (!live) return;
+      const next: EarlierLaunch[] = [];
+      for (const { n, o } of checked) {
+        if (o?.status === 'reverted' || o?.status === 'expired') {
+          clearPendingLaunch(n.mint);
+          continue;
+        }
+        next.push({
+          ...n,
+          state: o?.status === 'confirmed' ? 'landed' : 'unknown',
+          message: o?.status === 'unknown' ? o.message : o ? undefined : 'Could not check it just now.',
+        });
+      }
+      setEarlier(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [idle, api, rpc]);
+  const earlierHolds = earlier.some((e) => e.state !== 'landed' && !earlierDismissed.has(e.signature));
 
   // The mint keypair lives in memory only. A reload or a wallet round trip loses it,
   // and then everything starts again with a new keypair and a new upload. The one
@@ -200,6 +283,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
     // In paste mode the description and links live in the pasted file, not the form.
     (mode === 'paste' || (descC.ok && linksC.ok)) &&
     !flow.locked &&
+    !earlierHolds &&
     (mode === 'upload' ? !!image && !!signMessage : mode === 'paste' ? !!uriC?.ok : false) &&
     (!buyOn || !!buyQuote?.ok);
 
@@ -216,6 +300,14 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
     setPublicCopy(null);
     setJsonMismatch(false);
     setJsonOtherMint(false);
+    // The wallet opens during this step for the upload request, and the screen must say why.
+    setPrepNote(
+      mode === 'upload' && !reuse
+        ? 'Approve the upload request in your wallet. It is a message to sign, not a transaction, and it costs nothing. Then your picture and details are uploaded, and the launch transaction is built and test-run…'
+        : mode === 'paste'
+          ? 'Loading your details link, then building the launch transaction and test-running it…'
+          : undefined,
+    );
 
     void flow.prepare(async (): Promise<Prepared> => {
       let uri: string;
@@ -241,7 +333,10 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
               });
         if (!up.ok) {
           uploadCache.current = null;
-          if (up.notConfigured) setMode('paste');
+          if (up.notConfigured) {
+            setUploadsOff(true);
+            setMode('paste');
+          }
           return {
             ok: false,
             outcome: {
@@ -287,7 +382,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
           name: nameC.value,
           symbol: symbolC.value,
           description: r.json.description ?? '',
-          imageSrc: img.ok ? img.value : null,
+          imageSrc: img.ok ? liveIpfsUrl(img.value) : null,
           links: pickLinks(r.json),
           mint: mintStr,
           creator: creator.toBase58(),
@@ -308,18 +403,37 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
     });
   };
 
-  const err = (c: { ok: boolean; reason?: string }, raw: string) =>
-    raw.trim() !== '' && !c.ok ? <span className="text-rose-300/90 text-[10px] block mt-1">{c.reason}</span> : null;
+  /** A field's error, once something was typed into it. */
+  const err = (c: { ok: boolean; reason?: string }, raw: string) => (raw.trim() !== '' && !c.ok ? (c.reason ?? null) : null);
+  const buyAmountBad = buyOn && buySol.trim() !== '' && (buyLamports === null || buyLamports === 0n);
+
+  // Why Review is off, in words, so a disabled button never leaves someone guessing.
+  // Each item is a whole instruction, so the sentence reads right whatever is missing.
+  const missing: string[] = [];
+  if (earlierHolds) missing.push('check your earlier launch above');
+  if (!nameC.ok) missing.push(name.trim() === '' ? 'enter a name' : 'fix the name');
+  if (!symbolC.ok) missing.push(symbol.trim() === '' ? 'enter a symbol' : 'fix the symbol');
+  if (mode === 'checking') missing.push('wait for the picture upload check to finish');
+  if (mode === 'unreachable') missing.push('reach the picture upload service (try again above) or paste a details link');
+  if (mode === 'upload' && !image) missing.push(imageBusy ? 'wait for the picture to finish preparing' : 'add a picture');
+  if (mode === 'upload' && signer && !signMessage) missing.push('use a wallet that can sign the upload request');
+  if (mode === 'paste' && !uriC?.ok) missing.push('add a details link');
+  if (mode !== 'paste' && !descC.ok) missing.push('shorten the description');
+  if (mode !== 'paste' && !linksC.ok) missing.push('fix the links');
+  if (buyOn && !buyQuote?.ok) missing.push('enter an opening buy that can be filled, or untick it');
+  if (!signer) missing.push('connect a wallet');
+  const missingId = useId();
 
   if (flow.state.step !== 'idle') {
     return (
-      <Card title="Launch a token" testId="launch-create-form">
+      <Card title="Launch a token" testId="launch-create-form" headingRef={headingRef}>
         <TxFlowView
           flow={flow}
           api={api}
           cluster={gate.cfg.cluster}
           decimals={6}
           signer={signer}
+          preparingText={prepNote}
           extraReview={
             <>
               {publicCopy && <PublicForever copy={publicCopy} display={meta.displaySafe} />}
@@ -341,6 +455,9 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
                 creatorShareBps={gate.global.creatorFeeShareBps}
                 poolFeePpm={gate.ammConfig.tradeFeeRate}
                 poolProtocolPpm={gate.ammConfig.protocolFeeRate}
+                poolFundPpm={gate.ammConfig.fundFeeRate}
+                // Graduation opens the pool with the creator fee switched on.
+                poolCreatorPpm={gate.ammConfig.creatorFeeRate}
                 reserve={
                   gate.global.platformReserveBps > 0n ? `${bpsPercent(gate.global.platformReserveBps)} of the supply` : null
                 }
@@ -354,42 +471,121 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
 
   const g = gate.global;
   return (
-    <Card title="Launch a token" testId="launch-create-form">
+    <Card title="Launch a token" testId="launch-create-form" headingRef={headingRef}>
       {!actions.create && (
         <Notice tone="warn">{gate.paused ? 'New launches are paused right now.' : 'Launching is not available right now.'}</Notice>
       )}
+      {earlier.length > 0 && (
+        <div
+          className="rounded-xl p-3 space-y-2"
+          style={{ border: '1px solid rgba(251,191,36,0.35)' }}
+          data-testid="earlier-launch"
+        >
+          {earlier.map((e) => (
+            <div key={e.signature} className="space-y-1">
+              <p role="status" className={e.state === 'landed' ? 'text-emerald-300/90' : 'text-amber-300/90'}>
+                {e.state === 'checking'
+                  ? 'Checking a launch you sent from this browser…'
+                  : e.state === 'landed'
+                    ? 'A launch you sent from this browser went through.'
+                    : 'A launch you sent from this browser may still be landing. Launching again now could make a second token, and you would pay for both.'}
+                {e.state === 'unknown' && e.message ? ` ${e.message}` : ''}
+              </p>
+              <Row label="Its token address (mint)" value={e.mint} />
+              <Link to={`/curve-launch/${e.mint}`} className="underline text-white/80 inline-flex items-center min-h-[44px]">
+                Open that launch&apos;s page
+              </Link>
+            </div>
+          ))}
+          {earlierHolds && (
+            <button
+              type="button"
+              className="btn-secondary w-full py-2 text-[12px] min-h-[44px]"
+              onClick={() => setEarlierDismissed(new Set(earlier.map((e) => e.signature)))}
+            >
+              My earlier launch did not land: start a new one
+            </button>
+          )}
+        </div>
+      )}
       <p>One transaction creates your token, its details and its bonding curve. {supplySentence(g.platformReserveBps)}</p>
 
-      <Field label="Name" hint={`Up to ${meta.LIMITS.nameBytes} bytes.`}>
-        <input className={inputCls} style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} aria-label="Token name" spellCheck={false} />
-        {err(nameC, name)}
+      <Field
+        label="Name"
+        hint={`Up to ${meta.LIMITS.nameBytes} characters (emoji and accented letters count as more than one).`}
+        error={err(nameC, name)}
+      >
+        {(a11y) => (
+          <input
+            className={inputCls}
+            style={inputStyle}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            spellCheck={false}
+            {...a11y}
+          />
+        )}
       </Field>
-      <Field label="Symbol" hint={`${meta.LIMITS.symbolMin} to ${meta.LIMITS.symbolMax} letters A to Z or digits.`}>
-        <input
-          className={`${inputCls} font-mono uppercase`}
-          style={inputStyle}
-          value={symbol}
-          onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-          aria-label="Token symbol"
-          spellCheck={false}
-          autoCapitalize="characters"
-        />
-        {err(symbolC, symbol)}
+      <Field
+        label="Symbol"
+        hint={`${meta.LIMITS.symbolMin} to ${meta.LIMITS.symbolMax} letters A to Z or digits.`}
+        error={err(symbolC, symbol)}
+      >
+        {(a11y) => (
+          <input
+            className={`${inputCls} font-mono uppercase`}
+            style={inputStyle}
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            spellCheck={false}
+            autoCapitalize="characters"
+            {...a11y}
+          />
+        )}
       </Field>
 
       {mode === 'checking' && <Notice>Checking the picture upload service…</Notice>}
+      {mode === 'unreachable' && (
+        <div className="space-y-1.5" data-testid="upload-unreachable">
+          <Notice tone="warn">We could not reach the picture upload service. This is often a brief network problem.</Notice>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-secondary px-4 py-2 text-[12px]"
+              onClick={() => {
+                setMode('checking');
+                setStatusCheck((n) => n + 1);
+              }}
+            >
+              Try again
+            </button>
+            <button type="button" className="underline text-white/70 min-h-[44px] px-1" onClick={() => setMode('paste')}>
+              Paste a details link instead
+            </button>
+          </div>
+        </div>
+      )}
       {mode === 'upload' && (
-        <Field label="Picture" hint="PNG, JPEG, WebP or GIF. Large photos are shrunk to fit 1 MB.">
-          <input
-            type="file"
-            accept={IMAGE_ACCEPT}
-            aria-label="Token picture"
-            className="block w-full text-white/70 text-[12px]"
-            onChange={(e) => void onPickImage(e.target.files?.[0] ?? null)}
-          />
-          {imageBusy && <span className="text-white/50 text-[10px] block mt-1">Preparing the picture…</span>}
-          {imageError && <span className="text-rose-300/90 text-[10px] block mt-1">{imageError}</span>}
-          {imageUrl && <img src={imageUrl} alt="Picture preview" width={72} height={72} className="rounded-lg object-cover mt-2" />}
+        <Field label="Picture" hint="Required. PNG, JPEG, WebP or GIF. Large photos are shrunk to fit 1 MB." error={imageError}>
+          {(a11y) => (
+            <>
+              <input
+                type="file"
+                accept={IMAGE_ACCEPT}
+                className="block w-full text-white/70 text-[12px]"
+                onChange={(e) => void onPickImage(e.target.files?.[0] ?? null)}
+                {...a11y}
+              />
+              {imageBusy && (
+                <span role="status" className="text-white/50 text-[10px] block mt-1">
+                  Preparing the picture…
+                </span>
+              )}
+              {imageUrl && (
+                <img src={imageUrl} alt="Picture preview" width={72} height={72} className="rounded-lg object-cover mt-2" />
+              )}
+            </>
+          )}
         </Field>
       )}
       {mode === 'upload' && signerState.kind === 'ready' && !signMessage && (
@@ -404,47 +600,61 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
       {mode === 'paste' && (
         <Field
           label="Details link"
-          hint="Picture uploads are not available on this site yet. Paste a link to your token's details file: https://ipfs.io/ipfs/… or https://arweave.net/…"
+          hint={`${uploadsOff ? 'Picture uploads are not switched on for this site yet. ' : ''}Paste a link to your token's details file: ipfs://…, a gateway link with /ipfs/ in it, or https://arweave.net/…`}
+          error={uriC ? err(uriC, pastedUri) : null}
         >
-          <input
-            className={inputCls}
-            style={inputStyle}
-            value={pastedUri}
-            onChange={(e) => setPastedUri(e.target.value)}
-            aria-label="Token details link"
-            spellCheck={false}
-          />
-          {uriC && err(uriC, pastedUri)}
+          {(a11y) => (
+            <input
+              className={inputCls}
+              style={inputStyle}
+              value={pastedUri}
+              onChange={(e) => setPastedUri(e.target.value)}
+              spellCheck={false}
+              {...a11y}
+            />
+          )}
         </Field>
       )}
 
       {mode !== 'paste' && (
         <>
-          <Field label="Description (optional)" hint={`Up to ${meta.LIMITS.descriptionChars} characters.`}>
-            <textarea
-              className={inputCls}
-              style={inputStyle}
-              rows={3}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              aria-label="Token description"
-            />
-            {err(descC, description)}
-          </Field>
-          {(['website', 'twitter', 'telegram'] as const).map((k) => (
-            <Field key={k} label={`${LINK_NAME[k]} link (optional)`}>
-              <input
+          <Field
+            label="Description (optional)"
+            hint={`Up to ${meta.LIMITS.descriptionChars} characters.`}
+            error={err(descC, description)}
+          >
+            {(a11y) => (
+              <textarea
                 className={inputCls}
                 style={inputStyle}
-                value={links[k] ?? ''}
-                onChange={(e) => setLinks((l) => ({ ...l, [k]: e.target.value }))}
-                aria-label={`${LINK_NAME[k]} link`}
-                spellCheck={false}
-                inputMode="url"
+                rows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                {...a11y}
               />
+            )}
+          </Field>
+          {(['website', 'twitter', 'telegram'] as const).map((k) => (
+            <Field
+              key={k}
+              label={`${LINK_NAME[k]} link (optional)`}
+              // The error sits under the link it is about, named the way the form names it.
+              error={!linksC.ok && linksC.field === k ? `${LINK_NAME[k]} link: ${linksC.reason}` : null}
+            >
+              {(a11y) => (
+                <input
+                  className={inputCls}
+                  style={inputStyle}
+                  value={links[k] ?? ''}
+                  onChange={(e) => setLinks((l) => ({ ...l, [k]: e.target.value }))}
+                  spellCheck={false}
+                  inputMode="url"
+                  {...a11y}
+                />
+              )}
             </Field>
           ))}
-          {!linksC.ok && <Notice tone="warn">{`${linksC.field}: ${linksC.reason}`}</Notice>}
+          {!linksC.ok && !(linksC.field in LINK_NAME) && <Notice tone="warn">{linksC.reason}</Notice>}
         </>
       )}
 
@@ -457,16 +667,22 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
           </span>
         </label>
         {buyOn && (
-          <Field label="Opening buy (SOL)" hint="The trade fee comes out of this amount. No price tolerance applies: nothing can trade before it.">
-            <input
-              className={inputCls}
-              style={inputStyle}
-              value={buySol}
-              onChange={(e) => setBuySol(e.target.value)}
-              inputMode="decimal"
-              placeholder="0.0"
-              aria-label="Opening buy in SOL"
-            />
+          <Field
+            label="Opening buy (SOL)"
+            hint="The trade fee comes out of this amount. No price tolerance applies: nothing can trade before it."
+            error={buyAmountBad ? 'Enter an amount of SOL, like 0.5.' : null}
+          >
+            {(a11y) => (
+              <input
+                className={inputCls}
+                style={inputStyle}
+                value={buySol}
+                onChange={(e) => setBuySol(e.target.value)}
+                inputMode="decimal"
+                placeholder="0.0"
+                {...a11y}
+              />
+            )}
           </Field>
         )}
         {buyQuote && !buyQuote.ok && <Notice tone="warn">That opening buy cannot be filled at the starting price.</Notice>}
@@ -501,13 +717,29 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
         />
         <Row
           label="Platform reserve"
-          value={g.platformReserveBps === 0n ? 'none' : `${bpsPercent(g.platformReserveBps)} of supply, released only after graduation`}
+          value={
+            g.platformReserveBps === 0n
+              ? 'none'
+              : `${bpsPercent(g.platformReserveBps)} of supply, goes to the platform treasury only if the launch graduates`
+          }
           mono={false}
         />
       </div>
 
       <WalletNeeded state={signerState} />
-      <button type="button" className="btn-primary w-full py-2.5 text-[13px] disabled:opacity-60" disabled={!ready} onClick={review}>
+      {!ready && !flow.locked && actions.create && missing.length > 0 && (
+        <p id={missingId} className="text-white/70 text-[11px]" data-testid="review-missing">
+          Before you can review your launch: {missing.join('; ')}.
+        </p>
+      )}
+      <button
+        ref={reviewRef}
+        type="button"
+        className="btn-primary w-full py-2.5 text-[13px] disabled:opacity-60"
+        disabled={!ready}
+        onClick={review}
+        aria-describedby={!ready && missing.length > 0 ? missingId : undefined}
+      >
         Review launch
       </button>
       <p className="text-white/35 text-[10px]">

@@ -26,6 +26,7 @@ import {
 import { BONDING_CURVE_SIZE, TOKEN_PROGRAM_ID, type GlobalConfig } from '../curve/program';
 import { associatedTokenAddress, buyIx, createLaunchIx } from '../curve/ix';
 import { curveSupply, quoteBuyOnCurve, type CurveTerms } from '../curve/math';
+import { clipDetail, readGlobal, type Read } from '../curve/read';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { launchIndexAddress } from './config';
 import { describeQuoteError } from './errors';
@@ -37,7 +38,7 @@ import {
   METADATA_SYMBOL_MAX_BYTES,
   METADATA_URI_MAX_BYTES,
 } from './metaplex';
-import { bodySteps, buildAndSimulate, notSent } from './prepare';
+import { bodySteps, buildAndSimulate, confirmedReads, notSent } from './prepare';
 import type { IntentStep, OpenGate, Prepared, TxSummary, WriteRpc } from './types';
 
 export {
@@ -144,6 +145,29 @@ export function createLaunchInstructions(
   return ixs;
 }
 
+export const LAUNCH_TERMS_CHANGED =
+  'The launch terms changed since this page loaded. Reload the page to see the new terms, then review again. Nothing was sent.';
+
+/**
+ * Every setting `create_launch` copies onto a new curve, plus where it graduates to.
+ * The page showed `shown`; the launch would get `now`.
+ */
+export function sameLaunchTerms(shown: GlobalConfig, now: GlobalConfig): boolean {
+  return (
+    shown.tradeFeeBps === now.tradeFeeBps &&
+    shown.creatorFeeShareBps === now.creatorFeeShareBps &&
+    shown.initialVirtualSol === now.initialVirtualSol &&
+    shown.initialVirtualToken === now.initialVirtualToken &&
+    shown.tokenTotalSupply === now.tokenTotalSupply &&
+    shown.graduationTargetLamports === now.graduationTargetLamports &&
+    shown.migrationReserveLamports === now.migrationReserveLamports &&
+    shown.platformReserveBps === now.platformReserveBps &&
+    shown.feeRecipient.equals(now.feeRecipient) &&
+    shown.cpSwapProgram.equals(now.cpSwapProgram) &&
+    shown.ammConfig.equals(now.ammConfig)
+  );
+}
+
 function findStep<K extends IntentStep['kind']>(steps: IntentStep[], kind: K): Extract<IntentStep, { kind: K }> | undefined {
   return steps.find((s) => s.kind === kind) as Extract<IntentStep, { kind: K }> | undefined;
 }
@@ -153,6 +177,21 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
   const creator = input.creator;
   const mint = input.mint.publicKey;
   if (mint.equals(creator)) return notSent('build', 'The new token address must be a fresh key.');
+
+  // `create_launch` copies the launch terms from the program's settings AS THEY ARE
+  // when it runs. The page showed `gate.global`, read when it loaded; the operator can
+  // change the settings since. Read them again, and refuse if what the creator saw is
+  // no longer what they would get.
+  const fresh = await readGlobal(confirmedReads(rpc), gate.cfg.programId).catch(
+    (e: unknown): Read<GlobalConfig> => ({ kind: 'unreadable', detail: clipDetail(e) }),
+  );
+  if (fresh.kind !== 'ok') {
+    return notSent('build', 'Could not read the launch terms from the network just now, so nothing was built. Try again.');
+  }
+  if (fresh.value.paused) return notSent('build', 'New launches are paused right now.');
+  if (!sameLaunchTerms(gate.global, fresh.value)) {
+    return notSent('build', LAUNCH_TERMS_CHANGED);
+  }
 
   let openingBuy: { maxLamportsIn: bigint; minTokensOut: bigint } | null = null;
   let openingQuote: Extract<ReturnType<typeof quoteOpeningBuy>, { ok: true }>['value'] | null = null;

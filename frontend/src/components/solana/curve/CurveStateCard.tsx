@@ -28,7 +28,7 @@ const PHASE_COPY: Record<LaunchPhase['kind'], { label: string; line: string }> =
   unreadable: { label: "Couldn't read", line: 'A read failed. This is not a statement about the launch.' },
   'protocol-not-initialized': {
     label: 'Protocol not initialised',
-    line: 'The program exists but its global config has never been created. Not a problem with this mint.',
+    line: 'The program exists but has not been set up yet. Not a problem with this token.',
   },
   'pre-launch': {
     label: 'No curve for this mint',
@@ -100,10 +100,10 @@ function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: numb
   const sold = formatTokenAmount(curve.realTokenReserves, decimals);
   const reserve = formatTokenAmount(curve.platformReserveTokens, decimals);
   const reserveStatus = curve.platformReserveReleased
-    ? 'released to the treasury'
+    ? 'released to the platform treasury'
     : curve.complete
       ? 'graduated, so anyone can now release it to the treasury'
-      : 'held by the program until the launch graduates';
+      : 'held by the program; it goes to the platform treasury if this launch graduates';
   const split = feeSplitLabel(curve.creatorFeeShareBps);
   // Spot is an exact numerator/denominator pair so nothing is rounded on the way
   // out. `spotPriceLabel` decides the UNIT, and refuses to assume 9 decimals.
@@ -171,8 +171,8 @@ function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: numb
               <div className="h-full bg-[var(--color-stan)]" style={{ width: `${Math.min(100, progress * 100)}%` }} />
             </div>
             <p className="text-white/40 text-[10px] mt-1">
-              {formatSol(curve.realSolReserves)} of {ceiling.ok ? formatSol(ceiling.value) : '—'} SOL. The denominator
-              is the graduation target plus the migration reserve — the line buys are actually capped at.
+              {formatSol(curve.realSolReserves)} of {ceiling.ok ? formatSol(ceiling.value) : '—'} SOL. Buying stops there:
+              the graduation target plus a small amount that pays for opening the pool.
             </p>
           </>
         )}
@@ -195,8 +195,8 @@ function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: numb
       )}
       <Row label="Spot price" value={spot === null ? '—' : `${spot.value} ${spot.unit}`} />
       <p className="text-white/35 text-[10px] leading-relaxed">
-        Spot is a display ratio off the curve&apos;s virtual + real reserves. Any real trade moves it, so it is not an
-        executable price. There is no market cap, volume or holder count here — none of them exist in program state.
+        This is the price right now. Any trade moves it, so the review shows what you actually get. There is no market
+        cap, volume or holder count here: the program does not record them.
       </p>
     </div>
   );
