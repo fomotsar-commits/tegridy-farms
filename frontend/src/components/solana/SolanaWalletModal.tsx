@@ -75,7 +75,11 @@ import { WalletConnectWalletAdapter, type WalletConnectPairing } from '../../lib
  *     dialog open. Back, Close, Escape, the backdrop and unmount all abandon
  *     the attempt, in any phase — "Starting WalletConnect…" included. A
  *     failure shows its reason above the list, and an attempt that ends
- *     connected closes the dialog.
+ *     connected closes the dialog. A click on the row while its own saved
+ *     session is still being restored is kept, not dropped: the dialog closes
+ *     if the restore connects, and goes on to the QR if it finds nothing.
+ *     Swapping between the list and the QR moves focus to the new view's
+ *     title, because the button that had it — the row, or Back — is gone.
  */
 
 const FADE_MS = 150;
@@ -115,11 +119,15 @@ function SolanaWalletModal() {
   );
   const pairing = useWalletConnectPairing(walletConnect);
   const pairingActive = pairing.phase === 'starting' || pairing.phase === 'scan';
+  // The WalletConnect row clicked while its own saved session was still being
+  // restored: connect once the restore is over, if it did not connect.
+  const connectAfterRestore = useRef(false);
 
   const hideModal = useCallback(() => {
     // Closing the dialog abandons a QR in progress (connect() rejects with
     // WalletWindowClosedError, which clears the saved choice) and clears a
     // failure notice that has now been seen.
+    connectAfterRestore.current = false;
     walletConnect?.cancelPairing();
     walletConnect?.dismissPairing();
     setFadeIn(false);
@@ -140,6 +148,25 @@ function SolanaWalletModal() {
       hideModal();
     }
   }, [connected, hideModal]);
+  useEffect(() => {
+    if (!connectAfterRestore.current || connecting) return;
+    connectAfterRestore.current = false;
+    if (!connected) {
+      connect().catch(() => {
+        /* surfaced by the provider's error handler */
+      });
+    }
+  }, [connecting, connected, connect]);
+
+  // The swap between the list and the QR unmounts the button that had focus
+  // (the row, or Back). Focus goes to the new view's title, which a screen
+  // reader then reads. getElementById: a useId id is not a valid selector.
+  const wasPairingActive = useRef(false);
+  useEffect(() => {
+    if (pairingActive === wasPairingActive.current) return;
+    wasPairingActive.current = pairingActive;
+    document.getElementById(titleId)?.focus();
+  }, [pairingActive, titleId]);
 
   const handleClose = useCallback(
     (event: MouseEvent) => {
@@ -166,6 +193,12 @@ function SolanaWalletModal() {
           connect().catch(() => {
             /* surfaced by the provider's error handler */
           });
+        } else if (keepOpen && connecting) {
+          // Its saved session is still being restored. Once that is over,
+          // the restore's connect closes the dialog (sawPairing), and a
+          // restore that found nothing goes on to the QR.
+          sawPairing.current = true;
+          connectAfterRestore.current = true;
         }
         if (!keepOpen) hideModal();
         return;
@@ -259,7 +292,7 @@ function SolanaWalletModal() {
             <WalletConnectQr pairing={pairing} titleId={titleId} onBack={() => walletConnect.cancelPairing()} />
           ) : ordered.length > 0 ? (
             <>
-              <h1 id={titleId} className="wallet-adapter-modal-title">
+              <h1 id={titleId} tabIndex={-1} className="wallet-adapter-modal-title">
                 Connect a wallet on Solana to continue
               </h1>
               {pairing.phase === 'failed' && (
@@ -339,7 +372,7 @@ function WalletConnectQr({
   }, [uri]);
   return (
     <>
-      <h1 id={titleId} className="wallet-adapter-modal-title">
+      <h1 id={titleId} tabIndex={-1} className="wallet-adapter-modal-title">
         {uri ? 'Scan with your phone’s wallet' : 'Starting WalletConnect…'}
       </h1>
       {uri && (

@@ -319,6 +319,66 @@ describe('while a saved WalletConnect session is still being restored', () => {
     await waitFor(() => expect(screen.getByTestId('pk')).toHaveTextContent(account));
   });
 
+  it('clicking the WalletConnect row with NO session to restore: the click is kept, and the QR follows', async () => {
+    await mountRestoring({ live: false });
+    fireEvent.click(within(await openList()).getByText('WalletConnect'));
+    await act(async () => {
+      release!(client);
+      await settle(50);
+    });
+    await settle();
+    expect(await screen.findByRole('img', { name: 'WalletConnect QR code' })).toBeInTheDocument();
+  });
+
+  it('clicking the WalletConnect row with a LIVE session: the restore connects it, and the dialog closes', async () => {
+    await mountRestoring({ live: true });
+    fireEvent.click(within(await openList()).getByText('WalletConnect'));
+    await act(async () => {
+      release!(client);
+      await settle(50);
+    });
+    await settle();
+    expect(screen.getByTestId('pk')).toHaveTextContent(account);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('a kept click is dropped by Close: a restore ending during the fade starts no QR', async () => {
+    await mountRestoring({ live: false });
+    const connect = vi.spyOn(client, 'connect');
+    fireEvent.click(within(await openList()).getByText('WalletConnect'));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
+    // Inside the 150 ms fade, while the dialog is still mounted.
+    await act(async () => {
+      release!(client);
+      await settle(20);
+    });
+    await settle();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(connect).not.toHaveBeenCalled();
+  });
+});
+
+describe('focus follows the dialog between the list and the QR', () => {
+  // The row that was clicked, and the Back button, are unmounted by the swap.
+  // Focus that was on them fell to <body>, and nothing said the view had
+  // changed. It now lands on the new view's title, which a screen reader
+  // reads out.
+  it('onto the QR view, and back onto the list, focus stays inside the dialog', async () => {
+    mount();
+    const row = within(await openList()).getByText('WalletConnect').closest('button')!;
+    row.focus();
+    fireEvent.click(row);
+    await screen.findByRole('img', { name: 'WalletConnect QR code' });
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).toHaveTextContent('Scan with your phone’s wallet');
+    const back = screen.getByRole('button', { name: 'Back to wallets' });
+    back.focus();
+    fireEvent.click(back);
+    await within(dialog).findByText('Trust Wallet');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).toHaveTextContent('Connect a wallet on Solana to continue');
+  });
 });
 
 describe('SolanaProviders and the project id', () => {
