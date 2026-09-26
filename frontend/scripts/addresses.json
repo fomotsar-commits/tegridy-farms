@@ -69,7 +69,7 @@
     {
       "id": "deploy-authority",
       "address": "Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7",
-      "role": "Program deploy authority for the own-venue mainnet deploy of 2026-08-08. Both programs it deployed were closed on 2026-08-13, so it currently authorises nothing; it is kept registered because it is still the key a restart would deploy from, and because losing it is how this registry started.",
+      "role": "Program deploy authority for the own-venue mainnet deploy of 2026-08-08. Both programs it deployed were closed on 2026-08-13, so it currently authorises nothing; it is kept registered because losing it is how this registry started. It is NOT the restart's deploy key (that is tegridy-launch-deployer, 2026-09-25), and it was cp-swap admin::ID in source until 2026-09-26; verify-program-constants forbids it in both restart binaries.",
       "custody": "single key, operator-held. No seed phrase — generated --no-bip39-passphrase --silent, so the keyfile IS the backup.",
       "status": "🔴 EMPTY. getAccountInfo returns value:null on mainnet-beta (checked twice, slot 438,844,123/4 — 2026-08-12). The account does not exist: 0 lamports. The previous text here said '3.53 SOL left. Keep it funded' and was stale; the text after that called the empty balance a graduation BLOCKER, which stopped being true on 2026-08-13 when both programs were closed — there is no initialize_global left to call and no cp-swap upgrade left to ship. What remains true: it deployed both programs 2026-08-08 (8.41 SOL of rent, not recovered to any address this registry knows), and NO SEED PHRASE EXISTS — the keyfile is the only backup. The `expect` block below used to say {wallet, funded:true} — asserting the exact opposite of this paragraph — and nothing caught it, because the chain read never ran in CI. It is now `absent`, which is both what is true and the useful tripwire: this is the key a restart deploys from, so the account going non-empty again should force a deliberate registry edit rather than pass silently.",
       "expect": {
@@ -117,6 +117,36 @@
       }
     },
     {
+      "id": "cp-swap-program-restart",
+      "address": "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT",
+      "role": "The restart's cp-swap fork program id (owner ruling 2026-09-25): the fork's committed non-devnet declare_id! and tegridy-launch's compile-time cp_swap::ID graduation venue since 2026-09-26. Replaces cp-swap-program (3ZvZXEBr…), which is spent. frontend mirrors: curve/program.ts REGISTERED_CP_SWAP_PROGRAM_ID and cpswap/program.ts REGISTERED_PROGRAM_ID — records, not defaults.",
+      "custody": "program keypair held by the operator outside the repo; it claims the address at first deploy and is inert afterwards. Initial upgrade authority = tegridy-launch-deployer; intended to move to squads-vault.",
+      "status": "REGISTERED, NOT DEPLOYED (2026-09-26) — read ABSENT on mainnet-beta 2026-09-26 (getMultipleAccounts, slot 450,617,744: value null). `expect: absent` is the same deliberate tripwire deploy-authority uses: the day this account appears, the daily registry-onchain job fails and forces this entry to be rewritten as DEPLOYED/FUNDED, with the ProgramData read, rather than drifting silently.",
+      "expect": {
+        "type": "absent"
+      }
+    },
+    {
+      "id": "tegridy-launch-program-restart",
+      "address": "64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2",
+      "role": "The restart's tegridy-launch program id (owner ruling 2026-09-25): the crate's single committed declare_id! since 2026-09-26. Replaces tegridy-launch-program (CpFnacr…), which is spent, and the throwaway tegridy-launch-placeholder-id. frontend mirror: curve/program.ts REGISTERED_PROGRAM_ID — a record, not the default any page reads.",
+      "custody": "program keypair held by the operator outside the repo; it claims the address at first deploy and is inert afterwards. Initial upgrade authority = tegridy-launch-deployer.",
+      "status": "REGISTERED, NOT DEPLOYED (2026-09-26) — read ABSENT on mainnet-beta 2026-09-26 (getMultipleAccounts, slot 450,617,744: value null). `expect: absent` is the same deliberate tripwire deploy-authority uses: the day this account appears, the daily registry-onchain job fails and forces this entry to be rewritten as DEPLOYED/FUNDED, with the ProgramData read, rather than drifting silently.",
+      "expect": {
+        "type": "absent"
+      }
+    },
+    {
+      "id": "tegridy-launch-deployer",
+      "address": "CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg",
+      "role": "tegridy-launch deployer::ID on the non-devnet arm since 2026-09-26 (owner ruling 2026-09-25): the ONLY key that can call initialize_global. Also pays for both restart deploys and is their initial upgrade authority. Replaces the System-program sentinel that arm held, and deploy-authority (Dcjink4…) as the key a restart deploys from.",
+      "custody": "single key, operator-held, outside the repo and outside cloud-synced folders",
+      "status": "REGISTERED, NOT FUNDED (2026-09-26) — read ABSENT on mainnet-beta 2026-09-26 (getMultipleAccounts, slot 450,617,744: value null). It must be funded before the deploy. `expect: absent` is the same deliberate tripwire deploy-authority uses: the day this account appears, the daily registry-onchain job fails and forces this entry to be rewritten as DEPLOYED/FUNDED, with the ProgramData read, rather than drifting silently.",
+      "expect": {
+        "type": "absent"
+      }
+    },
+    {
       "id": "tegridy-launch-global",
       "address": "7hrjMjYxoMKxrBvNkHYfyfJfFPxHi2ovXNLhownm1B6e",
       "role": "The tegridy-launch `global` singleton PDA, seeds [\"global\"]. Holds the parameters every FUTURE launch is created from: 1% trade fee, creator 48% / protocol 52%, 30 SOL virtual reserve, graduation target 11.621942308 SOL (the continuity target — it lists at 9999 bps of the final curve price), 0.25 SOL migration reserve. fee_recipient is squads-vault.",
@@ -139,7 +169,7 @@
     {
       "id": "squads-vault",
       "address": "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd",
-      "role": "Squads vault PDA, index 0. Held upgrade authority for both own-venue programs until they were closed on 2026-08-13, and is tegridy-launch's `global.fee_recipient` on a global PDA that is now stranded. It is NOT cp-swap's admin::ID and never was — see the correction below. Re-derive it from the multisig rather than trusting this literal; System-ownership alone proves nothing.",
+      "role": "Squads vault PDA, index 0. Held upgrade authority for both own-venue programs until they were closed on 2026-08-13, and is tegridy-launch's `global.fee_recipient` on a global PDA that is now stranded. It was NOT the admin::ID of any deployed cp-swap binary — see the correction below. Since 2026-09-26 it IS the committed non-devnet admin::ID and create_support_mint_associated_owner::ID of the restart source (owner ruling 2026-09-25), NOT yet deployed. Re-derive it from the multisig rather than trusting this literal; System-ownership alone proves nothing.",
       "custody": "PDA of the Squads multisig — no private key exists",
       "status": "live",
       "correction": "This entry used to read 'Squads vault PDA index 0 = cp-swap admin::ID and create_support_mint_associated_owner::ID'. Both halves were wrong, and it is the exact confusion that bricked graduation. (a) The cp-swap binary that WAS deployed baked the MULTISIG account EVGSnRZ… as admin::ID — a 495-byte Squads-program-owned account that can neither sign (v4 signs CPIs as the vault) nor be debited by the System Program, and `CreateAmmConfig` has `payer = owner`. create_amm_config was therefore uncallable and migrate_to_amm never got past AmmNotConfigured (6015). (b) The SOURCE fix (#281) repoints admin::ID at deploy-authority Dcjink4RG…, a plain system-owned wallet — still not this vault. (c) create_support_mint_associated_owner::ID is deliberately the multisig, left as-is because it is a pure OR-fallback. This correction is now history rather than a live hazard: both program ids were closed on 2026-08-13, `verify-program-constants.mjs --deployed` has no bytecode left to search, and the question it settled must be re-answered against whatever binary a restart actually deploys.",
@@ -150,7 +180,7 @@
     {
       "id": "system-program",
       "address": "11111111111111111111111111111111",
-      "role": "The System Program. Registered because it is also tegridy-launch's FAIL-CLOSED deployer::ID sentinel on the committed non-devnet arm (lib.rs:142) — a mainnet binary built without patching that constant can never be initialized, because nobody can sign for this address. Also pins the base58 decoder: 32 leading zero bytes is the one input that used to decode to 33 bytes and be rejected as a fabrication.",
+      "role": "The System Program. Registered because it WAS tegridy-launch's FAIL-CLOSED deployer::ID sentinel on the non-devnet arm until 2026-09-26 (now tegridy-launch-deployer) — a binary still carrying it can never be initialized, because nobody can sign for this address. Also pins the base58 decoder: 32 leading zero bytes is the one input that used to decode to 33 bytes and be rejected as a fabrication.",
       "custody": "native program, nobody",
       "status": "live (native)",
       "expect": {
@@ -168,9 +198,16 @@
       }
     },
     {
+      "id": "devnet-tegridy-launch-deployer",
+      "address": "EMQVYMPe2UffGAVNYK6ZveCFM2tHjc5DBiXGKYFE6DXA",
+      "role": "tegridy-launch deployer::ID on the `--features devnet` arm — a placeholder (CI patches its own wallet in). Registered so verify-program-constants can carry it as a FORBIDDEN key: in a mainnet binary it would mean a devnet build.",
+      "custody": "throwaway",
+      "status": "devnet only — must be absent from any mainnet binary"
+    },
+    {
       "id": "tegridy-launch-placeholder-id",
       "address": "8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8",
-      "role": "The throwaway in tegridy-launch's declare_id! (lib.rs:114) AND in deployer::ID's devnet arm (lib.rs:140). Still what trunk compiles against; the mainnet id CpFnacrAC… is patched in at build time per MAINNET_RUNBOOK §5b and never committed. One key, two constants — which is why a byte search of the binary can report it present but cannot say which of the two it came from.",
+      "role": "The throwaway tegridy-launch's declare_id! carried until 2026-09-26, when the committed id became tegridy-launch-program-restart. Corresponds to no key anybody holds. Still referenced by curve/program.ts PLACEHOLDER_PROGRAM_ID so the operator can name it if it is passed.",
       "custody": "throwaway — corresponds to no key anybody holds",
       "status": "must be absent from any mainnet binary",
       "expect": {
@@ -250,7 +287,7 @@
     {
       "id": "devnet-throwaway-program",
       "address": "BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL",
-      "role": "The placeholder in declare_id! on both cfg arms. declare_id! is NOT fail-closed — ship without replacing it and you deploy to an address someone else may hold.",
+      "role": "The placeholder in cp-swap's declare_id! on the `--features devnet` arm (the non-devnet arm is cp-swap-program-restart since 2026-09-26). declare_id! is NOT fail-closed — ship without replacing it and you deploy to an address someone else may hold.",
       "custody": "throwaway",
       "status": "must be replaced before any mainnet deploy",
       "expect": {

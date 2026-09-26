@@ -110,11 +110,40 @@ use crate::curve::{
 use crate::errors::LaunchError;
 use crate::state::*;
 
-// PLACEHOLDER program id — a throwaway keypair generated only so the crate has a
-// syntactically valid base58 id to compile against. It corresponds to no key
-// anybody holds, and it MUST be replaced with a dedicated keypair before any
-// deploy (devnet or mainnet), exactly as cp-swap's is. See MAINNET_RUNBOOK.md.
-declare_id!("8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8");
+// The MAINNET program id: a dedicated keypair generated for the restart and chosen
+// by owner ruling 2026-09-25 (REGISTERED, not yet deployed). The throwaway it
+// replaces (8YVjjc…) corresponded to no key anybody holds; the 2026-08 id CpFnacr…
+// is SPENT and can never hold a program again.
+//
+// ONE program-id macro, deliberately with NO cfg arms (unlike cp-swap's). Three CI
+// patchers — solana-ci.yml's launch-constraints and migration-rehearsal jobs, and
+// solana-deploy-artifact.yml — each rewrite it with a single regex and assert it
+// matched EXACTLY ONCE. A devnet build therefore also carries this id unless one of
+// those patchers pins another; every CI test build does.
+declare_id!("64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2");
+
+/// The cp-swap program every graduation must go to, pinned at COMPILE TIME.
+///
+/// `global.cp_swap_program` is runtime state that `global.authority` can set with
+/// no timelock and no second signature, and `migrate_to_amm` — permissionless —
+/// hands that program signer authority over the account holding a launch's ENTIRE
+/// raise. So a single stolen authority key could point every future graduation at a
+/// hostile program (docs/SOLANA_RESTART_PLAN_2026_08_23.md §5, "Recommended in step
+/// 0"). A non-devnet build now refuses, in both `initialize_global` and
+/// `update_global`, any value but this one. `migrate_to_amm` is untouched: it still
+/// matches the passed program against `global.cp_swap_program`, which can now only
+/// ever hold this id (or zero, which it already refuses).
+///
+/// Mainnet = cp-swap's own non-devnet program id (EKS4C6x…, owner ruling
+/// 2026-09-25). There is NO devnet arm: CI deploys cp-swap at a freshly generated
+/// id on every run, so a devnet build skips the check instead (see
+/// `check_cp_swap_program`). Declared ABOVE `mod deployer` on purpose —
+/// solana-deploy-artifact.yml patches the LAST key literal after that module, which
+/// must stay the deployer's mainnet arm.
+pub mod cp_swap {
+    use super::{pubkey, Pubkey};
+    pub const ID: Pubkey = pubkey!("EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT");
+}
 
 /// The only key permitted to call [`tegridy_launch::initialize_global`].
 ///
@@ -123,10 +152,9 @@ declare_id!("8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8");
 /// the protocol and receives every trade fee, permanently. Anyone watching the
 /// deploy could take it in the block after the program lands.
 ///
-/// Fail-closed by default, matching cp-swap's authority pattern: a non-devnet
-/// build embeds the System Program id, which no one can sign for, so a mainnet
-/// binary refuses to initialize until an operator sets a real key here. That is
-/// deliberate — a placeholder that *works* is how this hole gets shipped.
+/// The non-devnet arm is the MAINNET deployer CqcVva… (owner ruling 2026-09-25):
+/// the key that pays for both deploys and is their initial upgrade authority. Until
+/// then it was the System Program id, a fail-closed sentinel nobody can sign for.
 /// NOTE: `pubkey!`, NOT `declare_id!`. `declare_id!` emits a whole program-identity
 /// surface (`ID`, `id()`, `check_id()`), and a second one in the crate makes the
 /// program's address ambiguous — Anchor's IDL generator picked THIS key as the
@@ -139,7 +167,7 @@ pub mod deployer {
     // `anchor_lang::solana_program::pubkey` instead brings in the MODULE, not the
     // macro, and fails with "cannot find macro `pubkey` in this scope".
     use super::{pubkey, Pubkey};
-    // PLACEHOLDER, and deliberately NOT the program-id value above — see
+    // The devnet arm is a PLACEHOLDER, and deliberately NOT the program id — see
     // bayla-ladder's audit note (L-5, 2026-09-06), where the two were identical and
     // the initializer became uncallable. `launch-constraints` overwrites this with a
     // fresh CI wallet before every build, so the committed value is never the one
@@ -153,7 +181,24 @@ pub mod deployer {
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("EMQVYMPe2UffGAVNYK6ZveCFM2tHjc5DBiXGKYFE6DXA");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed)
+    pub const ID: Pubkey = pubkey!("CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg");
+}
+
+/// Refuse any cp-swap program but the compile-time pin (`cp_swap::ID`) on a
+/// non-devnet build. `allow_unset` lets `initialize_global` keep its documented
+/// normal case — both AMM addresses zero until the AmmConfig exists, set later by
+/// `update_global` — because `migrate_to_amm` already refuses a zero program.
+///
+/// Under `--features devnet` it checks nothing: CI deploys cp-swap at a fresh id per
+/// run, so no committed constant could match. The mainnet bytes are what the
+/// local-validator rehearsal exercises; the host tests below pin the constant.
+fn check_cp_swap_program(program: &Pubkey, allow_unset: bool) -> Result<()> {
+    if allow_unset && *program == Pubkey::default() {
+        return Ok(());
+    }
+    #[cfg(not(feature = "devnet"))]
+    require_keys_eq!(*program, cp_swap::ID, LaunchError::CpSwapProgramNotPinned);
+    Ok(())
 }
 
 /// Every economic sanity check a launch configuration must pass.
@@ -400,6 +445,8 @@ pub mod tegridy_launch {
             graduation_target_lamports,
             migration_reserve_lamports,
         )?;
+        // Zero, or the compile-time pin. Nothing else, ever — see `mod cp_swap`.
+        check_cp_swap_program(&cp_swap_program, true)?;
 
         let g = &mut ctx.accounts.global;
         g.authority = ctx.accounts.authority.key();
@@ -520,6 +567,8 @@ pub mod tegridy_launch {
         // `paused` is the intended kill switch — it blocks `migrate_to_amm` too.
         if let Some(p) = new_cp_swap_program {
             require!(p != Pubkey::default(), LaunchError::InvalidParameter);
+            // The authority can SET the venue, never CHOOSE it: only the pin passes.
+            check_cp_swap_program(&p, false)?;
             g.cp_swap_program = p;
         }
         if let Some(c) = new_amm_config {
@@ -2137,6 +2186,108 @@ mod layout_tests {
         assert_eq!(LaunchError::MigrationPermissionMissing as u32 + 6000, 6021);
         assert_eq!(LaunchError::PlatformReserveLocked as u32 + 6000, 6022);
         assert_eq!(LaunchError::PlatformReserveAlreadyReleased as u32 + 6000, 6023);
+        assert_eq!(LaunchError::CpSwapProgramNotPinned as u32 + 6000, 6024);
+    }
+
+    /// THE COMPILE-TIME VENUE PIN. Compared as base58 TEXT, not through the key macro,
+    /// because solana-deploy-artifact.yml patches the last key literal after
+    /// `mod deployer` — a literal in this module would become that target.
+    #[test]
+    fn the_cp_swap_pin_is_the_restart_id() {
+        assert_eq!(
+            crate::cp_swap::ID.to_string(),
+            "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT",
+            "cp_swap::ID moved — every mainnet graduation goes to this program"
+        );
+        // Neither spent id may come back, and the pin is not our own id or a signer.
+        for spent in [
+            "3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y",
+            "CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED",
+        ] {
+            assert_ne!(crate::cp_swap::ID.to_string(), spent);
+        }
+        assert_ne!(crate::cp_swap::ID, crate::ID);
+        assert_ne!(crate::cp_swap::ID, crate::deployer::ID);
+    }
+
+    /// The pin must be the id the cp-swap crate itself declares on its mainnet arm,
+    /// so the two programs cannot drift apart. The dependency is built without its
+    /// `devnet` feature (tegridy-launch's `devnet` does not forward it).
+    #[cfg(not(feature = "devnet"))]
+    #[test]
+    fn the_cp_swap_pin_matches_cp_swaps_own_program_id() {
+        assert_eq!(crate::cp_swap::ID, raydium_cp_swap::ID);
+    }
+
+    /// The mainnet identities of THIS program, as base58 text (same reason as above).
+    #[cfg(not(feature = "devnet"))]
+    #[test]
+    fn the_mainnet_identities_are_the_restart_ids() {
+        assert_eq!(crate::ID.to_string(), "64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2");
+        assert_eq!(
+            crate::deployer::ID.to_string(),
+            "CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg"
+        );
+        // Audit L-5: the initializer's signer must never be the program's own address.
+        assert_ne!(crate::deployer::ID, crate::ID);
+        assert_ne!(crate::deployer::ID, Pubkey::default());
+    }
+
+    fn error_number(r: Result<()>) -> Option<u32> {
+        match r {
+            Ok(()) => None,
+            Err(anchor_lang::error::Error::AnchorError(e)) => Some(e.error_code_number),
+            Err(other) => panic!("unexpected non-Anchor error: {other:?}"),
+        }
+    }
+
+    /// The check itself, in both feature configs. Positive control first: the pin
+    /// (and, at init only, zero) must PASS, or a rejection below proves nothing.
+    #[test]
+    fn the_cp_swap_check_accepts_only_the_pin() {
+        assert_eq!(error_number(check_cp_swap_program(&crate::cp_swap::ID, false)), None);
+        assert_eq!(error_number(check_cp_swap_program(&crate::cp_swap::ID, true)), None);
+        assert_eq!(error_number(check_cp_swap_program(&Pubkey::default(), true)), None);
+
+        let hostile = Pubkey::new_unique();
+        #[cfg(not(feature = "devnet"))]
+        {
+            assert_eq!(error_number(check_cp_swap_program(&hostile, false)), Some(6024));
+            assert_eq!(error_number(check_cp_swap_program(&hostile, true)), Some(6024));
+            // Zero is "unset" only at init; update_global rejects it before this
+            // check, and this check must not wave it through either.
+            assert_eq!(
+                error_number(check_cp_swap_program(&Pubkey::default(), false)),
+                Some(6024)
+            );
+        }
+        // A devnet build (CI's validator suites) deliberately checks nothing.
+        #[cfg(feature = "devnet")]
+        assert_eq!(error_number(check_cp_swap_program(&hostile, false)), None);
+    }
+
+    /// Both WRITERS of `global.cp_swap_program` call the check. The handlers need a
+    /// runtime to execute, and CI's validator suites run devnet builds where the check
+    /// is off, so this reads the source: deleting either call fails here, on the host,
+    /// before the mainnet-bytes rehearsal ever runs.
+    #[test]
+    fn both_writers_of_the_venue_call_the_check() {
+        let src = include_str!("lib.rs");
+        let body = |name: &str| {
+            let start = src.find(name).expect("handler not found");
+            let rest = &src[start + name.len()..];
+            let end = rest.find("\n    pub fn ").unwrap_or(rest.len());
+            &rest[..end]
+        };
+        let init = body("pub fn initialize_global(");
+        assert!(init.contains("check_cp_swap_program(&cp_swap_program, true)?;"));
+        assert!(init.find("check_cp_swap_program").unwrap() < init.find("g.cp_swap_program =").unwrap());
+        let update = body("pub fn update_global(");
+        assert!(update.contains("check_cp_swap_program(&p, false)?;"));
+        assert!(update.find("check_cp_swap_program").unwrap() < update.find("g.cp_swap_program = p").unwrap());
+        // ...and nothing else in the program (everything above the tests) writes it.
+        let program = &src[..src.find("\nmod layout_tests {").expect("tests module")];
+        assert_eq!(program.matches("cp_swap_program = ").count(), 2);
     }
 
     /// The reserve fields were APPENDED, so every older field keeps the byte offset

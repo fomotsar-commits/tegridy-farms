@@ -192,9 +192,12 @@ const L = {
 
 // ─── Program constants (verified against lib.rs / state.rs, not copied blind) ────
 
-// deployer::ID under `--features devnet` (lib.rs:126-127). A NON-devnet build embeds
-// the System Program sentinel instead (lib.rs:128-129), which nobody can sign for.
-const DEVNET_DEPLOYER_ID = '8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8';
+// deployer::ID, per cfg arm of `mod deployer` in lib.rs. The devnet arm is a
+// placeholder CI overwrites; the non-devnet arm is the restart's mainnet deployer
+// (owner ruling 2026-09-25), which replaced the System Program sentinel on 2026-09-26.
+// This used to name 8YVjjc… as the devnet arm, which it had stopped being.
+const DEVNET_DEPLOYER_ID = 'EMQVYMPe2UffGAVNYK6ZveCFM2tHjc5DBiXGKYFE6DXA';
+const MAINNET_DEPLOYER_ID = 'CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg';
 const SYSTEM_SENTINEL = '11111111111111111111111111111111';
 
 // Blockhash is fetched at 'finalized' for durability; the expiry window below is
@@ -339,10 +342,13 @@ function sol(lamports) {
 // `isPlaceholderProgramId` bug in curve/program.ts, and it reads as reassuring in
 // exactly the case where it is wrong.
 //
-// It is now also SPENT — see `SPENT_PROGRAM_IDS`. It stays the default so read-only
-// commands still describe the address the rail actually ran at, and so a write command
-// refuses by name instead of silently defaulting somewhere else.
-const DEFAULT_PROGRAM_ID = L.PROGRAM_ID.toBase58();
+// That address is now SPENT — see `SPENT_PROGRAM_IDS` — and on 2026-09-26 the default
+// moved to the restart id (`REGISTERED_PROGRAM_ID`, owner ruling 2026-09-25), which is
+// REGISTERED, NOT deployed. That is safe as a default for exactly the reason the spent
+// one was: every write command reads the deployment first and refuses when nothing is
+// there, and `status` says so. The frontend's own `PROGRAM_ID` stays the spent record
+// until the deploy is proven; this harness is the tool that performs it.
+const DEFAULT_PROGRAM_ID = L.REGISTERED_PROGRAM_ID.toBase58();
 const PLACEHOLDER_PROGRAM_ID = L.PLACEHOLDER_PROGRAM_ID.toBase58();
 
 /**
@@ -630,10 +636,10 @@ async function requireDeployed(connection, pid, what = 'this instruction') {
   if (status.program.kind !== 'deployed') {
     fail(
       `no program is deployed at ${pid}.\n` +
-        `  ${DEFAULT_PROGRAM_ID} is where the rail ran from 2026-08-08 until it was closed on\n` +
-        '  2026-08-13, and is spent — it is not the address to fall back to.\n' +
-        `  ${PLACEHOLDER_PROGRAM_ID} is the throwaway from lib.rs:114 and corresponds to no key\n` +
-        '  anybody holds. If you passed --program-id, check it; otherwise check the RPC cluster.',
+        `  ${DEFAULT_PROGRAM_ID} is the restart id (registered 2026-09-26) — if it is the one\n` +
+        '  you meant, it has not been deployed on this cluster yet.\n' +
+        `  ${PLACEHOLDER_PROGRAM_ID} is the old throwaway and corresponds to no key anybody\n` +
+        '  holds. If you passed --program-id, check it; otherwise check the RPC cluster.',
     );
   }
   return status;
@@ -648,7 +654,10 @@ const FEE_RATE_DENOMINATOR = 1_000_000n;
 const AMM_CONFIG_LEN = 236;
 
 function cpSwapProgramId(flags) {
-  return flags['cp-swap-program'] ? String(flags['cp-swap-program']).trim() : L.CP_SWAP_PROGRAM_ID.toBase58();
+  // Default: the restart's cp-swap id (registered 2026-09-26; no program there yet) — the
+  // one tegridy-launch's mainnet build pins as `cp_swap::ID`. Every caller reads the
+  // deployment before building anything, so an undeployed default refuses by itself.
+  return flags['cp-swap-program'] ? String(flags['cp-swap-program']).trim() : L.REGISTERED_CP_SWAP_PROGRAM_ID.toBase58();
 }
 
 /**
@@ -835,7 +844,7 @@ async function cmdStatus(flags) {
 
   console.log('[operator] tegridy-launch status');
   console.log(`  cluster      : ${redactRpcUrl(connection.rpcEndpoint)}`);
-  console.log(`  program id   : ${pid}${pid === PLACEHOLDER_PROGRAM_ID ? '  (PLACEHOLDER from lib.rs:101)' : ''}`);
+  console.log(`  program id   : ${pid}${pid === PLACEHOLDER_PROGRAM_ID ? '  (the OLD placeholder — no key exists for it)' : ''}`);
   console.log(`  global PDA   : ${globalAddress}`);
   printDeployment(status.program, pid);
   printGlobal(status.global, globalAddress, status.program.kind);
@@ -1128,9 +1137,10 @@ async function cmdInitGlobal(flags) {
     console.log('  ⚠️  This key does NOT appear in the deployed bytecode, so it is almost');
     console.log('      certainly not `deployer::ID`. `initialize_global` is gated on');
     console.log('      `address = deployer::ID` (lib.rs:1226); expect NotDeployAuthority (6012).');
-    console.log(`      A --features devnet build expects ${DEVNET_DEPLOYER_ID}; an unpatched`);
-    console.log(`      mainnet build embeds ${SYSTEM_SENTINEL} (the System Program`);
-    console.log('      sentinel), which NOBODY can sign for.');
+    console.log(`      A mainnet build of this tree expects ${MAINNET_DEPLOYER_ID};`);
+    console.log(`      a --features devnet build expects ${DEVNET_DEPLOYER_ID} unless CI patched it.`);
+    console.log(`      A build from before 2026-09-26 embeds ${SYSTEM_SENTINEL} (the System`);
+    console.log('      Program sentinel), which NOBODY can sign for.');
   } else if (bakedIn === true) {
     console.log('  deployer::ID        : ✅ this key is present in the deployed bytecode');
   } else {
@@ -1904,7 +1914,8 @@ CREATE-AMM-CONFIG FLAGS (cp-swap; every *_rate is out of 1,000,000, NOT basis po
   account the bytecode lived in. It answers again only for a new deploy.
 
 CREATE-PERMISSION FLAGS
-  --cp-swap-program <id>     the cp-swap program (the default is the SPENT 2026-08 id)
+  --cp-swap-program <id>     the cp-swap program (default: the restart id EKS4C6x…,
+                             registered 2026-09-26; no program there yet)
   --program-id <id>          the tegridy-launch program whose ["migauth"] is authorised
   Same signer rule as create-amm-config: admin::ID, System-owned, funded.
 
@@ -1918,7 +1929,8 @@ MIGRATE / RELEASE-RESERVE FLAGS
 
 ORDERING — the opposite of the obvious guess. NOTHING below is done: both 2026-08
 program ids are closed, so every step restarts at 0 on fresh ids.
-  0. fresh program keypairs + declare_id!
+  0. fresh program keypairs + declare_id!   in SOURCE since 2026-09-26 (tegridy-launch
+                                       64WBTe…, cp-swap EKS4C6x…) — no program there yet
   1. deploy under a real keypair
   2. init-global                       AMM addresses MAY be zero; no AmmConfig needed yet
   3. create-amm-config                 cp-swap admin creates the AmmConfig

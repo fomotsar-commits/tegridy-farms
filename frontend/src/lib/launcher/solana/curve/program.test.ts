@@ -7,6 +7,9 @@
 // as `dbcClient.test.ts`.
 import { describe, it, expect } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   ACCOUNT_DISCRIMINATOR,
   ALREADY_COMPLETE_CODE,
@@ -23,6 +26,8 @@ import {
   LAUNCH_ERROR_CODES,
   POST_REMOVAL_PROGRAM,
   PROGRAM_ID,
+  REGISTERED_CP_SWAP_PROGRAM_ID,
+  REGISTERED_PROGRAM_ID,
   cpAmmAuthorityPda,
   cpAmmConfigPda,
   cpLpMintPda,
@@ -42,6 +47,12 @@ import {
   poolStatePda,
   sortMints,
 } from './program';
+
+/** `solana/tegridy-amm/programs`, from `frontend/src/lib/launcher/solana/curve`. */
+const SOLANA_PROGRAMS = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..', '..', '..', '..', '..', '..', 'solana', 'tegridy-amm', 'programs',
+);
 
 const MINT = new PublicKey('So11111111111111111111111111111111111111112');
 
@@ -753,7 +764,7 @@ describe('decodeBondingCurve', () => {
 
 describe('error table', () => {
   it('numbers from 6000 in declaration order (errors.rs:5-48)', () => {
-    expect(Object.keys(LAUNCH_ERROR_CODES).length).toBe(24);
+    expect(Object.keys(LAUNCH_ERROR_CODES).length).toBe(25);
     expect(LAUNCH_ERROR_CODES[6000]).toBe('Overflow');
     expect(LAUNCH_ERROR_CODES[6019]).toBe('AwaitingMigration');
     // The two the program already had and this table was missing, then the two the
@@ -762,13 +773,15 @@ describe('error table', () => {
     expect(LAUNCH_ERROR_CODES[6021]).toBe('MigrationPermissionMissing');
     expect(LAUNCH_ERROR_CODES[6022]).toBe('PlatformReserveLocked');
     expect(LAUNCH_ERROR_CODES[6023]).toBe('PlatformReserveAlreadyReleased');
+    // The compile-time venue pin (2026-09-26). Appended, so nothing above moved.
+    expect(LAUNCH_ERROR_CODES[6024]).toBe('CpSwapProgramNotPinned');
     expect(launchErrorName(6004)).toBe('Paused');
     expect(launchErrorName(6011)).toBe('MintHasFreezeAuthority');
   });
 
   it('an error that is not ours resolves to null, never to a generic in-house message', () => {
     expect(launchErrorName(5999)).toBeNull();
-    expect(launchErrorName(6024)).toBeNull();
+    expect(launchErrorName(6025)).toBeNull();
     expect(launchErrorName(1)).toBeNull();
   });
 
@@ -802,6 +815,29 @@ describe('deployment honesty', () => {
 
   it('CP_SWAP_PROGRAM_ID is still the fork address, closed the same day', () => {
     expect(CP_SWAP_PROGRAM_ID.toBase58()).toBe('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
+  });
+
+  // The restart ids (owner ruling 2026-09-25) are CHOSEN, not deployed. The contract
+  // this block keeps: a shipped build never names an id that holds no program. So the
+  // new ids are declared and pinned here, and nothing defaults to them yet — flipping
+  // `PROGRAM_ID` is one edit, made together with the on-chain proof of the deploy.
+  it('the restart ids are declared, and are not yet the default of anything', () => {
+    expect(REGISTERED_PROGRAM_ID.toBase58()).toBe('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
+    expect(REGISTERED_CP_SWAP_PROGRAM_ID.toBase58()).toBe('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
+    expect(PROGRAM_ID.equals(REGISTERED_PROGRAM_ID)).toBe(false);
+    expect(CP_SWAP_PROGRAM_ID.equals(REGISTERED_CP_SWAP_PROGRAM_ID)).toBe(false);
+    expect(globalPda().equals(globalPda(REGISTERED_PROGRAM_ID))).toBe(false);
+    expect(isPlaceholderProgramId(REGISTERED_PROGRAM_ID)).toBe(false);
+  });
+
+  it('the restart ids are the ones the program source declares', () => {
+    const src = (p: string) => readFileSync(join(SOLANA_PROGRAMS, p), 'utf8');
+    const launch = [...src('tegridy-launch/src/lib.rs').matchAll(/declare_id!\("([1-9A-HJ-NP-Za-km-z]+)"\)/g)];
+    expect(launch.map((m) => m[1])).toEqual([REGISTERED_PROGRAM_ID.toBase58()]);
+    const pin = /pub mod cp_swap \{[\s\S]*?pubkey!\("([1-9A-HJ-NP-Za-km-z]+)"\)/.exec(src('tegridy-launch/src/lib.rs'));
+    expect(pin?.[1]).toBe(REGISTERED_CP_SWAP_PROGRAM_ID.toBase58());
+    const cp = /#\[cfg\(not\(feature = "devnet"\)\)\]\s*declare_id!\("([1-9A-HJ-NP-Za-km-z]+)"\)/.exec(src('cp-swap/src/lib.rs'));
+    expect(cp?.[1]).toBe(REGISTERED_CP_SWAP_PROGRAM_ID.toBase58());
   });
 
   it('the default pubkey is the System Program address', () => {

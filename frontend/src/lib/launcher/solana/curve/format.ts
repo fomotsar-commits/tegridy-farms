@@ -196,6 +196,8 @@ export const LAUNCH_ERROR_COPY: Record<LaunchErrorName, string> = {
     'The graduation venue has not granted this program permission to create pools yet. Not a problem with this launch.',
   PlatformReserveLocked: 'The platform reserve is released only after the launch graduates.',
   PlatformReserveAlreadyReleased: "This launch's platform reserve has already been released.",
+  CpSwapProgramNotPinned:
+    'Operator configuration: that cp-swap program is not the graduation venue compiled into this program.',
 };
 
 // ── what a phase permits ─────────────────────────────────────────────────────

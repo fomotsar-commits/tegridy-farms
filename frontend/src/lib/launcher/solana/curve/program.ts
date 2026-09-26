@@ -47,8 +47,34 @@ import { PublicKey } from '@solana/web3.js';
  */
 export const PROGRAM_ID = new PublicKey('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED');
 
-/** The pre-deploy throwaway. Kept so the predicate below has something to compare against. */
+/**
+ * The old throwaway the crate compiled against until 2026-09-26, when its
+ * `declare_id!` became `REGISTERED_PROGRAM_ID` below. It corresponds to no key anybody
+ * holds. Kept so the predicate below has something to compare against, and so an
+ * operator who still passes it is told what it is.
+ */
 export const PLACEHOLDER_PROGRAM_ID = new PublicKey('8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8');
+
+/**
+ * REGISTERED, NOT DEPLOYED (as of 2026-09-26). The restart's mainnet id for
+ * `tegridy-launch` — the program's committed `declare_id!` since that date, a fresh
+ * keypair chosen by owner ruling 2026-09-25. Read absent on mainnet the same day.
+ *
+ * Deliberately NOT the default of anything below. Every derivation, reader and page
+ * still defaults to `PROGRAM_ID`, so a shipped build never names an id that holds no
+ * program. Flip `PROGRAM_ID` to this value in the same change that records the deploy
+ * (ProgramData read on chain + registry entry moved to deployed) — not before.
+ * The operator harness is the exception: it targets this id by default, and every
+ * write it builds reads the deployment first and refuses if nothing is there.
+ */
+export const REGISTERED_PROGRAM_ID = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
+
+/**
+ * REGISTERED, NOT DEPLOYED (as of 2026-09-26). The restart's cp-swap fork id — the
+ * fork's committed non-devnet `declare_id!`, and `cp_swap::ID`, the graduation venue
+ * `tegridy-launch` now pins at compile time. Same gating as `REGISTERED_PROGRAM_ID`.
+ */
+export const REGISTERED_CP_SWAP_PROGRAM_ID = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
 
 /**
  * ⛔ SPENT. The cp-swap fork a launch was to graduate into, deployed 2026-08-08 and
@@ -60,7 +86,7 @@ export const PLACEHOLDER_PROGRAM_ID = new PublicKey('8YVjjc5ibXQRewh7xtUQMTVR9rr
 export const CP_SWAP_PROGRAM_ID = new PublicKey('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
 
 /**
- * True while an id is still the throwaway the crate was written against.
+ * True for the old throwaway (`PLACEHOLDER_PROGRAM_ID`).
  *
  * ⚠️ This compares against `PLACEHOLDER_PROGRAM_ID`, not `PROGRAM_ID`. It used to be
  * `id.equals(PROGRAM_ID)`, which was self-referential: called with its default
@@ -341,6 +367,7 @@ export const LAUNCH_ERROR_CODES = {
   6021: 'MigrationPermissionMissing',
   6022: 'PlatformReserveLocked',
   6023: 'PlatformReserveAlreadyReleased',
+  6024: 'CpSwapProgramNotPinned',
 } as const;
 
 export type LaunchErrorName = (typeof LAUNCH_ERROR_CODES)[keyof typeof LAUNCH_ERROR_CODES];

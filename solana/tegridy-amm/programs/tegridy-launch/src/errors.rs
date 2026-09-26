@@ -53,6 +53,8 @@ pub enum LaunchError {
     PlatformReserveLocked,
     #[msg("The platform reserve for this launch was already released")]
     PlatformReserveAlreadyReleased,
+    #[msg("cp-swap program is not the one compiled into this build; the graduation venue cannot be repointed")]
+    CpSwapProgramNotPinned,
 }
 
 /// Lift a pure-curve error into the program's error space.
