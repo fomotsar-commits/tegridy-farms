@@ -51,7 +51,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
   const namesLadder = membersOnly || (bungalow.chain === 'solana' && !bungalow.stakePool && Boolean(bungalow.ladderPool));
   const liveName = namesLadder ? 'The lock ladder' : 'The lighthouse pool';
   usePageTitle(
-    `Farm — ${bungalow.symbol}`,
+    `Farm: ${bungalow.symbol}`,
     poolIsLive
       ? `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain}. ${liveName} is live at Jungle Bay Island.`
       : `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain} — arriving at Jungle Bay Island.`,

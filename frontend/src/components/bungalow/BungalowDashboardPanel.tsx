@@ -66,7 +66,7 @@ import { BungalowHolders } from './BungalowHolders';
  * owns that conversation, and it prints the empty vault beside every rate.
  */
 export function BungalowDashboardPanel({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity } }) {
-  usePageTitle(`Dashboard — ${bungalow.symbol}`, `Your ${bungalow.symbol} standing on Jungle Bay Island.`);
+  usePageTitle(`Dashboard: ${bungalow.symbol}`, `Your ${bungalow.symbol} standing on Jungle Bay Island.`);
   return (
     <SolanaProviders>
       <Inner bungalow={bungalow} />

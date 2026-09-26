@@ -43,7 +43,7 @@ import {
  */
 export default function PoolsPage() {
   usePageTitle(
-    'Liquidity pools — Solana',
+    'Solana liquidity pools',
     'Provide liquidity on the venue’s own Solana AMM: what it charges, what LPs keep, and its live deployment status.',
   );
   useEffect(() => { trackPageView('pools'); }, []);

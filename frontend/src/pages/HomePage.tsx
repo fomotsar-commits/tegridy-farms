@@ -139,7 +139,7 @@ export default function HomePage() {
   // TOWELI staking really is Ethereum-only (do not let that rot into "multichain
   // staking"), and the Solana swap really is live and routed through Jupiter.
   usePageTitle(
-    bungalowIdentity ? `${bungalowIdentity.symbol} — ${bungalowIdentity.identity.heroLine}` : 'Home',
+    bungalowIdentity ? `${bungalowIdentity.symbol}. ${bungalowIdentity.identity.heroLine}` : 'Home',
     bungalowIdentity
       ? `${bungalowIdentity.name} bungalow on Jungle Bay Island. ${bungalowIdentity.identity.museLine} ${bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}`
       : isToweliArrival
