@@ -226,12 +226,11 @@ export interface SellQuote {
 }
 
 /**
- * Quote a sell: tokens in, lamports out. `quote_sell`, curve.rs:164-204.
+ * Quote a sell: tokens in, lamports out. `quote_sell`, curve.rs:231-282.
  *
- * Note the check order differs from {@link quoteBuy}: here the fee is charged
- * AFTER the liquidity checks, so an over-large sell on a curve with an illegal
- * fee reports `InsufficientLiquidity`, not `FeeTooHigh`. That asymmetry is real
- * and the fixture pins it.
+ * The fee is charged AFTER the liquidity checks, unlike {@link quoteBuy}, so an
+ * over-large sell on a curve with an illegal fee reports `InsufficientLiquidity`,
+ * not `FeeTooHigh`. The fixture pins that order.
  */
 export function quoteSell(
   solReserves: bigint,
@@ -255,12 +254,12 @@ export function quoteSell(
 
   const fee = feeUp(gross.value, feeBps);
   if (!fee.ok) return err(fee.error);
+  const lamportsOut = gross.value - fee.value;
+  // A sell the fee eats whole would pay nothing and still take the tokens. The
+  // program refuses it, as quoteBuy refuses its mirror (curve.rs:273-275).
+  if (lamportsOut === 0n) return err('ZeroAmount');
 
-  return ok({
-    grossLamports: gross.value,
-    feeLamports: fee.value,
-    lamportsOut: gross.value - fee.value,
-  });
+  return ok({ grossLamports: gross.value, feeLamports: fee.value, lamportsOut });
 }
 
 /**
