@@ -63,7 +63,10 @@ test.describe('the venue opens straight to the page (ruling 1)', () => {
     test(`a cold ${path} mounts no arrival overlay and never paints "Skip intro"`, async ({ page }) => {
       await armArrivalClock(page);
       await page.goto(path);
-      await expect(page.locator('h1').first()).toBeAttached({ timeout: 20_000 });
+      // The watch starts once the app is on screen: a door's static heading and its
+      // busy fallback are both there before any overlay could mount.
+      await expect(page.locator('main#main-content h1').first()).toBeAttached({ timeout: 20_000 });
+      await expect(page.locator('main#main-content [aria-busy="true"]')).toHaveCount(0, { timeout: 20_000 });
       await page.waitForTimeout(WATCH_MS);
       const clock = await readClock(page);
       expect(clock.added, `an arrival overlay mounted on ${path}`).toBeUndefined();

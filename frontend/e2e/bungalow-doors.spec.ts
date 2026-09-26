@@ -1,9 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { BUNGALOWS } from '../src/lib/bungalows';
+import { gotoRoute } from './fixtures/routes';
 
 // Bungalow doors (memetics.finance/<bungalow>). No wallet fixture: it pins the skin to
 // toweli, and these tests are about the door choosing it. A door switches the skin in
-// place on its first render.
+// place on its first render. gotoRoute, not goto: a door's busy fallback already shows
+// its heading, so "the page has arrived" is no busy node left in main.
 
 async function seedOverlays(page: Page) {
   await page.addInitScript(() => {
@@ -18,7 +20,7 @@ async function seedOverlays(page: Page) {
 test.describe('bungalow doors', () => {
   test('/bayla enters her bungalow and keeps the address', async ({ page }) => {
     await seedOverlays(page);
-    await page.goto('/bayla');
+    await gotoRoute(page, '/bayla');
     // The door switches the skin in place; her hero is the proof.
     await expect(page.locator('h1').first()).toContainText('BAYLA', { timeout: 20_000 });
     expect(new URL(page.url()).pathname).toBe('/bayla');
@@ -64,7 +66,7 @@ test.describe('bungalow doors', () => {
         localStorage.setItem('tegridy-onboarding-drb-seen', '1');
       } catch { /* ignore */ }
     });
-    await page.goto('/drb');
+    await gotoRoute(page, '/drb');
     // The door switches the skin in place, same mechanic as /bayla.
     await expect(page.locator('h1').first()).toContainText('DRB', { timeout: 20_000 });
     await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(0);
@@ -94,7 +96,7 @@ test.describe('bungalow doors', () => {
         }
       } catch { /* ignore */ }
     });
-    await page.goto('/pepe');
+    await gotoRoute(page, '/pepe');
     await expect(page.locator('h1').first()).toContainText('PEPE', { timeout: 20_000 });
     await expect(page.locator('text=Welcome to the Bayla bungalow')).toHaveCount(0);
     await expect(page.locator('text=— the muse')).toHaveCount(0); // her persona stays home
@@ -146,7 +148,7 @@ test.describe('bungalow doors', () => {
         } catch { /* private mode */ }
       }, id);
 
-      await page.goto(`/${id}`);
+      await gotoRoute(page, `/${id}`);
       await expect(page.locator('h1').first()).toBeVisible({ timeout: 20_000 });
 
       const text = await readWholePage(page);
@@ -202,7 +204,7 @@ test.describe('bungalow doors', () => {
     await seedOverlays(page);
     // The query outranks storage, so the door strips the param before it
     // decides: one switch happens and the tab settles on the door.
-    await page.goto('/bayla?bungalow=toweli');
+    await gotoRoute(page, '/bayla?bungalow=toweli');
     await expect(page.locator('h1').first()).toContainText('BAYLA', { timeout: 20_000 });
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('bayla');
     expect(new URL(page.url()).searchParams.has('bungalow')).toBe(false);

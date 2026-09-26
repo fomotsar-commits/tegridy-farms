@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { phoneThrottle } from './fixtures/doorFrame';
 
 // THE FIRST FRAME IS THE HERO (answer ten, ruling 2), on a production build. The H1's
 // paint is read from Element Timing, not the DOM; a MutationObserver armed before any
@@ -45,18 +46,6 @@ async function clientNavigate(page: Page, path: string) {
     window.history.pushState({}, '', to);
     window.dispatchEvent(new PopStateEvent('popstate'));
   }, path);
-}
-
-async function phoneThrottle(page: Page) {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Network.enable');
-  await cdp.send('Network.emulateNetworkConditions', {
-    offline: false,
-    latency: 150,
-    downloadThroughput: (1.6 * 1024 * 1024) / 8,
-    uploadThroughput: (750 * 1024) / 8,
-  });
-  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
 }
 
 /** A cold visitor: no stored skin, nothing seeded, so `/` opens the venue's frame. */
