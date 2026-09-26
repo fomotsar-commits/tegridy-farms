@@ -88,6 +88,36 @@ describe('liveIpfsUrl', () => {
     expect(liveIpfsUrl(`https://mypinata.cloud.evil.example/ipfs/${naka}`)).toBe(`https://mypinata.cloud.evil.example/ipfs/${naka}`);
   });
 
+  // Review R2 (privacy): a query string rode along onto the public list, and a
+  // Pinata dedicated gateway's URL can carry its access token. That token went
+  // to all four gateways. A URL that moves host leaves its query behind.
+  it('never carries a query string onto another host', () => {
+    const naka = 'QmaN1jRPtmzeqhp6s3mR1SRK4q1xWPvFvwqW1jyN6trir9';
+    const cid = 'bafkreiav3na7d325rg5ia4vbq5gs2wxbpvmgyzctwuvq2354yb73iv72uq';
+    const cases: [string, string][] = [
+      [`https://alchemy.mypinata.cloud/ipfs/${naka}/1?pinataGatewayToken=SECRET`, `${naka}/1`],
+      [`https://ipfs.io/ipfs/${CID}/1.png?pinataGatewayToken=SECRET&x=1`, `${CID}/1.png`],
+      [`https://${cid}.ipfs.dweb.link/meta.json?token=SECRET`, `${cid}/meta.json`],
+      // Already on a live gateway: the walk still moves it to other hosts.
+      [`${IPFS_GATEWAYS[0]}${CID}/1.png?token=SECRET`, `${CID}/1.png`],
+    ];
+    for (const [url, path] of cases) {
+      const built = [...ipfsGatewayUrls(url)];
+      for (let cur: string | null = url; (cur = nextIpfsGatewayUrl(cur)) !== null; ) built.push(cur);
+      const live = liveIpfsUrl(url) as string;
+      if (host(live) !== host(url)) built.push(live);
+      expect(built.length, url).toBeGreaterThanOrEqual(IPFS_GATEWAYS.length);
+      for (const u of built) {
+        expect(u, `${url} -> ${u}`).not.toContain('SECRET');
+        expect(new URL(u).search, `${url} -> ${u}`).toBe('');
+        expect(u.endsWith(`/ipfs/${path}`), `${url} -> ${u}`).toBe(true);
+      }
+    }
+    // A URL that stays where it is keeps its own query: nothing is sent anywhere new.
+    const onLive = `${IPFS_GATEWAYS[1]}${CID}/1.png?filename=1.png`;
+    expect(liveIpfsUrl(onLive)).toBe(onLive);
+  });
+
   it('handles the subdomain form of a dead gateway', () => {
     const cid = 'bafkreiav3na7d325rg5ia4vbq5gs2wxbpvmgyzctwuvq2354yb73iv72uq';
     expect(liveIpfsUrl(`https://${cid}.ipfs.dweb.link/`)).toBe(`${IPFS_GATEWAYS[0]}${cid}`);
@@ -183,21 +213,34 @@ describe('watchIpfsImg: move on from a hung gateway, never from a slow download'
     expect(onHang).not.toHaveBeenCalled();
   });
 
-  it("starts a lazy image's clock only once it nears the viewport, and cleans up", () => {
+  // Review R1 (WebKit): the clock started 1250px ahead of the viewport, where
+  // Chromium has requested a lazy image but WebKit (about one viewport height)
+  // has not, so on an iPhone an unseen image walked every gateway and was given
+  // up on. The margin must be the viewport itself. The engines themselves are
+  // exercised in e2e/ipfs-lazy-hang.spec.ts; this pins the wiring.
+  it("starts a lazy image's clock only once it is in view, keeps it running after, and cleans up", () => {
     vi.useFakeTimers();
-    const observers: { cb: (e: { isIntersecting: boolean }[]) => void; disconnected: boolean }[] = [];
+    type Cb = (e: { isIntersecting: boolean }[]) => void;
+    const observers: { cb: Cb; opts?: IntersectionObserverInit; disconnected: boolean }[] = [];
     vi.stubGlobal('IntersectionObserver', class {
-      cb: (e: { isIntersecting: boolean }[]) => void;
+      cb: Cb;
+      opts?: IntersectionObserverInit;
       disconnected = false;
-      constructor(cb: (e: { isIntersecting: boolean }[]) => void) { this.cb = cb; observers.push(this); }
+      constructor(cb: Cb, opts?: IntersectionObserverInit) { this.cb = cb; this.opts = opts; observers.push(this); }
       observe() {}
       disconnect() { this.disconnected = true; }
     });
     const onHang = vi.fn();
     const stop = watchIpfsImg(img(), { lazy: true, onHang });
+    // Observed against the viewport with no margin in any direction.
+    expect(observers[0].opts?.root ?? null).toBeNull();
+    const margins = (observers[0].opts?.rootMargin ?? '0px').trim().split(/\s+/);
+    expect(margins.map((m) => parseFloat(m)), `rootMargin ${observers[0].opts?.rootMargin}`).toEqual(margins.map(() => 0));
     vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS * 3);
     expect(onHang).not.toHaveBeenCalled();
     observers[0].cb([{ isIntersecting: true }]);
+    // Seen, then scrolled away: the browser's request goes on, so the clock does.
+    observers[0].cb([{ isIntersecting: false }]);
     vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS);
     expect(onHang).toHaveBeenCalledTimes(1);
 

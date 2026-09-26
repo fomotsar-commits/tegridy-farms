@@ -112,7 +112,7 @@ describe("NftImage walks the IPFS gateway list", () => {
     expect(screen.getByAltText(nft.name)).toHaveAttribute("src", ON(0));
   });
 
-  it("does not start a lazy card's clock before it nears the viewport", async () => {
+  it("does not start a lazy card's clock before it is in view", async () => {
     vi.useFakeTimers();
     const observers = [];
     vi.stubGlobal("IntersectionObserver", class {
@@ -126,7 +126,7 @@ describe("NftImage walks the IPFS gateway list", () => {
     await act(async () => { vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS * 3); });
     expect(screen.getByAltText(nft.name)).toHaveAttribute("src", ON(0));
 
-    // Scrolled near: now the gateway gets its time, then the next one is tried.
+    // Scrolled into view: now the gateway gets its time, then the next one is tried.
     await act(async () => { observers.at(-1).cb([{ isIntersecting: true }]); });
     await act(async () => { vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS); });
     expect(screen.getByAltText(nft.name)).toHaveAttribute("src", ON(1));

@@ -256,6 +256,27 @@ describe('checkMetadataDocument', () => {
     expect(v).toEqual({ status: 'unknown', reason: 'The check timed out.' });
   });
 
+  // Review R3: the step budget covered only the headers. A gateway that sent
+  // 200 headers and then stalled its body held the check until the overall
+  // deadline (42s by default), and the gateways after it were never asked.
+  it('a gateway that stalls its body is left after one step, and the next one answers', async () => {
+    const stalled = { ok: true, status: 200, text: () => new Promise<string>(() => {}) } as unknown as Response;
+    const f = vi.fn(async (url: string) => (url === GW('bafy')[0] ? stalled : res('{"name":"real"}')));
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch, 1000, 20);
+    expect(v).toMatchObject({ status: 'ok', name: 'real' });
+    expect(f.mock.calls.map((c) => c[0])).toEqual(GW('bafy').slice(0, 2));
+  });
+
+  it('a stalled body is no answer: never read as "not JSON", never the 404 warning', async () => {
+    const stalled = { ok: true, status: 200, text: () => new Promise<string>(() => {}) } as unknown as Response;
+    const last = GW('bafy').at(-1);
+    const f = vi.fn(async (url: string) => (url === last ? stalled : res('', { ok: false, status: 404 })));
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch, 1000, 20);
+    expect(v.status).toBe('unknown');
+    expect(v.status === 'unknown' && v.severity).toBeUndefined();
+    expect(f).toHaveBeenCalledTimes(IPFS_GATEWAYS.length);
+  });
+
   // ── a 200 that is not JSON (review R5) ──────────────────────────────────────
 
   it("one gateway's non-JSON 200 does not outrank the next gateway's real JSON", async () => {

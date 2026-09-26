@@ -67,6 +67,17 @@ export const DEAD_IPFS_GATEWAY_HOSTS = [
 //     that is still downloading is never cut off, however long it takes.
 // Pinata, the one gateway that served every uncached token, took up to 7.5s to
 // its first byte (19 requests, 3.3-7.5s), so 10s keeps it with room to spare.
+//
+// THE PRICE of never cutting a slow download: an <img> on a gateway that sends
+// the image header and then stalls is never left. Its naturalWidth is set, so
+// the timer reads it as a live download, and it stays half-drawn or blank on
+// that gateway until the browser gives up on the connection, if it ever does.
+// Telling a stalled download from a slow one would need a byte count, which an
+// <img> does not expose, and restarting a slow 2.6 MB image on the next gateway
+// every 10s (so it never finishes) is the worse failure. Every hang measured on
+// 2026-09-26 came before the first byte, which the timer does catch.
+// (The metadata check's fetch() has no such blind spot: its step bounds the
+// body read too, in lib/launcher/solana/metadataUri.ts.)
 export const IPFS_STEP_TIMEOUT_MS = 10_000;
 
 const IPFS_SCHEME = /^ipfs:\/\//i;
@@ -86,7 +97,14 @@ const isRewrittenHost = (host: string): boolean =>
 
 type Parsed = { path: string; host: string | null };
 
-/** The `<cid>/<path>` inside an `ipfs://` URI or a gateway URL we know, else null. */
+/**
+ * The `<cid>/<path>` inside an `ipfs://` URI or a gateway URL we know, else null.
+ *
+ * A gateway URL's query string is dropped: every URL built from `path` is on a
+ * different host, and a query belongs to the host it was written for. A Pinata
+ * dedicated gateway's URL can carry its access token (?pinataGatewayToken=...),
+ * which must not be sent to four other gateways. The content is the CID path.
+ */
 function parse(uri: string | null | undefined): Parsed | null {
   if (!uri) return null;
   const t = uri.trim();
@@ -106,11 +124,11 @@ function parse(uri: string | null | undefined): Parsed | null {
   const [, cid, gatewayHost] = host.match(/^([a-z0-9]+)\.ipfs\.(.+)$/) ?? [];
   if (cid && gatewayHost && (LIVE_HOSTS.has(gatewayHost) || isRewrittenHost(gatewayHost))) {
     const rest = u.pathname === '/' ? '' : u.pathname;
-    return { path: `${cid}${rest}${u.search}`, host };
+    return { path: `${cid}${rest}`, host };
   }
   if ((LIVE_HOSTS.has(host) || isRewrittenHost(host)) && u.pathname.startsWith('/ipfs/')) {
     const path = u.pathname.slice('/ipfs/'.length);
-    return path ? { path: `${path}${u.search}`, host } : null;
+    return path ? { path, host } : null;
   }
   return null;
 }
@@ -166,12 +184,21 @@ export function nextIpfsGatewayUrl(current: string | null | undefined): string |
  * IPFS_STEP_TIMEOUT_MS), so a slow but live download is left to finish. A
  * `complete` image either loaded or already fired onError, which moves it on.
  *
- * `lazy`: a lazy image far below the fold has not requested anything yet, so
- * its clock starts only once it nears the viewport (the browser's own lazy
- * margin). Inside a scrolling panel (the market gallery grid) that margin
- * stops at the panel's edge, so there the clock starts once the image scrolls
- * into the panel: seen in Chromium, where a card below the panel's fold sat on
- * a hung gateway, unseen, until scrolled to, then moved on 10s later.
+ * `lazy`: the clock runs only while the browser can be fetching the image, so
+ * a lazy image's clock starts once it is IN the viewport, with no margin.
+ * Engines request a lazy image at different distances, measured 2026-09-26:
+ * Chromium from ~1250px ahead, WebKit (Safari, and every browser on iOS) from
+ * about one viewport height (an 800px window: requested at 700px below the
+ * fold, not at 1000px). The clock used to start at 1250px, so in WebKit an
+ * image 900-1250px below the fold, never requested, walked all four gateways
+ * with nobody looking and was given up on. Once an image is in the viewport,
+ * both engines have requested it. After that the clock keeps running if it
+ * scrolls away again: neither engine cancels the request (measured: a held
+ * request stayed open 5s after scrolling away), so the gateway has had its
+ * step. The next gateway's clock waits for the image to be in view again, so
+ * at most one gateway is left per sighting. Inside a scrolling panel (the
+ * market gallery grid) the image must also be inside the panel's visible box.
+ * e2e/ipfs-lazy-hang.spec.ts pins this in Chromium and WebKit.
  * Every gateway, the last one included, gets the timer, so a hang on
  * the last one reaches the caller's own fallback instead of waiting ~30s.
  * Returns the cleanup.
@@ -197,7 +224,8 @@ export function watchIpfsImg(
           arm();
         }
       },
-      { rootMargin: '1250px' },
+      // The viewport itself: see `lazy` above.
+      { rootMargin: '0px' },
     );
     io.observe(img);
   } else {

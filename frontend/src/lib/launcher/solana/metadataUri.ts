@@ -11,17 +11,17 @@
 // Everything here is pure or dependency-injected so it can be tested without a
 // network, and the shape check runs before any signature is requested.
 
-import { IPFS_GATEWAYS, IPFS_STEP_TIMEOUT_MS, fetchIpfsStep, ipfsGatewayUrls } from '../../ipfsGateways';
+import { IPFS_GATEWAYS, IPFS_STEP_TIMEOUT_MS, ipfsGatewayUrls } from '../../ipfsGateways';
 
 /** An https:// or ar:// host answers for itself: one request, this long. */
 const SINGLE_HOST_DEADLINE_MS = 8000;
 
 /**
  * An ipfs:// check may have to walk every gateway, each with its own step
- * budget (IPFS_STEP_TIMEOUT_MS), and then read a small JSON body. The overall
- * deadline must cover that walk, or it cuts the walk short: with a total of 8s
- * and a 6s step, a hung first gateway left 2s for the other three, and Pinata,
- * the one gateway that served every uncached CID, takes up to 7.5s.
+ * budget (IPFS_STEP_TIMEOUT_MS) for its headers and its small JSON body. The
+ * overall deadline must cover that walk, or it cuts the walk short: with a
+ * total of 8s and a 6s step, a hung first gateway left 2s for the other three,
+ * and Pinata, the one gateway that served every uncached CID, takes up to 7.5s.
  */
 export const IPFS_CHECK_DEADLINE_MS = IPFS_STEP_TIMEOUT_MS * IPFS_GATEWAYS.length + 2000;
 
@@ -154,15 +154,33 @@ export async function checkMetadataDocument(
       // gets its own time limit so one hang cannot starve the rest. https://
       // and ar:// hosts ARE authoritative for their own paths, so their answer
       // stands.
+      //
+      // The step covers the headers AND the body. A gateway that sends 200
+      // headers and then stalls its body is a hang like any other: it used to
+      // hold the whole check until the overall deadline, and the gateways
+      // after it were never asked. Aborting the step's signal also ends that
+      // gateway's download.
+      const step = new AbortController();
+      const endStep = () => step.abort();
+      ac.signal.addEventListener('abort', endStep, { once: true });
+      const stepTimer = setTimeout(endStep, ipfsStepMs);
+      let answer: Response;
+      let body: string | undefined;
       try {
-        res = await fetchIpfsStep(fetchImpl, url, ac.signal, ipfsStepMs);
+        answer = await fetchImpl(url, { signal: step.signal });
+        if (answer.ok) body = await textWithin(answer, step.signal);
       } catch (e) {
         if (ac.signal.aborted) throw e; // the overall deadline, not this gateway
         every404 = false;
         continue;
+      } finally {
+        clearTimeout(stepTimer);
+        ac.signal.removeEventListener('abort', endStep);
       }
-      if (res.ok) {
-        const body = await textWithin(res, ac.signal);
+      // Only a gateway that finished its step counts as an answer: a 200 whose
+      // body never came says nothing about the content.
+      res = answer;
+      if (body !== undefined) {
         if (parsesAsJson(body)) {
           text = body;
           break;
@@ -248,9 +266,9 @@ function parsesAsJson(body: string): boolean {
 }
 
 /**
- * The body, or an AbortError when `signal` fires first. fetchIpfsStep lets go
- * of the caller's signal once the headers arrive, so without this a gateway
- * that sent headers and then stalled would hold the check past its deadline.
+ * The body, or an AbortError when `signal` fires first. A browser's fetch
+ * already fails its body read once the request's signal aborts; this makes the
+ * same hold for any `fetchImpl`, so a stalled body can never outlast its budget.
  */
 function textWithin(res: Response, signal: AbortSignal): Promise<string> {
   return new Promise<string>((resolve, reject) => {
