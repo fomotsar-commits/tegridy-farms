@@ -1,16 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 import { BUNGALOWS } from '../src/lib/bungalows';
 
-// Jungle Bay bungalow doors — the memetics.finance/<bungalow> URL format.
-//
-// Deliberately fixture-free: the wallet fixture pins `tegridy-bungalow` to
-// toweli (to keep every other spec picker-free), and these tests are ABOUT
-// entering bungalows, so they seed only the overlay flags and leave the
-// bungalow choice to the door under test. reducedMotion comes from
-// playwright.config.
-//
-// A door switches the skin in place on its first render, with no reload;
-// assertions keep generous timeouts for a cold production build.
+// Bungalow doors (memetics.finance/<bungalow>). No wallet fixture: it pins the skin to
+// toweli, and these tests are about the door choosing it. A door switches the skin in
+// place on its first render.
 
 async function seedOverlays(page: Page) {
   await page.addInitScript(() => {
@@ -88,11 +81,8 @@ test.describe('bungalow doors', () => {
   });
 
   test("no other resident's voice behind a settled door", async ({ page }) => {
-    // Caught live 2026-08-30 (pre-flip, as a landing bug): a BAYLA-skinned
-    // visitor following a /pepe link met HER welcome modal on PEPE's page.
-    // Post-flip the door ENTERS PEPE's own skin — so the pin becomes: the
-    // voice behind the door is PEPE's (byline "the island"), and Bayla's
-    // welcome, her muse persona, and Towelie never appear.
+    // A BAYLA-skinned visitor following a /pepe link enters PEPE's own skin: Bayla's
+    // welcome, her muse persona and Towelie never appear behind his door.
     await seedOverlays(page);
     await page.addInitScript(() => {
       try {
@@ -109,33 +99,17 @@ test.describe('bungalow doors', () => {
     await expect(page.locator('text=Welcome to the Bayla bungalow')).toHaveCount(0);
     await expect(page.locator('text=— the muse')).toHaveCount(0); // her persona stays home
     await expect(page.locator('text=Ask me')).toHaveCount(0); // Towelie assistant too
-    // WAVE SEVEN, element E: "— the island" was the FLOATING MUSE BUBBLE's
-    // byline (museVoice), and that bubble is gone from every room — it opened
-    // over the page unasked, which is the class this element removes. The
-    // room's own quiet line is not lost with it: museLine still renders in the
-    // hero pill, credited to museBy rather than the bubble's persona.
+    // The floating muse bubble (byline "the island") is gone from every room; museLine
+    // still renders in the hero pill, credited to museBy.
     await expect(page.locator('text=— the island')).toHaveCount(0);
     // PEPE's own voice is still here, and the welcome that used to open itself
     // now waits behind this.
     await expect(page.getByRole('button', { name: 'About this bungalow' })).toBeVisible();
   });
 
-  // WAVE SEVEN, element D — THE SWEEP IS THE THIRTEEN DOORS, NOT A SAMPLE.
-  //
-  // The "Protocol Overview" grid rendered in EVERY bungalow, so BAYLA's room and
-  // PEPE's room both told their visitors to "Stake TOWELI to earn now" — another
-  // resident's token, in someone else's house. Wave five cleaned the venue
-  // arrival of it and missed the rooms entirely.
-  //
-  // This used to prove one room and two strings while the status block claimed
-  // thirteen doors. A claim about thirteen doors is measured on thirteen doors:
-  // the island measured them, and so does the file. The list is read from
-  // BUNGALOWS rather than typed here, so a fourteenth door cannot be added
-  // without this sweep noticing it.
-  //
-  // Asserted on the WHOLE RENDERED TEXT after a scroll to the bottom, not on the
-  // gate expression: a source check passes on any gate that merely mentions the
-  // right identifiers, and half these sections are `whileInView` and do not
+  // WAVE SEVEN, element D: no room is furnished with another resident's token. The
+  // sweep is every door in BUNGALOWS, not a sample, and reads the whole rendered text
+  // after a scroll to the bottom: half these sections are `whileInView` and do not
   // exist in the DOM until they are scrolled to.
   async function readWholePage(page: Page): Promise<string> {
     // Three passes down. One scrollTo lands before the sections it reveals have
@@ -180,12 +154,8 @@ test.describe('bungalow doors', () => {
       expect(text, `/${id} is furnished with TOWELI`).not.toContain('TOWELI');
       expect(text, `/${id} still renders the shared Protocol Overview grid`).not.toContain('Protocol Overview');
 
-      // WAVE SEVEN, element C, measured from the room's side. The island found
-      // these three still rendering below the market card on /bayla and /pepe:
-      // a resident's visitor reading "Launch on Ethereum" and "Check a
-      // deployer" underneath someone else's token, then the venue's gallery.
-      // They are gated to /toweli now, and the other half of that gate --
-      // /toweli still rendering all three -- is asserted in arrival-voice.spec.
+      // WAVE SEVEN, element C: these three venue sections are gated to /toweli
+      // (arrival-voice.spec asserts that half).
       for (const section of ['Launch & Verify', 'Ecosystem', 'The Collection']) {
         expect(text, `/${id} still renders the venue's "${section}"`).not.toContain(section);
       }
@@ -200,10 +170,8 @@ test.describe('bungalow doors', () => {
 
   test("/toweli keeps its own furniture, because there it is true", async ({ page }) => {
     test.slow();
-    // The other half of the ruling, and the one that makes the twelve above mean
-    // something: element D removes a grid from rooms it does not belong to. If it
-    // had simply been deleted, all twelve would be green and the venue would be
-    // poorer for it.
+    // The other half of element D: the grid left the rooms it does not belong to,
+    // and stays in this one.
     await seedOverlays(page);
     await page.addInitScript(() => {
       try {

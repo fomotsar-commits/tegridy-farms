@@ -1,29 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// THE ARRIVAL, WALKED - answer ten, ruling 1: THE VENUE OPENS STRAIGHT TO THE PAGE.
-//
-// This spec used to walk the CURTAIN: a short arrival overlay the layout mounted
-// over every cold visit, with a 3,000 ms budget it measured to the millisecond,
-// through a held main thread, a slow image and a denied canvas. The island ruled
-// the curtain off the arrival ("a page that offers to skip itself is telling the
-// visitor it is in the way"), so the file is rewritten to the new truth rather
-// than deleted: its clock survives, and now proves an overlay NEVER mounts.
-//
-// THE CLOCK IS WHY THIS IS NOT VACUOUS. `toHaveCount(0)` after a wait passes on
-// an overlay that mounted and left again. The MutationObserver below stamps the
-// moment any arrival node is ADDED to the document, however briefly, so a
-// transient mount still fails.
-//
-// TWO OPT-OUTS, STILL NEEDED. playwright.config.ts runs every other spec under
-// reducedMotion 'reduce', which the old loader treated as a hard skip, so a
-// regression that brought the curtain back would hide from all of them. This file
-// runs 'no-preference' and without the wallet fixture (which seeded the old
-// arrival record), so it is the one place a returning curtain would actually show.
-//
-// DISCRIMINATING ROUTES, NAMED. Before the fix, cold '/', '/farm', '/launch',
-// '/tokenomics' and '/island' all mounted the curtain. '/bayla' and a '?heat='
-// read were exempt even then, so they are kept because the island named /bayla,
-// not because they could catch a regression on their own.
+// THE VENUE OPENS STRAIGHT TO THE PAGE (answer ten, ruling 1): no arrival overlay
+// mounts on a cold visit. A MutationObserver stamps any arrival node ADDED, however
+// briefly, so a mount that left again still fails. Runs with reducedMotion
+// 'no-preference' and no wallet fixture, the one place a returning curtain would show.
+// '/bayla' and the '?heat=' read are kept because the island named them.
 
 test.use({
   contextOptions: {
@@ -50,10 +31,8 @@ declare global {
 }
 
 /**
- * Stamp, from inside the page, the first moment an arrival overlay or the words
- * "Skip intro" enter the document. Observes `document`, not documentElement:
- * addInitScript runs before any page script, when documentElement can be null,
- * and a throwing observe() kills the init script silently.
+ * Stamps the first moment an arrival overlay or "Skip intro" enters the document.
+ * Observes `document`: documentElement can be null this early, and a throw is silent.
  */
 async function armArrivalClock(page: Page) {
   await page.addInitScript(() => {
@@ -119,10 +98,8 @@ test.describe('the film keeps its home on /island', () => {
 
 test.describe('nothing opens unasked on a cold TOWELI route, and the welcomes open on a tap', () => {
   test('a cold /toweli opens no picker and no welcome, and its tour link opens the welcome', async ({ page }) => {
-    // TRULY COLD: nothing stored at all, so no seeded 'tegridy-bungalow' can
-    // hide a dialog that opens before a choice exists. The door writes its choice
-    // on its first render. Every dialog insertion is stamped into sessionStorage,
-    // so a dialog that opened and closed again still counts.
+    // Truly cold: nothing stored, and the door writes its choice on its first render.
+    // Every dialog insertion is stamped, so one that opened and closed still counts.
     await page.addInitScript(() => {
       try { localStorage.removeItem('tegridy-onboarding-seen'); } catch { /* private mode */ }
       new MutationObserver((records) => {
@@ -165,47 +142,26 @@ test.describe('nothing opens unasked on a cold TOWELI route, and the welcomes op
 });
 
 /**
- * ELEMENT E, MEASURED THE WAY THE ISLAND MEASURES IT. Runs INSIDE the page.
- *
- * The first version of this swept every `position: fixed` box and flagged any
- * that intersected a hero control. That is the wrong question twice over. It
- * flagged the consent bar for overlapping whatever footer link sat beneath it,
- * which is inherent to any bottom bar and is not a defect; and the island's own
- * run then found `position: fixed; inset: 0; z-index: 0; pointer-events: auto`
- * background layers on EVERY route — a box walk reds on those forever while they
- * cover precisely nothing.
- *
- * The honest question does not care what is fixed, or what is painted where. It
- * asks the browser: if a visitor puts a finger on this control, do they get this
- * control? Anything that opened itself over the page fails that, and a
- * full-viewport backdrop that yields the hit-test passes it, correctly.
- *
- * ONE FUNCTION, TWO JOBS, DELIBERATELY. `plant` inserts a panel over the first
- * hero control and reports which; the default measures. They must agree about
- * what a hero control IS, or the non-vacuity check below proves nothing about
- * the sweep it is vouching for — the first attempt at this planted a panel over
- * the off-screen skip link and then honestly reported nothing covered.
+ * Element E, measured as the island measures it, inside the page: does a finger on
+ * each hero control get that control (elementFromPoint)? A backdrop that yields the
+ * hit-test passes; anything opened over the page fails. `plant` puts a panel over the
+ * first hero control instead, so the non-vacuity check and the sweep agree on what a
+ * hero control is.
  */
 function heroHitTest(plant: boolean): string[] {
   const fold = window.innerHeight / 2;
   const controls = Array.from(document.querySelectorAll<HTMLElement>('a[href], button')).filter((el) => {
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return false;
-    // "Hero" is the top half: the actions a visitor arrives to take without
-    // scrolling. A bottom bar cannot reach them and nothing below the fold has
-    // been scrolled to yet.
+    // "Hero" is the top half: what a visitor arrives to take without scrolling.
     if (r.top < 0 || r.bottom > fold) return false;
-    // AND ITS CENTRE MUST BE ON SCREEN. `elementFromPoint` answers null for a
-    // point outside the viewport, and the sr-only "Skip to main content" link is
-    // parked at a negative x until it is focused — a control that is nowhere is
-    // not a control anything can cover.
+    // Its centre on screen: elementFromPoint is null off-viewport (the sr-only skip link).
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
     if (cx < 0 || cy < 0 || cx > window.innerWidth || cy > window.innerHeight) return false;
     const cs = getComputedStyle(el);
     if (cs.visibility === 'hidden' || cs.display === 'none' || cs.opacity === '0') return false;
-    // A control that has opted out of pointers itself is not one this element
-    // makes a promise about.
+    // A control that opted out of pointers itself is not covered by anything.
     if (cs.pointerEvents === 'none') return false;
     return true;
   });
@@ -241,10 +197,7 @@ function heroHitTest(plant: boolean): string[] {
   return covered;
 }
 
-// ─── Element E: nothing opens over the page unasked ─────────────────────────
-//
-// Cold loads, no seeds, no fixture. By the time these run, nothing may be
-// covering a hero button.
+// Element E: nothing opens over the page unasked. Cold loads, no seeds, no fixture.
 
 test.describe('zero unasked overlays', () => {
   for (const path of ['/', '/tokenomics', '/bayla', '/pepe', '/launch', '/liquidity', '/island']) {
@@ -261,9 +214,8 @@ test.describe('zero unasked overlays', () => {
 
       expect(covered, `something is sitting on a control at ${path}`).toEqual([]);
 
-      // ROW S. A cold load, so consent is unanswered and the ask IS on the page,
-      // as a row in the footer's flow. That is why the sweep above is green with
-      // it present rather than because it was absent.
+      // Row S: consent is unanswered, so its ask IS on the page, as a footer row
+      // the sweep above passes with.
       await expect(
         page.getByRole('group', { name: 'Analytics are anonymous and off until you say yes.' }),
       ).toHaveCount(1);
@@ -286,14 +238,9 @@ test.describe('zero unasked overlays', () => {
   }
 
   test('the sweep can actually see a cover, so a green above means something', async ({ page }) => {
-    // A PASSING SWEEP IS WORTHLESS UNTIL IT HAS FAILED ON PURPOSE.
-    //
-    // The island's two mutations are "restore the old install banner" and
-    // "re-mount MuseBubble". Both are deletions from this branch, so reviving
-    // either to prove a test would be a strange commit to live with. This plants
-    // the same shape instead -- a fixed panel, over the hero, taking pointers,
-    // which is exactly what both of those were -- and demands the sweep sees it.
-    // If this ever passes with an empty list, every green above is vacuous.
+    // A sweep is worthless until it has failed on purpose. This plants the shape of
+    // the island's two mutations (a fixed panel over the hero, taking pointers) and
+    // demands the sweep sees it; an empty list here makes every green above vacuous.
     await page.goto('/');
     await page.waitForTimeout(SETTLE_MS);
 
