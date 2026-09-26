@@ -45,7 +45,7 @@ export function venueFaq(floor: number): FAQSection[] {
         },
         {
           q: 'Can Heat be bought?',
-          a: "No. A fresh bag starts near zero however big it is. Only time held moves it, and moving a bag to a new wallet starts that wallet's clock at the move.",
+          a: `No. A fresh bag starts near zero however big it is. Only time held moves it. ${VENUE.heatOnePerson}`,
         },
         {
           q: 'How does a launch open?',

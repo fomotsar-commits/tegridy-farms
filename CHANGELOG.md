@@ -6,6 +6,12 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-09-25
+
+- The hero, the FAQ and llms.txt say linked wallets read as a single flame.
+- The heat explainer's button reads How heat is earned, and Hide once open.
+- Every room's farm page reads without an em dash in its hero, its funding card and its heat card.
+
 ### 2026-09-24
 
 - On a phone, connecting MetaMask no longer stalls after the MetaMask app opens, and MetaMask can estimate gas on Ethereum.

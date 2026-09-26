@@ -684,7 +684,7 @@ function Reading({
         className="text-[12px] underline underline-offset-2 transition-colors"
         style={{ color: 'var(--color-kyle)' }}
       >
-        {showMath ? 'Hide the maths' : 'How is this calculated?'}
+        {showMath ? 'Hide' : 'How heat is earned'}
       </button>
 
       {showMath && <Maths degrees={reading.degrees} />}

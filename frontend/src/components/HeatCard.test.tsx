@@ -929,9 +929,22 @@ describe('the maths fold carries the island paragraph, never a formula', () => {
 
   async function openMaths() {
     const view = mount();
-    fireEvent.click(await screen.findByRole('button', { name: /how is this calculated/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'How heat is earned' }));
     return view;
   }
+
+  it('is opened by "How heat is earned" and closed by "Hide"', async () => {
+    mount();
+    const closed = await screen.findByRole('button', { name: 'How heat is earned' });
+    expect(closed.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(closed);
+    const open = await screen.findByRole('button', { name: 'Hide' });
+    expect(open.textContent).toBe('Hide');
+    expect(open.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByRole('button', { name: /calculat|maths|how heat is earned/i })).toBeNull();
+    fireEvent.click(open);
+    expect((await screen.findByRole('button', { name: 'How heat is earned' })).getAttribute('aria-expanded')).toBe('false');
+  });
 
   it('opens on the paragraph, word for word, then Days, Size and Weight', async () => {
     await openMaths();
