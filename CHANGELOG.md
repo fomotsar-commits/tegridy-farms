@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-09-25
 
+- A bungalow link opens on its own name and picture from the first second.
 - The hero, the FAQ and llms.txt say linked wallets read as a single flame.
 - The heat explainer's button reads How heat is earned, and Hide once open.
 - Every room's farm page reads without an em dash in its hero, its funding card and its heat card.
