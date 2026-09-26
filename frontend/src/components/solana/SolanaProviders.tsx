@@ -56,8 +56,10 @@ import { SolanaWalletModalProvider } from './SolanaWalletModal';
  * own storage prefix — never AppKit, never UniversalProvider, whose cleanup
  * erases the EVM side's saved session (lib/solanaWalletConnect.ts). It reads
  * the same project id variable as wagmi.ts; unset, as in CI and previews, it
- * reports Unsupported and WalletProvider drops it, so there is no row and no
- * WalletConnect code runs.
+ * reports Unsupported and WalletProvider drops it, so there is no row — and
+ * the build carries none of WalletConnect's code, because the adapter's
+ * import() of it is compiled out (check-dist-graph.mjs D fails a no-id build
+ * that carries any).
  */
 export function SolanaProviders({ children }: { children: ReactNode }) {
   const endpoint = useMemo(() => solanaRpcEndpoint(), []);
@@ -69,7 +71,7 @@ export function SolanaProviders({ children }: { children: ReactNode }) {
       new CoinbaseWalletAdapter(),
       // Same variable as wagmi.ts. Unset (CI, previews) the adapter reports
       // Unsupported, so WalletProvider drops it: no row, and no WalletConnect
-      // code ever runs.
+      // code in the build at all.
       new WalletConnectWalletAdapter({
         projectId: (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined) ?? '',
       }),

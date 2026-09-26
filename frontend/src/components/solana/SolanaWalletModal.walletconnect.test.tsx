@@ -26,18 +26,23 @@ vi.mock('@walletconnect/sign-client', () => ({
   SignClient: { init: () => (h.init ? h.init() : Promise.resolve(h.client)) },
 }));
 
+/** A live Solana session, as the store holds it. */
+function liveSession(pairingTopic = 'pair-earlier') {
+  return {
+    topic: 'sess-sol',
+    pairingTopic,
+    expiry: 9_999_999_999,
+    namespaces: { solana: { accounts: [`${MAINNET}:${account}`], methods: ['solana_signTransaction'], events: [] } },
+    peer: { metadata: { name: 'Test Wallet' } },
+  };
+}
+
 function fakeClient() {
   let settle!: { resolve: (s: unknown) => void; reject: (e: unknown) => void };
   const sessions = new Map<string, Record<string, unknown>>();
   const client = {
     sessions,
-    approve: () =>
-      settle.resolve({
-        topic: 'sess-sol',
-        expiry: 9_999_999_999,
-        namespaces: { solana: { accounts: [`${MAINNET}:${account}`], methods: ['solana_signTransaction'], events: [] } },
-        peer: { metadata: { name: 'Test Wallet' } },
-      }),
+    approve: () => settle.resolve(liveSession('pairtopic123')),
     decline: () => settle.reject({ code: 5000, message: 'User rejected.' }),
     session: {
       getAll: () => [...sessions.values()],
@@ -97,13 +102,14 @@ class FakeWallet extends BaseMessageSignerWalletAdapter {
 
 function Opener() {
   const { setVisible } = useWalletModal();
-  const { publicKey } = useWallet();
+  const { publicKey, connecting } = useWallet();
   return (
     <>
       <button type="button" onClick={() => setVisible(true)}>
         open wallets
       </button>
       <output data-testid="pk">{publicKey?.toBase58() ?? ''}</output>
+      <output data-testid="connecting">{String(connecting)}</output>
     </>
   );
 }
@@ -131,6 +137,9 @@ async function openList() {
 }
 
 beforeEach(() => {
+  // What a production build has: without it the adapter's import() of
+  // sign-client is compiled out.
+  vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', 'test-project');
   localStorage.clear();
   resetWalletConnectClientForTests();
   client = fakeClient();
@@ -269,6 +278,47 @@ describe('the WalletConnect row', () => {
     await openList();
     expect(screen.queryByRole('alert')).toBeNull();
   });
+});
+
+describe('while a saved WalletConnect session is still being restored', () => {
+  // walletName=WalletConnect is saved, so WalletProvider's autoConnect starts
+  // a restore on mount, and `connecting` is true until WalletConnect has
+  // started. The BAYLA Connect buttons stay enabled meanwhile, so the list
+  // can be opened in that state. Nothing here may be lost or stuck.
+  let release: ((c: unknown) => void) | undefined;
+  async function mountRestoring({ live }: { live: boolean }) {
+    localStorage.setItem('walletName', JSON.stringify('WalletConnect'));
+    if (live) client.sessions.set('sess-sol', liveSession());
+    release = undefined;
+    h.init = () =>
+      new Promise((r) => {
+        release = r;
+      });
+    mount();
+    await waitFor(() => expect(release).toBeDefined());
+    expect(screen.getByTestId('connecting')).toHaveTextContent('true');
+  }
+  /** Outside act(): the dialog's close runs in an effect act() defers. */
+  const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms));
+
+  it('picking ANOTHER wallet stops the restore, and picking WalletConnect later still connects', async () => {
+    // WalletProvider calls disconnect() on the wallet being left. Before the
+    // fix a restore ignored it: it finished anyway, the adapter read
+    // connected while the provider read disconnected, and the later
+    // WalletConnect pick then did nothing at all — no QR, no error.
+    await mountRestoring({ live: true });
+    fireEvent.click(within(await openList()).getByText('Phantom'));
+    await act(async () => {
+      release!(client);
+      await settle(50);
+    });
+    await settle();
+    expect(wc.connected).toBe(false);
+    fireEvent.click(within(await openList()).getByText('WalletConnect'));
+    // The session is still live, so it is restored without a QR.
+    await waitFor(() => expect(screen.getByTestId('pk')).toHaveTextContent(account));
+  });
+
 });
 
 describe('SolanaProviders and the project id', () => {

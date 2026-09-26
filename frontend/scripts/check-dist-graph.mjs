@@ -33,8 +33,16 @@
 //      entry's static closure, outside the static closure of the chunk
 //      holding the adapter (found by SOLANA_WALLETCONNECT_MARKER, a phrase of
 //      its own notice), and never modulepreloaded. Both markers must be FOUND:
-//      a gate that found neither checked nothing. If the Solana WalletConnect
-//      row is ever removed, remove D with it.
+//      a gate that found neither checked nothing.
+//      A build WITHOUT VITE_WALLETCONNECT_PROJECT_ID (CI, fork PRs, clones)
+//      must carry NO sign-client at all (2026-09-26): the adapter's import()
+//      sits behind that literal variable, so Vite compiles it out. A lazy
+//      sign-client chunk is not enough there — the bundler once hoisted its
+//      @noble/@scure deps into the EAGER vendor-crypto chunk (+93 KB on every
+//      page) while this gate, looking only at sign-client's own chunk, passed.
+//      The id is read the way Vite reads it (loadEnv: .env files, then
+//      process.env), for the default 'production' mode `npm run build` uses.
+//      If the Solana WalletConnect row is ever removed, remove D with it.
 //      Fixtures for every branch: scripts/check-dist-graph.test.mjs.
 //
 // Silent-gate discipline: this script FAILS on a missing/empty dist, on an
@@ -45,8 +53,10 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadEnv } from 'vite';
 
-const DIST = resolve(process.argv[2] ?? join(dirname(fileURLToPath(import.meta.url)), '..', 'dist'));
+const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..');
+const DIST = resolve(process.argv[2] ?? join(FRONTEND, 'dist'));
 const ASSETS = join(DIST, 'assets');
 
 function die(msg) {
@@ -140,15 +150,10 @@ const SIGN_CLIENT_MARKER = 'SignClient Initialization Success';
 // A phrase of PAIRING_REASONS.startFailed in src/lib/solanaWalletConnect.ts.
 const SOLANA_WALLETCONNECT_MARKER = 'Check your connection, or pick another wallet';
 
+// Whether the build had a project id, exactly as `vite build` decided it.
+const WALLETCONNECT_PROJECT_ID = loadEnv('production', FRONTEND, 'VITE_').VITE_WALLETCONNECT_PROJECT_ID ?? '';
+
 const holding = (marker) => chunkFiles.filter((f) => read(f).includes(marker));
-const signClientChunks = holding(SIGN_CLIENT_MARKER);
-if (!signClientChunks.length) {
-  die(
-    `no chunk contains "${SIGN_CLIENT_MARKER}", so invariant D checked nothing. Either ` +
-      `@walletconnect/sign-client no longer prints it (pick a new string only its dist ships), ` +
-      `or nothing loads sign-client any more — then the Solana WalletConnect row is gone, and D goes with it.`,
-  );
-}
 const adapterChunks = holding(SOLANA_WALLETCONNECT_MARKER);
 if (!adapterChunks.length) {
   die(
@@ -157,31 +162,56 @@ if (!adapterChunks.length) {
       `src/lib/solanaWalletConnect.ts: reworded there, it must be reworded here.`,
   );
 }
-const eagerSignClient = signClientChunks.filter((f) => closure.has(f));
-if (eagerSignClient.length) {
-  die(
-    `sign-client (${eagerSignClient.join(', ')}) is STATICALLY reachable from the entry chunk — ` +
-      `WalletConnect's core would load on every first paint. Find the new static import chain ` +
-      `(ANALYZE=true vite build).`,
-  );
-}
-for (const adapterChunk of adapterChunks) {
-  const reached = signClientChunks.filter((f) => staticClosure(adapterChunk).has(f));
-  if (reached.length) {
+const signClientChunks = holding(SIGN_CLIENT_MARKER);
+// One path through, whichever kind of build: an early exit here would skip
+// any invariant added after D.
+let signClientVerdict;
+if (!WALLETCONNECT_PROJECT_ID) {
+  if (signClientChunks.length) {
     die(
-      `sign-client (${reached.join(', ')}) is STATICALLY reachable from ${adapterChunk}, the chunk holding ` +
-        `the Solana WalletConnect adapter. src/lib/solanaWalletConnect.ts must load it with import() ` +
-        `inside getClient(), never a static import.`,
+      `this build has no VITE_WALLETCONNECT_PROJECT_ID, yet ${signClientChunks.join(', ')} carries ` +
+        `@walletconnect/sign-client. A no-id build must carry none: its @noble/@scure deps land in ` +
+        `eager chunks even when sign-client's own chunk is lazy. Keep every import() of it in ` +
+        `src/lib/solanaWalletConnect.ts behind the literal import.meta.env.VITE_WALLETCONNECT_PROJECT_ID, ` +
+        `and find what else now reaches it (ANALYZE=true vite build).`,
     );
   }
-}
-const preloadedSignClient = signClientChunks.filter((f) => preloads.includes(f));
-if (preloadedSignClient.length) {
-  die(`index.html modulepreloads ${preloadedSignClient.join(', ')} — sign-client must stay lazy`);
+  signClientVerdict = 'no project id: sign-client in no chunk';
+} else {
+  if (!signClientChunks.length) {
+    die(
+      `no chunk contains "${SIGN_CLIENT_MARKER}", so invariant D checked nothing. Either ` +
+        `@walletconnect/sign-client no longer prints it (pick a new string only its dist ships), ` +
+        `or nothing loads sign-client any more — then the Solana WalletConnect row is gone, and D goes with it.`,
+    );
+  }
+  const eagerSignClient = signClientChunks.filter((f) => closure.has(f));
+  if (eagerSignClient.length) {
+    die(
+      `sign-client (${eagerSignClient.join(', ')}) is STATICALLY reachable from the entry chunk — ` +
+        `WalletConnect's core would load on every first paint. Find the new static import chain ` +
+        `(ANALYZE=true vite build).`,
+    );
+  }
+  for (const adapterChunk of adapterChunks) {
+    const reached = signClientChunks.filter((f) => staticClosure(adapterChunk).has(f));
+    if (reached.length) {
+      die(
+        `sign-client (${reached.join(', ')}) is STATICALLY reachable from ${adapterChunk}, the chunk holding ` +
+          `the Solana WalletConnect adapter. src/lib/solanaWalletConnect.ts must load it with import() ` +
+          `inside loadWalletConnect(), never a static import.`,
+      );
+    }
+  }
+  const preloadedSignClient = signClientChunks.filter((f) => preloads.includes(f));
+  if (preloadedSignClient.length) {
+    die(`index.html modulepreloads ${preloadedSignClient.join(', ')} — sign-client must stay lazy`);
+  }
+  signClientVerdict = `sign-client lazy (${signClientChunks.join(', ')})`;
 }
 
 console.log(
   `✔ dist-graph gate: entry=${entryRel}, static closure ${closure.size} chunk(s), ` +
     `polyfill markers present, vendor-solana lazy (${preloads.length} preloads checked), ` +
-    `sign-client lazy (${signClientChunks.join(', ')}; adapter in ${adapterChunks.join(', ')}).`,
+    `${signClientVerdict}; adapter in ${adapterChunks.join(', ')}.`,
 );

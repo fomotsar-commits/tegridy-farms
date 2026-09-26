@@ -21,11 +21,13 @@ import {
 import { PublicKey, VersionedTransaction, type Transaction } from '@solana/web3.js';
 import { ed25519 } from '@noble/curves/ed25519';
 import { base58, base64 } from '@scure/base';
-// TYPE-ONLY. The package itself is loaded with a dynamic import() inside
-// getClient(), so the Solana page pays nothing for it until someone connects.
-// solanaWalletConnect.test.ts fails on any static value import of it, and
-// scripts/check-dist-graph.mjs fails the BUILD if the built chunk graph ever
-// reaches it statically.
+// TYPE-ONLY. The package itself, and the storage it opens, are loaded with a
+// dynamic import() inside loadWalletConnect(), so the Solana page pays nothing
+// for them until someone connects — and a build without a project id carries
+// neither (rule 1). solanaWalletConnect.test.ts fails on any static value
+// import of them, and scripts/check-dist-graph.mjs fails the BUILD if the
+// built chunk graph ever reaches sign-client statically, or carries it at all
+// without a project id.
 import type SignClientClass from '@walletconnect/sign-client';
 
 /**
@@ -66,14 +68,25 @@ import type SignClientClass from '@walletconnect/sign-client';
  *
  * ── THE RULES THIS ADAPTER KEEPS ──
  *
- *  1. Built only with a project id (SolanaProviders). Without one it is inert.
+ *  1. Built only with a project id (SolanaProviders). Without one it is inert,
+ *     and the BUILD carries none of its WalletConnect code: the import() sits
+ *     behind the literal import.meta.env.VITE_WALLETCONNECT_PROJECT_ID, which
+ *     Vite replaces, so the bundler drops it and everything only it reached.
+ *     It was once compiled in regardless, and the bundler hoisted
+ *     sign-client's @noble/@scure deps into the EAGER vendor-crypto chunk:
+ *     +93 KB on every page of every no-id build (CI, fork PRs, clones).
  *  2. Not offered on a phone: a QR cannot be scanned by the screen showing it,
  *     and phones already get in-app-browser rows (Phantom, Trust, MetaMask,
  *     Coinbase) and the Mobile Wallet Adapter.
  *  3. autoConnect RESTORES ONLY: a live Solana session connects silently; no
  *     session means nothing happens. It never shows a QR. "Live" means inside
  *     its expiry: the engine prunes expired sessions only when it starts, so a
- *     dead one can still be listed.
+ *     dead one can still be listed. A disconnect() stops a restore or a
+ *     connect still running — WalletProvider calls it when the visitor picks
+ *     another wallet mid-restore — and frees the adapter at once. A restore
+ *     that finished anyway once left the adapter reading connected while the
+ *     provider read disconnected, and every later WalletConnect pick then did
+ *     nothing at all until a reload.
  *  4. Nothing waits forever: starting WalletConnect is bounded by
  *     START_TIMEOUT_MS, a QR by the proposal's own 5-minute expiry, a
  *     signature by SIGN_TIMEOUT_MS — and a cancel (Back, Escape, Close) ends
@@ -89,17 +102,44 @@ import type SignClientClass from '@walletconnect/sign-client';
  *     signature would only surface as "expired" a minute later — unreadable
  *     reading as pending. noble's default (ZIP-215) would pass a small-order
  *     "address", with which one forged signature verifies over anything.
- *  7. Solana code never writes or deletes localStorage
- *     WALLETCONNECT_DEEPLINK_CHOICE. RainbowKit owns that key; our session is
- *     marked disableDeepLink so sign-client never follows it for us.
+ *  7. This client can neither read, write nor delete
+ *     WALLETCONNECT_DEEPLINK_CHOICE: RainbowKit's saved EVM wallet choice. Our
+ *     session is marked disableDeepLink, so sign-client never needs the key
+ *     for us. But its deleteSession REMOVES it on every session end, and the
+ *     key has no storage prefix, so 'solana' does not protect it
+ *     (engine.ts:1583-1587). Normally that removal hits IndexedDB and misses
+ *     RainbowKit's copy in localStorage — until IndexedDB cannot be opened:
+ *     KeyValueStorage then falls back to localStorage itself, and a Solana
+ *     disconnect, or an expired Solana session found at start-up, deleted
+ *     RainbowKit's choice (reproduced with the real browser build). So this
+ *     client's storage hides that one key (withoutDeepLinkChoice). Not ours
+ *     to change: the EVM clients' own disconnects remove it the same way, and
+ *     KeyValueStorage's one-time localStorage-to-IndexedDB migration moves
+ *     every WalletConnect key — this one included — the first time ANY
+ *     WalletConnect client opens storage on the origin.
  *  8. The session is READ when it is used, never trusted from a snapshot: at
- *     sign time the record is fetched again, and one that is gone, expired or
- *     no longer grants signing stops the request before it is sent.
- *  9. Every card hears a session end. /farm?bungalow=bayla mounts two
- *     SolanaProviders, so two adapters hold ONE session on the one client.
- *     sign-client's own disconnect() emits nothing locally (deleteSession with
- *     emitEvent:false), so a Disconnect in one card, and the wallet ending it,
- *     are fanned out here to every adapter holding that topic.
+ *     sign time the record is fetched again, and one that is gone, expired,
+ *     no longer grants signing, or no longer lists THIS card's account (the
+ *     wallet switched accounts) stops the request before it is sent. The last
+ *     one once went out, the wallet signed with the new key, and the visitor
+ *     read "the wallet's signature doesn't match this transaction" on every
+ *     write until a reload.
+ *  9. Every card hears a session end or an account switch.
+ *     /farm?bungalow=bayla mounts two SolanaProviders, so two adapters hold
+ *     ONE session on the one client. sign-client's own disconnect() emits
+ *     nothing locally (deleteSession with emitEvent:false), so a Disconnect
+ *     in one card, the wallet ending it, and the wallet's session_update are
+ *     fanned out here to every adapter holding that topic — the update the
+ *     moment it lands, not at the next signature.
+ * 10. A QR the visitor abandoned never connects them. A wallet's approval can
+ *     land after Back, and sign-client stores the session regardless. When
+ *     approval() resolves late, that session is deleted. When the settle
+ *     lands after the pairing is gone, the engine stores the session but
+ *     never resolves approval() — no promise chain can reach it — so the
+ *     next connect skips, and deletes, any session on an abandoned pairing.
+ *     That memory lasts for the page: after a reload, a session stored the
+ *     second way and not yet found could still be restored. Reaching it takes
+ *     tapping Approve on the phone and pressing Back within about a second.
  */
 
 export const WalletConnectWalletName = 'WalletConnect' as WalletName<'WalletConnect'>;
@@ -131,6 +171,37 @@ const UNSUPPORTED_ACCOUNTS = { message: 'Unsupported accounts.', code: 5103 };
 
 type SignClient = Awaited<ReturnType<typeof SignClientClass.init>>;
 type Session = ReturnType<SignClient['session']['getAll']>[number];
+/** @walletconnect/keyvaluestorage's IKeyValueStorage, as SignClient.init takes it. */
+type WalletConnectStorage = NonNullable<NonNullable<Parameters<typeof SignClientClass.init>[0]>['storage']>;
+
+/**
+ * RainbowKit's saved EVM wallet choice (rule 7) — the one key sign-client
+ * touches outside its storage prefix.
+ */
+const DEEPLINK_CHOICE = 'WALLETCONNECT_DEEPLINK_CHOICE';
+
+/**
+ * @walletconnect/core constants CORE_STORAGE_OPTIONS: what Core passes when it
+ * opens storage itself. The browser build takes no options (it is always
+ * IndexedDB WALLET_CONNECT_V2_INDEXED_DB, with the localStorage fallback);
+ * the Node build, which tests load, would otherwise write walletconnect.db.
+ */
+const CORE_STORAGE_OPTIONS = { database: ':memory:' };
+
+/** Rule 7: `inner` as this client sees it — without RainbowKit's key. */
+function withoutDeepLinkChoice(inner: WalletConnectStorage): WalletConnectStorage {
+  return {
+    getKeys: async () => (await inner.getKeys()).filter((key) => key !== DEEPLINK_CHOICE),
+    getEntries: async <T>() => (await inner.getEntries<T>()).filter(([key]) => key !== DEEPLINK_CHOICE),
+    getItem: async <T>(key: string) => (key === DEEPLINK_CHOICE ? undefined : inner.getItem<T>(key)),
+    setItem: async <T>(key: string, value: T) => {
+      if (key !== DEEPLINK_CHOICE) await inner.setItem(key, value);
+    },
+    removeItem: async (key: string) => {
+      if (key !== DEEPLINK_CHOICE) await inner.removeItem(key);
+    },
+  };
+}
 
 /** What the Solana connect modal shows for this adapter. */
 export type WalletConnectPairing =
@@ -155,15 +226,35 @@ export const PAIRING_REASONS = {
   startFailed: "WalletConnect didn't start. Check your connection, or pick another wallet.",
 } as const;
 
-/** The SignClient options — exported so a test can run the REAL client on them. */
-export function signClientOptions(projectId: string, origin: string) {
+/**
+ * The SignClient options — exported so a test can run the REAL client on them.
+ * `storage` is where the client keeps its state; it always goes in wrapped, so
+ * the client never sees RainbowKit's key (rule 7).
+ */
+export function signClientOptions(projectId: string, origin: string, storage: WalletConnectStorage) {
   return {
     projectId,
     customStoragePrefix: WALLETCONNECT_STORAGE_PREFIX,
     telemetryEnabled: false,
     // The same app identity the EVM connector sends (wagmi.ts buildConfig).
     metadata: { name: 'memetics.finance', description: 'memetics.finance', url: origin, icons: [] as string[] },
+    storage: withoutDeepLinkChoice(storage),
   };
+}
+
+/**
+ * sign-client and the storage it opens, on first use — and only in a build
+ * made with a project id (rule 1). The condition MUST stay the literal
+ * `import.meta.env.VITE_WALLETCONNECT_PROJECT_ID`: Vite replaces it at build
+ * time, so a no-id build compiles both import()s out, with every module only
+ * they reach. A constructor argument cannot do that; the bundler keeps
+ * whatever a runtime value might need. Built without an id the adapter is
+ * Unsupported anyway, so the rejection is reached only by a test.
+ */
+function loadWalletConnect() {
+  return import.meta.env.VITE_WALLETCONNECT_PROJECT_ID
+    ? Promise.all([import('@walletconnect/sign-client'), import('@walletconnect/keyvaluestorage')])
+    : Promise.reject<never>(new WalletNotReadyError('WalletConnect is not configured in this build'));
 }
 
 let clientPromise: Promise<SignClient> | null = null;
@@ -175,8 +266,10 @@ let clientPromise: Promise<SignClient> | null = null;
  */
 function getClient(projectId: string): Promise<SignClient> {
   if (!clientPromise) {
-    const started = import('@walletconnect/sign-client').then(({ SignClient }) =>
-      SignClient.init(signClientOptions(projectId, window.location.origin)),
+    const started = loadWalletConnect().then(([{ SignClient }, { KeyValueStorage }]) =>
+      SignClient.init(
+        signClientOptions(projectId, window.location.origin, new KeyValueStorage(CORE_STORAGE_OPTIONS)),
+      ),
     );
     clientPromise = started;
     started.catch(() => {
@@ -223,11 +316,21 @@ function isLive(session: Session): boolean {
   return session.expiry * 1000 > Date.now();
 }
 
-/** Newest LIVE session that carries a Solana account. Never `sessions[0]`. */
+/** Pairing topics of QRs the visitor abandoned, for this page's life (rule 10). */
+const abandonedPairings = new Set<string>();
+
+/**
+ * Newest LIVE session that carries a Solana account. Never `sessions[0]`.
+ * A session settled on an abandoned QR is never returned, and is deleted as
+ * it is found (rule 10), so a reload cannot restore it either.
+ */
 function restorableSession(client: SignClient): Session | undefined {
-  return client.session
-    .getAll()
-    .filter((s) => isLive(s) && solanaAccount(s) !== null)
+  const sessions = client.session.getAll();
+  for (const stray of sessions.filter((s) => abandonedPairings.has(s.pairingTopic))) {
+    client.disconnect({ topic: stray.topic, reason: USER_DISCONNECTED }).catch(() => {});
+  }
+  return sessions
+    .filter((s) => !abandonedPairings.has(s.pairingTopic) && isLive(s) && solanaAccount(s) !== null)
     .sort((a, b) => b.expiry - a.expiry)[0];
 }
 
@@ -244,6 +347,17 @@ function currentSession(client: SignClient, topic: string): Session | null {
     return null;
   }
   return session && isLive(session) ? session : null;
+}
+
+/**
+ * Does the record still grant THIS account on THIS chain (rule 8)? A wallet
+ * that switches accounts sends wc_sessionUpdate, and sign-client writes the
+ * new accounts into the store (engine onSessionUpdateRequest). Membership,
+ * not position: solanaAccount() takes the FIRST account, and a wallet that
+ * ADDS one still grants the account this card adopted.
+ */
+function grants(session: Session, chainId: string, publicKey: PublicKey): boolean {
+  return (session.namespaces.solana?.accounts ?? []).includes(`${chainId}:${publicKey.toBase58()}`);
 }
 
 /** `wc:<pairing topic>@2?…` — the topic to close when a QR is abandoned. */
@@ -348,6 +462,12 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
   private _pairing: WalletConnectPairing = IDLE;
   private readonly _pairingListeners = new Set<() => void>();
   private _cancelPairing: ((error: Error) => void) | null = null;
+  /**
+   * Bumped by every disconnect() (rule 3). A restore or connect that started
+   * in an older generation may still be awaiting; when it resumes it must not
+   * adopt a session, nor touch state that now belongs to whatever came after.
+   */
+  private _generation = 0;
 
   constructor(config: { projectId: string }) {
     super();
@@ -404,21 +524,31 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
   override async autoConnect(): Promise<void> {
     if (this.connected || this.connecting || this._readyState !== WalletReadyState.Loadable) return;
     this._connecting = true;
+    const generation = this._generation;
     try {
       const client = await getClient(this._projectId);
       const session = restorableSession(client);
-      if (session) await this._adopt(client, session);
+      // Rule 3: _adopt refuses if a disconnect() came while this waited.
+      if (session) await this._adopt(client, session, generation);
     } catch (error) {
+      // A restore the visitor already left says nothing. Thrown, it would
+      // reach WalletProvider's autoConnect catch, which clears the SAVED
+      // wallet — by then the one they picked instead.
+      if (generation !== this._generation) return;
       this.emit('error', error as WalletError);
       throw error;
     } finally {
-      this._connecting = false;
+      if (generation === this._generation) this._connecting = false;
     }
   }
 
   async connect(): Promise<void> {
+    // Outside the try: an attempt already running is not this call's to clean
+    // up. Inside it, the finally below once cleared the running attempt's
+    // cancel handle, and its Back button stopped working.
+    if (this.connected || this.connecting) return;
+    const generation = this._generation;
     try {
-      if (this.connected || this.connecting) return;
       if (this._readyState !== WalletReadyState.Loadable) throw new WalletNotReadyError();
       this._connecting = true;
       // Armed BEFORE the first await (rule 4), and raced against every wait
@@ -434,7 +564,7 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
       const client = await Promise.race([getClient(this._projectId), cancelled]);
       const existing = restorableSession(client);
       if (existing) {
-        await this._adopt(client, existing);
+        if (!(await this._adopt(client, existing, generation))) throw new WalletWindowClosedError();
         this._setPairing(IDLE);
         return;
       }
@@ -458,28 +588,47 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
       if (!uri || !pairingTopicOf(uri)) throw new WalletConnectionError('WalletConnect returned no pairing link');
       this._setPairing({ phase: 'scan', uri });
 
+      // ONE approval promise. A second approval() call would replace the
+      // resolver sign-client caches for it (utils createDelayedPromise), and
+      // the first promise would then never settle.
+      const approving = approval();
       let session: Session;
       try {
-        session = await Promise.race([approval(), cancelled]);
+        session = await Promise.race([approving, cancelled]);
       } catch (error) {
+        // Rule 10. The pairing is closed, but an approval already on its way
+        // can still land: delete its session when approval() resolves, and
+        // remember the pairing for when approval() never does.
+        abandonedPairings.add(pairingTopicOf(uri)!);
         dropPairing(client, uri);
+        approving.then(
+          (late) => client.disconnect({ topic: late.topic, reason: USER_DISCONNECTED }).catch(() => {}),
+          () => {},
+        );
         throw error;
       }
-      await this._adopt(client, session);
+      if (!(await this._adopt(client, session, generation))) throw new WalletWindowClosedError();
       this._setPairing(IDLE);
     } catch (error) {
-      this._setPairing(failureFor(error));
+      // A disconnect() already reset the notice; a later attempt may own it now.
+      if (generation === this._generation) this._setPairing(failureFor(error));
       const walletError =
         error instanceof WalletError ? error : new WalletConnectionError((error as { message?: string })?.message, error);
       this.emit('error', walletError);
       throw walletError;
     } finally {
-      this._connecting = false;
-      this._cancelPairing = null;
+      if (generation === this._generation) {
+        this._connecting = false;
+        this._cancelPairing = null;
+      }
     }
   }
 
-  private async _adopt(client: SignClient, session: Session): Promise<void> {
+  /**
+   * Hold `session` — unless a disconnect() came first (rule 3), which the one
+   * await below can let in. Returns whether it was adopted.
+   */
+  private async _adopt(client: SignClient, session: Session, generation: number): Promise<boolean> {
     const account = solanaAccount(session);
     if (!account) {
       // An EVM-only wallet scanned the QR. Delete the session, or every later
@@ -503,6 +652,7 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
         sessionConfig: { ...session.sessionConfig, disableDeepLink: true },
       });
     }
+    if (generation !== this._generation) return false;
     this._client = client;
     this._topic = session.topic;
     this._chainId = account.chainId;
@@ -512,13 +662,23 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
     // single, and it fans out to every holder of the topic (rule 9).
     client.off('session_delete', WalletConnectWalletAdapter._walletEnded);
     client.off('session_expire', WalletConnectWalletAdapter._walletEnded);
+    client.off('session_update', WalletConnectWalletAdapter._walletUpdated);
     client.on('session_delete', WalletConnectWalletAdapter._walletEnded);
     client.on('session_expire', WalletConnectWalletAdapter._walletEnded);
+    client.on('session_update', WalletConnectWalletAdapter._walletUpdated);
     this.emit('connect', publicKey);
+    return true;
   }
 
   async disconnect(): Promise<void> {
+    // Rule 3: whatever is still running belongs to an older generation now,
+    // and this adapter is free for the next connect() at once — not when a
+    // restore still waiting on WalletConnect's start-up gets round to ending.
+    this._generation++;
     this.cancelPairing();
+    this._cancelPairing = null;
+    this._connecting = false;
+    if (this._pairing.phase === 'starting' || this._pairing.phase === 'scan') this._setPairing(IDLE);
     const client = this._client;
     const topic = this._topic;
     this._detach();
@@ -549,12 +709,17 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
       const publicKey = this._publicKey;
       if (!client || !topic || !publicKey) throw new WalletNotConnectedError();
       try {
-        // Rule 8: the record as it is NOW. Gone or expired means disconnected
-        // — for every card holding it — and nothing is sent.
+        // Rule 8: the record as it is NOW. Gone, expired, or no longer
+        // listing this card's account means disconnected — for every card it
+        // no longer serves — and nothing is sent.
         const session = currentSession(client, topic);
-        if (!session) {
-          WalletConnectWalletAdapter._end(topic, true);
-          throw new Error('The WalletConnect session has ended. Connect again. Nothing was sent');
+        if (!session || !grants(session, this._chainId, publicKey)) {
+          WalletConnectWalletAdapter._recheck(topic);
+          throw new Error(
+            session
+              ? 'Your wallet switched accounts. Connect again. Nothing was sent'
+              : 'The WalletConnect session has ended. Connect again. Nothing was sent',
+          );
         }
         // solana-adapter core.ts checkIfWalletSupportsMethod, on the FRESH
         // record, with a sentence a person can act on.
@@ -609,9 +774,10 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
 
   /**
    * Every adapter holding `topic` lets go of it and says so (rule 9). When the
-   * WALLET ended it (session_delete, seven days running out, or a record found
-   * gone at sign time) each also reports WalletDisconnectedError, the way the
-   * upstream adapters report a wallet-side disconnect.
+   * WALLET ended it (session_delete, or seven days running out) each also
+   * reports WalletDisconnectedError, the way the upstream adapters report a
+   * wallet-side disconnect. A record found gone or changed at sign time goes
+   * through _recheck instead.
    */
   private static _end(topic: string, byWallet: boolean): void {
     for (const adapter of [...adopted]) {
@@ -622,9 +788,35 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
     }
   }
 
+  /**
+   * Every adapter holding `topic` whose session is gone, expired, or no longer
+   * lists the account it adopted lets go and says so, as a wallet-side
+   * disconnect (rule 9). One still served is left alone: two cards can hold
+   * different accounts of one session if the wallet added one in between.
+   */
+  private static _recheck(topic: string): void {
+    for (const adapter of [...adopted]) {
+      if (adapter._topic !== topic) continue;
+      const session = adapter._client ? currentSession(adapter._client, topic) : null;
+      if (session && adapter._publicKey && grants(session, adapter._chainId, adapter._publicKey)) continue;
+      adapter._detach();
+      adapter.emit('error', new WalletDisconnectedError());
+      adapter.emit('disconnect');
+    }
+  }
+
   /** The wallet ended it, or seven days ran out. Either way: disconnected. */
   private static readonly _walletEnded = ({ topic }: { topic: string }): void => {
     WalletConnectWalletAdapter._end(topic, true);
+  };
+
+  /**
+   * The wallet changed the session — sign-client has already written the new
+   * record (engine onSessionUpdateRequest). A card whose account it no longer
+   * lists stops showing it NOW, not at its next signature.
+   */
+  private static readonly _walletUpdated = ({ topic }: { topic: string }): void => {
+    WalletConnectWalletAdapter._recheck(topic);
   };
 }
 

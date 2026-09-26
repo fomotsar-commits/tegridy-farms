@@ -18,6 +18,16 @@
 // gate cannot tell from a real one: a static import, a missing marker, an
 // eager edge from the entry, a modulepreload.
 //
+// D DEPENDS ON THE BUILD'S PROJECT ID (added 2026-09-26). The adapter's
+// import() of sign-client sits behind the literal
+// import.meta.env.VITE_WALLETCONNECT_PROJECT_ID, so a build without the id
+// (CI, fork PRs, fresh clones) compiles it out, and must carry NO sign-client
+// at all. Before that, a no-id build did carry it, and the bundler hoisted its
+// @noble/@scure deps into the eager vendor-crypto chunk (+93 KB on every page)
+// while D, which looked only at sign-client's own chunk, still passed. The
+// gate reads the id the way Vite does; every run here passes it explicitly,
+// so a developer's own .env cannot change what these tests see.
+//
 // THE MARKERS ARE READ FROM THE GATE, then pinned to what they stand for: the
 // sign-client string must be in the installed sign-client's dist, and the
 // adapter's must be in the adapter's own notice. A marker that drifted from
@@ -84,7 +94,13 @@ function fixture({ adapterEdge = 'dynamic', adapterMarker = true, signClient = t
   return dir;
 }
 
-const gate = (dir) => spawnSync(process.execPath, [GATE, dir], { encoding: 'utf8' });
+const WITH_ID = '00000000000000000000000000000000';
+/** The gate, run as the build runs it, for a build made with `projectId` ('' = none). */
+const gate = (dir, projectId = WITH_ID) =>
+  spawnSync(process.execPath, [GATE, dir], {
+    encoding: 'utf8',
+    env: { ...process.env, VITE_WALLETCONNECT_PROJECT_ID: projectId },
+  });
 
 describe('check-dist-graph invariant D: sign-client stays lazy', () => {
   it('a dynamic import() of sign-client passes, and the pass names the chunk it checked', () => {
@@ -124,6 +140,35 @@ describe('check-dist-graph invariant D: sign-client stays lazy', () => {
     const run = gate(fixture({ preload: true }));
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('sign-client-c.js');
+  });
+});
+
+describe('check-dist-graph invariant D, for a build WITHOUT a project id', () => {
+  it('no sign-client anywhere passes, and says which kind of build it checked', () => {
+    const run = gate(fixture({ signClient: false }), '');
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+    expect(run.stdout).toMatch(/no project id/i);
+  });
+
+  it('sign-client in ANY chunk fails, even behind a dynamic import', () => {
+    // The bytes are the point: a lazy sign-client chunk still drags its
+    // hoisted deps into eager chunks.
+    const run = gate(fixture(), '');
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('sign-client-c.js');
+  });
+
+  it("the adapter's marker is still required", () => {
+    const run = gate(fixture({ signClient: false, adapterMarker: false }), '');
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(markerFromGate('SOLANA_WALLETCONNECT_MARKER'));
+  });
+
+  it('WITH an id, a build carrying no sign-client still fails: the row would be dead', () => {
+    const run = gate(fixture({ signClient: false }), WITH_ID);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(markerFromGate('SIGN_CLIENT_MARKER'));
   });
 });
 

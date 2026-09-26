@@ -15,6 +15,7 @@ import {
 } from '@solana/web3.js';
 import {
   WalletAccountError,
+  WalletNotReadyError,
   WalletReadyState,
   WalletSignTransactionError,
   WalletTimeoutError,
@@ -42,6 +43,8 @@ const BLOCKHASH = '11111111111111111111111111111111';
 type Listener = (payload: { topic: string }) => void;
 type FakeSession = {
   topic: string;
+  /** The QR's pairing the session settled on (`wc:<pairingTopic>@2?…`). */
+  pairingTopic: string;
   expiry: number;
   namespaces: Record<string, { accounts: string[]; methods: string[]; events: string[] }>;
   peer: { metadata: { name: string } };
@@ -124,6 +127,7 @@ function solanaSession(
 ): FakeSession {
   return {
     topic,
+    pairingTopic: 'pair-earlier',
     expiry: 9_999_999_999,
     namespaces: { solana: { accounts: [`${MAINNET}:${address}`], methods, events: [] } },
     peer: { metadata: { name: 'Test Wallet' } },
@@ -132,6 +136,7 @@ function solanaSession(
 function evmOnlySession(topic = 'sess-evm'): FakeSession {
   return {
     topic,
+    pairingTopic: 'pair-earlier',
     expiry: 9_999_999_999,
     namespaces: { eip155: { accounts: ['eip155:1:0x0000000000000000000000000000000000000001'], methods: [], events: [] } },
     peer: { metadata: { name: 'EVM Wallet' } },
@@ -171,6 +176,9 @@ const DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (K
 
 beforeEach(async () => {
   setUserAgent(DESKTOP);
+  // What a production build has. Without it the adapter's import() of
+  // sign-client is compiled out (see 'a build without a project id').
+  vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', 'test-project');
   client = new FakeClient();
   h.initCalls.length = 0;
   h.init = async () => client;
@@ -180,6 +188,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 const make = () => new mod.WalletConnectWalletAdapter({ projectId: 'test-project' });
@@ -323,6 +332,118 @@ describe('a cancel is never lost, whatever phase it lands in', () => {
   });
 });
 
+describe('a disconnect stops a restore or a connect that is still running', () => {
+  // The BAYLA card buttons stay enabled while a saved WalletConnect session is
+  // being restored, so the visitor can open the list and pick another wallet.
+  // WalletProvider then calls disconnect() on this adapter. Before the fix
+  // that reached only connect()'s cancel, which a restore never arms: the
+  // restore finished anyway, the adapter read connected while the provider
+  // read disconnected, and every later WalletConnect pick returned at once
+  // ("already connected") with no QR and no error until a reload.
+  it('disconnect() while autoConnect is starting WalletConnect: the restore never lands, and a later connect() works', async () => {
+    client.sessions.set('sess-sol', solanaSession());
+    let release!: (c: unknown) => void;
+    h.init = () =>
+      new Promise((r) => {
+        release = r;
+      });
+    const adapter = make();
+    const onConnect = vi.fn();
+    adapter.on('connect', onConnect);
+    const restoring = adapter.autoConnect();
+    await vi.waitFor(() => expect(h.initCalls).toHaveLength(1));
+    await adapter.disconnect();
+    release(client);
+    await restoring;
+    expect(onConnect).not.toHaveBeenCalled();
+    expect(adapter.connected).toBe(false);
+    expect(adapter.connecting).toBe(false);
+    // The session is still live in the client, so a later pick restores it:
+    // connected (no QR needed) is the right answer, "nothing happens" is not.
+    await adapter.connect();
+    expect(adapter.publicKey?.equals(wallet.publicKey)).toBe(true);
+    expect(onConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('disconnect() while connect() is adopting an approved session: connect() ends closed, and nothing is adopted', async () => {
+    // _adopt awaits one store write (turning deep links off). A disconnect
+    // that lands inside it must win, not be overwritten by the adopt.
+    let releaseUpdate: (() => void) | undefined;
+    const update = client.session.update;
+    client.session.update = async (topic, patch) => {
+      await new Promise<void>((r) => {
+        releaseUpdate = r;
+      });
+      return update(topic, patch);
+    };
+    client.approval = async () => client.approveWith(solanaSession());
+    const adapter = make();
+    const onConnect = vi.fn();
+    adapter.on('connect', onConnect);
+    const settled = adapter.connect().then(
+      () => 'resolved',
+      (e: unknown) => e,
+    );
+    await vi.waitFor(() => expect(releaseUpdate).toBeDefined());
+    await adapter.disconnect();
+    releaseUpdate!();
+    expect(await settled).toBeInstanceOf(WalletWindowClosedError);
+    expect(onConnect).not.toHaveBeenCalled();
+    expect(adapter.connected).toBe(false);
+    expect(adapter.getPairing()).toEqual({ phase: 'idle' });
+  });
+
+  it('disconnect() frees the adapter at once: a connect() right after runs its own attempt, and the old restore cannot end it', async () => {
+    // Not "once WalletConnect gets round to starting": until then a restore
+    // still holds `connecting`, and a pick of WalletConnect in that window
+    // returned at once with nothing shown.
+    client.sessions.set('sess-sol', solanaSession());
+    let release!: (c: unknown) => void;
+    h.init = () =>
+      new Promise((r) => {
+        release = r;
+      });
+    // Each adopt's one store write waits here, in the order they reach it.
+    const parked: Array<() => void> = [];
+    const update = client.session.update;
+    client.session.update = async (topic, patch) => {
+      await new Promise<void>((r) => parked.push(r));
+      return update(topic, patch);
+    };
+    const adapter = make();
+    const restoring = adapter.autoConnect();
+    await vi.waitFor(() => expect(h.initCalls).toHaveLength(1));
+    await adapter.disconnect();
+    const connecting = adapter.connect();
+    expect(adapter.getPairing().phase).toBe('starting');
+    release(client);
+    // The old restore waited on start-up first, so it reaches its adopt first.
+    await vi.waitFor(() => expect(parked).toHaveLength(2));
+    parked[0]!();
+    await restoring;
+    // It ended refusing the session, and left the new attempt's state alone.
+    expect(adapter.publicKey).toBeNull();
+    expect(adapter.connecting).toBe(true);
+    parked[1]!();
+    await connecting;
+    expect(adapter.publicKey?.equals(wallet.publicKey)).toBe(true);
+    expect(adapter.connecting).toBe(false);
+  });
+
+  it('a second connect() while the QR is showing returns, and leaves the first one cancellable', async () => {
+    // The early return once ran inside the try, so its finally cleared the
+    // RUNNING attempt's cancel handle: Back, Escape and Close then did nothing.
+    const adapter = make();
+    const first = adapter.connect().catch((e: unknown) => e);
+    await vi.waitFor(() => expect(adapter.getPairing().phase).toBe('scan'));
+    await adapter.connect();
+    adapter.cancelPairing();
+    const outcome = await Promise.race([first, new Promise((r) => setTimeout(() => r('still pending'), 500))]);
+    expect(outcome).toBeInstanceOf(WalletWindowClosedError);
+    expect(adapter.connecting).toBe(false);
+  });
+});
+
 describe('connect(): the QR and its outcomes', () => {
   it('shows the QR, then connects on approval, asking only for mainnet signTransaction', async () => {
     let approve!: (s: FakeSession) => void;
@@ -379,6 +500,51 @@ describe('connect(): the QR and its outcomes', () => {
     expect(client.disconnectCalls).toContainEqual(expect.objectContaining({ topic: 'sess-x' }));
     expect(client.sessions.has('sess-x')).toBe(false);
     expect(adapter.getPairing()).toEqual({ phase: 'failed', reason: mod.PAIRING_REASONS.noSolana });
+  });
+});
+
+describe('a QR the visitor abandoned never connects them later', () => {
+  // The visitor taps Approve on the phone and, within about a second, presses
+  // Back, Close or Escape on the computer. Closing the pairing does not stop a
+  // settle already on its way, and sign-client stores the session either way
+  // (engine onSessionSettleRequest: session.set comes first). Before the fix
+  // the next WalletConnect click adopted that stored session with no QR.
+  const abandoned = (topic: string): FakeSession => ({ ...solanaSession(topic), pairingTopic: 'pairtopic123' });
+
+  async function scanThenBack(adapter: InstanceType<typeof mod.WalletConnectWalletAdapter>) {
+    const first = adapter.connect().catch((e: unknown) => e);
+    await vi.waitFor(() => expect(adapter.getPairing().phase).toBe('scan'));
+    adapter.cancelPairing();
+    expect(await first).toBeInstanceOf(WalletWindowClosedError);
+  }
+
+  it('approved just after Back, approval() resolving late: that session is deleted', async () => {
+    let approve!: (s: FakeSession) => void;
+    client.approval = () => new Promise((r) => (approve = (s) => r(client.approveWith(s))));
+    const adapter = make();
+    await scanThenBack(adapter);
+    approve(abandoned('sess-late'));
+    await vi.waitFor(() => expect(client.disconnectCalls).toContainEqual(expect.objectContaining({ topic: 'sess-late' })));
+    expect(client.sessions.has('sess-late')).toBe(false);
+    expect(adapter.publicKey).toBeNull();
+  });
+
+  it('settled after the pairing was closed, approval() NEVER resolving: the next click shows a new QR, and the stray session is deleted', async () => {
+    // The real engine, when the settle lands after the pairing is gone:
+    // session.set succeeds, pairing.updateMetadata throws "No matching key",
+    // session_connect is never emitted, so approval() never resolves — no
+    // promise chain can clean this one up. (Shown on the real 2.25.0 engine in
+    // solanaWalletConnect.engine.test.ts.)
+    const adapter = make();
+    await scanThenBack(adapter);
+    client.sessions.set('sess-late', abandoned('sess-late'));
+    const second = adapter.connect().catch((e: unknown) => e);
+    await vi.waitFor(() => expect(adapter.getPairing().phase).toBe('scan'));
+    expect(client.connectCalls).toHaveLength(2);
+    expect(adapter.publicKey).toBeNull();
+    expect(client.disconnectCalls).toContainEqual(expect.objectContaining({ topic: 'sess-late' }));
+    adapter.cancelPairing();
+    await second;
   });
 });
 
@@ -560,6 +726,84 @@ describe('signTransaction reads the session at SIGN time, never a snapshot from 
     await expect(adapter.signTransaction(v0Tx())).rejects.toThrow(/didn't allow transaction signing/);
     expect(client.requests).toHaveLength(0);
   });
+
+  it('the wallet switched to ANOTHER account: refused with no request sent, and the card reads disconnected', async () => {
+    // A wallet switching accounts sends wc_sessionUpdate; sign-client accepts
+    // it (we propose optionalNamespaces only, and the wallet controls the
+    // session) and writes the new account into the store. Before the fix the
+    // request went out, the wallet signed with the NEW key, and the visitor
+    // read "the wallet's signature doesn't match this transaction" — blaming
+    // the transaction for an account switch, on every write until a reload.
+    const adapter = await connected();
+    const other = Keypair.generate();
+    client.respond = async (p) => {
+      const tx = VersionedTransaction.deserialize(base64.decode(p.transaction as string));
+      return { signature: base58.encode(ed25519.sign(tx.message.serialize(), other.secretKey.slice(0, 32))) };
+    };
+    const onDisconnect = vi.fn();
+    adapter.on('disconnect', onDisconnect);
+    client.sessions.set('sess-sol', solanaSession('sess-sol', undefined, other.publicKey.toBase58()));
+    const error = await adapter.signTransaction(v0Tx()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(WalletSignTransactionError);
+    expect((error as Error).message).not.toMatch(/signature/);
+    expect(client.requests).toHaveLength(0);
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+    expect(adapter.publicKey).toBeNull();
+  });
+
+  it('a wallet that ADDED an account still grants ours: signing goes on as ours', async () => {
+    // Membership, not position: solanaAccount() picks the FIRST account, so a
+    // check of "still the first account" would end a session that still
+    // grants the one this card adopted.
+    const adapter = await connected();
+    const added = Keypair.generate().publicKey.toBase58();
+    client.sessions.set('sess-sol', {
+      ...solanaSession(),
+      namespaces: {
+        solana: {
+          accounts: [`${MAINNET}:${added}`, `${MAINNET}:${wallet.publicKey.toBase58()}`],
+          methods: ['solana_signTransaction'],
+          events: [],
+        },
+      },
+    });
+    await adapter.signTransaction(v0Tx());
+    expect(client.requests).toHaveLength(1);
+    expect(adapter.publicKey?.equals(wallet.publicKey)).toBe(true);
+  });
+});
+
+describe('the wallet switching accounts is heard when it happens, by every card', () => {
+  // Not only at the next signature: the card must stop showing the old
+  // account's positions the moment the wallet stops granting it.
+  it('session_update that drops our account disconnects every card holding the topic, once each', async () => {
+    client.sessions.set('sess-sol', solanaSession());
+    const cards = [make(), make()];
+    for (const card of cards) await card.autoConnect();
+    const heard = cards.map((card) => {
+      const onDisconnect = vi.fn();
+      card.on('disconnect', onDisconnect);
+      return onDisconnect;
+    });
+    client.fire('session_update', { topic: 'someone-else' });
+    for (const onDisconnect of heard) expect(onDisconnect).not.toHaveBeenCalled();
+    client.sessions.set('sess-sol', solanaSession('sess-sol', undefined, Keypair.generate().publicKey.toBase58()));
+    client.fire('session_update', { topic: 'sess-sol' });
+    for (const onDisconnect of heard) expect(onDisconnect).toHaveBeenCalledTimes(1);
+    expect(cards.map((card) => card.publicKey)).toEqual([null, null]);
+  });
+
+  it('session_update that still grants our account changes nothing', async () => {
+    client.sessions.set('sess-sol', solanaSession());
+    const adapter = make();
+    await adapter.autoConnect();
+    const onDisconnect = vi.fn();
+    adapter.on('disconnect', onDisconnect);
+    client.sessions.set('sess-sol', { ...solanaSession(), expiry: 9_999_999_998 });
+    client.fire('session_update', { topic: 'sess-sol' });
+    expect(onDisconnect).not.toHaveBeenCalled();
+    expect(adapter.publicKey?.equals(wallet.publicKey)).toBe(true);
+  });
 });
 
 describe('where the row exists', () => {
@@ -575,6 +819,31 @@ describe('where the row exists', () => {
 
   it('is inert without a project id', () => {
     expect(new mod.WalletConnectWalletAdapter({ projectId: '' }).readyState).toBe(WalletReadyState.Unsupported);
+  });
+});
+
+describe('a build without a project id carries no WalletConnect code', () => {
+  // The import() of sign-client is behind the literal
+  // import.meta.env.VITE_WALLETCONNECT_PROJECT_ID, which Vite replaces at
+  // build time, so a no-id build (CI, fork PRs, fresh clones) drops the
+  // import and everything only it reached. Before the fix it was compiled in
+  // regardless, and the bundler hoisted sign-client's @noble/@scure deps into
+  // the EAGER vendor-crypto chunk: +93 KB on every page, for a row that could
+  // never appear. The build gate (check-dist-graph.mjs D) pins the bytes;
+  // this pins the branch.
+  it('connect() rejects with WalletNotReadyError and never starts sign-client, whatever projectId it was given', async () => {
+    vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', '');
+    const adapter = make();
+    const outcome = await Promise.race([
+      adapter.connect().then(
+        () => 'resolved',
+        (e: unknown) => e,
+      ),
+      new Promise((r) => setTimeout(() => r('still pending'), 500)),
+    ]);
+    adapter.cancelPairing();
+    expect(outcome).toBeInstanceOf(WalletNotReadyError);
+    expect(h.initCalls).toHaveLength(0);
   });
 });
 
@@ -602,12 +871,16 @@ describe('source rules', () => {
   it('loads @walletconnect/* only lazily (type imports and import() are fine)', () => {
     expect(valueImports.filter((m) => m.startsWith('@walletconnect/'))).toEqual([]);
     expect(dynamicImports).toContain('@walletconnect/sign-client');
+    expect(dynamicImports).toContain('@walletconnect/keyvaluestorage');
   });
 
-  it('never touches AppKit, UniversalProvider, or the shared deep-link key', () => {
+  it('never touches AppKit, UniversalProvider, or localStorage', () => {
+    // The shared deep-link key IS named in the file now, once: to hide it
+    // from this client's own storage (rule 7). That it is really left alone
+    // is proven on the real sign-client, on a shared store, in
+    // solanaWalletConnect.coexist.test.ts.
     const all = [...valueImports, ...dynamicImports];
     expect(all.filter((m) => m.startsWith('@reown/') || m.includes('universal-provider'))).toEqual([]);
-    expect(strings).not.toContain('WALLETCONNECT_DEEPLINK_CHOICE');
     expect(strings).not.toContain('localStorage');
   });
 });
