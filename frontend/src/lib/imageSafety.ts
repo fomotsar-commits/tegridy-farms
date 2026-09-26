@@ -74,8 +74,8 @@ export function ipfsCandidates(uri: string): string[] {
 /// Resolve any allowlisted URI into an HTTPS URL the browser can actually
 /// fetch. Returns `null` for disallowed schemes (caller should treat as
 /// "no image"). For ipfs:// and for a URL on a dead gateway (ipfs.io,
-/// dweb.link...) returns the first live gateway URL; an `<img>` should pass
-/// `advanceIpfsImg` as its onError to walk the rest of the list.
+/// dweb.link...) returns the first live gateway URL; render it with
+/// components/IpfsImg so a failed or hung gateway moves to the next one.
 export function resolveSafeUrl(uri: string | null | undefined): string | null {
   if (!isAllowedUri(uri)) return null;
   const trimmed = (uri as string).trim();

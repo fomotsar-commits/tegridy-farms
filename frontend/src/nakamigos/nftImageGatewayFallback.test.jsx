@@ -77,6 +77,32 @@ describe("NftImage walks the IPFS gateway list", () => {
     expect(screen.getByAltText(nft.name)).toHaveAttribute("src", ON(1));
   });
 
+  // R1: a large IPFS PNG (Jungle Bay's run to 2.6 MB) that has started arriving
+  // but not finished is a slow download, not a hang. The old timer checked
+  // `complete && naturalWidth > 0` and restarted it on the next gateway.
+  it("does not cut off an image whose bytes are still arriving", async () => {
+    vi.useFakeTimers();
+    const nft = { id: "810008", name: "JBAC #810008", image: ON(0) };
+    renderCard(nft, { priority: true });
+    const img = screen.getByAltText(nft.name);
+    Object.defineProperty(img, "naturalWidth", { configurable: true, get: () => 2480 });
+    Object.defineProperty(img, "complete", { configurable: true, get: () => false });
+    await act(async () => { vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS * 5); });
+    expect(screen.getByAltText(nft.name)).toHaveAttribute("src", ON(0));
+  });
+
+  // R4: the last gateway had no timer, so a hang there (orbitor and aleph take
+  // ~30s to 504) kept the card blank instead of reaching Alchemy's copy.
+  it("a hang on the LAST gateway falls through to the metadata fallback", async () => {
+    vi.useFakeTimers();
+    const last = IPFS_GATEWAYS.length - 1;
+    const nft = { id: "810009", name: "JBAC #810009", image: ON(last) };
+    renderCard(nft, { priority: true });
+    expect(screen.getByAltText(nft.name)).toHaveAttribute("src", ON(last));
+    await act(async () => { vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS); });
+    expect(metadataCalls.some((u) => u.includes("/api/alchemy"))).toBe(true);
+  });
+
   it("leaves a loaded image alone", async () => {
     vi.useFakeTimers();
     const nft = { id: "810005", name: "JBAC #810005", image: ON(0) };

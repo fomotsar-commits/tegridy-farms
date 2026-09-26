@@ -11,7 +11,19 @@
 // Everything here is pure or dependency-injected so it can be tested without a
 // network, and the shape check runs before any signature is requested.
 
-import { IPFS_STEP_TIMEOUT_MS, fetchIpfsStep, ipfsGatewayUrls } from '../../ipfsGateways';
+import { IPFS_GATEWAYS, IPFS_STEP_TIMEOUT_MS, fetchIpfsStep, ipfsGatewayUrls } from '../../ipfsGateways';
+
+/** An https:// or ar:// host answers for itself: one request, this long. */
+const SINGLE_HOST_DEADLINE_MS = 8000;
+
+/**
+ * An ipfs:// check may have to walk every gateway, each with its own step
+ * budget (IPFS_STEP_TIMEOUT_MS), and then read a small JSON body. The overall
+ * deadline must cover that walk, or it cuts the walk short: with a total of 8s
+ * and a 6s step, a hung first gateway left 2s for the other three, and Pinata,
+ * the one gateway that served every uncached CID, takes up to 7.5s.
+ */
+export const IPFS_CHECK_DEADLINE_MS = IPFS_STEP_TIMEOUT_MS * IPFS_GATEWAYS.length + 2000;
 
 /** Schemes a wallet or explorer will actually resolve. */
 const ALLOWED_SCHEMES = ['ipfs://', 'https://', 'ar://'] as const;
@@ -104,22 +116,30 @@ export type DocumentVerdict =
 export async function checkMetadataDocument(
   uri: string,
   fetchImpl: typeof fetch = fetch,
-  timeoutMs = 8000,
+  timeoutMs?: number,
   ipfsStepMs = IPFS_STEP_TIMEOUT_MS,
 ): Promise<DocumentVerdict> {
   const urls = toFetchableUrls(uri);
   if (urls.length === 0) return { status: 'unknown', reason: 'Unsupported URI scheme.' };
   const isIpfs = uri.trim().startsWith('ipfs://');
+  timeoutMs ??= isIpfs ? IPFS_CHECK_DEADLINE_MS : SINGLE_HOST_DEADLINE_MS;
 
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
     let res: Response | undefined;
+    // The body to judge, once one is chosen.
+    let text: string | undefined;
     // Stays true only while every gateway that answered said 404.
     let every404 = true;
+    // The first 200 whose body is not JSON, and whether a second gateway sent
+    // the very same bytes.
+    let nonJson: string | undefined;
+    let nonJsonConfirmed = false;
     for (const url of urls) {
       if (!isIpfs) {
         res = await fetchImpl(url, { signal: ac.signal });
+        if (res.ok) text = await textWithin(res, ac.signal);
         break;
       }
       // ── WHY IPFS RETRIES AND THE OTHERS DO NOT ────────────────────────────
@@ -141,10 +161,36 @@ export async function checkMetadataDocument(
         every404 = false;
         continue;
       }
-      if (res.ok) break;
+      if (res.ok) {
+        const body = await textWithin(res, ac.signal);
+        if (parsesAsJson(body)) {
+          text = body;
+          break;
+        }
+        // A 200 that is not JSON may be the gateway's own page (an error or a
+        // challenge served as 200), which says nothing about the content. IPFS
+        // content is the same bytes on every gateway, so a second gateway
+        // sending the same body settles it; until then, keep walking.
+        every404 = false;
+        if (nonJson === undefined) nonJson = body;
+        else if (body === nonJson) {
+          nonJsonConfirmed = true;
+          break;
+        }
+        continue;
+      }
       if (res.status !== 404) every404 = false;
     }
     if (!res) return { status: 'unknown', reason: 'Could not read it from this browser.' };
+    if (nonJsonConfirmed) return { status: 'invalid', reason: 'That URI does not return JSON.' };
+    if (text === undefined && nonJson !== undefined) {
+      return {
+        status: 'unknown',
+        severity: 'warning',
+        reason:
+          'One IPFS gateway returned something that is not JSON, and no other gateway could confirm it. Check that this URI points at the metadata file, not the image.',
+      };
+    }
     if (!res.ok) {
       if (isIpfs) {
         if (every404) {
@@ -165,10 +211,9 @@ export async function checkMetadataDocument(
       if (res.status === 404) return { status: 'invalid', reason: 'Nothing is published at that URI (404).' };
       return { status: 'unknown', reason: `The host returned ${res.status}.` };
     }
-    const text = await res.text();
     let doc: unknown;
     try {
-      doc = JSON.parse(text);
+      doc = JSON.parse(text as string);
     } catch {
       return { status: 'invalid', reason: 'That URI does not return JSON.' };
     }
@@ -191,4 +236,31 @@ export async function checkMetadataDocument(
   } finally {
     clearTimeout(timer);
   }
+}
+
+function parsesAsJson(body: string): boolean {
+  try {
+    JSON.parse(body);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The body, or an AbortError when `signal` fires first. fetchIpfsStep lets go
+ * of the caller's signal once the headers arrive, so without this a gateway
+ * that sent headers and then stalled would hold the check past its deadline.
+ */
+function textWithin(res: Response, signal: AbortSignal): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const onAbort = () => {
+      const e = new Error('aborted');
+      e.name = 'AbortError';
+      reject(e);
+    };
+    if (signal.aborted) return onAbort();
+    signal.addEventListener('abort', onAbort, { once: true });
+    res.text().then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
 }

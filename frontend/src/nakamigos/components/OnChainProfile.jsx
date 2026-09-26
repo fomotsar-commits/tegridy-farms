@@ -4,7 +4,8 @@ import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { getReadProvider } from "../lib/rpcProvider";
-import { advanceIpfsImg, liveIpfsUrl } from "../../lib/ipfsGateways";
+import { liveIpfsUrl } from "../../lib/ipfsGateways";
+import { IpfsImg } from "../../components/IpfsImg";
 
 const MAX_GRID = 24;
 
@@ -354,10 +355,10 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
           }}
         >
           {ensAvatar ? (
-            <img
+            <IpfsImg
               src={ensAvatar}
               alt="ENS Avatar"
-              onError={(e) => { if (!advanceIpfsImg(e.currentTarget)) setEnsAvatar(null); }}
+              onExhausted={() => setEnsAvatar(null)}
               style={{
                 width: 80,
                 height: 80,

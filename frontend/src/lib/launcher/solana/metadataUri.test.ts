@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { validateMetadataUri, toFetchableUrl, toFetchableUrls, checkMetadataDocument } from './metadataUri';
-import { IPFS_GATEWAYS } from '../../ipfsGateways';
+import { validateMetadataUri, toFetchableUrl, toFetchableUrls, checkMetadataDocument, IPFS_CHECK_DEADLINE_MS } from './metadataUri';
+import { IPFS_GATEWAYS, IPFS_STEP_TIMEOUT_MS } from '../../ipfsGateways';
 
 const GW = (cid: string) => IPFS_GATEWAYS.map((g) => `${g}${cid}`);
 
@@ -204,5 +204,80 @@ describe('checkMetadataDocument', () => {
     const v = await checkMetadataDocument('ipfs://bafy', hang as unknown as typeof fetch, 10, 60_000);
     expect(v).toEqual({ status: 'unknown', reason: 'The check timed out.' });
     expect(hang).toHaveBeenCalledTimes(1);
+  });
+
+  // ── the budgets (review R5) ───────────────────────────────────────────────
+  //
+  // The overall deadline was 8s against a 6s step: a hung first gateway left 2s
+  // for the other three, so Pinata (the one gateway that served every uncached
+  // CID, up to 7.5s to answer) could never be reached.
+
+  it('by default, the deadline covers a step on every gateway', () => {
+    expect(IPFS_CHECK_DEADLINE_MS).toBeGreaterThanOrEqual(IPFS_STEP_TIMEOUT_MS * IPFS_GATEWAYS.length);
+  });
+
+  it('by default, a hung first gateway still leaves time for a 7.5s answer from the next', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = vi.fn((url: string, init?: { signal?: AbortSignal }) => new Promise<Response>((resolve, rej) => {
+        init?.signal?.addEventListener('abort', () => {
+          const e = new Error('aborted'); e.name = 'AbortError'; rej(e);
+        });
+        if (url === GW('bafy')[1]) setTimeout(() => resolve(res('{"name":"slow but real"}')), 7500);
+      }));
+      const p = checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
+      await vi.advanceTimersByTimeAsync(IPFS_STEP_TIMEOUT_MS + 7500);
+      await expect(p).resolves.toMatchObject({ status: 'ok', name: 'slow but real' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps https:// on its short single-host deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const hang = vi.fn((_u: string, init?: { signal?: AbortSignal }) => new Promise<Response>((_r, rej) => {
+        init?.signal?.addEventListener('abort', () => {
+          const e = new Error('aborted'); e.name = 'AbortError'; rej(e);
+        });
+      }));
+      const p = checkMetadataDocument('https://x/m', hang as unknown as typeof fetch);
+      await vi.advanceTimersByTimeAsync(8000);
+      await expect(p).resolves.toEqual({ status: 'unknown', reason: 'The check timed out.' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the deadline also bounds a gateway that sent headers and then stalled', async () => {
+    const stalled = { ok: true, status: 200, text: () => new Promise<string>(() => {}) } as unknown as Response;
+    const f = vi.fn(async () => stalled);
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch, 30, 20);
+    expect(v).toEqual({ status: 'unknown', reason: 'The check timed out.' });
+  });
+
+  // ── a 200 that is not JSON (review R5) ──────────────────────────────────────
+
+  it("one gateway's non-JSON 200 does not outrank the next gateway's real JSON", async () => {
+    const f = vi.fn(async (url: string) =>
+      url === GW('bafy')[0] ? res('<html>Just a moment...</html>') : res('{"name":"real"}'),
+    );
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
+    expect(v).toMatchObject({ status: 'ok', name: 'real' });
+  });
+
+  it('a lone non-JSON 200 that no other gateway confirms is a warning, not invalid', async () => {
+    const f = vi.fn(async (url: string) =>
+      url === GW('bafy')[0] ? res('<html>Just a moment...</html>') : res('', { ok: false, status: 504 }),
+    );
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
+    expect(v).toMatchObject({ status: 'unknown', severity: 'warning' });
+  });
+
+  it('the same non-JSON bytes from two gateways ARE the content: invalid', async () => {
+    const f = vi.fn(async () => res('PNG not json'));
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
+    expect(v).toEqual({ status: 'invalid', reason: 'That URI does not return JSON.' });
+    expect(f).toHaveBeenCalledTimes(2);
   });
 });

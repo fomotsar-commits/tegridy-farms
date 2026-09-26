@@ -4,7 +4,7 @@ import { formatPrice } from "../lib/formatPrice";
 import { fetchTopHolders, fetchActivity, fetchWalletNfts, shortenAddress } from "../api";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { getReadProvider } from "../lib/rpcProvider";
-import { advanceIpfsImg } from "../../lib/ipfsGateways";
+import { IpfsImg } from "../../components/IpfsImg";
 
 // SUPPLY is now dynamic per collection — passed via stats or fetched from context
 const REFRESH_MS = 30000;
@@ -866,13 +866,12 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                                         "1px solid rgba(200,170,100,0.1)",
                                     }}
                                   >
-                                    <img
+                                    <IpfsImg
                                       src={nft.image}
                                       alt={nft.name}
                                       loading="lazy"
                                       decoding="async"
                                       onLoad={(e) => { e.currentTarget.parentElement?.classList.remove("skeleton"); }}
-                                      onError={(e) => { advanceIpfsImg(e.currentTarget); }}
                                       style={{
                                         width: "100%",
                                         height: "100%",

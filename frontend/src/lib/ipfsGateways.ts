@@ -6,21 +6,29 @@
 // again. The hosts must also be in vercel.json's img-src and connect-src; the CSP
 // test (src/lib/ipfsGateways.test.ts) fails when one is missing.
 //
-// ORDER, measured 2026-09-26 from real CIDs the site renders (Nakamigos, Jungle
-// Bay, BAYLA), 8 CIDs x 3 tries, plus real <img> loads in Chromium and WebKit.
-// Every gateway below returned byte-identical content, and BAYLA's raw CIDs
-// hashed to their own digest:
-//   1. ipfs.filebase.io   24/24, median 175ms. Slow on cold content under a burst.
-//   2. ipfs.orbitor.dev   24/24, median 240ms, a 48-request burst in 3.1s (ChainSafe).
-//   3. gateway.pinata.cloud  24/24 but median 5.6s: a slow last resort.
-//   4. ipfs.aleph.cloud   20/24, slow burst: the tail.
-// All four are public "light use" gateways (Filebase documents 200 requests/min;
-// Pinata says not for production). A dedicated gateway is the long-term answer.
+// ORDER, measured 2026-09-26 with curl from real CIDs the site renders
+// (Jungle Bay PNGs, 0.56-2.6 MB). "ttfb" is time to the first byte; for an
+// <img> that is what the hang timer below measures, not the whole download.
+//   COLD: 8 Jungle Bay tokens nobody had requested, all 4 gateways at once.
+//   AGAIN: the same 8 a minute later, plus 1.png (long cached) 3 times.
+//   1. ipfs.filebase.io   cold: 4/8 at 1.6-2.6s, 1 at 8.9s, 1 at 34s, 2 still
+//        silent at 40s. Again: 7/8 at 0.10-1.3s, and 2466 hung again. 1.png 0.1s.
+//   2. gateway.pinata.cloud  cold 8/8 at 4.0-7.5s, again 8/8 at 3.3-7.2s, 1.png
+//        3.7-6.7s. Slow, but the ONLY gateway that served every uncached token,
+//        so it goes second: behind a hung filebase, that is where the image is.
+//   3. ipfs.aleph.cloud   cold 0/8 (504 after 30s); again 4/8 at 2.1-16s; 1.png
+//        3/3 at 0.6-0.9s. It serves what someone has asked it for before.
+//   4. ipfs.orbitor.dev   0/19: every request a 504 after 30s, 1.png included,
+//        which it served in 240ms earlier the same day. Kept last, not removed:
+//        it costs one step budget only after the three above have all failed.
+// Every gateway that answered returned byte-identical content. All four are
+// public "light use" gateways (Filebase documents 200 requests/min; Pinata says
+// not for production). A dedicated gateway is the long-term answer.
 export const IPFS_GATEWAYS = [
   'https://ipfs.filebase.io/ipfs/',
-  'https://ipfs.orbitor.dev/ipfs/',
   'https://gateway.pinata.cloud/ipfs/',
   'https://ipfs.aleph.cloud/ipfs/',
+  'https://ipfs.orbitor.dev/ipfs/',
 ] as const;
 
 // DEAD, 2026-09-26. Do not add these back. They are kept here only so a URL
@@ -47,18 +55,34 @@ export const DEAD_IPFS_GATEWAY_HOSTS = [
   'cloudflare-ipfs.com',
 ] as const;
 
-// Several gateways HANG instead of failing on content they do not have cached,
-// and a hung <img> or fetch never reaches the next gateway on its own. Each
-// step gets this long before the caller moves on. Pinata's normal answer is
-// 3-8s, so this is the lowest value that does not skip a working slow gateway.
-export const IPFS_STEP_TIMEOUT_MS = 6000;
+// Several gateways HANG instead of failing on content they do not have (filebase
+// on some uncached tokens, orbitor and aleph for 30s before a 504), and a hung
+// <img> or fetch never reaches the next gateway on its own. So each gateway gets
+// this long to START answering before the caller moves on:
+//   - fetch(): the time until the response headers arrive.
+//   - <img>: the time until the first image bytes arrive. From the header onward
+//     a browser reports the image's size (naturalWidth) while `complete` is
+//     still false: measured 2026-09-26 in Chromium and WebKit on a PNG and a
+//     JPEG trickled over 10s, naturalWidth was set within 1s. So a large image
+//     that is still downloading is never cut off, however long it takes.
+// Pinata, the one gateway that served every uncached token, took up to 7.5s to
+// its first byte (19 requests, 3.3-7.5s), so 10s keeps it with room to spare.
+export const IPFS_STEP_TIMEOUT_MS = 10_000;
 
 const IPFS_SCHEME = /^ipfs:\/\//i;
 const LIVE_HOSTS = new Set(IPFS_GATEWAYS.map((g) => new URL(g).hostname));
 const DEAD_HOSTS = new Set<string>(DEAD_IPFS_GATEWAY_HOSTS);
 
-const isDeadHost = (host: string): boolean =>
-  DEAD_HOSTS.has(host) || [...DEAD_HOSTS].some((d) => host.endsWith(`.${d}`));
+// Other gateways we do not serve from, whose URLs still reach us (collection
+// metadata, e.g. Nakamigos' alchemy.mypinata.cloud). Pinata dedicated gateways
+// (<name>.mypinata.cloud) are not in the CSP, so the browser blocks them; the
+// same CID is moved onto the live list instead, like a dead gateway's URL.
+const FOREIGN_GATEWAY_SUFFIXES = ['.mypinata.cloud'] as const;
+
+const isRewrittenHost = (host: string): boolean =>
+  DEAD_HOSTS.has(host) ||
+  [...DEAD_HOSTS].some((d) => host.endsWith(`.${d}`)) ||
+  FOREIGN_GATEWAY_SUFFIXES.some((s) => host.endsWith(s));
 
 type Parsed = { path: string; host: string | null };
 
@@ -80,11 +104,11 @@ function parse(uri: string | null | undefined): Parsed | null {
   const host = u.hostname.toLowerCase();
   // Subdomain form, e.g. https://<cid>.ipfs.dweb.link/meta.json
   const [, cid, gatewayHost] = host.match(/^([a-z0-9]+)\.ipfs\.(.+)$/) ?? [];
-  if (cid && gatewayHost && (LIVE_HOSTS.has(gatewayHost) || isDeadHost(gatewayHost))) {
+  if (cid && gatewayHost && (LIVE_HOSTS.has(gatewayHost) || isRewrittenHost(gatewayHost))) {
     const rest = u.pathname === '/' ? '' : u.pathname;
     return { path: `${cid}${rest}${u.search}`, host };
   }
-  if ((LIVE_HOSTS.has(host) || isDeadHost(host)) && u.pathname.startsWith('/ipfs/')) {
+  if ((LIVE_HOSTS.has(host) || isRewrittenHost(host)) && u.pathname.startsWith('/ipfs/')) {
     const path = u.pathname.slice('/ipfs/'.length);
     return path ? { path: `${path}${u.search}`, host } : null;
   }
@@ -133,15 +157,56 @@ export function nextIpfsGatewayUrl(current: string | null | undefined): string |
 }
 
 /**
- * `onError` for a plain `<img>` that may show IPFS content: moves it to the
- * next gateway. Returns false when there is none left, so the caller can hide
- * it or show its placeholder.
+ * Watches one IPFS `<img>` on one gateway and calls `onHang` when that gateway
+ * has sent NO image bytes within `stepMs`. A hung gateway never fires onError,
+ * so without this the walk down the list stops at it.
+ *
+ * "No bytes" is `naturalWidth === 0` while not `complete`: browsers report the
+ * size as soon as the image header arrives, long before the download ends (see
+ * IPFS_STEP_TIMEOUT_MS), so a slow but live download is left to finish. A
+ * `complete` image either loaded or already fired onError, which moves it on.
+ *
+ * `lazy`: a lazy image far below the fold has not requested anything yet, so
+ * its clock starts only once it nears the viewport (the browser's own lazy
+ * margin). Inside a scrolling panel (the market gallery grid) that margin
+ * stops at the panel's edge, so there the clock starts once the image scrolls
+ * into the panel: seen in Chromium, where a card below the panel's fold sat on
+ * a hung gateway, unseen, until scrolled to, then moved on 10s later.
+ * Every gateway, the last one included, gets the timer, so a hang on
+ * the last one reaches the caller's own fallback instead of waiting ~30s.
+ * Returns the cleanup.
  */
-export function advanceIpfsImg(img: HTMLImageElement): boolean {
-  const next = nextIpfsGatewayUrl(img.getAttribute('src'));
-  if (!next) return false;
-  img.src = next;
-  return true;
+export function watchIpfsImg(
+  img: HTMLImageElement,
+  { lazy = false, stepMs = IPFS_STEP_TIMEOUT_MS, onHang }: { lazy?: boolean; stepMs?: number; onHang: () => void },
+): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let io: IntersectionObserver | null = null;
+  const arm = () => {
+    if (timer !== null) return;
+    timer = setTimeout(() => {
+      if (img.complete || img.naturalWidth > 0) return;
+      onHang();
+    }, stepMs);
+  };
+  if (lazy && typeof IntersectionObserver === 'function') {
+    io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io?.disconnect();
+          arm();
+        }
+      },
+      { rootMargin: '1250px' },
+    );
+    io.observe(img);
+  } else {
+    arm();
+  }
+  return () => {
+    io?.disconnect();
+    if (timer !== null) clearTimeout(timer);
+  };
 }
 
 /**

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, memo } from "react";
 import { useActiveCollection } from "../contexts/CollectionContext";
-import { IPFS_STEP_TIMEOUT_MS, ipfsGatewayUrls, liveIpfsUrl, nextIpfsGatewayUrl } from "../../lib/ipfsGateways";
+import { ipfsGatewayUrls, liveIpfsUrl, nextIpfsGatewayUrl } from "../../lib/ipfsGateways";
+import { useIpfsHangTimer } from "../../hooks/useIpfsHangTimer";
 
 // Respect the user's reduced-motion preference for the image fade-in.
 // Guard matchMedia itself — jsdom defines window but not matchMedia, and this
@@ -125,33 +126,6 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
   // fetch resolves a real URL after the placeholder) so the new art fades in.
   useEffect(() => { setLoaded(false); }, [src]);
 
-  // A gateway that HANGS never fires onError, so the walk down the gateway list
-  // would stop at it. Give each gateway IPFS_STEP_TIMEOUT_MS once the image is
-  // actually loading, then move on. "Actually loading" matters: a lazy card far
-  // below the fold has not requested anything yet, so its clock starts only when
-  // it nears the viewport (the same margin the browser's lazy loader uses).
-  useEffect(() => {
-    const next = nextIpfsGatewayUrl(src);
-    const node = imgRef.current;
-    if (loaded || !next || !node) return undefined;
-    let timer = null;
-    const arm = () => {
-      if (timer !== null) return;
-      timer = setTimeout(() => {
-        if (!(node.complete && node.naturalWidth > 0)) setDynamicSrc(next);
-      }, IPFS_STEP_TIMEOUT_MS);
-    };
-    if (priority || typeof IntersectionObserver !== "function") {
-      arm();
-      return () => { if (timer !== null) clearTimeout(timer); };
-    }
-    const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) { io.disconnect(); arm(); }
-    }, { rootMargin: "1250px" });
-    io.observe(node);
-    return () => { io.disconnect(); if (timer !== null) clearTimeout(timer); };
-  }, [src, loaded, priority]);
-
   useEffect(() => {
     // A cached failure within TTL: go straight to the placeholder and skip the
     // metadata refetch (the whole point of the failure sentinel — F575).
@@ -244,6 +218,17 @@ export default memo(function NftImage({ nft, style, className, large, priority, 
     setCachedFailed(cacheKey);
     setFailCount(3);
   };
+
+  // A gateway that HANGS never fires onError, so the walk above would stop at
+  // it. The shared hang timer treats a hang like an error: the next gateway, or
+  // after the last one the fallbacks in handleError (thumbnail, then Alchemy's
+  // copy). It only fires when the gateway has sent no image bytes at all, so a
+  // large image that is still downloading is left alone.
+  useIpfsHangTimer(imgRef, src, {
+    lazy: !priority,
+    disabled: loaded || failCount >= 3,
+    onHang: handleError,
+  });
 
   if (failCount >= 3 || !src) {
     // While a caller-side batch fetch is pending, run a shimmer sweep so the
