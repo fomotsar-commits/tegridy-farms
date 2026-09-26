@@ -6,9 +6,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseOverrideModule, mergeScoped, type OverrideEntry } from './src/lib/dev/overrideFileMerge';
 
-// R002: only same-origin localhost dev servers may POST to the save handler.
-// Defends against DNS-rebind, LAN-side CSRF, and arbitrary sites the dev
-// happens to be visiting (a hostile tab can fetch() this URL otherwise).
+// R002: only a same-origin localhost dev server may POST to the save handler
+// (DNS rebinding, LAN CSRF, or any hostile tab could fetch() it otherwise).
 const ART_STUDIO_ORIGIN_ALLOWLIST = new Set<string>([
   'http://localhost:5173',
   'http://127.0.0.1:5173',
@@ -18,8 +17,7 @@ const ART_STUDIO_MAX_BODY_BYTES = 64 * 1024; // 64 KB — matches Vercel default
 function isAllowedOrigin(req: { headers: { origin?: string; referer?: string } }): boolean {
   const origin = req.headers.origin;
   if (origin) return ART_STUDIO_ORIGIN_ALLOWLIST.has(origin);
-  // Fall back to Referer if Origin is absent (some clients drop it on
-  // same-origin POSTs). Treat parse failure as a rejection.
+  // Referer when Origin is absent; an unparseable one is a rejection.
   const referer = req.headers.referer;
   if (!referer) return false;
   try {
@@ -30,10 +28,8 @@ function isAllowedOrigin(req: { headers: { origin?: string; referer?: string } }
   }
 }
 
-// R002: minimal schema validator. Rejects anything that is not the exact
-// shape /art-studio sends — `artId` is the only required field per surface,
-// `objectPosition` and `scale` are optional. Bound oversized strings/numbers
-// to keep the saved file small and deterministic.
+// R002: exactly the shape a studio sends (`artId` required, `objectPosition` and
+// `scale` optional), with bounded sizes so the saved file stays small.
 function isValidOverridePayload(p: unknown): p is Record<string, { artId: string; objectPosition?: string; scale?: number }> {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return false;
   for (const [k, v] of Object.entries(p as Record<string, unknown>)) {
@@ -58,24 +54,15 @@ type OverrideSaveOptions = {
   route: string;
   /** Path (relative to the frontend root) of the file to rewrite. */
   outFile: string;
-  /**
-   * Extra key-shape guard beyond the generic validator. The classic studio
-   * predates it and stays unguarded; the bungalow studio pins its
-   * `bungalowId|pageId:idx` shape so a malformed key can never reach the file.
-   */
+  /** Key-shape guard beyond the generic validator (the classic studio has none). */
   keyPattern?: RegExp;
-  /**
-   * Name of the exported const in `outFile`. Required to accept SCOPED saves,
-   * which have to read the file back before rewriting it.
-   */
+  /** The exported const in `outFile`: a scoped save reads the file back first. */
   exportName?: string;
   /** Render the whole module source from the sorted, validated payload. */
   render: (entries: string) => string;
 };
 
 // Dev-only middleware that lets a studio page persist picks to a source file.
-// Two instances exist: /art-studio → src/lib/artOverrides.ts, and
-// /bayla-studio → src/lib/bungalowArtOverrides.ts. Disabled in prod builds.
 function overrideSavePlugin(opts: OverrideSaveOptions): Plugin {
   return {
     name: opts.name,
@@ -87,14 +74,13 @@ function overrideSavePlugin(opts: OverrideSaveOptions): Plugin {
           res.end('POST only');
           return;
         }
-        // R002: origin allowlist (must run before we read the body).
+        // R002: before the body is read.
         if (!isAllowedOrigin(req)) {
           res.statusCode = 403;
           res.end('Forbidden: origin not allowed');
           return;
         }
-        // R002: streaming body cap so an attacker can't make us buffer
-        // unbounded data in dev memory.
+        // R002: a streaming cap, so nothing buffers unbounded data.
         let body = '';
         let bytes = 0;
         let tooLarge = false;
@@ -121,14 +107,8 @@ function overrideSavePlugin(opts: OverrideSaveOptions): Plugin {
             res.end(`Bad JSON: ${(err as Error).message}`);
             return;
           }
-          // SCOPED SAVE. `{ scope, overrides }` means "replace only the keys
-          // beginning `${scope}|` and keep everything else that is on disk".
-          //
-          // Without it every studio tab POSTs the WHOLE map, seeded once when it
-          // mounted, and the last tab to save silently erases whatever the others
-          // saved after that — measured 2026-08-31, three tabs wiping each other
-          // in 3.3 seconds. A bare map (no `scope`) still means whole-file
-          // replace, which is what /art-studio has always sent.
+          // `{ scope, overrides }` replaces only the keys beginning `${scope}|`, so two
+          // studio tabs cannot erase each other's saves; a bare map replaces the file.
           let scope: string | null = null;
           let payload: unknown = parsed;
           if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'overrides' in (parsed as object)) {
@@ -152,9 +132,7 @@ function overrideSavePlugin(opts: OverrideSaveOptions): Plugin {
             res.end('Bad request: key shape validation failed');
             return;
           }
-          // A scoped save may only carry its own keys. Enforced rather than
-          // filtered: a tab sending another bungalow's key is confused about
-          // what it owns, and quietly dropping the key would hide that.
+          // A scoped save carries only its own keys: refused, never filtered.
           if (scope !== null && !Object.keys(payload).every((k) => k.startsWith(`${scope}|`))) {
             res.statusCode = 400;
             res.end(`Bad request: scoped save carried keys outside "${scope}|"`);
@@ -182,10 +160,8 @@ function overrideSavePlugin(opts: OverrideSaveOptions): Plugin {
             }).join('\n');
             const file = opts.render(entries);
             const out = resolve(process.cwd(), opts.outFile);
-            // Only write when the content actually changed. A no-op rewrite
-            // still trips the watcher → HMR remounts ArtStudioPage → its state
-            // (fullscreen, selection, scroll) resets and the mount re-saves,
-            // which loops. Comparing first keeps the studio stable.
+            // Written only on change: a no-op rewrite trips HMR, which remounts
+            // the studio, which saves again, in a loop.
             let unchanged = false;
             try {
               unchanged = readFileSync(out, 'utf8') === file;
@@ -205,26 +181,11 @@ function overrideSavePlugin(opts: OverrideSaveOptions): Plugin {
   };
 }
 
-// The two studio endpoints. Each renders its whole module source so the file
-// on disk stays deterministic (sorted keys, stable header) and diffs cleanly.
 /**
- * ANSWER TEN, RULING 2: THE APP STYLESHEETS STOP GATING THE FIRST FRAME.
- *
- * Measured on the island's phone throttle (150 ms round trip, 1.6 Mbps, CPU 4x):
- * with the hero in the HTML, the H1 still painted at ~1,650 ms, because first
- * paint waited on index-*.css (41 KB), a render-blocking <link> in <head> sharing
- * the throttled link with the fonts and the module preloads. It finished at
- * ~1,520 ms; the paint followed. The static frame does not need that sheet: its
- * critical CSS is inline in index.html.
- *
- * So the built stylesheet links move from <head> to just after #root. A stylesheet
- * in the body still blocks painting of what comes AFTER it and still blocks the
- * module scripts, so React never commits unstyled; it just no longer holds back the
- * frame above it. fonts.css stays in <head> (1 KB, and the H1 wants its font).
- * html's own background is inline too, so no route flashes white meanwhile.
- *
- * Fails the build if the shape it relies on is missing, rather than silently
- * shipping a head that still blocks.
+ * Answer ten, ruling 2: the app stylesheets do not gate the first frame, whose critical
+ * CSS is inline. Their links move from <head> to just after #root: a body stylesheet
+ * still blocks what follows it and the module scripts, so React never commits unstyled.
+ * fonts.css stays in <head>. Fails the build if the shape it relies on is missing.
  */
 function firstFrameStylesheetsPlugin(): Plugin {
   return {
@@ -248,6 +209,7 @@ function firstFrameStylesheetsPlugin(): Plugin {
   };
 }
 
+// The studio endpoints render their whole module source, so the file stays deterministic.
 function artStudioPlugin(): Plugin {
   return overrideSavePlugin({
     name: 'art-studio-save',
@@ -320,17 +282,14 @@ export function bungalowOverrideKey(bungalowId: string, pageId: string, idx: num
   });
 }
 
-// The DOOR studio writes one pick per bungalow — key is the bungalow id alone.
-// Scoped saves are pointless here (a door studio edits every door at once, from
-// a single tab), so this stays a whole-file replace like /art-studio.
+// The door studio writes one pick per bungalow id, every door from one tab: whole-file.
 function doorStudioPlugin(): Plugin {
   return overrideSavePlugin({
     name: 'door-studio-save',
     route: '/__door-studio/save',
     outFile: 'src/lib/bungalowDoorArt.ts',
     exportName: 'DOOR_ART_OVERRIDES',
-    // A bare bungalow id. The `|` shape of the surface studios would be wrong
-    // here and would let a surface key land in the door file.
+    // A bare id: a surface studio's `|` key must never land in the door file.
     keyPattern: /^[a-z0-9-]{1,64}$/,
     render: (entries) => `/**
  * Per-bungalow DOOR art overrides — written by /door-studio.
@@ -413,27 +372,15 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/paraswap/, ''),
         },
-        // Solana swap surface — mirrors the prod /api/jupiter serverless proxy
-        // (vercel.json rewrite → api/aggregator/jupiter → lite-api.jup.ag) so
-        // quotes/swaps work in local dev too.
+        // Mirrors the prod /api/jupiter function (api/aggregator/jupiter).
         '/api/jupiter': {
           target: 'https://lite-api.jup.ag',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/jupiter/, ''),
         },
-        // Solana RPC proxy — mirrors api/solrpc.js. Forwards JSON-RPC POSTs to
-        // the configured RPC (server-only SOLANA_RPC_URL, or the keyless default).
-        //
-        // 2026-08-28: this proxy used to forward the browser's `Origin` header
-        // upstream, and api.mainnet-beta.solana.com answers ANY request carrying
-        // an Origin with `403 Access forbidden` — it refuses browser-origin
-        // traffic. So in dev EVERY Solana read failed: the BAYLA lighthouse pool
-        // rendered a permanent "could not be read — outage, not a zero", and so
-        // did balances on the swap surface. Verified by isolation against this
-        // very proxy: Origin+Referer → 403, Referer only → 200, neither → 200.
-        // The PROD function is unaffected — api/solrpc.js builds a clean upstream
-        // request with only Content-Type/Accept. Stripping the browser-only
-        // headers here makes dev behave like prod instead of faking an outage.
+        // Mirrors api/solrpc.js (server-only SOLANA_RPC_URL, or the keyless default).
+        // The public RPC answers 403 to any request carrying an Origin, so the
+        // browser-only headers are stripped, as the prod function never sends them.
         '/api/solrpc': {
           target: env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
           changeOrigin: true,
@@ -447,16 +394,12 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
-        // /api/etherscan is a Vercel serverless function in production.
-        // For local dev we forward to the deployed proxy so the API key stays
-        // server-side and we don't need a separate local key. Production
-        // requests hit the function directly and never touch this proxy.
+        // Dev forwards to the deployed function, so the key stays server-side.
         '/api/etherscan': {
           target: 'https://tegridyfarms.vercel.app',
           changeOrigin: true,
         },
-        // ═══ Nakamigos marketplace dev proxies ═══
-        // Mimics the Vercel serverless functions locally
+        // Nakamigos marketplace: mimics the Vercel functions locally.
         '/api/alchemy': {
           target: 'https://eth-mainnet.g.alchemy.com',
           changeOrigin: true,
@@ -465,9 +408,7 @@ export default defineConfig(({ mode }) => {
             const endpoint = url.searchParams.get('endpoint') || '';
             const params = new URLSearchParams(url.searchParams);
             params.delete('endpoint');
-            // AUDIT FIX 2026-05-26 [H-35]: dropped `env.VITE_ALCHEMY_API_KEY` fallback —
-            // anything VITE_-prefixed is inlined into the public client bundle. Use the
-            // server-only `ALCHEMY_API_KEY` (this is a vite dev proxy, runs in the dev server).
+            // [H-35] Server-only key: anything VITE_-prefixed ships in the client bundle.
             const key = env.ALCHEMY_API_KEY || '';
             if (!key) console.warn('[vite proxy] ALCHEMY_API_KEY is not set — Alchemy requests will fail.');
             if (endpoint === 'rpc') {
@@ -495,8 +436,7 @@ export default defineConfig(({ mode }) => {
           },
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq) => {
-              // AUDIT FIX 2026-05-26 [H-35]: same — dropped `env.VITE_OPENSEA_API_KEY`
-              // fallback to keep paid keys out of the public client bundle.
+              // [H-35] Server-only key, as above.
               const key = env.OPENSEA_API_KEY || '';
               if (key) proxyReq.setHeader('x-api-key', key);
               proxyReq.setHeader('Accept', 'application/json');
@@ -507,22 +447,15 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       target: 'es2023',
-      // R078: don't ship sourcemaps — even 'hidden' writes them to disk and
-      // hosting CDNs sometimes leak them. Bundle internals stay private.
+      // R078: no sourcemaps, not even 'hidden' ones, which reach disk and can leak.
       sourcemap: false,
-      // Fix: CSS preload errors on lazy-loaded chunks (Nakamigos App.css)
-      // Vite's modulePreload inserts <link rel="modulepreload"> that can fail on some CDNs
+      // CSS per lazy chunk (Nakamigos App.css failed to preload on some CDNs).
       cssCodeSplit: true,
       modulePreload: {
         polyfill: false,
-        // ANSWER TEN, RULING 2: THE WALLET STACK LOADS AFTER FIRST PAINT. Vite wrote
-        // every static dependency of the entry into index.html as a modulepreload,
-        // so a phone fetched vendor-wagmi (1.9 MB, 298 KB gzipped), viem, crypto,
-        // framer and query in parallel with the stylesheet that gates the first
-        // paint, on a link that has none of it to spare. The island measured `/`
-        // painting nothing until 6.7 s. The HTML's static first frame needs none
-        // of them. Filtered for the HTML host ONLY: the chunks still load, found
-        // from the entry once it arrives, and lazy routes keep their own preloads.
+        // Answer ten, ruling 2: the wallet stack loads after first paint. The HTML
+        // does not modulepreload these vendor chunks, which the static frame never
+        // needs; the entry still loads them, and lazy routes keep their preloads.
         resolveDependencies: (_filename, deps, { hostType }) =>
           hostType === 'html'
             ? deps.filter((d) => !/(^|\/)vendor-(wagmi|viem|crypto|shared-wallet-plumbing|framer|query)-/.test(d))
@@ -549,33 +482,16 @@ export default defineConfig(({ mode }) => {
             if (id.includes('node_modules/@noble/') || id.includes('node_modules/@scure/')) {
               return 'vendor-crypto';
             }
-            // AUDIT FIX 2026-08-25: shared plumbing must never be folded into
-            // vendor-solana. eventemitter3 is used by BOTH the WalletConnect/
-            // wagmi stack and the Solana wallet-adapter; left unassigned, the
-            // bundler placed it inside vendor-solana, so the eager vendor-wagmi
-            // chunk statically imported the 332KB Solana graph and index.html
-            // modulepreloaded all of it on every first paint. Same hazard for
-            // @wallet-standard (chain-agnostic wallet plumbing). Pin both to
-            // their own tiny chunks so neither graph welds to the other.
-            // Same hazard again 2026-08-27: buffer (+ its deps) is imported by
-            // the entry-chunk Solana polyfill AND by the @solana graph; left
-            // unassigned, the bundler grouped it into vendor-solana, so the
-            // entry's polyfill import modulepreloaded the whole Solana stack
-            // on first paint. Pin it with the other shared plumbing.
+            // Modules shared by the EVM stack and @solana/* are pinned here: left
+            // unassigned, the bundler folds them into vendor-solana, and the eager
+            // EVM chunks then import the whole Solana graph on first paint.
             if (
               id.includes('node_modules/eventemitter3/') ||
               id.includes('node_modules/@wallet-standard/') ||
               id.includes('node_modules/buffer/') ||
               id.includes('node_modules/base64-js/') ||
               id.includes('node_modules/ieee754/') ||
-              // 2026-08-28 (bundle audit, preemptive): bs58/base-x/bn.js/
-              // safe-buffer are shared between the Irys upload stack (used by
-              // EVM create flows) and @solana/web3.js — the same
-              // unassigned-shared-module shape that captured eventemitter3
-              // (08-25) and buffer (08-27) into vendor-solana. Pinning them
-              // here costs a few KB in the eager plumbing chunk and removes
-              // the class: an EVM-surface Irys upload can never drag
-              // vendor-solana in through a shared dep again.
+              // Shared by the Irys upload stack (EVM create flows) and @solana/web3.js.
               id.includes('node_modules/bs58/') ||
               id.includes('node_modules/base-x/') ||
               id.includes('node_modules/bn.js/') ||
@@ -583,8 +499,7 @@ export default defineConfig(({ mode }) => {
             ) {
               return 'vendor-shared-wallet-plumbing';
             }
-            // Solana swap surface deps — only the lazy /solana page imports
-            // these, so this named chunk stays out of the initial bundle.
+            // Only lazy Solana pages import these: out of the initial bundle.
             if (
               id.includes('node_modules/@solana/') ||
               id.includes('node_modules/@solana-mobile/')
