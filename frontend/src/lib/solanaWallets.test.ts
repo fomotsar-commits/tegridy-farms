@@ -7,11 +7,13 @@ import {
   WalletNotReadyError,
 } from '@solana/wallet-adapter-base';
 import {
+  BackpackWalletAdapter,
   CoinbaseWalletAdapter,
   CoinbaseWalletName,
   IPadAwarePhantomWalletAdapter,
   MetaMaskWalletAdapter,
   MetaMaskWalletName,
+  SolflareWalletAdapter,
   TrustWalletAdapter,
   TrustWalletName,
 } from './solanaWallets';
@@ -588,5 +590,130 @@ describe('IPadAwarePhantomWalletAdapter — upstream Phantom, plus the iPad', ()
   it('an iPhone still takes upstream’s own path', () => {
     setUserAgent(UA.iosSafari);
     expect(new IPadAwarePhantomWalletAdapter().readyState).toBe(WalletReadyState.Loadable);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Solflare and Backpack — "Open app" rows
+// ─────────────────────────────────────────────────────────────────────────────
+
+const OPEN_APP_ROWS = [
+  {
+    name: 'Solflare',
+    make: () => new SolflareWalletAdapter(),
+    base: 'https://solflare.com/ul/v1/browse',
+    url: 'https://solflare.com',
+    // Solflare's own in-app signal (its connect iframe keys on SolflareApp),
+    // and the injected provider AppKit keys on.
+    insideApp: [{ SolflareApp: { postMessage() {} } }, { solflare: { isSolflare: true } }],
+  },
+  {
+    name: 'Backpack',
+    make: () => new BackpackWalletAdapter(),
+    base: 'https://backpack.app/ul/v1/browse',
+    url: 'https://backpack.app/downloads',
+    insideApp: [{ backpack: { isBackpack: true } }, { _backpack_injected_provider: true }],
+  },
+] as const;
+
+const INJECTED_KEYS = ['SolflareApp', 'solflare', 'backpack', '_backpack_injected_provider'];
+
+describe.each(OPEN_APP_ROWS)('$name — an "Open app" row', (row) => {
+  afterEach(() => {
+    for (const key of INJECTED_KEYS) delete (window as unknown as Record<string, unknown>)[key];
+  });
+
+  it('is named exactly what the wallet registers under, so the real wallet replaces it', () => {
+    expect(row.make().name).toBe(row.name);
+  });
+
+  it('declares legacy and v0', () => {
+    const versions = row.make().supportedTransactionVersions;
+    expect(versions!.has(0)).toBe(true);
+    expect(versions!.has('legacy')).toBe(true);
+  });
+
+  it('desktop with no extension is NotDetected, pointing at the install page', () => {
+    const adapter = row.make();
+    expect(adapter.readyState).toBe(WalletReadyState.NotDetected);
+    expect(adapter.url).toBe(row.url);
+  });
+
+  it.each([
+    ['iOS Safari', UA.iosSafari, 0],
+    ['Android Chrome', UA.androidChrome, 0],
+    ['iPad Safari', MAC_SAFARI_UA, 5],
+  ])('%s is Loadable', (_label, ua, touch) => {
+    setUserAgent(ua);
+    setTouchPoints(touch);
+    expect(row.make().readyState).toBe(WalletReadyState.Loadable);
+  });
+
+  it('never offers the hop from a webview', () => {
+    setUserAgent(UA.iosTrustInApp);
+    expect(row.make().readyState).toBe(WalletReadyState.NotDetected);
+    setUserAgent(UA.androidWebView);
+    expect(row.make().readyState).toBe(WalletReadyState.NotDetected);
+  });
+
+  it.each(row.insideApp.map((globals) => [Object.keys(globals)[0]!, globals]))(
+    'never offers a hop into the app from inside it (window.%s present), even on a redirectable UA',
+    async (_key, globals) => {
+      setUserAgent(UA.iosSafari);
+      Object.assign(window, globals);
+      const adapter = row.make();
+      adapter.on('error', () => {});
+      expect(adapter.readyState).toBe(WalletReadyState.NotDetected);
+      await expect(adapter.connect()).rejects.toBeInstanceOf(WalletNotReadyError);
+      expect(window.location.href).toBe(PAGE);
+    },
+  );
+
+  it.each(row.insideApp.map((globals) => [Object.keys(globals)[0]!, globals]))(
+    'a provider that injects AFTER the row was built (window.%s) still stops the hop',
+    async (_key, globals) => {
+      // An in-app browser that injects late: the row was built Loadable, and
+      // a tap now would reopen the page inside the app it is already in.
+      setUserAgent(UA.iosSafari);
+      const adapter = row.make();
+      adapter.on('error', () => {});
+      expect(adapter.readyState).toBe(WalletReadyState.Loadable);
+      Object.assign(window, globals);
+      await expect(adapter.connect()).rejects.toBeInstanceOf(WalletNotReadyError);
+      expect(window.location.href).toBe(PAGE);
+    },
+  );
+
+  it('opens THIS page inside the app: <base>/<encoded page>?ref=<encoded origin>', async () => {
+    setLocation(BAYLA_CARD);
+    setUserAgent(UA.iosSafari);
+    await row.make().connect();
+    expect(window.location.href).toBe(
+      `${row.base}/${encodeURIComponent(BAYLA_CARD)}?ref=${encodeURIComponent('https://memetics.finance')}`,
+    );
+  });
+
+  it('autoConnect never navigates', async () => {
+    setLocation(BAYLA_CARD);
+    setUserAgent(UA.iosSafari);
+    const adapter = row.make();
+    expect(adapter.readyState).toBe(WalletReadyState.Loadable);
+    await adapter.autoConnect();
+    expect(window.location.href).toBe(BAYLA_CARD);
+  });
+
+  it('desktop with no extension refuses, and does not navigate', async () => {
+    const adapter = row.make();
+    adapter.on('error', () => {});
+    await expect(adapter.connect()).rejects.toBeInstanceOf(WalletNotReadyError);
+    expect(window.location.href).toBe(PAGE);
+  });
+
+  it('never signs — the real wallet replaces this row first', async () => {
+    const adapter = row.make();
+    adapter.on('error', () => {});
+    expect(adapter.connected).toBe(false);
+    await expect(adapter.signTransaction({} as never)).rejects.toBeInstanceOf(WalletNotConnectedError);
+    await expect(adapter.signMessage(new Uint8Array(1))).rejects.toBeInstanceOf(WalletNotConnectedError);
   });
 });

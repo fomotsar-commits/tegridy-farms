@@ -24,6 +24,8 @@ export const OFFERED_WALLETS: ReadonlyArray<{ readonly name: string; readonly la
   { name: 'Trust', label: 'Trust Wallet' },
   { name: 'MetaMask', label: 'MetaMask' },
   { name: 'Coinbase Wallet', label: 'Coinbase Wallet' },
+  { name: 'Solflare', label: 'Solflare' },
+  { name: 'Backpack', label: 'Backpack' },
 ];
 
 /**
@@ -32,7 +34,7 @@ export const OFFERED_WALLETS: ReadonlyArray<{ readonly name: string; readonly la
  * ANOTHER device — the fallback, not a peer of the wallets in this browser.
  * It is deliberately not in OFFERED_WALLETS: the offered order puts a wallet
  * after the offered ones only while every wallet outside that list is
- * Installed, and a Loadable or NotDetected wallet outside it (Backpack, say)
+ * Installed, and a Loadable or NotDetected wallet outside it (Glow, say)
  * ranks after all of them. Its label is its name. It exists only when a
  * WalletConnect project id is set, and never on a phone.
  */

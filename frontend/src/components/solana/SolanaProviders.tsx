@@ -3,9 +3,11 @@ import '../../lib/solanaPolyfill';
 import { useMemo, type ReactNode } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import {
+  BackpackWalletAdapter,
   CoinbaseWalletAdapter,
   IPadAwarePhantomWalletAdapter,
   MetaMaskWalletAdapter,
+  SolflareWalletAdapter,
   TrustWalletAdapter,
 } from '../../lib/solanaWallets';
 import { WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
@@ -23,7 +25,9 @@ import { SolanaWalletModalProvider } from './SolanaWalletModal';
  * bundle or the EVM surface.
  *
  * Installed extensions (Phantom/Solflare/Backpack) register themselves via the
- * Wallet Standard, so they need no adapter here. The explicit Phantom adapter
+ * Wallet Standard, and that registration replaces an adapter of the same name
+ * wherever it exists. The adapters below cover where it does not. The explicit
+ * Phantom adapter
  * covers the two states the Standard cannot: no extension installed (the modal
  * lists Phantom with an install link instead of showing nothing) and iOS
  * Safari (readyState=Loadable → connect() deep-links the current URL into
@@ -45,6 +49,12 @@ import { SolanaWalletModalProvider } from './SolanaWalletModal';
  * and Base's passkey account has no Solana address. Both are vendored for the
  * reasons in lib/solanaWallets.ts, and both dedupe against their own Wallet
  * Standard registrations by exact name.
+ *
+ * Solflare and Backpack (2026-09-26) are "Open app" rows only: on a phone they
+ * open this page inside the wallet's own app, where its Wallet Standard wallet
+ * takes the row; elsewhere they point at the install page. Solflare is not on
+ * the EVM list, but it is the Solana wallet stakers use most after Phantom and
+ * it cannot connect over WalletConnect. See lib/solanaWallets.ts.
  *
  * The modal is ours, not upstream's: upstream folds every wallet that is not
  * installed behind "More options" as soon as one is, which is how a Phantom
@@ -69,6 +79,8 @@ export function SolanaProviders({ children }: { children: ReactNode }) {
       new TrustWalletAdapter(),
       new MetaMaskWalletAdapter(),
       new CoinbaseWalletAdapter(),
+      new SolflareWalletAdapter(),
+      new BackpackWalletAdapter(),
       // Same variable as wagmi.ts. Unset (CI, previews) the adapter reports
       // Unsupported, so WalletProvider drops it: no row, and no WalletConnect
       // code in the build at all.
