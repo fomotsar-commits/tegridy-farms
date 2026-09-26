@@ -82,6 +82,13 @@ const UNMOUNTED_BY_DESIGN: Array<{ pattern: RegExp; because: string }> = [
       'Mounting this is a feature, not a wire-up. Delete this entry when a sheet surface lands — ' +
       'the test below fails the moment anything reaches it.',
   },
+  {
+    pattern: /^solana\/curve\/fakeWriteApi\.fixture\.ts$/,
+    because:
+      'Test-only by construction: it imports `vi` from vitest, so it cannot ship. It is the ' +
+      'shared fake WriteApi for the /curve-launch UI suites (curve/*.test.tsx and ' +
+      'pages/CurveLaunchDetailPage.test.tsx), which is the only place it is imported.',
+  },
 ];
 
 const isTest = (p: string) => /\.(test|spec)\.[tj]sx?$/.test(p);

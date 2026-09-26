@@ -218,12 +218,33 @@ describe('navConfig', () => {
     ).toBeUndefined();
   });
 
-  // /curve-launch is the OWN-curve page and stays pilled unconditionally: its program
-  // is not deployed on any cluster, so no flag or config can make it launchable.
-  it('keeps /curve-launch pilled — its program is not deployed anywhere', () => {
+  // /curve-launch is the OWN-curve page. It stays pilled until launching and trading
+  // can load (curveWriteFlag.ts): in production ONLY the committed constant can do
+  // that, and it ships false.
+  it('keeps /curve-launch pilled while curve writes are off', () => {
     const entry = ALL_NAV.find((n) => n.to === '/curve-launch');
     expect(entry, '/curve-launch missing from nav').toBeTruthy();
     expect(entry?.soon).toBe(true);
+  });
+
+  it('unpills /curve-launch only when curve writes can load, and pills it again when they cannot', async () => {
+    // Both directions, through a fresh module load, because NAV_SECTIONS is built at import.
+    vi.stubEnv('VITE_SOLANA_CURVE_WRITES', '1');
+    vi.resetModules();
+    const on = await import('./navConfig');
+    expect(on.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon).toBe(false);
+
+    // A production build: DEV is false and the env flag no longer counts.
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('MODE', 'production');
+    vi.resetModules();
+    const prod = await import('./navConfig');
+    expect(prod.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon).toBe(true);
+
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    const off = await import('./navConfig');
+    expect(off.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon).toBe(true);
   });
 
   // Alerts sits with the detection tools because its rule kinds watch exactly what those

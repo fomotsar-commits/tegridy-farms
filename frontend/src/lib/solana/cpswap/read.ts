@@ -71,10 +71,23 @@ function decodeTokenAccountAmount(data: Uint8Array): bigint | null {
 }
 
 async function fetchAccount(rpc: AccountRpc, address: PublicKey): Promise<Read<Uint8Array>> {
+  const r = await fetchOwned(rpc, address);
+  return r.kind === 'ok' ? { kind: 'ok', value: r.value.data } : r;
+}
+
+/**
+ * The same read, keeping the account's OWNER. Bytes alone prove nothing: anyone can
+ * create an account whose data starts with the right discriminator under their own
+ * program, so a pool or vault read that matters must check who owns it.
+ */
+async function fetchOwned(
+  rpc: AccountRpc,
+  address: PublicKey,
+): Promise<Read<{ data: Uint8Array; owner: PublicKey }>> {
   try {
     const acc = await rpc.getAccountInfo(address);
     if (!acc) return { kind: 'absent' };
-    return { kind: 'ok', value: acc.data };
+    return { kind: 'ok', value: { data: acc.data, owner: acc.owner } };
   } catch (e) {
     return { kind: 'unreadable', detail: clipDetail(e) };
   }
@@ -154,23 +167,42 @@ export async function readPoolForPair(
 ): Promise<PoolRead<PoolSnapshot>> {
   const { token0, token1 } = sortMints(mintA, mintB);
   const poolAddress = derivePool(programId, configAddress, token0, token1);
+  return readPoolAt(rpc, programId, poolAddress);
+}
 
-  const raw = await fetchAccount(rpc, poolAddress);
+/**
+ * Read the pool at a KNOWN address — for a launch, the address the launch program
+ * recorded on its curve, never the standard derivation above (which anyone can
+ * occupy first, since pool creation is permissionless).
+ *
+ * The account must be OWNED by `programId` and decode as a pool; otherwise it is
+ * `not-a-pool`. The two vaults must be owned by the token program the pool names.
+ */
+export async function readPoolAt(
+  rpc: AccountRpc,
+  programId: PublicKey,
+  poolAddress: PublicKey,
+): Promise<PoolRead<PoolSnapshot>> {
+  const raw = await fetchOwned(rpc, poolAddress);
   if (raw.kind !== 'ok') return raw;
-  const pool = decodePoolState(poolAddress.toBase58(), raw.value);
+  if (!raw.value.owner.equals(programId)) return { kind: 'not-a-pool', address: poolAddress.toBase58() };
+  const pool = decodePoolState(poolAddress.toBase58(), raw.value.data);
   if (!pool) return { kind: 'not-a-pool', address: poolAddress.toBase58() };
 
   // Vault balances come from the pool's own recorded vault addresses, not from
   // a re-derivation — if the two ever disagree, the account is what pays out.
   const [v0, v1] = await Promise.all([
-    fetchAccount(rpc, new PublicKey(pool.token0Vault)),
-    fetchAccount(rpc, new PublicKey(pool.token1Vault)),
+    fetchOwned(rpc, new PublicKey(pool.token0Vault)),
+    fetchOwned(rpc, new PublicKey(pool.token1Vault)),
   ]);
   if (v0.kind !== 'ok') return v0;
   if (v1.kind !== 'ok') return v1;
+  if (v0.value.owner.toBase58() !== pool.token0Program || v1.value.owner.toBase58() !== pool.token1Program) {
+    return { kind: 'unreadable', detail: 'a pool vault is not owned by the token program the pool names' };
+  }
 
-  const vault0Amount = decodeTokenAccountAmount(v0.value);
-  const vault1Amount = decodeTokenAccountAmount(v1.value);
+  const vault0Amount = decodeTokenAccountAmount(v0.value.data);
+  const vault1Amount = decodeTokenAccountAmount(v1.value.data);
   if (vault0Amount === null || vault1Amount === null) {
     return { kind: 'unreadable', detail: 'a pool vault did not decode as a token account' };
   }
