@@ -10,6 +10,7 @@ vi.mock('./LighthousePoolLive', () => ({ LighthousePoolLive: () => <div data-tes
 vi.mock('./SolanaLadderPoolLive', () => ({ SolanaLadderPoolLive: () => <div data-testid="pool-card" /> }));
 vi.mock('./EvmLadderPoolLive', () => ({ EvmLadderPoolLive: () => <div data-testid="pool-card" /> }));
 vi.mock('./EvmLighthousePoolLive', () => ({ EvmLighthousePoolLive: () => <div data-testid="pool-card" /> }));
+vi.mock('./SolanaPoolStack', () => ({ SolanaPoolStack: () => <div data-testid="pool-card" /> }));
 vi.mock('../ArtImg', () => ({ ArtImg: () => null }));
 
 const { BungalowFarmPanel } = await import('./BungalowFarmPanel');
@@ -50,6 +51,15 @@ describe("a room's farm carries no prose em dash", () => {
     const { container, hero } = await farm(bare);
     expect(hero.textContent).toContain('The lighthouse pool is being built for');
     expect(container.textContent).toContain('Not deployed yet');
+    expect(container.textContent).not.toContain(EM_DASH);
+  });
+
+  // Production sets the ladder, which a test build does not, so BAYLA's closed pool goes members-only.
+  it('says the same for BAYLA as production serves it, the ladder named', async () => {
+    const bayla = { ...ROOMS.find((b) => b.id === 'bayla')!, ladderPool: 'LADDER' } as Bungalow;
+    const { container, hero } = await farm(bayla);
+    expect(hero.textContent).toContain('The lock ladder is live for BAYLA on Solana, created on-chain');
+    await screen.findAllByTestId('pool-card');
     expect(container.textContent).not.toContain(EM_DASH);
   });
 });
