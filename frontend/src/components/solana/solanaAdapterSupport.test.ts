@@ -7,6 +7,7 @@ import {
   MetaMaskWalletAdapter,
   TrustWalletAdapter,
 } from '../../lib/solanaWallets';
+import { WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
 import type { Adapter } from '@solana/wallet-adapter-base';
 
 /**
@@ -52,6 +53,7 @@ const LEGACY_ADAPTERS: ReadonlyArray<readonly [name: string, adapter: () => Adap
   ['Trust', () => new TrustWalletAdapter() as unknown as Adapter],
   ['MetaMask', () => new MetaMaskWalletAdapter() as unknown as Adapter],
   ['Coinbase Wallet', () => new CoinbaseWalletAdapter() as unknown as Adapter],
+  ['WalletConnect', () => new WalletConnectWalletAdapter({ projectId: 'test' }) as unknown as Adapter],
 ];
 
 describe('Solana legacy adapters can send what this venue sends', () => {
@@ -90,6 +92,7 @@ describe('Solana legacy adapters can send what this venue sends', () => {
         'TrustWalletAdapter',
         'MetaMaskWalletAdapter',
         'CoinbaseWalletAdapter',
+        'WalletConnectWalletAdapter',
       ]),
     );
     expect(mounted.length).toBe(LEGACY_ADAPTERS.length);

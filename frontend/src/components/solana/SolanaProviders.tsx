@@ -8,6 +8,7 @@ import {
   MetaMaskWalletAdapter,
   TrustWalletAdapter,
 } from '../../lib/solanaWallets';
+import { WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
 // VENDORED, not the package css: the upstream file opens with a Google-Fonts
 // @import that the CSP blocks, and Vite 8 turned that block into a fatal
 // CSS-preload failure — every Solana-stack page crashed in prod (2026-08-26).
@@ -48,6 +49,17 @@ import { SolanaWalletModalProvider } from './SolanaWalletModal';
  * The modal is ours, not upstream's: upstream folds every wallet that is not
  * installed behind "More options" as soon as one is, which is how a Phantom
  * user came to see no Trust at all. See SolanaWalletModal.tsx.
+ *
+ * WalletConnect (2026-09-25) is the last row, on computers and iPads only: a
+ * QR code in that modal, scanned by a wallet app on a phone. It is our own
+ * small adapter on the SignClient the EVM connector already loads, under its
+ * own storage prefix — never AppKit, never UniversalProvider, whose cleanup
+ * erases the EVM side's saved session (lib/solanaWalletConnect.ts). It reads
+ * the same project id variable as wagmi.ts; unset, as in CI and previews, it
+ * reports Unsupported and WalletProvider drops it, so there is no row — and
+ * the build carries none of WalletConnect's code, because the adapter's
+ * import() of it is compiled out (check-dist-graph.mjs D fails a no-id build
+ * that carries any).
  */
 export function SolanaProviders({ children }: { children: ReactNode }) {
   const endpoint = useMemo(() => solanaRpcEndpoint(), []);
@@ -57,6 +69,12 @@ export function SolanaProviders({ children }: { children: ReactNode }) {
       new TrustWalletAdapter(),
       new MetaMaskWalletAdapter(),
       new CoinbaseWalletAdapter(),
+      // Same variable as wagmi.ts. Unset (CI, previews) the adapter reports
+      // Unsupported, so WalletProvider drops it: no row, and no WalletConnect
+      // code in the build at all.
+      new WalletConnectWalletAdapter({
+        projectId: (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined) ?? '',
+      }),
     ],
     [],
   );
