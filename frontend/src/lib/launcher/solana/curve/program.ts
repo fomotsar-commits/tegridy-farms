@@ -77,6 +77,25 @@ export const REGISTERED_PROGRAM_ID = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNN
 export const REGISTERED_CP_SWAP_PROGRAM_ID = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
 
 /**
+ * The Squads v4 multisig that holds the platform treasury (registered as
+ * `squads-multisig` in frontend/scripts/addresses.json). It can never sign or hold
+ * tokens itself; its vault below does both.
+ */
+export const PLATFORM_TREASURY_MULTISIG = new PublicKey('EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK');
+
+/**
+ * The platform treasury: vault 0 of {@link PLATFORM_TREASURY_MULTISIG} (registered as
+ * `squads-vault`), and the `fee_recipient` the mainnet config is set to. It receives
+ * the 3.69% platform reserve of every launch inside `create_launch`.
+ *
+ * The program does NOT check that `global.fee_recipient` is a multisig; it pays
+ * whatever key the config holds. So this constant is what lets a page say "a
+ * multisig": only when the live config names THIS key (see `describeTreasury`).
+ * treasury.test.ts re-derives it from the multisig, so a typo here fails a test.
+ */
+export const PLATFORM_TREASURY_VAULT = new PublicKey('GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd');
+
+/**
  * ⛔ SPENT. The cp-swap fork a launch was to graduate into, deployed 2026-08-08 and
  * closed 2026-08-13 alongside `PROGRAM_ID` (ProgramData
  * `6TnZb1GTHhPAYsrbtwfELkqQrXyqCfv7V6s27RJKXHAF`, absent). This doc line previously

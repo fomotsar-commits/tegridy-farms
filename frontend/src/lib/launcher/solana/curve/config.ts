@@ -67,7 +67,7 @@ export interface LaunchEconomicsReport {
    * reserve. Every number below is computed against THIS, not the whole supply.
    */
   curveTokenSupply: bigint | null;
-  /** Tokens each launch holds back for the protocol, released only on graduation. */
+  /** Tokens each launch pays to the platform treasury inside create_launch; never sold, never pooled. */
   platformReserveTokens: bigint | null;
   maxReachableRealSol: bigint | null;
   graduationPriceRatioBps: bigint | null;

@@ -14,15 +14,16 @@ first (`deploy-devnet.sh`).
 > below — several of them are the steps that produced that outcome, and they have been
 > corrected in place rather than deleted, so the trap stays visible.
 
-> 🛑 **SUPERSEDED BINARY (later on 2026-09-26): the platform reserve is now paid AT LAUNCH.**
+> ✅ **REBUILT (later on 2026-09-26): the platform reserve is now paid AT LAUNCH.**
 > Owner decision, the same on every chain: `create_launch` pays the 3.69% platform reserve to
 > the treasury's token account (the ATA of `global.fee_recipient`) in the same instruction,
-> and `release_platform_reserve` no longer exists. That changed `tegridy-launch`'s bytes, so
-> **the rehearsed `tegridy_launch.mainnet.so` (sha256 `9b78be02…`), its IDL, its size and
-> rent quote, and both rehearsals (local and devnet) describe the OLD program. Do not deploy
-> them.** Rebuild with Agave 2.3.0, re-run both rehearsals on the new bytes, and publish new
-> hashes first. The "Do not rebuild" bullet below applies to cp-swap only until then
-> (cp-swap is unchanged). The go-live checklist carries the same HOLD.
+> and `release_platform_reserve` no longer exists. That changed `tegridy-launch`'s bytes. The
+> escrow build (`tegridy_launch.mainnet.so` sha256 `9b78be02…`, 483,288 B) is **superseded:
+> never deploy it**. The replacement is sha256 `a3c41afa…` (470,728 B), built twice
+> byte-identical with Agave 2.3.0 from tag `wip/solana-reserve-at-create`, and rehearsed on
+> those exact bytes: locally 108 of 108 checks (Agave 2.3.0 and 3.1.11), and on devnet by
+> upgrading `64WBTe…` to them. cp-swap is unchanged (`88b98aa9…`, rebuilt byte-identical).
+> The go-live checklist carries the new hashes, sizes and steps.
 >
 > ⛔ **2026-09-26: for the restart, do NOT follow the steps below — follow the go-live
 > checklist instead.** It lives with the release files, off-repo:
@@ -32,10 +33,10 @@ first (`deploy-devnet.sh`).
 >   `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, tegridy-launch
 >   `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`, deployer
 >   `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, cp-swap admin = the vault `GRMtSx…`.
-> - **Do not rebuild cp-swap.** Deploy the rehearsed cp_swap.mainnet.so (sha256 `88b98aa9…`),
->   built with Agave 2.3.0. (tegridy_launch.mainnet.so `9b78be02…` is superseded: see the
->   banner above.) A `solana-verify`
->   build made now would produce different bytes that nobody rehearsed.
+> - **Do not rebuild either program.** Deploy the rehearsed cp_swap.mainnet.so (sha256
+>   `88b98aa9…`) and tegridy_launch.mainnet.so (sha256 `a3c41afa…`), both built with Agave
+>   2.3.0. (The escrow build `9b78be02…` is superseded: see the banner above.) A
+>   `solana-verify` build made now would produce different bytes that nobody rehearsed.
 > - The deploy command below has no `--keypair` or `--upgrade-authority`, so the CLI's
 >   default key would pay and become the upgrade authority. The checklist's command has both.
 > - The vault needs **at least 4,572,000 lamports** before the two cp-swap admin steps, not
@@ -57,7 +58,7 @@ identities survive. The sequence, threading the sections below:
 
 | step | what | where | survives / regenerates |
 |---|---|---|---|
-| R1 | Confirm float on hand: **~6.0 SOL deploy rent at today's rate (§0, re-quoted 2026-09-26: cp-swap ~3.51 SOL + tegridy-launch ~2.45 SOL, from Agave 2.3.0 default-feature builds of this branch) + pool seed + fee buffer**. Re-measure the final deployer-patched build before deploying. Rent is lamport-denominated — a SOL price move changes the dollar cost, never the SOL needed; the RATE can change, so re-read it on the day | §0 | — |
+| R1 | Confirm float on hand: **~5.91 SOL deploy rent at today's rate (§0, re-quoted 2026-09-26: cp-swap ~3.51 SOL + tegridy-launch ~2.39 SOL + fees ~0.01, the measured mainnet builds) + pool seed + fee buffer**. Re-measure any rebuild before deploying. Rent is lamport-denominated — a SOL price move changes the dollar cost, never the SOL needed; the RATE can change, so re-read it on the day | §0 | — |
 | R2 | 🔑 Generate **two fresh program keypairs** + the tegridy-launch deploy authority. Back all three up OFFLINE before the first build — the 08-01 identities were gitignored and UNBACKED-UP, which is one machine failure away from a re-restart | §1 | REGENERATES (old ids spent) |
 | R3 | Re-derive (never trust the table) the Squads multisig / **vault PDA** / fee-receiver WSOL ATA. All three exist and survive the restart | §0 identities | SURVIVES |
 | R4 | 🔑 Patch the 4 authority constants — cp-swap `admin::ID` = an address **proven to sign AND pay on mainnet first** (the §0 post-mortem; the multisig account address bricked the last deploy), fee receiver = the vault's WSOL **token account**, both `declare_id!`s, tegridy-launch `deployer::ID` (fail-closed sentinel otherwise) | §2, §5b step 1 | — |
@@ -80,7 +81,7 @@ will touch. Both are inside the audited program; neither needs operator action.
 
 ## 0. Prereqs
 
-### DEPLOY FLOAT — **~6.0 SOL** at today's rent rate (re-quoted 2026-09-25)
+### DEPLOY FLOAT — **~5.91 SOL** at today's rent rate (re-quoted 2026-09-26)
 
 Mainnet rent today is **(bytes + 128) × 5,080 lamports**. Read on 2026-09-25 from
 `getMinimumBalanceForRentExemption`: 0 bytes → **650,240** (the old 890,880 figure is the
@@ -95,11 +96,11 @@ one. Rent assumes an exact `--max-len` (ProgramData = binary + 45 B header).
 
 | program | ProgramData account | rent at 5,080/byte |
 |---|---|---|
-| `raydium_cp_swap` | **691,672 B**, the current build (the 2026-08-08 deploy put ~701,925 B on chain, but the restart deploys a fresh binary; not the 793,824 in `solana-ci.yml` either) | **~3.51 SOL** |
-| `tegridy_launch` | **481,584 B** was measured 2026-09-26 on the escrow design, which is now superseded. Paying the reserve at launch removed `release_platform_reserve`: the devnet test build went 481,680 → 469,504 B. **Re-measure the final mainnet build** and recompute the rent before quoting a total | **~2.45 SOL** for the old size; re-measure |
+| `raydium_cp_swap` | binary **691,640 B** → ProgramData **691,685 B**: `cp_swap.mainnet.so` sha256 `88b98aa9…`, the rehearsed mainnet build (the 2026-08-08 deploy put ~701,925 B on chain, but the restart deploys a fresh binary; not the 793,824 in `solana-ci.yml` either) | **~3.51 SOL** |
+| `tegridy_launch` | binary **470,728 B** → ProgramData **470,773 B**: `tegridy_launch.mainnet.so` sha256 `a3c41afa…`, the reserve-paid-at-create mainnet build (tag `wip/solana-reserve-at-create`), built twice byte-identical. Mainnet quoted 2,392,177,080 lamports for it on 2026-09-26. (The escrow build it replaces was 483,288 B.) | **~2.39 SOL** |
 | fee-receiver WSOL ATA | already exists (`2sa31zce…`) | 0 |
 | tx fees | | ~0.01 SOL |
-| | **TOTAL** | **~6.0 SOL** |
+| | **TOTAL** | **~5.91 SOL** |
 
 **One copy of the rent, not two.** The upgradeable loader's deploy drains the write
 buffer's lamports back to the payer *before* it funds the ProgramData account, so the
