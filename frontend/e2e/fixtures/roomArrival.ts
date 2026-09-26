@@ -58,8 +58,9 @@ function instrument(samples: readonly number[]) {
     write(s);
   });
   // The document may not have a root element yet when a late timer fires, so every read here tolerates that.
+  // A door's static frame sits outside main until React replaces it.
   const h1InView = () => {
-    const r = document.querySelector('main#main-content h1')?.getBoundingClientRect();
+    const r = document.querySelector('#first-frame h1, main#main-content h1')?.getBoundingClientRect();
     return !!r && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
   };
   for (const ms of samples) {
