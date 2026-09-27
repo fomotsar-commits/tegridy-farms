@@ -33,6 +33,7 @@ import { useCurveSigner } from '../components/solana/curve/useCurveSigner';
 import { PublicKey } from '@solana/web3.js';
 import {
   LAUNCH_ERROR_COPY,
+  PLATFORM_TREASURY_VAULT,
   PROGRAM_ID,
   applySlippage,
   browserCurveRpc,
@@ -40,6 +41,7 @@ import {
   buyBlockedReason,
   classifyLaunch,
   clipDetail,
+  describeTreasury,
   formatSol,
   formatTokenAmount,
   isAmmConfigured,
@@ -47,17 +49,20 @@ import {
   parseDecimalToBaseUnits,
   quoteBuyOnCurve,
   quoteSellOnCurve,
+  readCreateLaunchCost,
   readDeployment,
   readLaunch,
   readMint,
   sellBlockedReason,
   type BondingCurve,
+  type CreateLaunchCost,
   type CurveWriteClient,
   type Deployment,
   type LaunchPhase,
   type LaunchState,
   type MintFacts,
   type Read,
+  type TreasuryDescription,
 } from '../lib/launcher/solana/curve';
 
 // /curve-launch: the surface for OUR OWN bonding curve
@@ -84,6 +89,9 @@ import {
 // Everything the page renders about a launch is either read from chain or
 // labelled unknown. No price feed, no volume, no holder count, no market cap, no
 // USD figure: none of them exist in program state and there is no indexer.
+
+/** "the platform treasury..." becomes "The platform treasury...", for the start of a sentence. */
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 // ---------------------------------------------------------------------------
 // Deployment banner — the gate everything else hangs off
@@ -426,6 +434,41 @@ function Check({ ok, children }: { ok: boolean | null; children: React.ReactNode
 }
 
 /**
+ * What the creator pays in rent to open a launch, read from the cluster.
+ *
+ * Since 2026-09-26 that includes the treasury's token account, which receives the
+ * platform reserve inside `create_launch` and is created at the creator's expense
+ * when it does not exist yet. Shown to the lamport (9 digits), because these amounts
+ * are a few thousandths of a SOL.
+ */
+function CreateCostRows({ cost }: { cost: Read<CreateLaunchCost> | null }) {
+  if (cost === null) return null;
+  if (cost.kind !== 'ok') {
+    return (
+      <p className="text-amber-300/90">
+        Could not read the rent, so what you would pay is not shown.
+        {cost.kind === 'unreadable' ? ` ${cost.detail}` : ''}
+      </p>
+    );
+  }
+  const c = cost.value;
+  const sol = (l: bigint) => `${formatSol(l, 9)} SOL`;
+  return (
+    <>
+      <Row label="You pay (account rent)" value={sol(c.total)} />
+      <p className="text-white/40 text-[10px]">
+        The curve account {sol(c.curve)}, its token vault {sol(c.vault)}, and{' '}
+        {c.treasuryTokenExists
+          ? "the treasury's token account already exists, so you pay nothing for it."
+          : `the treasury's token account ${sol(c.treasuryToken)} (it does not exist yet, so you create it; the platform reserve is paid into it).`}{' '}
+        These are read from the cluster&apos;s current rent rate. Network fees, and the rent for your mint, which you
+        create first, are extra.
+      </p>
+    </>
+  );
+}
+
+/**
  * Create-launch readiness.
  *
  * Deliberately NOT a "choose your curve" form: `create_launch` takes **no
@@ -439,21 +482,26 @@ export function CreateChecklist({
   mint,
   global,
   globalPhase,
+  createCost = null,
 }: {
   /** `null` = nothing looked up yet, which is not a failed read. */
   mint: Read<MintFacts> | null;
   global: LaunchState['global'];
   /** Why `global` is null, when it is. Drives the copy — never a blank or a zero. */
   globalPhase: LaunchPhase | null;
+  /** The rent `create_launch` would charge, read from the cluster. `null` = not read. */
+  createCost?: Read<CreateLaunchCost> | null;
 }) {
   const f = mint?.kind === 'ok' ? mint.value : null;
   const g = global;
+  const treasury = describeTreasury(g?.feeRecipient ?? null);
   return (
     <Card title="Open a launch">
       <p>
-        Launching mints the entire supply into a fresh curve&apos;s vault and permanently revokes the mint authority in
-        the same instruction, so no further supply can ever exist. The curve can sell all of it except the platform
-        reserve listed below; whatever it has not sold when it graduates goes into the pool. The curve&apos;s terms
+        Launching mints the entire supply, sends the platform reserve listed below to {treasury.name}, puts the rest
+        into a fresh curve&apos;s vault and permanently revokes the mint authority, all in the
+        same instruction, so no further supply can ever exist. The curve can sell everything in its vault; whatever it
+        has not sold when it graduates goes into the pool. The curve&apos;s terms
         are not chosen per launch — they are
         copied from the protocol config at creation and frozen, so nothing can rewrite a live launch&apos;s economics
         afterwards.
@@ -503,12 +551,16 @@ export function CreateChecklist({
             />
             {g.platformReserveBps > 0n && (
               <p className="text-white/40 text-[10px]">
-                Platform reserve: {bpsPercent(g.platformReserveBps)} of supply, held by the program, released to the
-                treasury only if the launch graduates; never sold on the curve.
+                Platform reserve: the platform receives {bpsPercent(g.platformReserveBps)} of supply when the token is
+                created.{' '}
+                {treasury.multisig
+                  ? 'It goes to the platform treasury, which is a multisig.'
+                  : `It goes to ${treasury.name}. This page cannot confirm that account is a multisig: it is not the platform's known Squads vault.`}
               </p>
             )}
             <Row label="Graduation venue" value={isAmmConfigured(g) ? 'configured' : 'not configured yet'} />
             {g.paused && <p className="text-amber-300/90">New launches are paused.</p>}
+            <CreateCostRows cost={createCost} />
           </>
         ) : (
           <p className="text-white/40">
@@ -545,6 +597,8 @@ export interface CurveLaunchViewProps {
   loading: boolean;
   /** Null until a write client exists. See curve/rpc.ts's CurveWriteClient. */
   writeClient?: CurveWriteClient | null;
+  /** The rent `create_launch` would charge the creator. `null` = not read. */
+  createCost?: Read<CreateLaunchCost> | null;
   wallet?: { address: string | null; connecting: boolean; onConnect: () => void };
   /** The program id the probe read. Defaults to PROGRAM_ID. */
   programId?: PublicKey;
@@ -575,6 +629,7 @@ export function CurveLaunchView({
   programId = PROGRAM_ID,
   gateBanner,
   write,
+  createCost = null,
 }: CurveLaunchViewProps) {
   // `snapshot === null` = no lookup attempted. Kept distinct from a failed read
   // all the way down: the classifier has to call it unreadable (it genuinely
@@ -587,6 +642,7 @@ export function CurveLaunchView({
     classifyLaunch(probe ?? { kind: 'unreadable', detail: 'still checking' }, notLookedUp, notLookedUp).phase;
   const paused = snapshot?.paused ?? null;
   const decimals = mint?.kind === 'ok' ? mint.value.decimals : null;
+  const treasury = describeTreasury(snapshot?.global?.feeRecipient ?? null);
 
   // A lookup is only meaningful once we know a program is actually there.
   // Offering it beforehand would invite deriving PDAs under a program that does
@@ -648,6 +704,7 @@ export function CurveLaunchView({
           decimals={decimals}
           paused={paused}
           lookedUp={lookedUp}
+          treasury={treasury}
         />
 
         <TradePanel
@@ -659,7 +716,12 @@ export function CurveLaunchView({
           gateNotOpen={gateBanner != null}
         />
 
-        <CreateChecklist mint={mint} global={snapshot?.global ?? null} globalPhase={lookedUp ? phase : null} />
+        <CreateChecklist
+          mint={mint}
+          global={snapshot?.global ?? null}
+          globalPhase={lookedUp ? phase : null}
+          createCost={createCost}
+        />
 
         {wallet && (
           <Card title="Wallet">
@@ -684,13 +746,13 @@ export function CurveLaunchView({
           </>
         )}
 
-        <CurveExplainer />
+        <CurveExplainer treasury={treasury} />
       </div>
     </>
   );
 }
 
-function CurveExplainer() {
+function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
   return (
     <div className="space-y-4">
       <Card title="What this is">
@@ -706,8 +768,11 @@ function CurveExplainer() {
         <p>
           What goes into the pool: the graduation target in SOL, and every token the curve did not sell. The migration
           reserve pays the pool&apos;s setup costs, and whatever it does not use goes to the treasury. The platform
-          reserve does not go into the pool: it stays with the program until it is released to the treasury, which can
-          only happen after graduation.
+          reserve does not go into the pool: {treasury.name} receives it when the token is created.
+        </p>
+        <p>
+          The platform treasury is meant to be a Squads multisig vault ({PLATFORM_TREASURY_VAULT.toBase58()}). This page
+          calls it a multisig only after reading the live config and finding that vault there.
         </p>
         <p className="text-white/40">
           The Meteora rail was retired on 2026-08-23 — this curve is now the only Solana launch surface here.
@@ -730,9 +795,9 @@ function CurveExplainer() {
             can leave the curve a tiny amount short of its target); then it is simply tried again, nothing is broken.
           </li>
           <li>
-            Graduation unlocks the platform reserve. After that, anyone can send it to the treasury, once; a launch that
-            never graduates never releases it. Once released, the treasury holds those tokens like any other holder, and
-            the program does not limit what it does with them.
+            Graduation does not touch the platform reserve. {capitalize(treasury.name)} received it when the token
+            was created, whether or not the launch ever graduates. It holds those tokens like any other holder,
+            and the program does not limit what it does with them, including selling them while the curve is live.
           </li>
         </ul>
       </Card>
@@ -823,6 +888,7 @@ function CurveLaunchInner() {
   const [mintInput, setMintInput] = useState('');
   const [snapshot, setSnapshot] = useState<LaunchState | null>(null);
   const [mint, setMint] = useState<Read<MintFacts> | null>(null);
+  const [createCost, setCreateCost] = useState<Read<CreateLaunchCost> | null>(null);
   const [loading, setLoading] = useState(false);
 
   // The first read any surface performs. `not-deployed` → we stop there rather
@@ -849,12 +915,16 @@ function CurveLaunchInner() {
       const [snap, facts] = await Promise.all([readLaunch(curveRpc, key, programId), readMint(rpc, addr)]);
       setSnapshot(snap);
       setMint(facts);
+      // What opening a launch would cost needs the live recipient, so it waits for
+      // `global`. No config, no figure: the checklist then says the terms are unknown.
+      setCreateCost(snap.global ? await readCreateLaunchCost(curveRpc, key, snap.global.feeRecipient) : null);
     } catch (e) {
       // A throw here is a client fault (a malformed address reaching PDA
       // derivation), not a finding: surface it as unreadable, not as absent.
       const detail = clipDetail(e);
       setSnapshot(null);
       setMint({ kind: 'unreadable', detail });
+      setCreateCost(null);
     } finally {
       setLoading(false);
     }
@@ -883,6 +953,7 @@ function CurveLaunchInner() {
       onLookup={onLookup}
       loading={loading}
       writeClient={null}
+      createCost={createCost}
       wallet={{ address: publicKey?.toBase58() ?? null, connecting, onConnect: openConnect }}
       programId={programId}
       gateBanner={gateState.status === 'disabled' ? undefined : <WriteGateBanner state={gateState} />}

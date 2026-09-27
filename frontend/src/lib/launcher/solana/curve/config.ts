@@ -67,7 +67,7 @@ export interface LaunchEconomicsReport {
    * reserve. Every number below is computed against THIS, not the whole supply.
    */
   curveTokenSupply: bigint | null;
-  /** Tokens each launch holds back for the protocol, released only on graduation. */
+  /** Tokens each launch pays to the platform treasury inside create_launch; never sold, never pooled. */
   platformReserveTokens: bigint | null;
   maxReachableRealSol: bigint | null;
   graduationPriceRatioBps: bigint | null;
@@ -87,8 +87,9 @@ const orNull = (r: CurveResult<bigint>): bigint | null => (r.ok ? r.value : null
  * listing-price band.
  *
  * ⚠ Reachability, the listing ratio and the continuity target are all taken
- * against the CURVE supply (total minus the platform reserve). The reserve never
- * trades on the curve and never goes into the pool, so checking against the whole
+ * against the CURVE supply (total minus the platform reserve). The reserve goes to
+ * the platform treasury when the launch is created, never trades on the curve and
+ * never goes into the pool, so checking against the whole
  * supply passes a config that lists ~4.9% above the curve at a 3.69% reserve —
  * inside the band, so nothing would warn.
  */

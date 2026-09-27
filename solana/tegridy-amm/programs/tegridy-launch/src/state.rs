@@ -173,6 +173,7 @@ pub struct GlobalConfig {
 
     /// Share of every launch's supply held back from the curve for the protocol,
     /// in bps of `token_total_supply`, capped at `curve::MAX_PLATFORM_RESERVE_BPS`.
+    /// Paid to `fee_recipient`'s token account at `create_launch`.
     ///
     /// Snapshotted onto each curve as an AMOUNT at `create_launch`, so changing it
     /// never alters a live launch. Appended after `bump` so every older field keeps
@@ -238,14 +239,17 @@ pub struct BondingCurve {
     /// The protocol's platform reserve for this launch, in tokens. Fixed at
     /// `create_launch` and never changed afterwards.
     ///
-    /// These tokens sit in `curve_vault` but are NOT in `real_token_reserves`, so
-    /// the curve can never sell them and `migrate_to_amm` never deposits them.
-    /// `release_platform_reserve` sends them to the treasury once `complete` is
-    /// set; a launch that never graduates keeps them locked forever, as on the EVM.
+    /// `create_launch` pays these tokens to the treasury (the associated token
+    /// account of `GlobalConfig::fee_recipient`) in the same instruction that opens
+    /// the curve. They are never in `real_token_reserves` or `curve_vault`, so the
+    /// curve never sells them and `migrate_to_amm` never deposits them. A launch
+    /// that never graduates has still paid them.
     ///
     /// Readers: tokens sold = total supply - this - `real_token_reserves`.
     pub platform_reserve_tokens: u64,
-    /// Set once `release_platform_reserve` has paid the reserve out. Never unset.
+    /// Always true: the reserve is paid at `create_launch`, which sets this.
+    /// Kept (rather than removed) so the account stays 179 bytes and no field
+    /// moves; it dates from a design that paid the reserve after graduation.
     pub platform_reserve_released: bool,
 }
 
@@ -273,18 +277,13 @@ pub struct LaunchCreated {
     pub virtual_sol_reserves: u64,
     pub virtual_token_reserves: u64,
     pub token_total_supply: u64,
-    /// Held back from the curve for the protocol; see
-    /// `BondingCurve::platform_reserve_tokens`.
+    /// Carved from the curve's share and paid to the treasury in this same
+    /// instruction; see `BondingCurve::platform_reserve_tokens`.
     pub platform_reserve_tokens: u64,
-}
-
-#[event]
-pub struct PlatformReserveReleased {
-    pub mint: Pubkey,
     /// The OWNER of the token account that received the reserve: the config's
-    /// `fee_recipient` at the moment of release.
-    pub recipient: Pubkey,
-    pub amount: u64,
+    /// `fee_recipient` at the moment of creation. Appended last, so every older
+    /// field keeps its position in the event.
+    pub platform_reserve_recipient: Pubkey,
 }
 
 #[event]

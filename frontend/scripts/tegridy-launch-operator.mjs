@@ -4,9 +4,10 @@
  *
  * The out-of-band driver for OUR OWN bonding curve's protocol-level instructions:
  * `initialize_global` and `update_global`, the two cp-swap admin steps graduation
- * needs (`create_amm_config`, `create_permission_pda`), and the two permissionless
- * post-launch calls (`migrate_to_amm`, `release_platform_reserve`). Read-only
- * commands need no key at all.
+ * needs (`create_amm_config`, `create_permission_pda`), and the permissionless
+ * post-launch call (`migrate_to_amm`). Read-only commands need no key at all.
+ * (There is no release step: the platform reserve is paid to the treasury inside
+ * `create_launch`, owner decision 2026-09-26.)
  * Mirrors `solana-dbc-operator.mjs` in shape and safety posture; the pure logic it
  * drives lives in `src/lib/launcher/solana/tegridyLaunch.ts` (unit-tested, and its
  * config math diffed against the real `curve.rs` over 50,009 cases).
@@ -48,8 +49,8 @@
  *     (GRMtSx…, never the multisig account EVGSnRZ…, which cannot sign), so the local
  *     key is NOT a sufficient signer set and the authority pre-check below fails
  *     closed before anything is built.
- *   • The two PERMISSIONLESS commands (`migrate`, `release-reserve`) SIMULATE by
- *     default and send only with `--send`; they need a key only to send.
+ *   • The PERMISSIONLESS command (`migrate`) SIMULATES by default and sends only
+ *     with `--send`; it needs a key only to send.
  *   • Every guard the program enforces is ALSO checked here, against state read from
  *     chain, so an operator gets a sentence instead of a bare Anchor code (6000+)
  *     after a multisig ceremony.
@@ -78,11 +79,12 @@
  *   5. `update-global --cp-swap-program … --amm-config …`   ← the ONLY way to set them
  *   6. migration is possible (`migrate`, permissionless); until step 5 it fails
  *      AmmNotConfigured (6015)
- *   7. after each graduation, `release-reserve` (permissionless) sends that launch's
- *      platform reserve to the treasury's token account
+ *
+ * The platform reserve needs no step: every `create_launch` pays it to the
+ * treasury's token account at launch.
  *
  * Steps 1 and 2 were done once, on 2026-08-08, and undone by the 2026-08-13 close.
- * Steps 3-7 have never run.
+ * Steps 3-6 have never run.
  *
  * There is no venue-shape step any more. `set-curve-segments` published the
  * Meteora-shaped curve for `create_launch --mode 1` to snapshot; segmented mode was
@@ -125,7 +127,7 @@
  * the recipe for any book.)
  *
  * Commands: status | derive | check-config | init-global | update-global |
- *           create-amm-config | create-permission | migrate | release-reserve | help
+ *           create-amm-config | create-permission | migrate | help
  */
 
 import fs from 'node:fs';
@@ -701,8 +703,8 @@ async function classifyPayer(connection, pubkey) {
  * with the authority as a `Signer`, so an authority that cannot sign locks `global`
  * for good (no pause, no fee change, no AMM addresses, no handover).
  * `--fee-recipient`: it receives the protocol's trade fees and migration residuals,
- * and it OWNS the token account every released platform reserve lands in, so only
- * a signer can ever spend any of it.
+ * and it OWNS the token account every platform reserve is paid into at launch, so
+ * only a signer can ever spend any of it.
  *
  * The Squads MULTISIG account (EVGSnRZ…) is exactly the address to catch: owned by
  * the Squads program, with data, while Squads v4 signs as the VAULT PDA (GRMtSx…),
@@ -729,7 +731,7 @@ async function refuseUnsignableAddress(connection, base58, flag, consequence) {
 
 const AUTHORITY_LOCKED = 'global would be locked forever';
 const FEE_RECIPIENT_LOCKED =
-  'every trade fee, migration residual and released platform reserve paid to it would be stuck';
+  'every trade fee, migration residual and platform reserve paid to it would be stuck';
 
 /**
  * Refuse a book that lists away from the curve's final price (`listingGap`), unless
@@ -941,9 +943,9 @@ function requireCreatorFeeShareBps(flags) {
 
 /**
  * `platform_reserve_bps` — the LAST argument to `initialize_global`: the share of
- * every launch's supply the protocol holds back (369 = 3.69%). Held in the curve's
- * own vault, never sold on the curve, never put in the pool, and released to the
- * treasury only after the launch graduates (`release-reserve`).
+ * every launch's supply the protocol takes (369 = 3.69%). Carved from the curve's
+ * share, never sold on the curve, never put in the pool, and paid to the treasury's
+ * token account (`fee_recipient`'s ATA) by `create_launch` itself, at launch.
  *
  * No default, for the reason `--creator-fee-share-bps` has none: it is decided once
  * at `initialize_global`, snapshotted onto every launch, and a default would let the
@@ -992,16 +994,16 @@ function printReserveSplit(params, report) {
     console.log('\n  platform reserve       : none (0 bps) — the whole supply is on the curve');
   } else {
     console.log('\n  platform reserve       : ' +
-      `${params.platformReserveBps} bps = ${reserveTokens} base units, held in the curve vault,`);
-    console.log('                           never sold on the curve, never pooled, released to the');
-    console.log('                           treasury ATA only after graduation (release-reserve)');
+      `${params.platformReserveBps} bps = ${reserveTokens} base units, paid to the treasury`);
+    console.log('                           ATA at launch (inside create_launch), never sold on the');
+    console.log('                           curve, never pooled');
     console.log(`  curve supply           : ${curveTokens}  (supply - reserve; every check above uses this)`);
   }
   const g = graduationSplit({ supply: S, curveTokens, virtualSol: vs, virtualToken: vt, target: T, migrationReserve: R });
   if (g) {
     console.log(`  at graduation          : sold ${pct3(g.sold, S)} / LP ${pct3(g.lp, S)} / reserve ${pct3(g.reserve, S)} of supply`);
     if (g.reserve > 0n) {
-      console.log(`                           reserve = ${pct3(g.reserve, g.lp)} of the pool's token side once released`);
+      console.log(`                           reserve = ${pct3(g.reserve, g.lp)} of the pool's token side (the treasury has held it since launch)`);
     }
   } else {
     console.log('  at graduation          : (could not compute — the book cannot reach this target)');
@@ -1096,7 +1098,7 @@ async function cmdInitGlobal(flags) {
   // Same treatment, same reason: validated before the key, echoed because nothing
   // else says it out loud. It must also appear in the launch page's terms.
   const reserveBps = requirePlatformReserveBps(flags);
-  console.log(`  platform reserve       : ${reserveBps} bps (${Number(reserveBps) / 100}% of every launch's supply, to the treasury after graduation)`);
+  console.log(`  platform reserve       : ${reserveBps} bps (${Number(reserveBps) / 100}% of every launch's supply, to the treasury at launch)`);
   // A reserve moves the listing price, and the program's ±5% band accepts the move
   // an untuned book makes (10488 bps at 369). The pre-flight above only printed it.
   if (reserveBps > 0n) {
@@ -1305,8 +1307,8 @@ async function cmdUpdateGlobal(flags) {
     console.log('        one every NEW launch gets; live launches keep their own snapshot.');
   }
   if (args.newFeeRecipient && args.newFeeRecipient !== current.feeRecipient.toBase58()) {
-    console.log('  note: fee_recipient is read when a reserve is RELEASED, not when it is carved.');
-    console.log('        Every graduated-but-unreleased reserve now goes to the new recipient.');
+    console.log('  note: fee_recipient is read at create_launch. NEW launches pay their platform');
+    console.log('        reserve to the new recipient; existing launches already paid the old one.');
   }
 
   const ix = L.updateGlobalIx(
@@ -1637,7 +1639,7 @@ async function cmdMigrate(flags) {
   if (cr.kind === 'absent') fail(`no curve for ${mint.toBase58()} — this mint was never launched here.`);
   if (cr.kind !== 'ok') fail(`could not read the curve (${cr.kind}: ${cr.detail ?? cr.reason ?? '?'}).`);
   const c = cr.value.curve;
-  if (c.complete) fail('this launch has already graduated. If its platform reserve is still held, run release-reserve.');
+  if (c.complete) fail('this launch has already graduated.');
   // The program's gate is target PLUS reserve (the accounting quantity it debits).
   const need = c.graduationTargetLamports + c.migrationReserveLamports;
   if (c.realSolReserves < need) {
@@ -1694,9 +1696,6 @@ async function cmdMigrate(flags) {
   console.log(`  mint                 : ${mint.toBase58()}`);
   console.log(`  raised               : ${c.realSolReserves} (${sol(c.realSolReserves)}) of target + reserve ${need}`);
   console.log(`  pool gets            : ${c.graduationTargetLamports} lamports + ${c.realTokenReserves} tokens`);
-  if (c.platformReserveTokens !== undefined) {
-    console.log(`  stays in the vault   : ${c.platformReserveTokens} tokens (platform reserve — release-reserve after this)`);
-  }
   console.log(`  migration authority  : ${migAuth.toBase58()} (holds ${authLamports})`);
   console.log(`  payer                : ${payer.publicKey.toBase58()} (holds ${payerCheck.lamports})`);
   console.log(`  payer float          : ${float.total} = ATAs ${float.atas} + seed top-up ${float.seedTopup} (refunded at the end), plus fees`);
@@ -1740,82 +1739,6 @@ async function cmdMigrate(flags) {
     return;
   }
   await maybeSend(connection, tx, flags);
-  console.log('  NEXT: release-reserve --mint ' + mint.toBase58());
-}
-
-// ─── release-reserve (permissionless) ───────────────────────────────────────────
-
-/**
- * `release_platform_reserve` for one graduated launch: moves the platform reserve
- * from the curve vault to `global.fee_recipient`'s token account, once.
- *
- * Permissionless, like migrate. The recipient is read from `global` at release
- * time, so it always goes to the treasury as configured NOW. Simulates by default.
- */
-async function cmdReleaseReserve(flags) {
-  const pid = programId(flags);
-  const pidKey = new PublicKey(pid);
-  const connection = connect();
-  const status = await requireDeployed(connection, pid, 'release_platform_reserve');
-  if (status.global?.kind !== 'ok') fail(`global is "${status.global?.kind}".`);
-  const g = status.global.value;
-  const mint = new PublicKey(optionalPubkeyFlag(flags, 'mint') ?? fail('missing required --mint <base58>'));
-
-  const cr = await L.readCurve(connection, mint, pidKey);
-  if (cr.kind === 'absent') fail(`no curve for ${mint.toBase58()} — this mint was never launched here.`);
-  if (cr.kind !== 'ok') fail(`could not read the curve (${cr.kind}: ${cr.detail ?? cr.reason ?? '?'}).`);
-  const c = cr.value.curve;
-  if (c.platformReserveTokens === undefined || c.platformReserveReleased === undefined) {
-    fail('the curve core does not decode the platform-reserve fields — it predates them. Nothing was built.');
-  }
-  if (!c.complete) {
-    fail('this launch has not graduated. The reserve is released only after migrate — PlatformReserveLocked (6022).');
-  }
-  if (c.platformReserveReleased) {
-    fail('this launch\'s reserve was already released — PlatformReserveAlreadyReleased (6023).');
-  }
-  const amount = c.platformReserveTokens;
-  const vault = L.curveVaultPda(mint, pidKey);
-  const recipientAta = L.associatedTokenAddress(mint, g.feeRecipient);
-  const [vaultBal, ataInfo, ataRent] = await Promise.all([
-    connection.getTokenAccountBalance(vault).then((r) => BigInt(r.value.amount)),
-    connection.getAccountInfo(recipientAta),
-    connection.getMinimumBalanceForRentExemption(165).then(BigInt),
-  ]);
-  if (vaultBal < amount) {
-    fail(`the curve vault holds ${vaultBal}, less than the ${amount} reserve. Investigate before sending anything.`);
-  }
-
-  const payer = await payerFor(flags);
-  const payerCheck = await classifyPayer(connection, payer.publicKey);
-  if (!payerCheck.ok) fail(`the payer cannot fund rent: ${payerCheck.reason}`);
-  const needs = ataInfo ? 0n : ataRent;
-
-  console.log('[operator] release_platform_reserve');
-  console.log(`  mint                 : ${mint.toBase58()}`);
-  console.log(`  amount               : ${amount} base units${amount === 0n ? '  (none was carved; this only records the release)' : ''}`);
-  console.log(`  recipient            : ${g.feeRecipient.toBase58()}  (global.fee_recipient, read NOW)`);
-  console.log(`  recipient token acct : ${recipientAta.toBase58()}${ataInfo ? '' : `  (created by this call, ${ataRent} lamports from the payer)`}`);
-  console.log(`  payer                : ${payer.publicKey.toBase58()} (holds ${payerCheck.lamports})`);
-  if (payerCheck.lamports < needs) fail(`the payer holds ${payerCheck.lamports} lamports, below the ${needs} ATA rent it must pay.`);
-
-  const ix = L.releasePlatformReserveIx(
-    { payer: payer.publicKey, feeRecipient: g.feeRecipient, mint },
-    { programId: pidKey },
-  );
-  // Whatever the builder derived, the tokens must land in the treasury's own ATA.
-  if (!ix.keys.some((k) => k.pubkey.equals(recipientAta) && k.isWritable)
-      || !ix.keys.some((k) => k.pubkey.equals(g.feeRecipient))) {
-    fail('the built release_platform_reserve does not pay global.fee_recipient\'s token account. Nothing was built.');
-  }
-  const tx = new Transaction().add(ix);
-  await prepareAndSign(connection, tx, payer.publicKey, flags.send ? payer.keypair : undefined);
-  if (!flags.send) {
-    await simulate(connection, tx, 'release_platform_reserve', { launchProgramId: pid });
-    console.log('\n  Dry run. Add --send (with OPERATOR_KEYPAIR) to broadcast.');
-    return;
-  }
-  await maybeSend(connection, tx, flags);
 }
 
 function printHelp() {
@@ -1850,14 +1773,15 @@ COMMANDS
                      ["migauth"] (once per program; without it EVERY graduation fails
                      MigrationPermissionMissing, 6021)
   migrate            migrate_to_amm for --mint (permissionless; SIMULATES unless --send)
-  release-reserve    release_platform_reserve for --mint (permissionless, after
-                     graduation; SIMULATES unless --send)
   help
+
+  There is no release step: every create_launch pays the platform reserve to the
+  treasury's token account at launch.
 
 GLOBAL FLAGS
   --program-id <id>  override the tegridy-launch program id
-  --send             broadcast instead of printing (or, for migrate/release-reserve,
-                     instead of simulating). OPT-IN. Only completes when the local key
+  --send             broadcast instead of printing (or, for migrate, instead of
+                     simulating). OPT-IN. Only completes when the local key
                      is a sufficient signer set — on mainnet global.authority is the
                      Squads VAULT PDA, so the authority pre-check fails closed.
 
@@ -1866,9 +1790,9 @@ CONFIG FLAGS (init-global / check-config; all values are RAW integers, not decim
   --creator-fee-share-bps <n>  REQUIRED, no default. Share OF THE FEE paid to the
                          token's creator, <= 10000. 5000 = 50%, the settled value.
   --platform-reserve-bps <n>  REQUIRED, no default. Share of every launch's SUPPLY held
-                         back for the protocol, <= 1000 (10%). 369 = 3.69%. Held in the
-                         curve vault, never sold or pooled, released to the treasury
-                         only after graduation. check-config prints the split and the
+                         back for the protocol, <= 1000 (10%). 369 = 3.69%. Paid to the
+                         treasury at launch (inside create_launch), never sold on the
+                         curve or pooled. check-config prints the split and the
                          scaled --virtual-token that keeps the graduation target.
   --virtual-sol <lamports>
   --virtual-token <base units>
@@ -1876,7 +1800,7 @@ CONFIG FLAGS (init-global / check-config; all values are RAW integers, not decim
   --target <lamports>    graduation target — EXCLUDES the migration reserve
   --reserve <lamports>   migration reserve, >= 42156720 (MIN_MIGRATION_RESERVE_LAMPORTS)
   --fee-recipient <base58>  must be able to sign (the Squads VAULT, never the multisig
-                         account): it owns every released reserve. A program-owned
+                         account): it owns every platform reserve. A program-owned
                          address is refused, here and on update-global.
   --cp-swap-program <base58>   optional at init — zero is the NORMAL case
   --amm-config <base58>        optional at init — zero is the NORMAL case
@@ -1919,7 +1843,7 @@ CREATE-PERMISSION FLAGS
   --program-id <id>          the tegridy-launch program whose ["migauth"] is authorised
   Same signer rule as create-amm-config: admin::ID, System-owned, funded.
 
-MIGRATE / RELEASE-RESERVE FLAGS
+MIGRATE FLAGS
   --mint <base58>            the launch
   --create-pool-fee-account <base58>   migrate only: cp-swap's create_pool_fee_reveiver::ID
                              (a WSOL token account; a compile-time constant, so a flag)
@@ -1937,7 +1861,6 @@ program ids are closed, so every step restarts at 0 on fresh ids.
   4. create-permission                 cp-swap admin authorises our migration authority
   5. update-global --cp-swap-program … --amm-config …
   6. migrate                           per launch, once it is funded
-  7. release-reserve                   per launch, after it graduates
 
   \`initialize_global\` does NOT require an AmmConfig (lib.rs:184-187, 259-263), and
   \`update_global\` CAN set both AMM addresses (lib.rs:360-367). lib.rs:347-355 records
@@ -1972,8 +1895,6 @@ async function main() {
       return cmdCreatePermission(flags);
     case 'migrate':
       return cmdMigrate(flags);
-    case 'release-reserve':
-      return cmdReleaseReserve(flags);
     case 'help':
     case '--help':
     case '-h':

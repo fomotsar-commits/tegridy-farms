@@ -278,6 +278,20 @@ export function sellIx(
 
 // ── create_launch (the `CreateLaunch` context struct in lib.rs) ──────────────
 
+export interface CreateLaunchAccounts {
+  /** Signs, holds the mint authority, and pays every rent (including the
+   *  treasury's token account when it is new). */
+  creator: PublicKey;
+  mint: PublicKey;
+  /**
+   * MUST equal `global.fee_recipient` — read it off the decoded global, never
+   * derived and never defaulted. The program pins it (`address =
+   * global.fee_recipient`), so a wrong or stale value (a rotation between reading
+   * `global` and sending) fails with `Unauthorized` (6008) and creates nothing.
+   */
+  feeRecipient: PublicKey;
+}
+
 /**
  * `create_launch()` — no args. Supply, virtual reserves, fee, target and reserve
  * are all read from `global` and SNAPSHOTTED onto the curve (lib.rs:426-432).
@@ -300,23 +314,38 @@ export function sellIx(
  * `mode: u8` selecting constant-product or the segmented curve; segmented mode is
  * gone and so is the byte, and a 9-byte payload against the reworked handler fails
  * to deserialize just as an 8-byte one did against the old.
+ *
+ * ## The platform reserve is paid HERE
+ *
+ * In the same instruction, the program sends `platform_reserve_bps` of the supply
+ * (3.69%) to the platform treasury: the associated token account of
+ * `global.fee_recipient` for this mint, on the classic token program. The creator
+ * pays that account's rent if it does not exist yet. So the list below ends with
+ * three reserve accounts after `rent`: the fee recipient, its token account, and the
+ * Associated Token program.
  */
 export function createLaunchIx(
-  accounts: { creator: PublicKey; mint: PublicKey },
+  accounts: CreateLaunchAccounts,
   ids: ProgramIds = {},
 ): TransactionInstruction {
   const programId = ids.programId ?? PROGRAM_ID;
+  const { mint, feeRecipient } = accounts;
   return new TransactionInstruction({
     programId,
     keys: [
       acc(accounts.creator, true, true),
       acc(globalPda(programId), false, false),
-      acc(accounts.mint, false, true),
-      acc(curvePda(accounts.mint, programId), false, true),
-      acc(curveVaultPda(accounts.mint, programId), false, true),
+      acc(mint, false, true),
+      acc(curvePda(mint, programId), false, true),
+      acc(curveVaultPda(mint, programId), false, true),
       acc(TOKEN_PROGRAM_ID, false, false),
       acc(SYSTEM_PROGRAM_ID, false, false),
       acc(SYSVAR_RENT_PUBKEY, false, false),
+      // The platform reserve's destination, appended so the first eight keep their
+      // slots. Read-only: only the key is used.
+      acc(feeRecipient, false, false),
+      acc(associatedTokenAddress(mint, feeRecipient), false, true),
+      acc(ASSOCIATED_TOKEN_PROGRAM_ID, false, false),
     ],
     data: new Writer().disc(IX_DISCRIMINATOR.createLaunch).finish(),
   });
@@ -456,57 +485,6 @@ export function migrateToAmmIx(
       acc(SYSTEM_PROGRAM_ID, false, false),
     ],
     data: new Writer().disc(IX_DISCRIMINATOR.migrateToAmm).finish(),
-  });
-}
-
-// ── release_platform_reserve (the `ReleasePlatformReserve` context struct) ───
-
-export interface ReleasePlatformReserveAccounts {
-  /** Signs and pays for the treasury's token account if it does not exist yet. Anyone may. */
-  payer: PublicKey;
-  /**
-   * MUST equal `global.fee_recipient` — read it off the decoded global, never derive
-   * or default it. The program pins it (`address = global.fee_recipient`), so a wrong
-   * value fails with `Unauthorized` (6008). It is read at release time, so a
-   * `fee_recipient` rotated after a launch still receives that launch's reserve.
-   */
-  feeRecipient: PublicKey;
-  mint: PublicKey;
-}
-
-/**
- * `release_platform_reserve()` — no args, permissionless. Sends a graduated launch's
- * platform reserve (`curve.platform_reserve_tokens`) from the curve's vault to the
- * treasury's token account, exactly once.
- *
- * Fails `PlatformReserveLocked` (6022) until the curve has graduated, and
- * `PlatformReserveAlreadyReleased` (6023) the second time. A launch that never
- * graduates never releases its reserve.
- *
- * The treasury's token account is the ATA of `feeRecipient` for the mint, on the
- * classic token program. The program creates it if it is missing, paid by `payer`.
- */
-export function releasePlatformReserveIx(
-  accounts: ReleasePlatformReserveAccounts,
-  ids: ProgramIds = {},
-): TransactionInstruction {
-  const programId = ids.programId ?? PROGRAM_ID;
-  const { mint, feeRecipient } = accounts;
-  return new TransactionInstruction({
-    programId,
-    keys: [
-      acc(accounts.payer, true, true),
-      acc(globalPda(programId), false, false),
-      acc(feeRecipient, false, false),
-      acc(mint, false, false),
-      acc(curvePda(mint, programId), false, true),
-      acc(curveVaultPda(mint, programId), false, true),
-      acc(associatedTokenAddress(mint, feeRecipient), false, true),
-      acc(TOKEN_PROGRAM_ID, false, false),
-      acc(ASSOCIATED_TOKEN_PROGRAM_ID, false, false),
-      acc(SYSTEM_PROGRAM_ID, false, false),
-    ],
-    data: new Writer().disc(IX_DISCRIMINATOR.releasePlatformReserve).finish(),
   });
 }
 

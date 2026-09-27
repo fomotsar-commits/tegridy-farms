@@ -22,16 +22,25 @@ this file is wrong and must be fixed.
 > `frontend/src/lib/launcher/solana/curve/program.ts` is the authority for layouts, sizes,
 > discriminators and error codes. What changed, in short:
 >
-> - **Platform reserve.** `GlobalConfig.platform_reserve_bps: u64` at offset 194 (size
->   **202**), passed as the LAST argument to `initialize_global` and as the last `Option`
->   to `update_global`. `BondingCurve.platform_reserve_tokens: u64` at 170 and
->   `platform_reserve_released: bool` at 178 (size **179**). At `create_launch` that share
->   of supply is held in the curve vault OUTSIDE `real_token_reserves`: never sold, never
->   pooled, and sent to `global.fee_recipient`'s token account only after graduation, by
->   the permissionless `release_platform_reserve`.
-> - **Errors** now run to 6023: 6020 `CreatorMismatch`, 6021 `MigrationPermissionMissing`,
->   6022 `PlatformReserveLocked` (release before graduation), 6023
->   `PlatformReserveAlreadyReleased`.
+> - **Platform reserve, paid AT LAUNCH (owner decision 2026-09-26).**
+>   `GlobalConfig.platform_reserve_bps: u64` at offset 194 (size **202**), passed as the
+>   LAST argument to `initialize_global` and as the last `Option` to `update_global`.
+>   `BondingCurve.platform_reserve_tokens: u64` at 170 and `platform_reserve_released: bool`
+>   at 178 (size **179**). `create_launch` carves that share of supply out of
+>   `real_token_reserves` and, in the same instruction, pays it to `global.fee_recipient`'s
+>   associated token account (classic SPL Token): never sold on the curve, never pooled,
+>   paid even if the launch never graduates. `platform_reserve_released` is therefore
+>   `true` from creation. There is no `release_platform_reserve` instruction.
+> - **`create_launch` takes 11 accounts** (all listed in §2.3): the original 8, then `fee_recipient` (read-only,
+>   `address = global.fee_recipient`, else `Unauthorized` 6008), `treasury_token` (writable,
+>   `init_if_needed` ATA of `fee_recipient` for the mint, paid by the creator) and
+>   `associated_token_program`. Read `fee_recipient` off the decoded `global`; never
+>   default it.
+> - **`LaunchCreated`** gained `platform_reserve_tokens: u64` and
+>   `platform_reserve_recipient: Pubkey`, appended after `token_total_supply`.
+> - **Errors** run to 6024: 6020 `CreatorMismatch`, 6021 `MigrationPermissionMissing`,
+>   6022 `PlatformReserveLocked` and 6023 `PlatformReserveAlreadyReleased` (both RETIRED:
+>   nothing returns them; they keep their slots), 6024 `CpSwapProgramNotPinned`.
 > - **The migration authority is `["migauth"]`, one for the whole program** (state.rs
 >   `MIGRATION_AUTH_SEED`). It took the mint until b990f8b2 made it program-wide; the client
 >   kept the old `["migauth", mint]` shape until this change. §2.6 and §4 are corrected below.
@@ -293,45 +302,58 @@ mistake later. `paused` is the intended kill switch.
 
 ---
 
-### 2.3 `create_launch` — lib.rs:387-444
+### 2.3 `create_launch` — lib.rs:601-709
 
-Mints the whole supply onto a new curve and **permanently revokes the mint authority**
-in the same instruction (lib.rs:395-421).
+Mints the whole supply onto a new curve, **pays the platform reserve** to the platform
+treasury, and **permanently revokes the mint authority**, all in the same instruction
+(lib.rs:613-709). The reserve (`platform_reserve_bps` of the supply, 3.69%) goes from
+`curve_vault` to `treasury_token`, the associated token account of
+`global.fee_recipient` for this mint (lib.rs:655-675). It is paid even if the launch
+never graduates; `real_token_reserves` is the supply minus the reserve, and that is
+exactly what the vault holds afterwards.
 
 **Args: none.** Supply, virtual reserves, fee, target and reserve are all read from
 `global` and snapshotted onto the curve.
 
-Accounts (`CreateLaunch`, lib.rs:1254-1314):
+Accounts (`CreateLaunch`, lib.rs:1754-1850). The first eight kept their positions; the
+three reserve accounts were appended after `rent`:
 
 | # | account | signer | writable | constraint |
 | --- | --- | --- | --- | --- |
-| 1 | `creator` | ✅ | ✅ | pays rent for `curve` + `curve_vault` |
+| 1 | `creator` | ✅ | ✅ | pays rent for `curve`, `curve_vault` and, when it does not exist yet, `treasury_token` |
 | 2 | `global` | — | — | PDA `["global"]`, `bump = global.bump` |
-| 3 | `mint` | — | ✅ | `mint_authority == Some(creator)`; `supply == 0`; **`freeze_authority.is_none()`** (lib.rs:1283-1289) |
+| 3 | `mint` | — | ✅ | `mint_authority == Some(creator)`; `supply == 0`; **`freeze_authority.is_none()`** (lib.rs:1784-1791) |
 | 4 | `curve` | — | ✅ | `init`, PDA `["curve", mint]` |
 | 5 | `curve_vault` | — | ✅ | `init`, PDA `["vault", mint]`, token account, mint = `mint`, authority = `curve` |
-| 6 | `token_program` | — | — | `TOKEN_PROGRAM_ID` |
+| 6 | `token_program` | — | — | `TOKEN_PROGRAM_ID` (classic SPL Token) |
 | 7 | `system_program` | — | — | |
 | 8 | `rent` | — | — | `SYSVAR_RENT_PUBKEY` |
+| 9 | `fee_recipient` | — | — | `address = global.fee_recipient`, else `Unauthorized` (6008). Read it off the decoded `global`; never default it (lib.rs:1827-1828) |
+| 10 | `treasury_token` | — | ✅ | `init_if_needed`, `payer = creator`, the associated token account of `fee_recipient` for `mint` on classic SPL Token; receives the reserve (lib.rs:1830-1847) |
+| 11 | `associated_token_program` | — | — | `ASSOCIATED_TOKEN_PROGRAM_ID` |
 
 **Client obligations before calling:**
 
 - Create the mint first, with the caller as mint authority and **`freezeAuthority =
   null`**. The freeze-authority rejection is load-bearing and is explained at
-  lib.rs:1265-1282 — a retained freeze authority can freeze `curve_vault` (a
+  lib.rs:1766-1783 — a retained freeze authority can freeze `curve_vault` (a
   deterministic, publicly-derivable PDA) and lock 100% of raised SOL forever. A create
   UI must set it to null and must say why.
+- Budget the creator for the treasury token account's rent too (165 B, 1,488,440
+  lamports at 2026-09-26 mainnet rent), read with `getMinimumBalanceForRentExemption`,
+  unless that account already exists.
 - **Decimals are NOT constrained by the program.** The tests use 9
   (`tests/tegridy-launch-constraints.test.ts:103-109`) but nothing enforces it. A client
   must read decimals off the mint account; never assume 9.
 - The program does **not** create Metaplex metadata. Name, symbol and image are not
   program state and never will be — see §7.
-- `create_launch` blocks while `global.paused` (lib.rs:389).
+- `create_launch` blocks while `global.paused` (lib.rs:615).
 
-Rejects: `Paused`; `Unauthorized` (wrong mint authority); `InvalidParameter` (supply
-!= 0); `MintHasFreezeAuthority`.
+Rejects: `Paused`; `Unauthorized` (wrong mint authority, or a `fee_recipient` other than
+`global.fee_recipient`); `InvalidParameter` (supply != 0); `MintHasFreezeAuthority`.
 
-Emits `LaunchCreated` (lib.rs:436-442).
+Emits `LaunchCreated`, including `platform_reserve_tokens` and
+`platform_reserve_recipient` (lib.rs:699-707).
 
 ---
 
@@ -899,7 +921,9 @@ index. Treat events as a nice-to-have; **account reads are the source of truth.*
 
 ### `LaunchCreated` — state.rs:185-192
 `mint: Pubkey`, `creator: Pubkey`, `virtual_sol_reserves: u64`,
-`virtual_token_reserves: u64`, `token_total_supply: u64`.
+`virtual_token_reserves: u64`, `token_total_supply: u64`, `platform_reserve_tokens: u64`,
+`platform_reserve_recipient: Pubkey` (the owner of the token account the reserve was paid
+into at creation — `global.fee_recipient` at that moment).
 
 ### `Traded` — state.rs:194-205
 `mint: Pubkey`, `trader: Pubkey`, `is_buy: bool`, `sol_amount: u64`,

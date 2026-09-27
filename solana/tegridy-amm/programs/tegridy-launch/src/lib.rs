@@ -50,14 +50,20 @@
 //!    upgrade, and handing it to the creator is a rug vector. Burning forecloses
 //!    ever reclaiming that capital — accepted cost, not an oversight.
 //!
-//! 8. **The platform reserve is taken at launch and paid at graduation.** Owner
-//!    decision, matching the EVM launcher: `create_launch` sets aside
-//!    `platform_reserve_bps` of the supply (3.69%) inside the curve's own vault,
-//!    outside `real_token_reserves`, so the curve never sells it and migration
-//!    never deposits it. Only after `complete` does the permissionless
-//!    `release_platform_reserve` send it to the treasury. A launch that never
-//!    graduates pays the protocol nothing, and the treasury can never sell into
-//!    a live curve against its own buyers.
+//! 8. **The platform reserve is taken AND paid at launch.** Owner decision
+//!    2026-09-26, the same on every chain: `create_launch` carves
+//!    `platform_reserve_bps` of the supply (3.69%) out of the curve's share and,
+//!    in the same instruction, pays it to the treasury — the associated token
+//!    account of `global.fee_recipient`. It is never in `real_token_reserves`, so
+//!    the curve never sells it and migration never deposits it. A launch that
+//!    never graduates still pays it. (An earlier design held it in the vault until
+//!    graduation behind a separate `release_platform_reserve`; that instruction is
+//!    gone, and its two error codes stay retired in place so later codes keep
+//!    their numbers.)
+//!
+//!    What the program no longer guarantees: the treasury now holds these tokens
+//!    while the curve is live, and nothing here stops it selling them into the
+//!    curve. That is a treasury policy, not a program property.
 //!
 //! ## `migrate_to_amm` — the highest-risk instruction here
 //!
@@ -592,22 +598,27 @@ pub mod tegridy_launch {
         Ok(())
     }
 
-    /// Open a launch: mint the whole supply onto a fresh curve and permanently
-    /// revoke the mint authority.
+    /// Open a launch: mint the whole supply onto a fresh curve, pay the platform
+    /// reserve to the treasury, and permanently revoke the mint authority.
     ///
     /// Takes no curve parameters. Every economic term — fee, creator share, virtual
     /// reserves, supply, target, reserve, platform reserve — is copied from
     /// [`GlobalConfig`], which has already passed [`check_launch_economics`]. A
     /// creator chooses WHETHER to launch, never on what shape, so no launch can
     /// exist whose economics were not gated.
+    ///
+    /// The creator pays rent for the treasury's token account if it does not exist
+    /// yet (design note 8). The recipient is the CURRENT `global.fee_recipient`,
+    /// pinned by the accounts, so a creator can neither redirect nor skip it.
     pub fn create_launch(ctx: Context<CreateLaunch>) -> Result<()> {
         let g = &ctx.accounts.global;
         require!(!g.paused, LaunchError::Paused);
 
         let supply = g.token_total_supply;
         // The platform reserve is carved here, once, and snapshotted as an AMOUNT
-        // (design note 8). The whole supply still goes into the vault; the reserve
-        // is simply left out of `real_token_reserves`, so no trade can reach it.
+        // (design note 8). It is left out of `real_token_reserves`, so no trade can
+        // reach it, and it leaves the vault for the treasury below, in this same
+        // instruction.
         let (curve_tokens, reserve_tokens) =
             curve_supply(supply, g.platform_reserve_bps).map_err(LaunchError::from)?;
 
@@ -641,6 +652,29 @@ pub mod tegridy_launch {
             None,
         )?;
 
+        // Pay the platform reserve to the treasury now, not at graduation (owner
+        // decision 2026-09-26). The vault's authority is the curve PDA, which signs
+        // with the bump Anchor just derived for it. Zero only when the config's
+        // reserve is zero; `treasury_token` is still created then.
+        if reserve_tokens > 0 {
+            let mint_key = ctx.accounts.mint.key();
+            let curve_bump = ctx.bumps.curve;
+            let seeds: &[&[u8]] = &[CURVE_SEED, mint_key.as_ref(), &[curve_bump]];
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.curve_vault.to_account_info(),
+                        to: ctx.accounts.treasury_token.to_account_info(),
+                        authority: ctx.accounts.curve.to_account_info(),
+                    },
+                    &[seeds],
+                ),
+                reserve_tokens,
+            )?;
+        }
+
+        let g = &ctx.accounts.global;
         let c = &mut ctx.accounts.curve;
         c.mint = ctx.accounts.mint.key();
         c.creator = ctx.accounts.creator.key();
@@ -649,7 +683,8 @@ pub mod tegridy_launch {
         c.real_sol_reserves = 0;
         // What the curve may sell — NOT the whole supply. `buy` pays out of this
         // number and refuses anything above it, and `migrate_to_amm` deposits
-        // exactly this number, so the reserve stays in the vault through both.
+        // exactly this number. After the transfer above it is also exactly what
+        // the vault holds.
         c.real_token_reserves = curve_tokens;
         c.trade_fee_bps = g.trade_fee_bps;
         c.creator_fee_share_bps = g.creator_fee_share_bps;
@@ -658,7 +693,8 @@ pub mod tegridy_launch {
         c.complete = false;
         c.bump = ctx.bumps.curve;
         c.platform_reserve_tokens = reserve_tokens;
-        c.platform_reserve_released = false;
+        // Paid above, so true from the first byte this account ever holds.
+        c.platform_reserve_released = true;
 
         emit!(LaunchCreated {
             mint: c.mint,
@@ -667,6 +703,7 @@ pub mod tegridy_launch {
             virtual_token_reserves: c.virtual_token_reserves,
             token_total_supply: supply,
             platform_reserve_tokens: reserve_tokens,
+            platform_reserve_recipient: ctx.accounts.fee_recipient.key(),
         });
         Ok(())
     }
@@ -1065,9 +1102,8 @@ pub mod tegridy_launch {
 
         let deposit_lamports = curve.graduation_target_lamports;
         // Every unsold token the curve could sell — and ONLY those. The platform
-        // reserve is not in `real_token_reserves` (see `create_launch`), so it
-        // stays in `curve_vault` through this whole instruction and leaves only via
-        // `release_platform_reserve`, once `complete` is set below.
+        // reserve was never in `real_token_reserves` and already left the vault for
+        // the treasury at `create_launch`.
         let deposit_tokens = curve.real_token_reserves;
         let mint_key = curve.mint;
         let curve_bump = curve.bump;
@@ -1615,8 +1651,8 @@ pub mod tegridy_launch {
             .real_sol_reserves
             .checked_sub(move_lamports)
             .ok_or(LaunchError::Overflow)?;
-        // Zero sellable tokens remain. The vault still holds the unreleased platform
-        // reserve (plus any swept dust); `platform_reserve_tokens` accounts for it.
+        // Zero sellable tokens remain. The vault holds only any swept dust; the
+        // platform reserve went to the treasury at `create_launch`.
         curve.real_token_reserves = 0;
         curve.complete = true;
         curve.pool = pool;
@@ -1630,68 +1666,11 @@ pub mod tegridy_launch {
         Ok(())
     }
 
-    /// Pay a graduated launch's platform reserve to the treasury.
-    ///
-    /// The reserve was set aside at `create_launch` (design note 8) and has sat in
-    /// `curve_vault`, outside `real_token_reserves`, ever since. It moves here, and
-    /// only here, once `complete` is set — the EVM launcher pays its reserve at
-    /// graduation the same way. A launch that never graduates never pays it.
-    ///
-    /// ## Why a separate instruction rather than a step inside `migrate_to_amm`
-    ///
-    /// Migration is already at SBF's 4 KB stack limit, and a recipient account that
-    /// can fail (a missing or hostile ATA) would put graduation itself at risk. Here
-    /// a failure blocks only this payout, never the pool.
-    ///
-    /// ## Permissionless, deliberately
-    ///
-    /// Like migration, it has exactly one legal outcome: the snapshotted amount goes
-    /// to the ATA of the CURRENT `global.fee_recipient`, pinned by the accounts. The
-    /// caller only pays rent for that ATA if it does not exist yet. Not gated on
-    /// `paused`: it moves no lamports off the curve and opens nothing, and a pause
-    /// must not strand a payout that is already owed.
-    ///
-    /// The recipient is read at release time, not snapshotted, so rotating
-    /// `fee_recipient` redirects every reserve not yet released — the same policy
-    /// the trade fees already follow.
-    pub fn release_platform_reserve(ctx: Context<ReleasePlatformReserve>) -> Result<()> {
-        let curve = &ctx.accounts.curve;
-        require!(curve.complete, LaunchError::PlatformReserveLocked);
-        require!(
-            !curve.platform_reserve_released,
-            LaunchError::PlatformReserveAlreadyReleased
-        );
-
-        let amount = curve.platform_reserve_tokens;
-        let mint_key = curve.mint;
-        let curve_bump = curve.bump;
-        // Zero only when the config's reserve was zero at creation; the flag is
-        // still set below so the curve reads as settled.
-        if amount > 0 {
-            let seeds: &[&[u8]] = &[CURVE_SEED, mint_key.as_ref(), &[curve_bump]];
-            token::transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    Transfer {
-                        from: ctx.accounts.curve_vault.to_account_info(),
-                        to: ctx.accounts.recipient_token.to_account_info(),
-                        authority: ctx.accounts.curve.to_account_info(),
-                    },
-                    &[seeds],
-                ),
-                amount,
-            )?;
-        }
-
-        ctx.accounts.curve.platform_reserve_released = true;
-
-        emit!(PlatformReserveReleased {
-            mint: mint_key,
-            recipient: ctx.accounts.fee_recipient.key(),
-            amount,
-        });
-        Ok(())
-    }
+    // `release_platform_reserve` REMOVED (owner decision 2026-09-26). It paid the
+    // platform reserve to the treasury after graduation; `create_launch` now pays
+    // it at launch, so the instruction could only ever have failed. Its two error
+    // codes, 6022 and 6023, stay in `LaunchError` as retired placeholders so that
+    // every later code keeps its number.
 
     // ─────────────────────────────────────────────────────────────────────────
     // `graduate` REMOVED — it was a permissionless total-loss bug.
@@ -1765,13 +1744,21 @@ pub struct UpdateGlobal<'info> {
 }
 
 
+/// Accounts for [`tegridy_launch::create_launch`].
+///
+/// Every sizeable account is BOXED: this struct runs two `init`s and one
+/// `init_if_needed` in one `try_accounts`, and SBF's 4 KB frame overflow is only a
+/// linker warning. The three reserve accounts are APPENDED after `rent`, so the
+/// first eight positions are unchanged.
 #[derive(Accounts)]
 pub struct CreateLaunch<'info> {
+    /// Pays every rent here, including the treasury's token account when it does
+    /// not exist yet.
     #[account(mut)]
     pub creator: Signer<'info>,
 
     #[account(seeds = [GLOBAL_SEED], bump = global.bump)]
-    pub global: Account<'info, GlobalConfig>,
+    pub global: Box<Account<'info, GlobalConfig>>,
 
     /// The launch token. Must still be mint-authority-held by the creator; this
     /// instruction mints the supply and then revokes that authority forever.
@@ -1801,7 +1788,7 @@ pub struct CreateLaunch<'info> {
         constraint = mint.supply == 0 @ LaunchError::InvalidParameter,
         constraint = mint.freeze_authority.is_none() @ LaunchError::MintHasFreezeAuthority,
     )]
-    pub mint: Account<'info, Mint>,
+    pub mint: Box<Account<'info, Mint>>,
 
     #[account(
         init,
@@ -1826,11 +1813,40 @@ pub struct CreateLaunch<'info> {
         seeds = [VAULT_SEED, mint.key().as_ref()],
         bump
     )]
-    pub curve_vault: Account<'info, TokenAccount>,
+    pub curve_vault: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
+
+    /// CHECK: owner of the token account that receives the platform reserve.
+    /// Pinned to the config so a creator cannot name themselves or anyone else.
+    /// Declared AFTER `global` because Anchor evaluates constraints in field order
+    /// — the same ordering requirement `Trade::creator` documents. Not `mut`: only
+    /// its key is used.
+    #[account(address = global.fee_recipient @ LaunchError::Unauthorized)]
+    pub fee_recipient: UncheckedAccount<'info>,
+
+    /// The treasury's associated token account for this mint; receives the
+    /// platform reserve in this instruction.
+    ///
+    /// `init_if_needed`, paid by the creator. The mint is brand new, but its
+    /// address is known before this transaction lands, so a stranger could create
+    /// this account first; that changes nothing, because the Associated Token
+    /// Program fixes its owner and mint and Anchor re-checks both (and that the
+    /// address IS the associated one) when it already exists. The mint has no
+    /// freeze authority (see `mint` above), so the reserve can never be frozen here.
+    /// `Account<TokenAccount>` with `token_program: Program<Token>` pins the
+    /// classic SPL Token program.
+    #[account(
+        init_if_needed,
+        payer = creator,
+        associated_token::mint = mint,
+        associated_token::authority = fee_recipient
+    )]
+    pub treasury_token: Box<Account<'info, TokenAccount>>,
+
+    pub associated_token_program: Program<'info, AssociatedToken>,
 }
 
 /// Accounts for [`tegridy_launch::migrate_to_amm`].
@@ -2020,66 +2036,6 @@ pub struct MigrateToAmm<'info> {
     // No `rent` sysvar. `initialize` took one; `initialize_with_permission` does not,
     // and nothing else here reads it. Carrying a dead account on the instruction that
     // already sits near SBF's stack ceiling is cost with no purpose.
-}
-
-/// Accounts for [`tegridy_launch::release_platform_reserve`].
-///
-/// Every account is BOXED, like `MigrateToAmm`'s: Anchor's generated
-/// `try_accounts` deserializes onto the stack, SBF's 4 KB frame overflow is only a
-/// linker warning, and `init_if_needed` adds its own frame weight.
-#[derive(Accounts)]
-pub struct ReleasePlatformReserve<'info> {
-    /// Anyone. Pays rent for `recipient_token` if it does not exist yet, and gets
-    /// nothing else.
-    #[account(mut)]
-    pub payer: Signer<'info>,
-
-    #[account(seeds = [GLOBAL_SEED], bump = global.bump)]
-    pub global: Box<Account<'info, GlobalConfig>>,
-
-    /// CHECK: owner of the token account that receives the reserve. Pinned to the
-    /// config so the caller cannot name themselves. Declared AFTER `global` because
-    /// Anchor evaluates constraints in field order — the same ordering
-    /// requirement `Trade::creator` documents. Not `mut`: only its key is used.
-    #[account(address = global.fee_recipient @ LaunchError::Unauthorized)]
-    pub fee_recipient: UncheckedAccount<'info>,
-
-    pub mint: Box<Account<'info, Mint>>,
-
-    #[account(
-        mut,
-        seeds = [CURVE_SEED, mint.key().as_ref()],
-        bump = curve.bump,
-        has_one = mint @ LaunchError::InvalidParameter
-    )]
-    pub curve: Box<Account<'info, BondingCurve>>,
-
-    #[account(
-        mut,
-        seeds = [VAULT_SEED, mint.key().as_ref()],
-        bump,
-        constraint = curve_vault.mint == mint.key() @ LaunchError::InvalidParameter
-    )]
-    pub curve_vault: Box<Account<'info, TokenAccount>>,
-
-    /// The treasury's associated token account for this mint.
-    ///
-    /// `init_if_needed` so the first release creates it. A stranger creating it
-    /// first changes nothing: the Associated Token Program fixes its owner and
-    /// mint, and Anchor re-checks both when the account already exists. The mint
-    /// has no freeze authority (`create_launch` rejects one), so the reserve can
-    /// never be frozen in it either.
-    #[account(
-        init_if_needed,
-        payer = payer,
-        associated_token::mint = mint,
-        associated_token::authority = fee_recipient
-    )]
-    pub recipient_token: Box<Account<'info, TokenAccount>>,
-
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -2288,6 +2244,43 @@ mod layout_tests {
         // ...and nothing else in the program (everything above the tests) writes it.
         let program = &src[..src.find("\nmod layout_tests {").expect("tests module")];
         assert_eq!(program.matches("cp_swap_program = ").count(), 2);
+    }
+
+    /// THE RESERVE IS PAID AT LAUNCH (owner decision 2026-09-26). The runtime proof
+    /// is the validator suites; this pins the shape on the host, where CI's devnet
+    /// validator builds cannot reach: `create_launch` transfers exactly
+    /// `reserve_tokens` from the vault to `treasury_token`, marks the curve paid,
+    /// and names the recipient in the event; the treasury account is pinned to
+    /// `global.fee_recipient`'s associated account and paid for by the creator; and
+    /// no other instruction can move the reserve (the release instruction is gone).
+    #[test]
+    fn create_launch_pays_the_platform_reserve() {
+        let src = include_str!("lib.rs");
+        let program = &src[..src.find("\nmod layout_tests {").expect("tests module")];
+
+        let start = program.find("pub fn create_launch(").expect("create_launch");
+        let rest = &program[start..];
+        let body = &rest[..rest.find("\n    pub fn ").expect("next handler")];
+        let pay = body.find("to: ctx.accounts.treasury_token.to_account_info(),").expect("reserve transfer");
+        assert!(body[..pay].contains("from: ctx.accounts.curve_vault.to_account_info(),"));
+        let cpi = &body[pay..pay + body[pay..].find(")?;").expect("end of transfer")];
+        assert!(cpi.contains("authority: ctx.accounts.curve.to_account_info(),"));
+        assert!(cpi.trim_end().ends_with("reserve_tokens,"), "the amount is the carve");
+        assert!(body.find("token::mint_to(").unwrap() < pay, "mint the supply first");
+        assert!(body.contains("c.real_token_reserves = curve_tokens;"));
+        assert!(body.contains("c.platform_reserve_released = true;"));
+        assert!(body.contains("platform_reserve_recipient: ctx.accounts.fee_recipient.key(),"));
+
+        let s = program.find("pub struct CreateLaunch<'info> {").expect("CreateLaunch");
+        let accounts = &program[s..s + program[s..].find("\n}\n").unwrap()];
+        assert!(accounts.contains("#[account(address = global.fee_recipient @ LaunchError::Unauthorized)]\n    pub fee_recipient: UncheckedAccount<'info>,"));
+        assert!(accounts.contains("init_if_needed,\n        payer = creator,\n        associated_token::mint = mint,\n        associated_token::authority = fee_recipient\n    )]\n    pub treasury_token: Box<Account<'info, TokenAccount>>,"));
+        // The three reserve accounts are appended, so the first eight keep their slots.
+        assert!(accounts.find("pub rent:").unwrap() < accounts.find("pub fee_recipient:").unwrap());
+
+        assert!(!program.contains("pub fn release_platform_reserve("));
+        assert!(!program.contains("struct ReleasePlatformReserve"));
+        assert_eq!(program.matches("treasury_token.to_account_info()").count(), 1);
     }
 
     /// The reserve fields were APPENDED, so every older field keeps the byte offset

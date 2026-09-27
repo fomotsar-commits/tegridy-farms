@@ -76,7 +76,6 @@ describe('discriminators are Anchor default derivation, recomputed', () => {
     buy: 'buy',
     sell: 'sell',
     migrateToAmm: 'migrate_to_amm',
-    releasePlatformReserve: 'release_platform_reserve',
   };
 
   it.each(Object.entries(IX_NAMES))('global:%s', async (key, snake) => {

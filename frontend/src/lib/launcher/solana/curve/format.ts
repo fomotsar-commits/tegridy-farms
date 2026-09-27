@@ -11,8 +11,34 @@
 // and every "we could not read it" path returns an explicit marker rather than a
 // default.
 
-import type { LaunchErrorName } from './program';
+import type { PublicKey } from '@solana/web3.js';
+import { PLATFORM_TREASURY_VAULT, type LaunchErrorName } from './program';
 import type { LaunchPhase } from './read';
+
+/** How a page names the account the platform reserve is paid to. */
+export interface TreasuryDescription {
+  /** True only when the recipient is the known Squads vault. */
+  multisig: boolean;
+  /** A noun phrase for prose: "the platform treasury (a multisig)", etc. */
+  name: string;
+}
+
+/**
+ * Name the platform-reserve recipient (`global.fee_recipient`) without claiming more
+ * than we know.
+ *
+ * The program pays the reserve to whatever key the config holds and never checks
+ * that it is a multisig. So "a multisig" is said only for {@link PLATFORM_TREASURY_VAULT};
+ * any other key is named by its address with no claim about it, and an unread
+ * config (`null`) is named with no claim at all.
+ */
+export function describeTreasury(feeRecipient: PublicKey | null | undefined): TreasuryDescription {
+  if (!feeRecipient) return { multisig: false, name: 'the platform treasury' };
+  if (feeRecipient.equals(PLATFORM_TREASURY_VAULT)) {
+    return { multisig: true, name: 'the platform treasury (a multisig)' };
+  }
+  return { multisig: false, name: `the platform treasury (${feeRecipient.toBase58()})` };
+}
 
 /**
  * Solana protocol constant. SOL is always 9 decimals; the LAUNCH MINT is not, and
@@ -200,8 +226,10 @@ export const LAUNCH_ERROR_COPY: Record<LaunchErrorName, string> = {
   CreatorMismatch: 'The creator account does not match the creator recorded on this launch.',
   MigrationPermissionMissing:
     'The graduation venue has not granted this program permission to create pools yet. Not a problem with this launch.',
-  PlatformReserveLocked: 'The platform reserve is released only after the launch graduates.',
-  PlatformReserveAlreadyReleased: "This launch's platform reserve has already been released.",
+  // Retired codes (6022, 6023): the program no longer returns them. Worded so a
+  // stray one still reads truthfully.
+  PlatformReserveLocked: 'No longer used: the platform reserve is paid when the launch is created.',
+  PlatformReserveAlreadyReleased: 'No longer used: the platform reserve is paid when the launch is created.',
   CpSwapProgramNotPinned:
     'Operator configuration: that cp-swap program is not the graduation venue compiled into this program.',
 };

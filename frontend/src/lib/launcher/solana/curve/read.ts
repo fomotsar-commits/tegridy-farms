@@ -42,6 +42,7 @@ import {
   type DecodeFailure,
   type GlobalConfig,
 } from './program';
+import { associatedTokenAddress } from './ix';
 import {
   effectiveReserves,
   lamportsUntilTarget,
@@ -308,6 +309,64 @@ export async function readRentFloors(
   }
 }
 
+/** An SPL Token account (classic program): the curve vault and the treasury's ATA. */
+export const SPL_TOKEN_ACCOUNT_SIZE = 165;
+
+/**
+ * The rent a creator pays inside `create_launch`, in lamports. Network fees and the
+ * mint's own rent (paid earlier, when the creator makes the mint) are not included.
+ */
+export interface CreateLaunchCost {
+  curve: bigint;
+  vault: bigint;
+  /**
+   * The treasury's token account for this mint, which receives the platform reserve.
+   * `0n` when it already exists (`treasuryTokenExists`), since `init_if_needed` then
+   * creates nothing.
+   */
+  treasuryToken: bigint;
+  treasuryTokenExists: boolean;
+  total: bigint;
+}
+
+/**
+ * What `create_launch` would charge the creator in rent, read from the cluster: the
+ * curve account, the curve vault and, when it does not exist yet, the associated
+ * token account of `feeRecipient` for `mint` (the platform reserve's destination,
+ * lib.rs `CreateLaunch::treasury_token`, `payer = creator`).
+ *
+ * Never hardcoded, because the rent rate is a cluster parameter that has changed
+ * before. A failed or malformed read is `unreadable`, never a cost.
+ */
+export async function readCreateLaunchCost(
+  rpc: CurveRpc,
+  mint: PublicKey,
+  feeRecipient: PublicKey,
+): Promise<Read<CreateLaunchCost>> {
+  try {
+    const [curveRent, tokenRent, ata] = await Promise.all([
+      rpc.getMinimumBalanceForRentExemption(BONDING_CURVE_SIZE),
+      rpc.getMinimumBalanceForRentExemption(SPL_TOKEN_ACCOUNT_SIZE),
+      rpc.getAccountInfo(associatedTokenAddress(mint, feeRecipient)),
+    ]);
+    for (const v of [curveRent, tokenRent]) {
+      if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) {
+        return { kind: 'unreadable', detail: 'getMinimumBalanceForRentExemption: not a lamport amount' };
+      }
+    }
+    const curve = BigInt(curveRent);
+    const vault = BigInt(tokenRent);
+    const treasuryTokenExists = ata !== null;
+    const treasuryToken = treasuryTokenExists ? 0n : BigInt(tokenRent);
+    return {
+      kind: 'ok',
+      value: { curve, vault, treasuryToken, treasuryTokenExists, total: curve + vault + treasuryToken },
+    };
+  } catch (e) {
+    return { kind: 'unreadable', detail: clipDetail(e) };
+  }
+}
+
 // ── phase ────────────────────────────────────────────────────────────────────
 
 /**
@@ -507,8 +566,11 @@ export interface CurveProgress {
    *
    * Needs `token_total_supply` from `global` — the curve does not carry it — AND
    * the curve's own `platformReserveTokens`, so it is `null` without either. The
-   * reserve sits in the same vault but is never sold; leaving it out would count
-   * 3.69% of the supply as sold before anyone had bought a token.
+   * reserve goes to the platform treasury at creation and is never sold on the
+   * curve; leaving it out would count 3.69% of the supply as sold before anyone had
+   * bought a token. (If the treasury sells some of it back into the curve,
+   * `real_token_reserves` can exceed `supply − reserve`; the guard then returns
+   * `null`, never a wrong number.)
    * Divide by the MINT's decimals, which are not stored on either account.
    */
   tokensSold: bigint | null;

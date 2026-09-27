@@ -11,7 +11,6 @@ import {
   createLaunchIx,
   initializeGlobalIx,
   migrateToAmmIx,
-  releasePlatformReserveIx,
   sellIx,
   updateGlobalIx,
   createAmmConfigIx,
@@ -94,6 +93,11 @@ const CREATE_LAUNCH_ACCOUNTS = [
   'token_program',
   'system_program',
   'rent',
+  // The platform reserve is paid at create (owner decision 2026-09-26); these three
+  // are appended after `rent`, so the first eight keep their slots.
+  'fee_recipient',
+  'treasury_token',
+  'associated_token_program',
 ] as const;
 
 const MIGRATE_ACCOUNTS = [
@@ -126,20 +130,6 @@ const MIGRATE_ACCOUNTS = [
   'token_1_vault',
   'create_pool_fee',
   'observation_state',
-  'token_program',
-  'associated_token_program',
-  'system_program',
-] as const;
-
-/** `ReleasePlatformReserve`, in declaration order. */
-const RELEASE_RESERVE_ACCOUNTS = [
-  'payer',
-  'global',
-  'fee_recipient',
-  'mint',
-  'curve',
-  'curve_vault',
-  'recipient_token',
   'token_program',
   'associated_token_program',
   'system_program',
@@ -256,7 +246,7 @@ describe('sell', () => {
 
 describe('create_launch', () => {
   const creator = TRADER;
-  const ix = createLaunchIx({ creator, mint: MINT });
+  const ix = createLaunchIx({ creator, mint: MINT, feeRecipient: FEE_RECIPIENT });
 
   // The payload has been wrong in both directions. It was 8 bytes after
   // `create_launch` gained `mode: u8`, and 9 after the removal took it away again;
@@ -274,13 +264,13 @@ describe('create_launch', () => {
     // matters is that the ids are honoured from that position — and that the payload
     // stays 8 bytes no matter what is passed.
     const alt = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
-    const retargeted = createLaunchIx({ creator, mint: MINT }, { programId: alt });
+    const retargeted = createLaunchIx({ creator, mint: MINT, feeRecipient: FEE_RECIPIENT }, { programId: alt });
     expect(retargeted.programId.equals(alt)).toBe(true);
     expect(slot(retargeted, CREATE_LAUNCH_ACCOUNTS, 'global').equals(globalPda(alt))).toBe(true);
     expect(retargeted.data.length).toBe(8);
   });
 
-  it('lists the eight CreateLaunch accounts in declaration order', () => {
+  it('lists the eleven CreateLaunch accounts in declaration order', () => {
     expect(byName(ix, CREATE_LAUNCH_ACCOUNTS)).toEqual({
       creator: [creator.toBase58(), true, true],
       global: [globalPda().toBase58(), false, false],
@@ -290,7 +280,24 @@ describe('create_launch', () => {
       token_program: [TOKEN_PROGRAM_ID.toBase58(), false, false],
       system_program: [SYSTEM_PROGRAM_ID.toBase58(), false, false],
       rent: [SYSVAR_RENT_PUBKEY.toBase58(), false, false],
+      // Read-only: only its key is used, as the owner of the token account below.
+      fee_recipient: [FEE_RECIPIENT.toBase58(), false, false],
+      treasury_token: [associatedTokenAddress(MINT, FEE_RECIPIENT).toBase58(), false, true],
+      associated_token_program: [ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(), false, false],
     });
+  });
+
+  it("pays the reserve into the treasury's classic-SPL ATA, even when the treasury is a PDA", () => {
+    // The mainnet treasury is a Squads vault, which is off the curve; spl-token only
+    // derives an ATA for it with allowOwnerOffCurve.
+    const vault = migrationAuthorityPda(); // any off-curve address will do
+    const toVault = createLaunchIx({ creator, mint: MINT, feeRecipient: vault });
+    expect(
+      slot(toVault, CREATE_LAUNCH_ACCOUNTS, 'treasury_token').equals(
+        getAssociatedTokenAddressSync(MINT, vault, true),
+      ),
+    ).toBe(true);
+    expect(slot(toVault, CREATE_LAUNCH_ACCOUNTS, 'fee_recipient').equals(vault)).toBe(true);
   });
 });
 
@@ -504,55 +511,6 @@ describe('migrate_to_amm', () => {
   });
 });
 
-describe('release_platform_reserve', () => {
-  const payer = TRADER;
-  const ix = releasePlatformReserveIx({ payer, feeRecipient: FEE_RECIPIENT, mint: MINT });
-
-  it('takes no args and carries its own discriminator', () => {
-    expect(ix.programId.equals(PROGRAM_ID)).toBe(true);
-    expect(ix.data.length).toBe(8);
-    expect(disc(ix)).toEqual(IX_DISCRIMINATOR.releasePlatformReserve);
-  });
-
-  it('fills every field of the ReleasePlatformReserve context, by name, in declaration order', () => {
-    expect(byName(ix, RELEASE_RESERVE_ACCOUNTS)).toEqual({
-      payer: [payer.toBase58(), true, true],
-      global: [globalPda().toBase58(), false, false],
-      // Read-only: only its key is used, as the owner of the token account below.
-      fee_recipient: [FEE_RECIPIENT.toBase58(), false, false],
-      mint: [MINT.toBase58(), false, false],
-      curve: [curvePda(MINT).toBase58(), false, true],
-      curve_vault: [curveVaultPda(MINT).toBase58(), false, true],
-      recipient_token: [associatedTokenAddress(MINT, FEE_RECIPIENT).toBase58(), false, true],
-      token_program: [TOKEN_PROGRAM_ID.toBase58(), false, false],
-      associated_token_program: [ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(), false, false],
-      system_program: [SYSTEM_PROGRAM_ID.toBase58(), false, false],
-    });
-  });
-
-  it("pays the treasury's classic-SPL ATA for this mint, even when the treasury is a PDA", () => {
-    // The mainnet treasury is a Squads vault, which is off the curve; spl-token only
-    // derives an ATA for it with allowOwnerOffCurve.
-    const vault = migrationAuthorityPda(); // any off-curve address will do
-    const toVault = releasePlatformReserveIx({ payer, feeRecipient: vault, mint: MINT });
-    expect(
-      slot(toVault, RELEASE_RESERVE_ACCOUNTS, 'recipient_token').equals(
-        getAssociatedTokenAddressSync(MINT, vault, true),
-      ),
-    ).toBe(true);
-    expect(slot(toVault, RELEASE_RESERVE_ACCOUNTS, 'fee_recipient').equals(vault)).toBe(true);
-  });
-
-  it('retargets every derived account under a program-id override', () => {
-    const alt = new PublicKey('BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL');
-    const altIx = releasePlatformReserveIx({ payer, feeRecipient: FEE_RECIPIENT, mint: MINT }, { programId: alt });
-    expect(altIx.programId.equals(alt)).toBe(true);
-    expect(slot(altIx, RELEASE_RESERVE_ACCOUNTS, 'global').equals(globalPda(alt))).toBe(true);
-    expect(slot(altIx, RELEASE_RESERVE_ACCOUNTS, 'curve').equals(curvePda(MINT, alt))).toBe(true);
-    expect(slot(altIx, RELEASE_RESERVE_ACCOUNTS, 'curve_vault').equals(curveVaultPda(MINT, alt))).toBe(true);
-  });
-});
-
 describe('associatedTokenAddress', () => {
   it('matches spl-token, including for a PDA owner (allowOwnerOffCurve)', () => {
     const migAuth = migrationAuthorityPda();
@@ -712,13 +670,13 @@ describe('operator-only instructions', () => {
 
   // The instruction table is the client's whole record of what the program answers
   // to; a stale entry invites building something the program has no handler for.
-  it('exposes only the seven instructions the program has', () => {
+  it('exposes only the six instructions the program has', () => {
+    // `release_platform_reserve` is gone: the reserve is paid inside create_launch.
     expect(Object.keys(IX_DISCRIMINATOR).sort()).toEqual([
       'buy',
       'createLaunch',
       'initializeGlobal',
       'migrateToAmm',
-      'releasePlatformReserve',
       'sell',
       'updateGlobal',
     ]);

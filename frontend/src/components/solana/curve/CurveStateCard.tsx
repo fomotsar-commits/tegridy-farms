@@ -1,12 +1,14 @@
 import { CurveChart } from '../../launcher/CurveChart';
 import {
   curveProgress,
+  describeTreasury,
   formatSol,
   formatTokenAmount,
   raiseCeiling,
   spotPriceLabel,
   type BondingCurve,
   type LaunchPhase,
+  type TreasuryDescription,
 } from '../../../lib/launcher/solana/curve';
 import { Card, Row } from './ui';
 import { feeSplitLabel } from './uiFormat';
@@ -52,6 +54,7 @@ export function CurveStateCard({
   decimals,
   paused,
   lookedUp,
+  treasury = describeTreasury(null),
 }: {
   phase: LaunchPhase;
   /** `null` whenever no `BondingCurve` was established — see `phase` for why. */
@@ -60,6 +63,8 @@ export function CurveStateCard({
   paused: boolean | null;
   /** False means no lookup has been attempted — which is NOT a failed read. */
   lookedUp: boolean;
+  /** Who the reserve is paid to, from the live config. "Multisig" only for the known vault. */
+  treasury?: TreasuryDescription;
 }) {
   const p = PHASE_COPY[phase.kind];
   return (
@@ -76,7 +81,7 @@ export function CurveStateCard({
       {phase.kind === 'unreadable' && <p className="text-amber-300/90 break-all">{phase.detail}</p>}
 
       {curve ? (
-        <CurveNumbers curve={curve} decimals={decimals} />
+        <CurveNumbers curve={curve} decimals={decimals} treasury={treasury} />
       ) : (
         <p className="text-white/40">
           {!lookedUp
@@ -92,18 +97,28 @@ export function CurveStateCard({
   );
 }
 
-function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: number | null }) {
+function CurveNumbers({
+  curve,
+  decimals,
+  treasury,
+}: {
+  curve: BondingCurve;
+  decimals: number | null;
+  treasury: TreasuryDescription;
+}) {
   const ceiling = raiseCeiling(curve);
   // One derivation of progress and spot, from the core. `null` here means the
   // curve's own terms overflow a u64 — an arithmetic refusal, not a zero.
   const p = curveProgress(curve);
   const sold = formatTokenAmount(curve.realTokenReserves, decimals);
   const reserve = formatTokenAmount(curve.platformReserveTokens, decimals);
+  // The program pays the reserve inside create_launch and sets this flag there, so a
+  // curve it created always reads true. The other branch says what the account says
+  // rather than claiming a payment it does not record. "A multisig" only when the
+  // live config names the known Squads vault (describeTreasury).
   const reserveStatus = curve.platformReserveReleased
-    ? 'released to the platform treasury'
-    : curve.complete
-      ? 'graduated, so anyone can now release it to the treasury'
-      : 'held by the program; it goes to the platform treasury if this launch graduates';
+    ? `sent to ${treasury.name} when this token was created`
+    : 'this curve account does not record it as paid';
   const split = feeSplitLabel(curve.creatorFeeShareBps);
   // Spot is an exact numerator/denominator pair so nothing is rounded on the way
   // out. `spotPriceLabel` decides the UNIT, and refuses to assume 9 decimals.
@@ -131,7 +146,10 @@ function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: numb
           value={curve.platformReserveTokens === 0n ? 'none' : reserve.text}
         />
         {curve.platformReserveTokens > 0n && (
-          <p className="text-white/40 text-[10px]">Platform reserve: {reserveStatus}. It never goes into the pool.</p>
+          <p className="text-white/40 text-[10px]">
+            Platform reserve: {reserveStatus}. It was never part of what the curve sells, and it never goes into the
+            pool.
+          </p>
         )}
       </div>
     );
@@ -190,7 +208,8 @@ function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: numb
       />
       {curve.platformReserveTokens > 0n && (
         <p className="text-white/40 text-[10px]">
-          Platform reserve: {reserveStatus}. It is never sold on the curve and never goes into the pool.
+          Platform reserve: {reserveStatus}. It was never part of what the curve sells, and it never goes into the
+          pool.
         </p>
       )}
       <Row label="Spot price" value={spot === null ? '—' : `${spot.value} ${spot.unit}`} />

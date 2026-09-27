@@ -4,8 +4,10 @@ import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { CurveLaunchView, type CurveLaunchViewProps } from './CurveLaunchPage';
 import {
+  PLATFORM_TREASURY_VAULT,
   classifyLaunch,
   type BondingCurve,
+  type CreateLaunchCost,
   type CurveAccount,
   type Deployment,
   type GlobalConfig,
@@ -64,9 +66,11 @@ function curve(over: Partial<BondingCurve> = {}): BondingCurve {
     complete: false,
     pool: new PublicKey(new Uint8Array(32)),
     bump: 255,
-    // 3.69% of the 1e15 supply, held outside `realTokenReserves`.
+    // 3.69% of the 1e15 supply, paid to the treasury at creation and never in
+    // `realTokenReserves`. The program sets the flag in that same instruction, so
+    // every curve it creates reads true.
     platformReserveTokens: 36_900_000_000_000n,
-    platformReserveReleased: false,
+    platformReserveReleased: true,
     ...over,
   };
 }
@@ -74,7 +78,9 @@ function curve(over: Partial<BondingCurve> = {}): BondingCurve {
 function globalCfg(over: Partial<GlobalConfig> = {}): GlobalConfig {
   return {
     authority: KEY(3),
-    feeRecipient: KEY(4),
+    // The mainnet configuration: the Squads vault. Tests of any other recipient
+    // override it, and must then see no "multisig" claim.
+    feeRecipient: PLATFORM_TREASURY_VAULT,
     tradeFeeBps: 100n,
     // Same required field, same reason — see the note in `curve()` above.
     creatorFeeShareBps: 4_800n,
@@ -551,8 +557,10 @@ describe('curve chart is mounted', () => {
 // ---------------------------------------------------------------------------
 
 describe('platform reserve and fee split', () => {
+  // Owner decision 2026-09-26: the reserve is paid when the token is created, and
+  // the copy must say so, and say the treasury is a multisig, in plain words.
   const RESERVE_LINE =
-    /Platform reserve: 3\.69% of supply, held by the program, released to the treasury only if the launch graduates; never sold on the curve\./;
+    /Platform reserve: the platform receives 3\.69% of supply when the token is created\. It goes to the platform treasury, which is a multisig\./;
 
   it('states the platform reserve in the terms a launch would be created with', () => {
     renderView({ probe: DEPLOYED, snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'absent' }) });
@@ -565,7 +573,7 @@ describe('platform reserve and fee split', () => {
       probe: DEPLOYED,
       snapshot: snapshot({ kind: 'ok', value: globalCfg({ platformReserveBps: 500n }) }, { kind: 'absent' }),
     });
-    expect(screen.getByText(/Platform reserve: 5\.00% of supply, held by the program/)).toBeInTheDocument();
+    expect(screen.getByText(/Platform reserve: the platform receives 5\.00% of supply when the token is created/)).toBeInTheDocument();
     expect(screen.queryByText(/3\.69%/)).not.toBeInTheDocument();
   });
 
@@ -574,7 +582,7 @@ describe('platform reserve and fee split', () => {
       probe: DEPLOYED,
       snapshot: snapshot({ kind: 'ok', value: globalCfg({ platformReserveBps: 0n }) }, { kind: 'absent' }),
     });
-    expect(screen.queryByText(/held by the program/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Platform reserve: the platform receives/)).not.toBeInTheDocument();
   });
 
   it('shows the creator / protocol split of the fee in the terms', () => {
@@ -594,27 +602,32 @@ describe('platform reserve and fee split', () => {
     // The curve's snapshot, not the global's newer value.
     expect(screen.getByText('creator 48.00% · protocol 52.00% of the fee')).toBeInTheDocument();
     expect(screen.getByText('36,900')).toBeInTheDocument();
-    expect(screen.getByText(/Platform reserve: held by the program; it goes to the platform treasury if this launch graduates/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Platform reserve: sent to the platform treasury \(a multisig\) when this token was created/),
+    ).toBeInTheDocument();
   });
 
-  it('tracks the reserve through graduation and release', () => {
+  it('states the reserve as paid at creation, before and after graduation alike', () => {
     const g: Read<GlobalConfig> = { kind: 'ok', value: globalCfg() };
     const { unmount } = renderView({
       probe: DEPLOYED,
       snapshot: snapshot(g, { kind: 'ok', value: curveAccount(curve({ complete: true })) }),
       mint: mintFacts(),
     });
-    expect(screen.getByText(/Platform reserve: graduated, so anyone can now release it/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Platform reserve: sent to the platform treasury \(a multisig\) when this token was created/),
+    ).toBeInTheDocument();
+    // Nothing waits on graduation any more, so no "release" wording may survive.
+    expect(document.body.textContent ?? '').not.toMatch(/release it|released to the treasury|until the launch graduates/);
     unmount();
+    // An account that does not record the payment is described as exactly that,
+    // never as paid.
     renderView({
       probe: DEPLOYED,
-      snapshot: snapshot(g, {
-        kind: 'ok',
-        value: curveAccount(curve({ complete: true, platformReserveReleased: true })),
-      }),
+      snapshot: snapshot(g, { kind: 'ok', value: curveAccount(curve({ platformReserveReleased: false })) }),
       mint: mintFacts(),
     });
-    expect(screen.getByText(/Platform reserve: released to the platform treasury/)).toBeInTheDocument();
+    expect(screen.getByText(/Platform reserve: this curve account does not record it as paid/)).toBeInTheDocument();
   });
 
   it('does not say the curve sells everything but the reserve: unsold tokens go into the pool', () => {
@@ -625,7 +638,10 @@ describe('platform reserve and fee split', () => {
     const text = (card.textContent ?? '').replace(/\s+/g, ' ');
     expect(text).not.toMatch(/curve sells all of it/);
     expect(text).toMatch(
-      /The curve can sell all of it except the platform reserve listed below; whatever it has not sold when it graduates goes into the pool\./,
+      /sends the platform reserve listed below to the platform treasury \(a multisig\), puts the rest into a fresh curve's vault/,
+    );
+    expect(text).toMatch(
+      /The curve can sell everything in its vault; whatever it has not sold when it graduates goes into the pool\./,
     );
   });
 
@@ -635,5 +651,113 @@ describe('platform reserve and fee split', () => {
     expect(text).not.toMatch(/deposits everything/);
     expect(text).toMatch(/What goes into the pool: the graduation target in SOL, and every token the curve did not sell/);
     expect(text).toMatch(/The platform\s+reserve does not go into the pool/);
+    // Nothing looked up yet: the page has not read who the recipient is, so it
+    // names the intended vault and makes no claim about the live one.
+    expect(text).toMatch(/the platform treasury receives it when the token is created/);
+    expect(text).toMatch(
+      /The platform treasury is meant to be a Squads multisig vault \(GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd\)\. This page calls it a multisig only after reading the live config and finding that vault there\./,
+    );
+    // The old escrow copy must be gone everywhere on the page.
+    expect(text).not.toMatch(/only (?:happen )?after graduation|only if the launch graduates|Graduation unlocks/);
+  });
+
+  it('with the vault configured, the explainer says the treasury is a multisig', () => {
+    renderView({ probe: DEPLOYED, snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'absent' }) });
+    const text = (document.body.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toMatch(/the platform treasury \(a multisig\) receives it when the token is created/);
+    expect(text).toMatch(/The platform treasury \(a multisig\) received it when the token was created/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "The treasury is a multisig" is a claim about one address
+// ---------------------------------------------------------------------------
+// The program pays the reserve to whatever `global.fee_recipient` holds and never
+// checks what that key is. So the page may say "multisig" only when the live config
+// names the known Squads vault; for any other recipient it names the address and
+// makes no claim about it.
+
+describe('treasury multisig claim is backed by the live config', () => {
+  const OTHER = KEY(4);
+  const other: Read<GlobalConfig> = { kind: 'ok', value: globalCfg({ feeRecipient: OTHER }) };
+
+  it('does not call a non-vault fee recipient a multisig, anywhere on the page', () => {
+    renderView({ probe: DEPLOYED, snapshot: snapshot(other, { kind: 'ok', value: curveAccount(curve()) }), mint: mintFacts() });
+    const text = (document.body.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).not.toMatch(/\(a multisig\)|, a multisig,|which is a multisig/);
+    expect(text).toContain(`Platform reserve: sent to the platform treasury (${OTHER.toBase58()}) when this token was created`);
+    expect(text).toContain(
+      `the platform receives 3.69% of supply when the token is created. It goes to the platform treasury (${OTHER.toBase58()}). This page cannot confirm that account is a multisig: it is not the platform's known Squads vault.`,
+    );
+  });
+
+  it('calls the known vault a multisig in the terms, the curve card and the explainer', () => {
+    renderView({
+      probe: DEPLOYED,
+      snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'ok', value: curveAccount(curve()) }),
+      mint: mintFacts(),
+    });
+    const text = (document.body.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toMatch(/It goes to the platform treasury, which is a multisig\./);
+    expect(text).toMatch(/Platform reserve: sent to the platform treasury \(a multisig\) when this token was created/);
+    expect(text).toMatch(/the platform treasury \(a multisig\) receives it when the token is created/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// What the creator pays
+// ---------------------------------------------------------------------------
+// Since 2026-09-26 the creator also pays rent for the treasury's token account when
+// it does not exist yet. The checklist shows the rent read from the cluster, never a
+// hardcoded figure, and never a zero for a read that failed.
+
+describe('create checklist: what you pay', () => {
+  const g: Read<GlobalConfig> = { kind: 'ok', value: globalCfg() };
+  const cost = (over: Partial<CreateLaunchCost> = {}): Read<CreateLaunchCost> => ({
+    kind: 'ok',
+    value: {
+      curve: 1_559_560n,
+      vault: 1_488_440n,
+      treasuryToken: 1_488_440n,
+      treasuryTokenExists: false,
+      total: 4_536_440n,
+      ...over,
+    },
+  });
+  const card = () => screen.getByText('Open a launch').closest('section') as HTMLElement;
+
+  it("shows the rent the creator pays, including the treasury token account's", () => {
+    renderView({ probe: DEPLOYED, snapshot: snapshot(g, { kind: 'absent' }), mint: mintFacts(), createCost: cost() });
+    const c = card();
+    expect(within(c).getByText('You pay (account rent)')).toBeInTheDocument();
+    expect(within(c).getByText('0.00453644 SOL')).toBeInTheDocument();
+    const text = (c.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toContain(
+      "the treasury's token account 0.00148844 SOL (it does not exist yet, so you create it; the platform reserve is paid into it)",
+    );
+    expect(text).toMatch(/read from the cluster's current rent rate/);
+  });
+
+  it('says so when the treasury token account already exists, and charges nothing for it', () => {
+    renderView({
+      probe: DEPLOYED,
+      snapshot: snapshot(g, { kind: 'absent' }),
+      mint: mintFacts(),
+      createCost: cost({ treasuryToken: 0n, treasuryTokenExists: true, total: 3_048_000n }),
+    });
+    const text = (card().textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toContain("the treasury's token account already exists, so you pay nothing for it");
+    expect(within(card()).getByText('0.003048 SOL')).toBeInTheDocument();
+  });
+
+  it('says the cost is unknown when the rent read failed, never a zero', () => {
+    renderView({
+      probe: DEPLOYED,
+      snapshot: snapshot(g, { kind: 'absent' }),
+      mint: mintFacts(),
+      createCost: { kind: 'unreadable', detail: 'rpc down' },
+    });
+    expect(within(card()).getByText(/Could not read the rent, so what you would pay is not shown/)).toBeInTheDocument();
+    expect(within(card()).queryByText('0 SOL')).not.toBeInTheDocument();
   });
 });

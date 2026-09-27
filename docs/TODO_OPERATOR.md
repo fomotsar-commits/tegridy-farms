@@ -1719,12 +1719,15 @@ You asked me to study the competition and recommend. The answer is **no decay at
 nets 50 bps.** No code changes — both fields already exist and are snapshotted per launch.
 
 **Added 2026-09-25 — `platform_reserve_bps = 369`**, the owner's "retain the 3.69% the
-platform takes at launch", matching the EVM launcher. 3.69% of each launch's supply is held
-by the program in the curve's own vault, never sold on the curve and never put in the pool,
-and released to the treasury (`fee_recipient`'s token account) only after that launch
-graduates, by the permissionless `release-reserve`. A launch that never graduates never
-releases it. Unlike the two fields above this one IS a program change (a new `GlobalConfig`
-field and a new instruction), so it must land before the first `initialize_global`. Two
+platform takes at launch". **Changed 2026-09-26 (owner decision, all chains): the reserve is
+PAID at launch, not at graduation.** `create_launch` sends 3.69% of each launch's supply to
+the treasury (`fee_recipient`'s token account, the Squads vault) in the same instruction,
+the creator paying that account's rent; it is never sold on the curve and never put in the
+pool, and a launch that never graduates has still paid it. There is no `release-reserve`
+step any more. Unlike the two fields above this one IS a program change (a new
+`GlobalConfig` field, and `create_launch` taking three more accounts), so it must land
+before the first `initialize_global`, and the rehearsed binary (`9b78be02…`) predates it:
+rebuild and re-rehearse first. Two
 things go with it: pass `initial_virtual_token` scaled by (1 − 3.69%) at init so the
 graduation target does not move (`check-config` prints the number; unscaled, every pool
 lists ~4.9% above the curve; the program does not reject that, since it is inside its ±5%
