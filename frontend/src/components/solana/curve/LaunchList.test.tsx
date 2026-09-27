@@ -132,3 +132,29 @@ describe('launch list', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show more' }));
   });
 });
+
+// Reserve at create (2026-09-26): the list says the reserve is already paid, from the
+// launch's own account, and never that it waits on graduation.
+describe('launch list: the platform reserve', () => {
+  const listOf = (items: LaunchListItem[]) =>
+    fakeApi({
+      listRecentLaunches: vi.fn(async () => ({ kind: 'ok' as const, value: { items, before: null, scanned: 20, hidden: 0 } })),
+    });
+
+  it('a launch the program created reads "already paid ... when the token was created"', async () => {
+    renderList(listOf([item()]));
+    const row = (await screen.findAllByTestId('launch-row'))[0]!;
+    // No mint supply was read in this fixture, so no share is invented.
+    expect(row).toHaveTextContent(
+      'Platform reserve (part of the supply): already paid to the platform treasury when the token was created.',
+    );
+    expect(row.textContent ?? '').not.toMatch(/release|graduates/i);
+  });
+
+  it('an account that does not record it paid says exactly that', async () => {
+    renderList(listOf([item({ curve: { kind: 'ok', value: curveAccount(bondingCurve({ platformReserveReleased: false })) } })]));
+    const row = (await screen.findAllByTestId('launch-row'))[0]!;
+    expect(row).toHaveTextContent("Platform reserve (part of the supply): this launch's account does not record it as paid.");
+    expect(row.textContent ?? '').not.toMatch(/already paid/);
+  });
+});

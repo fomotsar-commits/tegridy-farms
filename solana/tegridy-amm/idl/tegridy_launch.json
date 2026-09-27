@@ -143,14 +143,18 @@
     {
       "name": "create_launch",
       "docs": [
-        "Open a launch: mint the whole supply onto a fresh curve and permanently",
-        "revoke the mint authority.",
+        "Open a launch: mint the whole supply onto a fresh curve, pay the platform",
+        "reserve to the treasury, and permanently revoke the mint authority.",
         "",
         "Takes no curve parameters. Every economic term — fee, creator share, virtual",
         "reserves, supply, target, reserve, platform reserve — is copied from",
         "[`GlobalConfig`], which has already passed [`check_launch_economics`]. A",
         "creator chooses WHETHER to launch, never on what shape, so no launch can",
-        "exist whose economics were not gated."
+        "exist whose economics were not gated.",
+        "",
+        "The creator pays rent for the treasury's token account if it does not exist",
+        "yet (design note 8). The recipient is the CURRENT `global.fee_recipient`,",
+        "pinned by the accounts, so a creator can neither redirect nor skip it."
       ],
       "discriminator": [
         239,
@@ -165,6 +169,10 @@
       "accounts": [
         {
           "name": "creator",
+          "docs": [
+            "Pays every rent here, including the treasury's token account when it does",
+            "not exist yet."
+          ],
           "writable": true,
           "signer": true
         },
@@ -268,6 +276,122 @@
         {
           "name": "rent",
           "address": "SysvarRent111111111111111111111111111111111"
+        },
+        {
+          "name": "fee_recipient",
+          "docs": [
+            "Pinned to the config so a creator cannot name themselves or anyone else.",
+            "Declared AFTER `global` because Anchor evaluates constraints in field order",
+            "— the same ordering requirement `Trade::creator` documents. Not `mut`: only",
+            "its key is used."
+          ]
+        },
+        {
+          "name": "treasury_token",
+          "docs": [
+            "The treasury's associated token account for this mint; receives the",
+            "platform reserve in this instruction.",
+            "",
+            "`init_if_needed`, paid by the creator. The mint is brand new, but its",
+            "address is known before this transaction lands, so a stranger could create",
+            "this account first; that changes nothing, because the Associated Token",
+            "Program fixes its owner and mint and Anchor re-checks both (and that the",
+            "address IS the associated one) when it already exists. The mint has no",
+            "freeze authority (see `mint` above), so the reserve can never be frozen here.",
+            "`Account<TokenAccount>` with `token_program: Program<Token>` pins the",
+            "classic SPL Token program."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "fee_recipient"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         }
       ],
       "args": []
@@ -906,244 +1030,6 @@
       "args": []
     },
     {
-      "name": "release_platform_reserve",
-      "docs": [
-        "Pay a graduated launch's platform reserve to the treasury.",
-        "",
-        "The reserve was set aside at `create_launch` (design note 8) and has sat in",
-        "`curve_vault`, outside `real_token_reserves`, ever since. It moves here, and",
-        "only here, once `complete` is set — the EVM launcher pays its reserve at",
-        "graduation the same way. A launch that never graduates never pays it.",
-        "",
-        "## Why a separate instruction rather than a step inside `migrate_to_amm`",
-        "",
-        "Migration is already at SBF's 4 KB stack limit, and a recipient account that",
-        "can fail (a missing or hostile ATA) would put graduation itself at risk. Here",
-        "a failure blocks only this payout, never the pool.",
-        "",
-        "## Permissionless, deliberately",
-        "",
-        "Like migration, it has exactly one legal outcome: the snapshotted amount goes",
-        "to the ATA of the CURRENT `global.fee_recipient`, pinned by the accounts. The",
-        "caller only pays rent for that ATA if it does not exist yet. Not gated on",
-        "`paused`: it moves no lamports off the curve and opens nothing, and a pause",
-        "must not strand a payout that is already owed.",
-        "",
-        "The recipient is read at release time, not snapshotted, so rotating",
-        "`fee_recipient` redirects every reserve not yet released — the same policy",
-        "the trade fees already follow."
-      ],
-      "discriminator": [
-        128,
-        102,
-        63,
-        208,
-        162,
-        203,
-        156,
-        180
-      ],
-      "accounts": [
-        {
-          "name": "payer",
-          "docs": [
-            "Anyone. Pays rent for `recipient_token` if it does not exist yet, and gets",
-            "nothing else."
-          ],
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "global",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  108,
-                  111,
-                  98,
-                  97,
-                  108
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "fee_recipient",
-          "docs": [
-            "config so the caller cannot name themselves. Declared AFTER `global` because",
-            "Anchor evaluates constraints in field order — the same ordering",
-            "requirement `Trade::creator` documents. Not `mut`: only its key is used."
-          ]
-        },
-        {
-          "name": "mint",
-          "relations": [
-            "curve"
-          ]
-        },
-        {
-          "name": "curve",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  117,
-                  114,
-                  118,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "mint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "curve_vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "mint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "recipient_token",
-          "docs": [
-            "The treasury's associated token account for this mint.",
-            "",
-            "`init_if_needed` so the first release creates it. A stranger creating it",
-            "first changes nothing: the Associated Token Program fixes its owner and",
-            "mint, and Anchor re-checks both when the account already exists. The mint",
-            "has no freeze authority (`create_launch` rejects one), so the reserve can",
-            "never be frozen in it either."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "fee_recipient"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "mint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "sell",
       "docs": [
         "Sell tokens back to the curve.",
@@ -1448,19 +1334,6 @@
       ]
     },
     {
-      "name": "PlatformReserveReleased",
-      "discriminator": [
-        143,
-        33,
-        128,
-        143,
-        197,
-        116,
-        19,
-        134
-      ]
-    },
-    {
       "name": "Traded",
       "discriminator": [
         225,
@@ -1588,12 +1461,12 @@
     {
       "code": 6022,
       "name": "PlatformReserveLocked",
-      "msg": "The platform reserve is released only after the launch graduates"
+      "msg": "Retired: the platform reserve is paid when the launch is created"
     },
     {
       "code": 6023,
       "name": "PlatformReserveAlreadyReleased",
-      "msg": "The platform reserve for this launch was already released"
+      "msg": "Retired: the platform reserve is paid when the launch is created"
     },
     {
       "code": 6024,
@@ -1707,10 +1580,11 @@
               "The protocol's platform reserve for this launch, in tokens. Fixed at",
               "`create_launch` and never changed afterwards.",
               "",
-              "These tokens sit in `curve_vault` but are NOT in `real_token_reserves`, so",
-              "the curve can never sell them and `migrate_to_amm` never deposits them.",
-              "`release_platform_reserve` sends them to the treasury once `complete` is",
-              "set; a launch that never graduates keeps them locked forever, as on the EVM.",
+              "`create_launch` pays these tokens to the treasury (the associated token",
+              "account of `GlobalConfig::fee_recipient`) in the same instruction that opens",
+              "the curve. They are never in `real_token_reserves` or `curve_vault`, so the",
+              "curve never sells them and `migrate_to_amm` never deposits them. A launch",
+              "that never graduates has still paid them.",
               "",
               "Readers: tokens sold = total supply - this - `real_token_reserves`."
             ],
@@ -1719,7 +1593,9 @@
           {
             "name": "platform_reserve_released",
             "docs": [
-              "Set once `release_platform_reserve` has paid the reserve out. Never unset."
+              "Always true: the reserve is paid at `create_launch`, which sets this.",
+              "Kept (rather than removed) so the account stays 179 bytes and no field",
+              "moves; it dates from a design that paid the reserve after graduation."
             ],
             "type": "bool"
           }
@@ -1872,6 +1748,7 @@
             "docs": [
               "Share of every launch's supply held back from the curve for the protocol,",
               "in bps of `token_total_supply`, capped at `curve::MAX_PLATFORM_RESERVE_BPS`.",
+              "Paid to `fee_recipient`'s token account at `create_launch`.",
               "",
               "Snapshotted onto each curve as an AMOUNT at `create_launch`, so changing it",
               "never alters a live launch. Appended after `bump` so every older field keeps",
@@ -1953,34 +1830,19 @@
           {
             "name": "platform_reserve_tokens",
             "docs": [
-              "Held back from the curve for the protocol; see",
-              "`BondingCurve::platform_reserve_tokens`."
+              "Carved from the curve's share and paid to the treasury in this same",
+              "instruction; see `BondingCurve::platform_reserve_tokens`."
             ],
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "PlatformReserveReleased",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "mint",
-            "type": "pubkey"
           },
           {
-            "name": "recipient",
+            "name": "platform_reserve_recipient",
             "docs": [
               "The OWNER of the token account that received the reserve: the config's",
-              "`fee_recipient` at the moment of release."
+              "`fee_recipient` at the moment of creation. Appended last, so every older",
+              "field keeps its position in the event."
             ],
             "type": "pubkey"
-          },
-          {
-            "name": "amount",
-            "type": "u64"
           }
         ]
       }

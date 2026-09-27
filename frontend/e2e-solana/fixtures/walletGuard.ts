@@ -5,7 +5,8 @@
 // bytes it was handed and refuses anything that could move the signer's money somewhere
 // the screen did not say: an unknown program, a System or Token transfer / approve /
 // set-authority, a token account that is not the signer's own, a zero slippage floor,
-// a creator or fee recipient that is not the one the chain records, a swap whose output
+// a creator or fee recipient that is not the one the chain records (including where
+// create_launch pays the platform reserve), a swap whose output
 // goes to someone else (cp-swap does not check that owner itself: swap_base_input.rs
 // has output_token_account as a bare #[account(mut)]).
 //
@@ -165,6 +166,13 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
         case 'create_launch': {
           if (!m.creator.equals(wallet)) refuse('create_launch names another creator');
           if (!createdMints.some((k) => k.equals(m.mint))) refuse('create_launch for a mint this transaction did not create');
+          // The reserve-at-create program: the platform reserve is paid, inside this
+          // instruction, to ATA(mint, global.fee_recipient) AS THE CHAIN RECORDS IT.
+          if (ix.accounts.length !== 11) refuse(`create_launch has ${ix.accounts.length} IDL accounts; the pinned program has 11`);
+          const glc = await getGlobal();
+          if (!m.fee_recipient?.equals(glc.feeRecipient)) refuse('create_launch: the platform reserve goes to someone other than global.fee_recipient');
+          if (!m.treasury_token?.equals(ata(m.mint, glc.feeRecipient))) refuse('create_launch: the reserve token account is not the treasury token account for this mint');
+          if (!m.associated_token_program?.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) refuse('create_launch: not the Associated Token program');
           const trailing = ci.accountKeyIndexes.slice(ix.accounts.length);
           if (trailing.length > 1) refuse('create_launch carries more than one trailing account');
           for (const i of trailing) {
@@ -195,12 +203,6 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
           if (!m.fee_recipient.equals(gl.feeRecipient) || !m.creator.equals(c.curve.creator) || !m.amm_config.equals(gl.ammConfig) || !m.cp_swap_program.equals(CP_SWAP_PROGRAM)) {
             refuse('migrate_to_amm: fee recipient / creator / amm config / cp-swap is not what the chain records');
           }
-          out.push({ program: 'launch', name: ix.name, args: {}, accounts: show(m) });
-          break;
-        }
-        case 'release_platform_reserve': {
-          const gl = await getGlobal();
-          if (!m.payer.equals(wallet) || !m.fee_recipient.equals(gl.feeRecipient)) refuse('release_platform_reserve: payer is not you, or the treasury is not global.fee_recipient');
           out.push({ program: 'launch', name: ix.name, args: {}, accounts: show(m) });
           break;
         }

@@ -12,6 +12,8 @@
 //   P3  creator == trader in one buy, in the same transaction as create_launch
 //   P4  the opening buy's tokens equal the frontend's quote EXACTLY (minTokensOut = quote)
 //   P5  the worst-case transaction leaves >= 150 bytes of the 1,232-byte limit
+//   P6  the platform reserve is paid at create: ATA(mint, global.fee_recipient) holds
+//       exactly supply x platform_reserve_bps / 10,000 once the create lands
 // and measures what the creator really pays (rent, Metaplex's own fee, network fee).
 //
 // The instructions are built with the frontend's own curve/ix.ts (the code the rehearsal
@@ -124,7 +126,7 @@ const mintRent = await conn.getMinimumBalanceForRentExemption(SPL.MINT_SIZE);
 const ata = L.associatedTokenAddress(mintKp.publicKey, creator.publicKey);
 const { blockhash } = await conn.getLatestBlockhash('confirmed');
 function buildCreate(n, s, u) {
-  const create = L.createLaunchIx({ creator: creator.publicKey, mint: mintKp.publicKey }, ids);
+  const create = L.createLaunchIx({ creator: creator.publicKey, mint: mintKp.publicKey, feeRecipient: global.feeRecipient }, ids);
   create.keys.push({ pubkey: launchIndex, isSigner: false, isWritable: false });
   const t = new Transaction().add(
     ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
@@ -186,10 +188,16 @@ check(c.kind === 'ok' && c.value.curve.creator.equals(creator.publicKey), 'P3 cu
 const bal = BigInt((await conn.getTokenAccountBalance(ata, 'confirmed')).value.amount);
 check(bal === q.value.tokensOut, `P4 creator ATA holds ${bal} = the frontend quote ${q.value.tokensOut} exactly (sent as minTokensOut)`);
 
+const reserve = (global.tokenTotalSupply * global.platformReserveBps) / 10_000n;
+const treasuryAta = L.associatedTokenAddress(mintKp.publicKey, global.feeRecipient);
+const held = BigInt((await conn.getTokenAccountBalance(treasuryAta, 'confirmed')).value.amount);
+check(reserve > 0n && held === reserve && c.kind === 'ok' && c.value.curve.platformReserveTokens === reserve && c.value.curve.platformReserveReleased === true,
+  `P6 the treasury token account ${treasuryAta.toBase58()} holds ${held} = the platform reserve ${reserve}, and the curve records it paid`);
+
 const after = BigInt(await conn.getBalance(creator.publicKey, 'confirmed'));
 const curveRent = BigInt(await conn.getMinimumBalanceForRentExemption(L.BONDING_CURVE_SIZE));
 console.log(`  cost to the creator: ${before - after} lamports = opening buy ${q.value.lamportsIn} + network fee ${t.meta.fee}`
-  + ` + mint rent ${mintRent} + metadata rent ${mdRent} + Metaplex fee ${metaplexFee} + curve/vault/ATA rent (curve ${curveRent})`);
+  + ` + mint rent ${mintRent} + metadata rent ${mdRent} + Metaplex fee ${metaplexFee} + curve/vault/treasury/ATA rent (curve ${curveRent})`);
 console.log(`  measure: create tx ${wire.length} B, ${t.meta.computeUnitsConsumed} CU; Metaplex create fee ${metaplexFee} lamports`);
 console.log(JSON.stringify({ result: failed ? 'FAIL' : 'PASS', signature: sig, mint: mintKp.publicKey.toBase58(), txBytes: wire.length, cu: t.meta.computeUnitsConsumed, metaplexFeeLamports: String(metaplexFee), creatorPaid: String(before - after), hash: crypto.createHash('sha256').update(wire).digest('hex').slice(0, 16) }));
 process.exit(failed ? 1 : 0);

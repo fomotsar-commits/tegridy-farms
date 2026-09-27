@@ -249,7 +249,8 @@ export async function createLaunchDirect(creator: Keypair): Promise<PublicKey> {
   await sendFromNode([
     SystemProgram.createAccount({ fromPubkey: creator.publicKey, newAccountPubkey: mint.publicKey, lamports: rent, space: MINT_SIZE, programId: TOKEN_PROGRAM_ID }),
     createInitializeMint2Instruction(mint.publicKey, 6, creator.publicKey, null, TOKEN_PROGRAM_ID),
-    createLaunchIx({ creator: creator.publicKey, mint: mint.publicKey }, { programId: LAUNCH_PROGRAM, cpSwapProgram: CP_SWAP_PROGRAM }),
+    // The platform reserve is paid inside create_launch to ATA(mint, global.fee_recipient).
+    createLaunchIx({ creator: creator.publicKey, mint: mint.publicKey, feeRecipient: (await globalConfig()).feeRecipient }, { programId: LAUNCH_PROGRAM, cpSwapProgram: CP_SWAP_PROGRAM }),
   ], [creator, mint]);
   return mint.publicKey;
 }

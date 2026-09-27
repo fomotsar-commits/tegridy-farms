@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { WriteGateBanner } from './WriteGateBanner';
 import { GraduationPanel, type GraduationPanelProps } from './GraduationPanel';
 import { PoolSwapPanel, type PoolSwapPanelProps } from './PoolSwapPanel';
@@ -21,7 +21,7 @@ import {
 import type { CurveSignerState } from './useCurveSigner';
 import type { GateRpc, LaunchPool, WriteApi, WriteRpc } from './ports';
 import type { PoolStateView } from '../../../lib/solana/cpswap/program';
-import { WSOL_MINT } from '../../../lib/launcher/solana/curve';
+import { PLATFORM_TREASURY_VAULT, WSOL_MINT, type BondingCurve } from '../../../lib/launcher/solana/curve';
 
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
 
@@ -31,7 +31,7 @@ const ready: CurveSignerState = {
   signer: { publicKey: CREATOR, signTransaction: async (t) => t },
   signMessage: null,
 };
-const NONE = { create: false, buy: false, sell: false, migrate: false, release: false, poolSwap: false };
+const NONE = { create: false, buy: false, sell: false, migrate: false, poolSwap: false };
 
 // ---------------------------------------------------------------------------
 // The banner and the hook behind it
@@ -147,43 +147,41 @@ describe('graduation panel', () => {
     expect(screen.getByText(/It is a pause, not a break/)).toBeInTheDocument();
   });
 
-  it('graduated: offers the reserve release until it is released, then says it was', () => {
+  it('graduated: the reserve reads as paid at creation, and there is nothing to release', () => {
     const c = bondingCurve({ complete: true, pool: KEY(40) });
-    const { unmount } = render(
-      <GraduationPanel
-        api={fakeApi()}
-        rpc={{} as WriteRpc}
-        gate={openGate()}
-        launch={launchState(c)}
-        curve={curveAccount(c)}
-        mint={MINT}
-        decimals={6}
-        rentFloor={2_000_000n}
-        actions={{ ...NONE, release: true, poolSwap: true }}
-        signerState={ready}
-        onSettled={vi.fn()}
-      />,
+    const grad = (curve: BondingCurve, gate = openGate()) =>
+      render(
+        <GraduationPanel
+          api={fakeApi()}
+          rpc={{} as WriteRpc}
+          gate={gate}
+          launch={launchState(curve)}
+          curve={curveAccount(curve)}
+          mint={MINT}
+          decimals={6}
+          rentFloor={2_000_000n}
+          actions={{ ...NONE, poolSwap: true }}
+          signerState={ready}
+          onSettled={vi.fn()}
+        />,
+      );
+    const { unmount } = grad(c);
+    const card = screen.getByTestId('graduation-panel');
+    // The fixture's fee recipient is not the known vault, so it is named by address, never "a multisig".
+    expect(card).toHaveTextContent(
+      `Paid to the platform treasury (${openGate().global.feeRecipient.toBase58()}) when this token was created. Graduation did not touch it.`,
     );
-    expect(screen.getByRole('button', { name: 'Review: release platform reserve' })).not.toBeDisabled();
+    expect(card.textContent ?? '').not.toMatch(/multisig|release/i);
+    expect(screen.queryByRole('button', { name: /release/i })).not.toBeInTheDocument();
     unmount();
-    const r = bondingCurve({ complete: true, pool: KEY(40), platformReserveReleased: true });
-    render(
-      <GraduationPanel
-        api={fakeApi()}
-        rpc={{} as WriteRpc}
-        gate={openGate()}
-        launch={launchState(r)}
-        curve={curveAccount(r)}
-        mint={MINT}
-        decimals={6}
-        rentFloor={2_000_000n}
-        actions={{ ...NONE, poolSwap: true }}
-        signerState={ready}
-        onSettled={vi.fn()}
-      />,
-    );
-    expect(screen.getByText(/has been released to the platform treasury/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /release platform reserve/ })).not.toBeInTheDocument();
+    // The known vault is the only recipient called a multisig.
+    grad(c, openGate({ global: { ...openGate().global, feeRecipient: PLATFORM_TREASURY_VAULT } }));
+    expect(screen.getByTestId('graduation-panel')).toHaveTextContent('Paid to the platform treasury (a multisig) when this token was created.');
+    cleanup();
+    // An account that does not record the payment is described as exactly that.
+    grad(bondingCurve({ complete: true, pool: KEY(40), platformReserveReleased: false }));
+    expect(screen.getByTestId('graduation-panel')).toHaveTextContent(/does not record the platform reserve as paid/);
+    expect(screen.getByTestId('graduation-panel').textContent ?? '').not.toMatch(/Paid to/);
   });
 
   // UXR7: a finished graduation flips the phase to 'graduated' while its result is
@@ -218,16 +216,16 @@ describe('graduation panel', () => {
     // The page reads the chain again: the launch is now graduated.
     const g = bondingCurve({ complete: true, pool: KEY(40) });
     view.rerender(
-      <GraduationPanel {...props} launch={launchState(g)} curve={curveAccount(g)} actions={{ ...NONE, release: true, poolSwap: true }} />,
+      <GraduationPanel {...props} launch={launchState(g)} curve={curveAccount(g)} actions={{ ...NONE, poolSwap: true }} />,
     );
     expect(screen.getByText(/Done\. The network confirmed it\./)).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Finish graduation');
     expect(screen.queryByText('Platform reserve')).not.toBeInTheDocument();
-    // Closing it shows the graduated card, with focus on its release button.
+    // Closing it shows the graduated card, with focus on its heading: it has no button now.
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     });
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Review: release platform reserve' }));
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'Graduated' }));
   });
 
   it('renders nothing while the curve is still bonding', () => {

@@ -141,6 +141,7 @@ export async function preparePoolSwap(
     body,
     extraSigners: [],
     intent: {
+      kind,
       signer: a.owner,
       cfg: gate.cfg,
       feeRecipient: gate.global.feeRecipient,

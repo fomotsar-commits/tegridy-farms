@@ -59,7 +59,6 @@ export const ui = {
     reviewButton: (p: Page, side: 'buy' | 'sell') => ui.poolPanel(p).getByRole('button', { name: `Review pool ${side}` }),
   },
   graduate: (p: Page) => p.getByRole('button', { name: 'Review: finish graduation' }),
-  release: (p: Page) => p.getByRole('button', { name: 'Review: release platform reserve' }),
   checkAgain: (p: Page) => p.getByRole('button', { name: 'Check again' }),
 };
 

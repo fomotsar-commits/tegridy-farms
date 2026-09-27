@@ -236,15 +236,15 @@ describe('writeActions', () => {
     paused,
     graduation,
   });
-  const launch = (kind: LaunchPhase['kind'], released = false): LaunchState => {
-    const curve = { ...freshCurve(MINT, MINT), platformReserveReleased: released, complete: kind === 'graduated' };
+  const launch = (kind: LaunchPhase['kind']): LaunchState => {
+    const curve = { ...freshCurve(MINT, MINT), complete: kind === 'graduated' };
     const phase = (kind === 'graduated' ? { kind, pool: poolStatePda(MINT, LAUNCH) } : { kind }) as LaunchPhase;
     return { phase, paused: false, ammConfigured: true, global: globalValue(), curve: { address: MINT, curve, lamports: 0n } };
   };
 
   it('nothing at all unless the gate is open', () => {
     for (const g of [{ kind: 'off' } as WriteGate, { kind: 'blocked', reason: 'unreadable', detail: '' } as WriteGate]) {
-      expect(Object.values(writeActions(g, launch('trading')))).toEqual([false, false, false, false, false, false]);
+      expect(Object.values(writeActions(g, launch('trading')))).toEqual([false, false, false, false, false]);
     }
   });
 
@@ -255,15 +255,15 @@ describe('writeActions', () => {
     ['at-target', true, { sell: true }],
     ['awaiting-migration', false, { create: true, sell: true, migrate: true }],
     ['awaiting-migration', true, { sell: true }],
-    ['graduated', false, { create: true, release: true, poolSwap: true }],
-    ['graduated', true, { release: true, poolSwap: true }],
+    ['graduated', false, { create: true, poolSwap: true }],
+    ['graduated', true, { poolSwap: true }],
     ['pre-launch', false, { create: true }],
     ['unreadable', false, { create: true }],
     ['not-deployed', false, { create: true }],
   ];
   it.each(table)('%s, paused=%s', (phase, paused, want) => {
     const a = writeActions(gateOpen(paused), launch(phase), { migrationEligible: true });
-    const expected = { create: false, buy: false, sell: false, migrate: false, release: false, poolSwap: false, ...want };
+    const expected = { create: false, buy: false, sell: false, migrate: false, poolSwap: false, ...want };
     expect(a).toEqual(expected);
   });
 
@@ -284,9 +284,11 @@ describe('writeActions', () => {
     ).toBe(false);
   });
 
-  it('release only when graduated and NOT yet released', () => {
-    expect(writeActions(gateOpen(), launch('graduated', true)).release).toBe(false);
-    expect(writeActions(gateOpen(), launch('graduated', false)).release).toBe(true);
+  // The platform reserve is paid inside create_launch (2026-09-26): nothing is left to release.
+  it('offers no reserve release in any phase', () => {
+    for (const p of ['trading', 'at-target', 'awaiting-migration', 'graduated'] as const) {
+      expect(Object.keys(writeActions(gateOpen(), launch(p)))).toEqual(['create', 'buy', 'sell', 'migrate', 'poolSwap']);
+    }
   });
 });
 

@@ -6,8 +6,8 @@
 // that drains more than the screen says is BLOCKED), the compute limit and capped
 // priority fee, and that the summary equals what the bytes encode.
 import { describe, it, expect } from 'vitest';
-import { Keypair } from '@solana/web3.js';
-import { WSOL_MINT, globalPda, poolStatePda } from '../curve/program';
+import { Keypair, type PublicKey } from '@solana/web3.js';
+import { ASSOCIATED_TOKEN_PROGRAM_ID, WSOL_MINT, globalPda, poolStatePda } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { quoteBuyOnCurve, quoteSellOnCurve } from '../curve/math';
 import { readCurve, type CurveAccount } from '../curve/read';
@@ -15,7 +15,7 @@ import { quoteOwnPool, readPoolAt } from '../../../solana/cpswap/read';
 import type { LaunchPool } from '../discover/pool';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, launchIndexAddress, readWriteGate } from './config';
-import { prepareMigrate, prepareRelease } from './graduate';
+import { prepareMigrate } from './graduate';
 import { LAUNCH_TERMS_CHANGED, prepareCreateLaunch, quoteOpeningBuy } from './launch';
 import { preparePoolSwap } from './poolSwap';
 import { TX_SIZE_LIMIT } from './prepare';
@@ -315,6 +315,14 @@ describe('curve sell', () => {
 
 describe('create', () => {
   const worst = { name: 'N'.repeat(32), symbol: 'S'.repeat(10), uri: `https://ipfs.io/ipfs/${'b'.repeat(79)}` };
+  /** The platform reserve create_launch pays at 369 bps of the fixture supply. */
+  const reserveOf = (g = globalValue()) => (g.tokenTotalSupply * g.platformReserveBps) / 10_000n;
+  /** What the program does to the treasury's token account: it receives the reserve, exactly. */
+  const treasuryGets = (mint: PublicKey, amount = reserveOf()) => ({
+    [associatedTokenAddress(mint, VAULT).toBase58()]: { tokenAmount: amount, mint, owner: VAULT },
+  });
+  /** Mint, curve, vault and treasury token account rent, and the token details. */
+  const createRent = () => rent(82) + rent(179) + TOKEN_RENT + TOKEN_RENT + rent(607);
 
   it('one transaction, mint signs too, opening buy minimum = the quote EXACTLY, launch index trailing', async () => {
     const { chain, gate } = await setup();
@@ -323,10 +331,10 @@ describe('create', () => {
     const q = quoteOpeningBuy(gate.global, lamportsIn);
     if (!q.ok) throw new Error('quote');
     const creatorAta = associatedTokenAddress(mintKp.publicKey, ME);
-    const metadataRent = rent(607);
     simulating(chain, {
-      [ME.toBase58()]: { lamportsDelta: -(rent(82) + rent(179) + TOKEN_RENT + metadataRent + Number(lamportsIn) + TOKEN_RENT) },
+      [ME.toBase58()]: { lamportsDelta: -(createRent() + Number(lamportsIn) + TOKEN_RENT) },
       [creatorAta.toBase58()]: { tokenAmount: q.value.tokensOut, mint: mintKp.publicKey, owner: ME },
+      ...treasuryGets(mintKp.publicKey),
     }, 120_000);
     const p = ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst, openingBuy: { lamportsIn } }));
     expect(p.extraSigners).toEqual([mintKp]);
@@ -334,8 +342,63 @@ describe('create', () => {
     if (p.summary.kind !== 'create') return;
     expect(p.summary.openingBuy?.minTokensOut).toBe(q.value.tokensOut);
     expect(p.summary.name).toBe(worst.name);
-    const launchIx = p.tx.instructions.find((i) => i.programId.equals(LAUNCH) && i.keys.length === 9);
-    expect(launchIx?.keys[8]?.pubkey.equals(launchIndexAddress(LAUNCH))).toBe(true);
+    // 11 accounts (the reserve-at-create program), then the launch index.
+    const launchIx = p.tx.instructions.find((i) => i.programId.equals(LAUNCH) && i.keys.length === 12);
+    expect(launchIx?.keys[8]?.pubkey.equals(VAULT)).toBe(true);
+    expect(launchIx?.keys[9]?.pubkey.equals(associatedTokenAddress(mintKp.publicKey, VAULT))).toBe(true);
+    expect(launchIx?.keys[10]?.pubkey.equals(ASSOCIATED_TOKEN_PROGRAM_ID)).toBe(true);
+    expect(launchIx?.keys[11]?.pubkey.equals(launchIndexAddress(LAUNCH))).toBe(true);
+  });
+
+  // Reserve at create (owner decision 2026-09-26).
+  it('the review carries the reserve, its receiver READ FROM CHAIN, and the treasury account rent read from the cluster', async () => {
+    const { chain, gate } = await setup();
+    const mintKp = Keypair.generate();
+    simulating(chain, { [ME.toBase58()]: { lamportsDelta: -createRent() }, ...treasuryGets(mintKp.publicKey) });
+    const p = ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst }));
+    if (p.summary.kind !== 'create') throw new Error('kind');
+    const treasuryToken = associatedTokenAddress(mintKp.publicKey, VAULT);
+    expect(p.summary.platformReserve).toEqual({ amount: reserveOf(), bps: 369n, recipient: VAULT, treasuryToken });
+    // rent(165) from getMinimumBalanceForRentExemption, never a constant in the code.
+    expect(p.summary.treasuryAccountRent).toBe(BigInt(TOKEN_RENT));
+    expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(82) + rent(179) + 2 * TOKEN_RENT));
+    expect(p.steps).toContainEqual({ kind: 'create-launch', mint: mintKp.publicKey, feeRecipient: VAULT, treasuryToken });
+    // The test run proves the reserve lands in the treasury, and says whose tokens they are.
+    expect(p.simulated.tokenDeltas).toContainEqual({ mint: mintKp.publicKey, account: treasuryToken, delta: reserveOf(), role: 'treasury' });
+  });
+
+  it('BLOCKS a test run in which the treasury receives anything but the reserve', async () => {
+    for (const amount of [reserveOf() - 1n, reserveOf() + 1n, 0n]) {
+      const { chain, gate } = await setup();
+      const mintKp = Keypair.generate();
+      simulating(chain, {
+        [ME.toBase58()]: { lamportsDelta: -createRent() },
+        ...(amount > 0n ? treasuryGets(mintKp.publicKey, amount) : {}),
+      });
+      const r = await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst });
+      expect(!r.ok && r.outcome.message).toMatch(/different token amount/);
+    }
+  });
+
+  it('a treasury token account that already exists costs the creator nothing, and says so', async () => {
+    const { chain, gate } = await setup();
+    const mintKp = Keypair.generate();
+    chain.tokenAccount(associatedTokenAddress(mintKp.publicKey, VAULT), mintKp.publicKey, VAULT, 0n);
+    simulating(chain, { [ME.toBase58()]: { lamportsDelta: -(createRent() - TOKEN_RENT) }, ...treasuryGets(mintKp.publicKey) });
+    const p = ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst }));
+    if (p.summary.kind !== 'create') throw new Error('kind');
+    expect(p.summary.treasuryAccountRent).toBe(0n);
+    expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(82) + rent(179) + TOKEN_RENT));
+  });
+
+  it('rent that cannot be read stops the launch before anything is simulated', async () => {
+    const { chain, gate } = await setup();
+    chain.getMinimumBalanceForRentExemption = async () => {
+      throw new Error('HTTP 429');
+    };
+    const r = await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: Keypair.generate(), metadata: worst });
+    expect(!r.ok && r.outcome).toMatchObject({ stage: 'build', message: 'Could not read the network to prepare this launch.' });
+    expect(chain.simulateCalls).toHaveLength(0);
   });
 
   it('worst-case inputs leave at least 150 bytes for a wallet’s own guard instructions', async () => {
@@ -344,8 +407,9 @@ describe('create', () => {
     const q = quoteOpeningBuy(gate.global, 50_000_000n);
     if (!q.ok) throw new Error('quote');
     simulating(chain, {
-      [ME.toBase58()]: { lamportsDelta: -(rent(82) + rent(179) + 2 * TOKEN_RENT + rent(607) + 50_000_000) },
+      [ME.toBase58()]: { lamportsDelta: -(createRent() + TOKEN_RENT + 50_000_000) },
       [associatedTokenAddress(mintKp.publicKey, ME).toBase58()]: { tokenAmount: q.value.tokensOut, mint: mintKp.publicKey, owner: ME },
+      ...treasuryGets(mintKp.publicKey),
     });
     const p = ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst, openingBuy: { lamportsIn: 50_000_000n } }));
     // Recorded for the report: the measured worst case.
@@ -365,7 +429,8 @@ describe('create', () => {
 
   // R6-4: create_launch copies the program's settings AS THEY ARE when it runs. The
   // form showed the settings read when the page loaded; an operator change since then
-  // would launch the creator on terms the page never showed.
+  // would launch the creator on terms the page never showed. That includes WHO gets
+  // the platform reserve: the program pays whatever fee_recipient says at that moment.
   it('re-reads the launch terms: changed since the page loaded = refused, nothing simulated', async () => {
     for (const change of [
       { tradeFeeBps: 200n },
@@ -375,10 +440,11 @@ describe('create', () => {
       { migrationReserveLamports: 1n },
       { initialVirtualSol: 1n },
       { initialVirtualToken: 1n },
+      { feeRecipient: Keypair.generate().publicKey },
     ]) {
       const { chain, gate } = await setup();
       chain.set(globalPda(LAUNCH), { lamports: rent(202), owner: LAUNCH, data: encodeGlobal(globalValue(change)) });
-      simulating(chain, { [ME.toBase58()]: { lamportsDelta: -(rent(82) + rent(179) + TOKEN_RENT + rent(607)) } });
+      simulating(chain, { [ME.toBase58()]: { lamportsDelta: -createRent() } });
       const r = await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: Keypair.generate(), metadata: worst });
       expect(r.ok, JSON.stringify(change, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).toBe(false);
       expect(!r.ok && r.outcome).toMatchObject({ stage: 'build', message: LAUNCH_TERMS_CHANGED });
@@ -400,12 +466,13 @@ describe('create', () => {
 
   it('the same terms as the page showed: builds as before', async () => {
     const { chain, gate } = await setup();
-    simulating(chain, { [ME.toBase58()]: { lamportsDelta: -(rent(82) + rent(179) + TOKEN_RENT + rent(607)) } });
-    ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: Keypair.generate(), metadata: worst }));
+    const mintKp = Keypair.generate();
+    simulating(chain, { [ME.toBase58()]: { lamportsDelta: -createRent() }, ...treasuryGets(mintKp.publicKey) });
+    ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst }));
   });
 });
 
-describe('graduate and release', () => {
+describe('graduate', () => {
   it('migrate: compute floor 400,000, the pool is the launch program’s own address', async () => {
     const c = freshCurve(MINT, CREATOR);
     const full = { ...c, realSolReserves: c.graduationTargetLamports + c.migrationReserveLamports };
@@ -432,21 +499,6 @@ describe('graduate and release', () => {
     expect(!r.ok && r.outcome.message).toMatch(/someone may have just finished it/);
   });
 
-  it('release: only after graduation, only once', async () => {
-    const c = freshCurve(MINT, CREATOR);
-    const done = { ...c, complete: true, pool: poolStatePda(MINT, LAUNCH) };
-    const { chain, gate, curve } = await setup({ curve: done });
-    simulating(chain, { [ME.toBase58()]: { lamportsDelta: -TOKEN_RENT } });
-    const p = ok(await prepareRelease(W(chain), gate, { payer: ME, mint: MINT, curve }));
-    expect(p.summary).toEqual({ kind: 'release', mint: MINT, amount: c.platformReserveTokens, recipient: VAULT });
-    const released = await setup({ curve: { ...done, platformReserveReleased: true } });
-    const r = await prepareRelease(W(released.chain), released.gate, { payer: ME, mint: MINT, curve: released.curve });
-    expect(!r.ok && r.outcome.message).toMatch(/already been released/);
-    const open = await setup();
-    const r2 = await prepareRelease(W(open.chain), open.gate, { payer: ME, mint: MINT, curve: open.curve });
-    expect(!r2.ok && r2.outcome.message).toMatch(/only be released after/);
-  });
-
   // L3/F3: the "One-time account rent" line must match what the signed transaction keeps.
   it('migrate shows no account rent: the program closes the accounts it opens back to the payer', async () => {
     const c = freshCurve(MINT, CREATOR);
@@ -457,27 +509,10 @@ describe('graduate and release', () => {
     expect(p.fees.newAccountRentLamports).toBe(0n);
   });
 
-  it('release charges the treasury account rent only when that account does not exist yet', async () => {
-    const c = freshCurve(MINT, CREATOR);
-    const done = { ...c, complete: true, pool: poolStatePda(MINT, LAUNCH) };
-    const absent = await setup({ curve: done });
-    simulating(absent.chain, { [ME.toBase58()]: { lamportsDelta: -TOKEN_RENT } });
-    const p1 = ok(await prepareRelease(W(absent.chain), absent.gate, { payer: ME, mint: MINT, curve: absent.curve }));
-    expect(p1.fees.newAccountRentLamports).toBe(BigInt(TOKEN_RENT));
-
-    const present = await setup({ curve: done });
-    present.chain.tokenAccount(associatedTokenAddress(MINT, VAULT), MINT, VAULT, 0n);
-    simulating(present.chain, { [ME.toBase58()]: { lamportsDelta: 0 } });
-    const p2 = ok(await prepareRelease(W(present.chain), present.gate, { payer: ME, mint: MINT, curve: present.curve }));
-    expect(p2.fees.newAccountRentLamports).toBe(0n);
-
-    const unread = await setup({ curve: done });
-    unread.chain.getAccountInfo = async () => {
-      throw new Error('HTTP 429');
-    };
-    const r = await prepareRelease(W(unread.chain), unread.gate, { payer: ME, mint: MINT, curve: unread.curve });
-    expect(!r.ok && r.outcome.stage).toBe('build');
-    expect(unread.chain.simulateCalls).toHaveLength(0);
+  // release_platform_reserve is gone from the program (reserve paid at create).
+  it('the write layer offers no reserve release', async () => {
+    const graduate = await import('./graduate');
+    expect(Object.keys(graduate)).toEqual(['prepareMigrate']);
   });
 });
 

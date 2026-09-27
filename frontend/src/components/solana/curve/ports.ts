@@ -103,7 +103,7 @@ export interface WriteApi {
   writeActions(
     gate: WriteGate,
     launch: LaunchState | null,
-    opts?: { migrationEligible?: boolean; reserveReleased?: boolean },
+    opts?: { migrationEligible?: boolean },
   ): ActionAvailability;
   explorerTxUrl(signature: string, cluster: SolanaCluster): string;
 
@@ -129,7 +129,6 @@ export interface WriteApi {
     },
   ): Promise<Prepared>;
   prepareMigrate(rpc: WriteRpc, gate: OpenGate, a: { payer: PublicKey; mint: PublicKey; curve: CurveAccount }): Promise<Prepared>;
-  prepareRelease(rpc: WriteRpc, gate: OpenGate, a: { payer: PublicKey; mint: PublicKey; curve: CurveAccount }): Promise<Prepared>;
   preparePoolSwap(
     rpc: WriteRpc,
     gate: OpenGate,

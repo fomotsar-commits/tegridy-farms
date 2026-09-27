@@ -353,6 +353,12 @@ describe('extra signers', () => {
         ? { accounts: chain.post(config.accounts.addresses, {
             [ME.toBase58()]: { lamportsDelta: -30_000_000 },
             [ata.toBase58()]: { tokenAmount: q.value.tokensOut, mint: mintKp.publicKey, owner: ME },
+            // create_launch pays the platform reserve (369 bps of the supply) to the treasury.
+            [associatedTokenAddress(mintKp.publicKey, VAULT).toBase58()]: {
+              tokenAmount: (gate.global.tokenTotalSupply * gate.global.platformReserveBps) / 10_000n,
+              mint: mintKp.publicKey,
+              owner: VAULT,
+            },
           }) }
         : {}),
     });

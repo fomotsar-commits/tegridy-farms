@@ -32,11 +32,14 @@ function metadataIx(mint: PublicKey, wallet: PublicKey, isMutable: boolean) {
   });
 }
 
-interface CreateOpts { minTokensOut?: bigint; feeRecipient?: PublicKey; mutable?: boolean; trailingWritable?: boolean; extra?: TransactionInstruction[]; payer?: Keypair; cuPrice?: number }
+interface CreateOpts { minTokensOut?: bigint; feeRecipient?: PublicKey; reserveTo?: PublicKey; legacyCreate?: boolean; mutable?: boolean; trailingWritable?: boolean; extra?: TransactionInstruction[]; payer?: Keypair; cuPrice?: number }
 async function createTx(wallet: Keypair, mint: Keypair, o: CreateOpts = {}) {
   const g = await globalConfig();
   const q = expectedOpeningBuy(g, sol(0.05));
-  const create = createLaunchIx({ creator: wallet.publicKey, mint: mint.publicKey }, ids);
+  // The reserve-at-create program: 11 accounts, the platform reserve paid to ATA(mint, fee_recipient).
+  const create = createLaunchIx({ creator: wallet.publicKey, mint: mint.publicKey, feeRecipient: o.reserveTo ?? g.feeRecipient }, ids);
+  // The superseded 8-account shape (reserve held until graduation).
+  if (o.legacyCreate) create.keys.splice(8);
   create.keys.push({ pubkey: LAUNCH_INDEX, isSigner: false, isWritable: !!o.trailingWritable });
   const tx = new Transaction().add(
     ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }),
@@ -91,6 +94,8 @@ test.describe('the test wallet guard', () => {
     ['a token approval', async () => { const m = Keypair.generate(); return createTx(wallet, m, { extra: [createApproveInstruction(ata(m.publicKey, wallet.publicKey), stranger, wallet.publicKey, 1n)] }); }, /never sent by this site/],
     ['a buy with no slippage floor', async () => createTx(wallet, Keypair.generate(), { minTokensOut: 0n }), /slippage floor is 0/],
     ['a buy paying another fee recipient', async () => createTx(wallet, Keypair.generate(), { feeRecipient: stranger }), /not global.fee_recipient/],
+    ['a create paying the platform reserve to a stranger', async () => createTx(wallet, Keypair.generate(), { reserveTo: stranger }), /platform reserve goes to someone other than global.fee_recipient/],
+    ['the superseded 8-account create_launch', async () => createTx(wallet, Keypair.generate(), { legacyCreate: true }), /platform reserve goes to someone other than global.fee_recipient/],
     ['metadata left mutable', async () => createTx(wallet, Keypair.generate(), { mutable: true }), /MUTABLE/],
     ['a writable extra account on create_launch', async () => createTx(wallet, Keypair.generate(), { trailingWritable: true }), /not the read-only launch index/],
     ['another fee payer', async () => createTx(wallet, Keypair.generate(), { payer: Keypair.generate() }), /fee payer/],

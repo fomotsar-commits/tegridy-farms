@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { LaunchCreateForm } from './LaunchCreateForm';
-import { CREATOR, SIG, SOL, fakeApi, openGate, prepared } from './fakeWriteApi.fixture';
+import { CREATOR, KEY, SIG, SOL, fakeApi, openGate, prepared } from './fakeWriteApi.fixture';
 import { readPendingLaunch, savePendingLaunch } from './pendingLaunch';
-import type { CreateLaunchInput, TxOutcome, TxSummary, UploadInput, WriteApi, WriteRpc } from './ports';
+import type { CreateLaunchInput, OpenGate, TxOutcome, TxSummary, UploadInput, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
 
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
@@ -28,7 +28,7 @@ function renderForm(api: WriteApi = fakeApi(), signerState: CurveSignerState = r
   return renderFormView(api, signerState).api;
 }
 
-function renderFormView(api: WriteApi = fakeApi(), signerState: CurveSignerState = ready) {
+function renderFormView(api: WriteApi = fakeApi(), signerState: CurveSignerState = ready, gate: OpenGate = openGate()) {
   const view = render(
     <MemoryRouter initialEntries={['/curve-launch']}>
       <Routes>
@@ -38,8 +38,8 @@ function renderFormView(api: WriteApi = fakeApi(), signerState: CurveSignerState
             <LaunchCreateForm
               api={api}
               rpc={{} as WriteRpc}
-              gate={openGate()}
-              actions={{ create: true, buy: false, sell: false, migrate: false, release: false, poolSwap: false }}
+              gate={gate}
+              actions={{ create: true, buy: false, sell: false, migrate: false, poolSwap: false }}
               signerState={signerState}
             />
           }
@@ -78,6 +78,15 @@ function createApi(over: Partial<WriteApi> = {}) {
       uri: input.metadata.uri,
       decimals: 6,
       openingBuy: null,
+      platformReserve: {
+        amount: 36_900_000_000_000n,
+        bps: 369n,
+        recipient: KEY(4),
+        // A stand-in address: deriving the real one needs PDA maths, which fails under jsdom.
+        treasuryToken: KEY(12),
+      },
+      // Today's mainnet rent for a token account; the real value is read from the cluster.
+      treasuryAccountRent: 1_488_440n,
     };
     return { ok: true, prepared: prepared(summary) };
   });
@@ -162,16 +171,30 @@ describe('launch form: the terms it states match the program', () => {
     renderForm(createApi());
     const form = await screen.findByTestId('launch-create-form');
     expect(form).toHaveTextContent('96.31% of the supply goes onto the curve');
-    expect(form).toHaveTextContent('The other 3.69% is held by the program as the platform reserve');
+    expect(form).toHaveTextContent(
+      `The other 3.69% is the platform reserve: it is sent to the platform treasury (${KEY(4).toBase58()}) in the same transaction that creates the token.`,
+    );
     expect(form).not.toHaveTextContent(/whole supply/i);
   });
 
-  // F1: the reserve row said "released only after graduation" and named nobody.
+  // F1, then the 2026-09-26 owner decision: the reserve is paid to the treasury at create.
   it('the reserve row says who gets the reserve, and when', async () => {
     renderForm(createApi());
     await screen.findByTestId('launch-create-form');
+    const row = screen.getByText('Platform reserve').parentElement!;
+    expect(row).toHaveTextContent(
+      `3.69% of supply, sent to the platform treasury (${KEY(4).toBase58()}) when the token is created.`,
+    );
+    expect(row.textContent ?? '').not.toMatch(/graduat|release|multisig/i);
+  });
+
+  it('calls the treasury a multisig only when the settings name the known vault', async () => {
+    const { PLATFORM_TREASURY_VAULT } = await import('../../../lib/launcher/solana/curve');
+    const gate = openGate({ global: { ...openGate().global, feeRecipient: PLATFORM_TREASURY_VAULT } });
+    renderFormView(createApi(), ready, gate);
+    await screen.findByTestId('launch-create-form');
     expect(screen.getByText('Platform reserve').parentElement).toHaveTextContent(
-      '3.69% of supply, goes to the platform treasury only if the launch graduates',
+      '3.69% of supply, sent to the platform treasury (a multisig) when the token is created.',
     );
   });
 
@@ -282,8 +305,30 @@ describe('launch form: review and send', () => {
     expect(card).toHaveTextContent('the pool charges 0.25% per trade; 12.00% of that goes to the platform');
     expect(card).toHaveTextContent(/creator gets nothing from pool trades/);
     expect(card).toHaveTextContent(/LP tokens are burned/);
-    expect(card).toHaveTextContent(/3\.69% of the supply is held back as the platform reserve.*may sell it/);
+    expect(card).toHaveTextContent(
+      `When the token is created, the platform receives 3.69% of the supply, sent to the platform treasury (${KEY(4).toBase58()}). This page cannot confirm that the treasury is a multisig. The program does not stop the treasury selling those tokens, including while the curve is live.`,
+    );
     expect(card).toHaveTextContent(/You can lose everything/);
+  });
+
+  // Reserve at create (2026-09-26): the review names the reserve, where it goes, and
+  // the rent the creator pays for the treasury's token account, all from the prepared
+  // transaction (the rent is read from the cluster, never a constant).
+  it('the review shows the platform reserve paid now, its receiver, and the treasury account rent', async () => {
+    renderForm(createApi());
+    await fillValid();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
+    });
+    const review = await screen.findByTestId('tx-review');
+    expect(screen.getByText('Platform reserve, paid in this transaction').parentElement).toHaveTextContent(
+      '36,900,000 (3.69% of the supply)',
+    );
+    expect(screen.getByText('Sent to (platform treasury)').parentElement).toHaveTextContent(KEY(4).toBase58());
+    expect(screen.getByText('You pay for that token account').parentElement).toHaveTextContent(
+      '0.00148844 SOL (rent, read from the network just now)',
+    );
+    expect(review.textContent ?? '').not.toMatch(/release|if the launch graduates|held by the program/i);
   });
 
   it('uploads, builds, and shows the public-forever list before the wallet opens', async () => {

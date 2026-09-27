@@ -171,7 +171,9 @@ describe('the launch page', () => {
       expect(spot.textContent).not.toMatch(/\de[-+]\d/);
     }
     expect(text).toMatch(/Buying stops there: the graduation target plus a small amount that pays for opening the pool\./);
-    expect(text).toMatch(/Platform reserve: held by the program; it goes to the platform treasury if this launch graduates\./);
+    // Paid at creation, to the live config's fee recipient, named by address because it is not the known vault.
+    expect(text).toContain(`Platform reserve: sent to the platform treasury (${KEY(4).toBase58()}) when this token was created.`);
+    expect(text).not.toMatch(/release|held by the program|if this launch graduates/i);
   });
 
   it('a launch that was just sent and is not on chain yet says "not found yet", never "no launch"', () => {
@@ -241,19 +243,20 @@ describe('the launch page', () => {
 
   it('paused: selling stays available on the page', () => {
     const g = globalCfg({ paused: true });
-    const api = fakeApi({ writeActions: vi.fn(() => ({ create: false, buy: false, sell: true, migrate: false, release: false, poolSwap: false })) });
+    const api = fakeApi({ writeActions: vi.fn(() => ({ create: false, buy: false, sell: true, migrate: false, poolSwap: false })) });
     renderView({ data: data({ launch: launchState(bondingCurve(), g) }) }, api, openGate({ paused: true, global: g }));
     fireEvent.click(screen.getByRole('button', { name: 'sell' }));
     expect(screen.getByLabelText('Sell (tokens)')).not.toBeDisabled();
   });
 
-  it('graduated: pool panel and reserve release, no curve trading', () => {
+  it('graduated: pool panel, no curve trading, and nothing about the reserve waits on graduation', () => {
     const c = bondingCurve({ complete: true });
-    const api = fakeApi({ writeActions: vi.fn(() => ({ create: true, buy: false, sell: false, migrate: false, release: true, poolSwap: true })) });
+    const api = fakeApi({ writeActions: vi.fn(() => ({ create: true, buy: false, sell: false, migrate: false, poolSwap: true })) });
     renderView({ data: data({ launch: launchState(c), pool: { kind: 'unreadable', detail: 'HTTP 500' } }) }, api);
     expect(screen.queryByTestId('curve-trade-panel')).not.toBeInTheDocument();
     expect(screen.getByTestId('pool-swap-panel')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Review: release platform reserve' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /release/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('graduation-panel')).toHaveTextContent(/Paid to the platform treasury .* when this token was created/);
     // Graduation empties the curve's real reserves: its progress, "SOL raised" and
     // spot would read as a confident 0% / 0 SOL / stale price next to the live pool.
     expect(screen.getByTestId('curve-closed')).toHaveTextContent(/The curve closed at graduation/);
@@ -436,7 +439,7 @@ describe('the launch page', () => {
       ammConfig: { ...ammConfig, tradeFeeRate: 3_000n, fundFeeRate: 40_000n, creatorFeeRate: 500n },
       snapshot: { pool: view, vault0Amount: 1n, vault1Amount: 1n, reserve0: 1n, reserve1: 1n },
     };
-    const api = fakeApi({ writeActions: vi.fn(() => ({ create: true, buy: false, sell: false, migrate: false, release: false, poolSwap: true })) });
+    const api = fakeApi({ writeActions: vi.fn(() => ({ create: true, buy: false, sell: false, migrate: false, poolSwap: true })) });
     renderView({ data: data({ launch: launchState(c), pool: { kind: 'ok', value: pool } }) }, api);
     const card = screen.getByTestId('before-you-trade');
     expect(card).toHaveTextContent(
@@ -448,7 +451,7 @@ describe('the launch page', () => {
 
   it('"before you trade": a graduated launch whose pool could not be read does not state the pool fee as a fact', () => {
     const c = bondingCurve({ complete: true, pool: KEY(40) });
-    const api = fakeApi({ writeActions: vi.fn(() => ({ create: true, buy: false, sell: false, migrate: false, release: false, poolSwap: true })) });
+    const api = fakeApi({ writeActions: vi.fn(() => ({ create: true, buy: false, sell: false, migrate: false, poolSwap: true })) });
     renderView({ data: data({ launch: launchState(c), pool: { kind: 'unreadable', detail: 'HTTP 500' } }) }, api);
     const card = screen.getByTestId('before-you-trade');
     expect(card).toHaveTextContent(/pool charges its own fee, which could not be read just now/);
@@ -465,7 +468,9 @@ describe('the launch page', () => {
     expect(card).toHaveTextContent('1.00% fee: 50.00% of it goes to the creator and 50.00% to the platform');
     expect(card).toHaveTextContent('the pool charges 0.25% per trade; 12.00% of that goes to the platform');
     expect(card).toHaveTextContent(/creator gets nothing from pool trades/);
-    expect(card).toHaveTextContent(/3\.69% of the supply is held back as the platform reserve.*may sell it/);
+    expect(card).toHaveTextContent(
+      `When this token was created, the platform received 3.69% of the supply, sent to the platform treasury (${KEY(4).toBase58()}). This page cannot confirm that the treasury is a multisig. The program does not stop the treasury selling those tokens, including while the curve is live.`,
+    );
     expect(card).toHaveTextContent(/You can lose everything/);
   });
 

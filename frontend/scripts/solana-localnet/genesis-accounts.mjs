@@ -60,9 +60,9 @@ export const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111
 /** artifacts/SHA256SUMS of the 2026-09-26 release, pinned here so a swapped file cannot pass. */
 export const PINNED_SHA256 = Object.freeze({
   'cp_swap.mainnet.so': '88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882',
-  'tegridy_launch.mainnet.so': '9b78be0273c9797d5ee3ec321001ac0c64a2b8aa4488e76ebf4196407bd3da68',
+  'tegridy_launch.mainnet.so': 'a3c41afaf9dce3ee5dd5d30061c09d8dfb0bf581ba8f39e1d24524dbb43d3f4d',
   'raydium_cp_swap.idl.json': '939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262',
-  'tegridy_launch.idl.json': 'd987fafe7b2e50a4e760c5d7d2607d7f35896cc2efd786310dd784cce3928751',
+  'tegridy_launch.idl.json': 'cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31',
 });
 
 export function defaultArtifactsDir() {

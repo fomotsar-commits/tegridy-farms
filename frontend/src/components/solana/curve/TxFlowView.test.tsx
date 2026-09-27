@@ -2,7 +2,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { TxFlowView, TxOutcomeCard } from './TxFlowView';
 import { REVIEW_TTL_MS, useTxFlow } from './useTxFlow';
-import { CREATOR, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
+import { CREATOR, KEY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
 import type { TxOutcome, TxSigner, TxSummary, WriteRpc } from './ports';
 
 const SOL_1 = 1_000_000_000n;
@@ -189,11 +189,47 @@ describe('review', () => {
     const { result } = flowAt(api);
     const create: TxSummary = {
       kind: 'create', mint: CREATOR, creator: CREATOR, name: 'A', symbol: 'AB', uri: 'https://x', decimals: 6, openingBuy: null,
+      platformReserve: null, treasuryAccountRent: 1_488_440n,
     };
     await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(create) })));
     render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
     expect(screen.queryByText('One-time account rent')).not.toBeInTheDocument();
     expect(screen.getByText(/token details account.s rent and the token details program.s own fee are not in that line/)).toBeInTheDocument();
+  });
+
+  // Reserve at create (2026-09-26): the review says the reserve is paid in this very
+  // transaction, to whom (a multisig only for the known vault), what the treasury's
+  // token account costs the creator, and what the test run saw arrive there.
+  it('create: the platform reserve paid now, its receiver, the treasury account rent, and the test run', async () => {
+    const { PLATFORM_TREASURY_VAULT } = await import('../../../lib/launcher/solana/curve');
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    // A stand-in address: deriving the real one needs PDA maths, which fails under jsdom.
+    const treasuryToken = KEY(12);
+    const create: TxSummary = {
+      kind: 'create', mint: CREATOR, creator: CREATOR, name: 'A', symbol: 'AB', uri: 'https://x', decimals: 6, openingBuy: null,
+      platformReserve: { amount: 36_900_000_000_000n, bps: 369n, recipient: PLATFORM_TREASURY_VAULT, treasuryToken },
+      treasuryAccountRent: 1_488_440n,
+    };
+    const p = prepared(create, {
+      simulated: {
+        signerLamportsDelta: -5_000_000n,
+        tokenDeltas: [{ mint: CREATOR, account: treasuryToken, delta: 36_900_000_000_000n, role: 'treasury' }],
+      },
+    });
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: p })));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    const row = (label: string) => screen.getByText(label).parentElement!;
+    expect(row('Platform reserve, paid in this transaction')).toHaveTextContent('36,900,000 (3.69% of the supply)');
+    expect(row('Sent to (platform treasury)')).toHaveTextContent(PLATFORM_TREASURY_VAULT.toBase58());
+    expect(row('Into its token account')).toHaveTextContent(treasuryToken.toBase58());
+    expect(row('You pay for that token account')).toHaveTextContent('0.00148844 SOL (rent, read from the network just now)');
+    expect(screen.getByText(/sent to the platform treasury \(a multisig\)\./)).toHaveTextContent(
+      /does not stop the treasury selling those tokens, including while the curve is live/,
+    );
+    // Not yours: never "your tokens change by".
+    expect(row('Test run: the platform treasury receives')).toHaveTextContent('+36,900,000');
+    expect(screen.queryByText('Test run: your tokens change by')).not.toBeInTheDocument();
   });
 
   // F3: graduation's rent is paid back inside the same instruction.

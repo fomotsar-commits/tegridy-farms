@@ -1,6 +1,8 @@
 // Style tokens and pure helpers for the /curve-launch UI. No React, so the
 // component files export only components.
 
+import type { TreasuryDescription } from '../../../lib/launcher/solana/curve';
+
 export const CARD = 'rounded-2xl p-5 relative overflow-hidden';
 export const CARD_STYLE = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
 export const SHADOW = { textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)' } as const;
@@ -18,19 +20,35 @@ export const DIVIDER = { borderTop: '1px solid rgba(255,255,255,0.08)' } as cons
 export const bpsPercent = (bps: bigint) => `${(Number(bps) / 100).toFixed(2)}%`;
 
 /**
+ * The platform reserve, said plainly. `share` is words read from chain ("3.69% of
+ * the supply"); `treasury` names `global.fee_recipient` and is called a multisig only
+ * when it is the known Squads vault (describeTreasury). `when` is 'will' before a
+ * token exists and 'was' for one already created: `create_launch` pays the reserve
+ * in the same instruction that creates the curve, so there is no third case.
+ */
+export function reserveDisclosure(share: string, treasury: TreasuryDescription, when: 'will' | 'was'): string {
+  const paid =
+    when === 'will'
+      ? `When the token is created, the platform receives ${share}, sent to ${treasury.name}.`
+      : `When this token was created, the platform received ${share}, sent to ${treasury.name}.`;
+  const unconfirmed = treasury.multisig ? '' : ' This page cannot confirm that the treasury is a multisig.';
+  return `${paid}${unconfirmed} The program does not stop the treasury selling those tokens, including while the curve is live.`;
+}
+
+/**
  * What happens to the supply, from the program's own reserve setting. The curve can
  * sell only what is left after the platform reserve, so "the whole supply" is said
  * only when there is no reserve.
  */
-export function supplySentence(platformReserveBps: bigint): string {
+export function supplySentence(platformReserveBps: bigint, treasury: TreasuryDescription): string {
   const never = 'Nobody, including you, can ever make more.';
   if (platformReserveBps <= 0n || platformReserveBps >= 10_000n) {
     return platformReserveBps <= 0n ? `The whole supply goes onto the curve. ${never}` : never;
   }
   return (
     `${bpsPercent(10_000n - platformReserveBps)} of the supply goes onto the curve. ` +
-    `The other ${bpsPercent(platformReserveBps)} is held by the program as the platform reserve, and goes to the ` +
-    `platform treasury only if the launch graduates. ${never}`
+    `The other ${bpsPercent(platformReserveBps)} is the platform reserve: it is sent to ${treasury.name} in the ` +
+    `same transaction that creates the token. ${never}`
   );
 }
 

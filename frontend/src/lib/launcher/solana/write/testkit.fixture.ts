@@ -111,7 +111,8 @@ export function freshCurve(mint: PublicKey, creator: PublicKey, g: GlobalConfig 
     pool: new PublicKey(new Uint8Array(32)),
     bump: 254,
     platformReserveTokens: s.value.reserveTokens,
-    platformReserveReleased: false,
+    // create_launch pays the reserve to the treasury and sets this in the same instruction.
+    platformReserveReleased: true,
   };
 }
 

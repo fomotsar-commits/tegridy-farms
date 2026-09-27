@@ -52,7 +52,6 @@ async function build(): Promise<WriteApi> {
     prepareCurveBuy: trade.prepareCurveBuy,
     prepareCurveSell: trade.prepareCurveSell,
     prepareMigrate: graduate.prepareMigrate,
-    prepareRelease: graduate.prepareRelease,
     preparePoolSwap: poolSwap.preparePoolSwap,
 
     submitPrepared: submit.submitPrepared,

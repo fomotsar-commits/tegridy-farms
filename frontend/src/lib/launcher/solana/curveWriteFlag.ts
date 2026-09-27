@@ -1,5 +1,5 @@
 // Whether /curve-launch may even LOAD its write path (launch, buy, sell, graduate,
-// release, pool swap). Web3-free on purpose: navConfig imports this, and navConfig
+// pool swap). Web3-free on purpose: navConfig imports this, and navConfig
 // is in the main bundle, so nothing here may pull in @solana/*.
 //
 // This is the FIRST of two gates and the weaker one. It only decides whether the

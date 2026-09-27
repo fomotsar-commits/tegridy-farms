@@ -39,7 +39,7 @@ function renderPanel(over: Partial<CurveTradePanelProps> = {}) {
     mint: MINT,
     decimals: 6,
     rentFloor: 2_000_000n,
-    actions: { create: true, buy: true, sell: true, migrate: false, release: false, poolSwap: false },
+    actions: { create: true, buy: true, sell: true, migrate: false, poolSwap: false },
     signerState: ready,
     onSettled: vi.fn(),
     ...over,
@@ -71,7 +71,7 @@ describe('curve trade panel', () => {
     renderPanel({
       gate: openGate({ paused: true, global: g }),
       launch: launchState(curve.curve, g),
-      actions: { create: false, buy: false, sell: true, migrate: false, release: false, poolSwap: false },
+      actions: { create: false, buy: false, sell: true, migrate: false, poolSwap: false },
     });
     expect(screen.getByText(/Buys are paused\. Selling is still open/)).toBeInTheDocument();
     expect(screen.getByLabelText('Spend at most (SOL)')).toBeDisabled();
@@ -84,7 +84,7 @@ describe('curve trade panel', () => {
     renderPanel({
       curve: curveAccount(c),
       launch: launchState(c),
-      actions: { create: true, buy: false, sell: true, migrate: true, release: false, poolSwap: false },
+      actions: { create: true, buy: false, sell: true, migrate: true, poolSwap: false },
     });
     expect(screen.getByText(/has NOT graduated yet/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'sell' }));

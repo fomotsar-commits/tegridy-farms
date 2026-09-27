@@ -3,9 +3,18 @@ import '../../../lib/solanaPolyfill';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Keypair } from '@solana/web3.js';
-import { formatSol, formatTokenAmount, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve';
+import { describeTreasury, formatSol, formatTokenAmount, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve';
 import { Card, Field, Notice, Row } from './ui';
-import { DIVIDER, bpsPercent, feeSplitLabel, inputCls, inputStyle, sharePercent, supplySentence } from './uiFormat';
+import {
+  DIVIDER,
+  bpsPercent,
+  feeSplitLabel,
+  inputCls,
+  inputStyle,
+  reserveDisclosure,
+  sharePercent,
+  supplySentence,
+} from './uiFormat';
 import { TxFlowView } from './TxFlowView';
 import { BeforeYouTrade } from './BeforeYouTrade';
 import { WalletNeeded } from './WalletNeeded';
@@ -462,7 +471,13 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
                 // Graduation opens the pool with the creator fee switched on.
                 poolCreatorPpm={gate.ammConfig.creatorFeeRate}
                 reserve={
-                  gate.global.platformReserveBps > 0n ? `${bpsPercent(gate.global.platformReserveBps)} of the supply` : null
+                  gate.global.platformReserveBps > 0n
+                    ? reserveDisclosure(
+                        `${bpsPercent(gate.global.platformReserveBps)} of the supply`,
+                        describeTreasury(gate.global.feeRecipient),
+                        'will',
+                      )
+                    : null
                 }
               />
             </>
@@ -473,6 +488,8 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
   }
 
   const g = gate.global;
+  // Who the reserve goes to, from the settings read from chain. A multisig only when it is the known vault.
+  const treasury = describeTreasury(g.feeRecipient);
   return (
     <Card title="Launch a token" testId="launch-create-form" headingRef={headingRef}>
       {!actions.create && (
@@ -511,7 +528,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
           )}
         </div>
       )}
-      <p>One transaction creates your token, its details and its bonding curve. {supplySentence(g.platformReserveBps)}</p>
+      <p>One transaction creates your token, its details and its bonding curve. {supplySentence(g.platformReserveBps, treasury)}</p>
 
       <Field
         label="Name"
@@ -723,7 +740,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
           value={
             g.platformReserveBps === 0n
               ? 'none'
-              : `${bpsPercent(g.platformReserveBps)} of supply, goes to the platform treasury only if the launch graduates`
+              : `${bpsPercent(g.platformReserveBps)} of supply, sent to ${treasury.name} when the token is created. You also pay the rent for the treasury's token account; the review shows it.`
           }
           mono={false}
         />

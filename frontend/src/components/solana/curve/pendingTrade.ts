@@ -3,7 +3,7 @@
 // person a fresh, unlocked trade form while the first trade may still land. That
 // is how someone pays twice.
 //
-// It covers buy, sell, graduation, reserve release and pool swaps. The create flow
+// It covers buy, sell, graduation and pool swaps. The create flow
 // has its own note (pendingLaunch.ts).
 //
 // sessionStorage, and only as a convenience: it can be empty, blocked or throw (a
@@ -23,7 +23,7 @@ export const PENDING_TRADE_TTL_MS = 10 * 60_000;
 const MAX_NOTES = 5;
 
 export type TradeKind = Exclude<TxKind, 'create'>;
-const TRADE_KINDS: ReadonlySet<string> = new Set<TradeKind>(['buy', 'sell', 'migrate', 'release', 'pool-buy', 'pool-sell']);
+const TRADE_KINDS: ReadonlySet<string> = new Set<TradeKind>(['buy', 'sell', 'migrate', 'pool-buy', 'pool-sell']);
 
 export interface PendingTrade {
   kind: TradeKind;

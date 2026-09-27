@@ -1,7 +1,7 @@
 // The contract between the write layer and the page that drives it.
 //
-// Everything a page needs to offer a launch, a trade, a graduation, a reserve
-// release or a pool swap passes through these types, and every one of them keeps
+// Everything a page needs to offer a launch, a trade, a graduation or a pool
+// swap passes through these types, and every one of them keeps
 // three answers apart that this repo has collapsed before:
 //
 //   - we READ it and the answer is no,
@@ -64,7 +64,7 @@ export type WriteGate =
       global: GlobalConfig;
       ammConfig: AmmConfigView;
       ammConfigAddress: PublicKey;
-      /** `global.paused`. Create, buy and graduate stop; sell, release and pool swaps do not. */
+      /** `global.paused`. Create, buy and graduate stop; sell and pool swaps do not. */
       paused: boolean;
       graduation: GraduationReadiness;
     };
@@ -76,11 +76,10 @@ export interface ActionAvailability {
   buy: boolean;
   sell: boolean;
   migrate: boolean;
-  release: boolean;
   poolSwap: boolean;
 }
 
-export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'release' | 'pool-buy' | 'pool-sell';
+export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell';
 
 /**
  * One instruction of the FINAL transaction, decoded back out of its bytes.
@@ -96,7 +95,14 @@ export type IntentStep =
   | { kind: 'create-mint-account'; mint: PublicKey; lamports: bigint }
   | { kind: 'init-mint'; mint: PublicKey; decimals: number }
   | { kind: 'create-metadata'; mint: PublicKey; name: string; symbol: string; uri: string }
-  | { kind: 'create-launch'; mint: PublicKey }
+  | {
+      kind: 'create-launch';
+      mint: PublicKey;
+      /** Receives the platform reserve inside the instruction: `global.fee_recipient`, read from chain. */
+      feeRecipient: PublicKey;
+      /** Its token account for this mint, where the reserve lands (created by the creator if missing). */
+      treasuryToken: PublicKey;
+    }
   | { kind: 'create-token-account'; owner: PublicKey; mint: PublicKey; address: PublicKey }
   | {
       kind: 'curve-buy';
@@ -115,7 +121,6 @@ export type IntentStep =
       feeRecipient: PublicKey;
     }
   | { kind: 'migrate'; mint: PublicKey; pool: PublicKey; creator: PublicKey; feeRecipient: PublicKey }
-  | { kind: 'release'; mint: PublicKey; recipient: PublicKey }
   | { kind: 'wrap-sol'; lamports: bigint }
   | { kind: 'sync-wsol' }
   | {
@@ -143,6 +148,23 @@ export type TxSummary =
        * so there is no slippage to allow for.
        */
       openingBuy: { maxLamportsIn: bigint; minTokensOut: bigint; quote: CurveBuyQuote } | null;
+      /**
+       * The platform reserve `create_launch` pays to the treasury in this same
+       * transaction. `amount` is computed from the settings read just now, and the
+       * test run must show exactly that many tokens arriving in `treasuryToken`.
+       */
+      platformReserve: {
+        amount: bigint;
+        bps: bigint;
+        /** `global.fee_recipient`, read from chain. Called a multisig only when it is the known vault. */
+        recipient: PublicKey;
+        treasuryToken: PublicKey;
+      } | null;
+      /**
+       * Rent the creator pays for the treasury's token account, in lamports, read from
+       * the cluster (never a constant). `0n` when that account already exists.
+       */
+      treasuryAccountRent: bigint;
     }
   | {
       kind: 'buy';
@@ -171,7 +193,6 @@ export type TxSummary =
       feeSplit: FeeSplitView;
     }
   | { kind: 'migrate'; mint: PublicKey; pool: PublicKey }
-  | { kind: 'release'; mint: PublicKey; amount: bigint; recipient: PublicKey }
   | {
       kind: 'pool-buy' | 'pool-sell';
       mint: PublicKey;
@@ -205,8 +226,11 @@ export interface FeeSplitView {
 export interface SimulatedEffect {
   /** Change in the signer's SOL balance, in lamports (negative = leaves the wallet). */
   signerLamportsDelta: bigint;
-  /** Change in each of the signer's token accounts this transaction touches. */
-  tokenDeltas: Array<{ mint: PublicKey; account: PublicKey; delta: bigint }>;
+  /**
+   * Change in each watched token account. Without `role` it is the signer's own;
+   * `role: 'treasury'` is the platform treasury's (create: the reserve arriving).
+   */
+  tokenDeltas: Array<{ mint: PublicKey; account: PublicKey; delta: bigint; role?: 'treasury' }>;
 }
 
 export interface PreparedTx {
@@ -257,6 +281,11 @@ export interface PreState {
 
 /** What `intent.ts` needs to judge a transaction for one signer. */
 export interface IntentContext {
+  /**
+   * What this transaction is for. Each kind may call only its own programs: a create
+   * never reaches the pool program, a curve trade never reaches Token Metadata.
+   */
+  kind: TxKind;
   signer: PublicKey;
   cfg: CurveWriteConfig;
   /** Read off the decoded global, never guessed. */
@@ -285,7 +314,8 @@ export interface Expectation {
 
 export interface WatchList {
   signer: PublicKey;
-  tokenAccounts: Array<{ account: PublicKey; mint: PublicKey }>;
+  /** The signer's own token accounts, plus (create only) the treasury's, marked `role: 'treasury'`. */
+  tokenAccounts: Array<{ account: PublicKey; mint: PublicKey; role?: 'treasury' }>;
 }
 
 export type NotSent = {

@@ -9,8 +9,13 @@
 //   3. create the token details (name, symbol, picture link) LOCKED forever. This
 //      must come before step 4, because step 4 destroys the mint authority that
 //      Metaplex needs to sign;
-//   4. `create_launch`: mints the whole supply to the curve and revokes the mint
-//      authority, so no more tokens can ever be made. A trailing read-only account
+//   4. `create_launch`: mints the whole supply, pays the platform reserve (3.69%
+//      today, read from the program's settings) to the platform treasury's token
+//      account, puts the rest in the curve's vault, and revokes the mint authority,
+//      so no more tokens can ever be made. The treasury is `global.fee_recipient`
+//      as READ FROM CHAIN just before building, and its token account for this mint
+//      is created at the creator's expense when it does not exist yet (its rent is
+//      read from the cluster, never a constant). A trailing read-only account
 //      (`launchIndexAddress`) lets the site find launches later;
 //   5. optionally, the creator's own opening buy, clearly labelled. Its minimum
 //      is the quote EXACTLY: nothing can trade between step 4 and step 5 inside one
@@ -23,10 +28,10 @@ import {
   createAssociatedTokenAccountIdempotentInstruction,
   createInitializeMint2Instruction,
 } from '@solana/spl-token';
-import { BONDING_CURVE_SIZE, TOKEN_PROGRAM_ID, type GlobalConfig } from '../curve/program';
+import { TOKEN_PROGRAM_ID, type GlobalConfig } from '../curve/program';
 import { associatedTokenAddress, buyIx, createLaunchIx } from '../curve/ix';
 import { curveSupply, quoteBuyOnCurve, type CurveTerms } from '../curve/math';
-import { clipDetail, readGlobal, type Read } from '../curve/read';
+import { clipDetail, readCreateLaunchCost, readGlobal, type CreateLaunchCost, type Read } from '../curve/read';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { launchIndexAddress } from './config';
 import { describeQuoteError } from './errors';
@@ -93,18 +98,21 @@ export interface CreateLaunchInput {
 /**
  * The create transaction's instructions, in the forced order. Pure.
  * `openingBuy` carries the exact values the buy instruction will encode.
+ * `feeRecipient` MUST be `global.fee_recipient` as read from chain: the program
+ * pins it, and the platform reserve is paid to its token account for this mint.
  */
 export function createLaunchInstructions(
   gate: OpenGate,
   input: CreateLaunchInput,
   mintRentLamports: number,
   openingBuy: { maxLamportsIn: bigint; minTokensOut: bigint } | null,
+  feeRecipient: PublicKey,
 ): TransactionInstruction[] {
   const { programId, cpSwapProgram } = gate.cfg;
   const creator = input.creator;
   const mint = input.mint.publicKey;
 
-  const launchIx = createLaunchIx({ creator, mint }, { programId, cpSwapProgram });
+  const launchIx = createLaunchIx({ creator, mint, feeRecipient }, { programId, cpSwapProgram });
   launchIx.keys.push({ pubkey: launchIndexAddress(programId), isSigner: false, isWritable: false });
 
   const ixs: TransactionInstruction[] = [
@@ -135,7 +143,7 @@ export function createLaunchInstructions(
       createAssociatedTokenAccountIdempotentInstruction(creator, ata, creator, mint, TOKEN_PROGRAM_ID),
       buyIx(
         // The creator is both the trader and the curve's creator in this buy.
-        { trader: creator, mint, feeRecipient: gate.global.feeRecipient, creator },
+        { trader: creator, mint, feeRecipient, creator },
         openingBuy.maxLamportsIn,
         openingBuy.minTokensOut,
         { programId, cpSwapProgram },
@@ -192,6 +200,16 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
   if (!sameLaunchTerms(gate.global, fresh.value)) {
     return notSent('build', LAUNCH_TERMS_CHANGED);
   }
+  // Who receives the platform reserve: global.fee_recipient AS READ JUST NOW. The
+  // instruction, the pre-sign check and the review all use this one value.
+  const feeRecipient = fresh.value.feeRecipient;
+  const split = curveSupply(fresh.value.tokenTotalSupply, fresh.value.platformReserveBps);
+  if (!split.ok) {
+    return notSent('build', 'The launch settings are not valid, so nothing was built. This is a setup problem, not something you did.');
+  }
+  const reserveTokens = split.value.reserveTokens;
+  const reserveBps = fresh.value.platformReserveBps;
+  const treasuryToken = associatedTokenAddress(mint, feeRecipient);
 
   let openingBuy: { maxLamportsIn: bigint; minTokensOut: bigint } | null = null;
   let openingQuote: Extract<ReturnType<typeof quoteOpeningBuy>, { ok: true }>['value'] | null = null;
@@ -203,22 +221,25 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
     openingBuy = { maxLamportsIn: input.openingBuy.lamportsIn, minTokensOut: q.value.tokensOut };
   }
 
+  // Rent, read from the cluster: the mint, and what create_launch charges the
+  // creator (the curve, its vault and, when missing, the treasury's token account).
   let mintRent: number;
-  let curveRent: bigint;
+  let cost: CreateLaunchCost;
   try {
     const [m, c] = await Promise.all([
       rpc.getMinimumBalanceForRentExemption(MINT_SIZE),
-      rpc.getMinimumBalanceForRentExemption(BONDING_CURVE_SIZE),
+      readCreateLaunchCost(confirmedReads(rpc), mint, feeRecipient),
     ]);
+    if (!Number.isSafeInteger(m) || m < 0 || c.kind !== 'ok') throw new Error('rent');
     mintRent = m;
-    curveRent = BigInt(c);
+    cost = c.value;
   } catch {
     return notSent('build', 'Could not read the network to prepare this launch.');
   }
 
   let body: TransactionInstruction[];
   try {
-    body = createLaunchInstructions(gate, input, mintRent, openingBuy);
+    body = createLaunchInstructions(gate, input, mintRent, openingBuy, feeRecipient);
   } catch (e) {
     return notSent('build', e instanceof Error ? `The token details are not valid: ${e.message}.` : 'The token details are not valid.');
   }
@@ -229,37 +250,51 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
     body,
     extraSigners: [input.mint],
     intent: {
+      kind: 'create',
       signer: creator,
       cfg: gate.cfg,
-      feeRecipient: gate.global.feeRecipient,
+      feeRecipient,
       ammConfig: gate.global.ammConfig,
       creator,
       mint,
       maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS,
     },
-    watch: { signer: creator, tokenAccounts: openingBuy ? [{ account: creatorAta, mint }] : [] },
+    watch: {
+      signer: creator,
+      tokenAccounts: [
+        ...(openingBuy ? [{ account: creatorAta, mint }] : []),
+        // Not yours: watched so the test run proves the reserve lands where the review says.
+        { account: treasuryToken, mint, role: 'treasury' as const },
+      ],
+    },
     expect: (_pre, rents) => ({
-      // Mint rent + the curve's and vault's rent (paid by the creator in create_launch)
-      // + the token details, and the opening buy's ceiling and token account if any.
+      // Mint rent + what create_launch charges (curve, vault, treasury token account
+      // when missing) + the token details, and the opening buy's ceiling and token
+      // account if any.
       maxSolOut:
         BigInt(mintRent) +
-        curveRent +
-        rents.tokenAccount +
+        cost.total +
         METADATA_COST_ALLOWANCE_LAMPORTS +
         (openingBuy ? openingBuy.maxLamportsIn + rents.tokenAccount : 0n),
-      tokens: openingBuy
-        ? [{ account: creatorAta, mint, minDelta: openingBuy.minTokensOut, maxDelta: openingBuy.minTokensOut }]
-        : [],
+      tokens: [
+        ...(openingBuy
+          ? [{ account: creatorAta, mint, minDelta: openingBuy.minTokensOut, maxDelta: openingBuy.minTokensOut }]
+          : []),
+        // The treasury receives the platform reserve, exactly.
+        { account: treasuryToken, mint, minDelta: reserveTokens, maxDelta: reserveTokens },
+      ],
     }),
     // The token details account is sized by Metaplex, so its rent is only in the simulated total.
-    newAccountRent: (_pre, rents) =>
-      BigInt(mintRent) + curveRent + rents.tokenAccount /* curve vault */ + (openingBuy ? rents.tokenAccount : 0n),
+    newAccountRent: (_pre, rents) => BigInt(mintRent) + cost.total + (openingBuy ? rents.tokenAccount : 0n),
     summarize: (steps): TxSummary | string => {
       const s = bodySteps(steps);
       const meta = findStep(s, 'create-metadata');
       const init = findStep(s, 'init-mint');
       const launch = findStep(s, 'create-launch');
       if (!meta || !init || !launch) return 'The launch transaction is missing a step, so it was blocked.';
+      if (!launch.feeRecipient.equals(feeRecipient) || !launch.treasuryToken.equals(treasuryToken)) {
+        return 'The platform reserve in the transaction goes somewhere other than the treasury, so it was blocked.';
+      }
       if (meta.name !== input.metadata.name || meta.symbol !== input.metadata.symbol || meta.uri !== input.metadata.uri) {
         return 'The token details in the transaction do not match the form, so it was blocked.';
       }
@@ -278,6 +313,11 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
         decimals: LAUNCH_DECIMALS,
         openingBuy:
           buy && openingQuote ? { maxLamportsIn: buy.maxLamportsIn, minTokensOut: buy.minTokensOut, quote: openingQuote } : null,
+        platformReserve:
+          reserveTokens > 0n
+            ? { amount: reserveTokens, bps: reserveBps, recipient: feeRecipient, treasuryToken }
+            : null,
+        treasuryAccountRent: cost.treasuryToken,
       };
     },
   });

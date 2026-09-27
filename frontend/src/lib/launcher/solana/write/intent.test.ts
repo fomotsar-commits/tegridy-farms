@@ -30,7 +30,10 @@ const MINT_KP = Keypair.generate();
 const MINT = MINT_KP.publicKey;
 const CREATOR = Keypair.generate().publicKey;
 
+// A create allows every program but the pool's, so most shape checks run under it;
+// swaps run under a pool kind (PROGRAMS_BY_KIND).
 const ctx: IntentContext = {
+  kind: 'create',
   signer: ME,
   cfg: cfgLocal,
   feeRecipient: VAULT,
@@ -64,6 +67,8 @@ const swap = (over: Partial<{ output: PublicKey; min: bigint; pool: PublicKey }>
   });
 };
 
+const poolCtx: IntentContext = { ...ctx, kind: 'pool-buy' };
+
 const refused = (ixs: TransactionInstruction[], why: RegExp, c: IntentContext = ctx) => {
   const r = decodeIntent(ixs, c);
   expect(r.ok, `expected a refusal matching ${why}`).toBe(false);
@@ -77,6 +82,7 @@ describe('what this site builds decodes into readable steps', () => {
       { creator: ME, mint: MINT_KP, metadata: { name: 'Tegridy', symbol: 'TGD', uri: 'https://ipfs.io/ipfs/x' } },
       1_461_600,
       { maxLamportsIn: 7n, minTokensOut: 6n },
+      VAULT,
     );
     const r = decodeIntent(ixs, { ...ctx, creator: ME });
     expect(r.ok).toBe(true);
@@ -87,12 +93,21 @@ describe('what this site builds decodes into readable steps', () => {
     const meta = r.steps[2];
     expect(meta).toMatchObject({ kind: 'create-metadata', name: 'Tegridy', symbol: 'TGD', uri: 'https://ipfs.io/ipfs/x' });
     expect(r.steps[5]).toMatchObject({ kind: 'curve-buy', maxLamportsIn: 7n, minTokensOut: 6n });
+    // The platform reserve's destination, derived from the chain-read fee recipient.
+    expect(r.steps[3]).toEqual({
+      kind: 'create-launch',
+      mint: MINT,
+      feeRecipient: VAULT,
+      treasuryToken: associatedTokenAddress(MINT, VAULT),
+    });
   });
 
   it('a buy, a sell and a pool swap', () => {
-    expect(decodeIntent([buy()], ctx).ok).toBe(true);
-    expect(decodeIntent([sellIx({ trader: ME, mint: MINT, feeRecipient: VAULT, creator: CREATOR }, 3n, 2n, ids)], ctx).ok).toBe(true);
-    const r = decodeIntent([swap()], ctx);
+    expect(decodeIntent([buy()], { ...ctx, kind: 'buy' }).ok).toBe(true);
+    expect(
+      decodeIntent([sellIx({ trader: ME, mint: MINT, feeRecipient: VAULT, creator: CREATOR }, 3n, 2n, ids)], { ...ctx, kind: 'sell' }).ok,
+    ).toBe(true);
+    const r = decodeIntent([swap()], poolCtx);
     expect(r.ok && r.steps[0]).toMatchObject({ kind: 'pool-swap', amountIn: 5n, minimumAmountOut: 3n });
   });
 });
@@ -117,10 +132,10 @@ describe('refused: moving value anywhere but the signer', () => {
     refused([createCloseAccountInstruction(associatedTokenAddress(MINT, ME), ME, ME)], /not your wrapped-SOL/);
   });
   it('a pool swap paying out to someone else (cp-swap does not check the output owner)', () => {
-    refused([swap({ output: associatedTokenAddress(MINT, STRANGER) })], /pays out to an account that is not yours/);
+    refused([swap({ output: associatedTokenAddress(MINT, STRANGER) })], /pays out to an account that is not yours/, poolCtx);
   });
   it('a pool swap against a squatted standard-address pool', () => {
-    refused([swap({ pool: Keypair.generate().publicKey })], /different pool/);
+    refused([swap({ pool: Keypair.generate().publicKey })], /different pool/, poolCtx);
   });
 });
 
@@ -136,10 +151,56 @@ describe('refused: wrong parties or no price limit', () => {
   });
   it('a buy or swap with a zero minimum', () => {
     refused([buy({ min: 0n })], /any price/);
-    refused([swap({ min: 0n })], /any price/);
+    refused([swap({ min: 0n })], /any price/, poolCtx);
   });
   it('a trade with no creator read off the launch', () => {
     refused([buy()], /no creator/, { ...ctx, creator: undefined });
+  });
+});
+
+// Reserve at create (2026-09-26): create_launch pays the platform reserve to
+// ATA(mint, global.fee_recipient). The receiver is read from chain into the context;
+// a transaction that names any other receiver, or the old 8-account shape, is refused.
+describe('refused: a platform reserve paid anywhere but the treasury', () => {
+  const launchIxOf = (feeRecipient: PublicKey) =>
+    createLaunchInstructions(
+      gate,
+      { creator: ME, mint: MINT_KP, metadata: { name: 'Tegridy', symbol: 'TGD', uri: 'https://ipfs.io/ipfs/x' } },
+      1_461_600,
+      null,
+      feeRecipient,
+    )[3]!;
+
+  it('a create_launch naming another fee recipient', () => {
+    refused([launchIxOf(STRANGER)], /platform reserve receiver other than the treasury/);
+  });
+  it('a create_launch naming the treasury but another token account for the reserve', () => {
+    const ix = launchIxOf(VAULT);
+    const keys = ix.keys.map((k, i) => (i === 9 ? { ...k, pubkey: associatedTokenAddress(MINT, STRANGER) } : k));
+    refused([new TransactionInstruction({ programId: ix.programId, keys, data: ix.data })], /wrong accounts/);
+  });
+  it('the old 8-account create_launch (reserve held until graduation)', () => {
+    const ix = launchIxOf(VAULT);
+    const keys = [...ix.keys.slice(0, 8), ix.keys[11]!];
+    refused([new TransactionInstruction({ programId: ix.programId, keys, data: ix.data })], /wrong accounts/);
+  });
+});
+
+describe('refused: a program this KIND of transaction never calls', () => {
+  it('a create never reaches the pool program', () => {
+    refused([swap()], /this kind of transaction never uses/);
+  });
+  it('a pool swap never reaches Token Metadata or the launch program', () => {
+    const meta = createMetadataV3Ix({ metadata: metadataPda(MINT), mint: MINT, mintAuthority: ME, payer: ME, updateAuthority: ME, name: 'A', symbol: 'AB', uri: 'https://x' });
+    refused([swap(), meta], /this kind of transaction never uses/, poolCtx);
+    refused([swap(), buy()], /this kind of transaction never uses/, poolCtx);
+  });
+  it('a curve trade never reaches the System or Token program', () => {
+    refused([buy(), SystemProgram.transfer({ fromPubkey: ME, toPubkey: associatedTokenAddress(WSOL_MINT, ME), lamports: 1 })], /this kind of transaction never uses/, { ...ctx, kind: 'buy' });
+  });
+  it('a graduation is the launch program alone', () => {
+    refused([buy()], /no creator|this kind|wrong/, { ...ctx, kind: 'migrate', creator: undefined });
+    refused([swap()], /this kind of transaction never uses/, { ...ctx, kind: 'migrate' });
   });
 });
 

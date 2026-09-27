@@ -1,4 +1,4 @@
-// Finish graduation, and release the platform reserve. Both are open to ANYONE.
+// Finish graduation. Open to ANYONE.
 //
 // Graduation (`migrate_to_amm`) moves the curve's SOL and tokens into a new pool in
 // our own pool program at the address the LAUNCH PROGRAM derives (not the pool
@@ -10,22 +10,21 @@
 // LP account, back to them in the SAME instruction: they end slightly ahead, so the
 // review shows no account rent, only the simulated change.
 //
-// Release (`release_platform_reserve`) sends a graduated launch's 3.69% platform
-// reserve to the fee recipient's token account, once. The caller pays that token
-// account's rent only if it does not exist yet, which is read before the review.
+// Graduation does not touch the platform reserve: `create_launch` already paid it
+// to the treasury when the token was created. There is nothing to release.
 
 import type { PublicKey } from '@solana/web3.js';
 import { poolStatePda } from '../curve/program';
-import { MIGRATE_COMPUTE_UNITS, associatedTokenAddress, migrateToAmmIx, releasePlatformReserveIx } from '../curve/ix';
-import { clipDetail } from '../curve/read';
+import { MIGRATE_COMPUTE_UNITS, migrateToAmmIx } from '../curve/ix';
 import type { CurveAccount } from '../curve/read';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
-import type { OpenGate, Prepared, TxSummary, WriteRpc } from './types';
+import type { IntentContext, OpenGate, Prepared, TxSummary, WriteRpc } from './types';
 
-function ctxFor(gate: OpenGate, payer: PublicKey, mint: PublicKey, curve: CurveAccount) {
+function ctxFor(gate: OpenGate, payer: PublicKey, mint: PublicKey, curve: CurveAccount): IntentContext {
   return {
+    kind: 'migrate',
     signer: payer,
     cfg: gate.cfg,
     feeRecipient: gate.global.feeRecipient,
@@ -84,52 +83,6 @@ export async function prepareMigrate(
       if (!m || m.kind !== 'migrate') return 'The graduation step is missing from the transaction.';
       if (!m.pool.equals(pool)) return 'The graduation names a different pool.';
       return { kind: 'migrate', mint: a.mint, pool };
-    },
-  });
-}
-
-export async function prepareRelease(
-  rpc: WriteRpc,
-  gate: OpenGate,
-  a: { payer: PublicKey; mint: PublicKey; curve: CurveAccount },
-): Promise<Prepared> {
-  // Not gated on the pause: release moves nothing but the protocol's own reserve.
-  if (!a.curve.curve.mint.equals(a.mint)) return notSent('build', 'The curve read does not belong to this token.');
-  if (!a.curve.curve.complete) return notSent('build', 'The platform reserve can only be released after the launch graduates.');
-  if (a.curve.curve.platformReserveReleased) return notSent('build', 'The platform reserve for this launch has already been released.');
-
-  const recipient = gate.global.feeRecipient;
-  // The treasury's token account for this mint is created (init_if_needed, paid by
-  // the caller) only if it is not there yet. Anyone can create it first, so read it:
-  // rent is shown only when this transaction will really pay it.
-  let treasuryAccountExists: boolean;
-  try {
-    const info = await rpc.getAccountInfo(associatedTokenAddress(a.mint, recipient), 'confirmed');
-    treasuryAccountExists = info !== null;
-  } catch (e) {
-    return notSent('build', `Could not read the network to prepare this: ${clipDetail(e)}`);
-  }
-  const body = [
-    releasePlatformReserveIx(
-      { payer: a.payer, feeRecipient: recipient, mint: a.mint },
-      { programId: gate.cfg.programId, cpSwapProgram: gate.cfg.cpSwapProgram },
-    ),
-  ];
-  const amount = a.curve.curve.platformReserveTokens;
-
-  return buildAndSimulate(rpc, {
-    kind: 'release',
-    body,
-    extraSigners: [],
-    intent: ctxFor(gate, a.payer, a.mint, a.curve),
-    watch: { signer: a.payer, tokenAccounts: [] },
-    expect: (_pre, rents) => ({ maxSolOut: rents.tokenAccount, tokens: [] }),
-    newAccountRent: (_pre, rents) => (treasuryAccountExists ? 0n : rents.tokenAccount),
-    summarize: (steps): TxSummary | string => {
-      const r = bodySteps(steps).find((s) => s.kind === 'release');
-      if (!r || r.kind !== 'release') return 'The release step is missing from the transaction.';
-      if (!r.recipient.equals(recipient)) return 'The release names a different receiver.';
-      return { kind: 'release', mint: a.mint, amount, recipient };
     },
   });
 }

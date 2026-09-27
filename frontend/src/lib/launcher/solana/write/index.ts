@@ -1,4 +1,4 @@
-// The write path for /curve-launch: launch, buy, sell, graduate, release, pool swap.
+// The write path for /curve-launch: launch, buy, sell, graduate, pool swap.
 //
 // Load this module with a DYNAMIC import behind `isCurveWriteEnabled()`
 // (`../curveWriteFlag`), so a build with writes off never downloads it.
@@ -8,7 +8,7 @@
 //   launch.ts    create a launch in one signature (mint, locked details, launch,
 //                optional opening buy)
 //   trade.ts     curve buy / sell
-//   graduate.ts  finish graduation, release the platform reserve
+//   graduate.ts  finish graduation
 //   poolSwap.ts  buy / sell in the graduated launch's own pool
 //   prepare.ts   the one simulate-check-summarize path all of them use
 //   intent.ts    decode a transaction back into steps; refuse any shape we never build

@@ -13,6 +13,7 @@ import {
   browserCurveRpc,
   browserRpc,
   clipDetail,
+  describeTreasury,
   looksLikePubkey,
   migrationEligibility,
   readLaunch,
@@ -44,7 +45,7 @@ import {
 import { holdingFact, openingBuyFromOrigin, type Fact } from '../components/solana/curve/facts';
 import { usePendingTrades, type PendingTradesState } from '../components/solana/curve/usePendingTrades';
 import { BeforeYouTrade } from '../components/solana/curve/BeforeYouTrade';
-import { sharePercent } from '../components/solana/curve/uiFormat';
+import { reserveDisclosure, sharePercent } from '../components/solana/curve/uiFormat';
 import type { OnSettled } from '../components/solana/curve/useTxFlow';
 import type { LaunchPoolRead, MetadataRead, TokenMetadata, WriteRpc } from '../components/solana/curve/ports';
 
@@ -198,10 +199,7 @@ export function SolanaLaunchView({
     open && curve && data ? migrationEligibility(open.global, curve, data.rentFloor).eligible === true : false;
   const actions =
     open && launch
-      ? api.writeActions(open, launch, {
-          migrationEligible: eligible,
-          reserveReleased: curve?.curve.platformReserveReleased ?? false,
-        })
+      ? api.writeActions(open, launch, { migrationEligible: eligible })
       : null;
   const phase = launch?.phase.kind;
   const tradable = phase === 'trading' || phase === 'at-target' || phase === 'awaiting-migration';
@@ -232,12 +230,23 @@ export function SolanaLaunchView({
             creator: open.ammConfig.creatorFeeRate,
           }
         : null;
-  const reserveWords =
+  // Who the reserve went to: the live config's fee recipient, called a multisig only
+  // when it is the known vault. The program pays it inside create_launch and marks the
+  // curve paid there, so a curve it created always reads paid; any other account is
+  // described as exactly what it records.
+  const treasury = describeTreasury(open?.global.feeRecipient ?? launch?.global?.feeRecipient ?? null);
+  const reserveShare =
     !c || c.platformReserveTokens === 0n
       ? null
       : supply !== null
-        ? `${sharePercent(c.platformReserveTokens, supply) ?? 'Part'} of the supply`
-        : 'Part of the supply';
+        ? `${sharePercent(c.platformReserveTokens, supply) ?? 'part'} of the supply`
+        : 'part of the supply';
+  const reserveWords =
+    !c || reserveShare === null
+      ? null
+      : c.platformReserveReleased
+        ? reserveDisclosure(reserveShare, treasury, 'was')
+        : `This launch's account does not record its platform reserve (${reserveShare}) as paid, so this page does not say where it is.`;
 
   return (
     <>
@@ -302,6 +311,7 @@ export function SolanaLaunchView({
           decimals={decimals}
           paused={launch.paused}
           lookedUp
+          treasury={treasury}
         />
       )}
       {phase === 'unreadable' && !pending && onReload && (

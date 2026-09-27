@@ -22,7 +22,10 @@ export interface BeforeYouTradeProps {
    * program's operator can change: never assume it is 0.
    */
   poolCreatorPpm: bigint | null;
-  /** The platform reserve as words ("3.69% of the supply"), or `null` when the launch has none. */
+  /**
+   * The platform reserve, as the full sentence `reserveDisclosure` (uiFormat.ts) builds
+   * from chain data, or `null` when the launch has none.
+   */
   reserve: string | null;
   /** Inside another card (the launch review): a heading and the list, no card of its own. */
   bare?: boolean;
@@ -68,12 +71,7 @@ export function BeforeYouTrade({
           : `After graduation the pool charges its own fee, which could not be read just now. ${creatorPart}`}
       </li>
       <li>At graduation the pool&apos;s LP tokens are burned, so its liquidity can never be pulled.</li>
-      {reserve && (
-        <li>
-          {reserve} is held back as the platform reserve. After graduation it goes to the platform treasury, which may
-          sell it.
-        </li>
-      )}
+      {reserve && <li>{reserve}</li>}
       <li>Most launches lose value. You can lose everything you put in.</li>
     </ul>
   );

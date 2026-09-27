@@ -1,6 +1,7 @@
 // The whole life of one token, through the site, on the mainnet binaries (local validator):
-// launch with an opening buy → listed → bought → sold → bought to the target →
-// graduated by a stranger → platform reserve released → traded in its own pool.
+// launch with an opening buy (the platform reserve lands in the treasury in the same
+// transaction) → listed → bought → sold → bought to the target → graduated by a
+// stranger → traded in its own pool.
 //
 // Every step asserts ON THE CHAIN, to the raw unit, against numbers computed in Node from
 // the chain state just before the click. The page's own words are asserted only where a
@@ -19,7 +20,8 @@ import { installUploadStub, makePng, SVG_WITH_SCRIPT, type UploadStub } from './
 import { LAUNCH_INDEX } from './fixtures/walletGuard';
 import { ui, checkAtSizes, clickReal, connectWallet, expectConnected, signAndWait, tokensToInput } from './fixtures/ui';
 import { quoteBuyOnCurve, quoteSellOnCurve } from '../src/lib/launcher/solana/curve/math';
-import { poolStatePda, BONDING_CURVE_SIZE } from '../src/lib/launcher/solana/curve/program';
+import { formatSol } from '../src/lib/launcher/solana/curve/format';
+import { poolStatePda, curveVaultPda, BONDING_CURVE_SIZE } from '../src/lib/launcher/solana/curve/program';
 
 interface Actor { ctx: BrowserContext; page: Page; wallet: TestWallet; rpc: RpcGuard; upload: UploadStub; kp: Keypair }
 
@@ -54,7 +56,7 @@ async function startOver(p: Page) {
   if (await btn.count()) await btn.first().click();
 }
 
-test('launch, trade, graduate, release and trade in the pool, all from the site', async ({ browser }, testInfo) => {
+test('launch (reserve paid at create), trade, graduate and trade in the pool, all from the site', async ({ browser }, testInfo) => {
   test.setTimeout(20 * 60_000);
   const g = await globalConfig();
   const creator = await actor(browser, 5);
@@ -105,6 +107,13 @@ test('launch, trade, graduate, release and trade in the pool, all from the site'
     await clickReal(ui.form.reviewButton(p), 'Review launch');
     await expect(ui.review(p)).toBeVisible({ timeout: 60_000 });
     await expect(ui.publicForever(p)).toBeVisible();
+    // The review names the reserve paid in this transaction, its receiver as the chain
+    // records it, and the rent for the treasury's token account (read, not hard-coded).
+    const tokenRent = BigInt(await chain().getMinimumBalanceForRentExemption(165));
+    await expect(ui.review(p)).toContainText('Platform reserve, paid in this transaction');
+    await expect(ui.review(p)).toContainText(g.feeRecipient.toBase58());
+    await expect(ui.review(p)).toContainText(`${formatSol(tokenRent, 9)} SOL (rent, read from the network just now)`);
+    await expect(ui.review(p)).toContainText('does not stop the treasury selling those tokens, including while the curve is live');
 
     const before = await lamports(creator.kp.publicKey);
     // After a create the page goes to the new launch's own page (it may show the outcome
@@ -143,6 +152,16 @@ test('launch, trade, graduate, release and trade in the pool, all from the site'
     const c = await curve(mint);
     expect(c?.curve.creator.equals(creator.kp.publicKey)).toBe(true);
     expect(await tokenAmount(ata(mint, creator.kp.publicKey))).toBe(expected.tokensOut);
+    // Reserve at create: the treasury's token account holds EXACTLY the reserve right
+    // after the create, the curve records it paid, and the vault holds only the curve's share.
+    const reserve = (g.tokenTotalSupply * g.platformReserveBps) / 10_000n;
+    expect(reserve > 0n).toBe(true);
+    expect(create.accounts.fee_recipient).toBe(g.feeRecipient.toBase58());
+    expect(create.accounts.treasury_token).toBe(ata(mint, g.feeRecipient).toBase58());
+    expect(await tokenAmount(ata(mint, g.feeRecipient)), 'the treasury holds exactly the platform reserve').toBe(reserve);
+    expect(c?.curve.platformReserveTokens).toBe(reserve);
+    expect(c?.curve.platformReserveReleased).toBe(true);
+    expect(await tokenAmount(curveVaultPda(mint, LAUNCH_PROGRAM))).toBe(g.tokenTotalSupply - reserve - expected.tokensOut);
     const trailing = create.args.trailing ? create.args.trailing.split(',') : [];
     if (trailing.length) {
       expect(trailing).toEqual([LAUNCH_INDEX.toBase58()]);
@@ -271,32 +290,22 @@ test('launch, trade, graduate, release and trade in the pool, all from the site'
     expect(lamportDelta(t, VAULT) > 0n, 'the fee recipient received the unspent migration reserve').toBe(true);
     const auth = await chain().getAccountInfo(migrationAuthority(), 'confirmed');
     expect(!auth || auth.lamports === 0).toBe(true);
-    await startOver(p);
-  });
-
-  await test.step('9. the platform reserve is released to the treasury, once', async () => {
-    const p = finisher.page;
-    await p.reload();
-    const reserve = (await curve(mint))!.curve.platformReserveTokens;
-    await clickReal(ui.release(p), 'Review: release platform reserve');
-    expect(await signAndWait(p)).toBe('confirmed');
-    await landedOk(finisher.wallet.lastSigned().signature, 'release');
-    expect(await tokenAmount(ata(mint, VAULT))).toBe(reserve);
-    expect((await curve(mint))!.curve.platformReserveReleased).toBe(true);
+    // Graduation did not touch the platform reserve: it was paid at create.
+    expect(await tokenAmount(ata(mint, g.feeRecipient))).toBe(c.platformReserveTokens);
     await startOver(p);
     await p.reload();
-    await expect(ui.graduationPanel(p)).toContainText('released', { timeout: 30_000 });
-    await expect(ui.release(p)).toHaveCount(0);
+    await expect(ui.graduationPanel(p)).toContainText('when this token was created', { timeout: 30_000 });
+    await expect(p.getByRole('button', { name: /release/i })).toHaveCount(0);
   });
 
-  await test.step('10. pool buy and pool sell: outputs exact, WSOL unwrapped', async () => {
+  await test.step('9. pool buy and pool sell: outputs exact, WSOL unwrapped', async () => {
     const p = buyer.page;
     buyer.rpc.view('pool');
     const waited = await waitForPoolOpenByWallClock(mint);
     testInfo.annotations.push({ type: 'waited-for-pool-open', description: `${waited} ms (validator clock ahead of the wall clock)` });
     await p.goto(`/curve-launch/${mint.toBase58()}`);
     await expect(ui.poolPanel(p)).toBeVisible({ timeout: 30_000 });
-    await expect(ui.graduationPanel(p)).toContainText('released', { timeout: 30_000 });
+    await expect(ui.graduationPanel(p)).toContainText('when this token was created', { timeout: 30_000 });
     await checkAtSizes(p, '3-launch-graduated', [
       [ui.pool.side(p, 'buy'), 'pool buy toggle'],
       [ui.pool.side(p, 'sell'), 'pool sell toggle'],
@@ -328,7 +337,7 @@ test('launch, trade, graduate, release and trade in the pool, all from the site'
     if (wsolBefore === null) expect(await tokenAmount(ata(WSOL, buyer.kp.publicKey))).toBeNull();
   });
 
-  await test.step('11. nobody was asked to sign anything the wallet refused, and no page broke the RPC rules', async () => {
+  await test.step('10. nobody was asked to sign anything the wallet refused, and no page broke the RPC rules', async () => {
     for (const a of [creator, buyer, finisher]) {
       expect(a.wallet.records.filter((r) => r.outcome === 'refused').map((r) => r.reason)).toEqual([]);
       expect(a.rpc.violations).toEqual([]);

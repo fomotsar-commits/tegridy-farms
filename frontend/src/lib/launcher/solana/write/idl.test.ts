@@ -36,7 +36,7 @@ import {
   poolStatePda,
   sortMints,
 } from '../curve/program';
-import { associatedTokenAddress, migrateToAmmIx, releasePlatformReserveIx, sellIx } from '../curve/ix';
+import { associatedTokenAddress, migrateToAmmIx, sellIx } from '../curve/ix';
 import { deriveAuthority, deriveObservation, deriveVault } from '../../../solana/cpswap/program';
 import { swapBaseInputIx } from '../../../solana/cpswap/ix';
 import { CP_SWAP_ERROR_CODES, CP_SWAP_ERROR_COPY } from '../../../solana/cpswap/errors';
@@ -53,7 +53,8 @@ const CPSWAP_IDL_PATH = resolve(IDL_DIR, 'raydium_cp_swap.json');
 
 /** From the release's artifacts/SHA256SUMS. */
 const SHA256 = {
-  launch: 'd987fafe7b2e50a4e760c5d7d2607d7f35896cc2efd786310dd784cce3928751',
+  // The reserve-at-create build (artifacts/SHA256SUMS; d987fafe, the reserve-held build, is superseded).
+  launch: 'cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31',
   cpswap: '939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262',
 };
 
@@ -149,6 +150,7 @@ describe('create transaction: every launch-program instruction matches the IDL',
     { creator: CREATOR, mint: MINT_KP, metadata: { name: 'Test', symbol: 'TST', uri: 'https://ipfs.io/ipfs/bafy' } },
     1_461_600,
     { maxLamportsIn: 50_000_000n, minTokensOut: 123n },
+    VAULT,
   );
 
   it('is create account, init mint, metadata, create_launch, ATA, buy, in that order', () => {
@@ -162,7 +164,7 @@ describe('create transaction: every launch-program instruction matches the IDL',
     ]);
   });
 
-  it('create_launch: 8 IDL accounts, then the launch index as a trailing read-only key', () => {
+  it('create_launch: 11 IDL accounts (the platform reserve paid to the treasury), then the launch index', () => {
     const ix = ixs[3]!;
     assertParity(ix, ixOf(launchIdl(), 'create_launch'), {
       creator: CREATOR,
@@ -173,9 +175,14 @@ describe('create transaction: every launch-program instruction matches the IDL',
       token_program: TOKEN_PROGRAM_ID,
       system_program: SYSTEM_PROGRAM_ID,
       rent: SYSVAR_RENT_PUBKEY,
+      // The reserve's destination: global.fee_recipient and its token account for this mint.
+      fee_recipient: VAULT,
+      treasury_token: associatedTokenAddress(MINT, VAULT),
+      associated_token_program: ASSOCIATED_TOKEN_PROGRAM_ID,
     }, LAUNCH);
-    expect(ix.keys).toHaveLength(9);
-    expect(ix.keys[8]).toEqual({ pubkey: launchIndexAddress(LAUNCH), isSigner: false, isWritable: false });
+    expect(ixOf(launchIdl(), 'create_launch').accounts).toHaveLength(11);
+    expect(ix.keys).toHaveLength(12);
+    expect(ix.keys[11]).toEqual({ pubkey: launchIndexAddress(LAUNCH), isSigner: false, isWritable: false });
     expect(ix.data.length).toBe(8); // no args
   });
 
@@ -203,7 +210,7 @@ describe('create transaction: every launch-program instruction matches the IDL',
   });
 });
 
-describe('sell, migrate and release match the IDL', () => {
+describe('sell and migrate match the IDL, and nothing is left to release', () => {
   it('sell: 10 accounts, args tokens_in then min_lamports_out', () => {
     const ix = sellIx({ trader: TRADER, mint: MINT, feeRecipient: VAULT, creator: CREATOR }, 7n, 5n, { programId: LAUNCH });
     assertParity(ix, ixOf(launchIdl(), 'sell'), {
@@ -241,13 +248,10 @@ describe('sell, migrate and release match the IDL', () => {
     expect(ix.data.length).toBe(8);
   });
 
-  it('release_platform_reserve: 10 accounts, the treasury ATA owned by the fee recipient', () => {
-    const ix = releasePlatformReserveIx({ payer: TRADER, feeRecipient: VAULT, mint: MINT }, { programId: LAUNCH });
-    assertParity(ix, ixOf(launchIdl(), 'release_platform_reserve'), {
-      payer: TRADER, global: globalPda(LAUNCH), fee_recipient: VAULT, mint: MINT, curve: curvePda(MINT, LAUNCH),
-      curve_vault: curveVaultPda(MINT, LAUNCH), recipient_token: associatedTokenAddress(MINT, VAULT),
-      token_program: TOKEN_PROGRAM_ID, associated_token_program: ASSOCIATED_TOKEN_PROGRAM_ID, system_program: SYSTEM_PROGRAM_ID,
-    }, LAUNCH);
+  it('the program has no release_platform_reserve: the reserve is paid inside create_launch', () => {
+    expect(launchIdl().instructions.map((i) => i.name).sort()).toEqual(
+      ['buy', 'create_launch', 'initialize_global', 'migrate_to_amm', 'sell', 'update_global'],
+    );
   });
 });
 

@@ -6,17 +6,36 @@ import {
   curveProgress,
   formatSol,
   readMint,
+  type BondingCurve,
   type CurveRpc,
   type MintFacts,
   type Read,
   type SolanaRpc,
 } from '../../../lib/launcher/solana/curve';
 import { Card, Notice } from './ui';
-import { TOGGLE_CLS } from './uiFormat';
+import { TOGGLE_CLS, sharePercent } from './uiFormat';
 import { CreatorStakeFacts, LaunchImage } from './LaunchIdentity';
 import { identityWarnings, safeImageUrl } from './identity';
 import { holdingFact, openingBuyFact, type Fact } from './facts';
 import type { CurveWriteConfig, LaunchListItem, LaunchListPage, MetadataRead, WriteApi } from './ports';
+
+/**
+ * The platform reserve, as the launch's own account records it. The program pays it
+ * to the treasury inside create_launch and marks the curve paid there, so a launch
+ * it created reads "already paid"; anything else is said as exactly what it records.
+ */
+function ReserveLine({ curve, supply }: { curve: BondingCurve; supply: bigint | null }) {
+  if (curve.platformReserveTokens === 0n) return null;
+  const share = supply !== null ? sharePercent(curve.platformReserveTokens, supply) : null;
+  const what = share ? `${share} of the supply` : 'part of the supply';
+  return (
+    <p className="text-white/55 text-[10px]">
+      {curve.platformReserveReleased
+        ? `Platform reserve (${what}): already paid to the platform treasury when the token was created.`
+        : `Platform reserve (${what}): this launch's account does not record it as paid.`}
+    </p>
+  );
+}
 
 /** Calls to the list reader per view. Each call already looks at a bounded number of entries. */
 const MAX_LOADS = 3;
@@ -238,6 +257,7 @@ function LaunchRow({
               ? 'Progress: could not compute'
               : `Raised ${formatSol(item.curve.value.curve.realSolReserves)} SOL, ${(progress.progressBps / 100).toFixed(2)}% of the way to graduation`}
       </p>
+      {item.curve.kind === 'ok' && <ReserveLine curve={item.curve.value.curve} supply={facts ? facts.supply : null} />}
       <CreatorStakeFacts
         openingBuy={openingBuyFact(item.openingBuyTokens)}
         holding={holding}

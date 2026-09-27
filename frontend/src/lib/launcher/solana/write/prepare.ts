@@ -1,7 +1,7 @@
 // The one path every write takes from "instructions" to "ready to sign".
 //
-// Seven kinds of transaction are built here (create, curve buy, curve sell,
-// graduate, release, pool buy, pool sell) and all of them pass through
+// Six kinds of transaction are built here (create, curve buy, curve sell,
+// graduate, pool buy, pool sell) and all of them pass through
 // `buildAndSimulate`, so every protection is structural rather than remembered per
 // button:
 //
@@ -176,7 +176,7 @@ export function simulatedEffect(watch: WatchList, pre: PreState, post: SimOutcom
       after = amt;
     }
     const before = pre.tokens.get(t.account.toBase58())?.amount ?? 0n;
-    tokenDeltas.push({ mint: t.mint, account: t.account, delta: after - before });
+    tokenDeltas.push({ mint: t.mint, account: t.account, delta: after - before, ...(t.role ? { role: t.role } : {}) });
   }
   return { signerLamportsDelta, tokenDeltas };
 }

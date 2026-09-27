@@ -9,6 +9,10 @@
 // SHAPE this site builds, down to its accounts and arguments, and every account
 // that decides where value goes must be the signer's own or read off chain state.
 //
+// And each KIND of transaction may call only its own programs (PROGRAMS_BY_KIND):
+// a launch never reaches the pool program, a pool swap never reaches Token
+// Metadata or the launch program.
+//
 // This runs twice: on the transaction before any wallet sees it, and again on
 // whatever the wallet hands back. The review screen is built from the steps it
 // returns, so what a person reads is what the bytes say.
@@ -32,7 +36,6 @@ import {
   buyIx,
   createLaunchIx,
   migrateToAmmIx,
-  releasePlatformReserveIx,
 } from '../curve/ix';
 import {
   IX_SWAP_BASE_INPUT,
@@ -46,7 +49,7 @@ import {
   decodeCreateMetadataV3,
   metadataPda,
 } from './metaplex';
-import type { IntentContext, IntentStep } from './types';
+import type { IntentContext, IntentStep, TxKind } from './types';
 
 /** Phantom's Lighthouse guard program: assertion-only instructions a wallet may append. */
 export const LIGHTHOUSE_PROGRAM_ID = new PublicKey('L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95');
@@ -208,9 +211,20 @@ function launch(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   const d = ix.data;
   const ids = { programId: ctx.cfg.programId, cpSwapProgram: ctx.cfg.cpSwapProgram };
   if (sameBytes(d, IX_DISCRIMINATOR.createLaunch)) {
-    const ref = createLaunchIx({ creator: ctx.signer, mint: ctx.mint }, ids);
-    if (!sameKeys(ix, ref, launchIndexAddress(ctx.cfg.programId))) refuse('the launch instruction names the wrong accounts');
-    return { kind: 'create-launch', mint: ctx.mint };
+    // The platform reserve is paid inside create_launch to ATA(mint, fee_recipient).
+    // `ctx.feeRecipient` is global.fee_recipient as read from chain while preparing,
+    // so the treasury token account below is derived from chain state, never taken
+    // from the transaction: a transaction naming any other receiver is refused.
+    const ref = createLaunchIx({ creator: ctx.signer, mint: ctx.mint, feeRecipient: ctx.feeRecipient }, ids);
+    if (!sameKeys(ix, ref, launchIndexAddress(ctx.cfg.programId))) {
+      refuse('the launch instruction names the wrong accounts (such as a platform reserve receiver other than the treasury)');
+    }
+    return {
+      kind: 'create-launch',
+      mint: ctx.mint,
+      feeRecipient: ctx.feeRecipient,
+      treasuryToken: associatedTokenAddress(ctx.mint, ctx.feeRecipient),
+    };
   }
   const isBuy = startsWith(d, IX_DISCRIMINATOR.buy);
   const isSell = startsWith(d, IX_DISCRIMINATOR.sell);
@@ -254,11 +268,6 @@ function launch(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
       feeRecipient: ctx.feeRecipient,
     };
   }
-  if (sameBytes(d, IX_DISCRIMINATOR.releasePlatformReserve)) {
-    const ref = releasePlatformReserveIx({ payer: ctx.signer, feeRecipient: ctx.feeRecipient, mint: ctx.mint }, ids);
-    if (!sameKeys(ix, ref)) refuse('the reserve release names the wrong accounts');
-    return { kind: 'release', mint: ctx.mint, recipient: ctx.feeRecipient };
-  }
   // initialize_global, update_global and anything unknown.
   return refuse('a launch-program instruction this page never builds');
 }
@@ -296,6 +305,33 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
 
 // ── the whole transaction ────────────────────────────────────────────────────
 
+type ProgramFamily = 'compute' | 'system' | 'token' | 'ata' | 'metadata' | 'launch' | 'pool';
+
+/**
+ * The programs each kind of transaction may call at the top level, and nothing else.
+ * Inner calls are the called program's business: create_launch itself calls the
+ * Associated Token program to open the treasury's token account.
+ */
+export const PROGRAMS_BY_KIND: Readonly<Record<TxKind, ReadonlySet<ProgramFamily>>> = {
+  create: new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'metadata', 'launch']),
+  buy: new Set<ProgramFamily>(['compute', 'ata', 'launch']),
+  sell: new Set<ProgramFamily>(['compute', 'ata', 'launch']),
+  migrate: new Set<ProgramFamily>(['compute', 'launch']),
+  'pool-buy': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
+  'pool-sell': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
+};
+
+function familyOf(p: PublicKey, ctx: IntentContext): ProgramFamily | null {
+  if (p.equals(ComputeBudgetProgram.programId)) return 'compute';
+  if (p.equals(SYSTEM_PROGRAM_ID)) return 'system';
+  if (p.equals(TOKEN_PROGRAM_ID)) return 'token';
+  if (p.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) return 'ata';
+  if (p.equals(METAPLEX_TOKEN_METADATA_ID)) return 'metadata';
+  if (p.equals(ctx.cfg.programId)) return 'launch';
+  if (p.equals(ctx.cfg.cpSwapProgram)) return 'pool';
+  return null;
+}
+
 export interface DecodeOptions {
   /**
    * Accept assertion-only instructions a wallet appends (Phantom's Lighthouse). Only
@@ -316,17 +352,23 @@ export function decodeIntent(
 ): IntentResult {
   try {
     const steps: IntentStep[] = [];
+    const allowed = PROGRAMS_BY_KIND[ctx.kind];
+    if (!allowed) refuse('it is not a kind of transaction this page builds');
     for (const ix of instructions) {
       const p = ix.programId;
-      if (p.equals(ComputeBudgetProgram.programId)) steps.push(computeBudget(ix));
-      else if (p.equals(SYSTEM_PROGRAM_ID)) steps.push(system(ix, ctx));
-      else if (p.equals(TOKEN_PROGRAM_ID)) steps.push(token(ix, ctx));
-      else if (p.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) steps.push(ata(ix, ctx));
-      else if (p.equals(METAPLEX_TOKEN_METADATA_ID)) steps.push(metaplex(ix, ctx));
-      else if (p.equals(ctx.cfg.programId)) steps.push(launch(ix, ctx));
-      else if (p.equals(ctx.cfg.cpSwapProgram)) steps.push(cpswap(ix, ctx));
-      else if (opts.allowWalletGuards && p.equals(LIGHTHOUSE_PROGRAM_ID)) continue;
-      else refuse(`it calls a program this page never uses (${p.toBase58()})`);
+      const family = familyOf(p, ctx);
+      if (family === null) {
+        if (opts.allowWalletGuards && p.equals(LIGHTHOUSE_PROGRAM_ID)) continue;
+        refuse(`it calls a program this page never uses (${p.toBase58()})`);
+      }
+      if (!allowed.has(family!)) refuse(`it calls a program this kind of transaction never uses (${p.toBase58()})`);
+      if (family === 'compute') steps.push(computeBudget(ix));
+      else if (family === 'system') steps.push(system(ix, ctx));
+      else if (family === 'token') steps.push(token(ix, ctx));
+      else if (family === 'ata') steps.push(ata(ix, ctx));
+      else if (family === 'metadata') steps.push(metaplex(ix, ctx));
+      else if (family === 'launch') steps.push(launch(ix, ctx));
+      else steps.push(cpswap(ix, ctx));
     }
     const limits = steps.filter((s) => s.kind === 'compute-limit');
     const prices = steps.filter((s) => s.kind === 'compute-price');

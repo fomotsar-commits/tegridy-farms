@@ -71,8 +71,9 @@ export function priceImpactBps(c: CurveTerms, side: 'buy' | 'sell', amountIn: bi
   return ((ideal - amountOut) * BPS_DENOMINATOR) / ideal;
 }
 
-function ctxFor(gate: OpenGate, trader: PublicKey, mint: PublicKey, curve: CurveAccount) {
+function ctxFor(kind: 'buy' | 'sell', gate: OpenGate, trader: PublicKey, mint: PublicKey, curve: CurveAccount) {
   return {
+    kind,
     signer: trader,
     cfg: gate.cfg,
     feeRecipient: gate.global.feeRecipient,
@@ -145,7 +146,7 @@ export async function prepareCurveBuy(
     kind: 'buy',
     body,
     extraSigners: [],
-    intent: ctxFor(gate, a.trader, a.mint, curve),
+    intent: ctxFor('buy', gate, a.trader, a.mint, curve),
     watch: { signer: a.trader, tokenAccounts: [{ account: ata, mint: a.mint }] },
     expect: (pre, rents) => ({
       // The program never takes more than max_lamports_in; the fee is inside it.
@@ -218,7 +219,7 @@ export async function prepareCurveSell(
     kind: 'sell',
     body,
     extraSigners: [],
-    intent: ctxFor(gate, a.trader, a.mint, curve),
+    intent: ctxFor('sell', gate, a.trader, a.mint, curve),
     watch: { signer: a.trader, tokenAccounts: [{ account: ata, mint: a.mint }] },
     expect: () => ({
       maxSolOut: 0n,

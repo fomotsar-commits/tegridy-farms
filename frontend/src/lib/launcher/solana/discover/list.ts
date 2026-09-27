@@ -157,6 +157,7 @@ export function parseLaunchTransaction(
 
   let creator: PublicKey | null = null;
   let mint: PublicKey | null = null;
+  let treasuryToken: PublicKey | null = null;
   for (const ix of msg.compiledInstructions) {
     const prog = keys[ix.programIdIndex];
     if (!prog || !prog.equals(programId)) continue;
@@ -172,18 +173,23 @@ export function parseLaunchTransaction(
       if (wantMint && !m.equals(wantMint)) continue;
       creator = c;
       mint = m;
+      // create_launch pays the platform reserve to the treasury's token account
+      // (position 9 of 11) in this same instruction. That is not a buy.
+      treasuryToken = ix.accountKeyIndexes.length >= 11 ? acct(9) : null;
       continue;
     }
   }
   if (!creator || !mint) return null;
 
-  const openingBuyTokens = boughtInLaunch(t.meta, keys, mint, programId);
+  const openingBuyTokens = boughtInLaunch(t.meta, keys, mint, programId, treasuryToken);
   return { signature, blockTime: typeof t.blockTime === 'number' ? t.blockTime : null, creator, mint, openingBuyTokens };
 }
 
 /**
- * Tokens of `mint` that reached any account other than the curve's own vault in
- * this transaction: the sum of every other account's increase. `null` when the
+ * Tokens of `mint` that reached any account other than the curve's own vault and the
+ * treasury's token account in this transaction: the sum of every other account's
+ * increase. The treasury's token account receives the platform reserve inside
+ * create_launch, which is not a buy, so it is left out whole. `null` when the
  * balances are missing, when the curve vault is not among them (create_launch
  * always fills it, so its absence means the record is incomplete), or when an
  * amount does not parse.
@@ -193,6 +199,7 @@ function boughtInLaunch(
   keys: PublicKey[],
   mint: PublicKey,
   programId: PublicKey,
+  treasuryToken: PublicKey | null,
 ): bigint | null {
   const post = meta.postTokenBalances;
   const pre = meta.preTokenBalances;
@@ -215,6 +222,7 @@ function boughtInLaunch(
         sawVault = true;
         continue;
       }
+      if (treasuryToken && k.equals(treasuryToken)) continue;
       const before = pre.find((x) => x && x.mint === m58 && x.accountIndex === b.accountIndex);
       const delta = amount(b) - (before ? amount(before) : 0n);
       if (delta > 0n) total += delta;

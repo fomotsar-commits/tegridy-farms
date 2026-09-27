@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode, type Ref } from 'react';
-import { formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
+import { describeTreasury, formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
 import { ImpactRows, Notice, Row } from './ui';
-import { DIVIDER, fractionToBps, sharePercent } from './uiFormat';
+import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import type { FeeSplitView, PreparedTx, SolanaCluster, TxOutcome, TxSigner, TxSummary, WriteApi } from './ports';
 import type { TxFlow } from './useTxFlow';
 
@@ -93,6 +93,7 @@ export function SummaryRows({
           ) : (
             <Row label="Opening buy" value="none" mono={false} />
           )}
+          <CreateReserveRows summary={summary} />
         </>
       );
     case 'buy':
@@ -137,15 +138,6 @@ export function SummaryRows({
           </Notice>
         </>
       );
-    case 'release':
-      return (
-        <>
-          <Row label="Token address (mint)" value={summary.mint.toBase58()} />
-          <Row label="Tokens released" value={tok(summary.amount)} />
-          <Row label="Sent to (platform treasury)" value={summary.recipient.toBase58()} />
-          <Notice>Anyone can do this once a launch has graduated. It pays you nothing.</Notice>
-        </>
-      );
     case 'pool-buy':
     case 'pool-sell': {
       const buying = summary.kind === 'pool-buy';
@@ -174,6 +166,45 @@ export function SummaryRows({
       );
     }
   }
+}
+
+/**
+ * The platform reserve a new launch pays in its own create transaction, and the
+ * rent the creator pays for the treasury's token account. Every value comes from
+ * the prepared transaction: the recipient is global.fee_recipient as read from
+ * chain, the amount is what the test run had to show arriving, and the rent was
+ * read from the cluster. "A multisig" only when the recipient is the known vault.
+ */
+function CreateReserveRows({ summary }: { summary: Extract<TxSummary, { kind: 'create' }> }) {
+  const r = summary.platformReserve;
+  const rent = summary.treasuryAccountRent;
+  const rentText =
+    rent > 0n ? `${formatSol(rent, 9)} SOL (rent, read from the network just now)` : 'nothing: it already exists';
+  if (!r) {
+    return (
+      <>
+        <Row label="Platform reserve" value="none: the platform receives no tokens from this launch" mono={false} />
+        <Row label="You pay for the treasury's token account" value={rentText} mono={false} />
+      </>
+    );
+  }
+  const treasury = describeTreasury(r.recipient);
+  const amount = `${formatTokenAmount(r.amount, 6).text} (${bpsPercent(r.bps)} of the supply)`;
+  return (
+    <>
+      <Row label="Platform reserve, paid in this transaction" value={amount} />
+      <Row label="Sent to (platform treasury)" value={r.recipient.toBase58()} />
+      <Row label="Into its token account" value={r.treasuryToken.toBase58()} />
+      <Row label="You pay for that token account" value={rentText} mono={false} />
+      <p className="text-white/55 text-[10px]">
+        When this token is created, the platform receives {bpsPercent(r.bps)} of the supply, sent to {treasury.name}.
+        {treasury.multisig
+          ? ''
+          : " This page cannot confirm that account is a multisig: it is not the platform's known Squads vault."}{' '}
+        The program does not stop the treasury selling those tokens, including while the curve is live.
+      </p>
+    </>
+  );
 }
 
 /**
@@ -228,7 +259,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
         <Row
           label={
             prepared.kind === 'create'
-              ? 'One-time account rent (token, curve and token accounts)'
+              ? "One-time account rent (your token, its curve and vault, the treasury's token account, any token account of yours)"
               : 'One-time account rent'
           }
           value={SOL(f.newAccountRentLamports)}
@@ -246,7 +277,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
         .map((t) => (
           <Row
             key={t.account.toBase58()}
-            label="Test run: your tokens change by"
+            label={t.role === 'treasury' ? 'Test run: the platform treasury receives' : 'Test run: your tokens change by'}
             value={`${t.delta < 0n ? '-' : '+'}${tokenText(t.delta < 0n ? -t.delta : t.delta, decimals)}`}
           />
         ))}
@@ -259,7 +290,6 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   buy: 'Review your buy',
   sell: 'Review your sell',
   migrate: 'Review: finish graduation',
-  release: 'Review: release the platform reserve',
   'pool-buy': 'Review your pool buy',
   'pool-sell': 'Review your pool sell',
 };

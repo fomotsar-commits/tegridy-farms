@@ -134,6 +134,7 @@ function launchTx(l: Launch): unknown {
     { creator: l.creator.publicKey, mint: l.mint, metadata: { name: 'N', symbol: 'SS', uri: 'https://ipfs.io/ipfs/x' } },
     rent(82),
     l.buyTokens !== undefined ? { maxLamportsIn: 1_000n, minTokensOut: 1n } : null,
+    gate.global.feeRecipient,
   );
   const tx = new Transaction({ feePayer: l.creator.publicKey, blockhash: BLOCKHASH, lastValidBlockHeight: 1 }).add(...ixs);
   const raw = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
@@ -147,6 +148,9 @@ function launchTx(l: Launch): unknown {
   const writable: string[] = [];
   if (l.buyTokens !== 'unreadable') {
     post.push(entry(keys.findIndex((k) => k.equals(curveVaultPda(l.mint.publicKey, program))), curvePda(l.mint.publicKey, program), 900_000_000_000_000n));
+    // create_launch pays the platform reserve to the treasury's token account in the same instruction.
+    const fee = gate.global.feeRecipient;
+    post.push(entry(keys.findIndex((k) => k.equals(associatedTokenAddress(l.mint.publicKey, fee))), fee, 36_900_000_000_000n));
     if (l.buyTokens !== undefined) {
       post.push(entry(keys.findIndex((k) => k.equals(associatedTokenAddress(l.mint.publicKey, l.creator.publicKey))), l.creator.publicKey, l.buyTokens));
     }
@@ -236,6 +240,16 @@ describe('parseLaunchTransaction', () => {
     expect(parseLaunchTransaction(launchTx(wrapped), wrapped.sig, LAUNCH)?.openingBuyTokens).toBe(500n);
     const both: Launch = { ...wrapped, buyTokens: 12_345n };
     expect(parseLaunchTransaction(launchTx(both), both.sig, LAUNCH)?.openingBuyTokens).toBe(12_845n);
+  });
+  // Reserve at create (2026-09-26): the treasury's 3.69% arrives in the launch
+  // transaction too. It is the platform reserve, not anyone's opening buy.
+  it('the platform reserve paid to the treasury is not counted as bought in the launch', () => {
+    const l: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate() };
+    const t = launchTx(l) as { meta: { postTokenBalances: Array<{ owner: string }> } };
+    expect(t.meta.postTokenBalances.some((b) => b.owner === gate.global.feeRecipient.toBase58())).toBe(true);
+    expect(parseLaunchTransaction(t, l.sig, LAUNCH)?.openingBuyTokens).toBe(0n);
+    const withBuy: Launch = { ...l, buyTokens: 12_345n };
+    expect(parseLaunchTransaction(launchTx(withBuy), withBuy.sig, LAUNCH)?.openingBuyTokens).toBe(12_345n);
   });
   it('balances that do not include the curve vault are "could not read", never 0', () => {
     const l: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate() };

@@ -370,7 +370,6 @@ const NONE: ActionAvailability = {
   buy: false,
   sell: false,
   migrate: false,
-  release: false,
   poolSwap: false,
 };
 
@@ -378,16 +377,16 @@ const NONE: ActionAvailability = {
  * Which buttons may be live. A `false` is "do not offer", never a claim about the
  * launch; the page says WHY from the gate, the phase and the pause.
  *
- * A pause stops create, buy and graduation. It never stops a sell, a reserve
- * release or a pool swap: the program leaves sells ungated so a pause can never
- * trap holders, and the pool is not ours to pause.
+ * A pause stops create, buy and graduation. It never stops a sell or a pool
+ * swap: the program leaves sells ungated so a pause can never trap holders, and
+ * the pool is not ours to pause.
  *
  * `launch` must have been read with the SAME program id as `gate.cfg.programId`.
  */
 export function writeActions(
   gate: WriteGate,
   launch: LaunchState | null,
-  opts: { migrationEligible?: boolean; reserveReleased?: boolean } = {},
+  opts: { migrationEligible?: boolean } = {},
 ): ActionAvailability {
   if (gate.kind !== 'open') return NONE;
   const paused = gate.paused;
@@ -396,7 +395,6 @@ export function writeActions(
 
   const phase = launch.phase.kind;
   const trading = phase === 'trading' || phase === 'at-target';
-  const released = opts.reserveReleased ?? launch.curve?.curve.platformReserveReleased;
 
   return {
     create: !paused,
@@ -408,8 +406,6 @@ export function writeActions(
       opts.migrationEligible === true &&
       gate.graduation.permission === true &&
       gate.graduation.createPoolFeeReceiver === true,
-    // `released` undefined means we could not tell, which must not offer the button.
-    release: phase === 'graduated' && released === false,
     poolSwap: phase === 'graduated',
   };
 }

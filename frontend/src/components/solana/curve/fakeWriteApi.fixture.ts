@@ -52,7 +52,8 @@ export function bondingCurve(over: Partial<BondingCurve> = {}): BondingCurve {
     pool: new PublicKey(new Uint8Array(32)),
     bump: 255,
     platformReserveTokens: 36_900_000_000_000n,
-    platformReserveReleased: false,
+    // The program pays the reserve inside create_launch and sets this there.
+    platformReserveReleased: true,
     ...over,
   };
 }
@@ -143,7 +144,7 @@ export function fakeApi(over: Partial<WriteApi> = {}): WriteApi {
   const api: WriteApi = {
     curveWriteConfig: vi.fn(() => openGate().cfg),
     readWriteGate: vi.fn(async () => openGate()),
-    writeActions: vi.fn(() => ({ create: true, buy: true, sell: true, migrate: false, release: false, poolSwap: false })),
+    writeActions: vi.fn(() => ({ create: true, buy: true, sell: true, migrate: false, poolSwap: false })),
     explorerTxUrl: vi.fn((sig: string) => `https://explorer.test/tx/${sig}`),
     quoteOpeningBuy: vi.fn(() => ({
       ok: true as const,
@@ -154,7 +155,6 @@ export function fakeApi(over: Partial<WriteApi> = {}): WriteApi {
     prepareCurveBuy: vi.fn(),
     prepareCurveSell: vi.fn(),
     prepareMigrate: vi.fn(),
-    prepareRelease: vi.fn(),
     preparePoolSwap: vi.fn(),
     submitPrepared: vi.fn(),
     recheckOutcome: vi.fn(),

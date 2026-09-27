@@ -43,8 +43,10 @@ export const LAUNCH_FAILURE_COPY: Record<LaunchErrorName, string> = {
   CreatorMismatch: 'The creator account in this transaction does not match this launch.',
   MigrationPermissionMissing:
     'The pool program has not given the launch program permission to open pools yet. This is not a problem with this launch.',
-  PlatformReserveLocked: 'The platform reserve can only be released after the launch graduates.',
-  PlatformReserveAlreadyReleased: 'The platform reserve for this launch has already been released.',
+  // Retired codes (6022, 6023): the program no longer returns them, because the
+  // platform reserve is paid inside create_launch. Worded so a stray one still reads true.
+  PlatformReserveLocked: 'No longer used: the platform reserve is paid when a token is created.',
+  PlatformReserveAlreadyReleased: 'No longer used: the platform reserve is paid when a token is created.',
   CpSwapProgramNotPinned: 'The pool program in this transaction is not the one the launch program uses.',
 };
 

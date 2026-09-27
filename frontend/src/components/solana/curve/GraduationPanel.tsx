@@ -1,6 +1,6 @@
-import { useState } from 'react';
 import type { PublicKey } from '@solana/web3.js';
 import {
+  describeTreasury,
   formatTokenAmount,
   migrationEligibility,
   type CurveAccount,
@@ -41,11 +41,10 @@ export interface GraduationPanelProps {
 }
 
 /**
- * Finishing graduation, and releasing the platform reserve afterwards. Both are
- * open to anyone. Graduation costs the caller the network fee (its account rent is
- * paid back inside the transaction); release costs the network fee and, only if the
- * treasury has no account for this token yet, that account's rent. The review shows
- * the simulated cost before a signature.
+ * Finishing graduation, open to anyone. It costs the caller the network fee (its
+ * account rent is paid back inside the transaction); the review shows the simulated
+ * cost before a signature. Graduation does not touch the platform reserve, which
+ * create_launch already paid to the treasury when the token was created.
  */
 export function GraduationPanel({
   api,
@@ -63,10 +62,6 @@ export function GraduationPanel({
 }: GraduationPanelProps) {
   const flow = useTxFlow(api, rpc, onSettled, onSent);
   const { target: reviewRef, fallback: headingRef } = useReturnFocus(flow.state.step);
-  // What the running flow is FOR, fixed when its Review is pressed. A finished
-  // graduation turns the launch's phase to 'graduated' while its result is still on
-  // screen, so a title picked from the phase would call it "Platform reserve".
-  const [action, setAction] = useState<'migrate' | 'release'>('migrate');
   const phase = launch.phase.kind;
   if (phase !== 'awaiting-migration' && phase !== 'graduated') return null;
   const signer = signerState.kind === 'ready' ? signerState.signer : null;
@@ -75,7 +70,7 @@ export function GraduationPanel({
   if (flow.state.step !== 'idle') {
     return (
       <Card
-        title={action === 'release' ? 'Platform reserve' : 'Finish graduation'}
+        title="Finish graduation"
         testId="graduation-panel"
         headingRef={headingRef}
       >
@@ -113,7 +108,6 @@ export function GraduationPanel({
           disabled={!signer || !actions.migrate || flow.locked}
           onClick={() => {
             if (!signer) return;
-            setAction('migrate');
             void flow.prepare(() => api.prepareMigrate(rpc, gate, { payer: signer.publicKey, mint, curve }));
           }}
         >
@@ -128,36 +122,19 @@ export function GraduationPanel({
   }
 
   const reserve = formatTokenAmount(c.platformReserveTokens, decimals);
+  const treasury = describeTreasury(gate.global.feeRecipient);
   return (
     <Card title="Graduated" testId="graduation-panel" headingRef={headingRef}>
       <Row label="Pool" value={c.pool.toBase58()} />
       {c.platformReserveTokens === 0n ? (
         <Notice>This launch has no platform reserve.</Notice>
-      ) : c.platformReserveReleased ? (
-        <Notice>The platform reserve has been released to the platform treasury.</Notice>
       ) : (
         <>
-          <Row label={`Platform reserve still held${reserve.isBaseUnits ? ' (base units)' : ''}`} value={reserve.text} />
+          <Row label={`Platform reserve${reserve.isBaseUnits ? ' (base units)' : ''}`} value={reserve.text} />
           <p>
-            The program held these tokens back until graduation. Now anyone can send them to the platform treasury, once.
-          </p>
-          <WalletNeeded state={signerState} />
-          <button
-            ref={reviewRef}
-            type="button"
-            className="btn-primary w-full py-2.5 text-[13px] disabled:opacity-60"
-            disabled={!signer || !actions.release || flow.locked}
-            onClick={() => {
-              if (!signer) return;
-              setAction('release');
-              void flow.prepare(() => api.prepareRelease(rpc, gate, { payer: signer.publicKey, mint, curve }));
-            }}
-          >
-            Review: release platform reserve
-          </button>
-          <p className="text-white/35 text-[10px]">
-            It pays you nothing. You pay the transaction fees (the network fee and any priority fee) and possibly the
-            rent for the treasury&apos;s token account.
+            {c.platformReserveReleased
+              ? `Paid to ${treasury.name} when this token was created. Graduation did not touch it.`
+              : 'This launch’s account does not record the platform reserve as paid, so this page does not say where it is.'}
           </p>
         </>
       )}
