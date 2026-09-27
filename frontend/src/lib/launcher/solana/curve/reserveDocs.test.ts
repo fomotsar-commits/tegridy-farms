@@ -164,3 +164,26 @@ describe('MAINNET_RUNBOOK deploy float follows its own rent formula', () => {
     expect(Number(r1)).toBe(sum);
   });
 });
+
+// 3. The superseded escrow build. It was rebuilt and re-rehearsed as a3c41afa…, so any
+//    doc that still tells the operator the rehearsed binary "predates" the change sends
+//    them back to repeat finished work, or toward the wrong bytes. Every paragraph that
+//    names 9b78be02… must call it superseded.
+describe('the superseded escrow build (9b78be02…) is never named as current', () => {
+  const DOCS = ['docs/TODO_OPERATOR.md', RUNBOOK, 'solana/tegridy-amm/idl/README.md'];
+  for (const doc of DOCS) {
+    it(`${doc}: every mention calls it superseded`, () => {
+      const paragraphs = read(doc).split(/\n\s*\n/);
+      const naming = paragraphs.filter((p) => p.includes('9b78be02'));
+      for (const p of naming) expect(p, p.slice(0, 200)).toMatch(/superseded/i);
+    });
+  }
+
+  it('the operator notes name the rehearsed a3c41afa… build and do not ask for a rebuild', () => {
+    const todo = read('docs/TODO_OPERATOR.md');
+    const p = todo.split(/\n\s*\n/).find((x) => x.includes('platform_reserve_bps = 369'));
+    expect(p).toBeTruthy();
+    expect(p).toMatch(/a3c41afa/);
+    expect(p).not.toMatch(/rebuild and re-rehearse first/);
+  });
+});

@@ -1726,8 +1726,11 @@ the creator paying that account's rent; it is never sold on the curve and never 
 pool, and a launch that never graduates has still paid it. There is no `release-reserve`
 step any more. Unlike the two fields above this one IS a program change (a new
 `GlobalConfig` field, and `create_launch` taking three more accounts), so it must land
-before the first `initialize_global`, and the rehearsed binary (`9b78be02…`) predates it:
-rebuild and re-rehearse first. Two
+before the first `initialize_global`. That rebuild and its rehearsal are DONE: deploy
+`tegridy_launch.mainnet.so` sha256 `a3c41afa…` (470,728 B), rehearsed on those exact bytes
+(108 of 108 locally, and on devnet); the earlier escrow build `9b78be02…` is superseded and
+must never be deployed. Do not rebuild: see the banner at the top of MAINNET_RUNBOOK and
+the go-live checklist it points to. Two
 things go with it: pass `initial_virtual_token` scaled by (1 − 3.69%) at init so the
 graduation target does not move (`check-config` prints the number; unscaled, every pool
 lists ~4.9% above the curve; the program does not reject that, since it is inside its ±5%

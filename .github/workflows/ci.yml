@@ -128,6 +128,7 @@ jobs:
           src/lib/docsAddressTruth.test.ts
           src/lib/docsClaimHonesty.test.ts
           src/lib/docsReconciliation.test.ts
+          src/lib/launcher/solana/curve/reserveDocs.test.ts
           src/lib/launcher/solana/spentProgramIds.test.ts
           src/lib/whetstonePetitionTruth.test.ts
           src/test/frontDoor.test.ts
