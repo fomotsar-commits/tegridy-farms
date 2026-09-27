@@ -30,6 +30,7 @@ import { LaunchList } from '../components/solana/curve/LaunchList';
 import { browserGateRpc } from '../components/solana/curve/gateRpc';
 import { useWriteGate } from '../components/solana/curve/useWriteGate';
 import { useCurveSigner } from '../components/solana/curve/useCurveSigner';
+import { useLaunchLookup, type LaunchLookupReaders } from '../components/solana/curve/useLaunchLookup';
 import { PublicKey } from '@solana/web3.js';
 import {
   LAUNCH_ERROR_COPY,
@@ -40,7 +41,7 @@ import {
   browserRpc,
   buyBlockedReason,
   classifyLaunch,
-  clipDetail,
+  describeReserveRecipient,
   describeTreasury,
   formatSol,
   formatTokenAmount,
@@ -456,7 +457,7 @@ function CreateCostRows({ cost }: { cost: Read<CreateLaunchCost> | null }) {
   return (
     <>
       <Row label="You pay (account rent)" value={sol(c.total)} />
-      <p className="text-white/40 text-[10px]">
+      <p className="text-white/55 text-[10px]">
         The curve account {sol(c.curve)}, its token vault {sol(c.vault)}, and{' '}
         {c.treasuryTokenExists
           ? "the treasury's token account already exists, so you pay nothing for it."
@@ -550,7 +551,7 @@ export function CreateChecklist({
               value={g.platformReserveBps === 0n ? 'none' : `${bpsPercent(g.platformReserveBps)} of supply`}
             />
             {g.platformReserveBps > 0n && (
-              <p className="text-white/40 text-[10px]">
+              <p className="text-white/55 text-[10px]">
                 Platform reserve: the platform receives {bpsPercent(g.platformReserveBps)} of supply when the token is
                 created.{' '}
                 {treasury.multisig
@@ -704,7 +705,9 @@ export function CurveLaunchView({
           decimals={decimals}
           paused={paused}
           lookedUp={lookedUp}
-          treasury={treasury}
+          // No treasury here: who received a past reserve is in the launch’s own create
+          // transaction, which this read-only view does not read. Today’s config can have
+          // changed since, so the card names no address and makes no multisig claim.
         />
 
         <TradePanel
@@ -795,8 +798,8 @@ function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
             can leave the curve a tiny amount short of its target); then it is simply tried again, nothing is broken.
           </li>
           <li>
-            Graduation does not touch the platform reserve. {capitalize(treasury.name)} received it when the token
-            was created, whether or not the launch ever graduates. It holds those tokens like any other holder,
+            Graduation does not touch the platform reserve. {capitalize(describeReserveRecipient(null).name)} received
+            it when the token was created, whether or not the launch ever graduates. It holds those tokens like any other holder,
             and the program does not limit what it does with them, including selling them while the curve is live.
           </li>
         </ul>
@@ -886,10 +889,15 @@ function CurveLaunchInner() {
 
   const [probe, setProbe] = useState<Deployment | null>(null);
   const [mintInput, setMintInput] = useState('');
-  const [snapshot, setSnapshot] = useState<LaunchState | null>(null);
-  const [mint, setMint] = useState<Read<MintFacts> | null>(null);
-  const [createCost, setCreateCost] = useState<Read<CreateLaunchCost> | null>(null);
-  const [loading, setLoading] = useState(false);
+  const readers = useMemo<LaunchLookupReaders>(
+    () => ({
+      launch: (key) => readLaunch(curveRpc, key, programId),
+      mint: (addr) => readMint(rpc, addr),
+      cost: (key, feeRecipient) => readCreateLaunchCost(curveRpc, key, feeRecipient),
+    }),
+    [rpc, curveRpc, programId],
+  );
+  const { snapshot, mint, createCost, loading, lookUp } = useLaunchLookup(readers);
 
   // The first read any surface performs. `not-deployed` → we stop there rather
   // than deriving PDAs and rendering their absence as data. A malformed or failed
@@ -909,26 +917,8 @@ function CurveLaunchInner() {
   const onLookup = useCallback(async () => {
     const addr = mintInput.trim();
     if (probe?.kind !== 'deployed' || !looksLikePubkey(addr)) return;
-    setLoading(true);
-    try {
-      const key = new PublicKey(addr);
-      const [snap, facts] = await Promise.all([readLaunch(curveRpc, key, programId), readMint(rpc, addr)]);
-      setSnapshot(snap);
-      setMint(facts);
-      // What opening a launch would cost needs the live recipient, so it waits for
-      // `global`. No config, no figure: the checklist then says the terms are unknown.
-      setCreateCost(snap.global ? await readCreateLaunchCost(curveRpc, key, snap.global.feeRecipient) : null);
-    } catch (e) {
-      // A throw here is a client fault (a malformed address reaching PDA
-      // derivation), not a finding: surface it as unreadable, not as absent.
-      const detail = clipDetail(e);
-      setSnapshot(null);
-      setMint({ kind: 'unreadable', detail });
-      setCreateCost(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [mintInput, probe, rpc, curveRpc, programId]);
+    await lookUp(addr);
+  }, [mintInput, probe, lookUp]);
 
   let write: ReactNode = undefined;
   if (gateState.status === 'ready' && gateState.gate.kind === 'open') {

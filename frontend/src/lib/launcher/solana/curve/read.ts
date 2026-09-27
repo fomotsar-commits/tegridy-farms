@@ -33,6 +33,7 @@ import {
   BONDING_CURVE_SIZE,
   GLOBAL_CONFIG_SIZE,
   PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
   curvePda,
   decodeBondingCurve,
   decodeGlobalConfig,
@@ -322,7 +323,8 @@ export interface CreateLaunchCost {
   /**
    * The treasury's token account for this mint, which receives the platform reserve.
    * `0n` when it already exists (`treasuryTokenExists`), since `init_if_needed` then
-   * creates nothing.
+   * creates nothing. Less than the full rent when someone has already sent SOL to
+   * that address: the account is still created, and only the rest is charged.
    */
   treasuryToken: bigint;
   treasuryTokenExists: boolean;
@@ -356,8 +358,27 @@ export async function readCreateLaunchCost(
     }
     const curve = BigInt(curveRent);
     const vault = BigInt(tokenRent);
-    const treasuryTokenExists = ata !== null;
-    const treasuryToken = treasuryTokenExists ? 0n : BigInt(tokenRent);
+    // "Exists" means a real token account, which `init_if_needed` leaves alone. Anyone
+    // can send SOL to the address first: it is then an empty account of the System
+    // Program, `init_if_needed` still creates the token account, and the associated
+    // token program charges the creator the rent minus what is already there. Any
+    // other account there is not something this page can price.
+    let treasuryTokenExists = false;
+    let treasuryToken = vault;
+    if (ata !== null) {
+      if (ata.owner.equals(TOKEN_PROGRAM_ID) && ata.data.length === SPL_TOKEN_ACCOUNT_SIZE) {
+        treasuryTokenExists = true;
+        treasuryToken = 0n;
+      } else if (ata.owner.equals(PublicKey.default) && ata.data.length === 0 && Number.isSafeInteger(ata.lamports) && ata.lamports >= 0) {
+        const held = BigInt(ata.lamports);
+        treasuryToken = held >= vault ? 0n : vault - held;
+      } else {
+        return {
+          kind: 'unreadable',
+          detail: "the treasury's token account address holds an account that is not a token account, so the cost is not known",
+        };
+      }
+    }
     return {
       kind: 'ok',
       value: { curve, vault, treasuryToken, treasuryTokenExists, total: curve + vault + treasuryToken },

@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { Buffer } from 'buffer';
 import { Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import {
+  IX_DISCRIMINATOR,
   TOKEN_PROGRAM_ID,
   WSOL_MINT,
   curvePda,
@@ -50,6 +51,7 @@ import { decodeTokenMetadata, readTokenMetadata } from './metadata';
 import {
   HIDDEN_MINTS,
   LIST_PAGE_SIZE,
+  fromBase58,
   fullyDilutedValueLamports,
   listLaunchesByCreator,
   listRecentLaunches,
@@ -126,15 +128,40 @@ interface Launch {
   otherBought?: bigint;
   programId?: PublicKey;
   failed?: boolean;
+  /** Who the config named as fee recipient when this launch was created. Defaults to the fixture's. */
+  feeRecipient?: PublicKey;
+  /** The RPC's record of create_launch's own calls: reported (default), or left out. */
+  innerCalls?: 'reported' | 'missing';
+}
+
+/** The platform reserve every fixture launch pays: 3.69% of the 1e15 supply. */
+const RESERVE = 36_900_000_000_000n;
+
+/** Bytes to base58, as the RPC encodes an inner instruction's data. */
+function toBase58(bytes: Uint8Array): string {
+  const A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let n = 0n;
+  for (const b of bytes) n = n * 256n + BigInt(b);
+  let s = '';
+  while (n > 0n) {
+    s = A[Number(n % 58n)] + s;
+    n /= 58n;
+  }
+  for (const b of bytes) {
+    if (b !== 0) break;
+    s = `1${s}`;
+  }
+  return s;
 }
 
 function launchTx(l: Launch): unknown {
+  const fee = l.feeRecipient ?? gate.global.feeRecipient;
   const ixs = createLaunchInstructions(
     { ...gate, cfg: { ...cfgLocal, programId: l.programId ?? LAUNCH } } as OpenGate,
     { creator: l.creator.publicKey, mint: l.mint, metadata: { name: 'N', symbol: 'SS', uri: 'https://ipfs.io/ipfs/x' } },
     rent(82),
     l.buyTokens !== undefined ? { maxLamportsIn: 1_000n, minTokensOut: 1n } : null,
-    gate.global.feeRecipient,
+    fee,
   );
   const tx = new Transaction({ feePayer: l.creator.publicKey, blockhash: BLOCKHASH, lastValidBlockHeight: 1 }).add(...ixs);
   const raw = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
@@ -143,16 +170,22 @@ function launchTx(l: Launch): unknown {
   const keys = tx.compileMessage().accountKeys;
   const m58 = l.mint.publicKey.toBase58();
   const program = l.programId ?? LAUNCH;
+  const at = (k: PublicKey) => keys.findIndex((x) => x.equals(k));
   const entry = (accountIndex: number, owner: PublicKey, amount: bigint) => ({ accountIndex, mint: m58, owner: owner.toBase58(), uiTokenAmount: { amount: amount.toString() } });
   const post: unknown[] = [];
   const writable: string[] = [];
+  const vault = curveVaultPda(l.mint.publicKey, program);
+  const treasuryToken = associatedTokenAddress(l.mint.publicKey, fee);
+  const creatorAta = associatedTokenAddress(l.mint.publicKey, l.creator.publicKey);
   if (l.buyTokens !== 'unreadable') {
-    post.push(entry(keys.findIndex((k) => k.equals(curveVaultPda(l.mint.publicKey, program))), curvePda(l.mint.publicKey, program), 900_000_000_000_000n));
-    // create_launch pays the platform reserve to the treasury's token account in the same instruction.
-    const fee = gate.global.feeRecipient;
-    post.push(entry(keys.findIndex((k) => k.equals(associatedTokenAddress(l.mint.publicKey, fee))), fee, 36_900_000_000_000n));
-    if (l.buyTokens !== undefined) {
-      post.push(entry(keys.findIndex((k) => k.equals(associatedTokenAddress(l.mint.publicKey, l.creator.publicKey))), l.creator.publicKey, l.buyTokens));
+    post.push(entry(at(vault), curvePda(l.mint.publicKey, program), 900_000_000_000_000n));
+    // create_launch pays the platform reserve to the treasury's token account in the same
+    // instruction. When the treasury's own wallet launches and buys, its buy lands there too.
+    const sameAccount = creatorAta.equals(treasuryToken);
+    const bought = typeof l.buyTokens === 'bigint' ? l.buyTokens : 0n;
+    post.push(entry(at(treasuryToken), fee, RESERVE + (sameAccount ? bought : 0n)));
+    if (l.buyTokens !== undefined && !sameAccount) {
+      post.push(entry(at(creatorAta), l.creator.publicKey, l.buyTokens));
     }
     if (l.otherBought !== undefined) {
       const other = Keypair.generate().publicKey;
@@ -160,9 +193,37 @@ function launchTx(l: Launch): unknown {
       post.push(entry(keys.length, other, l.otherBought));
     }
   }
+  // create_launch's own calls to the token program: mint the supply to the vault, then
+  // pay the reserve from the vault to the treasury's token account.
+  const createIndex = ixs.findIndex(
+    (i) => i.programId.equals(program) && Buffer.from(i.data.subarray(0, 8)).equals(Buffer.from(IX_DISCRIMINATOR.createLaunch)),
+  );
+  const tokenCall = (tag: number, amount: bigint, accounts: PublicKey[]) => ({
+    programIdIndex: at(TOKEN_PROGRAM_ID),
+    accounts: accounts.map(at),
+    data: toBase58(Uint8Array.from([tag, ...u64le(amount)])),
+  });
+  const innerInstructions =
+    l.innerCalls === 'missing'
+      ? null
+      : [
+          {
+            index: createIndex,
+            instructions: [
+              tokenCall(7, 1_000_000_000_000_000n, [l.mint.publicKey, vault, l.creator.publicKey]),
+              tokenCall(3, RESERVE, [vault, treasuryToken, curvePda(l.mint.publicKey, program)]),
+            ],
+          },
+        ];
   return {
     blockTime: 1_700_000_000,
-    meta: { err: l.failed ? { InstructionError: [0, 'Custom'] } : null, preTokenBalances: [], postTokenBalances: post, loadedAddresses: { writable, readonly: [] } },
+    meta: {
+      err: l.failed ? { InstructionError: [0, 'Custom'] } : null,
+      preTokenBalances: [],
+      postTokenBalances: post,
+      loadedAddresses: { writable, readonly: [] },
+      innerInstructions,
+    },
     transaction: [raw, 'base64'],
   };
 }
@@ -250,6 +311,34 @@ describe('parseLaunchTransaction', () => {
     expect(parseLaunchTransaction(t, l.sig, LAUNCH)?.openingBuyTokens).toBe(0n);
     const withBuy: Launch = { ...l, buyTokens: 12_345n };
     expect(parseLaunchTransaction(launchTx(withBuy), withBuy.sig, LAUNCH)?.openingBuyTokens).toBe(12_345n);
+  });
+  // When the treasury's own wallet launches and buys, its buy and the reserve land in
+  // ONE token account. Only the reserve is taken off; the buy still counts.
+  it('the treasury wallet launching with a buy: the buy counts, the reserve does not', () => {
+    const treasury = Keypair.generate();
+    const l: Launch = { sig: sig(1), creator: treasury, mint: Keypair.generate(), feeRecipient: treasury.publicKey, buyTokens: 12_345n };
+    const o = parseLaunchTransaction(launchTx(l), l.sig, LAUNCH);
+    expect(o?.openingBuyTokens).toBe(12_345n);
+    expect(parseLaunchTransaction(launchTx({ ...l, buyTokens: undefined }), l.sig, LAUNCH)?.openingBuyTokens).toBe(0n);
+  });
+  it('the reserve is read from create_launch itself: not reported = "could not read", never a guess', () => {
+    const l: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate(), buyTokens: 12_345n, innerCalls: 'missing' };
+    expect(parseLaunchTransaction(launchTx(l), l.sig, LAUNCH)?.openingBuyTokens).toBeNull();
+  });
+  // update_global can change fee_recipient after a launch. Who was paid is the fee
+  // recipient in the launch's own create_launch, never today's config.
+  it("records who received the reserve from the launch's own transaction", () => {
+    const then = Keypair.generate().publicKey;
+    const l: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate(), feeRecipient: then };
+    const o = parseLaunchTransaction(launchTx(l), l.sig, LAUNCH);
+    expect(o?.reserveRecipient?.equals(then)).toBe(true);
+    expect(o?.reserveRecipient?.equals(gate.global.feeRecipient)).toBe(false);
+  });
+  it('reads base58 the way the RPC writes it, leading zero bytes included', () => {
+    const k = Keypair.generate().publicKey;
+    expect(Buffer.from(fromBase58(k.toBase58()) ?? []).equals(Buffer.from(k.toBytes()))).toBe(true);
+    expect(Array.from(fromBase58(toBase58(Uint8Array.from([0, 0, 3, 1]))) ?? [])).toEqual([0, 0, 3, 1]);
+    expect(fromBase58('0OIl')).toBeNull();
   });
   it('balances that do not include the curve vault are "could not read", never 0', () => {
     const l: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate() };

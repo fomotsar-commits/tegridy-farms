@@ -21,7 +21,13 @@ import {
 import type { CurveSignerState } from './useCurveSigner';
 import type { GateRpc, LaunchPool, WriteApi, WriteRpc } from './ports';
 import type { PoolStateView } from '../../../lib/solana/cpswap/program';
-import { PLATFORM_TREASURY_VAULT, WSOL_MINT, type BondingCurve } from '../../../lib/launcher/solana/curve';
+import {
+  PLATFORM_TREASURY_VAULT,
+  WSOL_MINT,
+  describeReserveRecipient,
+  type BondingCurve,
+  type TreasuryDescription,
+} from '../../../lib/launcher/solana/curve';
 
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
 
@@ -149,12 +155,13 @@ describe('graduation panel', () => {
 
   it('graduated: the reserve reads as paid at creation, and there is nothing to release', () => {
     const c = bondingCurve({ complete: true, pool: KEY(40) });
-    const grad = (curve: BondingCurve, gate = openGate()) =>
+    const grad = (curve: BondingCurve, gate = openGate(), treasury?: TreasuryDescription) =>
       render(
         <GraduationPanel
           api={fakeApi()}
           rpc={{} as WriteRpc}
           gate={gate}
+          treasury={treasury}
           launch={launchState(curve)}
           curve={curveAccount(curve)}
           mint={MINT}
@@ -165,23 +172,30 @@ describe('graduation panel', () => {
           onSettled={vi.fn()}
         />,
       );
-    const { unmount } = grad(c);
+    // Who was paid comes from the launch's own create transaction, never from today's
+    // config: here today's config names the vault, and the launch paid KEY(7).
+    const vaultToday = openGate({ global: { ...openGate().global, feeRecipient: PLATFORM_TREASURY_VAULT } });
+    grad(c, vaultToday, describeReserveRecipient(KEY(7)));
     const card = screen.getByTestId('graduation-panel');
-    // The fixture's fee recipient is not the known vault, so it is named by address, never "a multisig".
     expect(card).toHaveTextContent(
-      `Paid to the platform treasury (${openGate().global.feeRecipient.toBase58()}) when this token was created. Graduation did not touch it.`,
+      `Paid when this token was created, to the platform treasury (${KEY(7).toBase58()}). Graduation did not touch it.`,
     );
     expect(card.textContent ?? '').not.toMatch(/multisig|release/i);
     expect(screen.queryByRole('button', { name: /release/i })).not.toBeInTheDocument();
-    unmount();
-    // The known vault is the only recipient called a multisig.
-    grad(c, openGate({ global: { ...openGate().global, feeRecipient: PLATFORM_TREASURY_VAULT } }));
-    expect(screen.getByTestId('graduation-panel')).toHaveTextContent('Paid to the platform treasury (a multisig) when this token was created.');
+    cleanup();
+    // The known vault is the only recipient called a multisig, when THAT is who was paid.
+    grad(c, openGate(), describeReserveRecipient(PLATFORM_TREASURY_VAULT));
+    expect(screen.getByTestId('graduation-panel')).toHaveTextContent('Paid when this token was created, to the platform treasury (a multisig).');
+    cleanup();
+    // Not read: no address and no claim, even though today's config is the vault.
+    grad(c, vaultToday);
+    expect(screen.getByTestId('graduation-panel')).toHaveTextContent('Paid when this token was created, to the platform treasury at the time.');
+    expect(screen.getByTestId('graduation-panel').textContent ?? '').not.toMatch(/multisig/);
     cleanup();
     // An account that does not record the payment is described as exactly that.
     grad(bondingCurve({ complete: true, pool: KEY(40), platformReserveReleased: false }));
     expect(screen.getByTestId('graduation-panel')).toHaveTextContent(/does not record the platform reserve as paid/);
-    expect(screen.getByTestId('graduation-panel').textContent ?? '').not.toMatch(/Paid to/);
+    expect(screen.getByTestId('graduation-panel').textContent ?? '').not.toMatch(/Paid when/);
   });
 
   // UXR7: a finished graduation flips the phase to 'graduated' while its result is

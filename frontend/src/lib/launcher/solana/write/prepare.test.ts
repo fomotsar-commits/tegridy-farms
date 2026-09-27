@@ -391,6 +391,32 @@ describe('create', () => {
     expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(82) + rent(179) + TOKEN_RENT));
   });
 
+  // The treasury's own wallet launching: its token account and the treasury's are one
+  // account, which receives the reserve AND the buy. Two exact checks on that one
+  // account could never both pass, so it is refused up front, in plain words.
+  it('the treasury wallet: an opening buy is refused before anything is simulated; no buy builds', async () => {
+    const { chain, gate } = await setup();
+    chain.fund(VAULT, 10 * SOL);
+    const mintKp = Keypair.generate();
+    const q = quoteOpeningBuy(gate.global, 50_000_000n);
+    if (!q.ok) throw new Error('quote');
+    const same = associatedTokenAddress(mintKp.publicKey, VAULT);
+    simulating(chain, {
+      [VAULT.toBase58()]: { lamportsDelta: -(createRent() + 50_000_000) },
+      [same.toBase58()]: { tokenAmount: reserveOf() + q.value.tokensOut, mint: mintKp.publicKey, owner: VAULT },
+    });
+    const r = await prepareCreateLaunch(W(chain), gate, { creator: VAULT, mint: mintKp, metadata: worst, openingBuy: { lamportsIn: 50_000_000n } });
+    expect(!r.ok && r.outcome).toMatchObject({
+      stage: 'build',
+      message:
+        'This wallet is the platform treasury, so an opening buy would land in the same token account as the platform reserve. Launch without an opening buy, then buy on the curve.',
+    });
+    expect(chain.simulateCalls).toHaveLength(0);
+    const plain = Keypair.generate();
+    simulating(chain, { [VAULT.toBase58()]: { lamportsDelta: -createRent() }, ...treasuryGets(plain.publicKey) });
+    ok(await prepareCreateLaunch(W(chain), gate, { creator: VAULT, mint: plain, metadata: worst }));
+  });
+
   it('rent that cannot be read stops the launch before anything is simulated', async () => {
     const { chain, gate } = await setup();
     chain.getMinimumBalanceForRentExemption = async () => {

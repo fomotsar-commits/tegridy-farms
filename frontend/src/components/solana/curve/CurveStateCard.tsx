@@ -1,7 +1,7 @@
 import { CurveChart } from '../../launcher/CurveChart';
 import {
   curveProgress,
-  describeTreasury,
+  describeReserveRecipient,
   formatSol,
   formatTokenAmount,
   raiseCeiling,
@@ -54,7 +54,7 @@ export function CurveStateCard({
   decimals,
   paused,
   lookedUp,
-  treasury = describeTreasury(null),
+  treasury = describeReserveRecipient(null),
 }: {
   phase: LaunchPhase;
   /** `null` whenever no `BondingCurve` was established — see `phase` for why. */
@@ -63,7 +63,10 @@ export function CurveStateCard({
   paused: boolean | null;
   /** False means no lookup has been attempted — which is NOT a failed read. */
   lookedUp: boolean;
-  /** Who the reserve is paid to, from the live config. "Multisig" only for the known vault. */
+  /**
+   * Who received the reserve, from the launch’s own create transaction
+   * (describeReserveRecipient), never today’s config. "Multisig" only for the known vault.
+   */
   treasury?: TreasuryDescription;
 }) {
   const p = PHASE_COPY[phase.kind];
@@ -115,9 +118,9 @@ function CurveNumbers({
   // The program pays the reserve inside create_launch and sets this flag there, so a
   // curve it created always reads true. The other branch says what the account says
   // rather than claiming a payment it does not record. "A multisig" only when the
-  // live config names the known Squads vault (describeTreasury).
+  // launch’s own create transaction names the known Squads vault (describeReserveRecipient).
   const reserveStatus = curve.platformReserveReleased
-    ? `sent to ${treasury.name} when this token was created`
+    ? `paid when this token was created, to ${treasury.name}`
     : 'this curve account does not record it as paid';
   const split = feeSplitLabel(curve.creatorFeeShareBps);
   // Spot is an exact numerator/denominator pair so nothing is rounded on the way

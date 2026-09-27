@@ -612,7 +612,7 @@ describe('platform reserve and fee split', () => {
     expect(screen.getByText('creator 48.00% · protocol 52.00% of the fee')).toBeInTheDocument();
     expect(screen.getByText('36,900')).toBeInTheDocument();
     expect(
-      screen.getByText(/Platform reserve: sent to the platform treasury \(a multisig\) when this token was created/),
+      screen.getByText(/Platform reserve: paid when this token was created, to the platform treasury at the time\./),
     ).toBeInTheDocument();
   });
 
@@ -624,7 +624,7 @@ describe('platform reserve and fee split', () => {
       mint: mintFacts(),
     });
     expect(
-      screen.getByText(/Platform reserve: sent to the platform treasury \(a multisig\) when this token was created/),
+      screen.getByText(/Platform reserve: paid when this token was created, to the platform treasury at the time\./),
     ).toBeInTheDocument();
     // Nothing waits on graduation any more, so no "release" wording may survive.
     expect(document.body.textContent ?? '').not.toMatch(/release it|released to the treasury|until the launch graduates/);
@@ -674,7 +674,9 @@ describe('platform reserve and fee split', () => {
     renderView({ probe: DEPLOYED, snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'absent' }) });
     const text = (document.body.textContent ?? '').replace(/\s+/g, ' ');
     expect(text).toMatch(/the platform treasury \(a multisig\) receives it when the token is created/);
-    expect(text).toMatch(/The platform treasury \(a multisig\) received it when the token was created/);
+    // A past payment: who was paid is not in today's config, so no multisig claim.
+    expect(text).toMatch(/The platform treasury at the time received it when the token was created/);
+    expect(text).not.toMatch(/\(a multisig\) received it/);
   });
 });
 
@@ -694,13 +696,13 @@ describe('treasury multisig claim is backed by the live config', () => {
     renderView({ probe: DEPLOYED, snapshot: snapshot(other, { kind: 'ok', value: curveAccount(curve()) }), mint: mintFacts() });
     const text = (document.body.textContent ?? '').replace(/\s+/g, ' ');
     expect(text).not.toMatch(/\(a multisig\)|, a multisig,|which is a multisig/);
-    expect(text).toContain(`Platform reserve: sent to the platform treasury (${OTHER.toBase58()}) when this token was created`);
+    expect(text).toContain('Platform reserve: paid when this token was created, to the platform treasury at the time.');
     expect(text).toContain(
       `the platform receives 3.69% of supply when the token is created. It goes to the platform treasury (${OTHER.toBase58()}). This page cannot confirm that account is a multisig: it is not the platform's known Squads vault.`,
     );
   });
 
-  it('calls the known vault a multisig in the terms, the curve card and the explainer', () => {
+  it('calls the known vault a multisig in the terms and the explainer, never for a past payment', () => {
     renderView({
       probe: DEPLOYED,
       snapshot: snapshot({ kind: 'ok', value: globalCfg() }, { kind: 'ok', value: curveAccount(curve()) }),
@@ -708,7 +710,9 @@ describe('treasury multisig claim is backed by the live config', () => {
     });
     const text = (document.body.textContent ?? '').replace(/\s+/g, ' ');
     expect(text).toMatch(/It goes to the platform treasury, which is a multisig\./);
-    expect(text).toMatch(/Platform reserve: sent to the platform treasury \(a multisig\) when this token was created/);
+    // Not the curve card: it describes a past payment, which today's config cannot vouch for.
+    expect(text).toMatch(/Platform reserve: paid when this token was created, to the platform treasury at the time\./);
+    expect(text).not.toMatch(/Platform reserve: paid when this token was created, to the platform treasury \(a multisig\)/);
     expect(text).toMatch(/the platform treasury \(a multisig\) receives it when the token is created/);
   });
 });
@@ -757,6 +761,18 @@ describe('create checklist: what you pay', () => {
     const text = (card().textContent ?? '').replace(/\s+/g, ' ');
     expect(text).toContain("the treasury's token account already exists, so you pay nothing for it");
     expect(within(card()).getByText('0.003048 SOL')).toBeInTheDocument();
+  });
+
+  // 10px text on this dark card needs at least 55% white to reach the 4.5:1 WCAG AA
+  // contrast for small text (40% is about 4:1). These two paragraphs are the only
+  // place on the read-only page that says what the creator pays for the treasury's
+  // token account and where the reserve goes.
+  it('the rent breakdown and the reserve note are readable: at least 55% white', () => {
+    renderView({ probe: DEPLOYED, snapshot: snapshot(g, { kind: 'absent' }), mint: mintFacts(), createCost: cost() });
+    const opacity = (el: HTMLElement) => Number(/text-white\/(\d+)/.exec(el.className)?.[1] ?? 100);
+    const rent = within(card()).getByText(/The curve account .* its token vault/);
+    const reserve = within(card()).getByText(/Platform reserve: the platform receives 3\.69% of supply/);
+    for (const p of [rent, reserve]) expect(opacity(p)).toBeGreaterThanOrEqual(55);
   });
 
   it('says the cost is unknown when the rent read failed, never a zero', () => {

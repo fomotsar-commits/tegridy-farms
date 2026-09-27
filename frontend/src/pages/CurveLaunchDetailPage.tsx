@@ -13,7 +13,7 @@ import {
   browserCurveRpc,
   browserRpc,
   clipDetail,
-  describeTreasury,
+  describeReserveRecipient,
   looksLikePubkey,
   migrationEligibility,
   readLaunch,
@@ -47,7 +47,7 @@ import { usePendingTrades, type PendingTradesState } from '../components/solana/
 import { BeforeYouTrade } from '../components/solana/curve/BeforeYouTrade';
 import { reserveDisclosure, sharePercent } from '../components/solana/curve/uiFormat';
 import type { OnSettled } from '../components/solana/curve/useTxFlow';
-import type { LaunchPoolRead, MetadataRead, TokenMetadata, WriteRpc } from '../components/solana/curve/ports';
+import type { LaunchOrigin, LaunchPoolRead, MetadataRead, TokenMetadata, WriteRpc } from '../components/solana/curve/ports';
 
 // /curve-launch/:mint: one launch on our own Solana curve. Identity, the creator's
 // stake, the curve's state, and, only while the write gate is open, the trade,
@@ -68,6 +68,11 @@ export interface LaunchData {
   holding: Fact<bigint> | null;
   /** `null` when not graduated, or not read yet. */
   pool: LaunchPoolRead | null;
+  /**
+   * Who received this launch's platform reserve, from its own create transaction.
+   * `null` = not read. Never today's config: the fee recipient can be changed later.
+   */
+  reserveRecipient?: PublicKey | null;
 }
 
 export interface SolanaLaunchViewProps {
@@ -230,11 +235,12 @@ export function SolanaLaunchView({
             creator: open.ammConfig.creatorFeeRate,
           }
         : null;
-  // Who the reserve went to: the live config's fee recipient, called a multisig only
-  // when it is the known vault. The program pays it inside create_launch and marks the
-  // curve paid there, so a curve it created always reads paid; any other account is
-  // described as exactly what it records.
-  const treasury = describeTreasury(open?.global.feeRecipient ?? launch?.global?.feeRecipient ?? null);
+  // Who the reserve went to: the fee recipient in this launch's own create transaction,
+  // called a multisig only when THAT key is the known vault. Never today's config, which
+  // can have been changed since; unread, it is named with no address and no claim. The
+  // program pays it inside create_launch and marks the curve paid there, so a curve it
+  // created always reads paid; any other account is described as exactly what it records.
+  const treasury = describeReserveRecipient(data?.reserveRecipient ?? null);
   const reserveShare =
     !c || c.platformReserveTokens === 0n
       ? null
@@ -365,6 +371,7 @@ export function SolanaLaunchView({
           signerState={signerState}
           onSettled={onSettled}
           onSent={onSent}
+          treasury={treasury}
         />
       )}
       {open && actions && phase === 'graduated' && !tradeHeld && (
@@ -405,17 +412,17 @@ async function loadLaunchData(
     ),
   ]);
   const curve = launch.curve;
-  const [json, openingBuy, holding, pool] = await Promise.all([
+  const [json, origin, holding, pool] = await Promise.all([
     metadata.kind === 'ok'
       ? api.meta
           .readLaunchMetadataJson(metadata.value.uri, mintStr)
           .catch((e: unknown): MetadataRead => ({ kind: 'unreadable', detail: clipDetail(e) }))
       : Promise.resolve(null),
+    // One read of the launch transaction: what was bought in it, and who received the reserve.
     curve
       ? api
           .readLaunchOrigin(rpc, cfg, mint)
-          .then(openingBuyFromOrigin)
-          .catch((e: unknown): Fact<bigint> => ({ kind: 'unreadable', detail: clipDetail(e) }))
+          .catch((e: unknown): Read<LaunchOrigin> => ({ kind: 'unreadable', detail: clipDetail(e) }))
       : Promise.resolve(null),
     curve
       ? api
@@ -429,7 +436,9 @@ async function loadLaunchData(
           .catch((e: unknown): LaunchPoolRead => ({ kind: 'unreadable', detail: clipDetail(e) }))
       : Promise.resolve(null),
   ]);
-  return { launch, mintFacts, rentFloor: rent ? rent.curve : null, metadata, json, openingBuy, holding, pool };
+  const openingBuy = origin ? openingBuyFromOrigin(origin) : null;
+  const reserveRecipient = origin?.kind === 'ok' ? origin.value.reserveRecipient : null;
+  return { launch, mintFacts, rentFloor: rent ? rent.curve : null, metadata, json, openingBuy, holding, pool, reserveRecipient };
 }
 
 /** How often a page waiting for its own just-sent launch looks again. */

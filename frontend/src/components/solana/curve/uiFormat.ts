@@ -21,10 +21,12 @@ export const bpsPercent = (bps: bigint) => `${(Number(bps) / 100).toFixed(2)}%`;
 
 /**
  * The platform reserve, said plainly. `share` is words read from chain ("3.69% of
- * the supply"); `treasury` names `global.fee_recipient` and is called a multisig only
- * when it is the known Squads vault (describeTreasury). `when` is 'will' before a
- * token exists and 'was' for one already created: `create_launch` pays the reserve
- * in the same instruction that creates the curve, so there is no third case.
+ * the supply"); `treasury` is called a multisig only when it is the known Squads vault.
+ * For 'will' (before a token exists) it is today's `global.fee_recipient` (describeTreasury);
+ * for 'was' (a token already created) it is the recipient in that launch's own create
+ * transaction (describeReserveRecipient), since the config can have changed since.
+ * There is no third case: `create_launch` pays the reserve in the same instruction
+ * that creates the curve.
  */
 export function reserveDisclosure(share: string, treasury: TreasuryDescription, when: 'will' | 'was'): string {
   const paid =

@@ -26,7 +26,7 @@
 
 import { Buffer } from 'buffer';
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
-import { IX_DISCRIMINATOR, curvePda, curveVaultPda, decodeBondingCurve, type BondingCurve } from '../curve/program';
+import { IX_DISCRIMINATOR, TOKEN_PROGRAM_ID, curvePda, curveVaultPda, decodeBondingCurve, type BondingCurve } from '../curve/program';
 import { effectiveReserves } from '../curve/math';
 import { clipDetail, type CurveAccount, type CurveRpc, type Read } from '../curve/read';
 import type { SolanaRpc } from '../curve/rpc';
@@ -56,6 +56,13 @@ export interface LaunchOrigin {
    * curve. `null` = the balances were missing or did not add up: could not read.
    */
   openingBuyTokens: bigint | null;
+  /**
+   * Who received the platform reserve: the fee recipient named in this launch's own
+   * `create_launch` (account 8, which the program pins to `global.fee_recipient` as it
+   * was then). The config can be changed later, so this, not today's config, is who
+   * was paid. `null` when the instruction does not carry it.
+   */
+  reserveRecipient: PublicKey | null;
 }
 
 export interface LaunchListItem {
@@ -110,6 +117,11 @@ interface RawTx {
     preTokenBalances?: TokenBalance[] | null;
     postTokenBalances?: TokenBalance[] | null;
     loadedAddresses?: { writable?: string[]; readonly?: string[] } | null;
+    /** Calls each top-level instruction made, as the RPC reports them (`data` in base58). */
+    innerInstructions?: Array<{
+      index: number;
+      instructions: Array<{ programIdIndex: number; accounts: number[]; data: string }>;
+    }> | null;
   } | null;
   transaction?: [string, string] | unknown;
 }
@@ -158,7 +170,9 @@ export function parseLaunchTransaction(
   let creator: PublicKey | null = null;
   let mint: PublicKey | null = null;
   let treasuryToken: PublicKey | null = null;
-  for (const ix of msg.compiledInstructions) {
+  let reserveRecipient: PublicKey | null = null;
+  let createIndex = -1;
+  for (const [index, ix] of msg.compiledInstructions.entries()) {
     const prog = keys[ix.programIdIndex];
     if (!prog || !prog.equals(programId)) continue;
     const data = ix.data;
@@ -173,39 +187,112 @@ export function parseLaunchTransaction(
       if (wantMint && !m.equals(wantMint)) continue;
       creator = c;
       mint = m;
+      createIndex = index;
       // create_launch pays the platform reserve to the treasury's token account
-      // (position 9 of 11) in this same instruction. That is not a buy.
-      treasuryToken = ix.accountKeyIndexes.length >= 11 ? acct(9) : null;
+      // (position 9 of 11) in this same instruction, and that account belongs to the
+      // fee recipient at position 8. The reserve is not a buy.
+      if (ix.accountKeyIndexes.length >= 11) {
+        reserveRecipient = acct(8);
+        treasuryToken = acct(9);
+      }
       continue;
     }
   }
   if (!creator || !mint) return null;
 
-  const openingBuyTokens = boughtInLaunch(t.meta, keys, mint, programId, treasuryToken);
-  return { signature, blockTime: typeof t.blockTime === 'number' ? t.blockTime : null, creator, mint, openingBuyTokens };
+  const vault = curveVaultPda(mint, programId);
+  const reserve = treasuryToken ? reservePaid(t.meta, keys, createIndex, vault, treasuryToken) : 0n;
+  const openingBuyTokens = boughtInLaunch(t.meta, keys, mint, vault, treasuryToken, reserve);
+  return {
+    signature,
+    blockTime: typeof t.blockTime === 'number' ? t.blockTime : null,
+    creator,
+    mint,
+    openingBuyTokens,
+    reserveRecipient,
+  };
+}
+
+const BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+/** Base58 to bytes, or `null` for a character outside the alphabet. */
+export function fromBase58(s: string): Uint8Array | null {
+  let n = 0n;
+  for (const ch of s) {
+    const v = BASE58.indexOf(ch);
+    if (v < 0) return null;
+    n = n * 58n + BigInt(v);
+  }
+  const out: number[] = [];
+  while (n > 0n) {
+    out.push(Number(n & 0xffn));
+    n >>= 8n;
+  }
+  for (const ch of s) {
+    if (ch !== '1') break;
+    out.push(0);
+  }
+  return Uint8Array.from(out.reverse());
+}
+
+/** SPL Token `Transfer` (instruction 3): tag byte, then the amount as a little-endian u64. */
+const TOKEN_TRANSFER = 3;
+
+/**
+ * The platform reserve this launch paid, read from create_launch's own call to the
+ * token program: the transfer from the curve vault to the treasury's token account.
+ * Only calls made BY our create_launch are looked at, so nothing else in the
+ * transaction can pose as it. `0n` when create_launch made no such transfer (the
+ * program skips it for a zero reserve); `null` when the RPC did not report the calls.
+ */
+function reservePaid(
+  meta: NonNullable<RawTx['meta']>,
+  keys: PublicKey[],
+  createIndex: number,
+  vault: PublicKey,
+  treasuryToken: PublicKey,
+): bigint | null {
+  if (!Array.isArray(meta.innerInstructions)) return null;
+  // create_launch always calls the token program (it mints the supply), so a
+  // missing entry means the record is incomplete, not that nothing was paid.
+  const own = meta.innerInstructions.find((x) => x && x.index === createIndex);
+  if (!own || !Array.isArray(own.instructions)) return null;
+  let paid = 0n;
+  for (const ix of own.instructions) {
+    if (!ix || !keys[ix.programIdIndex]?.equals(TOKEN_PROGRAM_ID) || !Array.isArray(ix.accounts)) continue;
+    const data = typeof ix.data === 'string' ? fromBase58(ix.data) : null;
+    if (!data) return null;
+    if (data.length !== 9 || data[0] !== TOKEN_TRANSFER) continue;
+    const from = keys[ix.accounts[0] ?? -1];
+    const to = keys[ix.accounts[1] ?? -1];
+    if (!from || !to || !from.equals(vault) || !to.equals(treasuryToken)) continue;
+    paid += new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(1, true);
+  }
+  return paid;
 }
 
 /**
- * Tokens of `mint` that reached any account other than the curve's own vault and the
- * treasury's token account in this transaction: the sum of every other account's
- * increase. The treasury's token account receives the platform reserve inside
- * create_launch, which is not a buy, so it is left out whole. `null` when the
- * balances are missing, when the curve vault is not among them (create_launch
- * always fills it, so its absence means the record is incomplete), or when an
- * amount does not parse.
+ * Tokens of `mint` that reached any account other than the curve's own vault in this
+ * transaction: the sum of every other account's increase, with the platform reserve
+ * (`reserve`, paid inside create_launch, not a buy) taken off the treasury's token
+ * account. That account can hold a buy too: when the treasury's own wallet launches
+ * and buys, its tokens and the reserve land in the same account. `null` when the
+ * balances are missing, when the curve vault is not among them (create_launch always
+ * fills it, so its absence means the record is incomplete), when an amount does not
+ * parse, or when the reserve could not be read.
  */
 function boughtInLaunch(
   meta: NonNullable<RawTx['meta']>,
   keys: PublicKey[],
   mint: PublicKey,
-  programId: PublicKey,
+  vault: PublicKey,
   treasuryToken: PublicKey | null,
+  reserve: bigint | null,
 ): bigint | null {
   const post = meta.postTokenBalances;
   const pre = meta.preTokenBalances;
   if (!Array.isArray(post) || !Array.isArray(pre)) return null;
   const m58 = mint.toBase58();
-  const vault = curveVaultPda(mint, programId);
   const amount = (b: TokenBalance): bigint => {
     const a = b.uiTokenAmount?.amount;
     if (typeof a !== 'string' || !/^\d+$/.test(a)) throw new Error('amount');
@@ -222,9 +309,14 @@ function boughtInLaunch(
         sawVault = true;
         continue;
       }
-      if (treasuryToken && k.equals(treasuryToken)) continue;
       const before = pre.find((x) => x && x.mint === m58 && x.accountIndex === b.accountIndex);
-      const delta = amount(b) - (before ? amount(before) : 0n);
+      let delta = amount(b) - (before ? amount(before) : 0n);
+      if (treasuryToken && k.equals(treasuryToken)) {
+        if (reserve === null) return null;
+        delta -= reserve;
+        // Less than the reserve arrived: the record does not add up.
+        if (delta < 0n) return null;
+      }
       if (delta > 0n) total += delta;
     }
     return sawVault ? total : null;

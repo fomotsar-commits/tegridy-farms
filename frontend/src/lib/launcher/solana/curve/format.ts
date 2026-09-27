@@ -41,6 +41,21 @@ export function describeTreasury(feeRecipient: PublicKey | null | undefined): Tr
 }
 
 /**
+ * Name the account that received an EXISTING launch's platform reserve.
+ *
+ * `create_launch` pays whoever `global.fee_recipient` was at that moment, and
+ * `update_global` can change it afterwards, so today's config says nothing about a
+ * past payment. `recorded` is the fee recipient in the launch's own create
+ * transaction (account 8 of `create_launch`, see `readLaunchOrigin`). When it was
+ * not read (`null`) the account is named with no address and no multisig claim.
+ * Use {@link describeTreasury} only for a launch that has not happened yet.
+ */
+export function describeReserveRecipient(recorded: PublicKey | null | undefined): TreasuryDescription {
+  if (!recorded) return { multisig: false, name: 'the platform treasury at the time' };
+  return describeTreasury(recorded);
+}
+
+/**
  * Solana protocol constant. SOL is always 9 decimals; the LAUNCH MINT is not, and
  * conflating the two is why {@link formatTokenAmount} demands its decimals.
  */

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { SolanaLaunchView, type LaunchData, type SolanaLaunchViewProps } from './CurveLaunchDetailPage';
 import { awaitingOwnLaunch } from '../components/solana/curve/pendingLaunch';
@@ -21,6 +21,7 @@ import {
   prepared,
 } from '../components/solana/curve/fakeWriteApi.fixture';
 import type { CurveSignerState } from '../components/solana/curve/useCurveSigner';
+import { PLATFORM_TREASURY_VAULT } from '../lib/launcher/solana/curve';
 import type { LaunchPool, TxOutcome, WriteApi, WriteGate, WriteRpc } from '../components/solana/curve/ports';
 import type { PoolStateView } from '../lib/solana/cpswap/program';
 
@@ -60,6 +61,8 @@ function data(over: Partial<LaunchData> = {}): LaunchData {
     openingBuy: { kind: 'ok', value: 50_000_000_000_000n },
     holding: { kind: 'unreadable', detail: 'HTTP 429' },
     pool: null,
+    // Who the launch's own create transaction paid the reserve to.
+    reserveRecipient: KEY(4),
     ...over,
   };
 }
@@ -171,8 +174,8 @@ describe('the launch page', () => {
       expect(spot.textContent).not.toMatch(/\de[-+]\d/);
     }
     expect(text).toMatch(/Buying stops there: the graduation target plus a small amount that pays for opening the pool\./);
-    // Paid at creation, to the live config's fee recipient, named by address because it is not the known vault.
-    expect(text).toContain(`Platform reserve: sent to the platform treasury (${KEY(4).toBase58()}) when this token was created.`);
+    // Paid at creation, to the fee recipient in the launch's own create transaction, named by address because it is not the known vault.
+    expect(text).toContain(`Platform reserve: paid when this token was created, to the platform treasury (${KEY(4).toBase58()}).`);
     expect(text).not.toMatch(/release|held by the program|if this launch graduates/i);
   });
 
@@ -256,7 +259,7 @@ describe('the launch page', () => {
     expect(screen.queryByTestId('curve-trade-panel')).not.toBeInTheDocument();
     expect(screen.getByTestId('pool-swap-panel')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /release/i })).not.toBeInTheDocument();
-    expect(screen.getByTestId('graduation-panel')).toHaveTextContent(/Paid to the platform treasury .* when this token was created/);
+    expect(screen.getByTestId('graduation-panel')).toHaveTextContent(`Paid when this token was created, to the platform treasury (${KEY(4).toBase58()}). Graduation did not touch it.`);
     // Graduation empties the curve's real reserves: its progress, "SOL raised" and
     // spot would read as a confident 0% / 0 SOL / stale price next to the live pool.
     expect(screen.getByTestId('curve-closed')).toHaveTextContent(/The curve closed at graduation/);
@@ -472,6 +475,41 @@ describe('the launch page', () => {
       `When this token was created, the platform received 3.69% of the supply, sent to the platform treasury (${KEY(4).toBase58()}). This page cannot confirm that the treasury is a multisig. The program does not stop the treasury selling those tokens, including while the curve is live.`,
     );
     expect(card).toHaveTextContent(/You can lose everything/);
+  });
+
+  // update_global can change fee_recipient after a launch. Every sentence about a past
+  // payment names the account in the launch's own create transaction, and calls it a
+  // multisig only when THAT account is the vault, whatever today's config says.
+  it("names who was paid from the launch's own transaction, never from today's config", () => {
+    const today = globalCfg({ feeRecipient: PLATFORM_TREASURY_VAULT });
+    const c = bondingCurve({ complete: true });
+    const api = fakeApi({ writeActions: vi.fn(() => ({ create: true, buy: false, sell: false, migrate: false, poolSwap: true })) });
+    const paidThen = KEY(7);
+    const view = (reserveRecipient: LaunchData['reserveRecipient']) =>
+      renderView(
+        { data: data({ launch: launchState(c, today), pool: { kind: 'unreadable', detail: 'HTTP 500' }, reserveRecipient }) },
+        api,
+        openGate({ global: today }),
+      );
+
+    view(paidThen);
+    let text = (document.body.textContent ?? '').replace(/\s+/g, ' ');
+    const named = `the platform treasury (${paidThen.toBase58()})`;
+    expect(text).toContain(`Platform reserve: paid when this token was created, to ${named}.`);
+    expect(screen.getByTestId('graduation-panel')).toHaveTextContent(`Paid when this token was created, to ${named}.`);
+    expect(screen.getByTestId('before-you-trade')).toHaveTextContent(`sent to ${named}. This page cannot confirm`);
+    expect(text).not.toMatch(/\(a multisig\)/);
+    expect(text).not.toContain(PLATFORM_TREASURY_VAULT.toBase58());
+    cleanup();
+
+    // Not read: no address, no multisig claim, and nothing borrowed from today's config.
+    view(null);
+    text = (document.body.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text).toContain('Platform reserve: paid when this token was created, to the platform treasury at the time.');
+    expect(screen.getByTestId('graduation-panel')).toHaveTextContent('Paid when this token was created, to the platform treasury at the time.');
+    expect(screen.getByTestId('before-you-trade')).toHaveTextContent('sent to the platform treasury at the time.');
+    expect(text).not.toMatch(/\(a multisig\)/);
+    expect(text).not.toContain(PLATFORM_TREASURY_VAULT.toBase58());
   });
 
   it('a blocked gate shows the reason and no action panels', () => {

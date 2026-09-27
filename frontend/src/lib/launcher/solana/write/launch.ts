@@ -220,6 +220,15 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
     // Exact: nothing trades between create_launch and this buy.
     openingBuy = { maxLamportsIn: input.openingBuy.lamportsIn, minTokensOut: q.value.tokensOut };
   }
+  // The treasury's own wallet: its token account IS the treasury's token account, so
+  // its opening buy and the platform reserve would land in one account, and the
+  // check before signing could not tell them apart. A launch without a buy is fine.
+  if (openingBuy && creator.equals(feeRecipient)) {
+    return notSent(
+      'build',
+      'This wallet is the platform treasury, so an opening buy would land in the same token account as the platform reserve. Launch without an opening buy, then buy on the curve.',
+    );
+  }
 
   // Rent, read from the cluster: the mint, and what create_launch charges the
   // creator (the curve, its vault and, when missing, the treasury's token account).

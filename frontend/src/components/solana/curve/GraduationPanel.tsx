@@ -1,10 +1,11 @@
 import type { PublicKey } from '@solana/web3.js';
 import {
-  describeTreasury,
+  describeReserveRecipient,
   formatTokenAmount,
   migrationEligibility,
   type CurveAccount,
   type LaunchState,
+  type TreasuryDescription,
 } from '../../../lib/launcher/solana/curve';
 import { Card, Notice, Row } from './ui';
 import { TxFlowView } from './TxFlowView';
@@ -38,6 +39,11 @@ export interface GraduationPanelProps {
   onSettled: OnSettled;
   /** The transaction is about to be sent: the page writes its "may still land" note. */
   onSent?: OnSent;
+  /**
+   * Who received this launch’s platform reserve, from its own create transaction
+   * (describeReserveRecipient). Never today’s config, which can have changed since.
+   */
+  treasury?: TreasuryDescription;
 }
 
 /**
@@ -59,6 +65,7 @@ export function GraduationPanel({
   signerState,
   onSettled,
   onSent,
+  treasury = describeReserveRecipient(null),
 }: GraduationPanelProps) {
   const flow = useTxFlow(api, rpc, onSettled, onSent);
   const { target: reviewRef, fallback: headingRef } = useReturnFocus(flow.state.step);
@@ -122,7 +129,6 @@ export function GraduationPanel({
   }
 
   const reserve = formatTokenAmount(c.platformReserveTokens, decimals);
-  const treasury = describeTreasury(gate.global.feeRecipient);
   return (
     <Card title="Graduated" testId="graduation-panel" headingRef={headingRef}>
       <Row label="Pool" value={c.pool.toBase58()} />
@@ -133,7 +139,7 @@ export function GraduationPanel({
           <Row label={`Platform reserve${reserve.isBaseUnits ? ' (base units)' : ''}`} value={reserve.text} />
           <p>
             {c.platformReserveReleased
-              ? `Paid to ${treasury.name} when this token was created. Graduation did not touch it.`
+              ? `Paid when this token was created, to ${treasury.name}. Graduation did not touch it.`
               : 'This launch’s account does not record the platform reserve as paid, so this page does not say where it is.'}
           </p>
         </>
