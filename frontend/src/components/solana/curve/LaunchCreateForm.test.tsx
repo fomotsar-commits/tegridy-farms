@@ -6,6 +6,7 @@ import { CREATOR, KEY, SIG, SOL, fakeApi, openGate, prepared } from './fakeWrite
 import { readPendingLaunch, savePendingLaunch } from './pendingLaunch';
 import type { CreateLaunchInput, OpenGate, TxOutcome, TxSummary, UploadInput, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
+import { IPFS_STEP_TIMEOUT_MS, ipfsGatewayUrls } from '../../../lib/ipfsGateways';
 
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
 
@@ -556,5 +557,44 @@ describe('launch form: review and send', () => {
     });
     expect(screen.getByText(/safe to try again/)).toBeInTheDocument();
     expect(readPendingLaunch(vi.mocked(api.prepareCreateLaunch).mock.calls[0]![2].mint.publicKey.toBase58())).toBeNull();
+  });
+});
+
+// The review's picture is on IPFS in paste mode, and a gateway can HANG (no answer,
+// no error event). A plain <img> walking the list only on error sits on a hung
+// gateway forever and the creator reviews a blank picture. It must move on after
+// one step, with no error event.
+describe('launch form: the review picture moves past a hung IPFS gateway', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('paste mode: a picture on a gateway that never answers moves to the next one after one step', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const CID = 'bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy';
+    const urls = ipfsGatewayUrls(`ipfs://${CID}`);
+    const api = createApi();
+    vi.mocked(api.meta.uploadsAvailable).mockResolvedValue('no');
+    vi.mocked(api.meta.readLaunchMetadataJson).mockResolvedValue({
+      kind: 'ok',
+      json: { name: 'Farm Fresh', symbol: 'FRESH', description: '', image: `ipfs://${CID}`, mint: null },
+      mintMatches: false,
+      issues: [],
+    });
+    renderForm(api);
+    fireEvent.change(await screen.findByLabelText('Details link'), {
+      target: { value: `https://ipfs.io/ipfs/${CID}` },
+    });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Farm Fresh' } });
+    fireEvent.change(screen.getByLabelText('Symbol'), { target: { value: 'FRESH' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
+    });
+    const pic = await screen.findByAltText('Your token picture');
+    expect(pic).toHaveAttribute('src', urls[0]);
+    await act(async () => {
+      vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS);
+    });
+    expect(screen.getByAltText('Your token picture')).toHaveAttribute('src', urls[1]);
   });
 });
