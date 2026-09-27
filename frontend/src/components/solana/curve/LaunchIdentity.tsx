@@ -1,10 +1,11 @@
+import { useState } from 'react';
 import type { PublicKey } from '@solana/web3.js';
 import { formatTokenAmount, type Read } from '../../../lib/launcher/solana/curve';
 import { Notice, Row } from './ui';
 import { sharePercent } from './uiFormat';
 import type { LaunchLinks, MetadataApi, MetadataRead, TokenMetadata } from './ports';
 import { identityWarnings, safeImageUrl } from './identity';
-import { advanceIpfsImg } from '../../../lib/ipfsGateways';
+import { IpfsImg } from '../../IpfsImg';
 import type { Fact } from './facts';
 
 // Who a launch says it is, and the facts that decide whether to believe it.
@@ -20,8 +21,11 @@ import type { Fact } from './facts';
 const LINK_LABEL: Record<keyof LaunchLinks, string> = { website: 'Website', twitter: 'X (Twitter)', telegram: 'Telegram' };
 
 export function LaunchImage({ src, size = 64 }: { src: string | null; size?: number }) {
-  return src ? (
-    <img
+  // The src whose every gateway failed or hung. Keyed on the src, so a new picture
+  // gets its own walk down the gateway list instead of inheriting the old failure.
+  const [exhausted, setExhausted] = useState<string | null>(null);
+  return src && exhausted !== src ? (
+    <IpfsImg
       src={src}
       alt=""
       width={size}
@@ -29,7 +33,7 @@ export function LaunchImage({ src, size = 64 }: { src: string | null; size?: num
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
-      onError={(e) => advanceIpfsImg(e.currentTarget)}
+      onExhausted={() => setExhausted(src)}
       className="rounded-xl object-cover shrink-0 bg-black/40"
       style={{ width: size, height: size }}
     />

@@ -1,12 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   IPFS_GATEWAYS,
   DEAD_IPFS_GATEWAY_HOSTS,
   ipfsGatewayUrls,
   liveIpfsUrl,
   nextIpfsGatewayUrl,
-  advanceIpfsImg,
+  watchIpfsImg,
   fetchIpfsStep,
+  IPFS_STEP_TIMEOUT_MS,
 } from './ipfsGateways';
 import { cspAllows, directive } from '../test/csp';
 
@@ -20,13 +21,26 @@ const host = (u: string) => new URL(u).hostname;
 const CID = 'QmaTrk9RrN3yhwyB1EbRFrxBEEtcbBaGs2NppJGn262Bid';
 
 describe('the gateway list', () => {
-  it('leads with the gateways measured to serve real content on 2026-09-26', () => {
-    expect(IPFS_GATEWAYS.map(host)).toEqual([
-      'ipfs.filebase.io',
-      'ipfs.orbitor.dev',
+  it('holds the four gateways measured to serve real content on 2026-09-26', () => {
+    expect([...IPFS_GATEWAYS.map(host)].sort()).toEqual([
       'gateway.pinata.cloud',
       'ipfs.aleph.cloud',
+      'ipfs.filebase.io',
+      'ipfs.orbitor.dev',
     ]);
+    // Fastest when it has the content (0.1-0.3s), so it leads.
+    expect(host(IPFS_GATEWAYS[0])).toBe('ipfs.filebase.io');
+  });
+
+  // Uncached Jungle Bay tokens, 2026-09-26: Pinata served 8/8 (4.0-7.5s), while
+  // orbitor and aleph answered 504 after 30s. Behind a hung filebase, Pinata is
+  // where an uncached image comes from, so no gateway that 504s on uncached
+  // content may sit in front of it and burn a step budget first.
+  it('puts the gateway that serves uncached content right after the first', () => {
+    const at = (h: string) => IPFS_GATEWAYS.map(host).indexOf(h);
+    expect(at('gateway.pinata.cloud')).toBe(1);
+    expect(at('gateway.pinata.cloud')).toBeLessThan(at('ipfs.orbitor.dev'));
+    expect(at('gateway.pinata.cloud')).toBeLessThan(at('ipfs.aleph.cloud'));
   });
 
   it('contains no retired gateway, at any position', () => {
@@ -61,6 +75,47 @@ describe('liveIpfsUrl', () => {
     `https://gateway.ipfs.io/ipfs/${CID}/1.png`,
   ])('moves a dead-gateway URL onto a live one: %s', (url) => {
     expect(liveIpfsUrl(url)).toBe(first);
+  });
+
+  // Nakamigos' metadataBase is on alchemy.mypinata.cloud, a Pinata dedicated
+  // gateway that is not in the CSP, so the browser blocked every image built on
+  // it. The CID is public; it has to move onto the live list like a dead host.
+  it('moves a Pinata dedicated-gateway URL onto a live one', () => {
+    const naka = 'QmaN1jRPtmzeqhp6s3mR1SRK4q1xWPvFvwqW1jyN6trir9';
+    expect(liveIpfsUrl(`https://alchemy.mypinata.cloud/ipfs/${naka}/1`)).toBe(`${IPFS_GATEWAYS[0]}${naka}/1`);
+    expect(nextIpfsGatewayUrl(`https://alchemy.mypinata.cloud/ipfs/${naka}/1`)).toBe(`${IPFS_GATEWAYS[0]}${naka}/1`);
+    // Only the dedicated-gateway family, not a look-alike.
+    expect(liveIpfsUrl(`https://mypinata.cloud.evil.example/ipfs/${naka}`)).toBe(`https://mypinata.cloud.evil.example/ipfs/${naka}`);
+  });
+
+  // Review R2 (privacy): a query string rode along onto the public list, and a
+  // Pinata dedicated gateway's URL can carry its access token. That token went
+  // to all four gateways. A URL that moves host leaves its query behind.
+  it('never carries a query string onto another host', () => {
+    const naka = 'QmaN1jRPtmzeqhp6s3mR1SRK4q1xWPvFvwqW1jyN6trir9';
+    const cid = 'bafkreiav3na7d325rg5ia4vbq5gs2wxbpvmgyzctwuvq2354yb73iv72uq';
+    const cases: [string, string][] = [
+      [`https://alchemy.mypinata.cloud/ipfs/${naka}/1?pinataGatewayToken=SECRET`, `${naka}/1`],
+      [`https://ipfs.io/ipfs/${CID}/1.png?pinataGatewayToken=SECRET&x=1`, `${CID}/1.png`],
+      [`https://${cid}.ipfs.dweb.link/meta.json?token=SECRET`, `${cid}/meta.json`],
+      // Already on a live gateway: the walk still moves it to other hosts.
+      [`${IPFS_GATEWAYS[0]}${CID}/1.png?token=SECRET`, `${CID}/1.png`],
+    ];
+    for (const [url, path] of cases) {
+      const built = [...ipfsGatewayUrls(url)];
+      for (let cur: string | null = url; (cur = nextIpfsGatewayUrl(cur)) !== null; ) built.push(cur);
+      const live = liveIpfsUrl(url) as string;
+      if (host(live) !== host(url)) built.push(live);
+      expect(built.length, url).toBeGreaterThanOrEqual(IPFS_GATEWAYS.length);
+      for (const u of built) {
+        expect(u, `${url} -> ${u}`).not.toContain('SECRET');
+        expect(new URL(u).search, `${url} -> ${u}`).toBe('');
+        expect(u.endsWith(`/ipfs/${path}`), `${url} -> ${u}`).toBe(true);
+      }
+    }
+    // A URL that stays where it is keeps its own query: nothing is sent anywhere new.
+    const onLive = `${IPFS_GATEWAYS[1]}${CID}/1.png?filename=1.png`;
+    expect(liveIpfsUrl(onLive)).toBe(onLive);
   });
 
   it('handles the subdomain form of a dead gateway', () => {
@@ -101,13 +156,100 @@ describe('nextIpfsGatewayUrl walks the whole list, then stops', () => {
     expect(nextIpfsGatewayUrl('https://nft-cdn.alchemy.com/eth-mainnet/abc')).toBeNull();
     expect(nextIpfsGatewayUrl(null)).toBeNull();
   });
+});
 
-  it('advanceIpfsImg moves a plain <img> along and reports when it runs out', () => {
-    const img = document.createElement('img');
-    img.setAttribute('src', `${IPFS_GATEWAYS[0]}${CID}/1.png`);
-    const visited = [img.getAttribute('src')];
-    while (advanceIpfsImg(img)) visited.push(img.getAttribute('src'));
-    expect(visited).toEqual(IPFS_GATEWAYS.map((g) => `${g}${CID}/1.png`));
+describe('watchIpfsImg: move on from a hung gateway, never from a slow download', () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  const img = (state: { naturalWidth?: number; complete?: boolean } = {}) => {
+    const el = document.createElement('img');
+    el.setAttribute('src', `${IPFS_GATEWAYS[0]}${CID}/1.png`);
+    Object.defineProperty(el, 'naturalWidth', { configurable: true, get: () => state.naturalWidth ?? 0 });
+    Object.defineProperty(el, 'complete', { configurable: true, get: () => state.complete ?? false });
+    return el;
+  };
+
+  it('calls onHang when the gateway has sent nothing for a whole step', () => {
+    vi.useFakeTimers();
+    const onHang = vi.fn();
+    watchIpfsImg(img(), { onHang });
+    vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS - 1);
+    expect(onHang).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onHang).toHaveBeenCalledTimes(1);
+  });
+
+  // The review's R1: the old check was `complete && naturalWidth > 0`, so a
+  // 2.5 MB PNG that had started arriving but not finished was treated as hung
+  // and restarted on the next gateway. Browsers set naturalWidth from the image
+  // header (measured in Chromium and WebKit), so it tells "no bytes yet" from
+  // "still downloading".
+  it('leaves an image alone once its bytes are arriving, however long the download', () => {
+    vi.useFakeTimers();
+    const onHang = vi.fn();
+    watchIpfsImg(img({ naturalWidth: 2480, complete: false }), { onHang });
+    vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS * 10);
+    expect(onHang).not.toHaveBeenCalled();
+  });
+
+  it('does not call onHang for an image that already finished (loaded or failed)', () => {
+    vi.useFakeTimers();
+    const onHang = vi.fn();
+    watchIpfsImg(img({ complete: true }), { onHang });
+    vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS * 2);
+    expect(onHang).not.toHaveBeenCalled();
+  });
+
+  // Pinata served every uncached token but took up to 7.5s to its first byte.
+  // The old 6s step skipped it. An 8s gateway must still be waited for.
+  it('waits out a slow gateway that answers after 8s', () => {
+    vi.useFakeTimers();
+    const state = { naturalWidth: 0 };
+    const onHang = vi.fn();
+    watchIpfsImg(img(state), { onHang });
+    vi.advanceTimersByTime(8000);
+    state.naturalWidth = 2480; // the first bytes arrive at 8s
+    vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS * 3);
+    expect(onHang).not.toHaveBeenCalled();
+  });
+
+  // Review R1 (WebKit): the clock started 1250px ahead of the viewport, where
+  // Chromium has requested a lazy image but WebKit (about one viewport height)
+  // has not, so on an iPhone an unseen image walked every gateway and was given
+  // up on. The margin must be the viewport itself. The engines themselves are
+  // exercised in e2e/ipfs-lazy-hang.spec.ts; this pins the wiring.
+  it("starts a lazy image's clock only once it is in view, keeps it running after, and cleans up", () => {
+    vi.useFakeTimers();
+    type Cb = (e: { isIntersecting: boolean }[]) => void;
+    const observers: { cb: Cb; opts?: IntersectionObserverInit; disconnected: boolean }[] = [];
+    vi.stubGlobal('IntersectionObserver', class {
+      cb: Cb;
+      opts?: IntersectionObserverInit;
+      disconnected = false;
+      constructor(cb: Cb, opts?: IntersectionObserverInit) { this.cb = cb; this.opts = opts; observers.push(this); }
+      observe() {}
+      disconnect() { this.disconnected = true; }
+    });
+    const onHang = vi.fn();
+    const stop = watchIpfsImg(img(), { lazy: true, onHang });
+    // Observed against the viewport with no margin in any direction.
+    expect(observers[0].opts?.root ?? null).toBeNull();
+    const margins = (observers[0].opts?.rootMargin ?? '0px').trim().split(/\s+/);
+    expect(margins.map((m) => parseFloat(m)), `rootMargin ${observers[0].opts?.rootMargin}`).toEqual(margins.map(() => 0));
+    vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS * 3);
+    expect(onHang).not.toHaveBeenCalled();
+    observers[0].cb([{ isIntersecting: true }]);
+    // Seen, then scrolled away: the browser's request goes on, so the clock does.
+    observers[0].cb([{ isIntersecting: false }]);
+    vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS);
+    expect(onHang).toHaveBeenCalledTimes(1);
+
+    const onHang2 = vi.fn();
+    const stop2 = watchIpfsImg(img(), { onHang: onHang2 });
+    stop2();
+    vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS * 2);
+    expect(onHang2).not.toHaveBeenCalled();
+    stop();
   });
 });
 

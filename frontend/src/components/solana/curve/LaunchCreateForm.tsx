@@ -11,7 +11,8 @@ import { BeforeYouTrade } from './BeforeYouTrade';
 import { WalletNeeded } from './WalletNeeded';
 import { clearPendingLaunch, readPendingLaunches, savePendingLaunch, type PendingLaunch } from './pendingLaunch';
 import { useReturnFocus, useTxFlow, type OnSent, type OnSettled } from './useTxFlow';
-import { advanceIpfsImg, liveIpfsUrl } from '../../../lib/ipfsGateways';
+import { liveIpfsUrl } from '../../../lib/ipfsGateways';
+import { IpfsImg } from '../../IpfsImg';
 import type {
   ActionAvailability,
   LaunchLinks,
@@ -52,18 +53,20 @@ interface PublicCopy {
  * opens. Built from the values actually uploaded, not from the form.
  */
 function PublicForever({ copy, display }: { copy: PublicCopy; display: (s: string, n: number) => string }) {
+  // Every gateway failed or hung for this picture: say so instead of a broken image.
+  const [exhausted, setExhausted] = useState<string | null>(null);
   return (
     <div className="rounded-xl p-3 space-y-1.5" style={{ border: '1px solid rgba(251,191,36,0.35)' }} data-testid="public-forever">
       <p className="text-amber-200 font-semibold text-[11px]">Public forever</p>
       <div className="flex items-center gap-3">
-        {copy.imageSrc ? (
-          <img
+        {copy.imageSrc && exhausted !== copy.imageSrc ? (
+          <IpfsImg
             src={copy.imageSrc}
             alt="Your token picture"
             width={56}
             height={56}
             referrerPolicy="no-referrer"
-            onError={(e) => advanceIpfsImg(e.currentTarget)}
+            onExhausted={() => setExhausted(copy.imageSrc)}
             className="rounded-lg object-cover"
           />
         ) : (

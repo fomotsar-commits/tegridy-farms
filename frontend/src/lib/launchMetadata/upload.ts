@@ -34,7 +34,7 @@ import {
   type ReadLaunchMetadata,
 } from './validate.js';
 import { base58 } from '@scure/base';
-import { IPFS_STEP_TIMEOUT_MS, fetchIpfsStep, ipfsGatewayUrls } from '../ipfsGateways';
+import { IPFS_GATEWAYS, IPFS_STEP_TIMEOUT_MS, fetchIpfsStep, ipfsGatewayUrls } from '../ipfsGateways';
 
 export type { ImageMime, LaunchLinks, LaunchMetadataJson, ReadLaunchMetadata };
 
@@ -54,8 +54,9 @@ export const MAX_SOURCE_BYTES = 30 * 1024 * 1024;
 
 const STATUS_TIMEOUT_MS = 8_000;
 const UPLOAD_TIMEOUT_MS = 60_000;
-// Long enough for the IPFS gateway walk: each gateway gets IPFS_STEP_TIMEOUT_MS.
-const READ_TIMEOUT_MS = 20_000;
+// Long enough for the whole IPFS gateway walk: each gateway gets IPFS_STEP_TIMEOUT_MS
+// to start answering, plus room for the small JSON body (as metadataUri.ts does).
+const READ_TIMEOUT_MS = IPFS_STEP_TIMEOUT_MS * IPFS_GATEWAYS.length + 2_000;
 
 // ── is the upload service on ────────────────────────────────────────────────
 

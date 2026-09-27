@@ -45,7 +45,7 @@ export function identityWarnings(meta: MetadataApi, md: Read<TokenMetadata> | nu
 /**
  * The picture, only from a content address. Re-checked here even though the reader
  * checks it. IPFS is shown from the first gateway in the site's list (never the one
- * the file names); the <img> walks the rest on error (advanceIpfsImg).
+ * the file names); IpfsImg walks the rest on an error or a hang.
  */
 export function safeImageUrl(meta: MetadataApi, json: MetadataRead | null): string | null {
   if (json?.kind !== 'ok' || typeof json.json.image !== 'string') return null;
