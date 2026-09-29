@@ -1,28 +1,25 @@
 // `tegridy-launch` program identity, PDAs, account layouts and error codes.
 //
-// THERE IS NO PROGRAM AT EITHER ID IN THIS FILE. Both were deployed to mainnet
-// 2026-08-08 and CLOSED on 2026-08-13; their ProgramData accounts return null with 0
-// lamports on two independent RPCs (docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md). A
-// closed upgradeable program id is permanently SPENT — Solana will not let one hold a
-// program again — so `PROGRAM_ID` and `CP_SWAP_PROGRAM_ID` below are a record of where
-// the rail ran, never a deploy target. A restart needs fresh keypairs, new
-// `declare_id!` values, and re-derivation of every PDA this file computes.
+// `PROGRAM_ID` and `CP_SWAP_PROGRAM_ID` below are the RESTART pair (owner ruling
+// 2026-09-25), flipped here for website release 2, which the owner deploys only after
+// both programs exist on mainnet at these ids, the two Squads vault steps have
+// executed and control has been handed to the vault (MAINNET_GO_LIVE.md §3-§8). The
+// release's precheck.mjs reads all of that from mainnet before the deploy command is
+// run; nothing in this file can prove it by itself.
 //
-// The constants are kept rather than deleted because every derivation and every
-// builder in this directory reads them, and because scripts/verify-addresses.mjs check
-// 5b matches these literals against the registry entries that record the closure —
-// deleting them removes the only place code and registry can be compared.
+// The 2026-08 pair (`SPENT_PROGRAM_ID`, `SPENT_CP_SWAP_PROGRAM_ID`) was deployed
+// 2026-08-08 and CLOSED on 2026-08-13; their ProgramData accounts return null with 0
+// lamports (docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md). A closed upgradeable program
+// id is permanently SPENT, so those two are a record of where the rail ran, never a
+// deploy target, and the write layer refuses them (write/config.ts).
+//
+// scripts/verify-addresses.mjs check 5b matches every literal here against the
+// registry, so each of these ids must stay registered in scripts/addresses.json.
 //
 // A CLOSED PROGRAM STILL READS AS EXECUTABLE. `solana program close` deletes the
 // ProgramData account and leaves the 36-byte program stub executable-flagged, so
-// `getAccountInfo(PROGRAM_ID)` — and `readDeployment` in `read.ts`, which is built on
-// it — reports `deployed` for both ids. The only account that distinguishes a live
-// program from a spent one is the ProgramData account, which neither reads. Treat a
-// `deployed` verdict from this rail as unproven until that account is read.
-//
-// Graduation never worked even before the close: cp-swap's AmmConfig was never
-// created, so `migrate_to_amm` failed AmmNotConfigured (6015) for the program's whole
-// life.
+// `getAccountInfo(PROGRAM_ID)` alone cannot tell a live program from a spent one. The
+// write gate (write/config.ts `readWriteGate`) follows the ProgramData account.
 //
 // There is NO committed IDL: `solana/tegridy-amm/.gitignore` ignores `target/`,
 // and both on-chain test suites load the IDL from `../target/idl/…` at runtime,
@@ -39,13 +36,21 @@ import { PublicKey } from '@solana/web3.js';
 // ── identity ─────────────────────────────────────────────────────────────────
 
 /**
+ * The `tegridy-launch` program every derivation, reader and page defaults to: the
+ * restart id `64WBTe…` (the crate's committed `declare_id!` since 2026-09-26). Equal
+ * to `REGISTERED_PROGRAM_ID`; kept as its own literal because verify-addresses check
+ * 5b reads `PROGRAM_ID` by name.
+ */
+export const PROGRAM_ID = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
+
+/**
  * ⛔ SPENT. The address `tegridy-launch` ran at between its 2026-08-08 deploy (slot
  * 438055726) and the close of its ProgramData `6vV7DqMyGwpM18rf2Lkefa1U9YfKquZjvwA61ch3FsnS`
- * on 2026-08-13. Nothing can ever be deployed here again; a restart declares a new id.
- * Registered as `tegridy-launch-program` in frontend/scripts/addresses.json, which
- * carries the closure evidence.
+ * on 2026-08-13. Nothing can ever be deployed here again. Registered as
+ * `tegridy-launch-program` in frontend/scripts/addresses.json, which carries the
+ * closure evidence.
  */
-export const PROGRAM_ID = new PublicKey('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED');
+export const SPENT_PROGRAM_ID = new PublicKey('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED');
 
 /**
  * The old throwaway the crate compiled against until 2026-09-26, when its
@@ -56,23 +61,17 @@ export const PROGRAM_ID = new PublicKey('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9o
 export const PLACEHOLDER_PROGRAM_ID = new PublicKey('8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8');
 
 /**
- * REGISTERED, NOT DEPLOYED (as of 2026-09-26). The restart's mainnet id for
- * `tegridy-launch` — the program's committed `declare_id!` since that date, a fresh
- * keypair chosen by owner ruling 2026-09-25. Read absent on mainnet the same day.
- *
- * Deliberately NOT the default of anything below. Every derivation, reader and page
- * still defaults to `PROGRAM_ID`, so a shipped build never names an id that holds no
- * program. Flip `PROGRAM_ID` to this value in the same change that records the deploy
- * (ProgramData read on chain + registry entry moved to deployed) — not before.
- * The operator harness is the exception: it targets this id by default, and every
- * write it builds reads the deployment first and refuses if nothing is there.
+ * The restart's mainnet id for `tegridy-launch`: the program's committed `declare_id!`
+ * since 2026-09-26, a fresh keypair chosen by owner ruling 2026-09-25. `PROGRAM_ID`
+ * equals it from website release 2 on. The write layer's production gate requires the
+ * two to be equal (write/config.ts `curveWriteConfig`).
  */
 export const REGISTERED_PROGRAM_ID = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
 
 /**
- * REGISTERED, NOT DEPLOYED (as of 2026-09-26). The restart's cp-swap fork id — the
- * fork's committed non-devnet `declare_id!`, and `cp_swap::ID`, the graduation venue
- * `tegridy-launch` now pins at compile time. Same gating as `REGISTERED_PROGRAM_ID`.
+ * The restart's cp-swap fork id: the fork's committed non-devnet `declare_id!`, and
+ * `cp_swap::ID`, the graduation venue `tegridy-launch` pins at compile time.
+ * `CP_SWAP_PROGRAM_ID` equals it from website release 2 on.
  */
 export const REGISTERED_CP_SWAP_PROGRAM_ID = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
 
@@ -96,13 +95,19 @@ export const PLATFORM_TREASURY_MULTISIG = new PublicKey('EVGSnRZFWqjCaWR7z2xKbSX
 export const PLATFORM_TREASURY_VAULT = new PublicKey('GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd');
 
 /**
- * ⛔ SPENT. The cp-swap fork a launch was to graduate into, deployed 2026-08-08 and
- * closed 2026-08-13 alongside `PROGRAM_ID` (ProgramData
- * `6TnZb1GTHhPAYsrbtwfELkqQrXyqCfv7V6s27RJKXHAF`, absent). This doc line previously
- * read "NOT yet deployed", which was wrong in the direction that invites a deploy: the
- * id is not waiting to be used, it is used up.
+ * The cp-swap fork a launch graduates into, and the default of every cp-swap PDA
+ * helper and the migrate/swap builders: the restart id `EKS4C6x…`. Equal to
+ * `REGISTERED_CP_SWAP_PROGRAM_ID`; kept as its own literal for check 5b.
  */
-export const CP_SWAP_PROGRAM_ID = new PublicKey('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
+export const CP_SWAP_PROGRAM_ID = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
+
+/**
+ * ⛔ SPENT. The cp-swap fork a launch was to graduate into, deployed 2026-08-08 and
+ * closed 2026-08-13 alongside `SPENT_PROGRAM_ID` (ProgramData
+ * `6TnZb1GTHhPAYsrbtwfELkqQrXyqCfv7V6s27RJKXHAF`, absent). Not a deploy target: the
+ * id is used up.
+ */
+export const SPENT_CP_SWAP_PROGRAM_ID = new PublicKey('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
 
 /**
  * True for the old throwaway (`PLACEHOLDER_PROGRAM_ID`).

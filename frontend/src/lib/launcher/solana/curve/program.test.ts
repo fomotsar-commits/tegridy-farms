@@ -28,6 +28,8 @@ import {
   PROGRAM_ID,
   REGISTERED_CP_SWAP_PROGRAM_ID,
   REGISTERED_PROGRAM_ID,
+  SPENT_CP_SWAP_PROGRAM_ID,
+  SPENT_PROGRAM_ID,
   cpAmmAuthorityPda,
   cpAmmConfigPda,
   cpLpMintPda,
@@ -274,24 +276,28 @@ describe('PDA derivation', () => {
   // Pinned base58, so a seed typo (or a stray null terminator) fails loudly
   // instead of silently pointing every read at a different address.
   //
-  // RE-PINNED 2026-08-08 when PROGRAM_ID and CP_SWAP_PROGRAM_ID moved off their
-  // placeholders to the real mainnet addresses. Every one of these derives FROM a
-  // program id, so they all moved together — which is exactly what the
+  // RE-PINNED for website release 2 (branch ship/solana-launch-on), when PROGRAM_ID and
+  // CP_SWAP_PROGRAM_ID moved from the spent 2026-08 pair to the restart ids 64WBTe… /
+  // EKS4C6x…. The values were derived from the raw seeds with web3.js directly, not
+  // through these helpers, and global / AmmConfig / Permission equal the accounts the
+  // local rehearsal created (scripts/solana-localnet/.accounts). Every one of these
+  // derives FROM a program id, so they all moved together — which is exactly what the
   // 'an alternate program id changes every derived address' case below asserts.
+  // (The 2026-08 pins were global 7hrjMjYx…, migauth 77L3BhJF…, AmmConfig DpaUiYQP….)
   it('tegridy-launch PDAs', () => {
-    expect(globalPda().toBase58()).toBe('7hrjMjYxoMKxrBvNkHYfyfJfFPxHi2ovXNLhownm1B6e');
-    expect(curvePda(MINT).toBase58()).toBe('4LaVwaxeQDWQLQk98E7JnZzqZXttBADsH9q3osPDCsqH');
-    expect(curveVaultPda(MINT).toBase58()).toBe('8CSq1f5LHCfAv73WEb34zUpeyCyJKXNjmC5znFfyww5R');
+    expect(globalPda().toBase58()).toBe('7ZvLJKpE5u9Y86RCjnPVXLQhx3LfxFMMZvtkZK9hQfs2');
+    expect(curvePda(MINT).toBase58()).toBe('2FHZyG7mDxmCy7bxdGTMxbs7HYoBLKJn581cppnuNruz');
+    expect(curveVaultPda(MINT).toBase58()).toBe('T9dgZQvQyWNbNhrkqaHVzrHUGGdh7QnAEGXPtEzxUzD');
     // `["migauth"]`, no mint: the program's own seeds. The old `["migauth", mint]`
     // pin was 4URospGA9UuXnqPp74MHTrexf8erjgnyGsF11d8ABhRM, an address the program
     // never checks against.
-    expect(migrationAuthorityPda().toBase58()).toBe('77L3BhJFfSJnDeHLFT2vZhmjR6ZazsFPrdqvRBMZy6Yp');
-    expect(poolStatePda(MINT).toBase58()).toBe('hFBoCWt59BriJ8b5ZSXFGtZM5vLsTW19nB2Fum5wie6');
+    expect(migrationAuthorityPda().toBase58()).toBe('BS8oMxW2p6Fdt7kRnxPa6s9SG9Q5ab2td4Xo4bfg5cq2');
+    expect(poolStatePda(MINT).toBase58()).toBe('Fb1gtqvwCdmQhCHRs5iZnxTZFWqyYP34Jg5T7QRNMJvj');
   });
 
   it('cp-swap PDAs', () => {
-    expect(cpAmmAuthorityPda().toBase58()).toBe('39TE29rvRbuT3DLri3LwQWUYLwjFKJE4UoHarhTKqFGP');
-    expect(cpAmmConfigPda(0).toBase58()).toBe('DpaUiYQPRk6WNqmGVPZB4LPCMQUSoUxGmc8XXto9FGMk');
+    expect(cpAmmAuthorityPda().toBase58()).toBe('Bkr8XPZySJmcUAxKSDNCcH5KE2WDs2Y3GeZLRbeATSfB');
+    expect(cpAmmConfigPda(0).toBase58()).toBe('BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW');
   });
 
   it('the migration authority is program-wide: seeded on "migauth" alone, never on a mint', () => {
@@ -311,7 +317,7 @@ describe('PDA derivation', () => {
     // cp-swap's program id. Deriving it on tegridy-launch would produce a
     // syntactically fine address that cp-swap can never have created.
     const permission = cpPermissionPda(migrationAuthorityPda());
-    expect(permission.toBase58()).toBe('8ZFcjaL9aCjnoih6iDFqjsie6EiWnFCM6ySjL4fSABuC');
+    expect(permission.toBase58()).toBe('5H38YELHgJRGuJajSG22iBj859AE7Bhn7YSckaMNTnaD');
     expect(
       permission.equals(
         PublicKey.findProgramAddressSync(
@@ -324,7 +330,7 @@ describe('PDA derivation', () => {
   });
 
   it('amm_config uses BIG-endian u16, so index 1 is not index 256', () => {
-    expect(cpAmmConfigPda(1).toBase58()).toBe('4gaXxch5n5mE7XEESzMc7KXx86R352PkYGPpFKZX1C7y');
+    expect(cpAmmConfigPda(1).toBase58()).toBe('CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy');
     expect(cpAmmConfigPda(1).equals(cpAmmConfigPda(256))).toBe(false);
     expect(() => cpAmmConfigPda(65_536)).toThrow(RangeError);
     expect(() => cpAmmConfigPda(-1)).toThrow(RangeError);
@@ -794,15 +800,17 @@ describe('error table', () => {
 });
 
 describe('deployment honesty', () => {
-  // This tripwire has flipped twice. It first pinned the pre-deploy placeholder, then
-  // the 2026-08-08 deploy address. Both ids were closed on 2026-08-13 and are spent, so
-  // what these two literals now pin is a HISTORICAL record, not a target — and pinning
-  // them is still load-bearing: verify-addresses.mjs check 5b matches these exact
-  // literals against the registry entries carrying the closure evidence, so a silent
-  // repoint here would break the only place code and registry are compared.
-  // `spentProgramIds.test.ts` is what stops either being described as live again.
-  it('PROGRAM_ID is still the 2026-08-08 address, now spent', () => {
-    expect(PROGRAM_ID.toBase58()).toBe('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED');
+  // This tripwire has flipped three times: the pre-deploy placeholder, then the
+  // 2026-08-08 deploy address (closed 2026-08-13, spent), and now the restart id, in
+  // website release 2 — the build the owner deploys only after the restart programs are
+  // on mainnet and the vault holds control (its precheck.mjs reads that first).
+  // The spent pair stays pinned as SPENT_* records: verify-addresses.mjs check 5b matches
+  // every literal in program.ts against the registry, and `spentProgramIds.test.ts`
+  // stops either being described as live again.
+  it('PROGRAM_ID is the restart id, and the 2026-08 address is kept only as SPENT_PROGRAM_ID', () => {
+    expect(PROGRAM_ID.toBase58()).toBe('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
+    expect(SPENT_PROGRAM_ID.toBase58()).toBe('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED');
+    expect(PROGRAM_ID.equals(SPENT_PROGRAM_ID)).toBe(false);
     expect(isPlaceholderProgramId()).toBe(false);
   });
 
@@ -812,20 +820,21 @@ describe('deployment honesty', () => {
     expect(isPlaceholderProgramId(PLACEHOLDER_PROGRAM_ID)).toBe(true);
   });
 
-  it('CP_SWAP_PROGRAM_ID is still the fork address, closed the same day', () => {
-    expect(CP_SWAP_PROGRAM_ID.toBase58()).toBe('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
+  it('CP_SWAP_PROGRAM_ID is the restart fork, and the closed 2026-08 fork is kept only as SPENT_CP_SWAP_PROGRAM_ID', () => {
+    expect(CP_SWAP_PROGRAM_ID.toBase58()).toBe('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
+    expect(SPENT_CP_SWAP_PROGRAM_ID.toBase58()).toBe('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
   });
 
-  // The restart ids (owner ruling 2026-09-25) are CHOSEN, not deployed. The contract
-  // this block keeps: a shipped build never names an id that holds no program. So the
-  // new ids are declared and pinned here, and nothing defaults to them yet — flipping
-  // `PROGRAM_ID` is one edit, made together with the on-chain proof of the deploy.
-  it('the restart ids are declared, and are not yet the default of anything', () => {
+  // The restart ids (owner ruling 2026-09-25) are now the default of everything: the
+  // write layer's production gate requires PROGRAM_ID and CP_SWAP_PROGRAM_ID to EQUAL
+  // the registered pair (write/config.ts), so the two must never drift apart again.
+  it('the restart ids are the default of every derivation', () => {
     expect(REGISTERED_PROGRAM_ID.toBase58()).toBe('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
     expect(REGISTERED_CP_SWAP_PROGRAM_ID.toBase58()).toBe('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
-    expect(PROGRAM_ID.equals(REGISTERED_PROGRAM_ID)).toBe(false);
-    expect(CP_SWAP_PROGRAM_ID.equals(REGISTERED_CP_SWAP_PROGRAM_ID)).toBe(false);
-    expect(globalPda().equals(globalPda(REGISTERED_PROGRAM_ID))).toBe(false);
+    expect(PROGRAM_ID.equals(REGISTERED_PROGRAM_ID)).toBe(true);
+    expect(CP_SWAP_PROGRAM_ID.equals(REGISTERED_CP_SWAP_PROGRAM_ID)).toBe(true);
+    expect(globalPda().equals(globalPda(REGISTERED_PROGRAM_ID))).toBe(true);
+    expect(cpAmmConfigPda(0).equals(cpAmmConfigPda(0, REGISTERED_CP_SWAP_PROGRAM_ID))).toBe(true);
     expect(isPlaceholderProgramId(REGISTERED_PROGRAM_ID)).toBe(false);
   });
 

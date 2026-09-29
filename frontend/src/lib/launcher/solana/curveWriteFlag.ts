@@ -18,10 +18,14 @@
 // the test, because `vite build --mode anything` would slip past it.
 
 /**
- * The owner flips this to `true` in the same change that flips PROGRAM_ID and both
- * CP_SWAP program ids to the registered ids, after the mainnet deploy.
+ * ON from website release 2 (branch ship/solana-launch-on), in the same commit that
+ * flips PROGRAM_ID and CP_SWAP_PROGRAM_ID to the registered restart ids. That release
+ * is deployed only after both programs exist on mainnet and the vault holds
+ * control. Even ON, the write layer still reads the chain before it offers anything
+ * (write/config.ts `readWriteGate`), so a build served before the programs exist
+ * shows a blocked banner with the reason, never a form that cannot work.
  */
-export const CURVE_WRITES_ENABLED = false;
+export const CURVE_WRITES_ENABLED = true;
 
 /** The one build mode besides a dev server that honours env overrides. */
 export const CURVE_WRITES_E2E_MODE = 'solana-e2e';
@@ -39,9 +43,10 @@ export function curveWriteEnvOverridesAllowed(env: Env = viteEnv()): boolean {
 
 /**
  * Should the page load the write path at all? Read at CALL time, so a test can
- * stub the env.
+ * stub the env. `committed` is a parameter only so the rules for a build with the
+ * constant off stay testable once it is on; every caller uses the default.
  */
-export function isCurveWriteEnabled(env: Env = viteEnv()): boolean {
-  if (CURVE_WRITES_ENABLED) return true;
+export function isCurveWriteEnabled(env: Env = viteEnv(), committed: boolean = CURVE_WRITES_ENABLED): boolean {
+  if (committed) return true;
   return curveWriteEnvOverridesAllowed(env) && env.VITE_SOLANA_CURVE_WRITES === '1';
 }

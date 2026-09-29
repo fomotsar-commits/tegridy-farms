@@ -7,8 +7,9 @@
 //      (`PROGRAM_ID` and both cp-swap ids), and only when they equal the registered
 //      restart ids AND `CURVE_WRITES_ENABLED` is committed `true`. No env variable
 //      can open it, so a hosting-dashboard setting cannot turn writes on ahead of
-//      the owner's flip. Today `PROGRAM_ID` is the spent 2026-08 id and the flag is
-//      false, so production answers `null` and the page stays read-only.
+//      the owner's flip. From website release 2 both ids are the registered pair
+//      and the flag is true, so production answers the mainnet config and gate 2
+//      decides.
 //    - A dev server, or the named local-validator build (`--mode solana-e2e`),
 //      may take the ids from env. Any other build mode counts as production:
 //      `MODE === 'production'` is not the test, because `--mode anything` would
@@ -31,6 +32,7 @@ import {
   PROGRAM_ID,
   REGISTERED_CP_SWAP_PROGRAM_ID,
   REGISTERED_PROGRAM_ID,
+  SPENT_PROGRAM_ID,
   cpPermissionPda,
   isAmmConfigured,
   migrationAuthorityPda,
@@ -113,7 +115,7 @@ export const COMMITTED_WRITE_IDS: CommittedWriteIds = {
 const SPENT_OR_PLACEHOLDER = [
   PLACEHOLDER_PROGRAM_ID,
   // The 2026-08 pair, closed 2026-08-13 and spent forever.
-  new PublicKey('CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED'),
+  SPENT_PROGRAM_ID,
   CPSWAP_SPENT_PROGRAM_ID,
 ];
 

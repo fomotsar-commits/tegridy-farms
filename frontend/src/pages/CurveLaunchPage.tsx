@@ -74,8 +74,9 @@ import {
 //
 //   1. READ-ONLY (writes off). What this page always was: the badge, the panels and
 //      every number come from reading the chain at PROGRAM_ID, and there is no
-//      signing path at all. `PROGRAM_ID` is still the spent 2026-08 id, on purpose,
-//      until the owner flips it after the new deploy; the page says what it reads.
+//      signing path at all. The page says what it reads. From website release 2
+//      `PROGRAM_ID` is the restart id and writes are on, so this mode is what a
+//      build shows while the write gate is still loading or has been refused.
 //   2. LAUNCH AND TRADE (writes on). Only when lib/launcher/solana/curveWriteFlag.ts
 //      lets the write code load (a committed constant in production), AND the write
 //      layer's own config accepts the program pair, AND the chain answers that both
@@ -129,7 +130,7 @@ const PROBE_COPY: Record<
   unreadable: {
     badge: 'READ FAILED',
     tone: 'bg-rose-500/20 text-rose-200 border-rose-500/30',
-    line: 'We could not reach the chain to check. This says nothing about whether the program is live — it only means the lookup failed.',
+    line: 'We could not reach the chain to check. This says nothing about whether the program is live. It only means the lookup failed.',
   },
   deployed: {
     badge: 'DEPLOYED',

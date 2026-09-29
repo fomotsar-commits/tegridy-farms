@@ -147,9 +147,9 @@ export const NAV_SECTIONS: NavSection[] = [
     hub: '/launch',
     items: [
       { to: '/launch',      label: 'Launch', tabLabel: 'Launchpad', soon: !isLauncherEnabled() },
-      // The venue's own Solana curve. "Soon" until launching and trading can load: in a
-      // production build that is ONLY the committed CURVE_WRITES_ENABLED, which the owner
-      // flips with the program ids after the mainnet deploy (curveWriteFlag.ts).
+      // The venue's own Solana curve. "Soon" whenever launching and trading cannot load:
+      // in a production build that is ONLY the committed CURVE_WRITES_ENABLED, which
+      // website release 2 turns on together with the program ids (curveWriteFlag.ts).
       { to: '/curve-launch', label: 'Memetics Curve (Solana)', tabLabel: 'Solana Curve', soon: !isCurveWriteEnabled() },
       // The EVM curve on every chain it is deployed to: the label names them and the pill reads them all.
       {

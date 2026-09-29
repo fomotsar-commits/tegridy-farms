@@ -7,6 +7,8 @@ import {
   PROGRAM_ID,
   REGISTERED_CP_SWAP_PROGRAM_ID,
   REGISTERED_PROGRAM_ID,
+  SPENT_CP_SWAP_PROGRAM_ID,
+  SPENT_PROGRAM_ID,
   cpPermissionPda,
   globalPda,
   migrationAuthorityPda,
@@ -51,12 +53,24 @@ const FLIPPED: CommittedWriteIds = {
   cpSwapProgram: REGISTERED_CP_SWAP_PROGRAM_ID,
   cpSwapLive: null,
 };
+/** What website release 1 committed: the spent 2026-08 pair and the flag off. */
+const OFF: CommittedWriteIds = {
+  enabled: false,
+  programId: SPENT_PROGRAM_ID,
+  cpSwapProgram: SPENT_CP_SWAP_PROGRAM_ID,
+  cpSwapLive: null,
+};
+const MAINNET_REGISTERED = { programId: REGISTERED_PROGRAM_ID, cpSwapProgram: REGISTERED_CP_SWAP_PROGRAM_ID, cluster: 'mainnet' };
 
 describe('gate 1: the configuration', () => {
-  it('what is committed today is OFF: spent ids, flag false', () => {
-    expect(CURVE_WRITES_ENABLED).toBe(false);
+  it('what is committed (website release 2) is ON: the registered pair on mainnet, flag true', () => {
+    expect(CURVE_WRITES_ENABLED).toBe(true);
     expect(COMMITTED_WRITE_IDS.programId.equals(PROGRAM_ID)).toBe(true);
-    expect(curveWriteConfig(PROD)).toBeNull();
+    expect(COMMITTED_WRITE_IDS.programId.equals(REGISTERED_PROGRAM_ID)).toBe(true);
+    expect(COMMITTED_WRITE_IDS.cpSwapProgram.equals(REGISTERED_CP_SWAP_PROGRAM_ID)).toBe(true);
+    expect(curveWriteConfig(PROD)).toEqual(MAINNET_REGISTERED);
+    // Release 1's committed state stays off.
+    expect(curveWriteConfig(PROD, OFF)).toBeNull();
   });
 
   it('flipping the flag is only coherent together with the ids (so the flag cannot be flipped alone)', () => {
@@ -65,17 +79,26 @@ describe('gate 1: the configuration', () => {
       expect(PROGRAM_ID.equals(REGISTERED_PROGRAM_ID)).toBe(true);
       expect(CP_SWAP_PROGRAM_ID.equals(REGISTERED_CP_SWAP_PROGRAM_ID)).toBe(true);
     }
-    expect(curveWriteConfig(PROD, { ...FLIPPED, programId: PROGRAM_ID })).toBeNull();
-    expect(curveWriteConfig(PROD, { ...FLIPPED, cpSwapProgram: CP_SWAP_PROGRAM_ID })).toBeNull();
+    expect(curveWriteConfig(PROD, { ...FLIPPED, programId: SPENT_PROGRAM_ID })).toBeNull();
+    expect(curveWriteConfig(PROD, { ...FLIPPED, cpSwapProgram: SPENT_CP_SWAP_PROGRAM_ID })).toBeNull();
   });
 
   it('production ignores env entirely: flag + registered env ids + spent committed ids = off', () => {
-    expect(curveWriteConfig({ ...PROD, ...ENV_IDS, VITE_SOLANA_CLUSTER: 'mainnet' })).toBeNull();
+    expect(curveWriteConfig({ ...PROD, ...ENV_IDS, VITE_SOLANA_CLUSTER: 'mainnet' }, OFF)).toBeNull();
+  });
+
+  it('production ignores env entirely the other way too: env cannot repoint or re-cluster a flipped build', () => {
+    const other = Keypair.generate().publicKey.toBase58();
+    const env = { ...PROD, ...ENV_IDS, VITE_SOLANA_CURVE_PROGRAM: other, VITE_SOLANA_CPSWAP_PROGRAM: other, VITE_SOLANA_CLUSTER: 'localnet' };
+    expect(curveWriteConfig(env)).toEqual(MAINNET_REGISTERED);
+    expect(curveWriteConfig({ ...PROD, VITE_SOLANA_CURVE_WRITES: '0' })).toEqual(MAINNET_REGISTERED);
   });
 
   it('a custom build mode is production (no env override)', () => {
-    expect(curveWriteConfig({ DEV: false, MODE: 'staging', ...ENV_IDS, VITE_SOLANA_CLUSTER: 'localnet' })).toBeNull();
-    expect(curveWriteConfig({ DEV: false, MODE: 'development', ...ENV_IDS, VITE_SOLANA_CLUSTER: 'localnet' })).toBeNull();
+    expect(curveWriteConfig({ DEV: false, MODE: 'staging', ...ENV_IDS, VITE_SOLANA_CLUSTER: 'localnet' }, OFF)).toBeNull();
+    expect(curveWriteConfig({ DEV: false, MODE: 'development', ...ENV_IDS, VITE_SOLANA_CLUSTER: 'localnet' }, OFF)).toBeNull();
+    // With the flag committed on, such a build is the mainnet build: the env's localnet is ignored.
+    expect(curveWriteConfig({ DEV: false, MODE: 'staging', ...ENV_IDS, VITE_SOLANA_CLUSTER: 'localnet' })).toEqual(MAINNET_REGISTERED);
   });
 
   it('production opens only when the committed flag AND committed ids are the registered ones', () => {
@@ -89,8 +112,10 @@ describe('gate 1: the configuration', () => {
   });
 
   it('dev / e2e: flag off = off; flag on + localnet ids = config', () => {
-    expect(curveWriteConfig({ ...DEV })).toBeNull();
-    expect(curveWriteConfig({ ...DEV, ...ENV_IDS, VITE_SOLANA_CURVE_WRITES: '0', VITE_SOLANA_CLUSTER: 'localnet' })).toBeNull();
+    expect(curveWriteConfig({ ...DEV }, OFF)).toBeNull();
+    expect(curveWriteConfig({ ...DEV, ...ENV_IDS, VITE_SOLANA_CURVE_WRITES: '0', VITE_SOLANA_CLUSTER: 'localnet' }, OFF)).toBeNull();
+    // Committed on: a dev server with no env talks to the committed mainnet pair.
+    expect(curveWriteConfig({ ...DEV })).toEqual(MAINNET_REGISTERED);
     const c = curveWriteConfig({ ...E2E, ...ENV_IDS, VITE_SOLANA_CLUSTER: 'localnet' });
     expect(c).toEqual({ programId: LAUNCH, cpSwapProgram: CPSWAP, cluster: 'localnet' });
     expect(curveWriteConfig({ ...DEV, ...ENV_IDS, VITE_SOLANA_CLUSTER: 'devnet' })?.cluster).toBe('devnet');
@@ -98,8 +123,8 @@ describe('gate 1: the configuration', () => {
 
   it('dev: spent, placeholder, unparsable and duplicate ids are refused', () => {
     const env = (p: string, c: string) => ({ ...DEV, ...ENV_IDS, VITE_SOLANA_CURVE_PROGRAM: p, VITE_SOLANA_CPSWAP_PROGRAM: c, VITE_SOLANA_CLUSTER: 'localnet' });
-    expect(curveWriteConfig(env(PROGRAM_ID.toBase58(), CPSWAP.toBase58()))).toBeNull(); // spent launch id
-    expect(curveWriteConfig(env(LAUNCH.toBase58(), CP_SWAP_PROGRAM_ID.toBase58()))).toBeNull(); // spent cp-swap id
+    expect(curveWriteConfig(env(SPENT_PROGRAM_ID.toBase58(), CPSWAP.toBase58()))).toBeNull(); // spent launch id
+    expect(curveWriteConfig(env(LAUNCH.toBase58(), SPENT_CP_SWAP_PROGRAM_ID.toBase58()))).toBeNull(); // spent cp-swap id
     expect(curveWriteConfig(env(PLACEHOLDER_PROGRAM_ID.toBase58(), CPSWAP.toBase58()))).toBeNull();
     expect(curveWriteConfig(env('not-a-key', CPSWAP.toBase58()))).toBeNull();
     expect(curveWriteConfig(env(LAUNCH.toBase58(), LAUNCH.toBase58()))).toBeNull();

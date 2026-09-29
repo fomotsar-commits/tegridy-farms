@@ -3,13 +3,13 @@ import { PublicKey } from '@solana/web3.js';
 /**
  * cp-swap program identity, PDAs, account layouts and discriminators.
  *
- * ⛔ THERE IS NO PROGRAM AT `PROGRAM_ID` TODAY. The fork was deployed to
- * mainnet 2026-08-08 and CLOSED on 2026-08-13; its ProgramData account is
- * deleted, which makes the id permanently SPENT — Solana never lets a closed
- * upgradeable program id hold a program again. The constant below is a RECORD
- * of where the venue ran, never a deploy target. The restart's new id is
- * `REGISTERED_PROGRAM_ID` (declared in source 2026-09-26; no program there yet), and
- * `LIVE_PROGRAM_ID` picks it up from env, with no code change, once it is.
+ * The 2026-08 fork (`SPENT_PROGRAM_ID`) was deployed to mainnet 2026-08-08 and
+ * CLOSED on 2026-08-13; its ProgramData account is deleted, which makes the id
+ * permanently SPENT — Solana never lets a closed upgradeable program id hold a
+ * program again. That constant is a RECORD of where the venue ran, never a deploy
+ * target. The restart's id is `REGISTERED_PROGRAM_ID` (declared in source
+ * 2026-09-26), and from website release 2 — deployed only after that program is
+ * on mainnet — `LIVE_PROGRAM_ID` defaults to it.
  *
  * The same trap the bonding-curve client documents applies here and is the
  * reason `probeDeployment` in read.ts reads ProgramData and not the program
@@ -43,26 +43,26 @@ import { PublicKey } from '@solana/web3.js';
 export const SPENT_PROGRAM_ID = new PublicKey('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
 
 /**
- * REGISTERED, NOT DEPLOYED (as of 2026-09-26). The fork's committed non-devnet
- * `declare_id!` for the restart, a fresh keypair chosen by owner ruling 2026-09-25;
- * absent on mainnet when read that day. A record, not a default: `LIVE_PROGRAM_ID`
- * stays env-gated, so no shipped build talks to it until the operator has deployed
- * it and published it as `VITE_SOLANA_CPSWAP_PROGRAM`.
+ * The fork's committed non-devnet `declare_id!` for the restart, a fresh keypair
+ * chosen by owner ruling 2026-09-25, and the default of `LIVE_PROGRAM_ID` from
+ * website release 2 on.
  */
 export const REGISTERED_PROGRAM_ID = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
 
 /**
- * The program id this client talks to. Empty until the operator deploys
- * `REGISTERED_PROGRAM_ID` and publishes it as `VITE_SOLANA_CPSWAP_PROGRAM`.
+ * The program id this client talks to: `REGISTERED_PROGRAM_ID`, unless
+ * `VITE_SOLANA_CPSWAP_PROGRAM` names another one (a local validator or devnet run).
  *
- * Deliberately NOT defaulted to `SPENT_PROGRAM_ID`: a default that points at a
- * spent id is how a surface ends up quoting against a program that cannot
- * execute. Absent means absent, and every read below refuses rather than
- * guessing.
+ * Never `SPENT_PROGRAM_ID`: a default that points at a spent id is how a surface
+ * ends up quoting against a program that cannot execute, so the spent id is refused
+ * even when someone pastes it back in, and an unparsable value means no program.
+ * This names an id only; every read below still asks the chain whether a program is
+ * there. In a production build the curve write layer also refuses to run if this
+ * names any id other than `REGISTERED_PROGRAM_ID` (curve write/config.ts).
  */
 export const LIVE_PROGRAM_ID: PublicKey | null = (() => {
   const raw = (import.meta.env?.VITE_SOLANA_CPSWAP_PROGRAM as string | undefined)?.trim();
-  if (!raw) return null;
+  if (!raw) return REGISTERED_PROGRAM_ID;
   try {
     const pk = new PublicKey(raw);
     // Refuse the spent id even if someone pastes it back in.

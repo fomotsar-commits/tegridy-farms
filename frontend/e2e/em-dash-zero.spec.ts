@@ -63,7 +63,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/risks': 3,
   '/copy-trading': 11,
   '/tax': 13,
-  '/curve-launch': 10,
+  '/curve-launch': 8,
   '/eth-curve': 15,
   '/alerts': 17,
   // ScoringRules' written paragraphs; the Cup's coverage notice is a data-unread-ledger.

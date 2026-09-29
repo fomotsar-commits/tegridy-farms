@@ -6,7 +6,7 @@
 // subclasses the page's own Uint8Array, so this is a jsdom artifact — the same
 // remedy the curve client's program.test.ts already carries. This file also reads
 // the Rust source off disk, which node is the right environment for anyway.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -111,12 +111,32 @@ function offsetsOf(src: string, structName: string, start: number) {
 }
 
 describe('identity', () => {
-  it('records the SPENT id and refuses to make it a target', () => {
+  it('records the SPENT id and refuses to make it a target, even when env names it', async () => {
     // A closed upgradeable program id can never hold a program again. Defaulting
     // to it is how a surface ends up quoting against something that cannot run.
     expect(SPENT_PROGRAM_ID.toBase58()).toBe('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y');
-    expect(LIVE_PROGRAM_ID).toBe(null);
-    expect(hasProgramId()).toBe(false);
+    expect(LIVE_PROGRAM_ID?.equals(SPENT_PROGRAM_ID)).toBe(false);
+    // LIVE_PROGRAM_ID is computed at import, so each env is a fresh module load.
+    try {
+      vi.stubEnv('VITE_SOLANA_CPSWAP_PROGRAM', SPENT_PROGRAM_ID.toBase58());
+      vi.resetModules();
+      const spent = await import('./program');
+      expect(spent.LIVE_PROGRAM_ID).toBe(null);
+      expect(spent.hasProgramId()).toBe(false);
+
+      vi.stubEnv('VITE_SOLANA_CPSWAP_PROGRAM', 'not-a-key');
+      vi.resetModules();
+      expect((await import('./program')).LIVE_PROGRAM_ID).toBe(null);
+
+      // A local validator or devnet run may still name its own id.
+      const local = 'BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL';
+      vi.stubEnv('VITE_SOLANA_CPSWAP_PROGRAM', local);
+      vi.resetModules();
+      expect((await import('./program')).LIVE_PROGRAM_ID?.toBase58()).toBe(local);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 
   // This used to pin the SPENT id as the source's declare_id!. The source moved to
@@ -130,10 +150,12 @@ describe('identity', () => {
     expect(lib.includes(SPENT_PROGRAM_ID.toBase58())).toBe(false);
   });
 
-  it('the registered id is a record, not a default: no env, no program id', () => {
-    // Registered is not deployed. Without VITE_SOLANA_CPSWAP_PROGRAM the client has
-    // no program to talk to, exactly as before the restart ids were chosen.
-    expect(LIVE_PROGRAM_ID).toBe(null);
+  it('with no env, the client talks to the registered restart id (website release 2)', () => {
+    // Release 2 is deployed only after this program exists on mainnet, so the id
+    // becomes the default rather than waiting on a hosting-dashboard variable. Every
+    // read still asks the chain whether a program is there.
+    expect(LIVE_PROGRAM_ID?.toBase58()).toBe(REGISTERED_PROGRAM_ID.toBase58());
+    expect(hasProgramId()).toBe(true);
     expect(REGISTERED_PROGRAM_ID.equals(SPENT_PROGRAM_ID)).toBe(false);
   });
 });
