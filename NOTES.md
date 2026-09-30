@@ -15,6 +15,23 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-29 — renaming `origin` takes every branch's upstream with it, so a bare `git push` still goes to the old host
+
+**Believed:** after `git remote rename origin github` and `git remote add origin <new host>`, a
+plain `git push` or `git pull` talks to the new origin.
+
+**Measured:** `git remote rename` rewrites `branch.<name>.remote` for every branch that tracked
+the old name (git 2.53, throwaway clone). After the rename and the add,
+`branch.mvp-launch.remote` was `github`, `git push --dry-run -v` printed `Pushing to` the old
+URL, and `git status -sb` showed `mvp-launch...github/mvp-launch`. The old host is the one being
+left, so the day it comes back, a bare push lands there and skips the primary.
+
+**Do:** after a rename, set every `branch.*.remote` that names the old remote to `origin`, and
+give the old remote an unusable `pushurl` so a push to it fails loudly.
+`scripts/git-hosting/set-remotes.sh` does both, and a mutant without the re-point goes red.
+
+---
+
 ## 2026-09-22 — a `toContain('80°')` pin stays green on a page that says 180°
 
 **Believed:** a test that asserts a threshold goes red when the page shows a different

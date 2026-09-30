@@ -29,6 +29,35 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-09-29: the code moves off GitHub, and only you can open its new homes
+
+GitHub suspended the account on 2026-09-24. Nothing merges or deploys through it. Production
+still serves trunk `434fb635`. The new setup is in [`GIT_HOSTING.md`](GIT_HOSTING.md): GitLab as
+primary, Bitbucket as hot standby, a local vault (every ref, 0 commits lost) and daily bundles on
+OneDrive. The scripts are built and tested. The accounts, sign-ins and first pushes need you.
+
+### ⬜ O-0929-1: work through GIT_HOSTING.md section 2, in order (about two hours)
+
+**Today, first (15 minutes):** section 2.0. Check how you log in to Supabase, Railway and Vercel,
+and add an email login plus 2FA wherever it is GitHub-only. Confirm the offline copy of
+`BACKUP_PASSPHRASE` exists; it is the only one.
+
+**Then:** 2A GitLab (account, 2FA, group `memetics`, empty private project), 2B Bitbucket, 2C
+point the clones, 2D Vercel (the safe order is written there), 2E Railway, 2F the daily backup
+task, 2G the other three repos.
+
+**You should see:** `OK: the host holds exactly the local set (N refs).` from `push-all.sh`, once
+for each host. After 2D step 9, `gitlab memetics/tegridy-farms prod: mvp-launch`. After the first
+MR, `held-through.json` on memetics.finance shows the merge commit.
+
+**A mismatch means:** stop. Do not connect Vercel until both hosts verify. Never push `main` as
+`main`, and never force.
+
+**Then (an agent can do this, with your go for each merge):** open the ship-branch MR as the first
+MR on GitLab, and start the CI port on our own runner (GIT_HOSTING.md section 9).
+
+---
+
 ## 🟡 2026-09-17 — redeploy StakingMonitorView (display only, no funds, not urgent)
 
 ### ⬜ O-0917-1 — one deploy of a stateless view, then a one-line address swap
