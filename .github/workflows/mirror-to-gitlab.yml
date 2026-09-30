@@ -1,0 +1,67 @@
+name: Mirror to GitLab
+
+# GitLab is the live standby: every branch and tag pushed here goes there too, so losing GitHub
+# costs a 15-minute failover, not the code (docs/GIT_HOSTING.md). It never forces or deletes.
+# The daily run sends everything again (GitHub starts no run for a push of more than three tags)
+# and pings healthchecks.io, so a schedule that stops firing raises an alarm.
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  schedule:
+    - cron: '41 6 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run at a time per ref; the daily run waits in the trunk's queue. Nothing is cancelled,
+  # and each run sends the ref as GitHub has it when the run starts.
+  group: mirror-to-gitlab-${{ github.event_name == 'push' && github.ref || 'refs/heads/mvp-launch' }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: Push to the GitLab standby
+    # A deleted branch or tag starts no job: the standby keeps its copy.
+    if: ${{ github.event_name != 'push' || !github.event.deleted }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MIRROR_URL: git@gitlab.com:memetics/tegridy-farms.git
+      # gitlab.com's ed25519 host key and its SHA256 fingerprint, as GitLab publishes both
+      # (docs.gitlab.com/user/gitlab_com). The script connects only when the two agree.
+      GITLAB_HOST_KEY: 'gitlab.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM6tdG4SLp1Btn/nOeHHE5UOzRdf'
+      GITLAB_HOST_KEY_SHA256: 'SHA256:eUXGGm1YGsMAS7vkcx6JOJdOGHPem5gQp4taiCfCLB8'
+    steps:
+      - name: Check out every branch and tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Push to GitLab
+        id: mirror
+        env:
+          GITLAB_MIRROR_SSH_KEY: ${{ secrets.GITLAB_MIRROR_SSH_KEY }}
+          MIRROR_EVENT: ${{ github.event_name }}
+          MIRROR_REF: ${{ github.ref }}
+          MIRROR_DELETED: ${{ github.event.deleted }}
+        run: bash scripts/git-hosting/mirror-to-gitlab.sh
+
+      # The dead-man switch. A late ping means GitHub's schedule stopped firing, which it can do
+      # without a word; a /fail ping means it fired and the standby fell behind.
+      - name: Ping healthchecks.io (daily run only)
+        if: ${{ always() && github.event_name == 'schedule' }}
+        env:
+          HC_PING_URL: ${{ secrets.HC_PING_URL_GITHUB_SCHEDULE }}
+          MIRROR_OUTCOME: ${{ steps.mirror.outcome }}
+        run: |
+          if [ -z "$HC_PING_URL" ]; then
+            echo "::warning::HC_PING_URL_GITHUB_SCHEDULE is not set, so no alarm watches this schedule (docs/GIT_HOSTING.md, 2E)"
+            exit 0
+          fi
+          case "$HC_PING_URL" in https://*) ;; *) echo "::error::HC_PING_URL_GITHUB_SCHEDULE must be an https URL"; exit 1 ;; esac
+          if [ "$MIRROR_OUTCOME" = success ]; then suffix=''; else suffix=/fail; fi
+          curl -fsS -m 10 --retry 3 -o /dev/null "$HC_PING_URL$suffix"

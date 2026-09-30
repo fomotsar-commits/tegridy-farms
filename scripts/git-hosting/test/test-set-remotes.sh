@@ -1,82 +1,138 @@
 #!/usr/bin/env bash
-# set-remotes.sh on clone-shaped throwaway repos. No test touches the network. Usage: bash test-set-remotes.sh
+# set-remotes.sh on clone-shaped throwaway repos. url.<path>.insteadOf sends the real-looking host
+# URLs to local bare repos, so pushes and fetches are real and nothing touches the network.
 source "$(dirname "$0")/lib.sh"
 SR="$SCRIPTS/set-remotes.sh"
 sandbox t-remotes
+GH=https://github.com/fomotsar-commits/tegridy-farms.git
 GL=https://gitlab.com/memetics/tegridy-farms.git
 BB=https://bitbucket.org/memetics/tegridy-farms.git
-GH=https://github.com/fomotsar-commits/tegridy-farms.git
+cfg() { git -C "$1" config --get "$2" || true; }
+pushurls() { git -C "$1" config --get-all remote.origin.pushurl | tr '\n' ' '; }
+redirect() { # clone: GH -> gh.git, GL -> gl.git, BB -> bb.git
+  git -C "$1" config "url.$SB/gh.git.insteadOf" "$GH"
+  git -C "$1" config "url.$SB/gl.git.insteadOf" "$GL"
+  git -C "$1" config "url.$SB/bb.git.insteadOf" "$BB"
+}
 
-# ---- a clone shaped like clone A: GitHub origin, tracking branches, a no-reply email
+# ---- hosts, and a clone shaped like clone A: GitHub origin, tracking branches, a no-reply email
 G init -q -b mvp-launch seed; G -C seed commit -q --allow-empty -m base
 G -C seed branch feat/x; G -C seed branch fix/y
-G clone -q --bare seed gh.git
+G clone -q --bare seed gh.git; G clone -q --bare seed gl.git; G init -q --bare bb.git
 G clone -q gh.git clone
 G -C clone checkout -q -b feat/x origin/feat/x; G -C clone checkout -q mvp-launch
-G -C clone remote set-url origin "$GH"
+G -C clone remote set-url origin "$GH"; redirect clone
 G -C clone config user.email fomotsar-commits@users.noreply.github.com
-before_refs=$(git -C clone for-each-ref --format='%(objectname)' refs/remotes/origin/ | sort)
+origin_refs=$(git -C clone for-each-ref --format='%(refname:lstrip=3) %(objectname)' refs/remotes/origin/ | sort)
 
-out=$(bash "$SR" clone "$GL" "$BB" 2>&1); rc=$?
-check "exits 0" test $rc -eq 0
-check "origin was renamed to github" test "$(git -C clone config remote.github.url)" = "$GH"
-check "refs/remotes/github/* kept as the record" test "$(git -C clone for-each-ref --format='%(objectname)' refs/remotes/github/ | sort)" = "$before_refs"
-check "no refs/remotes/origin/* left over" test -z "$(git -C clone for-each-ref refs/remotes/origin/)"
-check "origin fetches from GitLab" test "$(git -C clone config remote.origin.url)" = "$GL"
-check "origin pushes to GitLab then Bitbucket" test "$(git -C clone config --get-all remote.origin.pushurl | tr '\n' ' ')" = "$GL $BB "
-check "origin keeps a normal fetch refspec" test "$(git -C clone config remote.origin.fetch)" = "+refs/heads/*:refs/remotes/origin/*"
-check "github push is disabled" bash -c 'git -C "$0" config remote.github.pushurl | grep -q "^no-push://"' clone
-check "github skipped by fetch --all" test "$(git -C clone config remote.github.skipFetchAll)" = true
-check "tracking branches point at origin" test "$(git -C clone config branch.feat/x.remote)$(git -C clone config branch.mvp-launch.remote)" = originorigin
-check "no-reply email warned about" grep -q "WARNING: commits here are authored as fomotsar-commits@users.noreply.github.com" <<< "$out"
-check "email not changed silently" test "$(git -C clone config user.email)" = fomotsar-commits@users.noreply.github.com
-check "a push to github fails" bash -c '! git -C "$0" push -q github mvp-launch 2>/dev/null' clone
+# ================================================================ day to day: GitHub primary, GitLab standby
+out=$(bash "$SR" clone "$GH" "$GL" 2>&1); rc=$?
+check "day: exits 0" test $rc -eq 0
+check "day: origin still fetches from GitHub" test "$(cfg clone remote.origin.url)" = "$GH"
+check "day: origin pushes to GitHub, then GitLab" test "$(pushurls clone)" = "$GH $GL "
+check "day: origin keeps its tracking refs" test "$(git -C clone for-each-ref --format='%(refname:lstrip=3) %(objectname)' refs/remotes/origin/ | sort)" = "$origin_refs"
+check "day: a gitlab remote fetches the standby" test "$(cfg clone remote.gitlab.url)" = "$GL"
+check "day: gitlab has the normal fetch refspec" test "$(cfg clone remote.gitlab.fetch)" = "+refs/heads/*:refs/remotes/gitlab/*"
+check "day: gitlab is not frozen" test -z "$(cfg clone remote.gitlab.pushurl)$(cfg clone remote.gitlab.skipFetchAll)"
+check "day: no github remote invented" test -z "$(cfg clone remote.github.url)"
+check "day: branches still track origin" test "$(cfg clone branch.feat/x.remote)$(cfg clone branch.mvp-launch.remote)" = originorigin
+check "day: no e-mail warning while GitHub is primary" bash -c '! grep -q WARNING <<< "$0"' "$out"
 
 snap=$(git -C clone config --local --list)
-out=$(bash "$SR" clone "$GL" "$BB" 2>&1); rc=$?
-check "re-run exits 0" test $rc -eq 0
-check "re-run changes nothing" test "$(git -C clone config --local --list)" = "$snap"
+out=$(bash "$SR" clone "$GH" "$GL" 2>&1); rc=$?
+check "day: re-run exits 0" test $rc -eq 0
+check "day: re-run changes nothing" test "$(git -C clone config --local --list)" = "$snap"
 
+G -C clone checkout -q feat/x; G -C clone commit -q --allow-empty -m on-feat; G -C clone checkout -q mvp-launch
+G -C clone push -q origin feat/x 2>/dev/null
+tip=$(git -C clone rev-parse feat/x)
+check "day: one push reaches GitHub" test "$(git -C gh.git rev-parse refs/heads/feat/x)" = "$tip"
+check "day: the same push reaches GitLab" test "$(git -C gl.git rev-parse refs/heads/feat/x)" = "$tip"
+G -C clone fetch -q gitlab
+check "day: fetch gitlab reads the standby" test "$(git -C clone rev-parse refs/remotes/gitlab/feat/x)" = "$tip"
+
+# ---- guards: each refusal leaves the config as it was
+snap=$(git -C clone config --local --list)
+out=$(bash "$SR" clone "$GH" "$GH" 2>&1); rc=$?
+check "same primary and standby: refused" bash -c '[[ $0 -ne 0 ]] && grep -q "the same URL" <<< "$1"' "$rc" "$out"
+out=$(bash "$SR" clone "$GL" https://gitlab.com/memetics/tegridy-farms-vault.git 2>&1); rc=$?
+check "primary and standby on one host: refused" bash -c '[[ $0 -ne 0 ]] && grep -q "must outlive the primary" <<< "$1"' "$rc" "$out"
+out=$(bash "$SR" clone git@github.com:fomotsar-commits/tegridy-farms.git "$GH" 2>&1); rc=$?
+check "one host in ssh and https form: refused" test $rc -ne 0
+out=$(bash "$SR" "$SB/not-a-repo" "$GH" "$GL" 2>&1); rc=$?
+check "not a repository: refused" bash -c '[[ $0 -ne 0 ]] && grep -q "not a git repository" <<< "$1"' "$rc" "$out"
+check "refusals left config alone" test "$(git -C clone config --local --list)" = "$snap"
+
+# ================================================================ failover drill: GitHub gone, GitLab primary
+gitlab_refs=$(git -C clone for-each-ref --format='%(refname:lstrip=3) %(objectname)' refs/remotes/gitlab/ | sort)
+github_view=$(git -C clone for-each-ref --format='%(refname:lstrip=3) %(objectname)' refs/remotes/origin/ | sort)
+out=$(bash "$SR" clone "$GL" 2>&1); rc=$?
+check "failover: exits 0" test $rc -eq 0
+check "failover: origin fetches from GitLab" test "$(cfg clone remote.origin.url)" = "$GL"
+check "failover: origin pushes only to GitLab" test "$(pushurls clone)" = "$GL "
+check "failover: origin took over the gitlab refs" test "$(git -C clone for-each-ref --format='%(refname:lstrip=3) %(objectname)' refs/remotes/origin/ | sort)" = "$gitlab_refs"
+check "failover: no gitlab remote left over" test -z "$(cfg clone remote.gitlab.url)$(git -C clone for-each-ref refs/remotes/gitlab/)"
+check "failover: GitHub kept as the github record" test "$(cfg clone remote.github.url)" = "$GH"
+check "failover: refs/remotes/github/* is the last view of GitHub" test "$(git -C clone for-each-ref --format='%(refname:lstrip=3) %(objectname)' refs/remotes/github/ | sort)" = "$github_view"
+check "failover: github push disabled" bash -c 'git -C "$0" config remote.github.pushurl | grep -q "^no-push://"' clone
+check "failover: github skipped by fetch --all" test "$(cfg clone remote.github.skipFetchAll)" = true
+check "failover: branches that tracked GitHub track origin" test "$(cfg clone branch.feat/x.remote)$(cfg clone branch.mvp-launch.remote)" = originorigin
+check "failover: the no-reply e-mail is warned about" grep -q "WARNING: commits here are authored as fomotsar-commits@users.noreply.github.com" <<< "$out"
+check "failover: e-mail not changed silently" test "$(cfg clone user.email)" = fomotsar-commits@users.noreply.github.com
+check "failover: a push to github fails" bash -c '! git -C "$0" push -q github mvp-launch 2>/dev/null' clone
+gh_before=$(git -C gh.git for-each-ref | sort)
+G -C clone checkout -q feat/x; G -C clone commit -q --allow-empty -m after-failover; G -C clone checkout -q mvp-launch
+G -C clone push -q origin feat/x 2>/dev/null
+check "failover: a push reaches GitLab" test "$(git -C gl.git rev-parse refs/heads/feat/x)" = "$(git -C clone rev-parse feat/x)"
+check "failover: a push leaves GitHub alone" test "$(git -C gh.git for-each-ref | sort)" = "$gh_before"
+snap=$(git -C clone config --local --list)
+out=$(bash "$SR" clone "$GL" 2>&1); rc=$?
+check "failover: re-run changes nothing" test $rc -eq 0 -a "$(git -C clone config --local --list)" = "$snap"
 out=$(bash "$SR" clone "$GL" "$BB" --fix-email owner@example.com 2>&1); rc=$?
-check "--fix-email sets the address" test "$(git -C clone config --local user.email)" = owner@example.com
+check "failover: --fix-email sets the address" test "$(cfg clone user.email)" = owner@example.com
+check "failover: a new standby joins the push list" test "$(pushurls clone)" = "$GL $BB "
+check "failover: the new standby gets a bitbucket remote" test "$(cfg clone remote.bitbucket.url)" = "$BB"
+check "failover: github stays frozen" test "$(cfg clone remote.github.skipFetchAll)" = true
 
-out=$(bash "$SR" clone "$GH" 2>&1); rc=$?
-check "GitHub as primary: refused" bash -c '[[ $0 -ne 0 ]] && grep -q "never the primary" <<< "$1"' "$rc" "$out"
-out=$(bash "$SR" clone "$GL" git@github.com:fomotsar-commits/tegridy-farms.git 2>&1); rc=$?
-check "GitHub as standby (ssh form): refused" test $rc -ne 0
-out=$(bash "$SR" clone "$GL" "$GL" 2>&1); rc=$?
-check "same primary and standby: refused" test $rc -ne 0
-check "refusals left config alone" test "$(git -C clone config --get-all remote.origin.pushurl | tr '\n' ' ')" = "$GL $BB "
+# ================================================================ GitHub back as primary, GitLab standby again
+G -C clone remote remove bitbucket
+out=$(bash "$SR" clone "$GH" "$GL" 2>&1); rc=$?
+check "back: exits 0" test $rc -eq 0
+check "back: origin fetches from GitHub" test "$(cfg clone remote.origin.url)" = "$GH"
+check "back: origin pushes to GitHub, then GitLab" test "$(pushurls clone)" = "$GH $GL "
+check "back: origin is fetched by fetch --all again" test -z "$(cfg clone remote.origin.skipFetchAll)"
+check "back: gitlab fetches the standby and may be pushed to" test "$(cfg clone remote.gitlab.url)|$(cfg clone remote.gitlab.pushurl)|$(cfg clone remote.gitlab.skipFetchAll)" = "$GL||"
+check "back: no github remote left over" test -z "$(cfg clone remote.github.url)"
+check "back: branches track origin" test "$(cfg clone branch.feat/x.remote)$(cfg clone branch.mvp-launch.remote)" = originorigin
 
-# ---- drill: GitLab gone, Bitbucket becomes primary with no standby
-out=$(bash "$SR" clone "$BB" 2>&1); rc=$?
-check "failover exits 0" test $rc -eq 0
-check "failover: origin fetches from Bitbucket" test "$(git -C clone config remote.origin.url)" = "$BB"
-check "failover: origin pushes only to Bitbucket" test "$(git -C clone config --get-all remote.origin.pushurl)" = "$BB"
-check "failover: github record untouched" test "$(git -C clone config remote.github.url)" = "$GH"
-
-# ---- a GitHub origin next to an existing remote named github: stop, change nothing
+# ---- a name that is taken: stop before any change
 G clone -q gh.git both; G -C both remote set-url origin "$GH"
 G -C both remote add github https://github.com/someone-else/fork.git
 snap=$(git -C both config --local --list)
-out=$(bash "$SR" both "$GL" "$BB" 2>&1); rc=$?
-check "existing github remote: refused" bash -c '[[ $0 -ne 0 ]] && grep -q "a remote named .github. already exists" <<< "$1"' "$rc" "$out"
-check "existing github remote: config untouched" test "$(git -C both config --local --list)" = "$snap"
+out=$(bash "$SR" both "$GL" 2>&1); rc=$?
+check "taken name github: refused" bash -c '[[ $0 -ne 0 ]] && grep -q "that name is taken" <<< "$1"' "$rc" "$out"
+check "taken name github: config untouched" test "$(git -C both config --local --list)" = "$snap"
+G clone -q gh.git other; G -C other remote set-url origin "$GH"
+G -C other remote add gitlab https://example.com/some/other.git
+snap=$(git -C other config --local --list)
+out=$(bash "$SR" other "$GH" "$GL" 2>&1); rc=$?
+check "gitlab remote on another host: refused" bash -c '[[ $0 -ne 0 ]] && grep -q "another host than the standby" <<< "$1"' "$rc" "$out"
+check "gitlab remote on another host: config untouched" test "$(git -C other config --local --list)" = "$snap"
 
-# ---- one push lands on both hosts (local bare repos stand in for GitLab and Bitbucket)
-G init -q --bare primary.git; G init -q --bare standby.git
-G clone -q gh.git c2; G -C c2 remote set-url origin "$GH"
-bash "$SR" c2 "$SB/primary.git" "$SB/standby.git" >/dev/null 2>&1
-G -C c2 push -q origin mvp-launch 2>/dev/null
-check "one push reaches the primary" git -C primary.git rev-parse -q --verify refs/heads/mvp-launch
-check "one push reaches the standby" git -C standby.git rev-parse -q --verify refs/heads/mvp-launch
-G -C c2 fetch -q origin
-check "fetch reads the primary" git -C c2 rev-parse -q --verify refs/remotes/origin/mvp-launch
+# ---- the GitLab group is renamed: the standby URL changes, nothing else does
+G clone -q gh.git renamed; G -C renamed remote set-url origin "$GH"
+OLD=https://gitlab.com/memetics-finance-group/tegridy-farms.git
+bash "$SR" renamed "$GH" "$OLD" >/dev/null 2>&1
+out=$(bash "$SR" renamed "$GH" "$GL" 2>&1); rc=$?
+check "group rename: exits 0" test $rc -eq 0
+check "group rename: gitlab fetches the new URL" test "$(cfg renamed remote.gitlab.url)" = "$GL"
+check "group rename: origin pushes to the new URL" test "$(pushurls renamed)" = "$GH $GL "
 
-# ---- a clone that never had a GitHub origin
+# ---- a clone with no origin
 G init -q fresh; G -C fresh commit -q --allow-empty -m x
-bash "$SR" fresh "$GL" >/dev/null 2>&1
-check "no origin: adds one" test "$(git -C fresh config remote.origin.url)" = "$GL"
-check "no origin: no github remote invented" test -z "$(git -C fresh config remote.github.url)"
+bash "$SR" fresh "$GH" "$GL" >/dev/null 2>&1
+check "no origin: adds one" test "$(cfg fresh remote.origin.url)" = "$GH"
+check "no origin: adds the standby" test "$(cfg fresh remote.gitlab.url)" = "$GL"
+check "no origin: no frozen record invented" test -z "$(git -C fresh config --get-regexp 'skipfetchall' || true)"
 
 finish set-remotes

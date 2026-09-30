@@ -58,6 +58,8 @@ check "never reuses a vault" bash -c '[[ $0 -ne 0 ]] && grep -q "already exists"
 
 git init -q --bare host.git
 out=$(bash "$SCRIPTS/push-all.sh" "$SB/vault.git" "$SB/host.git" 2>&1); rc=$?
+check "a built vault is known as one: refused without --vault" bash -c '[[ $0 -ne 0 ]] && grep -q "so it is a vault" <<< "$1" && test -z "$(git ls-remote "$2")"' "$rc" "$out" "$SB/host.git"
+out=$(bash "$SCRIPTS/push-all.sh" "$SB/vault.git" "$SB/host.git" --vault 2>&1); rc=$?
 check "vault -> host push verifies" test $rc -eq 0
 check "host main is archived" test -z "$(git ls-remote "$SB/host.git" refs/heads/main)" -a -n "$(git ls-remote "$SB/host.git" refs/heads/archive/main)"
 

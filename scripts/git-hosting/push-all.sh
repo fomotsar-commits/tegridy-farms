@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
-# push-all.sh <repo> <remote-url> [--gitlab] [--dry-run] [--trunk <branch>] [--local-only]
-# Pushes every branch and tag of <repo> (the vault, or a bare mirror of a host) to one host, then
-# proves the host holds exactly that set. Never forces, mirrors, prunes or deletes. main/master go
-# up as archive/<name> (Vercel picks main as production on connect). The trunk goes first. A clone
-# whose remote-tracking branches have no local branch is refused: those branches would be left out.
-# --local-only pushes its local set anyway.
+# push-all.sh <repo> <remote-url> [--gitlab] [--dry-run] [--trunk <branch>] [--local-only] [--vault]
+# Pushes every branch and tag of <repo> (a bare mirror of a host, or the vault) to one host and proves
+# the host holds exactly that set. Never forces, mirrors, prunes or deletes. main/master go up as
+# archive/<name>; the trunk goes first. Refused: a clone whose remote-tracking branches lack a local
+# branch (they would be left out; --local-only pushes anyway), and a vault, which holds refs never
+# made public, unless --vault says the host is the private vault project.
 set -euo pipefail
 
 usage() {
-  echo "usage: push-all.sh <repo> <remote-url> [--gitlab] [--dry-run] [--trunk <branch>] [--local-only]" >&2
+  echo "usage: push-all.sh <repo> <remote-url> [--gitlab] [--dry-run] [--trunk <branch>] [--local-only] [--vault]" >&2
   exit 2
 }
 stop() { echo "STOP: $*" >&2; exit 1; }
 
-REPO='' URL='' GITLAB=0 DRY=0 TRUNK=mvp-launch LOCAL_ONLY=0
+REPO='' URL='' GITLAB=0 DRY=0 TRUNK=mvp-launch LOCAL_ONLY=0 VAULT=0
 while (($#)); do
   case $1 in
     --gitlab) GITLAB=1 ;;
     --dry-run) DRY=1 ;;
     --local-only) LOCAL_ONLY=1 ;;
+    --vault) VAULT=1 ;;
     --trunk) [[ $# -ge 2 ]] || usage; TRUNK=$2; shift ;;
     -h|--help) usage ;;
     -*) echo "unknown flag: $1" >&2; usage ;;
@@ -32,6 +33,11 @@ g() { git -C "$REPO" "$@"; }
 g rev-parse --git-dir >/dev/null 2>&1 || stop "$REPO is not a git repository"
 # A remote NAME may carry two push URLs but ls-remote reads only one; check each host on its own.
 if g remote | grep -qxF -- "$URL"; then stop "'$URL' is a remote name; pass the host URL itself"; fi
+if [[ -n $(g for-each-ref --count=1 refs/tags/archive/) ]] && ((!VAULT)); then
+  stop "$REPO holds refs/tags/archive/*, so it is a vault (consolidate-refs.sh), with refs that were" \
+    "never public. It goes only to the private vault project, with --vault. Seed a public host from" \
+    "a mirror clone of GitHub instead (docs/GIT_HOSTING.md)."
+fi
 
 # ------------------------------------------------------------------ what the host should hold
 declare -A WANT SRC REMOTE LOCAL

@@ -16,7 +16,8 @@ else
   EXTRA=( "tgtg=/c/Users/jimbo/OneDrive/Desktop/tgtg"
           "kimi=/c/Users/jimbo/Documents/kimi/workspace/tegridy-farms"
           "memeticfun-repo=/c/Users/jimbo/OneDrive/Desktop/memetic.fun/repo"
-          "vault=/c/Users/jimbo/git-vault/tegridy-farms.git" )   # the 2026-09-29 vault
+          "vault=/c/Users/jimbo/git-vault/tegridy-farms.git"      # the first 2026-09-29 vault
+          "vault2=/c/Users/jimbo/git-vault/tegridy-farms-v2.git" )   # v2: every stash entry too
 fi
 C="${VAULT:-/c/Users/jimbo/git-vault/tegridy-farms.git}"   # the vault, OFF OneDrive
 if [[ -n ${BUNDLE_DIRS+x} ]]; then

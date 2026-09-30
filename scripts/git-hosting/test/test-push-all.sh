@@ -143,6 +143,18 @@ mkbare r10m
 out=$(bash "$PA" oldhost-mirror.git "$SB/r10m.git" 2>&1); rc=$?
 check "T10 a bare mirror of the host carries every branch" bash -c '[[ $0 -eq 0 ]] && test "$(git ls-remote --heads "$1" | wc -l)" -eq 4' "$rc" "$SB/r10m.git"
 
+# ---------------------------------------------------------------- T11 a vault goes only where --vault says
+G clone -q --bare src vaultlike.git
+git -C vaultlike.git update-ref refs/tags/archive/a/stash-1 "$(git -C src rev-parse other)"
+mkbare r11
+out=$(bash "$PA" vaultlike.git "$SB/r11.git" --gitlab 2>&1); rc=$?
+check "T11 a vault without --vault: refused" bash -c '[[ $0 -ne 0 ]] && grep -q "so it is a vault" <<< "$1"' "$rc" "$out"
+check "T11 the refusal pushed nothing" test -z "$(git ls-remote "$SB/r11.git")"
+out=$(bash "$PA" vaultlike.git "$SB/r11.git" --gitlab --dry-run 2>&1); rc=$?
+check "T11 a dry run is refused too" test $rc -ne 0
+out=$(bash "$PA" vaultlike.git "$SB/r11.git" --gitlab --vault 2>&1); rc=$?
+check "T11 --vault pushes it, archive tags included" bash -c '[[ $0 -eq 0 ]] && git -C "$1" rev-parse -q --verify refs/tags/archive/a/stash-1 >/dev/null' "$rc" "$SB/r11.git"
+
 # ---------------------------------------------------------------- static: no forcing flags anywhere
 check "static: no --force/--mirror/--prune/--delete" bash -c '! grep -nE -- "--force|--mirror|--prune|--delete" "$0"' "$PA"
 check "static: no forced (+) refspec" bash -c '! grep -nF "+refs/" "$0"' "$PA"

@@ -351,7 +351,7 @@ jobs:
 
       # The scripts that move every ref between git hosts and back them up. Their value is their
       # guards (never force, trunk first, prove the host's set, refuse a partial source), so the
-      # tests run on every push. Throwaway repos only: git, bash and sha256sum, no network.
+      # tests run on every push. Throwaway repos only: git, bash, sha256sum and ssh-keygen, no network.
       - name: Git-hosting script tests
         if: ${{ !cancelled() }}
         working-directory: .
