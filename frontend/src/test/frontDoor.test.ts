@@ -49,6 +49,20 @@ describe('CLAUDE.md', () => {
     for (const c of commands) expect(workflows, `no workflow runs \`${c}\``).toContain(c);
   });
 
+  it('gives a build recipe scripts/ci/local-gates.sh runs, so it works with no CI host', () => {
+    const fence = /```\n([\s\S]*?)```/.exec(read('CLAUDE.md'));
+    const recipe = fence![1]
+      .split('\n')
+      .map((l) => l.replace(/\s+#.*$/, '').replace(/\s+/g, ' ').trim())
+      .filter((l) => l && !l.startsWith('cd '));
+    const gates = read('scripts', 'ci', 'local-gates.sh')
+      .split('\n')
+      .flatMap((l) => /^\s*gate \w+ "[^"]*" \S+ (.+)$/.exec(l)?.[1] ?? [])
+      .map((c) => c.replace(/\s+/g, ' ').trim());
+    expect(gates.length, 'local-gates.sh lists no gate').toBeGreaterThan(0);
+    expect(recipe.filter((c) => !gates.includes(c))).toEqual([]);
+  });
+
   it('says how to read NOTES.md: headings first', () => {
     expect(read('CLAUDE.md')).toContain("grep -n '^## ' NOTES.md");
   });
@@ -56,12 +70,14 @@ describe('CLAUDE.md', () => {
 
 describe('the root is a front door', () => {
   // Community files stay at the root because GitHub reads them there; NOTICE.md because
-  // LICENSE and the contract sources cite it; slither.config.json is config.
+  // LICENSE and the contract sources cite it; slither.config.json is config; GitLab reads
+  // .gitlab-ci.yml only at the root.
   const ROOT_ALLOWLIST = [
     '.claude',
     '.gitattributes',
     '.github',
     '.gitignore',
+    '.gitlab-ci.yml',
     '.gitleaks.toml',
     '.gitmodules',
     '.nvmrc',
