@@ -7,8 +7,11 @@ the site and `api/`), `contracts/` (Foundry), `solana/` (Anchor), `indexer/`,
 
 ## Trunk
 
-`mvp-launch` is the default branch and the trunk; `main` is a diverged fork, never
-branch from it. Merging to `mvp-launch` deploys `frontend/` to production within minutes.
+`mvp-launch` is the default branch and the trunk. GitHub is the primary host and GitLab a live
+standby that every push reaches, so no single host is load-bearing (`docs/GIT_HOSTING.md`).
+`main` is a diverged fork (on GitLab, `archive/main`), never branch from it. A merge to
+`mvp-launch` on the primary deploys `frontend/` to production within minutes; moving it on any
+remote counts as a production deploy.
 
 ## Build and test (Node 20, `.nvmrc`; what `.github/workflows/ci.yml` runs)
 
@@ -48,6 +51,7 @@ git argument containing `:.github` (Git Bash mangles it). Gotchas: `docs/DEVELOP
 12. The root is a front door (`src/test/frontDoor.test.ts` pins the list). Live docs live in `docs/`, audits in `docs/audits/`, old plans and reports in `docs/archive/`.
 13. `CHANGELOG.md` is one plain line per user-facing change, newest thirty days; the long form lives in git.
 14. Clone outside OneDrive or any synced folder: a placeholder file reads as a symlink and scanners skip it.
+15. Read `docs/GIT_HOSTING.md` before any remote operation. Moving `mvp-launch` anywhere, or a Vercel or Railway deploy or promote, needs the owner's go each time.
 
 ## NOTES.md: headings first
 

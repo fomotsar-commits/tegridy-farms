@@ -131,6 +131,7 @@ jobs:
           src/lib/launcher/solana/spentProgramIds.test.ts
           src/lib/whetstonePetitionTruth.test.ts
           src/test/frontDoor.test.ts
+          src/test/mirrorToGitlab.test.ts
 
   lint-typecheck-test:
     name: Lint, Type Check & Test
@@ -348,6 +349,14 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: .
         run: node scripts/oneshot-guard.mjs --self-test
+
+      # The scripts that move every ref between git hosts and back them up. Their value is their
+      # guards (never force, trunk first, prove the host's set, refuse a partial source), so the
+      # tests run on every push. Throwaway repos only: git, bash, sha256sum and ssh-keygen, no network.
+      - name: Git-hosting script tests
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: bash scripts/git-hosting/test/run-all.sh
 
       # THE PULL-REQUEST GATE FOR THE MONITORING RULES.
       #

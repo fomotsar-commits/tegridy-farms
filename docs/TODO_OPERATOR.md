@@ -29,6 +29,52 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-09-29: GitHub is back; make GitLab a live standby so GitHub is never the only copy
+
+GitHub suspended the account on 2026-09-24 and reinstated it on 2026-09-29/30. It stays the
+primary: pull requests, CI and Vercel's deploys stay there. GitLab becomes a live standby that
+every push reaches. If GitHub goes again, GitLab takes over in about 15 minutes. The plan is
+[`GIT_HOSTING.md`](GIT_HOSTING.md). The scripts and the mirror workflow are built and tested.
+The accounts, keys and settings need you.
+
+### ⬜ O-0929-H1: work through GIT_HOSTING.md section 2, in order (about an hour)
+
+**First (15 minutes):** 2.0. Add an email login plus 2FA wherever Supabase, Railway or Vercel is
+GitHub-only. Confirm the offline copy of `BACKUP_PASSPHRASE` exists; it is the only one. Then
+2.1: merge this work (a production deploy, your go). Every step after it runs its scripts, and
+until 2C is done each push to `mvp-launch` shows a red Mirror to GitLab run, on purpose.
+
+**Then:** 2A GitLab (a password and 2FA on your account, finish the group rename to `memetics`, a
+public project `tegridy-farms` and a private `tegridy-farms-vault`, GitLab's own CI off), 2B fill
+both, 2C the mirror (a deploy key with write access, the GitHub secret `GITLAB_MIRROR_SSH_KEY`,
+a trunk rule that lets only that key push), 2D point the clones, 2E the alarm on the standby
+(armed by one run by hand), 2F Vercel ready for the drill, 2G the daily backup task.
+
+**You should see:** `OK: the host holds exactly the local set (N refs).` twice in 2B, once per
+project. A green Mirror to GitLab run in 2C that ends
+`OK: the standby already holds every branch and tag GitHub has.` In each clone, `git remote -v`
+shows origin fetching from GitHub and pushing to GitHub, then GitLab, and 2D printed
+`installed ...pre-push`. Right after 2E step 3,
+`gitlab-standby` is UP on healthchecks.io, and it stays UP from day to day.
+
+**A mismatch means:** stop. Never force. Never push the vault to the public project
+(`push-all.sh` refuses it without `--vault`).
+
+**Also, now that GitHub is back:**
+- GitHub's scheduled workflows had not resumed when this plan was made (2026-09-29/30). If
+  `gitlab-standby` goes DOWN with no ping about 36 hours after 2E, they still have not. The
+  `github-crons` check (`docs/OPS_SCHEDULER.md`, branch `ops/off-github-crons`) says so sooner.
+- A security report filed before the suspension may be unread: check **Security > Advisories**
+  and **Issues** on GitHub.
+- Backups never live only on GitHub again. The 9 old Supabase backups are on OneDrive
+  (2026-09-29). New ones must land there too (`docs/OPS_SCHEDULER.md`, branch
+  `ops/off-github-crons`).
+
+**Then (an agent can do this, with your go):** walk the failover drill (GIT_HOSTING.md 5A) with
+you once on paper, and put the weekly and monthly checks of 5D in your calendar.
+
+---
+
 ## 🟡 2026-09-17 — redeploy StakingMonitorView (display only, no funds, not urgent)
 
 ### ⬜ O-0917-1 — one deploy of a stateless view, then a one-line address swap

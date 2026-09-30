@@ -15,6 +15,74 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-30 — with two push URLs, a push the first host refuses still reaches the second
+
+**Believed:** an `origin` with two `pushurl`s (GitHub, then GitLab) stops at GitHub when GitHub
+refuses a push, for example because its secret scanning found a key in it.
+
+**Measured:** git pushes to each push URL in turn and goes on after one refuses (git 2.53,
+throwaway repos, 2026-09-30). The "GitHub" repo's pre-receive hook refused `feat/leak`; the same
+`git push` then printed `* [new branch] feat/leak -> feat/leak` for the "GitLab" repo, and
+exited 1. The standby is public, so that push would have published the key.
+
+**Do:** give the clone a pre-push hook. git runs it once per push URL, with that URL as `$2`. For
+every URL after the first, ask the first host (`git ls-remote`) whether it now holds each ref
+exactly as pushed, and refuse otherwise. `scripts/git-hosting/pre-push-standby.sh` does this and
+`set-remotes.sh` installs it; without it, the set-remotes tests go red. A `--dry-run` push then
+reports the second URL as refused, because the first took nothing.
+
+---
+
+## 2026-09-29 — copying `refs/stash` copies one stash, not the stash list
+
+**Believed:** fetching or bundling a clone's `refs/stash` saves its stashes, and old stash
+entries expire after 30 or 90 days like any other reflog entry.
+
+**Measured:** only `stash@{0}` is a ref. The rest are the reflog of `refs/stash`, and no fetch,
+push or bundle carries a reflog. Our first vault fetched `refs/stash` from a clone with 12 entries
+and held 1 (git 2.53). They do not expire, though: git exempts `refs/stash` from reflog expiry
+unless a `gc.refs/stash.*` setting exists. Three entries dated six months back survived `git gc`,
+even with `gc.reflogExpire=1.day`; with `gc.refs/stash.reflogExpire=1.day` all three went.
+
+**Do:** fetch each id from `git reflog show --format=%H refs/stash` into its own ref (the source
+side needs `uploadpack.allowAnySHA1InWant`). `scripts/git-hosting/consolidate-refs.sh` does this,
+and a mutant that keeps only the top entry goes red.
+
+---
+
+## 2026-09-29 — a bundle of a clone's branches does not hold the host's newest trunk
+
+**Believed:** `git bundle create <file> --branches --tags` in a working clone backs up the trunk.
+
+**Measured:** after the host merged a request and the clone fetched it, the new trunk was only
+`refs/remotes/origin/mvp-launch`; the clone's own `mvp-launch` stayed at the old commit. The
+bundle held the old one, so a restore from it would have deployed an older site.
+
+**Do:** bundle with `--remotes` too, and when restoring, list every `*/mvp-launch` in every
+bundle, then check that the chosen one contains what production serves
+(`git merge-base --is-ancestor`). `backup-bundles.sh` and `docs/GIT_HOSTING.md` 5C do both.
+
+---
+
+## 2026-09-29 — renaming `origin` takes every branch's upstream with it, so a bare `git push` still goes to the old host
+
+**Believed:** after `git remote rename origin github` and `git remote add origin <new host>`, a
+plain `git push` or `git pull` talks to the new origin.
+
+**Measured:** `git remote rename` rewrites `branch.<name>.remote` for every branch that tracked
+the old name (git 2.53, throwaway clone). After the rename and the add,
+`branch.mvp-launch.remote` was `github`, `git push --dry-run -v` printed `Pushing to` the old
+URL, and `git status -sb` showed `mvp-launch...github/mvp-launch`. The old host is the one being
+left, so the day it comes back, a bare push lands there and skips the primary.
+
+**Do:** after a rename, set every `branch.*.remote` that names the old remote to `origin`, and
+give the old remote an unusable `pushurl` so a push to it fails loudly. The rename also carries
+every `pushurl` the remote had, so with two of them a plain `git config remote.<name>.pushurl <x>`
+fails ("cannot overwrite multiple values", git 2.53, 2026-09-29); use `--replace-all`.
+`scripts/git-hosting/set-remotes.sh` does all of this, and a mutant without the re-point goes red.
+
+---
+
 ## 2026-09-22 — a `toContain('80°')` pin stays green on a page that says 180°
 
 **Believed:** a test that asserts a threshold goes red when the page shows a different
