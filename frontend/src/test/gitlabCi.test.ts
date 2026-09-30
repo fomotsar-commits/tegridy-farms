@@ -367,11 +367,12 @@ describe('local-gates.sh runs only what CI runs', () => {
   // That it also runs every command of the CLAUDE.md build recipe is pinned in
   // frontDoor.test.ts, which already reads CLAUDE.md as a doc guard.
 
-  it('runs every self-test and node --test that ci.yml runs', () => {
+  it('runs every self-test, node --test and bash test script that ci.yml runs', () => {
     const named = code(read('.github', 'workflows', 'ci.yml').split(/\r?\n/))
-      .flatMap((l) => /^\s*(?:-\s*)?run:\s*(node (?:--test \S.*|\S+\.mjs --self-test))\s*$/.exec(l)?.[1] ?? [])
+      .flatMap((l) => /^\s*(?:-\s*)?run:\s*(node (?:--test \S.*|\S+\.mjs --self-test)|bash scripts\/\S+\.sh)\s*$/.exec(l)?.[1] ?? [])
       .map(norm);
     expect(named.length).toBeGreaterThanOrEqual(8);
+    expect(named, 'the bash form is read too (guards the guard)').toContain('bash scripts/git-hosting/test/run-all.sh');
     const commands = new Set(gates().map((g) => g.command));
     const missing = named.filter((c) => !commands.has(c));
     expect(missing, 'add a `gate <area> "<label>" <dir> <command>` line for each to scripts/ci/local-gates.sh').toEqual([]);
