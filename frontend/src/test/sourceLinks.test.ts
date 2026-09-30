@@ -106,7 +106,7 @@ describe('no user-facing file links our repo on a git host directly', () => {
     expect(files).toContain('frontend/src/lib/constants.ts');
     expect(files).toContain('frontend/public/.well-known/security.txt');
     expect(files).toContain('frontend/scripts/held-through.mjs');
-    expect(HOST_REPO).toMatch(/^https:\/\/[^/]+\/[^/]+\/[^/]+$/);
+    expect(HOST_REPO).toMatch(/^https:\/\/[^/]+(\/[^/]+){2,}$/); // owner/repo, or a GitLab subgroup path
   });
 
   it('finds no git-host URL for this repo in the app, its public files or its scripts', () => {

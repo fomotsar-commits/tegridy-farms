@@ -142,13 +142,16 @@ handed to *unmatched* origins.
 Every "read the source" link the site shows goes to our own domain first:
 `https://memetics.finance/source/<path>` for a file or folder, `/source` for the repo, and
 `/source-issues` for the issue list. Three redirects in `frontend/vercel.json` send them on
-to the git host. So when the code moves hosts, the site, `held-through.json` and any program
-security.txt keep working after **one edit to those three redirects**. No page changes.
+to the git host. So when the code moves hosts, the site and `held-through.json` keep working
+after **one edit to those three redirects**. No page changes. A program's on-chain security.txt
+gets the same protection once it uses these links (cp-swap's does not yet: TODO_OPERATOR
+O-0929-1).
 
 To move hosts, change the three `destination` values that follow `"source": "/source"`,
 `"/source-issues"` and `"/source/:path*"`. Keep the repo's address identical in all three
 (`src/test/sourceLinks.test.ts` fails otherwise), keep the branch `mvp-launch`, and keep
-`"permanent": false`: a 307 is never cached, so the next move reaches every browser at once.
+`"permanent": false`: browsers do not cache a 307 by default, so the next move reaches every
+browser at once.
 The URL shapes differ by host:
 
 | Host | `/source` | `/source-issues` | `/source/:path*` |
@@ -161,8 +164,9 @@ GitLab's `/-/blob/` link also opens folders: it sends them to `/-/tree/` itself.
 sends a path it does not have to the repo root with a `302`, not a `404`, so a wrong link
 looks fine when clicked. The test checks every fixed path the site links against `git
 ls-files` for that reason. After the deploy, check one file and the root:
-`curl -sI https://memetics.finance/source/docs/AUDITS.md` should answer `307` with a
-`location` on the new host.
+`curl -sI https://memetics.finance/source/docs/AUDITS.md` and
+`curl -sI https://memetics.finance/source` should each answer `307` with a `location` on the
+new host, and that location should open the file, not the repo root.
 
 ---
 
