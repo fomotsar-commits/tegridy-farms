@@ -20,7 +20,7 @@ describe('parseEnvText keeps a secret exactly as written', () => {
   });
 
   test('strips CRLF, a BOM, and matching outer quotes, and nothing else', () => {
-    const text = '﻿A=plain\r\nB=\'  two spaces kept  \'\r\nC="dq # \'q\'"\r\nD=  trimmed  \r\n';
+    const text = String.fromCharCode(0xfeff) + 'A=plain\r\nB=\'  two spaces kept  \'\r\nC="dq # \'q\'"\r\nD=  trimmed  \r\n';
     const { vars, errors } = parseEnvText(text);
     assert.deepEqual(errors, []);
     assert.deepEqual(vars, { A: 'plain', B: '  two spaces kept  ', C: "dq # 'q'", D: 'trimmed' });

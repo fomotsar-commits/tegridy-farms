@@ -403,7 +403,7 @@ jobs:
       - name: Ops runner unit tests
         if: ${{ !cancelled() }}
         working-directory: .
-        run: node --test scripts/ops/env-file.test.mjs scripts/ops/supabase-backup.test.mjs
+        run: node --test scripts/ops/env-file.test.mjs scripts/ops/supabase-backup.test.mjs scripts/ops/run-job.test.mjs
 
   build:
     name: Build

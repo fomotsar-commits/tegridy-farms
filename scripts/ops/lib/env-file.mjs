@@ -8,6 +8,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const stripBom = (s) => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
 
 /**
  * NAME=value per line; blank lines and lines starting with '#' are skipped. The value is
@@ -18,7 +19,7 @@ const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export function parseEnvText(text) {
   const vars = {};
   const errors = [];
-  const lines = String(text).replace(/^﻿/, '').split(/\r?\n/);
+  const lines = stripBom(String(text)).split(/\r?\n/);
   lines.forEach((raw, i) => {
     const line = raw.replace(/\r$/, '');
     const trimmed = line.trim();
