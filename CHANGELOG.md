@@ -6,6 +6,11 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-09-29
+
+- The heat words now match the island's /heat page: Builder 300°, Elder 800°, each extra room adds a quarter, the island's own weigh heavier, your clock starts at your first hold, and Base is named beside Ethereum and Solana.
+- On /curve-launch, the door says the island reads every linked wallet, where it used to say a Solana-only wallet cannot be measured.
+
 ### 2026-09-25
 
 - A bungalow link opens on its own name and picture from the first second.

@@ -217,7 +217,7 @@ async function doUnlink(cfg, venue, chatRef) {
 async function doHeat(cfg, venue, chatRef, arg) {
   let address = typeof arg === "string" ? arg.trim() : "";
   if (address && !EVM_ADDRESS_RE.test(address) && !SOLANA_ADDRESS_RE.test(address)) {
-    return "That does not look like an Ethereum or Solana address, so I did not look it up.";
+    return "That does not look like an Ethereum, Base, or Solana address, so I did not look it up.";
   }
   if (!address) {
     const link = await venue.readLink(cfg, chatRef);

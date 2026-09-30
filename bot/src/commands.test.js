@@ -178,6 +178,13 @@ describe("RULE 3 — an unread source is never a zero", () => {
     expect(reply.text).toMatch(/Jungle Bay Island/);
     expect(reply.text).toMatch(/not a yield, not a price/i);
   });
+
+  it("heat refuses a non-address by naming every chain it reads", async () => {
+    const d = deps();
+    const reply = await say("/heat not-an-address", d);
+    expect(reply.text).toBe("That does not look like an Ethereum, Base, or Solana address, so I did not look it up.");
+    expect(d.venue.readHeat).not.toHaveBeenCalled();
+  });
 });
 
 describe("RULE 4 — no reply echoes the input", () => {
