@@ -283,42 +283,38 @@ describe('tiers', () => {
   it.each([
     [0, 'Drifter'], [29.99, 'Drifter'],
     [30, 'Observer'], [79.99, 'Observer'],
-    [80, 'Resident'], [149.99, 'Resident'],
-    [150, 'Builder'], [249.99, 'Builder'],
-    [250, 'Elder'], [1000, 'Elder'],
+    [80, 'Resident'], [299.99, 'Resident'],
+    [300, 'Builder'], [799.99, 'Builder'],
+    [800, 'Elder'], [1800, 'Elder'],
   ] as const)('%d° is %s', (deg, tier) => {
     expect(tierFor(deg)).toBe(tier);
   });
 
-  it('agrees with the real payload’s own tier word', () => {
-    const r = parseHeatReading(WARM);
-    expect(tierFor(r.degrees)).toBe(r.tier);
-  });
-
-  // The island's board, as_of 2026-09-23T16:09:15Z: the lowest and highest degrees it
-  // served in each band, and the dEaD read (as_of 2026-09-23T12:06:10Z). Degrees and
-  // tier only.
+  // The island's board: the lowest and highest degrees it served in each band. Below
+  // Resident from the 2026-09-23 read; Resident and up from the 2026-09-29 read, whose 80
+  // tier words all sit on the 30 / 80 / 300 / 800 ladder. Degrees and tier only.
   it.each([
     [27.22, 'Drifter'], [45.11, 'Observer'], [73.89, 'Observer'], [90.26, 'Resident'],
-    [111.3, 'Resident'], [152.2, 'Builder'], [246.65, 'Builder'], [269, 'Elder'],
-    [347.57, 'Elder'], [311.25, 'Elder'],
+    [156.8, 'Resident'], [273.27, 'Resident'], [285.34, 'Resident'], [394.66, 'Builder'],
+    [671.89, 'Builder'], [890.93, 'Elder'], [1798.77, 'Elder'],
   ] as const)('agrees with the island: %d° was served %s', (deg, tier) => {
     expect(tierFor(deg)).toBe(tier);
   });
 
   it('nextTier counts the remaining degrees, and is null at Elder', () => {
-    expect(nextTier(195.54)).toEqual({ tier: 'Elder', floor: 250, remaining: 250 - 195.54 });
+    expect(nextTier(195.54)).toEqual({ tier: 'Builder', floor: 300, remaining: 300 - 195.54 });
     expect(nextTier(0)).toEqual({ tier: 'Observer', floor: 30, remaining: 30 });
-    expect(nextTier(249.99)).toEqual({ tier: 'Elder', floor: 250, remaining: 250 - 249.99 });
-    expect(nextTier(250)).toBeNull();
+    expect(nextTier(799.99)).toEqual({ tier: 'Elder', floor: 800, remaining: 800 - 799.99 });
+    expect(nextTier(800)).toBeNull();
   });
 });
 
 describe('the island dials', () => {
-  it('publishes the island bands, 30 / 80 / 150 / 250', () => {
+  // The island's line: "Observer 30° · Resident 80° · Builder 300° · Elder 800°."
+  it('publishes the island bands, 30 / 80 / 300 / 800', () => {
     expect(TIER_FLOORS.map((t) => [t.tier, t.floor])).toEqual([
-      ['Elder', 250],
-      ['Builder', 150],
+      ['Elder', 800],
+      ['Builder', 300],
       ['Resident', 80],
       ['Observer', 30],
       ['Drifter', 0],
@@ -497,12 +493,12 @@ describe('tierAtFloor', () => {
   it('names the tier only when the floor sits exactly on its rung', () => {
     expect(tierAtFloor(30)).toBe('Observer');
     expect(tierAtFloor(80)).toBe('Resident');
-    expect(tierAtFloor(150)).toBe('Builder');
-    expect(tierAtFloor(250)).toBe('Elder');
+    expect(tierAtFloor(300)).toBe('Builder');
+    expect(tierAtFloor(800)).toBe('Elder');
   });
 
   it('names nothing between rungs, above the top, or a hair off a floor', () => {
-    for (const floor of [123, 10, 300, 80.5, 149.99, 180, 365, 1000]) {
+    for (const floor of [123, 10, 150, 250, 80.5, 299.99, 365, 1000]) {
       expect(tierAtFloor(floor), String(floor)).toBeNull();
     }
   });

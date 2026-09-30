@@ -7,8 +7,20 @@ import { join } from 'node:path';
 import { COVENANT_SPLIT, covenantTotalBps, isCovenantActive, covenantFeeConstitution } from './covenant';
 
 describe('the split as the island published it', () => {
-  it('is 50/20/15/10/5', () => {
-    expect(COVENANT_SPLIT.map((s) => s.shareBps)).toEqual([5000, 2000, 1500, 1000, 500]);
+  // The blueprint: "the covenant splits venue fees onchain: stakers 50, liquidity 20,
+  // operations 15, creator grants 10, island commons 5."
+  it('is stakers 50, liquidity 20, operations 15, creator grants 10, island commons 5', () => {
+    expect(COVENANT_SPLIT.map((s) => [s.name, s.shareBps])).toEqual([
+      ['stakers', 5000],
+      ['liquidity', 2000],
+      ['operations', 1500],
+      ['creator grants', 1000],
+      ['island commons', 500],
+    ]);
+  });
+
+  it("marks no slice as the launch's creator: it splits the venue's fees, and the builder's fee table is separate", () => {
+    expect(covenantFeeConstitution().map((l) => l.role)).not.toContain('creator');
   });
 
   it('sums to 100% — a slice edited alone breaks this rather than rebalancing silently', () => {

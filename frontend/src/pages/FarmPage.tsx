@@ -94,8 +94,8 @@ function VenueEarn() {
         <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">Earn</h1>
         <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
           Stake a token to earn a share of its pool, or provide liquidity and take a cut of every
-          swap that routes through it. Held time counts here: the longer you lock, the larger your
-          share of the same rewards.
+          swap that routes through it. The longer you lock, the larger your share of the same
+          rewards.
         </p>
       </header>
       <VenuePoolIndex />

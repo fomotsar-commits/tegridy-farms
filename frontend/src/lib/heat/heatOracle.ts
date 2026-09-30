@@ -11,8 +11,8 @@ export type HeatTier = 'Elder' | 'Builder' | 'Resident' | 'Observer' | 'Drifter'
 /** The island's tier bands, highest first: the ladder's rungs, a name and a floor each, as
  *  the island's ladder prints them. The tier word beside a wallet is the served one. */
 export const TIER_FLOORS: readonly { tier: HeatTier; floor: number }[] = [
-  { tier: 'Elder',    floor: 250 },
-  { tier: 'Builder',  floor: 150 },
+  { tier: 'Elder',    floor: 800 },
+  { tier: 'Builder',  floor: 300 },
   { tier: 'Resident', floor: 80 },
   { tier: 'Observer', floor: 30 },
   { tier: 'Drifter',  floor: 0 },

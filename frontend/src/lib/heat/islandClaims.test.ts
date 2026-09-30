@@ -105,13 +105,14 @@ describe('the venue teaches the whole published law, not one term of it', () => 
   });
 
   it('explains in the island paragraph, word for word', () => {
-    const paragraph = 'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Each degree after that takes longer than the last. Size can raise what a day is worth, it cannot buy a day, and price never enters it.';
+    // The island's /heat paragraph, read 2026-09-29.
+    const paragraph = 'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds a quarter of its own, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Past Resident the number reads like fire: every degree costs a little more than the last, and the hottest flames stay in range. Size can raise what a day is worth, it cannot buy a day, and price never enters it. The rate is one curve for every wallet: nothing under 0.0001% of a supply, a full day at 0.01%, two at 1%, and never more. From a real position up, ten times the bag adds half a day. The tier words bind your island heat. Trading speed cannot move it.';
     expect(VENUE.heatParagraph).toBe(paragraph);
     // The hero and llms.txt carry the paragraph's first two sentences, and only those.
-    expect(VENUE.heatPlain).toBe('Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it.');
+    expect(VENUE.heatPlain).toBe('Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds a quarter of its own, so breadth amplifies depth and never replaces it.');
     expect(VENUE.heatParagraph.startsWith(`${VENUE.heatPlain} `)).toBe(true);
     expect(VENUE.heatDays).toBe('Your clock on a token starts at your first hold.');
-    expect(VENUE.heatSize).toBe('A real position earns a full day. The largest holders earn up to two. Dust earns nothing.');
+    expect(VENUE.heatSize).toBe('A real position earns a full day. The largest holders earn up to two. Dust earns nothing. An Ape counts by the piece: one is a full day, ten are two.');
     // The Maths fold renders all three from VENUE; Weight stays its own sentence.
     const heatCard = prose(join(SRC, 'components', 'HeatCard.tsx'));
     for (const key of ['heatParagraph', 'heatDays', 'heatSize']) expect(heatCard).toContain(`VENUE.${key}`);
@@ -418,6 +419,10 @@ describe('every heat explainer carries the island sentences', () => {
   const RETIRED: [string, RegExp][] = [
     ['a per-wallet clock', /measured per wallet|wallet['’]s clock|clock at the move/i],
     ['the calculation fold label', /how is this calculated|hide the maths/i],
+    ['a clock that starts at a buy', /your first buy/i],
+    ['the half-as-much breadth rule', /half as much as the one before/i],
+    ['triple weight for the Apes', /triple weight|apes triple/i],
+    ['a Solana wallet that cannot be measured', /cannot yet be measured/i],
   ];
   for (const [name, re] of RETIRED) {
     it(`retires ${name}`, () => {

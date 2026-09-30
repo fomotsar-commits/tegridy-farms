@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import {
+  BUNGALOW_COUNT,
   OPEN_BUNGALOWS_EVENT,
   bungalowExplorerUrl,
   bungalowScanRoute,
@@ -49,7 +50,8 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
     hasToken ? `${bungalow.symbol} on Jungle Bay Island` : 'Jungle Bay Island',
     hasToken
       ? `${bungalow.name} has a bungalow on Jungle Bay Island — ${bungalow.tagline} Contract, trade route and held-time heat, on ${CHAIN_LABEL[bungalow.chain]}.`
-      : 'A quiet bungalow on Jungle Bay Island — someone is building here.',
+      // The island's own lot label; it numbers its lots after its bungalows.
+      : `Lot ${BUNGALOW_COUNT + 1}, for the next community.`,
   );
   const explorer = bungalowExplorerUrl(bungalow);
   const trade = bungalowTradeRoute(bungalow, isSolanaSwapLive());
@@ -85,7 +87,16 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
                 community brings the art drop.
               </>
             ) : (
-              <>The island keeps one bungalow unmarked. Check back.</>
+              // The island's harbor heading, linked to the harbor itself.
+              <a
+                href="https://memetics.wtf/#p-harbor"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="How a community gets a bungalow here. (opens in new tab)"
+                className="underline underline-offset-2 text-white hover:text-white/80"
+              >
+                How a community gets a bungalow here.
+              </a>
             )}
           </p>
         </div>

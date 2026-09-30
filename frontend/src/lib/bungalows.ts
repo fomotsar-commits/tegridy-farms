@@ -4,7 +4,7 @@ import { BUNGALOW_ART_FILES } from './bungalowArtPools';
 import { safeGetItem, safeSetItem } from './storage';
 import { TOWELI_ADDRESS } from './constants';
 
-// Jungle Bay Island: the 13 bungalows, from the island's published canon (memetics.wtf
+// Jungle Bay Island: the bungalows and one open lot, from the island's published canon (memetics.wtf
 // SPOTS + SIGNSV2). Addresses are verbatim: re-read the source, never guess or "fix" one.
 // A bungalow re-skins pageArt() backgrounds and, with an `identity`, the hero, farm and
 // footer speak its token; buttons, nav, rails and contracts never change. The skin is
@@ -243,6 +243,8 @@ export const BUNGALOWS: Bungalow[] = [
         ],
         links: [
           { href: 'https://memetics.wtf/', label: 'The island' },
+          // The island's own label on its /bayla page. A link only: its numbers stay there.
+          { href: 'https://memetics.wtf/receipts', label: 'Check it on the ledger' },
           { href: 'https://opensea.io/collection/junglebay', label: 'Jungle Bay on OpenSea' },
           { href: 'https://x.com/JungleBayAC', label: '@JungleBayAC' },
         ],
@@ -263,9 +265,13 @@ export const BUNGALOWS: Bungalow[] = [
   { id: 'brainlet', name: 'Brainlet', symbol: 'BRAINLET', chain: 'solana', address: '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5fc9b0', swapUrl: 'https://jup.ag/swap/SOL-4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump', thumbPosition: '50% 30%', thumb: '/art/chaos-scene.jpg', community: { label: 'BRAINLET / SOL', url: 'https://x.com/brainletbadger' }, decimals: 6, market: { network: 'solana', pool: '3whYbw26asxFG5Qh9emHA6Mi6uizvduYg1cVKLQ1eetq', label: 'BRAINLET / SOL' }, stakePool: '2qSZBzjpxKzhJWmyaoN5kP3XQxUikH3SQR5suXuQjkZR', artPool: bungalowArtFor('brainlet', 'Brainlet'), live: true, identity: settledIdentity('Brainlet', 'BRAINLET', 'Solana', '@brainletbadger') },
   // RIZZ is the SOLANA mint below: a Base deployment carries the same name and symbol.
   { id: 'rizz', name: 'RIZZ', symbol: 'RIZZ', chain: 'solana', address: '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#7fe0b0', swapUrl: 'https://jup.ag/swap/SOL-5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k', thumbPosition: '50% 30%', thumb: '/art/rose-ape.jpg', decimals: 6, market: { network: 'solana', pool: 'dgaDYLCP67MqAzt28WAYtE6pYCHUbRMHtWYLniH1DaL', label: 'RIZZ / SOL' }, stakePool: 'BZ1rGCD8G5kXyKkXxmNh2Xf92QLz4PUZitzauMEdxd5c', artPool: bungalowArtFor('rizz', 'RIZZ'), live: true, identity: settledIdentity('RIZZ', 'RIZZ', 'Solana') },
-  // ——— The quiet one ———
+  // ——— The quiet one: the island's next open lot, not a bungalow ———
   { id: 'nb1', name: 'Unmarked', symbol: '?', chain: 'tbd', status: 'QUIET', tagline: 'Someone is building here.', accent: '#f2ffe9', thumb: '/art/jungle-dark.jpg', live: false },
 ];
+
+/** How many bungalows the island has: every row but an open lot (chain 'tbd'). The island
+ *  numbers its lots after its bungalows, so the open lot here is BUNGALOW_COUNT + 1. */
+export const BUNGALOW_COUNT = BUNGALOWS.filter((b) => b.chain !== 'tbd').length;
 
 /** Storage key. Survives quota eviction only because storage.ts lists it in EVICTION_PROTECTED_KEYS. */
 export const BUNGALOW_STORAGE_KEY = 'tegridy-bungalow';
