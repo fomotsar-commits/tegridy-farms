@@ -907,6 +907,7 @@ describe('the island dials, on the card', () => {
       ['Drifter', '0'], ['Observer', '30'], ['Resident', '80'], ['Builder', '300'], ['Elder', '800'],
     ]);
     expect(rungs.every((r) => r.includes('reached'))).toBe(true);
+    expect(screen.queryByText(/° to /)).toBeNull();
     expect(rungs[2]).toContain('At 80 degrees you reach Resident, the tier that may plant a launch here.');
     expect(screen.getByText('the door opens at 80° · Resident')).toBeTruthy();
   });
@@ -935,6 +936,37 @@ describe('the island dials, on the card', () => {
     expect(rungs[2]).toMatch(/^Resident\s*80°/);
     expect(rungs[2]).toContain('reached');
     expect(rungs[3]).not.toContain('reached');
+  });
+
+  // Real flames on the island's board, 2026-09-30. On the retired 150 / 250 floors the
+  // card lit Builder and Elder beneath a headline that said Resident, and lit Elder
+  // beneath a Builder with no rung left to climb.
+  it('reads a Resident at 285.34 with Builder next and unlit, as the island served it', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 285.34, tier: 'Resident' }));
+    mount();
+    const rungs = await ladderRows();
+    expect(rungs[2]).toContain('reached');
+    expect(rungs[3]).toMatch(/^Builder\s*300°/);
+    expect(rungs[3]).not.toContain('reached');
+    expect(rungs[3]).toContain('14.66° to Builder');
+    expect(rungs[4]).not.toContain('reached');
+  });
+
+  it('reads a Builder at 671.89 with Builder lit and Elder next, as the island served it', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 671.89, tier: 'Builder' }));
+    mount();
+    const rungs = await ladderRows();
+    expect(rungs[3]).toContain('reached');
+    expect(rungs[4]).toMatch(/^Elder\s*800°/);
+    expect(rungs[4]).not.toContain('reached');
+    expect(rungs[4]).toContain('128.11° to Elder');
+  });
+
+  it('tells a 200° wallet it is 100.00° from Builder, never 50.00° from Elder', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 200, tier: 'Resident' }));
+    mount();
+    expect(await screen.findByText('100.00° to Builder')).toBeTruthy();
+    expect(screen.queryByText(/° to Elder/)).toBeNull();
   });
 });
 
@@ -992,6 +1024,17 @@ describe('the maths fold carries the island paragraph, never a formula', () => {
     const list = heading.parentElement!.querySelector('ul')!;
     const rows = [...list.querySelectorAll('li')].map((li) => li.textContent);
     expect(rows).toEqual(['Elder800°✓ reached', 'Builder300°✓ reached', 'Resident80°✓ reached', 'Observer30°✓ reached']);
+  });
+
+  // The default reading (1785.14) reaches every tier on either set of bands, so on its own
+  // it cannot catch a wrong band. 285.34 is a Resident the island served on 2026-09-30.
+  it('marks only the tiers this heat has reached (285.34: Resident and Observer)', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 285.34, tier: 'Resident' }));
+    await openMaths();
+    const list = screen.getByText('The tiers, on your heat').parentElement!.querySelector('ul')!;
+    expect([...list.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Elder800°', 'Builder300°', 'Resident80°✓ reached', 'Observer30°✓ reached',
+    ]);
   });
 });
 

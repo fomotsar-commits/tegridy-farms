@@ -49,6 +49,13 @@ describe('the launch floor is read, never typed', () => {
     expect(container.textContent).not.toContain('Residents');
   });
 
+  it('names no tier at 150, the Builder floor the island retired', () => {
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
+    const { container } = mount();
+    expect(container.textContent).toContain('The floor is 150°.');
+    expect(container.textContent).not.toMatch(/Elder|Builder|Resident|Observer|Drifter/);
+  });
+
   it('ignores a nonsense dial instead of opening the door to everyone', () => {
     // positiveNumberEnv refuses 0 and non-numerics; the card must show the fallback,
     // never "The floor is 0°".
