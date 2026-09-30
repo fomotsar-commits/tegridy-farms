@@ -17,13 +17,14 @@ import {
 import { installTestWallet, type TestWallet } from './fixtures/testWallet';
 import { installRpcGuard, type RpcGuard } from './fixtures/rpcGuard';
 import { installUploadStub, makePng, SVG_WITH_SCRIPT, type UploadStub } from './fixtures/uploadStub';
+import { installHeatStub, type HeatStub } from './fixtures/heatStub';
 import { LAUNCH_INDEX } from './fixtures/walletGuard';
 import { ui, checkAtSizes, clickReal, connectWallet, expectConnected, signAndWait, tokensToInput } from './fixtures/ui';
 import { quoteBuyOnCurve, quoteSellOnCurve } from '../src/lib/launcher/solana/curve/math';
 import { formatSol } from '../src/lib/launcher/solana/curve/format';
 import { poolStatePda, curveVaultPda, BONDING_CURVE_SIZE } from '../src/lib/launcher/solana/curve/program';
 
-interface Actor { ctx: BrowserContext; page: Page; wallet: TestWallet; rpc: RpcGuard; upload: UploadStub; kp: Keypair }
+interface Actor { ctx: BrowserContext; page: Page; wallet: TestWallet; rpc: RpcGuard; upload: UploadStub; heat: HeatStub; kp: Keypair }
 
 async function actor(browser: Browser, sol: number): Promise<Actor> {
   const kp = await fundedKeypair(sol);
@@ -31,8 +32,9 @@ async function actor(browser: Browser, sol: number): Promise<Actor> {
   const wallet = await installTestWallet(ctx, kp);
   const rpc = await installRpcGuard(ctx);
   const upload = await installUploadStub(ctx);
+  const heat = await installHeatStub(ctx);
   const page = await ctx.newPage();
-  return { ctx, page, wallet, rpc, upload, kp };
+  return { ctx, page, wallet, rpc, upload, heat, kp };
 }
 
 const TX_LIMIT = 1232;
@@ -72,8 +74,12 @@ test('launch (reserve paid at create), trade, graduate and trade in the pool, al
     await expect(ui.navTab(p).getByText('Soon', { exact: true })).toHaveCount(0);
     await expect(ui.gateBanner(p)).toContainText('Open.', { timeout: 30_000 });
     await expect(ui.gateBanner(p)).toContainText(LAUNCH_PROGRAM.toBase58());
-    await connectWallet(p, ui.createForm(p));
+    // The create form is behind the heat door, which reads the connected Solana wallet.
+    await expect(ui.createForm(p)).toHaveCount(0);
+    await connectWallet(p, ui.door(p));
+    await expect(ui.door(p).getByText('WARM', { exact: true })).toBeVisible({ timeout: 30_000 });
     await expectConnected(ui.createForm(p), creator.kp.publicKey.toBase58());
+    expect(creator.heat.asked).toContain(creator.kp.publicKey.toBase58());
   });
 
   await test.step('2. bad input is refused before anything is uploaded or signed', async () => {

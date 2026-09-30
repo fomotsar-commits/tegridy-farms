@@ -136,8 +136,8 @@ export function LaunchList({
       </div>
       {view === 'recent' ? (
         <p>
-          Recent launches. Listed automatically from the network. Anyone can appear here, and we have not checked any of
-          them. Always compare the full token address before you buy.
+          Recent launches. Listed automatically from the network. Anyone can appear here, and this list cannot tell
+          which makers came through the gate. Always compare the full token address before you buy.
         </p>
       ) : (
         <p>Launches your connected wallet created, read from its own history.</p>

@@ -20,12 +20,11 @@ import {
 // presentational seam, so every phase can be driven directly without a wallet
 // provider or an RPC. Mirrors the mocking style of LaunchTokenPage.test.tsx.
 
-// The page mounts <LaunchGate>, which reads the connected EVM wallet. These tests
-// render the view OUTSIDE a WagmiProvider on purpose (that is the point of the
-// presentational seam), so wagmi is stubbed the same way LaunchTokenPage.test.tsx
-// stubs it. No wallet => the gate renders its "connect a wallet" state, which asserts
-// nothing about anybody and leaves every phase assertion below untouched. The gate's
-// own behaviour is covered in lib/heat/launchGate.test.ts.
+// The view's door reads the Solana wallet in the `wallet` prop: with none passed it
+// renders its "connect a wallet" state and reads nothing. Its embedded HeatCard calls
+// wagmi's useAccount, and these tests render outside a WagmiProvider on purpose, so
+// wagmi is stubbed. The door is covered in components/LaunchGate.test.tsx, write mode
+// in CurveLaunchPage.writeSection.test.tsx.
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: undefined }),
   useSignMessage: () => ({ signMessageAsync: async () => '0x' }),

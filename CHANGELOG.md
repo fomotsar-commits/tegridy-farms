@@ -6,6 +6,12 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-09-30
+
+- On /curve-launch, the create form opens only for a connected Solana wallet that reads Resident or better, and pressing Review reads that wallet again before anything is signed. Opening a launch, the list and trading stay open to anyone.
+- A Solana launch's page says a maker at Resident or better can grow a new token through the memetics.finance gate, and that the program itself accepts any wallet.
+- Towelie says Solana has our own curve at /curve-launch, where makers at Resident or better launch, instead of saying Solana is swap-only.
+
 ### 2026-09-29
 
 - The heat words now match the island's /heat page: Builder 300°, Elder 800°, every other room adds a quarter of its own, the island's own weigh heavier, your clock on a token starts at your first hold, and Base is named beside Ethereum and Solana.

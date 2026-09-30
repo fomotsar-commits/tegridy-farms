@@ -88,7 +88,9 @@ export function LaunchIdentity({
       </div>
       <Row label="Token address (mint)" value={mint.toBase58()} />
       <p className="text-amber-200/90 text-[11px]">
-        Not endorsed by memetics.finance. Anyone can launch here. Check the full token address above before you buy.
+        Not endorsed by memetics.finance. A maker at Resident or better can grow a new token through the
+        memetics.finance gate: the gate reads the maker&apos;s wallet at create. The program itself accepts any
+        wallet, so check the full token address above before you buy.
       </p>
       {warnings.map((w) => (
         <Notice key={w} tone="warn">

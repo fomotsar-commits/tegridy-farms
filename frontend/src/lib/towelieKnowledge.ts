@@ -4,7 +4,8 @@
  *
  * Entry shape:
  *   keywords: tokens that, when present in the user's question, count
- *             toward this entry's score. Lowercase, no punctuation.
+ *             toward this entry's score. Lowercase, no punctuation. A keyword
+ *             of several words counts when all its words are in the question.
  *   answer:   what Towelie says back. Keep in voice (slacker towel).
  *   priority: optional tiebreaker bump for ambiguous questions.
  */
@@ -251,41 +252,33 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     keywords: ['hardware', 'ledger', 'trezor'],
     answer: "Hardware wallets work via MetaMask or Rainbow's hardware-wallet integration. Plug in, connect, sign on the device.",
   },
-  // 2026-08-07: the assistant is the surface a confused user asks "what chain is
-  // this?" on — and it answered, flatly, Ethereum-only, with no Solana entry anywhere
-  // in this file. Asking about Solana, SOL or Jupiter fell through to a generic reply
-  // on a site that has a live Solana swap. Fixed here, plus the three new entries
-  // below so the keywords actually match what someone would type.
+  // Solana has the Jupiter swap (/solana) and our own curve (/curve-launch), where anyone
+  // trades and a maker at Resident or better launches through the heat door. These
+  // coins are priced in SOL: never call them island coins or "born in $BAYLA".
   {
-    // HONESTY PASS 2026-08-28: "two chains" and "its own launch rail" were both
-    // false — the Memetics Curve is live on Ethereum, Base AND Robinhood since
-    // 08-25, and the Solana launch rail was retired 08-23 with nothing
-    // launchable there. Four chains total, one of them swap-only.
     keywords: ['network', 'chain', 'switch', 'mainnet', 'chains'],
-    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. Solana is swap-only: /solana routes SPL trades through Jupiter (no Solana launches right now). The token scanner reads EVM and Solana both.",
+    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. On Solana, /solana routes SPL trades through Jupiter, and /curve-launch is our own Solana curve: anyone can trade there, and a maker at Resident or better can launch through the memetics.finance gate. The token scanner reads EVM and Solana both.",
   },
   {
-    keywords: ['solana', 'sol', 'phantom', 'spl'],
-    answer: "Solana's partly live. /solana swaps SPL tokens through Jupiter with limit orders and SOL liquid-staking — that works today. The Solana LAUNCH rail does not: we retired the third-party bonding curve we used to run on, and our own curve isn't deployed yet, so you can't launch a Solana token here right now. TOWELI itself is never deployed on Solana — that's deliberate, Solana is a separate rail, not a second home for the token.",
+    // The bump wins "launch a token on solana" from the EVM launch entry.
+    priority: 1,
+    keywords: ['solana', 'sol', 'phantom', 'spl', 'solana launch', 'solana token'],
+    answer: "Solana's live here two ways. /solana swaps SPL tokens through Jupiter, with limit orders and SOL liquid-staking. /curve-launch is our own Solana bonding curve, priced in SOL: anyone can buy and sell a launch there, and a maker at Resident or better (80° of held time on Jungle Bay Island) can launch a new token through the memetics.finance gate, which reads the maker's wallet at create. The program itself accepts any wallet, so check the full token address before you buy. TOWELI itself is never deployed on Solana: that's deliberate, Solana is a separate rail, not a second home for the token.",
   },
   {
     keywords: ['jupiter', 'jup', 'swap solana', 'solana swap'],
     answer: "Jupiter is the router behind /solana — it shops your trade across Solana's DEXes for the best price. Our platform fee is shown before you sign, every time.",
   },
   {
-    keywords: ['meteora', 'dbc', 'bonding curve', 'solana launch'],
-    // RETIRED 2026-08-23. This used to say the rail "runs on Meteora's Dynamic Bonding
-    // Curve — their audited program, not ours". True at the time, and live to users.
-    // The keywords stay so anyone who asks about Meteora gets the retirement rather
-    // than silence, which would read as the old answer still being right.
-    answer: "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it — we only want launchers that graduate into our own venue. The replacement exists and is LIVE on the EVM side: the Memetics Curve at /eth-curve launches on Ethereum, Base and Robinhood, graduates into our own AMM and burns the LP outright. The SOLANA version is not live — those programs were closed and need fresh addresses — so nothing can be launched on Solana here for now.",
+    // The Meteora rail was retired 2026-08-23; anyone asking about it gets that answer.
+    keywords: ['meteora', 'dbc', 'bonding curve'],
+    answer: "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it: we only want launchers that graduate into our own venue. Our own curve replaced it, and it graduates into our own AMM and burns the LP outright. The Memetics Curve launches on Ethereum, Base and Robinhood at /eth-curve, and on Solana at /curve-launch, where a maker at Resident or better launches through the memetics.finance gate.",
   },
   {
-    // HONESTY PASS 2026-08-28: "No L2 yet" went false on 2026-08-25 — the
-    // Memetics Curve launcher is live on Base (OP-stack L2) and Robinhood Chain
-    // (Arbitrum Orbit L2). Keep this in sync with lib/chains/registry.ts.
+    // Keep in sync with lib/chains/registry.ts: Base is an OP-stack L2, Robinhood
+    // Chain an Arbitrum Orbit L2.
     keywords: ['l2', 'layer', 'rollup', 'arbitrum', 'optimism', 'base', 'robinhood'],
-    answer: "Two L2s, live: the Memetics Curve launches tokens on Base and on Robinhood Chain — /eth-curve follows whichever chain your wallet's on. The core protocol (staking, farming, swap) stays on Ethereum mainnet, and Solana handles swap-only.",
+    answer: "Two L2s, live: the Memetics Curve launches tokens on Base and on Robinhood Chain — /eth-curve follows whichever chain your wallet's on. The core protocol (staking, farming, swap) stays on Ethereum mainnet, and Solana has its own swap at /solana and its own curve at /curve-launch.",
   },
   {
     keywords: ['gas', 'expensive', 'cost'],
@@ -449,19 +442,26 @@ function tokenize(input: string): string[] {
  * no entry scores above the minimum threshold (caller should use a fallback).
  *
  * Scoring: each entry's score = count of question tokens that appear in its
- * keyword set, plus the entry's optional priority bump. Threshold is 1 hit.
+ * keyword set, plus one point per word of each several-word keyword whose words
+ * are all in the question, plus the entry's optional priority bump. Threshold is 1 hit.
  */
 export function answerQuestion(question: string): string {
   const tokens = tokenize(question);
   if (tokens.length === 0) {
     return "Ask me something specific — staking, swap, NFTs, gas, whatever.";
   }
+  const asked = new Set(tokens);
   let bestScore = 0;
   let best: KnowledgeEntry | null = null;
   for (const entry of KNOWLEDGE_BASE) {
     const set = new Set(entry.keywords);
     let score = 0;
     for (const tok of tokens) if (set.has(tok)) score++;
+    // A question token never holds a space, so a phrase is matched word by word.
+    for (const k of entry.keywords) {
+      const words = k.split(' ');
+      if (words.length > 1 && words.every((w) => asked.has(w))) score += words.length;
+    }
     if (score === 0) continue;
     score += entry.priority ?? 0;
     if (score > bestScore) {
