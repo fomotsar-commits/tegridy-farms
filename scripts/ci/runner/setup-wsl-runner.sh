@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Sets up the GitLab runner in a DEDICATED WSL2 distro (or a plain Ubuntu 24.04 VPS). The
-# owner runs it as root inside that distro, never in the everyday one. Phase 1 (WSL only)
-# cuts the distro off from Windows and stops; restart it and run the copy left in /root.
+# Sets up the GitLab runner on a plain Ubuntu 24.04 VPS (preferred), or in a DEDICATED WSL2
+# distro, never the everyday one, once the owner allows that in writing. Run as root. Phase 1
+# (WSL only) cuts the distro off from Windows and stops; restart it and run the copy in /root.
 # Phase 2 installs rootless Docker and the pinned act, gitleaks and gitlab-runner, runs
 # jobs as the unprivileged user `ci`, and registers the runner. See docs/CI_ON_GITLAB.md.
 set -euo pipefail
@@ -234,4 +234,4 @@ printf '  %-34s %s\n' "runner service" "$(systemctl is-active tegridy-gitlab-run
 if $is_wsl; then
   printf '  %-34s %s\n' "Windows drives mounted" "$(windows_drives | wc -l)"
 fi
-say "done. Push a branch, open a merge request, and watch the pipeline-exists job pick up."
+say "done. No job arrives until the project variable TEGRIDY_CI_ON_GITLAB is 1: docs/CI_ON_GITLAB.md, 'Switching it on'."

@@ -1,10 +1,13 @@
-# CI on GitLab
+# CI on GitLab: the failover CI
 
-GitLab CI runs the same checks as GitHub Actions did, from the same files. Each GitLab job
-takes one file in `.github/workflows/` and runs it, unchanged, with
+GitHub Actions is our CI. GitLab CI, described here, is the standby: if GitHub goes away
+again, GitLab runs the same checks from the same files. Until the owner switches it on,
+GitLab makes no pipelines at all.
+
+Each GitLab job takes one file in `.github/workflows/` and runs it, unchanged, with
 [act](https://github.com/nektos/act) on our own runner. No command, path or hash is copied
-out of a workflow, so a change to a workflow changes both hosts at once, and the day GitHub
-comes back its Actions read the same files.
+out of a workflow, so a change to a workflow changes both hosts at once, and GitHub and
+GitLab always run the same checks.
 
 - Pipeline file: `.gitlab-ci.yml`
 - The wrapper every workflow job calls: `scripts/ci/act-job.sh`
@@ -13,14 +16,66 @@ comes back its Actions read the same files.
 - Runner setup: `scripts/ci/runner/setup-wsl-runner.sh`, tool pins in `scripts/ci/runner/pins.env`
 - Guard test: `frontend/src/test/gitlabCi.test.ts`
 
+## Off until switched on
+
+GitLab gets every branch and tag pushed to GitHub, as a mirror (`docs/GIT_HOSTING.md`). It has
+no runner. If each of those pushes made a pipeline, each one would wait for a runner forever,
+and a stuck pipeline is noise nobody reads. So the first rule in `.gitlab-ci.yml` makes no
+pipeline at all unless the project's CI/CD variable `TEGRIDY_CI_ON_GITLAB` is exactly `1`.
+Unset, empty, or any other value means off.
+
+The guard test fails if that rule is removed, moved below another rule, loosened, or if
+`.gitlab-ci.yml` sets the variable itself.
+
+The switch stops noise, not people. A member's branch can edit `.gitlab-ci.yml`, and a merge
+request pipeline runs the branch's copy. The safety rules below are what keep a job safe.
+
+### Switching it on, in a GitHub outage
+
+Do this once GitLab is the primary (the failover drill in `docs/GIT_HOSTING.md`), and only
+if a runner is online. The one other time is a drill (below). With no runner, leave CI off
+and run `scripts/ci/local-gates.sh` before each merge instead (see "Checks with no runner at
+all").
+
+1. In the GitLab project, Settings > CI/CD > Runners: our runner shows online (green). If
+   there is none, stop here.
+2. Settings > CI/CD > Variables > **Add variable**:
+   - Key `TEGRIDY_CI_ON_GITLAB`, value `1`. Type: Variable. Environment scope: All (default).
+   - Visibility: **Visible**. It is not a secret, and GitLab cannot mask a one-character value.
+   - **Protect variable: off.** GitLab passes a protected variable only to pipelines on
+     protected branches and tags. Merge request pipelines from ordinary branches would never
+     see it, so they would never start.
+3. If this runner has never run a pipeline, go through the first-run checklist below now.
+   Otherwise push a docs-only branch and open a merge request: a pipeline must appear. If none
+   appears, check the key's spelling and that "Protect variable" is off.
+4. When a pipeline has passed, turn on **Pipelines must succeed** (Settings > Merge requests >
+   Merge checks). Not before: a merge request with no pipeline cannot merge at all.
+
+### Switching it off, when GitHub is the primary again
+
+1. If **Pipelines must succeed** is on, turn it off first. With CI off, no merge request has
+   a pipeline, so that setting would block every merge on GitLab, even in the next outage.
+2. Delete the variable `TEGRIDY_CI_ON_GITLAB` (Settings > CI/CD > Variables).
+3. Cancel any pipeline still waiting (Build > Pipelines).
+
+The runner can stay registered. With CI off it gets no jobs.
+
+### A drill while GitHub is the primary
+
+To prove the runner before an outage, switch CI on, run the first-run checklist, and switch
+it off again. During the drill, **merge nothing on GitLab**: open merge requests only to read
+their pipelines, then close them. A merge there puts a commit on GitLab's `mvp-launch` that
+GitHub does not have, and the mirror's next push of `mvp-launch` is then refused (a red
+mirror run).
+
 ## What a pipeline does
 
-A pipeline runs for every merge request and for every push to `mvp-launch`. A branch push
-with no merge request runs nothing, so no commit gets two pipelines.
+While CI is on, a pipeline runs for every merge request and for every push to `mvp-launch`.
+A branch push with no merge request runs nothing, so no commit gets two pipelines.
 
 | GitLab job | Runs | Blocks a merge when red |
 |---|---|---|
-| `pipeline-exists` | the wrapper's own self-test; it always runs, so every merge request has a pipeline | yes |
+| `pipeline-exists` | the wrapper's own self-test; it runs in every pipeline, so every merge request has one | yes |
 | `gitleaks` | the pinned gitleaks binary over only the new commits | yes |
 | `ci` | `ci.yml` | yes |
 | `contracts-ci` | `contracts-ci.yml` | yes |
@@ -44,7 +99,8 @@ Not run on GitLab:
 | `gitleaks.yml` | Replaced by the `gitleaks` job. Its action needs GitHub's API. |
 | `release.yml` | Publishes a GitHub Release through GitHub's API. No `v*` tag has ever been cut. |
 | `solana-deploy-artifact.yml` | Manual mainnet builds. Its inputs are pasted into scripts, so it needs an input allowlist before act may run it, and its program build has a known bug (an unset `SIZE`). Build mainnet binaries in WSL for now (`ci-solana-release` audit, section 11). |
-| `arb-linkage-monitor.yml`, `revenue-watch.yml`, `synthetic-monitor.yml`, `supabase-backup.yml`, `contracts-coverage.yml` | Schedules. They move to the ops scheduler. |
+| `arb-linkage-monitor.yml`, `revenue-watch.yml`, `synthetic-monitor.yml`, `supabase-backup.yml` | Schedules. GitLab CI runs merge requests and trunk pushes only. Off GitHub, the ops scheduler runs them (`docs/OPS_SCHEDULER.md`). The backup also holds secrets, which this runner never gets. |
+| `contracts-coverage.yml` | A weekly schedule and a manual run. Not run off GitHub, by decision. |
 
 ### What the wrapper adds, and why
 
@@ -99,13 +155,13 @@ so the wrapper refuses a runner that says it may take two jobs at once.
 - **Only people you trust can start a job here.** The shell executor runs the merge
   request's own `.gitlab-ci.yml` and scripts as `ci`, outside any container. So only project
   members may push branches, and a merge request from a fork must never run in this project.
-  GitLab's settings pages have no switch for that: turn it off once through the API (step 1
-  below), and never click "Run pipeline" on a fork's merge request.
+  GitLab's settings pages have no switch for that: turn it off once through the API (runner
+  setup, step 1), and never click "Run pipeline" on a fork's merge request.
 - **No secrets on this runner, ever.** None of these workflows needs one, and the wrapper
   passes none. Marking a variable "protected" is not enough here: every job shares this
   machine, so a merge request job could leave something behind that a later trunk job runs.
   A job that needs a secret (a deploy token, for example) must run on a separate runner that
-  is marked protected, never on this one.
+  is marked protected, never on this one. (`TEGRIDY_CI_ON_GITLAB` is a switch, not a secret.)
 - **Nothing one run leaves reaches the next.** act mounts one tool folder
   (`/opt/hostedtoolcache`) into every job container and never deletes it, and its
   actions/cache store matches entries by key alone, with no branch scope. The wrapper deletes
@@ -122,28 +178,22 @@ so the wrapper refuses a runner that says it may take two jobs at once.
 fails if a job's script is anything but its one command, if a job can be skipped or allowed to
 fail (only `registry-onchain` may fail), or if act gets extra container options or variables.
 
-## The runner: a dedicated WSL distro on the owner's PC
+## The runner: not chosen yet
 
-This runs on the owner's PC today, so building does not wait for a server. It must be a
-**new, separate WSL distro**, never the everyday Ubuntu one, and never a copy of it.
+There is no runner yet, and where it will live is still the owner's decision. Until then:
 
-### First, a decision: this breaks a rule in the audits
+- **Do not register a runner on the PC that holds the keys.** A runner runs code from
+  branches, and the mainnet keys live on that PC. The audits and `docs/GIT_HOSTING.md` say
+  "Never the shell executor on the PC that holds keys", and that rule stands.
+- **A VPS is the preferred home.** No keys are on it, so the worst a job escape can do is
+  take over the VPS. A 4-8 vCPU, 8-16 GB server costs roughly 10 to 70 euros a month. The
+  same setup script prepares it.
+- **Until a runner exists, `scripts/ci/local-gates.sh` is the gate.** Run it before each
+  merge, in peacetime or in an outage (see "Checks with no runner at all").
 
-The audits and `docs/GIT_HOSTING.md` (section 9) say: never a shell executor on the PC that
-holds the keys. A runner runs code from branches, and the mainnet keys live on this PC. This
-setup is still a shell executor on that PC. It makes the risk small (a separate distro with no
-Windows drives, no root for jobs, rootless Docker, members' branches only), but it does not
-remove it. "What risk remains" below lists what is left. The owner picks one:
-
-- **WSL on this PC, now.** CI runs today, at no cost. Accept the remaining risk in writing:
-  change GIT_HOSTING.md section 9 to allow this setup, with the reasons, in the same pull
-  request that records the decision.
-- **A VPS from day one.** No keys are on it. It costs about 10 to 70 euros a month, and the
-  same script sets it up.
-
-Until that decision is written down, GIT_HOSTING.md's rule stands: do not register a runner on
-this PC. Nothing is blocked meanwhile, because `scripts/ci/local-gates.sh` runs the gates with
-no runner at all.
+A dedicated WSL distro on the owner's PC is also written up below, because it costs no money.
+It breaks the rule above, so it needs the owner's written decision first: change that line
+of `docs/GIT_HOSTING.md`, with the reasons, in the same pull request that records it.
 
 Why the shell executor: act needs a Docker daemon of its own. With GitLab's Docker executor,
 the job container would need the host's Docker socket or privileged Docker-in-Docker, and
@@ -151,7 +201,7 @@ either one is root on the host. With the shell executor, the job script runs as 
 talks to `ci`'s own rootless Docker, and the workflow code runs inside act's containers,
 which get no socket.
 
-### Steps (the owner runs these)
+### Setting up a runner on a VPS (the owner runs these)
 
 1. **In GitLab** (the project, as a Maintainer):
    - Settings > CI/CD > Runners: turn **off** instance runners for this project. Then
@@ -161,22 +211,44 @@ which get no socket.
    - Settings > CI/CD > Auto DevOps: clear **Default to Auto DevOps pipeline**.
    - Settings > CI/CD > General pipelines: if the project is public, clear
      "Project-based pipeline visibility" so job logs stay members-only.
-   - **Fork pipelines off.** This is API only; no settings page has it. In PowerShell, from
-     a clone whose `origin` is the GitLab project, with `glab` signed in
-     (`docs/GIT_HOSTING.md` section 3):
+   - **Fork pipelines off.** This is API only; no settings page has it. Copy the project's
+     ID (a number; Settings > General shows it as "Project ID"), then in PowerShell, with
+     `glab` signed in (`glab auth login`):
      ```powershell
-     glab api -X PUT projects/:id -f ci_allow_fork_pipelines_to_run_in_parent_project=false
-     glab api projects/:id | Select-String '"ci_allow_fork_pipelines_to_run_in_parent_project": *false'
+     $id = '<Project ID>'
+     glab api -X PUT "projects/$id" -f ci_allow_fork_pipelines_to_run_in_parent_project=false
+     glab api "projects/$id" | Select-String '"ci_allow_fork_pipelines_to_run_in_parent_project": *false'
      ```
-     The second line must print a match. If it prints nothing, stop: the setting is still on.
+     The last line must print a match. If it prints nothing, stop: the setting is still on.
    - Settings > Merge requests: merge method **Merge commit with semi-linear history** (the
-     same as `docs/GIT_HOSTING.md` section 2A). A merge request can then merge only when its
-     branch already contains `mvp-launch`, so the tree its pipeline tested is the tree that
-     lands. "Skipped pipelines are considered successful" off. Leave **Pipelines must
-     succeed** off for now: a merge request with no pipeline cannot merge at all, so turn it
-     on only after the runner passes its first pipeline (checklist step 7).
-   - Protected branch `mvp-launch`: push "No one", merge "Maintainers".
-2. **Make the distro** (PowerShell):
+     same as `docs/GIT_HOSTING.md`). A merge request can then merge only when its branch
+     already contains `mvp-launch`, so the tree its pipeline tested is the tree that lands.
+     "Skipped pipelines are considered successful" off. Leave **Pipelines must succeed** off:
+     turn it on only while CI is switched on and a pipeline has passed (see "Switching it
+     on"). A merge request with no pipeline cannot merge at all.
+   - Protected branch `mvp-launch`: leave it as `docs/GIT_HOSTING.md` sets it (merge:
+     Maintainers; push: only the GitHub mirror's deploy key; force push off). CI needs
+     nothing more.
+2. **The server:** a fresh Ubuntu 24.04 x86_64 VPS. Copy the two files in
+   `scripts/ci/runner/` into one folder there (for example with `scp`, to
+   `/root/tegridy-runner-setup/`). Then, in an interactive SSH session as root:
+   ```bash
+   bash /root/tegridy-runner-setup/setup-wsl-runner.sh
+   ```
+   It sees it is not in WSL and goes straight to the install: Docker (rootless for `ci`, no
+   root daemon), act, gitleaks and gitlab-runner. It asks for the `glrt-` token without
+   echoing it, and starts the runner with one job at a time.
+3. **Check** that GitLab shows the runner online. CI stays off. To prove the runner, run the
+   drill above.
+
+Re-running the script is safe: it re-installs the pinned tools and keeps the registration.
+
+### Only after a written decision: a dedicated WSL distro on the owner's PC
+
+It must be a **new, separate WSL distro**, never the everyday Ubuntu one, and never a copy of
+it. Do step 1 above first, then:
+
+1. **Make the distro** (PowerShell):
    ```powershell
    wsl --update
    wsl --install Ubuntu-24.04 --name tegridy-runner --location C:\wsl\tegridy-runner
@@ -185,7 +257,7 @@ which get no socket.
    `--name` is not recognised, import Ubuntu's official 24.04 WSL image instead with
    `wsl --import tegridy-runner C:\wsl\tegridy-runner <image file>`, after checking its
    SHA256 against Ubuntu's published list.
-3. **Phase 1: cut it off from Windows.** From any clone of this repo outside OneDrive:
+2. **Phase 1: cut it off from Windows.** From any clone of this repo outside OneDrive:
    ```powershell
    wsl -d tegridy-runner -u root -- bash /mnt/c/Users/jimbo/dev/<clone>/scripts/ci/runner/setup-wsl-runner.sh
    wsl --terminate tegridy-runner
@@ -193,41 +265,37 @@ which get no socket.
    This writes `/etc/wsl.conf`: no Windows drives, no starting Windows programs, systemd on.
    It copies itself to `/root/tegridy-runner-setup/` first, because `/mnt/c` is gone after
    the restart.
-4. **Phase 2: install and register.**
+3. **Phase 2: install and register.**
    ```powershell
    wsl -d tegridy-runner -u root -- bash /root/tegridy-runner-setup/setup-wsl-runner.sh
    ```
-   It checks the isolation is live (no Windows drive mounted, interop off), installs Docker
-   (rootless for `ci`, no root daemon), act, gitleaks and gitlab-runner, asks for the
-   `glrt-` token without echoing it, and starts the runner with one job at a time.
-5. **Check** that GitLab shows the runner online, then follow the first-run checklist below.
+   It checks the isolation is live (no Windows drive mounted, interop off), then installs and
+   registers exactly as on a VPS.
+4. **Check** that GitLab shows the runner online. CI stays off until an outage or a drill.
 
-On a VPS instead, skip steps 2 and 3. Copy `scripts/ci/runner/` (two files) to a fresh
-Ubuntu 24.04 server and run the script there as root. It sees it is not in WSL and goes
-straight to phase 2.
-
-Re-running phase 2 is safe: it re-installs the pinned tools and keeps the registration.
-
-**To change a tool version** (act, gitleaks or gitlab-runner):
+### Changing a tool version (act, gitleaks or gitlab-runner)
 
 1. Open the bump merge request: edit `scripts/ci/runner/pins.env` (the version, and the
    sha256 from the tool's release checksums file).
-2. Phase 2 reads its own copy inside the distro, never your clone, and `/mnt/c` is gone. So
-   copy both files in. In Git Bash, from a clone checked out at the bump branch:
+2. Copy both files in `scripts/ci/runner/` to the runner, because the script reads its own
+   copy, never your clone. On a VPS, copy them over the old ones (for example with `scp`).
+   In a WSL distro `/mnt/c` is gone, so in Git Bash, from a clone checked out at the bump
+   branch:
    ```bash
    for f in pins.env setup-wsl-runner.sh; do
      MSYS_NO_PATHCONV=1 wsl.exe -d tegridy-runner -u root --exec sh -c 'tr -d "\r" > "/root/tegridy-runner-setup/$1"' _ "$f" < "scripts/ci/runner/$f"
    done
    ```
-3. Re-run phase 2. Its first line names the versions it installs. They must match `pins.env`.
+3. Re-run the script (phase 2 on WSL). Its first line names the versions it installs. They
+   must match `pins.env`.
 4. Merge the bump merge request at once, then rebase the other open ones. From the moment the
    runner has the new tools until the bump lands, every other pipeline, trunk included, is
    red: the scripts refuse a tool that does not match their own pins.
 
-### What risk remains, compared with a separate server (VPS)
+### What risk remains on WSL, compared with a VPS
 
-The setup makes a job's reach small, but this machine also holds the mainnet keys, so it
-is worth being plain about what is left.
+The setup makes a job's reach small, but that PC also holds the mainnet keys, so it is worth
+being plain about what is left.
 
 - **One kernel for all WSL distros.** Every WSL distro shares one Linux kernel. A job that
   exploits a kernel bug could reach the other distros, and root in any distro can mount the
@@ -250,16 +318,13 @@ is worth being plain about what is left.
 - **Still visible to the distro:** WSL's read-only Windows GPU driver folder
   (`/usr/lib/wsl`), and the `/mnt/wsl` folder that all distros share.
 
-A small VPS removes all of these: the keys are simply not on that machine, so the worst a
-job escape can do is take over the VPS. A 4-8 vCPU, 8-16 GB server costs roughly 10 to 70
-euros a month. The same script sets it up (it skips the WSL phase on its own). If the owner
-picks WSL now, the plan is to move the runner to a VPS when there is budget. Both can be
-registered at once with the same tag, and GitLab uses whichever is free.
+A VPS removes all of these. Both can be registered at once with the same tag, and GitLab
+uses whichever is free, so a WSL runner can be retired later without a gap.
 
 ## Checks with no runner at all
 
-Until the runner exists, or whenever a host is down, run the gates on this PC in Git Bash,
-from a clone outside OneDrive:
+Until a runner exists, this is the merge gate whenever GitHub Actions is not there to run.
+Run it before each merge, in Git Bash, from a clone outside OneDrive:
 
 ```bash
 bash scripts/ci/local-gates.sh root        # seconds: the repo-root self-tests
@@ -278,17 +343,20 @@ validator suites) are listed as "CI only". Set `LOCAL_GATES_SKIP_INSTALL=1` to s
 
 ## First-run checklist
 
-Nothing here has run on a live runner yet. Go through this once, in order.
+Nothing here has run on a live runner yet. Go through this once, in order, with CI switched
+on (steps 1 and 2 of "Switching it on"). In a drill, merge nothing on GitLab.
 
-1. **Runner online.** In WSL: `systemctl status tegridy-gitlab-runner` is active; GitLab
-   shows the runner green.
+1. **Runner online.** On the runner: `systemctl status tegridy-gitlab-runner` is active;
+   GitLab shows the runner green.
 2. **Docs-only merge request first** (cheap). Expect: `pipeline-exists` and `gitleaks`
    green. In `ci`, the wrapper's table shows `scope` and `docs-guards` passed and the build
    jobs "skipped by its if:". `contracts-ci` shows `scope` and `all-tests-pass` passed, the
    others skipped, and `test` "not reached". `npm-advisories` shows `audit` passed three times.
+   - If no pipeline appears at all: the switch is off. Check the variable's key, its value
+     `1`, and that "Protect variable" is off.
    - If `test` shows "NEVER STARTED" instead of "not reached", the needs map came back
      empty: check that `yq` exists in the act image (`scripts/ci/act/job-needs.sh`).
-   - If `act-job: act is 'missing'`: phase 2 did not finish; re-run it.
+   - If `act-job: act is 'missing'`: the setup script did not finish; re-run it.
    - If `ACT_EXCLUSIVE_RUNNER is not 1`: the runner was registered some other way. Register
      it again with the setup script, which sets that and `concurrent = 1` together.
    - If `the job token is under .git`: this runner version wrote the token into the checkout
@@ -308,11 +376,12 @@ Nothing here has run on a live runner yet. Go through this once, in order.
    argument in the log names the same commit as `slither.yml`.
 5. **A merge request that touches `solana/`.** The three validator jobs are the least
    tested under act. If `solana-test-validator` complains about open files, the file limit
-   did not apply (phase 2 sets it to 1048576). If `yarn` is missing, the image layer did
-   not install it.
-6. **The first push to `mvp-launch`.** Each workflow whose `on.push.paths` did not match
-   prints "GitHub would not start it. Not run." and passes.
-7. **Now** turn on "Pipelines must succeed" (Settings > Merge requests > Merge checks), and
-   treat a green pipeline as the merge gate. Not before: a merge request with no pipeline
-   cannot merge at all. `pipeline-exists` runs in every pipeline, so a docs-only merge
-   request still has one.
+   did not apply (the setup script sets it to 1048576). If `yarn` is missing, the image layer
+   did not install it.
+6. **The next push to `mvp-launch`** (in a drill, the mirror's push of GitHub's next merge).
+   Each workflow whose `on.push.paths` did not match prints "GitHub would not start it. Not
+   run." and passes.
+7. **If GitLab is the primary now,** turn on "Pipelines must succeed" (Settings > Merge
+   requests > Merge checks) and treat a green pipeline as the merge gate. `pipeline-exists`
+   runs in every pipeline, so a docs-only merge request still has one. **If this was a
+   drill,** switch CI off again instead ("Switching it off").

@@ -1,8 +1,9 @@
-// GitLab CI runs the GitHub workflow files under act; it never copies a gate out of them.
-// Pinned here: every push or pull_request workflow is run by exactly one GitLab job, or is
-// listed below with the reason it is not; each job runs only its one command; no job can
-// hand the Docker socket or a leftover of one run to workflow code; the secret scan reads
-// nothing the change controls; and scripts/ci/local-gates.sh runs only commands CI runs.
+// GitLab CI is the failover CI. It runs the GitHub workflow files under act, never a copy of
+// a gate, and makes no pipeline until the owner sets TEGRIDY_CI_ON_GITLAB=1 on the project.
+// Pinned here: that switch; every push or pull_request workflow run by exactly one GitLab job
+// or listed with the reason it is not; each job runs only its one command; no job can hand the
+// Docker socket or a leftover of one run to workflow code; the secret scan reads nothing the
+// change controls; and scripts/ci/local-gates.sh runs only commands CI runs.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -20,11 +21,11 @@ const EXCLUDED: Record<string, string> = {
   'codeql.yml': 'GitHub only: SARIF goes to GitHub code scanning, and the CodeQL licence covers CI for code hosted on GitHub.com.',
   'release.yml': 'Publishes a GitHub Release through the GitHub API (softprops/action-gh-release); no v* tag has ever been cut.',
   'solana-deploy-artifact.yml': 'Manual mainnet builds: its inputs are spliced into scripts, so an act port needs an input allowlist first, and its program build has the unset-SIZE bug.',
-  'arb-linkage-monitor.yml': 'Schedule only; moves to the ops scheduler.',
-  'revenue-watch.yml': 'Schedule only; moves to the ops scheduler.',
-  'synthetic-monitor.yml': 'Schedule only; moves to the ops scheduler.',
-  'supabase-backup.yml': 'Schedule only, and it holds secrets; moves to the ops scheduler.',
-  'contracts-coverage.yml': 'Schedule and dispatch only; moves to the ops scheduler.',
+  'arb-linkage-monitor.yml': 'Schedule only; off GitHub the ops scheduler runs it, not GitLab CI.',
+  'revenue-watch.yml': 'Schedule only; off GitHub the ops scheduler runs it, not GitLab CI.',
+  'synthetic-monitor.yml': 'Schedule only; off GitHub the ops scheduler runs it, not GitLab CI.',
+  'supabase-backup.yml': 'Schedule only, and it holds secrets, which this runner never gets; off GitHub the ops scheduler runs it.',
+  'contracts-coverage.yml': 'Schedule and dispatch only; not run off GitHub, by decision.',
 };
 const REPLACED: Record<string, { job: string; why: string }> = {
   'gitleaks.yml': { job: 'gitleaks', why: 'gitleaks-action reads PR commits through the GitHub API; the job runs the pinned binary over the same range.' },
@@ -80,6 +81,17 @@ function gitlabJobs(): Job[] {
   }
   return blocks;
 }
+
+/** The code lines under .gitlab-ci.yml's top-level `workflow:`, indentation kept. */
+function workflowBlock(): string[] {
+  const lines = read('.gitlab-ci.yml').split(/\r?\n/).filter((l) => l.trim() !== '' && !/^\s*#/.test(l));
+  const start = lines.indexOf('workflow:');
+  if (start < 0) return [];
+  const end = lines.findIndex((l, i) => i > start && /^\S/.test(l));
+  return lines.slice(start + 1, end < 0 ? undefined : end);
+}
+/** The first workflow rule: no pipeline at all unless the project variable is exactly "1". */
+const SWITCH = ['    - if: $TEGRIDY_CI_ON_GITLAB != "1"', '      when: never'];
 
 const RESERVED = new Set(['workflow', 'variables', 'default', 'stages', 'include']);
 const jobs = () => gitlabJobs().filter((b) => !b.hidden && !RESERVED.has(b.name));
@@ -165,20 +177,34 @@ describe('GitLab CI runs the workflow files', () => {
     expect(problems).toEqual([]);
   });
 
-  it('always has a pipeline, on our runner only, for merge requests and trunk pushes', () => {
+  // GitLab mirrors GitHub day to day and has no runner. A pipeline per mirrored push would
+  // wait forever, so none is made until the owner switches CI on there in a GitHub outage.
+  it('makes no pipeline at all until the project variable TEGRIDY_CI_ON_GITLAB is "1"', () => {
+    const src = read('.gitlab-ci.yml');
+    expect(src.match(/^workflow:/gm), 'want exactly one top-level workflow block').toHaveLength(1);
+    expect(workflowBlock().slice(0, 3), 'the switch must be the first workflow rule, whole').toEqual(['  rules:', ...SWITCH]);
+    // Only the owner's project variable turns it on: this file never sets or tests it elsewhere.
+    const uses = src.split(/\r?\n/).filter((l) => !/^\s*#/.test(l) && l.includes('TEGRIDY_CI_ON_GITLAB'));
+    expect(uses).toEqual([SWITCH[0]]);
+  });
+
+  it('once switched on, has a pipeline for every merge request and trunk push, on our runner only', () => {
     const always = jobs().find((j) => j.name === 'pipeline-exists');
     expect(always, 'the always-run job is gone').toBeDefined();
     for (const k of ['rules', 'when', 'only', 'except', 'needs']) expect(always!.keys.has(k)).toBe(false);
     const blocks = gitlabJobs();
     expect(blocks.find((b) => b.name === 'default')?.keys.get('tags')).toEqual(['[tegridy-runner]']);
     expect(jobs().filter((j) => j.keys.has('tags')).map((j) => j.name)).toEqual([]);
-    // Exactly these two conditions, whole: a clause appended to either one could skip it.
+    // The switch, then exactly these two conditions, whole: a clause appended to either one
+    // could skip it, and a rule put before the switch would get past it.
     const rules = blocks.find((b) => b.name === 'workflow')?.keys.get('rules') ?? [];
     expect(rules.filter((l) => l.startsWith('- '))).toEqual([
+      SWITCH[0].trim(),
       '- if: $CI_PIPELINE_SOURCE == "merge_request_event"',
       '- if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "mvp-launch"',
     ]);
-    expect(rules.filter((l) => !l.startsWith('- ') && !/^(auto_cancel:|on_new_commit: [a-z_]+)$/.test(l))).toEqual([]);
+    const rest = rules.filter((l) => !l.startsWith('- ') && !/^(auto_cancel:|on_new_commit: [a-z_]+)$/.test(l));
+    expect(rest, 'only the switch may say `when:`').toEqual([SWITCH[1].trim()]);
   });
 });
 

@@ -1,18 +1,22 @@
-# GitLab CI. The gates live in .github/workflows/*.yml and nowhere else: each job below
-# runs one of those files, unchanged, under act (scripts/ci/act-job.sh) on our own runner.
-# Nothing here copies a command, path or hash out of a workflow, so a workflow edit
-# changes both hosts at once. Design, runner and first run: docs/CI_ON_GITLAB.md.
-# Guarded by frontend/src/test/gitlabCi.test.ts.
+# GitLab's failover CI. GitHub Actions is the CI day to day; this runs only when the owner
+# switches it on in a GitHub outage. Each job runs one .github/workflows file, unchanged,
+# under act (scripts/ci/act-job.sh) on our own runner. Nothing here copies a command, path
+# or hash out of a workflow, so a workflow edit changes both hosts at once.
+# Switch, runner and first run: docs/CI_ON_GITLAB.md. Guard: frontend/src/test/gitlabCi.test.ts.
 
 # Not run here (the test holds the reasons): codeql.yml (GitHub-only SARIF and licence),
 # gitleaks.yml (replaced by the gitleaks job), release.yml (GitHub Releases API),
-# solana-deploy-artifact.yml (manual mainnet builds), and the schedule-only
-# arb-linkage-monitor.yml, revenue-watch.yml, synthetic-monitor.yml, supabase-backup.yml
-# and contracts-coverage.yml (they move to the ops scheduler).
+# solana-deploy-artifact.yml (manual mainnet builds), the schedule-only
+# arb-linkage-monitor.yml, revenue-watch.yml, synthetic-monitor.yml and supabase-backup.yml
+# (off GitHub the ops scheduler runs them), and contracts-coverage.yml (not run off GitHub).
 
 workflow:
   rules:
-    # One pipeline per change: merge request pipelines, and pushes to the trunk.
+    # The switch. GitLab gets every GitHub push as a mirror and has no runner, so no pipeline
+    # is made until the project CI/CD variable TEGRIDY_CI_ON_GITLAB is "1". Unset is off.
+    - if: $TEGRIDY_CI_ON_GITLAB != "1"
+      when: never
+    # Once on, one pipeline per change: merge request pipelines, and pushes to the trunk.
     # A branch push makes no pipeline of its own, so no commit gets both.
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       auto_cancel:
@@ -38,8 +42,8 @@ default:
 
 stages: [check, workflows]
 
-# Always runs, so every merge request has a pipeline ("Pipelines must succeed" blocks an
-# MR that has none). It also proves the wrapper's verdict logic on this runner.
+# Runs in every pipeline, so once CI is on every merge request has one ("Pipelines must
+# succeed" blocks an MR that has none). It also proves the wrapper's verdict logic here.
 pipeline-exists:
   stage: check
   timeout: 10m
