@@ -29,35 +29,45 @@ stop and say so — a surprise is information.
 
 ---
 
-## 🔴 2026-09-29: the code moves off GitHub, and only you can open its new homes
+## 🔴 2026-09-29: GitHub is back; make GitLab a live standby so GitHub is never the only copy
 
-GitHub suspended the account on 2026-09-24. Nothing merges or deploys through it. Production
-still serves trunk `434fb635`. The new setup is in [`GIT_HOSTING.md`](GIT_HOSTING.md): GitLab as
-primary, Bitbucket as hot standby, a local vault of every ref, and daily bundles on OneDrive.
-The first vault missed 11 of the OneDrive clone's 12 stash entries; the fresh vault in 2A step 7
-takes them all. The scripts are built and tested. The accounts, sign-ins and first pushes need you.
+GitHub suspended the account on 2026-09-24 and reinstated it on 2026-09-29/30. It stays the
+primary: pull requests, CI and Vercel's deploys stay there. GitLab becomes a live standby that
+every push reaches. If GitHub goes again, GitLab takes over in about 15 minutes. The plan is
+[`GIT_HOSTING.md`](GIT_HOSTING.md). The scripts and the mirror workflow are built and tested.
+The accounts, keys and settings need you.
 
-### ⬜ O-0929-H1: work through GIT_HOSTING.md section 2, in order (about two hours)
+### ⬜ O-0929-H1: work through GIT_HOSTING.md section 2, in order (about an hour)
 
-**Today, first (15 minutes):** section 2.0. Check how you log in to Supabase, Railway and Vercel,
-and add an email login plus 2FA wherever it is GitHub-only. Confirm the offline copy of
-`BACKUP_PASSPHRASE` exists; it is the only one.
+**First (15 minutes):** 2.0. Add an email login plus 2FA wherever Supabase, Railway or Vercel is
+GitHub-only. Confirm the offline copy of `BACKUP_PASSPHRASE` exists; it is the only one.
 
-**Then:** 2A GitLab (account, 2FA, group `memetics`, empty private project, a fresh vault, the
-first push), 2B Bitbucket (protect `mvp-launch` there before the mirror), 2C point the clones, 2D
-Vercel (the safe order is written there), 2E Railway, 2F the daily backup task and its
-healthchecks.io alarm, 2G the other three repos. Not 2H: the project stays private.
+**Then:** 2A GitLab (a password and 2FA on your account, finish the group rename to `memetics`, a
+public project `tegridy-farms` and a private `tegridy-farms-vault`, GitLab's own CI off), 2B fill
+both, 2C the mirror (a deploy key with write access, the GitHub secret `GITLAB_MIRROR_SSH_KEY`,
+a trunk rule that lets only that key push), 2D point the clones, 2E the alarm on GitHub's
+schedule, 2F Vercel ready for the drill, 2G the daily backup task.
 
-**You should see:** `commits that could not be staged: 0` and `OK vault=...` from the fresh
-vault. `OK: the host holds exactly the local set (N refs).` from `push-all.sh`, once for each
-host. `Alarm: each run pings ...` from the backup installer. After 2D step 9, `gitlab memetics/tegridy-farms prod: mvp-launch`. After the first
-MR, `held-through.json` on memetics.finance shows the merge commit.
+**You should see:** `OK: the host holds exactly the local set (N refs).` twice in 2B, once per
+project. A green Mirror to GitLab run in 2C that ends
+`OK: the standby already holds every branch and tag GitHub has.` In each clone, `git remote -v`
+shows origin fetching from GitHub and pushing to GitHub, then GitLab. The day after 2E,
+`github-schedule` is UP on healthchecks.io.
 
-**A mismatch means:** stop. Do not connect Vercel until both hosts verify. Never push `main` as
-`main`, and never force.
+**A mismatch means:** stop. Never force. Never push the vault to the public project
+(`push-all.sh` refuses it without `--vault`).
 
-**Then (an agent can do this, with your go for each merge):** open the ship-branch MR as the first
-MR on GitLab, and start the CI port on our own runner (GIT_HOSTING.md section 9).
+**Also, now that GitHub is back:**
+- GitHub's scheduled workflows had not resumed when this plan was made (2026-09-29/30). The 2E
+  alarm says whether they do.
+- A security report filed before the suspension may be unread: check **Security > Advisories**
+  and **Issues** on GitHub.
+- Backups never live only on GitHub again. The 9 old Supabase backups are on OneDrive
+  (2026-09-29). New ones must land there too (`docs/OPS_SCHEDULER.md`, branch
+  `ops/off-github-crons`).
+
+**Then (an agent can do this, with your go):** walk the failover drill (GIT_HOSTING.md 5A) with
+you once on paper, and put the weekly and monthly checks of 5D in your calendar.
 
 ---
 

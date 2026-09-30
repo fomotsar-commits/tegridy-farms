@@ -7,10 +7,11 @@ the site and `api/`), `contracts/` (Foundry), `solana/` (Anchor), `indexer/`,
 
 ## Trunk
 
-`mvp-launch` is the default branch and the trunk. It lives on the primary host named in
-`docs/GIT_HOSTING.md`; no single host is load-bearing. `main` is a diverged fork (on the hosts,
-`archive/main`), never branch from it. A merge to `mvp-launch` on the primary deploys
-`frontend/` to production within minutes; moving it on any remote counts as a production deploy.
+`mvp-launch` is the default branch and the trunk. GitHub is the primary host and GitLab a live
+standby that every push reaches, so no single host is load-bearing (`docs/GIT_HOSTING.md`).
+`main` is a diverged fork (on GitLab, `archive/main`), never branch from it. A merge to
+`mvp-launch` on the primary deploys `frontend/` to production within minutes; moving it on any
+remote counts as a production deploy.
 
 ## Build and test (Node 20, `.nvmrc`; what `.github/workflows/ci.yml` runs)
 
