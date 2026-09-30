@@ -62,7 +62,7 @@ const HOST_SHAPES: Record<string, { issues: string; file: string }> = {
 /** Every home our repo has, primary and standby. The /source rules may point only at one
  *  of these, and the app links none of them directly. A new home joins this list once it
  *  is ours and public (docs/DEPLOY_RUNBOOK.md, "Moving the source links"). */
-const OUR_REPOS = ['https://github.com/fomotsar-commits/tegridy-farms', 'https://gitlab.com/memetics/tegridy-farms'];
+const OUR_REPOS = ['https://github.com/fomotsar-commits/tegridy-farms', 'https://gitlab.com/memetics-finance/tegridy-farms'];
 const ownerOf = (repo: string) => /^https:\/\/[^/]+\/([^/]+)/.exec(repo)?.[1] ?? '(no owner)';
 
 /** Each home's owner on every known host, so a copy we may add later is caught too. */

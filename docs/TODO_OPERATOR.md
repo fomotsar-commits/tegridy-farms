@@ -29,9 +29,9 @@ stop and say so — a surprise is information.
 
 ---
 
-## 🟡 2026-09-29: the source links go to GitHub; the GitLab standby must be public before it can take them
+## ✅ 2026-09-29: the source links go to GitHub; the GitLab standby is public, so it can take them
 
-### ⬜ O-0929-11: make the GitLab standby project public, so the source links can fail over
+### ✅ O-0929-11: make the GitLab standby project public, so the source links can fail over (done 2026-09-30)
 
 **Where this stands.** The site's source and audit links (branch `fix/source-links-first-party`)
 redirect to GitHub, `https://github.com/fomotsar-commits/tegridy-farms`, the primary. That repo
@@ -43,17 +43,17 @@ all answered. So merging the branch no longer waits on GitLab.
 DEPLOY_RUNBOOK, "Moving the source links", gives the four lines exactly. That only works if the
 GitLab project is ours and public. A redirect to a name nobody owns sends every trust link on
 the site, and `held-through.json`, to whoever registers it. A private project sends them to a
-sign-in page. On 2026-09-30 `curl -s https://gitlab.com/api/v4/projects/memetics%2Ftegridy-farms`
-answered `404 Project Not Found` (missing or private; the group was being renamed to `memetics`).
+sign-in page.
 
-**Do:** once the group is `memetics` and the standby holds the repo, make the project
-`tegridy-farms` public. The vault project stays private. If the group ends up with another
-name, change it in the runbook's four GitLab lines and in `OUR_REPOS` in
-`frontend/src/test/sourceLinks.test.ts`, in one PR.
+**Done 2026-09-30.** The group is `memetics-finance` (`memetics` was taken). The standby
+`memetics-finance/tegridy-farms` is public and holds exactly GitHub's branches and tags; the vault
+project stays private. `curl -s https://gitlab.com/api/v4/projects/memetics-finance%2Ftegridy-farms`
+returned `"visibility":"public"`, and a file, a folder, the issue list and `info/refs` answered
+without a sign-in. If the group is ever renamed, change the runbook's four GitLab lines and
+`OUR_REPOS` in `frontend/src/test/sourceLinks.test.ts`, in one PR.
 
-**You should see:** `curl -s https://gitlab.com/api/v4/projects/memetics%2Ftegridy-farms`
-returns JSON that contains `"visibility":"public"`. Check it again just before any failover.
-`404 Project Not Found` then means stop.
+**Before any failover, check again:** that curl must still show `"visibility":"public"`.
+`404 Project Not Found` means stop.
 
 ---
 

@@ -163,14 +163,14 @@ links (cp-swap's does not yet: TODO_OPERATOR O-0929-10).
 failover. Replace the four lines above with these four, exactly, then merge:
 
 ```json
-    { "source": "/source", "destination": "https://gitlab.com/memetics/tegridy-farms", "permanent": false },
-    { "source": "/source-issues", "destination": "https://gitlab.com/memetics/tegridy-farms/-/issues", "permanent": false },
-    { "source": "/source/info/refs", "destination": "https://gitlab.com/memetics/tegridy-farms.git/info/refs", "permanent": false },
-    { "source": "/source/:path*", "destination": "https://gitlab.com/memetics/tegridy-farms/-/blob/mvp-launch/:path*", "permanent": false }
+    { "source": "/source", "destination": "https://gitlab.com/memetics-finance/tegridy-farms", "permanent": false },
+    { "source": "/source-issues", "destination": "https://gitlab.com/memetics-finance/tegridy-farms/-/issues", "permanent": false },
+    { "source": "/source/info/refs", "destination": "https://gitlab.com/memetics-finance/tegridy-farms.git/info/refs", "permanent": false },
+    { "source": "/source/:path*", "destination": "https://gitlab.com/memetics-finance/tegridy-farms/-/blob/mvp-launch/:path*", "permanent": false }
 ```
 
 To go back to GitHub, put the first four lines back. If the GitLab group is ever renamed from
-`memetics`, change it in all four lines above and in `OUR_REPOS` in
+`memetics-finance`, change it in all four lines above and in `OUR_REPOS` in
 `frontend/src/test/sourceLinks.test.ts`.
 
 **Before any move, the target must be ours and public.** Merging to `mvp-launch` deploys the
@@ -178,7 +178,7 @@ redirects. A redirect to a name nobody owns sends every trust link on the site t
 registers that name first. A private project sends them to a sign-in page. Just before the
 merge, check the target:
 
-- GitLab: `curl -s https://gitlab.com/api/v4/projects/memetics%2Ftegridy-farms` must return
+- GitLab: `curl -s https://gitlab.com/api/v4/projects/memetics-finance%2Ftegridy-farms` must return
   JSON with `"visibility":"public"`. `404 Project Not Found` means stop: the project is missing
   or private, and the API does not say which.
 - GitHub: `curl -s https://api.github.com/repos/fomotsar-commits/tegridy-farms` must return
@@ -186,9 +186,9 @@ merge, check the target:
 
 Then run `npx vitest run src/test/sourceLinks.test.ts` in `frontend/`, since CI may be down
 during a failover. The test lists our repo's homes (`OUR_REPOS`) and fails if the rules point
-anywhere else, so a mistyped name fails before it deploys. On 2026-09-30 the GitHub check
-passed and the GitLab check still answered `404 Project Not Found`, so the standby could not
-take the links yet (TODO_OPERATOR O-0929-11).
+anywhere else, so a mistyped name fails before it deploys. On 2026-09-30 both checks
+passed: the GitLab project is public, and a file (200), a folder (302 to `/-/tree/`), the issue
+list (302 to `/-/work_items`) and `info/refs` (200) all answered without a sign-in.
 
 For any other host, keep the repo's address identical in all four lines and use the host's
 shapes below (the test knows them and fails otherwise). Keep `/source/info/refs` above
