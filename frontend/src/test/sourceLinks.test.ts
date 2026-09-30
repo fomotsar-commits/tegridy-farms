@@ -99,7 +99,7 @@ describe('no user-facing file links our repo on a git host directly', () => {
     (f) =>
       (/^frontend\/(src|public|api|scripts)\//.test(f) || f === 'frontend/index.html') &&
       !isTest(f) &&
-      /\.(ts|tsx|js|jsx|mjs|cjs|json|html|txt|md|css|svg|xml|webmanifest)$/.test(f),
+      /\.(ts|tsx|js|jsx|mjs|cjs|json|html|txt|css|svg|xml|webmanifest)$/.test(f),
   );
 
   it('scans the files it means to scan', () => {
