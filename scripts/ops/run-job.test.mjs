@@ -19,7 +19,8 @@ import { ALIASES, CANONICAL, DEFAULT_INDEXER, FOREIGN, REQUEST_TIMEOUT_MS as SYN
 import { runJob } from './run-job.mjs';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const HC = 'https://hc-ping.com/11111111-2222-3333-4444-555555555555';
+const HC_ID = '11111111-2222-3333-4444-555555555555';
+const HC = `https://hc-ping.com/${HC_ID}`;
 const tmp = (p) => mkdtempSync(join(tmpdir(), `ops-${p}-`));
 const noSleep = async () => {};
 const workflow = (name) => {
@@ -147,7 +148,7 @@ describe('the runner and its alarm', () => {
     assert.equal(code, 3);
     assert.equal(calls.length, 6);
     assert.match(err.lines.join('\n'), /NOT delivered/);
-    assert.ok(!err.lines.join('\n').includes(HC));
+    assert.ok(!err.lines.join('\n').includes(HC_ID), 'the ping URL was printed');
     const bad = pingFetch();
     const code2 = await runJob('synthetic-monitor', {
       env: { HC_PING_URL_SYNTHETIC_MONITOR: 'http://hc-ping.com/abc' }, fetchImpl: bad.impl, stateDir: tmp('st'), log: () => {}, warn: () => {},
@@ -344,7 +345,7 @@ describe('revenue-watch', () => {
   test('reads the same rails, addresses and selectors as revenue-watch.yml', () => {
     const wf = workflow('revenue-watch.yml');
     for (const c of EVM_CALLS) assert.ok(wf.includes(`eth_call "${c.name}"`) && new RegExp(`${c.to}\\s+${c.data}`).test(wf), c.name);
-    for (const b of EVM_BALANCES) assert.ok(new RegExp(`eth_balance "${b.name.replace(/[()]/g, '\\$&')}"\\s+${b.address}`).test(wf), b.name);
+    for (const b of EVM_BALANCES) assert.ok(new RegExp(`eth_balance "${b.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s+${b.address}`).test(wf), b.name);
     assert.ok(wf.includes(`sol_tokens "Squads partner vault" "${SQUADS_VAULT}"`));
   });
 });

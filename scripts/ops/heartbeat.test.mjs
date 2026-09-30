@@ -109,7 +109,7 @@ describe('the heartbeat step in synthetic-monitor.yml', () => {
     assert.equal(r.code, 0, r.out);
     assert.equal(r.stdin.trim(), `url = "${HC}"`);
     assert.ok(!r.args.includes('hc-ping.invalid'), `the ping URL reached curl's argv:\n${r.args}`);
-    assert.ok(!r.out.includes(HC) && !r.out.includes('SECRET-UUID'), 'the ping URL was printed');
+    assert.ok(!r.out.includes('SECRET-UUID'), 'the ping URL was printed');
     for (const flag of ['--config', '-fsS', '--retry-all-errors']) assert.ok(r.args.split('\n').includes(flag), `curl lacks ${flag}`);
     assert.match(r.body, /^synthetic-monitor: success\nhttps:\/\/github.com\/o\/r\/actions\/runs\/1/);
   });
@@ -147,7 +147,7 @@ describe('the heartbeat step in synthetic-monitor.yml', () => {
     assert.ok(r.args, 'the fake curl never ran, so this proves nothing');
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /::warning title=Heartbeat not delivered::/);
-    assert.ok(!r.out.includes(HC));
+    assert.ok(!r.out.includes('SECRET-UUID'), 'the ping URL was printed');
   });
 
   test('a secret that is not a plain https URL sends nothing and is never printed', () => {
