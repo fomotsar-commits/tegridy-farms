@@ -22,6 +22,29 @@ const STAGING_RE = /^\.partial-run\d+$/;
 const DAY = 86_400_000;
 // No prompt, no spinner, and no update check (that would be one more GitHub request).
 const GH_QUIET = { GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', GH_SPINNER_DISABLED: '1', NO_COLOR: '1' };
+// Only these start a real backup. A pull request can run an edited copy of the workflow, and
+// what it uploads must neither land here nor stand in for a weekly backup that stopped.
+export const BACKUP_EVENTS = Object.freeze(['schedule', 'workflow_dispatch']);
+// A run not held yet is tried at every pull until it is this old (four weekly pulls).
+export const RETRY_DAYS = 28;
+// A new file can be held open for a moment by an antivirus scan or OneDrive's upload, and a
+// rename then fails with EPERM, EACCES or EBUSY. Retry briefly, as graceful-fs does on Windows.
+export const RENAME_RETRY_MS = 5_000;
+// The most renames one pull makes: two per download, one for SHA256SUMS.
+export const MAX_RENAMES = 2 * MAX_DOWNLOADS + 1;
+const BUSY = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+export async function renameRetrying(from, to, { rename = renameSync, limitMs = RENAME_RETRY_MS, pauseMs = 250 } = {}) {
+  const start = Date.now();
+  for (;;) {
+    try {
+      return rename(from, to);
+    } catch (e) {
+      if (!BUSY.has(e?.code) || Date.now() - start + pauseMs > limitMs) throw e;
+      await new Promise((r) => setTimeout(r, pauseMs));
+    }
+  }
+}
 
 export const artifactName = (id) => `supabase-backup-${id}`;
 // Whole days and hours, counted from milliseconds: fractional days can print 9d 1h as 9d 0h.
@@ -45,7 +68,10 @@ export const listArgs = () => ['run', 'list', '--repo', REPO, '--workflow', WORK
   '--limit', String(LIST_LIMIT), '--json', 'databaseId,createdAt,conclusion,event,headBranch'];
 export const downloadArgs = (id, dir) => ['run', 'download', String(id), '--repo', REPO, '--name', artifactName(id), '--dir', dir];
 
-/** Successful runs, newest id first. Throws on output that is not the JSON gh prints. */
+/**
+ * { runs, ignored }: successful backup runs, and successful runs another event started, each
+ * newest id first. Throws on output that is not the JSON gh prints.
+ */
 export function parseRunList(stdout) {
   let rows;
   try {
@@ -55,6 +81,7 @@ export function parseRunList(stdout) {
   }
   if (!Array.isArray(rows)) throw new Error('gh run list did not print a list');
   const runs = [];
+  const ignored = [];
   for (const r of rows) {
     const at = Date.parse(r?.createdAt);
     if (!Number.isSafeInteger(r?.databaseId) || r.databaseId <= 0 || !Number.isFinite(at)) {
@@ -62,9 +89,12 @@ export function parseRunList(stdout) {
     }
     if (r.conclusion !== 'success') continue;
     const iso = new Date(at).toISOString();
-    runs.push({ id: r.databaseId, createdAt: iso, date: iso.slice(0, 10) });
+    const item = { id: r.databaseId, createdAt: iso, date: iso.slice(0, 10) };
+    if (BACKUP_EVENTS.includes(r.event)) runs.push(item);
+    else ignored.push({ ...item, event: typeof r.event === 'string' && r.event ? r.event : 'an unknown event', branch: typeof r.headBranch === 'string' ? r.headBranch : '' });
   }
-  return runs.sort((a, b) => b.id - a.id);
+  const newestFirst = (a, b) => b.id - a.id;
+  return { runs: runs.sort(newestFirst), ignored: ignored.sort(newestFirst) };
 }
 
 // ---- OpenPGP framing (RFC 9580 section 4.2) -----------------------------------------------
@@ -166,7 +196,7 @@ export function parseSums(text) {
 }
 
 /** Download one run into a staging folder, check it, then move it into place. Returns a problem or null. */
-async function pullOne({ run, gh, env, dest, item }) {
+async function pullOne({ run, gh, env, dest, item, rename }) {
   const staging = join(dest, `.partial-run${item.id}`);
   rmSync(staging, { recursive: true, force: true });
   try {
@@ -186,8 +216,8 @@ async function pullOne({ run, gh, env, dest, item }) {
     if (bad) return `run ${item.id} (${item.date}): ${basename(backups[0])} is not a gpg backup: ${bad}`;
     const out = join(staging, 'out', artifactName(item.id));
     mkdirSync(out, { recursive: true });
-    renameSync(backups[0], join(out, basename(backups[0])));
-    renameSync(join(staging, 'out'), join(dest, `${item.date}-run${item.id}`));
+    await renameRetrying(backups[0], join(out, basename(backups[0])), { rename });
+    await renameRetrying(join(staging, 'out'), join(dest, `${item.date}-run${item.id}`), { rename });
     return null;
   } catch (e) {
     return `run ${item.id} (${item.date}): ${e.message}`;
@@ -200,9 +230,9 @@ async function pullOne({ run, gh, env, dest, item }) {
  * Pull the newest successful backups GitHub holds that `dest` does not, then check every
  * file there and write SHA256SUMS. Fails when anything is wrong, and when GitHub's newest
  * successful backup is older than STALE_DAYS (the weekly backup stopped).
- * Returns { ok, summary, lines, pulled }.
+ * Returns { ok, summary, lines, pulled }. `rename` is for tests.
  */
-export async function pullGithubBackups({ env = process.env, run, dest, gh, now = Date.now() } = {}) {
+export async function pullGithubBackups({ env = process.env, run, dest, gh, now = Date.now(), rename = renameSync } = {}) {
   dest = resolve(dest || defaultPullDir(env));
   gh = gh || env.GH_BIN || 'gh';
   const lines = [`Folder: ${dest}`];
@@ -216,13 +246,14 @@ export async function pullGithubBackups({ env = process.env, run, dest, gh, now 
 
   const childEnv = ghEnv(env);
   let runs = null;
+  let ignored = [];
   const listed = await run(gh, listArgs(), { env: childEnv, timeoutMs: LIST_TIMEOUT_MS });
   if (listed.error || listed.timedOut || listed.code !== 0) {
     const how = listed.error ? `could not start: ${listed.error}` : listed.timedOut ? 'timed out' : `exit ${listed.code}`;
     problems.push(`could not list GitHub's backup runs (gh ${how}). ${String(listed.stderr || '').trim().split(/\r?\n/).slice(-3).join(' ')}`.trim());
   } else {
     try {
-      runs = parseRunList(listed.stdout);
+      ({ runs, ignored } = parseRunList(listed.stdout));
     } catch (e) {
       problems.push(e.message);
     }
@@ -230,7 +261,11 @@ export async function pullGithubBackups({ env = process.env, run, dest, gh, now 
 
   let stale = null;
   const pulled = [];
+  let waiting = 0;
   if (runs) {
+    for (const r of ignored) {
+      lines.push(`- skipped run ${r.id} (${r.date}): started by ${r.event}${r.branch ? ` on ${r.branch}` : ''}, not by the schedule or by hand, so it is not trusted as a backup.`);
+    }
     const newest = runs.reduce((a, b) => (!a || b.createdAt > a.createdAt ? b : a), null);
     const ageMs = newest ? now - Date.parse(newest.createdAt) : Infinity;
     const age = ageMs / DAY;
@@ -239,24 +274,39 @@ export async function pullGithubBackups({ env = process.env, run, dest, gh, now 
       : `GitHub: no successful ${WORKFLOW} run is listed at all.`);
     if (age > STALE_DAYS) stale = newest ? `is ${ageText(ageMs)} old, past the ${STALE_DAYS}-day limit` : 'does not exist';
 
-    // Only runs newer than the newest one held: older gaps are runs whose artifacts never
-    // existed or have expired. Newest three first, downloaded oldest first, stopping at the
-    // first failure, so a failed run is retried next time instead of left behind.
+    // Due: runs newer than the newest one held, and gaps under RETRY_DAYS old (a download that
+    // failed). Older gaps expired, never had a backup, or kept failing. The newest three are
+    // downloaded, oldest first, and a failure does not stop the others.
     const before = heldRuns(dest);
     const mark = Math.max(0, ...before.keys());
-    const fresh = runs.filter((r) => r.id > mark && !before.has(r.id));
-    const pick = fresh.slice(0, MAX_DOWNLOADS).reverse();
-    for (const r of fresh.slice(MAX_DOWNLOADS)) {
-      problems.push(`run ${r.id} (${r.date}) is left on GitHub only: at most ${MAX_DOWNLOADS} runs are pulled at a time, newest first. Download it by hand if you want it.`);
-    }
-    for (const item of pick) {
-      const bad = await pullOne({ run, gh, env: childEnv, dest, item });
-      if (bad) {
-        problems.push(bad);
-        break;
+    const recent = (r) => now - Date.parse(r.createdAt) <= RETRY_DAYS * DAY;
+    const due = runs.filter((r) => !before.has(r.id) && (r.id > mark || recent(r)));
+    const failed = [];
+    for (const item of due.slice(0, MAX_DOWNLOADS).reverse()) {
+      const bad = await pullOne({ run, gh, env: childEnv, dest, item, rename });
+      if (bad) failed.push([item, bad]);
+      else {
+        pulled.push(item);
+        lines.push(`- pulled run ${item.id} (${item.date})`);
       }
-      pulled.push(item);
-      lines.push(`- pulled run ${item.id} (${item.date})`);
+    }
+    // Whether a later pull still wants a run this one did not get, by the same rule one pull
+    // on: '' with no end date, ' until <date>', or null for never.
+    const nextMark = Math.max(mark, ...pulled.map((r) => r.id));
+    const deadline = (r) => (r.id > nextMark ? '' : recent(r)
+      ? ` until ${new Date(Date.parse(r.createdAt) + RETRY_DAYS * DAY).toISOString().slice(0, 10)}` : null);
+    for (const [item, bad] of failed) {
+      const d = deadline(item);
+      problems.push(`${bad} ${d === null ? 'It stays on GitHub only: download it by hand if you want it.' : `Later pulls try it again${d}.`}`);
+    }
+    for (const r of due.slice(MAX_DOWNLOADS)) {
+      const d = deadline(r);
+      if (d === null) {
+        problems.push(`run ${r.id} (${r.date}) is left on GitHub only: at most ${MAX_DOWNLOADS} runs are pulled at a time, and it is over ${RETRY_DAYS} days old. Download it by hand if you want it.`);
+      } else {
+        waiting++;
+        lines.push(`- run ${r.id} (${r.date}) waits: at most ${MAX_DOWNLOADS} downloads per pull. Later pulls take it${d}.`);
+      }
     }
   }
 
@@ -288,7 +338,7 @@ export async function pullGithubBackups({ env = process.env, run, dest, gh, now 
   } else {
     const text = [...current].sort(([a], [b]) => (a < b ? -1 : 1)).map(([rel, hex]) => `${hex}  ${rel}\n`).join('');
     writeFileSync(`${sumsPath}.tmp`, text);
-    renameSync(`${sumsPath}.tmp`, sumsPath);
+    await renameRetrying(`${sumsPath}.tmp`, sumsPath, { rename });
     lines.push(`Held: ${held.size} run(s), ${current.size} file(s), each an AES256 gpg file of the right length. ${SUMS_NAME} lists them.`);
   }
 
@@ -302,6 +352,6 @@ export async function pullGithubBackups({ env = process.env, run, dest, gh, now 
     ? `STALE: the weekly GitHub backup has stopped (its newest successful run ${stale})`
     : problems.length
       ? `${problems.length} problem(s)${pulled.length ? `; pulled ${pulled.length}` : ''}`
-      : `${pulled.length ? `pulled ${pulled.length} new backup(s)` : 'nothing new to pull'}; ${held.size} held`;
+      : `${pulled.length ? `pulled ${pulled.length} new backup(s)` : 'nothing new to pull'}; ${waiting ? `${waiting} wait for a later pull; ` : ''}${held.size} held`;
   return { ok, summary, lines, pulled };
 }

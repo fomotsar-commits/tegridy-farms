@@ -47,11 +47,24 @@ function heartbeatStep() {
   return { step, env, script: body.map((l) => l.slice(pad)).join('\n'), isLast: end === lines.length || lines.slice(end).every((l) => !l.trim()) };
 }
 
+// Stand-ins for what GitHub puts in each env expression. The script gets only the names the
+// step declares, so a binding deleted from the workflow fails here as it would on GitHub.
+const GITHUB_VALUES = { HC_PING_URL: HC, PROBE_OUTCOME: 'success', REPORT: '', RUN_URL: 'https://github.com/o/r/actions/runs/1' };
+
 /** Run the script with a fake curl that records its argv, its stdin and the body file. */
 function runStep(envOver = {}, { curlExit = 0 } = {}) {
+  const { script: source, env: declared } = heartbeatStep();
+  const stepEnv = {};
+  for (const k of Object.keys(declared)) {
+    assert.ok(k in GITHUB_VALUES, `the step declares ${k}: give it a stand-in value in GITHUB_VALUES`);
+    stepEnv[k] = k in envOver ? envOver[k] : GITHUB_VALUES[k];
+  }
+  for (const k of Object.keys(envOver)) assert.ok(k in declared, `the test sets ${k}, but the step's env: does not bind it`);
+  const inherited = { ...process.env };
+  for (const k of Object.keys(GITHUB_VALUES)) delete inherited[k];
   const dir = tmp('run');
   const script = join(dir, 'step.sh');
-  writeFileSync(script, heartbeatStep().script);
+  writeFileSync(script, source);
   writeFileSync(join(dir, 'curl'), [
     '#!/usr/bin/env bash',
     'printf "%s\\n" "$@" > "$FAKE_DIR/curl.args"',
@@ -63,10 +76,7 @@ function runStep(envOver = {}, { curlExit = 0 } = {}) {
   // from inside bash; the step is then sourced under GitHub's options (-e, pipefail).
   const r = spawnSync(findBash(), ['--noprofile', '--norc', '-eo', 'pipefail', '-c', 'PATH="$(cd "$FAKE_DIR" && pwd):$PATH"; . "$1"', 'step', script], {
     encoding: 'utf8',
-    env: {
-      ...process.env, FAKE_DIR: dir, RUNNER_TEMP: dir,
-      PROBE_OUTCOME: 'success', REPORT: '', RUN_URL: 'https://github.com/o/r/actions/runs/1', HC_PING_URL: HC, ...envOver,
-    },
+    env: { ...inherited, FAKE_DIR: dir, RUNNER_TEMP: dir, ...stepEnv },
   });
   const read = (f) => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), 'utf8') : null);
   return { code: r.status, out: `${r.stdout}\n${r.stderr}`, args: read('curl.args'), stdin: read('curl.stdin'), body: read('curl.body') };
@@ -76,10 +86,13 @@ describe('the heartbeat step in synthetic-monitor.yml', () => {
   test('is the last step, runs after a failure but not a cancel, and binds the secret through env', () => {
     const { step, env, script, isLast } = heartbeatStep();
     assert.ok(isLast, 'the heartbeat must be the final step, so every probe and issue step has run');
-    assert.ok(step.some((l) => l.trim() === 'if: ${{ !cancelled() }}'), 'it must run after a failed probe (to send /fail) and not on a cancel');
-    assert.ok(step.some((l) => /^\s+timeout-minutes:\s*\d+\s*$/.test(l)), 'the step needs its own time limit');
-    assert.equal(env.HC_PING_URL, '${{ secrets.HC_PING_URL_GITHUB_CRONS }}');
-    assert.equal(env.PROBE_OUTCOME, '${{ steps.probe.outcome }}');
+    assert.ok(step.some((l) => l.trim() === 'if: ${{ !cancelled() }}'), 'it must run after a failed probe too (the schedule fired either way), and not on a cancel');
+    assert.deepEqual(env, {
+      HC_PING_URL: '${{ secrets.HC_PING_URL_GITHUB_CRONS }}',
+      PROBE_OUTCOME: '${{ steps.probe.outcome }}',
+      REPORT: '${{ steps.probe.outputs.report }}',
+      RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}',
+    });
     assert.ok(!script.includes('${{'), 'a run: script must not interpolate ${{ }}');
     assert.match(readFileSync(WORKFLOW, 'utf8'), /^\s+id: probe$/m);
   });
@@ -97,18 +110,36 @@ describe('the heartbeat step in synthetic-monitor.yml', () => {
     assert.equal(r.stdin.trim(), `url = "${HC}"`);
     assert.ok(!r.args.includes('hc-ping.invalid'), `the ping URL reached curl's argv:\n${r.args}`);
     assert.ok(!r.out.includes(HC) && !r.out.includes('SECRET-UUID'), 'the ping URL was printed');
-    for (const flag of ['--max-time', '--retry', '--config', '-fsS']) assert.ok(r.args.split('\n').includes(flag), `curl lacks ${flag}`);
+    for (const flag of ['--config', '-fsS', '--retry-all-errors']) assert.ok(r.args.split('\n').includes(flag), `curl lacks ${flag}`);
     assert.match(r.body, /^synthetic-monitor: success\nhttps:\/\/github.com\/o\/r\/actions\/runs\/1/);
   });
 
-  test('anything but a passing probe pings /fail, with the report as the body', () => {
-    for (const outcome of ['failure', 'skipped', '']) {
+  test("every retry fits inside the step's time limit, and the step inside the job's", () => {
+    const argv = runStep().args.split('\n');
+    const value = (f) => {
+      assert.ok(argv.includes(f), `curl lacks ${f}`);
+      return Number(argv[argv.indexOf(f) + 1]);
+    };
+    const tries = value('--retry') + 1;
+    const worstSeconds = tries * value('--max-time') + (tries - 1) * value('--retry-delay');
+    const stepMinutes = Number(/^\s+timeout-minutes:\s*(\d+)\s*$/m.exec(heartbeatStep().step.join('\n'))?.[1]);
+    const jobMinutes = Number(/^ {4}timeout-minutes:\s*(\d+)\s*$/m.exec(readFileSync(WORKFLOW, 'utf8'))?.[1]);
+    assert.ok(tries >= 3, `only ${tries} attempt(s): one lost packet would skip a heartbeat`);
+    assert.ok(worstSeconds < stepMinutes * 60, `curl may run ${worstSeconds} s, but the step is killed at ${stepMinutes} min and sends nothing`);
+    assert.ok(stepMinutes < jobMinutes, `the step's ${stepMinutes} min limit is not inside the job's ${jobMinutes} min`);
+  });
+
+  test('every run pings the base URL, pass or fail, with the outcome and report as the body', () => {
+    // A /fail would hold the check DOWN through a probe outage, and a stop in GitHub's
+    // schedules during it would then send no email. The prod-incident issue reports the probe.
+    for (const outcome of ['success', 'failure', 'skipped', '']) {
       const r = runStep({ PROBE_OUTCOME: outcome, REPORT: '- app shell: HTTP 500' });
       assert.equal(r.code, 0, r.out);
-      assert.equal(r.stdin.trim(), `url = "${HC}/fail"`, `outcome '${outcome}'`);
+      assert.equal(r.stdin.trim(), `url = "${HC}"`, `outcome '${outcome}'`);
+      assert.ok(r.body.startsWith(`synthetic-monitor: ${outcome}\n`), `outcome '${outcome}': ${r.body}`);
       assert.match(r.body, /- app shell: HTTP 500/);
     }
-    assert.equal(runStep({ HC_PING_URL: `${HC}/`, PROBE_OUTCOME: 'failure' }).stdin.trim(), `url = "${HC}/fail"`);
+    assert.equal(runStep({ HC_PING_URL: `${HC}/`, PROBE_OUTCOME: 'failure' }).stdin.trim(), `url = "${HC}"`);
   });
 
   test('a ping that does not land is a warning, not a red run', () => {

@@ -4,14 +4,14 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256 } from './lib/backup.mjs';
 import {
-  ageText, DOWNLOAD_TIMEOUT_MS, heldRuns, LIST_LIMIT, LIST_TIMEOUT_MS, MAX_DOWNLOADS, openPgpProblem, parseRunList, pullGithubBackups, REPO,
-  STALE_DAYS, SUMS_NAME, WORKFLOW,
+  ageText, DOWNLOAD_TIMEOUT_MS, heldRuns, LIST_LIMIT, LIST_TIMEOUT_MS, MAX_DOWNLOADS, MAX_RENAMES, openPgpProblem, parseRunList, pullGithubBackups,
+  renameRetrying, REPO, RETRY_DAYS, STALE_DAYS, SUMS_NAME, WORKFLOW,
 } from './lib/github-backups.mjs';
 import { parseArgs } from './pull-github-backups.mjs';
 
@@ -172,17 +172,50 @@ describe('listing', () => {
     for (const [flag, want] of [['--repo', REPO], ['--workflow', WORKFLOW], ['--status', 'success'], ['--limit', String(LIST_LIMIT)]]) {
       assert.equal(a[a.indexOf(flag) + 1], want, flag);
     }
-    assert.match(a[a.indexOf('--json') + 1], /databaseId/);
+    assert.deepEqual(a[a.indexOf('--json') + 1].split(',').filter((f) => ['databaseId', 'createdAt', 'conclusion', 'event'].includes(f)).sort(),
+      ['conclusion', 'createdAt', 'databaseId', 'event']);
     assert.equal(list[0].opts.timeoutMs, LIST_TIMEOUT_MS);
   });
 
   test('parseRunList keeps only successes, newest id first, and refuses rows it cannot read', () => {
-    const runs = parseRunList(JSON.stringify([run(5, 3), run(9, 1), run(7, 2, 'failure')]));
+    const { runs } = parseRunList(JSON.stringify([run(5, 3), run(9, 1), run(7, 2, 'failure')]));
     assert.deepEqual(runs.map((r) => r.id), [9, 5]);
     assert.equal(runs[0].date, dateOf(run(9, 1)));
     assert.throws(() => parseRunList('not json'), /did not print JSON/);
     assert.throws(() => parseRunList('{}'), /not print a list/);
     assert.throws(() => parseRunList(JSON.stringify([{ databaseId: 'x', createdAt: 'y' }])), /no usable id or date/);
+  });
+
+  test('parseRunList trusts only the schedule and a run by hand; any other event is set aside, named', () => {
+    const rows = [
+      run(1, 9), { ...run(2, 8), event: 'workflow_dispatch' }, { ...run(3, 7), event: 'pull_request', headBranch: 'fork-branch' },
+      { ...run(4, 6), event: 'push' }, { ...run(5, 5), event: undefined }, { ...run(6, 4), event: 'pull_request', conclusion: 'failure' },
+    ];
+    const { runs, ignored } = parseRunList(JSON.stringify(rows));
+    assert.deepEqual(runs.map((r) => r.id), [2, 1]);
+    assert.deepEqual(ignored.map((r) => [r.id, r.event, r.branch]), [[5, 'an unknown event', 'mvp-launch'], [4, 'push', 'mvp-launch'], [3, 'pull_request', 'fork-branch']]);
+  });
+});
+
+describe('which runs are trusted', () => {
+  test("a pull request's run is never pulled and never hides a stopped weekly backup", async () => {
+    // A fork can add a pull_request trigger to the workflow and upload any gpg-shaped file.
+    const dest = tmp('event');
+    const gh = fakeGh({ runs: [{ ...run(40, 0.5), event: 'pull_request', headBranch: 'fork-branch' }, run(30, 16)] });
+    const r = await pull(gh, dest);
+    assert.deepEqual(gh.downloads(), [30]);
+    assert.equal(r.ok, false);
+    assert.match(r.summary, /STALE: .*is 16 days 0 hours old/);
+    assert.match(text(r), /skipped run 40 \(.*\): started by pull_request on fork-branch, not by the schedule or by hand/);
+    assert.deepEqual([...heldRuns(dest).keys()], [30]);
+  });
+
+  test('a run started by hand is a real backup: it is pulled and it counts as current', async () => {
+    const dest = tmp('dispatch');
+    const gh = fakeGh({ runs: [{ ...run(35, 1), event: 'workflow_dispatch' }, run(30, 16)] });
+    const r = await pull(gh, dest);
+    assert.equal(r.ok, true, text(r));
+    assert.deepEqual(gh.downloads(), [30, 35]);
   });
 });
 
@@ -210,30 +243,82 @@ describe('pulling', () => {
     assert.deepEqual(readdirSync(dest).filter((n) => n.startsWith('.')), [], 'a staging folder was left behind');
   });
 
-  test('never more than three downloads; older new runs are reported as left on GitHub, and SUMS is still written', async () => {
+  test('never more than three downloads; a recent run left over waits, an older one is reported as left on GitHub', async () => {
     const dest = tmp('many');
-    const gh = fakeGh({ runs: [run(60, 1), run(50, 8), run(40, 15), run(30, 22), run(20, 29)] });
+    const runs = [run(60, 1), run(50, 8), run(40, 15), run(30, 22), run(20, RETRY_DAYS + 1)];
+    const gh = fakeGh({ runs });
     const r = await pull(gh, dest);
     assert.equal(MAX_DOWNLOADS, 3);
     assert.deepEqual(gh.downloads(), [40, 50, 60]);
     assert.equal(r.ok, false);
-    assert.match(text(r), /run 30 .* is left on GitHub only/);
+    assert.match(text(r), /run 30 \(.*\) waits: at most 3 downloads per pull/);
+    assert.doesNotMatch(text(r), /run 30 .* left on GitHub only/);
     assert.match(text(r), /run 20 .* is left on GitHub only/);
     assert.equal(readFileSync(join(dest, SUMS_NAME), 'utf8').trim().split('\n').length, 3);
-    // The next run does not fail on them again: they are older than what is held.
-    const again = await pull(fakeGh({ runs: [run(60, 1), run(50, 8), run(40, 15), run(30, 22), run(20, 29)] }), dest);
+    // The next pull takes the one that waited, and does not fail on the old one again.
+    const next = fakeGh({ runs });
+    const again = await pull(next, dest);
     assert.equal(again.ok, true, text(again));
+    assert.deepEqual(next.downloads(), [30]);
   });
 
-  test('downloads only runs newer than the newest one held: older gaps are expired or never had a backup', async () => {
+  test('a recent run beyond the three waits for the next pull, and that is not a failure', async () => {
+    const dest = tmp('waits');
+    const r = await pull(fakeGh({ runs: [run(40, 1), run(30, 8), run(20, 15), run(10, 22)] }), dest);
+    assert.equal(r.ok, true, text(r));
+    assert.match(r.summary, /pulled 3 new backup\(s\); 1 wait for a later pull; 3 held/);
+    assert.match(text(r), /run 10 \(.*\) waits: at most 3 downloads per pull\. Later pulls take it until \d{4}-\d{2}-\d{2}\./);
+  });
+
+  test(`retries stop before GitHub deletes the artifact, span at least two weekly pulls, and the guide says ${RETRY_DAYS} days`, () => {
+    const retention = Number(/retention-days:\s*(\d+)/.exec(readFileSync(join(REPO_ROOT, '.github', 'workflows', WORKFLOW), 'utf8'))?.[1]);
+    assert.ok(RETRY_DAYS < retention, `retrying for ${RETRY_DAYS} days, but GitHub keeps the artifact ${retention} days`);
+    assert.ok(RETRY_DAYS >= 14, `${RETRY_DAYS} days is fewer than two weekly pulls`);
+    assert.match(readFileSync(join(REPO_ROOT, 'docs', 'OPS_SCHEDULER.md'), 'utf8'), new RegExp(`any run under ${RETRY_DAYS} days old that it`));
+  });
+
+  test(`downloads runs newer than the newest one held, and gaps under ${RETRY_DAYS} days old; older gaps are expired or never had a backup`, async () => {
     const dest = tmp('held');
     hold(dest, run(20, 8));
     hold(dest, run(10, 15));
     const gh = fakeGh({ runs: [run(30, 1), run(20, 8), run(15, 12), run(10, 15), run(5, 60)] });
     const r = await pull(gh, dest);
     assert.equal(r.ok, true, text(r));
-    assert.deepEqual(gh.downloads(), [30]);
-    assert.deepEqual([...heldRuns(dest).keys()].sort((a, b) => a - b), [10, 20, 30]);
+    assert.deepEqual(gh.downloads(), [15, 30]);
+    assert.deepEqual([...heldRuns(dest).keys()].sort((a, b) => a - b), [10, 15, 20, 30]);
+  });
+
+  test(`a run that always fails holds back no newer run, and is retried until it is ${RETRY_DAYS} days old`, async () => {
+    // Its artifact was deleted, say. It is tried at each pull, and it never blocks the others.
+    const dest = tmp('stuck');
+    hold(dest, run(100, 16));
+    const week1 = fakeGh({ runs: [run(102, 2), run(101, 9), run(100, 16)], downloadFails: [101] });
+    const r1 = await pull(week1, dest);
+    assert.deepEqual(week1.downloads(), [101, 102]);
+    assert.equal(r1.ok, false);
+    const until = new Date(NOW - 9 * DAY + RETRY_DAYS * DAY).toISOString().slice(0, 10);
+    assert.match(text(r1), new RegExp(`run 101 .* gh run download failed .* Later pulls try it again until ${until}\\.`));
+    assert.deepEqual([...heldRuns(dest).keys()].sort((a, b) => a - b), [100, 102]);
+    // A week on, a new run and the stuck one are both tried.
+    const week2 = fakeGh({ runs: [run(103, 2 - 7), run(102, 2), run(101, 9), run(100, 16)], downloadFails: [101] });
+    await pull(week2, dest, { now: NOW + 7 * DAY });
+    assert.deepEqual(week2.downloads(), [101, 103]);
+    // Past the limit it is no longer tried, and the pull passes.
+    const at = RETRY_DAYS - 9 + 1;
+    const later = fakeGh({ runs: [run(104, 2 - at), run(103, -5), run(102, 2), run(101, 9), run(100, 16)], downloadFails: [101] });
+    const r3 = await pull(later, dest, { now: NOW + at * DAY });
+    assert.deepEqual(later.downloads(), [104]);
+    assert.equal(r3.ok, true, text(r3));
+  });
+
+  test('a failure on the newest run, however old, is tried again with no end date while nothing newer is held', async () => {
+    const dest = tmp('newest');
+    hold(dest, run(10, 60));
+    const r = await pull(fakeGh({ runs: [run(20, RETRY_DAYS + 5), run(10, 60)], downloadFails: [20] }), dest);
+    assert.match(text(r), /run 20 .* gh run download failed .* Later pulls try it again\.$/m);
+    const gh = fakeGh({ runs: [run(20, RETRY_DAYS + 5), run(10, 60)] });
+    assert.equal((await pull(gh, dest)).ok, false, 'still stale, but pulled');
+    assert.deepEqual(gh.downloads(), [20]);
   });
 
   test('with nothing new: one list call, no download, and every held file still checked', async () => {
@@ -246,18 +331,20 @@ describe('pulling', () => {
     assert.match(r.summary, /nothing new to pull; 1 held/);
   });
 
-  test('a failed download stops the run, leaves nothing half-written, and is retried next time', async () => {
+  test('a failed download fails the run but not the others, leaves nothing half-written, and is retried next time', async () => {
     const dest = tmp('dlfail');
     const runs = [run(30, 1), run(20, 8), run(10, 15)];
-    const r = await pull(fakeGh({ runs, downloadFails: [20] }), dest);
+    const first = fakeGh({ runs, downloadFails: [20] });
+    const r = await pull(first, dest);
     assert.equal(r.ok, false);
+    assert.deepEqual(first.downloads(), [10, 20, 30]);
     assert.match(text(r), /run 20 .* gh run download failed \(exit 1\)\. no valid artifacts/);
-    assert.deepEqual([...heldRuns(dest).keys()], [10], 'run 30 was pulled past a failure, which would strand run 20');
+    assert.deepEqual([...heldRuns(dest).keys()].sort((a, b) => a - b), [10, 30]);
     assert.deepEqual(readdirSync(dest).filter((n) => n.startsWith('.')), []);
     const gh = fakeGh({ runs });
     const again = await pull(gh, dest);
     assert.equal(again.ok, true, text(again));
-    assert.deepEqual(gh.downloads(), [20, 30]);
+    assert.deepEqual(gh.downloads(), [20]);
   });
 
   test('refuses an artifact that is not one gpg backup, and never moves it into place', async () => {
@@ -288,17 +375,68 @@ describe('pulling', () => {
 
   test('clears staging folders a crashed run left, even for runs it does not pull now, and never counts them as held', async () => {
     const dest = tmp('crash');
-    for (const id of [25, 30]) {
+    // Run 7 is not listed any more, so only the clear-up at the start can remove its folder.
+    for (const id of [7, 30]) {
       mkdirSync(join(dest, `.partial-run${id}`, 'dl'), { recursive: true });
       writeFileSync(join(dest, `.partial-run${id}`, 'dl', 'half'), 'x');
     }
     hold(dest, run(20, 2));
     const gh = fakeGh({ runs: [run(30, 1), run(25, 1.5), run(20, 2)], downloadFails: [25] });
     const r = await pull(gh, dest);
-    assert.deepEqual(gh.downloads(), [25], 'run 25 is tried first and fails, so run 30 waits');
+    assert.deepEqual(gh.downloads(), [25, 30]);
     assert.equal(r.ok, false);
     assert.deepEqual(readdirSync(dest).filter((n) => n.startsWith('.')), [], 'a crashed staging folder was left behind');
+    assert.deepEqual([...heldRuns(dest).keys()].sort((a, b) => a - b), [20, 30]);
+  });
+
+  test('a file named like a run folder is not a held run, and does not break the check', async () => {
+    const dest = tmp('notdir');
+    hold(dest, run(20, 2));
+    writeFileSync(join(dest, '2026-09-01-run7'), 'not a folder');
     assert.deepEqual([...heldRuns(dest).keys()], [20]);
+    const r = await pull(fakeGh({ runs: [run(20, 2)] }), dest);
+    assert.equal(r.ok, true, text(r));
+  });
+
+  test('a rename that Windows refuses for a moment is tried again; any other error is not', async () => {
+    // An antivirus scan or OneDrive's upload can hold a new file open, so a rename briefly fails.
+    const busy = (code, times) => {
+      const calls = [];
+      const rename = (a, b) => {
+        calls.push([a, b]);
+        if (calls.length <= times) throw Object.assign(new Error(code), { code });
+      };
+      return { calls, rename };
+    };
+    for (const code of ['EPERM', 'EACCES', 'EBUSY']) {
+      const f = busy(code, 2);
+      await renameRetrying('a', 'b', { rename: f.rename, pauseMs: 1 });
+      assert.equal(f.calls.length, 3, code);
+    }
+    const missing = busy('ENOENT', 1);
+    await assert.rejects(renameRetrying('a', 'b', { rename: missing.rename, pauseMs: 1 }), /ENOENT/);
+    assert.equal(missing.calls.length, 1);
+    const stuck = busy('EPERM', Infinity);
+    const t0 = Date.now();
+    await assert.rejects(renameRetrying('a', 'b', { rename: stuck.rename, limitMs: 60, pauseMs: 10 }), /EPERM/);
+    assert.ok(Date.now() - t0 < 1000 && stuck.calls.length >= 2, `${stuck.calls.length} tries in ${Date.now() - t0} ms`);
+  });
+
+  test('every rename a pull makes survives one refusal: both moves per download, and SHA256SUMS', async () => {
+    const dest = tmp('busy');
+    const refused = new Set();
+    const rename = (a, b) => {
+      if (!refused.has(a)) {
+        refused.add(a);
+        throw Object.assign(new Error(`EPERM: operation not permitted, rename '${a}'`), { code: 'EPERM' });
+      }
+      renameSync(a, b);
+    };
+    const r = await pull(fakeGh({ runs: [run(30, 1), run(20, 8), run(10, 15)] }), dest, { rename });
+    assert.equal(r.ok, true, text(r));
+    assert.equal(refused.size, MAX_RENAMES, 'a rename did not go through the retrying one');
+    assert.equal(heldRuns(dest).size, 3);
+    assert.ok(existsSync(join(dest, SUMS_NAME)));
   });
 
   test('gh gets no backup secret or ping URL, and is told not to prompt or check for updates', async () => {
@@ -311,8 +449,7 @@ describe('pulling', () => {
     for (const c of gh.calls) {
       assert.deepEqual(Object.keys(c.opts.env).filter((k) => /SERVICE_KEY|PASSPHRASE|HC_PING|GITHUB_OUTPUT/.test(k)), []);
       assert.equal(c.opts.env.PATH, 'p');
-      assert.equal(c.opts.env.GH_PROMPT_DISABLED, '1');
-      assert.equal(c.opts.env.GH_NO_UPDATE_NOTIFIER, '1');
+      for (const k of ['GH_PROMPT_DISABLED', 'GH_NO_UPDATE_NOTIFIER', 'GH_SPINNER_DISABLED', 'NO_COLOR']) assert.equal(c.opts.env[k], '1', k);
     }
   });
 

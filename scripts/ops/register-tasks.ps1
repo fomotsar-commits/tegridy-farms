@@ -95,10 +95,11 @@ function New-JobSchedule($job) {
 
 function Get-PingName([string]$job) { 'HC_PING_URL_' + ($job.ToUpper() -replace '[^A-Z0-9]', '_') }
 
+# A dry run names every task it would remove, registered or not, so the list can be checked.
 function Remove-JobTask($job, [string]$why, [switch]$Quiet) {
   $existing = Get-ScheduledTask -TaskPath $TaskFolder -TaskName $job.Name -ErrorAction SilentlyContinue
+  if ($DryRun) { Write-Host ('  would remove{0}: {1}{2}{3}' -f $(if ($existing) { '' } else { ' if present' }), $TaskFolder, $job.Name, $why); return }
   if (-not $existing) { if (-not $Quiet) { Write-Host "  not registered: $TaskFolder$($job.Name)" }; return }
-  if ($DryRun) { Write-Host "  would remove: $TaskFolder$($job.Name)$why"; return }
   Unregister-ScheduledTask -TaskPath $TaskFolder -TaskName $job.Name -Confirm:$false
   Write-Host "  removed: $TaskFolder$($job.Name)$why"
 }
@@ -137,7 +138,7 @@ if ($nodeVersion -lt [version]'20.0.0') { throw "node $nodeVersion is too old; t
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($LogonType -eq 'S4U' -and -not $isAdmin -and -not $DryRun) {
-  throw 'S4U tasks (run whether or not you are signed in, no window) must be registered from an elevated PowerShell. Re-run as administrator, or pass -LogonType Interactive (runs only while you are signed in, and flashes a window).'
+  throw 'S4U tasks (run whether or not you are signed in, no window) must be registered from an elevated PowerShell. Re-run as administrator, or pass -LogonType Interactive (runs only while you are signed in, in a console window for each run).'
 }
 
 # Read-only look for the old faucet task. This script never deletes it; the owner does.
@@ -158,7 +159,7 @@ if ($missing.Count) { Write-Warning ('The env files have no value for: ' + ($mis
 # ---- Register ----------------------------------------------------------------------------
 $why = if ($Failover) { ' (GitHub is gone; nothing to pull from)' } else { ' (GitHub runs this one again)' }
 foreach ($job in $Others) { Remove-JobTask $job $why -Quiet }
-$how = if ($LogonType -eq 'S4U') { 'runs whether or not you are signed in, no window' } else { 'runs only while you are signed in' }
+$how = if ($LogonType -eq 'S4U') { 'runs whether or not you are signed in, no window' } else { 'runs only while you are signed in, in a console window: leave it open' }
 Write-Host ("{0} {1} {2} task(s) in {3} as {4}\{5} ({6})" -f $(if ($DryRun) { 'Would register' } else { 'Registering' }), $Selected.Count, $ModeName, $TaskFolder, $env:USERDOMAIN, $env:USERNAME, $how)
 foreach ($job in $Selected) {
   $schedule = New-JobSchedule $job

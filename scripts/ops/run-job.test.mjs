@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { parseEnvText } from './lib/env-file.mjs';
 import { runBackup, writeCanary } from './lib/backup.mjs';
 import { GPG_TIMEOUT_MS } from './lib/gpg.mjs';
-import { defaultPullDir, pullGithubBackups, STALE_DAYS } from './lib/github-backups.mjs';
+import { defaultPullDir, MAX_RENAMES, pullGithubBackups, RENAME_RETRY_MS, STALE_DAYS } from './lib/github-backups.mjs';
 import { clampBody, PING_WORST_MS, pingEnvName, resolvePingUrl, scrubSecrets, sendPing } from './lib/healthchecks.mjs';
 import { childEnv, defaultPaths, JOB_IMPLS, JOBS, NPM_PROJECTS } from './lib/jobs.mjs';
 import { parseGithubOutput, runProcess } from './lib/proc.mjs';
@@ -619,7 +619,7 @@ describe('scheduling', () => {
     // A minimal well-formed file (AES256 session key, then a one-byte encrypted data packet),
     // so every download succeeds and the most calls the job can make are counted.
     const pgp = Buffer.from([0x8c, 0x0d, 0x04, 0x09, 0x03, 0x0a, 1, 2, 3, 4, 5, 6, 7, 8, 0xff, 0xd2, 0x01, 0x01]);
-    const listed = JSON.stringify([9, 8, 7, 6, 5].map((id) => ({ databaseId: id, createdAt: new Date(Date.now() - id * 3_600_000).toISOString(), conclusion: 'success' })));
+    const listed = JSON.stringify([9, 8, 7, 6, 5].map((id) => ({ databaseId: id, createdAt: new Date(Date.now() - id * 3_600_000).toISOString(), conclusion: 'success', event: 'schedule' })));
     const pullRec = recorder();
     const ghRun = async (cmd, args, opts) => {
       await pullRec.run(cmd, args, opts);
@@ -631,7 +631,8 @@ describe('scheduling', () => {
     };
     await JOB_IMPLS['backup-pull']({ env: { BACKUP_PULL_DIR: tmp('bud') }, run: ghRun, pullGithubBackups });
     assert.equal(pullRec.limits.length, 4, 'expected one list and three downloads');
-    budget['backup-pull'] = pullRec.sum();
+    // Plus every rename the pull makes, each retried for up to RENAME_RETRY_MS.
+    budget['backup-pull'] = pullRec.sum() + MAX_RENAMES * RENAME_RETRY_MS;
 
     const limits = Object.fromEntries([...ps1.matchAll(/Name = '([a-z-]+)';[^}]*LimitMinutes = (\d+)/g)].map((m) => [m[1], Number(m[2]) * 60_000]));
     assert.deepEqual(Object.keys(limits).sort(), [...JOBS].sort());
@@ -666,7 +667,7 @@ describe('scheduling', () => {
     // login lives in the Windows credential store). backup.env is never looked at.
     const normal = run();
     assert.equal(normal.code, 0, normal.out);
-    assert.match(normal.out, /Would register 1 normal task\(s\) .*\(runs only while you are signed in\)/);
+    assert.match(normal.out, /Would register 1 normal task\(s\) .*\(runs only while you are signed in, in a console window: leave it open\)/);
     assert.deepEqual(listing(normal.out, JOBS), Object.fromEntries(JOBS.map((j) => [j, j === 'backup-pull' ? 'ops.env' : undefined])));
     assert.doesNotMatch(normal.out, /backup\.env/);
     // Failover: the six GitHub jobs, and only the backup task is given the file with the service key.
@@ -674,6 +675,11 @@ describe('scheduling', () => {
     assert.equal(ok.code, 0, ok.out);
     assert.match(ok.out, /Would register 6 failover task\(s\) .*\(runs whether or not you are signed in, no window\)/);
     assert.deepEqual(listing(ok.out, JOBS), Object.fromEntries(JOBS.map((j) => [j, j === 'backup-pull' ? undefined : j === 'supabase-backup' ? 'ops.env + backup.env' : 'ops.env'])));
+    // Each mode removes the other mode's tasks, so no job ever has two schedulers. The dry run
+    // names each one even though none is registered here.
+    const removes = (out) => [...out.matchAll(/^\s*would remove(?: if present)?: \\Tegridy\\([a-z-]+)/gm)].map((m) => m[1]).sort();
+    assert.deepEqual(removes(normal.out), JOBS.filter((j) => j !== 'backup-pull').sort());
+    assert.deepEqual(removes(ok.out), ['backup-pull']);
     for (const [label, over, want] of [
       ['env file in a git work tree', { EnvFile: at('git', 'ops.env') }, /the env file .* is inside the git work tree/],
       ['env file in OneDrive', { EnvFile: at('OneDrive', 'ops.env') }, /inside OneDrive, which would sync your secrets/],
@@ -688,6 +694,32 @@ describe('scheduling', () => {
       assert.notEqual(r.code, 0, `${label}: not refused\n${r.out}`);
       assert.match(r.out.replace(/\s+/g, ' '), want, label);
     }
+  });
+
+  test('register-tasks.ps1 warns day to day when gh is not on PATH, unless GH_BIN names it', {
+    skip: process.platform !== 'win32' && 'register-tasks.ps1 runs only on Windows',
+  }, () => {
+    const root = tmp('ps1gh');
+    const at = (...p) => { const f = join(root, ...p); mkdirSync(dirname(f), { recursive: true }); return f; };
+    writeFileSync(at('repo', 'scripts', 'ops', 'run-job.mjs'), '');
+    writeFileSync(at('env', 'ops.env'), 'HC_PING_URL_BACKUP_PULL=https://hc-ping.com/x\n');
+    writeFileSync(at('env', 'ghbin.env'), `GH_BIN=${join(root, 'gh.exe')}\n`);
+    writeFileSync(at('env', 'backup.env'), "BACKUP_PASSPHRASE='x'\n");
+    // Only Windows' own folders on PATH, so no gh; node is passed by its full path.
+    const sys = process.env.SystemRoot || 'C:\\Windows';
+    const psDir = join(sys, 'System32', 'WindowsPowerShell', 'v1.0');
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toUpperCase() !== 'PATH'));
+    env.Path = [join(sys, 'System32'), psDir].join(';');
+    const run = (envFile, ...extra) => {
+      const r = spawnSync(join(psDir, 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', PS1, '-DryRun',
+        '-RepoRoot', at('repo'), '-EnvFile', envFile, '-BackupEnvFile', at('env', 'backup.env'), '-NodePath', process.execPath, ...extra], { encoding: 'utf8', env });
+      assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+      return `${r.stdout}\n${r.stderr}`.replace(/\s+/g, ' ');
+    };
+    const warning = /The GitHub CLI \(gh\) is not on PATH, so backup-pull will fail/;
+    assert.match(run(at('env', 'ops.env')), warning);
+    assert.doesNotMatch(run(at('env', 'ghbin.env')), warning);
+    assert.doesNotMatch(run(at('env', 'ops.env'), '-Failover'), warning, 'a failover does not run backup-pull, so it does not need gh');
   });
 
   test('the env examples parse cleanly: ops.env has every ping URL and no backup secret; backup.env has the backup settings', () => {

@@ -250,8 +250,10 @@ jobs:
 
       # Dead-man switch for GitHub's own schedules, which stopped for 5+ days in 2026-09 and
       # told nobody. healthchecks.io emails when these pings stop (docs/OPS_SCHEDULER.md,
-      # section 2). curl reads the URL on stdin, never argv. No secret, or a ping that did
-      # not land, is a warning, never a red run: the missing ping is itself the alarm.
+      # section 2). Every run pings the base URL, pass or fail: a /fail would hold the check
+      # DOWN through a probe outage and mute it. The prod-incident issue reports the probe.
+      # curl reads the URL on stdin, never argv. No secret, or a ping that did not land, is
+      # a warning, never a red run: the missing ping is itself the alarm.
       - name: Heartbeat to healthchecks.io
         if: ${{ !cancelled() }}
         timeout-minutes: 2
@@ -277,7 +279,6 @@ jobs:
             exit 0
           fi
           target="${HC_PING_URL%/}"
-          if [ "$PROBE_OUTCOME" != "success" ]; then target="$target/fail"; fi
           body="$RUNNER_TEMP/heartbeat-body.txt"
           printf 'synthetic-monitor: %s\n%s\n\n%s\n' "$PROBE_OUTCOME" "$RUN_URL" "${REPORT:-}" > "$body"
           if printf 'url = "%s"\n' "$target" | curl --config - -fsS -o /dev/null --max-time 10 --retry 3 --retry-all-errors --retry-delay 2 --data-binary "@$body"; then

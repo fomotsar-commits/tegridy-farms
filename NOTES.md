@@ -24,13 +24,17 @@ say so.
 calls). After the account's suspension (2026-09-24) and reinstatement (2026-09-29), no scheduled
 workflow had run for more than five days, and none had resumed when this was written. Nothing
 told anyone. A schedule that does not fire produces no run, so there is nothing to fail, and
-every alarm those jobs had (issues, run emails) lived on GitHub too. The newest of the backups
-downloaded on 2026-09-29 is from 2026-09-21.
+every alarm those jobs had (issues, run emails) lived on GitHub too. One piece was checked
+here: the nine backups downloaded on 2026-09-29, reported as every artifact GitHub held, end at
+2026-09-21 (the folder names), so the Monday 2026-09-28 backup left no artifact. The exact date
+of the last scheduled run needs `gh run list`, which this work did not call.
 
 **Do:** watch a schedule from outside its host, by silence rather than by failure. The last step
 of `synthetic-monitor.yml` pings healthchecks.io every 30 minutes; the check alarms when the
-pings stop (`docs/OPS_SCHEDULER.md`, section 2). Keep a copy of anything the host stores, too:
-`scripts/ops/pull-github-backups.mjs` copies the weekly backup off GitHub.
+pings stop (`docs/OPS_SCHEDULER.md`, section 2). Ping on every run, pass or fail: a "fail"
+ping holds the check DOWN, and a check that is already DOWN sends no email when the pings then
+stop. Keep a copy of anything the host stores, too: `scripts/ops/pull-github-backups.mjs`
+copies the weekly backup off GitHub.
 
 ---
 

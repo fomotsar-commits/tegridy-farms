@@ -50,7 +50,9 @@ OPS_SCHEDULER.md section 2: `github-crons` (period 30 minutes, grace 90 minutes)
 
 **You should see**, once this work is merged and Synthetic Monitor runs, `github-crons` turn UP.
 While GitHub's schedules are still stopped, run it by hand (Actions tab, Synthetic Monitor, Run
-workflow). If the check stays grey after a run by hand, the secret or the step is wrong: say so.
+workflow). It turns UP even if that run's probe fails: the check only proves the workflow ran,
+and a failing probe opens a `prod-incident` issue instead. If the check stays grey after a run
+by hand, the secret or the step is wrong: say so.
 
 ### ⬜ O-0929-2: prove your offline passphrase opens GitHub's backups
 
@@ -78,6 +80,8 @@ powershell -ExecutionPolicy Bypass -File scripts\ops\register-tasks.ps1
 Start-ScheduledTask -TaskPath '\Tegridy\' -TaskName 'backup-pull'
 ```
 
+The task opens a console window while it runs: leave it open until it closes by itself.
+
 **You should see** one task, `backup-pull`, reading only `ops.env`, and then a `SHA256SUMS` file in
 `C:\Users\jimbo\OneDrive\backups\supabase-github\` that lists every backup there (nine today).
 **Expect that first run to fail with STALE** if GitHub has run no backup since 2026-09-21: from
@@ -85,7 +89,7 @@ Start-ScheduledTask -TaskPath '\Tegridy\' -TaskName 'backup-pull'
 start the task again. It should pull the new run and pass. The report is in
 `%LOCALAPPDATA%\tegridy-ops\backup-pull.last.txt`.
 
-**If GitHub is gone again,** this is not the list to follow: OPS_SCHEDULER.md section 6 moves the
+**If GitHub is gone again,** this is not the list to follow: OPS_SCHEDULER.md section 5 moves the
 six jobs GitHub ran onto this PC (`register-tasks.ps1 -Failover`) and takes the backup by hand.
 
 **Found while testing (2026-09-30):** the failover `npm-advisories` job found six blocking

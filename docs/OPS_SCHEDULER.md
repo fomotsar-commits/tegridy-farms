@@ -18,26 +18,32 @@ owner's steps live in [TODO_OPERATOR.md](TODO_OPERATOR.md).
      (section 4). Backups never live only on GitHub again.
   3. **A failover runner.** If GitHub is gone, the six jobs it ran can run on this PC, or any
      machine, through `scripts/ops/run-job.mjs`, still reporting to healthchecks.io
-     (section 6).
+     (section 5).
 - **Nothing runs on this PC until you register the task** (TODO_OPERATOR.md, O-0929-3).
 
 ## 1. Day to day: what runs where
 
 | Job | Runs on | How often | A problem reaches you through |
 |---|---|---|---|
-| `synthetic-monitor.yml` | GitHub | every 30 minutes | a `prod-incident` GitHub issue, and the `github-crons` check |
+| `synthetic-monitor.yml` | GitHub | every 30 minutes | a `prod-incident` GitHub issue |
 | its last step, the heartbeat | GitHub | every 30 minutes | the `github-crons` check, when the pings stop |
 | the other scheduled workflows: arb linkage, revenue watch, registry, npm advisories, Supabase backup, CodeQL, contract coverage | GitHub | as each workflow says | GitHub's own notices |
 | `backup-pull` | this PC (Task Scheduler) | weekly, Wednesday 12:53 local | the `backup-pull` check |
 
-One heartbeat stands for all of GitHub's schedules. In September they stopped together.
+**What the heartbeat covers, and what it does not.** It shows that GitHub's scheduler is
+running. It does not show that each workflow runs. One workflow can stop alone: GitHub runs
+nothing from a workflow file it cannot parse, and anyone with access can disable a workflow by
+hand. The backup is still watched from outside GitHub, by the pull's STALE check (section 4).
+The other scheduled workflows are not. GitHub's rule that disables schedules after 60 days
+without repo activity stops them all at once, so the heartbeat catches that.
 
 ## 2. Set up the alarms once (healthchecks.io, free)
 
 1. Sign up at healthchecks.io with **email and a password, and turn on two-factor**. Do not
    use "Sign in with GitHub": this alarm must work when GitHub does not.
 2. Add your email as a notification channel. Telegram or ntfy also work, if you want your
-   phone.
+   phone. Then, in **Account Settings > Email Reports**, turn on **daily reminders**: while
+   any check is DOWN, you get a reminder each day, not only the first email.
 3. Create these checks, with the "Simple" schedule:
 
    | Check | Pinged by | Period | Grace |
@@ -49,30 +55,34 @@ One heartbeat stands for all of GitHub's schedules. In September they stopped to
    - `github-crons`: a GitHub repository secret named `HC_PING_URL_GITHUB_CRONS`
      (Settings > Secrets and variables > Actions > New repository secret).
    - `backup-pull`: `ops.env` (section 3), as `HC_PING_URL_BACKUP_PULL`.
-5. Create the six failover checks now too (section 6 lists them). A check that has never been
+5. Create the six failover checks now too (section 5 lists them). A check that has never been
    pinged stays grey and sends nothing, and having them ready saves time in a failover.
 
 The grace is long because GitHub often starts a scheduled run late. With these values, two
 hours without a ping means GitHub's schedules have stopped.
 
-How the heartbeat behaves: a passing probe pings the check, and a failing one pings `/fail`
-with the probe's report. The URL reaches curl on stdin, never on a command line. A missing
-secret, or a ping that does not get through, is a warning in the run, never a red run: the
-missing ping is itself the alarm.
+**How the heartbeat behaves.** Every run of Synthetic Monitor pings the check, whether its
+probe passed or failed. The check answers one question: did GitHub's schedule fire? The ping
+never says "fail". A fail would hold the check DOWN for as long as prod is failing, and while
+it is DOWN, a stop in GitHub's schedules sends no new email. A failing probe is reported by
+the `prod-incident` issue instead. The ping's body still carries the probe's result and
+report, so the check's event log shows a failed probe too. The URL reaches curl on stdin,
+never on a command line. A missing secret, or a ping that does not get through, is a warning
+in the run, never a red run: the missing ping is itself the alarm.
 
 **What the emails mean.**
-- `github-crons` DOWN: either the pings stopped (GitHub's schedules stopped, or the secret was
-  removed) or the last probe failed. The check's event log in healthchecks.io says which: a
-  "fail" event carries the probe's report.
+- `github-crons` DOWN: the pings stopped. GitHub's schedules stopped, Synthetic Monitor was
+  disabled, or the secret was removed or changed. A failing probe does not do this.
 - `backup-pull` DOWN: read its report. "STALE" means GitHub's weekly backup has not succeeded
   for 9 days.
 - You get one email per change, not one per run. While a check is DOWN for one reason, a
-  second reason sends no new email. Fix the first reason, or pause the check on purpose.
+  second reason sends no new email; the daily reminder (step 2) keeps it in front of you. Fix
+  the first reason, or pause the check on purpose.
 
 ## 3. The env files (secrets live here, and only here)
 
 Day to day only `ops.env` matters, and it needs one line: `HC_PING_URL_BACKUP_PULL`. A failover
-adds more (section 6). Both files live in `C:\Users\jimbo\tegridy-ops-env\`:
+adds more (section 5). Both files live in `C:\Users\jimbo\tegridy-ops-env\`:
 
 - **`ops.env`**, which every task reads: the healthchecks ping URLs and any RPC overrides.
   Start from `scripts/ops/ops.env.example`.
@@ -114,7 +124,15 @@ from disk. The stronger fix is to run the backup on its own machine or as its ow
 What one run does:
 - It makes **one** `gh run list` call, then one download for each run it does not hold yet,
   **at most three, one at a time**. A burst of gh calls came just before the 2026-09-24
-  suspension, so it never loops. It fetches only runs newer than the newest one it holds.
+  suspension, so it never loops.
+- It trusts only runs that the schedule or a person (Run workflow) started. A run started any
+  other way, such as by a pull request, is named in the report and skipped. A pull request
+  can run an edited copy of the workflow and upload anything.
+- It fetches runs newer than the newest one it holds, and any run under 28 days old that it
+  is still missing, such as one whose download failed; 28 days is four weekly pulls. Older
+  gaps are not tried: runs that never made a backup, runs whose files GitHub has deleted
+  (after 90 days), or runs that kept failing for four weeks. If more than three runs are due,
+  it takes the newest three.
 - It checks every file in the folder, old and new. Each must be non-empty, open with gpg's
   AES256 session-key packet, and end exactly where its encrypted data ends, so a truncated copy
   fails. It does not decrypt: day to day, no passphrase is on this PC.
@@ -124,14 +142,17 @@ What one run does:
 It fails when:
 - GitHub's newest successful backup is **more than 9 days old**: the weekly backup has stopped.
   The pull runs on Wednesdays, so a single missed Monday backup is already past 9 days.
-- A download or a file check fails. A failed download is tried again the next week.
-- More than three new runs were waiting. It pulls the newest three. The older ones stay on
-  GitHub only, and the report names them so you can download them by hand.
+- A download or a file check fails. A failed download does not stop the other downloads. The
+  report says whether later pulls try that run again, and until what date.
+- A run is due but more than 28 days old, and newer runs took all three downloads. It stays on
+  GitHub only, and the report names it so you can download it by hand. A due run under 28 days
+  old just waits for the next pull; that is not a failure.
 
 **It needs the GitHub CLI, logged in as you.** gh keeps its login in the Windows credential
 store, and a task that runs while you are signed out is not expected to be able to read it. So
-this task runs only while you are signed in. If the PC was off on Wednesday, it runs at your next
-sign-in.
+this task runs only while you are signed in, **in a console window**. Leave the window open
+until it closes by itself: closing it stops the pull, and the `backup-pull` check then goes
+DOWN. If the PC was off on Wednesday, it runs at your next sign-in.
 
 By hand, from a checkout: `node scripts\ops\pull-github-backups.mjs`.
 
@@ -144,53 +165,16 @@ Paste the passphrase from your offline copy (nothing shows as you type). You sho
 `Readable: all 10 tables present.` If it cannot decrypt, the offline copy is not the passphrase
 GitHub uses: stop and say so.
 
-## 5. Take a backup by hand (in a failover, or before a risky change)
-
-Day to day GitHub takes the backup. Take one by hand when GitHub is gone, or before a risky
-database change. Use PowerShell, in the tasks' checkout (section 7) or any checkout outside
-OneDrive that has `scripts/ops`.
-
-1. **Find the backup passphrase** (your offline copy, made 2026-07-30). New backups can use a new
-   passphrase. Keep both.
-2. Get `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` from the Supabase dashboard (**Settings > API
-   Keys**) or from Vercel's production environment variables. Use the legacy `service_role` key
-   (it starts with `eyJ`) or a secret key (it starts with `sb_secret_`). Never the `anon` or
-   publishable key: it would copy only what the public can see, so the backup refuses it.
-3. Put the three values in `backup.env` (section 3), each in straight single quotes.
-4. Run:
-   ```
-   node scripts\ops\supabase-backup.mjs --env-file C:\Users\jimbo\tegridy-ops-env\backup.env
-   ```
-   You should see ten tables with row counts, then `Wrote ...` and `decrypted back and matched
-   before it was kept`. If any table cannot be read whole, it fails and writes nothing.
-5. **Prove your offline passphrase opens it:**
-   ```
-   node scripts\ops\supabase-restore-check.mjs --latest --prompt --env-file C:\Users\jimbo\tegridy-ops-env\backup.env
-   ```
-   The env file only tells it where the backups are (`BACKUP_DIR`); with `--prompt` the
-   passphrase always comes from your keyboard. You should see `Readable: all 10 tables
-   present.`, then `Saved ...passphrase-canary.gpg`. That file is a few bytes encrypted with the
-   passphrase you typed. Every later backup first checks that the env file's passphrase opens
-   it, and stops if not, so a later edit cannot quietly change the passphrase. To change the
-   passphrase on purpose: delete `passphrase-canary.gpg` from the backup folder, change
-   `backup.env`, take a backup, and repeat this step.
-6. The default folder is `%USERPROFILE%\OneDrive\backups\supabase` (not the pull's folder). The
-   file is encrypted, so OneDrive is a safe offsite copy. Add another away from this PC: a USB
-   drive now, or a storage bucket later.
-
-The file format is exactly the GitHub workflow's, so the restore steps in
-[`frontend/supabase/RESTORE.md`](../frontend/supabase/RESTORE.md) work unchanged. Each backup is
-`supabase-backup-<date>T<time>Z.tar.gz.gpg` plus a `.sha256` file. The newest 26 are kept; files
-the tool did not write (GitHub downloads, the canary) are never deleted.
-
-## 6. Failover: GitHub is gone
+## 5. Failover: GitHub is gone
 
 This is the scheduled-jobs part of the failover drill. The git remotes, Vercel and the source
 links are in the git-hosting runbook.
 
-1. **Pause the `github-crons` check** in healthchecks.io. It goes DOWN within two hours, which
-   is expected; paused, it cannot hide anything else.
-2. **Take a backup by hand** (section 5). The newest pulled GitHub backup is up to a week old.
+1. **Pause the `github-crons` and `backup-pull` checks** in healthchecks.io. With GitHub gone,
+   `github-crons` goes DOWN within two hours, and `backup-pull` about eight days after its
+   last ping (step 4 removes its task). Both are expected. Paused, they cannot hide anything
+   else.
+2. **Take a backup by hand** (section 6). The newest pulled GitHub backup is up to a week old.
 3. **Put the six failover ping URLs in `ops.env`**, as `HC_PING_URL_<JOB>` (for example
    `HC_PING_URL_SYNTHETIC_MONITOR`). The checks, if you have not made them yet:
 
@@ -227,7 +211,7 @@ What the failover runs, and what counts as a failure:
 | `revenue-watch` | Every fee rail, and fees stranded in `callerCredit` | hourly, at :17 | a rail cannot be read, or the picture changed. A change is news, not a fault; the next run clears it |
 | `registry-onchain` | The address registry against the chain, and the ladder pools' bytecode | daily, 12:41 local | any mismatch, or nothing was actually read |
 | `npm-advisories` | Known high or critical advisories in the three lockfiles | daily, 13:37 local | a new advisory appears that the allowlist does not cover. It fails once per new advisory; later runs still list it but pass, so a known one cannot hold the alarm down and hide the next |
-| `supabase-backup` | The ten tables, dumped, encrypted and checked | weekly, Monday 12:23 local | any table was not read whole, each row exactly once, or the passphrase is not the one you proved (section 5) |
+| `supabase-backup` | The ten tables, dumped, encrypted and checked | weekly, Monday 12:23 local | any table was not read whole, each row exactly once, or the passphrase is not the one you proved (section 6) |
 
 Each job reuses the script its GitHub workflow ran. Where a workflow had its logic inline in bash
 (the site probes, the fee-rail reads, the backup), that logic is ported to Node with the same
@@ -283,6 +267,45 @@ Keep the same healthchecks.io checks; point the new machine at the same ping URL
 `register-tasks.ps1 -Remove` here. Do not leave two machines running the same job: two sets of
 pings on one check would hide a dead one.
 
+## 6. Take a backup by hand (in a failover, or before a risky change)
+
+Day to day GitHub takes the backup. Take one by hand when GitHub is gone, or before a risky
+database change. Use PowerShell, in the tasks' checkout (section 7) or any checkout outside
+OneDrive that has `scripts/ops`.
+
+1. **Find the backup passphrase** (your offline copy, made 2026-07-30). New backups can use a new
+   passphrase. Keep both.
+2. Get `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` from the Supabase dashboard (**Settings > API
+   Keys**) or from Vercel's production environment variables. Use the legacy `service_role` key
+   (it starts with `eyJ`) or a secret key (it starts with `sb_secret_`). Never the `anon` or
+   publishable key: it would copy only what the public can see, so the backup refuses it.
+3. Put the three values in `backup.env` (section 3), each in straight single quotes.
+4. Run:
+   ```
+   node scripts\ops\supabase-backup.mjs --env-file C:\Users\jimbo\tegridy-ops-env\backup.env
+   ```
+   You should see ten tables with row counts, then `Wrote ...` and `decrypted back and matched
+   before it was kept`. If any table cannot be read whole, it fails and writes nothing.
+5. **Prove your offline passphrase opens it:**
+   ```
+   node scripts\ops\supabase-restore-check.mjs --latest --prompt --env-file C:\Users\jimbo\tegridy-ops-env\backup.env
+   ```
+   The env file only tells it where the backups are (`BACKUP_DIR`); with `--prompt` the
+   passphrase always comes from your keyboard. You should see `Readable: all 10 tables
+   present.`, then `Saved ...passphrase-canary.gpg`. That file is a few bytes encrypted with the
+   passphrase you typed. Every later backup first checks that the env file's passphrase opens
+   it, and stops if not, so a later edit cannot quietly change the passphrase. To change the
+   passphrase on purpose: delete `passphrase-canary.gpg` from the backup folder, change
+   `backup.env`, take a backup, and repeat this step.
+6. The default folder is `%USERPROFILE%\OneDrive\backups\supabase` (not the pull's folder). The
+   file is encrypted, so OneDrive is a safe offsite copy. Add another away from this PC: a USB
+   drive now, or a storage bucket later.
+
+The file format is exactly the GitHub workflow's, so the restore steps in
+[`frontend/supabase/RESTORE.md`](../frontend/supabase/RESTORE.md) work unchanged. Each backup is
+`supabase-backup-<date>T<time>Z.tar.gz.gpg` plus a `.sha256` file. The newest 26 are kept; files
+the tool did not write (GitHub downloads, the canary) are never deleted.
+
 ## 7. The tasks' checkout
 
 The tasks run whatever code is in a checkout of their own, **outside OneDrive** (OneDrive
@@ -309,15 +332,21 @@ powershell -ExecutionPolicy Bypass -File scripts\ops\register-tasks.ps1 -DryRun
 powershell -ExecutionPolicy Bypass -File scripts\ops\register-tasks.ps1
 Start-ScheduledTask -TaskPath '\Tegridy\' -TaskName 'backup-pull'
 ```
-Running the script again replaces the task. `-Remove` deletes every task this script made.
+Running the script again replaces the task. `-Remove` deletes every task this script made. The
+task opens a console window each time it runs (section 4): leave it open.
 
 ## 8. When GitHub comes back after a failover
 
-1. **Pause the six failover checks** in healthchecks.io, then, from the tasks' checkout, run
-   `register-tasks.ps1` without `-Failover`. It removes the six failover tasks and registers
-   `backup-pull` again. One scheduler per job: never let this PC and GitHub run the same monitor.
-2. **Unpause `github-crons`.** It should turn UP within 30 minutes of GitHub's first scheduled
-   run of Synthetic Monitor.
+1. **Pause the six failover checks** in healthchecks.io. Then, from the tasks' checkout, in an
+   **elevated** PowerShell (Run as administrator), run `register-tasks.ps1 -DryRun` and then
+   `register-tasks.ps1`, both without `-Failover`. It removes the six failover tasks and
+   registers `backup-pull` again. Elevated, because an elevated shell registered the six
+   tasks, and a normal shell may not see them to remove them. One scheduler per job: never let
+   this PC and GitHub run the same monitor.
+2. **Unpause `github-crons` and `backup-pull`.** `github-crons` should turn UP within 30
+   minutes of GitHub's first scheduled run of Synthetic Monitor. `backup-pull` reports STALE
+   until GitHub takes a backup again: run Supabase Backup by hand from the Actions tab, then
+   `Start-ScheduledTask -TaskPath '\Tegridy\' -TaskName 'backup-pull'`.
 3. **If it stays DOWN, GitHub's schedules have not resumed.** That is what happened after the
    2026-09-24 suspension: more than five days with no scheduled run and no notice; the cause
    was not known when this was written. Run Synthetic Monitor by hand from the Actions tab
