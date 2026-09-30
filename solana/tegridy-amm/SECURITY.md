@@ -18,10 +18,10 @@ Email the `Contact:` address in <https://memetics.finance/.well-known/security.t
 the code moves between git hosts. Report privately, before any public disclosure or on-chain
 exploitation.
 
-If email fails, open a **confidential** issue on the git host through
-<https://memetics.finance/source-issues> (on GitLab, mark it confidential when you create it). If
-the host cannot keep an issue confidential, the issue should say only that you have a security
-report and ask for a contact. Never put details in a public issue.
+If email fails, open an issue through <https://memetics.finance/source-issues> that says only
+that you have a security report and asks for a contact. That link goes to GitHub today, where
+every issue is public, so never put details in it. If it goes to GitLab, you can mark the
+issue confidential when you create it.
 
 For an exploit in progress, contact SEAL 911 in parallel:
 <https://securityalliance.org/our-work/seal-911>.

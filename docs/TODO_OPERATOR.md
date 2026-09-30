@@ -29,25 +29,31 @@ stop and say so — a surprise is information.
 
 ---
 
-## 🔴 2026-09-29: the source links merge only after the GitLab name is ours and the project is public
+## 🟡 2026-09-29: the source links go to GitHub; the GitLab standby must be public before it can take them
 
-### ⬜ O-0929-11: claim the name, make the project public, then merge the source links
+### ⬜ O-0929-11: make the GitLab standby project public, so the source links can fail over
 
-**What is wrong.** The site's source and audit links (branch `fix/source-links-first-party`)
-redirect to `https://gitlab.com/memetics/tegridy-farms`. On 2026-09-29 that group did not exist:
-`curl -s https://gitlab.com/api/v4/groups/memetics` answered `404 Group Not Found`. Anyone can
-register a free GitLab group with that name. Merging the branch deploys the redirects, so a
-merge before the name is ours sends every audit and contract link on the site, and
-`held-through.json`, to whoever takes the name. A private project sends them to a sign-in page.
+**Where this stands.** The site's source and audit links (branch `fix/source-links-first-party`)
+redirect to GitHub, `https://github.com/fomotsar-commits/tegridy-farms`, the primary. That repo
+is ours and public: on 2026-09-30 `curl -s https://api.github.com/repos/fomotsar-commits/tegridy-farms`
+returned `"visibility": "public"`, and a file, a folder, the issue list and git's `info/refs`
+all answered. So merging the branch no longer waits on GitLab.
 
-**Do, in this order:** claim the GitLab group and the Bitbucket workspace (sign up with email,
-password and 2FA, never "Continue with GitHub"). Push the repo. Make the GitLab project public.
-Only then merge. If the name changed, change the four `/source` destinations in
-`frontend/vercel.json` first (DEPLOY_RUNBOOK, "Moving the source links").
+**What is left.** If GitHub goes again, the four `/source` lines move to the GitLab standby.
+DEPLOY_RUNBOOK, "Moving the source links", gives the four lines exactly. That only works if the
+GitLab project is ours and public. A redirect to a name nobody owns sends every trust link on
+the site, and `held-through.json`, to whoever registers it. A private project sends them to a
+sign-in page. On 2026-09-30 `curl -s https://gitlab.com/api/v4/projects/memetics%2Ftegridy-farms`
+answered `404 Project Not Found` (missing or private; the group was being renamed to `memetics`).
 
-**You should see**, just before the merge:
-`curl -s https://gitlab.com/api/v4/projects/memetics%2Ftegridy-farms` returns JSON that contains
-`"visibility":"public"`. `404 Project Not Found` means stop.
+**Do:** once the group is `memetics` and the standby holds the repo, make the project
+`tegridy-farms` public. The vault project stays private. If the group ends up with another
+name, change it in the runbook's four GitLab lines and in `OUR_REPOS` in
+`frontend/src/test/sourceLinks.test.ts`, in one PR.
+
+**You should see:** `curl -s https://gitlab.com/api/v4/projects/memetics%2Ftegridy-farms`
+returns JSON that contains `"visibility":"public"`. Check it again just before any failover.
+`404 Project Not Found` then means stop.
 
 ---
 
@@ -57,9 +63,11 @@ Only then merge. If the name changed, change the four `/source` destinations in
 
 **What is wrong.** cp-swap has been live on mainnet since 2026-09-29
 (`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`). Explorers show its on-chain security.txt,
-and every link in it is dead: `policy` and `source_code` point at the suspended GitHub repo (and
-at `main`, not `mvp-launch`), and `contacts` points at `memetic.fun/trust`, which is now another
-project's 404. Only a program upgrade can change them. Do not upgrade for this alone.
+and no link in it does its job. Measured 2026-09-30: `policy` opens `SECURITY.md` on GitHub's
+`main`, a stale branch that lacks 1,817 of `mvp-launch`'s commits. `source_code` is a `404`,
+because `main` has no `solana/tegridy-amm`. `contacts` points at `memetic.fun/trust`, which is
+now another project's 404. And all three depend on one git host, which went dark from
+2026-09-24 to 2026-09-29. Only a program upgrade can change them. Do not upgrade for this alone.
 
 **Do, in the commit that builds the next cp-swap upgrade:** in
 `solana/tegridy-amm/programs/cp-swap/src/lib.rs`, set the macro to exactly these values. The
@@ -91,9 +99,9 @@ solana_security_txt::security_txt! {
 
 **You should see**, before the upgrade:
 `curl -sI https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` answers `307`, and
-its `location` opens that file on the git host. Check the file itself opens: GitLab sends a
-path it does not have to the repo root with a `302`, not a `404`. After the upgrade, the
-explorer's security tab for the program shows the four new values.
+its `location` opens that file on the git host. Check the file itself opens, not a `404` page
+or the repo root: GitLab answers a path it does not have with the repo root. After the
+upgrade, the explorer's security tab for the program shows the four new values.
 
 ### ⬜ O-0929-12: decide whether the two new Solana programs are in the root security scope
 
