@@ -261,7 +261,7 @@ describe('every source link the pages render', () => {
   // Server-rendered: the held-through read above needs the node environment.
   const rendered = Object.entries(PAGES).flatMap(([file, Page]) =>
     [...renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Page))).matchAll(/\shref="([^"]*)"/g)]
-      .map((m) => m[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;/g, "'"))
+      .map((m) => m[1].replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&'))
       .filter((href) => href.startsWith(`${SITE_URL}/source`))
       .map((href) => ({ file, href })),
   );

@@ -78,9 +78,10 @@ describe('audit evidence links', () => {
     // Pages link SOURCE_URL; the host and branch live in one place (vercel.json).
     for (const f of ['SecurityPage.tsx', 'RisksPage.tsx', 'ContractsPage.tsx', 'TrustHubPage.tsx']) {
       const src = read('src', 'pages', f);
-      expect(src, `${f} hardcodes a git-host URL`).not.toMatch(
-        /https:\/\/(www\.)?(github\.com|gitlab\.com|bitbucket\.org)\//,
-      );
+      const hosts = [...src.matchAll(/https?:\/\/[^\s"'`)<>]+/g)].map((m) => {
+        try { return new URL(m[0]).hostname; } catch { return ''; }
+      });
+      expect(hosts.filter((h) => /(^|\.)(github\.com|gitlab\.com|bitbucket\.org)$/.test(h)), `${f} hardcodes a git-host URL`).toEqual([]);
     }
   });
 
