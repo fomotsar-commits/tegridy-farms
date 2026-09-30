@@ -7,7 +7,7 @@
 
 import { pathToFileURL } from 'node:url';
 import { runBackup } from './lib/backup.mjs';
-import { loadEnvFile, takeEnvFileFlag } from './lib/env-file.mjs';
+import { loadEnvFiles, takeEnvFileFlag } from './lib/env-file.mjs';
 
 export function parseArgs(argv) {
   const out = { dest: undefined, keep: undefined, help: false };
@@ -22,13 +22,13 @@ export function parseArgs(argv) {
 }
 
 async function main() {
-  const { envFile, rest } = takeEnvFileFlag(process.argv.slice(2));
+  const { envFiles, rest } = takeEnvFileFlag(process.argv.slice(2));
   const args = parseArgs(rest);
   if (args.help) {
     console.log('usage: node scripts/ops/supabase-backup.mjs --env-file <path> [--dest <dir>] [--keep <n>]');
     return 0;
   }
-  if (envFile) loadEnvFile(envFile);
+  loadEnvFiles(envFiles);
   const result = await runBackup({ env: process.env, dest: args.dest, keep: args.keep });
   for (const line of result.lines) console.log(line);
   if (!result.ok) console.error('\nBACKUP FAILED. No new restore point exists.');

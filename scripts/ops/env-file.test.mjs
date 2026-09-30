@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gitWorkTreeAbove, loadEnvFile, parseEnvText, takeEnvFileFlag } from './lib/env-file.mjs';
+import { gitWorkTreeAbove, loadEnvFile, loadEnvFiles, parseEnvText, takeEnvFileFlag } from './lib/env-file.mjs';
 
 describe('parseEnvText keeps a secret exactly as written', () => {
   test("keeps '#' inside an unquoted value (node's own --env-file cuts it there)", () => {
@@ -30,6 +30,17 @@ describe('parseEnvText keeps a secret exactly as written', () => {
     const { vars, errors } = parseEnvText('# a comment\n\n   # indented comment\nX=1\n');
     assert.deepEqual(errors, []);
     assert.deepEqual(vars, { X: '1' });
+  });
+
+  test('refuses what it would have to guess at: a curly outer quote, or a note after an unquoted value', () => {
+    const secret = 'correct horse battery staple';
+    const { vars, errors } = parseEnvText(`A=‘${secret}’\nB=${secret} # my note\nC=“${secret}\nD='${secret} # kept'\nE=x#y\n`);
+    assert.equal(errors.length, 3, errors.join('\n'));
+    assert.match(errors[0], /line 1 \(A\) starts or ends with a curly quote/);
+    assert.match(errors[1], /line 2 \(B\) has ' #' in an unquoted value/);
+    assert.match(errors[2], /line 3 \(C\) starts or ends with a curly quote/);
+    for (const e of errors) assert.ok(!e.includes(secret), 'an error message leaked the value');
+    assert.deepEqual(vars, { D: `${secret} # kept`, E: 'x#y' });
   });
 
   test('rejects a malformed line, an unclosed quote and a repeated name, by line number only', () => {
@@ -78,10 +89,35 @@ describe('loadEnvFile refuses a file inside a git work tree', () => {
   });
 });
 
-describe('takeEnvFileFlag', () => {
-  test('takes both spellings and leaves the other args in order', () => {
-    assert.deepEqual(takeEnvFileFlag(['job', '--env-file', 'a.env', '--x']), { envFile: 'a.env', rest: ['job', '--x'] });
-    assert.deepEqual(takeEnvFileFlag(['--env-file=b.env', 'job']), { envFile: 'b.env', rest: ['job'] });
-    assert.throws(() => takeEnvFileFlag(['--env-file']), /needs a path/);
+describe('takeEnvFileFlag and loadEnvFiles', () => {
+  test('takes every file, in both spellings, and leaves the other args in order', () => {
+    const quiet = { warn: () => {}, execArgv: [] };
+    assert.deepEqual(takeEnvFileFlag(['job', '--env-file', 'a.env', '--x'], quiet), { envFiles: ['a.env'], rest: ['job', '--x'] });
+    assert.deepEqual(takeEnvFileFlag(['--env-file=b.env', 'job', '--env-file', 'c.env'], quiet), { envFiles: ['b.env', 'c.env'], rest: ['job'] });
+    assert.throws(() => takeEnvFileFlag(['--env-file'], quiet), /needs a path/);
+  });
+
+  test("warns when node's own --env-file was used, and only then", () => {
+    const said = [];
+    takeEnvFileFlag([], { warn: (m) => said.push(m), execArgv: ['--env-file=x.env'] });
+    takeEnvFileFlag([], { warn: (m) => said.push(m), execArgv: ['--no-warnings'] });
+    assert.equal(said.length, 1);
+    assert.match(said[0], /cuts every unquoted value at '#'/);
+  });
+
+  test('loads several files, and refuses a name that two of them set', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'opsmulti-'));
+    writeFileSync(join(dir, 'ops.env'), 'HC_PING_URL_X=https://hc-ping.com/a\n');
+    writeFileSync(join(dir, 'backup.env'), 'BACKUP_PASSPHRASE=secret-value-one\n');
+    writeFileSync(join(dir, 'clash.env'), 'BACKUP_PASSPHRASE=secret-value-two\n');
+    const env = {};
+    assert.deepEqual(loadEnvFiles([join(dir, 'ops.env'), join(dir, 'backup.env')], env), ['HC_PING_URL_X', 'BACKUP_PASSPHRASE']);
+    assert.deepEqual(env, { HC_PING_URL_X: 'https://hc-ping.com/a', BACKUP_PASSPHRASE: 'secret-value-one' });
+    const untouched = {};
+    assert.throws(
+      () => loadEnvFiles([join(dir, 'backup.env'), join(dir, 'clash.env')], untouched),
+      (e) => /BACKUP_PASSPHRASE is set in both/.test(e.message) && !e.message.includes('secret-value'),
+    );
+    assert.deepEqual(untouched, {}, 'a refused set of files changed the environment');
   });
 });

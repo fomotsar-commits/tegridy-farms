@@ -1,16 +1,20 @@
 // node --test scripts/ops/run-job.test.mjs
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnvText } from './lib/env-file.mjs';
-import { clampBody, pingEnvName, resolvePingUrl, scrubSecrets, sendPing } from './lib/healthchecks.mjs';
+import { runBackup, writeCanary } from './lib/backup.mjs';
+import { GPG_TIMEOUT_MS } from './lib/gpg.mjs';
+import { clampBody, PING_WORST_MS, pingEnvName, resolvePingUrl, scrubSecrets, sendPing } from './lib/healthchecks.mjs';
 import { childEnv, defaultPaths, JOB_IMPLS, JOBS, NPM_PROJECTS } from './lib/jobs.mjs';
 import { parseGithubOutput, runProcess } from './lib/proc.mjs';
-import { EVM_BALANCES, EVM_CALLS, readRails, SQUADS_VAULT } from './lib/revenue-rails.mjs';
-import { ALIASES, CANONICAL, DEFAULT_INDEXER, FOREIGN, runSynthetic } from './lib/synthetic.mjs';
+import { EVM_BALANCES, EVM_CALLS, REQUEST_TIMEOUT_MS as RAILS_TIMEOUT_MS, readRails, SQUADS_VAULT } from './lib/revenue-rails.mjs';
+import { DUMP_DEADLINE_MS } from './lib/supabase-dump.mjs';
+import { ALIASES, CANONICAL, DEFAULT_INDEXER, FOREIGN, REQUEST_TIMEOUT_MS as SYNTHETIC_TIMEOUT_MS, runSynthetic } from './lib/synthetic.mjs';
 import { runJob } from './run-job.mjs';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -88,18 +92,48 @@ describe('the runner and its alarm', () => {
   });
 
   test('no secret and no ping URL reaches the output, the body or the last-run file', async () => {
-    const env = { HC_PING_URL_SYNTHETIC_MONITOR: HC, SUPABASE_SERVICE_KEY: 'eyJsecret-service-key-value', ETH_RPC_URL: 'https://eth.example/v2/apikey123456' };
+    const env = {
+      HC_PING_URL_SYNTHETIC_MONITOR: HC, SUPABASE_SERVICE_KEY: 'eyJsecret-service-key-value',
+      ETH_RPC_URL: 'https://eth.example/v2/apikey123456', SUPABASE_URL: 'https://projref123456.supabase.co',
+    };
     const { impl, calls } = pingFetch();
     const out = quiet();
     const err = quiet();
     const st = tmp('st');
     await runJob('synthetic-monitor', {
       env, fetchImpl: impl, stateDir: st, log: out.log, warn: err.log,
-      jobs: fakeJob({ ok: false, summary: 'x', report: `leak ${env.SUPABASE_SERVICE_KEY} via ${env.ETH_RPC_URL} and ${HC}` }),
+      jobs: fakeJob({ ok: false, summary: 'x', report: `leak ${env.SUPABASE_SERVICE_KEY} via ${env.ETH_RPC_URL} and ${HC} at ${env.SUPABASE_URL}` }),
     });
     const everything = [...out.lines, ...err.lines, calls[1].body, readFileSync(join(st, 'synthetic-monitor.last.txt'), 'utf8')].join('\n');
     for (const v of Object.values(env)) assert.ok(!everything.includes(v), `leaked: ${v}`);
-    assert.match(calls[1].body, /<SUPABASE_SERVICE_KEY>.*<ETH_RPC_URL>.*<HC_PING_URL_SYNTHETIC_MONITOR>/);
+    assert.match(calls[1].body, /<SUPABASE_SERVICE_KEY>.*<ETH_RPC_URL>.*<HC_PING_URL_SYNTHETIC_MONITOR>.*<SUPABASE_URL>/);
+  });
+
+  test('a start ping that fails makes a passing run exit 3, even when the result ping gets through', async () => {
+    const calls = [];
+    const impl = async (url) => { calls.push(String(url)); return new Response('', { status: String(url).endsWith('/start') ? 503 : 200 }); };
+    const code = await runJob('synthetic-monitor', {
+      env: { HC_PING_URL_SYNTHETIC_MONITOR: HC }, fetchImpl: impl, stateDir: tmp('st'), log: () => {}, warn: () => {}, sleep: noSleep,
+      jobs: fakeJob({ ok: true, summary: 'ok', report: '' }),
+    });
+    assert.equal(code, 3);
+    assert.deepEqual(calls, [`${HC}/start`, `${HC}/start`, `${HC}/start`, HC]);
+  });
+
+  test('a ping URL that is set but unusable told nobody, so a change is not recorded as told', async () => {
+    const run = async (env) => {
+      let committed = false;
+      const code = await runJob('revenue-watch', {
+        env, fetchImpl: pingFetch().impl, stateDir: tmp('st'), log: () => {}, warn: () => {},
+        jobs: { 'revenue-watch': async () => ({ ok: false, summary: 'CHANGED', report: 'r', commit: () => { committed = true; } }) },
+      });
+      return { code, committed };
+    };
+    for (const url of ['http://hc-ping.com/abc', 'hc-ping.com/abc']) {
+      assert.deepEqual(await run({ HC_PING_URL_REVENUE_WATCH: url }), { code: 1, committed: false }, url);
+    }
+    // With no alarm configured at all there is nobody to wait for, so the change is recorded.
+    assert.deepEqual(await run({}), { code: 1, committed: true });
   });
 
   test('an undelivered ping retries 3 times and exits 3 when the job passed; a bad URL exits 3 without sending', async () => {
@@ -416,32 +450,78 @@ describe('npm-advisories', () => {
     assert.deepEqual([...NPM_PROJECTS], m[1].split(',').map((s) => s.trim().replace(/^["']|["']$/g, '')));
   });
 
-  test('an empty audit or a failing gate fails; the reports go to a temp dir, not the repo', async () => {
-    const seen = [];
-    const run = (auditOut, gateCode) => async (_cmd, args, opts) => {
-      if (args.includes('--allowlist')) {
-        seen.push(args[args.indexOf('--report') + 1]);
-        return { code: gateCode, stdout: `### npm advisories ${args[args.indexOf('--project') + 1]}`, stderr: '', timedOut: false, error: null };
-      }
-      return { code: 1, stdout: auditOut(opts.cwd), stderr: '', timedOut: false, error: null };
+  // An `npm audit --json` report holding one high advisory per GHSA id.
+  const audit = (ids) => JSON.stringify({
+    vulnerabilities: Object.fromEntries(ids.map((g) => [`pkg-${g}`, {
+      name: `pkg-${g}`, fixAvailable: true, via: [{ url: `https://github.com/advisories/${g}`, severity: 'high', name: `pkg-${g}`, title: 't' }],
+    }])),
+    metadata: { vulnerabilities: { total: ids.length } },
+  });
+  const projectOf = (cwd) => (cwd.endsWith('frontend') ? 'frontend' : cwd.endsWith('indexer') ? 'indexer' : '.');
+  /** Run the job with the real gate; `found` maps a project to its advisory ids (or raw stdout). */
+  const npmRun = (found, stateDir, allowlist = { accepted: [], baseline: { expires: '2099-01-01', projects: {} } }) => {
+    const dir = tmp('allow');
+    writeFileSync(join(dir, 'allowlist.json'), JSON.stringify(allowlist));
+    const run = async (_cmd, _args, opts) => {
+      const f = found[projectOf(opts.cwd)] ?? [];
+      return { code: 1, stdout: typeof f === 'string' ? f : audit(f), stderr: '', timedOut: false, error: null };
     };
-    const job = (r) => JOB_IMPLS['npm-advisories']({ env: {}, repoRoot: REPO_ROOT, run: r, paths: defaultPaths(REPO_ROOT), npmCommand: () => ({ cmd: 'npm', args: ['audit', '--json'], shell: false }) });
-    const ok = await job(run(() => '{"vulnerabilities":{}}', 0));
-    assert.equal(ok.ok, true, ok.report);
-    assert.equal(seen.length, 3);
-    for (const p of seen) assert.ok(!p.startsWith(REPO_ROOT), `report written inside the repo: ${p}`);
-    const empty = await job(run((cwd) => (cwd.endsWith('indexer') ? '' : '{}'), 0));
+    return JOB_IMPLS['npm-advisories']({
+      env: {}, repoRoot: REPO_ROOT, run, stateDir, paths: { ...defaultPaths(REPO_ROOT), npmAllowlist: join(dir, 'allowlist.json') },
+      npmCommand: () => ({ cmd: 'npm', args: ['audit', '--json'], shell: false }),
+    });
+  };
+  const A = 'GHSA-aaaa-aaaa-aaaa';
+  const B = 'GHSA-bbbb-bbbb-bbbb';
+
+  test('a new blocking advisory fails once; later runs list it and pass, so the next new one still alerts', async () => {
+    const st = tmp('npmst');
+    const first = await npmRun({ frontend: [A] }, st);
+    assert.equal(first.ok, false);
+    assert.match(first.summary, new RegExp(`NEW blocking advisories: frontend ${A}`));
+    await first.commit();
+    const again = await npmRun({ frontend: [A] }, st);
+    assert.equal(again.ok, true, again.report);
+    assert.match(again.summary, /1 known blocking advisories/);
+    assert.match(again.report, new RegExp(`- frontend ${A}`));
+    const more = await npmRun({ frontend: [A], indexer: [B] }, st);
+    assert.equal(more.ok, false);
+    assert.match(more.summary, new RegExp(`NEW blocking advisories: indexer ${B}\\.`));
+  });
+
+  test('a fixed advisory is forgotten, so its return alerts again', async () => {
+    const st = tmp('npmst');
+    await (await npmRun({ frontend: [A] }, st)).commit();
+    const fixed = await npmRun({}, st);
+    assert.equal(fixed.ok, true);
+    await fixed.commit();
+    assert.equal((await npmRun({ frontend: [A] }, st)).ok, false);
+  });
+
+  test('an unusable audit fails every run and records nothing', async () => {
+    const st = tmp('npmst');
+    const empty = await npmRun({ indexer: '' }, st);
     assert.equal(empty.ok, false);
     assert.match(empty.report, /indexer: npm audit produced no output at all/);
-    const blocked = await job(run(() => '{}', 1));
-    assert.equal(blocked.ok, false);
-    assert.match(blocked.summary, /the advisory gate failed/);
+    assert.equal(empty.commit, undefined);
+    const shapeless = await npmRun({ frontend: '{}' }, st);
+    assert.equal(shapeless.ok, false);
+    assert.match(shapeless.summary, /frontend: the audit cannot be trusted/);
+  });
+
+  test('the allowlist still decides what blocks', async () => {
+    const accepted = { accepted: [{ ghsa: A, reason: 'reviewed: not reachable from our code', expires: '2099-01-01' }], baseline: { expires: '2099-01-01', projects: {} } };
+    const r = await npmRun({ frontend: [A] }, tmp('npmst'), accepted);
+    assert.equal(r.ok, true, r.report);
+    assert.match(r.summary, /no unforgiven high\/critical advisories/);
   });
 });
 
 describe('scheduling', () => {
+  const PS1 = join(REPO_ROOT, 'scripts', 'ops', 'register-tasks.ps1');
+  const ps1 = readFileSync(PS1, 'utf8');
+
   test('register-tasks.ps1 schedules exactly the runner jobs, none more often than every 15 minutes', () => {
-    const ps1 = readFileSync(join(REPO_ROOT, 'scripts', 'ops', 'register-tasks.ps1'), 'utf8');
     const names = [...ps1.matchAll(/Name\s*=\s*'([a-z-]+)'/g)].map((m) => m[1]);
     assert.deepEqual([...names].sort(), [...JOBS].sort());
     const minutes = [...ps1.matchAll(/EveryMinutes\s*=\s*(\d+)/g)].map((m) => Number(m[1]));
@@ -449,11 +529,110 @@ describe('scheduling', () => {
     for (const m of minutes) assert.ok(m >= 15, `a cadence of ${m} minutes`);
   });
 
-  test('ops.env.example parses cleanly and names every job ping URL and every backup secret', () => {
-    const { vars, errors } = parseEnvText(readFileSync(join(REPO_ROOT, 'scripts', 'ops', 'ops.env.example'), 'utf8'));
-    assert.deepEqual(errors, []);
-    for (const j of JOBS) assert.ok(pingEnvName(j) in vars, `${pingEnvName(j)} missing from the example`);
-    for (const k of ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'BACKUP_PASSPHRASE']) assert.ok(k in vars, k);
+  test('this PC is off at night, so the daily and weekly jobs start between 10:00 and 18:00 local', () => {
+    const slots = [...ps1.matchAll(/(?:DailyAt|WeeklyAt)\s*=\s*'(?:[A-Za-z]+ )?(\d\d):(\d\d)'/g)].map((m) => Number(m[1]));
+    assert.equal(slots.length, 3, 'expected two daily slots and one weekly slot');
+    for (const h of slots) assert.ok(h >= 10 && h < 18, `a slot at ${h}:xx, when the PC is usually off`);
+  });
+
+  test("every task's time limit exceeds its job's own timeouts plus two pings", async () => {
+    // Measured, not declared: each job runs against recorders, and every child timeout and
+    // request it would wait on is added up (the backup: its dump deadline and gpg calls).
+    const budget = {};
+    const recorder = () => {
+      const limits = [];
+      const run = async (_cmd, _args, opts) => { limits.push(opts.timeoutMs); return { code: 0, stdout: '', stderr: '', timedOut: false, error: null }; };
+      return { limits, run, sum: () => limits.reduce((a, b) => a + b, 0) };
+    };
+    const counter = (answer) => { const c = { n: 0 }; c.fetch = async () => { c.n++; return answer(); }; return c; };
+    const syn = counter(() => new Response('', { status: 200 }));
+    await runSynthetic({ fetchImpl: syn.fetch, env: {} });
+    budget['synthetic-monitor'] = syn.n * SYNTHETIC_TIMEOUT_MS;
+    const arb = recorder();
+    await JOB_IMPLS['arb-linkage-monitor']({ env: {}, repoRoot: REPO_ROOT, run: arb.run, paths: defaultPaths(REPO_ROOT) });
+    budget['arb-linkage-monitor'] = arb.sum();
+    const rev = recorder();
+    const rpc = counter(() => new Response('{"result":"0x0"}'));
+    await JOB_IMPLS['revenue-watch']({
+      env: { SOLANA_FEE_ACCOUNT: 'FeeWallet111' }, repoRoot: REPO_ROOT, run: rev.run, stateDir: tmp('bud'), readRails, fetchImpl: rpc.fetch, paths: defaultPaths(REPO_ROOT),
+    });
+    budget['revenue-watch'] = rev.sum() + rpc.n * RAILS_TIMEOUT_MS;
+    const reg = recorder();
+    const root = tmp('bud');
+    mkdirSync(join(root, 'frontend', 'node_modules', 'viem'), { recursive: true });
+    await JOB_IMPLS['registry-onchain']({ env: {}, repoRoot: root, run: reg.run, paths: defaultPaths(root) });
+    budget['registry-onchain'] = reg.sum();
+    const npm = recorder();
+    await JOB_IMPLS['npm-advisories']({ env: {}, repoRoot: REPO_ROOT, run: npm.run, stateDir: tmp('bud'), paths: defaultPaths(REPO_ROOT), npmCommand: () => ({ cmd: 'npm', args: [], shell: false }) });
+    budget['npm-advisories'] = npm.sum();
+    let gpgCalls = 0;
+    const same = (_g, _p, data) => { gpgCalls++; return data; };
+    const dir = tmp('bud');
+    writeCanary({ dir, passphrase: 'p', gpgBin: 'none', encrypt: (_g, _p, d) => d });
+    const tables = async () => new Response('[]', { status: 200, headers: { 'Content-Range': '*/0' } });
+    await runBackup({
+      env: { SUPABASE_URL: 'https://x.supabase.co', SUPABASE_SERVICE_KEY: 'k', BACKUP_PASSPHRASE: 'p' }, fetchImpl: tables, dest: dir, gpgBin: 'none', cipher: { encrypt: same, decrypt: same },
+    });
+    assert.ok(gpgCalls >= 3, `expected the canary check, the encrypt and the verify, counted ${gpgCalls}`);
+    budget['supabase-backup'] = DUMP_DEADLINE_MS + gpgCalls * GPG_TIMEOUT_MS;
+
+    const limits = Object.fromEntries([...ps1.matchAll(/Name = '([a-z-]+)';[^}]*LimitMinutes = (\d+)/g)].map((m) => [m[1], Number(m[2]) * 60_000]));
+    assert.deepEqual(Object.keys(limits).sort(), [...JOBS].sort());
+    for (const job of JOBS) {
+      assert.ok(budget[job] > 0, `${job}: measured no time budget at all`);
+      const need = budget[job] + 2 * PING_WORST_MS + 30_000;
+      assert.ok(limits[job] >= need, `${job}: the task limit is ${limits[job] / 60_000} min but the job may take ${(need / 60_000).toFixed(1)} min`);
+    }
+  });
+
+  test('register-tasks.ps1 refuses env files that git or OneDrive would copy, and a checkout in OneDrive', {
+    skip: process.platform !== 'win32' && 'register-tasks.ps1 runs only on Windows',
+  }, () => {
+    const root = tmp('ps1');
+    const at = (...p) => { const f = join(root, ...p); mkdirSync(dirname(f), { recursive: true }); return f; };
+    writeFileSync(at('repo', 'scripts', 'ops', 'run-job.mjs'), '');
+    writeFileSync(at('env', 'ops.env'), 'HC_PING_URL_SYNTHETIC_MONITOR=https://hc-ping.com/x\n');
+    writeFileSync(at('env', 'backup.env'), "BACKUP_PASSPHRASE='x'\n");
+    writeFileSync(at('env', 'leaky.env'), "SUPABASE_SERVICE_KEY='x'\n");
+    mkdirSync(at('git', '.git', 'x'), { recursive: true });
+    writeFileSync(at('git', 'ops.env'), '');
+    writeFileSync(at('OneDrive', 'ops.env'), '');
+    writeFileSync(at('OneDrive', 'repo', 'scripts', 'ops', 'run-job.mjs'), '');
+    const run = (over = {}) => {
+      const p = { RepoRoot: at('repo'), EnvFile: at('env', 'ops.env'), BackupEnvFile: at('env', 'backup.env'), ...over };
+      const args = Object.entries(p).flatMap(([k, v]) => [`-${k}`, v]);
+      const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', PS1, '-DryRun', ...args], { encoding: 'utf8' });
+      return { code: r.status, out: `${r.stdout}\n${r.stderr}` };
+    };
+    const ok = run();
+    assert.equal(ok.code, 0, ok.out);
+    assert.match(ok.out, /Would register 6 tasks/);
+    // Only the backup task is given the file with the service key.
+    const reads = Object.fromEntries(JOBS.map((j) => [j, new RegExp(`^\\s*${j} .* reads (.*)$`, 'm').exec(ok.out)?.[1].trim()]));
+    assert.deepEqual(reads, Object.fromEntries(JOBS.map((j) => [j, j === 'supabase-backup' ? 'ops.env + backup.env' : 'ops.env'])));
+    for (const [label, over, want] of [
+      ['env file in a git work tree', { EnvFile: at('git', 'ops.env') }, /the env file .* is inside the git work tree/],
+      ['env file in OneDrive', { EnvFile: at('OneDrive', 'ops.env') }, /inside OneDrive, which would sync your secrets/],
+      ['backup env file in a git work tree', { BackupEnvFile: at('git', 'ops.env') }, /the env file .* is inside the git work tree/],
+      ['backup env file in OneDrive', { BackupEnvFile: at('OneDrive', 'ops.env') }, /inside OneDrive, which would sync your secrets/],
+      ['checkout in OneDrive', { RepoRoot: at('OneDrive', 'repo') }, /is inside OneDrive, which hollows node_modules/],
+      ['the service key in the file every task reads', { EnvFile: at('env', 'leaky.env') }, /holds SUPABASE_SERVICE_KEY/],
+      ['one file for both', { BackupEnvFile: at('env', 'ops.env') }, /are the same file/],
+    ]) {
+      const r = run(over);
+      assert.notEqual(r.code, 0, `${label}: not refused\n${r.out}`);
+      assert.match(r.out.replace(/\s+/g, ' '), want, label);
+    }
+  });
+
+  test('the env examples parse cleanly: ops.env has every ping URL and no backup secret; backup.env has the backup settings', () => {
+    const read = (f) => parseEnvText(readFileSync(join(REPO_ROOT, 'scripts', 'ops', f), 'utf8'));
+    const ops = read('ops.env.example');
+    const backup = read('backup.env.example');
+    assert.deepEqual([...ops.errors, ...backup.errors], []);
+    for (const j of JOBS) assert.ok(pingEnvName(j) in ops.vars, `${pingEnvName(j)} missing from ops.env.example`);
+    for (const k of ['SUPABASE_SERVICE_KEY', 'BACKUP_PASSPHRASE']) assert.ok(!(k in ops.vars), `${k} is in the file every job reads`);
+    for (const k of ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'BACKUP_PASSPHRASE']) assert.ok(k in backup.vars, k);
   });
 
   test('childEnv strips secrets and GitHub step files and applies overrides', () => {

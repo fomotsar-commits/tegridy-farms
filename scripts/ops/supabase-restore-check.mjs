@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // Prove a backup is readable: check its .sha256, decrypt it in memory, count every table's
-// rows. Prints counts only, never row contents; writes nothing. Exit 0 = readable and whole.
+// rows. Prints counts only, never row contents. Exit 0 = readable and whole.
 //   node scripts/ops/supabase-restore-check.mjs <file.tar.gz.gpg> [--env-file <path>]
-//   node scripts/ops/supabase-restore-check.mjs --latest [dir] --prompt
-// --prompt reads the passphrase with echo off (use the OFFLINE copy) and ignores the env.
+//   node scripts/ops/supabase-restore-check.mjs --latest [dir] --prompt --env-file <path>
+// --prompt reads the passphrase with echo off (use the OFFLINE copy), ignores the env's, and
+// on success saves the passphrase canary beside a backup this tool wrote (see backup.mjs).
 
+import { basename, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { checkBackupFile, defaultBackupDir, latestBackup } from './lib/backup.mjs';
-import { loadEnvFile, takeEnvFileFlag } from './lib/env-file.mjs';
+import { CANARY_NAME, checkBackupFile, defaultBackupDir, latestBackup, NAME_RE, writeCanary } from './lib/backup.mjs';
+import { loadEnvFiles, takeEnvFileFlag } from './lib/env-file.mjs';
 
 export function parseArgs(argv) {
   const out = { file: null, latest: false, dir: null, prompt: false, help: false };
@@ -60,14 +62,28 @@ function promptHidden(question) {
   });
 }
 
+/**
+ * Check `file` and, when the passphrase was typed (--prompt) and the file is one this tool
+ * wrote, save the canary beside it. Returns { ok, lines }.
+ */
+export function checkAndRecord({ file, passphrase, typed, gpgBin, env = process.env, writeCanaryImpl = writeCanary }) {
+  const result = checkBackupFile({ file, passphrase, gpgBin, env });
+  if (!result.ok || !typed) return result;
+  if (!NAME_RE.test(basename(file))) {
+    return { ok: true, lines: [...result.lines, `No ${CANARY_NAME} saved: ${basename(file)} was not written by this tool.`] };
+  }
+  const canary = writeCanaryImpl({ dir: dirname(file), passphrase, gpgBin, env });
+  return { ok: true, lines: [...result.lines, `Saved ${canary}: every backup from now on checks that BACKUP_PASSPHRASE is this passphrase.`] };
+}
+
 async function main() {
-  const { envFile, rest } = takeEnvFileFlag(process.argv.slice(2));
+  const { envFiles, rest } = takeEnvFileFlag(process.argv.slice(2));
   const args = parseArgs(rest);
   if (args.help || (!args.file && !args.latest)) {
     console.log('usage: node scripts/ops/supabase-restore-check.mjs <file> | --latest [dir]  [--env-file <path>] [--prompt]');
     return args.help ? 0 : 2;
   }
-  if (envFile) loadEnvFile(envFile);
+  loadEnvFiles(envFiles);
   const file = args.file || latestBackup(args.dir || defaultBackupDir(process.env));
   if (!file) {
     console.error(`No supabase-backup-*.tar.gz.gpg file in ${args.dir || defaultBackupDir(process.env)}.`);
@@ -78,7 +94,7 @@ async function main() {
     console.error('No passphrase: set BACKUP_PASSPHRASE (or use --env-file), or pass --prompt.');
     return 1;
   }
-  const result = checkBackupFile({ file, passphrase });
+  const result = checkAndRecord({ file, passphrase, typed: args.prompt });
   for (const line of result.lines) console.log(line);
   return result.ok ? 0 : 1;
 }

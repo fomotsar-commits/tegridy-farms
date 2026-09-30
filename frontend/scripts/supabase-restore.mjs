@@ -32,9 +32,10 @@
  *   node scripts/supabase-restore.mjs --bundle ./backup --apply    # writes
  *
  *   SUPABASE_URL          https://<project-ref>.supabase.co
- *   SUPABASE_SERVICE_KEY  service-role key. Required: RLS would otherwise
- *                         refuse every row, since a restore has no user JWT
- *                         and every owner policy keys on one.
+ *   SUPABASE_SERVICE_KEY  service-role key: the legacy JWT or an sb_secret_ key.
+ *                         Required: RLS would otherwise refuse every row, since
+ *                         a restore has no user JWT and every owner policy
+ *                         keys on one.
  *
  *   The bundle is the decrypted contents of the weekly artifact
  *   (.github/workflows/supabase-backup.yml):
@@ -312,13 +313,38 @@ export function formatSummary(results, { apply }) {
   return lines.join("\n");
 }
 
+/**
+ * What a Supabase key is, from its shape: "secret", "publishable", "service_role",
+ * "jwt:<role>" or "unknown". A JWT's role claim is read, not verified.
+ */
+export function supabaseKeyKind(key) {
+  const k = String(key || "");
+  if (k.startsWith("sb_secret_")) return "secret";
+  if (k.startsWith("sb_publishable_")) return "publishable";
+  const parts = k.split(".");
+  if (!k.startsWith("eyJ") || parts.length !== 3) return "unknown";
+  try {
+    const role = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")).role;
+    return role === "service_role" ? "service_role" : `jwt:${role ?? "no role"}`;
+  } catch {
+    return "jwt:unreadable";
+  }
+}
+
+/** An sb_ key is not a JWT: Supabase rejects it on Authorization, so it goes on apikey only. */
+export function supabaseAuthHeaders(key) {
+  const kind = supabaseKeyKind(key);
+  if (kind === "secret" || kind === "publishable") return { apikey: key };
+  return { apikey: key, Authorization: `Bearer ${key}` };
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // I/O
 // ─────────────────────────────────────────────────────────────────────
 
 async function countRows(url, key, table) {
   const res = await fetch(`${url}/rest/v1/${table}?select=*&limit=1`, {
-    headers: { apikey: key, Authorization: `Bearer ${key}`, Prefer: "count=exact" },
+    headers: { ...supabaseAuthHeaders(key), Prefer: "count=exact" },
   });
   if (res.status === 404) return { missing: true };
   if (!res.ok) return { error: diagnoseInsertError(table, res.status, await res.text()) };
@@ -332,8 +358,7 @@ async function insertChunk(url, key, table, rows) {
   const res = await fetch(`${url}/rest/v1/${table}`, {
     method: "POST",
     headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
+      ...supabaseAuthHeaders(key),
       "Content-Type": "application/json",
       Prefer: "return=minimal",
     },

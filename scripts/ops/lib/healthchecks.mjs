@@ -3,6 +3,12 @@
 // service alerts on a fail AND when an expected ping never arrives (the dead-man switch).
 
 export const BODY_LIMIT = 10_000;
+export const PING_ATTEMPTS = 3;
+export const PING_TIMEOUT_MS = 10_000;
+const retryPause = (i) => 1000 * (i + 1);
+/** The longest one ping can take: every attempt times out, with the pauses between them. */
+export const PING_WORST_MS = PING_ATTEMPTS * PING_TIMEOUT_MS
+  + Array.from({ length: PING_ATTEMPTS - 1 }, (_, i) => retryPause(i)).reduce((a, b) => a + b, 0);
 const SECRETISH = /(KEY|SECRET|TOKEN|PASS|PING|RPC|URL|DSN|AUTH|CREDENTIAL|PRIVATE)/i;
 
 export const pingEnvName = (job) => `HC_PING_URL_${job.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
@@ -49,7 +55,7 @@ export function clampBody(text, limit = BODY_LIMIT) {
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** POST one ping with retries. Returns { ok, status?, error? }; never throws, never logs the URL. */
-export async function sendPing({ url, kind, body = '', fetchImpl = fetch, attempts = 3, timeoutMs = 10_000, sleep = pause }) {
+export async function sendPing({ url, kind, body = '', fetchImpl = fetch, attempts = PING_ATTEMPTS, timeoutMs = PING_TIMEOUT_MS, sleep = pause }) {
   let last = {};
   for (let i = 0; i < attempts; i++) {
     try {
@@ -64,7 +70,7 @@ export async function sendPing({ url, kind, body = '', fetchImpl = fetch, attemp
     } catch (e) {
       last = { ok: false, error: `${e?.name || 'Error'}: ${e?.message || e}` };
     }
-    if (i < attempts - 1) await sleep(1000 * (i + 1));
+    if (i < attempts - 1) await sleep(retryPause(i));
   }
   return last;
 }

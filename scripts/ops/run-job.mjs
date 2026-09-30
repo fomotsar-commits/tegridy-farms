@@ -2,14 +2,14 @@
 // Run one scheduled job and report it to healthchecks: /start, then success or /fail with
 // the report as the body. With no HC_PING_URL_<JOB> the job still runs and says loudly
 // that no alarm will hear it. Any scheduler can call this: Task Scheduler, cron, CI.
-//   node scripts/ops/run-job.mjs <job> [--env-file <path outside any repo>]
+//   node scripts/ops/run-job.mjs <job> [--env-file <path outside any repo>]...
 // Exit 0 ok; 1 the job failed; 2 usage; 3 the job passed but the alarm path is broken.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { loadEnvFile, takeEnvFileFlag } from './lib/env-file.mjs';
+import { loadEnvFiles, takeEnvFileFlag } from './lib/env-file.mjs';
 import { clampBody, resolvePingUrl, scrubSecrets, sendPing } from './lib/healthchecks.mjs';
 import { defaultContext, defaultStateDir, JOB_IMPLS, JOBS } from './lib/jobs.mjs';
 
@@ -58,7 +58,8 @@ export async function runJob(job, {
     warn(`WARNING: could not write ${job}.last.txt in ${dir}: ${e.message}`);
   }
 
-  let delivered = !ping.url;
+  // Only "no alarm configured" counts as told. A set but unusable URL told nobody.
+  let delivered = ping.problem === 'unset';
   if (ping.url) {
     const p = await sendPing({ url: ping.url, kind: result.ok ? 'success' : 'fail', body: clampBody(text), fetchImpl, sleep });
     delivered = p.ok;
@@ -67,21 +68,21 @@ export async function runJob(job, {
       alarmBroken = true;
     }
   }
-  // Recorded only once someone was told (or no alarm is configured), so an undelivered
-  // change is reported again on the next run.
+  // Recorded only once someone was told (or no alarm is configured at all), so an
+  // undelivered change is reported again on the next run.
   if (result.commit && delivered) await result.commit();
   if (!result.ok) return 1;
   return alarmBroken ? 3 : 0;
 }
 
 async function main() {
-  const { envFile, rest } = takeEnvFileFlag(process.argv.slice(2));
+  const { envFiles, rest } = takeEnvFileFlag(process.argv.slice(2));
   const [job, ...extra] = rest;
   if (!job || extra.length || job === '--help') {
-    console.error(`usage: node scripts/ops/run-job.mjs <job> [--env-file <path>]\njobs: ${JOBS.join(', ')}`);
+    console.error(`usage: node scripts/ops/run-job.mjs <job> [--env-file <path>]...\njobs: ${JOBS.join(', ')}`);
     return 2;
   }
-  if (envFile) loadEnvFile(envFile);
+  loadEnvFiles(envFiles);
   return runJob(job);
 }
 

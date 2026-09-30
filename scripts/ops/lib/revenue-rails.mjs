@@ -5,7 +5,7 @@
 export const ETH_RPC_DEFAULT = 'https://ethereum-rpc.publicnode.com';
 export const SOL_RPC_DEFAULT = 'https://api.mainnet-beta.solana.com';
 const SPL_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
-const TIMEOUT_MS = 20_000;
+export const REQUEST_TIMEOUT_MS = 20_000;
 
 export const EVM_CALLS = [
   // Selectors derived with `cast sig` (see the workflow): totalETHFees(), totalDistributed().
@@ -23,7 +23,7 @@ async function rpc(fetchImpl, url, method, params) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const text = await res.text();
   try {

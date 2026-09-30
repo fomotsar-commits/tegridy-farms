@@ -18,6 +18,8 @@ export const ENCRYPT_ARGS = [...COMMON, '--yes', '--symmetric', '--cipher-algo',
 export const DECRYPT_ARGS = [...COMMON, '--decrypt'];
 
 const MAX_BUFFER = 1024 * 1024 * 1024;
+// One gpg call's limit; the jobs' time budget counts on it (run-job.test.mjs).
+export const GPG_TIMEOUT_MS = 2 * 60_000;
 
 /** GPG_BIN, then `gpg` on PATH, then the usual Windows install paths. Throws if none runs. */
 export function findGpg(env = process.env) {
@@ -35,13 +37,15 @@ function checkPassphrase(passphrase) {
   if (/[\r\n]/.test(passphrase)) throw new Error('passphrase contains a line break; gpg would read only part of it');
 }
 
-function run(gpg, args, passphrase, data, childEnv) {
+function run(gpg, args, passphrase, data, childEnv, timeoutMs = GPG_TIMEOUT_MS) {
   checkPassphrase(passphrase);
   const r = spawnSync(gpg, args, {
     input: Buffer.concat([Buffer.from(`${passphrase}\n`, 'utf8'), data]),
     maxBuffer: MAX_BUFFER,
     env: childEnv,
+    timeout: timeoutMs,
   });
+  if (r.error?.code === 'ETIMEDOUT') throw new Error(`gpg did not finish within its ${timeoutMs} ms limit`);
   if (r.error) throw new Error(`gpg could not run: ${r.error.message}`);
   // Exit status is the verdict: gpg can write ciphertext and still exit 2.
   if (r.status !== 0) {
@@ -51,8 +55,8 @@ function run(gpg, args, passphrase, data, childEnv) {
   return r.stdout;
 }
 
-export function gpgEncrypt(gpg, passphrase, plaintext, childEnv) {
-  return run(gpg, ENCRYPT_ARGS, passphrase, plaintext, childEnv);
+export function gpgEncrypt(gpg, passphrase, plaintext, childEnv, timeoutMs) {
+  return run(gpg, ENCRYPT_ARGS, passphrase, plaintext, childEnv, timeoutMs);
 }
 
 /** Decrypt ciphertext held in memory (read the file first). */

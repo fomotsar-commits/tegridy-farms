@@ -11,13 +11,13 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { RESTORE_ORDER } from '../../frontend/scripts/supabase-restore.mjs';
 import {
-  backupName, buildBundle, checkBackupFile, latestBackup, NAME_RE, readBundleTables, rotate, runBackup, sha256,
+  backupName, buildBundle, CANARY_NAME, checkBackupFile, latestBackup, NAME_RE, readBundleTables, rotate, runBackup, sha256, writeCanary,
 } from './lib/backup.mjs';
-import { findGpg, gpgDecrypt, gpgEncrypt } from './lib/gpg.mjs';
-import { dumpAll, dumpTable, parseContentRange, TABLES } from './lib/supabase-dump.mjs';
+import { ENCRYPT_ARGS, findGpg, gpgDecrypt, gpgEncrypt } from './lib/gpg.mjs';
+import { dumpAll, dumpTable, parseContentRange, TABLE_KEYS, TABLES } from './lib/supabase-dump.mjs';
 import { createTar, readTar } from './lib/tar.mjs';
 import { parseArgs as backupArgs } from './supabase-backup.mjs';
-import { feedHidden, parseArgs as checkArgs } from './supabase-restore-check.mjs';
+import { checkAndRecord, feedHidden, parseArgs as checkArgs } from './supabase-restore-check.mjs';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const KEY = 'service-key-SHOULD-NEVER-BE-PRINTED-0123456789';
@@ -42,34 +42,48 @@ const bash = (script, opts) => {
 };
 
 /**
- * A fake PostgREST: Range pagination, Content-Range with an exact total, 416 past the end.
+ * A fake PostgREST: `order=` sorting, Range pagination, Content-Range with an exact total,
+ * and 416 only for a range that starts past the total (PostgREST's rule).
  * tables: { name: rows[] | { status } }. cap: the server's max rows per response.
+ * between(table, callNumber, tables): runs before each request, to change rows mid-dump.
  */
-function fakePostgrest(tables, { cap = Infinity, total = (rows) => rows.length, noTotal = false, calls = [] } = {}) {
+function fakePostgrest(tables, {
+  cap = Infinity, total = (rows) => rows.length, noTotal = false, calls = [], honourOrder = true, ignoreRange = false, between,
+} = {}) {
   const impl = async (url, init) => {
     const u = new URL(url);
     const table = u.pathname.replace('/rest/v1/', '');
     calls.push({ table, headers: init.headers, url });
-    const t = tables[table];
+    const n = calls.filter((c) => c.table === table).length;
+    between?.(table, n, tables);
+    let t = tables[table];
     if (t === undefined) return new Response('{"code":"PGRST205"}', { status: 404 });
     if (!Array.isArray(t)) {
       if (t.throw) throw new TypeError('fetch failed');
       return new Response(t.body ?? '{"message":"boom"}', { status: t.status, headers: t.headers });
     }
-    const [from, to] = init.headers.Range.split('-').map(Number);
-    const n = total(t, calls.filter((c) => c.table === table).length);
-    const tot = noTotal ? '*' : String(n);
-    if (from >= t.length && t.length > 0) {
-      return new Response('{"code":"PGRST103"}', { status: 416, headers: { 'Content-Range': `*/${tot}` } });
+    const order = u.searchParams.get('order');
+    if (honourOrder && order) {
+      const keys = order.split(',').map((s) => s.replace(/\.asc$/, ''));
+      t = [...t].sort((a, b) => { for (const k of keys) { if (a[k] < b[k]) return -1; if (a[k] > b[k]) return 1; } return 0; });
     }
+    const [from, to] = ignoreRange ? [0, 999] : init.headers.Range.split('-').map(Number);
+    const tot = noTotal ? '*' : String(total(t, n));
+    if (from > t.length) return new Response('{"code":"PGRST103"}', { status: 416, headers: { 'Content-Range': `*/${tot}` } });
     const slice = t.slice(from, Math.min(to + 1, from + cap));
     const range = slice.length ? `${from}-${from + slice.length - 1}/${tot}` : `*/${tot}`;
-    return new Response(JSON.stringify(slice), { status: slice.length < n ? 206 : 200, headers: { 'Content-Range': range } });
+    return new Response(JSON.stringify(slice), { status: slice.length < t.length ? 206 : 200, headers: { 'Content-Range': range } });
   };
   return impl;
 }
-const rows = (n, tag = 'r') => Array.from({ length: n }, (_, i) => ({ id: i, tag }));
+// Rows carrying every primary-key column any table pages by, unique per row, and sorting
+// in `id` order whichever key a table uses.
+const pad = (i) => String(i).padStart(6, '0');
+const rows = (n, tag = 'r') => Array.from({ length: n }, (_, i) => ({
+  id: i, order_hash: `0x${pad(i)}`, wallet: `0xw${pad(i)}`, token_id: '1', collection_slug: 'c', week: 1, jti: `j${pad(i)}`, tag,
+}));
 const allTables = (n = 3) => Object.fromEntries(TABLES.map((t, i) => [t, rows(n + i, t)]));
+const jwt = (claims) => `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.sig`;
 
 describe('the table set', () => {
   test('is the workflow TABLES line, in order, and the restore script set', () => {
@@ -79,6 +93,22 @@ describe('the table set', () => {
     assert.ok(m, 'no TABLES="..." line in supabase-backup.yml');
     assert.deepEqual([...TABLES], m[1].trim().split(/\s+/));
     assert.deepEqual([...TABLES].sort(), [...RESTORE_ORDER].sort());
+  });
+
+  test("each table pages by its primary key, as the migrations create it", () => {
+    const dir = join(REPO_ROOT, 'frontend', 'supabase', 'migrations');
+    const sql = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort().map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
+    assert.deepEqual(Object.keys(TABLE_KEYS).sort(), [...TABLES].sort());
+    for (const t of TABLES) {
+      const creates = [...sql.matchAll(new RegExp(`CREATE TABLE IF NOT EXISTS (?:public\\.)?${t} \\(([\\s\\S]*?)\\n\\);`, 'g'))];
+      assert.equal(creates.length, 1, `${t}: expected one CREATE TABLE, found ${creates.length}`);
+      const body = creates[0][1].split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+      const composite = /PRIMARY KEY\s*\(([^)]+)\)/.exec(body);
+      const single = /^\s*(\w+)\s+[^\n]*\bPRIMARY KEY\b/m.exec(body);
+      const pk = composite ? composite[1].split(',').map((s) => s.trim()) : single ? [single[1]] : [];
+      assert.deepEqual(TABLE_KEYS[t], pk, `${t}: the dump pages by ${TABLE_KEYS[t]} but the primary key is ${pk}`);
+    }
+    assert.doesNotMatch(sql, /ADD\s+(CONSTRAINT\s+\w+\s+)?PRIMARY KEY/i, 'a migration changes a primary key: re-check TABLE_KEYS');
   });
 });
 
@@ -91,26 +121,102 @@ describe('dumpTable reads a table whole or fails it', () => {
     assert.equal(parseContentRange('bytes 0-9/10'), null);
   });
 
-  test('pages through 2500 rows in 1000-row Range requests with the service key', async () => {
+  test('pages through 2500 rows in primary-key order, 1000 rows a request, each page starting on the last one', async () => {
     const calls = [];
     const r = await dumpTable({ baseUrl: BASE, key: KEY, table: 'votes', fetchImpl: fakePostgrest({ votes: rows(2500) }, { calls }) });
     assert.equal(r.status, 'ok');
     assert.equal(r.rows.length, 2500);
     assert.deepEqual(r.rows.map((x) => x.id), [...Array(2500).keys()]);
-    assert.deepEqual(calls.map((c) => c.headers.Range), ['0-999', '1000-1999', '2000-2999']);
+    assert.deepEqual(calls.map((c) => c.headers.Range), ['0-999', '999-1998', '1998-2997']);
     for (const c of calls) {
       assert.equal(c.headers.apikey, KEY);
       assert.equal(c.headers.Authorization, `Bearer ${KEY}`);
       assert.equal(c.headers['Range-Unit'], 'items');
       assert.equal(c.headers.Prefer, 'count=exact');
-      assert.equal(c.url, `${BASE}/rest/v1/votes?select=*`);
+      assert.equal(c.url, `${BASE}/rest/v1/votes?select=*&order=wallet.asc,week.asc`);
     }
   });
 
-  test('an exact multiple of the page size ends on the 416 past the end', async () => {
+  test('an exact multiple of the page size ends on a short page', async () => {
     const r = await dumpTable({ baseUrl: BASE, key: KEY, table: 'votes', fetchImpl: fakePostgrest({ votes: rows(2000) }) });
     assert.equal(r.status, 'ok');
-    assert.equal(r.rows.length, 2000);
+    assert.deepEqual(r.rows.map((x) => x.id), [...Array(2000).keys()]);
+  });
+
+  test('a row that moves between pages fails the table, even from a server that ignores the order', async () => {
+    // An UPDATE between page 1 and page 2 moves row 10 to the end of the heap: without a
+    // check, row 1000 is skipped, row 10 is read twice, and the total still matches.
+    const fetchImpl = fakePostgrest({ native_orders: rows(1500) }, {
+      honourOrder: false,
+      between: (t, n, tables) => { if (n === 2) { const [row] = tables.native_orders.splice(10, 1); tables.native_orders.push({ ...row, tag: 'filled' }); } },
+    });
+    const r = await dumpTable({ baseUrl: BASE, key: KEY, table: 'native_orders', fetchImpl });
+    assert.equal(r.status, 'failed');
+    assert.equal(r.rows, null);
+    assert.match(r.reason, /rows moved during the dump/);
+  });
+
+  test('a delete and an insert between pages fail the table, though the total never moves', async () => {
+    const fetchImpl = fakePostgrest({ messages: rows(1500) }, {
+      between: (t, n, tables) => { if (n === 2) { tables.messages.splice(5, 1); tables.messages.push(rows(1501)[1500]); } },
+    });
+    const r = await dumpTable({ baseUrl: BASE, key: KEY, table: 'messages', fetchImpl });
+    assert.equal(r.status, 'failed');
+    assert.match(r.reason, /rows moved during the dump/);
+  });
+
+  test('an update that keeps its key is harmless when the server honours the order', async () => {
+    const fetchImpl = fakePostgrest({ native_orders: rows(1500) }, {
+      between: (t, n, tables) => { if (n === 2) tables.native_orders[10] = { ...tables.native_orders[10], tag: 'filled' }; },
+    });
+    const r = await dumpTable({ baseUrl: BASE, key: KEY, table: 'native_orders', fetchImpl });
+    assert.equal(r.status, 'ok', r.reason);
+    assert.deepEqual(r.rows.map((x) => x.id), [...Array(1500).keys()]);
+  });
+
+  test('a repeated or missing primary key fails the table', async () => {
+    const dup = rows(3);
+    dup[2] = { ...dup[2], id: 1 };
+    const d = await dumpTable({ baseUrl: BASE, key: KEY, table: 'messages', fetchImpl: fakePostgrest({ messages: dup }) });
+    assert.equal(d.status, 'failed');
+    assert.match(d.reason, /two rows share the primary key \(id\)/);
+    const nokey = rows(2).map(({ jti, ...rest }) => rest);
+    const m = await dumpTable({ baseUrl: BASE, key: KEY, table: 'revoked_jwts', fetchImpl: fakePostgrest({ revoked_jwts: nokey }) });
+    assert.equal(m.status, 'failed');
+    assert.match(m.reason, /a row has no jti/);
+  });
+
+  test('a page that is not the range it was asked for fails (a proxy that drops Range)', async () => {
+    const r = await dumpTable({ baseUrl: BASE, key: KEY, table: 'votes', fetchImpl: fakePostgrest({ votes: rows(1500) }, { ignoreRange: true }) });
+    assert.equal(r.status, 'failed');
+    assert.match(r.reason, /asked for rows 999-1998 and got 0-999/);
+  });
+
+  test('a table that shrinks under a later page fails', async () => {
+    const fetchImpl = fakePostgrest({ votes: rows(1000) }, { between: (t, n, tables) => { if (n === 2) tables.votes.splice(0, 2); } });
+    const r = await dumpTable({ baseUrl: BASE, key: KEY, table: 'votes', fetchImpl });
+    assert.equal(r.status, 'failed');
+    assert.match(r.reason, /the table shrank during the dump/);
+  });
+
+  test('an sb_secret_ key goes on apikey only; a legacy service_role JWT on both headers', async () => {
+    for (const [key, bearer] of [['sb_secret_abc123', false], [jwt({ role: 'service_role' }), true]]) {
+      const calls = [];
+      const r = await dumpTable({ baseUrl: BASE, key, table: 'votes', fetchImpl: fakePostgrest({ votes: rows(2) }, { calls }) });
+      assert.equal(r.status, 'ok');
+      assert.equal(calls[0].headers.apikey, key);
+      assert.equal('Authorization' in calls[0].headers, bearer, key);
+    }
+  });
+
+  test('a dump that runs past its deadline fails every table it had not finished', async () => {
+    let clock = 0;
+    const base = fakePostgrest(allTables());
+    const fetchImpl = async (...a) => { clock += 60_000; return base(...a); };
+    const all = await dumpAll({ baseUrl: BASE, key: KEY, fetchImpl, deadlineMs: 150_000, now: () => clock });
+    assert.equal(all.ok, false);
+    assert.deepEqual(all.bad.map((b) => b.table), TABLES.slice(3));
+    for (const b of all.bad) assert.match(b.reason, /ran past its deadline/);
   });
 
   test('an empty table that answered is recorded as empty, not failed', async () => {
@@ -235,6 +341,29 @@ describe('encryption is the workflow format', () => {
     assert.throws(() => gpgDecrypt(gpg, PASS, enc), /gpg exited [1-9]/);
   });
 
+  test('a gpg call that overruns its limit is stopped and reported, never waited on', () => {
+    assert.throws(() => gpgEncrypt(gpg, PASS, Buffer.alloc(1024), undefined, 1), /did not finish within its 1 ms limit/);
+  });
+
+  test("a gpg.conf in gpg's home cannot change the file format", () => {
+    const home = tmp('gnupg');
+    writeFileSync(join(home, 'gpg.conf'), 'armor\n');
+    // MSYS gpg (Git for Windows) reads a C:\ home as a relative path, so try /c/... too.
+    const homes = [home, ...(process.platform === 'win32' ? [`/${home[0].toLowerCase()}${home.slice(2).replace(/\\/g, '/')}`] : [])];
+    const gpgconf = gpg === 'gpg' ? 'gpgconf' : join(dirname(gpg), `gpgconf${process.platform === 'win32' ? '.exe' : ''}`);
+    const input = Buffer.from(`${PASS}\nplain`);
+    try {
+      // Control: without --no-options, the armor line must show, or this test proves nothing.
+      const env = homes.map((h) => ({ ...process.env, GNUPGHOME: h }))
+        .find((e) => String(spawnSync(gpg, ENCRYPT_ARGS.filter((a) => a !== '--no-options'), { input, env: e }).stdout).startsWith('-----BEGIN PGP'));
+      assert.ok(env, 'control: this gpg ignored GNUPGHOME in every form tried');
+      const ours = gpgEncrypt(gpg, PASS, Buffer.from('plain'), env);
+      assert.ok(!ours.subarray(0, 15).toString('latin1').startsWith('-----BEGIN PGP'), "gpg.conf's armor line changed our output");
+    } finally {
+      for (const h of homes) spawnSync(gpgconf, ['--kill', 'gpg-agent'], { env: { ...process.env, GNUPGHOME: h } });
+    }
+  });
+
   test('a backup we write decrypts with the exact command in supabase/RESTORE.md step 1', () => {
     const restoreMd = readFileSync(join(REPO_ROOT, 'frontend', 'supabase', 'RESTORE.md'), 'utf8');
     assert.ok(restoreMd.includes('gpg --decrypt --batch --passphrase "$BACKUP_PASSPHRASE" \\'), 'RESTORE.md step 1 changed; update this pin');
@@ -334,6 +463,58 @@ describe('runBackup end to end', () => {
     assert.equal(r.ok, false);
     assert.equal(readFileSync(join(dest, backupName(now)), 'utf8'), 'existing');
   });
+
+  test('refuses an anon or publishable key, which would copy only the rows the public can see', async () => {
+    for (const key of [jwt({ role: 'anon' }), 'sb_publishable_abc123']) {
+      let called = false;
+      const r = await runBackup({ env: { ...env, SUPABASE_SERVICE_KEY: key }, fetchImpl: async () => { called = true; }, dest: tmp('anon'), gpgBin: gpg });
+      assert.equal(r.ok, false);
+      assert.match(r.lines.join('\n'), /is not a service key/);
+      assert.equal(called, false, 'the dump ran with a public key');
+      assert.ok(!r.lines.join('\n').includes(key), 'the key reached the output');
+    }
+  });
+
+  test('with no --dest, BACKUP_DIR is the folder and BACKUP_KEEP the number kept', async () => {
+    // A throwaway home, so a regression that ignores BACKUP_DIR writes nowhere real.
+    const home = tmp('home');
+    const saved = { USERPROFILE: process.env.USERPROFILE, HOME: process.env.HOME };
+    process.env.USERPROFILE = home;
+    process.env.HOME = home;
+    try {
+      const dir = join(tmp('bdir'), 'backups');
+      mkdirSync(dir);
+      const older = ['2026-01-01', '2026-02-01', '2026-03-01'].map((d) => backupName(new Date(`${d}T00:00:00Z`)));
+      for (const n of older) writeFileSync(join(dir, n), 'x');
+      const r = await runBackup({ env: { ...env, BACKUP_DIR: dir, BACKUP_KEEP: '2' }, fetchImpl: fakePostgrest(allTables()), now, gpgBin: gpg });
+      assert.equal(r.ok, true, r.lines.join('\n'));
+      assert.deepEqual(readdirSync(dir).filter((f) => NAME_RE.test(f)).sort(), [older[2], backupName(now)].sort());
+    } finally {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
+  });
+
+  test('the passphrase canary: a backup refuses an env passphrase that does not open it', async () => {
+    const dest = tmp('canary');
+    writeCanary({ dir: dest, passphrase: PASS, gpgBin: gpg });
+    const good = await runBackup({ env, fetchImpl: fakePostgrest(allTables()), dest, now, gpgBin: gpg });
+    assert.equal(good.ok, true, good.lines.join('\n'));
+    assert.match(good.lines.join('\n'), /the one you proved by hand/);
+    let called = false;
+    const bad = await runBackup({
+      env: { ...env, BACKUP_PASSPHRASE: `${PASS} ` }, fetchImpl: async () => { called = true; }, dest, now: new Date(now.getTime() + 1000), gpgBin: gpg,
+    });
+    assert.equal(bad.ok, false);
+    assert.match(bad.lines.join('\n'), /does not open .*passphrase-canary\.gpg/);
+    assert.equal(called, false, 'the dump ran before the passphrase was proven');
+    assert.ok(!bad.lines.join('\n').includes(PASS), 'the passphrase reached the output');
+  });
+
+  test('with no canary yet, the backup runs and says how to make one', async () => {
+    const r = await runBackup({ env, fetchImpl: fakePostgrest(allTables()), dest: tmp('nocanary'), now, gpgBin: gpg });
+    assert.equal(r.ok, true, r.lines.join('\n'));
+    assert.match(r.lines.join('\n'), new RegExp(`no ${CANARY_NAME.replace('.', '\\.')} in .* Run supabase-restore-check\\.mjs --latest --prompt`));
+  });
 });
 
 describe('rotation and lookup', () => {
@@ -390,6 +571,27 @@ describe('the restore check', () => {
     assert.equal(partial.ok, false);
     assert.match(partial.lines.join('\n'), /absent\s+dm_messages/);
     assert.ok(gunzipSync(gpgDecrypt(gpg, PASS, readFileSync(g))).length > 0);
+  });
+
+  test('a typed passphrase that opens a backup this tool wrote saves the canary, and nothing else does', () => {
+    const dir = tmp('record');
+    const ours = join(dir, backupName(new Date('2026-09-30T00:00:00Z')));
+    const github = join(dir, 'supabase-backup-2026-09-21.tar.gz.gpg');
+    const bundle = buildBundle(TABLES.map((t) => ({ table: t, rows: rows(1) })));
+    for (const f of [ours, github]) writeFileSync(f, gpgEncrypt(gpg, PASS, bundle));
+    const canary = join(dir, CANARY_NAME);
+
+    assert.equal(checkAndRecord({ file: ours, passphrase: PASS, typed: false, gpgBin: gpg }).ok, true);
+    assert.equal(existsSync(canary), false, 'saved from the env passphrase, which is the thing it must check');
+    assert.equal(checkAndRecord({ file: ours, passphrase: 'wrong', typed: true, gpgBin: gpg }).ok, false);
+    assert.equal(existsSync(canary), false, 'saved after a failed check');
+    const gh = checkAndRecord({ file: github, passphrase: PASS, typed: true, gpgBin: gpg });
+    assert.match(gh.lines.join('\n'), /not written by this tool/);
+    assert.equal(existsSync(canary), false, 'saved beside a GitHub-era file, whose passphrase may be the old one');
+    const saved = checkAndRecord({ file: ours, passphrase: PASS, typed: true, gpgBin: gpg });
+    assert.equal(saved.ok, true);
+    assert.match(saved.lines.join('\n'), /Saved .*passphrase-canary\.gpg/);
+    assert.ok(gpgDecrypt(gpg, PASS, readFileSync(canary)).length > 0);
   });
 
   test('the CLIs take no secret as an argument', () => {

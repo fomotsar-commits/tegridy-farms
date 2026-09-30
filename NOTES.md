@@ -15,6 +15,24 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-30 — a paged read whose row count matches the server's total read every row once
+
+**Believed:** paging a PostgREST table with `Range` and `Prefer: count=exact`, then checking
+that the rows read equal the reported total, proves every row was read.
+
+**Measured:** against a fake PostgREST that pages in heap order, as a query with no `ORDER BY`
+may, and moves one row to the end between page 1 and page 2 (what an UPDATE can do to a heap):
+1,500 rows read, total 1,500, row 1000 missing and row 10 read twice. Sorted by primary key,
+the update was harmless, but a delete before the page boundary plus an insert after it still
+read 1,500 of 1,500 with row 1000 missing and no key repeated, so a duplicate check alone does
+not catch it. Same fake; no real Postgres was run.
+
+**Do:** page in primary-key order, and start each page on the last row of the page before. If
+that row is not where it was, rows shifted: fail and re-run. Then check that no key repeats.
+`scripts/ops/lib/supabase-dump.mjs` does all three.
+
+---
+
 ## 2026-09-29 — `node --env-file` hands the program each value as written
 
 **Believed:** a `NAME=value` file loaded with `node --env-file` gives the program everything

@@ -6,11 +6,11 @@ export const CANONICAL = 'memetics.finance';
 export const ALIASES = ['www.memetics.finance', 'tegridyfarms.vercel.app'];
 export const FOREIGN = 'memetic.fun';
 export const DEFAULT_INDEXER = 'https://nginx-production-7483.up.railway.app';
-const TIMEOUT_MS = 20_000;
+export const REQUEST_TIMEOUT_MS = 20_000;
 const NFT = '0xd774557b647330C91Bf44cfEAB205095f7E6c367';
 
 async function get(fetchImpl, url) {
-  const res = await fetchImpl(url, { redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) });
+  const res = await fetchImpl(url, { redirect: 'manual', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   return res;
 }
 

@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { runBackup, withoutSecrets } from './backup.mjs';
 import { parseGithubOutput, runProcess } from './proc.mjs';
 import { readRails } from './revenue-rails.mjs';
@@ -171,32 +172,59 @@ function npmCommand() {
   return { cmd: 'npm audit --json', args: [], shell: true };
 }
 
+// A blocking advisory fails the run once, when it first appears. Later runs still list it
+// but pass, so a known red cannot hold the check down and mute the next new advisory (or
+// a job that stopped running). The gate's own rules decide what blocks.
 async function npmAdvisories(ctx) {
-  const dir = mkdtempSync(join(tmpdir(), 'ops-npm-'));
+  const gate = await import(pathToFileURL(ctx.paths.npmGate).href);
+  let allowlist;
+  try {
+    allowlist = JSON.parse(readFileSync(ctx.paths.npmAllowlist, 'utf8'));
+  } catch (e) {
+    return { ok: false, summary: 'the advisory allowlist could not be read', report: `${ctx.paths.npmAllowlist}: ${e.message}` };
+  }
   const problems = [];
   const sections = [];
-  try {
-    for (const p of NPM_PROJECTS) {
-      const npm = ctx.npmCommand ? ctx.npmCommand() : npmCommand();
-      const audit = await ctx.run(npm.cmd, npm.args, { cwd: join(ctx.repoRoot, p), env: childEnv(ctx.env), timeoutMs: 5 * MIN, shell: npm.shell });
-      // npm's exit code is not the verdict (it is non-zero for "found" and "offline" alike); the gate is.
-      if (!audit.stdout.trim()) {
-        problems.push(`${p}: npm audit produced no output at all (${describeRun(audit)}) ${tail(audit.stderr, 3)}`.trim());
-        continue;
-      }
-      const report = join(dir, `${p === '.' ? 'root' : p}-audit.json`);
-      writeFileSync(report, audit.stdout);
-      const gate = await ctx.run(node, [ctx.paths.npmGate, '--project', p, '--report', report, '--allowlist', ctx.paths.npmAllowlist], { cwd: ctx.repoRoot, env: childEnv(ctx.env), timeoutMs: 2 * MIN });
-      sections.push(`${gate.stdout.trim()}\n${gate.code !== 0 ? tail(gate.stderr, 5) : ''}`.trim());
-      if (gate.code !== 0) problems.push(`${p}: the advisory gate failed (${describeRun(gate)})`);
+  const blocking = [];
+  for (const p of NPM_PROJECTS) {
+    const npm = ctx.npmCommand ? ctx.npmCommand() : npmCommand();
+    const audit = await ctx.run(npm.cmd, npm.args, { cwd: join(ctx.repoRoot, p), env: childEnv(ctx.env), timeoutMs: 5 * MIN, shell: npm.shell });
+    // npm's exit code is not the verdict (it is non-zero for "found" and "offline" alike); the gate is.
+    if (!audit.stdout.trim()) {
+      problems.push(`${p}: npm audit produced no output at all (${describeRun(audit)}) ${tail(audit.stderr, 3)}`.trim());
+      continue;
     }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+    let result;
+    try {
+      result = gate.evaluate({ report: JSON.parse(audit.stdout), allowlist, project: p });
+    } catch (e) {
+      problems.push(`${p}: the audit cannot be trusted (${e.message})`);
+      continue;
+    }
+    sections.push(gate.renderSummary(p, result));
+    for (const a of result.blocking) blocking.push(`${p} ${a.ghsa}`);
+  }
+
+  const stateFile = join(ctx.stateDir, 'npm-advisories.blocking');
+  const known = new Set(existsSync(stateFile) ? readFileSync(stateFile, 'utf8').split(/\r?\n/).filter(Boolean) : []);
+  const fresh = blocking.filter((b) => !known.has(b));
+  const record = () => { mkdirSync(dirname(stateFile), { recursive: true }); writeFileSync(stateFile, blocking.map((b) => `${b}\n`).join('')); };
+  const report = [
+    ...problems.map((x) => `- ${x}`),
+    ...(blocking.length ? ['Blocking (high or critical, not allowlisted):', ...blocking.map((b) => `- ${b}${fresh.includes(b) ? '  NEW' : ''}`)] : []),
+    '', ...sections,
+  ].join('\n').trim();
+  if (problems.length) return { ok: false, summary: problems.join('; '), report };
+  if (fresh.length) {
+    return { ok: false, summary: `NEW blocking advisories: ${fresh.join(', ')}. Fix or triage them; later runs pass while this list does not grow`, report, commit: record };
   }
   return {
-    ok: problems.length === 0,
-    summary: problems.length ? problems.join('; ') : `no unforgiven high/critical advisories in ${NPM_PROJECTS.join(', ')}`,
-    report: [...problems.map((x) => `- ${x}`), '', ...sections].join('\n\n').trim(),
+    ok: true,
+    summary: blocking.length
+      ? `${blocking.length} known blocking advisories, reported before: fix or triage them`
+      : `no unforgiven high/critical advisories in ${NPM_PROJECTS.join(', ')}`,
+    report,
+    commit: blocking.length === known.size ? undefined : record,
   };
 }
 

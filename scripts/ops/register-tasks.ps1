@@ -6,6 +6,7 @@
 [CmdletBinding()]
 param(
   [string]$EnvFile = (Join-Path $env:USERPROFILE 'tegridy-ops-env\ops.env'),
+  [string]$BackupEnvFile = (Join-Path $env:USERPROFILE 'tegridy-ops-env\backup.env'),
   [string]$RepoRoot = '',
   [string]$NodePath = '',
   [string]$TaskFolder = '\Tegridy\',
@@ -15,15 +16,19 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-# Cadences from the GitHub workflows' crons. Nothing may run more often than every 15 minutes.
+# Cadences are the GitHub workflows'; nothing runs more often than every 15 minutes. This PC
+# is off at night, so the daily and weekly jobs run in the early afternoon, local time. Each
+# LimitMinutes exceeds its job's own timeouts plus two pings (run-job.test.mjs pins it), so
+# the runner reports a slow run before Task Scheduler kills it.
 $Jobs = @(
-  @{ Name = 'arb-linkage-monitor'; EveryMinutes = 15; AtMinute = 0; LimitMinutes = 6 },
+  @{ Name = 'arb-linkage-monitor'; EveryMinutes = 15; AtMinute = 0; LimitMinutes = 14 },
   @{ Name = 'synthetic-monitor'; EveryMinutes = 30; AtMinute = 0; LimitMinutes = 5 },
-  @{ Name = 'revenue-watch'; EveryMinutes = 60; AtMinute = 17; LimitMinutes = 6 },
-  @{ Name = 'registry-onchain'; DailyUtc = '06:41'; LimitMinutes = 15 },
-  @{ Name = 'npm-advisories'; DailyUtc = '07:37'; LimitMinutes = 15 },
-  @{ Name = 'supabase-backup'; WeeklyUtc = 'Monday 04:23'; LimitMinutes = 30 }
+  @{ Name = 'revenue-watch'; EveryMinutes = 60; AtMinute = 17; LimitMinutes = 12 },
+  @{ Name = 'registry-onchain'; DailyAt = '12:41'; LimitMinutes = 30 },
+  @{ Name = 'npm-advisories'; DailyAt = '13:37'; LimitMinutes = 20 },
+  @{ Name = 'supabase-backup'; WeeklyAt = 'Monday 12:23'; LimitMinutes = 30 }
 )
+$BackupSecrets = @('SUPABASE_SERVICE_KEY', 'BACKUP_PASSPHRASE')
 
 function Get-GitWorkTreeAbove([string]$Path) {
   $dir = [IO.Path]::GetFullPath($Path)
@@ -45,11 +50,22 @@ function Test-UnderOneDrive([string]$Path) {
   return ($full -match '\\OneDrive( - [^\\]+)?\\')
 }
 
-function ConvertFrom-UtcSlot([string]$HHmm, [string]$Day) {
-  $parts = $HHmm.Split(':')
-  $utc = [DateTime]::SpecifyKind([DateTime]::UtcNow.Date.AddHours([int]$parts[0]).AddMinutes([int]$parts[1]), [DateTimeKind]::Utc)
-  if ($Day) { while ($utc.DayOfWeek -ne [DayOfWeek]$Day) { $utc = $utc.AddDays(1) } }
-  return $utc.ToLocalTime()
+# The env file's full path, after refusing one that git or OneDrive would copy somewhere.
+function Resolve-EnvFile([string]$Path) {
+  $full = [IO.Path]::GetFullPath($Path)
+  $repoAbove = Get-GitWorkTreeAbove $full
+  if ($repoAbove) { throw "Refusing: the env file $full is inside the git work tree $repoAbove. Keep it outside every repo." }
+  if (Test-UnderOneDrive $full) { throw "Refusing: the env file $full is inside OneDrive, which would sync your secrets to the cloud." }
+  return $full
+}
+
+# The NAMEs an env file gives a value to (never the values).
+function Read-EnvNames([string]$Path) {
+  if (Test-Path -LiteralPath $Path) {
+    return @(Get-Content -LiteralPath $Path | ForEach-Object { if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\S') { $Matches[1] } })
+  }
+  if ($DryRun) { Write-Warning "The env file $Path does not exist yet. Create it before registering (docs/OPS_SCHEDULER.md)."; return @() }
+  throw "The env file $Path does not exist. Create it first (docs/OPS_SCHEDULER.md), or pass its path."
 }
 
 function New-JobSchedule($job) {
@@ -61,13 +77,11 @@ function New-JobSchedule($job) {
       Text = 'every {0} min from {1:HH:mm} local' -f $job.EveryMinutes, $start
     }
   }
-  if ($job.DailyUtc) {
-    $t = ConvertFrom-UtcSlot $job.DailyUtc ''
-    return @{ Trigger = New-ScheduledTaskTrigger -Daily -At $t; Text = 'daily at {0:HH:mm} local ({1} UTC)' -f $t, $job.DailyUtc }
+  if ($job.DailyAt) {
+    return @{ Trigger = New-ScheduledTaskTrigger -Daily -At $job.DailyAt; Text = "daily at $($job.DailyAt) local" }
   }
-  $day, $time = $job.WeeklyUtc.Split(' ')
-  $t = ConvertFrom-UtcSlot $time $day
-  return @{ Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $t.DayOfWeek -At $t; Text = 'weekly {0} {1:HH:mm} local ({2} UTC)' -f $t.DayOfWeek, $t, $job.WeeklyUtc }
+  $day, $time = $job.WeeklyAt.Split(' ')
+  return @{ Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $day -At $time; Text = "weekly $day $time local" }
 }
 
 function Get-PingName([string]$job) { 'HC_PING_URL_' + ($job.ToUpper() -replace '[^A-Z0-9]', '_') }
@@ -90,18 +104,13 @@ if (Test-UnderOneDrive $RepoRoot) { throw "$RepoRoot is inside OneDrive, which h
 $runJob = Join-Path $RepoRoot 'scripts\ops\run-job.mjs'
 if (-not (Test-Path -LiteralPath $runJob)) { throw "No scripts\ops\run-job.mjs under $RepoRoot. Pass -RepoRoot <a checkout that has it>." }
 
-$EnvFile = [IO.Path]::GetFullPath($EnvFile)
-$repoAbove = Get-GitWorkTreeAbove $EnvFile
-if ($repoAbove) { throw "Refusing: the env file $EnvFile is inside the git work tree $repoAbove. Keep it outside every repo." }
-if (Test-UnderOneDrive $EnvFile) { throw "Refusing: the env file $EnvFile is inside OneDrive, which would sync your secrets to the cloud." }
-$envNames = @()
-if (Test-Path -LiteralPath $EnvFile) {
-  $envNames = @(Get-Content -LiteralPath $EnvFile | ForEach-Object { if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\S') { $Matches[1] } })
-} elseif ($DryRun) {
-  Write-Warning "The env file $EnvFile does not exist yet. Create it before registering (docs/OPS_SCHEDULER.md)."
-} else {
-  throw "The env file $EnvFile does not exist. Create it first (docs/OPS_SCHEDULER.md), or pass -EnvFile."
-}
+$EnvFile = Resolve-EnvFile $EnvFile
+$BackupEnvFile = Resolve-EnvFile $BackupEnvFile
+if ($EnvFile -eq $BackupEnvFile) { throw 'Refusing: -EnvFile and -BackupEnvFile are the same file. The backup secrets need a file only the backup task reads.' }
+$envNames = Read-EnvNames $EnvFile
+$backupNames = Read-EnvNames $BackupEnvFile
+$leaked = @($BackupSecrets | Where-Object { $envNames -contains $_ })
+if ($leaked.Count) { throw "Refusing: $EnvFile holds $($leaked -join ', '). Every task reads that file; move them to $BackupEnvFile, which only the backup task reads." }
 
 if (-not $NodePath) {
   $cmd = Get-Command node -ErrorAction SilentlyContinue
@@ -125,8 +134,8 @@ if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'frontend\node_modules\vie
   Write-Warning "frontend\node_modules is missing in $RepoRoot, so registry-onchain will fail until you run: cd frontend; npm ci --ignore-scripts"
 }
 $missing = @($Jobs | ForEach-Object { Get-PingName $_.Name } | Where-Object { $envNames -notcontains $_ })
-foreach ($n in @('SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'BACKUP_PASSPHRASE')) { if ($envNames -notcontains $n) { $missing += $n } }
-if ($missing.Count) { Write-Warning ('The env file has no value for: ' + ($missing -join ', ') + '. Jobs still run; those without a ping URL reach no alarm.') }
+foreach ($n in @('SUPABASE_URL') + $BackupSecrets) { if ($backupNames -notcontains $n) { $missing += $n } }
+if ($missing.Count) { Write-Warning ('The env files have no value for: ' + ($missing -join ', ') + '. Jobs still run; those without a ping URL reach no alarm.') }
 
 # ---- Register ----------------------------------------------------------------------------
 $mode = if ($LogonType -eq 'S4U') { 'runs whether or not you are signed in, no window' } else { 'runs only while you are signed in' }
@@ -134,17 +143,21 @@ Write-Host ("{0} {1} tasks in {2} as {3}\{4} ({5})" -f $(if ($DryRun) { 'Would r
 foreach ($job in $Jobs) {
   $schedule = New-JobSchedule $job
   $arguments = '"{0}" {1} --env-file "{2}"' -f $runJob, $job.Name, $EnvFile
+  if ($job.Name -eq 'supabase-backup') { $arguments += ' --env-file "{0}"' -f $BackupEnvFile }
+  # Read back from the task's own argument string, so the listing cannot drift from it.
+  $reads = ([regex]::Matches($arguments, '--env-file "([^"]+)"') | ForEach-Object { Split-Path -Leaf $_.Groups[1].Value }) -join ' + '
   $action = New-ScheduledTaskAction -Execute $NodePath -Argument $arguments -WorkingDirectory $RepoRoot
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes $job.LimitMinutes) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
   $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType $LogonType -RunLevel Limited
-  Write-Host ('  {0,-20} {1,-44} limit {2} min' -f $job.Name, $schedule.Text, $job.LimitMinutes)
+  Write-Host ('  {0,-20} {1,-32} limit {2,2} min  reads {3}' -f $job.Name, $schedule.Text, $job.LimitMinutes, $reads)
   if (-not $DryRun) {
     Register-ScheduledTask -TaskPath $TaskFolder -TaskName $job.Name -Action $action -Trigger $schedule.Trigger -Settings $settings -Principal $principal -Description "tegridy ops: node scripts/ops/run-job.mjs $($job.Name)" -Force | Out-Null
   }
 }
 Write-Host ''
 Write-Host ('Each task runs: "{0}" {1}' -f $NodePath, ('"{0}" <job> --env-file "{1}"' -f $runJob, $EnvFile))
-Write-Host 'Daily and weekly times follow UTC as of today; a daylight-saving change moves them by an hour.'
+Write-Host ('The backup task alone also reads: --env-file "{0}"' -f $BackupEnvFile)
+Write-Host 'Task Scheduler stores each start time in UTC, so after a daylight-saving change the tasks run an hour earlier or later by the clock.'
 if (-not $DryRun) {
   Write-Host ''
   Write-Host 'Next: run one now and check it reached healthchecks.io:'
