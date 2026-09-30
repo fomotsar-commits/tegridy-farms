@@ -397,6 +397,14 @@ jobs:
         working-directory: .
         run: node --test scripts/lib/redact-url.test.mjs
 
+      # The host-neutral scheduled jobs (scripts/ops/): the Supabase backup and the
+      # runner that replaced this repo's GitHub crons. Bare node plus gpg, tar and
+      # bash, which ubuntu-latest has; a missing tool FAILS these tests, never skips.
+      - name: Ops runner unit tests
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: node --test scripts/ops/env-file.test.mjs scripts/ops/supabase-backup.test.mjs
+
   build:
     name: Build
     runs-on: ubuntu-latest
