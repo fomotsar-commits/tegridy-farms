@@ -187,6 +187,15 @@ describe('GitLab CI runs the workflow files', () => {
     // Only the owner's project variable turns it on: this file never sets or tests it elsewhere.
     const uses = src.split(/\r?\n/).filter((l) => !/^\s*#/.test(l) && l.includes('TEGRIDY_CI_ON_GITLAB'));
     expect(uses).toEqual([SWITCH[0]]);
+    // Keys, not substrings: a quoted or spaced top-level key, an include or a YAML escape could
+    // set the variable, or a second workflow, without the name appearing on any line.
+    const lines = src.split(/\r?\n/).filter((l) => l.trim() !== '' && !/^\s*#/.test(l));
+    expect(lines.filter((l) => /^\S/.test(l) && !/^\.?[a-z][a-z0-9-]*:( |$)/.test(l)), 'plain top-level keys only').toEqual([]);
+    expect(lines.filter((l) => /^include:/.test(l)), 'no include').toEqual([]);
+    expect(lines.filter((l) => /\\[xuU]/.test(l)), 'no YAML character-code escapes').toEqual([]);
+    const vars = lines.slice(lines.indexOf('variables:') + 1);
+    expect(vars.slice(0, vars.findIndex((l) => /^\S/.test(l))).map((l) => /^ {2}(\S+):/.exec(l)?.[1] ?? l))
+      .toEqual(['GIT_DEPTH', 'GIT_SUBMODULE_STRATEGY', 'FF_GIT_URLS_WITHOUT_TOKENS', 'ACT_CONCURRENT_JOBS']);
   });
 
   it('once switched on, has a pipeline for every merge request and trunk push, on our runner only', () => {
