@@ -4,9 +4,10 @@
 // upload request, the build and every wallet prompt, and an unreadable island refuses.
 // LaunchCreateForm.test.tsx holds the gate open to test everything else about the form.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
@@ -122,8 +123,8 @@ function createApi(over: Partial<WriteApi> = {}) {
   return api;
 }
 
-function renderForm(api: WriteApi) {
-  render(
+function formTree(api: WriteApi, signerState: CurveSignerState = ready) {
+  return (
     <MemoryRouter initialEntries={['/curve-launch']}>
       <Routes>
         <Route
@@ -134,15 +135,42 @@ function renderForm(api: WriteApi) {
               rpc={{} as WriteRpc}
               gate={openGate()}
               actions={{ create: true, buy: false, sell: false, migrate: false, poolSwap: false }}
-              signerState={ready}
+              signerState={signerState}
             />
           }
         />
         <Route path="/curve-launch/:mint" element={<MintPage />} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function renderForm(api: WriteApi) {
+  render(formTree(api));
   return api;
+}
+
+/** A second account in the same wallet app: its signMessage is the app's, not the account's. */
+const OTHER = KEY(20);
+const switched: CurveSignerState = {
+  kind: 'ready',
+  address: OTHER.toBase58(),
+  signer: { publicKey: OTHER, signTransaction: async (t) => t },
+  signMessage,
+};
+
+/** A heat read that answers only when the test says so. */
+function heldHeat() {
+  let answer: (r: Response) => void = () => {};
+  const f = vi.fn(
+    (url: RequestInfo | URL) =>
+      new Promise<Response>((resolve) => {
+        if (!String(url).startsWith('/api/aggregator?resource=heat&address=')) throw new Error(`unexpected fetch: ${String(url)}`);
+        answer = resolve;
+      }),
+  );
+  vi.stubGlobal('fetch', f);
+  return { fetch: f, warm: () => answer({ ok: true, status: 200, json: async () => WARM } as Response) };
 }
 
 async function fillAndReview() {
@@ -262,6 +290,62 @@ describe('the Solana create path reads the heat door at submit', () => {
     expect(heat.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it('a wallet switched while the door reads gets no prompt: the read was for the wallet before it', async () => {
+    const heat = heldHeat();
+    const api = createApi();
+    const view = render(formTree(api));
+    await fillAndReview();
+    expect(String(heat.fetch.mock.calls[0]![0])).toContain(`address=${CREATOR.toBase58()}`);
+    view.rerender(formTree(api, switched));
+    await act(async () => heat.warm());
+    const outcome = await screen.findByTestId('tx-outcome');
+    expect(outcome).toHaveAttribute('data-status', 'not-sent');
+    expect(outcome).toHaveTextContent('The connected wallet changed while the door was reading it');
+    expect(signMessage).not.toHaveBeenCalled();
+    expect(api.meta.uploadLaunchMetadata).not.toHaveBeenCalled();
+    expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
+  });
+
+  it('under StrictMode (mounted, unmounted, mounted again) a warm maker still proceeds', async () => {
+    stubHeat({ status: 200, body: WARM });
+    const api = createApi();
+    render(<StrictMode>{formTree(api)}</StrictMode>);
+    await fillAndReview();
+    expect(await screen.findByTestId('tx-review')).toBeInTheDocument();
+    expect(signMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('a form taken off screen while the door reads asks the wallet for nothing', async () => {
+    const heat = heldHeat();
+    const api = createApi();
+    const view = render(formTree(api));
+    await fillAndReview();
+    view.unmount();
+    await act(async () => heat.warm());
+    await act(async () => {});
+    expect(signMessage).not.toHaveBeenCalled();
+    expect(api.meta.uploadLaunchMetadata).not.toHaveBeenCalled();
+    expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
+  });
+
+  it('a wallet switched during the upload: the launch is not built for the wallet before it', async () => {
+    stubHeat({ status: 200, body: WARM });
+    const api = createApi();
+    const upload = vi.mocked(api.meta.uploadLaunchMetadata);
+    const real = upload.getMockImplementation()!;
+    let finish: () => void = () => {};
+    upload.mockImplementation((i) => new Promise((resolve) => (finish = () => resolve(real(i)))));
+    const view = render(formTree(api));
+    await fillAndReview();
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    view.rerender(formTree(api, switched));
+    await act(async () => finish());
+    const outcome = await screen.findByTestId('tx-outcome');
+    expect(outcome).toHaveAttribute('data-status', 'not-sent');
+    expect(outcome).toHaveTextContent('The connected wallet changed before the launch transaction was built');
+    expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
+  });
+
   it('dialled off, a cold maker proceeds, and the reading is still logged', async () => {
     vi.stubEnv('VITE_HEAT_GATE', 'off');
     stubHeat({ status: 200, body: COLD });
@@ -296,14 +380,18 @@ describe('a Solana create is not announced as a birth', () => {
 
   it('no file on the Solana launch path imports the birth notifier', () => {
     const here = dirname(fileURLToPath(import.meta.url));
-    const files = [
-      join(here, 'LaunchCreateForm.tsx'),
-      join(here, 'useTxFlow.ts'),
-      join(here, 'pendingLaunch.ts'),
-      join(here, 'writeApi.ts'),
-      join(here, '..', '..', '..', 'pages', 'CurveLaunchPage.tsx'),
-      join(here, '..', '..', '..', 'pages', 'CurveLaunchDetailPage.tsx'),
-    ];
+    const src = join(here, '..', '..', '..');
+    // Whole folders, so a file added to the write layer is read too. Tests are left out:
+    // this one names the notifier.
+    const roots = [here, join(src, 'lib', 'launcher', 'solana'), join(src, 'lib', 'launchMetadata')];
+    const files = roots.flatMap((r) =>
+      (readdirSync(r, { recursive: true }) as string[])
+        .filter((f) => /\.(ts|tsx|js|mjs)$/.test(f) && !/\.test\.|\.fixture\./.test(f))
+        .map((f) => join(r, f)),
+    );
+    files.push(join(src, 'pages', 'CurveLaunchPage.tsx'), join(src, 'pages', 'CurveLaunchDetailPage.tsx'));
+    expect(files.some((f) => /[\\/]write[\\/]submit\.ts$/.test(f)), 'the walk reached the write layer').toBe(true);
+    expect(files.length).toBeGreaterThan(50);
     for (const f of files) expect(readFileSync(f, 'utf-8'), f).not.toMatch(/notifyBirth|birthNotify|resource=births/);
   });
 });

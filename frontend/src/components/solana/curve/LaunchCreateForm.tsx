@@ -174,6 +174,20 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
   }, [imageUrl]);
 
   const signer = signerState.kind === 'ready' ? signerState.signer : null;
+  // A Review runs on after the door read. The wallet's signMessage follows the wallet app,
+  // not one account, so each step after the read checks that the form is still on screen
+  // and that the wallet the door read is still the one connected.
+  const alive = useRef(true);
+  const liveSigner = useRef(signer);
+  useEffect(() => {
+    liveSigner.current = signer;
+  }, [signer]);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const nameC = meta.checkName(name);
   const symbolC = meta.checkSymbol(symbol);
@@ -333,11 +347,18 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
     setJsonOtherMint(false);
     setPrepNote("Reading this wallet's held time from the island before anything is signed…");
 
+    const walletMoved = () => !alive.current || !liveSigner.current?.publicKey.equals(creator);
     void flow.prepare(async (): Promise<Prepared> => {
-      // THE DOOR, ENFORCED: read live at every Review, whatever the door above showed.
-      // The maker is the wallet that signs the create; the island pools linked wallets.
+      // THE DOOR, AT SUBMIT: read live at every Review, whatever the door above showed. The
+      // venue's check only (the program accepts any signer). The maker is the wallet that
+      // signs the create; the island pools linked wallets.
       const refusal = await doorRefusal(creator.toBase58());
       if (refusal) return { ok: false, outcome: refusal };
+      if (walletMoved()) {
+        const message =
+          'The connected wallet changed while the door was reading it, so nothing was uploaded or signed. Review again with the wallet you mean to launch from.';
+        return { ok: false, outcome: { status: 'not-sent', stage: 'gate', message } };
+      }
       // The wallet opens during this step for the upload request, and the screen must say why.
       setPrepNote(
         mode === 'upload' && !reuse
@@ -428,6 +449,11 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
       }
       if (my !== attempt.current) {
         return { ok: false, outcome: { status: 'not-sent', stage: 'build', message: 'A newer attempt replaced this one.' } };
+      }
+      if (walletMoved()) {
+        const message =
+          'The connected wallet changed before the launch transaction was built, so it was not built. Review again with the wallet you mean to launch from.';
+        return { ok: false, outcome: { status: 'not-sent', stage: 'build', message } };
       }
       setPublicCopy(copy);
       return api.prepareCreateLaunch(rpc, gate, {

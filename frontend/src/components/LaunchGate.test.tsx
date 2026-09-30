@@ -91,6 +91,24 @@ describe('the door on the Solana rail', () => {
     expect(h.fetchHeat).not.toHaveBeenCalled();
   });
 
+  it('with no Solana wallet, the card never reads the Ethereum wallet as if it could launch here', async () => {
+    h.evmAddress = EVM;
+    h.fetchHeat.mockResolvedValue(reading(EVM, 195.54, 'Builder'));
+    render(solanaDoor(null));
+    await act(async () => {});
+    expect(h.fetchHeat).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Can launch a token here/)).not.toBeInTheDocument();
+    const field = screen.getByRole('textbox', { name: /Wallet address to read Heat for/ });
+    expect(field).toHaveValue('');
+    // A pasted address still reads.
+    h.fetchHeat.mockResolvedValue(reading(SOL_A, 95, 'Resident'));
+    fireEvent.change(field, { target: { value: SOL_A } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Read Heat' }));
+    });
+    expect(h.fetchHeat).toHaveBeenCalledWith(SOL_A, expect.anything());
+  });
+
   it('WARM opens the lane for the connected Solana wallet, with no sign-message', async () => {
     h.fetchHeat.mockResolvedValue(reading(SOL_A, 95, 'Resident'));
     render(solanaDoor(SOL_A));

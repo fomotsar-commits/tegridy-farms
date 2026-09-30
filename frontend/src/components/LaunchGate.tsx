@@ -158,9 +158,10 @@ function Door({ rail, address, signProof, onOpen, connect, children }: DoorProps
 
         {/* The card reads a pasted address, as VenueHero mounts it. It reads; it does not
             open: the lane opens for the connected wallet, and the launch call re-reads
-            that wallet at submit. */}
+            that wallet at submit. On Solana an empty draft keeps it from filling in the
+            Ethereum wallet, which this door never reads. */}
         <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          <HeatCard variant="embedded" showEligibility />
+          <HeatCard variant="embedded" showEligibility initialDraft={rail === 'solana' ? '' : null} />
           <p className="text-[12px] text-white/45 mt-3">
             {rail === 'solana'
               ? 'A reading is not a key. The lane opens for the connected wallet, and the launch reads it again before anything is signed.'

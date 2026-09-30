@@ -15,6 +15,24 @@ describe("Towelie's Solana answers", () => {
     }
   });
 
+  it('a question about a curve or a memecoin on Solana reaches the Solana curve, not only the Ethereum one', () => {
+    for (const q of [
+      'is there a bonding curve on solana',
+      'solana bonding curve',
+      'curve on solana',
+      'memecoin on solana',
+      'graduate on solana',
+    ]) {
+      expect(answerQuestion(q), q).toContain('/curve-launch');
+    }
+  });
+
+  it("a Solana question about a swap, a price or an order keeps its own answer", () => {
+    expect(answerQuestion('solana swap')).toMatch(/^Jupiter is the router behind \/solana/);
+    expect(answerQuestion('limit order solana')).toBe(answerQuestion('limit order'));
+    expect(answerQuestion('sol price impact')).toBe(answerQuestion('price impact'));
+  });
+
   it('a several-word keyword can match', () => {
     expect(answerQuestion('swap solana')).toMatch(/^Jupiter is the router behind \/solana/);
     expect(answerQuestion('meteora bonding curve')).toMatch(/^We don't run on Meteora any more\./);
