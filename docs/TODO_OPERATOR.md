@@ -29,6 +29,47 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
+
+### ⬜ O-0929-1: four `security_txt!` fields, changed in the same commit as the upgrade
+
+**What is wrong.** cp-swap has been live on mainnet since 2026-09-29
+(`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`). Explorers show its on-chain security.txt,
+and every link in it is dead: `policy` and `source_code` point at the suspended GitHub repo (and
+at `main`, not `mvp-launch`), and `contacts` points at `memetic.fun/trust`, which is now another
+project's 404. Only a program upgrade can change them. Do not upgrade for this alone.
+
+**Do, in the commit that builds the next cp-swap upgrade:** in
+`solana/tegridy-amm/programs/cp-swap/src/lib.rs`, set the macro to exactly these values, and drop
+the stale "add a dedicated security disclosure email here" comment inside it:
+
+```rust
+solana_security_txt::security_txt! {
+    name: "tegridy-cp-amm",
+    project_url: "https://memetics.finance",
+    contacts: "link:https://memetics.finance/.well-known/security.txt",
+    policy: "https://memetics.finance/source/solana/tegridy-amm/SECURITY.md",
+    source_code: "https://memetics.finance/source/solana/tegridy-amm",
+    preferred_languages: "en"
+}
+```
+
+- Every URL is on our own domain. `/.well-known/` is a static file (Vercel cannot redirect
+  that path). `/source/...` is a redirect in `frontend/vercel.json` to whichever git host holds
+  the code, so a future host move is a `vercel.json` edit, never another program upgrade. Never
+  put a git-host URL in a program binary again.
+- The edit changes cp-swap's diff against upstream Raydium, so move the diff-guard's
+  `EXPECTED_DELTA_SHA256` in the same commit. Start from the value on the deployed branch
+  (`ship/solana-launch-on`: `5c737ac7…`), not trunk's.
+
+**You should see**, before the upgrade:
+`curl -sI https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` answers `307`, and
+its `location` opens that file on the git host. Check the file itself opens: GitLab sends a
+path it does not have to the repo root with a `302`, not a `404`. After the upgrade, the
+explorer's security tab for the program shows the four new values.
+
+---
+
 ## 🟡 2026-09-17 — redeploy StakingMonitorView (display only, no funds, not urgent)
 
 ### ⬜ O-0917-1 — one deploy of a stateless view, then a one-line address swap
