@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-09-30
 
-- On /eth-curve, the create form opens only through the Who may plant door, as on /launch, and Create launch reads the wallet's held time again before anything is signed or sent. The launches list and trading stay open to anyone.
+- On /eth-curve, the create form opens only through the Who may plant door, and Create launch reads the wallet's held time again before anything is signed or sent. The launches list and trading stay open to anyone.
 
 ### 2026-09-29
 

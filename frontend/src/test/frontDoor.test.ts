@@ -169,4 +169,36 @@ describe('the changelog is one line per change', () => {
     expect(body.split('\n').filter((l) => l.startsWith('- ')).length).toBeGreaterThan(10);
     expect(text).not.toContain(EM_DASH);
   });
+
+  // A line may say a page's create form opens only through the door when that page mounts
+  // the form inside <LaunchGate>, not beside it: /launch keeps its wizard usable and reads
+  // the wallet again only at submit.
+  const PAGE_OF: Record<string, string> = {
+    '/eth-curve': 'EthCurvePage.tsx',
+    '/launch': 'LaunchPage.tsx',
+    '/curve-launch': 'CurveLaunchPage.tsx',
+  };
+  const routesClaimedGated = (changelog: string): string[] =>
+    changelog
+      .split('\n')
+      .filter((l) => l.startsWith('- '))
+      .flatMap((l) => l.slice(2).split(/(?<=\.)\s+/))
+      .filter((s) => /opens only through the Who may plant door/.test(s))
+      .flatMap((s) => s.match(/\/[a-z0-9-]+/g) ?? []);
+  const wrapsChildren = (src: string) => /<LaunchGate\b[^>]*[^/]>/.test(src);
+
+  it('finds every route in a gated-form claim, and tells a wrapping door from a bare one', () => {
+    expect(
+      routesClaimedGated('- On /a-b, the create form opens only through the Who may plant door, as on /c. Trade at /d.'),
+    ).toEqual(['/a-b', '/c']);
+    expect(wrapsChildren('<LaunchGate rail="ethereum">\n<Form />\n</LaunchGate>')).toBe(true);
+    expect(wrapsChildren('<LaunchGate rail="ethereum" />')).toBe(false);
+  });
+
+  it('says a create form opens only through the door only of pages that put it there', () => {
+    const routes = routesClaimedGated(read('CHANGELOG.md'));
+    expect(routes.filter((r) => !PAGE_OF[r]), 'a claimed route with no page here: add it to PAGE_OF').toEqual([]);
+    const ungated = routes.filter((r) => !wrapsChildren(read('frontend', 'src', 'pages', PAGE_OF[r])));
+    expect(ungated, 'the changelog says these pages gate their create form, and they do not').toEqual([]);
+  });
 });
