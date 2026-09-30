@@ -15,6 +15,41 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-30 — a GitHub schedule that stops running tells someone
+
+**Believed:** if GitHub's scheduled workflows stopped, a failed run, an issue or an email would
+say so.
+
+**Measured:** reported by the lead on 2026-09-30 (not re-read here: this work made no GitHub
+calls). After the account's suspension (2026-09-24) and reinstatement (2026-09-29), no scheduled
+workflow had run for more than five days, and none had resumed when this was written. Nothing
+told anyone. A schedule that does not fire produces no run, so there is nothing to fail, and
+every alarm those jobs had (issues, run emails) lived on GitHub too. The newest of the backups
+downloaded on 2026-09-29 is from 2026-09-21.
+
+**Do:** watch a schedule from outside its host, by silence rather than by failure. The last step
+of `synthetic-monitor.yml` pings healthchecks.io every 30 minutes; the check alarms when the
+pings stop (`docs/OPS_SCHEDULER.md`, section 2). Keep a copy of anything the host stores, too:
+`scripts/ops/pull-github-backups.mjs` copies the weekly backup off GitHub.
+
+---
+
+## 2026-09-30 — a fake tool put first on PATH is the one a Git Bash child runs
+
+**Believed:** a test that spawns Git Bash with a fake `curl` folder at the front of PATH runs
+the fake.
+
+**Measured:** `C:\Program Files\Git\bin\bash.exe` is a launcher that puts `/mingw64/bin` and
+`/usr/bin` ahead of the PATH it was given, so `type -a curl` listed the real curl first. A test
+meant to catch a ping sent real requests to hc-ping.com (a made-up check id, so nothing was
+pinged) and took 8 seconds of retries.
+
+**Do:** set PATH inside the shell (`bash -c 'PATH="$(cd "$FAKE_DIR" && pwd):$PATH"; . "$1"'`),
+assert the fake actually ran, and point test URLs at a host that cannot resolve, such as
+`.invalid` (RFC 2606), so a bypassed fake sends nothing.
+
+---
+
 ## 2026-09-30 — a paged read whose row count matches the server's total read every row once
 
 **Believed:** paging a PostgREST table with `Range` and `Prefer: count=exact`, then checking

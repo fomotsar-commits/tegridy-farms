@@ -51,7 +51,7 @@ lapses, and how the operator would notice. Sources: env usage across `frontend/a
 | Breaks on lapse/pause | Native listings vanish (reads degrade to `degraded:true` empty lists), order create/cancel/fill 5xx, DMs/profiles/push subs down, proxy writes 503 (revocation check fails closed) |
 | Detection | **Weak — gap.** The synthetic monitor accepts `degraded:true` responses as healthy (probes grep for `orders`/`trades`, which the degraded shape contains). Vercel logs only |
 | Backup | `.github/workflows/supabase-backup.yml` — weekly encrypted artifact, 90-day retention. Signed Seaport orders are bearer instruments; the backup is what lets makers see/cancel orders if the DB is lost |
-| Backup since 2026-09-29 | The GitHub artifacts are unreachable while the account is suspended. The backup can now run from `scripts/ops/supabase-backup.mjs` (same format) into a folder the owner controls; it runs weekly once the owner registers the tasks: [OPS_SCHEDULER.md](OPS_SCHEDULER.md) |
+| Second copy, since 2026-09-30 | Each week a task on the owner's PC copies GitHub's newest backups to OneDrive, checks each file, and fails loudly if the weekly backup stopped (`scripts/ops/pull-github-backups.mjs`). It runs once the owner registers it. If GitHub is gone, `scripts/ops/supabase-backup.mjs` takes the same backup by hand: [OPS_SCHEDULER.md](OPS_SCHEDULER.md) |
 
 ### 5. Upstash Redis (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`)
 | | |
@@ -88,8 +88,8 @@ lapses, and how the operator would notice. Sources: env usage across `frontend/a
 | Free tier | Repo is **public** → standard-runner minutes are free/unmetered. If it ever goes private: the synthetic monitor alone ≈ 1.5k min/mo of the 2k free |
 | Today | $0 |
 | Breaks | Monitors + backups stop — a meta-failure: the detection layer itself dies. Also: GitHub auto-disables `schedule:` workflows after **60 days without repo activity** |
-| Detection | None automated for the cron-disable case; check the Actions tab during quiet months |
-| Since 2026-09-29 | The scheduled jobs stopped here with the suspension. `scripts/ops/run-job.mjs` can run them on any scheduler, with healthchecks.io as the alarm and dead-man switch; nothing runs until the owner registers the tasks: [OPS_SCHEDULER.md](OPS_SCHEDULER.md) |
+| Detection | A dead-man switch, once this work merges and the owner sets the `HC_PING_URL_GITHUB_CRONS` secret: the last step of `synthetic-monitor.yml` pings healthchecks.io every 30 minutes, and the `github-crons` check emails the owner when the pings stop. Before it, the schedules stopped for 5+ days in 2026-09 and nothing noticed |
+| Failover | If GitHub is gone, `scripts/ops/run-job.mjs` runs the six scheduled jobs on another scheduler (the owner's PC first), reporting to healthchecks.io: [OPS_SCHEDULER.md](OPS_SCHEDULER.md) |
 
 ### 9. VAPID keypair (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `VITE_VAPID_PUBLIC_KEY`)
 | | |
@@ -115,13 +115,13 @@ lapses, and how the operator would notice. Sources: env usage across `frontend/a
 | Squatter risk | The domain is hardcoded in the CORS allowlists of `etherscan.js`, `alchemy.js`, `opensea.js`, `orderbook.js`, `supabase-proxy.js` **and** is the default `ALLOWED_ORIGIN` fallback of `api/v1` (and the other proxies). If registration lapses and a squatter registers it, their origin is **pre-authorized** against our API proxies — free quota burn, and `supabase-proxy.js` grants it *credentialed* CORS (cookie-bearing requests) — plus brand phishing against existing users. Either renew it, or if dropping it intentionally, strip it from all six allowlists first |
 | Detection | **None — gap.** It is down today and nothing fired (the synthetic monitor only probes the vercel.app alias) |
 
-### 12. healthchecks.io (`HC_PING_URL_<JOB>`, since 2026-09-29)
+### 12. healthchecks.io (`HC_PING_URL_GITHUB_CRONS`, `HC_PING_URL_<JOB>`, since 2026-09-29)
 | | |
 |---|---|
-| Used by | `scripts/ops/run-job.mjs`: one check per scheduled job ([OPS_SCHEDULER.md](OPS_SCHEDULER.md)) |
-| Free tier | 20 checks; six are used |
+| Used by | Day to day: `github-crons` (pinged by `synthetic-monitor.yml`) and `backup-pull` (the owner's PC). In a failover, one check per job `scripts/ops/run-job.mjs` runs ([OPS_SCHEDULER.md](OPS_SCHEDULER.md)) |
+| Free tier | 20 checks; two used day to day, eight with the failover checks made in advance |
 | Today | $0 |
-| Breaks on lapse | No alarm reaches the owner. The jobs still run and print their reports locally |
+| Breaks on lapse | No alarm reaches the owner, and a stop in GitHub's schedules goes unnoticed again. The jobs still run |
 | Detection | None from inside; the owner stops getting any email. Log in once a month |
 
 ### 13. Optional / currently unset
@@ -150,4 +150,4 @@ equivalent NFT-fee flow.
 1. Synthetic monitor treats Supabase `degraded:true` as healthy — probe should fail (or warn) on the degraded shape.
 2. No probe for nakamigos.gallery (already down, never fired) — add a probe or decide to drop the domain and strip the CORS allowlists.
 3. No probe for OpenSea/Etherscan key health — both fail silently to empty UI sections.
-4. Scheduled workflows self-disable after 60 idle days — calendar reminder or keep-alive commit. Moot for the ops jobs once they run off GitHub (the owner registers them): healthchecks.io raises a missed run ([OPS_SCHEDULER.md](OPS_SCHEDULER.md)).
+4. Scheduled workflows self-disable after 60 idle days — calendar reminder or keep-alive commit. Now caught either way: once `HC_PING_URL_GITHUB_CRONS` is set, the `github-crons` check emails the owner when the schedules stop ([OPS_SCHEDULER.md](OPS_SCHEDULER.md)).
