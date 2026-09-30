@@ -12,6 +12,11 @@ page keeps the newest thirty days.
 - On /curve-launch, the door says the island reads every linked wallet, where it used to say a Solana-only wallet cannot be measured.
 - The venue counts 12 bungalows, as the island does, and /nb1 is the island's next open lot, linked to its harbor.
 - The BAYLA room links to the island's ledger.
+- No room's farm page lists a pump.fun creator-fee share as a way to fund its pool.
+- The Memetics Curve pitches no longer say a launch takes one signature.
+- The /farm Earn header no longer calls lock length held time.
+- The birth record calls a Token-2022 mint a Token-2022 mint, instead of saying it is not a mint.
+- The Garden lane on /launch no longer says a certified launch runs under the island's covenant instead of the venue's split.
 
 ### 2026-09-25
 
