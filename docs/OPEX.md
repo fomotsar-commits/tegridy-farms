@@ -51,7 +51,7 @@ lapses, and how the operator would notice. Sources: env usage across `frontend/a
 | Breaks on lapse/pause | Native listings vanish (reads degrade to `degraded:true` empty lists), order create/cancel/fill 5xx, DMs/profiles/push subs down, proxy writes 503 (revocation check fails closed) |
 | Detection | **Weak — gap.** The synthetic monitor accepts `degraded:true` responses as healthy (probes grep for `orders`/`trades`, which the degraded shape contains). Vercel logs only |
 | Backup | `.github/workflows/supabase-backup.yml` — weekly encrypted artifact, 90-day retention. Signed Seaport orders are bearer instruments; the backup is what lets makers see/cancel orders if the DB is lost |
-| Backup since 2026-09-29 | The GitHub artifacts are unreachable while the account is suspended. The backup now runs from `scripts/ops/supabase-backup.mjs` (same format) into a folder the owner controls: [OPS_SCHEDULER.md](OPS_SCHEDULER.md) |
+| Backup since 2026-09-29 | The GitHub artifacts are unreachable while the account is suspended. The backup can now run from `scripts/ops/supabase-backup.mjs` (same format) into a folder the owner controls; it runs weekly once the owner registers the tasks: [OPS_SCHEDULER.md](OPS_SCHEDULER.md) |
 
 ### 5. Upstash Redis (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`)
 | | |
@@ -89,7 +89,7 @@ lapses, and how the operator would notice. Sources: env usage across `frontend/a
 | Today | $0 |
 | Breaks | Monitors + backups stop — a meta-failure: the detection layer itself dies. Also: GitHub auto-disables `schedule:` workflows after **60 days without repo activity** |
 | Detection | None automated for the cron-disable case; check the Actions tab during quiet months |
-| Since 2026-09-29 | The scheduled jobs no longer run here. `scripts/ops/run-job.mjs` runs them on any scheduler, with healthchecks.io as the alarm and dead-man switch: [OPS_SCHEDULER.md](OPS_SCHEDULER.md) |
+| Since 2026-09-29 | The scheduled jobs stopped here with the suspension. `scripts/ops/run-job.mjs` can run them on any scheduler, with healthchecks.io as the alarm and dead-man switch; nothing runs until the owner registers the tasks: [OPS_SCHEDULER.md](OPS_SCHEDULER.md) |
 
 ### 9. VAPID keypair (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `VITE_VAPID_PUBLIC_KEY`)
 | | |
@@ -150,4 +150,4 @@ equivalent NFT-fee flow.
 1. Synthetic monitor treats Supabase `degraded:true` as healthy — probe should fail (or warn) on the degraded shape.
 2. No probe for nakamigos.gallery (already down, never fired) — add a probe or decide to drop the domain and strip the CORS allowlists.
 3. No probe for OpenSea/Etherscan key health — both fail silently to empty UI sections.
-4. Scheduled workflows self-disable after 60 idle days — calendar reminder or keep-alive commit. Moot for the ops jobs since 2026-09-29: they run off GitHub, and healthchecks.io raises a missed run ([OPS_SCHEDULER.md](OPS_SCHEDULER.md)).
+4. Scheduled workflows self-disable after 60 idle days — calendar reminder or keep-alive commit. Moot for the ops jobs once they run off GitHub (the owner registers them): healthchecks.io raises a missed run ([OPS_SCHEDULER.md](OPS_SCHEDULER.md)).

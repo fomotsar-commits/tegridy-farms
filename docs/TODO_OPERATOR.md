@@ -33,29 +33,38 @@ stop and say so — a surprise is information.
 
 GitHub ran the weekly Supabase backup and five monitors. All of them stopped with the suspension on
 2026-09-24, and **no backup can be reached today** (the oldest GitHub copy expires around
-2026-10-28). They now run from `scripts/ops/run-job.mjs` on any scheduler, and report to
-healthchecks.io. The full guide is [OPS_SCHEDULER.md](OPS_SCHEDULER.md).
+2026-10-28). They can now run from `scripts/ops/run-job.mjs` on any scheduler, reporting to
+healthchecks.io, but **nothing runs on a schedule until you do O-0929-3**. The full guide is
+[OPS_SCHEDULER.md](OPS_SCHEDULER.md). Until this work merges, run these commands from the worktree
+`C:\Users\jimbo\dev\wt\ops-off-github-crons`.
 
 ### ⬜ O-0929-1: take one backup by hand, today
 
 Find the offline `BACKUP_PASSPHRASE` first. If it is lost, say so: every GitHub backup is
-unreadable without it. Then follow OPS_SCHEDULER.md section 4:
+unreadable without it. Put `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` and `BACKUP_PASSPHRASE` in
+`C:\Users\jimbo\tegridy-ops-env\backup.env` (start from `scripts\ops\backup.env.example`; the key
+is on Supabase's Settings > API Keys page, the `service_role` or `sb_secret_` one). Then follow
+OPS_SCHEDULER.md section 4:
 
 ```
-node scripts\ops\supabase-backup.mjs --env-file C:\Users\jimbo\tegridy-ops-env\ops.env
-node scripts\ops\supabase-restore-check.mjs --latest --prompt
+node scripts\ops\supabase-backup.mjs --env-file C:\Users\jimbo\tegridy-ops-env\backup.env
+node scripts\ops\supabase-restore-check.mjs --latest --prompt --env-file C:\Users\jimbo\tegridy-ops-env\backup.env
 ```
 
 **You should see** ten tables with row counts and `decrypted back and matched before it was kept`,
-then `Readable: all 10 tables present.` after you paste the offline passphrase. If the second
-command cannot decrypt, the env file and your offline copy disagree: stop and say so.
+then `Readable: all 10 tables present.` and `Saved ...passphrase-canary.gpg` after you paste the
+offline passphrase. If the second command cannot decrypt, the env file and your offline copy
+disagree: stop and say so.
 
 ### ⬜ O-0929-2: set up healthchecks.io (about 15 minutes, free)
 
 Sign up with email, a password and two-factor, never with GitHub. Create the six checks listed in
-OPS_SCHEDULER.md section 2, and put each ping URL in the env file.
+OPS_SCHEDULER.md section 2, and put each ping URL in `C:\Users\jimbo\tegridy-ops-env\ops.env`
+(start from `scripts\ops\ops.env.example`). The backup secrets stay in `backup.env`.
 
 ### ⬜ O-0929-3: delete the old faucet task, then register the monitors on this PC
+
+Make the tasks' own checkout first (OPS_SCHEDULER.md section 5, step 2), then from it:
 
 ```
 Unregister-ScheduledTask -TaskName 'SolanaDevnetFaucet' -Confirm:$false
@@ -63,18 +72,22 @@ powershell -ExecutionPolicy Bypass -File scripts\ops\register-tasks.ps1 -DryRun
 powershell -ExecutionPolicy Bypass -File scripts\ops\register-tasks.ps1
 ```
 
-Run the last line from an elevated PowerShell. **You should see** six tasks in `\Tegridy\`, and a
-ping in healthchecks.io after `Start-ScheduledTask -TaskPath '\Tegridy\' -TaskName 'synthetic-monitor'`.
+Run the last line from an elevated PowerShell. **You should see** six tasks in `\Tegridy\`, only
+`supabase-backup` reading `backup.env`, and a ping in healthchecks.io after
+`Start-ScheduledTask -TaskPath '\Tegridy\' -TaskName 'synthetic-monitor'`.
 
 ### ⬜ O-0929-4: within two weeks, move the monitors to an always-on machine
 
-This PC stops watching whenever it sleeps (healthchecks.io will tell you each time). See
-OPS_SCHEDULER.md section 7. When GitHub returns, turn Actions off there before anything is pushed
-(section 8), so the old schedules never run beside the new ones.
+This PC stops watching whenever it is off or asleep (healthchecks.io will tell you each time). See
+OPS_SCHEDULER.md section 7. When GitHub returns, turn Actions off there before anything is pushed,
+then delete its three repo secrets (section 8), so the old schedules never run beside the new ones.
 
-**Found while testing (2026-09-29):** `npm-advisories` fails today on two new high advisories in
-`frontend` (`undici`: GHSA-rfgv-xxqx-mfg5 and GHSA-w293-vg96-wgc3, fix available). An agent can
-bump the dependency, or triage them into `.github/npm-advisory-allowlist.json` with a reason.
+**Found while testing (2026-09-30):** `npm-advisories` fails today. Its first scheduled run will
+report these, and later runs list them but pass, so a new advisory still alerts. This is the set
+seen on 2026-09-30; the next run may add more. `frontend`: `undici` GHSA-rfgv-xxqx-mfg5 and
+GHSA-w293-vg96-wgc3, and `brace-expansion` GHSA-6j4f-fj2g-mc7p and GHSA-qhr7-859c-m2p7.
+`indexer`: the same two `brace-expansion` advisories. All have a fix available. An agent can bump
+the dependencies, or triage them into `.github/npm-advisory-allowlist.json` with a reason.
 
 ---
 
