@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # The secret scan on GitLab CI: the pinned gitleaks binary over only the commits this
 # pipeline adds (never full history: a revoked historical key would go red forever).
-# Config and ignore file come from the commit the change builds on, so a change cannot
-# loosen the scanner that judges it. To change .gitleaks.toml, merge that change first.
+# A change cannot loosen it with a file or a comment: config and ignore file come from the
+# commit it builds on, and gitleaks:allow counts for nothing. It can still edit this script,
+# as on GitHub; review catches that. To change .gitleaks.toml, merge that change first.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -41,9 +42,13 @@ if ! git show "$from:.gitleaks.toml" >"$work/gitleaks.toml" 2>/dev/null; then
   echo "gitleaks-range: $from has no .gitleaks.toml; using gitleaks' default rules"
 fi
 git show "$from:.gitleaksignore" >"$work/ignore/.gitleaksignore" 2>/dev/null || rm -f "$work/ignore/.gitleaksignore"
+# gitleaks also loads .gitleaksignore from the folder it scans, which here would be the
+# change's own. So it scans a clone with no working tree (history is the same objects).
+git clone -q --no-checkout --shared . "$work/repo"
+[ ! -e "$work/repo/.gitleaksignore" ] || die "the scan folder holds a .gitleaksignore"
 
 echo "gitleaks-range: gitleaks $have over $commits commit(s) in $range, config from ${from:0:12}"
-gitleaks git --no-banner --redact --verbose \
+gitleaks git --no-banner --redact --verbose --ignore-gitleaks-allow \
   --config "$work/gitleaks.toml" \
   --gitleaks-ignore-path "$work/ignore" \
-  --log-opts="$range" .
+  --log-opts="$range" "$work/repo"

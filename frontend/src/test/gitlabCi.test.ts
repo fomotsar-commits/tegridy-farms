@@ -1,7 +1,8 @@
 // GitLab CI runs the GitHub workflow files under act; it never copies a gate out of them.
 // Pinned here: every push or pull_request workflow is run by exactly one GitLab job, or is
-// listed below with the reason it is not; no job can hand the Docker socket to workflow
-// code; and scripts/ci/local-gates.sh runs only commands CI runs. docs/CI_ON_GITLAB.md.
+// listed below with the reason it is not; each job runs only its one command; no job can
+// hand the Docker socket or a leftover of one run to workflow code; the secret scan reads
+// nothing the change controls; and scripts/ci/local-gates.sh runs only commands CI runs.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -130,16 +131,36 @@ describe('GitLab CI runs the workflow files', () => {
     expect([...Object.keys(EXCLUDED), ...Object.keys(REPLACED)].filter((f) => !comments.includes(f))).toEqual([]);
   });
 
-  it('runs each workflow job in every pipeline, and lets only the listed ones fail', () => {
+  it('runs every job in every pipeline, and lets only the listed workflows fail', () => {
     const problems: string[] = [];
-    for (const j of jobs().filter((x) => actTargets(x).length > 0)) {
+    for (const j of jobs()) {
       for (const k of ['rules', 'when', 'only', 'except']) {
-        if (j.keys.has(k)) problems.push(`${j.name} sets \`${k}\`, so some pipelines would not run its workflow`);
+        if (j.keys.has(k)) problems.push(`${j.name} sets \`${k}\`, so some pipelines would not run it`);
       }
       const needs = j.keys.get('needs');
-      if (needs && needs.join(' ') !== '[]') problems.push(`${j.name} waits on another job; a workflow runs on its own, as on GitHub`);
-      const mayFail = actTargets(j).every((f) => MAY_FAIL[f]);
+      if (actTargets(j).length && needs && needs.join(' ') !== '[]') problems.push(`${j.name} waits on another job; a workflow runs on its own, as on GitHub`);
+      const mayFail = actTargets(j).length > 0 && actTargets(j).every((f) => MAY_FAIL[f]);
       if (j.keys.has('allow_failure') && !mayFail) problems.push(`${j.name} may fail without blocking, and is not in MAY_FAIL`);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  // GitLab runs before_script and script in one shell, so an `exit 0` there ends the job green.
+  it('gives each job exactly its one command, and nothing that runs before or after it', () => {
+    const own: Record<string, string> = {
+      'pipeline-exists': 'bash scripts/ci/act-job.sh --self-test',
+      gitleaks: 'bash scripts/ci/gitleaks-range.sh',
+    };
+    const problems: string[] = [];
+    for (const j of jobs()) {
+      const want = actTargets(j).length ? `bash scripts/ci/act-job.sh ${actTargets(j)[0]}` : own[j.name];
+      if (!want) problems.push(`${j.name} is a job this test does not know`);
+      else if (JSON.stringify(j.keys.get('script')) !== JSON.stringify([`- ${want}`])) {
+        problems.push(`${j.name} runs ${JSON.stringify(j.keys.get('script'))}, not just \`${want}\``);
+      }
+    }
+    for (const b of gitlabJobs()) {
+      for (const k of ['before_script', 'after_script', 'hooks']) if (b.keys.has(k)) problems.push(`${b.name} sets \`${k}\``);
     }
     expect(problems).toEqual([]);
   });
@@ -151,9 +172,13 @@ describe('GitLab CI runs the workflow files', () => {
     const blocks = gitlabJobs();
     expect(blocks.find((b) => b.name === 'default')?.keys.get('tags')).toEqual(['[tegridy-runner]']);
     expect(jobs().filter((j) => j.keys.has('tags')).map((j) => j.name)).toEqual([]);
-    const rules = (blocks.find((b) => b.name === 'workflow')?.keys.get('rules') ?? []).join('\n');
-    expect(rules).toContain('$CI_PIPELINE_SOURCE == "merge_request_event"');
-    expect(rules).toContain('$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "mvp-launch"');
+    // Exactly these two conditions, whole: a clause appended to either one could skip it.
+    const rules = blocks.find((b) => b.name === 'workflow')?.keys.get('rules') ?? [];
+    expect(rules.filter((l) => l.startsWith('- '))).toEqual([
+      '- if: $CI_PIPELINE_SOURCE == "merge_request_event"',
+      '- if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "mvp-launch"',
+    ]);
+    expect(rules.filter((l) => !l.startsWith('- ') && !/^(auto_cancel:|on_new_commit: [a-z_]+)$/.test(l))).toEqual([]);
   });
 });
 
@@ -209,6 +234,38 @@ describe('no job can hand the Docker socket to workflow code', () => {
     expect(bad).toEqual([]);
   });
 
+  it('gives act no host access, no secrets, and no variables but the repository name', () => {
+    const src = code(read('scripts', 'ci', 'act-job.sh').split(/\r?\n/)).join('\n');
+    expect(src.match(/--container-options|--bind\b|-self-hosted|--secret(?![-\w])|(^|\s)-s\s+"?[A-Za-z_]+=/gm) ?? []).toEqual([]);
+    expect([...src.matchAll(/-P\s+"([^"]*)"/g)].map((m) => m[1])).toEqual(['ubuntu-latest=$img']);
+    expect([...src.matchAll(/--env\s+"([A-Za-z_]+)=/g)].map((m) => m[1]).sort()).toEqual(['GITHUB_REPOSITORY', 'GITHUB_REPOSITORY_OWNER']);
+    expect([...src.matchAll(/--(env|secret|var|input)-file\s+(\S+)/g)].map((m) => m[2])).toEqual(Array(4).fill('"$run/empty"'));
+  });
+
+  it('lets the verdict alone decide a workflow job', () => {
+    const src = read('scripts', 'ci', 'act-job.sh').replace(/\r\n/g, '\n');
+    expect(src).toMatch(/^set -euo pipefail$/m);
+    expect(src).toMatch(
+      /\n {2}if verdict "\$run\/ids" "\$run\/act\.jsonl" "\$rc" "\$run\/needs"; then\n {4}echo "act-job: GREEN"\n {2}else\n {4}echo [^\n]*\n {4}return 1\n {2}fi\n\}\n\nmain "\$@"\n$/,
+    );
+  });
+
+  it('lets nothing one pipeline leaves reach the next', () => {
+    const src = code(read('scripts', 'ci', 'act-job.sh').split(/\r?\n/)).join('\n');
+    // One job at a time, act's shared tool cache volume dropped, and a merge request's
+    // actions/cache writes kept off the store trunk pushes read (cache_store, self-tested).
+    expect(src).toMatch(/^ {2}\[ "\$\{ACT_EXCLUSIVE_RUNNER:-\}" = 1 \] \|\|\n {4}die /m);
+    expect(src).toMatch(/^ {2}docker volume rm -f act-toolcache >\/dev\/null$/m);
+    expect(src).toMatch(/^ {2}cache=\$\(cache_store "\$EVENT" "\$state" "\$run"\)$/m);
+    expect(src.match(/--cache-server-path\s+\S+/g)).toEqual(['--cache-server-path "$cache"']);
+    // The job token stays out of the .git that act copies into every container.
+    const yml = code(read('.gitlab-ci.yml').split(/\r?\n/)).join('\n');
+    expect(yml.match(/FF_GIT_URLS_WITHOUT_TOKENS.*/g)).toEqual(['FF_GIT_URLS_WITHOUT_TOKENS: "true"']);
+    expect(yml).toMatch(/^variables:\n(?: {2}.*\n)*? {2}FF_GIT_URLS_WITHOUT_TOKENS: "true"$/m);
+    expect(src).toContain('grep -rqF --exclude-dir=objects -f - "$(git rev-parse --absolute-git-dir)" <<<"$CI_JOB_TOKEN" || found=$?');
+    expect(src).toMatch(/^ {4}\[ "\$found" -eq 1 \] \|\| die /m);
+  });
+
   it('pins act, gitleaks, gitlab-runner and the act image by hash', () => {
     const pins = read('scripts', 'ci', 'runner', 'pins.env');
     for (const tool of ['ACT_LINUX_X86_64', 'GITLEAKS_LINUX_X64', 'GITLAB_RUNNER_LINUX_AMD64']) {
@@ -227,6 +284,22 @@ describe('no job can hand the Docker socket to workflow code', () => {
     expect(setup).toContain('User=$CI_USER');
     expect(setup).toMatch(/\[automount\]\nenabled=false/);
     expect(setup).toMatch(/\[interop\]\nenabled=false/);
+  });
+});
+
+describe('the secret scan reads nothing the change controls', () => {
+  it('scans a clone with no working tree, with gitleaks:allow off and the base commit\'s config', () => {
+    const src = code(read('scripts', 'ci', 'gitleaks-range.sh').split(/\r?\n/)).join('\n').replace(/\\\n\s*/g, ' ');
+    // gitleaks loads .gitleaksignore from the folder it scans; a clone with no checkout has none.
+    expect(src).toMatch(/^git clone -q --no-checkout --shared \. "\$work\/repo"$/m);
+    const scan = src.split('\n').filter((l) => /^gitleaks\s/.test(l));
+    expect(scan).toHaveLength(1);
+    expect(scan[0]).toMatch(/ --ignore-gitleaks-allow /);
+    expect(scan[0]).toMatch(/ --config "\$work\/gitleaks\.toml" /);
+    expect(scan[0]).toMatch(/ --gitleaks-ignore-path "\$work\/ignore" /);
+    expect(scan[0]).toMatch(/ "\$work\/repo"$/);
+    expect(src).toContain('git show "$from:.gitleaks.toml" >"$work/gitleaks.toml"');
+    expect(src).toContain('git show "$from:.gitleaksignore" >"$work/ignore/.gitleaksignore"');
   });
 });
 
@@ -273,6 +346,7 @@ describe('local-gates.sh runs only what CI runs', () => {
       .map(norm);
     expect(named.length).toBeGreaterThanOrEqual(8);
     const commands = new Set(gates().map((g) => g.command));
-    expect(named.filter((c) => !commands.has(c))).toEqual([]);
+    const missing = named.filter((c) => !commands.has(c));
+    expect(missing, 'add a `gate <area> "<label>" <dir> <command>` line for each to scripts/ci/local-gates.sh').toEqual([]);
   });
 });

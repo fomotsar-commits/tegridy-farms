@@ -25,6 +25,9 @@ variables:
   # Full history: the scope jobs, the push path filter and gitleaks diff against older commits.
   GIT_DEPTH: "0"
   GIT_SUBMODULE_STRATEGY: none
+  # The runner writes no job token into .git, which act copies into every job container.
+  # act-job.sh refuses to run if the token is there anyway.
+  FF_GIT_URLS_WITHOUT_TOKENS: "true"
   # act runs one workflow job at a time. Raise only after reading the doc (ports and memory).
   ACT_CONCURRENT_JOBS: "1"
 

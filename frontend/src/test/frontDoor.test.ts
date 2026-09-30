@@ -51,16 +51,30 @@ describe('CLAUDE.md', () => {
 
   it('gives a build recipe scripts/ci/local-gates.sh runs, so it works with no CI host', () => {
     const fence = /```\n([\s\S]*?)```/.exec(read('CLAUDE.md'));
-    const recipe = fence![1]
-      .split('\n')
-      .map((l) => l.replace(/\s+#.*$/, '').replace(/\s+/g, ' ').trim())
-      .filter((l) => l && !l.startsWith('cd '));
+    // Walk the recipe as a shell would: `cd` moves the folder and `a && b` is two commands.
+    // A command chained after a `cd` is shorthand (CI splits `forge test` into slices), so a
+    // gate in that folder may add flags to it. Every other command must match word for word.
+    let dir = '.';
+    const recipe: { dir: string; cmd: string; shorthand: boolean }[] = [];
+    for (const line of fence![1].split('\n')) {
+      const parts = line.replace(/\s+#.*$/, '').replace(/\s+/g, ' ').trim().split(' && ').filter(Boolean);
+      for (const p of parts) {
+        const cd = /^cd (\S+)$/.exec(p);
+        if (cd) dir = posix.normalize(posix.join(dir, cd[1]));
+        else recipe.push({ dir, cmd: p, shorthand: parts.length > 1 });
+      }
+    }
     const gates = read('scripts', 'ci', 'local-gates.sh')
       .split('\n')
-      .flatMap((l) => /^\s*gate \w+ "[^"]*" \S+ (.+)$/.exec(l)?.[1] ?? [])
-      .map((c) => c.replace(/\s+/g, ' ').trim());
+      .flatMap((l) => {
+        const m = /^\s*gate \w+ "[^"]*" (\S+) (.+)$/.exec(l);
+        return m ? [{ dir: posix.normalize(m[1]), cmd: m[2].replace(/\s+/g, ' ').trim() }] : [];
+      });
     expect(gates.length, 'local-gates.sh lists no gate').toBeGreaterThan(0);
-    expect(recipe.filter((c) => !gates.includes(c))).toEqual([]);
+    expect(recipe.filter((r) => r.dir === 'contracts').length, 'the recipe walk lost the contracts line').toBeGreaterThan(0);
+    const covered = (r: (typeof recipe)[number]) =>
+      gates.some((g) => g.dir === r.dir && (g.cmd === r.cmd || (r.shorthand && g.cmd.startsWith(`${r.cmd} `))));
+    expect(recipe.filter((r) => !covered(r)).map((r) => `${r.dir}: ${r.cmd}`)).toEqual([]);
   });
 
   it('says how to read NOTES.md: headings first', () => {

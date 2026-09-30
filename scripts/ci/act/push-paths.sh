@@ -19,11 +19,11 @@ paths=$(yq '(.on.push.paths // [])[]' "$wf" 2>/dev/null | tr -d '\r') || say tru
 files=$(git -c core.quotepath=off diff --name-only --no-renames "$BEFORE" "$AFTER" 2>/dev/null) || say true
 [ -n "$files" ] || say true
 
-# A pattern that is not a plain glob (quoted by an old yq, or a `!` negation that
-# diff-scope.mjs does not model) could only ever match nothing, so it answers true.
+# diff-scope.mjs models only * and ** (it reads ? { } , as plain text, where GitHub does
+# not). Any other pattern, a `!` negation or one an old yq quoted, answers true.
 mapfile -t patterns <<<"$paths"
 for p in "${patterns[@]}"; do
-  [[ $p =~ ^[A-Za-z0-9_./*?{},-]+$ ]] || say true
+  [[ $p =~ ^[A-Za-z0-9_./*-]+$ ]] || say true
 done
 verdict=$(printf '%s\n' "$files" | node .github/scripts/diff-scope.mjs "${patterns[@]}") || say true
 [ "$verdict" = false ] && say false

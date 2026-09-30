@@ -29,6 +29,33 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟡 2026-09-29: CI on GitLab needs a runner, and a decision from you first
+
+GitLab CI runs the same workflow files GitHub did, through act, but only on a runner we own.
+Until one exists, `bash scripts/ci/local-gates.sh <root|frontend|contracts|solana|all>` runs
+the gates on this PC with no git host. The full guide is [CI_ON_GITLAB.md](CI_ON_GITLAB.md).
+
+### ⬜ O-0929-CI1: decide where the runner lives
+
+Either WSL on this PC (free and ready today, but it breaks the audits' rule "never a shell
+executor on the PC that holds the keys"), or a VPS (no keys on it, about 10 to 70 euros a
+month). CI_ON_GITLAB.md, "First, a decision", has both. If you pick WSL, the same pull
+request changes GIT_HOSTING.md section 9 to allow it, with the reasons.
+
+### ⬜ O-0929-CI2: set up the runner, then the first pipelines
+
+After the GitLab project exists (GIT_HOSTING.md 2A), follow CI_ON_GITLAB.md "Steps", 1 to 5.
+Step 1 includes turning off fork pipelines, which only the API can do. Then work through the
+first-run checklist in order.
+
+**You should see** the runner online in GitLab, then a docs-only merge request whose
+`pipeline-exists` and `gitleaks` jobs are green.
+
+**A mismatch means:** stop and say so. Turn on "Pipelines must succeed" only after a pipeline
+has passed (checklist step 7). Before that, nothing could merge.
+
+---
+
 ## 🟡 2026-09-17 — redeploy StakingMonitorView (display only, no funds, not urgent)
 
 ### ⬜ O-0917-1 — one deploy of a stateless view, then a one-line address swap

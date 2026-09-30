@@ -15,12 +15,24 @@ case $AREA in
     ;;
 esac
 ROOT=$(git rev-parse --show-toplevel) || exit 2
-case $ROOT in
-  *OneDrive*)
-    echo "refusing: $ROOT is inside OneDrive, where placeholder files break the scanners (CLAUDE.md law 14)" >&2
-    exit 2
-    ;;
-esac
+# A synced folder: under a OneDrive root Windows names, or a folder named OneDrive or
+# "OneDrive - <org>". A path that only contains the word (agent scratch folders) is fine.
+in_onedrive() {
+  local p=$1 r
+  command -v cygpath >/dev/null 2>&1 && p=$(cygpath -u "$p")
+  for r in "${OneDrive:-}" "${OneDriveConsumer:-}" "${OneDriveCommercial:-}"; do
+    [ -n "$r" ] || continue
+    command -v cygpath >/dev/null 2>&1 && r=$(cygpath -u "$r")
+    r=${r%/}
+    case ${p,,}/ in "${r,,}"/*) return 0 ;; esac
+  done
+  case $p/ in */OneDrive/* | */OneDrive\ -\ */*) return 0 ;; esac
+  return 1
+}
+if in_onedrive "$ROOT"; then
+  echo "refusing: $ROOT is inside OneDrive, where placeholder files break the scanners (CLAUDE.md law 14)" >&2
+  exit 2
+fi
 export CI=true
 RESULTS=()
 

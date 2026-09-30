@@ -62,6 +62,8 @@ fi
 windows_drives() { awk '$3 == "drvfs" || $4 ~ /aname=drvfs/ || $2 ~ /^\/mnt\/[a-z]$/' /proc/mounts; }
 
 # ---------------------------------------------------------------- phase 2
+# These must match scripts/ci/runner/pins.env on trunk, or every job refuses to run.
+say "phase 2: act $ACT_VERSION, gitleaks $GITLEAKS_VERSION, gitlab-runner $GITLAB_RUNNER_VERSION (from $HERE/pins.env)"
 if $is_wsl; then
   say "checking the isolation is live"
   if [ -n "$(windows_drives)" ]; then

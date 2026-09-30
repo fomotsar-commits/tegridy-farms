@@ -44,6 +44,15 @@ event_json() {
   fi
 }
 
+# The actions/cache store act may write: <event> <state dir> <run dir>. act matches entries
+# by key alone, with no branch scope, so only trunk pushes write the kept store. Anything
+# else works on a throwaway copy that is deleted with the run.
+cache_store() {
+  mkdir -p "$2/cache-trunk"
+  if [ "$1" = push ]; then echo "$2/cache-trunk"; return; fi
+  cp -a "$2/cache-trunk" "$3/cache" && echo "$3/cache"
+}
+
 # Job ids from `act -l`: its rows start with a stage number; the header and warnings do not.
 list_job_ids() { awk '$1 ~ /^[0-9]+$/ && NF >= 2 { print $2 }' | sort -u; }
 
@@ -193,6 +202,13 @@ self_test() {
   if [ "$got" = 'build scope ' ]; then pass=$((pass + 1)); else
     failed=$((failed + 1)); echo "self-test FAILED: list_job_ids gave '$got'"
   fi
+  mkdir -p "$t/state/cache-trunk" "$t/run"
+  echo trunk >"$t/state/cache-trunk/entry"
+  got=$(cache_store pull_request "$t/state" "$t/run") && echo planted >"$got/entry"
+  if [ "$got" = "$t/run/cache" ] && [ "$(cat "$t/state/cache-trunk/entry")" = trunk ] &&
+    [ "$(cache_store push "$t/state" "$t/run")" = "$t/state/cache-trunk" ]; then pass=$((pass + 1)); else
+    failed=$((failed + 1)); echo "self-test FAILED: a merge request's cache writes reached the trunk store ($got)"
+  fi
   EVENT=pull_request EV_REPO='grp/repo' EV_IID=7 EV_TGT=$TRUNK EV_SRC='fix/a"b' \
     EV_BASE=$ZERO_SHA EV_HEAD=1111111111111111111111111111111111111111
   got=$(event_json)
@@ -231,7 +247,20 @@ main() {
   EV_HEAD=${CI_COMMIT_SHA:-}
   is_sha "$EV_HEAD" || die "CI_COMMIT_SHA is not a commit sha: '$EV_HEAD'"
   [ "$(git rev-parse HEAD)" = "$EV_HEAD" ] || die "the checkout is not CI_COMMIT_SHA"
-  [ -z "$(git status --porcelain --untracked-files=no)" ] || die "the checkout has modified tracked files"
+  # Submodules are left out: jobs that do not check them out share a build folder with
+  # jobs that do, so a submodule can sit at another commit there. act never builds one.
+  [ -z "$(git status --porcelain --untracked-files=no --ignore-submodules=all)" ] ||
+    die "the checkout has modified tracked files"
+  # act copies .git into every job container, so the job token must not be written there
+  # (FF_GIT_URLS_WITHOUT_TOKENS in .gitlab-ci.yml keeps it out). grep: 1 = not found.
+  if [ -n "${CI_JOB_TOKEN:-}" ]; then
+    local found=0
+    grep -rqF --exclude-dir=objects -f - "$(git rev-parse --absolute-git-dir)" <<<"$CI_JOB_TOKEN" || found=$?
+    [ "$found" -eq 1 ] || die "the job token is under .git (or .git could not be read), and act copies .git into every job container"
+  fi
+  # One job at a time, so nothing one pipeline leaves can reach the next (see below).
+  [ "${ACT_EXCLUSIVE_RUNNER:-}" = 1 ] ||
+    die "ACT_EXCLUSIVE_RUNNER is not 1: this runner may run two jobs at once (docs/CI_ON_GITLAB.md)"
 
   EV_REPO=${CI_PROJECT_PATH:-}
   [[ $EV_REPO == */* ]] || die "CI_PROJECT_PATH is not group/project: '$EV_REPO'"
@@ -266,20 +295,23 @@ main() {
   run=$(mktemp -d "${TMPDIR:-/tmp}/act-job.XXXXXX")
   # shellcheck disable=SC2064
   trap "rm -rf '$run'" EXIT
-  mkdir -p "$state/actions" "$state/cache" "$run/home" "$run/xdg" "$run/artifacts"
+  mkdir -p "$state/actions" "$run/home" "$run/xdg" "$run/artifacts"
   : >"$run/empty"
 
-  # With one job at a time (ACT_EXCLUSIVE_RUNNER, set by the runner setup), every act
-  # container still present was left by a cancelled job.
-  if [ "${ACT_EXCLUSIVE_RUNNER:-}" = 1 ]; then
-    local stale
-    stale=$(docker ps -aq --filter 'name=^act-') || stale=""
-    if [ -n "$stale" ]; then
-      echo "act-job: removing act containers left by a cancelled job"
-      # shellcheck disable=SC2086
-      docker rm -f $stale >/dev/null
-    fi
+  # With one job at a time, every act container still present was left by a cancelled job.
+  # act mounts one named volume at /opt/hostedtoolcache in every job container and never
+  # removes it, so any job could plant a tool there for later runs: drop it, and each run
+  # starts again from the image.
+  local stale
+  stale=$(docker ps -aq --filter 'name=^act-') || stale=""
+  if [ -n "$stale" ]; then
+    echo "act-job: removing act containers left by a cancelled job"
+    # shellcheck disable=SC2086
+    docker rm -f $stale >/dev/null
   fi
+  docker volume rm -f act-toolcache >/dev/null
+  local cache
+  cache=$(cache_store "$EVENT" "$state" "$run")
 
   local tag img
   tag=$(cat "$HERE/act/Dockerfile" "$HERE/act/gh" | sha256sum | cut -c1-16)
@@ -324,7 +356,7 @@ main() {
     --container-architecture linux/amd64
     --artifact-server-path "$run/artifacts"
     --artifact-server-port "$((34567 + slot))"
-    --cache-server-path "$state/cache"
+    --cache-server-path "$cache"
     --action-cache-path "$state/actions"
     --concurrent-jobs "$jobs"
     --defaultbranch "$TRUNK"
