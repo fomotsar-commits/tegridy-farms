@@ -175,6 +175,38 @@ describe('the complete board', () => {
   });
 });
 
+// H10: a size ranking goes by the venue's name for it. The island's own board, which
+// ranks by heat, is offered under the heading in the island's words, before any rank.
+describe('the board is named by what it counts', () => {
+  const ISLAND_FLAMES =
+    "See the flames of the island. Every person's wallets read together, ranked by heat.";
+
+  it('is headed Volume board, and the complete notice says the same', () => {
+    const { container } = renderComplete();
+    expect(screen.getByRole('heading', { level: 2, name: 'Volume board' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: "Volume board, scored from the resident pools' trade feeds" }),
+    ).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/island\s+cup/i);
+  });
+
+  it.each([
+    ['with rows', completeBoard],
+    ['with no rows', buildCupBoard([ok(ethPool, []), ok(solPool, [])])],
+  ])('offers the island board in its own sentence under the heading, %s', (_, board) => {
+    render(<CupBoard board={board} status="complete" account={null} />);
+    const link = screen.getByRole('link', { name: ISLAND_FLAMES });
+    expect(link.textContent).toBe(ISLAND_FLAMES);
+    expect(link.getAttribute('href')).toBe('https://memetics.wtf/flames');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+    const heading = screen.getByRole('heading', { level: 2, name: 'Volume board' });
+    expect(heading.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const table = screen.queryByRole('table');
+    if (table) expect(link.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
 describe('the partial board', () => {
   it('still draws one table, and names the pool that did not answer', () => {
     render(

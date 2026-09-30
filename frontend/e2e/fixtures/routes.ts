@@ -517,7 +517,7 @@ export const ROUTES: readonly RouteSpec[] = [
     tabOf: 'EarnPage · competitions',
     gate: null,
     why:
-      'Two halves with two different answers. The Island Cup reads api.geckoterminal.com live and keyless ' +
+      'Two halves with two different answers. The volume board reads api.geckoterminal.com live and keyless ' +
       'and nothing stubs it, so it renders either the ranked board or its coverage notice depending on what ' +
       'the feed answers at run time; both states carry the same landmarks (one h1, a captioned table with ' +
       'scoped headers, a labelled select and input, named buttons) and both are pinned deterministically by ' +
@@ -526,7 +526,7 @@ export const ROUTES: readonly RouteSpec[] = [
       'standings table does not. The season picker and the scoring rules render from lib/competitions and ' +
       'are fully audited either way. ' +
       BOTH_BRANCHES_MEASURED +
-      'Here the ready DOM is a 77-row Cup board of ~9.3k chars and the degraded one has no table at all ' +
+      'Here the ready DOM is a 77-row volume board of ~9.3k chars and the degraded one has no table at all ' +
       '(~3.4k). This route also happens to be the one that proves the concern was worth measuring rather ' +
       'than assuming: a live unstubbed read of its 13 pools rate-limits part-way through on a real run ' +
       '(5 answered, 8 refused), so a THIRD, partial DOM is reachable in CI — 227 rows on the pass that ' +

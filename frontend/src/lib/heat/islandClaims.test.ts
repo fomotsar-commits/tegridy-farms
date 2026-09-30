@@ -337,6 +337,15 @@ describe('no link to memetics.wtf/island', () => {
   });
 });
 
+// The island ranks by heat. The venue's board ranks by size, so it goes by the venue's
+// name for it ("Volume board"), never "Island Cup" (owner, 2026-09-30, H10).
+describe("no size ranking under the island's name", () => {
+  it('says "Island Cup" nowhere a reader is shown', () => {
+    const offenders = [...SHIPPED].filter(([, text]) => /island\s+cup/i.test(text)).map(([f]) => relative(ROOT, f));
+    expect(offenders, `"Island Cup" is shown from:\n${offenders.join('\n')}`).toEqual([]);
+  });
+});
+
 // The deepest room sets the heat and every other room amplifies it, so no user-facing
 // sentence adds heat up across rooms or tokens, or says the number comes from them, and
 // `summed` is refused anywhere. "adds to your heat" is the island's own sentence.
