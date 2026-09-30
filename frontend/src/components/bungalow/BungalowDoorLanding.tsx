@@ -46,12 +46,13 @@ const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
  */
 export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
   const hasToken = Boolean(bungalow.address);
+  // The island's own lot label; it numbers its lots after its bungalows.
+  const lot = `Lot ${BUNGALOW_COUNT + 1}, for the next community.`;
   usePageTitle(
     hasToken ? `${bungalow.symbol} on Jungle Bay Island` : 'Jungle Bay Island',
     hasToken
       ? `${bungalow.name} has a bungalow on Jungle Bay Island — ${bungalow.tagline} Contract, trade route and held-time heat, on ${CHAIN_LABEL[bungalow.chain]}.`
-      // The island's own lot label; it numbers its lots after its bungalows.
-      : `Lot ${BUNGALOW_COUNT + 1}, for the next community.`,
+      : lot,
   );
   const explorer = bungalowExplorerUrl(bungalow);
   const trade = bungalowTradeRoute(bungalow, isSolanaSwapLive());
@@ -75,12 +76,12 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
           <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-3">
             {hasToken ? `${bungalow.symbol}.` : 'Unmarked.'}{' '}
             <br />
-            <span className="text-white">{hasToken ? 'This bungalow is settled.' : 'Someone is building here.'}</span>
+            <span className="text-white">{hasToken ? 'This bungalow is settled.' : lot}</span>
           </h1>
           <p className="text-white/85 text-[15px] max-w-lg leading-relaxed">
-            {bungalow.tagline}{' '}
             {hasToken ? (
               <>
+                {bungalow.tagline}{' '}
                 {bungalow.name} lives on {CHAIN_LABEL[bungalow.chain]} and holds a spot on the
                 island. The door is open today — contract, trade route and heat below. The full
                 skin (this venue dressed in {bungalow.name}&apos;s own art) opens when its

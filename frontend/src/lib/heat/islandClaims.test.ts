@@ -423,6 +423,7 @@ describe('every heat explainer carries the island sentences', () => {
     ['the half-as-much breadth rule', /half as much as the one before/i],
     ['triple weight for the Apes', /triple weight|apes triple/i],
     ['a Solana wallet that cannot be measured', /cannot yet be measured/i],
+    ['an open lot someone is building on', /someone is building here/i],
   ];
   for (const [name, re] of RETIRED) {
     it(`retires ${name}`, () => {
