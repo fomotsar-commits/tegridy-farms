@@ -13,7 +13,7 @@ REF=${MIRROR_REF:-}                       # push only: refs/heads/<b> or refs/ta
 DELETED=${MIRROR_DELETED:-false}          # push only: GitHub's `deleted` flag
 TRUNK=${MIRROR_TRUNK:-mvp-launch}
 SOURCE=${MIRROR_SOURCE_REMOTE:-origin}    # the checkout keeps GitHub's branches under this remote
-PUSH_OPTION=${MIRROR_PUSH_OPTION-ci.skip} # GitLab starts no pipeline for a mirror push
+PUSH_OPTION=${MIRROR_PUSH_OPTION-ci.skip} # GitLab runs no job for a mirror push (an empty Skipped pipeline)
 TRUNK_REF=refs/heads/$TRUNK
 
 err()  { echo "::error::$*"; }

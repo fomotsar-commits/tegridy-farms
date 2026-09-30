@@ -14,7 +14,7 @@
 workflow:
   rules:
     # The switch. GitLab gets every GitHub push as a mirror and has no runner, so no pipeline
-    # is made until the project CI/CD variable TEGRIDY_CI_ON_GITLAB is "1". Unset is off.
+    # runs until the project CI/CD variable TEGRIDY_CI_ON_GITLAB is "1". Unset is off.
     - if: $TEGRIDY_CI_ON_GITLAB != "1"
       when: never
     # Once on, one pipeline per change: merge request pipelines, and pushes to the trunk.

@@ -35,14 +35,16 @@ GitHub is the primary host again, and its Actions run the scheduled jobs. When i
 September, two things were missing: **nothing noticed that its schedules had stopped** (for more
 than five days), and **every backup lived only on GitHub**. This work adds a heartbeat that
 healthchecks.io watches, and a weekly copy of GitHub's backups to OneDrive. Three steps are yours.
-The guide is [OPS_SCHEDULER.md](OPS_SCHEDULER.md). Until this work merges, run the commands from
-the worktree `C:\Users\jimbo\dev\wt\ops-off-github-crons`.
+The guide is [OPS_SCHEDULER.md](OPS_SCHEDULER.md). This work merges with the git-hosting work
+below (O-0929-H1, step 2.1), so do these after that merge.
 
-### ⬜ O-0929-1: set up healthchecks.io and one GitHub secret (about 15 minutes, free)
+### ⬜ O-0929-OPS1: set up healthchecks.io and one GitHub secret (about 15 minutes, free)
 
-Sign up with email, a password and two-factor, never with GitHub. Create the checks in
-OPS_SCHEDULER.md section 2: `github-crons` (period 30 minutes, grace 90 minutes), `backup-pull`
-(7 days, 1 day), and the six failover checks, which stay grey until something pings them. Then:
+Sign up with email, a password and two-factor, never with GitHub. This one account holds every
+check, including `gitlab-standby` and `git-vault-backup` from O-0929-H1 (2E and 2G). Create the
+checks in OPS_SCHEDULER.md section 2: `github-crons` (period 30 minutes, grace 90 minutes),
+`backup-pull` (7 days, 1 day), and the six failover checks, which stay grey until something
+pings them. Then:
 
 - put the `github-crons` ping URL in a GitHub repository secret named `HC_PING_URL_GITHUB_CRONS`;
 - put the `backup-pull` ping URL in `C:\Users\jimbo\tegridy-ops-env\ops.env` as
@@ -54,7 +56,7 @@ workflow). It turns UP even if that run's probe fails: the check only proves the
 and a failing probe opens a `prod-incident` issue instead. If the check stays grey after a run
 by hand, the secret or the step is wrong: say so.
 
-### ⬜ O-0929-2: prove your offline passphrase opens GitHub's backups
+### ⬜ O-0929-OPS2: prove your offline passphrase opens GitHub's backups
 
 Find the offline `BACKUP_PASSPHRASE` (made 2026-07-30). If it is lost, say so now: every backup
 is unreadable without it. Then check the newest one downloaded on 2026-09-29:
@@ -66,14 +68,15 @@ node scripts\ops\supabase-restore-check.mjs C:\Users\jimbo\OneDrive\backups\supa
 **You should see** `Readable: all 10 tables present.` after you paste the passphrase. If it cannot
 decrypt, the offline copy is not the passphrase GitHub uses: stop and say so.
 
-### ⬜ O-0929-3: register the weekly backup pull on this PC
+### ⬜ O-0929-OPS3: register the weekly backup pull on this PC
 
-Delete the old faucet task, make the tasks' own checkout (OPS_SCHEDULER.md section 7), and
-register the one day-to-day task from it. No elevation is needed:
+Delete the old faucet task, make the tasks' own checkout of the trunk (OPS_SCHEDULER.md section
+7), and register the one day-to-day task from it. No elevation is needed:
 
 ```
 Unregister-ScheduledTask -TaskName 'SolanaDevnetFaucet' -Confirm:$false
-git -C C:\Users\jimbo\dev\tegridy-farms worktree add --detach C:\Users\jimbo\ops\tegridy-monitors ops/off-github-crons
+git -C C:\Users\jimbo\dev\tegridy-farms fetch origin
+git -C C:\Users\jimbo\dev\tegridy-farms worktree add --detach C:\Users\jimbo\ops\tegridy-monitors origin/mvp-launch
 cd C:\Users\jimbo\ops\tegridy-monitors
 powershell -ExecutionPolicy Bypass -File scripts\ops\register-tasks.ps1 -DryRun
 powershell -ExecutionPolicy Bypass -File scripts\ops\register-tasks.ps1
@@ -99,6 +102,7 @@ GHSA-rfgv-xxqx-mfg5 and GHSA-w293-vg96-wgc3, and `brace-expansion` GHSA-6j4f-fj2
 GHSA-qhr7-859c-m2p7. `indexer`: the same two `brace-expansion` advisories. All have a fix
 available. An agent can bump the dependencies, or triage them into
 `.github/npm-advisory-allowlist.json` with a reason.
+
 ---
 
 ## 🔴 2026-09-29: GitHub is back; make GitLab a live standby so GitHub is never the only copy
@@ -135,22 +139,22 @@ shows origin fetching from GitHub and pushing to GitHub, then GitLab, and 2D pri
 **Also, now that GitHub is back:**
 - GitHub's scheduled workflows had not resumed when this plan was made (2026-09-29/30). If
   `gitlab-standby` goes DOWN with no ping about 36 hours after 2E, they still have not. The
-  `github-crons` check (`docs/OPS_SCHEDULER.md`, branch `ops/off-github-crons`) says so sooner.
+  `github-crons` check (O-0929-OPS1, above) says so sooner.
 - A security report filed before the suspension may be unread: check **Security > Advisories**
   and **Issues** on GitHub.
 - Backups never live only on GitHub again. The 9 old Supabase backups are on OneDrive
-  (2026-09-29). New ones must land there too (`docs/OPS_SCHEDULER.md`, branch
-  `ops/off-github-crons`).
+  (2026-09-29). New ones land there too, through the weekly pull (O-0929-OPS3, above).
 
 **Then (an agent can do this, with your go):** walk the failover drill (GIT_HOSTING.md 5A) with
 you once on paper, and put the weekly and monthly checks of 5D in your calendar.
+
 ---
 
 ## 🟡 2026-09-29: GitLab's failover CI needs a runner, and a decision from you first (not urgent)
 
 GitHub Actions stays our CI. GitLab is the standby: it runs the same workflow files, through
 act, only on a runner we own, and only after you switch it on in a GitHub outage (the project
-CI/CD variable `TEGRIDY_CI_ON_GITLAB` = `1`). Until then it makes no pipelines at all. With no
+CI/CD variable `TEGRIDY_CI_ON_GITLAB` = `1`). Until then no pipeline there runs anything. With no
 runner, `bash scripts/ci/local-gates.sh <root|frontend|contracts|solana|all>` runs the gates on
 this PC with no git host: run it before each merge whenever GitHub Actions is not there. The
 full guide is [CI_ON_GITLAB.md](CI_ON_GITLAB.md).

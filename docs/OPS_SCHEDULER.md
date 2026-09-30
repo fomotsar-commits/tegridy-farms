@@ -5,9 +5,9 @@ owner's steps live in [TODO_OPERATOR.md](TODO_OPERATOR.md).
 
 ## The short version
 
-- **GitHub Actions runs the scheduled jobs, day to day.** That is eight scheduled workflows
-  (the monitors, the weekly Supabase backup, CodeQL and contract coverage) plus Dependabot.
-  Nothing here replaces them.
+- **GitHub Actions runs the scheduled jobs, day to day.** That is nine scheduled workflows
+  (the monitors, the weekly Supabase backup, CodeQL, contract coverage, and the daily full copy
+  to the GitLab standby) plus Dependabot. Nothing here replaces them.
 - **In September 2026 those schedules stopped for more than five days, and nothing told
   anyone.** Every alarm they had lived on GitHub too. Three additions fix that:
   1. **A dead-man switch.** Every 30 minutes, the last step of `synthetic-monitor.yml` pings
@@ -19,7 +19,7 @@ owner's steps live in [TODO_OPERATOR.md](TODO_OPERATOR.md).
   3. **A failover runner.** If GitHub is gone, the six jobs it ran can run on this PC, or any
      machine, through `scripts/ops/run-job.mjs`, still reporting to healthchecks.io
      (section 5).
-- **Nothing runs on this PC until you register the task** (TODO_OPERATOR.md, O-0929-3).
+- **Nothing runs on this PC until you register the task** (TODO_OPERATOR.md, O-0929-OPS3).
 
 ## 1. Day to day: what runs where
 
@@ -28,7 +28,9 @@ owner's steps live in [TODO_OPERATOR.md](TODO_OPERATOR.md).
 | `synthetic-monitor.yml` | GitHub | every 30 minutes | a `prod-incident` GitHub issue |
 | its last step, the heartbeat | GitHub | every 30 minutes | the `github-crons` check, when the pings stop |
 | the other scheduled workflows: arb linkage, revenue watch, registry, npm advisories, Supabase backup, CodeQL, contract coverage | GitHub | as each workflow says | GitHub's own notices |
+| `mirror-to-gitlab.yml`, the daily full copy to the standby | GitHub | daily, 06:41 UTC | the `gitlab-standby` check (`docs/GIT_HOSTING.md` 2E) |
 | `backup-pull` | this PC (Task Scheduler) | weekly, Wednesday 12:53 local | the `backup-pull` check |
+| `git-vault-backup`, the daily git bundles | this PC (Task Scheduler) | daily, 03:30 local | the `git-vault-backup` check (`docs/GIT_HOSTING.md` 2G) |
 
 **What the heartbeat covers, and what it does not.** It shows that GitHub's scheduler is
 running. It does not show that each workflow runs. One workflow can stop alone: GitHub runs
@@ -44,17 +46,22 @@ without repo activity stops them all at once, so the heartbeat catches that.
 2. Add your email as a notification channel. Telegram or ntfy also work, if you want your
    phone. Then, in **Account Settings > Email Reports**, turn on **daily reminders**: while
    any check is DOWN, you get a reminder each day, not only the first email.
-3. Create these checks, with the "Simple" schedule:
+3. Create these checks, with the "Simple" schedule. This is every check used day to day; the
+   last two belong to the git-hosting setup, which says when to make them:
 
    | Check | Pinged by | Period | Grace |
    |---|---|---|---|
    | `github-crons` | GitHub: the last step of `synthetic-monitor.yml` | 30 minutes | 90 minutes |
    | `backup-pull` | this PC, weekly | 7 days | 1 day |
+   | `gitlab-standby` | GitHub: `mirror-to-gitlab.yml`, daily and on each run by hand (`docs/GIT_HOSTING.md` 2E) | 1 day | 12 hours |
+   | `git-vault-backup` | this PC, daily (`docs/GIT_HOSTING.md` 2G) | 1 day | 1 day |
 
 4. Put each ping URL where its sender reads it:
    - `github-crons`: a GitHub repository secret named `HC_PING_URL_GITHUB_CRONS`
      (Settings > Secrets and variables > Actions > New repository secret).
    - `backup-pull`: `ops.env` (section 3), as `HC_PING_URL_BACKUP_PULL`.
+   - `gitlab-standby`: the GitHub secret `HC_PING_URL_GITLAB_STANDBY`; `git-vault-backup`:
+     `ops.env`, as `HC_PING_URL_GIT_VAULT_BACKUP` (`docs/GIT_HOSTING.md` 2E and 2G).
 5. Create the six failover checks now too (section 5 lists them). A check that has never been
    pinged stays grey and sends nothing, and having them ready saves time in a failover.
 
@@ -81,8 +88,9 @@ in the run, never a red run: the missing ping is itself the alarm.
 
 ## 3. The env files (secrets live here, and only here)
 
-Day to day only `ops.env` matters, and it needs one line: `HC_PING_URL_BACKUP_PULL`. A failover
-adds more (section 5). Both files live in `C:\Users\jimbo\tegridy-ops-env\`:
+Day to day only `ops.env` matters, and it needs two lines: `HC_PING_URL_BACKUP_PULL`, and
+`HC_PING_URL_GIT_VAULT_BACKUP` for the git bundles (`docs/GIT_HOSTING.md` 2G). A failover adds
+more (section 5). Both files live in `C:\Users\jimbo\tegridy-ops-env\`:
 
 - **`ops.env`**, which every task reads: the healthchecks ping URLs and any RPC overrides.
   Start from `scripts/ops/ops.env.example`.
@@ -167,8 +175,8 @@ GitHub uses: stop and say so.
 
 ## 5. Failover: GitHub is gone
 
-This is the scheduled-jobs part of the failover drill. The git remotes, Vercel and the source
-links are in the git-hosting runbook.
+This is the scheduled-jobs part of the failover drill (`docs/GIT_HOSTING.md` 5A, step 8). The
+git remotes, Vercel and the source links are in the rest of that drill.
 
 1. **Pause the `github-crons` and `backup-pull` checks** in healthchecks.io. With GitHub gone,
    `github-crons` goes DOWN within two hours, and `backup-pull` about eight days after its
@@ -219,8 +227,9 @@ rules. Nothing runs more often than every 15 minutes. The daily and weekly jobs 
 afternoon because this PC is off at night; a server uses the workflows' UTC times (below).
 
 **Not covered off GitHub:**
-- CodeQL: it needs GitHub or the CodeQL CLI, so it belongs to the failover CI host (GitLab's SAST
-  template, for example). Nothing on this PC runs it.
+- CodeQL: not run off GitHub. Its licence covers CI only for code hosted on GitHub.com, and it
+  never blocked a merge. GitLab's failover CI does not run it either; Slither and gitleaks still
+  run there (`docs/CI_ON_GITLAB.md`). Nothing on this PC runs it.
 - Contract coverage: not run off GitHub, by decision. Its floor enforces nothing yet, and it
   needs forge 1.7.1.
 - Dependabot: `npm-advisories` covers its security half. Renovate can replace the rest on GitLab.
@@ -309,14 +318,15 @@ the tool did not write (GitHub downloads, the canary) are never deleted.
 ## 7. The tasks' checkout
 
 The tasks run whatever code is in a checkout of their own, **outside OneDrive** (OneDrive
-hollows `node_modules`). Make it once, day to day, because `backup-pull` needs it too. Until this
-work merges:
+hollows `node_modules`). Make it once, day to day, because `backup-pull` needs it too. It is a
+detached checkout of the trunk, as your clone last fetched it:
 ```
-git -C C:\Users\jimbo\dev\tegridy-farms worktree add --detach C:\Users\jimbo\ops\tegridy-monitors ops/off-github-crons
+git -C C:\Users\jimbo\dev\tegridy-farms fetch origin
+git -C C:\Users\jimbo\dev\tegridy-farms worktree add --detach C:\Users\jimbo\ops\tegridy-monitors origin/mvp-launch
 ```
-(`--detach` is needed because that branch is checked out in another worktree.) After it merges,
-use `origin/mvp-launch` in place of the branch name. For a failover, also run
-`npm ci --ignore-scripts` in its `frontend\` folder; `registry-onchain` needs it.
+Before this work is on the trunk, use its branch, `infra/git-host-independence`, in place of
+`origin/mvp-launch`. For a failover, also run `npm ci --ignore-scripts` in its `frontend\`
+folder; `registry-onchain` needs it.
 
 To update it after changes to `scripts/ops` land:
 ```
@@ -336,6 +346,8 @@ Running the script again replaces the task. `-Remove` deletes every task this sc
 task opens a console window each time it runs (section 4): leave it open.
 
 ## 8. When GitHub comes back after a failover
+
+This is the scheduled-jobs part of `docs/GIT_HOSTING.md` 5A.2, which has the whole list.
 
 1. **Pause the six failover checks** in healthchecks.io. Then, from the tasks' checkout, in an
    **elevated** PowerShell (Run as administrator), run `register-tasks.ps1 -DryRun` and then

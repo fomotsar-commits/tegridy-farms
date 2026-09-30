@@ -1,8 +1,8 @@
 # CI on GitLab: the failover CI
 
 GitHub Actions is our CI. GitLab CI, described here, is the standby: if GitHub goes away
-again, GitLab runs the same checks from the same files. Until the owner switches it on,
-GitLab makes no pipelines at all.
+again, GitLab runs the same checks from the same files. Until the owner switches it on, no
+pipeline on GitLab runs anything.
 
 Each GitLab job takes one file in `.github/workflows/` and runs it, unchanged, with
 [act](https://github.com/nektos/act) on our own runner. No command, path or hash is copied
@@ -24,8 +24,13 @@ and a stuck pipeline is noise nobody reads. So the first rule in `.gitlab-ci.yml
 pipeline at all unless the project's CI/CD variable `TEGRIDY_CI_ON_GITLAB` is exactly `1`.
 Unset, empty, or any other value means off.
 
-The guard test fails if that rule is removed, moved below another rule, loosened, or if
-`.gitlab-ci.yml` sets the variable itself.
+One kind of pipeline still shows up. The mirror pushes with `-o ci.skip`, and GitLab's docs say
+such a push still creates an empty pipeline with the status **Skipped**. It has no jobs and
+runs nothing, on or off.
+
+The guard test fails if that rule is removed, moved below another rule, or loosened. It also
+fails if `.gitlab-ci.yml` sets the variable itself, spells a top-level key another way, uses a
+YAML escape, or pulls in another file with `include`.
 
 The switch stops noise, not people. A member's branch can edit `.gitlab-ci.yml`, and a merge
 request pipeline runs the branch's copy. The safety rules below are what keep a job safe.
@@ -58,7 +63,8 @@ all").
 2. Delete the variable `TEGRIDY_CI_ON_GITLAB` (Settings > CI/CD > Variables).
 3. Cancel any pipeline still waiting (Build > Pipelines).
 
-The runner can stay registered. With CI off it gets no jobs.
+The runner can stay registered. With CI off it gets no jobs, unless a branch edits
+`.gitlab-ci.yml` (see above). To be sure, pause the runner in GitLab while CI is off.
 
 ### A drill while GitHub is the primary
 
@@ -188,8 +194,8 @@ There is no runner yet, and where it will live is still the owner's decision. Un
 - **A VPS is the preferred home.** No keys are on it, so the worst a job escape can do is
   take over the VPS. A 4-8 vCPU, 8-16 GB server costs roughly 10 to 70 euros a month. The
   same setup script prepares it.
-- **Until a runner exists, `scripts/ci/local-gates.sh` is the gate.** Run it before each
-  merge, in peacetime or in an outage (see "Checks with no runner at all").
+- **Until a runner exists, `scripts/ci/local-gates.sh` is the gate whenever GitHub Actions is
+  not there to run.** Run it before each merge then (see "Checks with no runner at all").
 
 A dedicated WSL distro on the owner's PC is also written up below, because it costs no money.
 It breaks the rule above, so it needs the owner's written decision first: change that line
@@ -216,8 +222,8 @@ which get no socket.
      `glab` signed in (`glab auth login`):
      ```powershell
      $id = '<Project ID>'
-     glab api -X PUT "projects/$id" -f ci_allow_fork_pipelines_to_run_in_parent_project=false
-     glab api "projects/$id" | Select-String '"ci_allow_fork_pipelines_to_run_in_parent_project": *false'
+     glab api --hostname gitlab.com -X PUT "projects/$id" -f ci_allow_fork_pipelines_to_run_in_parent_project=false
+     glab api --hostname gitlab.com "projects/$id" | Select-String '"ci_allow_fork_pipelines_to_run_in_parent_project": *false'
      ```
      The last line must print a match. If it prints nothing, stop: the setting is still on.
    - Settings > Merge requests: merge method **Merge commit with semi-linear history** (the
@@ -226,9 +232,10 @@ which get no socket.
      "Skipped pipelines are considered successful" off. Leave **Pipelines must succeed** off:
      turn it on only while CI is switched on and a pipeline has passed (see "Switching it
      on"). A merge request with no pipeline cannot merge at all.
-   - Protected branch `mvp-launch`: leave it as `docs/GIT_HOSTING.md` sets it (merge:
-     Maintainers; push: only the GitHub mirror's deploy key; force push off). CI needs
-     nothing more.
+   - Protected branch `mvp-launch`: leave it as `docs/GIT_HOSTING.md` sets it. Day to day:
+     merge No one, push only the GitHub mirror's deploy key, force push off (2C). After a
+     failover: merge Maintainers, push No one, force push off (5A step 3). CI needs nothing
+     more.
 2. **The server:** a fresh Ubuntu 24.04 x86_64 VPS. Copy the two files in
    `scripts/ci/runner/` into one folder there (for example with `scp`, to
    `/root/tegridy-runner-setup/`). Then, in an interactive SSH session as root:
@@ -327,7 +334,7 @@ Until a runner exists, this is the merge gate whenever GitHub Actions is not the
 Run it before each merge, in Git Bash, from a clone outside OneDrive:
 
 ```bash
-bash scripts/ci/local-gates.sh root        # seconds: the repo-root self-tests
+bash scripts/ci/local-gates.sh root        # minutes: the repo-root self-tests and script tests
 bash scripts/ci/local-gates.sh frontend    # lint, types, unit, build, e2e (about 40 minutes)
 bash scripts/ci/local-gates.sh contracts   # forge build, every test slice, fuzz (slow)
 bash scripts/ci/local-gates.sh solana      # the Rust math and layout tests, when rustc/cargo exist
@@ -378,9 +385,10 @@ on (steps 1 and 2 of "Switching it on"). In a drill, merge nothing on GitLab.
    tested under act. If `solana-test-validator` complains about open files, the file limit
    did not apply (the setup script sets it to 1048576). If `yarn` is missing, the image layer
    did not install it.
-6. **The next push to `mvp-launch`** (in a drill, the mirror's push of GitHub's next merge).
-   Each workflow whose `on.push.paths` did not match prints "GitHub would not start it. Not
-   run." and passes.
+6. **The next push to `mvp-launch`.** Each workflow whose `on.push.paths` did not match
+   prints "GitHub would not start it. Not run." and passes. In a drill, skip this step: the
+   mirror's pushes carry `ci.skip`, so they show only an empty Skipped pipeline. The first
+   merge on GitLab in an outage proves the trunk path.
 7. **If GitLab is the primary now,** turn on "Pipelines must succeed" (Settings > Merge
    requests > Merge checks) and treat a green pipeline as the merge gate. `pipeline-exists`
    runs in every pipeline, so a docs-only merge request still has one. **If this was a

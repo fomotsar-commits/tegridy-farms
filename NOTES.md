@@ -15,6 +15,24 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-30 — keeping both sides of a NOTES or TODO conflict can turn a paragraph into a heading
+
+**Believed:** a conflict in `NOTES.md` or `docs/TODO_OPERATOR.md` where two branches each add
+sections at the top is resolved by keeping every section and joining them with the file's `---`
+separator.
+
+**Measured:** merging three branches that each added sections (2026-09-30), a script split each
+side on `\n---\n\n` and joined them the same way. The last section of each side has no blank
+line after it inside the conflict, so the join put `---` straight under a paragraph: 4 places
+in the two files. In Markdown a `---` right under a text line is a setext heading underline, so
+the whole paragraph above renders as a heading. No test reads for it.
+
+**Do:** after resolving, list every `---` line whose previous line is not blank:
+`awk 'NR>1 && $0=="---" && prev!="" {print FILENAME": "NR} {prev=$0}' NOTES.md docs/TODO_OPERATOR.md`.
+The list must be empty.
+
+---
+
 ## 2026-09-30 — with two push URLs, a push the first host refuses still reaches the second
 
 **Believed:** an `origin` with two `pushurl`s (GitHub, then GitLab) stops at GitHub when GitHub
@@ -175,6 +193,7 @@ skips the job. And act ignores `on.push.paths`.
 line for each one (`jobResult` in `--json --verbose` output; skips are logged at debug
 level), and accept a job with no result only when a job it needs was skipped.
 `scripts/ci/act-job.sh` does this and proves it with `--self-test`.
+
 ---
 
 ## 2026-09-29 — `node --env-file` hands the program each value as written
@@ -221,6 +240,7 @@ still wrote a full ciphertext to stdout.
 
 **Do:** the exit status is the verdict, never the presence of output. From a native process,
 hand MSYS tools their data on stdin, or `/c/...` paths.
+
 ---
 
 ## 2026-09-29 — renaming `origin` takes every branch's upstream with it, so a bare `git push` still goes to the old host
