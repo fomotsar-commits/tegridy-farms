@@ -30,6 +30,9 @@ cd ../contracts && forge build && forge test
 Root tools: `node --test scripts/lib/redact-url.test.mjs`, and each
 `node scripts/<tool>.mjs --self-test` that ci.yml names. On Windows use PowerShell for any
 git argument containing `:.github` (Git Bash mangles it). Gotchas: `docs/DEVELOPING.md`.
+With no CI host, `bash scripts/ci/local-gates.sh <root|frontend|contracts|solana|all>` runs
+the same gates. GitLab's failover CI, off until switched on, runs the workflow files
+unchanged: `docs/CI_ON_GITLAB.md`.
 
 ## The one to-do
 

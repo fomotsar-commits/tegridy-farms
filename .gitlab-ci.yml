@@ -1,0 +1,111 @@
+# GitLab's failover CI. GitHub Actions is the CI day to day; this runs only when the owner
+# switches it on in a GitHub outage. Each job runs one .github/workflows file, unchanged,
+# under act (scripts/ci/act-job.sh) on our own runner. Nothing here copies a command, path
+# or hash out of a workflow, so a workflow edit changes both hosts at once.
+# Switch, runner and first run: docs/CI_ON_GITLAB.md. Guard: frontend/src/test/gitlabCi.test.ts.
+
+# Not run here (the test holds the reasons): codeql.yml (GitHub-only SARIF and licence),
+# gitleaks.yml (replaced by the gitleaks job), release.yml (GitHub Releases API),
+# solana-deploy-artifact.yml (manual mainnet builds), the schedule-only
+# arb-linkage-monitor.yml, revenue-watch.yml, synthetic-monitor.yml and supabase-backup.yml
+# (off GitHub the ops scheduler runs them), and contracts-coverage.yml (not run off GitHub).
+
+workflow:
+  rules:
+    # The switch. GitLab gets every GitHub push as a mirror and has no runner, so no pipeline
+    # is made until the project CI/CD variable TEGRIDY_CI_ON_GITLAB is "1". Unset is off.
+    - if: $TEGRIDY_CI_ON_GITLAB != "1"
+      when: never
+    # Once on, one pipeline per change: merge request pipelines, and pushes to the trunk.
+    # A branch push makes no pipeline of its own, so no commit gets both.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      auto_cancel:
+        on_new_commit: interruptible
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "mvp-launch"
+      auto_cancel:
+        on_new_commit: none
+
+variables:
+  # Full history: the scope jobs, the push path filter and gitleaks diff against older commits.
+  GIT_DEPTH: "0"
+  GIT_SUBMODULE_STRATEGY: none
+  # The runner writes no job token into .git, which act copies into every job container.
+  # act-job.sh refuses to run if the token is there anyway.
+  FF_GIT_URLS_WITHOUT_TOKENS: "true"
+  # act runs one workflow job at a time. Raise only after reading the doc (ports and memory).
+  ACT_CONCURRENT_JOBS: "1"
+
+default:
+  # Only our runner. Instance runners stay off for this project.
+  tags: [tegridy-runner]
+  interruptible: true
+
+stages: [check, workflows]
+
+# Runs in every pipeline, so once CI is on every merge request has one ("Pipelines must
+# succeed" blocks an MR that has none). It also proves the wrapper's verdict logic here.
+pipeline-exists:
+  stage: check
+  timeout: 10m
+  script:
+    - bash scripts/ci/act-job.sh --self-test
+
+gitleaks:
+  stage: check
+  timeout: 20m
+  script:
+    - bash scripts/ci/gitleaks-range.sh
+
+# Each workflow starts at once and stands alone, as on GitHub: a red gitleaks run does
+# not hide the test results.
+.act-workflow:
+  stage: workflows
+  needs: []
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - .act-out/
+
+ci:
+  extends: .act-workflow
+  timeout: 2h
+  script:
+    - bash scripts/ci/act-job.sh ci.yml
+
+contracts-ci:
+  extends: .act-workflow
+  timeout: 3h
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  script:
+    - bash scripts/ci/act-job.sh contracts-ci.yml
+
+slither:
+  extends: .act-workflow
+  timeout: 1h
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  script:
+    - bash scripts/ci/act-job.sh slither.yml
+
+solana-ci:
+  extends: .act-workflow
+  timeout: 3h
+  script:
+    - bash scripts/ci/act-job.sh solana-ci.yml
+
+npm-advisories:
+  extends: .act-workflow
+  timeout: 30m
+  script:
+    - bash scripts/ci/act-job.sh npm-advisories.yml
+
+# Reads mainnet over public RPCs. On GitHub it was never a required check, and its own
+# header says a change must not be blocked by an RPC hiccup. It still shows red when red.
+registry-onchain:
+  extends: .act-workflow
+  timeout: 30m
+  allow_failure: true
+  script:
+    - bash scripts/ci/act-job.sh registry-onchain.yml

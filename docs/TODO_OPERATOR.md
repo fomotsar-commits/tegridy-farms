@@ -144,6 +144,37 @@ shows origin fetching from GitHub and pushing to GitHub, then GitLab, and 2D pri
 
 **Then (an agent can do this, with your go):** walk the failover drill (GIT_HOSTING.md 5A) with
 you once on paper, and put the weekly and monthly checks of 5D in your calendar.
+---
+
+## 🟡 2026-09-29: GitLab's failover CI needs a runner, and a decision from you first (not urgent)
+
+GitHub Actions stays our CI. GitLab is the standby: it runs the same workflow files, through
+act, only on a runner we own, and only after you switch it on in a GitHub outage (the project
+CI/CD variable `TEGRIDY_CI_ON_GITLAB` = `1`). Until then it makes no pipelines at all. With no
+runner, `bash scripts/ci/local-gates.sh <root|frontend|contracts|solana|all>` runs the gates on
+this PC with no git host: run it before each merge whenever GitHub Actions is not there. The
+full guide is [CI_ON_GITLAB.md](CI_ON_GITLAB.md).
+
+### ⬜ O-0929-CI1: decide where the runner lives
+
+A VPS is preferred: no keys on it, about 10 to 70 euros a month. **Do not register a runner on
+this PC**: the audits' rule "never a shell executor on the PC that holds the keys" stands.
+WSL on this PC is possible only if you change that rule in writing, in the same pull request
+that records the decision. CI_ON_GITLAB.md, "The runner: not chosen yet", has both.
+
+### ⬜ O-0929-CI2: set up the runner, then prove it once in a drill
+
+After the GitLab project exists (GIT_HOSTING.md 2A) and you have picked the runner's home,
+follow CI_ON_GITLAB.md "Setting up a runner on a VPS". Its step 1 turns off fork pipelines,
+which only the API can do. Then run the drill: switch CI on, work through the first-run
+checklist, and switch CI off again. While GitHub is the primary, merge nothing on GitLab.
+
+**You should see** the runner online in GitLab, then a docs-only merge request whose
+`pipeline-exists` and `gitleaks` jobs are green.
+
+**A mismatch means:** stop and say so. "Pipelines must succeed" is on only while CI is
+switched on and a pipeline has passed. Turn it off before you switch CI off, or nothing on
+GitLab can merge.
 
 ---
 

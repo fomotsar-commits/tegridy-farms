@@ -90,6 +90,42 @@ that row is not where it was, rows shifted: fail and re-run. Then check that no 
 
 ---
 
+## 2026-09-29 — a gitleaks config read from the base commit stops a change loosening its own scan
+
+**Believed:** run gitleaks with `--config` and `--gitleaks-ignore-path` taken from the commit a
+merge request builds on, and the merge request cannot loosen the scan of its own commits.
+
+**Read in gitleaks v8.30.1's source** (`cmd/root.go`, by this branch's reviewer; not run here,
+there is no gitleaks binary on this PC): gitleaks also loads `.gitleaksignore` from the folder
+it scans, which is the change's own checkout. It also honours `gitleaks:allow` comments unless
+`--ignore-gitleaks-allow` is set. So a change can add a secret and either its fingerprint in
+`.gitleaksignore` or a `# gitleaks:allow` on the same line, and pass.
+
+**Do:** scan a `git clone --no-checkout --shared` of the checkout (the same history, no
+working-tree files), and pass `--ignore-gitleaks-allow`. `scripts/ci/gitleaks-range.sh` does
+both.
+
+---
+
+## 2026-09-29 — a job on our own act runner starts as clean as a job on GitHub's VMs
+
+**Believed:** each act job on a self-hosted runner starts from its image, as a GitHub-hosted
+job does, so one pipeline cannot change what the next one runs.
+
+**Read in act v0.2.89's source** (by this branch's reviewer; act is not installed here): every
+job container gets the named volume `act-toolcache` at `/opt/hostedtoolcache`, and act never
+removes it. Any job can plant a tool there, such as a fake node that `actions/setup-node` then
+picks, for every later run on that Docker daemon. act's actions/cache server matches entries by
+key and version only, with no branch scope. **Reproduced with git:** GitLab's shell executor
+reuses one build folder, and a job that skips submodules sees them at the last job's commit, so
+`git status` shows ` M contracts/lib/<x>`.
+
+**Do:** run one job at a time, drop the volume before each run, give merge requests a
+throwaway copy of the cache store, and leave submodules out of a clean-checkout check.
+`scripts/ci/act-job.sh` does all of these.
+
+---
+
 ## 2026-09-29 — copying `refs/stash` copies one stash, not the stash list
 
 **Believed:** fetching or bundling a clone's `refs/stash` saves its stashes, and old stash
@@ -119,6 +155,26 @@ bundle held the old one, so a restore from it would have deployed an older site.
 bundle, then check that the chosen one contains what production serves
 (`git merge-base --is-ancestor`). `backup-bundles.sh` and `docs/GIT_HOSTING.md` 5C do both.
 
+---
+
+## 2026-09-29 — act fails a workflow when one of its jobs did not run
+
+**Believed:** a GitHub workflow run under act (or under Forgejo's runner, which is built on
+act) exits non-zero when one of its jobs never ran.
+
+**Read in act's source** (`pkg/runner/runner.go` and `pkg/runner/run_context.go` on master,
+2026-09-29; not yet run here, there is no runner): a matrix act cannot expand, such as
+`fromJSON(needs.x.outputs.y)` with an empty output, is logged as `Error while get job's
+matrix` and then runs zero times. A job whose `runs-on` label has no `-P` mapping is skipped
+with one info line and no result. act's exit code counts only jobs whose result is
+`failure`, so both runs exit 0. act also expands a matrix before it checks the job's
+`needs`, so a matrix job whose needs were skipped logs that same error where GitHub just
+skips the job. And act ignores `on.push.paths`.
+
+**Do:** never read act's exit code alone. List the jobs first (`act -l`), require a result
+line for each one (`jobResult` in `--json --verbose` output; skips are logged at debug
+level), and accept a job with no result only when a job it needs was skipped.
+`scripts/ci/act-job.sh` does this and proves it with `--self-test`.
 ---
 
 ## 2026-09-29 — `node --env-file` hands the program each value as written
