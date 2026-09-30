@@ -142,44 +142,75 @@ handed to *unmatched* origins.
 Every "read the source" link the site shows goes to our own domain first:
 `https://memetics.finance/source/<path>` for a file or folder, and `/source` for the repo.
 `/source-issues` is the issue list, linked only from the security policies. Four redirects in
-`frontend/vercel.json` send them on to the git host. The fourth, `/source/info/refs`, is for git
+`frontend/vercel.json` send them on to the git host. One of them, `/source/info/refs`, is for git
 itself: it lets `git clone https://memetics.finance/source` work, and `held-through.json`
 publishes that address as the repo. So when the code moves hosts, the site and
-`held-through.json` keep working after **one edit to those four redirects**. No page changes.
-A program's on-chain security.txt gets the same protection once it uses these links (cp-swap's
-does not yet: TODO_OPERATOR O-0929-10). When the primary host is lost, this edit is part of
-the failover.
+`held-through.json` keep working after **one edit: four lines of `frontend/vercel.json`**. No
+page changes. A program's on-chain security.txt gets the same protection once it uses these
+links (cp-swap's does not yet: TODO_OPERATOR O-0929-10).
 
-**Before these redirects first deploy, and before every host move, the target must be ours and
-public.** Merging to `mvp-launch` deploys them. A redirect to a group or workspace name nobody
-owns sends every trust link on the site to whoever registers that name first. A private project
-sends them to a sign-in page. So first claim the name, then make the project public, then check:
-`curl -s https://gitlab.com/api/v4/projects/memetics%2Ftegridy-farms` must return JSON with
-`"visibility":"public"` (not `404 Project Not Found`). Use the new name if it changed.
-TODO_OPERATOR O-0929-11 holds this step for the first deploy.
+**Today the links go to GitHub, the primary.** These are the four lines in
+`frontend/vercel.json`, one rule per line:
 
-To move hosts, change the four `destination` values that follow `"source": "/source"`,
-`"/source-issues"`, `"/source/info/refs"` and `"/source/:path*"`. Keep the repo's address
-identical in all four and use the host's shapes below (`src/test/sourceLinks.test.ts` knows
-these shapes and fails otherwise). Keep `/source/info/refs` above `/source/:path*`, keep the
-branch `mvp-launch`, and keep `"permanent": false`: browsers do not cache a 307 by default, so
-the next move reaches every browser at once.
+```json
+    { "source": "/source", "destination": "https://github.com/fomotsar-commits/tegridy-farms", "permanent": false },
+    { "source": "/source-issues", "destination": "https://github.com/fomotsar-commits/tegridy-farms/issues", "permanent": false },
+    { "source": "/source/info/refs", "destination": "https://github.com/fomotsar-commits/tegridy-farms.git/info/refs", "permanent": false },
+    { "source": "/source/:path*", "destination": "https://github.com/fomotsar-commits/tegridy-farms/blob/mvp-launch/:path*", "permanent": false }
+```
+
+**If GitHub is gone, point them at the GitLab standby.** This is one step of the GitHub-gone
+failover. Replace the four lines above with these four, exactly, then merge:
+
+```json
+    { "source": "/source", "destination": "https://gitlab.com/memetics/tegridy-farms", "permanent": false },
+    { "source": "/source-issues", "destination": "https://gitlab.com/memetics/tegridy-farms/-/issues", "permanent": false },
+    { "source": "/source/info/refs", "destination": "https://gitlab.com/memetics/tegridy-farms.git/info/refs", "permanent": false },
+    { "source": "/source/:path*", "destination": "https://gitlab.com/memetics/tegridy-farms/-/blob/mvp-launch/:path*", "permanent": false }
+```
+
+To go back to GitHub, put the first four lines back. If the GitLab group is ever renamed from
+`memetics`, change it in all four lines above and in `OUR_REPOS` in
+`frontend/src/test/sourceLinks.test.ts`.
+
+**Before any move, the target must be ours and public.** Merging to `mvp-launch` deploys the
+redirects. A redirect to a name nobody owns sends every trust link on the site to whoever
+registers that name first. A private project sends them to a sign-in page. Just before the
+merge, check the target:
+
+- GitLab: `curl -s https://gitlab.com/api/v4/projects/memetics%2Ftegridy-farms` must return
+  JSON with `"visibility":"public"`. `404 Project Not Found` means stop: the project is missing
+  or private, and the API does not say which.
+- GitHub: `curl -s https://api.github.com/repos/fomotsar-commits/tegridy-farms` must return
+  `"visibility": "public"`.
+
+Then run `npx vitest run src/test/sourceLinks.test.ts` in `frontend/`, since CI may be down
+during a failover. The test lists our repo's homes (`OUR_REPOS`) and fails if the rules point
+anywhere else, so a mistyped name fails before it deploys. On 2026-09-30 the GitHub check
+passed and the GitLab check still answered `404 Project Not Found`, so the standby could not
+take the links yet (TODO_OPERATOR O-0929-11).
+
+For any other host, keep the repo's address identical in all four lines and use the host's
+shapes below (the test knows them and fails otherwise). Keep `/source/info/refs` above
+`/source/:path*`, keep the branch `mvp-launch`, and keep `"permanent": false`: browsers do not
+cache a 307 by default, so the next move reaches every browser at once.
 
 | Host | `/source` | `/source-issues` | `/source/info/refs` | `/source/:path*` |
 | --- | --- | --- | --- | --- |
-| GitLab (today) | `<repo>` | `<repo>/-/issues` | `<repo>.git/info/refs` | `<repo>/-/blob/mvp-launch/:path*` |
-| Bitbucket | `<repo>` | `<repo>` (Bitbucket removed its issue tracker on 2026-08-20) | `<repo>.git/info/refs` | `<repo>/src/mvp-launch/:path*` |
-| GitHub | `<repo>` | `<repo>/issues` | `<repo>.git/info/refs` | `<repo>/blob/mvp-launch/:path*` |
+| GitHub (primary) | `<repo>` | `<repo>/issues` | `<repo>.git/info/refs` | `<repo>/blob/mvp-launch/:path*` |
+| GitLab (standby) | `<repo>` | `<repo>/-/issues` | `<repo>.git/info/refs` | `<repo>/-/blob/mvp-launch/:path*` |
+| Bitbucket (optional third copy) | `<repo>` | `<repo>` (Bitbucket removed its issue tracker on 2026-08-20) | `<repo>.git/info/refs` | `<repo>/src/mvp-launch/:path*` |
 
-GitLab's `/-/blob/` link also opens folders: it sends them to `/-/tree/` itself. A raw view
-would not, so never use one. GitLab also sends a path it does not have to the repo root with a
-`302`, not a `404`, so a wrong link looks fine when clicked. For that reason the test renders
-the pages that link source and checks the path of every link they show against
-`git ls-files`, and does the same for every literal path in the code. It also refuses any use
-of `SOURCE_URL` it cannot check, such as `SOURCE_URL + '/x'`. After the deploy, check one file
-and the root: `curl -sI https://memetics.finance/source/docs/AUDITS.md` and
+Both `blob` views open folders too: GitHub sends a folder to `/tree/` with a `301`, GitLab to
+`/-/tree/` with a `302`. A raw view does neither, so never use one. A path the repo does not
+have is a `404` on GitHub, but on GitLab it is a `302` to the repo root, so there a wrong link
+looks fine when clicked. For that reason the test checks paths against `git ls-files`, not
+against the host: it renders the pages that link source and checks the path of every link they
+show, and does the same for every literal path in the code. It also refuses any use of
+`SOURCE_URL` it cannot check, such as `SOURCE_URL + '/x'`. After the deploy, check one file and
+the root: `curl -sI https://memetics.finance/source/docs/AUDITS.md` and
 `curl -sI https://memetics.finance/source` should each answer `307` with a `location` on the
-new host, and that location should open the file, not the repo root. Then check git:
+new host, and that location should open the file, not a 404 or the repo root. Then check git:
 `git ls-remote https://memetics.finance/source mvp-launch` should print one commit.
 
 ---

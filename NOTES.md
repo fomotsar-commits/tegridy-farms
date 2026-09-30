@@ -28,6 +28,10 @@ headers. `/-/issues` does: with `Accept: text/html` it answers `302` to `/-/work
 without that header it answers `404`, even with a browser's user agent. So a script that
 does not send `Accept: text/html` can see a different answer from a browser.
 
+GitHub, where the links go today, does answer a missing path with `404` (measured 2026-09-30
+on our repo; a folder under `/blob/` answers `301` to `/tree/`). So a status check that passes
+against GitHub says nothing about the day the links fail over to GitLab.
+
 **Do:** check a source link's path against `git ls-files`, never against the host's status
 code. `frontend/src/test/sourceLinks.test.ts` does this for every literal path in the code
 and for every link the pages that link source render.

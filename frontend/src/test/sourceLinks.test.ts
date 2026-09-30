@@ -2,8 +2,8 @@
 //
 // Every "read the source" link goes through our own domain (SOURCE_URL in
 // lib/constants.ts), and the /source redirects in frontend/vercel.json pick the git
-// host, so moving hosts is one vercel.json edit. GitLab answers a path it does not
-// have with a 302 to the repo root, not a 404, so paths are checked against git:
+// host, so moving hosts is one vercel.json edit. A wrong path is a 404 on GitHub but a
+// 302 to the repo root on GitLab, so paths are checked against git, not the host:
 // every literal path in the code, and every link the source-linking pages render.
 
 import { describe, it, expect, vi } from 'vitest';
@@ -59,11 +59,15 @@ const HOST_SHAPES: Record<string, { issues: string; file: string }> = {
   'github.com': { issues: '/issues', file: '/blob/mvp-launch/:path*' },
 };
 
-/** Our repo's addresses on every host: the old one, the primary and the standby. If the
- *  standby's name ever differs from the primary's, add it here. */
+/** Every home our repo has, primary and standby. The /source rules may point only at one
+ *  of these, and the app links none of them directly. A new home joins this list once it
+ *  is ours and public (docs/DEPLOY_RUNBOOK.md, "Moving the source links"). */
+const OUR_REPOS = ['https://github.com/fomotsar-commits/tegridy-farms', 'https://gitlab.com/memetics/tegridy-farms'];
+const ownerOf = (repo: string) => /^https:\/\/[^/]+\/([^/]+)/.exec(repo)?.[1] ?? '(no owner)';
+
+/** Each home's owner on every known host, so a copy we may add later is caught too. */
 const OUR_REPO_URLS = [
-  'github.com/fomotsar-commits',
-  ...Object.keys(HOST_SHAPES).map((host) => `${host}/${HOST_URL?.pathname.split('/')[1] ?? '(no /source rule)'}`),
+  ...new Set([HOST_REPO, ...OUR_REPOS].flatMap((repo) => Object.keys(HOST_SHAPES).map((host) => `${host}/${ownerOf(repo)}`))),
 ];
 
 /** The pages that link source, rendered so each link is checked where it ends up. */
@@ -157,7 +161,9 @@ describe('no user-facing file links our repo on a git host directly', () => {
     expect(files).toContain('frontend/public/.well-known/security.txt');
     expect(files).toContain('frontend/scripts/held-through.mjs');
     expect(HOST_REPO).toMatch(/^https:\/\/[^/]+(\/[^/]+){2,}$/); // owner/repo, or a GitLab subgroup path
-    expect(OUR_REPO_URLS).toContain(HOST_REPO.replace(/^https:\/\//, '').split('/').slice(0, 2).join('/'));
+    for (const repo of [HOST_REPO, ...OUR_REPOS]) {
+      expect(OUR_REPO_URLS).toContain(repo.replace(/^https:\/\//, '').split('/').slice(0, 2).join('/'));
+    }
   });
 
   it('finds no git-host URL for this repo in the app, its public files or its scripts', () => {
@@ -203,6 +209,11 @@ describe('the /source redirects in vercel.json', () => {
     for (const r of SOURCE_RULES) expect(r.has ?? r.missing, r.source).toBeUndefined();
   });
 
+  it('point at a home of ours, never a name someone else could register', () => {
+    // A typo in a failover sends every trust link on the site to whoever takes that name.
+    expect(OUR_REPOS, `${HOST_REPO}: check it is ours and public, then add it to OUR_REPOS`).toContain(HOST_REPO);
+  });
+
   it("use the host's own URL shapes, all on one repo", () => {
     const shape = HOST_SHAPES[HOST_URL?.host ?? ''];
     expect(shape, `${HOST_REPO}: add this host's shapes to HOST_SHAPES and the runbook table`).toBeTruthy();
@@ -235,7 +246,7 @@ describe('every source link written in the code', () => {
     const missing = uses
       .filter((u): u is Use & { path: string } => !!u.path && !isTracked(u.path))
       .map(({ file, path }) => `${file}: ${path}`);
-    expect(missing, 'the git host would silently show the repo root for these').toEqual([]);
+    expect(missing, 'GitHub would answer 404 for these, and GitLab would quietly open the repo root').toEqual([]);
   });
 
   it('includes the one held-through.json gives other sites, and git can clone it', () => {
@@ -284,7 +295,7 @@ describe('every source link the pages render', () => {
       .map(({ file, href }) => ({ file, path: pathOf(href) }))
       .filter(({ path }) => path && !isTracked(path) && !KNOWN_UNTRACKED.includes(path))
       .map(({ file, path }) => `${file}: ${path}`);
-    expect(missing, 'the git host would silently show the repo root for these').toEqual([]);
+    expect(missing, 'GitHub would answer 404 for these, and GitLab would quietly open the repo root').toEqual([]);
   });
 
   it('still needs every KNOWN_UNTRACKED entry, so the list only shrinks', () => {

@@ -136,26 +136,10 @@
       "destination": "/scan",
       "permanent": false
     },
-    {
-      "source": "/source",
-      "destination": "https://gitlab.com/memetics/tegridy-farms",
-      "permanent": false
-    },
-    {
-      "source": "/source-issues",
-      "destination": "https://gitlab.com/memetics/tegridy-farms/-/issues",
-      "permanent": false
-    },
-    {
-      "source": "/source/info/refs",
-      "destination": "https://gitlab.com/memetics/tegridy-farms.git/info/refs",
-      "permanent": false
-    },
-    {
-      "source": "/source/:path*",
-      "destination": "https://gitlab.com/memetics/tegridy-farms/-/blob/mvp-launch/:path*",
-      "permanent": false
-    }
+    { "source": "/source", "destination": "https://github.com/fomotsar-commits/tegridy-farms", "permanent": false },
+    { "source": "/source-issues", "destination": "https://github.com/fomotsar-commits/tegridy-farms/issues", "permanent": false },
+    { "source": "/source/info/refs", "destination": "https://github.com/fomotsar-commits/tegridy-farms.git/info/refs", "permanent": false },
+    { "source": "/source/:path*", "destination": "https://github.com/fomotsar-commits/tegridy-farms/blob/mvp-launch/:path*", "permanent": false }
   ],
   "rewrites": [
     { "source": "/api/alchemy", "destination": "/api/alchemy" },
