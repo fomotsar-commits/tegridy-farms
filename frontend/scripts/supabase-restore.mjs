@@ -1,59 +1,9 @@
 #!/usr/bin/env node
 /**
- * Supabase data restore — loads a decrypted backup bundle back into a
- * rebuilt schema.
- *
- * THIS SCRIPT RESTORES DATA. IT DOES NOT BUILD SCHEMA.
- * It talks to PostgREST, which cannot run DDL. The schema has to exist first,
- * in the order supabase/RESTORE.md gives, and this script REFUSES to write
- * into a project where it does not — a 404 on a table is reported as
- * "schema-missing" and names the migration that creates it, never as an empty
- * table it could helpfully fill.
- *
- * WHY IT IS DEFENSIVE BY DEFAULT
- *   The bundle contains signed Seaport orders (native_orders, trade_offers).
- *   A signature is a bearer instrument and the row is its only copy, so the
- *   failure that matters is not "the restore errored" — it is "the restore
- *   reported success having skipped a table". Every rule below exists to make
- *   that state unreachable:
- *
- *     - Dry run is the default. Writing needs --apply.
- *     - A table file MISSING from the bundle is a failure, and is reported as
- *       "absent" — never folded into "0 rows restored", which is what an empty
- *       table legitimately looks like.
- *     - A non-empty target table aborts the run. Re-running a restore into
- *       live rows either duplicates them or silently loses the conflicting
- *       ones to ON CONFLICT; both are worse than stopping.
- *     - Partial success is failure. Any table failing exits non-zero and the
- *       word "complete" is never printed.
- *
- * USAGE
- *   node scripts/supabase-restore.mjs --bundle ./backup            # dry run
- *   node scripts/supabase-restore.mjs --bundle ./backup --apply    # writes
- *
- *   SUPABASE_URL          https://<project-ref>.supabase.co
- *   SUPABASE_SERVICE_KEY  service-role key: the legacy JWT or an sb_secret_ key.
- *                         Required: RLS would otherwise refuse every row, since
- *                         a restore has no user JWT and every owner policy
- *                         keys on one.
- *
- *   The bundle is the decrypted contents of the weekly artifact
- *   (.github/workflows/supabase-backup.yml):
- *     gpg --decrypt --batch --passphrase "$BACKUP_PASSPHRASE" \
- *       supabase-backup-<date>.tar.gz.gpg | tar -xz
- *   which yields backup/<table>.json — one JSON array per table.
- *
- * FLAGS
- *   --bundle <dir>     directory holding <table>.json    (default ./backup)
- *   --apply            actually write. Without it, nothing is sent.
- *   --allow-nonempty   proceed into tables that already hold rows. Read the
- *                      warning it prints before using it.
- *   --only <a,b>       restore a subset. Order is still enforced.
- *   --chunk <n>        rows per POST (default 500)
- *
- * The pure helpers below are exported and covered by
- * scripts/supabase-restore.test.mjs — this directory IS collected by vitest
- * (vitest.config.ts include is project-wide), unlike repo-root scripts/.
+ * Loads a decrypted backup bundle into a rebuilt schema: data only, never schema. Dry run by
+ * default; a missing table, a missing table file, a non-empty target or any failed table fails.
+ * Usage, flags and why each refusal exists: supabase/RESTORE.md, step 4. The pure helpers are
+ * exported for scripts/supabase-restore.test.mjs, which vitest collects (unlike root scripts/).
  */
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
