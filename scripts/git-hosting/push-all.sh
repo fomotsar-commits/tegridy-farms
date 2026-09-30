@@ -3,8 +3,8 @@
 # Pushes every branch and tag of <repo> (a bare mirror of a host, or the vault) to one host and proves
 # the host holds exactly that set. Never forces, mirrors, prunes or deletes. main/master go up as
 # archive/<name>; the trunk goes first. Refused: a clone whose remote-tracking branches lack a local
-# branch (they would be left out; --local-only pushes anyway), and a vault, which holds refs never
-# made public, unless --vault says the host is the private vault project.
+# branch (they would be left out; --local-only pushes anyway), and a vault (known only by its
+# refs/tags/archive/*), which holds refs never made public, unless --vault names the private host.
 set -euo pipefail
 
 usage() {

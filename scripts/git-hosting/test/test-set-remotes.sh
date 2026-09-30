@@ -51,6 +51,39 @@ check "day: the same push reaches GitLab" test "$(git -C gl.git rev-parse refs/h
 G -C clone fetch -q gitlab
 check "day: fetch gitlab reads the standby" test "$(git -C clone rev-parse refs/remotes/gitlab/feat/x)" = "$tip"
 
+# ---- GitHub refuses a push (its secret scanning does): git still tries GitLab, and the hook stops it
+check "day: the pre-push hook is installed" cmp -s "$SCRIPTS/pre-push-standby.sh" clone/.git/hooks/pre-push
+printf '%s\n' '#!/bin/sh' 'while read -r o n r; do if [ -f ../gh-refuse ] && grep -qxF "$r" ../gh-refuse; then echo "push protection: $r" >&2; exit 1; fi; done' \
+  > gh.git/hooks/pre-receive
+chmod +x gh.git/hooks/pre-receive
+glref() { git -C gl.git rev-parse -q --verify "$1" 2>/dev/null || echo none; }
+G -C clone checkout -q -b feat/leak; G -C clone commit -q --allow-empty -m leak; G -C clone checkout -q mvp-launch
+echo refs/heads/feat/leak > gh-refuse
+out=$(G -C clone push origin feat/leak 2>&1); rc=$?
+check "refused by GitHub: the push fails" test $rc -ne 0
+check "refused by GitHub: GitLab never gets it" test "$(glref refs/heads/feat/leak)" = none
+check "refused by GitHub: the hook says why" grep -q "pre-push: refs/heads/feat/leak not sent" <<< "$out"
+rm gh-refuse
+G -C clone push -q origin feat/leak 2>/dev/null
+check "taken by GitHub: GitLab gets it too" test "$(glref refs/heads/feat/leak)" = "$(git -C clone rev-parse feat/leak)"
+G -C clone tag -a v-hook -m v feat/leak; G -C clone push -q origin v-hook 2>/dev/null
+check "an annotated tag reaches GitLab as the same object" test "$(glref refs/tags/v-hook)" = "$(git -C clone rev-parse v-hook)"
+echo refs/heads/feat/leak > gh-refuse
+G -C clone push -q origin --delete feat/leak 2>/dev/null
+check "a delete GitHub refuses: GitLab keeps the branch" test "$(glref refs/heads/feat/leak)" != none
+rm gh-refuse
+G -C clone push -q origin --delete feat/leak 2>/dev/null
+check "a delete GitHub takes: GitLab deletes it too" test "$(glref refs/heads/feat/leak)" = none
+G init -q --bare gh-empty.git; G init -q --bare gl-empty.git; cp gh.git/hooks/pre-receive gh-empty.git/hooks/
+G init -q -b mvp-launch first; G -C first commit -q --allow-empty -m first
+bash "$SR" first "$SB/gh-empty.git" "$SB/gl-empty.git" >/dev/null 2>&1
+echo refs/heads/mvp-launch > gh-refuse
+G -C first push -q origin mvp-launch 2>/dev/null
+check "a first host with no refs at all refuses: the standby still gets nothing" test -z "$(git -C gl-empty.git for-each-ref)"
+rm gh-refuse
+G -C first push -q origin mvp-launch 2>/dev/null
+check "a first host with no refs at all takes it: so does the standby" test -n "$(git -C gl-empty.git for-each-ref)"
+
 # ---- guards: each refusal leaves the config as it was
 snap=$(git -C clone config --local --list)
 out=$(bash "$SR" clone "$GH" "$GH" 2>&1); rc=$?
@@ -118,6 +151,16 @@ snap=$(git -C other config --local --list)
 out=$(bash "$SR" other "$GH" "$GL" 2>&1); rc=$?
 check "gitlab remote on another host: refused" bash -c '[[ $0 -ne 0 ]] && grep -q "another host than the standby" <<< "$1"' "$rc" "$out"
 check "gitlab remote on another host: config untouched" test "$(git -C other config --local --list)" = "$snap"
+G clone -q gh.git hooked; G -C hooked remote set-url origin "$GH"
+printf '%s\n' '#!/bin/sh' 'exit 0' > hooked/.git/hooks/pre-push
+snap=$(git -C hooked config --local --list)
+out=$(bash "$SR" hooked "$GH" "$GL" 2>&1); rc=$?
+check "a pre-push hook of its own: refused" bash -c '[[ $0 -ne 0 ]] && grep -q "not the git-hosting hook" <<< "$1"' "$rc" "$out"
+check "a pre-push hook of its own: config and hook untouched" \
+  test "$(git -C hooked config --local --list)|$(cat hooked/.git/hooks/pre-push)" = "$snap|$(printf '%s\n' '#!/bin/sh' 'exit 0')"
+G clone -q gh.git hookspath; G -C hookspath remote set-url origin "$GH"; G -C hookspath config core.hooksPath my-hooks
+bash "$SR" hookspath "$GH" "$GL" >/dev/null 2>&1
+check "core.hooksPath: the hook goes where git runs hooks" cmp -s "$SCRIPTS/pre-push-standby.sh" hookspath/my-hooks/pre-push
 
 # ---- the GitLab group is renamed: the standby URL changes, nothing else does
 G clone -q gh.git renamed; G -C renamed remote set-url origin "$GH"

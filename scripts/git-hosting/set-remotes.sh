@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # set-remotes.sh <clone> <primary-url> [<standby-url>] [--fix-email <address>]
-# origin fetches from the primary and pushes to the primary, then the standby. A remote named for
-# the standby's host (github, gitlab, bitbucket, else standby) fetches the standby. When the primary
-# moves to another host, the old origin keeps its refs under its host's name: as the standby, or as
-# a frozen record that `git fetch --all` skips and pushes to fail. Re-running changes nothing.
+# origin fetches from the primary and pushes to the primary, then the standby; the pre-push hook
+# it installs sends the standby only what the primary took. A remote named for the standby's host
+# (github, gitlab, bitbucket, else standby) fetches the standby. When the primary moves to another
+# host, the old origin keeps its refs under its host's name: as the standby, or as a frozen record
+# that `git fetch --all` skips and pushes to fail. Re-running changes nothing.
 set -euo pipefail
 
 usage() {
@@ -66,6 +67,14 @@ if [[ -n $STANDBY ]]; then
     stop "remote '$s_name' points at $(url_of "$s_name"), another host than the standby; sort that out by hand"
   fi
 fi
+hook='' hook_src="$(dirname "${BASH_SOURCE[0]}")/pre-push-standby.sh"
+if [[ -n $STANDBY ]]; then
+  [[ -f $hook_src ]] || stop "$hook_src is missing"
+  hook="$(g rev-parse --path-format=absolute --git-path hooks)/pre-push"
+  if [[ -e $hook ]] && ! grep -q '^# git-hosting pre-push hook' "$hook"; then
+    stop "$hook exists and is not the git-hosting hook; merge the two by hand, then run this again"
+  fi
+fi
 
 # ---------------------------------------------------------------- origin
 if [[ -n $old_name ]]; then
@@ -96,6 +105,10 @@ if [[ -n $STANDBY ]]; then
   fi
   g config --unset-all "remote.$s_name.pushurl" || true
   g config --unset "remote.$s_name.skipFetchAll" || true
+fi
+if [[ -n $hook ]] && ! cmp -s "$hook_src" "$hook"; then
+  mkdir -p "$(dirname "$hook")"; cp "$hook_src" "$hook"; chmod +x "$hook"
+  echo "installed $hook: the standby gets a push only after the primary took it"
 fi
 if [[ -n $old_name && $old_name != "$s_name" ]]; then
   g config --replace-all "remote.$old_name.pushurl" "no-push://this-host-was-left-see-docs/GIT_HOSTING.md"

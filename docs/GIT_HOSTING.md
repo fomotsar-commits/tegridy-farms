@@ -67,7 +67,7 @@ drill (5A step 6) uses them. Keep this order: the first rule that matches wins.
    GitLab vault project (VAULT_URL, private)        every ref of the local vault, pushed by hand
    C:\Users\jimbo\git-vault\tegridy-farms-v2.git     the vault, built 2026-09-29
    C:\Users\jimbo\OneDrive\git-vault\               daily bundles + SHA256SUMS, newest 14 kept
-   healthchecks.io, check github-schedule          alarms when GitHub's daily run goes quiet or fails
+   healthchecks.io, check gitlab-standby           alarms when the daily full copy stops or fails
 ```
 
 | Place | Job | If it dies |
@@ -90,6 +90,8 @@ drill (5A step 6) uses them. Keep this order: the first rule that matches wins.
 
 **What keeps the standby current:**
 1. Every clone's `origin` pushes to GitHub, then GitLab (`set-remotes.sh`, 2D). Fetch stays GitHub.
+   A pre-push hook lets the GitLab half send only what GitHub took. So a push GitHub refuses, for
+   example one its secret scanning blocks, never lands on the public standby.
 2. `.github/workflows/mirror-to-gitlab.yml` pushes every branch and tag pushed to GitHub, over SSH,
    with a GitLab deploy key. It carries what no clone pushed: merges made on GitHub, cloud sessions.
    - It never forces and never deletes. A branch deleted on GitHub stays on GitLab.
@@ -97,16 +99,18 @@ drill (5A step 6) uses them. Keep this order: the first rule that matches wins.
    - `mvp-launch` on GitLab takes only fast-forwards, and only from that key. A trunk push GitLab
      refuses fails the run.
    - Once a day it sends every branch and tag again (GitHub starts no run for a push of more than
-     three tags) and pings healthchecks.io, so a schedule that stops firing raises an alarm.
+     three tags). Then it pings the healthchecks.io check `gitlab-standby` (2E), so a standby that
+     stops being current raises an alarm.
 3. The vault project is pushed by hand after each new vault build (2B step 2).
 
 The scripts, all in `scripts/git-hosting/`:
 
 | Script | What it does |
 |---|---|
-| `set-remotes.sh <clone> <primary> [<standby>] [--fix-email <addr>]` | origin fetches from the primary and pushes to the primary, then the standby. A remote named for the standby's host fetches the standby. On a failover it swaps: the old origin becomes a frozen record, the standby becomes origin. |
+| `set-remotes.sh <clone> <primary> [<standby>] [--fix-email <addr>]` | origin fetches from the primary and pushes to the primary, then the standby. A remote named for the standby's host fetches the standby. With a standby, it installs `pre-push-standby.sh` as the clone's pre-push hook. On a failover it swaps: the old origin becomes a frozen record, the standby becomes origin. |
+| `pre-push-standby.sh` | The pre-push hook. A remote's second push URL gets a ref only when the first URL already holds it exactly as pushed. |
 | `mirror-to-gitlab.sh` | Run by the mirror workflow. Pushes one ref (a push event) or every branch and tag (the daily run). Never forces or deletes. |
-| `push-all.sh <repo> <url> [--gitlab] [--dry-run] [--trunk <b>] [--vault]` | Pushes every branch and tag, then proves the host holds exactly that set. Never forces. `main` goes up as `archive/main`. Refuses the vault unless `--vault`. |
+| `push-all.sh <repo> <url> [--gitlab] [--dry-run] [--trunk <b>] [--vault]` | Pushes every branch and tag, then proves the host holds exactly that set. Never forces. `main` goes up as `archive/main`. Refuses a repo with `archive/*` tags (a vault) unless `--vault`. |
 | `consolidate-refs.sh` | Builds a NEW vault from the clones, the older vaults and the bundles, every stash entry included. Never overwrites a ref; proves 0 lost. |
 | `backup-bundles.sh [<dest>]` | One verified bundle per repo per day (branches, tags, remote-tracking refs), newest 14 kept, SHA256SUMS refreshed. |
 | `register-backup-task.ps1` | Registers the daily 03:30 backup task, which pings a healthchecks.io check. |
@@ -130,6 +134,13 @@ host settings without your go.
 3. Git for Windows is installed. It includes Git Credential Manager, which does each sign-in below
    in your browser.
 
+### 2.1 Merge this work first (your go: a production deploy)
+
+The steps below run scripts from `scripts/git-hosting/`, so this work must be on `mvp-launch` in
+your clone. GitHub also shows the mirror's **Run workflow** button, and runs its daily schedule,
+only for a workflow on the default branch. Until 2C is done, each push to `mvp-launch` shows a red
+Mirror to GitLab run, on purpose: it says the mirror's key is missing. Other branches only warn.
+
 ### 2A. GitLab: the account, the group and two projects (20 minutes)
 
 1. The account exists (username `fomotsar`, Google login). Give it a second way in, because a
@@ -152,7 +163,9 @@ host settings without your go.
      failover, the site's `/source-issues` link lands there.
 4. The vault project: the same, named `tegridy-farms-vault`, visibility **Private**, the same
    boxes unticked and the same CI settings. It stays private for good. It holds audit material,
-   PoC and rescue branches, and 453 `archive/*` tags that were never public.
+   PoC and rescue branches, and 464 `archive/*` tags. 423 of those are old GitHub pull request
+   heads, public once as `refs/pull/*`. The other 41 (stash entries, and commits found only in
+   clones or bundles) were never public.
 
 ### 2B. Fill both projects (20 minutes)
 
@@ -180,7 +193,9 @@ host settings without your go.
    bash scripts/git-hosting/push-all.sh "$V" "$VAULT_URL" --gitlab --vault
    ```
    - `push-all.sh` refuses any repo that holds `refs/tags/archive/*` (a vault) unless `--vault` is
-     given. So a mixed-up URL cannot publish the vault on the public standby.
+     given. So a mixed-up URL cannot publish this vault on the public standby. It checks only for
+     those tags: it cannot tell a working clone's unpushed branches from GitHub's. That is why the
+     standby is seeded only from a mirror clone of GitHub (step 1).
    - The vault is about 150 MB. GitLab allows 5 GiB per push and 10 GiB per repo.
    - Push it again after each new vault build (5D).
 3. In the standby project, set it up now for the day it becomes primary:
@@ -211,7 +226,8 @@ host settings without your go.
    needed again, make a new pair and repeat steps 2 and 3.
 4. GitLab, the standby project: **Settings > Repository > Branch rules** > `mvp-launch` > **View
    details**:
-   - **Allowed to merge**: Maintainers.
+   - **Allowed to merge**: No one. A merge request merged on the standby would give its trunk a
+     commit GitHub's trunk lacks. Failover (5A step 3) sets Maintainers.
    - **Allowed to push and merge**: **Edit**. Roles: No one. **Deploy keys**: add
      `github-actions-mirror`. **Save changes**.
    - **Allowed to force push**: off.
@@ -236,26 +252,39 @@ git -C /c/Users/jimbo/dev/tegridy-farms fetch gitlab
 
 - origin still fetches from GitHub. It now pushes to GitHub first, then GitLab. A new remote
   `gitlab` fetches the standby.
+- It also installs a pre-push hook (`pre-push-standby.sh`, in the clone's hooks folder, which
+  `core.hooksPath` can move). Before the GitLab half, the hook asks GitHub for the refs being
+  pushed, and sends GitLab nothing unless GitHub holds each one exactly as pushed. If the clone
+  already has a pre-push hook of its own, the script stops and changes nothing.
 - The first push to GitLab opens Git Credential Manager's browser sign-in, once.
 - Worktrees share their clone's settings, so one run per clone covers all of its worktrees.
 - Re-running with the same arguments changes nothing.
 
-### 2E. The alarm on GitHub's schedule (5 minutes)
+### 2E. The alarm on the standby (5 minutes)
 
-GitHub's scheduled jobs stopped for more than five days from 2026-09-24, and nothing told anyone
-(section 6). A schedule that does not fire makes no failed run, so the fix has to come from
-outside GitHub.
+A mirror that stops is silent: a schedule that does not fire makes no run, so nothing goes red
+(section 6). So the daily run reports to healthchecks.io, outside GitHub.
 
 1. In healthchecks.io (email and password, two-factor on; the same account as the other checks),
-   create a check named `github-schedule`, period **1 day**, grace **12 hours**.
-2. Put its ping URL in a GitHub Actions secret named `HC_PING_URL_GITHUB_SCHEDULE` (**Settings >
+   create a check named `gitlab-standby`, period **1 day**, grace **12 hours**.
+2. Put its ping URL in a GitHub Actions secret named `HC_PING_URL_GITLAB_STANDBY` (**Settings >
    Secrets and variables > Actions**).
-3. The daily Mirror to GitLab run (06:41 UTC) pings it: the URL when the run passed,
-   `<url>/fail` when it failed.
-   - **Late** (no ping): GitHub's schedules stopped firing. GitHub also turns off a public repo's
-     schedules after 60 days with no activity; this catches that too.
-   - **Failed**: the run fired and the standby fell behind. Read the run's log (section 3).
-   - Until the secret exists, each daily run shows a warning saying so.
+3. **Arm it now.** GitHub > **Actions > Mirror to GitLab > Run workflow**, branch `mvp-launch`.
+   When the run ends, the check must show **UP**. A new check stays grey and sends nothing until
+   its first ping, so without this step it never alarms. Not UP: the secret is wrong; the run's
+   ping job says why.
+4. From then on the daily run (06:41 UTC) and every run by hand ping it: the URL when the mirror
+   job passed, `<url>/fail` when it failed or was cancelled.
+   - **DOWN with no ping for 36 hours:** no daily run happened. Usually GitHub's schedules stopped
+     firing, as they did from 2026-09-24. GitHub also turns off a public repo's schedules after 60
+     days with no activity. Or the ping itself failed: that run is red.
+   - **DOWN after a `/fail` ping:** the run fired but the standby did not take everything, or
+     GitHub cancelled the run while it waited behind another. Read the run's log (section 3). The
+     next good run turns it UP.
+   - This check watches the standby. While it is DOWN for one reason, a second reason sends no new
+     email. GitHub's scheduler has its own check, `github-crons`, pinged every 30 minutes
+     (`docs/OPS_SCHEDULER.md` section 2, from branch `ops/off-github-crons`).
+   - Until the secret exists, each run shows a warning saying so.
 
 ### 2F. Vercel: ready for the drill (5 minutes)
 
@@ -322,6 +351,13 @@ private project for it in the group and seed it from a mirror clone of GitHub:
   fetches the standby. Pull requests, reviews and merges happen on GitHub, with `gh`, as before.
 - **A push that fails only on GitLab still happened on GitHub.** Git prints an error for the
   GitLab half. The mirror workflow copies the push to GitLab anyway. Never retry with force.
+- **A push GitHub refuses never reaches GitLab.** Without the hook it would: git pushes to each
+  push URL in turn and goes on after one refuses. With it (2D), the GitLab half prints
+  `pre-push: <ref> not sent` and sends nothing. Fix the push; never skip the hook
+  (`--no-verify`). `git push --dry-run origin` prints the same line, because GitHub took nothing.
+- **If a secret reached GitLab anyway** (a push from a clone without the hook, or straight to the
+  `gitlab` remote): tell the owner now. The secret must be rotated. The mirror never deletes, so
+  the branch stays public on GitLab until the owner deletes it there (section 4).
 - **Never push `mvp-launch` directly.** On GitHub that is a production deploy. GitLab refuses it:
   only the mirror's key may move its trunk.
 - **Is the standby current?** `git fetch --all`, then
@@ -343,6 +379,8 @@ was forced or deleted in any case.
   the deploy key.
 - *... failed*, or *could not read the standby.* GitLab did not answer, or the key is gone. If it
   lasts, see 5B.
+- *Only the ping job is red* (daily and manual runs): healthchecks.io did not take the ping, or
+  `HC_PING_URL_GITLAB_STANDBY` is not a plain https URL. The mirror job's own result stands.
 
 A **warning** on a feature branch means GitLab keeps an older version of a branch that was
 force-pushed on GitHub. That is expected. The clone that force-pushed usually sent the new version
@@ -380,12 +418,14 @@ Never, on any path:
 ### 5A. GitHub is gone: GitLab becomes the primary (about 15 minutes)
 
 **Start when** GitHub answers 403 for the account, or the repository or account is gone, and the
-owner says go. Steps 1 to 5 take about 15 minutes. Steps 6 to 9 follow the same day. Steps 4 and
-6 are production deploys.
+owner says go. Steps 1 to 5 take about 15 minutes; after them GitLab is the primary. Steps 6 to 9
+follow the same day, and step 6 makes the first production build from GitLab. Steps 4 and 6 are
+production deploys.
 
 1. **Cut the mirror (1 minute).** GitLab, the standby project: **Settings > Repository > Deploy
    keys**, remove `github-actions-mirror`. A GitHub that comes back can now change nothing on
-   GitLab. Its workflow runs will go red; that is fine.
+   GitLab. Its workflow runs will go red; that is fine. In healthchecks.io, pause the
+   `gitlab-standby` check: with no mirror it can only go DOWN.
 2. **Check that GitLab holds the real trunk (2 minutes).**
    ```
    git ls-remote "$STANDBY" refs/heads/mvp-launch
@@ -420,10 +460,9 @@ owner says go. Steps 1 to 5 take about 15 minutes. Steps 6 to 9 follow the same 
       MSYS_NO_PATHCONV=1 npx vercel api /v9/projects/prj_J1FvjRMmzfpMy8bfAnxC15k4dILI --raw | node -e "let b='';process.stdin.on('data',c=>b+=c).on('end',()=>{const l=JSON.parse(b.slice(b.indexOf('{'))).link||{};console.log(l.type,l.org+'/'+l.repo,'prod:',l.productionBranch)})"
       ```
       It must print `gitlab`, then the standby's group and project, then `prod: mvp-launch`.
-   5. **Deployments**: the next production build is Staged. Check that it serves the trunk from
-      step 2: `npx vercel curl <deployment-url>/held-through.json`. Then
-      `npx vercel promote <deployment-url>`, and turn auto-assign back **on**. From now on a merge
-      to GitLab's `mvp-launch` is a production deploy.
+   5. Leave auto-assign off for now. Connecting a repository starts no build, so production keeps
+      serving what it served. The first GitLab build comes from step 6's merge. It waits as
+      **Staged** until you check it and promote it there.
 5. **Point every clone at GitLab (2 minutes).**
    ```
    bash scripts/git-hosting/set-remotes.sh /c/Users/jimbo/dev/tegridy-farms "$STANDBY"
@@ -438,11 +477,19 @@ owner says go. Steps 1 to 5 take about 15 minutes. Steps 6 to 9 follow the same 
      GitLab group, Vercel only builds commits whose author is a member of the Vercel team, and it
      cannot match that address. Old history stays as it is; that is harmless.
    - The mirror workflow is dead from here on. Clones push to GitLab directly.
-6. **Point the source links at GitLab (one merge request, a production deploy).** In
+6. **Point the source links at GitLab: the first production build from GitLab.** In
    `frontend/vercel.json`, give the four `/source` rules the destinations at the top of this page,
    in that order. In the same merge request, update the address block at the top of this page:
-   `PRIMARY` becomes the GitLab URL, and the GitHub line says it is gone. Open and merge it with `glab` (5A.1). Afterwards `curl -sI https://memetics.finance/source`
-   answers 307 with a GitLab `location`.
+   `PRIMARY` becomes the GitLab URL, and the GitHub line says it is gone. Open and merge it with
+   `glab` (5A.1). Then:
+   1. `git -C /c/Users/jimbo/dev/tegridy-farms fetch origin`, then
+      `git -C /c/Users/jimbo/dev/tegridy-farms rev-parse origin/mvp-launch`: the merge commit.
+   2. Vercel > **Deployments**: its production build is **Staged**.
+      `npx vercel curl <deployment-url>/held-through.json` must show that commit's first 12
+      characters. Anything else: stop and ask the owner.
+   3. `npx vercel promote <deployment-url>`, then turn auto-assign back **on** (step 4.1). From
+      now on a merge to GitLab's `mvp-launch` is a production deploy.
+   4. `curl -sI https://memetics.finance/source` answers 307 with a GitLab `location`.
 7. **CI.** If a runner is registered for the project (`docs/CI_ON_GITLAB.md`), set the CI/CD
    variable `TEGRIDY_CI_ON_GITLAB` to `1` (project **Settings > CI/CD > Variables**, with "Protect
    variable" cleared so merge request pipelines see it). Tick **Pipelines must succeed** once a
@@ -450,8 +497,8 @@ owner says go. Steps 1 to 5 take about 15 minutes. Steps 6 to 9 follow the same 
    worktree of the merge request's head before each merge. Both files come with branch
    `ci/gitlab-pipeline`.
 8. **Scheduled jobs.** GitHub's schedules died with it. Register the stopgap tasks on the ops PC,
-   with their healthchecks alarms: `docs/OPS_SCHEDULER.md` section 5 (`scripts\ops\register-tasks.ps1`).
-   That includes the Supabase backup.
+   with their healthchecks alarms: `docs/OPS_SCHEDULER.md`, the section "Failover: GitHub is gone"
+   (`scripts\ops\register-tasks.ps1 -Failover`). That includes the Supabase backup.
 9. **Railway.** It builds the indexer from the GitHub URL, so no rebuild from source works. Deploy
    with `railway up` from a **clean worktree** of the trunk commit, never from the OneDrive
    checkout (the Railway CLI is linked to it, and it is far behind trunk). A production deploy:
@@ -496,7 +543,8 @@ owner decides. To make GitHub primary again, in this order: catch GitHub up from
 of GitLab (5E); reconnect Vercel to GitHub the way step 4 did, with the Ignored Build Step now
 cancelling `gitlab`; run `set-remotes.sh <clone> "$PRIMARY" "$STANDBY"` on each clone (it turns
 the frozen `github` record back into origin and GitLab back into the standby); make a new deploy
-key (2C); point the source links back. Each trunk move is a production deploy.
+key (2C); point the source links back; unpause the `gitlab-standby` check and arm it again
+(2E step 3). Each trunk move is a production deploy.
 
 ### 5B. GitLab is gone (or bans the account)
 
@@ -573,7 +621,7 @@ alarm), and each push from a clone prints an error for its GitLab half. The GitH
   line matches a mirror warning (section 3). A `mvp-launch` line is an emergency. The standby may
   hold more than GitHub: branches deleted on GitHub stay there.
 - **Weekly:** the last daily Mirror to GitLab run is green, and healthchecks.io shows
-  `github-schedule` UP.
+  `gitlab-standby` UP.
 - **Monthly:** run 5C steps 1 to 3 into a temp folder. The top trunk must be GitHub's current
   `mvp-launch` or close behind it. Run the 5C deploy as a **preview** (drop `--prod`).
 - **Monthly:** the backup is alive. The newest `tegridy-farms-*` bundle in `OneDrive\git-vault` is
@@ -615,7 +663,8 @@ bash scripts/git-hosting/push-all.sh "$SRC" <host URL>
   commits did not: every one was still in a local clone or a bundle.
 - **The silent part:** GitHub's scheduled workflows stopped from that day, for more than five
   days, and nothing told anyone. A schedule that does not fire makes no failed run and sends no
-  email. They had still not resumed when the account came back. That is why 2E exists.
+  email. They had still not resumed when the account came back. That is why every alarm on a
+  schedule, 2E and 2G included, lives outside the thing it watches, and is armed by a first ping.
 - **2026-09-29:** the refs of every clone and bundle went into one vault. The first build missed
   11 of the OneDrive clone's 12 stash entries (only the newest is a ref). A fresh vault,
   `C:\Users\jimbo\git-vault\tegridy-farms-v2.git`, was built with the fixed script: 612 branches,
@@ -644,7 +693,7 @@ Secret values cannot be read back, only replaced.
 | Name | Kind | Used by | Set on GitHub? | Where the value survives |
 |---|---|---|---|---|
 | `GITLAB_MIRROR_SSH_KEY` | secret | `mirror-to-gitlab.yml` | from 2C | Only there. Lost: make a new pair (2C) |
-| `HC_PING_URL_GITHUB_SCHEDULE` | secret | `mirror-to-gitlab.yml` | from 2E | healthchecks.io |
+| `HC_PING_URL_GITLAB_STANDBY` | secret | `mirror-to-gitlab.yml` | from 2E | healthchecks.io |
 | `BACKUP_PASSPHRASE` | secret | `supabase-backup.yml` | yes | **Only your offline copy.** Lose it and every old backup is unreadable. |
 | `SUPABASE_SERVICE_KEY` | secret | `supabase-backup.yml` | yes | Vercel production env (viewable) and the Supabase dashboard |
 | `SUPABASE_URL` | secret | `supabase-backup.yml` | yes | Vercel `SUPABASE_URL`; derivable from the project ref |
@@ -663,7 +712,7 @@ Secret values cannot be read back, only replaced.
 | GitLab login: Google, plus a password, 2FA and recovery codes | 2A | your password manager; codes offline | everything on GitLab |
 | Deploy key `github-actions-mirror` | 2C | private half: only the GitHub secret; public half: GitLab | the mirror workflow's pushes |
 | Git Credential Manager sign-in (gitlab.com) | the first push | Windows Credential Manager | your pushes and fetches; it refreshes on its own |
-| healthchecks.io checks `github-schedule`, `git-vault-backup` | 2E, 2G | healthchecks.io; the ping URLs as named in 2E and 2G | the alarms |
+| healthchecks.io checks `gitlab-standby`, `git-vault-backup` | 2E, 2G | healthchecks.io; the ping URLs as named in 2E and 2G | the alarms |
 | Vercel's login connection to GitLab | 2F | Vercel | the failover's deploy trigger; revocable in GitLab |
 | Only in a failover: glab sign-in, runner tokens (`glrt-...`) | 5A | Windows Credential Manager; the runner host | merges and CI on GitLab |
 

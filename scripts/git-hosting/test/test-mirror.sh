@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
 # mirror-to-gitlab.sh against throwaway bare repos: gh.git stands in for GitHub, gl.git for the
-# GitLab standby, and a fresh clone of gh.git for the workflow's checkout. The pinned host key is
-# read from the workflow file itself. No test touches the network. Usage: bash test-mirror.sh
+# GitLab standby, and a fresh clone of gh.git for the workflow's checkout. The URL and the pinned
+# host key are read from the workflow file itself, and fake-ssh.sh, first on PATH, checks the SSH
+# options before it serves gl.git. No test touches the network. Usage: bash test-mirror.sh
 source "$(dirname "$0")/lib.sh"
 MIR="$SCRIPTS/mirror-to-gitlab.sh"
 WF="$(cd "$HERE/../../.." && pwd)/.github/workflows/mirror-to-gitlab.yml"
 HOST_KEY=$(sed -n "s/^ *GITLAB_HOST_KEY: '\(.*\)'\$/\1/p" "$WF")
 HOST_FP=$(sed -n "s/^ *GITLAB_HOST_KEY_SHA256: '\(.*\)'\$/\1/p" "$WF")
+WF_URL=$(sed -n 's/^ *MIRROR_URL: \(.*\)$/\1/p' "$WF")
 sandbox t-mirror
+mkdir -p fakebin; cp "$HERE/fake-ssh.sh" fakebin/ssh; chmod +x fakebin/ssh
 
 # run <label> <event> [ref] [deleted]: a fresh checkout of gh.git, then the script; sets out, rc
 run() {
   rm -rf co; git clone -q gh.git co 2>/dev/null; mkdir -p "$SB/tmp"
-  out=$(cd "$SB" && TMPDIR="$SB/tmp" MIRROR_REPO=co MIRROR_URL="$SB/gl.git" MIRROR_EVENT=$2 MIRROR_REF=${3:-} \
+  out=$(cd "$SB" && PATH="$SB/fakebin:$PATH" FAKE_SSH_REPO=${STANDBY_REPO-$SB/gl.git} FAKE_SSH_LOG="$SB/ssh.log" \
+        FAKE_SSH_KEY=${KEY-dummy-private-key} FAKE_SSH_HOST_KEY=$HOST_KEY FAKE_SSH_HOST=${WF_URL%%:*} \
+        TMPDIR="$SB/tmp" MIRROR_REPO=co MIRROR_URL=$WF_URL MIRROR_EVENT=$2 MIRROR_REF=${3:-} \
         MIRROR_DELETED=${4:-false} GITLAB_MIRROR_SSH_KEY=${KEY-dummy-private-key} \
-        GITLAB_HOST_KEY=$HOST_KEY GITLAB_HOST_KEY_SHA256=${FP-$HOST_FP} bash "$MIR" 2>&1); rc=$?
+        GITLAB_HOST_KEY=${HK-$HOST_KEY} GITLAB_HOST_KEY_SHA256=${FP-$HOST_FP} bash "$MIR" 2>&1); rc=$?
 }
 gl() { git -C "$SB/gl.git" rev-parse -q --verify "$1" 2>/dev/null || echo none; }
 gh() { git -C "$SB/gh.git" rev-parse -q --verify "$1" 2>/dev/null || echo none; }
@@ -56,6 +61,8 @@ check "full: every push carried ci.skip" test "$(grep -c '^PUSH' gl.log)" = "$(g
 check "full: a clean first run warns about nothing" bash -c '! grep -q "^::" <<< "$0"' "$out"
 check "full: the private key never reaches the log" bash -c '! grep -q dummy-private-key <<< "$0"' "$out"
 check "full: the private key file is gone afterwards" test -z "$(grep -rl dummy-private-key "$SB/tmp" 2>/dev/null)"
+check "full: every push went through the fake ssh, which refused nothing" \
+  bash -c 'grep -q "^OK receive-pack" ssh.log && grep -q "^OK upload-pack" ssh.log && ! grep -q "^REFUSED" ssh.log'
 n=$(pushes)
 run again schedule
 check "full re-run: exits 0 and plans nothing" bash -c '[[ $0 -eq 0 ]] && grep -q "to push: 0" <<< "$1"' "$rc" "$out"
@@ -75,6 +82,8 @@ check "event: a new annotated tag arrives as the same object" bash -c '[[ $0 -eq
 G -C w commit -q --allow-empty -m trunk3; G -C w push -q "$SB/gh.git" mvp-launch
 run ff-trunk push refs/heads/mvp-launch
 check "event: a fast-forward trunk moves the standby" bash -c '[[ $0 -eq 0 ]] && test "$1" = "$2"' "$rc" "$(gl refs/heads/mvp-launch)" "$(gh refs/heads/mvp-launch)"
+run ff-trunk-again push refs/heads/mvp-launch
+check "event: the same trunk push again (a re-run) is green" bash -c '[[ $0 -eq 0 ]] && ! grep -q "^::error::" <<< "$1"' "$rc" "$out"
 
 G -C w push -q "$SB/gh.git" main
 run main push refs/heads/main
@@ -156,16 +165,15 @@ check "no key: nothing was pushed" test "$(pushes)" = "$n"
 # ---- the pinned host key and its fingerprint disagree: no connection at all
 FP='SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' run bad-fp push refs/heads/feat/c
 check "fingerprint mismatch: exits 1 before any push" bash -c '[[ $0 -eq 1 ]] && grep -q "pinned host key.s fingerprint" <<< "$1" && test "$2" = "$3"' "$rc" "$out" "$(pushes)" "$n"
+HK='gitlab.com ssh-ed25519 not-a-key' run no-fp push refs/heads/feat/c
+check "a host key with no readable fingerprint: exits 1 before any push" bash -c '[[ $0 -eq 1 ]] && test "$1" = "$2"' "$rc" "$(pushes)" "$n"
 
 # ---- the standby cannot be reached
-rm -rf co; git clone -q gh.git co 2>/dev/null
-unreach() { out=$(MIRROR_REPO=co MIRROR_URL="$SB/gone.git" MIRROR_EVENT=$1 MIRROR_REF=${2:-} GITLAB_MIRROR_SSH_KEY=k \
-  GITLAB_HOST_KEY=$HOST_KEY GITLAB_HOST_KEY_SHA256=$HOST_FP bash "$MIR" 2>&1); rc=$?; }
-unreach push refs/heads/feat/c
+STANDBY_REPO="$SB/gone.git" run unreach-feature push refs/heads/feat/c
 check "unreachable, feature push: a warning, exits 0" bash -c '[[ $0 -eq 0 ]] && grep -q "^::warning::refs/heads/feat/c: failed" <<< "$1"' "$rc" "$out"
-unreach push refs/heads/mvp-launch
+STANDBY_REPO="$SB/gone.git" run unreach-trunk push refs/heads/mvp-launch
 check "unreachable, trunk push: exits 1" test $rc -eq 1
-unreach schedule
+STANDBY_REPO="$SB/gone.git" run unreach-daily schedule
 check "unreachable, daily run: exits 1" bash -c '[[ $0 -eq 1 ]] && grep -q "could not read the standby" <<< "$1"' "$rc" "$out"
 
 # ---- inputs it refuses
@@ -173,6 +181,30 @@ run pull-ref push refs/pull/1/head
 check "a ref that is not a branch or tag: exits 2" test $rc -eq 2
 run odd-event pull_request refs/heads/feat/c
 check "an unknown event: exits 2" test $rc -eq 2
+
+# ================================================================ the ping step, as the workflow has it
+PING_BODY=$(awk '/- name: Ping the gitlab-standby check/ { f = 1 } f && /run: \|/ { r = 1; next }
+  r && $0 != "" && substr($0, 1, 10) != "          " { exit } r { print substr($0, 11) }' "$WF")
+check "ping: the step's script was found" grep -q 'curl' <<< "$PING_BODY"
+mkdir -p fakecurl
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$*" > "$FAKE_CURL_DIR/curl.argv"; cat > "$FAKE_CURL_DIR/curl.config"' > fakecurl/curl
+chmod +x fakecurl/curl
+ping_run() { # ping_run <needs.mirror.result> [url]: sets out, rc; the fake curl leaves curl.config
+  rm -f curl.argv curl.config
+  out=$(PATH="$SB/fakecurl:$PATH" FAKE_CURL_DIR="$SB" HC_PING_URL=${2-https://hc-ping.invalid/check-id} \
+        MIRROR_RESULT=$1 bash -e -c "$PING_BODY" 2>&1); rc=$?
+}
+ping_run success
+check "ping: a passed run pings the check" test "$(cat curl.config 2>/dev/null)" = 'url = "https://hc-ping.invalid/check-id"'
+check "ping: the URL never reaches curl's command line" bash -c '[[ -s $0 ]] && ! grep -q hc-ping "$0"' curl.argv
+for result in failure cancelled skipped ''; do
+  ping_run "$result"
+  check "ping: a run that is '$result' pings /fail" test "$(cat curl.config 2>/dev/null)" = 'url = "https://hc-ping.invalid/check-id/fail"'
+done
+ping_run success ''
+check "ping: no secret is a warning, exit 0, nothing sent" bash -c '[[ $0 -eq 0 && ! -e curl.config ]] && grep -q "^::warning::" <<< "$1"' "$rc" "$out"
+ping_run success 'https://hc-ping.invalid/a"b'
+check "ping: a URL that is not plain https is refused" bash -c '[[ $0 -eq 1 && ! -e curl.config ]]' "$rc"
 
 # ---------------------------------------------------------------- static: nothing that can rewrite or delete
 code=$(grep -v '^[[:space:]]*#' "$MIR")

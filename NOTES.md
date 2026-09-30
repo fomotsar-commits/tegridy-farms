@@ -15,20 +15,21 @@ Rules for entries, so this stays worth reading:
 
 ---
 
-## 2026-09-29 — a scheduled workflow that stops firing looks exactly like one that is fine
+## 2026-09-30 — with two push URLs, a push the first host refuses still reaches the second
 
-**Believed:** if GitHub's scheduled jobs stop, a red run or an email says so.
+**Believed:** an `origin` with two `pushurl`s (GitHub, then GitLab) stops at GitHub when GitHub
+refuses a push, for example because its secret scanning found a key in it.
 
-**Measured:** from the account suspension on 2026-09-24, no scheduled workflow ran for more than
-five days. Nothing went red and nobody was emailed: a schedule that does not fire makes no run
-that can fail. When the account came back (2026-09-29/30), Actions was on, all 15 workflows read
-"active", and the schedules had still not resumed. "Active" said nothing about firing.
+**Measured:** git pushes to each push URL in turn and goes on after one refuses (git 2.53,
+throwaway repos, 2026-09-30). The "GitHub" repo's pre-receive hook refused `feat/leak`; the same
+`git push` then printed `* [new branch] feat/leak -> feat/leak` for the "GitLab" repo, and
+exited 1. The standby is public, so that push would have published the key.
 
-**Do:** watch a schedule from outside it. The daily run of `mirror-to-gitlab.yml` pings the
-healthchecks.io check `github-schedule` (period 1 day, grace 12 hours), so silence raises an
-alarm (`docs/GIT_HOSTING.md` 2E). Any other scheduled job that matters needs its own check. GitHub's
-docs also say a public repo's schedules turn off after 60 days with no activity; the check
-catches that too.
+**Do:** give the clone a pre-push hook. git runs it once per push URL, with that URL as `$2`. For
+every URL after the first, ask the first host (`git ls-remote`) whether it now holds each ref
+exactly as pushed, and refuse otherwise. `scripts/git-hosting/pre-push-standby.sh` does this and
+`set-remotes.sh` installs it; without it, the set-remotes tests go red. A `--dry-run` push then
+reports the second URL as refused, because the first took nothing.
 
 ---
 
