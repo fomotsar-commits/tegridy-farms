@@ -86,7 +86,7 @@ describe('the explainer is the island paragraph opening', () => {
     const { container } = mount();
     expect(
       screen.getByText(
-        'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it.',
+        'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds a quarter of its own, so breadth amplifies depth and never replaces it.',
       ),
     ).toBeTruthy();
     expect(container.textContent).not.toMatch(

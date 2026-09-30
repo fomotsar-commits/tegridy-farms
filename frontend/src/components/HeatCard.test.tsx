@@ -958,7 +958,7 @@ describe('the island dials, on the card', () => {
 
 describe('the maths fold carries the island paragraph, never a formula', () => {
   const PARAGRAPH =
-    'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Each degree after that takes longer than the last. Size can raise what a day is worth, it cannot buy a day, and price never enters it.';
+    'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds a quarter of its own, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Past Resident the number reads like fire: every degree costs a little more than the last, and the hottest flames stay in range. Size can raise what a day is worth, it cannot buy a day, and price never enters it. The rate is one curve for every wallet: nothing under 0.0001% of a supply, a full day at 0.01%, two at 1%, and never more. From a real position up, ten times the bag adds half a day. The tier words bind your island heat. Trading speed cannot move it.';
 
   async function openMaths() {
     const view = mount();
@@ -986,9 +986,9 @@ describe('the maths fold carries the island paragraph, never a formula', () => {
     const items = [...fold.querySelectorAll('ul')[0]!.querySelectorAll(':scope > li')];
     expect(items.map((li) => li.querySelector('strong')?.textContent)).toEqual(['Days', 'Size', 'Weight']);
     expect(items[0]!.textContent).toBe('Days Your clock on a token starts at your first hold.');
-    expect(items[1]!.textContent).toBe('Size A real position earns a full day. The largest holders earn up to two. Dust earns nothing.');
+    expect(items[1]!.textContent).toBe('Size A real position earns a full day. The largest holders earn up to two. Dust earns nothing. An Ape counts by the piece: one is a full day, ten are two.');
     expect(items[2]!.textContent).toMatch(
-      /^Weight is the island's published\s+multiplier\.\s+The Apes carry triple weight, JBM and BAYLA carry their edge, the home team leans warm,\s+and every measured token counts\.$/,
+      /^Weight is the island's published\s+multiplier\.\s+The island's own weigh heavier: the Apes, JBM and BAYLA carry the island's edge, the home team leans warm\. An Ape counts by the piece\.$/,
     );
   });
 

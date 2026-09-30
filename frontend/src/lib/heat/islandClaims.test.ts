@@ -104,17 +104,21 @@ describe('the venue teaches the whole published law, not one term of it', () => 
     expect(userFacing).not.toMatch(/has not been published/i);
   });
 
+  // memetics.wtf/heat as fetched 2026-09-29 (Last-Modified 2026-09-30T02:08:02Z), tags
+  // stripped: the paragraph under the ruler, the fourth "In plain words" line, and the
+  // rate definition's clauses. The page's apostrophes are all straight (U+0027).
   it('explains in the island paragraph, word for word', () => {
-    const paragraph = 'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Each degree after that takes longer than the last. Size can raise what a day is worth, it cannot buy a day, and price never enters it.';
+    const paragraph = 'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds a quarter of its own, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Past Resident the number reads like fire: every degree costs a little more than the last, and the hottest flames stay in range. Size can raise what a day is worth, it cannot buy a day, and price never enters it. The rate is one curve for every wallet: nothing under 0.0001% of a supply, a full day at 0.01%, two at 1%, and never more. From a real position up, ten times the bag adds half a day. The tier words bind your island heat. Trading speed cannot move it.';
     expect(VENUE.heatParagraph).toBe(paragraph);
     // The hero and llms.txt carry the paragraph's first two sentences, and only those.
-    expect(VENUE.heatPlain).toBe('Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it.');
+    expect(VENUE.heatPlain).toBe('Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds a quarter of its own, so breadth amplifies depth and never replaces it.');
     expect(VENUE.heatParagraph.startsWith(`${VENUE.heatPlain} `)).toBe(true);
     expect(VENUE.heatDays).toBe('Your clock on a token starts at your first hold.');
-    expect(VENUE.heatSize).toBe('A real position earns a full day. The largest holders earn up to two. Dust earns nothing.');
-    // The Maths fold renders all three from VENUE; Weight stays its own sentence.
+    expect(VENUE.heatSize).toBe('A real position earns a full day. The largest holders earn up to two. Dust earns nothing. An Ape counts by the piece: one is a full day, ten are two.');
+    expect(VENUE.heatWeight).toBe("The island's own weigh heavier: the Apes, JBM and BAYLA carry the island's edge, the home team leans warm. An Ape counts by the piece.");
+    // The Maths fold renders all four from VENUE, Weight under the venue's own lead-in.
     const heatCard = prose(join(SRC, 'components', 'HeatCard.tsx'));
-    for (const key of ['heatParagraph', 'heatDays', 'heatSize']) expect(heatCard).toContain(`VENUE.${key}`);
+    for (const key of ['heatParagraph', 'heatDays', 'heatSize', 'heatWeight']) expect(heatCard).toContain(`VENUE.${key}`);
     expect(heatCard, 'weight is not defined as the published multiplier').toMatch(/published\s*\{?'?\s*\}?\s*multiplier/i);
   });
 
@@ -415,9 +419,16 @@ describe('every heat explainer carries the island sentences', () => {
   });
 
   // Wording the island has retired reaches no reader, so no two surfaces disagree.
+  // \s+ between words: userText() puts each string literal on its own line, so a sentence
+  // split across a `+` join reads "the one \nbefore" (arrival.ts split it just there).
   const RETIRED: [string, RegExp][] = [
     ['a per-wallet clock', /measured per wallet|wallet['’]s clock|clock at the move/i],
     ['the calculation fold label', /how is this calculated|hide the maths/i],
+    ['a second word for the weight of the Apes', /\btriple[\s-]+weight|\bApes?\b[^.]{0,60}?(?:\btriple\b|(?:\bx|×)\s*3\b|\b3\s*[x×]|three\s+times)/i],
+    ['the retired edge wording', /\bcarr(?:y|ies)\s+their\s+edge\b/i],
+    ['the retired breadth rule', /\bhalf\s+as\s+much\s+as\s+the\s+one\s+before\b/i],
+    ['the retired past-Resident sentence', /\btakes\s+longer\s+than\s+the\s+last\b/i],
+    ['an old tier band typed as text', /\b(?:Builder|Elder)s?\b[^.]{0,24}?\b(?:150|250)\s*(?:°|degrees)|\b(?:150|250)\s*(?:°|degrees)[^.]{0,24}?\b(?:Builder|Elder)s?\b/i],
   ];
   for (const [name, re] of RETIRED) {
     it(`retires ${name}`, () => {
@@ -428,4 +439,36 @@ describe('every heat explainer carries the island sentences', () => {
       expect(found, `${name} in user-facing source:\n${found.join('\n')}`).toEqual([]);
     });
   }
+
+  // A guard that cannot fire is armed, not inert: each row knows the sentence it retires,
+  // split across a literal join too, and stays silent on the island's current lines.
+  it('knows each retired sentence, split across a literal join too, and passes the island ones', () => {
+    const re = Object.fromEntries(RETIRED);
+    for (const [name, old] of [
+      ['a second word for the weight of the Apes', 'The Apes carry triple weight, JBM and BAYLA carry their edge'],
+      ['a second word for the weight of the Apes', 'The Apes count x3 here.'],
+      ['a second word for the weight of the Apes', 'Apes ×3'],
+      ['a second word for the weight of the Apes', 'the Apes count\nthree times'],
+      ['the retired edge wording', 'JBM and BAYLA carry their edge'],
+      ['the retired breadth rule', 'every other room adds half as much as the one \nbefore it'],
+      ['the retired past-Resident sentence', 'Each degree after that takes longer\nthan the last.'],
+      ['an old tier band typed as text', 'Elder at 250°'],
+      ['an old tier band typed as text', 'from 150 degrees, Builder'],
+    ] as const) {
+      expect(re[name]!.test(old), `${name}: ${JSON.stringify(old)}`).toBe(true);
+    }
+    for (const now of [
+      VENUE.heatPlain,
+      VENUE.heatParagraph,
+      VENUE.heatSize,
+      VENUE.heatWeight,
+      // The island's law line and its weight legend, so neither is refused if shown.
+      "Home weighs heavier. The Apes, JBM and BAYLA carry the island's edge.",
+      'Apes, JBM and BAYLA ×1.5 · home team ×1.25 · every measured token ×1',
+      'Apes contract 0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d',
+      'Builder 300° · Elder 800°',
+    ]) {
+      for (const [name, r] of RETIRED) expect(r.test(now), `${name}: ${now}`).toBe(false);
+    }
+  });
 });

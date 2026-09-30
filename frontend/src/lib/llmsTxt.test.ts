@@ -83,7 +83,7 @@ describe('llms.txt says only what the venue itself says', () => {
     // Pinned as well as derived: a derived line alone follows any floor.
     expect(text).toContain('\nAt 80 degrees you reach Resident, the tier that may plant a launch here.\n');
     // The explainer is the island paragraph's first two sentences, and never a sum.
-    expect(text).toContain('\nHeat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it.\n');
+    expect(text).toContain('\nHeat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds a quarter of its own, so breadth amplifies depth and never replaces it.\n');
     expect(text).not.toMatch(/added together|read per token/);
   });
 

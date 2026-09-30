@@ -859,10 +859,7 @@ function Maths({ degrees }: { degrees: number }) {
         <li>
           <strong className="text-white/85">Weight</strong> is the island&apos;s published
           multiplier.{' '}
-          <span className="text-white/50">
-            The Apes carry triple weight, JBM and BAYLA carry their edge, the home team leans warm,
-            and every measured token counts.
-          </span>
+          <span className="text-white/50">{VENUE.heatWeight}</span>
         </li>
       </ul>
 
