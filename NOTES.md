@@ -33,6 +33,63 @@ reports the second URL as refused, because the first took nothing.
 
 ---
 
+## 2026-09-30 — a GitHub schedule that stops running tells someone
+
+**Believed:** if GitHub's scheduled workflows stopped, a failed run, an issue or an email would
+say so.
+
+**Measured:** reported by the lead on 2026-09-30 (not re-read here: this work made no GitHub
+calls). After the account's suspension (2026-09-24) and reinstatement (2026-09-29), no scheduled
+workflow had run for more than five days, and none had resumed when this was written. Nothing
+told anyone. A schedule that does not fire produces no run, so there is nothing to fail, and
+every alarm those jobs had (issues, run emails) lived on GitHub too. One piece was checked
+here: the nine backups downloaded on 2026-09-29, reported as every artifact GitHub held, end at
+2026-09-21 (the folder names), so the Monday 2026-09-28 backup left no artifact. The exact date
+of the last scheduled run needs `gh run list`, which this work did not call.
+
+**Do:** watch a schedule from outside its host, by silence rather than by failure. The last step
+of `synthetic-monitor.yml` pings healthchecks.io every 30 minutes; the check alarms when the
+pings stop (`docs/OPS_SCHEDULER.md`, section 2). Ping on every run, pass or fail: a "fail"
+ping holds the check DOWN, and a check that is already DOWN sends no email when the pings then
+stop. Keep a copy of anything the host stores, too: `scripts/ops/pull-github-backups.mjs`
+copies the weekly backup off GitHub.
+
+---
+
+## 2026-09-30 — a fake tool put first on PATH is the one a Git Bash child runs
+
+**Believed:** a test that spawns Git Bash with a fake `curl` folder at the front of PATH runs
+the fake.
+
+**Measured:** `C:\Program Files\Git\bin\bash.exe` is a launcher that puts `/mingw64/bin` and
+`/usr/bin` ahead of the PATH it was given, so `type -a curl` listed the real curl first. A test
+meant to catch a ping sent real requests to hc-ping.com (a made-up check id, so nothing was
+pinged) and took 8 seconds of retries.
+
+**Do:** set PATH inside the shell (`bash -c 'PATH="$(cd "$FAKE_DIR" && pwd):$PATH"; . "$1"'`),
+assert the fake actually ran, and point test URLs at a host that cannot resolve, such as
+`.invalid` (RFC 2606), so a bypassed fake sends nothing.
+
+---
+
+## 2026-09-30 — a paged read whose row count matches the server's total read every row once
+
+**Believed:** paging a PostgREST table with `Range` and `Prefer: count=exact`, then checking
+that the rows read equal the reported total, proves every row was read.
+
+**Measured:** against a fake PostgREST that pages in heap order, as a query with no `ORDER BY`
+may, and moves one row to the end between page 1 and page 2 (what an UPDATE can do to a heap):
+1,500 rows read, total 1,500, row 1000 missing and row 10 read twice. Sorted by primary key,
+the update was harmless, but a delete before the page boundary plus an insert after it still
+read 1,500 of 1,500 with row 1000 missing and no key repeated, so a duplicate check alone does
+not catch it. Same fake; no real Postgres was run.
+
+**Do:** page in primary-key order, and start each page on the last row of the page before. If
+that row is not where it was, rows shifted: fail and re-run. Then check that no key repeats.
+`scripts/ops/lib/supabase-dump.mjs` does all three.
+
+---
+
 ## 2026-09-29 — copying `refs/stash` copies one stash, not the stash list
 
 **Believed:** fetching or bundling a clone's `refs/stash` saves its stashes, and old stash
@@ -62,6 +119,52 @@ bundle held the old one, so a restore from it would have deployed an older site.
 bundle, then check that the chosen one contains what production serves
 (`git merge-base --is-ancestor`). `backup-bundles.sh` and `docs/GIT_HOSTING.md` 5C do both.
 
+---
+
+## 2026-09-29 — `node --env-file` hands the program each value as written
+
+**Believed:** a `NAME=value` file loaded with `node --env-file` gives the program everything
+after the `=`.
+
+**Measured:** on node 24.13.0, an unquoted `B=has#hash` loads as `has`: a `#` anywhere in an
+unquoted value starts a comment, not only after a space. `E=with=equals==` and CRLF endings load
+intact, and quoted values keep their `#`. For a backup passphrase the cut is silent and
+permanent: every file is encrypted with the shortened passphrase, and the offline copy never
+opens one. `scripts/ops/lib/env-file.mjs` now reads the ops env file itself, and the ops CLIs
+warn when node's own flag was used.
+
+**Do:** never feed a secret through `node --env-file` unquoted. Prove a stored passphrase by
+decrypting with the offline copy typed in, not with the file that did the encrypting.
+
+---
+
+## 2026-09-29 — `bash` spawned from a Windows-native process is Git Bash
+
+**Believed:** a node test that spawns `bash` gets Git Bash on this PC.
+
+**Measured:** from PowerShell, `bash` resolves to
+`%LOCALAPPDATA%\Microsoft\WindowsApps\bash.exe`, the WSL launcher. It does not pass the
+caller's environment through, so a gpg round-trip test there decrypted with an empty passphrase
+and failed. `scripts/lib/redact-url.test.mjs` fails 4 of 18 from PowerShell and passes 18 of 18
+from Git Bash, for the same reason.
+
+**Do:** probe the property the test needs (does the child see an env var you set?) rather than
+trusting the name, and on Windows try `C:\Program Files\Git\bin\bash.exe` first.
+
+---
+
+## 2026-09-29 — a gpg that fails writes nothing to stdout
+
+**Believed:** gpg either produces its output or produces none.
+
+**Measured:** gpg 2.4.9 (Git for Windows). With one byte of a symmetric file flipped,
+`gpg --decrypt` wrote all 262,144 bytes of unauthenticated plaintext to stdout, then printed
+"encrypted message has been manipulated" and exited 2. Separately, the MSYS gpg called from a
+native process read `--homedir C:\...` (and `C:/...`) as a relative path, failed, exited 2, and
+still wrote a full ciphertext to stdout.
+
+**Do:** the exit status is the verdict, never the presence of output. From a native process,
+hand MSYS tools their data on stdin, or `/c/...` paths.
 ---
 
 ## 2026-09-29 — renaming `origin` takes every branch's upstream with it, so a bare `git push` still goes to the old host

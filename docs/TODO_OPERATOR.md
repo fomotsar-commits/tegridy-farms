@@ -29,6 +29,78 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-09-30: an alarm for GitHub's schedules, and a second home for the backups
+
+GitHub is the primary host again, and its Actions run the scheduled jobs. When it went quiet in
+September, two things were missing: **nothing noticed that its schedules had stopped** (for more
+than five days), and **every backup lived only on GitHub**. This work adds a heartbeat that
+healthchecks.io watches, and a weekly copy of GitHub's backups to OneDrive. Three steps are yours.
+The guide is [OPS_SCHEDULER.md](OPS_SCHEDULER.md). Until this work merges, run the commands from
+the worktree `C:\Users\jimbo\dev\wt\ops-off-github-crons`.
+
+### ⬜ O-0929-1: set up healthchecks.io and one GitHub secret (about 15 minutes, free)
+
+Sign up with email, a password and two-factor, never with GitHub. Create the checks in
+OPS_SCHEDULER.md section 2: `github-crons` (period 30 minutes, grace 90 minutes), `backup-pull`
+(7 days, 1 day), and the six failover checks, which stay grey until something pings them. Then:
+
+- put the `github-crons` ping URL in a GitHub repository secret named `HC_PING_URL_GITHUB_CRONS`;
+- put the `backup-pull` ping URL in `C:\Users\jimbo\tegridy-ops-env\ops.env` as
+  `HC_PING_URL_BACKUP_PULL` (start from `scripts\ops\ops.env.example`).
+
+**You should see**, once this work is merged and Synthetic Monitor runs, `github-crons` turn UP.
+While GitHub's schedules are still stopped, run it by hand (Actions tab, Synthetic Monitor, Run
+workflow). It turns UP even if that run's probe fails: the check only proves the workflow ran,
+and a failing probe opens a `prod-incident` issue instead. If the check stays grey after a run
+by hand, the secret or the step is wrong: say so.
+
+### ⬜ O-0929-2: prove your offline passphrase opens GitHub's backups
+
+Find the offline `BACKUP_PASSPHRASE` (made 2026-07-30). If it is lost, say so now: every backup
+is unreadable without it. Then check the newest one downloaded on 2026-09-29:
+
+```
+node scripts\ops\supabase-restore-check.mjs C:\Users\jimbo\OneDrive\backups\supabase-github\2026-09-21-run35586519132\supabase-backup-35586519132\supabase-backup-2026-09-21.tar.gz.gpg --prompt
+```
+
+**You should see** `Readable: all 10 tables present.` after you paste the passphrase. If it cannot
+decrypt, the offline copy is not the passphrase GitHub uses: stop and say so.
+
+### ⬜ O-0929-3: register the weekly backup pull on this PC
+
+Delete the old faucet task, make the tasks' own checkout (OPS_SCHEDULER.md section 7), and
+register the one day-to-day task from it. No elevation is needed:
+
+```
+Unregister-ScheduledTask -TaskName 'SolanaDevnetFaucet' -Confirm:$false
+git -C C:\Users\jimbo\dev\tegridy-farms worktree add --detach C:\Users\jimbo\ops\tegridy-monitors ops/off-github-crons
+cd C:\Users\jimbo\ops\tegridy-monitors
+powershell -ExecutionPolicy Bypass -File scripts\ops\register-tasks.ps1 -DryRun
+powershell -ExecutionPolicy Bypass -File scripts\ops\register-tasks.ps1
+Start-ScheduledTask -TaskPath '\Tegridy\' -TaskName 'backup-pull'
+```
+
+The task opens a console window while it runs: leave it open until it closes by itself.
+
+**You should see** one task, `backup-pull`, reading only `ops.env`, and then a `SHA256SUMS` file in
+`C:\Users\jimbo\OneDrive\backups\supabase-github\` that lists every backup there (nine today).
+**Expect that first run to fail with STALE** if GitHub has run no backup since 2026-09-21: from
+2026-09-30 that one is more than 9 days old. Run Supabase Backup by hand from the Actions tab, then
+start the task again. It should pull the new run and pass. The report is in
+`%LOCALAPPDATA%\tegridy-ops\backup-pull.last.txt`.
+
+**If GitHub is gone again,** this is not the list to follow: OPS_SCHEDULER.md section 5 moves the
+six jobs GitHub ran onto this PC (`register-tasks.ps1 -Failover`) and takes the backup by hand.
+
+**Found while testing (2026-09-30):** the failover `npm-advisories` job found six blocking
+advisories. GitHub's `npm-advisories` workflow uses the same gate, so it should fail on them too.
+This is the set seen on 2026-09-30; the next run may add more. `frontend`: `undici`
+GHSA-rfgv-xxqx-mfg5 and GHSA-w293-vg96-wgc3, and `brace-expansion` GHSA-6j4f-fj2g-mc7p and
+GHSA-qhr7-859c-m2p7. `indexer`: the same two `brace-expansion` advisories. All have a fix
+available. An agent can bump the dependencies, or triage them into
+`.github/npm-advisory-allowlist.json` with a reason.
+---
+
 ## 🔴 2026-09-29: GitHub is back; make GitLab a live standby so GitHub is never the only copy
 
 GitHub suspended the account on 2026-09-24 and reinstated it on 2026-09-29/30. It stays the
