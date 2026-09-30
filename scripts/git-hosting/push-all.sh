@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
-# push-all.sh <repo> <remote-url> [--gitlab] [--dry-run] [--trunk <branch>]
-# Pushes every branch and tag of <repo> (the vault or a clone) to one host, then proves the host
-# holds exactly that set. Never forces, mirrors, prunes or deletes, so a name the host holds at an
-# unrelated commit is rejected, never overwritten. main/master go up as archive/<name> (Vercel
-# picks main as production on connect). The trunk (default mvp-launch) goes first.
+# push-all.sh <repo> <remote-url> [--gitlab] [--dry-run] [--trunk <branch>] [--local-only]
+# Pushes every branch and tag of <repo> (the vault, or a bare mirror of a host) to one host, then
+# proves the host holds exactly that set. Never forces, mirrors, prunes or deletes. main/master go
+# up as archive/<name> (Vercel picks main as production on connect). The trunk goes first. A clone
+# whose remote-tracking branches have no local branch is refused: those branches would be left out.
+# --local-only pushes its local set anyway.
 set -euo pipefail
 
 usage() {
-  echo "usage: push-all.sh <repo> <remote-url> [--gitlab] [--dry-run] [--trunk <branch>]" >&2
+  echo "usage: push-all.sh <repo> <remote-url> [--gitlab] [--dry-run] [--trunk <branch>] [--local-only]" >&2
   exit 2
 }
 stop() { echo "STOP: $*" >&2; exit 1; }
 
-REPO='' URL='' GITLAB=0 DRY=0 TRUNK=mvp-launch
+REPO='' URL='' GITLAB=0 DRY=0 TRUNK=mvp-launch LOCAL_ONLY=0
 while (($#)); do
   case $1 in
     --gitlab) GITLAB=1 ;;
     --dry-run) DRY=1 ;;
+    --local-only) LOCAL_ONLY=1 ;;
     --trunk) [[ $# -ge 2 ]] || usage; TRUNK=$2; shift ;;
     -h|--help) usage ;;
     -*) echo "unknown flag: $1" >&2; usage ;;
@@ -32,9 +34,10 @@ g rev-parse --git-dir >/dev/null 2>&1 || stop "$REPO is not a git repository"
 if g remote | grep -qxF -- "$URL"; then stop "'$URL' is a remote name; pass the host URL itself"; fi
 
 # ------------------------------------------------------------------ what the host should hold
-declare -A WANT SRC REMOTE
+declare -A WANT SRC REMOTE LOCAL
 while read -r sha ref; do
   dst=$ref
+  if [[ $ref == refs/heads/* ]]; then LOCAL[${ref#refs/heads/}]=1; fi
   case $ref in
     refs/heads/main|refs/heads/master)
       [[ ${ref#refs/heads/} == "$TRUNK" ]] || dst="refs/heads/archive/${ref#refs/heads/}" ;;
@@ -44,6 +47,18 @@ while read -r sha ref; do
   fi
   WANT[$dst]=$sha; SRC[$dst]=$ref
 done < <(g for-each-ref --format='%(objectname) %(refname)' refs/heads/ refs/tags/)
+
+remote_only=0 example=''
+while read -r ref; do
+  r=${ref#refs/remotes/}; name=${r#*/}
+  [[ $name == HEAD || -n ${LOCAL[$name]+x} ]] && continue
+  remote_only=$((remote_only + 1)); example=${example:-$ref}
+done < <(g for-each-ref --format='%(refname)' refs/remotes/)
+if ((remote_only && !LOCAL_ONLY)); then
+  stop "$REPO has $remote_only remote-tracking branch(es) with no local branch (first: $example)." \
+    "Pushing it would leave them off the host. Seed from the vault or a mirror clone of a host" \
+    "(docs/GIT_HOSTING.md), or pass --local-only to push the local set anyway."
+fi
 
 TRUNK_REF="refs/heads/$TRUNK"
 [[ -n ${WANT[$TRUNK_REF]+x} ]] || stop "$REPO has no $TRUNK_REF"

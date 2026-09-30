@@ -15,6 +15,37 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-29 — copying `refs/stash` copies one stash, not the stash list
+
+**Believed:** fetching or bundling a clone's `refs/stash` saves its stashes, and old stash
+entries expire after 30 or 90 days like any other reflog entry.
+
+**Measured:** only `stash@{0}` is a ref. The rest are the reflog of `refs/stash`, and no fetch,
+push or bundle carries a reflog. Our first vault fetched `refs/stash` from a clone with 12 entries
+and held 1 (git 2.53). They do not expire, though: git exempts `refs/stash` from reflog expiry
+unless a `gc.refs/stash.*` setting exists. Three entries dated six months back survived `git gc`,
+even with `gc.reflogExpire=1.day`; with `gc.refs/stash.reflogExpire=1.day` all three went.
+
+**Do:** fetch each id from `git reflog show --format=%H refs/stash` into its own ref (the source
+side needs `uploadpack.allowAnySHA1InWant`). `scripts/git-hosting/consolidate-refs.sh` does this,
+and a mutant that keeps only the top entry goes red.
+
+---
+
+## 2026-09-29 — a bundle of a clone's branches does not hold the host's newest trunk
+
+**Believed:** `git bundle create <file> --branches --tags` in a working clone backs up the trunk.
+
+**Measured:** after the host merged a request and the clone fetched it, the new trunk was only
+`refs/remotes/origin/mvp-launch`; the clone's own `mvp-launch` stayed at the old commit. The
+bundle held the old one, so a restore from it would have deployed an older site.
+
+**Do:** bundle with `--remotes` too, and when restoring, list every `*/mvp-launch` in every
+bundle, then check that the chosen one contains what production serves
+(`git merge-base --is-ancestor`). `backup-bundles.sh` and `docs/GIT_HOSTING.md` 5B do both.
+
+---
+
 ## 2026-09-29 — renaming `origin` takes every branch's upstream with it, so a bare `git push` still goes to the old host
 
 **Believed:** after `git remote rename origin github` and `git remote add origin <new host>`, a

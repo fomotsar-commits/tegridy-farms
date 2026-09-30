@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# backup-bundles.sh [<dest>]: one verified bundle (branches + tags) per source repo per day.
+# backup-bundles.sh [<dest>]: one verified bundle per source repo per day, holding its branches,
+# tags and remote-tracking refs (a clone's newest trunk is origin/mvp-launch, not mvp-launch).
 # Sources: $BACKUP_SOURCES ("name=path;..."), else backup-sources.txt beside this script (one
 # name=path per line), else DEFAULT_SOURCES. A source equal to its newest bundle is skipped. The
-# newest $BACKUP_KEEP (14) <name>-YYYY-MM-DD.bundle stay; older ones go only after that source's
-# run succeeded. Refreshes SHA256SUMS. Exits 1 if any source failed. BACKUP_LOG appends output.
+# newest $BACKUP_KEEP (14) dated bundles stay; older ones go only after that source's run
+# succeeded. Refreshes SHA256SUMS. Exits 1 if any source failed. BACKUP_LOG appends output.
 set -euo pipefail
 shopt -s nullglob
 
@@ -59,8 +60,10 @@ for s in "${SOURCES[@]}"; do
   if ! git -C "$src" rev-parse --git-dir >/dev/null 2>&1; then
     echo "FAIL  $name: $src is not a readable git repository"; fails=$((fails + 1)); continue
   fi
-  refs=$(git -C "$src" for-each-ref --format='%(objectname) %(refname)' refs/heads/ refs/tags/ | LC_ALL=C sort)
-  if [[ -z $refs ]]; then echo "FAIL  $name: no branches or tags"; fails=$((fails + 1)); continue; fi
+  # the set `bundle create --branches --tags --remotes` writes; it leaves out symbolic refs (origin/HEAD)
+  refs=$(git -C "$src" for-each-ref --format='%(if)%(symref)%(then)%(else)%(objectname) %(refname)%(end)' \
+    refs/heads/ refs/tags/ refs/remotes/ | grep . | LC_ALL=C sort || true)
+  if [[ -z $refs ]]; then echo "FAIL  $name: no branches, tags or remote-tracking refs"; fails=$((fails + 1)); continue; fi
 
   newest=$(dated "$name" | tail -n 1)
   if [[ -n $newest ]]; then
@@ -72,7 +75,7 @@ for s in "${SOURCES[@]}"; do
 
   out="$DEST/$name-$TODAY.bundle" tmp="$DEST/$name-$TODAY.bundle.tmp"
   rm -f -- "$tmp"
-  if git -C "$src" bundle create -q "$tmp" --branches --tags \
+  if git -C "$src" bundle create -q "$tmp" --branches --tags --remotes \
      && git -C "$src" bundle verify -q "$tmp" >/dev/null 2>&1; then
     mv -f -- "$tmp" "$out"
     WROTE[$(basename "$out")]=1
