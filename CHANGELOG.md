@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-09-29
+
+- Source and audit links on /contracts, /security, /risks and the trust hub go through memetics.finance/source, which forwards them to wherever the code is hosted.
+
 ### 2026-09-24
 
 - On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.

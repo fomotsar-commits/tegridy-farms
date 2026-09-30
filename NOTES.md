@@ -15,6 +15,23 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-29 — a GitLab link to a file the repo does not have does not 404
+
+**Believed:** a link check that follows each source link and fails on a 404 catches a link
+to a path the repo does not hold.
+
+**Measured** (curl with a browser user agent, 2026-09-29, against the public
+`gitlab.com/gitlab-org/gitlab`): `/-/blob/master/does-not-exist.md` answers `302` to
+`/-/tree/master`, which answers `200`. So a wrong path lands on the repo root and every
+HTTP check passes. A folder under `/-/blob/` also answers `302`, to `/-/tree/`, and
+`/-/issues` answers `302` to `/-/work_items`. With curl's default user agent `/-/issues`
+answered `404` instead, so a script can see a different answer from a browser.
+
+**Do:** check a source link's path against `git ls-files`, never against the host's status
+code. `frontend/src/test/sourceLinks.test.ts` does this for every fixed path the site links.
+
+---
+
 ## 2026-09-22 — a `toContain('80°')` pin stays green on a page that says 180°
 
 **Believed:** a test that asserts a threshold goes red when the page shows a different

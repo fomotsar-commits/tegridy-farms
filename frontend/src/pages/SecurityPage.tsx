@@ -16,8 +16,7 @@ import {
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
   TREASURY_ADDRESS,
-  GITHUB_BLOB_BASE,
-  GITHUB_TREE_BASE,
+  SOURCE_URL,
   isDeployed,
 } from '../lib/constants';
 import { artImgProps } from '../lib/artSrcSet';
@@ -205,12 +204,12 @@ export default function SecurityPage() {
             {/* Audit C-03: the prior "/audit-report.pdf" link was a 404; audit artifacts
                 live in the repo as markdown so they version with the code. */}
             <div className="flex flex-wrap gap-3 mt-5">
-              <a href={`${GITHUB_BLOB_BASE}/docs/archive/SECURITY_AUDIT_300_AGENT.md`}
+              <a href={`${SOURCE_URL}/docs/archive/SECURITY_AUDIT_300_AGENT.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors">
-                View Full Audit (GitHub)
+                View Full Audit
               </a>
-              <a href={`${GITHUB_TREE_BASE}#security`}
+              <a href={`${SOURCE_URL}/docs/AUDITS.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white/90 border border-white/15 hover:border-white/30 transition-colors">
                 All Audit Artifacts
@@ -232,42 +231,42 @@ export default function SecurityPage() {
             </p>
             <div className="flex flex-wrap gap-3">
               <a
-                href={`${GITHUB_BLOB_BASE}/docs/audits/audit_101/PASS7_2026_05_03.md`}
+                href={`${SOURCE_URL}/docs/audits/audit_101/PASS7_2026_05_03.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
               >
                 Pass-7 audit + remediation (May 3)
               </a>
               <a
-                href={`${GITHUB_BLOB_BASE}/docs/audits/audit_101/PASS6_2026_05_03.md`}
+                href={`${SOURCE_URL}/docs/audits/audit_101/PASS6_2026_05_03.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
               >
                 Pass-6 fresh-eyes audit (May 3)
               </a>
               <a
-                href={`${GITHUB_BLOB_BASE}/docs/audits/audit_101/POST_REMEDIATION_LEDGER.md`}
+                href={`${SOURCE_URL}/docs/audits/audit_101/POST_REMEDIATION_LEDGER.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors"
               >
                 Post-remediation ledger (Apr 26)
               </a>
               <a
-                href={`${GITHUB_BLOB_BASE}/docs/archive/SECURITY_AUDIT_300_AGENT.md`}
+                href={`${SOURCE_URL}/docs/archive/SECURITY_AUDIT_300_AGENT.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-purple-600 hover:bg-purple-500 transition-colors"
               >
                 300-agent review
               </a>
               <a
-                href={`${GITHUB_BLOB_BASE}/docs/audits/archive/SECURITY_AUDIT_OPUS.md`}
+                href={`${SOURCE_URL}/docs/audits/archive/SECURITY_AUDIT_OPUS.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white/90 border border-white/15 hover:border-white/30 transition-colors"
               >
                 Opus review
               </a>
               <a
-                href={`${GITHUB_TREE_BASE}#security`}
+                href={`${SOURCE_URL}/docs/AUDITS.md`}
                 target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white/90 border border-white/15 hover:border-white/30 transition-colors"
               >

@@ -10,7 +10,7 @@
 
 import { test, expect } from '@playwright/test';
 import { gotoRoute } from './fixtures/routes';
-import { GITHUB_BRANCH, GITHUB_BLOB_BASE } from '../src/lib/constants';
+import { SITE_URL, SOURCE_URL } from '../src/lib/constants';
 
 /**
  * ⚠ ROUTES ARE ENTERED THROUGH `gotoRoute`, NOT `page.goto`.
@@ -82,26 +82,19 @@ test.describe('RisksPage — protocol-specific risks', () => {
     expect(chipCount).toBeGreaterThanOrEqual(PROTOCOL_RISK_TITLES.length);
   });
 
-  test('footer links point to FIX_STATUS.md and AUDITS.md on GitHub', async ({ page }) => {
+  test('footer links point to FIX_STATUS.md and AUDITS.md through our own /source', async ({ page }) => {
     const fixStatusLink = page.getByRole('link', { name: /fix_status\.md/i });
     const auditsLink = page.getByRole('link', { name: /audits\.md/i });
 
     await expect(fixStatusLink).toBeVisible();
     await expect(auditsLink).toBeVisible();
 
-    // THE PRECONDITION, ASSERTED FIRST AND ON PURPOSE. This spec used to pin the
-    // literal `/blob/main/`, and `main` is ~1,048 commits behind the branch the
-    // site is actually built from — so both links resolved, to a stale ledger, and
-    // this spec was holding that in place. Pinning the deploy branch by name means
-    // a revert to `main` fails here; asserting the constant FIRST means that a
-    // deliberate branch rename fails by naming its real cause, instead of surfacing
-    // as two confusing href mismatches below.
-    expect(GITHUB_BRANCH, 'the audit ledger must be linked at the deployed branch').toBe(
-      'mvp-launch',
-    );
+    // The precondition first, so a changed base fails by naming its cause. The git host
+    // and the deploy branch live in vercel.json, pinned by sourceLinks and trustCopyHonesty.
+    expect(SOURCE_URL, 'evidence links must go through our own domain').toBe(`${SITE_URL}/source`);
 
-    await expect(fixStatusLink).toHaveAttribute('href', `${GITHUB_BLOB_BASE}/docs/archive/FIX_STATUS.md`);
-    await expect(auditsLink).toHaveAttribute('href', `${GITHUB_BLOB_BASE}/docs/AUDITS.md`);
+    await expect(fixStatusLink).toHaveAttribute('href', `${SOURCE_URL}/docs/archive/FIX_STATUS.md`);
+    await expect(auditsLink).toHaveAttribute('href', `${SOURCE_URL}/docs/AUDITS.md`);
     // External links must not leak opener.
     for (const link of [fixStatusLink, auditsLink]) {
       await expect(link).toHaveAttribute('target', '_blank');

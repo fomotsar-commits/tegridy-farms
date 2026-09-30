@@ -137,6 +137,35 @@ handed to *unmatched* origins.
 
 ---
 
+## Moving the source links to another git host
+
+Every "read the source" link the site shows goes to our own domain first:
+`https://memetics.finance/source/<path>` for a file or folder, `/source` for the repo, and
+`/source-issues` for the issue list. Three redirects in `frontend/vercel.json` send them on
+to the git host. So when the code moves hosts, the site, `held-through.json` and any program
+security.txt keep working after **one edit to those three redirects**. No page changes.
+
+To move hosts, change the three `destination` values that follow `"source": "/source"`,
+`"/source-issues"` and `"/source/:path*"`. Keep the repo's address identical in all three
+(`src/test/sourceLinks.test.ts` fails otherwise), keep the branch `mvp-launch`, and keep
+`"permanent": false`: a 307 is never cached, so the next move reaches every browser at once.
+The URL shapes differ by host:
+
+| Host | `/source` | `/source-issues` | `/source/:path*` |
+| --- | --- | --- | --- |
+| GitLab (today) | `<repo>` | `<repo>/-/issues` | `<repo>/-/blob/mvp-launch/:path*` |
+| Bitbucket | `<repo>` | `<repo>` (Bitbucket removed its issue tracker on 2026-08-20) | `<repo>/src/mvp-launch/:path*` |
+| GitHub | `<repo>` | `<repo>/issues` | `<repo>/blob/mvp-launch/:path*` |
+
+GitLab's `/-/blob/` link also opens folders: it sends them to `/-/tree/` itself. It also
+sends a path it does not have to the repo root with a `302`, not a `404`, so a wrong link
+looks fine when clicked. The test checks every fixed path the site links against `git
+ls-files` for that reason. After the deploy, check one file and the root:
+`curl -sI https://memetics.finance/source/docs/AUDITS.md` should answer `307` with a
+`location` on the new host.
+
+---
+
 ## Production can be AHEAD of trunk
 
 Because the CLI ships the working tree, code can reach production having never reached

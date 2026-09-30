@@ -316,7 +316,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // a LIVE per-address badge read from Etherscan, so this is checkable, not a
     // claim. Keep this answer in sync with reality in both directions.
     keywords: ['etherscan', 'verify', 'contract', 'address'],
-    answer: "All 8 core contracts are source-verified on Etherscan — you can read the actual Solidity, not just bytecode. Every address is at /contracts with a live verification badge (checked against Etherscan, not hardcoded), plus the full code on GitHub and public ABIs.",
+    answer: "All 8 core contracts are source-verified on Etherscan — you can read the actual Solidity, not just bytecode. Every address is at /contracts with a live verification badge (checked against Etherscan, not hardcoded), plus links to the source code and public ABIs.",
   },
 
   // ── Premium / referrals / scoring ──────────────────────────

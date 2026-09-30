@@ -40,21 +40,14 @@ import {
   JBAC_NFT_ADDRESS,
   JBAY_GOLD_ADDRESS,
   CURVE_LAUNCHER_ADDRESS,
-  GITHUB_BLOB_BASE,
+  SOURCE_URL,
+  SOURCE_ISSUES_URL,
   isDeployed,
 } from '../lib/constants';
 import { getChainConfig } from '../lib/chains/registry';
 
-// Source links come from GITHUB_BLOB_BASE (lib/constants.ts).
-// AUDIT R035: org was previously `tegridyfarms` (404). Source of truth per
-// `git remote -v` is `fomotsar-commits/tegridy-farms`.
-// F452: the base points at the deploy branch `mvp-launch` — the repo ships from
-// it and it is over a thousand commits ahead of `main` — so source links serve
-// current content rather than a stale snapshot.
-// 2026-09-03: that literal used to live HERE, and this was the only page that
-// had the branch right; /security and /risks each carried their own `main`
-// literal, so the app disagreed with itself about which branch is authoritative.
-// One constant now, no per-page branch literals.
+// Source links come from SOURCE_URL (lib/constants.ts), never a git-host URL: the
+// host and the branch live in frontend/vercel.json (src/test/sourceLinks.test.ts).
 
 interface ContractEntry {
   label: string;
@@ -266,7 +259,7 @@ const GROUPS: ContractGroup[] = [
 
 function ContractRow({ entry, verification }: { entry: ContractEntry; verification: VerificationState }) {
   const isExternal = entry.source.startsWith('external');
-  const sourceHref = isExternal ? undefined : `${GITHUB_BLOB_BASE}/${entry.source}`;
+  const sourceHref = isExternal ? undefined : `${SOURCE_URL}/${entry.source}`;
   // Our own contracts with an unset (zero) address aren't part of the current
   // deployment — route them through the clean "pending deploy" path so we never
   // surface a 0x0 as live or render a stale "redeploy live / awaiting multisig"
@@ -328,7 +321,7 @@ function ContractRow({ entry, verification }: { entry: ContractEntry; verificati
             target="_blank"
             rel="noopener noreferrer"
             className="text-white/40 text-[11px] mt-0.5 hover:text-white/70 transition-colors inline-flex items-center min-h-[44px] md:min-h-0 py-2 md:py-0"
-            aria-label={`Open ${entry.source} on GitHub (opens in new tab)`}
+            aria-label={`Open ${entry.source} source (opens in new tab)`}
           >
             {entry.source} <span className="text-white/15">↗</span>
           </a>
@@ -435,7 +428,7 @@ export default function ContractsPage() {
             Canonical, on-chain addresses for every memetics.finance contract, grouped by role. Source
             for every contract is linked below. Source mirrored from the repo{' '}
             <a
-              href={`${GITHUB_BLOB_BASE}/docs/CONTRACTS.md`}
+              href={`${SOURCE_URL}/docs/CONTRACTS.md`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-white underline hover:text-white/70 transition-colors"
@@ -474,7 +467,7 @@ export default function ContractsPage() {
             <p className="text-white/60 text-[11px] mt-3 leading-relaxed">
               Full remaining-task checklist:{' '}
               <a
-                href="https://github.com/fomotsar-commits/tegridy-farms/issues?q=is%3Aissue+is%3Aopen"
+                href={SOURCE_ISSUES_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white/80 underline hover:text-white transition-colors"

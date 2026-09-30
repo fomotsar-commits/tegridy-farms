@@ -135,6 +135,21 @@
       "source": "/scanner",
       "destination": "/scan",
       "permanent": false
+    },
+    {
+      "source": "/source",
+      "destination": "https://gitlab.com/memetics/tegridy-farms",
+      "permanent": false
+    },
+    {
+      "source": "/source-issues",
+      "destination": "https://gitlab.com/memetics/tegridy-farms/-/issues",
+      "permanent": false
+    },
+    {
+      "source": "/source/:path*",
+      "destination": "https://gitlab.com/memetics/tegridy-farms/-/blob/mvp-launch/:path*",
+      "permanent": false
     }
   ],
   "rewrites": [
