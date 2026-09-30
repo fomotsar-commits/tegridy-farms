@@ -32,6 +32,21 @@ decrypting with the offline copy typed in, not with the file that did the encryp
 
 ---
 
+## 2026-09-29 — `bash` spawned from a Windows-native process is Git Bash
+
+**Believed:** a node test that spawns `bash` gets Git Bash on this PC.
+
+**Measured:** from PowerShell, `bash` resolves to
+`%LOCALAPPDATA%\Microsoft\WindowsApps\bash.exe`, the WSL launcher. It does not pass the
+caller's environment through, so a gpg round-trip test there decrypted with an empty passphrase
+and failed. `scripts/lib/redact-url.test.mjs` fails 4 of 18 from PowerShell and passes 18 of 18
+from Git Bash, for the same reason.
+
+**Do:** probe the property the test needs (does the child see an env var you set?) rather than
+trusting the name, and on Windows try `C:\Program Files\Git\bin\bash.exe` first.
+
+---
+
 ## 2026-09-29 — a gpg that fails writes nothing to stdout
 
 **Believed:** gpg either produces its output or produces none.

@@ -25,12 +25,15 @@ const PASS = "pass phrase with # and 'quotes' SHOULD-NEVER-BE-PRINTED";
 const BASE = 'https://proj.supabase.co';
 const tmp = (p) => mkdtempSync(join(tmpdir(), `ops-${p}-`));
 
+// A bash that receives our environment. WSL's bash.exe (often first on a Windows PATH) does
+// not, so the passphrase would arrive empty; this probe rejects it wherever it sits.
 function findBash() {
-  for (const b of ['bash', 'C:\\Program Files\\Git\\bin\\bash.exe']) {
-    const r = spawnSync(b, ['-c', 'echo ok'], { encoding: 'utf8' });
-    if (r.status === 0 && r.stdout.trim() === 'ok') return b;
+  const tries = process.platform === 'win32' ? ['C:\\Program Files\\Git\\bin\\bash.exe', 'bash'] : ['bash'];
+  for (const b of tries) {
+    const r = spawnSync(b, ['-c', 'printf %s "$OPS_BASH_PROBE"'], { encoding: 'utf8', env: { ...process.env, OPS_BASH_PROBE: 'seen' } });
+    if (r.status === 0 && r.stdout === 'seen') return b;
   }
-  throw new Error('bash not found: these format checks need it (Git Bash on Windows)');
+  throw new Error('no bash that inherits the environment: these format checks need one (Git Bash on Windows)');
 }
 const bash = (script, opts) => {
   const r = spawnSync(findBash(), ['-c', script], { encoding: 'buffer', ...opts });
