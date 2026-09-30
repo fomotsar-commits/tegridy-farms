@@ -1,18 +1,29 @@
 // @vitest-environment node
 //
-// Every "read the source" link goes through our own domain (SOURCE_URL and
-// SOURCE_ISSUES_URL in lib/constants.ts), and the /source redirects in
-// frontend/vercel.json pick the git host. Moving hosts is one vercel.json edit.
-// GitLab answers a path it does not have with a 302 to the repo root, not a 404,
-// so a wrong path looks fine to a click: every fixed path is checked against git.
+// Every "read the source" link goes through our own domain (SOURCE_URL in
+// lib/constants.ts), and the /source redirects in frontend/vercel.json pick the git
+// host, so moving hosts is one vercel.json edit. GitLab answers a path it does not
+// have with a 302 to the repo root, not a 404, so paths are checked against git:
+// every literal path in the code, and every link the source-linking pages render.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { createElement, type ComponentType } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { SITE_URL, SOURCE_URL, SOURCE_ISSUES_URL } from '../lib/constants';
+import { SITE_URL, SOURCE_URL } from '../lib/constants';
 import { collectHeldThrough } from '../lib/heldThrough';
+import ContractsPage from '../pages/ContractsPage';
+import SecurityPage from '../pages/SecurityPage';
+import RisksPage from '../pages/RisksPage';
+import TrustHubPage from '../pages/TrustHubPage';
+
+vi.mock('../hooks/useSourceVerification', () => ({ useSourceVerification: () => ({}) }));
+vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
+vi.mock('../components/PageArtBackdrop', () => ({ PageArtBackdrop: () => null }));
 
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REPO_ROOT = join(FRONTEND, '..');
@@ -20,6 +31,8 @@ const TRACKED = execFileSync('git', ['ls-files'], { cwd: REPO_ROOT, encoding: 'u
   .split('\n')
   .map((l) => l.trim())
   .filter(Boolean);
+const TRACKED_SET = new Set(TRACKED);
+const isTracked = (p: string) => TRACKED_SET.has(p) || TRACKED.some((f) => f.startsWith(`${p.replace(/\/$/, '')}/`));
 const read = (repoPath: string) => readFileSync(join(REPO_ROOT, repoPath), 'utf-8');
 const isTest = (f: string) => /\.test\.|\/__tests__\//.test(f);
 
@@ -37,6 +50,37 @@ const ruleFor = (source: string) => SOURCE_RULES.find((r) => r.source === source
 
 /** The repo's home on the git host. A host move changes this value and nothing in the app. */
 const HOST_REPO = ruleFor('/source')?.destination ?? '(no /source rule)';
+const HOST_URL = /^https:\/\//.test(HOST_REPO) ? new URL(HOST_REPO) : undefined;
+
+/** Each host's URL shapes: the table in docs/DEPLOY_RUNBOOK.md, "Moving the source links". */
+const HOST_SHAPES: Record<string, { issues: string; file: string }> = {
+  'gitlab.com': { issues: '/-/issues', file: '/-/blob/mvp-launch/:path*' },
+  'bitbucket.org': { issues: '', file: '/src/mvp-launch/:path*' },
+  'github.com': { issues: '/issues', file: '/blob/mvp-launch/:path*' },
+};
+
+/** Our repo's addresses on every host: the old one, the primary and the standby. If the
+ *  standby's name ever differs from the primary's, add it here. */
+const OUR_REPO_URLS = [
+  'github.com/fomotsar-commits',
+  ...Object.keys(HOST_SHAPES).map((host) => `${host}/${HOST_URL?.pathname.split('/')[1] ?? '(no /source rule)'}`),
+];
+
+/** The pages that link source, rendered so each link is checked where it ends up. */
+const PAGES: Record<string, ComponentType> = {
+  'frontend/src/pages/ContractsPage.tsx': ContractsPage,
+  'frontend/src/pages/SecurityPage.tsx': SecurityPage,
+  'frontend/src/pages/RisksPage.tsx': RisksPage,
+  'frontend/src/pages/TrustHubPage.tsx': TrustHubPage,
+};
+
+/** /contracts rows that linked these before this guard; ship/2026-09-26 unlinks or renames
+ *  each. The list only shrinks: an entry no page links, or that git now tracks, fails. */
+const KNOWN_UNTRACKED = [
+  'contracts/src/TOWELI.sol',
+  'contracts/src/TegridyFeeHook.sol',
+  'contracts/src/TokenURIReader.sol',
+];
 
 /** The subset of Vercel's path syntax this file uses: literals, (.*), :name and /:name*. */
 function toRegExp(source: string): RegExp {
@@ -61,40 +105,46 @@ function route(url: string): Redirect | undefined {
 // The app's own code, not its tests.
 const APP_FILES = TRACKED.filter((f) => /^frontend\/src\/.*\.(ts|tsx|js|jsx)$/.test(f) && !isTest(f));
 
-/** A source link the app builds. `path` is the repo path it names: '' for the root, null if unknown until runtime. */
-type Link = { file: string; url: string; path: string | null };
+/** A use of SOURCE_URL. `path` is the repo path it names: '' for the root, null if built at
+ *  runtime. `unchecked` says why this file cannot check it. */
+type Use = { file: string; url: string; path: string | null; unchecked?: string };
 
-function emittedLinks(): Link[] {
-  const links: Link[] = [
-    { file: 'frontend/src/lib/constants.ts', url: SOURCE_URL, path: '' },
-    { file: 'frontend/src/lib/constants.ts', url: SOURCE_ISSUES_URL, path: null },
-  ];
-  for (const file of APP_FILES) {
+function sourceUses(): Use[] {
+  const uses: Use[] = [{ file: 'frontend/src/lib/constants.ts', url: SOURCE_URL, path: '' }];
+  for (const file of APP_FILES.filter((f) => f !== 'frontend/src/lib/constants.ts')) {
     const code = read(file)
       .split('\n')
       .filter((l) => !/^\s*(\/\/|\/?\*|\{\/\*)/.test(l)) // comment lines emit nothing
-      .join('\n');
-    for (const m of code.matchAll(/\$\{SOURCE_URL\}([^`]*)`/g)) {
-      const suffix = m[1];
-      if (suffix === '' || suffix.startsWith('#')) {
-        links.push({ file, url: SOURCE_URL, path: '' });
-      } else if (suffix.startsWith('/') && suffix.includes('${')) {
-        // A path built at runtime is checked for coverage only.
-        links.push({ file, url: `${SOURCE_URL}/runtime/Example.sol`, path: null });
-      } else if (suffix.startsWith('/')) {
-        const path = suffix.slice(1).replace(/[?#].*$/, '');
-        links.push({ file, url: `${SOURCE_URL}/${path}`, path });
-      } else {
-        links.push({ file, url: `${SOURCE_URL}${suffix}`, path: 'malformed' });
+      .join('\n')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^import\b[\s\S]*?\bfrom\s+['"][^'"]+['"];?/gm, '');
+    for (const m of code.matchAll(/\$\{SOURCE_URL\}([^`]*)`|\bSOURCE_URL\b/g)) {
+      const at = `${file}: ${code.slice(m.index, m.index + 60).split('\n')[0]}`;
+      if (m[1] !== undefined) {
+        const suffix = m[1];
+        if (suffix === '' || suffix.startsWith('#')) uses.push({ file, url: SOURCE_URL, path: '' });
+        else if (suffix.startsWith('/') && suffix.includes('${')) {
+          // A path built at runtime is checked where it renders, so only a rendered page may build one.
+          uses.push({ file, url: `${SOURCE_URL}/runtime/Example.sol`, path: null, ...(PAGES[file] ? {} : { unchecked: at }) });
+        } else if (suffix.startsWith('/')) {
+          const path = suffix.slice(1).replace(/[?#].*$/, '');
+          uses.push({ file, url: `${SOURCE_URL}/${path}`, path });
+        } else uses.push({ file, url: SOURCE_URL, path: null, unchecked: at });
+        continue;
       }
+      // Bare, it may only be a whole value (`href: SOURCE_URL,` or `href={SOURCE_URL}`), never
+      // concatenated, aliased or handed to a helper, where a path joins it unseen.
+      const before = code.slice(0, m.index).trimEnd();
+      const after = code.slice(m.index + m[0].length).trimStart();
+      const whole = (before.endsWith(':') || (before.endsWith('{') && !before.endsWith('${'))) && /^([,};]|$)/.test(after);
+      uses.push({ file, url: SOURCE_URL, path: '', ...(whole ? {} : { unchecked: at }) });
     }
   }
-  return links;
+  return uses;
 }
 
 describe('no user-facing file links our repo on a git host directly', () => {
   // Hosts come and go; our domain stays. The live host is named only in vercel.json.
-  const needles = ['github.com/fomotsar-commits', HOST_REPO.replace(/^https?:\/\//, '')];
   const files = TRACKED.filter(
     (f) =>
       (/^frontend\/(src|public|api|scripts)\//.test(f) || f === 'frontend/index.html') &&
@@ -102,11 +152,12 @@ describe('no user-facing file links our repo on a git host directly', () => {
       /\.(ts|tsx|js|jsx|mjs|cjs|json|html|txt|css|svg|xml|webmanifest)$/.test(f),
   );
 
-  it('scans the files it means to scan', () => {
+  it('scans the files it means to scan, for every address the repo has', () => {
     expect(files).toContain('frontend/src/lib/constants.ts');
     expect(files).toContain('frontend/public/.well-known/security.txt');
     expect(files).toContain('frontend/scripts/held-through.mjs');
     expect(HOST_REPO).toMatch(/^https:\/\/[^/]+(\/[^/]+){2,}$/); // owner/repo, or a GitLab subgroup path
+    expect(OUR_REPO_URLS).toContain(HOST_REPO.replace(/^https:\/\//, '').split('/').slice(0, 2).join('/'));
   });
 
   it('finds no git-host URL for this repo in the app, its public files or its scripts', () => {
@@ -114,13 +165,13 @@ describe('no user-facing file links our repo on a git host directly', () => {
       read(f)
         .split('\n')
         .map((line, i) => ({ line, at: `${f}:${i + 1}` }))
-        .filter(({ line }) => needles.some((n) => line.toLowerCase().includes(n.toLowerCase())))
+        .filter(({ line }) => OUR_REPO_URLS.some((n) => line.toLowerCase().includes(n.toLowerCase())))
         .map(({ at, line }) => `${at}: ${line.trim()}`),
     );
-    expect(hits, `use SOURCE_URL / SOURCE_ISSUES_URL instead:\n${hits.join('\n')}`).toEqual([]);
+    expect(hits, `use SOURCE_URL instead:\n${hits.join('\n')}`).toEqual([]);
   });
 
-  it('builds every /source link from the two constants, never by hand', () => {
+  it('builds every /source link from SOURCE_URL, never by hand', () => {
     const handBuilt = APP_FILES.filter((f) => f !== 'frontend/src/lib/constants.ts').flatMap((f) =>
       read(f)
         .split('\n')
@@ -130,11 +181,15 @@ describe('no user-facing file links our repo on a git host directly', () => {
     );
     expect(handBuilt).toEqual([]);
   });
+
+  it('uses SOURCE_URL only in forms this file can check', () => {
+    expect(sourceUses().flatMap((u) => (u.unchecked ? [u.unchecked] : []))).toEqual([]);
+  });
 });
 
 describe('the /source redirects in vercel.json', () => {
-  it('are exactly the three rules the app relies on', () => {
-    expect(SOURCE_RULES.map((r) => r.source)).toEqual(['/source', '/source-issues', '/source/:path*']);
+  it('are exactly the rules the app and git clients rely on, in this order', () => {
+    expect(SOURCE_RULES.map((r) => r.source)).toEqual(['/source', '/source-issues', '/source/info/refs', '/source/:path*']);
   });
 
   it('are temporary (307), so no browser caches a host we may leave', () => {
@@ -148,42 +203,93 @@ describe('the /source redirects in vercel.json', () => {
     for (const r of SOURCE_RULES) expect(r.has ?? r.missing, r.source).toBeUndefined();
   });
 
-  it('all land on one repo, so a host move cannot half-land', () => {
-    const elsewhere = SOURCE_RULES.filter((r) => r.destination !== HOST_REPO && !r.destination.startsWith(`${HOST_REPO}/`));
-    expect(elsewhere.map((r) => `${r.source} -> ${r.destination}`)).toEqual([]);
+  it("use the host's own URL shapes, all on one repo", () => {
+    const shape = HOST_SHAPES[HOST_URL?.host ?? ''];
+    expect(shape, `${HOST_REPO}: add this host's shapes to HOST_SHAPES and the runbook table`).toBeTruthy();
+    // Only a blob-style view turns a folder link into a tree; a raw view would 404 it.
+    expect(ruleFor('/source/:path*')?.destination).toBe(`${HOST_REPO}${shape.file}`);
+    expect(ruleFor('/source/info/refs')?.destination).toBe(`${HOST_REPO}.git/info/refs`);
+    // A host with no issue list (Bitbucket) sends /source-issues to the repo root.
+    expect([`${HOST_REPO}${shape.issues}`, HOST_REPO]).toContain(ruleFor('/source-issues')?.destination);
   });
 });
 
-describe('every source link the app emits', () => {
-  const links = emittedLinks();
+describe('every source link written in the code', () => {
+  const uses = sourceUses();
 
   it('is first-party', () => {
     expect(SOURCE_URL).toBe(`${SITE_URL}/source`);
-    expect(SOURCE_ISSUES_URL).toBe(`${SITE_URL}/source-issues`);
-    // A page that linked nothing would pass the checks below vacuously.
-    expect(links.filter((l) => l.path).length).toBeGreaterThan(5);
-    expect(links.filter((l) => l.path === 'malformed').map((l) => `${l.file}: ${l.url}`)).toEqual([]);
+    // A scan that found nothing would pass the checks below vacuously.
+    expect(uses.filter((u) => u.path).length).toBeGreaterThan(5);
   });
 
   it('is served by a /source redirect, not by the app shell', () => {
-    const unserved = links
-      .map((l) => ({ ...l, to: route(l.url) }))
+    const unserved = uses
+      .map((u) => ({ ...u, to: route(u.url) }))
       .filter(({ to }) => !to || !SOURCE_RULES.includes(to))
       .map(({ file, url, to }) => `${file}: ${url} -> ${to ? to.source : 'the SPA fallback (200 HTML)'}`);
     expect(unserved).toEqual([]);
   });
 
   it('names a path git tracks, file or directory', () => {
-    const tracked = new Set(TRACKED);
-    const isDir = (p: string) => TRACKED.some((f) => f.startsWith(`${p.replace(/\/$/, '')}/`));
-    const missing = links
-      .filter((l): l is Link & { path: string } => !!l.path && l.path !== 'malformed')
-      .filter(({ path }) => !tracked.has(path) && !isDir(path))
+    const missing = uses
+      .filter((u): u is Use & { path: string } => !!u.path && !isTracked(u.path))
       .map(({ file, path }) => `${file}: ${path}`);
     expect(missing, 'the git host would silently show the repo root for these').toEqual([]);
   });
 
-  it('includes the one held-through.json gives other sites', () => {
-    expect(collectHeldThrough().repository).toBe(SOURCE_URL);
+  it('includes the one held-through.json gives other sites, and git can clone it', () => {
+    const { repository } = collectHeldThrough();
+    expect(repository).toBe(SOURCE_URL);
+    // git asks <repository>/info/refs first; /source/:path* would answer with a web page.
+    expect(route(`${repository}/info/refs?service=git-upload-pack`)?.destination).toBe(`${HOST_REPO}.git/info/refs`);
+  });
+});
+
+describe('every source link the pages render', () => {
+  // Server-rendered: the held-through read above needs the node environment.
+  const rendered = Object.entries(PAGES).flatMap(([file, Page]) =>
+    [...renderToStaticMarkup(createElement(MemoryRouter, null, createElement(Page))).matchAll(/\shref="([^"]*)"/g)]
+      .map((m) => m[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;/g, "'"))
+      .filter((href) => href.startsWith(`${SITE_URL}/source`))
+      .map((href) => ({ file, href })),
+  );
+  const pathOf = (href: string) =>
+    href.startsWith(`${SOURCE_URL}/`) ? decodeURIComponent(href.slice(SOURCE_URL.length + 1)).replace(/[?#].*$/, '') : '';
+
+  it('finds links on every page it renders', () => {
+    for (const file of Object.keys(PAGES)) expect(rendered.filter((l) => l.file === file).length, file).toBeGreaterThan(0);
+    expect(rendered.filter((l) => l.file.endsWith('ContractsPage.tsx')).length).toBeGreaterThan(20);
+  });
+
+  it('is served by a /source redirect', () => {
+    const unserved = rendered
+      .filter(({ href }) => {
+        const to = route(href);
+        return !to || !SOURCE_RULES.includes(to);
+      })
+      .map(({ file, href }) => `${file}: ${href}`);
+    expect(unserved).toEqual([]);
+  });
+
+  it('never sends a reader to the issue list, which can be empty or missing', () => {
+    // A new project's list is empty and Bitbucket has none: under a "remaining tasks"
+    // label, an empty list reads as nothing left to do.
+    const toIssues = rendered.filter(({ href }) => route(href)?.source === '/source-issues');
+    expect(toIssues.map(({ file, href }) => `${file}: ${href}`)).toEqual([]);
+  });
+
+  it('names a path git tracks, file or directory', () => {
+    const missing = rendered
+      .map(({ file, href }) => ({ file, path: pathOf(href) }))
+      .filter(({ path }) => path && !isTracked(path) && !KNOWN_UNTRACKED.includes(path))
+      .map(({ file, path }) => `${file}: ${path}`);
+    expect(missing, 'the git host would silently show the repo root for these').toEqual([]);
+  });
+
+  it('still needs every KNOWN_UNTRACKED entry, so the list only shrinks', () => {
+    const linked = new Set(rendered.map(({ href }) => pathOf(href)));
+    const stale = KNOWN_UNTRACKED.filter((p) => !linked.has(p) || isTracked(p));
+    expect(stale, 'remove these from KNOWN_UNTRACKED').toEqual([]);
   });
 });

@@ -20,15 +20,17 @@ Rules for entries, so this stays worth reading:
 **Believed:** a link check that follows each source link and fails on a 404 catches a link
 to a path the repo does not hold.
 
-**Measured** (curl with a browser user agent, 2026-09-29, against the public
-`gitlab.com/gitlab-org/gitlab`): `/-/blob/master/does-not-exist.md` answers `302` to
-`/-/tree/master`, which answers `200`. So a wrong path lands on the repo root and every
-HTTP check passes. A folder under `/-/blob/` also answers `302`, to `/-/tree/`, and
-`/-/issues` answers `302` to `/-/work_items`. With curl's default user agent `/-/issues`
-answered `404` instead, so a script can see a different answer from a browser.
+**Measured** (curl, 2026-09-29, against the public `gitlab.com/gitlab-org/gitlab`):
+`/-/blob/master/does-not-exist.md` answers `302` to `/-/tree/master`, which answers `200`.
+So a wrong path lands on the repo root and every HTTP check passes. A folder under
+`/-/blob/` also answers `302`, to `/-/tree/`. These answers do not depend on the request
+headers. `/-/issues` does: with `Accept: text/html` it answers `302` to `/-/work_items`;
+without that header it answers `404`, even with a browser's user agent. So a script that
+does not send `Accept: text/html` can see a different answer from a browser.
 
 **Do:** check a source link's path against `git ls-files`, never against the host's status
-code. `frontend/src/test/sourceLinks.test.ts` does this for every fixed path the site links.
+code. `frontend/src/test/sourceLinks.test.ts` does this for every literal path in the code
+and for every link the pages that link source render.
 
 ---
 

@@ -41,7 +41,6 @@ import {
   JBAY_GOLD_ADDRESS,
   CURVE_LAUNCHER_ADDRESS,
   SOURCE_URL,
-  SOURCE_ISSUES_URL,
   isDeployed,
 } from '../lib/constants';
 import { getChainConfig } from '../lib/chains/registry';
@@ -467,12 +466,12 @@ export default function ContractsPage() {
             <p className="text-white/60 text-[11px] mt-3 leading-relaxed">
               Full remaining-task checklist:{' '}
               <a
-                href={SOURCE_ISSUES_URL}
+                href={`${SOURCE_URL}/docs/TODO_OPERATOR.md`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white/80 underline hover:text-white transition-colors"
               >
-                tracked issues
+                docs/TODO_OPERATOR.md
               </a>
             </p>
           </div>

@@ -294,8 +294,6 @@ export const GECKOTERMINAL_EMBED = `https://www.geckoterminal.com/eth/pools/${TO
 // `${SOURCE_URL}/<path>` opens a file or a directory. Absolute on purpose: other
 // sites read held-through.json, and the local preview server has no redirects.
 export const SOURCE_URL = `${SITE_URL}/source`;
-/** The git host's issue list, through the same redirects. */
-export const SOURCE_ISSUES_URL = `${SITE_URL}/source-issues`;
 
 // The venue's community channels. Previously declared TWICE — once in
 // components/layout/Footer.tsx and once in pages/HomePage.tsx, whose comment
