@@ -29,9 +29,31 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-09-29: the source links merge only after the GitLab name is ours and the project is public
+
+### ⬜ O-0929-11: claim the name, make the project public, then merge the source links
+
+**What is wrong.** The site's source and audit links (branch `fix/source-links-first-party`)
+redirect to `https://gitlab.com/memetics/tegridy-farms`. On 2026-09-29 that group did not exist:
+`curl -s https://gitlab.com/api/v4/groups/memetics` answered `404 Group Not Found`. Anyone can
+register a free GitLab group with that name. Merging the branch deploys the redirects, so a
+merge before the name is ours sends every audit and contract link on the site, and
+`held-through.json`, to whoever takes the name. A private project sends them to a sign-in page.
+
+**Do, in this order:** claim the GitLab group and the Bitbucket workspace (sign up with email,
+password and 2FA, never "Continue with GitHub"). Push the repo. Make the GitLab project public.
+Only then merge. If the name changed, change the four `/source` destinations in
+`frontend/vercel.json` first (DEPLOY_RUNBOOK, "Moving the source links").
+
+**You should see**, just before the merge:
+`curl -s https://gitlab.com/api/v4/projects/memetics%2Ftegridy-farms` returns JSON that contains
+`"visibility":"public"`. `404 Project Not Found` means stop.
+
+---
+
 ## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
 
-### ⬜ O-0929-1: four `security_txt!` fields, changed in the same commit as the upgrade
+### ⬜ O-0929-10: four `security_txt!` fields, changed in the same commit as the upgrade
 
 **What is wrong.** cp-swap has been live on mainnet since 2026-09-29
 (`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`). Explorers show its on-chain security.txt,
@@ -40,20 +62,25 @@ at `main`, not `mvp-launch`), and `contacts` points at `memetic.fun/trust`, whic
 project's 404. Only a program upgrade can change them. Do not upgrade for this alone.
 
 **Do, in the commit that builds the next cp-swap upgrade:** in
-`solana/tegridy-amm/programs/cp-swap/src/lib.rs`, set the macro to exactly these values, and drop
-the stale "add a dedicated security disclosure email here" comment inside it:
+`solana/tegridy-amm/programs/cp-swap/src/lib.rs`, set the macro to exactly these values. The
+email is the `Contact:` in `frontend/public/.well-known/security.txt` on the day you build
+(today `fomotsar@gmail.com`; if they differ, use the file's). Then drop the stale "add a
+dedicated security disclosure email here" comment inside the macro, because the email is now
+there:
 
 ```rust
 solana_security_txt::security_txt! {
     name: "tegridy-cp-amm",
     project_url: "https://memetics.finance",
-    contacts: "link:https://memetics.finance/.well-known/security.txt",
+    contacts: "email:fomotsar@gmail.com,link:https://memetics.finance/.well-known/security.txt",
     policy: "https://memetics.finance/source/solana/tegridy-amm/SECURITY.md",
     source_code: "https://memetics.finance/source/solana/tegridy-amm",
     preferred_languages: "en"
 }
 ```
 
+- Two contacts, email first. The email works even if memetics.finance is down, so the live
+  program is never left with one dead contact again. The link is second.
 - Every URL is on our own domain. `/.well-known/` is a static file (Vercel cannot redirect
   that path). `/source/...` is a redirect in `frontend/vercel.json` to whichever git host holds
   the code, so a future host move is a `vercel.json` edit, never another program upgrade. Never
@@ -67,6 +94,15 @@ solana_security_txt::security_txt! {
 its `location` opens that file on the git host. Check the file itself opens: GitLab sends a
 path it does not have to the repo root with a `302`, not a `404`. After the upgrade, the
 explorer's security tab for the program shows the four new values.
+
+### ⬜ O-0929-12: decide whether the two new Solana programs are in the root security scope
+
+Root `SECURITY.md` lists what is in scope, and scope decides safe harbour. The two programs that
+went live on 2026-09-29 are not on that list: cp-swap `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`
+and tegridy-launch `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`. Their own policy,
+`solana/tegridy-amm/SECURITY.md`, takes reports at the same email. Decide, then either add them
+to the root list and to the "In scope" block of `frontend/public/.well-known/security.txt`, or
+say in both that they are out of scope.
 
 ---
 

@@ -36,10 +36,13 @@ Supabase dashboard → **Advisors → Security**. Then run an adversarial anon-k
 <https://supabase.com/docs/guides/database/database-advisors>
 
 ### 3. security.txt email — **FREE, minutes** 🧩
-The file is committed. Verify it resolves post-deploy. It is the only reporting channel: do not
-add a git host's private-report feature as a second `Contact:` line. GitHub's private advisories
-died with the account on 2026-09-24, and any host can go the same way. The email named in
-`/.well-known/security.txt`, a file on our own domain, does not depend on any git host.
+The file is committed. Verify it resolves post-deploy. The email in it is the first reporting
+channel, and it does not depend on any git host. A second channel is welcome, as long as it
+does not depend on one git host either: link it through our own domain (for example a
+confidential issue via `https://memetics.finance/source-issues`), never a host's own URL.
+GitHub's private advisories died with the account on 2026-09-24, and any host can go the same
+way. The on-chain security.txt lists the email first and this file second (TODO_OPERATOR
+O-0929-10).
 Save the **SEAL 911** break-glass contact NOW (before you need it): <https://securityalliance.org/our-work/seal-911>
 
 ### 4. Free CI trio — **FREE** (add the YAML below)

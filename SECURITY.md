@@ -54,9 +54,16 @@ Frontend code paths that directly handle user funds, signatures, or private keys
 scope, as is the serverless API under `frontend/api/`.
 
 **Not currently in scope because they no longer exist on-chain:** the two own-venue Solana
-programs were deployed 2026-08-08 and **closed 2026-08-13**; their program ids are spent.
+programs deployed 2026-08-08 were **closed 2026-08-13**; those program ids are spent.
 The Meteora DBC rail was deleted 2026-08-23. Reports against either are welcome as *code*
-findings but there is nothing live to exploit.
+findings but there is nothing live to exploit at those ids.
+
+**Two new Solana programs went live on 2026-09-29:** cp-swap at
+`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` and tegridy-launch at
+`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`. Their policy is
+[`solana/tegridy-amm/SECURITY.md`](./solana/tegridy-amm/SECURITY.md), which takes reports at the
+same address as this file. Whether they join the in-scope list above is an owner decision that
+has not been made yet (`docs/TODO_OPERATOR.md`, O-0929-12).
 
 ## Out of Scope
 

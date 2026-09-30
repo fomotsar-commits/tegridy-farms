@@ -140,33 +140,47 @@ handed to *unmatched* origins.
 ## Moving the source links to another git host
 
 Every "read the source" link the site shows goes to our own domain first:
-`https://memetics.finance/source/<path>` for a file or folder, `/source` for the repo, and
-`/source-issues` for the issue list. Three redirects in `frontend/vercel.json` send them on
-to the git host. So when the code moves hosts, the site and `held-through.json` keep working
-after **one edit to those three redirects**. No page changes. A program's on-chain security.txt
-gets the same protection once it uses these links (cp-swap's does not yet: TODO_OPERATOR
-O-0929-1).
+`https://memetics.finance/source/<path>` for a file or folder, and `/source` for the repo.
+`/source-issues` is the issue list, linked only from the security policies. Four redirects in
+`frontend/vercel.json` send them on to the git host. The fourth, `/source/info/refs`, is for git
+itself: it lets `git clone https://memetics.finance/source` work, and `held-through.json`
+publishes that address as the repo. So when the code moves hosts, the site and
+`held-through.json` keep working after **one edit to those four redirects**. No page changes.
+A program's on-chain security.txt gets the same protection once it uses these links (cp-swap's
+does not yet: TODO_OPERATOR O-0929-10). When the primary host is lost, this edit is part of
+the failover.
 
-To move hosts, change the three `destination` values that follow `"source": "/source"`,
-`"/source-issues"` and `"/source/:path*"`. Keep the repo's address identical in all three
-(`src/test/sourceLinks.test.ts` fails otherwise), keep the branch `mvp-launch`, and keep
-`"permanent": false`: browsers do not cache a 307 by default, so the next move reaches every
-browser at once.
-The URL shapes differ by host:
+**Before these redirects first deploy, and before every host move, the target must be ours and
+public.** Merging to `mvp-launch` deploys them. A redirect to a group or workspace name nobody
+owns sends every trust link on the site to whoever registers that name first. A private project
+sends them to a sign-in page. So first claim the name, then make the project public, then check:
+`curl -s https://gitlab.com/api/v4/projects/memetics%2Ftegridy-farms` must return JSON with
+`"visibility":"public"` (not `404 Project Not Found`). Use the new name if it changed.
+TODO_OPERATOR O-0929-11 holds this step for the first deploy.
 
-| Host | `/source` | `/source-issues` | `/source/:path*` |
-| --- | --- | --- | --- |
-| GitLab (today) | `<repo>` | `<repo>/-/issues` | `<repo>/-/blob/mvp-launch/:path*` |
-| Bitbucket | `<repo>` | `<repo>` (Bitbucket removed its issue tracker on 2026-08-20) | `<repo>/src/mvp-launch/:path*` |
-| GitHub | `<repo>` | `<repo>/issues` | `<repo>/blob/mvp-launch/:path*` |
+To move hosts, change the four `destination` values that follow `"source": "/source"`,
+`"/source-issues"`, `"/source/info/refs"` and `"/source/:path*"`. Keep the repo's address
+identical in all four and use the host's shapes below (`src/test/sourceLinks.test.ts` knows
+these shapes and fails otherwise). Keep `/source/info/refs` above `/source/:path*`, keep the
+branch `mvp-launch`, and keep `"permanent": false`: browsers do not cache a 307 by default, so
+the next move reaches every browser at once.
 
-GitLab's `/-/blob/` link also opens folders: it sends them to `/-/tree/` itself. It also
-sends a path it does not have to the repo root with a `302`, not a `404`, so a wrong link
-looks fine when clicked. The test checks every fixed path the site links against `git
-ls-files` for that reason. After the deploy, check one file and the root:
-`curl -sI https://memetics.finance/source/docs/AUDITS.md` and
+| Host | `/source` | `/source-issues` | `/source/info/refs` | `/source/:path*` |
+| --- | --- | --- | --- | --- |
+| GitLab (today) | `<repo>` | `<repo>/-/issues` | `<repo>.git/info/refs` | `<repo>/-/blob/mvp-launch/:path*` |
+| Bitbucket | `<repo>` | `<repo>` (Bitbucket removed its issue tracker on 2026-08-20) | `<repo>.git/info/refs` | `<repo>/src/mvp-launch/:path*` |
+| GitHub | `<repo>` | `<repo>/issues` | `<repo>.git/info/refs` | `<repo>/blob/mvp-launch/:path*` |
+
+GitLab's `/-/blob/` link also opens folders: it sends them to `/-/tree/` itself. A raw view
+would not, so never use one. GitLab also sends a path it does not have to the repo root with a
+`302`, not a `404`, so a wrong link looks fine when clicked. For that reason the test renders
+the pages that link source and checks the path of every link they show against
+`git ls-files`, and does the same for every literal path in the code. It also refuses any use
+of `SOURCE_URL` it cannot check, such as `SOURCE_URL + '/x'`. After the deploy, check one file
+and the root: `curl -sI https://memetics.finance/source/docs/AUDITS.md` and
 `curl -sI https://memetics.finance/source` should each answer `307` with a `location` on the
-new host, and that location should open the file, not the repo root.
+new host, and that location should open the file, not the repo root. Then check git:
+`git ls-remote https://memetics.finance/source mvp-launch` should print one commit.
 
 ---
 

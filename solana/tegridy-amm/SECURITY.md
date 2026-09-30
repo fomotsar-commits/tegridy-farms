@@ -14,10 +14,14 @@ had offered. That was our error, and it is corrected here.
 ## Reporting a vulnerability
 
 Email the `Contact:` address in <https://memetics.finance/.well-known/security.txt>
-(today: fomotsar@gmail.com; if the two ever differ, the file wins). That file is the one
-contact for the whole project, and it stays put when the code moves between git hosts. Report
-privately, before any public disclosure or on-chain exploitation. Never put details in a public
-issue.
+(today: fomotsar@gmail.com; if the two ever differ, the file wins). That address stays put when
+the code moves between git hosts. Report privately, before any public disclosure or on-chain
+exploitation.
+
+If email fails, open a **confidential** issue on the git host through
+<https://memetics.finance/source-issues> (on GitLab, mark it confidential when you create it). If
+the host cannot keep an issue confidential, the issue should say only that you have a security
+report and ask for a contact. Never put details in a public issue.
 
 For an exploit in progress, contact SEAL 911 in parallel:
 <https://securityalliance.org/our-work/seal-911>.
