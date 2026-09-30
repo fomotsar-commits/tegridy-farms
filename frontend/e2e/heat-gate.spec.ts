@@ -176,8 +176,7 @@ test.describe('the audit panel', () => {
     // The prior row, with ITS OWN inputs — not today's.
     //
     // Scoped to the prior row's own field list: 'Floor at the time' appears twice, because
-    // the panel lists today's decision (floor 80°) beside the prior one, and a bare '250°'
-    // also matches the ladder's Elder rung in this region. Anchoring on the prior row's
+    // the panel lists today's decision (floor 80°) beside the prior one. Anchoring on the prior row's
     // degrees asks the only question this test is for: does history keep its floor.
     const priorRow = door.getByText('41.20°', { exact: true }).locator('xpath=ancestor::dl[1]');
     await expect(door.getByText('41.20°', { exact: true })).toBeVisible();

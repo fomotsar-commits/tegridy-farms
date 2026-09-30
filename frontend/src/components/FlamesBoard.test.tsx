@@ -28,7 +28,7 @@ const NAMED: Flame = {
 };
 const UNNAMED: Flame = {
   xHandle: null,
-  degrees: 524.27,
+  degrees: 850,
   tier: 'Builder',
   heldSinceUnix: SINCE,
   tokenCount: 1,
@@ -53,7 +53,7 @@ describe('the board renders the island’s ranking', () => {
   });
 
   it('prints each flame by its served tier, even where the bands would name another', async () => {
-    // 524.27° is past the Elder band (250); the island served Builder, so the row says Builder.
+    // 850° is past the Elder band (800); the island served Builder, so the row says Builder.
     render(<FlamesBoard limit={5} />);
     await screen.findByRole('link', { name: '@_seacasa' });
     expect(screen.getAllByText('Builder')).toHaveLength(1);
