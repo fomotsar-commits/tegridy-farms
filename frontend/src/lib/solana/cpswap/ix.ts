@@ -236,6 +236,13 @@ export interface InitializeArgs {
   initAmount1: bigint;
   /** Unix seconds. 0 = open immediately. */
   openTime: bigint;
+  /**
+   * Where the pool is created. Default: the standard address for the config and pair.
+   * Any OTHER address must be a fresh keypair that signs the transaction
+   * (initialize.rs 385-388) — the way to open a pool when someone has taken the
+   * standard address first. The vaults, LP mint and price record all derive from it.
+   */
+  poolState?: PublicKey;
 }
 
 export function initializeIx(a: InitializeArgs): TransactionInstruction {
@@ -245,10 +252,9 @@ export function initializeIx(a: InitializeArgs): TransactionInstruction {
     // Refusing here beats a revert the user pays for.
     throw new Error('token0Mint/token1Mint are not byte-sorted — pass them through sortMints first');
   }
-  const pool = derivePool(a.programId, a.ammConfig, token0, token1);
-  return new TransactionInstruction({
-    programId: a.programId,
-    keys: keys(INITIALIZE_ACCOUNTS, [
+  const standard = derivePool(a.programId, a.ammConfig, token0, token1);
+  const pool = a.poolState ?? standard;
+  const ks = keys(INITIALIZE_ACCOUNTS, [
       a.creator, a.ammConfig, deriveAuthority(a.programId), pool,
       token0, token1, deriveLpMint(a.programId, pool),
       a.creatorToken0, a.creatorToken1, a.creatorLpToken,
@@ -256,7 +262,12 @@ export function initializeIx(a: InitializeArgs): TransactionInstruction {
       a.createPoolFee, deriveObservation(a.programId, pool),
       TOKEN_PROGRAM_ID, a.token0Program, a.token1Program,
       ASSOCIATED_TOKEN_PROGRAM_ID, SystemProgram.programId, SYSVAR_RENT_PUBKEY,
-    ]),
+    ]);
+  // A pool anywhere but the standard address exists only if its key signs.
+  if (!pool.equals(standard)) ks[3] = { ...ks[3]!, isSigner: true };
+  return new TransactionInstruction({
+    programId: a.programId,
+    keys: ks,
     data: encode(IX_INITIALIZE, [a.initAmount0, a.initAmount1, a.openTime]),
   });
 }

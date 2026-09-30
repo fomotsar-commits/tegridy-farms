@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../lib/solanaPolyfill';
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -17,6 +17,10 @@ import {
   feeSplit,
   solOf,
 } from '../lib/solana/cpswap/venue';
+
+// The LP finder, positions and fee tiers. Lazy: it brings the Solana wallet stack, which
+// only a live venue needs.
+const SolanaLpSection = lazy(() => import('../components/solana/lp/SolanaLpSection'));
 
 /**
  * The venue's own Solana liquidity pools — what they charge, what an LP keeps,
@@ -109,6 +113,12 @@ export default function PoolsPage() {
         </m.div>
 
         <VenueStatusCard status={status} onRefresh={refresh} />
+
+        {venueIsOpen && (
+          <Suspense fallback={<p className="text-white/60 text-[13px] mt-6">Loading the pool finder…</p>}>
+            <SolanaLpSection />
+          </Suspense>
+        )}
 
         {/* ── The fee sheet ───────────────────────────────────────────────── */}
         <section className="rounded-2xl p-6 mt-6" style={CARD} aria-label="Fee sheet">
@@ -210,9 +220,10 @@ export default function PoolsPage() {
             the swap page run that same maths client-side.
           </p>
           <p className="text-white/50 text-[12px] leading-relaxed">
-            Pools cannot be enumerated from a browser — <code className="font-mono">getProgramAccounts</code> is
-            deliberately off our RPC proxy&rsquo;s allowlist as an unbounded scan. Any list of
-            pools here is a curated one, looked up pair by pair.
+            A browser cannot list pools itself — <code className="font-mono">getProgramAccounts</code> stays
+            off our RPC proxy&rsquo;s allowlist as an unbounded scan. Our server runs that one scan,
+            filtered to pools holding the token you look up, and returns addresses only; this page
+            then reads and checks every one of those pools on chain itself.
           </p>
         </section>
       </div>

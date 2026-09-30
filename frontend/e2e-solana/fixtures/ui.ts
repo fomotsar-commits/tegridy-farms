@@ -58,6 +58,22 @@ export const ui = {
       ui.poolPanel(p).getByLabel(side === 'buy' ? 'Pay (SOL)' : /^Sell \((tokens|token base units)\)$/),
     reviewButton: (p: Page, side: 'buy' | 'sell') => ui.poolPanel(p).getByRole('button', { name: `Review pool ${side}` }),
   },
+  /** The LP section on /pools (src/components/solana/lp/*). */
+  lp: {
+    section: (p: Page) => p.getByTestId('lp-section'),
+    disclosure: (p: Page) => p.getByTestId('lp-disclosure'),
+    finder: (p: Page) => p.getByTestId('lp-finder'),
+    mintInput: (p: Page) => p.getByLabel('Token mint address', { exact: true }),
+    findButton: (p: Page) => p.getByRole('button', { name: 'Find pools', exact: true }),
+    safety: (p: Page) => p.getByTestId('token-safety'),
+    pools: (p: Page) => p.getByTestId('lp-pool'),
+    noPools: (p: Page) => p.getByTestId('lp-no-pools'),
+    indexNote: (p: Page) => p.getByTestId('lp-index-note'),
+    status: (p: Page) => p.getByTestId('lp-status'),
+    feeTiers: (p: Page) => p.getByTestId('fee-tier'),
+    positions: (p: Page) => p.getByTestId('lp-positions'),
+    position: (p: Page) => p.getByTestId('lp-position'),
+  },
   graduate: (p: Page) => p.getByRole('button', { name: 'Review: finish graduation' }),
   checkAgain: (p: Page) => p.getByRole('button', { name: 'Check again' }),
 };

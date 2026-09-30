@@ -155,6 +155,7 @@
     { "source": "/api/paraswap/:path*", "destination": "/api/aggregator?provider=paraswap&p=:path*" },
     { "source": "/api/swapapi/:path*", "destination": "/api/aggregator?provider=swapapi&p=:path*" },
     { "source": "/api/jupiter/:path*", "destination": "/api/aggregator?provider=jupiter&p=:path*" },
+    { "source": "/api/pools", "destination": "/api/aggregator?resource=pools" },
     { "source": "/record/:chain/:ca.json", "destination": "/api/aggregator?resource=record&chain=:chain&ca=:ca" },
     { "source": "/record/:path*", "destination": "/api/aggregator?resource=record&path=:path*" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }

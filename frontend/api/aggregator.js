@@ -274,6 +274,13 @@ export default async function handler(req, res) {
   // MARKET-WIDE Launch Radar. Deliberately separate from launcher-outcomes: that one
   // enriches the Tegridy cohort, this one is the whole market and must never be fed
   // into the cohort ledger (see _lib/launch-radar.js header).
+  // `?resource=pools` (rewritten from /api/pools): the Solana pool index. One filtered
+  // getProgramAccounts per question, addresses only, so the browser RPC proxy never has
+  // to allow a program scan. See _lib/pool-index.js.
+  if (req.query.resource === "pools") {
+    const { handlePoolIndex } = await import("./_lib/pool-index.js");
+    return handlePoolIndex(req, res);
+  }
   if (req.query.resource === "launch-radar") {
     const { handleLaunchRadar } = await import("./_lib/launch-radar.js");
     return handleLaunchRadar(req, res);

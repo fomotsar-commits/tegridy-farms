@@ -12,7 +12,8 @@
 #     mainnet ids, upgrade authority none. Their sha256 must match the release's
 #     SHA256SUMS AND the pins below, or nothing starts.
 #   - Metaplex Token Metadata, cloned from mainnet at genesis (read-only).
-#   - The genesis accounts from genesis-accounts.mjs: GlobalConfig, AmmConfig index 0,
+#   - The genesis accounts from genesis-accounts.mjs: GlobalConfig, AmmConfig index 0 and
+#     index 1 (the public tier the vault is proposing; see ammConfig1Values),
 #     the cp-swap Permission for ["migauth"], the vault GRMtSx… and its WSOL account.
 #   - The mainnet feature set (read-only clone), so the runtime behaves as mainnet's.
 # Mainnet is only ever READ, and only by the --clone* flags. No key of any kind is used:
@@ -51,7 +52,7 @@ die() { echo "REFUSING: $*" >&2; exit 1; }
 # ── 2. the genesis accounts exist and are the ones the manifest describes ─────
 [ -f "$ACC/manifest.json" ] || die "no $ACC/manifest.json: run 'node scripts/solana-localnet/genesis-accounts.mjs' on Windows first"
 ACCOUNT_ARGS=()
-for f in global amm-config permission vault fee-ata; do
+for f in global amm-config amm-config-1 permission vault fee-ata; do
   [ -f "$ACC/$f.json" ] || die "missing $ACC/$f.json"
   ACCOUNT_ARGS+=(--account - "$ACC/$f.json")
 done

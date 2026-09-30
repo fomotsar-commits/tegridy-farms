@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   loadVerifiedIdls, goldenMismatches, encodeIdlAccount, buildGenesisAccounts, rentExempt,
-  rehearsalGlobalValues, e2eGlobalValues, ammConfigValues, derived, readGolden,
+  rehearsalGlobalValues, e2eGlobalValues, ammConfigValues, ammConfig1Values, derived, readGolden,
   LAUNCH_PROGRAM, CP_SWAP_PROGRAM, VAULT, DEPLOYER,
 } from './genesis-accounts.mjs';
 
@@ -83,5 +83,27 @@ describe.skipIf(!idls)('e2e genesis accounts', () => {
     // The vault's REAL mainnet balance, which is above the 0-byte rent floor (890,880):
     // a fee leg paid into it must not be refused for leaving it below rent.
     expect(accts['vault.json'].account.lamports).toBeGreaterThanOrEqual(rentExempt(0));
+  });
+it('config 1 (the public tier) is config 0 with ONLY its bump, index and fee fields changed', () => {
+    const c0 = encodeIdlAccount(idls.cpIdl, 'AmmConfig', ammConfigValues());
+    const c1 = encodeIdlAccount(idls.cpIdl, 'AmmConfig', ammConfig1Values());
+    expect(c1.length).toBe(c0.length);
+    // bump [8], index [10,12), trade [12,20), protocol [20,28), fund [28,36), create fee [36,44)
+    const allowed = (i) => i === 8 || (i >= 10 && i < 44);
+    const differing = [];
+    for (let i = 0; i < c1.length; i++) if (c1[i] !== c0[i]) differing.push(i);
+    expect(differing.filter((i) => !allowed(i))).toEqual([]);
+    expect(c1[8]).toBe(derived().ammBump1);
+    expect(c1.readUInt16LE(10)).toBe(1);
+    expect(c1.readBigUInt64LE(12)).toBe(10_000n);
+    expect(c1.readBigUInt64LE(20)).toBe(160_000n);
+    expect(c1.readBigUInt64LE(28)).toBe(0n);
+    expect(c1.readBigUInt64LE(36)).toBe(150_000_000n);
+    // Both fee owners stay the vault.
+    expect(c1.subarray(44, 76).equals(VAULT.toBuffer())).toBe(true);
+    expect(c1.subarray(76, 108).equals(VAULT.toBuffer())).toBe(true);
+    const accts = Object.fromEntries(buildGenesisAccounts(idls).map((a) => [a.file, a.json]));
+    expect(accts['amm-config-1.json'].pubkey).toBe(derived().ammConfig1.toBase58());
+    expect(accts['amm-config-1.json'].account.owner).toBe(CP_SWAP_PROGRAM.toBase58());
   });
 });

@@ -189,8 +189,10 @@ export function derived() {
   const [global, globalBump] = pda([Buffer.from('global')], LAUNCH_PROGRAM);
   const [migAuth] = pda([Buffer.from('migauth')], LAUNCH_PROGRAM);
   const [ammConfig, ammBump] = pda([Buffer.from('amm_config'), Buffer.from([0, 0])], CP_SWAP_PROGRAM);
+  // Index 1 is BIG-endian u16 in the seed, like index 0: [0, 1].
+  const [ammConfig1, ammBump1] = pda([Buffer.from('amm_config'), Buffer.from([0, 1])], CP_SWAP_PROGRAM);
   const [permission] = pda([Buffer.from('permission'), migAuth.toBuffer()], CP_SWAP_PROGRAM);
-  return { global, globalBump, migAuth, ammConfig, ammBump, permission };
+  return { global, globalBump, migAuth, ammConfig, ammBump, ammConfig1, ammBump1, permission };
 }
 
 // ── the values ───────────────────────────────────────────────────────────────
@@ -239,6 +241,30 @@ export function ammConfigValues() {
     create_pool_fee: 0n,
     protocol_owner: VAULT,
     fund_owner: VAULT,
+    creator_fee_rate: 0n,
+  };
+}
+
+/**
+ * AmmConfig index 1, the PUBLIC fee tier the owner decided on 2026-09-29 and the vault is
+ * proposing through Squads: 1% trade fee, 16% of it to the venue, no fund or creator fee,
+ * 0.15 SOL to open a pool (paid into the vault's WSOL account 2sa31zce, which the binary
+ * fixes). This is the local STAND-IN for that proposal: the binary accepts
+ * create_amm_config only from the vault GRMtSx…, whose key does not exist locally, so the
+ * account it would write is written here, with the same encoder the golden check proves
+ * against the rehearsal ledger (the AmmConfig layout is the one config 0 already pins).
+ * The site must still READ it: on mainnet it may not exist yet.
+ */
+export function ammConfig1Values() {
+  const d = derived();
+  return {
+    ...ammConfigValues(),
+    bump: d.ammBump1,
+    index: 1,
+    trade_fee_rate: 10_000n,
+    protocol_fee_rate: 160_000n,
+    fund_fee_rate: 0n,
+    create_pool_fee: 150_000_000n,
     creator_fee_rate: 0n,
   };
 }
@@ -308,6 +334,7 @@ export function buildGenesisAccounts({ launchIdl, cpIdl }) {
   return [
     { file: 'global.json', json: accountJson(d.global, LAUNCH_PROGRAM, encodeIdlAccount(launchIdl, 'GlobalConfig', e2eGlobalValues())) },
     { file: 'amm-config.json', json: accountJson(d.ammConfig, CP_SWAP_PROGRAM, encodeIdlAccount(cpIdl, 'AmmConfig', ammConfigValues())) },
+    { file: 'amm-config-1.json', json: accountJson(d.ammConfig1, CP_SWAP_PROGRAM, encodeIdlAccount(cpIdl, 'AmmConfig', ammConfig1Values())) },
     { file: 'permission.json', json: accountJson(d.permission, CP_SWAP_PROGRAM, encodeIdlAccount(cpIdl, 'Permission', permissionValues())) },
     { file: 'vault.json', json: { pubkey: vault.pubkey, account: { ...vault.account, rentEpoch: 0 } } },
     { file: 'fee-ata.json', json: { pubkey: feeAta.pubkey, account: { ...feeAta.account, rentEpoch: 0 } } },

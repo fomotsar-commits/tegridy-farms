@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkLaunchEconomics } from '../src/lib/launcher/solana/curve/config';
 import { globalPda } from '../src/lib/launcher/solana/curve/program';
+import { deriveAmmConfig } from '../src/lib/solana/cpswap/program';
 import { LOCALNET_RPC, LAUNCH_PROGRAM, CP_SWAP_PROGRAM, assertLocalCluster, chain, deployment, globalConfig } from './fixtures/chain';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -37,6 +38,13 @@ export default async function globalSetup(): Promise<void> {
   const want = Buffer.from(JSON.parse(fs.readFileSync(seeded, 'utf8')).account.data[0], 'base64');
   const got = (await chain().getAccountInfo(globalPda(LAUNCH_PROGRAM), 'confirmed'))?.data;
   if (!got || !Buffer.from(got).equals(want)) throw new Error('the validator\'s GlobalConfig is not the seeded one: restart start-validator.sh after genesis-accounts.mjs');
+  // Fee tier 1 (the public tier the vault is proposing), seeded as the stand-in for that
+  // Squads proposal: the LP specs open pools on it and pay its 0.15 SOL create fee.
+  const seeded1 = path.join(HERE, '..', 'scripts', 'solana-localnet', '.accounts', 'amm-config-1.json');
+  if (!fs.existsSync(seeded1)) throw new Error(`${seeded1} is missing: run node scripts/solana-localnet/genesis-accounts.mjs`);
+  const want1 = Buffer.from(JSON.parse(fs.readFileSync(seeded1, 'utf8')).account.data[0], 'base64');
+  const got1 = (await chain().getAccountInfo(deriveAmmConfig(CP_SWAP_PROGRAM, 1), 'confirmed'))?.data;
+  if (!got1 || !Buffer.from(got1).equals(want1)) throw new Error('the validator\'s AmmConfig index 1 is not the seeded one: restart start-validator.sh after genesis-accounts.mjs');
   const g = await globalConfig();
   const report = checkLaunchEconomics({
     tradeFeeBps: g.tradeFeeBps,
@@ -53,5 +61,5 @@ export default async function globalSetup(): Promise<void> {
   const proxy = (await import(new URL('../api/solrpc.js', import.meta.url).href)) as { isAllowedRpcCall?: unknown };
   if (typeof proxy.isAllowedRpcCall !== 'function') throw new Error('api/solrpc.js does not export isAllowedRpcCall');
 
-  console.log(`[solana e2e] ${LOCALNET_RPC} healthy · genesis ${genesis} (private) · both programs deployed · global = seeded bytes · economics ok`);
+  console.log(`[solana e2e] ${LOCALNET_RPC} healthy · genesis ${genesis} (private) · both programs deployed · global and fee tier 1 = seeded bytes · economics ok`);
 }

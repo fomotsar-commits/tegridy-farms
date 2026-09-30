@@ -61,7 +61,12 @@ export default defineConfig({
     serviceWorkers: 'block',
     contextOptions: { reducedMotion: 'reduce' },
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // The LP read specs also run as a phone (Chromium with a mobile viewport, touch and
+    // user agent). WebKit is not run on this machine: Windows Smart App Control blocks it.
+    { name: 'mobile-chrome', testMatch: /lp-.*\.spec\.ts$/, use: { ...devices['Pixel 7'] } },
+  ],
   webServer: {
     command: `npx vite build --mode solana-e2e --outDir "${DIST}" --emptyOutDir && npx vite preview --mode solana-e2e --outDir "${DIST}" --port ${PORT} --strictPort`,
     port: PORT,
