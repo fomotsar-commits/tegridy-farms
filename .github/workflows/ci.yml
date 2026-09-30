@@ -397,13 +397,13 @@ jobs:
         working-directory: .
         run: node --test scripts/lib/redact-url.test.mjs
 
-      # scripts/ops/: the weekly pull of GitHub's backups, and the failover runner for
-      # this repo's crons. Bare node plus gpg, tar and bash, which ubuntu-latest has; a
-      # missing tool FAILS these tests, never skips.
+      # scripts/ops/: the weekly pull of GitHub's backups, the heartbeat step in
+      # synthetic-monitor.yml, and the failover runner for this repo's crons. Bare node
+      # plus gpg, tar and bash, which ubuntu-latest has; a missing tool FAILS, never skips.
       - name: Ops runner unit tests
         if: ${{ !cancelled() }}
         working-directory: .
-        run: node --test scripts/ops/env-file.test.mjs scripts/ops/supabase-backup.test.mjs scripts/ops/run-job.test.mjs scripts/ops/pull-github-backups.test.mjs
+        run: node --test scripts/ops/env-file.test.mjs scripts/ops/supabase-backup.test.mjs scripts/ops/run-job.test.mjs scripts/ops/pull-github-backups.test.mjs scripts/ops/heartbeat.test.mjs
 
   build:
     name: Build
