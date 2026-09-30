@@ -15,6 +15,27 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-29 — act fails a workflow when one of its jobs did not run
+
+**Believed:** a GitHub workflow run under act (or under Forgejo's runner, which is built on
+act) exits non-zero when one of its jobs never ran.
+
+**Read in act's source** (`pkg/runner/runner.go` and `pkg/runner/run_context.go` on master,
+2026-09-29; not yet run here, there is no runner): a matrix act cannot expand, such as
+`fromJSON(needs.x.outputs.y)` with an empty output, is logged as `Error while get job's
+matrix` and then runs zero times. A job whose `runs-on` label has no `-P` mapping is skipped
+with one info line and no result. act's exit code counts only jobs whose result is
+`failure`, so both runs exit 0. act also expands a matrix before it checks the job's
+`needs`, so a matrix job whose needs were skipped logs that same error where GitHub just
+skips the job. And act ignores `on.push.paths`.
+
+**Do:** never read act's exit code alone. List the jobs first (`act -l`), require a result
+line for each one (`jobResult` in `--json --verbose` output; skips are logged at debug
+level), and accept a job with no result only when a job it needs was skipped.
+`scripts/ci/act-job.sh` does this and proves it with `--self-test`.
+
+---
+
 ## 2026-09-22 — a `toContain('80°')` pin stays green on a page that says 180°
 
 **Believed:** a test that asserts a threshold goes red when the page shows a different
