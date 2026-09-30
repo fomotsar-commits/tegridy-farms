@@ -51,6 +51,8 @@ describe('bungalow registry', () => {
     // The island: "12 BUNGALOWS · 3 LOTS OPEN". Its lot is 'nb1', chain 'tbd'.
     expect(BUNGALOW_COUNT).toBe(12);
     expect(BUNGALOWS.filter((b) => b.chain === 'tbd').map((b) => b.id)).toEqual(['nb1']);
+    // Its tile line is the island's lot label ("Lot 13, for the next community"), unnumbered.
+    expect(BUNGALOWS.find((b) => b.chain === 'tbd')!.tagline).toBe('For the next community.');
     // The lot keeps its row, tile and art: 13 rows, unique ids.
     expect(BUNGALOWS).toHaveLength(13);
     expect(new Set(BUNGALOWS.map((b) => b.id)).size).toBe(BUNGALOWS.length);

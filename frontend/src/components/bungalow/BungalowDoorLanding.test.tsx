@@ -32,4 +32,13 @@ describe('the open lot speaks as the island’s lot', () => {
     expect(link.textContent?.trim()).toBe('How a community gets a bungalow here.');
     expect(document.body.textContent).not.toContain('one bungalow unmarked');
   });
+
+  it('heads the lot with the island’s lot label, and says nobody is building on it', () => {
+    renderLot();
+    expect(document.querySelector('h1')?.textContent).toBe('Unmarked. Lot 13, for the next community.');
+    expect(document.body.textContent).not.toMatch(/someone is building here/i);
+    // The lot's paragraph is the harbor link alone.
+    const link = screen.getByRole('link', { name: /How a community gets a bungalow here\./ });
+    expect(link.parentElement?.textContent?.trim()).toBe('How a community gets a bungalow here.');
+  });
 });

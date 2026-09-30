@@ -177,6 +177,9 @@ describe("RULE 3 — an unread source is never a zero", () => {
     const reply = await say("/heat");
     expect(reply.text).toMatch(/Jungle Bay Island/);
     expect(reply.text).toMatch(/not a yield, not a price/i);
+    // The island reads one person across every linked wallet, so heat is not one wallet's time.
+    expect(reply.text).toContain("This is their measurement of held time, forwarded unchanged.");
+    expect(reply.text).not.toMatch(/how long a wallet has held/i);
   });
 
   it("heat refuses a non-address by naming every chain it reads", async () => {

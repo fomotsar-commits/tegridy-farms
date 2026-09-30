@@ -237,7 +237,7 @@ async function doHeat(cfg, venue, chatRef, arg) {
     "",
     `${degrees}° · ${tier ?? "no tier reported"}`,
     "",
-    `Reckoned by Jungle Bay Island on ${when}. This is their measurement of how long a wallet has held, forwarded unchanged. It is not a yield, not a price and not a score of ours, and a reading older than you expect certifies nothing about today.`,
+    `Reckoned by Jungle Bay Island on ${when}. This is their measurement of held time, forwarded unchanged. It is not a yield, not a price and not a score of ours, and a reading older than you expect certifies nothing about today.`,
   ].join("\n");
 }
 
