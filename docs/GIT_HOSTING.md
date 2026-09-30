@@ -23,7 +23,8 @@ On 2026-09-24 GitHub suspended the account `fomotsar-commits`. Every git, `gh` a
 returns 403. Production kept serving, but nothing could merge or deploy through GitHub. The CI,
 the crons, the PR history and Vercel's deploy trigger all lived there. The commits did not: every
 one of them was still in a local clone or a bundle. On 2026-09-29 they were combined into one
-vault with 605 branches, 700 tags and 0 commits lost.
+vault with 605 branches and 700 tags. That build missed 11 of the OneDrive clone's 12 stash
+entries (only the newest is a ref); the fresh vault in 2A step 7 takes them all.
 
 So the setup is now:
 
@@ -52,9 +53,9 @@ So the setup is now:
 | Place | Job | If it dies |
 |---|---|---|
 | GitLab (gitlab.com) | Primary: MRs, protected trunk, Vercel's trigger | Bitbucket takes over in about 10 minutes (5A) |
-| Bitbucket (bitbucket.org) | Hot standby, Vercel-compatible | GitLab keeps going; re-seed it with `push-all.sh` |
-| The vault | Every ref from every clone and bundle, off OneDrive | Rebuild it with `consolidate-refs.sh` |
-| OneDrive bundles | Daily copy of every repo, off this machine | The hosts and clones still have everything |
+| Bitbucket (bitbucket.org) | Hot standby, Vercel-compatible | GitLab keeps going; re-seed Bitbucket from a mirror clone of GitLab (5D) |
+| The vault | Every ref from every clone and bundle, off OneDrive | Build a fresh one with `consolidate-refs.sh` (2A step 7). It reads the old one too |
+| OneDrive bundles | Daily copy of every repo, including each clone's last view of the hosts | The hosts and clones still have everything |
 | Vercel | Serves memetics.finance | Instant Rollback, or a CLI deploy from any copy (5B) |
 
 Codeberg is excluded: its terms ban cryptocurrency projects. SourceHut too. We never make a second
@@ -64,11 +65,12 @@ The scripts, all in `scripts/git-hosting/`:
 
 | Script | What it does |
 |---|---|
-| `consolidate-refs.sh` | Builds a NEW vault from the clones and bundles. Never overwrites a ref; proves 0 lost. |
-| `push-all.sh <repo> <url> [--gitlab] [--dry-run] [--trunk <b>]` | Pushes every branch and tag, then proves the host holds exactly that set. Never forces. `main` goes up as `archive/main`. |
+| `consolidate-refs.sh` | Builds a NEW vault from the clones, the old vault and the bundles, including every stash entry. Never overwrites a ref; proves 0 lost. |
+| `push-all.sh <repo> <url> [--gitlab] [--dry-run] [--trunk <b>]` | Pushes every branch and tag, then proves the host holds exactly that set. Never forces. `main` goes up as `archive/main`. Refuses a working clone whose branches are only remote-tracking refs. |
 | `set-remotes.sh <clone> <primary> [<standby>] [--fix-email <addr>]` | origin fetches from the primary and pushes to both hosts. A GitHub origin becomes a read-only `github` record. |
-| `backup-bundles.sh [<dest>]` | One verified bundle per repo per day, newest 14 kept, SHA256SUMS refreshed. |
-| `register-backup-task.ps1` | Registers the daily 03:30 backup task. |
+| `backup-bundles.sh [<dest>]` | One verified bundle per repo per day (branches, tags and remote-tracking refs), newest 14 kept, SHA256SUMS refreshed. |
+| `register-backup-task.ps1` | Registers the daily 03:30 backup task, which pings a healthchecks.io check. |
+| `test/run-all.sh` | Tests all of the above on throwaway repos. CI runs it. |
 
 ---
 
@@ -98,7 +100,7 @@ push to a new host without your go.
    recovery codes offline** (paper, or next to the keys), not in OneDrive and never in chat.
 3. Create the group: **Create new (+)** > **New group** > **Create group**. Name `memetics`,
    visibility **Public**. A public group avoids the Free plan's 5-member cap. The project inside
-   stays private until you decide otherwise.
+   stays private until you decide otherwise, and never before 2H.
 4. Before any project exists, in the group: **Settings > CI/CD**.
    - **Auto DevOps**: untick "Default to Auto DevOps pipeline", Save.
    - **Runners**: turn off "Enable instance runners for this group".
@@ -112,15 +114,16 @@ push to a new host without your go.
    empty.
 6. In the project, before the first push: **Settings > CI/CD** > Auto DevOps off, and under
    Runners turn instance runners off.
-7. First push. If any session committed since 2026-09-29, build a fresh vault first. It never
-   touches the old one:
+7. First push, from a fresh vault. The 2026-09-29 vault holds only 1 of clone A's 12 stash
+   entries, and sessions have committed since. The fresh build reads the old vault as a source
+   and never changes it:
    ```
    VAULT=/c/Users/jimbo/git-vault/tegridy-farms-$(date +%F).git bash scripts/git-hosting/consolidate-refs.sh
    ```
-   It must print `staged commits NOT reachable from refs/heads+refs/tags: 0` and end with
-   `OK vault=...`. Then push:
+   It must print `staged commits NOT reachable from refs/heads+refs/tags: 0` and
+   `commits that could not be staged: 0`, and end with `OK vault=...`. Then push:
    ```
-   V=/c/Users/jimbo/git-vault/tegridy-farms.git      # or the fresh vault
+   V=/c/Users/jimbo/git-vault/tegridy-farms-<date>.git      # the fresh vault
    bash scripts/git-hosting/push-all.sh "$V" "$PRIMARY" --gitlab --dry-run
    bash scripts/git-hosting/push-all.sh "$V" "$PRIMARY" --gitlab
    ```
@@ -160,22 +163,32 @@ push to a new host without your go.
    bash scripts/git-hosting/push-all.sh "$V" "$STANDBY" --dry-run
    bash scripts/git-hosting/push-all.sh "$V" "$STANDBY"
    ```
-5. Make the token GitLab's mirror will use. Bitbucket app passwords stopped working on
+5. Protect `mvp-launch` on Bitbucket **before** the mirror exists: repository **Settings >
+   Workflow > Branch restrictions > Add a branch restriction**, branch `mvp-launch`. Leave
+   **Allow rewriting branch history** and **Allow deleting this branch** unticked (the defaults),
+   with no exemptions, so they bind everyone, the mirror included. Keep write access for your own
+   account: the mirror pushes with your token.
+   - Why: the mirror force-updates Bitbucket to match GitLab. After a failover (5A), a GitLab that
+     comes back would rewind Bitbucket's newer `mvp-launch` and so roll production back. With
+     this restriction the mirror can only move `mvp-launch` forward; anything else fails loudly.
+6. Make the token GitLab's mirror will use. Bitbucket app passwords stopped working on
    2026-06-09; use an API token. Avatar > **Account settings** > **Security** > **Create and manage
    API tokens** > **Create API token with scopes**. Name `gitlab-push-mirror`, expiry one year
    (write the date in section 7C), app **Bitbucket**, scopes `read:repository:bitbucket` and
    `write:repository:bitbucket`. It is shown once. Paste it only into GitLab's form in the next
    step. Never into chat, a file or a commit.
-6. In GitLab: project > **Settings > Repository > Mirroring repositories**.
+7. In GitLab: project > **Settings > Repository > Mirroring repositories**.
    - Git repository URL: `https://bitbucket.org/memetics/tegridy-farms.git`
    - Mirror direction: **Push**. Authentication: username and password.
    - Username: your Bitbucket username exactly as your Bitbucket profile shows it (it is
      case-sensitive), or `x-bitbucket-api-token-auth`. Password: the API token.
-   - **Keep divergent refs: off.** GitLab is the truth; anything that differs on Bitbucket is
-     overwritten. **Mirror only protected branches: off.** We want every branch.
+   - **Keep divergent refs: off.** GitLab is the truth, so a feature branch rebased on GitLab is
+     rebased on Bitbucket too. Step 5 keeps this from ever rewinding `mvp-launch`. GitLab lets
+     you change this setting later only through its API, so set it now. **Only mirror protected
+     branches: off.** We want every branch.
    - **Mirror repository**, then **Update now**. Check "Last successful update".
    - Branches deleted on GitLab after a merge are deleted on Bitbucket at the next mirror push.
-7. Why both the mirror and the second push URL of 2C: the mirror also carries merges made in the
+8. Why both the mirror and the second push URL of 2C: the mirror also carries merges made in the
    GitLab UI. The second push URL keeps Bitbucket current when GitLab is down or has banned us,
    which is exactly when the mirror stops.
 
@@ -290,9 +303,21 @@ rebuild from source works today, and connecting Vercel to GitLab does not fix it
    `railway up` uploads the folder you run it from. Run it where the service's Root Directory
    expects. This path is not rehearsed yet; do it once with the owner watching.
 
-### 2F. Daily bundles (5 minutes)
+### 2F. Daily bundles (10 minutes)
 
-In PowerShell, from the repo root:
+First the alarm, so a failed backup reaches you. In healthchecks.io (the same account as
+`docs/OPS_SCHEDULER.md` when that lands; email and password, two-factor on), create a check named
+`git-vault-backup` with period **1 day** and grace **1 day**. The task runs only while you are
+logged on, so a day away from this PC also shows as DOWN. Put its ping URL on one line of the ops
+env file, `%USERPROFILE%\tegridy-ops-env\ops.env` (outside any git work tree and outside
+OneDrive; create it if it does not exist):
+
+```
+HC_PING_URL_GIT_VAULT_BACKUP=https://hc-ping.com/<uuid>
+```
+
+Each run reads that line and pings the check, or `<url>/fail` when any source failed. The URL is
+never copied into the task or the log. Then, in PowerShell, from the repo root:
 
 ```
 powershell -ExecutionPolicy Bypass -File scripts\git-hosting\register-backup-task.ps1 -DryRun
@@ -302,12 +327,18 @@ Get-ScheduledTaskInfo -TaskName git-vault-backup      # LastTaskResult 0 means s
 Get-Content $env:LOCALAPPDATA\git-hosting\backup.log -Tail 20
 ```
 
+- The installer says `ALARM NOT SET` until that line exists. The log's last line after each run
+  says whether it pinged.
 - It copies the script to `%LOCALAPPDATA%\git-hosting\`, so deleting a worktree cannot break it.
   Re-run the installer after the script changes. Re-running is safe.
 - It runs daily at 03:30 while you are logged on. A missed run starts at the next chance.
-- By default it bundles: the vault, the dev clone, the OneDrive clone, memetic-fun-lab-proxy,
-  nakamigos-app and sartoshisiding.com. To change the list, create
+- By default it bundles: the 2026-09-29 vault, the dev clone, the OneDrive clone,
+  memetic-fun-lab-proxy, nakamigos-app and sartoshisiding.com. To change the list, create
   `%LOCALAPPDATA%\git-hosting\backup-sources.txt` with one `name=path` per line.
+- A vault never changes, so bundle a fresh one once by hand (Git Bash):
+  `BACKUP_SOURCES="tegridy-farms-ALL-<date>=<its path>" bash scripts/git-hosting/backup-bundles.sh`
+- Each clone's bundle holds its remote-tracking refs too. After 2C, a clone's newest trunk is
+  `origin/mvp-launch` (GitLab's, as last fetched), not its own stale `mvp-launch`.
 - A repo that has not changed since its newest bundle is skipped. A tegridy-farms bundle is about
   150 MB, so 14 days of two busy clones can reach about 4 GB of OneDrive.
 - To check every bundle: `cd /c/Users/jimbo/OneDrive/git-vault && sha256sum -c SHA256SUMS`.
@@ -319,6 +350,23 @@ Get-Content $env:LOCALAPPDATA\git-hosting\backup.log -Tail 20
 Give each one a private project in the `memetics` group and push it with
 `push-all.sh <clone> <url> --gitlab --trunk <its trunk>`. They are already in the daily bundles.
 
+### 2H. Before the project is made public (not part of onboarding)
+
+The project holds every ref of the vault, and much of that was never public on GitHub: 453
+`archive/*` tags (stash, tmp and PR heads, bundle-only commits), 69 `rescue/*` branches, and audit
+material. Making the project public publishes all of it. Before any visibility change:
+
+1. Push the whole vault to a second private project, for example
+   `memetics/tegridy-farms-archive`, with `push-all.sh`, and wait for its `OK` line. That project
+   stays private for good.
+2. Scan every ref, not only the branches: a fresh `git clone --mirror "$PRIMARY"`, then
+   `gitleaks git <that mirror> --log-opts="--all"`. Resolve every finding first. The 2026-09-29
+   scan of the vault found 2, both in test fixtures.
+3. Decide which `archive/*`, `rescue/*` and audit refs leave the public project. Removing them is
+   a one-time owner decision made by hand, and the only exception to "never delete on a host"
+   (section 4). Do it only after step 1 verified.
+4. Then change the visibility.
+
 ---
 
 ## 3. Daily use
@@ -327,8 +375,9 @@ Give each one a private project in the `memetics` group and push it with
   `github` is the frozen record; pushing to it fails.
 - A push to origin goes to both hosts. If one host rejects it, git says so and the other has
   still moved. Fix the cause and push again. Never force.
-- GitLab rejects direct pushes to `mvp-launch`; Bitbucket may accept one. The mirror puts
-  Bitbucket back within about 5 minutes.
+- Never push `mvp-launch` directly. GitLab rejects it, but Bitbucket may accept it. Then the two
+  trunks differ, the branch restriction (2B step 5) stops the mirror from rewinding Bitbucket,
+  and the mirror shows an error until the owner sorts it out.
 - Install glab: `winget install --id GLab.GLab`. The owner signs in once with `glab auth login`
   and picks the browser option.
 
@@ -387,31 +436,57 @@ Never, on any path:
 
 ### 5A. GitLab is gone: Bitbucket becomes primary (about 10 minutes)
 
-1. Check that Bitbucket holds the real trunk. Compare `git ls-remote "$STANDBY"
+1. **First, cut the mirror:** in Bitbucket, avatar > **Account settings** > **Security** >
+   **Create and manage API tokens**, revoke `gitlab-push-mirror`. This works even while GitLab is
+   unreachable. Otherwise a GitLab that
+   comes back resumes its mirror and deletes every branch made on Bitbucket after the failover.
+2. Check that Bitbucket holds the real trunk. Compare `git ls-remote "$STANDBY"
    refs/heads/mvp-launch` with the commit production serves (`held-through.json`) and with your
    clone's last view of GitLab (`git -C <clone> rev-parse origin/mvp-launch`). If Bitbucket is
    behind, push that trunk to it. Without force, this can only move it forward:
    `git -C <clone> push "$STANDBY" refs/remotes/origin/mvp-launch:refs/heads/mvp-launch`.
-2. Vercel, project tegridy-farms: turn auto-assign **off** (Branch Tracking panel). **Settings >
+3. Vercel, project tegridy-farms: turn auto-assign **off** (Branch Tracking panel). **Settings >
    Git > Disconnect**, then **Connect > Bitbucket > memetics/tegridy-farms**. Set Branch Tracking
    to `mvp-launch` and check it with the command in 2D step 9. It must print `bitbucket`. The next
    production build is staged. Check it, promote it, then turn auto-assign back **on**.
-3. Every clone: `bash scripts/git-hosting/set-remotes.sh <clone> "$STANDBY"`, then
+4. Every clone: `bash scripts/git-hosting/set-remotes.sh <clone> "$STANDBY"`, then
    `git fetch origin`.
-4. On Bitbucket, protect `mvp-launch`: repository settings > branch restrictions. No deletion, no
-   history rewrite, and only you may write.
-5. When a new primary exists, seed it with `push-all.sh`, run `set-remotes.sh` with the new
-   primary and standby, and reconnect Vercel the same way.
+5. On Bitbucket, tighten the `mvp-launch` restriction from 2B step 5: now only you may write,
+   and changes go through pull requests.
+6. When a new primary exists, seed it from a mirror clone of Bitbucket (5D), run `set-remotes.sh`
+   with the new primary and standby, and reconnect Vercel the same way.
+7. If GitLab comes back, it is behind. Catch it up from Bitbucket (5D) before anything else. It is
+   never a mirror source again until 5D shows no `MISSING` or `DIFFERS` line.
 
 ### 5B. Every host is gone: restore from a bundle, deploy with the Vercel CLI
 
-1. Check the bundles: `cd /c/Users/jimbo/OneDrive/git-vault && sha256sum -c SHA256SUMS`. Pick
-   the bundle whose `mvp-launch` is newest (`git bundle list-heads <file> refs/heads/mvp-launch`).
-2. Restore it: `git clone --mirror <bundle> /c/Users/jimbo/restore/tegridy-farms.git`.
-3. Deploy from a clean checkout, at the repo root. `.vercelignore` uploads only `frontend/`, and
+1. Check the bundles: `cd /c/Users/jimbo/OneDrive/git-vault && sha256sum -c SHA256SUMS`.
+2. Restore every tegridy-farms bundle into one repo, and list every trunk they hold, newest
+   first. A clone's newest trunk is its `origin/mvp-launch`, not its own `mvp-launch`, which is
+   stale:
+   ```
+   R=/c/Users/jimbo/restore/tegridy-farms.git
+   git init -q --bare "$R"
+   for f in /c/Users/jimbo/OneDrive/git-vault/tegridy-farms-*.bundle; do
+     git -C "$R" fetch -q "$f" "+refs/*:refs/b/$(basename "$f" .bundle)/*"
+   done
+   git -C "$R" for-each-ref --sort=-committerdate --format='%(committerdate:iso) %(objectname) %(refname)' \
+     'refs/b/*/heads/mvp-launch' 'refs/b/*/remotes/*/mvp-launch'
+   ```
+3. Take the top commit as `SHA`, and prove it contains what production serves. Otherwise the
+   deploy would roll production back.
+   ```
+   SHA=<the top commit above>
+   curl -s https://memetics.finance/held-through.json          # note its "commit"
+   git -C "$R" merge-base --is-ancestor <that commit> "$SHA" && echo "SAFE: $SHA contains production"
+   ```
+   No `SAFE` line: stop. Production keeps serving as it is. Find a newer copy first (any clone's
+   `origin/mvp-launch`), and ask the owner.
+4. Deploy from a clean checkout, at the repo root. `.vercelignore` uploads only `frontend/`, and
    running inside `frontend/` fails. The two ids below are not secrets.
    ```
-   git clone --branch mvp-launch /c/Users/jimbo/restore/tegridy-farms.git /c/Users/jimbo/restore/deploy
+   git -C "$R" branch restore-trunk "$SHA"
+   git clone --branch restore-trunk "$R" /c/Users/jimbo/restore/deploy
    cd /c/Users/jimbo/restore/deploy
    export VERCEL_ORG_ID=team_EVDD1zUWWUUoAzBGWe58k0uR VERCEL_PROJECT_ID=prj_J1FvjRMmzfpMy8bfAnxC15k4dILI
    SHA=$(git rev-parse HEAD)
@@ -420,10 +495,10 @@ Never, on any path:
    npx vercel promote <printed-url>                     # a production deploy: section 4
    ```
    Vercel builds it, so the Sensitive variables are filled in on Vercel's side.
-   `scripts/predeploy-check.mjs` needs a live origin and cannot pass here. Check by hand that
-   `$SHA` is the newest trunk you have.
-4. Stand up a new primary, seed it with `push-all.sh`, and get this exact commit onto its
-   `mvp-launch` before anything else merges.
+   `scripts/predeploy-check.mjs` needs a live origin and cannot pass here; step 3 stands in for it.
+5. Stand up a new primary. Seed it from the newest vault bundle (`git clone --mirror` it, then
+   5D). Then push `restore-trunk` to its `mvp-launch` (a fast-forward, so no force; a protected
+   trunk needs the 5D exception) before anything else merges.
 
 ### 5C. Practice, so the drills are not new on the bad day
 
@@ -431,8 +506,32 @@ Never, on any path:
   ```
   diff <(git ls-remote --heads --tags "$PRIMARY" | sort) <(git ls-remote --heads --tags "$STANDBY" | sort) && echo "hosts match"
   ```
-- Monthly: restore the newest bundle into a temp folder with `git clone --mirror` and check its
-  `mvp-launch`. Run the 5B deploy as a **preview** (drop `--prod`) from a clean worktree.
+- Monthly: run 5B steps 1 to 3 into a temp folder, and check that the top trunk is GitLab's
+  current `mvp-launch` or close behind it. Run the 5B deploy as a **preview** (drop `--prod`).
+- Monthly: check the backup is alive. The newest `tegridy-farms-*` bundle in
+  `OneDrive\git-vault` should be days old at most, `Get-ScheduledTaskInfo -TaskName
+  git-vault-backup` should show `LastTaskResult` 0, and healthchecks.io should show the check UP.
+
+### 5D. Seed or catch up a host
+
+Seed a host only from a copy that holds every branch: a fresh vault (2A step 7), or a mirror clone
+of the host that survived. Never from a working clone: most of its branches are only
+remote-tracking refs, so `push-all.sh` refuses it.
+
+```
+SRC=/c/Users/jimbo/git-vault/host-copy-$(date +%F).git
+git clone --mirror "$STANDBY" "$SRC"                       # or "$PRIMARY", whichever survived
+bash scripts/git-hosting/push-all.sh "$SRC" <host URL> --dry-run      # add --gitlab for a GitLab host
+bash scripts/git-hosting/push-all.sh "$SRC" <host URL>
+```
+
+- A new, empty host ends with the usual `OK` line.
+- A host that came back already holds its old refs. `push-all.sh` only moves them forward, then
+  lists as `EXTRA` the refs that only that host has (mostly branches deleted after a merge) and
+  stops. Nothing was deleted. Review the list; that stop is expected here. A branch that moved
+  differently on each host is rejected and listed as `DIFFERS`: decide by hand which one wins.
+- A returning GitLab rejects the `mvp-launch` push, because it is protected. Set **Allowed to
+  push and merge** to Maintainers for this one run, then back to **No one**.
 
 ---
 
@@ -456,13 +555,33 @@ Do these in this order.
    request, and the download link arrives by email. Do not crawl the API with `gh`.
 7. **Remove the Vercel GitHub app:** `github.com/settings/installations` > Vercel > Configure >
    Uninstall. Vercel's side was disconnected in 2D.
-8. **Make GitHub a push-mirror target.** Create a fine-grained token for this repository only
+8. **Save what only GitHub has, before any mirror touches it.** The step 9 mirror deletes every
+   GitHub branch that GitLab lacks and overwrites every one that differs. GitHub may hold pushes
+   no clone ever fetched (Dependabot, cloud sessions). One clone, one bundle, then the
+   GitHub-only refs go to GitLab under `github-late/`:
+   ```
+   GHM=/c/Users/jimbo/git-vault/github-final-$(date +%F).git
+   git clone --mirror https://github.com/fomotsar-commits/tegridy-farms.git "$GHM"
+   git -C "$GHM" bundle create /c/Users/jimbo/OneDrive/git-vault/github-final-$(date +%F).bundle --all
+   git -C "$GHM" fetch -q "$PRIMARY" '+refs/heads/*:refs/primary/heads/*' '+refs/tags/*:refs/primary/tags/*'
+   git -C "$GHM" for-each-ref --format='%(refname)' refs/heads refs/tags | while read -r ref; do
+     if [ -n "$(git -C "$GHM" rev-list -1 "$ref" --not --glob='refs/primary/*')" ]; then
+       kind=${ref#refs/}; kind=${kind%%/*}; echo "$ref:refs/$kind/github-late/${ref#refs/$kind/}"
+     fi
+   done > github-late.txt
+   cat github-late.txt
+   if [ -s github-late.txt ]; then git -C "$GHM" push -o ci.skip "$PRIMARY" $(cat github-late.txt); fi
+   ```
+   The list holds only refs with a commit GitLab lacks; GitHub's old `mvp-launch` and `main` are
+   not on it. Also turn off Dependabot on GitHub (**Settings > Code security**): a branch it opens
+   there exists only on GitHub, and the next mirror sync deletes it.
+9. **Make GitHub a push-mirror target.** Create a fine-grained token for this repository only
    (**Settings > Developer settings > Personal access tokens > Fine-grained tokens**) with
    **Contents: read and write** and **Workflows: read and write**, and an expiry date (7C). In
    GitLab: **Settings > Repository > Mirroring repositories**, URL
    `https://github.com/fomotsar-commits/tegridy-farms.git`, **Push**, username
    `fomotsar-commits`, password = the token, **Keep divergent refs off**.
-9. **Never make GitHub primary again.** Do not reconnect Vercel to it; the Ignored Build Step
+10. **Never make GitHub primary again.** Do not reconnect Vercel to it; the Ignored Build Step
    stays. Clones keep `github` as a read-only record. The local `gh` token and Git Credential
    Manager's github.com token will work again: use them for reads, slowly.
 
@@ -501,13 +620,13 @@ reinstatement (section 6 step 5).
 |---|---|---|---|
 | GitLab password, 2FA and recovery codes | 2A | your password manager; codes offline | everything on GitLab |
 | Atlassian password and two-step verification | 2B | your password manager | Bitbucket |
-| Bitbucket API token `gitlab-push-mirror` | 2B step 5 | only GitLab's mirror settings | GitLab to Bitbucket mirror |
+| Bitbucket API token `gitlab-push-mirror` | 2B step 6 | only GitLab's mirror settings | GitLab to Bitbucket mirror |
 | Git Credential Manager sign-ins (gitlab.com, bitbucket.org) | first push | Windows Credential Manager | your pushes and fetches; they refresh on their own |
 | Vercel login connections to GitLab and Bitbucket | 2D step 7 | Vercel | deploy triggers; revocable in GitLab and Atlassian settings |
 | Later: GitLab service-account token | CI workstream | GitLab CI variables (masked, protected) | monitors that open issues, Renovate |
 | Later: runner authentication tokens (`glrt-...`) | CI workstream | the runner host | our own CI runner |
 | Later: `VERCEL_TOKEN` (one project only), `RAILWAY_TOKEN` | deploy workstream | GitLab CI variables (masked, protected) | deploys from CI |
-| Later: GitHub fine-grained token | section 6 step 8 | only GitLab's mirror settings | GitLab to GitHub mirror |
+| Later: GitHub fine-grained token | section 6 step 9 | only GitLab's mirror settings | GitLab to GitHub mirror |
 
 ### 7C. Expiry calendar
 
@@ -528,7 +647,7 @@ date here in a PR. Dates only.
 
 | Date | What happens | Status |
 |---|---|---|
-| ~2026-10-01 | `git gc` in the OneDrive clone may prune 280 commits whose only copy is a bundle | Covered: they are in the vault since 2026-09-29. Keep the vault. |
+| ~2026-10-01 | `git gc` in the OneDrive clone may prune 280 commits whose only copy is a bundle | Covered: they are in the vault since 2026-09-29. Keep the vault. Its 12 stash entries are not at risk from gc (git never expires `refs/stash` entries unless a `gc.refs/stash.*` setting says so), but 11 of them exist only in that clone until a fresh vault is built (2A step 7). |
 | 2026-10-20 | The BAYLA mainnet build artifact expires on GitHub | A local copy exists and its hash matches |
 | ~2026-10-28 | The oldest Supabase backup artifact expires on GitHub | Cannot be downloaded while suspended |
 | 2026-11-16 | The npm-advisory baseline expires; 24 advisories start blocking CI | CI workstream |
@@ -542,12 +661,16 @@ date here in a PR. Dates only.
 
 ## 9. Not covered here
 
-These are separate pieces of work. Each one has its own owner:
-- Porting CI to GitLab, with our own runner. Never the shell executor on the PC that holds keys.
-  Port from the newest ship branch, not trunk: its `solana-ci.yml` differs.
-- Restoring the monitors and crons. GitLab Free allows 10 schedules at 24 runs a day each.
-- The security contacts that point at dead GitHub URLs: `solana/tegridy-amm/SECURITY.md` and the
-  on-chain security.txt of the live cp-swap program.
+These are separate pieces of work. Each one has its own branch, and its own doc once it lands:
+- CI on GitLab, with our own runner: branch `ci/gitlab-pipeline` (`docs/CI_ON_GITLAB.md`). It runs
+  the `.github/workflows/` files unchanged, so the git-hosting tests in `ci.yml` run there too.
+  Never the shell executor on the PC that holds keys. Port from the newest ship branch, not
+  trunk: its `solana-ci.yml` differs.
+- The monitors, crons and the Supabase backup: branch `ops/off-github-crons`
+  (`docs/OPS_SCHEDULER.md`). They run from Windows Task Scheduler with healthchecks.io alarms, not
+  as GitLab schedules.
+- The security contacts that point at dead GitHub URLs (`solana/tegridy-amm/SECURITY.md` and the
+  on-chain security.txt of the live cp-swap program): branch `fix/source-links-first-party`.
 - Builds that still fetch from public github.com (submodules, foundryup, anchor, gitleaks).
 - Do not retire the OneDrive clone while `C:\Users\jimbo\tegridy-ops` hangs off it. That worktree
   holds operator keys, and `worktree remove --force` deletes ignored files.

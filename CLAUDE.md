@@ -9,8 +9,8 @@ the site and `api/`), `contracts/` (Foundry), `solana/` (Anchor), `indexer/`,
 
 `mvp-launch` is the default branch and the trunk. It lives on the primary host named in
 `docs/GIT_HOSTING.md`; no single host is load-bearing. `main` is a diverged fork (on the hosts,
-`archive/main`), never branch from it. Any push or merge that moves `mvp-launch` on any
-remote deploys `frontend/` to production within minutes.
+`archive/main`), never branch from it. A merge to `mvp-launch` on the primary deploys
+`frontend/` to production within minutes; moving it on any remote counts as a production deploy.
 
 ## Build and test (Node 20, `.nvmrc`; what `.github/workflows/ci.yml` runs)
 

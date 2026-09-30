@@ -33,21 +33,24 @@ stop and say so — a surprise is information.
 
 GitHub suspended the account on 2026-09-24. Nothing merges or deploys through it. Production
 still serves trunk `434fb635`. The new setup is in [`GIT_HOSTING.md`](GIT_HOSTING.md): GitLab as
-primary, Bitbucket as hot standby, a local vault (every ref, 0 commits lost) and daily bundles on
-OneDrive. The scripts are built and tested. The accounts, sign-ins and first pushes need you.
+primary, Bitbucket as hot standby, a local vault of every ref, and daily bundles on OneDrive.
+The first vault missed 11 of the OneDrive clone's 12 stash entries; the fresh vault in 2A step 7
+takes them all. The scripts are built and tested. The accounts, sign-ins and first pushes need you.
 
-### ⬜ O-0929-1: work through GIT_HOSTING.md section 2, in order (about two hours)
+### ⬜ O-0929-H1: work through GIT_HOSTING.md section 2, in order (about two hours)
 
 **Today, first (15 minutes):** section 2.0. Check how you log in to Supabase, Railway and Vercel,
 and add an email login plus 2FA wherever it is GitHub-only. Confirm the offline copy of
 `BACKUP_PASSPHRASE` exists; it is the only one.
 
-**Then:** 2A GitLab (account, 2FA, group `memetics`, empty private project), 2B Bitbucket, 2C
-point the clones, 2D Vercel (the safe order is written there), 2E Railway, 2F the daily backup
-task, 2G the other three repos.
+**Then:** 2A GitLab (account, 2FA, group `memetics`, empty private project, a fresh vault, the
+first push), 2B Bitbucket (protect `mvp-launch` there before the mirror), 2C point the clones, 2D
+Vercel (the safe order is written there), 2E Railway, 2F the daily backup task and its
+healthchecks.io alarm, 2G the other three repos. Not 2H: the project stays private.
 
-**You should see:** `OK: the host holds exactly the local set (N refs).` from `push-all.sh`, once
-for each host. After 2D step 9, `gitlab memetics/tegridy-farms prod: mvp-launch`. After the first
+**You should see:** `commits that could not be staged: 0` and `OK vault=...` from the fresh
+vault. `OK: the host holds exactly the local set (N refs).` from `push-all.sh`, once for each
+host. `Alarm: each run pings ...` from the backup installer. After 2D step 9, `gitlab memetics/tegridy-farms prod: mvp-launch`. After the first
 MR, `held-through.json` on memetics.finance shows the merge commit.
 
 **A mismatch means:** stop. Do not connect Vercel until both hosts verify. Never push `main` as
