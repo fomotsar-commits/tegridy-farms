@@ -29,6 +29,55 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-09-29: the backup and the monitors left GitHub, and four steps are yours
+
+GitHub ran the weekly Supabase backup and five monitors. All of them stopped with the suspension on
+2026-09-24, and **no backup can be reached today** (the oldest GitHub copy expires around
+2026-10-28). They now run from `scripts/ops/run-job.mjs` on any scheduler, and report to
+healthchecks.io. The full guide is [OPS_SCHEDULER.md](OPS_SCHEDULER.md).
+
+### ⬜ O-0929-1: take one backup by hand, today
+
+Find the offline `BACKUP_PASSPHRASE` first. If it is lost, say so: every GitHub backup is
+unreadable without it. Then follow OPS_SCHEDULER.md section 4:
+
+```
+node scripts\ops\supabase-backup.mjs --env-file C:\Users\jimbo\tegridy-ops-env\ops.env
+node scripts\ops\supabase-restore-check.mjs --latest --prompt
+```
+
+**You should see** ten tables with row counts and `decrypted back and matched before it was kept`,
+then `Readable: all 10 tables present.` after you paste the offline passphrase. If the second
+command cannot decrypt, the env file and your offline copy disagree: stop and say so.
+
+### ⬜ O-0929-2: set up healthchecks.io (about 15 minutes, free)
+
+Sign up with email, a password and two-factor, never with GitHub. Create the six checks listed in
+OPS_SCHEDULER.md section 2, and put each ping URL in the env file.
+
+### ⬜ O-0929-3: delete the old faucet task, then register the monitors on this PC
+
+```
+Unregister-ScheduledTask -TaskName 'SolanaDevnetFaucet' -Confirm:$false
+powershell -ExecutionPolicy Bypass -File scripts\ops\register-tasks.ps1 -DryRun
+powershell -ExecutionPolicy Bypass -File scripts\ops\register-tasks.ps1
+```
+
+Run the last line from an elevated PowerShell. **You should see** six tasks in `\Tegridy\`, and a
+ping in healthchecks.io after `Start-ScheduledTask -TaskPath '\Tegridy\' -TaskName 'synthetic-monitor'`.
+
+### ⬜ O-0929-4: within two weeks, move the monitors to an always-on machine
+
+This PC stops watching whenever it sleeps (healthchecks.io will tell you each time). See
+OPS_SCHEDULER.md section 7. When GitHub returns, turn Actions off there before anything is pushed
+(section 8), so the old schedules never run beside the new ones.
+
+**Found while testing (2026-09-29):** `npm-advisories` fails today on two new high advisories in
+`frontend` (`undici`: GHSA-rfgv-xxqx-mfg5 and GHSA-w293-vg96-wgc3, fix available). An agent can
+bump the dependency, or triage them into `.github/npm-advisory-allowlist.json` with a reason.
+
+---
+
 ## 🟡 2026-09-17 — redeploy StakingMonitorView (display only, no funds, not urgent)
 
 ### ⬜ O-0917-1 — one deploy of a stateless view, then a one-line address swap

@@ -15,6 +15,38 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-29 — `node --env-file` hands the program each value as written
+
+**Believed:** a `NAME=value` file loaded with `node --env-file` gives the program everything
+after the `=`.
+
+**Measured:** on node 24.13.0, an unquoted `B=has#hash` loads as `has`: a `#` anywhere in an
+unquoted value starts a comment, not only after a space. `E=with=equals==` and CRLF endings load
+intact, and quoted values keep their `#`. For a backup passphrase the cut is silent and
+permanent: every file is encrypted with the shortened passphrase, and the offline copy never
+opens one. `scripts/ops/lib/env-file.mjs` now reads the ops env file itself, and the ops CLIs
+warn when node's own flag was used.
+
+**Do:** never feed a secret through `node --env-file` unquoted. Prove a stored passphrase by
+decrypting with the offline copy typed in, not with the file that did the encrypting.
+
+---
+
+## 2026-09-29 — a gpg that fails writes nothing to stdout
+
+**Believed:** gpg either produces its output or produces none.
+
+**Measured:** gpg 2.4.9 (Git for Windows). With one byte of a symmetric file flipped,
+`gpg --decrypt` wrote all 262,144 bytes of unauthenticated plaintext to stdout, then printed
+"encrypted message has been manipulated" and exited 2. Separately, the MSYS gpg called from a
+native process read `--homedir C:\...` (and `C:/...`) as a relative path, failed, exited 2, and
+still wrote a full ciphertext to stdout.
+
+**Do:** the exit status is the verdict, never the presence of output. From a native process,
+hand MSYS tools their data on stdin, or `/c/...` paths.
+
+---
+
 ## 2026-09-22 — a `toContain('80°')` pin stays green on a page that says 180°
 
 **Believed:** a test that asserts a threshold goes red when the page shows a different
