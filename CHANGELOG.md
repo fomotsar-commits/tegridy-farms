@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-09-30
+
+- On /eth-curve, the create form opens only through the Who may plant door, as on /launch, and Create launch reads the wallet's held time again before anything is signed or sent. The launches list and trading stay open to anyone.
+
 ### 2026-09-29
 
 - The heat words now match the island's /heat page: Builder 300°, Elder 800°, every other room adds a quarter of its own, the island's own weigh heavier, your clock on a token starts at your first hold, and Base is named beside Ethereum and Solana.

@@ -138,7 +138,10 @@ export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGatePr
   }
 
   const { decision } = phase;
-  const open = decision.state === 'WARM' && proved;
+  // Children render only through an open door: WARM and proved, or the dial off, where
+  // the door only informs and the lane stays open (as the line below says). The
+  // enforcing call at submit reads again either way.
+  const open = (decision.state === 'WARM' && proved) || !isHeatGateEnabled();
 
   return (
     <Frame state={decision.state}>
