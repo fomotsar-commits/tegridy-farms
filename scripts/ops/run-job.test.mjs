@@ -3,12 +3,13 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnvText } from './lib/env-file.mjs';
 import { runBackup, writeCanary } from './lib/backup.mjs';
 import { GPG_TIMEOUT_MS } from './lib/gpg.mjs';
+import { defaultPullDir, pullGithubBackups, STALE_DAYS } from './lib/github-backups.mjs';
 import { clampBody, PING_WORST_MS, pingEnvName, resolvePingUrl, scrubSecrets, sendPing } from './lib/healthchecks.mjs';
 import { childEnv, defaultPaths, JOB_IMPLS, JOBS, NPM_PROJECTS } from './lib/jobs.mjs';
 import { parseGithubOutput, runProcess } from './lib/proc.mjs';
@@ -154,6 +155,29 @@ describe('the runner and its alarm', () => {
     });
     assert.equal(code2, 3);
     assert.equal(bad.calls.length, 0);
+  });
+
+  test('backup-pull pings HC_PING_URL_BACKUP_PULL, and a stale backup pings /fail with the reason', async () => {
+    const { impl, calls } = pingFetch();
+    const seen = [];
+    const code = await runJob('backup-pull', {
+      env: { HC_PING_URL_BACKUP_PULL: HC, BACKUP_PULL_DIR: tmp('pulldir') }, fetchImpl: impl, stateDir: tmp('st'), log: () => {}, warn: () => {},
+      jobs: JOB_IMPLS,
+      context: {
+        run: async () => ({ code: 0, stdout: '[]', stderr: '', timedOut: false, error: null }),
+        pullGithubBackups: async (args) => { seen.push(args); return { ok: false, summary: 'STALE: the weekly GitHub backup has stopped', lines: ['x'] }; },
+      },
+    });
+    assert.equal(code, 1);
+    assert.deepEqual(calls.map((c) => c.url), [`${HC}/start`, `${HC}/fail`]);
+    assert.match(calls[1].body, /\[backup-pull\] FAIL: STALE/);
+    assert.equal(typeof seen[0].run, 'function', 'the job must hand the pull its process runner');
+    assert.ok(seen[0].env.BACKUP_PULL_DIR, 'the job must hand the pull its env');
+  });
+
+  test('the pulled backups go to OneDrive by default, or to BACKUP_PULL_DIR', () => {
+    assert.equal(defaultPullDir({}), join(homedir(), 'OneDrive', 'backups', 'supabase-github'));
+    assert.equal(defaultPullDir({ BACKUP_PULL_DIR: 'D:\\x' }), 'D:\\x');
   });
 
   test('an unknown job is a usage error', async () => {
@@ -524,6 +548,10 @@ describe('scheduling', () => {
   test('register-tasks.ps1 schedules exactly the runner jobs, none more often than every 15 minutes', () => {
     const names = [...ps1.matchAll(/Name\s*=\s*'([a-z-]+)'/g)].map((m) => m[1]);
     assert.deepEqual([...names].sort(), [...JOBS].sort());
+    // Day to day GitHub runs its own schedules; this PC only pulls the backups. The six
+    // GitHub jobs are registered only with -Failover, so no job ever has two schedulers.
+    const modes = Object.fromEntries([...ps1.matchAll(/Name = '([a-z-]+)'; Mode = '([a-z]+)'/g)].map((m) => [m[1], m[2]]));
+    assert.deepEqual(modes, Object.fromEntries(JOBS.map((j) => [j, j === 'backup-pull' ? 'normal' : 'failover'])));
     const minutes = [...ps1.matchAll(/EveryMinutes\s*=\s*(\d+)/g)].map((m) => Number(m[1]));
     assert.ok(minutes.length >= 3, 'no repeating cadences found');
     for (const m of minutes) assert.ok(m >= 15, `a cadence of ${m} minutes`);
@@ -531,8 +559,21 @@ describe('scheduling', () => {
 
   test('this PC is off at night, so the daily and weekly jobs start between 10:00 and 18:00 local', () => {
     const slots = [...ps1.matchAll(/(?:DailyAt|WeeklyAt)\s*=\s*'(?:[A-Za-z]+ )?(\d\d):(\d\d)'/g)].map((m) => Number(m[1]));
-    assert.equal(slots.length, 3, 'expected two daily slots and one weekly slot');
+    assert.equal(slots.length, 4, 'expected two daily slots and two weekly slots');
     for (const h of slots) assert.ok(h >= 10 && h < 18, `a slot at ${h}:xx, when the PC is usually off`);
+  });
+
+  test('backup-pull runs when one missed weekly backup is already stale, and an on-time one is not', () => {
+    const [, day, hh, mm] = /Name = 'backup-pull';[^}]*WeeklyAt = '([A-Za-z]+) (\d\d):(\d\d)'/.exec(ps1);
+    const [, cm, ch, cdow] = /cron: "(\d+) (\d+) \* \* (\d)"/.exec(workflow('supabase-backup.yml'));
+    const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    for (const utcOffset of [-7, -6]) { // this PC's Mountain time, winter and summer
+      const pullH = DOW.indexOf(day) * 24 + Number(hh) + Number(mm) / 60 - utcOffset;
+      const backupH = Number(cdow) * 24 + Number(ch) + Number(cm) / 60;
+      const sinceOnTime = (((pullH - backupH) % 168) + 168) % 168;
+      assert.ok(sinceOnTime / 24 < STALE_DAYS - 1, `UTC${utcOffset}: an on-time backup is ${(sinceOnTime / 24).toFixed(1)} days old at the pull, too close to stale`);
+      assert.ok((sinceOnTime + 168) / 24 > STALE_DAYS, `UTC${utcOffset}: one missed backup still reads fresh at the pull`);
+    }
   });
 
   test("every task's time limit exceeds its job's own timeouts plus two pings", async () => {
@@ -575,6 +616,22 @@ describe('scheduling', () => {
     });
     assert.ok(gpgCalls >= 3, `expected the canary check, the encrypt and the verify, counted ${gpgCalls}`);
     budget['supabase-backup'] = DUMP_DEADLINE_MS + gpgCalls * GPG_TIMEOUT_MS;
+    // A minimal well-formed file (AES256 session key, then a one-byte encrypted data packet),
+    // so every download succeeds and the most calls the job can make are counted.
+    const pgp = Buffer.from([0x8c, 0x0d, 0x04, 0x09, 0x03, 0x0a, 1, 2, 3, 4, 5, 6, 7, 8, 0xff, 0xd2, 0x01, 0x01]);
+    const listed = JSON.stringify([9, 8, 7, 6, 5].map((id) => ({ databaseId: id, createdAt: new Date(Date.now() - id * 3_600_000).toISOString(), conclusion: 'success' })));
+    const pullRec = recorder();
+    const ghRun = async (cmd, args, opts) => {
+      await pullRec.run(cmd, args, opts);
+      if (args[1] === 'list') return { code: 0, stdout: listed, stderr: '', timedOut: false, error: null };
+      const d = args[args.indexOf('--dir') + 1];
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, 'supabase-backup-2026-09-28.tar.gz.gpg'), pgp);
+      return { code: 0, stdout: '', stderr: '', timedOut: false, error: null };
+    };
+    await JOB_IMPLS['backup-pull']({ env: { BACKUP_PULL_DIR: tmp('bud') }, run: ghRun, pullGithubBackups });
+    assert.equal(pullRec.limits.length, 4, 'expected one list and three downloads');
+    budget['backup-pull'] = pullRec.sum();
 
     const limits = Object.fromEntries([...ps1.matchAll(/Name = '([a-z-]+)';[^}]*LimitMinutes = (\d+)/g)].map((m) => [m[1], Number(m[2]) * 60_000]));
     assert.deepEqual(Object.keys(limits).sort(), [...JOBS].sort());
@@ -600,24 +657,32 @@ describe('scheduling', () => {
     writeFileSync(at('OneDrive', 'repo', 'scripts', 'ops', 'run-job.mjs'), '');
     const run = (over = {}) => {
       const p = { RepoRoot: at('repo'), EnvFile: at('env', 'ops.env'), BackupEnvFile: at('env', 'backup.env'), ...over };
-      const args = Object.entries(p).flatMap(([k, v]) => [`-${k}`, v]);
+      const args = Object.entries(p).flatMap(([k, v]) => (v === true ? [`-${k}`] : [`-${k}`, v]));
       const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', PS1, '-DryRun', ...args], { encoding: 'utf8' });
       return { code: r.status, out: `${r.stdout}\n${r.stderr}` };
     };
-    const ok = run();
+    const listing = (out, jobs) => Object.fromEntries(jobs.map((j) => [j, new RegExp(`^\\s*${j} .* reads (.*)$`, 'm').exec(out)?.[1].trim()]));
+    // Day to day: only backup-pull, reading ops.env only, while the owner is signed in (gh's
+    // login lives in the Windows credential store). backup.env is never looked at.
+    const normal = run();
+    assert.equal(normal.code, 0, normal.out);
+    assert.match(normal.out, /Would register 1 normal task\(s\) .*\(runs only while you are signed in\)/);
+    assert.deepEqual(listing(normal.out, JOBS), Object.fromEntries(JOBS.map((j) => [j, j === 'backup-pull' ? 'ops.env' : undefined])));
+    assert.doesNotMatch(normal.out, /backup\.env/);
+    // Failover: the six GitHub jobs, and only the backup task is given the file with the service key.
+    const ok = run({ Failover: true });
     assert.equal(ok.code, 0, ok.out);
-    assert.match(ok.out, /Would register 6 tasks/);
-    // Only the backup task is given the file with the service key.
-    const reads = Object.fromEntries(JOBS.map((j) => [j, new RegExp(`^\\s*${j} .* reads (.*)$`, 'm').exec(ok.out)?.[1].trim()]));
-    assert.deepEqual(reads, Object.fromEntries(JOBS.map((j) => [j, j === 'supabase-backup' ? 'ops.env + backup.env' : 'ops.env'])));
+    assert.match(ok.out, /Would register 6 failover task\(s\) .*\(runs whether or not you are signed in, no window\)/);
+    assert.deepEqual(listing(ok.out, JOBS), Object.fromEntries(JOBS.map((j) => [j, j === 'backup-pull' ? undefined : j === 'supabase-backup' ? 'ops.env + backup.env' : 'ops.env'])));
     for (const [label, over, want] of [
       ['env file in a git work tree', { EnvFile: at('git', 'ops.env') }, /the env file .* is inside the git work tree/],
       ['env file in OneDrive', { EnvFile: at('OneDrive', 'ops.env') }, /inside OneDrive, which would sync your secrets/],
-      ['backup env file in a git work tree', { BackupEnvFile: at('git', 'ops.env') }, /the env file .* is inside the git work tree/],
-      ['backup env file in OneDrive', { BackupEnvFile: at('OneDrive', 'ops.env') }, /inside OneDrive, which would sync your secrets/],
+      ['env file in a git work tree (failover)', { Failover: true, EnvFile: at('git', 'ops.env') }, /the env file .* is inside the git work tree/],
+      ['backup env file in a git work tree', { Failover: true, BackupEnvFile: at('git', 'ops.env') }, /the env file .* is inside the git work tree/],
+      ['backup env file in OneDrive', { Failover: true, BackupEnvFile: at('OneDrive', 'ops.env') }, /inside OneDrive, which would sync your secrets/],
       ['checkout in OneDrive', { RepoRoot: at('OneDrive', 'repo') }, /is inside OneDrive, which hollows node_modules/],
       ['the service key in the file every task reads', { EnvFile: at('env', 'leaky.env') }, /holds SUPABASE_SERVICE_KEY/],
-      ['one file for both', { BackupEnvFile: at('env', 'ops.env') }, /are the same file/],
+      ['one file for both', { Failover: true, BackupEnvFile: at('env', 'ops.env') }, /are the same file/],
     ]) {
       const r = run(over);
       assert.notEqual(r.code, 0, `${label}: not refused\n${r.out}`);

@@ -1,7 +1,8 @@
 #Requires -Version 5.1
-# Registers the ops jobs as Windows scheduled tasks (the PC stopgap; docs/OPS_SCHEDULER.md).
-# Idempotent: re-running replaces the tasks in \Tegridy\. -DryRun prints and registers nothing;
-# -Remove unregisters them. Refuses an env file inside a git work tree or OneDrive.
+# Registers the ops jobs as Windows scheduled tasks in \Tegridy\ (docs/OPS_SCHEDULER.md).
+# Day to day GitHub runs the schedules and this PC only pulls the backups (backup-pull).
+# -Failover (GitHub gone) registers the six jobs GitHub ran and removes backup-pull; running
+# without it switches back. Idempotent. -DryRun changes nothing; -Remove removes every task.
 #   powershell -ExecutionPolicy Bypass -File scripts\ops\register-tasks.ps1 -DryRun
 [CmdletBinding()]
 param(
@@ -10,25 +11,33 @@ param(
   [string]$RepoRoot = '',
   [string]$NodePath = '',
   [string]$TaskFolder = '\Tegridy\',
-  [ValidateSet('S4U', 'Interactive')][string]$LogonType = 'S4U',
+  [ValidateSet('', 'S4U', 'Interactive')][string]$LogonType = '',
+  [switch]$Failover,
   [switch]$DryRun,
   [switch]$Remove
 )
 $ErrorActionPreference = 'Stop'
 
-# Cadences are the GitHub workflows'; nothing runs more often than every 15 minutes. This PC
-# is off at night, so the daily and weekly jobs run in the early afternoon, local time. Each
-# LimitMinutes exceeds its job's own timeouts plus two pings (run-job.test.mjs pins it), so
-# the runner reports a slow run before Task Scheduler kills it.
+# Failover cadences are the GitHub workflows'; nothing runs more often than every 15 minutes.
+# This PC is off at night, so daily and weekly jobs run in the early afternoon, local time.
+# backup-pull runs Wednesday, so one missed Monday backup is already 9 days old. Each
+# LimitMinutes exceeds its job's own timeouts plus two pings (run-job.test.mjs pins it).
 $Jobs = @(
-  @{ Name = 'arb-linkage-monitor'; EveryMinutes = 15; AtMinute = 0; LimitMinutes = 14 },
-  @{ Name = 'synthetic-monitor'; EveryMinutes = 30; AtMinute = 0; LimitMinutes = 5 },
-  @{ Name = 'revenue-watch'; EveryMinutes = 60; AtMinute = 17; LimitMinutes = 12 },
-  @{ Name = 'registry-onchain'; DailyAt = '12:41'; LimitMinutes = 30 },
-  @{ Name = 'npm-advisories'; DailyAt = '13:37'; LimitMinutes = 20 },
-  @{ Name = 'supabase-backup'; WeeklyAt = 'Monday 12:23'; LimitMinutes = 30 }
+  @{ Name = 'backup-pull'; Mode = 'normal'; WeeklyAt = 'Wednesday 12:53'; LimitMinutes = 20 },
+  @{ Name = 'arb-linkage-monitor'; Mode = 'failover'; EveryMinutes = 15; AtMinute = 0; LimitMinutes = 14 },
+  @{ Name = 'synthetic-monitor'; Mode = 'failover'; EveryMinutes = 30; AtMinute = 0; LimitMinutes = 5 },
+  @{ Name = 'revenue-watch'; Mode = 'failover'; EveryMinutes = 60; AtMinute = 17; LimitMinutes = 12 },
+  @{ Name = 'registry-onchain'; Mode = 'failover'; DailyAt = '12:41'; LimitMinutes = 30 },
+  @{ Name = 'npm-advisories'; Mode = 'failover'; DailyAt = '13:37'; LimitMinutes = 20 },
+  @{ Name = 'supabase-backup'; Mode = 'failover'; WeeklyAt = 'Monday 12:23'; LimitMinutes = 30 }
 )
 $BackupSecrets = @('SUPABASE_SERVICE_KEY', 'BACKUP_PASSPHRASE')
+$ModeName = if ($Failover) { 'failover' } else { 'normal' }
+$Selected = @($Jobs | Where-Object { $_.Mode -eq $ModeName })
+$Others = @($Jobs | Where-Object { $_.Mode -ne $ModeName })
+# gh keeps its login in the Windows credential store, which a task that runs while you are
+# signed out (S4U) is not expected to read; so backup-pull runs only while you are signed in.
+if (-not $LogonType) { $LogonType = if ($Failover) { 'S4U' } else { 'Interactive' } }
 
 function Get-GitWorkTreeAbove([string]$Path) {
   $dir = [IO.Path]::GetFullPath($Path)
@@ -86,14 +95,17 @@ function New-JobSchedule($job) {
 
 function Get-PingName([string]$job) { 'HC_PING_URL_' + ($job.ToUpper() -replace '[^A-Z0-9]', '_') }
 
+function Remove-JobTask($job, [string]$why, [switch]$Quiet) {
+  $existing = Get-ScheduledTask -TaskPath $TaskFolder -TaskName $job.Name -ErrorAction SilentlyContinue
+  if (-not $existing) { if (-not $Quiet) { Write-Host "  not registered: $TaskFolder$($job.Name)" }; return }
+  if ($DryRun) { Write-Host "  would remove: $TaskFolder$($job.Name)$why"; return }
+  Unregister-ScheduledTask -TaskPath $TaskFolder -TaskName $job.Name -Confirm:$false
+  Write-Host "  removed: $TaskFolder$($job.Name)$why"
+}
+
 # ---- Remove ------------------------------------------------------------------------------
 if ($Remove) {
-  foreach ($job in $Jobs) {
-    $existing = Get-ScheduledTask -TaskPath $TaskFolder -TaskName $job.Name -ErrorAction SilentlyContinue
-    if (-not $existing) { Write-Host "  not registered: $TaskFolder$($job.Name)"; continue }
-    if ($DryRun) { Write-Host "  would remove: $TaskFolder$($job.Name)" }
-    else { Unregister-ScheduledTask -TaskPath $TaskFolder -TaskName $job.Name -Confirm:$false; Write-Host "  removed: $TaskFolder$($job.Name)" }
-  }
+  foreach ($job in $Jobs) { Remove-JobTask $job '' }
   return
 }
 
@@ -105,12 +117,15 @@ $runJob = Join-Path $RepoRoot 'scripts\ops\run-job.mjs'
 if (-not (Test-Path -LiteralPath $runJob)) { throw "No scripts\ops\run-job.mjs under $RepoRoot. Pass -RepoRoot <a checkout that has it>." }
 
 $EnvFile = Resolve-EnvFile $EnvFile
-$BackupEnvFile = Resolve-EnvFile $BackupEnvFile
-if ($EnvFile -eq $BackupEnvFile) { throw 'Refusing: -EnvFile and -BackupEnvFile are the same file. The backup secrets need a file only the backup task reads.' }
 $envNames = Read-EnvNames $EnvFile
-$backupNames = Read-EnvNames $BackupEnvFile
 $leaked = @($BackupSecrets | Where-Object { $envNames -contains $_ })
 if ($leaked.Count) { throw "Refusing: $EnvFile holds $($leaked -join ', '). Every task reads that file; move them to $BackupEnvFile, which only the backup task reads." }
+$backupNames = @()
+if ($Failover) {
+  $BackupEnvFile = Resolve-EnvFile $BackupEnvFile
+  if ($EnvFile -eq $BackupEnvFile) { throw 'Refusing: -EnvFile and -BackupEnvFile are the same file. The backup secrets need a file only the backup task reads.' }
+  $backupNames = Read-EnvNames $BackupEnvFile
+}
 
 if (-not $NodePath) {
   $cmd = Get-Command node -ErrorAction SilentlyContinue
@@ -130,17 +145,22 @@ $faucet = Get-ScheduledTask -TaskName 'SolanaDevnetFaucet' -ErrorAction Silently
 if ($faucet) {
   Write-Warning ("The old SolanaDevnetFaucet task is still registered (state: {0}). Delete it before this PC hosts monitors: Unregister-ScheduledTask -TaskName 'SolanaDevnetFaucet' -Confirm:`$false" -f $faucet.State)
 }
-if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot 'frontend\node_modules\viem'))) {
+if ($Failover -and -not (Test-Path -LiteralPath (Join-Path $RepoRoot 'frontend\node_modules\viem'))) {
   Write-Warning "frontend\node_modules is missing in $RepoRoot, so registry-onchain will fail until you run: cd frontend; npm ci --ignore-scripts"
 }
-$missing = @($Jobs | ForEach-Object { Get-PingName $_.Name } | Where-Object { $envNames -notcontains $_ })
-foreach ($n in @('SUPABASE_URL') + $BackupSecrets) { if ($backupNames -notcontains $n) { $missing += $n } }
+if (-not $Failover -and -not ($envNames -contains 'GH_BIN') -and -not (Get-Command gh -ErrorAction SilentlyContinue)) {
+  Write-Warning 'The GitHub CLI (gh) is not on PATH, so backup-pull will fail. Install it and run gh auth login once.'
+}
+$missing = @($Selected | ForEach-Object { Get-PingName $_.Name } | Where-Object { $envNames -notcontains $_ })
+if ($Failover) { foreach ($n in @('SUPABASE_URL') + $BackupSecrets) { if ($backupNames -notcontains $n) { $missing += $n } } }
 if ($missing.Count) { Write-Warning ('The env files have no value for: ' + ($missing -join ', ') + '. Jobs still run; those without a ping URL reach no alarm.') }
 
 # ---- Register ----------------------------------------------------------------------------
-$mode = if ($LogonType -eq 'S4U') { 'runs whether or not you are signed in, no window' } else { 'runs only while you are signed in' }
-Write-Host ("{0} {1} tasks in {2} as {3}\{4} ({5})" -f $(if ($DryRun) { 'Would register' } else { 'Registering' }), $Jobs.Count, $TaskFolder, $env:USERDOMAIN, $env:USERNAME, $mode)
-foreach ($job in $Jobs) {
+$why = if ($Failover) { ' (GitHub is gone; nothing to pull from)' } else { ' (GitHub runs this one again)' }
+foreach ($job in $Others) { Remove-JobTask $job $why -Quiet }
+$how = if ($LogonType -eq 'S4U') { 'runs whether or not you are signed in, no window' } else { 'runs only while you are signed in' }
+Write-Host ("{0} {1} {2} task(s) in {3} as {4}\{5} ({6})" -f $(if ($DryRun) { 'Would register' } else { 'Registering' }), $Selected.Count, $ModeName, $TaskFolder, $env:USERDOMAIN, $env:USERNAME, $how)
+foreach ($job in $Selected) {
   $schedule = New-JobSchedule $job
   $arguments = '"{0}" {1} --env-file "{2}"' -f $runJob, $job.Name, $EnvFile
   if ($job.Name -eq 'supabase-backup') { $arguments += ' --env-file "{0}"' -f $BackupEnvFile }
@@ -156,11 +176,13 @@ foreach ($job in $Jobs) {
 }
 Write-Host ''
 Write-Host ('Each task runs: "{0}" {1}' -f $NodePath, ('"{0}" <job> --env-file "{1}"' -f $runJob, $EnvFile))
-Write-Host ('The backup task alone also reads: --env-file "{0}"' -f $BackupEnvFile)
+if ($Failover) { Write-Host ('The backup task alone also reads: --env-file "{0}"' -f $BackupEnvFile) }
 Write-Host 'Task Scheduler stores each start time in UTC, so after a daylight-saving change the tasks run an hour earlier or later by the clock.'
 if (-not $DryRun) {
+  $first = $Selected[0].Name
+  if ($Failover) { $first = 'synthetic-monitor' }
   Write-Host ''
   Write-Host 'Next: run one now and check it reached healthchecks.io:'
-  Write-Host ("  Start-ScheduledTask -TaskPath '{0}' -TaskName 'synthetic-monitor'" -f $TaskFolder)
-  Write-Host ("  Get-ScheduledTaskInfo -TaskPath '{0}' -TaskName 'synthetic-monitor'   # LastTaskResult 0 = passed" -f $TaskFolder)
+  Write-Host ("  Start-ScheduledTask -TaskPath '{0}' -TaskName '{1}'" -f $TaskFolder, $first)
+  Write-Host ("  Get-ScheduledTaskInfo -TaskPath '{0}' -TaskName '{1}'   # LastTaskResult 0 = passed" -f $TaskFolder, $first)
 }

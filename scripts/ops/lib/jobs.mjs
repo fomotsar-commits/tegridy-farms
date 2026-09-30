@@ -1,7 +1,8 @@
-// The six scheduled jobs, each returning { ok, summary, report, commit? }. They reuse the
-// scripts the GitHub workflows ran. A --probe script writes its verdict to $GITHUB_OUTPUT,
-// which is a no-op off GitHub unless someone reads it; here it is a temp file this runner
-// owns and reads back, and a missing verdict is a failure, never health.
+// The scheduled jobs, each returning { ok, summary, report, commit? }. backup-pull runs day
+// to day; the other six are GitHub's crons, run here only when GitHub is gone (failover),
+// reusing the workflows' scripts. A --probe script writes its verdict to $GITHUB_OUTPUT,
+// a no-op off GitHub unless someone reads it; here it is a temp file this runner owns and
+// reads back, and a missing verdict is a failure, never health.
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,11 +10,12 @@ import { tmpdir, homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { runBackup, withoutSecrets } from './backup.mjs';
+import { pullGithubBackups } from './github-backups.mjs';
 import { parseGithubOutput, runProcess } from './proc.mjs';
 import { readRails } from './revenue-rails.mjs';
 import { runSynthetic } from './synthetic.mjs';
 
-export const JOBS = Object.freeze(['synthetic-monitor', 'arb-linkage-monitor', 'revenue-watch', 'registry-onchain', 'npm-advisories', 'supabase-backup']);
+export const JOBS = Object.freeze(['synthetic-monitor', 'arb-linkage-monitor', 'revenue-watch', 'registry-onchain', 'npm-advisories', 'supabase-backup', 'backup-pull']);
 // Every directory with its own package-lock.json (npm-advisories.yml's matrix).
 export const NPM_PROJECTS = Object.freeze(['.', 'frontend', 'indexer']);
 const ARB_STATUSES = ['GO', 'WARN', 'HALT', 'ERROR'];
@@ -233,6 +235,11 @@ async function supabaseBackup(ctx) {
   return { ok: r.ok, summary: r.ok ? 'backup written and verified' : 'BACKUP FAILED: no new restore point exists', report: r.lines.join('\n') };
 }
 
+async function backupPull(ctx) {
+  const r = await ctx.pullGithubBackups({ env: ctx.env, run: ctx.run });
+  return { ok: r.ok, summary: r.summary, report: r.lines.join('\n') };
+}
+
 export const JOB_IMPLS = Object.freeze({
   'synthetic-monitor': syntheticMonitor,
   'arb-linkage-monitor': arbLinkageMonitor,
@@ -240,8 +247,9 @@ export const JOB_IMPLS = Object.freeze({
   'registry-onchain': registryOnchain,
   'npm-advisories': npmAdvisories,
   'supabase-backup': supabaseBackup,
+  'backup-pull': backupPull,
 });
 
 export function defaultContext({ env, fetchImpl, repoRoot, stateDir }) {
-  return { env, fetchImpl, repoRoot, stateDir, run: runProcess, paths: defaultPaths(repoRoot), readRails, runBackup };
+  return { env, fetchImpl, repoRoot, stateDir, run: runProcess, paths: defaultPaths(repoRoot), readRails, runBackup, pullGithubBackups };
 }
