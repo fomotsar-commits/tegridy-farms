@@ -9,7 +9,8 @@ page keeps the newest thirty days.
 ### 2026-09-30
 
 - The heat ladder, its next-tier hint and the explainer's tier list use the island's current tiers: Builder at 300 degrees and Elder at 800.
-- The hero, the FAQ, llms.txt and the heat explainer read the island's current sentences on rooms, weight and the Apes.
+- The hero, the FAQ and llms.txt read the island's current sentence on rooms.
+- The heat explainer reads the island's whole current paragraph, and its current lines on weight and the Apes.
 
 ### 2026-09-25
 
