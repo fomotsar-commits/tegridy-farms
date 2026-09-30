@@ -183,7 +183,9 @@ describe('the bundle format', () => {
     const t = createTar([{ name: 'backup/', dir: true }, { name: 'backup/a.json', data: Buffer.from('[1,2]') }, { name: 'backup/b.json', data: Buffer.alloc(513, 65) }]);
     const e = readTar(t);
     assert.deepEqual(e.map((x) => [x.name, x.type, x.data.length]), [['backup/', 'dir', 0], ['backup/a.json', 'file', 5], ['backup/b.json', 'file', 513]]);
-    assert.throws(() => readTar(t.subarray(0, 1024)), /truncated|runs past/);
+    assert.throws(() => readTar(t.subarray(0, 1024)), /runs past the end/);
+    // Cut on an entry boundary: every header is whole, only the end blocks are missing.
+    assert.throws(() => readTar(t.subarray(0, 1536)), /without its end-of-archive blocks/);
   });
 
   test('system tar extracts our bundle byte for byte', () => {
@@ -215,8 +217,19 @@ describe('encryption is the workflow format', () => {
     const enc = gpgEncrypt(gpg, PASS, data);
     assert.ok(!enc.includes(data.subarray(0, 64)), 'ciphertext contains plaintext');
     assert.ok(gpgDecrypt(gpg, PASS, enc).equals(data));
-    assert.throws(() => gpgDecrypt(gpg, `${PASS}x`, enc), /gpg exited/);
+    assert.throws(() => gpgDecrypt(gpg, `${PASS}x`, enc), /gpg exited [1-9]/);
     assert.throws(() => gpgEncrypt(gpg, 'a\nb', data), /line break/);
+  });
+
+  test('a tampered file is an error even though gpg streams data before it notices', () => {
+    const data = Buffer.alloc(256 * 1024, 7);
+    const enc = Buffer.from(gpgEncrypt(gpg, PASS, data));
+    enc[Math.floor(enc.length * 0.6)] ^= 0xff;
+    const r = spawnSync(gpg, ['--batch', '--no-options', '--no-symkey-cache', '--pinentry-mode', 'loopback', '--passphrase-fd', '0', '--decrypt'], {
+      input: Buffer.concat([Buffer.from(`${PASS}\n`), enc]), maxBuffer: 64 * 1024 * 1024,
+    });
+    assert.notEqual(r.status, 0, 'gpg accepted a tampered file');
+    assert.throws(() => gpgDecrypt(gpg, PASS, enc), /gpg exited [1-9]/);
   });
 
   test('a backup we write decrypts with the exact command in supabase/RESTORE.md step 1', () => {
@@ -300,6 +313,15 @@ describe('runBackup end to end', () => {
     const r = await runBackup({ env, fetchImpl: fakePostgrest(allTables()), dest: join(repo, 'b'), gpgBin: gpg });
     assert.equal(r.ok, false);
     assert.match(r.lines.join('\n'), /inside the git work tree/);
+  });
+
+  test('a file that does not decrypt back to the same bundle is deleted, not kept', async () => {
+    const dest = tmp('verify');
+    const cipher = { encrypt: gpgEncrypt, decrypt: (g, p, c) => Buffer.concat([gpgDecrypt(g, p, c), Buffer.from('x')]) };
+    const r = await runBackup({ env, fetchImpl: fakePostgrest(allTables()), dest, now, gpgBin: gpg, cipher });
+    assert.equal(r.ok, false);
+    assert.match(r.lines.join('\n'), /did not decrypt back/);
+    assert.deepEqual(readdirSync(dest), []);
   });
 
   test('never overwrites an existing backup of the same second', async () => {

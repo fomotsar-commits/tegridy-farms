@@ -72,7 +72,10 @@ function parseKeep(value) {
  * table was read whole, and the file is decrypted back and compared byte for byte before
  * it takes its final name. Rotation runs only after that.
  */
-export async function runBackup({ env = process.env, fetchImpl = fetch, dest, keep, now = new Date(), gpgBin } = {}) {
+export async function runBackup({
+  env = process.env, fetchImpl = fetch, dest, keep, now = new Date(), gpgBin,
+  cipher = { encrypt: gpgEncrypt, decrypt: gpgDecrypt },
+} = {}) {
   const lines = [];
   const failWith = (...msg) => ({ ok: false, lines: [...lines, ...msg] });
 
@@ -126,9 +129,9 @@ export async function runBackup({ env = process.env, fetchImpl = fetch, dest, ke
   try {
     mkdirSync(dir, { recursive: true });
     if (existsSync(file)) return failWith(`${file} already exists; refusing to overwrite it.`);
-    writeFileSync(partial, gpgEncrypt(gpg, passphrase, bundle, childEnv), { flag: 'wx' });
+    writeFileSync(partial, cipher.encrypt(gpg, passphrase, bundle, childEnv), { flag: 'wx' });
     const onDisk = readFileSync(partial);
-    if (!gpgDecrypt(gpg, passphrase, onDisk, childEnv).equals(bundle)) {
+    if (!cipher.decrypt(gpg, passphrase, onDisk, childEnv).equals(bundle)) {
       unlinkSync(partial);
       return failWith('The encrypted file did not decrypt back to the same bundle. Nothing was kept.');
     }
