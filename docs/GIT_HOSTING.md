@@ -9,13 +9,13 @@ owner's setup list is section 2. The failover drill is section 5A.
 
 **The addresses live only here.** Every command below uses these names. If a name changes,
 change this block, and `MIRROR_URL` in `.github/workflows/mirror-to-gitlab.yml`. The GitLab group
-was being renamed from `memetics-finance-group` to `memetics` on 2026-09-29/30: open the standby URL
-in a browser before you rely on it. Run the commands in Git Bash, from the root of a clean clone.
+is `memetics-finance` (renamed 2026-09-30; `memetics` was taken). Run the commands in Git Bash,
+from the root of a clean clone.
 
 ```
 PRIMARY=https://github.com/fomotsar-commits/tegridy-farms.git    # public; Vercel deploys from it
-STANDBY=https://gitlab.com/memetics/tegridy-farms.git            # public; GitHub's branches and tags
-VAULT_URL=https://gitlab.com/memetics/tegridy-farms-vault.git    # private; every ref of the vault
+STANDBY=https://gitlab.com/memetics-finance/tegridy-farms.git            # public; GitHub's branches and tags
+VAULT_URL=https://gitlab.com/memetics-finance/tegridy-farms-vault.git    # private; every ref of the vault
 ```
 
 The four `/source` rules in `frontend/vercel.json`, pointed at the standby. Only the failover
@@ -24,22 +24,22 @@ drill (5A step 6) uses them. Keep this order: the first rule that matches wins.
 ```
     {
       "source": "/source",
-      "destination": "https://gitlab.com/memetics/tegridy-farms",
+      "destination": "https://gitlab.com/memetics-finance/tegridy-farms",
       "permanent": false
     },
     {
       "source": "/source-issues",
-      "destination": "https://gitlab.com/memetics/tegridy-farms/-/issues",
+      "destination": "https://gitlab.com/memetics-finance/tegridy-farms/-/issues",
       "permanent": false
     },
     {
       "source": "/source/info/refs",
-      "destination": "https://gitlab.com/memetics/tegridy-farms.git/info/refs",
+      "destination": "https://gitlab.com/memetics-finance/tegridy-farms.git/info/refs",
       "permanent": false
     },
     {
       "source": "/source/:path*",
-      "destination": "https://gitlab.com/memetics/tegridy-farms/-/blob/mvp-launch/:path*",
+      "destination": "https://gitlab.com/memetics-finance/tegridy-farms/-/blob/mvp-launch/:path*",
       "permanent": false
     }
 ```
@@ -783,12 +783,12 @@ Not covered:
 ## Appendix A. Bitbucket, an optional third copy
 
 Not part of the setup. Use it if the owner wants a copy on a third company, or as the new standby
-if GitLab is lost (5B). Its address: `https://bitbucket.org/memetics/tegridy-farms.git` (call it
+if GitLab is lost (5B). Its address: `https://bitbucket.org/memetics-finance/tegridy-farms.git` (call it
 `THIRD` below). The Free plan allows 1 GB per workspace; the repo fits.
 
 1. Sign up at `bitbucket.org` with **your email**, not a Google, Apple, Microsoft or GitHub button.
    Turn on two-step verification (`id.atlassian.com` > **Security** > **Two-step verification**).
-2. Name the workspace `memetics`. **Create > Repository**: `tegridy-farms`, **private**, "Include a
+2. Name the workspace `memetics-finance`. **Create > Repository**: `tegridy-farms`, **private**, "Include a
    README?" = **No**, .gitignore = **No**, default branch `mvp-launch` (advanced settings).
 3. Seed it from a mirror clone of GitHub (2B step 1), **without** `--gitlab` (Bitbucket does not
    take GitLab's push option): `push-all.sh "$M" "$THIRD" --dry-run`, then without `--dry-run`.

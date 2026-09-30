@@ -28,7 +28,7 @@ jobs:
       group: mirror-to-gitlab-${{ github.event_name == 'push' && github.ref || 'refs/heads/mvp-launch' }}
       cancel-in-progress: false
     env:
-      MIRROR_URL: git@gitlab.com:memetics/tegridy-farms.git
+      MIRROR_URL: git@gitlab.com:memetics-finance/tegridy-farms.git
       # gitlab.com's ed25519 host key and its SHA256 fingerprint, as GitLab publishes both
       # (docs.gitlab.com/user/gitlab_com). The script connects only when the two agree.
       GITLAB_HOST_KEY: 'gitlab.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM6tdG4SLp1Btn/nOeHHE5UOzRdf'

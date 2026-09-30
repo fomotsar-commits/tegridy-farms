@@ -120,11 +120,16 @@ GitHub-only. Confirm the offline copy of `BACKUP_PASSPHRASE` exists; it is the o
 2.1: merge this work (a production deploy, your go). Every step after it runs its scripts, and
 until 2C is done each push to `mvp-launch` shows a red Mirror to GitLab run, on purpose.
 
-**Then:** 2A GitLab (a password and 2FA on your account, finish the group rename to `memetics`, a
-public project `tegridy-farms` and a private `tegridy-farms-vault`, GitLab's own CI off), 2B fill
-both, 2C the mirror (a deploy key with write access, the GitHub secret `GITLAB_MIRROR_SSH_KEY`,
-a trunk rule that lets only that key push), 2D point the clones, 2E the alarm on the standby
-(armed by one run by hand), 2F Vercel ready for the drill, 2G the daily backup task.
+**Done on 2026-09-30 (by an agent, with the owner's go):** 2A except the password and 2FA: the
+group is `memetics-finance` (`memetics` was taken), public, with GitLab's runners and Auto DevOps
+off; `memetics-finance/tegridy-farms` is public and `memetics-finance/tegridy-farms-vault` private.
+2B: both filled and checked (386 and 1,332 refs), default branch `mvp-launch`, semi-linear merges.
+2C: the deploy key `github-actions-mirror` (write) and the trunk rule (push: that key only; merge:
+No one; no force push). **Still yours in 2C:** the GitHub secret `GITLAB_MIRROR_SSH_KEY` from
+`C:\Users\jimbo\mirror-key\gitlab-mirror`, then delete that folder (agents may not write secrets).
+
+**Then:** 2A a GitLab password and 2FA, 2C the secret above, 2D point the clones, 2E the alarm
+on the standby (armed by one run by hand), 2F Vercel ready for the drill, 2G the daily backup task.
 
 **You should see:** `OK: the host holds exactly the local set (N refs).` twice in 2B, once per
 project. A green Mirror to GitLab run in 2C that ends
