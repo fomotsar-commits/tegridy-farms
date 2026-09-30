@@ -11,6 +11,7 @@ page keeps the newest thirty days.
 - On /curve-launch, the create form opens only for a connected Solana wallet that reads Resident or better, and pressing Review reads that wallet again before anything is signed. Opening a launch, the list and trading stay open to anyone.
 - A Solana launch's page says a maker at Resident or better can grow a new token through the memetics.finance gate, and that the program itself accepts any wallet.
 - Towelie says Solana has our own curve at /curve-launch, where makers at Resident or better launch, instead of saying Solana is swap-only.
+- On /competitions, the board is called the Volume board, and it links to the island's flames board, ranked by heat.
 
 ### 2026-09-29
 
