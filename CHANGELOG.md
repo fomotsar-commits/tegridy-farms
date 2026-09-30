@@ -10,6 +10,8 @@ page keeps the newest thirty days.
 
 - The heat words now match the island's /heat page: Builder 300°, Elder 800°, each extra room adds a quarter, the island's own weigh heavier, your clock starts at your first hold, and Base is named beside Ethereum and Solana.
 - On /curve-launch, the door says the island reads every linked wallet, where it used to say a Solana-only wallet cannot be measured.
+- The venue counts 12 bungalows, as the island does, and /nb1 is the island's next open lot, linked to its harbor.
+- The BAYLA room links to the island's ledger.
 
 ### 2026-09-25
 
