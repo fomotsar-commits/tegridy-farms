@@ -233,7 +233,8 @@ is worth being plain about what is left.
   exploits a kernel bug could reach the other distros, and root in any distro can mount the
   Windows drive again. Turning off automount stops the easy path, not a kernel exploit.
   That is why no job ever gets root: it would need a kernel exploit, not a setting.
-- **The network.** Every WSL2 distro runs in one VM and shares its network. So jobs can reach
+- **The network.** Every WSL2 distro runs in one VM and shares its network namespace
+  (Microsoft's "What is WSL 2?" page, learn.microsoft.com/windows/wsl/about). So jobs can reach
   what listens in your other WSL distros (a local validator, anvil, a dev server), and the job
   script, which runs outside any container, can reach even what listens only on localhost
   there. Jobs can also reach programs on the Windows side that listen on the network, such as
