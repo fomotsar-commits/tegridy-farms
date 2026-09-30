@@ -8,7 +8,8 @@
 # gitleaks.yml (replaced by the gitleaks job), release.yml (GitHub Releases API),
 # solana-deploy-artifact.yml (manual mainnet builds), the schedule-only
 # arb-linkage-monitor.yml, revenue-watch.yml, synthetic-monitor.yml and supabase-backup.yml
-# (off GitHub the ops scheduler runs them), and contracts-coverage.yml (not run off GitHub).
+# (off GitHub the ops scheduler runs them), contracts-coverage.yml (not run off GitHub),
+# and mirror-to-gitlab.yml (GitHub copying itself to GitLab).
 
 workflow:
   rules:

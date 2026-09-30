@@ -59,6 +59,7 @@ gate root "ownership verifier self-test" . node scripts/verify-ownership.mjs --s
 gate root "one-shot guard self-test" . node scripts/oneshot-guard.mjs --self-test
 gate root "monitoring rules" . node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
 gate root "endpoint redaction" . node --test scripts/lib/redact-url.test.mjs
+gate root "ops runner unit tests" . node --test scripts/ops/env-file.test.mjs scripts/ops/supabase-backup.test.mjs scripts/ops/run-job.test.mjs scripts/ops/pull-github-backups.test.mjs scripts/ops/heartbeat.test.mjs
 gate root "act wrapper verdict self-test" . bash scripts/ci/act-job.sh --self-test
 
 # ---- frontend: ci.yml's Lint, Type Check & Test, Build and E2E Tests jobs

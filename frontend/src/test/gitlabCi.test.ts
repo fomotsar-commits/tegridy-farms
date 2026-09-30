@@ -26,6 +26,7 @@ const EXCLUDED: Record<string, string> = {
   'synthetic-monitor.yml': 'Schedule only; off GitHub the ops scheduler runs it, not GitLab CI.',
   'supabase-backup.yml': 'Schedule only, and it holds secrets, which this runner never gets; off GitHub the ops scheduler runs it.',
   'contracts-coverage.yml': 'Schedule and dispatch only; not run off GitHub, by decision.',
+  'mirror-to-gitlab.yml': 'GitHub only: it copies the branches and tags on GitHub to GitLab; on GitLab it would push the project to itself.',
 };
 const REPLACED: Record<string, { job: string; why: string }> = {
   'gitleaks.yml': { job: 'gitleaks', why: 'gitleaks-action reads PR commits through the GitHub API; the job runs the pinned binary over the same range.' },
