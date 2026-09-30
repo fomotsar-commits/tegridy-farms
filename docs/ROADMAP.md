@@ -87,7 +87,7 @@ Turn the protocol on as a revenue-generating machine. Fee plumbing, pair-level t
 7. **Tier system replacing Premium**
    - Scope: Replace the binary Premium flag with a tiered system (e.g. Bronze/Silver/Gold) keyed off stake size × lock duration, unlocking fee discounts and boost multipliers.
    - Metric: >30% of active stakers fall into a paid tier; average lock duration increases by at least 2 weeks vs. Q2 baseline.
-   - **Status: not built.** `PremiumAccess` is deployed and wired and remains binary. A tier concept does exist in the product, but it is the Heat tier read from the Jungle Bay Island oracle, which is a wallet-history score the venue reads and never computes — it is not a staking tier and must not be conflated with one. The nearest live consumer is launch pricing (`frontend/src/lib/launcher/launchPricing.ts`, default off).
+   - **Status: not built.** `PremiumAccess` is deployed and wired and remains binary. A tier concept does exist in the product, but it is the Heat tier read from the Jungle Bay Island oracle, which is a wallet-history score the venue reads and never computes — it is not a staking tier and must not be conflated with one. The nearest live consumer is launch pricing (`frontend/src/lib/launcher/launchPricing.ts`, default off). (2026-09-30: no longer. The island rules "Same price for everyone." (2026-09-28), so launch pricing reads no heat. Heat decides who may launch, never what a launch costs.)
 
 ---
 
