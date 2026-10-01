@@ -24,6 +24,9 @@ const KEY = 'service-key-SHOULD-NEVER-BE-PRINTED-0123456789';
 const PASS = "pass phrase with # and 'quotes' SHOULD-NEVER-BE-PRINTED";
 const BASE = 'https://proj.supabase.co';
 const tmp = (p) => mkdtempSync(join(tmpdir(), `ops-${p}-`));
+// A GNUPGHOME in every form a gpg here might read: MSYS gpg (Git for Windows) reads a C:\
+// home as a relative path, so it gets /c/... too.
+const gnupgHomeForms = (home) => [home, ...(process.platform === 'win32' ? [`/${home[0].toLowerCase()}${home.slice(2).replace(/\\/g, '/')}`] : [])];
 
 // A bash that receives our environment. WSL's bash.exe (often first on a Windows PATH) does
 // not, so the passphrase would arrive empty; this probe rejects it wherever it sits.
@@ -348,8 +351,7 @@ describe('encryption is the workflow format', () => {
   test("a gpg.conf in gpg's home cannot change the file format", () => {
     const home = tmp('gnupg');
     writeFileSync(join(home, 'gpg.conf'), 'armor\n');
-    // MSYS gpg (Git for Windows) reads a C:\ home as a relative path, so try /c/... too.
-    const homes = [home, ...(process.platform === 'win32' ? [`/${home[0].toLowerCase()}${home.slice(2).replace(/\\/g, '/')}`] : [])];
+    const homes = gnupgHomeForms(home);
     const gpgconf = gpg === 'gpg' ? 'gpgconf' : join(dirname(gpg), `gpgconf${process.platform === 'win32' ? '.exe' : ''}`);
     const input = Buffer.from(`${PASS}\nplain`);
     try {
@@ -362,6 +364,37 @@ describe('encryption is the workflow format', () => {
     } finally {
       for (const h of homes) spawnSync(gpgconf, ['--kill', 'gpg-agent'], { env: { ...process.env, GNUPGHOME: h } });
     }
+  });
+
+  // A new runner, PC or Windows user has no gpg home, and --no-options stops gpg making one:
+  // it exited 2 ("keyblock resource .../pubring.kbx: No such file or directory") on every call.
+  test('needs no gpg home of the user, and writes nothing into one', () => {
+    const data = Buffer.from('a backup taken where gpg has never run');
+    const missing = join(tmp('gnupg-missing'), 'never-made');
+    const existing = tmp('gnupg-existing');
+    for (const home of [missing, ...gnupgHomeForms(existing)]) {
+      const env = { ...process.env, GNUPGHOME: home };
+      assert.ok(gpgDecrypt(gpg, PASS, gpgEncrypt(gpg, PASS, data, env), env).equals(data), `GNUPGHOME=${home}`);
+    }
+    assert.equal(existsSync(missing), false, 'a gpg home was created');
+    assert.deepEqual(readdirSync(existing), [], "something was written into the user's gpg home");
+  });
+
+  test("each call's own gpg home is removed after it, whether gpg succeeds or fails", () => {
+    const parent = tmp('gpgtmp');
+    const saved = Object.fromEntries(['TMPDIR', 'TEMP', 'TMP'].map((k) => [k, process.env[k]]));
+    Object.assign(process.env, { TMPDIR: parent, TEMP: parent, TMP: parent });
+    try {
+      const enc = gpgEncrypt(gpg, PASS, Buffer.from('x'));
+      assert.ok(gpgDecrypt(gpg, PASS, enc).equals(Buffer.from('x')));
+      assert.throws(() => gpgDecrypt(gpg, `${PASS}x`, enc), /gpg exited [1-9]/);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+    assert.deepEqual(readdirSync(parent), [], 'a gpg home was left behind');
   });
 
   test('a backup we write decrypts with the exact command in supabase/RESTORE.md step 1', () => {

@@ -3,7 +3,9 @@
 // is the first line of stdin and the data follows it, so neither touches argv or disk.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const CANDIDATES = [
   'C:\\Program Files\\Git\\usr\\bin\\gpg.exe',
@@ -37,14 +39,45 @@ function checkPassphrase(passphrase) {
   if (/[\r\n]/.test(passphrase)) throw new Error('passphrase contains a line break; gpg would read only part of it');
 }
 
+// Whether a gpg reads paths as /c/..., by binary. Asked once, below.
+const readsPosixPaths = new Map();
+
+/**
+ * `dir` as this gpg reads it. MSYS gpg (Git for Windows) reads C:\... as a path relative to
+ * its working directory, so it needs /c/...; it shows which it is by printing the home it was
+ * handed as /c/<cwd>/C:\... . The probe spends from the call's own time limit.
+ */
+function homedirFor(gpg, dir, timeout) {
+  if (!/^[A-Za-z]:\\/.test(dir)) return dir;
+  if (!readsPosixPaths.has(gpg)) {
+    const home = /^Home: (.*)$/m.exec(spawnSync(gpg, ['--homedir', dir, '--version'], { encoding: 'utf8', timeout }).stdout || '');
+    if (!home) return dir; // unanswered: the real call reports whatever is wrong
+    readsPosixPaths.set(gpg, home[1].startsWith('/'));
+  }
+  return readsPosixPaths.get(gpg) ? `/${dir[0].toLowerCase()}${dir.slice(2).replace(/\\/g, '/')}` : dir;
+}
+
+// Every call runs in a gpg home of its own, made fresh (mkdtemp: mode 0700) and removed after.
+// In the user's home, --no-options stops gpg creating it, so wherever it had never been made
+// (a new runner, PC or Windows user) every call exited 2: "keyblock resource
+// .../pubring.kbx: No such file or directory". Its own home also keeps the user's keyrings and
+// agent out of it. gpg starts an agent there, which exits by itself once the home is gone.
 function run(gpg, args, passphrase, data, childEnv, timeoutMs = GPG_TIMEOUT_MS) {
   checkPassphrase(passphrase);
-  const r = spawnSync(gpg, args, {
-    input: Buffer.concat([Buffer.from(`${passphrase}\n`, 'utf8'), data]),
-    maxBuffer: MAX_BUFFER,
-    env: childEnv,
-    timeout: timeoutMs,
-  });
+  const deadline = Date.now() + timeoutMs;
+  const home = mkdtempSync(join(tmpdir(), 'ops-gpg-'));
+  let r;
+  try {
+    r = spawnSync(gpg, ['--homedir', homedirFor(gpg, home, timeoutMs), ...args], {
+      input: Buffer.concat([Buffer.from(`${passphrase}\n`, 'utf8'), data]),
+      maxBuffer: MAX_BUFFER,
+      env: childEnv,
+      timeout: Math.max(1, deadline - Date.now()),
+    });
+  } finally {
+    // Best effort: a home that will not delete holds no secret (an empty keyring, a random seed).
+    try { rmSync(home, { recursive: true, force: true }); } catch { /* left in the temp folder */ }
+  }
   if (r.error?.code === 'ETIMEDOUT') throw new Error(`gpg did not finish within its ${timeoutMs} ms limit`);
   if (r.error) throw new Error(`gpg could not run: ${r.error.message}`);
   // Exit status is the verdict: gpg can write ciphertext and still exit 2.
