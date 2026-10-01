@@ -64,8 +64,8 @@ export function LpDisclosure({ programId }: { programId: string }) {
     <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
       <Card title="Before you provide liquidity">
         <p className="text-white/80">
-          Our pool program is Raydium’s constant-product pool with our own admin keys. <strong>The changes we made to it have not had
-          their own independent review yet.</strong> Put in only what you can afford to lose.
+          Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program” below).{' '}
+          <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
         </p>
         <p>
           The team’s shared wallet (a Squads vault, two signatures needed) controls the program. It can switch off deposits,

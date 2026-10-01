@@ -118,6 +118,33 @@ describe("api/pools", () => {
     expect(res.body.pools[1]).toBe(junk[99].address);
   });
 
+  // Review 2026-09-30: only the first 1000 pools BY ADDRESS used to be weighed, so 1000+
+  // ground low-sorting dust pools kept a deep pool from ever being ranked.
+  it("weighs every pool the scan found: over 1000 ground addresses cannot hide a deep pool", async () => {
+    const junk = Array.from({ length: 1_001 }, (_, i) => ({ address: k(i, 1), solVault: k(i, 2), sol: 1 }));
+    const real = { address: k(0, 250), solVault: k(0, 251), sol: 10n ** 12n };
+    const res = makeRes();
+    await mod.handlePoolIndex(makeReq({ mint: MINT }), res, chain({ pools: [...junk, real] }));
+    expect(res.statusCode).toBe(200);
+    expect(res.body.pools[0]).toBe(real.address);
+  });
+
+  it("more pools than it can rank is a 502, never a cut list", async () => {
+    const flood = Array.from({ length: mod.MAX_SCANNED + 1 }, (_, i) => ({ address: k(i, 1), solVault: k(i, 2), sol: 1 }));
+    const f = chain({ pools: flood });
+    const res = makeRes();
+    await mod.handlePoolIndex(makeReq({ mint: MINT }), res, f);
+    expect(res.statusCode).toBe(502);
+    expect(calls(f, "getMultipleAccounts")).toHaveLength(0);
+  });
+
+  it("gives every chain call a deadline", async () => {
+    const f = chain({ pools: [{ address: k(1), solVault: k(2), sol: 5 }] });
+    await mod.handlePoolIndex(makeReq({ mint: MINT }), makeRes(), f);
+    expect(f.mock.calls.length).toBeGreaterThan(0);
+    for (const [, init] of f.mock.calls) expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("finds a pool by its LP mint with one scan at the lp_mint offset", async () => {
     const f = chain({ lpPools: [k(5)] });
     const res = makeRes();

@@ -53,6 +53,13 @@ describe('readOutsidePrice', () => {
     expect((await readOutsidePrice(MINT, -1, guard(), jupiter(1) as unknown as typeof fetch)).kind).toBe('unread');
   });
 
+  it('only the proxy\'s 404 NO_ROUTE is "no-route"; a 502 stays "unread"', async () => {
+    const noRoute = async () => new Response(JSON.stringify({ error: 'No route', code: 'NO_ROUTE' }), { status: 404 });
+    expect(await readOutsidePrice(MINT, 6, guard(), noRoute as unknown as typeof fetch)).toMatchObject({ kind: 'no-route' });
+    const down = async () => new Response('{"error":"Upstream service error"}', { status: 502 });
+    expect((await readOutsidePrice(MINT, 6, guard(), down as unknown as typeof fetch)).kind).toBe('unread');
+  });
+
   // F5: if Jupiter ever routes through our own pool program, a pushed pool of ours must
   // not become its own "outside" price.
   it('a price that came through a pool our program owns is not an outside price', async () => {

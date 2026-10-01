@@ -22,8 +22,10 @@ import { TOKEN_PROGRAM, decodeMintAccount } from './tokenSafety';
  * A share never silently disappears from this list:
  *   - one we cannot place (the index did not answer, or has no pool for it) is still
  *     listed, with its amount;
- *   - placing costs one index lookup per share, so at most `limit` are placed per read,
- *     and `totalShares` says how many the wallet holds. The page shows the rest as "N
+ *   - placing costs one index lookup per share MINT, so at most `limit` are placed per
+ *     read, and `totalShares` says how many the wallet holds. A proven placement is kept
+ *     for the session (`placedPools`), so "more" and "read again" only spend lookups on
+ *     shares not placed yet. The page shows the rest as "N
  *     more" and can place them next. Anyone can send pool shares of junk pools to any
  *     wallet, so the order is stable (by share mint) rather than "whatever the RPC
  *     returned", and the placed ones are listed most valuable first.
@@ -54,6 +56,16 @@ export type PositionsRead =
 
 /** Pool shares placed per read by default (each needs one index lookup). */
 export const MAX_POSITIONS = 20;
+
+/**
+ * `${program}:${lpMint}` → its pool, kept for the session. An LP mint is a PDA of its
+ * pool (deriveLpMint), so a placement once proven can never change. Only proven matches
+ * are kept: a miss or an unread index is asked again next time. Without this every
+ * "more" and "read again" re-spent one rate-limited lookup per share (review 2026-09-30).
+ */
+const placedPools = new Map<string, string>();
+
+type Placement = Pick<Position, 'placement' | 'placementDetail'> & { pool: string | null };
 
 const toBase58 = (b: Uint8Array) => new PublicKey(b).toBase58();
 
@@ -99,13 +111,23 @@ export async function readPositions(
   const shares = allShares.slice(0, limit);
 
   // Place each share: index lookup by LP mint, then the derivation proves the match.
+  // One lookup per distinct mint, and none for a mint already proven this session.
   const program = opts.programId.toBase58();
+  const lookups = new Map<string, Promise<Placement>>();
+  const place = async (lpMint: string): Promise<Placement> => {
+    const known = placedPools.get(`${program}:${lpMint}`);
+    if (known) return { pool: known, placement: 'found', placementDetail: null };
+    const idx = await readPoolIndex({ lpMint }, program, opts.fetchImpl);
+    if (idx.kind !== 'ok') return { pool: null, placement: 'index-unread', placementDetail: idx.detail };
+    const match = idx.pools.find((p) => deriveLpMint(opts.programId, new PublicKey(p)).toBase58() === lpMint) ?? null;
+    if (match) placedPools.set(`${program}:${lpMint}`, match);
+    return { pool: match, placement: match ? 'found' : 'not-found', placementDetail: null };
+  };
   const placed = await Promise.all(
     shares.map(async (s) => {
-      const idx = await readPoolIndex({ lpMint: s.mint }, program, opts.fetchImpl);
-      if (idx.kind !== 'ok') return { share: s, pool: null as string | null, placement: 'index-unread' as const, placementDetail: idx.detail as string | null };
-      const match = idx.pools.find((p) => deriveLpMint(opts.programId, new PublicKey(p)).toBase58() === s.mint) ?? null;
-      return { share: s, pool: match, placement: match ? ('found' as const) : ('not-found' as const), placementDetail: null };
+      let p = lookups.get(s.mint);
+      if (!p) lookups.set(s.mint, (p = place(s.mint)));
+      return { share: s, ...(await p) };
     }),
   );
 

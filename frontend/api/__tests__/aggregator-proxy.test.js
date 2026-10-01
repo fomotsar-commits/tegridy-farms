@@ -595,3 +595,51 @@ describe("aggregator proxy — upstream error collapse", () => {
     expect(jsonSpy).toHaveBeenCalledWith({ error: "Upstream service error" });
   });
 });
+
+describe("aggregator proxy — Jupiter's 'no route' is an answer, not an outage", () => {
+  let handler;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.NODE_ENV = "test";
+    handler = (await import(AGG_HANDLER)).default;
+  });
+
+  const upstream = (status, payload) =>
+    vi.fn(async () => ({
+      ok: status < 400,
+      status,
+      headers: { get: () => "application/json" },
+      body: null,
+      text: async () => JSON.stringify(payload),
+    }));
+  const run = async (provider, path, query) => {
+    const { res, statusSpy, jsonSpy } = makeRes();
+    await handler(makeReq({ method: "GET", query: { provider, path, ...query } }), res);
+    return { statusSpy, jsonSpy };
+  };
+  const quote = { inputMint: "So11111111111111111111111111111111111111112", outputMint: "64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2", amount: "50000000" };
+
+  it("answers Jupiter's own no-route codes as 404 NO_ROUTE, with a fixed body", async () => {
+    for (const errorCode of ["TOKEN_NOT_TRADABLE", "NO_ROUTES_FOUND", "COULD_NOT_FIND_ANY_ROUTE"]) {
+      globalThis.fetch = upstream(400, { error: "upstream wording", errorCode });
+      const { statusSpy, jsonSpy } = await run("jupiter", ["swap", "v1", "quote"], quote);
+      expect(statusSpy).toHaveBeenCalledWith(404);
+      expect(jsonSpy).toHaveBeenCalledWith({ error: "No route", code: "NO_ROUTE" });
+    }
+  });
+
+  it("any other Jupiter failure stays an opaque 502", async () => {
+    for (const [status, payload] of [[400, { errorCode: "INVALID_AMOUNT" }], [400, { error: "no code" }], [500, { errorCode: "NO_ROUTES_FOUND" }], [429, { errorCode: "TOKEN_NOT_TRADABLE" }]]) {
+      globalThis.fetch = upstream(status, payload);
+      const { statusSpy } = await run("jupiter", ["swap", "v1", "quote"], quote);
+      expect(statusSpy).toHaveBeenCalledWith(502);
+    }
+  });
+
+  it("is opt-in per provider: another aggregator's 400 with the same code is a 502", async () => {
+    globalThis.fetch = upstream(400, { errorCode: "TOKEN_NOT_TRADABLE" });
+    const { statusSpy } = await run("paraswap", ["prices"], { srcToken: "0xeee", destToken: "0xeee", amount: "1", side: "SELL", network: "1" });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+  });
+});

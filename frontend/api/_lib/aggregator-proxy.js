@@ -171,6 +171,16 @@ function pickQueryParams(query, allowedKeys, _pathSegments) {
   return out;
 }
 
+/** True when an upstream error body is JSON whose `errorCode` is one of `codes`. */
+function noRouteCode(bodyText, codes) {
+  try {
+    const parsed = JSON.parse(bodyText);
+    return Boolean(parsed) && typeof parsed.errorCode === "string" && codes.includes(parsed.errorCode);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Read incoming POST body with a hard cap so a misbehaving caller cannot
  * stream gigabytes through the lambda. Returns the parsed JSON or throws.
@@ -343,6 +353,12 @@ export async function runProxy(req, res, cfg) {
   if (!upstreamRes.ok) {
     // Log real upstream status server-side; surface a generic 502 to clients.
     console.error(`[${cfg.identifier}] upstream HTTP ${upstreamRes.status}:`, logSafe(bodyText.slice(0, 500)));
+    // One exception, opted into per provider: "there is no route" is an ANSWER, not an
+    // outage, and a caller that cannot tell the two apart treats a down aggregator as
+    // "this token has no market". Only a fixed string goes back, never upstream text.
+    if (upstreamRes.status === 400 && cfg.noRouteErrorCodes && noRouteCode(bodyText, cfg.noRouteErrorCodes)) {
+      return res.status(404).json({ error: "No route", code: "NO_ROUTE" });
+    }
     return res.status(502).json({ error: "Upstream service error" });
   }
 

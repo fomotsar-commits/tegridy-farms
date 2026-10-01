@@ -96,10 +96,10 @@ export default function PoolsPage() {
           <p className="text-white/85 text-[15px] max-w-xl leading-relaxed">
             {venueIsOpen ? (
               <>
-                Our own constant-product AMM on Solana — anyone can open a pool, anyone can
-                provide liquidity, and the trade fee is split between the LPs who funded it
-                and the venue. The swap surface quotes these pools alongside the aggregator
-                and takes whichever is better for the trader.
+                Our own constant-product AMM on Solana. Anyone can open a pool or provide
+                liquidity on chain, and the trade fee is split between the LPs who funded it
+                and the venue. This site reads pools and shares; adding and removing
+                liquidity from here is not switched on yet.
               </>
             ) : (
               <>
@@ -144,7 +144,7 @@ export default function PoolsPage() {
             <Stat
               label="Open a pool"
               value={`${solOf(liveConfig?.createPoolFee ?? RECOMMENDED_AMM_CONFIG.createPoolFee)} SOL`}
-              sub="one-off"
+              sub="fee; account deposits extra"
             />
           </div>
 
@@ -194,12 +194,11 @@ export default function PoolsPage() {
 
           <section className="rounded-2xl p-6" style={CARD}>
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the swap routes</p>
-            <h2 className="heading-luxury text-lg text-white mb-3">Our pool, unless elsewhere is better</h2>
+            <h2 className="heading-luxury text-lg text-white mb-3">Our pools, side by side with Jupiter</h2>
             <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-              Every quote on the Solana swap asks both our own pools and the aggregator, and
-              takes the one that pays the trader more. A tie stays here; anything short of a
-              tie does not. There is no tolerance band, and the surface prints which venue
-              won and by how much.
+              Every quote on the Solana swap also asks our own pools, and prints which one
+              pays the trader more and by how much. The trade itself still goes through
+              Jupiter: sending it to our pool when ours pays more is not switched on yet.
             </p>
             <Link to="/solana" className="btn-secondary px-4 py-2 text-[12px] inline-block">
               Go to the Solana swap
@@ -270,7 +269,8 @@ function VenueStatusCard({ status, onRefresh }: { status: VenueStatus | null; on
         <h2 className="heading-luxury text-xl text-white mb-2">Pools are open</h2>
         <p className="text-white/80 text-[13px] leading-relaxed mb-3">
           The AMM is deployed and its config exists, so anyone can open a pool and provide
-          liquidity. Fees below are read from that config.
+          liquidity on chain. This site only reads pools so far. Fees below are read from
+          that config.
         </p>
         <div className="flex flex-wrap gap-3 text-[12px]">
           <Addr label="Program" value={status.programId} />

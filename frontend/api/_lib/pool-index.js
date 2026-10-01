@@ -23,7 +23,10 @@
 //     initialize.rs:54 and initialize_with_permission.rs:57, so the pair has one order),
 //     and a pile of TOKEN/JUNK pools costs the answer nothing;
 //   - ranked by the SOL each pool holds, never by address: to push a real pool off the
-//     list an attacker must put more SOL than it holds into each of MAX_POOLS pools;
+//     list an attacker must put more SOL than it holds into each of MAX_POOLS pools.
+//     EVERY pool the scan finds is ranked. Ranking only an address-ordered subset would
+//     let ground addresses decide which pools are even weighed;
+//   - more than MAX_SCANNED pools is a 502 ("could not read"), never a cut list;
 //   - `truncated` when there were more; the page then never says "no pools".
 //
 // Hardening: GET only; the shared request-origin gate; the query must be exactly one
@@ -50,8 +53,15 @@ export const POOL_DISCRIMINATOR_B58 = base58.encode(Uint8Array.from([247, 237, 2
 export const OFFSETS = Object.freeze({ token0Vault: 72, lpMint: 136, token0Mint: 168, token1Mint: 200 });
 /** Addresses returned per answer (the browser reads these plus 3 it works out: 99, one call). */
 export const MAX_POOLS = 96;
-/** Pools ranked by SOL per answer: one getMultipleAccounts per 100. */
-export const MAX_RANKED = 1000;
+/**
+ * More TOKEN/SOL pools than this for one token is answered as a 502, not ranked: about
+ * 300 SOL of never-refunded rent to reach, and 100 vault reads (8 at a time) to rank.
+ */
+export const MAX_SCANNED = 10_000;
+const RANK_CHUNK = 100;
+const RANK_CONCURRENCY = 8;
+/** Per chain call. The sibling handlers carry one too (heat.js, record-solana.js). */
+const RPC_TIMEOUT_MS = 8000;
 
 const CACHE_TTL_MS = 30_000;
 const NOT_A_MINT_TTL_MS = 10 * 60_000;
@@ -91,6 +101,7 @@ async function rpc(method, params, fetchImpl) {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`upstream HTTP ${res.status}`);
   const { text, truncated } = await readBoundedText(res, MAX_RESPONSE_BYTES);
@@ -180,12 +191,12 @@ async function scanSolPools(mint, fetchImpl) {
     seen.add(address);
     pools.push({ address, solVault: base58.encode(Uint8Array.from(slice.subarray(solIs0 ? 0 : 32, solIs0 ? 32 : 64))) });
   }
-  // More than we rank: rank a fixed subset and say the list was cut (never silently).
-  pools.sort((a, b) => (a.address < b.address ? -1 : a.address > b.address ? 1 : 0));
-  const ranked = pools.slice(0, MAX_RANKED);
+  if (pools.length > MAX_SCANNED) throw new Error(`more than ${MAX_SCANNED} pools for one token`);
+  const ranked = pools;
   const depth = new Map();
-  for (let i = 0; i < ranked.length; i += 100) {
-    const chunk = ranked.slice(i, i + 100);
+  const chunks = [];
+  for (let i = 0; i < ranked.length; i += RANK_CHUNK) chunks.push(ranked.slice(i, i + RANK_CHUNK));
+  const readChunk = async (chunk) => {
     const r = await rpc(
       "getMultipleAccounts",
       [chunk.map((p) => p.solVault), { encoding: "base64", commitment: "confirmed", dataSlice: { offset: 64, length: 8 } }],
@@ -203,6 +214,9 @@ async function scanSolPools(mint, fetchImpl) {
       }
       depth.set(chunk[j].address, amount);
     });
+  };
+  for (let i = 0; i < chunks.length; i += RANK_CONCURRENCY) {
+    await Promise.all(chunks.slice(i, i + RANK_CONCURRENCY).map(readChunk));
   }
   ranked.sort((a, b) => {
     const da = depth.get(a.address);

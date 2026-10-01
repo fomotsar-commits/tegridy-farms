@@ -71,7 +71,27 @@ describe('readPositions', () => {
     expect(calls).toHaveLength(MAX_POSITIONS);
     const sol = (first.kind === 'ok' ? first.positions : []).map((p) => (p.value && p.pool?.kind === 'pool' ? (p.pool.view.solIsToken0 ? p.value.token0 : p.value.token1) : -1n));
     expect(sol).toEqual([...sol].sort((a, b) => (a > b ? -1 : a < b ? 1 : 0)));
-    const all = await readPositions(fakeRpc(accounts), wallet, { ...opts(fakeIndex(table)), limit: MAX_POSITIONS * 2 });
+    // "Look up more" spends lookups only on shares not placed yet (review 2026-09-30:
+    // it used to re-place every share and ran into the index's per-IP limit).
+    const more: string[] = [];
+    const all = await readPositions(fakeRpc(accounts), wallet, { ...opts(fakeIndex(table, { calls: more })), limit: MAX_POSITIONS * 2 });
     expect(all.kind === 'ok' && [all.positions.length, all.totalShares]).toEqual([n, n]);
+    expect(more).toHaveLength(n - MAX_POSITIONS);
+    expect(all.kind === 'ok' && all.positions.every((p) => p.placement === 'found')).toBe(true);
+  });
+
+  it('two accounts holding the same share cost one lookup', async () => {
+    const wallet = key();
+    const p = buildPool({ mint: key(), address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
+    const accounts: Record<string, FakeAccount> = {
+      ...p.accounts,
+      [CLOCK]: clockAccount(5n),
+      [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 100n) },
+      [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 200n) },
+    };
+    const calls: string[] = [];
+    const r = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({ [`lpMint:${p.lpMint.toBase58()}`]: [p.address.toBase58()] }, { calls })));
+    expect(r.kind === 'ok' && r.positions.map((x) => x.placement)).toEqual(['found', 'found']);
+    expect(calls).toHaveLength(1);
   });
 });

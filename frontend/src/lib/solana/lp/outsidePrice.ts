@@ -24,9 +24,12 @@ import { getMultipleAccounts } from './accounts';
  * read from the chain, and a quote through any account our pool program owns is not an
  * outside price. A quote without a readable route is not one either.
  *
- * Production's proxy turns every upstream error into a 502, so "Jupiter has no route for
- * this token" and "Jupiter is down" look the same here. Both are `unread`, which is
- * honest: either way we have no outside price.
+ * NO ROUTE IS AN ANSWER. Our proxy turns Jupiter's own "no route" codes into a 404
+ * (api/aggregator.js `noRouteErrorCodes`) and every other failure into a 502. Only the
+ * 404 is `no-route`: Jupiter answered, and this token has no market it can reach. Every
+ * other failure is `unread`. The two must stay apart, because a launch pool falls back
+ * to its own history only on `no-route` (poolHealth.ts); a down Jupiter is not "no
+ * outside market".
  */
 
 export const PROBE_LAMPORTS = 50_000_000n;
@@ -36,7 +39,11 @@ const MAX_ROUTE_POOLS = 40;
 
 export type OutsidePrice =
   | { kind: 'ok'; solPerToken: number; source: 'Jupiter' }
+  /** Jupiter answered that it has no route for this token: no outside market it can reach. */
+  | { kind: 'no-route'; detail: string }
   | { kind: 'unread'; detail: string };
+
+class NoRoute extends Error {}
 
 /** How to tell whether a route goes through our own pools: the chain, and our program. */
 export interface OwnPoolGuard {
@@ -77,6 +84,7 @@ async function quote(
     restrictIntermediateTokens: 'true',
   });
   const res = await fetchImpl(`${JUPITER_PROXY_BASE}/quote?${qs.toString()}`, { headers: { Accept: 'application/json' }, signal });
+  if (res.status === 404) throw new NoRoute('Jupiter has no route for this token');
   if (!res.ok) throw new Error(`Jupiter did not give a price (HTTP ${res.status})`);
   const q = (await res.json()) as QuoteShape;
   if (q.inputMint !== inputMint || q.outputMint !== outputMint || q.inAmount !== amount.toString()) {
@@ -116,6 +124,7 @@ export async function readOutsidePrice(
     lamportsBack = sell.out;
     pools = [...new Set([...buy.pools, ...sell.pools])];
   } catch (e) {
+    if (e instanceof NoRoute) return { kind: 'no-route', detail: e.message };
     return { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
   }
   if (pools.length > MAX_ROUTE_POOLS) return { kind: 'unread', detail: 'Jupiter’s price came through more pools than we can check' };

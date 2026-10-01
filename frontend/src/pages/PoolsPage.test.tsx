@@ -147,10 +147,13 @@ describe('when the chain cannot be read', () => {
 describe('always', () => {
   beforeEach(() => { readVenue.mockResolvedValue({ kind: 'no-program-id' }); });
 
-  it('states the routing rule and that the AMM is unmodified Raydium', async () => {
+  // Review 2026-09-30: this card said the swap "takes" our pool when it pays more, but
+  // every Solana swap executes through Jupiter (SolanaRouteLine says so on the swap).
+  it('says the swap compares our pools but still trades through Jupiter, and that the AMM is unmodified Raydium', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByText(/unless elsewhere is better/i)).toBeInTheDocument());
-    expect(screen.getByText(/There is no tolerance band/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/side by side with Jupiter/i)).toBeInTheDocument());
+    expect(screen.getByText(/still goes through\s+Jupiter/i)).toBeInTheDocument();
+    expect(screen.queryByText(/takes the one that pays/i)).toBeNull();
     expect(screen.getByText(/verbatim fork/i)).toBeInTheDocument();
   });
 

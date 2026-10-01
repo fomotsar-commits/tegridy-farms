@@ -27,7 +27,8 @@ import { WSOL_MINT } from './tokenSafety';
  *
  * THE REFERENCE PRICE. The outside price (Jupiter) when there is one. A launch pool,
  * which only the launch program can open, usually has none (it is the token's only
- * market), so it is checked against its OWN average over the last half hour instead
+ * market). When Jupiter ANSWERS that it has no route (`no-route`, never a failed read),
+ * a launch pool is checked against its OWN average over the last half hour instead
  * (ownPrice.ts): someone who pushes its price just before a deposit is caught. A pool
  * anyone could have opened is never checked against its own history, because its opener
  * wrote that history.
@@ -169,7 +170,9 @@ export function assessPool(input: {
     price = compare(poolPrice, outside.solPerToken, 'outside');
   } else if (tokenBlocked) {
     price = { state: 'skipped', pool: poolPrice, detail: 'not compared, because the token is blocked' };
-  } else if (isLaunchPool) {
+  } else if (isLaunchPool && outside?.kind === 'no-route') {
+    // Only when Jupiter ANSWERED "no route". A failed read is not "no outside market":
+    // the token may trade elsewhere at another price, so it stays unread below.
     const own = ownPriceOf(view, tokenDecimals, chainNow);
     price =
       own.kind === 'ok'

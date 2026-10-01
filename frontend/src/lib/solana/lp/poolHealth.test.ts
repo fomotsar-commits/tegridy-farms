@@ -20,7 +20,7 @@ function view(o: { openTime?: bigint; status?: number; sol?: bigint; tok?: bigin
 
 const base = { tokenDecimals: 6, chainNow: 1_000n, safety: OK_TOKEN };
 const outside = (p: number) => ({ kind: 'ok' as const, solPerToken: p, source: 'Jupiter' as const });
-const noOutside = { kind: 'unread' as const, detail: 'no route' };
+const noOutside = { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' };
 
 describe('assessPool', () => {
   it('prices the pool from its reserves, SOL per whole token', () => {
@@ -155,6 +155,22 @@ describe('assessPool: a launch pool is checked against its own recent average', 
 
   it('too little history since the first trade proves nothing: unchecked', () => {
     const h = assessPool({ ...now, view: launch(history(10n * Q32, { firstAt: 4_500n })), outside: noOutside });
+    expect(h.deposits.verdict).toBe('unchecked');
+  });
+
+  // A failed Jupiter read is not "no outside market": the token may trade elsewhere at
+  // another price. Only Jupiter's own no-route answer opens the own-history path.
+  it('Jupiter down (not "no route"): never traded is unchecked, never allowed', () => {
+    const down = { kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' };
+    const h = assessPool({ ...now, view: launch(history(10n * Q32, { initialized: false })), outside: down });
+    expect(h.price.state).toBe('unread');
+    expect(h.deposits.verdict).toBe('unchecked');
+    expect(h.deposits.reasons.join(' ')).toMatch(/HTTP 502/);
+  });
+
+  it('Jupiter down (not "no route"): agreeing with its own average is still unchecked', () => {
+    const down = { kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' };
+    const h = assessPool({ ...now, view: launch(history(10n * Q32)), outside: down });
     expect(h.deposits.verdict).toBe('unchecked');
   });
 
