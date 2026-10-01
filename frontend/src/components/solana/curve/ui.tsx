@@ -57,7 +57,7 @@ export function Row({ label, value, mono = true }: { label: string; value: strin
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75">
       <span className="break-words">{label}</span>
-      <span className={`text-right min-w-0 break-all ${mono ? 'font-mono' : ''}`}>{value}</span>
+      <span className={`text-right min-w-0 ${mono ? 'font-mono break-all' : '[overflow-wrap:anywhere]'}`}>{value}</span>
     </div>
   );
 }
