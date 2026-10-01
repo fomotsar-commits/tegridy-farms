@@ -15,6 +15,71 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-01 — a PR whose base moved can still merge exactly what its CI tested
+
+**Believed:** once trunk moves under an open PR, its green checks no longer describe what a
+merge would land, so the PR has to be updated and re-tested (about 70 minutes here, most of it
+E2E) before it merges.
+
+**Measured:** `git merge-tree --write-tree origin/mvp-launch origin/<branch>` prints the tree
+the merge would produce, without touching any checkout. When that equals
+`git rev-parse origin/<branch>^{tree}`, the merge lands byte for byte what the PR's CI ran on,
+however far trunk has moved. On 2026-10-01 nine PRs landed in a row with no second CI run:
+seven with equal trees, two by the file check below. Three of them (#680, #683, #681) had
+merged the head of the PR ahead of them before their CI ran, so each was already tested on
+the trunk it was about to become. Where the trees
+differ, `git diff --name-only origin/<branch> <merged tree>` lists exactly what CI did not
+see. For #677 and #678 that was only `.gitleaks.toml`, and `git grep` showed no build or test
+reads its contents (one test checks that it exists, one mentions it in a comment), so their
+green carried over.
+
+**Do:** before merging, compare the merged tree with the PR's tree. Equal: merge, pinned with
+`--match-head-commit`. Different: read the file list. Re-test unless no build or test can read
+those files. To save the cycle, merge the head of the PR ahead into the next PR before its CI
+runs. `mergeStateStatus` cannot tell you any of this: with no branch protection it reads
+`CLEAN` on a stale base.
+
+---
+
+## 2026-10-01 — a recorded RPC read keyed `method:address` trips gitleaks on public data
+
+**Believed:** a fixture that holds only public on-chain data cannot trip the secret scan.
+
+**Measured:** gitleaks 8.30.1's `generic-api-key` rule flagged
+`frontend/e2e/fixtures/baylaLadderPool.ts` lines 25 and 37 in #683. Those are keys of a
+recorded Solana RPC read shaped `"getTokenAccountBalance:<base58 address>"`, and both
+addresses are the BAYLA ladder's public token vaults (Token-2022 accounts owned by the pool
+PDA, read on mainnet). Over #683's range (`5d7c363e..7328eac8`) the scan found 2 leaks with
+the old config and 0 with both addresses listed as exact strings in `.gitleaks.toml` (#684). A
+later commit on the same PR cannot clear the finding: the PR scan walks every commit in its
+range, and the address is still in the commit that added it.
+
+**Do:** key a recorded read by a label (`stakeVaultBalance`), not by `<method>:<address>`.
+Where the address must appear, list it in `.gitleaks.toml` as an exact string, never as a
+base58 shape (that file records why), and do it before or with the fixture, not after.
+
+---
+
+## 2026-10-01 — with `--no-options`, gpg will not create a missing home, and exits 2
+
+**Believed:** gpg creates `~/.gnupg` on first use, so a script that runs it on a fresh
+machine or CI runner just works.
+
+**Measured:** with `--batch --no-options` and no existing home, gpg exits 2 with
+`keyblock resource '<home>/pubring.kbx': No such file or directory`, even though it still
+writes the ciphertext. This held for symmetric encrypt and decrypt alike, on GitHub's
+`ubuntu-latest` (#677's CI), WSL gpg 2.4.4 with a fresh `HOME`, and Git for Windows gpg 2.4.9
+with `GNUPGHOME` pointing at a folder that did not exist. It passed on this PC only because a
+home already existed. `--no-autostart` is not a way around it: symmetric encryption needs
+gpg-agent to choose its key-stretching strength, and without the agent gpg exits 2.
+
+**Do:** give each gpg call its own fresh home: `mkdtemp`, mode 0700, passed with `--homedir`,
+deleted afterwards. Git for Windows gpg (MSYS) reads a `C:\` home as a relative path, so pass
+it the `/c/...` form. `scripts/ops/lib/gpg.mjs` does all of this. Judge success by the exit
+status, never by output existing.
+
+---
+
 ## 2026-10-01 — after `await findByRole(...)`, a re-render a promise queued meanwhile may not have committed
 
 **Believed:** once `await screen.findByRole('dialog')` returns, the page is settled, so a
