@@ -105,7 +105,7 @@ describe('readLadderPool — an outage is never an empty pool', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.reason).toContain(OTHER_PROGRAM.toBase58());
-      expect(r.reason).toMatch(/check the configured pool/);
+      expect(r.reason).toMatch(/check the configured pool/i);
     }
   });
 
@@ -127,6 +127,40 @@ describe('readLadderPool — an outage is never an empty pool', () => {
       expect(r.value.decimals).toBe(6);
       expect(r.value.minStakeRaw).toBe(100_000_000n);
     }
+  });
+});
+
+// The ladder card prints a failed read's reason as is, and venue copy carries no em dash.
+describe('no reason a read gives carries an em dash', () => {
+  it('every way the pool or a wallet can fail to read', async () => {
+    const statsAddr = userStatsPda(PROGRAM, POOL, OWNER).toBase58();
+    const bad = poolAccount();
+    bad[387] = 9;
+    const reasons: string[] = [];
+    const pools = [
+      fakeConn({ accountThrows: 'socket hang up' }),
+      fakeConn({ account: () => null }),
+      fakeConn({ account: () => ({ owner: OTHER_PROGRAM, data: poolAccount() }) }),
+      fakeConn({ account: () => ({ owner: PROGRAM, data: bad }) }),
+    ];
+    for (const conn of pools) {
+      const r = await readLadderPool(conn, PROGRAM, POOL);
+      if (!r.ok) reasons.push(r.reason);
+    }
+    const wallets = [
+      fakeConn({ accountThrows: 'timeout' }),
+      fakeConn({ account: () => ({ owner: PROGRAM, data: new Uint8Array(3) }) }),
+      fakeConn({
+        account: (a) => (a.toBase58() === statsAddr ? { owner: PROGRAM, data: userStats(2, 0n, 1) } : null),
+        multiThrows: 'batch failed',
+      }),
+    ];
+    for (const conn of wallets) {
+      const r = await readLadderWallet(conn, PROGRAM, POOL, OWNER);
+      if (!r.ok) reasons.push(r.reason);
+    }
+    expect(reasons).toHaveLength(pools.length + wallets.length);
+    for (const reason of reasons) expect(reason).not.toContain('—');
   });
 });
 
