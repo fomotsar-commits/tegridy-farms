@@ -1,4 +1,4 @@
-import { BUNGALOWS } from './bungalows';
+import { BUNGALOW_COUNT } from './bungalows';
 import { VENUE } from './arrival';
 
 export interface FAQItem {
@@ -28,7 +28,7 @@ export function venueFaq(floor: number): FAQSection[] {
         },
         {
           q: 'What is a bungalow?',
-          a: `A community's own door at the venue: its token, its walls, its art, its stake. There are ${BUNGALOWS.length} today. Walk in where you hold.`,
+          a: `A community's own door at the venue: its token, its walls, its art, its stake. There are ${BUNGALOW_COUNT} today. Walk in where you hold.`,
         },
         {
           q: 'What network does memetics.finance run on?',

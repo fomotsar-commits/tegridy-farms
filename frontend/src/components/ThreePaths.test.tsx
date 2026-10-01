@@ -42,11 +42,18 @@ describe('the launch floor is read, never typed', () => {
     expect(container.textContent).not.toMatch(/Elder|Builder|Resident|Observer|Drifter/);
   });
 
-  it('names the tier a floor sits exactly on (150 is Builder)', () => {
+  it('names the tier a floor sits exactly on (300 is Builder)', () => {
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '300');
+    const { container } = mount();
+    expect(container.textContent).toContain('Builders may plant. The floor is 300°.');
+    expect(container.textContent).not.toContain('Residents');
+  });
+
+  it('names no tier at 150, the Builder floor the island retired', () => {
     vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
     const { container } = mount();
-    expect(container.textContent).toContain('Builders may plant. The floor is 150°.');
-    expect(container.textContent).not.toContain('Residents');
+    expect(container.textContent).toContain('The floor is 150°.');
+    expect(container.textContent).not.toMatch(/Elder|Builder|Resident|Observer|Drifter/);
   });
 
   it('ignores a nonsense dial instead of opening the door to everyone', () => {
@@ -72,7 +79,7 @@ describe('the doors', () => {
   it('states each requirement at the point of intent', () => {
     const { container } = mount();
     const text = container.textContent ?? '';
-    expect(text).toContain('Your clock starts at your first buy.');
+    expect(text).toContain('Your clock on a token starts at your first hold. Pick a bungalow.');
     expect(text).toContain('Withdraw any time. No lock.');
     expect(text).toContain('Residents may plant.');
   });

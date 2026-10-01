@@ -68,7 +68,7 @@ const CHIP = 'rounded-md border px-2 py-1 text-[11px] leading-tight';
 function title(status: IslandCupStatus, answered: number, total: number): string {
   switch (status) {
     case 'complete':
-      return "Island Cup, scored from the resident pools' trade feeds";
+      return "Volume board, scored from the resident pools' trade feeds";
     case 'partial':
       return `${answered} of ${total} pools answered — totals are floors and the order is provisional`;
     case 'unavailable':

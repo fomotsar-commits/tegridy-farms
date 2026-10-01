@@ -44,7 +44,7 @@ const venueSteps = [
     title: 'Your First Move',
     // ARRIVAL FLOW 2026-08-31: the venue's first move is the island itself,
     // not the farm. The farm is TOWELI's room; its tour says so instead.
-    body: 'Walk a door in the hall below, or scan any token on either chain. Your heat already exists. It started counting at your first buy.',
+    body: 'Walk a door in the hall below, or scan any token on either chain. Your heat already exists. Your clock on a token starts at your first hold.',
     cta: true,
   },
 ];

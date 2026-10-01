@@ -64,8 +64,7 @@ export function GardenLane({ community }: GardenLaneProps) {
       </div>
 
       <p className="text-white/60 text-xs mt-1.5 leading-relaxed">
-        The island&rsquo;s own lane. A certified community launches on certified soil, under the
-        island&rsquo;s covenant rather than this venue&rsquo;s split.
+        The island&rsquo;s own lane. A certified community launches on certified soil.
       </p>
 
       {/* The reason, verbatim from the module. A dark lane that does not say why reads
