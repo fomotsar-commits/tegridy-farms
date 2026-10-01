@@ -10,7 +10,7 @@ import { toFunctionSelector } from 'viem';
 import { BUNGALOWS, RETIRED_STAKE_POOLS, poolReadByIsland, type Bungalow } from './bungalows';
 import {
   SITE_URL,
-  GITHUB_REPO_URL,
+  SOURCE_URL,
   TOWELI_ADDRESS,
   TOWELI_DECIMALS,
   WETH_ADDRESS,
@@ -495,7 +495,7 @@ export function collectHeldThrough(opts: CollectOptions = {}): HeldThroughBody {
   return {
     schema: HELD_THROUGH_SCHEMA,
     site: SITE_URL,
-    repository: GITHUB_REPO_URL,
+    repository: SOURCE_URL,
     note:
       "Every contract of this venue that holds user positions, and the exact read that returns one wallet's " +
       "position in it. No balances: read them from the chain. readByIsland is the venue's copy of the island's " +

@@ -247,3 +247,42 @@ jobs:
             gh issue close "$N" --repo "$GITHUB_REPOSITORY" 2>/dev/null \
               || echo "WARNING: could not close #$N — prod is healthy; this is bookkeeping only"
           done
+
+      # Dead-man switch for GitHub's own schedules, which stopped for 5+ days in 2026-09 and
+      # told nobody. healthchecks.io emails when these pings stop (docs/OPS_SCHEDULER.md,
+      # section 2). Every run pings the base URL, pass or fail: a /fail would hold the check
+      # DOWN through a probe outage and mute it. The prod-incident issue reports the probe.
+      # curl reads the URL on stdin, never argv. No secret, or a ping that did not land, is
+      # a warning, never a red run: the missing ping is itself the alarm.
+      - name: Heartbeat to healthchecks.io
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
+        env:
+          HC_PING_URL: ${{ secrets.HC_PING_URL_GITHUB_CRONS }}
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+          REPORT: ${{ steps.probe.outputs.report }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -u
+          if [ -z "${HC_PING_URL:-}" ]; then
+            echo "::warning title=No heartbeat::HC_PING_URL_GITHUB_CRONS is not set, so nothing outside GitHub notices if its schedules stop. See docs/OPS_SCHEDULER.md section 2."
+            exit 0
+          fi
+          case "$HC_PING_URL" in
+            *[[:space:]\"\\]*) usable=no ;;
+            https://?*) usable=yes ;;
+            *) usable=no ;;
+          esac
+          if [ "$usable" != yes ]; then
+            echo "::warning title=No heartbeat::HC_PING_URL_GITHUB_CRONS is set but is not a plain https URL, so no ping was sent."
+            exit 0
+          fi
+          target="${HC_PING_URL%/}"
+          body="$RUNNER_TEMP/heartbeat-body.txt"
+          printf 'synthetic-monitor: %s\n%s\n\n%s\n' "$PROBE_OUTCOME" "$RUN_URL" "${REPORT:-}" > "$body"
+          if printf 'url = "%s"\n' "$target" | curl --config - -fsS -o /dev/null --max-time 10 --retry 3 --retry-all-errors --retry-delay 2 --data-binary "@$body"; then
+            echo "Heartbeat sent (probe: $PROBE_OUTCOME)."
+          else
+            echo "::warning title=Heartbeat not delivered::curl could not reach healthchecks.io. The check raises the missed ping itself."
+          fi
