@@ -92,7 +92,7 @@ export function BungalowOnboarding({
             Skip
           </button>
           {isLast ? (
-            <Link to="/farm" onClick={close} className="btn-primary px-5 py-2 text-[13px] inline-block text-center">
+            <Link to={`/earn/${bungalow.id}`} onClick={close} className="btn-primary px-5 py-2 text-[13px] inline-block text-center">
               {membersOnly ? 'See the ladder' : 'See the lighthouse'}
             </Link>
           ) : (

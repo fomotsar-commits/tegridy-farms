@@ -340,7 +340,7 @@ of 2026-09-15**. TOWELI itself is Ethereum-only.
 Price & liquidity: [GeckoTerminal](https://www.geckoterminal.com/eth/pools/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D).
 
 ### 3. Stake & lock
-Go to [memetics.finance/farm](https://memetics.finance/farm) and pick a lock:
+Go to [memetics.finance/earn/toweli](https://memetics.finance/earn/toweli) and pick a lock:
 
 | Lock | Boost | Flavor |
 |---|---|---|

@@ -42,7 +42,7 @@ is. TOWELI is **Ethereum-only** — there is no bridged version on Base, Robinho
 and there never will be.
 
 ### 2. Go to the Farm
-`/farm` shows the pools, the live APR and the boost table.
+`/earn/toweli` shows the TOWELI pool, the live APR and the boost table (`/earn` lists every pool on the island).
 
 ### 3. Approve and stake
 Enter an amount, **Approve** (one-time), then **Stake**. Two wallet confirmations.

@@ -209,7 +209,7 @@ export function OnboardingModal({
                 tour lands the visitor in the hall of doors, on the page,
                 where the island itself is the next click. */}
             {isToweliVoice() ? (
-              <Link to="/farm" onClick={close}
+              <Link to="/earn/toweli" onClick={close}
                 className="px-4 py-2 text-sm font-semibold rounded-lg bg-green-600 hover:bg-green-500 text-white transition-colors text-center min-h-[44px] flex items-center">
                 Start Farming
               </Link>

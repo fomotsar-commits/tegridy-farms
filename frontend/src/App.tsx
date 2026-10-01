@@ -15,8 +15,9 @@ import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
 import { PwaRuntime } from './components/pwa/PwaRuntime';
-import { BUNGALOWS } from './lib/bungalows';
+import { BUNGALOWS, getActiveBungalow } from './lib/bungalows';
 import { BungalowDoor, VENUE_ID } from './components/bungalow/BungalowDoor';
+import { EARN_PATH, isEarnPoolId, legacyFarmTarget } from './lib/earnRoutes';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -135,7 +136,7 @@ function NotFoundPage() {
           <p className="text-white/40 text-[11px] uppercase tracking-wider mb-2">Or jump to</p>
           <div className="flex items-center justify-center gap-2 flex-wrap">
             {[
-              { to: '/farm', label: 'Farm' },
+              { to: '/earn', label: 'Earn' },
               { to: '/swap', label: 'Trade' },
               { to: '/dashboard', label: 'Dashboard' },
             ].map((l) => (
@@ -204,6 +205,29 @@ function BungalowStudioDoor() {
 }
 
 /**
+ * `/earn/<id>`: one pool, inside its own room. The id is a live registry id
+ * ('toweli' included); anything else goes back to the list. The pool's room is
+ * entered the way its front door enters it (BungalowDoor), so the art, the nav
+ * and the pool all agree — and a link opened in a wallet's own browser, which
+ * shares none of this browser's storage, still lands on the same pool.
+ */
+function EarnPoolRoute() {
+  const { poolId = '' } = useParams();
+  if (!isEarnPoolId(poolId)) return <Navigate to={EARN_PATH} replace />;
+  return (
+    <BungalowDoor key={poolId} id={poolId}>
+      <Suspense fallback={<FarmSkeleton />}><EarnPage /></Suspense>
+    </BungalowDoor>
+  );
+}
+
+/** `/farm`, Earn's address until 2026-09-30: an old link keeps its meaning (legacyFarmTarget). */
+function LegacyFarmRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate to={legacyFarmTarget(search, hash, getActiveBungalow())} replace />;
+}
+
+/**
  * `/swap`, with an old `?tab=liquidity` link sent to /liquidity before the swap page
  * loads: TradePage would read the unknown tab as 'swap', and redirecting from inside
  * it cost four serial chunk loads. The URL is known on the first render.
@@ -247,8 +271,8 @@ function AnimatedRoutes() {
       />
       <Route element={<AppLayout />}>
         {/* `/` is the venue's own door: arriving clears a stored skin the way
-            walking into /bayla sets one. The stored skin still dresses /farm,
-            /swap and the rest. */}
+            walking into /bayla sets one. The stored skin still dresses /swap
+            and the rest; /earn/<id> enters its own pool's room. */}
         <Route
           index
           element={
@@ -273,8 +297,11 @@ function AnimatedRoutes() {
             }
           />
         ))}
-        {/* Earn is a tabbed host: /farm is its landing tab. */}
-        <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><EarnPage /></Suspense>} />
+        {/* Earn is a tabbed host: /earn, the list of every pool, is its landing
+            tab, and /earn/<id> is one pool under the same tab. */}
+        <Route path="earn" element={<Suspense fallback={<FarmSkeleton />}><EarnPage /></Suspense>} />
+        <Route path="earn/:poolId" element={<EarnPoolRoute />} />
+        <Route path="farm" element={<LegacyFarmRedirect />} />
         {/* Swap is a tabbed host: Ethereum / Solana. */}
         <Route path="swap" element={<SwapRoute />} />
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
@@ -311,7 +338,7 @@ function AnimatedRoutes() {
         <Route path="community" element={<Suspense fallback={<PageSkeleton />}><CommunityPage /></Suspense>} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
         <Route path="bounties" element={<Navigate to="/community?section=bounties" replace />} />
-        <Route path="restake" element={<Navigate to="/farm" replace />} />
+        <Route path="restake" element={<Navigate to="/earn/toweli" replace />} />
         <Route path="premium" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="bribes" element={<Navigate to="/community?section=bribes" replace />} />
         <Route path="admin" element={<Suspense fallback={<PageSkeleton />}><AdminPage /></Suspense>} />

@@ -230,7 +230,7 @@ export function YieldCalculator() {
               : `Estimates assume a ${BASELINE_APR_PCT}% baseline APR scaled by boost. Real yield depends on live pool revenue.`}
           </p>
           <Link
-            to="/farm"
+            to="/earn/toweli"
             className="btn-primary px-5 py-2 text-[13px] inline-flex items-center gap-1.5"
             aria-label="Go to Farm page to stake"
           >

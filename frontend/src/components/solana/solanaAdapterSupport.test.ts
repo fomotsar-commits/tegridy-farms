@@ -5,6 +5,7 @@ import {
   BackpackWalletAdapter,
   CoinbaseWalletAdapter,
   IPadAwarePhantomWalletAdapter,
+  JupiterWalletAdapter,
   MetaMaskWalletAdapter,
   SolflareWalletAdapter,
   TrustWalletAdapter,
@@ -53,6 +54,7 @@ import type { Adapter } from '@solana/wallet-adapter-base';
 const LEGACY_ADAPTERS: ReadonlyArray<readonly [name: string, adapter: () => Adapter]> = [
   ['Phantom', () => new IPadAwarePhantomWalletAdapter() as unknown as Adapter],
   ['Trust', () => new TrustWalletAdapter() as unknown as Adapter],
+  ['Jupiter', () => new JupiterWalletAdapter() as unknown as Adapter],
   ['MetaMask', () => new MetaMaskWalletAdapter() as unknown as Adapter],
   ['Coinbase Wallet', () => new CoinbaseWalletAdapter() as unknown as Adapter],
   ['Solflare', () => new SolflareWalletAdapter() as unknown as Adapter],
@@ -94,6 +96,7 @@ describe('Solana legacy adapters can send what this venue sends', () => {
       new Set([
         'IPadAwarePhantomWalletAdapter',
         'TrustWalletAdapter',
+        'JupiterWalletAdapter',
         'MetaMaskWalletAdapter',
         'CoinbaseWalletAdapter',
         'SolflareWalletAdapter',

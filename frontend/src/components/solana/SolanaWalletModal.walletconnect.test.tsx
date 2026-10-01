@@ -401,4 +401,93 @@ describe('SolanaProviders and the project id', () => {
   });
 });
 
+/**
+ * CHANGE 7 (owner, 2026-09-30): "None of the trust wallets are connecting to
+ * Solana when connected through the QR code" and "jupiter wallet not
+ * supported". On a computer without the extension, Trust's row opened the
+ * extension's install page and Jupiter had no row; the only Solana QR was a
+ * row named "WalletConnect" at the bottom that named neither. Now each row
+ * opens that QR, named for the wallet whose phone app scans it.
+ */
+describe('Trust and Jupiter, not in this browser, open the QR their phone app scans', () => {
+  function mountWith(adapters: unknown[]) {
+    return render(
+      <ConnectionProvider endpoint="http://127.0.0.1:8899">
+        <WalletProvider wallets={adapters as never} autoConnect>
+          <SolanaWalletModalProvider>
+            <Opener />
+          </SolanaWalletModalProvider>
+        </WalletProvider>
+      </ConnectionProvider>,
+    );
+  }
+
+  it.each([
+    ['Trust', 'Trust Wallet'],
+    ['Jupiter', 'Jupiter'],
+  ])('%s: its row says "Scan QR code", shows the QR named for it, and never the install page', async (name, label) => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    wc = new WalletConnectWalletAdapter({ projectId: 'test-project' });
+    mountWith([new FakeWallet('Phantom', WalletReadyState.Installed), new FakeWallet(name, WalletReadyState.NotDetected), wc]);
+    const dialog = await openList();
+    const row = within(dialog).getByText(label).closest('button')!;
+    expect(row).toHaveTextContent(`${label}Scan QR code`);
+    fireEvent.click(row);
+    expect(await screen.findByRole('img', { name: 'WalletConnect QR code' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveTextContent(`Scan with ${label} on your phone`);
+    expect(open, 'the install page opened instead of the QR').not.toHaveBeenCalled();
+
+    // The extension stays one click away, as the second choice.
+    fireEvent.click(screen.getByRole('button', { name: `Use the ${label} extension instead` }));
+    expect(open).toHaveBeenCalledWith('https://example.test', '_blank', 'noopener,noreferrer');
+
+    // It is the WalletConnect row's connection: same adapter, same saved name.
+    await act(async () => client.approve());
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByTestId('pk')).toHaveTextContent(account);
+    expect(JSON.parse(localStorage.getItem('walletName') ?? 'null')).toBe('WalletConnect');
+  });
+
+  it('the WalletConnect row itself keeps its own wording and offers no extension', async () => {
+    mount();
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByText('WalletConnect'));
+    await screen.findByRole('img', { name: 'WalletConnect QR code' });
+    expect(screen.getByRole('dialog')).toHaveTextContent('Scan with your phone’s wallet');
+    expect(screen.queryByRole('button', { name: /extension instead/ })).toBeNull();
+  });
+
+  it('with no WalletConnect row (a phone, or a build without a project id), Trust opens its install page as before', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    mountWith([new FakeWallet('Phantom', WalletReadyState.Installed), new FakeWallet('Trust', WalletReadyState.NotDetected)]);
+    const dialog = await openList();
+    const row = within(dialog).getByText('Trust Wallet').closest('button')!;
+    expect(row).toHaveTextContent('Trust WalletInstall');
+    fireEvent.click(row);
+    expect(open).toHaveBeenCalledWith('https://example.test', '_blank', 'noopener,noreferrer');
+    expect(screen.queryByRole('img', { name: 'WalletConnect QR code' })).toBeNull();
+  });
+
+  it('a wallet whose phone app is not known to scan it keeps its install page', async () => {
+    // Solflare cannot connect over WalletConnect at all (the QR note says so).
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    wc = new WalletConnectWalletAdapter({ projectId: 'test-project' });
+    mountWith([new FakeWallet('Solflare', WalletReadyState.NotDetected), wc]);
+    const dialog = await openList();
+    const row = within(dialog).getByText('Solflare').closest('button')!;
+    expect(row).toHaveTextContent('SolflareInstall');
+    fireEvent.click(row);
+    expect(open).toHaveBeenCalledWith('https://example.test', '_blank', 'noopener,noreferrer');
+    expect(screen.queryByRole('img', { name: 'WalletConnect QR code' })).toBeNull();
+  });
+});
+
+describe('the list says the top bar is a separate connection', () => {
+  it('names what the top-bar Connect is for', async () => {
+    mount();
+    const dialog = await openList();
+    expect(dialog).toHaveTextContent('The Connect button at the top of the page is a separate connection, and it does not connect Solana.');
+  });
+});
+
 void PublicKey;
