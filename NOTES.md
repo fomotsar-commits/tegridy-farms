@@ -15,6 +15,253 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-30 — keeping both sides of a NOTES or TODO conflict can turn a paragraph into a heading
+
+**Believed:** a conflict in `NOTES.md` or `docs/TODO_OPERATOR.md` where two branches each add
+sections at the top is resolved by keeping every section and joining them with the file's `---`
+separator.
+
+**Measured:** merging three branches that each added sections (2026-09-30), a script split each
+side on `\n---\n\n` and joined them the same way. The last section of each side has no blank
+line after it inside the conflict, so the join put `---` straight under a paragraph: 4 places
+in the two files. In Markdown a `---` right under a text line is a setext heading underline, so
+the whole paragraph above renders as a heading. No test reads for it.
+
+**Do:** after resolving, list every `---` line whose previous line is not blank:
+`awk 'NR>1 && $0=="---" && prev!="" {print FILENAME": "NR} {prev=$0}' NOTES.md docs/TODO_OPERATOR.md`.
+The list must be empty.
+
+---
+
+## 2026-09-30 — with two push URLs, a push the first host refuses still reaches the second
+
+**Believed:** an `origin` with two `pushurl`s (GitHub, then GitLab) stops at GitHub when GitHub
+refuses a push, for example because its secret scanning found a key in it.
+
+**Measured:** git pushes to each push URL in turn and goes on after one refuses (git 2.53,
+throwaway repos, 2026-09-30). The "GitHub" repo's pre-receive hook refused `feat/leak`; the same
+`git push` then printed `* [new branch] feat/leak -> feat/leak` for the "GitLab" repo, and
+exited 1. The standby is public, so that push would have published the key.
+
+**Do:** give the clone a pre-push hook. git runs it once per push URL, with that URL as `$2`. For
+every URL after the first, ask the first host (`git ls-remote`) whether it now holds each ref
+exactly as pushed, and refuse otherwise. `scripts/git-hosting/pre-push-standby.sh` does this and
+`set-remotes.sh` installs it; without it, the set-remotes tests go red. A `--dry-run` push then
+reports the second URL as refused, because the first took nothing.
+
+---
+
+## 2026-09-30 — a GitHub schedule that stops running tells someone
+
+**Believed:** if GitHub's scheduled workflows stopped, a failed run, an issue or an email would
+say so.
+
+**Measured:** reported by the lead on 2026-09-30 (not re-read here: this work made no GitHub
+calls). After the account's suspension (2026-09-24) and reinstatement (2026-09-29), no scheduled
+workflow had run for more than five days, and none had resumed when this was written. Nothing
+told anyone. A schedule that does not fire produces no run, so there is nothing to fail, and
+every alarm those jobs had (issues, run emails) lived on GitHub too. One piece was checked
+here: the nine backups downloaded on 2026-09-29, reported as every artifact GitHub held, end at
+2026-09-21 (the folder names), so the Monday 2026-09-28 backup left no artifact. The exact date
+of the last scheduled run needs `gh run list`, which this work did not call.
+
+**Do:** watch a schedule from outside its host, by silence rather than by failure. The last step
+of `synthetic-monitor.yml` pings healthchecks.io every 30 minutes; the check alarms when the
+pings stop (`docs/OPS_SCHEDULER.md`, section 2). Ping on every run, pass or fail: a "fail"
+ping holds the check DOWN, and a check that is already DOWN sends no email when the pings then
+stop. Keep a copy of anything the host stores, too: `scripts/ops/pull-github-backups.mjs`
+copies the weekly backup off GitHub.
+
+---
+
+## 2026-09-30 — a fake tool put first on PATH is the one a Git Bash child runs
+
+**Believed:** a test that spawns Git Bash with a fake `curl` folder at the front of PATH runs
+the fake.
+
+**Measured:** `C:\Program Files\Git\bin\bash.exe` is a launcher that puts `/mingw64/bin` and
+`/usr/bin` ahead of the PATH it was given, so `type -a curl` listed the real curl first. A test
+meant to catch a ping sent real requests to hc-ping.com (a made-up check id, so nothing was
+pinged) and took 8 seconds of retries.
+
+**Do:** set PATH inside the shell (`bash -c 'PATH="$(cd "$FAKE_DIR" && pwd):$PATH"; . "$1"'`),
+assert the fake actually ran, and point test URLs at a host that cannot resolve, such as
+`.invalid` (RFC 2606), so a bypassed fake sends nothing.
+
+---
+
+## 2026-09-30 — a paged read whose row count matches the server's total read every row once
+
+**Believed:** paging a PostgREST table with `Range` and `Prefer: count=exact`, then checking
+that the rows read equal the reported total, proves every row was read.
+
+**Measured:** against a fake PostgREST that pages in heap order, as a query with no `ORDER BY`
+may, and moves one row to the end between page 1 and page 2 (what an UPDATE can do to a heap):
+1,500 rows read, total 1,500, row 1000 missing and row 10 read twice. Sorted by primary key,
+the update was harmless, but a delete before the page boundary plus an insert after it still
+read 1,500 of 1,500 with row 1000 missing and no key repeated, so a duplicate check alone does
+not catch it. Same fake; no real Postgres was run.
+
+**Do:** page in primary-key order, and start each page on the last row of the page before. If
+that row is not where it was, rows shifted: fail and re-run. Then check that no key repeats.
+`scripts/ops/lib/supabase-dump.mjs` does all three.
+
+---
+
+## 2026-09-29 — a gitleaks config read from the base commit stops a change loosening its own scan
+
+**Believed:** run gitleaks with `--config` and `--gitleaks-ignore-path` taken from the commit a
+merge request builds on, and the merge request cannot loosen the scan of its own commits.
+
+**Read in gitleaks v8.30.1's source** (`cmd/root.go`, by this branch's reviewer; not run here,
+there is no gitleaks binary on this PC): gitleaks also loads `.gitleaksignore` from the folder
+it scans, which is the change's own checkout. It also honours `gitleaks:allow` comments unless
+`--ignore-gitleaks-allow` is set. So a change can add a secret and either its fingerprint in
+`.gitleaksignore` or a `# gitleaks:allow` on the same line, and pass.
+
+**Do:** scan a `git clone --no-checkout --shared` of the checkout (the same history, no
+working-tree files), and pass `--ignore-gitleaks-allow`. `scripts/ci/gitleaks-range.sh` does
+both.
+
+---
+
+## 2026-09-29 — a job on our own act runner starts as clean as a job on GitHub's VMs
+
+**Believed:** each act job on a self-hosted runner starts from its image, as a GitHub-hosted
+job does, so one pipeline cannot change what the next one runs.
+
+**Read in act v0.2.89's source** (by this branch's reviewer; act is not installed here): every
+job container gets the named volume `act-toolcache` at `/opt/hostedtoolcache`, and act never
+removes it. Any job can plant a tool there, such as a fake node that `actions/setup-node` then
+picks, for every later run on that Docker daemon. act's actions/cache server matches entries by
+key and version only, with no branch scope. **Reproduced with git:** GitLab's shell executor
+reuses one build folder, and a job that skips submodules sees them at the last job's commit, so
+`git status` shows ` M contracts/lib/<x>`.
+
+**Do:** run one job at a time, drop the volume before each run, give merge requests a
+throwaway copy of the cache store, and leave submodules out of a clean-checkout check.
+`scripts/ci/act-job.sh` does all of these.
+
+---
+
+## 2026-09-29 — copying `refs/stash` copies one stash, not the stash list
+
+**Believed:** fetching or bundling a clone's `refs/stash` saves its stashes, and old stash
+entries expire after 30 or 90 days like any other reflog entry.
+
+**Measured:** only `stash@{0}` is a ref. The rest are the reflog of `refs/stash`, and no fetch,
+push or bundle carries a reflog. Our first vault fetched `refs/stash` from a clone with 12 entries
+and held 1 (git 2.53). They do not expire, though: git exempts `refs/stash` from reflog expiry
+unless a `gc.refs/stash.*` setting exists. Three entries dated six months back survived `git gc`,
+even with `gc.reflogExpire=1.day`; with `gc.refs/stash.reflogExpire=1.day` all three went.
+
+**Do:** fetch each id from `git reflog show --format=%H refs/stash` into its own ref (the source
+side needs `uploadpack.allowAnySHA1InWant`). `scripts/git-hosting/consolidate-refs.sh` does this,
+and a mutant that keeps only the top entry goes red.
+
+---
+
+## 2026-09-29 — a bundle of a clone's branches does not hold the host's newest trunk
+
+**Believed:** `git bundle create <file> --branches --tags` in a working clone backs up the trunk.
+
+**Measured:** after the host merged a request and the clone fetched it, the new trunk was only
+`refs/remotes/origin/mvp-launch`; the clone's own `mvp-launch` stayed at the old commit. The
+bundle held the old one, so a restore from it would have deployed an older site.
+
+**Do:** bundle with `--remotes` too, and when restoring, list every `*/mvp-launch` in every
+bundle, then check that the chosen one contains what production serves
+(`git merge-base --is-ancestor`). `backup-bundles.sh` and `docs/GIT_HOSTING.md` 5C do both.
+
+---
+
+## 2026-09-29 — act fails a workflow when one of its jobs did not run
+
+**Believed:** a GitHub workflow run under act (or under Forgejo's runner, which is built on
+act) exits non-zero when one of its jobs never ran.
+
+**Read in act's source** (`pkg/runner/runner.go` and `pkg/runner/run_context.go` on master,
+2026-09-29; not yet run here, there is no runner): a matrix act cannot expand, such as
+`fromJSON(needs.x.outputs.y)` with an empty output, is logged as `Error while get job's
+matrix` and then runs zero times. A job whose `runs-on` label has no `-P` mapping is skipped
+with one info line and no result. act's exit code counts only jobs whose result is
+`failure`, so both runs exit 0. act also expands a matrix before it checks the job's
+`needs`, so a matrix job whose needs were skipped logs that same error where GitHub just
+skips the job. And act ignores `on.push.paths`.
+
+**Do:** never read act's exit code alone. List the jobs first (`act -l`), require a result
+line for each one (`jobResult` in `--json --verbose` output; skips are logged at debug
+level), and accept a job with no result only when a job it needs was skipped.
+`scripts/ci/act-job.sh` does this and proves it with `--self-test`.
+
+---
+
+## 2026-09-29 — `node --env-file` hands the program each value as written
+
+**Believed:** a `NAME=value` file loaded with `node --env-file` gives the program everything
+after the `=`.
+
+**Measured:** on node 24.13.0, an unquoted `B=has#hash` loads as `has`: a `#` anywhere in an
+unquoted value starts a comment, not only after a space. `E=with=equals==` and CRLF endings load
+intact, and quoted values keep their `#`. For a backup passphrase the cut is silent and
+permanent: every file is encrypted with the shortened passphrase, and the offline copy never
+opens one. `scripts/ops/lib/env-file.mjs` now reads the ops env file itself, and the ops CLIs
+warn when node's own flag was used.
+
+**Do:** never feed a secret through `node --env-file` unquoted. Prove a stored passphrase by
+decrypting with the offline copy typed in, not with the file that did the encrypting.
+
+---
+
+## 2026-09-29 — `bash` spawned from a Windows-native process is Git Bash
+
+**Believed:** a node test that spawns `bash` gets Git Bash on this PC.
+
+**Measured:** from PowerShell, `bash` resolves to
+`%LOCALAPPDATA%\Microsoft\WindowsApps\bash.exe`, the WSL launcher. It does not pass the
+caller's environment through, so a gpg round-trip test there decrypted with an empty passphrase
+and failed. `scripts/lib/redact-url.test.mjs` fails 4 of 18 from PowerShell and passes 18 of 18
+from Git Bash, for the same reason.
+
+**Do:** probe the property the test needs (does the child see an env var you set?) rather than
+trusting the name, and on Windows try `C:\Program Files\Git\bin\bash.exe` first.
+
+---
+
+## 2026-09-29 — a gpg that fails writes nothing to stdout
+
+**Believed:** gpg either produces its output or produces none.
+
+**Measured:** gpg 2.4.9 (Git for Windows). With one byte of a symmetric file flipped,
+`gpg --decrypt` wrote all 262,144 bytes of unauthenticated plaintext to stdout, then printed
+"encrypted message has been manipulated" and exited 2. Separately, the MSYS gpg called from a
+native process read `--homedir C:\...` (and `C:/...`) as a relative path, failed, exited 2, and
+still wrote a full ciphertext to stdout.
+
+**Do:** the exit status is the verdict, never the presence of output. From a native process,
+hand MSYS tools their data on stdin, or `/c/...` paths.
+
+---
+
+## 2026-09-29 — renaming `origin` takes every branch's upstream with it, so a bare `git push` still goes to the old host
+
+**Believed:** after `git remote rename origin github` and `git remote add origin <new host>`, a
+plain `git push` or `git pull` talks to the new origin.
+
+**Measured:** `git remote rename` rewrites `branch.<name>.remote` for every branch that tracked
+the old name (git 2.53, throwaway clone). After the rename and the add,
+`branch.mvp-launch.remote` was `github`, `git push --dry-run -v` printed `Pushing to` the old
+URL, and `git status -sb` showed `mvp-launch...github/mvp-launch`. The old host is the one being
+left, so the day it comes back, a bare push lands there and skips the primary.
+
+**Do:** after a rename, set every `branch.*.remote` that names the old remote to `origin`, and
+give the old remote an unusable `pushurl` so a push to it fails loudly. The rename also carries
+every `pushurl` the remote had, so with two of them a plain `git config remote.<name>.pushurl <x>`
+fails ("cannot overwrite multiple values", git 2.53, 2026-09-29); use `--replace-all`.
+`scripts/git-hosting/set-remotes.sh` does all of this, and a mutant without the re-point goes red.
+
+---
+
 ## 2026-09-24 — MetaMask's SDK does not read through your wagmi transports, and `enableAnalytics: false` does not switch its analytics off
 
 **Believed:** once the CSP allows every RPC host in the wagmi transports, a connected wallet

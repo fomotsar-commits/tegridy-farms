@@ -127,6 +127,32 @@ every row is refused with `42501`.
 The dry run is not optional in practice — it is what tells you a table is
 missing from the bundle *before* nine others have been written.
 
+**What the script refuses, and why.** The bundle holds signed Seaport orders
+(`native_orders`, `trade_offers`). A signature is a bearer instrument and the row
+is its only copy. So the failure that matters is not a restore that errors: it is
+a restore that reports success after skipping a table. Every rule below makes that
+state unreachable:
+
+- It restores data and never builds schema: PostgREST cannot run DDL. The schema
+  must exist first, in the order of Step 2. A table that answers 404 is reported
+  as "schema-missing", with the migration that creates it. It is never treated as
+  an empty table to fill.
+- Dry run is the default. Writing needs `--apply`.
+- A table file missing from the bundle is a failure, reported as "absent". It is
+  never folded into "0 rows restored", which is what an empty table looks like.
+- A non-empty target table stops the run. Restoring into live rows either
+  duplicates them or silently loses the conflicting ones to ON CONFLICT; both are
+  worse than stopping.
+- Partial success is failure. Any failed table exits non-zero, and the word
+  "complete" is never printed.
+
+**Flags.** `--bundle <dir>`: the folder holding `<table>.json` (default
+`./backup`). `--apply`: actually write; without it nothing is sent.
+`--allow-nonempty`: go on into tables that already hold rows; read the warning it
+prints first. `--only <a,b>`: restore a subset, still in order. `--chunk <n>`: rows
+per POST (default 500). `SUPABASE_SERVICE_KEY` may be the legacy service-role JWT
+or an `sb_secret_` key.
+
 ### The `messages` cooldown trigger — a hazard, not a step
 
 `messages` carries a `BEFORE INSERT` trigger enforcing a 5-second per-author
