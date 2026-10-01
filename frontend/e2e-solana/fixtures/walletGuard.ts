@@ -15,6 +15,9 @@
 // the mint itself is owned by Token-2022 on chain; a WSOL account that already held
 // wrapped SOL before the transaction is never closed (that would unwrap the person's own
 // money); and no Token-2022 instruction is ever sent at the top level.
+// Opening a pool (create): only on fee tier 1 (tier 0 refused by name), at the standard
+// address or a co-signing fresh key, open at once, every account derived here, and the
+// only account the transaction may open itself is the wallet's wrapped-SOL account.
 //
 // Account POSITIONS come from the release IDLs (pinned by sha256 in genesis-accounts.mjs),
 // never from the frontend's ix.ts, so a builder bug cannot pass its own check here.
@@ -141,6 +144,11 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
   const otherSigners = signers.filter((k) => !k.equals(wallet));
   const walletWsol = ata(WSOL, wallet);
 
+  const initializeIx = cpIdl.instructions.find((x) => x.name === 'initialize') ?? refuse('the pinned IDL has no initialize');
+  /** This transaction opens a pool (a cp-swap initialize anywhere in it). */
+  const opening = (msg.compiledInstructions as MessageCompiledInstruction[]).some(
+    (ci) => keys[ci.programIdIndex].equals(CP_SWAP_PROGRAM) && initializeIx.discriminator.every((b, i) => ci.data[i] === b),
+  );
   const out: SignedIx[] = [];
   let cuLimit: bigint | null = null;
   let cuPrice = 0n;
@@ -232,6 +240,10 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
       if (!(d.length === 0 || (d.length === 1 && (d[0] === 0 || d[0] === 1)))) refuse('unknown associated-token instruction');
       const [payer, account, owner, mint, , tokenProgram] = acc;
       if (!payer.equals(wallet) || !owner.equals(wallet)) refuse('a token account that is not your own');
+      // An opening makes ONLY the wrapped-SOL account here: the pool program opens the
+      // pool-share account itself (one made first would make it fail), and the token
+      // account must already hold the tokens going in.
+      if (opening && !mint.equals(WSOL)) refuse(`an opening creates only your wrapped-SOL account, not one for ${mint.toBase58()} (the pool program opens your pool-share account itself)`);
       // The token program is the MINT's owner, read from the chain (a mint this transaction
       // creates is classic). A classic-seeded account for a Token-2022 mint, or the other way
       // round, is someone else's address, or no account at all.
@@ -322,6 +334,10 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
         out.push(await checkLiquidity(ix, acc, d, wallet, cpIdl));
         continue;
       }
+      if (ix.name === 'initialize') {
+        out.push(await checkInitialize(ix, acc, d, wallet, otherSigners, mintOwner));
+        continue;
+      }
       if (ix.name !== 'swap_base_input') refuse(`cp-swap ${ix.name} is never sent from the site`);
       const m = named(ix);
       const amountIn = u64(d, 8); const minOut = u64(d, 16);
@@ -403,6 +419,79 @@ async function checkLiquidity(ix: IdlIx, acc: PublicKey[], d: Uint8Array, wallet
     ? { lpTokenAmount: String(lp), maximumToken0Amount: String(a0), maximumToken1Amount: String(a1) }
     : { lpTokenAmount: String(lp), minimumToken0Amount: String(a0), minimumToken1Amount: String(a1) };
   return { program: 'cp-swap', name: what, args, accounts: Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.toBase58()])) };
+}
+
+/** cp-swap PDAs, from the program's own seed strings (never the frontend's derive helpers). */
+const cpPda = (...seeds: (Buffer | Uint8Array)[]) => PublicKey.findProgramAddressSync(seeds, CP_SWAP_PROGRAM)[0];
+/** Fee tier `index`: the u16 is BIG-endian in the seed. */
+const tierConfig = (index: number) => cpPda(Buffer.from('amm_config'), Buffer.from([(index >> 8) & 0xff, index & 0xff]));
+
+/**
+ * cp-swap `initialize`, as this site opens a pool (SPEC_S2_CREATE 3.2), with the pinned
+ * IDL's account names:
+ *  - exactly 20 accounts (a 21st would be read as a support-mint record) and 32 bytes;
+ *  - creator = the wallet; the authority and every PDA by the program's own seeds;
+ *  - amm_config = fee tier 1 by derivation; tier 0 (the launch tier) is refused by name;
+ *  - the two mints byte-sorted, one of them wrapped SOL;
+ *  - pool_state = the standard address for tier 1 and the pair, or a CO-SIGNER of this
+ *    message (the fresh key the page signs with after the wallet);
+ *  - create_pool_fee = the program's fixed fee account (the IDL's address, 2sa31zce…);
+ *  - creator_token_0/1 = the wallet's ATAs under each mint's owner program, read from the
+ *    chain, and token_0/1_program = that owner; creator_lp_token = the wallet's classic
+ *    ATA of the new pool-share mint;
+ *  - open_time = 0 (trading opens at once) and both amounts above 0.
+ */
+async function checkInitialize(
+  ix: IdlIx,
+  acc: PublicKey[],
+  d: Uint8Array,
+  wallet: PublicKey,
+  coSigners: PublicKey[],
+  mintOwner: (m: PublicKey) => Promise<PublicKey | null>,
+): Promise<SignedIx> {
+  if (acc.length !== ix.accounts.length) refuse(`initialize: ${acc.length} accounts, the pinned IDL has ${ix.accounts.length} (an extra one would be read as a support-mint record)`);
+  if (d.length !== 32) refuse(`initialize: ${d.length} bytes of data, expected 32`);
+  const m: Record<string, PublicKey> = {};
+  ix.accounts.forEach((a, i) => { m[a.name] = acc[i]; });
+  for (const a of ix.accounts) {
+    if (a.address && !m[a.name].equals(new PublicKey(a.address))) refuse(`initialize: ${a.name} is ${m[a.name].toBase58()}, not ${a.address}`);
+  }
+  if (!m.creator.equals(wallet)) refuse('initialize: the pool is opened and paid for by someone else');
+  if (m.amm_config.equals(tierConfig(0))) refuse('initialize: the pool would open on the launch tier (fee tier 0), which this site never does');
+  if (!m.amm_config.equals(tierConfig(1))) refuse('initialize: the pool would open on a fee tier this site does not use');
+  if (!m.authority.equals(CP_AUTHORITY)) refuse('initialize: the authority is not the pool program\'s own');
+  const t0 = m.token_0_mint;
+  const t1 = m.token_1_mint;
+  if (Buffer.compare(t0.toBuffer(), t1.toBuffer()) >= 0) refuse('initialize: the two mints are not in the program\'s order');
+  if (!t0.equals(WSOL) && !t1.equals(WSOL)) refuse('initialize: the pool does not pair a token with SOL');
+  const standard = cpPda(Buffer.from('pool'), m.amm_config.toBuffer(), t0.toBuffer(), t1.toBuffer());
+  const pool = m.pool_state;
+  if (!pool.equals(standard) && !coSigners.some((k) => k.equals(pool))) refuse('initialize: the pool is neither the standard address nor a fresh key that signs this transaction');
+  const derived: [string, PublicKey][] = [
+    ['lp_mint', cpPda(Buffer.from('pool_lp_mint'), pool.toBuffer())],
+    ['token_0_vault', cpPda(Buffer.from('pool_vault'), pool.toBuffer(), t0.toBuffer())],
+    ['token_1_vault', cpPda(Buffer.from('pool_vault'), pool.toBuffer(), t1.toBuffer())],
+    ['observation_state', cpPda(Buffer.from('observation'), pool.toBuffer())],
+  ];
+  for (const [name, want] of derived) if (!m[name].equals(want)) refuse(`initialize: ${name} is not the one the pool's address gives`);
+  for (const [side, mint] of [['0', t0], ['1', t1]] as const) {
+    const owner = mint.equals(WSOL) ? TOKEN_PROGRAM_ID : await mintOwner(mint);
+    if (!owner || !(owner.equals(TOKEN_PROGRAM_ID) || owner.equals(TOKEN_2022_PROGRAM_ID))) refuse(`initialize: token_${side}_mint is not a mint of either token program`);
+    if (!m[`token_${side}_program`].equals(owner!)) refuse(`initialize: token_${side}_program is not the program that owns that mint`);
+    if (!m[`creator_token_${side}`].equals(ata(mint, wallet, owner!))) refuse(`initialize: creator_token_${side} is not your own account for that token`);
+  }
+  if (!m.creator_lp_token.equals(ata(m.lp_mint, wallet))) refuse('initialize: the pool shares go to an account that is not your own');
+  const a0 = u64(d, 8);
+  const a1 = u64(d, 16);
+  const openTime = u64(d, 24);
+  if (a0 === 0n || a1 === 0n) refuse('initialize: the pool would open with an empty side');
+  if (openTime !== 0n) refuse(`initialize: open_time is ${openTime}, so the pool would open for trading later, not now`);
+  return {
+    program: 'cp-swap',
+    name: 'initialize',
+    args: { initAmount0: String(a0), initAmount1: String(a1), openTime: String(openTime), origin: pool.equals(standard) ? 'standard' : 'co-signer' },
+    accounts: Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.toBase58()])),
+  };
 }
 
 /** Base58, for signatures (bs58 is only a transitive dependency here). */

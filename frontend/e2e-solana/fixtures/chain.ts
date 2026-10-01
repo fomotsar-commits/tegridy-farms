@@ -413,6 +413,28 @@ export async function swapDirect(
   return { signature, outAmount: ((await tokenAmount(outAcc)) ?? 0n) - outBefore };
 }
 
+/**
+ * Every pool of the pool program that pairs `mint` (either side), optionally only those
+ * `creator` opened: "exactly one pool by this creator". Read by NODE straight from the
+ * validator with getProgramAccounts (the page is never allowed to scan; Node is the
+ * referee). Offsets from the PoolState layout: pool_creator 40, token_0_mint 168,
+ * token_1_mint 200, 637 bytes.
+ */
+export async function poolsFor(mint: PublicKey, creator?: PublicKey): Promise<PublicKey[]> {
+  await assertLocalCluster();
+  const found = new Map<string, PublicKey>();
+  for (const offset of [168, 200]) {
+    const filters = [
+      { dataSize: 637 },
+      { memcmp: { offset, bytes: mint.toBase58() } },
+      ...(creator ? [{ memcmp: { offset: 40, bytes: creator.toBase58() } }] : []),
+    ];
+    const rows = await chain().getProgramAccounts(CP_SWAP_PROGRAM, { commitment: 'confirmed', filters });
+    for (const r of rows) found.set(r.pubkey.toBase58(), r.pubkey);
+  }
+  return [...found.values()].sort((a, b) => a.toBase58().localeCompare(b.toBase58()));
+}
+
 /** Wrap `lamports` of `kp`'s SOL into its classic WSOL account (created if missing). Settles to finalized. */
 export async function wrapSol(kp: Keypair, lamports: bigint): Promise<PublicKey> {
   const account = ata(WSOL, kp.publicKey);

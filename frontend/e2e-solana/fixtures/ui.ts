@@ -93,6 +93,22 @@ export const ui = {
     findOnChain: (s: Page | Locator) => s.getByRole('button', { name: "Find this share's pool on the chain", exact: true }),
     /** The LP note sent from this tab before a reload, not answered yet. */
     pending: (p: Page) => p.getByTestId('lp-pending'),
+    /** "Open a new pool" (CreatePoolCard / CreatePoolPanel). Everything after `openButton` is inside the panel. */
+    create: {
+      card: (p: Page) => p.getByTestId('lp-create'),
+      openButton: (p: Page) => p.getByTestId('lp-create').getByRole('button', { name: 'Open a pool', exact: true }),
+      panel: (p: Page) => p.getByTestId('lp-create-panel'),
+      solToPut: (p: Page) => p.getByTestId('lp-create-panel').getByLabel('SOL to put in', { exact: true }),
+      tokensToPut: (p: Page) => p.getByTestId('lp-create-panel').getByLabel(/^Tokens to put in( \(base units\))?$/),
+      maxSol: (p: Page) => p.getByTestId('lp-create-panel').getByRole('button', { name: 'Max SOL', exact: true }),
+      maxTokens: (p: Page) => p.getByTestId('lp-create-panel').getByRole('button', { name: 'Max tokens', exact: true }),
+      match: (p: Page) => p.getByTestId('lp-create-panel').getByTestId('lp-create-match'),
+      /** The button under Match (the problems line can carry a second one with the same words, later in the panel). */
+      mostBoth: (p: Page) => p.getByTestId('lp-create-panel').getByRole('button', { name: 'Use the most both balances allow', exact: true }).first(),
+      review: (p: Page) => p.getByTestId('lp-create-panel').getByRole('button', { name: 'Review: open the pool', exact: true }),
+      price: (p: Page) => p.getByTestId('lp-create-panel').getByTestId('lp-create-price'),
+      market: (p: Page) => p.getByTestId('lp-create-panel').getByTestId('lp-create-market'),
+    },
   },
   graduate: (p: Page) => p.getByRole('button', { name: 'Review: finish graduation' }),
   checkAgain: (p: Page) => p.getByRole('button', { name: 'Check again' }),

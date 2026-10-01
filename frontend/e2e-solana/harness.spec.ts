@@ -10,7 +10,7 @@ import {
 } from '@solana/spl-token';
 import {
   CP_SWAP_PROGRAM, LAUNCH_PROGRAM, METAPLEX, WSOL, ata, chain, globalConfig, metadataAddress, expectedOpeningBuy, sol, fundedKeypair,
-  poolFacts, tokenAmount, wrapSol, type PoolFacts,
+  poolFacts, tokenAmount, wrapSol, type PoolFacts, CREATE_POOL_FEE_RECEIVER, poolsFor,
 } from './fixtures/chain';
 import { checkTransaction, LAUNCH_INDEX } from './fixtures/walletGuard';
 import { installTestWallet, TEST_WALLET_NAME } from './fixtures/testWallet';
@@ -18,7 +18,8 @@ import { installRpcGuard } from './fixtures/rpcGuard';
 import { createClassicToken, createSolPool, createToken2022MetadataOnly, transferLp } from './fixtures/lp';
 import { buyIx, createLaunchIx } from '../src/lib/launcher/solana/curve/ix';
 import { poolStatePda, TOKEN_PROGRAM_ID, cpAmmAuthorityPda, cpAmmConfigPda, cpObservationPda, cpPoolVaultPda } from '../src/lib/launcher/solana/curve/program';
-import { depositIx, withdrawIx, type DepositArgs, type WithdrawArgs } from '../src/lib/solana/cpswap/ix';
+import { depositIx, initializeIx, withdrawIx, type DepositArgs, type WithdrawArgs } from '../src/lib/solana/cpswap/ix';
+import { deriveAmmConfig, deriveLpMint, derivePool, sortMints } from '../src/lib/solana/cpswap/program';
 import { closeWsolIxs, openWsolIx, wrapIxs } from '../src/lib/launcher/solana/write/wsol';
 import { isPlanProblem, planDeposit, planWithdraw } from '../src/lib/solana/lp/liquidityMath';
 
@@ -223,10 +224,10 @@ async function withdrawTx(owner: PublicKey, f: PoolFacts, o: LpTxOpts = {}): Pro
   return { bytes: await finish(ixs, owner), lp: args.lpTokenAmount };
 }
 
-/** Sign what the guard passed, exactly as handed over, and land it. */
-async function land(bytes: Uint8Array, kp: Keypair): Promise<string> {
+/** Sign what the guard passed, exactly as handed over (the wallet first, then any co-signer), and land it. */
+async function land(bytes: Uint8Array, kp: Keypair, coSigners: Keypair[] = []): Promise<string> {
   const vt = VersionedTransaction.deserialize(bytes);
-  vt.sign([kp]);
+  vt.sign([kp, ...coSigners]);
   const conn = chain();
   const sig = await conn.sendRawTransaction(vt.serialize(), { preflightCommitment: 'confirmed' });
   const bh = await conn.getLatestBlockhash('confirmed');
@@ -362,6 +363,139 @@ test.describe('the test wallet guard: adding and removing liquidity', () => {
   });
 });
 
+// ── opening a pool (create) ───────────────────────────────────────────────────
+//
+// Built the way W/createPool.ts builds an opening (prepareLpCreate step 14): the wallet's
+// wrapped-SOL account opened and filled with exactly the SOL going in, cp-swap's
+// initialize on fee tier 1 with open_time 0, and the wrapped-SOL account closed. H11 and
+// H12 land on the validator, so the "good" half is an opening the binary accepts.
+
+interface OpenOpts {
+  /** A fresh key for the pool (the one-off path); the standard address otherwise. */
+  fresh?: Keypair;
+  tier?: 0 | 1 | 2;
+  openTime?: bigint;
+  over?: Partial<Parameters<typeof initializeIx>[0]>;
+  /** Change the instruction after it is built (accounts the builder derives). */
+  mutate?: (ix: TransactionInstruction) => void;
+  extra?: TransactionInstruction[];
+}
+
+async function openingTx(owner: PublicKey, mint: PublicKey, o: OpenOpts = {}): Promise<{ bytes: Uint8Array; pool: PublicKey; lpMint: PublicKey }> {
+  const config = deriveAmmConfig(CP_SWAP_PROGRAM, o.tier ?? 1);
+  const { token0, token1 } = sortMints(WSOL, mint);
+  const solIs0 = token0.equals(WSOL);
+  const amountSol = sol(0.1);
+  const amountTok = 100_000n * UNIT;
+  const pool = o.fresh?.publicKey ?? derivePool(CP_SWAP_PROGRAM, config, token0, token1);
+  const lpMint = deriveLpMint(CP_SWAP_PROGRAM, pool);
+  const wsolAcc = ata(WSOL, owner);
+  const tokAcc = ata(mint, owner);
+  const init = initializeIx({
+    programId: CP_SWAP_PROGRAM, creator: owner, ammConfig: config, token0Mint: token0, token1Mint: token1,
+    creatorToken0: solIs0 ? wsolAcc : tokAcc, creatorToken1: solIs0 ? tokAcc : wsolAcc, creatorLpToken: ata(lpMint, owner),
+    token0Program: TOKEN_PROGRAM_ID, token1Program: TOKEN_PROGRAM_ID, createPoolFee: CREATE_POOL_FEE_RECEIVER,
+    initAmount0: solIs0 ? amountSol : amountTok, initAmount1: solIs0 ? amountTok : amountSol, openTime: o.openTime ?? 0n,
+    poolState: o.fresh?.publicKey,
+    ...o.over,
+  });
+  o.mutate?.(init);
+  const ixs = [openWsolIx(owner), ...wrapIxs(owner, amountSol), init, ...closeWsolIxs({ ata: wsolAcc, closeAfter: true, heldBefore: 0n }, owner), ...(o.extra ?? [])];
+  return { bytes: await finish(ixs, owner), pool, lpMint };
+}
+
+test.describe('the test wallet guard: opening a pool', () => {
+  let opener: Keypair;
+  let mint: PublicKey;
+  const OPENING = ['set-compute-unit-limit', 'set-compute-unit-price', 'create-idempotent', 'wrap-sol', 'sync-native', 'initialize', 'close-wsol'];
+
+  test.beforeAll(async () => {
+    test.setTimeout(4 * 60_000);
+    opener = await fundedKeypair(3);
+    mint = await createClassicToken(opener, { supply: 10_000_000n * UNIT, name: { name: 'E2E Harness Open', symbol: 'EHOPEN' } });
+  });
+
+  test('H11: signs the site\'s standard opening on fee tier 1, and the chain opens it there', async () => {
+    const { bytes, pool, lpMint } = await openingTx(opener.publicKey, mint);
+    const ixs = await checkTransaction(bytes, opener.publicKey);
+    expect(ixs.map((i) => i.name)).toEqual(OPENING);
+    const init = ixs.find((i) => i.name === 'initialize')!;
+    expect(init.args).toMatchObject({ openTime: '0', origin: 'standard' });
+    expect(init.accounts.amm_config).toBe(deriveAmmConfig(CP_SWAP_PROGRAM, 1).toBase58());
+    expect(init.accounts.create_pool_fee).toBe(CREATE_POOL_FEE_RECEIVER.toBase58());
+    await land(bytes, opener);
+    expect((await poolsFor(mint, opener.publicKey)).map((k) => k.toBase58())).toEqual([pool.toBase58()]);
+    expect((await tokenAmount(ata(lpMint, opener.publicKey)) ?? 0n) > 0n).toBe(true);
+  });
+
+  test('H12: signs the site\'s one-off opening (a fresh key that co-signs), and the chain opens it at that key', async () => {
+    const fresh = Keypair.generate();
+    const { bytes, pool } = await openingTx(opener.publicKey, mint, { fresh });
+    expect(VersionedTransaction.deserialize(bytes).message.header.numRequiredSignatures).toBe(2);
+    const ixs = await checkTransaction(bytes, opener.publicKey);
+    expect(ixs.map((i) => i.name)).toEqual(OPENING);
+    expect(ixs.find((i) => i.name === 'initialize')!.args.origin).toBe('co-signer');
+    await land(bytes, opener, [fresh]);
+    expect((await poolsFor(mint, opener.publicKey)).map((k) => k.toBase58())).toContain(pool.toBase58());
+  });
+
+  test('H13: refuses an opening on fee tier 0 (the launch tier), by name', async () => {
+    const { bytes } = await openingTx(opener.publicKey, mint, { tier: 0 });
+    await expect(checkTransaction(bytes, opener.publicKey)).rejects.toThrow(/launch tier \(fee tier 0\)/);
+  });
+
+  test('H14: refuses an opening whose open_time is not 0', async () => {
+    const { bytes } = await openingTx(opener.publicKey, mint, { fresh: Keypair.generate(), openTime: 1n });
+    await expect(checkTransaction(bytes, opener.publicKey)).rejects.toThrow(/open_time is 1, so the pool would open for trading later/);
+  });
+
+  test('H15: refuses an opening whose creator_token_1 is a stranger\'s account', async () => {
+    const { token1 } = sortMints(WSOL, mint);
+    const { bytes } = await openingTx(opener.publicKey, mint, { fresh: Keypair.generate(), over: { creatorToken1: ata(token1, Keypair.generate().publicKey) } });
+    await expect(checkTransaction(bytes, opener.publicKey)).rejects.toThrow(/creator_token_1 is not your own/);
+  });
+
+  test('H16: refuses an opening with a 21st account (it would be read as a support-mint record)', async () => {
+    const { bytes } = await openingTx(opener.publicKey, mint, { fresh: Keypair.generate(), mutate: (ix) => { ix.keys.push({ pubkey: Keypair.generate().publicKey, isSigner: false, isWritable: false }); } });
+    await expect(checkTransaction(bytes, opener.publicKey)).rejects.toThrow(/initialize: 21 accounts, the pinned IDL has 20/);
+  });
+
+  test('H17: refuses a top-level account-create of the new pool-share mint inside an opening', async () => {
+    const fresh = Keypair.generate();
+    const lpMint = deriveLpMint(CP_SWAP_PROGRAM, fresh.publicKey);
+    const { bytes } = await openingTx(opener.publicKey, mint, { fresh, extra: [createAssociatedTokenAccountIdempotentInstruction(opener.publicKey, ata(lpMint, opener.publicKey), opener.publicKey, lpMint)] });
+    await expect(checkTransaction(bytes, opener.publicKey)).rejects.toThrow(/an opening creates only your wrapped-SOL account/);
+  });
+
+  test('also refuses an opening: another creator, tier, authority or fee account, a pool that neither is standard nor signs, mints out of order or without SOL, an account not derived, the wrong token program, an empty side', async () => {
+    const stranger = Keypair.generate().publicKey;
+    const fresh = Keypair.generate();
+    const cases: [string, Promise<{ bytes: Uint8Array }>, RegExp][] = [
+      ['another creator', openingTx(opener.publicKey, mint, { fresh, over: { creator: stranger } }), /opened and paid for by someone else/],
+      ['fee tier 2', openingTx(opener.publicKey, mint, { tier: 2 }), /a fee tier this site does not use/],
+      ['a pool key that does not sign', openingTx(opener.publicKey, mint, { fresh, mutate: (ix) => { ix.keys[3] = { ...ix.keys[3], isSigner: false }; } }), /neither the standard address nor a fresh key that signs/],
+      ['a vault not derived from the pool', openingTx(opener.publicKey, mint, { fresh, mutate: (ix) => { ix.keys[10] = { ...ix.keys[10], pubkey: Keypair.generate().publicKey }; } }), /token_0_vault is not the one the pool's address gives/],
+      ['the token side under Token-2022', openingTx(opener.publicKey, mint, { fresh, over: { token0Program: TOKEN_2022_PROGRAM_ID, token1Program: TOKEN_2022_PROGRAM_ID } }), /token_\d_program is not the program that owns that mint/],
+      ['shares to a stranger', openingTx(opener.publicKey, mint, { fresh, over: { creatorLpToken: ata(deriveLpMint(CP_SWAP_PROGRAM, fresh.publicKey), stranger) } }), /the pool shares go to an account that is not your own/],
+      ['an empty side', openingTx(opener.publicKey, mint, { fresh, over: { initAmount0: 0n } }), /would open with an empty side/],
+      ['the fee to open paid elsewhere', openingTx(opener.publicKey, mint, { fresh, over: { createPoolFee: stranger } }), /create_pool_fee is .*, not 2sa31zce/],
+      ['a wrong authority', openingTx(opener.publicKey, mint, { fresh, mutate: (ix) => { ix.keys[2] = { ...ix.keys[2], pubkey: stranger }; } }), /the authority is not the pool program's own/],
+      ['the mints out of order', openingTx(opener.publicKey, mint, { fresh, mutate: (ix) => { const k4 = ix.keys[4]; ix.keys[4] = ix.keys[5]; ix.keys[5] = k4; } }), /the two mints are not in the program's order/],
+      ['two tokens and no SOL', openingTx(opener.publicKey, mint, {
+        fresh,
+        mutate: (ix) => {
+          const [a, b] = [Keypair.generate().publicKey, Keypair.generate().publicKey].sort((x, y) => Buffer.compare(x.toBuffer(), y.toBuffer()));
+          ix.keys[4] = { ...ix.keys[4], pubkey: a };
+          ix.keys[5] = { ...ix.keys[5], pubkey: b };
+        },
+      }), /does not pair a token with SOL/],
+    ];
+    for (const [what, build, why] of cases) {
+      await expect(checkTransaction((await build).bytes, opener.publicKey), what).rejects.toThrow(why);
+    }
+  });
+});
+
 test('the injected wallet appears in the site\'s wallet list and connects; the RPC check stops what production stops', async ({ browser }) => {
   const kp = await fundedKeypair(0.1);
   const ctx = await browser.newContext();
@@ -387,5 +521,44 @@ test('the injected wallet appears in the site\'s wallet list and connects; the R
   });
   expect(statuses).toEqual({ scan: 403, airdrop: 403, ok: 200 });
   expect(rpc.violations.filter((v) => v.startsWith('[probe]'))).toHaveLength(2);
+  await ctx.close();
+});
+
+test('the RPC rewrite changes what the PAGE reads of one account, single or batched, and nothing else; clearing it restores the chain', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const rpc = await installRpcGuard(ctx);
+  const page = await ctx.newPage();
+  await page.goto('/pools');
+  const tier1 = deriveAmmConfig(CP_SWAP_PROGRAM, 1).toBase58();
+  const tier0 = deriveAmmConfig(CP_SWAP_PROGRAM, 0).toBase58();
+  const real = Buffer.from((await chain().getAccountInfo(new PublicKey(tier1), 'confirmed'))!.data);
+  const read = () => page.evaluate(async ([a, b]) => {
+    const post = (body: unknown) => fetch('/api/solrpc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+    const one = await post({ jsonrpc: '2.0', id: 1, method: 'getAccountInfo', params: [a, { encoding: 'base64', commitment: 'confirmed' }] });
+    const many = await post([{ jsonrpc: '2.0', id: 7, method: 'getMultipleAccounts', params: [[b, a], { encoding: 'base64', commitment: 'confirmed' }] }]);
+    const d = (v: { data: [string, string] } | null) => (v ? v.data[0] : null);
+    return { one: d(one.result.value), many: (many[0].result.value as ({ data: [string, string] } | null)[]).map(d) };
+  }, [tier1, tier0] as const);
+
+  const before = await read();
+  expect(before.one).toBe(real.toString('base64'));
+
+  // The switch byte (offset 9, disable_create_pool) set, in the page's reads only.
+  rpc.rewriteAccount(tier1, (data) => { const b = Buffer.from(data!); b[9] = 1; return b; });
+  const flipped = Buffer.from(real); flipped[9] = 1;
+  const during = await read();
+  expect(during.one).toBe(flipped.toString('base64'));
+  expect(during.many).toEqual([before.many[0], flipped.toString('base64')]);
+  expect(rpc.rewrittenCount(tier1)).toBe(2);
+  expect(Buffer.from((await chain().getAccountInfo(new PublicKey(tier1), 'confirmed'))!.data).equals(real), 'the chain itself is untouched').toBe(true);
+
+  rpc.rewriteAccount(tier1, () => null);
+  const gone = await read();
+  expect(gone.one).toBeNull();
+  expect(gone.many).toEqual([before.many[0], null]);
+
+  rpc.clearRewrites();
+  expect(await read()).toEqual(before);
+  expect(rpc.violations).toEqual([]);
   await ctx.close();
 });

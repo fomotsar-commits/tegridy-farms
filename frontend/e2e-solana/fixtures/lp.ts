@@ -289,6 +289,11 @@ export interface JupiterStub {
   asked: string[];
   /** From now on, answer this mint as Jupiter being down (`on`), or as before (`!on`). */
   setDown(mint: string, on: boolean): void;
+  /**
+   * From now on, quote this mint at `solPerToken` (SOL per whole token). A mint the stub
+   * did not price before is added, with `decimals` (default: the decimals it had, else 6).
+   */
+  setPrice(mint: string, solPerToken: number, decimals?: number): void;
 }
 
 /**
@@ -310,6 +315,8 @@ export async function installJupiterStub(
   const SOL = WSOL.toBase58();
   const asked: string[] = [];
   const down = new Set(o.down ?? []);
+  // A copy: setPrice changes this context's answers only, never the caller's map.
+  const book = new Map(prices);
   const routePool = (o.routeThrough ?? STUB_ROUTE_POOL).toBase58();
   const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
   await context.route('**/api/jupiter/**', async (route: Route) => {
@@ -321,7 +328,7 @@ export async function installJupiterStub(
     const token = input === SOL ? output : input;
     asked.push(token);
     if (down.has(token)) return route.fulfill(json(502, { error: 'Upstream service error' }));
-    const p = prices.get(token);
+    const p = book.get(token);
     if (!p) return route.fulfill(json(404, { error: 'No route', code: 'NO_ROUTE' }));
     const fee = 0.995;
     const out = input === SOL
@@ -338,5 +345,70 @@ export async function installJupiterStub(
       if (on) down.add(mint);
       else down.delete(mint);
     },
+    setPrice(mint: string, solPerToken: number, decimals?: number) {
+      if (!(solPerToken > 0) || !Number.isFinite(solPerToken)) throw new Error(`setPrice: ${solPerToken} is not a price`);
+      book.set(mint, { solPerToken, decimals: decimals ?? book.get(mint)?.decimals ?? 6 });
+    },
   };
+}
+
+let freshCount = 0;
+export interface FreshPricedOpts { solPerToken?: number; decimals?: number; supply?: bigint; name?: string; symbol?: string }
+/**
+ * A clean classic token of its OWN for one scenario (Group A runs twice against one
+ * chain, so a scenario never shares a token with the other project's run): no freeze
+ * authority, mint authority revoked, an immutable Metaplex name that copies no known
+ * token, minted to `owner`, and priced in `stub` (default 1 SOL per million tokens).
+ */
+export async function freshPricedToken(owner: Keypair, stub: Pick<JupiterStub, 'setPrice'>, o: FreshPricedOpts = {}): Promise<PublicKey> {
+  const decimals = o.decimals ?? 6;
+  freshCount += 1;
+  const tag = `${process.pid % 1000}${freshCount}`;
+  const mint = await createClassicToken(owner, {
+    decimals,
+    supply: o.supply ?? 10_000_000n * 10n ** BigInt(decimals),
+    name: { name: o.name ?? `E2E Fresh ${tag}`, symbol: o.symbol ?? `EF${tag}`.slice(0, 10) },
+  });
+  stub.setPrice(mint.toBase58(), o.solPerToken ?? 1e-6, decimals);
+  return mint;
+}
+
+/**
+ * Move `amount` base units of `mint` from `from` to `to`'s ATA (created if missing),
+ * under the mint's own token program.
+ */
+export async function transferTokens(from: Keypair, to: PublicKey, mint: PublicKey, amount: bigint): Promise<PublicKey> {
+  const program = (await accountOwner(mint)) ?? TOKEN_PROGRAM_ID;
+  const src = getAssociatedTokenAddressSync(mint, from.publicKey, false, program);
+  const dst = getAssociatedTokenAddressSync(mint, to, true, program);
+  const { decimals } = await mintFacts(mint);
+  await send([
+    createAssociatedTokenAccountIdempotentInstruction(from.publicKey, dst, to, mint, program),
+    createTransferCheckedInstruction(src, mint, dst, from.publicKey, amount, decimals, [], program),
+  ], [from]);
+  return dst;
+}
+
+/**
+ * A squatter on the STANDARD tier-1 address for `mint`: `stranger` (who must already hold
+ * the tokens) opens it at `priceX` times `fairSolPerToken`, with `sol` SOL in it, opening
+ * for trading `openTimeFromNow` seconds after the chain's clock (0 = at once).
+ */
+export async function squatStandard(
+  stranger: Keypair,
+  mint: PublicKey,
+  o: { priceX: number; openTimeFromNow: number; fairSolPerToken?: number; decimals?: number; sol?: bigint },
+): Promise<CreatedPool> {
+  const decimals = o.decimals ?? 6;
+  const lamports = o.sol ?? 10_000_000n;
+  const solPerToken = (o.fairSolPerToken ?? 1e-6) * o.priceX;
+  const tokens = BigInt(Math.max(1, Math.round((Number(lamports) / 1e9 / solPerToken) * 10 ** decimals)));
+  let openTime = 0n;
+  if (o.openTimeFromNow > 0) {
+    const slot = await chain().getSlot('confirmed');
+    const now = BigInt((await chain().getBlockTime(slot)) ?? Math.floor(Date.now() / 1000));
+    openTime = now + BigInt(Math.floor(o.openTimeFromNow));
+  }
+  const tokenProgram = (await accountOwner(mint)) ?? TOKEN_PROGRAM_ID;
+  return createSolPool(stranger, mint, { configIndex: 1, sol: lamports, tokens, openTime, at: 'standard', tokenProgram });
 }

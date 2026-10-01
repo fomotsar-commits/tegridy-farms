@@ -38,13 +38,19 @@ export default async function globalSetup(): Promise<void> {
   const want = Buffer.from(JSON.parse(fs.readFileSync(seeded, 'utf8')).account.data[0], 'base64');
   const got = (await chain().getAccountInfo(globalPda(LAUNCH_PROGRAM), 'confirmed'))?.data;
   if (!got || !Buffer.from(got).equals(want)) throw new Error('the validator\'s GlobalConfig is not the seeded one: restart start-validator.sh after genesis-accounts.mjs');
-  // Fee tier 1 (the public tier the vault is proposing), seeded as the stand-in for that
-  // Squads proposal: the LP specs open pools on it and pay its 0.15 SOL create fee.
-  const seeded1 = path.join(HERE, '..', 'scripts', 'solana-localnet', '.accounts', 'amm-config-1.json');
-  if (!fs.existsSync(seeded1)) throw new Error(`${seeded1} is missing: run node scripts/solana-localnet/genesis-accounts.mjs`);
-  const want1 = Buffer.from(JSON.parse(fs.readFileSync(seeded1, 'utf8')).account.data[0], 'base64');
-  const got1 = (await chain().getAccountInfo(deriveAmmConfig(CP_SWAP_PROGRAM, 1), 'confirmed'))?.data;
-  if (!got1 || !Buffer.from(got1).equals(want1)) throw new Error('the validator\'s AmmConfig index 1 is not the seeded one: restart start-validator.sh after genesis-accounts.mjs');
+  // Fee tiers 0 and 1, seeded with MAINNET's own bytes (the vault created tier 1 and
+  // changed tier 0's rates on 2026-10-01; its key does not exist locally, so the accounts
+  // are written at genesis). Each must equal both the seeded file and the mainnet dump
+  // in golden/, byte for byte: the LP specs open pools on tier 1 and pay its create fee.
+  for (const [index, seededFile, goldenFile] of [[1, 'amm-config-1.json', 'amm-config-1.mainnet.json'], [0, 'amm-config.json', 'amm-config-0.mainnet.json']] as const) {
+    const seededPath = path.join(HERE, '..', 'scripts', 'solana-localnet', '.accounts', seededFile);
+    if (!fs.existsSync(seededPath)) throw new Error(`${seededPath} is missing: run node scripts/solana-localnet/genesis-accounts.mjs`);
+    const want = Buffer.from(JSON.parse(fs.readFileSync(seededPath, 'utf8')).account.data[0], 'base64');
+    const mainnet = Buffer.from(JSON.parse(fs.readFileSync(path.join(HERE, '..', 'scripts', 'solana-localnet', 'golden', goldenFile), 'utf8')).account.data[0], 'base64');
+    const got = (await chain().getAccountInfo(deriveAmmConfig(CP_SWAP_PROGRAM, index), 'confirmed'))?.data;
+    if (!got || !Buffer.from(got).equals(want)) throw new Error(`the validator's AmmConfig index ${index} is not the seeded one: restart start-validator.sh after genesis-accounts.mjs`);
+    if (!Buffer.from(got).equals(mainnet)) throw new Error(`the validator's AmmConfig index ${index} is not mainnet's bytes (golden/${goldenFile})`);
+  }
   const g = await globalConfig();
   const report = checkLaunchEconomics({
     tradeFeeBps: g.tradeFeeBps,
@@ -61,5 +67,5 @@ export default async function globalSetup(): Promise<void> {
   const proxy = (await import(new URL('../api/solrpc.js', import.meta.url).href)) as { isAllowedRpcCall?: unknown };
   if (typeof proxy.isAllowedRpcCall !== 'function') throw new Error('api/solrpc.js does not export isAllowedRpcCall');
 
-  console.log(`[solana e2e] ${LOCALNET_RPC} healthy · genesis ${genesis} (private) · both programs deployed · global and fee tier 1 = seeded bytes · economics ok`);
+  console.log(`[solana e2e] ${LOCALNET_RPC} healthy · genesis ${genesis} (private) · both programs deployed · global = seeded bytes · fee tiers 0 and 1 = mainnet's bytes · economics ok`);
 }

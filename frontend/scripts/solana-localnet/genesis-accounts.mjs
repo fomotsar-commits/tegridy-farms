@@ -246,14 +246,14 @@ export function ammConfigValues() {
 }
 
 /**
- * AmmConfig index 1, the PUBLIC fee tier the owner decided on 2026-09-29 and the vault is
- * proposing through Squads: 1% trade fee, 16% of it to the venue, no fund or creator fee,
- * 0.15 SOL to open a pool (paid into the vault's WSOL account 2sa31zce, which the binary
- * fixes). This is the local STAND-IN for that proposal: the binary accepts
- * create_amm_config only from the vault GRMtSx…, whose key does not exist locally, so the
- * account it would write is written here, with the same encoder the golden check proves
- * against the rehearsal ledger (the AmmConfig layout is the one config 0 already pins).
- * The site must still READ it: on mainnet it may not exist yet.
+ * AmmConfig index 1, the PUBLIC fee tier the owner decided on 2026-09-29: 1% trade fee,
+ * 16% of it to the venue, no fund or creator fee, 0.15 SOL to open a pool (paid into the
+ * vault's WSOL account 2sa31zce, which the binary fixes). The vault created it on mainnet
+ * on 2026-10-01 (CapqvAA9…). The binary accepts create_amm_config only from the vault
+ * GRMtSx…, whose key does not exist locally, so the account is written here, with the
+ * same encoder the golden check proves against the rehearsal ledger, and its bytes must
+ * equal mainnet's own (golden/amm-config-1.mainnet.json, mainnetConfigMismatches).
+ * The site must still READ it: it never assumes the tier exists.
  */
 export function ammConfig1Values() {
   const d = derived();
@@ -267,6 +267,42 @@ export function ammConfig1Values() {
     create_pool_fee: 150_000_000n,
     creator_fee_rate: 0n,
   };
+}
+
+/**
+ * AmmConfig index 0 AS MAINNET HOLDS IT since the vault's fee proposals executed
+ * (2026-10-01 ~06:09Z, chain-verified): the same tier with 20% of the trade fee to the
+ * venue (was 12%) and a 0.05% creator fee. The rehearsal ledger (ammConfigValues) still
+ * proves the encoder; this is what the e2e validator is seeded with.
+ */
+export function e2eAmmConfigValues() {
+  return { ...ammConfigValues(), protocol_fee_rate: 200_000n, creator_fee_rate: 500n };
+}
+
+/**
+ * The seeded fee tiers against MAINNET's own bytes (golden/amm-config-*.mainnet.json,
+ * read with getAccountInfo from api.mainnet-beta.solana.com). The data must be identical
+ * byte for byte; lamports and rent epoch are the local cluster's own. Returns problems.
+ */
+export function mainnetConfigMismatches({ cpIdl }) {
+  const d = derived();
+  const cases = [
+    ['amm-config-1.mainnet.json', d.ammConfig1, ammConfig1Values()],
+    ['amm-config-0.mainnet.json', d.ammConfig, e2eAmmConfigValues()],
+  ];
+  const problems = [];
+  for (const [file, address, values] of cases) {
+    const g = readGolden(file);
+    const gBytes = Buffer.from(g.account.data[0], 'base64');
+    const bytes = encodeIdlAccount(cpIdl, 'AmmConfig', values);
+    if (g.pubkey !== address.toBase58()) problems.push(`${file}: golden is ${g.pubkey}, derived ${address.toBase58()}`);
+    if (g.account.owner !== CP_SWAP_PROGRAM.toBase58()) problems.push(`${file}: golden owner ${g.account.owner}`);
+    if (!gBytes.equals(bytes)) {
+      const at = [...bytes].findIndex((b, i) => b !== gBytes[i]);
+      problems.push(`${file}: the seeded bytes differ from mainnet's at byte ${at === -1 ? Math.min(bytes.length, gBytes.length) : at}`);
+    }
+  }
+  return problems;
 }
 
 /** cp-swap Permission for the launch program's ["migauth"] PDA. */
@@ -333,7 +369,7 @@ export function buildGenesisAccounts({ launchIdl, cpIdl }) {
   }
   return [
     { file: 'global.json', json: accountJson(d.global, LAUNCH_PROGRAM, encodeIdlAccount(launchIdl, 'GlobalConfig', e2eGlobalValues())) },
-    { file: 'amm-config.json', json: accountJson(d.ammConfig, CP_SWAP_PROGRAM, encodeIdlAccount(cpIdl, 'AmmConfig', ammConfigValues())) },
+    { file: 'amm-config.json', json: accountJson(d.ammConfig, CP_SWAP_PROGRAM, encodeIdlAccount(cpIdl, 'AmmConfig', e2eAmmConfigValues())) },
     { file: 'amm-config-1.json', json: accountJson(d.ammConfig1, CP_SWAP_PROGRAM, encodeIdlAccount(cpIdl, 'AmmConfig', ammConfig1Values())) },
     { file: 'permission.json', json: accountJson(d.permission, CP_SWAP_PROGRAM, encodeIdlAccount(cpIdl, 'Permission', permissionValues())) },
     { file: 'vault.json', json: { pubkey: vault.pubkey, account: { ...vault.account, rentEpoch: 0 } } },
@@ -345,6 +381,8 @@ export function writeGenesisAccounts(outDir = DEFAULT_OUT_DIR, artifactsDir = de
   const art = loadVerifiedArtifacts(artifactsDir);
   const problems = goldenMismatches(art);
   if (problems.length) throw new Error(`REFUSING to seed: the encoder does not reproduce the rehearsal ledger:\n  ${problems.join('\n  ')}`);
+  const mainnet = mainnetConfigMismatches(art);
+  if (mainnet.length) throw new Error(`REFUSING to seed: the fee tiers are not mainnet's bytes:\n  ${mainnet.join('\n  ')}`);
   const accounts = buildGenesisAccounts(art);
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });
@@ -364,6 +402,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     const m = writeGenesisAccounts(out);
     console.log('golden check: the encoder reproduces the rehearsal ledger byte for byte (GlobalConfig, AmmConfig, Permission)');
+    console.log('mainnet check: fee tiers 0 and 1 are seeded with mainnet\'s own bytes');
     for (const a of m.accounts) console.log(`  ${a.file.padEnd(16)} ${a.pubkey}  owner ${a.owner}  ${a.space} B  ${a.lamports} lamports`);
     console.log(`wrote ${m.accounts.length} accounts + manifest.json to ${out}`);
   } catch (e) {
