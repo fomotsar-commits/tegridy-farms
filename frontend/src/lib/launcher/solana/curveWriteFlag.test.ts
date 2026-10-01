@@ -5,12 +5,12 @@ import { CURVE_WRITES_ENABLED, curveWriteEnvOverridesAllowed, isCurveWriteEnable
 // committed constant can say yes; no env variable can, whatever it holds.
 
 describe('curve write flag', () => {
-  it('ships switched ON (website release 2), so a production build loads the write path', () => {
-    // Release 2 is the build the owner deploys only after the restart programs exist
-    // on mainnet and the vault holds control. The write layer still reads the chain
-    // before offering anything (write/config.ts readWriteGate).
-    expect(CURVE_WRITES_ENABLED).toBe(true);
-    expect(isCurveWriteEnabled({ DEV: false, PROD: true, MODE: 'production' })).toBe(true);
+  it('ships switched OFF (the LP release), so a production build never loads the write path', () => {
+    // Owner 2026-10-01: launching waits for the island's Q2 answer. No env variable can
+    // turn a production build on; only this constant can.
+    expect(CURVE_WRITES_ENABLED).toBe(false);
+    expect(isCurveWriteEnabled({ DEV: false, PROD: true, MODE: 'production' })).toBe(false);
+    expect(isCurveWriteEnabled({ DEV: false, PROD: true, MODE: 'production', VITE_SOLANA_CURVE_WRITES: '1' })).toBe(false);
   });
 
   // The rules below are for a build with the constant OFF (release 1, or a rollback that

@@ -220,20 +220,24 @@ describe('navConfig', () => {
 
   // /curve-launch is the OWN-curve page. It is pilled whenever launching and trading
   // cannot load (curveWriteFlag.ts). In production ONLY the committed constant decides,
-  // and website release 2 (deployed only after the restart programs exist on mainnet and
-  // the vault holds control) commits it ON, so the entry is not pilled.
-  it('shows /curve-launch live (no Soon pill), in a production build too', async () => {
-    const entry = ALL_NAV.find((n) => n.to === '/curve-launch');
-    expect(entry, '/curve-launch missing from nav').toBeTruthy();
-    expect(entry?.soon).toBe(false);
+  // and the LP release (2026-10-01) commits it OFF until the island answers Q2, so a
+  // production build pills the entry; a dev server with the env flag does not.
+  it('pills /curve-launch Soon in a production build while launching is off', async () => {
+    expect(ALL_NAV.find((n) => n.to === '/curve-launch'), '/curve-launch missing from nav').toBeTruthy();
 
-    // A production build: DEV is false and no env flag is set. Fresh module load,
-    // because NAV_SECTIONS is built at import.
+    // A production build: DEV is false. Fresh module load, because NAV_SECTIONS is built at import.
     vi.stubEnv('DEV', false);
     vi.stubEnv('MODE', 'production');
+    vi.stubEnv('VITE_SOLANA_CURVE_WRITES', '1');
     vi.resetModules();
     const prod = await import('./navConfig');
-    expect(prod.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon).toBe(false);
+    expect(prod.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon).toBe(true);
+
+    vi.stubEnv('DEV', true);
+    vi.stubEnv('MODE', 'development');
+    vi.resetModules();
+    const dev = await import('./navConfig');
+    expect(dev.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon).toBe(false);
     vi.unstubAllEnvs();
     vi.resetModules();
   });

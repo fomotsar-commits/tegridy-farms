@@ -145,4 +145,12 @@ regexes = [
   # amounts, block numbers — and anything a future credential format shares with
   # them. One id, listed literally, cannot hide a second value.
   '''\b910243729997168721\b''',
+  #
+  # \ FAKE TEST JWT, added 2026-10-01 \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\@
+  #
+  # frontend/api/__tests__/launch-upload.test.js:35 (commit daa77d3a). Its three
+  # segments decode to {"alg":"HS256"}, {"sub":"test"} and the word "signature": it
+  # was signed by nothing and no server accepts it. Flagged by the default `jwt` rule.
+  # EXACT STRING, per this file's doctrine: a real token cannot hide behind it.
+  '''\beyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiJ0ZXN0In0\.c2lnbmF0dXJl\b''',
 ]
