@@ -53,10 +53,12 @@ describe('the board renders the island’s ranking', () => {
   });
 
   it('prints each flame by its served tier, even where the bands would name another', async () => {
-    // 524.27° is past the Elder band (250); the island served Builder, so the row says Builder.
+    // 95° sits in the Resident band (80 to 300); served Observer, the row says Observer.
+    h.fetchFlames.mockResolvedValue({ flames: [NAMED, { ...UNNAMED, degrees: 95, tier: 'Observer' }], asOfUnix: AS_OF });
     render(<FlamesBoard limit={5} />);
     await screen.findByRole('link', { name: '@_seacasa' });
-    expect(screen.getAllByText('Builder')).toHaveLength(1);
+    expect(screen.getAllByText('Observer')).toHaveLength(1);
+    expect(screen.queryByText('Resident')).toBeNull();
     expect(screen.getAllByText('Elder')).toHaveLength(1);
   });
 

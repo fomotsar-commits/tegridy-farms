@@ -110,8 +110,7 @@ export function LaunchGate({ onOpen, rail = 'ethereum', children }: LaunchGatePr
           {rail === 'solana' && (
             <>
               {' '}
-              An Ethereum address is the qualifying identity today — Solana linking rides the island&apos;s
-              multiwallet rail when it ships, so a Solana-only wallet cannot yet be measured.
+              One person, every wallet. Link Ethereum and Base, link Solana, and the island reads you whole.
             </>
           )}
         </p>

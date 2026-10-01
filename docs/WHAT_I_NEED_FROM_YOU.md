@@ -162,9 +162,11 @@ ownership fences. All three were mounted in `7ba46691` on 2026-08-19 and verifie
 - **Triggers** — `'trigger'` is in the `Tab` union and `VALID_TABS` on `pages/TradePage.tsx`, with
   its panel mounted alongside TWAP. The tab-button row now maps `VALID_TABS` rather than a second
   hardcoded literal, which could previously diverge in silence.
-- **Launch pricing** — `readLaunchPricing` is threaded through `pages/LaunchPage.tsx`, so the two
+- ~~**Launch pricing** — `readLaunchPricing` is threaded through `pages/LaunchPage.tsx`, so the two
   fee flags in §2.4 are now live end-to-end once you set them. Before this, they were inert no
-  matter what you set.
+  matter what you set.~~ **Struck 2026-09-30:** the island rules "Same price for everyone."
+  (2026-09-28), so the heat-tier flag and `readLaunchPricing` are deleted. The creator revenue
+  share is the one launch fee flag left, and the page prices it without reading any wallet.
 
 Still true and still a deliberate act: `/airdrop` and `/vesting` are reachable by URL but not in
 the nav, which suits rails that are still undeployed.
@@ -200,13 +202,14 @@ CREATE2 address over the constructor args. Rotating the owner afterwards changes
 invalidates the mine — decide the owner before deploying, not after.
 
 ### 2.4 Two fee decisions (a flag and a price are two separate decisions)
-- **Heat-tier launch pricing:** `VITE_LAUNCH_TIER_PRICING=on` plus a full five-tier bps table. All
+- ~~**Heat-tier launch pricing:** `VITE_LAUNCH_TIER_PRICING=on` plus a full five-tier bps table. All
   five tier words must be named or it refuses to apply — a partial table would silently price
-  someone at a default they never chose.
+  someone at a default they never chose.~~ **Struck 2026-09-30:** the island rules "Same price for
+  everyone." (2026-09-28). The dial and both its env vars are deleted; there is nothing to set.
 - **Creator revenue share:** `VITE_CREATOR_FEE_SHARE=on` plus `VITE_CREATOR_FEE_SHARE_BPS`.
 - **Swap/trigger fee:** `VITE_SWAP_FEE_BPS` + `VITE_SWAP_FEE_RECIPIENT`.
 The venue's take is **structurally capped** at today's rate: no configuration of these dials can
-raise it, because the resolver rejects any tier priced above the standard line.
+raise it, because the creator revenue share can only move part of the venue's line to the creator.
 
 ### 2.5 The graduation venue — pick the shape first
 The repo now contains **two different versions of #2** and they are not compatible: the battle

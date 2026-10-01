@@ -1948,13 +1948,14 @@ number does not exist. One column makes all three real.
 
 Nothing charges anything today. Each needs both halves:
 - **Swap/trigger/terminal:** `VITE_SWAP_FEE_BPS` + `VITE_SWAP_FEE_RECIPIENT`
-- **Heat-tier launch pricing:** `VITE_LAUNCH_TIER_PRICING=on` + a **full five-tier** bps table (all
+- ~~**Heat-tier launch pricing:** `VITE_LAUNCH_TIER_PRICING=on` + a **full five-tier** bps table (all
   five tier words, or it refuses to apply — a partial table would silently price someone at a
-  default they never chose)
+  default they never chose)~~ **Struck 2026-09-30:** the island rules "Same price for everyone."
+  (2026-09-28). The heat-tier dial and both its env vars are deleted; there is nothing to set.
 - **Creator revenue share:** `VITE_CREATOR_FEE_SHARE=on` + `VITE_CREATOR_FEE_SHARE_BPS`
 
 The venue's take is **structurally capped** at today's rate: no configuration can raise it, because
-the resolver rejects any tier priced above the standard line.
+the creator revenue share can only move part of the venue's line to the creator.
 
 ## 2.5 Services built and hosted nowhere
 

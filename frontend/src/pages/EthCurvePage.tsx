@@ -245,7 +245,7 @@ export default function EthCurvePage() {
             )}
           </div>
           <p className="text-white/60 text-[13px] mt-1 leading-relaxed">
-            Our own bonding curve. Launch a token in one signature, trade it as it climbs, and
+            Our own bonding curve. Launch a token, trade it as it climbs, and
             graduate into our own pool with the liquidity burned — no third party takes a cut.
             {curveChains.length > 0 && (
               <>

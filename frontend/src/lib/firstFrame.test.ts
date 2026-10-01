@@ -48,6 +48,10 @@ describe('the first frame ships in the HTML', () => {
     expect(lines).toContain(VENUE.heroHook);
   });
 
+  it('starts the clock where the island does: at a first hold, never a first buy', () => {
+    expect(VENUE.heroHook).toBe('Your heat already exists. Your clock on a token starts at your first hold.');
+  });
+
   it('reads a wallet with no JavaScript at all: GET / with the address named heat', () => {
     const form = frame!.querySelector('form');
     expect(form?.getAttribute('method')).toBe('get');
@@ -55,7 +59,7 @@ describe('the first frame ships in the HTML', () => {
     const inputs = form!.querySelectorAll('input');
     expect(inputs).toHaveLength(1);
     expect(inputs[0]!.getAttribute('name')).toBe('heat');
-    expect(inputs[0]!.getAttribute('aria-label')).toBe('Wallet address to read Heat for (Ethereum or Solana)');
+    expect(inputs[0]!.getAttribute('aria-label')).toBe('Wallet address to read Heat for (Ethereum, Base, or Solana)');
     expect(form!.querySelector('button[type="submit"]')?.textContent?.trim()).toBe('Read Heat');
   });
 

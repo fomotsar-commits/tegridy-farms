@@ -83,6 +83,16 @@ describe('OnboardingModal', () => {
     expect(screen.queryByText('Start Farming')).not.toBeInTheDocument();
   });
 
+  it('starts the clock where the island does, at a first hold (venue voice)', () => {
+    renderWithRouter();
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('Next'));
+    expect(
+      screen.getByText(
+        'Walk a door in the hall below, or scan any token on either chain. Your heat already exists. Your clock on a token starts at your first hold.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('Walk the doors sets localStorage and closes modal', () => {
     renderWithRouter();
     fireEvent.click(screen.getByText('Next'));
