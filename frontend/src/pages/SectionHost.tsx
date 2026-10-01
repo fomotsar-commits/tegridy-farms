@@ -65,8 +65,10 @@ export function SectionHost({ section, idPrefix, ariaLabel, panels, fullBleed = 
   // item is the host's landing tab, which is also what `section.hub` points at.
   const active = items.find((i) => matchesRoute(location.pathname, i.to))?.to ?? items[0]?.to ?? '';
 
+  // A no-op only ON the tab's own address. Under it (/earn/<id> lights the
+  // /earn tab) a click goes back up to it: that tab is the way out of a pool.
   const handleTab = (to: string) => {
-    if (to === active) return;
+    if (location.pathname === to) return;
     navigate(to, { replace: false });
   };
 

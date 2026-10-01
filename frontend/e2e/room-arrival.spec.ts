@@ -99,16 +99,22 @@ test.describe('a door walked inside the app', () => {
     expect(docs.n - before).toBe(0);
   });
 
-  test('"Open" on the Earn index enters that room in place', async ({ page }) => {
+  test('"Open" on the Earn list opens that pool at its own address, in place, and Earn leads back', async ({ page }) => {
     const docs = countDocuments(page);
-    await page.goto('/farm');
-    const open = page.getByRole('button', { name: 'Open PEPE' });
+    await page.goto('/earn');
+    const open = page.getByRole('link', { name: 'Open PEPE' });
     await expect(open).toBeVisible({ timeout: 20_000 });
     const before = docs.n;
     await open.click();
-    await expect(page).toHaveURL(/\/farm$/);
-    await expect(page.getByRole('button', { name: 'Open PEPE' })).toHaveCount(0, { timeout: 20_000 });
+    await expect(page).toHaveURL(/\/earn\/pepe$/);
+    await expect(page.getByRole('link', { name: 'Open PEPE' })).toHaveCount(0, { timeout: 20_000 });
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('pepe');
     expect(docs.n - before, 'opening a room loaded a new document').toBe(0);
+    // The owner's report (2026-09-30): from inside a pool there was no way
+    // back to the list. The pool's own link goes back, still in place.
+    await page.getByRole('link', { name: 'Back to Earn' }).click();
+    await expect(page).toHaveURL(/\/earn$/);
+    await expect(page.getByRole('link', { name: 'Open PEPE' })).toBeVisible({ timeout: 20_000 });
+    expect(docs.n - before, 'going back to Earn loaded a new document').toBe(0);
   });
 });

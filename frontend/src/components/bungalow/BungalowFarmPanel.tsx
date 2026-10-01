@@ -32,6 +32,7 @@ const SolanaLadderPoolLive = lazy(() =>
 const SolanaPoolStack = lazy(() =>
   import('./SolanaPoolStack').then((m) => ({ default: m.SolanaPoolStack })),
 );
+import { BackToEarn } from '../farm/BackToEarn';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
@@ -83,6 +84,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.38)' }} />
       </div>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16">
+      <BackToEarn />
       {/* Header */}
       <div className="mb-8">
         <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">
@@ -106,6 +108,16 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             </>
           )}
         </p>
+        {/* The top bar's Connect is EVM only (RainbowKit), and on this page it is
+            the most visible one. A Trust wallet connected there showed "only the
+            EVM chains" while every card here still asked for Solana, and Jupiter,
+            Solana only, can never be in that list (owner, 2026-09-30). */}
+        {poolIsLive && bungalow.chain === 'solana' && (
+          <p className="text-white/70 text-[13px] max-w-lg leading-relaxed mt-3">
+            This pool is on Solana: connect your wallet on the pool card below. The Connect button
+            at the top of the page does not connect Solana.
+          </p>
+        )}
       </div>
 
       {/* THE LIVE POOL LEADS (2026-09-20): the ladder comes first in the DOM and spans

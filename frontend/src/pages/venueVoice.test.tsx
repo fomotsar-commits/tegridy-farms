@@ -118,8 +118,8 @@ describe('the venue speaks for the island, not for one resident', () => {
     // The other half of the rule above. A "remove TOWELI" pass that deleted the
     // row, or a favouritism pass that gave it its own link below the table
     // (which the first draft of VenuePoolIndex did), both fail here.
-    const rowButtons = screen.getAllByRole('button', { name: /^Open [A-Z]/ });
-    const names = rowButtons.map((b) => b.textContent?.trim());
+    const rowLinks = screen.getAllByRole('link', { name: /^Open [A-Z]/ });
+    const names = rowLinks.map((b) => b.textContent?.trim());
     expect(names, 'TOWELI is missing from the island index').toContain('Open TOWELI');
     expect(names.length, 'TOWELI is the only pool listed — that is not an island').toBeGreaterThan(3);
     // Exactly one control per resident: no second, special TOWELI entry.
@@ -133,7 +133,7 @@ describe('the venue speaks for the island, not for one resident', () => {
     // Registry-derived, so this is real coverage rather than a fixture: several
     // distinct residents' pools must be listed. One row would satisfy a
     // "renders a table" assertion while still being a dead end.
-    const opens = screen.getAllByRole('button', { name: /^Open [A-Z]/ });
+    const opens = screen.getAllByRole('link', { name: /^Open [A-Z]/ });
     expect(opens.length, 'the island index lists fewer than three pools').toBeGreaterThanOrEqual(3);
   });
 

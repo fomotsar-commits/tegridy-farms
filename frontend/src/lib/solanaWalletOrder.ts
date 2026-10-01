@@ -22,6 +22,7 @@ import type { Wallet } from '@solana/wallet-adapter-react';
 export const OFFERED_WALLETS: ReadonlyArray<{ readonly name: string; readonly label: string }> = [
   { name: 'Phantom', label: 'Phantom' },
   { name: 'Trust', label: 'Trust Wallet' },
+  { name: 'Jupiter', label: 'Jupiter' },
   { name: 'MetaMask', label: 'MetaMask' },
   { name: 'Coinbase Wallet', label: 'Coinbase Wallet' },
   { name: 'Solflare', label: 'Solflare' },
@@ -39,6 +40,19 @@ export const OFFERED_WALLETS: ReadonlyArray<{ readonly name: string; readonly la
  * WalletConnect project id is set, and never on a phone.
  */
 const WALLETCONNECT_ROW = 'WalletConnect';
+
+/**
+ * Wallets whose PHONE app connects to Solana over WalletConnect, each per a
+ * primary source: Trust's developer docs list Solana among its WalletConnect
+ * networks, and Jupiter's docs say Jupiter Mobile's scanner reads WalletConnect
+ * codes (both are on WalletConnect's registry for solana mainnet). Where the
+ * WalletConnect row exists (a computer or an iPad, with a project id) and
+ * the wallet is not in this browser, its row shows that QR, named for it,
+ * rather than the extension's install page: a visitor with the app on their
+ * phone and no extension otherwise met a dead end, or a QR they had no
+ * reason to think was theirs (owner, 2026-09-30).
+ */
+export const SCANNABLE_WALLETS: ReadonlySet<string> = new Set(['Trust', 'Jupiter']);
 
 const LABELS = new Map(OFFERED_WALLETS.map((w) => [w.name, w.label]));
 const PRIORITY = new Map(OFFERED_WALLETS.map((w, i) => [w.name, i]));
@@ -71,10 +85,19 @@ export function orderWallets(wallets: readonly Wallet[]): Wallet[] {
     .map(({ wallet }) => wallet);
 }
 
+/**
+ * Does a click on this row show the WalletConnect QR for it? `canScan`: the
+ * WalletConnect row exists here.
+ */
+export function scansForWallet(readyState: WalletReadyState, name: string, canScan: boolean): boolean {
+  return canScan && readyState === WalletReadyState.NotDetected && SCANNABLE_WALLETS.has(name);
+}
+
 /** What a click on this row will do, in the row's own words. */
-export function rowStatus(readyState: WalletReadyState, name?: string): string {
+export function rowStatus(readyState: WalletReadyState, name?: string, canScan = false): string {
   // Always Loadable, but a click shows a QR code — it opens no app.
   if (name === WALLETCONNECT_ROW) return 'Scan QR code';
+  if (name !== undefined && scansForWallet(readyState, name, canScan)) return 'Scan QR code';
   if (readyState === WalletReadyState.Installed) return 'Detected';
   if (readyState === WalletReadyState.Loadable) return 'Open app';
   return 'Install';

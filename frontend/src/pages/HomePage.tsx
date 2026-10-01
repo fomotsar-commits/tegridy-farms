@@ -86,7 +86,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
     step: '2',
     title: 'Lock It Down',
     desc: 'From The Taste Test (7d) to Till Death Do Us Farm (4y). Longer lock + NFT boost = up to 4.5x share.',
-    to: '/farm',
+    to: '/earn/toweli',
   },
   {
     step: '3',
@@ -105,7 +105,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
     step: '2',
     title: 'Lock it down',
     desc: 'Lock from 7 days to 4 years. Longer lock + NFT boost = up to 4.5x share.',
-    to: '/farm',
+    to: '/earn/toweli',
   },
   {
     step: '3',
@@ -284,7 +284,9 @@ export default function HomePage() {
                 launch surface that cannot launch. */}
             <div className="flex flex-wrap items-center gap-2 mb-5">
               <Link
-                to="/farm"
+                // Above the voice branch, so in every room: TOWELI's own room goes to
+                // its farm, and anywhere else to the list, entering no room.
+                to={isToweliArrival && !bungalowIdentity ? '/earn/toweli' : '/earn'}
                 aria-label="Live on Ethereum: farm and stake TOWELI"
                 className="badge badge-primary text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
               >
@@ -371,7 +373,7 @@ export default function HomePage() {
                           Connect Wallet
                         </button>
                       ) : (
-                        <Link to="/farm" className="btn-primary px-7 py-2.5 text-[14px] inline-block text-center">
+                        <Link to="/earn/toweli" className="btn-primary px-7 py-2.5 text-[14px] inline-block text-center">
                           Start Farming
                         </Link>
                       )}
@@ -645,14 +647,14 @@ export default function HomePage() {
                     A {bungalowIdentity.symbol} lock-ladder pool is on record at{' '}
                     <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.ladderPool)}</span>.
                     Whether it is funded, and what it pays, is read live on{' '}
-                    <Link to="/farm" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
+                    <Link to={`/earn/${bungalowIdentity.id}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
                   </>
                 ) : bungalowIdentity.stakePool ? (
                   <>
                     A {bungalowIdentity.symbol} pool is on record at{' '}
                     <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.stakePool)}</span>.
                     Whether it is funded, and what it pays, is read live on{' '}
-                    <Link to="/farm" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
+                    <Link to={`/earn/${bungalowIdentity.id}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
                   </>
                 ) : (
                   <>No {bungalowIdentity.symbol} staking program exists on-chain today.</>
@@ -865,7 +867,7 @@ export default function HomePage() {
               // so the same object literal rendered "2 pools" in large type over
               // "the LP pool rejoins when…" in small type. Both now derive from
               // periodFinish, and an unread period gets its own third answer.
-              { to: '/farm', title: 'Farm', desc: farmCardDesc(lpPhase), stat: farmCardStat(lpPhase), label: 'Ethereum', art: pageArt('home', 7) },
+              { to: '/earn/toweli', title: 'Farm', desc: farmCardDesc(lpPhase), stat: farmCardStat(lpPhase), label: 'Ethereum', art: pageArt('home', 7) },
               // Spread-gated on the SAME predicate navConfig uses to decide whether
               // /solana appears in the nav at all. Unset fee account => the page is a
               // SOON wall, so the card is simply absent and the grid falls back to
@@ -1004,7 +1006,7 @@ export default function HomePage() {
 
         {/* How It Works — the three-step TOWELI farm walkthrough; TOWELI room
             only (ARRIVAL FLOW 2026-08-31: the venue teaches the island, not
-            the farm; a bungalow's farm story lives on its own /farm panel). */}
+            the farm; a bungalow's farm story lives on its own /earn/<id> page). */}
         {!bungalowIdentity && isToweliArrival && (
         <div className="pb-16">
           <m.div initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>

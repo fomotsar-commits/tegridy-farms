@@ -64,7 +64,7 @@ export default function EarnPage() {
       idPrefix="earn"
       ariaLabel="Earn sections"
       panels={{
-        '/farm': FarmPage,
+        '/earn': FarmPage,
         '/nft-finance': LendingPage,
         '/referrals': ReferralsPage,
         '/yield': YieldPage,
