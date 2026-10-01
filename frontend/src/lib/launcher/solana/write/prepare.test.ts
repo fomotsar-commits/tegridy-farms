@@ -18,7 +18,7 @@ import { CP_CREATE_POOL_FEE_RECEIVER, launchIndexAddress, readWriteGate } from '
 import { prepareMigrate } from './graduate';
 import { LAUNCH_TERMS_CHANGED, prepareCreateLaunch, quoteOpeningBuy } from './launch';
 import { preparePoolSwap } from './poolSwap';
-import { TX_SIZE_LIMIT } from './prepare';
+import { TX_SIZE_LIMIT, checkEffect } from './prepare';
 import { prepareCurveBuy, prepareCurveSell, priceImpactBps } from './trade';
 import {
   AMM_CONFIG,
@@ -664,5 +664,92 @@ describe('priceImpactBps', () => {
     const bps = priceImpactBps(c, 'buy', q.value.lamportsToCurve, q.value.tokensOut);
     expect(bps).not.toBeNull();
     expect(bps!).toBeGreaterThan(0n);
+  });
+});
+
+// D27: an expectation the simulation was never asked about used to count as "no
+// change", so any band holding 0 passed for an account nobody watched.
+describe('the balance check only passes rows it watched', () => {
+  const watched = Keypair.generate().publicKey;
+  const unwatched = Keypair.generate().publicKey;
+  const effect = { signerLamportsDelta: 0n, tokenDeltas: [{ mint: WSOL_MINT, account: watched, delta: 0n }] };
+  const band = (account: PublicKey) => ({ maxSolOut: 0n, tokens: [{ account, mint: WSOL_MINT, minDelta: 0n, maxDelta: 0n }] });
+
+  it('an expectation on an account the check does not watch is refused', () => {
+    expect(checkEffect(effect, band(unwatched), 0n)).toMatch(/did not watch/);
+  });
+
+  it('the same band on an account it watched still passes', () => {
+    expect(checkEffect(effect, band(watched), 0n)).toBeNull();
+  });
+});
+
+// D27: a sell that closes the wrapped-SOL account pays out EVERYTHING in it. With no
+// row for that account, wrapped SOL that reached it after the builder's read was
+// unwrapped and passed as "more SOL arrived".
+describe('pool swap: the wrapped-SOL account is always checked', () => {
+  const POOL = poolStatePda(MINT, LAUNCH);
+  const WSOL_ATA = associatedTokenAddress(WSOL_MINT, ME);
+  const SELL = 10_000_000_000n;
+
+  async function sellSetup() {
+    const s = await setup();
+    addLaunchPool(s.chain, MINT, { sol: 20_000_000_000n, tokens: 700_000_000_000_000n });
+    setClock(s.chain, 1_000n);
+    const r = await readPoolAt(s.chain, CPSWAP, POOL);
+    if (r.kind !== 'ok') throw new Error('pool fixture');
+    const lp: LaunchPool = { address: POOL, snapshot: r.value, ammConfigAddress: AMM_CONFIG, ammConfig: s.gate.ammConfig, chainTime: 1_000n };
+    s.chain.tokenAccount(ATA, MINT, ME, SELL);
+    s.chain.calls = [];
+    return { ...s, lp, out: quoteOwnPool(lp.snapshot, s.gate.ammConfig, MINT.toBase58(), SELL)!.outAmount };
+  }
+
+  it('sell with unwrap: wrapped SOL that appears before the balance read is BLOCKED, not unwrapped', async () => {
+    const { chain, gate, lp, out } = await sellSetup();
+    const gift = 2n * BigInt(SOL);
+    // The builder reads the account as absent, so it plans to close it. Then wrapped
+    // SOL lands there before the pipeline reads balances.
+    const read = chain.getAccountInfo;
+    chain.getAccountInfo = async (k) => {
+      const info = await read(k);
+      if (k.equals(WSOL_ATA)) chain.tokenAccount(WSOL_ATA, WSOL_MINT, ME, gift);
+      return info;
+    };
+    // The close pays that wrapped SOL out as plain SOL, on top of the sale.
+    simulating(chain, {
+      [ME.toBase58()]: { lamportsDelta: Number(gift + out) + TOKEN_RENT },
+      [ATA.toBase58()]: { tokenAmount: 0n, mint: MINT, owner: ME },
+      [WSOL_ATA.toBase58()]: { closed: true },
+    });
+    const r = await preparePoolSwap(W(chain), gate, { owner: ME, mint: MINT, pool: lp, side: 'sell', amountIn: SELL, slippageBps: 100n });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.outcome).toMatchObject({ stage: 'simulate', message: expect.stringMatching(/different token amount/) });
+  });
+
+  it('sell with unwrap: an absent account is opened, closed, and the sale arrives as plain SOL', async () => {
+    const { chain, gate, lp, out } = await sellSetup();
+    simulating(chain, {
+      [ME.toBase58()]: { lamportsDelta: Number(out) },
+      [ATA.toBase58()]: { tokenAmount: 0n, mint: MINT, owner: ME },
+      [WSOL_ATA.toBase58()]: { closed: true },
+    });
+    const p = ok(await preparePoolSwap(W(chain), gate, { owner: ME, mint: MINT, pool: lp, side: 'sell', amountIn: SELL, slippageBps: 100n }));
+    expect(p.summary).toMatchObject({ kind: 'pool-sell', unwrapsWsol: true });
+  });
+
+  it('each watched account says what it is, and wrapped SOL carries its own 9 decimals', async () => {
+    const { chain, gate, lp, out } = await sellSetup();
+    chain.tokenAccount(WSOL_ATA, WSOL_MINT, ME, 5n);
+    simulating(chain, {
+      [ATA.toBase58()]: { tokenAmount: 0n, mint: MINT, owner: ME },
+      [WSOL_ATA.toBase58()]: { tokenAmount: 5n + out, mint: WSOL_MINT, owner: ME },
+    });
+    const p = ok(await preparePoolSwap(W(chain), gate, { owner: ME, mint: MINT, pool: lp, side: 'sell', amountIn: SELL, slippageBps: 100n }));
+    expect(p.check.watch.tokenAccounts).toEqual([
+      { account: ATA, mint: MINT, role: 'token' },
+      { account: WSOL_ATA, mint: WSOL_MINT, role: 'wsol', decimals: 9 },
+    ]);
+    expect(p.simulated.tokenDeltas).toContainEqual({ mint: WSOL_MINT, account: WSOL_ATA, delta: out, role: 'wsol', decimals: 9 });
+    expect(p.simulated.tokenDeltas).toContainEqual({ mint: MINT, account: ATA, delta: -SELL, role: 'token' });
   });
 });

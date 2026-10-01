@@ -603,3 +603,76 @@ describe('useTxFlow', () => {
     expect(screen.getByText(/Done\. The network confirmed it\./)).toBeInTheDocument();
   });
 });
+
+// D27: one transaction can move three different tokens. Each test-run line is named
+// for what it is and printed in that token's own decimals, never the page's.
+describe('test-run lines, by what each account is', () => {
+  it('a wrapped-SOL change prints in 9 decimals while the token has 6; a pool-share change is labelled "your pool shares"', async () => {
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    const p = prepared(buySummary(), {
+      simulated: {
+        signerLamportsDelta: -SOL_1,
+        tokenDeltas: [
+          { mint: KEY(20), account: KEY(21), delta: 2_500_000n, role: 'token' },
+          { mint: KEY(22), account: KEY(23), delta: 1_500_000_000n, role: 'wsol', decimals: 9 },
+          { mint: KEY(24), account: KEY(25), delta: -3_000_000_000n, role: 'lp', decimals: 9 },
+        ],
+      },
+    });
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: p })));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    const value = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
+    expect(value('Test run: your tokens change by')).toBe('+2.5');
+    expect(value('Test run: your wrapped SOL changes by')).toBe('+1.5');
+    expect(value('Test run: your pool shares change by')).toBe('-3');
+  });
+
+  it('a change with no role is still "your tokens", in the page’s decimals', async () => {
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    const p = prepared(buySummary(), {
+      simulated: { signerLamportsDelta: -SOL_1, tokenDeltas: [{ mint: KEY(20), account: KEY(21), delta: 2_500_000n }] },
+    });
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: p })));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    expect(screen.getByText('Test run: your tokens change by').nextElementSibling?.textContent).toBe('+2.5');
+  });
+});
+
+// D27: the 44px tap-target rule in index.css applies only below 768px, so an iPad
+// (820px) got short buttons. Every button here carries the minimum itself.
+describe('every button is at least 44px tall at every width', () => {
+  const MIN_44 = /(^|\s)min-h-\[44px\](\s|$)/;
+  const allTall = () => {
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const b of buttons) expect(b.className, b.textContent ?? '').toMatch(MIN_44);
+  };
+
+  it('Sign and Cancel are at least 44px tall at 820px (class assertion)', async () => {
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    allTall();
+  });
+
+  it('every outcome card button, in every state', () => {
+    const states: TxOutcome[] = [
+      { status: 'confirmed', signature: SIG, slot: 9 },
+      { status: 'reverted', signature: SIG, program: 'cp-swap', code: 6005, message: 'moved' },
+      { status: 'expired', signature: SIG, message: 'gone' },
+      { status: 'unknown', signature: SIG, message: 'slow' },
+      { status: 'unknown', signature: '', message: 'lost' },
+      { status: 'not-sent', stage: 'build', message: 'no' },
+    ];
+    for (const o of states) {
+      const view = outcome(o);
+      allTall();
+      view.unmount();
+    }
+  });
+});

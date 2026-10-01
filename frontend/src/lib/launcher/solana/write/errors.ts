@@ -12,7 +12,7 @@
 import { launchErrorName, type LaunchErrorName } from '../curve/program';
 import type { LaunchQuoteErrorCode } from '../curve/math';
 import { CP_SWAP_ERROR_COPY, cpSwapErrorName } from '../../../solana/cpswap/errors';
-import { TOKEN_PROGRAM_ID } from '../curve/program';
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../curve/program';
 import type { CurveWriteConfig } from './types';
 
 export type FailingProgram = 'launch' | 'cp-swap' | 'other';
@@ -105,6 +105,8 @@ function programOf(id: string, cfg: Pick<CurveWriteConfig, 'programId' | 'cpSwap
   return 'other';
 }
 
+const TOKEN_PROGRAMS = new Set([TOKEN_PROGRAM_ID.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58()]);
+
 const NOT_ENOUGH_SOL =
   'Your wallet does not have enough SOL for this, including the network fee and any one-time account costs.';
 
@@ -145,7 +147,8 @@ export function explainFailure(
     const hex = CUSTOM.exec(rest);
     const code = hex ? parseInt(hex[1]!, 16) : null;
     const program = programOf(id, cfg);
-    if (program === 'other' && id === TOKEN_PROGRAM_ID.toBase58() && code === 1) {
+    // Both token programs number "insufficient funds" 1.
+    if (program === 'other' && TOKEN_PROGRAMS.has(id) && code === 1) {
       return { program, code, message: 'You do not hold that many tokens.' };
     }
     if (/insufficient lamports/i.test(joined)) return { program, code, message: NOT_ENOUGH_SOL };

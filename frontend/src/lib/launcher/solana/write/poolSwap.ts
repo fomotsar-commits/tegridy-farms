@@ -10,6 +10,9 @@
 //
 //   * only when that account did not exist or held nothing before, so a wallet's
 //     own wrapped SOL is never unwrapped behind its back. `unwrapsWsol` says which.
+//     That rule and the WSOL instructions live in wsol.ts. The WSOL account always
+//     has a balance row, so wrapped SOL that reaches it after this file's read is
+//     blocked, never paid out.
 //
 // The pool program does not check who owns the swap's output account, so the
 // output is always the signer's own associated account and the intent check
@@ -19,12 +22,8 @@
 // 'confirmed'), never from the copy the page loaded. The fee settings are the
 // pool's own, never the launch program's current global ones.
 
-import {
-  createAssociatedTokenAccountIdempotentInstruction,
-  createCloseAccountInstruction,
-  createSyncNativeInstruction,
-} from '@solana/spl-token';
-import { SystemProgram, type PublicKey, type TransactionInstruction } from '@solana/web3.js';
+import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
+import type { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { applySlippage } from '../curve/math';
@@ -37,11 +36,7 @@ import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import { slippageProblem } from './trade';
 import type { OpenGate, Prepared, TxSummary, WriteRpc } from './types';
-
-function tokenAmount(data: Uint8Array): bigint | null {
-  if (data.length < 72) return null;
-  return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(64, true);
-}
+import { closeWsolIxs, openWsolIx, wrapIxs, wsolPlanFrom, type WsolPlan } from './wsol';
 
 export async function preparePoolSwap(
   rpc: WriteRpc,
@@ -90,18 +85,15 @@ export async function preparePoolSwap(
   const tokenAta = associatedTokenAddress(a.mint, a.owner);
 
   // Close the WSOL account afterwards only if it held nothing before.
-  let unwrapsWsol: boolean;
+  let plan: WsolPlan;
   try {
-    const w = await rpc.getAccountInfo(wsolAta, 'confirmed');
-    if (!w) unwrapsWsol = true;
-    else {
-      const amt = tokenAmount(w.data);
-      if (amt === null) return notSent('build', 'Your wrapped-SOL account could not be read.');
-      unwrapsWsol = amt === 0n;
-    }
+    const p = wsolPlanFrom(a.owner, await rpc.getAccountInfo(wsolAta, 'confirmed'));
+    if (typeof p === 'string') return notSent('build', p);
+    plan = p;
   } catch (e) {
     return notSent('build', `Could not read your wrapped-SOL account: ${clipDetail(e)}`);
   }
+  const unwrapsWsol = plan.closeAfter;
 
   const swap = swapBaseInputIx({
     programId: cp,
@@ -121,14 +113,13 @@ export async function preparePoolSwap(
     minimumAmountOut,
   });
 
-  const createWsol = createAssociatedTokenAccountIdempotentInstruction(a.owner, wsolAta, a.owner, WSOL_MINT, TOKEN_PROGRAM_ID);
-  const close = unwrapsWsol ? [createCloseAccountInstruction(wsolAta, a.owner, a.owner, [], TOKEN_PROGRAM_ID)] : [];
+  const createWsol = openWsolIx(a.owner);
+  const close = closeWsolIxs(plan, a.owner);
   const body: TransactionInstruction[] =
     a.side === 'buy'
       ? [
           createWsol,
-          SystemProgram.transfer({ fromPubkey: a.owner, toPubkey: wsolAta, lamports: a.amountIn }),
-          createSyncNativeInstruction(wsolAta, TOKEN_PROGRAM_ID),
+          ...wrapIxs(a.owner, a.amountIn),
           createAssociatedTokenAccountIdempotentInstruction(a.owner, tokenAta, a.owner, a.mint, TOKEN_PROGRAM_ID),
           swap,
           ...close,
@@ -152,9 +143,10 @@ export async function preparePoolSwap(
     },
     watch: {
       signer: a.owner,
+      // The WSOL account is always watched, so a balance check can name it.
       tokenAccounts: [
-        { account: tokenAta, mint: a.mint },
-        { account: wsolAta, mint: WSOL_MINT },
+        { account: tokenAta, mint: a.mint, role: 'token' },
+        { account: wsolAta, mint: WSOL_MINT, role: 'wsol', decimals: 9 },
       ],
     },
     expect: (pre, rents) => {
@@ -176,7 +168,13 @@ export async function preparePoolSwap(
         ? {
             maxSolOut: 0n,
             minSolIn: minimumAmountOut,
-            tokens: [{ account: tokenAta, mint: a.mint, minDelta: -a.amountIn, maxDelta: -a.amountIn }],
+            tokens: [
+              { account: tokenAta, mint: a.mint, minDelta: -a.amountIn, maxDelta: -a.amountIn },
+              // The close pays out everything in the account. It held nothing when the
+              // builder read it; wrapped SOL that arrived since makes this negative,
+              // and is blocked rather than unwrapped.
+              { account: wsolAta, mint: WSOL_MINT, minDelta: 0n, maxDelta: 0n },
+            ],
           }
         : {
             maxSolOut: wsolRent,

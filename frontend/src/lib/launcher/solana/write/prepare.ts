@@ -176,7 +176,13 @@ export function simulatedEffect(watch: WatchList, pre: PreState, post: SimOutcom
       after = amt;
     }
     const before = pre.tokens.get(t.account.toBase58())?.amount ?? 0n;
-    tokenDeltas.push({ mint: t.mint, account: t.account, delta: after - before, ...(t.role ? { role: t.role } : {}) });
+    tokenDeltas.push({
+      mint: t.mint,
+      account: t.account,
+      delta: after - before,
+      ...(t.role ? { role: t.role } : {}),
+      ...(t.decimals !== undefined ? { decimals: t.decimals } : {}),
+    });
   }
   return { signerLamportsDelta, tokenDeltas };
 }
@@ -192,7 +198,10 @@ export function checkEffect(effect: SimulatedEffect, expect: Expectation, networ
   }
   for (const t of expect.tokens) {
     const got = effect.tokenDeltas.find((d) => d.account.equals(t.account));
-    const delta = got?.delta ?? 0n;
+    // An account the simulation was never asked about has no known change. Counting
+    // it as 0 would pass any band that holds 0, so it is refused instead.
+    if (!got) return 'the check was asked about an account it did not watch';
+    const delta = got.delta;
     if (delta < t.minDelta || delta > t.maxDelta) {
       return 'the simulation shows a different token amount than this screen says';
     }

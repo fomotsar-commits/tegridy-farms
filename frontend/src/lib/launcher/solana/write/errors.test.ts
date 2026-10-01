@@ -68,3 +68,22 @@ describe('budget', () => {
     expect(percentile75([5])).toBe(5n);
   });
 });
+
+// D27: the same refusal from the newer token program read "error 1".
+describe('both token programs say "not enough tokens" the same way', () => {
+  it('Token-2022 error 1 reads "You do not hold that many tokens."', () => {
+    const logs = [failed('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', '1')];
+    expect(explainFailure({ InstructionError: [2, { Custom: 1 }] }, logs, cfgLocal)).toMatchObject({
+      program: 'other',
+      code: 1,
+      message: 'You do not hold that many tokens.',
+    });
+  });
+
+  it('error 1 from any other program is still said by its number', () => {
+    const logs = [failed('BPFLoaderUpgradeab1e11111111111111111111111', '1')];
+    expect(explainFailure({ InstructionError: [2, { Custom: 1 }] }, logs, cfgLocal).message).toBe(
+      'A Solana program refused this transaction (error 1).',
+    );
+  });
+});

@@ -64,6 +64,7 @@ export type {
   SimulatedEffect,
   SolanaCluster,
   SubmitDeps,
+  TokenRole,
   TxKind,
   TxOutcome,
   TxSigner,

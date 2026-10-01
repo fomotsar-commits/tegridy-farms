@@ -82,6 +82,13 @@ export interface ActionAvailability {
 export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell';
 
 /**
+ * What a watched token account is, so the review can name it and print it in its
+ * own mint's decimals. `treasury` is the platform treasury's account (create: the
+ * reserve arriving); the rest are the signer's own. No role = the signer's token.
+ */
+export type TokenRole = 'treasury' | 'lp' | 'wsol' | 'token';
+
+/**
  * One instruction of the FINAL transaction, decoded back out of its bytes.
  *
  * The review screen is built from these, not from the values the builder was
@@ -227,10 +234,11 @@ export interface SimulatedEffect {
   /** Change in the signer's SOL balance, in lamports (negative = leaves the wallet). */
   signerLamportsDelta: bigint;
   /**
-   * Change in each watched token account. Without `role` it is the signer's own;
+   * Change in each watched token account, with the watch entry's `role` and
+   * `decimals` copied across. Without `role` it is the signer's own token;
    * `role: 'treasury'` is the platform treasury's (create: the reserve arriving).
    */
-  tokenDeltas: Array<{ mint: PublicKey; account: PublicKey; delta: bigint; role?: 'treasury' }>;
+  tokenDeltas: Array<{ mint: PublicKey; account: PublicKey; delta: bigint; role?: TokenRole; decimals?: number }>;
 }
 
 export interface PreparedTx {
@@ -314,8 +322,12 @@ export interface Expectation {
 
 export interface WatchList {
   signer: PublicKey;
-  /** The signer's own token accounts, plus (create only) the treasury's, marked `role: 'treasury'`. */
-  tokenAccounts: Array<{ account: PublicKey; mint: PublicKey; role?: 'treasury' }>;
+  /**
+   * The signer's own token accounts, plus (create only) the treasury's, marked
+   * `role: 'treasury'`. `decimals` is that mint's, when the builder knows it; the
+   * review falls back to the page's token decimals without it.
+   */
+  tokenAccounts: Array<{ account: PublicKey; mint: PublicKey; role?: TokenRole; decimals?: number }>;
 }
 
 export type NotSent = {

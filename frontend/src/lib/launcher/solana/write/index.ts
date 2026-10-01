@@ -10,6 +10,7 @@
 //   trade.ts     curve buy / sell
 //   graduate.ts  finish graduation
 //   poolSwap.ts  buy / sell in the graduated launch's own pool
+//   wsol.ts      SOL in and out through the signer's wrapped-SOL account
 //   prepare.ts   the one simulate-check-summarize path all of them use
 //   intent.ts    decode a transaction back into steps; refuse any shape we never build
 //   submit.ts    wallet signs only; we broadcast, re-send and settle the outcome
@@ -25,6 +26,7 @@ export * from './launch';
 export * from './trade';
 export * from './graduate';
 export * from './poolSwap';
+export * from './wsol';
 export * from './submit';
 export * from './errors';
 export {

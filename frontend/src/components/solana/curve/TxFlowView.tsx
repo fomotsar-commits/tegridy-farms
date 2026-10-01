@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode, type Ref } from 'react';
 import { describeTreasury, formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
 import { ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
-import type { FeeSplitView, PreparedTx, SolanaCluster, TxOutcome, TxSigner, TxSummary, WriteApi } from './ports';
+import type { FeeSplitView, PreparedTx, SolanaCluster, TokenRole, TxOutcome, TxSigner, TxSummary, WriteApi } from './ports';
 import type { TxFlow } from './useTxFlow';
 
 // What the user sees between pressing a Review button and the chain's answer.
@@ -235,6 +235,14 @@ export function PoolCreatorFeeRow({
   );
 }
 
+/** What each watched account's test-run line is called. No role = the signer's token. */
+const TEST_RUN_LABEL: Record<TokenRole, string> = {
+  treasury: 'Test run: the platform treasury receives',
+  token: 'Test run: your tokens change by',
+  wsol: 'Test run: your wrapped SOL changes by',
+  lp: 'Test run: your pool shares change by',
+};
+
 export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals: number | null }) {
   const f = prepared.fees;
   const base = tradeLamports(prepared.summary);
@@ -277,8 +285,9 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
         .map((t) => (
           <Row
             key={t.account.toBase58()}
-            label={t.role === 'treasury' ? 'Test run: the platform treasury receives' : 'Test run: your tokens change by'}
-            value={`${t.delta < 0n ? '-' : '+'}${tokenText(t.delta < 0n ? -t.delta : t.delta, decimals)}`}
+            label={TEST_RUN_LABEL[t.role ?? 'token']}
+            // Each account in its own mint's decimals when the builder knew them.
+            value={`${t.delta < 0n ? '-' : '+'}${tokenText(t.delta < 0n ? -t.delta : t.delta, t.decimals ?? decimals)}`}
           />
         ))}
     </>
@@ -389,7 +398,7 @@ export function TxOutcomeCard({
           <Notice tone="good">Done. The network confirmed it.</Notice>
           <SignatureRow signature={outcome.signature} />
           {explorerUrl && <ExplorerLink href={explorerUrl} />}
-          <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
+          <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
             Close
           </button>
         </div>
@@ -402,7 +411,7 @@ export function TxOutcomeCard({
           <Notice>{feesSpentText(fees)}</Notice>
           <SignatureRow signature={outcome.signature} />
           {explorerUrl && <ExplorerLink href={explorerUrl} />}
-          <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
+          <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
             Start over
           </button>
         </div>
@@ -412,7 +421,7 @@ export function TxOutcomeCard({
         <div {...a11y} data-testid="tx-outcome" data-status="expired">
           <Notice tone="warn">{EXPIRED_TEXT}</Notice>
           {outcome.signature && <SignatureRow signature={outcome.signature} />}
-          <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
+          <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
             Start over
           </button>
         </div>
@@ -448,11 +457,11 @@ export function TxOutcomeCard({
               onClick={() => {
                 if (!rechecking) onRecheck();
               }}
-              className={`btn-primary w-full py-2 text-[12px] mt-1 ${rechecking ? 'opacity-60' : ''}`}
+              className={`btn-primary min-h-[44px] w-full py-2 text-[12px] mt-1 ${rechecking ? 'opacity-60' : ''}`}
             >
               Check again
             </button>
-            <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px]">
+            <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px]">
               I checked my wallet: start over
             </button>
           </div>
@@ -462,7 +471,7 @@ export function TxOutcomeCard({
         <div {...a11y} data-testid="tx-outcome" data-status="unknown">
           <Notice tone="warn">We cannot tell whether this was sent.</Notice>
           <Notice>{outcome.message}</Notice>
-          <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
+          <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
             I checked my wallet: start over
           </button>
         </div>
@@ -473,7 +482,7 @@ export function TxOutcomeCard({
           <Notice tone="warn">{NOT_SENT_COPY[outcome.stage]}</Notice>
           {outcome.message && <Notice>{outcome.message}</Notice>}
           <Notice>Nothing was charged.</Notice>
-          <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
+          <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
             Start over
           </button>
         </div>
@@ -556,14 +565,14 @@ export function TxFlowView({
         <div className="flex flex-col sm:flex-row gap-2">
           <button
             type="button"
-            className={`btn-primary w-full py-2.5 text-[13px] disabled:opacity-60 ${s.checking ? 'opacity-60' : ''}`}
+            className={`btn-primary min-h-[44px] w-full py-2.5 text-[13px] disabled:opacity-60 ${s.checking ? 'opacity-60' : ''}`}
             disabled={s.expired || signer === null}
             aria-disabled={s.checking || undefined}
             onClick={() => signer && !s.checking && flow.confirm(signer)}
           >
             Sign in wallet
           </button>
-          <button type="button" className="btn-secondary w-full py-2.5 text-[13px]" onClick={flow.reset}>
+          <button type="button" className="btn-secondary min-h-[44px] w-full py-2.5 text-[13px]" onClick={flow.reset}>
             {s.expired ? 'Start over' : 'Cancel'}
           </button>
         </div>
