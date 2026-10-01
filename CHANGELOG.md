@@ -10,9 +10,24 @@ page keeps the newest thirty days.
 
 - Source and audit links on /contracts, /security, /risks and the trust hub go through memetics.finance/source, which forwards them to wherever the code is hosted.
 
+### 2026-09-25
+
+- A bungalow link opens on its own name and picture from the first second.
+- The hero, the FAQ and llms.txt say linked wallets read as a single flame.
+- The heat explainer's button reads How heat is earned, and Hide once open.
+- Every room's farm page reads without an em dash in its hero, its funding card and its heat card.
+- On a computer or an iPad, the Solana connect window offers WalletConnect, with its QR code inside the window.
+- The Solana connect window has Solflare and Backpack rows: on a phone or an iPad they open this page inside the wallet's own app.
+- Page titles, which a screen reader hears on every page change, carry no em dash.
+
 ### 2026-09-24
 
+- On a phone, connecting MetaMask no longer stalls after the MetaMask app opens, and MetaMask can estimate gas on Ethereum.
+- The Solana wallet list shows every wallet, adds MetaMask and Coinbase Wallet, and a wallet saved on a phone no longer traps Connect.
+- The closed BAYLA lighthouse pool is shown only to wallets still staked in it, as a claim box under the lock ladder.
+- A Solana staking pool or position that could not be read says so and offers Try again, on /farm and the dashboard.
 - On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
+- Every source link on /contracts opens a file, the TOWELI and fee hook rows say their source is not in the repo, the fee hook row no longer says a redeploy is queued, and the page says a linked file can be newer than the deployed code.
 
 ### 2026-09-22
 

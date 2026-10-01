@@ -37,10 +37,9 @@ import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../li
  * A `bayla-ladder` pool, LIVE.
  *
  * The Solana twin of EvmLadderPoolLive, against this venue's own Anchor program
- * rather than LighthouseLadder.sol. It sits beside the Streamflow card. The two are
- * separate products on separate programs: neither replaces the other and nothing
- * moves between them, so a card that vanished the moment a second pool was
- * configured would hide real stakers' money.
+ * rather than LighthouseLadder.sol. Beside a CLOSED Streamflow pool, SolanaPoolStack
+ * draws it with that pool's members-only claim strip beneath it. The two are separate
+ * products on separate programs and nothing moves between them.
  *
  * ── THE FOUR THINGS THIS CARD MUST NOT GET WRONG ────────────────────────────
  *
@@ -73,7 +72,7 @@ import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../li
 export function SolanaLadderPoolLive({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   return (
     <SolanaProviders>
-      <Inner bungalow={bungalow} />
+      <SolanaLadderPoolCard bungalow={bungalow} />
     </SolanaProviders>
   );
 }
@@ -113,7 +112,8 @@ function resolveConfig(poolAddress: string): Config {
   }
 }
 
-function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
+/** The card WITHOUT its own wallet context, for SolanaPoolStack. Elsewhere use SolanaLadderPoolLive. */
+export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   const { publicKey, wallet } = useWallet();
   const { connection } = useConnection();
   const openConnect = useSolanaConnect();
@@ -481,6 +481,17 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
             staking mint. That is a configuration error, not a network problem, so no figures are shown and
             nothing here will send a transaction.
           </p>
+        )}
+
+        {/* THE WAY IN when the body below cannot draw: the only other Connect lives in
+            it. Under SolanaPoolStack it is also how a closed-pool member reaches the
+            claim strip. Not while the pool is still being read. */}
+        {!publicKey && !(pool && !identityMismatch) && (!config.ok || poolRead !== null) && (
+          <div>
+            <button type="button" onClick={openConnect} className="btn-primary px-6 py-2.5 text-[13px]">
+              Connect a Solana wallet
+            </button>
+          </div>
         )}
 
         {pool && !identityMismatch && (

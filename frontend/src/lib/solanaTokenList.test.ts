@@ -12,6 +12,7 @@ import {
   getFavoriteTokens,
   toggleFavoriteToken,
   isFavoriteToken,
+  iconSrc,
 } from './solanaTokenList';
 
 describe('isUnverified — the one verified/unverified decision', () => {
@@ -100,5 +101,25 @@ describe('recents + favorites store', () => {
     expect(() => rememberToken(SOL)).not.toThrow();
     expect(getRecentTokens()).toEqual([]);
     expect(getFavoriteTokens()).toEqual([]);
+  });
+});
+
+// BAYLA's on-chain metadata and its Jupiter icon are https://ipfs.io/... URLs.
+// Since that gateway was retired (2026-09-21) wsrv.nl answers 404 for them, so
+// the icon rendered as initials. Measured: via ipfs.filebase.io wsrv answers 200.
+describe('iconSrc moves IPFS icons off retired gateways before proxying', () => {
+  const BAYLA_ICON = 'https://ipfs.io/ipfs/bafkreiav3na7d325rg5ia4vbq5gs2wxbpvmgyzctwuvq2354yb73iv72uq';
+  const upstream = (src: string) => new URL(src).searchParams.get('url');
+
+  it('proxies the BAYLA icon through a live gateway', () => {
+    expect(upstream(iconSrc(BAYLA_ICON))).toBe(
+      'https://ipfs.filebase.io/ipfs/bafkreiav3na7d325rg5ia4vbq5gs2wxbpvmgyzctwuvq2354yb73iv72uq',
+    );
+  });
+
+  it('proxies an ipfs:// icon through a live gateway and leaves other hosts alone', () => {
+    expect(upstream(iconSrc('ipfs://bafkreiabc'))).toBe('https://ipfs.filebase.io/ipfs/bafkreiabc');
+    expect(upstream(iconSrc('https://static.jup.ag/jup/icon.png'))).toBe('https://static.jup.ag/jup/icon.png');
+    expect(iconSrc('')).toBe('');
   });
 });

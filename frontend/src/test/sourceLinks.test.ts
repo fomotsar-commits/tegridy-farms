@@ -78,14 +78,6 @@ const PAGES: Record<string, ComponentType> = {
   'frontend/src/pages/TrustHubPage.tsx': TrustHubPage,
 };
 
-/** /contracts rows that linked these before this guard; ship/2026-09-26 unlinks or renames
- *  each. The list only shrinks: an entry no page links, or that git now tracks, fails. */
-const KNOWN_UNTRACKED = [
-  'contracts/src/TOWELI.sol',
-  'contracts/src/TegridyFeeHook.sol',
-  'contracts/src/TokenURIReader.sol',
-];
-
 /** The subset of Vercel's path syntax this file uses: literals, (.*), :name and /:name*. */
 function toRegExp(source: string): RegExp {
   let re = '';
@@ -293,14 +285,8 @@ describe('every source link the pages render', () => {
   it('names a path git tracks, file or directory', () => {
     const missing = rendered
       .map(({ file, href }) => ({ file, path: pathOf(href) }))
-      .filter(({ path }) => path && !isTracked(path) && !KNOWN_UNTRACKED.includes(path))
+      .filter(({ path }) => path && !isTracked(path))
       .map(({ file, path }) => `${file}: ${path}`);
     expect(missing, 'GitHub would answer 404 for these, and GitLab would quietly open the repo root').toEqual([]);
-  });
-
-  it('still needs every KNOWN_UNTRACKED entry, so the list only shrinks', () => {
-    const linked = new Set(rendered.map(({ href }) => pathOf(href)));
-    const stale = KNOWN_UNTRACKED.filter((p) => !linked.has(p) || isTracked(p));
-    expect(stale, 'remove these from KNOWN_UNTRACKED').toEqual([]);
   });
 });
