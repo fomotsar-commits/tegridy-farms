@@ -21,6 +21,10 @@
 //    decodes, it names OUR cp-swap program, and the AmmConfig it names is owned by
 //    that program and decodes. Anything else is `blocked` with a reason.
 //
+// Adding and removing liquidity have their own pair, `lpWriteConfig` and
+// `readLpGate`: LP's own switch (lpWriteFlag.ts), and a gate that reads only the
+// cluster and the pool program, so the launch program can never close a pool's exit.
+//
 // Nothing here signs or sends.
 
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -45,10 +49,12 @@ import {
   decodeAmmConfig,
 } from '../../../solana/cpswap/program';
 import { CURVE_WRITES_ENABLED, curveWriteEnvOverridesAllowed, isCurveWriteEnabled } from '../curveWriteFlag';
+import { lpWriteMode, type LpWriteMode } from '../lpWriteFlag';
 import type {
   ActionAvailability,
   CurveWriteConfig,
   GraduationReadiness,
+  LpGate,
   SolanaCluster,
   WriteGate,
 } from './types';
@@ -212,7 +218,7 @@ export function browserGateRpc(rpc: SolanaRpc = browserRpc()): GateRpc {
 
 const PUBLIC_GENESIS = new Set<string>(Object.values(GENESIS_HASH));
 
-async function checkCluster(rpc: GateRpc, cluster: SolanaCluster): Promise<WriteGate | null> {
+async function checkCluster(rpc: GateRpc, cluster: SolanaCluster): Promise<Extract<WriteGate, { kind: 'blocked' }> | null> {
   let genesis: string;
   try {
     genesis = await rpc.getGenesisHash();
@@ -363,6 +369,51 @@ export async function readWriteGate(rpc: GateRpc, cfg: CurveWriteConfig | null):
     paused: global.paused,
     graduation,
   };
+}
+
+// ── liquidity: its own switch and its own, smaller gate ──────────────────────
+
+/**
+ * The write configuration for adding and removing liquidity, or `null` when LP's own
+ * switch is 'off'. Otherwise exactly `curveWriteConfig` with the curve's flag forced
+ * on, so every production id check still applies (the committed ids must be the
+ * registered pair, and the pool client's own id must equal the registered cp-swap id).
+ */
+export function lpWriteConfig(
+  env: Env = viteEnv(),
+  committed: CommittedWriteIds = COMMITTED_WRITE_IDS,
+  mode: LpWriteMode = lpWriteMode(env),
+): CurveWriteConfig | null {
+  if (mode === 'off') return null;
+  return curveWriteConfig(env, { ...committed, enabled: true });
+}
+
+/**
+ * Read the chain and decide whether liquidity may be offered. Two reads only: the
+ * cluster (genesis hash) and that the pool program is deployed (ProgramData followed).
+ *
+ * It NEVER reads the launch program, `global` or a fee tier: a launch-program problem
+ * (missing, paused, a `global` that will not decode or names another pool program)
+ * must not close the way out of a pool. `readWriteGate` above would.
+ */
+export async function readLpGate(rpc: GateRpc, cfg: CurveWriteConfig | null, mode: LpWriteMode = lpWriteMode()): Promise<LpGate> {
+  if (!cfg || mode === 'off') return { kind: 'off' };
+
+  const wrongCluster = await checkCluster(rpc, cfg.cluster);
+  if (wrongCluster) return wrongCluster;
+
+  const cpswap = await readDeployment(rpc, cfg.cpSwapProgram);
+  if (cpswap.kind === 'unreadable') {
+    return { kind: 'blocked', reason: 'unreadable', detail: `Could not read the pool program: ${cpswap.detail}` };
+  }
+  if (cpswap.kind !== 'deployed') {
+    return {
+      kind: 'blocked',
+      reason: 'cpswap-program-missing',
+      detail: `There is no working pool program at ${cfg.cpSwapProgram.toBase58()} on this network (${cpswap.kind}).`,
+    };
+  }
+  return { kind: 'open', cfg, mode };
 }
 
 // ── what may be offered ──────────────────────────────────────────────────────

@@ -89,6 +89,15 @@ const UNMOUNTED_BY_DESIGN: Array<{ pattern: RegExp; because: string }> = [
       'shared fake WriteApi for the /curve-launch UI suites (curve/*.test.tsx and ' +
       'pages/CurveLaunchDetailPage.test.tsx), which is the only place it is imported.',
   },
+  {
+    pattern: /^solana\/lp\/offers\.ts$/,
+    because:
+      'Adding and removing liquidity on /pools is built in steps (SPEC_S2 section 6). Step C6 ' +
+      'adds the pure rules for which button a pool card or a position row offers; step C8 ' +
+      'wires them into PoolCard and YourPositions. Until then nothing on the page offers a ' +
+      'liquidity action, by design. The exemption test below fails the moment C8 mounts it: ' +
+      'delete this entry then.',
+  },
 ];
 
 const isTest = (p: string) => /\.(test|spec)\.[tj]sx?$/.test(p);

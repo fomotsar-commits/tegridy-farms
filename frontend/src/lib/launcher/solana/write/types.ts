@@ -73,6 +73,20 @@ export type WriteGate =
 
 export type OpenGate = Extract<WriteGate, { kind: 'open' }>;
 
+/**
+ * Whether adding or removing liquidity may be offered. Read from the cluster and the
+ * pool program only: never the launch program, `global` or a fee tier, so nothing
+ * about the launch program can close the way out of a pool (spec D2).
+ */
+export type LpGate =
+  /** LP's own switch is off, or there is no write configuration. */
+  | { kind: 'off' }
+  | { kind: 'blocked'; reason: GateBlock; detail: string }
+  /** `mode` 'withdraw-only': removing works, adding is paused. */
+  | { kind: 'open'; cfg: CurveWriteConfig; mode: 'on' | 'withdraw-only' };
+
+export type LpOpenGate = Extract<LpGate, { kind: 'open' }>;
+
 export interface ActionAvailability {
   create: boolean;
   buy: boolean;
