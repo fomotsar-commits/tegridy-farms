@@ -15,6 +15,31 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-01 — after `await findByRole(...)`, a re-render a promise queued meanwhile may not have committed
+
+**Believed:** once `await screen.findByRole('dialog')` returns, the page is settled, so a
+click on the next line reads the latest state.
+
+**Measured** (React 19.2.8, @testing-library/react 16.3.3, vitest 4.1.11, jsdom): RTL's
+`asyncWrapper` switches act mode off for the whole `findBy*`/`waitFor`, then resolves after
+a `setTimeout(0)`. A promise that settles in that window (here, WalletProvider restoring a
+saved wallet on mount) sets state outside any act scope, so React queues the re-render on
+its Scheduler, which in Node is a `setImmediate`. The event loop decides which runs first.
+On PR #684 (a `.gitleaks.toml`-only diff) the timer won on a CI runner: the row click
+closed over the render that still said `connecting: true`, skipped `connect()`, and
+`waitFor` timed out with `expected +0 to be 1` after ~1044 ms. A probe that forced that
+order (open the dialog, drain microtasks only, click) failed the same way every run, with
+the committed `connecting` still `true`.
+
+**Do:** let async work started at mount finish inside an awaited `act()` before the first
+`findBy*`. React keeps an async act's queue open until a later `setImmediate` finds it
+empty (`recursivelyFlushAsyncActWork`), so a state update from a microtask chain is
+queued and committed before act resolves. Where a click acts synchronously, assert right
+after it: a `waitFor` around a call that never happens only turns a wrong state into a
+one-second timeout.
+
+---
+
 ## 2026-09-24 — MetaMask's SDK does not read through your wagmi transports, and `enableAnalytics: false` does not switch its analytics off
 
 **Believed:** once the CSP allows every RPC host in the wagmi transports, a connected wallet
