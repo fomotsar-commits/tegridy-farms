@@ -2,17 +2,19 @@
 //
 // The leave rule, row by row (spec 3.7): what may refuse adding, and the much shorter
 // list of what may refuse removing.
-import { describe, it, expect } from 'vitest';
-import { Keypair } from '@solana/web3.js';
-import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISABLE_WITHDRAW } from '../../../lib/solana/cpswap/program';
-import { assessPool, FAR_FUTURE_SECS } from '../../../lib/solana/lp/poolHealth';
-import type { PoolView } from '../../../lib/solana/lp/poolFinder';
+import { describe, it, expect, expectTypeOf } from 'vitest';
+import { Keypair, type PublicKey } from '@solana/web3.js';
+import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISABLE_WITHDRAW, publicTierConfig } from '../../../lib/solana/cpswap/program';
+import { assessPool, FAR_FUTURE_SECS, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
+import type { PoolSearch, PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { Position } from '../../../lib/solana/lp/positions';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.fixture';
+import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
+import { PROGRAM, buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.fixture';
+import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { CurveWriteConfig, LpGate } from '../curve/ports';
-import { depositOffer, lpHeld, withdrawOffer } from './offers';
+import { createHeld, createOffer, depositOffer, lpHeld, withdrawOffer, type CreateOffer } from './offers';
 
 const mint = key();
 const SOL = 10n * 10n ** 9n;
@@ -202,5 +204,161 @@ describe('lpHeld', () => {
   it('a note of another kind never holds a liquidity form', () => {
     expect(lpHeld([note('pool-buy', null), note('buy', null)], A, 'add')).toBe(false);
     expect(lpHeld([], A, 'remove')).toBe(false);
+  });
+});
+
+// ── opening a pool (SPEC_S2_CREATE 2.5, N14, N15) ─────────────────────────────
+
+const SIG = '5'.repeat(88);
+const noteOf = (kind: PendingTrade['kind'], pool: string | null): PendingTrade => ({ kind, signature: SIG, lastValidBlockHeight: 1, sentAt: 0, pool });
+
+describe('createHeld', () => {
+  it('any pending opening holds Create, even one whose pool could not be read back', () => {
+    expect(createHeld([noteOf('lp-create', key().toBase58())])).toBe(true);
+    expect(createHeld([noteOf('lp-create', null)])).toBe(true);
+    expect(createHeld([noteOf('pool-buy', null), noteOf('lp-create', key().toBase58())])).toBe(true);
+  });
+
+  it('a pending deposit or withdrawal does not', () => {
+    expect(createHeld([noteOf('lp-deposit', null), noteOf('lp-withdraw', key().toBase58())])).toBe(false);
+    expect(createHeld([])).toBe(false);
+  });
+
+  it('a pending opening never holds Add or Remove, on its pool or any other', () => {
+    const P = key().toBase58();
+    for (const pool of [P, null]) {
+      expect(lpHeld([noteOf('lp-create', pool)], P, 'add')).toBe(false);
+      expect(lpHeld([noteOf('lp-create', pool)], P, 'remove')).toBe(false);
+    }
+  });
+});
+
+describe('createOffer', () => {
+  // The pools here are built by the LP testkit against its own PROGRAM, so the gate
+  // names that program: tier 1 is then the testkit's tier 1.
+  const lpCfg = { programId: key(), cpSwapProgram: PROGRAM, cluster: 'localnet' } as CurveWriteConfig;
+  const GATE: LpGate = { kind: 'open', cfg: lpCfg, mode: 'on' };
+  const TIER1 = publicTierConfig(PROGRAM);
+  const tierConfig = {
+    address: TIER1.toBase58(), index: 1, disableCreatePool: false, tradeFeeRate: 10_000n, protocolFeeRate: 160_000n,
+    fundFeeRate: 0n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: key().toBase58(), fundOwner: key().toBase58(),
+  };
+  const READY: CreateFacts = { tier: { kind: 'ready', address: TIER1, config: tierConfig }, feeAccount: { kind: 'ready' } };
+  const healthOf = (verdict: PoolHealth['deposits']['verdict']): PoolHealth => ({
+    swaps: { state: 'open' }, withdrawals: 'open', price: { state: 'empty-pool' }, deposits: { verdict, reasons: [] },
+  });
+  /** A TOKEN/SOL pool for `mint` on fee tier `tier` (its standard address), or at a one-off address. */
+  const poolOn = (tier: number, address?: PublicKey) =>
+    ({ kind: 'pool' as const, view: viewOf(buildPool({ mint, solReserve: SOL, tokenReserve: TOK, configIndex: tier, address }), { sol: SOL, tok: TOK }) });
+  type Entry = PoolSearch['pools'][number];
+  const searchOf = (pools: Entry[], index: PoolSearch['index'] = { kind: 'ok', pools: [], truncated: false }): PoolSearchRead => ({
+    kind: 'ok',
+    search: { mint: mint.toBase58(), known: { launchPool: key().toBase58(), standard: [] }, index, pools, otherPairs: 0, knownState: {}, chainNow: NOW },
+  });
+  type In = Parameters<typeof createOffer>[0];
+  const base = (): In => ({
+    mode: 'on', gate: GATE, facts: READY, notes: [], safety: okToken, outside: outside(0.01),
+    search: searchOf([]), healths: new Map(), openedHere: () => false,
+  });
+  const withPool = (a: In, e: Entry, verdict?: PoolHealth['deposits']['verdict']): In => {
+    if (a.search.kind !== 'ok') return a;
+    const healths = new Map(a.healths);
+    if (verdict && e.kind === 'pool') healths.set(e.view.address, healthOf(verdict));
+    return { ...a, search: searchOf([...a.search.search.pools, e], a.search.search.index), healths };
+  };
+
+  it('a readable token with no pool, every fact ready: offer', () => {
+    expect(createOffer(base())).toBe('offer');
+  });
+
+  // Each state's trigger, in the order createOffer checks them. Applied to the base, each
+  // alone gives its own state; applied with the NEXT one, the earlier still wins.
+  const triggers: Array<[CreateOffer, (a: In) => In]> = [
+    ['off', (a) => ({ ...a, mode: 'off' })],
+    ['gate', (a) => ({ ...a, gate: { kind: 'blocked', reason: 'unreadable', detail: 'x' } })],
+    ['paused-here', (a) => ({ ...a, mode: 'withdraw-only' })],
+    ['held', (a) => ({ ...a, notes: [noteOf('lp-create', null)] })],
+    ['checking', (a) => ({ ...a, facts: null })],
+    ['tier-unread', (a) => (a.facts ? { ...a, facts: { ...a.facts, tier: { kind: 'unread', address: TIER1, detail: 'HTTP 429' } } } : a)],
+    ['tier-not-open', (a) => (a.facts ? { ...a, facts: { ...a.facts, tier: { kind: 'not-open', address: TIER1 } } } : a)],
+    ['tier-bad', (a) => (a.facts ? { ...a, facts: { ...a.facts, tier: { kind: 'not-a-tier', address: TIER1, detail: 'x' } } } : a)],
+    ['tier-off', (a) => (a.facts ? { ...a, facts: { ...a.facts, tier: { kind: 'switched-off', address: TIER1, config: tierConfig } } } : a)],
+    ['tier-fee-too-high', (a) => (a.facts ? { ...a, facts: { ...a.facts, tier: { kind: 'fee-too-high', address: TIER1, config: tierConfig, limit: 1n } } } : a)],
+    ['fee-account-unread', (a) => (a.facts ? { ...a, facts: { ...a.facts, feeAccount: { kind: 'unread', detail: 'x' } } } : a)],
+    ['fee-account', (a) => (a.facts ? { ...a, facts: { ...a.facts, feeAccount: { kind: 'missing' } } } : a)],
+    ['token-unread', (a) => ({ ...a, safety: { kind: 'unread', mint: mint.toBase58(), detail: 'x' } })],
+    ['token-refused', (a) => ({ ...a, safety: blockedToken })],
+    ['price-unread', (a) => ({ ...a, outside: { kind: 'unread', detail: 'HTTP 502' } })],
+    ['no-route', (a) => ({ ...a, outside: { kind: 'no-route', detail: 'no route' } })],
+    ['pools-unread', (a) => withPool(a, { kind: 'unread', address: key().toBase58(), detail: 'x' })],
+    ['opened-here', (a) => {
+      const e = poolOn(1, key());
+      return { ...withPool(a, e, 'refused'), openedHere: (p: string) => p === e.view.address };
+    }],
+    ['exists', (a) => withPool(a, poolOn(1), 'allowed')],
+  ];
+
+  it.each(triggers.map(([state], i) => [state, i] as const))('%s, on its own', (state, i) => {
+    expect(createOffer(triggers[i]![1](base()))).toBe(state);
+  });
+
+  it.each(triggers.slice(0, -1).map(([state], i) => [state, triggers[i + 1]![0], i] as const))('%s beats %s', (first, second, i) => {
+    // The tier states, the fee-account states, the token states and the price states
+    // are one input each, so the later trigger would REPLACE the earlier: apply the
+    // later first, so the earlier one is what the input says.
+    const a = triggers[i]![1](triggers[i + 1]![1](base()));
+    expect(createOffer(a), `${first} with ${second}`).toBe(first);
+  });
+
+  it('never offers while any input is unread', () => {
+    const unread: Array<[string, In]> = [
+      ['gate null', { ...base(), gate: null }],
+      ['facts null', { ...base(), facts: null }],
+      ['tier unread', { ...base(), facts: { ...READY, tier: { kind: 'unread', address: TIER1, detail: 'x' } } }],
+      ['fee account unread', { ...base(), facts: { ...READY, feeAccount: { kind: 'unread', detail: 'x' } } }],
+      ['token unread', { ...base(), safety: { kind: 'unread', mint: mint.toBase58(), detail: 'x' } }],
+      ['price null', { ...base(), outside: null }],
+      ['price unread', { ...base(), outside: { kind: 'unread', detail: 'x' } }],
+      ['search unread', { ...base(), search: { kind: 'unread', detail: 'x', index: { kind: 'unread', detail: 'x' } } }],
+      ['index unread', { ...base(), search: searchOf([], { kind: 'unread', detail: 'x' }) }],
+      ['index truncated', { ...base(), search: searchOf([], { kind: 'ok', pools: [], truncated: true }) }],
+      ['an unread entry', withPool(base(), { kind: 'unread', address: key().toBase58(), detail: 'x' })],
+      ['an unchecked pool', withPool(base(), poolOn(0), 'unchecked')],
+      ['a pool with no health', withPool(base(), poolOn(0))],
+    ];
+    for (const [name, a] of unread) expect(createOffer(a), name).not.toBe('offer');
+  });
+
+  it('a passing pool blocks only when it is on the public tier: a passing tier-0 pool still gives offer', () => {
+    expect(createOffer(withPool(base(), poolOn(1), 'allowed'))).toBe('exists');
+    expect(createOffer(withPool(base(), poolOn(0), 'allowed'))).toBe('offer');
+    // A refused tier-1 pool (a squatter's) does not block either.
+    expect(createOffer(withPool(base(), poolOn(1), 'refused'))).toBe('offer');
+  });
+
+  it('a pool this tab opened beats a passing one, whatever its own health', () => {
+    const mine = poolOn(1);
+    const a = { ...withPool(base(), mine, 'allowed'), openedHere: (p: string) => p === mine.view.address };
+    expect(createOffer(a)).toBe('opened-here');
+    const notOpenYet = { ...withPool(base(), mine, 'refused'), openedHere: (p: string) => p === mine.view.address };
+    expect(createOffer(notOpenYet)).toBe('opened-here');
+  });
+
+  it('SOL under the newer token program is refused', () => {
+    expect(createOffer({ ...base(), safety: { ...okToken, mint: TOKEN_2022_NATIVE_MINT } })).toBe('token-refused');
+  });
+});
+
+describe('Add and Remove never read the create facts', () => {
+  it('by type: neither offer takes them', () => {
+    expectTypeOf<Parameters<typeof depositOffer>[0]>().not.toHaveProperty('facts');
+    expectTypeOf<Parameters<typeof withdrawOffer>[0]>().not.toHaveProperty('facts');
+  });
+
+  it('at run time: with every create fact bad, Remove and Add are still offered', () => {
+    const v = view();
+    const bad = { facts: { tier: { kind: 'unread' }, feeAccount: { kind: 'missing' } } };
+    expect(withdrawOffer({ mode: 'on', gate: OPEN, position: position(v), held: false, ...bad } as Parameters<typeof withdrawOffer>[0])).toBe('offer');
+    expect(depositOffer({ mode: 'on', gate: OPEN, health: health(v), held: false, ...bad } as Parameters<typeof depositOffer>[0])).toBe('offer');
   });
 });

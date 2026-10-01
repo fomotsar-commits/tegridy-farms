@@ -24,6 +24,9 @@
 // Adding and removing liquidity have their own pair, `lpWriteConfig` and
 // `readLpGate`: LP's own switch (lpWriteFlag.ts), and a gate that reads only the
 // cluster and the pool program, so the launch program can never close a pool's exit.
+// Opening a pool reads two more facts BESIDE that gate (`readCreateFacts`): the public
+// fee tier and the pool program's fee account. They can stop an opening, never a
+// withdrawal.
 //
 // Nothing here signs or sends.
 
@@ -46,16 +49,21 @@ import {
   LIVE_PROGRAM_ID as CPSWAP_LIVE_PROGRAM_ID,
   REGISTERED_PROGRAM_ID as CPSWAP_REGISTERED_PROGRAM_ID,
   SPENT_PROGRAM_ID as CPSWAP_SPENT_PROGRAM_ID,
+  PUBLIC_TIER_INDEX,
   decodeAmmConfig,
+  publicTierConfig,
 } from '../../../solana/cpswap/program';
 import { CURVE_WRITES_ENABLED, curveWriteEnvOverridesAllowed, isCurveWriteEnabled } from '../curveWriteFlag';
 import { lpWriteMode, type LpWriteMode } from '../lpWriteFlag';
 import type {
   ActionAvailability,
+  CreateFacts,
   CurveWriteConfig,
+  FeeAccountState,
   GraduationReadiness,
   LpGate,
   SolanaCluster,
+  TierState,
   WriteGate,
 } from './types';
 
@@ -414,6 +422,82 @@ export async function readLpGate(rpc: GateRpc, cfg: CurveWriteConfig | null, mod
     };
   }
   return { kind: 'open', cfg, mode };
+}
+
+// ── opening a pool: the public fee tier and the fee account ──────────────────
+//
+// Read beside `readLpGate`, never inside it (spec N3): the gate's two reads decide
+// whether liquidity can be added or removed at all, and a slow or failing tier read
+// must never hold back a withdrawal. Prepare runs the same two pure functions on its
+// own fresh read.
+
+/** Above this fee to open a pool, this site opens none (a guard against a mistyped tier fee). */
+export const MAX_CREATE_FEE_LAMPORTS = 1_000_000_000n;
+
+const TOKEN_PROGRAM_KEY = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+const WSOL_MINT_BYTES = new PublicKey('So11111111111111111111111111111111111111112').toBytes();
+/** An SPL token account: mint 0..32, state at 108, `is_native` COption tag at 109. */
+const TOKEN_ACCOUNT_LEN = 165;
+const TOKEN_ACCOUNT_STATE = 108;
+const TOKEN_ACCOUNT_IS_NATIVE = 109;
+
+/**
+ * What the account at the public tier's address says. `null` = no account there: the
+ * tier has not been created. Owned by anything but the pool program, not an AmmConfig,
+ * or an AmmConfig of another index: not a tier this site can use.
+ */
+export function tierStateOf(address: PublicKey, acc: { owner: string; data: Uint8Array } | null, cpSwapProgram: PublicKey): TierState {
+  if (!acc) return { kind: 'not-open', address };
+  if (acc.owner !== cpSwapProgram.toBase58()) return { kind: 'not-a-tier', address, detail: 'the account is not owned by the pool program' };
+  const config = decodeAmmConfig(address.toBase58(), acc.data);
+  if (!config) return { kind: 'not-a-tier', address, detail: 'the account is not a fee tier' };
+  if (config.index !== PUBLIC_TIER_INDEX) return { kind: 'not-a-tier', address, detail: `it is fee tier ${config.index}, not ${PUBLIC_TIER_INDEX}` };
+  if (config.disableCreatePool) return { kind: 'switched-off', address, config };
+  if (config.createPoolFee > MAX_CREATE_FEE_LAMPORTS) return { kind: 'fee-too-high', address, config, limit: MAX_CREATE_FEE_LAMPORTS };
+  return { kind: 'ready', address, config };
+}
+
+/**
+ * Whether the pool program's fee account can take an opening's fee. `initialize`
+ * deserializes it as a token account and syncs it as native wrapped SOL even when the
+ * fee is 0, so it must be exactly that: owned by the token program, 165 bytes, holding
+ * wrapped SOL, set up, and native. Anything else fails every opening.
+ */
+export function feeAccountStateOf(acc: { owner: string; data: Uint8Array } | null): FeeAccountState {
+  if (!acc) return { kind: 'missing' };
+  if (acc.owner !== TOKEN_PROGRAM_KEY) return { kind: 'not-wsol', detail: `it is owned by ${acc.owner}, not the token program` };
+  const d = acc.data;
+  if (d.length !== TOKEN_ACCOUNT_LEN) return { kind: 'not-wsol', detail: `it is ${d.length} bytes, not a ${TOKEN_ACCOUNT_LEN}-byte token account` };
+  for (let i = 0; i < 32; i++) {
+    if (d[i] !== WSOL_MINT_BYTES[i]) return { kind: 'not-wsol', detail: 'it holds another token, not wrapped SOL' };
+  }
+  const state = d[TOKEN_ACCOUNT_STATE];
+  if (state !== 1) return { kind: 'not-wsol', detail: state === 2 ? 'it is frozen' : 'it is not set up' };
+  const native = new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(TOKEN_ACCOUNT_IS_NATIVE, true);
+  if (native !== 1) return { kind: 'not-wsol', detail: 'it is not a native wrapped-SOL account' };
+  return { kind: 'ready' };
+}
+
+/**
+ * The two facts opening a pool needs that the LP gate does not read: the public tier
+ * and the fee account, read together. A failed read is `unread` for that fact alone.
+ * Never throws.
+ */
+export async function readCreateFacts(rpc: GateRpc, cfg: CurveWriteConfig): Promise<CreateFacts> {
+  const address = publicTierConfig(cfg.cpSwapProgram);
+  // Through a resolved promise, so even a call that throws before returning one is caught.
+  const read = (key: PublicKey) =>
+    Promise.resolve()
+      .then(() => rpc.getAccountInfo(key))
+      .then(
+      (a) => ({ ok: true as const, acc: a ? { owner: a.owner.toBase58(), data: a.data } : null }),
+      (e: unknown) => ({ ok: false as const, detail: clipDetail(e) }),
+    );
+  const [tier, fee] = await Promise.all([read(address), read(CP_CREATE_POOL_FEE_RECEIVER)]);
+  return {
+    tier: tier.ok ? tierStateOf(address, tier.acc, cfg.cpSwapProgram) : { kind: 'unread', address, detail: tier.detail },
+    feeAccount: fee.ok ? feeAccountStateOf(fee.acc) : { kind: 'unread', detail: fee.detail },
+  };
 }
 
 // ── what may be offered ──────────────────────────────────────────────────────

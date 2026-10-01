@@ -10,9 +10,11 @@ import {
   LOCKED_LP,
   MAX_LOCK_BPS,
   U64_MAX,
+  feeReserveFor,
   isPlanProblem,
   isqrt,
   openingProblem,
+  planCreate,
   lpForMaxIn,
   maxInFor,
   minLpForBothSides,
@@ -23,6 +25,9 @@ import {
   type PlanProblem,
   type WithdrawPlan,
 } from './liquidityMath';
+// The write layer's own constants, in the test only: liquidityMath stays web3-free.
+import { LAMPORTS_PER_SIGNATURE, MAX_OWN_PRIORITY_LAMPORTS } from '../../launcher/solana/write/budget';
+import { LP_FEE_RESERVE } from '../../launcher/solana/write/liquidity';
 
 /** A snapshot with only what the maths reads: `lpSupply` and the two reserves. */
 function snap(S: bigint, R0: bigint, R1: bigint): PoolSnapshot {
@@ -324,5 +329,79 @@ describe('openingProblem: the site’s share rule for a new pool', () => {
     // 0.1 SOL against 10^12 token units: 10^10 shares.
     expect(openingProblem(100_000_000n, 1_000_000_000_000n)).toBeNull();
     expect(openingProblem(U64_MAX, U64_MAX)).toBeNull();
+  });
+});
+
+describe('planCreate: an opening of exactly what was typed', () => {
+  const base = { solIsToken0: true, sol: 1_000_000_000n, token: 5_000_000n, availableSol: 2_000_000_000n, availableToken: 9_000_000n };
+
+  it('puts SOL on the SOL side, the shares are isqrt, the opener gets supply − 100, and the locked part floors', () => {
+    const p = planCreate(base);
+    if ('problem' in p) throw new Error(p.problem);
+    const supply = isqrt(1_000_000_000n * 5_000_000n);
+    expect(p).toEqual({
+      init0: 1_000_000_000n,
+      init1: 5_000_000n,
+      supply,
+      lp: supply - 100n,
+      locked: { sol: (100n * 1_000_000_000n) / supply, token: (100n * 5_000_000n) / supply },
+    });
+    // 100·5,000,000 / 70,710,678 = 7.07…: floored, never rounded up.
+    expect(p.locked.token).toBe(7n);
+  });
+
+  it('with SOL as token1 the sides swap, and only then', () => {
+    const p = planCreate({ ...base, solIsToken0: false });
+    if ('problem' in p) throw new Error(p.problem);
+    expect([p.init0, p.init1]).toEqual([5_000_000n, 1_000_000_000n]);
+  });
+
+  it('each side over what the wallet can put in, naming it', () => {
+    expect(planCreate({ ...base, availableSol: 999_999_999n })).toEqual({ problem: 'over-balance', side: 'sol', need: 1_000_000_000n, have: 999_999_999n });
+    expect(planCreate({ ...base, availableToken: 4_999_999n })).toEqual({ problem: 'over-balance', side: 'token', need: 5_000_000n, have: 4_999_999n });
+    // Exactly the balance is fine.
+    expect('problem' in planCreate({ ...base, availableSol: 1_000_000_000n, availableToken: 5_000_000n })).toBe(false);
+  });
+
+  it('a balance that was not read runs no rule, and is never taken as 0', () => {
+    expect('problem' in planCreate({ ...base, availableSol: null, availableToken: null })).toBe(false);
+  });
+
+  it('the share rule comes first', () => {
+    expect(planCreate({ ...base, sol: 100n, token: 100n, availableSol: 1n })).toEqual({ problem: 'too-small', supply: 100n });
+    expect(planCreate({ ...base, sol: 0n })).toEqual({ problem: 'empty-side' });
+  });
+});
+
+describe('spendableSol with what an opening also pays', () => {
+  const a = { lamports: 400_000_000n, walletFloor: 890_880n, feeReserve: 1_010_000n, lpAccountRent: 2_039_280n, wsolCreateRent: 2_039_280n };
+
+  it('without alsoPaid, the answer is the deposit one, for 1,000 random wallets', () => {
+    const r = rng(11);
+    for (let i = 0; i < 1_000; i++) {
+      const w = { lamports: r.big(12), walletFloor: r.big(7), feeReserve: r.big(7), lpAccountRent: r.big(7), wsolCreateRent: r.next() < 0.5 ? 0n : r.big(7) };
+      const hold = w.wsolCreateRent > w.walletFloor ? w.wsolCreateRent : w.walletFloor;
+      const left = w.lamports - w.feeReserve - w.lpAccountRent - hold;
+      expect(spendableSol(w)).toBe(left > 0n ? left : 0n);
+      expect(spendableSol({ ...w, alsoPaid: 0n })).toBe(spendableSol(w));
+    }
+  });
+
+  it('holds back the fee to open and the deposits that never come back, once, beside every other term', () => {
+    const paid = 150_000_000n + 40_000_000n;
+    expect(spendableSol({ ...a, alsoPaid: paid })).toBe(400_000_000n - 1_010_000n - 2_039_280n - paid - 2_039_280n);
+    expect(spendableSol(a) - spendableSol({ ...a, alsoPaid: paid })).toBe(paid);
+    expect(spendableSol({ ...a, alsoPaid: paid, feeReserve: 0n }) - spendableSol({ ...a, alsoPaid: paid })).toBe(1_010_000n);
+    expect(spendableSol({ ...a, alsoPaid: paid, lpAccountRent: 0n }) - spendableSol({ ...a, alsoPaid: paid })).toBe(2_039_280n);
+    expect(spendableSol({ ...a, alsoPaid: paid, wsolCreateRent: 0n }) - spendableSol({ ...a, alsoPaid: paid })).toBe(2_039_280n - 890_880n);
+    expect(spendableSol({ ...a, alsoPaid: 10n ** 12n })).toBe(0n);
+  });
+});
+
+describe('feeReserveFor', () => {
+  it('one signature is the deposit reserve; two add exactly one more signature', () => {
+    expect(feeReserveFor(1)).toBe(LP_FEE_RESERVE);
+    expect(feeReserveFor(1)).toBe(LAMPORTS_PER_SIGNATURE + MAX_OWN_PRIORITY_LAMPORTS);
+    expect(feeReserveFor(2)).toBe(2n * LAMPORTS_PER_SIGNATURE + MAX_OWN_PRIORITY_LAMPORTS);
   });
 });

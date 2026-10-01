@@ -102,7 +102,8 @@ export function formatWhen(unixSecs: bigint): string {
   return new Date(ms).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
 }
 
-function compare(pool: number, reference: number, against: PriceReference): PriceCheck {
+/** A price against its reference: more than `PRICE_TOLERANCE` apart disagrees; exactly 3% agrees. */
+export function comparePrice(pool: number, reference: number, against: PriceReference): PriceCheck {
   const diff = pool / reference - 1;
   return { state: Math.abs(diff) > PRICE_TOLERANCE ? 'disagrees' : 'agrees', pool, reference, against, diff };
 }
@@ -120,6 +121,30 @@ function ownPriceOf(view: PoolView, tokenDecimals: number, chainNow: bigint | nu
     tokenDecimals,
     now: chainNow,
   });
+}
+
+/**
+ * The token's part of the verdict, one function for deposits AND for opening a pool, so
+ * both judge a token the same way. Unread is unchecked, never a pass; an absent token, a
+ * blocked one, and one that copies a well-known name from another mint are refused.
+ * `action` changes only the copied-name sentence: what this site will not do with a copy.
+ */
+export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'pools'): { refused: string[]; unchecked: string[] } {
+  const refused: string[] = [];
+  const unchecked: string[] = [];
+  if (!safety || safety.kind === 'unread') unchecked.push('We could not read the token, so we cannot say whether it is safe.');
+  else if (safety.kind === 'absent') refused.push('The token does not exist.');
+  else if (safety.verdict === 'blocked') refused.push('This token is blocked on this site (see why above).');
+  // A copied well-known name stays a warning on the token itself, but nobody adds
+  // liquidity here to a token that poses as SOL, USDC, USDT, BAYLA or TOWELI.
+  if (safety?.kind === 'read' && safety.warnings.some((w) => w.code === 'copies-known-name')) {
+    refused.push(
+      action === 'deposits'
+        ? 'It calls itself by a well-known token’s name but has a different mint. This site does not take deposits into copies.'
+        : 'It calls itself by a well-known token’s name but has a different mint. This site does not open pools for copies.',
+    );
+  }
+  return { refused, unchecked };
 }
 
 export function assessPool(input: {
@@ -168,7 +193,7 @@ export function assessPool(input: {
   } else if (poolPrice === null) {
     price = { state: 'empty-pool' };
   } else if (outside?.kind === 'ok') {
-    price = compare(poolPrice, outside.solPerToken, 'outside');
+    price = comparePrice(poolPrice, outside.solPerToken, 'outside');
   } else if (tokenBlocked) {
     price = { state: 'skipped', pool: poolPrice, detail: 'not compared, because the token is blocked' };
   } else if (isLaunchPool && outside?.kind === 'no-route') {
@@ -177,7 +202,7 @@ export function assessPool(input: {
     const own = ownPriceOf(view, tokenDecimals, chainNow);
     price =
       own.kind === 'ok'
-        ? compare(poolPrice, own.solPerToken, 'own-average')
+        ? comparePrice(poolPrice, own.solPerToken, 'own-average')
         : own.kind === 'no-trades'
           ? { state: 'no-trades-yet', pool: poolPrice }
           : { state: 'unread', pool: poolPrice, detail: `no outside price (${outside?.detail ?? 'not asked'}), and its own price history could not be used: ${own.detail}` };
@@ -198,14 +223,9 @@ export function assessPool(input: {
 
   if (view.config === null) unchecked.push('We could not read this pool’s fee settings.');
 
-  if (!safety || safety.kind === 'unread') unchecked.push('We could not read the token, so we cannot say whether it is safe.');
-  else if (safety.kind === 'absent') refused.push('The token does not exist.');
-  else if (safety.verdict === 'blocked') refused.push('This token is blocked on this site (see why above).');
-  // A copied well-known name stays a warning on the token itself, but nobody adds
-  // liquidity here to a token that poses as SOL, USDC, USDT, BAYLA or TOWELI.
-  if (safety?.kind === 'read' && safety.warnings.some((w) => w.code === 'copies-known-name')) {
-    refused.push('It calls itself by a well-known token’s name but has a different mint. This site does not take deposits into copies.');
-  }
+  const token = tokenReasons(safety, 'deposits');
+  refused.push(...token.refused);
+  unchecked.push(...token.unchecked);
 
   return {
     swaps,

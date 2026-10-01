@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { assessPool, poolSolPerToken, PRICE_TOLERANCE, FAR_FUTURE_SECS } from './poolHealth';
+import { assessPool, comparePrice, poolSolPerToken, PRICE_TOLERANCE, FAR_FUTURE_SECS, tokenReasons } from './poolHealth';
 import { decodeObservationState } from './ownPrice';
 import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISABLE_WITHDRAW } from '../cpswap/program';
 import type { PoolView } from './poolFinder';
@@ -197,5 +197,64 @@ describe('assessPool: a copied well-known name', () => {
   it('any other warning alone still allows deposits (a live mint authority stays a warning)', () => {
     const warned: TokenSafety = { ...OK_TOKEN, verdict: 'warn', warnings: [{ code: 'mint-authority', text: 'x' }] } as TokenSafety;
     expect(assessPool({ ...base, safety: warned, view: view(), outside: outside(0.01) }).deposits.verdict).toBe('allowed');
+  });
+});
+
+// One judgement of the token, shared by deposits and by opening a pool (SPEC_S2_CREATE
+// N7, N16): assessPool's token reasons ARE tokenReasons(…, 'deposits'), and the pools
+// version differs only in the copied-name sentence.
+describe('tokenReasons', () => {
+  const copy: TokenSafety = {
+    ...OK_TOKEN,
+    verdict: 'warn',
+    warnings: [{ code: 'copies-known-name', text: 'It calls itself USDC, but it is NOT the real USDC.' }],
+  } as TokenSafety;
+  const blockedCopy: TokenSafety = {
+    ...copy,
+    verdict: 'blocked',
+    blocks: [{ code: 'freeze-authority', text: 'x' }],
+  } as TokenSafety;
+  const fixtures: Array<[string, TokenSafety | null]> = [
+    ['ok', OK_TOKEN],
+    ['warned', { ...OK_TOKEN, verdict: 'warn', warnings: [{ code: 'mint-authority', text: 'x' }] } as TokenSafety],
+    ['blocked', { ...OK_TOKEN, verdict: 'blocked', blocks: [{ code: 'freeze-authority', text: 'x' }] } as TokenSafety],
+    ['a copied name', copy],
+    ['a blocked copy', blockedCopy],
+    ['absent', { kind: 'absent', mint: mint.toBase58() }],
+    ['unread', { kind: 'unread', mint: mint.toBase58(), detail: 'HTTP 502' }],
+    ['not read at all', null],
+  ];
+
+  it.each(fixtures)('%s: the deposit reasons are exactly the token part of assessPool', (_name, safety) => {
+    // A pool that passes everything else, so every reason left is the token's.
+    const h = assessPool({ ...base, safety, view: view(), outside: outside(0.01) });
+    const t = tokenReasons(safety, 'deposits');
+    expect(h.deposits.reasons).toEqual([...t.refused, ...t.unchecked]);
+  });
+
+  it.each(fixtures)('%s: the pools version differs only in the copied-name sentence', (_name, safety) => {
+    const deposits = tokenReasons(safety, 'deposits');
+    const pools = tokenReasons(safety, 'pools');
+    const swap = (s: string) => s.replace('This site does not take deposits into copies.', 'This site does not open pools for copies.');
+    expect(pools).toEqual({ refused: deposits.refused.map(swap), unchecked: deposits.unchecked });
+  });
+
+  it('a copied name is refused for both, each in its own words', () => {
+    expect(tokenReasons(copy, 'deposits').refused).toEqual([
+      'It calls itself by a well-known token’s name but has a different mint. This site does not take deposits into copies.',
+    ]);
+    expect(tokenReasons(copy, 'pools').refused).toEqual([
+      'It calls itself by a well-known token’s name but has a different mint. This site does not open pools for copies.',
+    ]);
+  });
+});
+
+describe('comparePrice', () => {
+  it('is the deposit check’s own comparison, exported: 3% apart (as near as a double gets) agrees, more disagrees', () => {
+    expect(comparePrice(0.206, 0.2, 'outside')).toMatchObject({ state: 'agrees', against: 'outside' });
+    expect(comparePrice(0.2062, 0.2, 'outside')).toMatchObject({ state: 'disagrees' });
+    expect(comparePrice(0.1941, 0.2, 'outside').state).toBe('agrees');
+    expect(comparePrice(0.1938, 0.2, 'outside').state).toBe('disagrees');
+    expect(PRICE_TOLERANCE).toBe(0.03);
   });
 });

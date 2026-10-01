@@ -244,16 +244,77 @@ export function openingProblem(amount0: bigint, amount1: bigint): Exclude<Create
   return null;
 }
 
+export interface CreatePlan {
+  /** What `initialize` carries, by side: token0 first. */
+  init0: bigint;
+  init1: bigint;
+  /** isqrt(sol·token): the pool's whole share count. */
+  supply: bigint;
+  /** What the opener gets: supply − 100. */
+  lp: bigint;
+  /** What the 100 locked shares are worth at these amounts (floor; display). */
+  locked: { sol: bigint; token: bigint };
+}
+
+/**
+ * An opening of exactly `sol` and `token`. The share rule first (`openingProblem`), then
+ * each side against what the wallet can put in. A `null` balance was not read: it runs
+ * no rule and is never treated as 0.
+ */
+export function planCreate(a: {
+  solIsToken0: boolean;
+  sol: bigint;
+  token: bigint;
+  availableSol: bigint | null;
+  availableToken: bigint | null;
+}): CreatePlan | CreateProblem {
+  const problem = openingProblem(a.sol, a.token);
+  if (problem) return problem;
+  if (a.availableSol !== null && a.sol > a.availableSol) return { problem: 'over-balance', side: 'sol', need: a.sol, have: a.availableSol };
+  if (a.availableToken !== null && a.token > a.availableToken) {
+    return { problem: 'over-balance', side: 'token', need: a.token, have: a.availableToken };
+  }
+  const supply = isqrt(a.sol * a.token);
+  return {
+    init0: a.solIsToken0 ? a.sol : a.token,
+    init1: a.solIsToken0 ? a.token : a.sol,
+    supply,
+    lp: supply - LOCKED_LP,
+    locked: { sol: (LOCKED_LP * a.sol) / supply, token: (LOCKED_LP * a.token) / supply },
+  };
+}
+
+/**
+ * The network-fee reserve held back from what a transaction may spend: 5,000 lamports per
+ * signature plus the most priority fee this site's own transactions carry (1,000,000).
+ * Pinned by a test to `LAMPORTS_PER_SIGNATURE` and `MAX_OWN_PRIORITY_LAMPORTS` (write
+ * layer, budget.ts), which this web3-free file does not import. An opening always uses
+ * two signatures' worth, whichever address it ends up at.
+ */
+export function feeReserveFor(signatures: 1 | 2): bigint {
+  return 5_000n * BigInt(signatures) + 1_000_000n;
+}
+
 /**
  * The most SOL a deposit may take from this wallet (section 3.8, the rent band):
  * `max(0, lamports − feeReserve − lpAccountRent − max(wsolCreateRent, walletFloor))`.
  *   - during the transaction the wallet pays the WSOL account's rent (when it is
  *     created), the LP account's rent and the wrapped amount;
  *   - at the end it must keep its own rent floor even if all of that amount is used;
- *   - `wsolCreateRent` is 0 when the WSOL account already exists.
+ *   - `wsolCreateRent` is 0 when the WSOL account already exists;
+ *   - `alsoPaid` is anything else the transaction takes for good: for an opening, the fee
+ *     to open plus the deposits for the pool's own accounts. Without it, every deposit's
+ *     answer is what it always was.
  */
-export function spendableSol(a: { lamports: bigint; walletFloor: bigint; feeReserve: bigint; lpAccountRent: bigint; wsolCreateRent: bigint }): bigint {
+export function spendableSol(a: {
+  lamports: bigint;
+  walletFloor: bigint;
+  feeReserve: bigint;
+  lpAccountRent: bigint;
+  wsolCreateRent: bigint;
+  alsoPaid?: bigint;
+}): bigint {
   const hold = a.wsolCreateRent > a.walletFloor ? a.wsolCreateRent : a.walletFloor;
-  const left = a.lamports - a.feeReserve - a.lpAccountRent - hold;
+  const left = a.lamports - a.feeReserve - a.lpAccountRent - (a.alsoPaid ?? 0n) - hold;
   return left > 0n ? left : 0n;
 }

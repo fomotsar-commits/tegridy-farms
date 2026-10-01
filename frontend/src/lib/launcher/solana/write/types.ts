@@ -87,6 +87,37 @@ export type LpGate =
 
 export type LpOpenGate = Extract<LpGate, { kind: 'open' }>;
 
+/** The public fee tier's terms a person is shown before opening a pool, and that prepare re-checks. */
+export type TierTerms = Pick<AmmConfigView, 'createPoolFee' | 'tradeFeeRate' | 'protocolFeeRate' | 'fundFeeRate' | 'creatorFeeRate'>;
+
+/**
+ * The public fee tier (tier 1), as read for opening a pool. Separate from `LpGate`:
+ * nothing here can close or open adding and removing liquidity (spec N3).
+ */
+export type TierState =
+  | { kind: 'ready'; address: PublicKey; config: AmmConfigView }
+  /** No account there: the vault has not created the tier yet. */
+  | { kind: 'not-open'; address: PublicKey }
+  /** The tier's `disable_create_pool` is on. */
+  | { kind: 'switched-off'; address: PublicKey; config: AmmConfigView }
+  /** Its fee to open is above this site's ceiling. */
+  | { kind: 'fee-too-high'; address: PublicKey; config: AmmConfigView; limit: bigint }
+  /** Something is there, but not the pool program's tier 1 (wrong owner, undecodable, another index). */
+  | { kind: 'not-a-tier'; address: PublicKey; detail: string }
+  | { kind: 'unread'; address: PublicKey; detail: string };
+
+/** The pool program's fee account for openings: it must be a native wrapped-SOL account, or every opening fails. */
+export type FeeAccountState =
+  | { kind: 'ready' }
+  | { kind: 'missing' }
+  | { kind: 'not-wsol'; detail: string }
+  | { kind: 'unread'; detail: string };
+
+export interface CreateFacts {
+  tier: TierState;
+  feeAccount: FeeAccountState;
+}
+
 export interface ActionAvailability {
   create: boolean;
   buy: boolean;
