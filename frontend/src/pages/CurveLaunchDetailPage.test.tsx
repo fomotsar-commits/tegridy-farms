@@ -274,7 +274,7 @@ describe('the launch page', () => {
   it('a trade still landing from before a reload: shows it, and no buy, sell, graduation or pool form', () => {
     const recheck = vi.fn();
     const dismiss = vi.fn();
-    const note = { kind: 'buy' as const, signature: SIG, lastValidBlockHeight: 99, sentAt: Date.now() };
+    const note = { kind: 'buy' as const, signature: SIG, lastValidBlockHeight: 99, sentAt: Date.now(), pool: null };
     renderView({ pendingTrade: { notes: [note], checking: false, message: 'The network has no record of it yet.', recheck, dismiss } });
     expect(screen.getByTestId('pending-trade')).toHaveTextContent(/Sent, not confirmed yet\. Trading here stays off/);
     expect(screen.getByTestId('pending-trade')).toHaveTextContent(SIG);
@@ -289,7 +289,7 @@ describe('the launch page', () => {
   });
 
   it('while the first check is running, still no trade form', () => {
-    const note = { kind: 'sell' as const, signature: SIG, lastValidBlockHeight: null, sentAt: Date.now() };
+    const note = { kind: 'sell' as const, signature: SIG, lastValidBlockHeight: null, sentAt: Date.now(), pool: null };
     renderView({ pendingTrade: { notes: [note], checking: true, message: null, recheck: vi.fn(), dismiss: vi.fn() } });
     expect(screen.getByText('Checking it on the network…')).toBeInTheDocument();
     expect(screen.queryByTestId('curve-trade-panel')).not.toBeInTheDocument();
@@ -391,7 +391,7 @@ describe('the launch page', () => {
 
   // UXR2: the pending card's buttons were switched off while checking, dropping focus.
   it('the pending-trade card keeps focus on Check again while it checks, and says what each check found', () => {
-    const note = { kind: 'buy' as const, signature: SIG, lastValidBlockHeight: 99, sentAt: Date.now() };
+    const note = { kind: 'buy' as const, signature: SIG, lastValidBlockHeight: 99, sentAt: Date.now(), pool: null };
     const recheck = vi.fn();
     const dismiss = vi.fn();
     renderView({ pendingTrade: { notes: [note], checking: true, message: null, recheck, dismiss } });

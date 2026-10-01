@@ -44,6 +44,8 @@ import {
 } from '../components/solana/curve/pendingLaunch';
 import { holdingFact, openingBuyFromOrigin, type Fact } from '../components/solana/curve/facts';
 import { usePendingTrades, type PendingTradesState } from '../components/solana/curve/usePendingTrades';
+import { curveTradeScope } from '../components/solana/curve/pendingTrade';
+import { PendingTradeCard } from '../components/solana/curve/PendingTradeCard';
 import { BeforeYouTrade } from '../components/solana/curve/BeforeYouTrade';
 import { reserveDisclosure, sharePercent } from '../components/solana/curve/uiFormat';
 import type { OnSettled } from '../components/solana/curve/useTxFlow';
@@ -103,55 +105,13 @@ export interface SolanaLaunchViewProps {
     | null;
 }
 
-/** A trade sent from this browser that the chain has not answered for yet. Trading stays off until it has. */
-function PendingTradeCard({
-  state,
-  explorerUrl,
-}: {
-  state: NonNullable<SolanaLaunchViewProps['pendingTrade']>;
-  explorerUrl: (signature: string) => string;
-}) {
-  return (
-    <Card title="Your last trade may still be landing" testId="pending-trade">
-      <Notice tone="warn">Sent, not confirmed yet. Trading here stays off until it is checked.</Notice>
-      <Notice>It may still go through. Sending another trade now could make you pay twice.</Notice>
-      {/* Always there, so each check's answer is read out when it arrives. */}
-      <p role="status" className="text-white/55">
-        {state.checking ? 'Checking it on the network…' : (state.message ?? '')}
-      </p>
-      {state.notes.map((n) => (
-        <div key={n.signature} className="space-y-1">
-          <Row label="Transaction signature" value={n.signature} />
-          <a
-            href={explorerUrl(n.signature)}
-            target="_blank"
-            rel="noopener noreferrer nofollow"
-            className="underline text-white/80"
-          >
-            View on the explorer
-          </a>
-        </div>
-      ))}
-      {/* aria-disabled, not disabled: a button switched off under the keyboard drops focus to the page. */}
-      <button
-        type="button"
-        className={`btn-primary w-full py-2 text-[12px] ${state.checking ? 'opacity-60' : ''}`}
-        aria-disabled={state.checking || undefined}
-        onClick={() => !state.checking && state.recheck()}
-      >
-        Check again
-      </button>
-      <button
-        type="button"
-        className={`btn-secondary w-full py-2 text-[12px] ${state.checking ? 'opacity-60' : ''}`}
-        aria-disabled={state.checking || undefined}
-        onClick={() => !state.checking && state.dismiss()}
-      >
-        I checked my wallet: start over
-      </button>
-    </Card>
-  );
-}
+/** What the launch's pending-trade card says above its notes. Trading stays off until the chain answers. */
+const TRADE_PENDING_LEAD = (
+  <>
+    <Notice tone="warn">Sent, not confirmed yet. Trading here stays off until it is checked.</Notice>
+    <Notice>It may still go through. Sending another trade now could make you pay twice.</Notice>
+  </>
+);
 
 const backLink = (
   <Link to="/curve-launch" className="text-white/70 underline text-[12px]">
@@ -338,7 +298,13 @@ export function SolanaLaunchView({
         />
       )}
       {open && tradeHeld && pendingTrade && (
-        <PendingTradeCard state={pendingTrade} explorerUrl={(sig) => api.explorerTxUrl(sig, open.cfg.cluster)} />
+        <PendingTradeCard
+          state={pendingTrade}
+          explorerUrl={(sig) => api.explorerTxUrl(sig, open.cfg.cluster)}
+          title="Your last trade may still be landing"
+          lead={TRADE_PENDING_LEAD}
+          testId="pending-trade"
+        />
       )}
       {open && launch && curve && actions && tradable && !tradeHeld && (
         <CurveTradePanel
@@ -531,7 +497,7 @@ function SolanaLaunchInner({ mint }: { mint: PublicKey }) {
         : null,
     [gateState, connection],
   );
-  const pendingTrade = usePendingTrades(mintStr, checkTrade, reload);
+  const pendingTrade = usePendingTrades(curveTradeScope(mintStr), checkTrade, reload);
   const recordTrade = pendingTrade.record;
   const onSettled = useCallback<OnSettled>(
     (outcome, prepared, sentSignature) => {

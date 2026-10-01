@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { SIG, buySummary, prepared } from './fakeWriteApi.fixture';
-import { PENDING_TRADE_TTL_MS, readPendingTrades, savePendingTrade } from './pendingTrade';
+import { PENDING_TRADE_TTL_MS, curveTradeScope, readPendingTrades, savePendingTrade } from './pendingTrade';
 import { usePendingTrades, type CheckSignature } from './usePendingTrades';
 import type { TxOutcome } from './ports';
 
@@ -83,7 +83,7 @@ describe('pending trade notes', () => {
   // the next build, or a trade sent just before the deploy loses its lock on reload.
   // So the key is pinned to the byte, in both directions.
   it('a curve note is stored at exactly curve-launch:pending-trade:<mint>, and a note found there is read back', () => {
-    const { result } = renderHook(() => usePendingTrades(MINT_A, null, vi.fn()));
+    const { result } = renderHook(() => usePendingTrades(curveTradeScope(MINT_A), null, vi.fn()));
     act(() => result.current.record({ status: 'unknown', signature: SIG, message: 'slow' }, prepared(buySummary())));
     const keys = Array.from({ length: sessionStorage.length }, (_, i) => sessionStorage.key(i));
     expect(keys).toEqual([`curve-launch:pending-trade:${MINT_A}`]);
@@ -96,7 +96,7 @@ describe('pending trade notes', () => {
       `curve-launch:pending-trade:${MINT_B}`,
       JSON.stringify([{ kind: 'pool-sell', signature: SIG2, lastValidBlockHeight: 7, sentAt: Date.now() }]),
     );
-    expect(readPendingTrades(MINT_B)).toMatchObject([{ kind: 'pool-sell', signature: SIG2, lastValidBlockHeight: 7 }]);
+    expect(readPendingTrades(curveTradeScope(MINT_B))).toMatchObject([{ kind: 'pool-sell', signature: SIG2, lastValidBlockHeight: 7 }]);
   });
 
   it('ignores storage it cannot trust: a bad signature, an unknown kind, or a note past its lifetime', () => {

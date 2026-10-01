@@ -4,8 +4,9 @@ import { clearPendingTrade, readPendingTrades, savePendingTrade, type PendingTra
 import type { PreparedTx, TxOutcome } from './ports';
 
 /**
- * The page-level half of "sent, not confirmed yet": a trade on this mint that this
- * browser sent and could not confirm survives a reload or a trip away from the page.
+ * The page-level half of "sent, not confirmed yet": a transaction in this scope (one
+ * launch's trades, or every liquidity change) that this browser sent and could not
+ * confirm survives a reload or a trip away from the page.
  *
  * The note is written the moment the transaction is SENT (`sent`, called before the
  * first byte leaves), not when the wait for it ends: a reload during that wait must
@@ -24,7 +25,7 @@ export interface PendingTradesState {
   /** Why the last check could not settle it, in plain words. */
   message: string | null;
   recheck(): void;
-  /** "I checked my wallet": drop every note for this mint. */
+  /** "I checked my wallet": drop every note in this scope. */
   dismiss(): void;
   /** Feed every settled transaction here (a panel's onSettled). */
   record(outcome: TxOutcome, prepared: PreparedTx | null, sentSignature?: string | null): void;
@@ -32,16 +33,22 @@ export interface PendingTradesState {
   sent(signature: string, prepared: PreparedTx): void;
 }
 
+/** The pool a liquidity note names; nothing for any other kind. */
+function poolOf(p: PreparedTx): string | null {
+  return p.summary.kind === 'lp-deposit' || p.summary.kind === 'lp-withdraw' ? p.summary.pool.toBase58() : null;
+}
+
 export type CheckSignature = (signature: string, lastValidBlockHeight: number | null) => Promise<TxOutcome>;
 
 export function usePendingTrades(
-  mint: string,
+  /** The storage scope: `curveTradeScope(mint)` for a launch, `LP_PENDING_SCOPE` for liquidity. */
+  scope: string,
   /** `null` until the page can reach the chain; the first check runs once it can. */
   check: CheckSignature | null,
   /** The chain answered for at least one note: read the launch again. */
   onResolved: () => void,
 ): PendingTradesState {
-  const [notes, setNotes] = useState<PendingTrade[]>(() => readPendingTrades(mint));
+  const [notes, setNotes] = useState<PendingTrade[]>(() => readPendingTrades(scope));
   const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const busy = useRef(false);
@@ -53,7 +60,7 @@ export function usePendingTrades(
 
   const recheck = useCallback(async () => {
     if (!check || busy.current) return;
-    const current = readPendingTrades(mint);
+    const current = readPendingTrades(scope);
     if (current.length === 0) {
       setNotes([]);
       return;
@@ -71,7 +78,7 @@ export function usePendingTrades(
         o = { status: 'unknown', signature: n.signature, message: `Could not check just now (${clipDetail(e)}).` };
       }
       if (o.status === 'confirmed' || o.status === 'reverted' || o.status === 'expired') {
-        clearPendingTrade(mint, n.signature);
+        clearPendingTrade(scope, n.signature);
         resolved = true;
       } else if (o.status === 'unknown') {
         last = o.message;
@@ -80,11 +87,11 @@ export function usePendingTrades(
     busy.current = false;
     setChecking(false);
     setMessage(last);
-    setNotes(readPendingTrades(mint));
+    setNotes(readPendingTrades(scope));
     if (resolved) resolvedRef.current();
-  }, [check, mint]);
+  }, [check, scope]);
 
-  // Check on arrival, before any trade form is shown for this mint.
+  // Check on arrival, before any form this scope holds is shown.
   useEffect(() => {
     if (!check || autoChecked.current || notes.length === 0) return;
     autoChecked.current = true;
@@ -93,19 +100,19 @@ export function usePendingTrades(
 
   const dismiss = useCallback(() => {
     if (busy.current) return;
-    clearPendingTrade(mint);
+    clearPendingTrade(scope);
     setNotes([]);
     setMessage(null);
-  }, [mint]);
+  }, [scope]);
 
   const sent = useCallback(
     (signature: string, prepared: PreparedTx) => {
       if (prepared.kind === 'create') return;
       // Storage only: the panel that sent it keeps showing its own "sent" step. The
       // note is what a reload, or a trip away and back, finds.
-      savePendingTrade(mint, { kind: prepared.kind, signature, lastValidBlockHeight: prepared.lastValidBlockHeight });
+      savePendingTrade(scope, { kind: prepared.kind, signature, lastValidBlockHeight: prepared.lastValidBlockHeight, pool: poolOf(prepared) });
     },
-    [mint],
+    [scope],
   );
 
   const record = useCallback(
@@ -116,13 +123,13 @@ export function usePendingTrades(
       const sig = ('signature' in outcome && outcome.signature) || sentSignature || '';
       if (!sig) return;
       if (outcome.status === 'unknown') {
-        savePendingTrade(mint, { kind: prepared.kind, signature: sig, lastValidBlockHeight: prepared.lastValidBlockHeight });
+        savePendingTrade(scope, { kind: prepared.kind, signature: sig, lastValidBlockHeight: prepared.lastValidBlockHeight, pool: poolOf(prepared) });
       } else {
         // Confirmed, refused or expired: the chain answered for this one.
-        clearPendingTrade(mint, sig);
+        clearPendingTrade(scope, sig);
       }
     },
-    [mint],
+    [scope],
   );
 
   return { notes, checking, message, recheck: () => void recheck(), dismiss, record, sent };
