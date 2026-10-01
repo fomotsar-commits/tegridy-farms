@@ -97,6 +97,14 @@ export const BAYLA_ART: ArtPiece[] = bungalowArtFor('bayla', 'Bayla') ?? [];
 
 export const DEFAULT_BUNGALOW_ID = 'toweli';
 
+/** The TOWELI room's hero heading, which HomePage's classic cluster renders. Its door's
+ *  static frame (scripts/render-bungalow-doors.mjs) and React fallback (DoorFrame) read
+ *  the same two lines. Not an `identity`: one would swap that cluster for BungalowHero. */
+export const TOWELI_HERO: Pick<BungalowIdentity, 'heroTitle' | 'heroLine'> = {
+  heroTitle: 'Farm TOWELI.',
+  heroLine: 'Check our work.',
+};
+
 export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 
 // The BAYLA lighthouse pool (mainnet, nonce 1); reward pool 3ysyH5py46Q4XUXkumGy3DhWjPbNVhLMfQZmpQMdDruf.

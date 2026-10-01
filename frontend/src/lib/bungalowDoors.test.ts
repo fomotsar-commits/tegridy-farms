@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from './bungalows';
+import { BUNGALOWS, DEFAULT_BUNGALOW_ID, TOWELI_HERO, type Bungalow } from './bungalows';
 import { pageArt } from './artConfig';
 import { derivedUrl, naturalWidthOf, widthsFor } from './artSrcSet';
 import { DOORS, transform } from '../../scripts/render-bungalow-doors.mjs';
@@ -16,6 +16,15 @@ const scriptPath = resolve(process.cwd(), 'scripts/render-bungalow-doors.mjs');
 const script = readFileSync(scriptPath, 'utf8');
 const doorPaths = [...script.matchAll(/^\s*path: '([a-z0-9-]+)',$/gm)].map((m) => m[1]!);
 const ogImages = [...script.matchAll(/^\s*image: '([^']+)',$/gm)].map((m) => m[1]!);
+
+/** The heading a room's home page renders in its hero: its identity's, or for the TOWELI
+ *  room the classic cluster's (HomePage). Undefined: a room with no hero of its own. */
+const heroOf = (b: Bungalow | undefined) =>
+  b?.identity ?? (b?.id === DEFAULT_BUNGALOW_ID ? TOWELI_HERO : undefined);
+
+/** Every alias door App.tsx mounts for a room, as { path, id }. */
+const appSource = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8');
+const appAliases = [...appSource.matchAll(/\{ path: '([a-z0-9-]+)', id: '([a-z0-9-]+)' \}/g)].map((m) => ({ path: m[1]!, id: m[2]! }));
 
 describe('bungalow door unfurls (scripts/render-bungalow-doors.mjs)', () => {
   it('covers every non-default bungalow that carries a token-first identity', () => {
@@ -33,13 +42,31 @@ describe('bungalow door unfurls (scripts/render-bungalow-doors.mjs)', () => {
     // the old !live filter would match nothing and pin nothing. The invariant
     // that survives both worlds: any bungalow with an ADDRESS — whatever its
     // live state — has a DOORS entry, so a shared link always unfurls.
+    // 2026-09-30 (answer fifteen, item 5): the default room is addressed too, and
+    // its door is no longer the exception.
     const addressed = BUNGALOWS
-      .filter((b) => b.address && b.id !== DEFAULT_BUNGALOW_ID)
+      .filter((b) => b.address)
       .map((b) => b.id);
-    expect(addressed.length).toBeGreaterThan(0);
+    expect(addressed).toContain(DEFAULT_BUNGALOW_ID);
     for (const id of addressed) {
       expect(doorPaths, `addressed bungalow '${id}' needs a DOORS entry in the postbuild script`).toContain(id);
     }
+  });
+
+  it('gives every live room whose home renders a hero of its own a door, the TOWELI room included', () => {
+    // Answer fifteen, item 5: "The done-means was every door." A room left out serves the
+    // stock shell, and a stranger reads the venue's no-script heading before the room's.
+    const rooms = BUNGALOWS.filter((b) => b.live && heroOf(b)).map((b) => b.id);
+    expect(rooms).toContain(DEFAULT_BUNGALOW_ID);
+    for (const id of rooms) {
+      expect(DOORS.map((d: Door) => d.path), `room '${id}' renders a hero but has no door page`).toContain(id);
+    }
+  });
+
+  it('serves every alias door App.tsx mounts from its room, and invents none', () => {
+    expect(appAliases, 'App.tsx no longer mounts /towelie the way this test reads it').toContainEqual({ path: 'towelie', id: DEFAULT_BUNGALOW_ID });
+    const served = DOORS.flatMap((d: Door) => (d.aliases ?? []).map((path: string) => ({ path, id: d.path })));
+    expect(served).toEqual(appAliases);
   });
 
   it('never invents a door for an id outside the island registry', () => {
@@ -75,9 +102,9 @@ describe("a door's first frame is the hero its own page renders", () => {
 
   it('reads the heading React renders for that door, word for word', () => {
     for (const door of DOORS) {
-      const identity = BUNGALOWS.find((b) => b.id === door.path && b.live)?.identity;
-      expect(identity, `${door.path} renders no hero of its own`).toBeTruthy();
-      expect([door.heroTitle, door.heroLine], door.path).toEqual([identity!.heroTitle, identity!.heroLine]);
+      const hero = heroOf(BUNGALOWS.find((b) => b.id === door.path && b.live));
+      expect(hero, `${door.path} renders no hero of its own`).toBeTruthy();
+      expect([door.heroTitle, door.heroLine], door.path).toEqual([hero!.heroTitle, hero!.heroLine]);
     }
   });
 
@@ -90,10 +117,9 @@ describe("a door's first frame is the hero its own page renders", () => {
     }
   });
 
-  it('leaves the default room and the quiet slot on the stock shell', () => {
-    for (const id of [DEFAULT_BUNGALOW_ID, 'towelie', 'nb1']) {
-      expect(DOORS.map((d: Door) => d.path)).not.toContain(id);
-    }
+  it('leaves only the quiet slot, which renders a landing and no home hero, on the stock shell', () => {
+    expect(DOORS.map((d: Door) => d.path)).not.toContain('nb1');
+    expect(heroOf(BUNGALOWS.find((b) => b.id === 'nb1'))).toBeUndefined();
   });
 });
 

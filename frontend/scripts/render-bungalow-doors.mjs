@@ -178,8 +178,28 @@ export const DOORS = [
     heroLine: SETTLED_LINE,
     heroArt: '/art/rizz/367449C0-2CBC-44FA-9EF2-933F3EF7846F.png',
   },
-  // toweli (and its /towelie alias) and nb1 have no entry: they serve the stock
-  // shell, where the venue's frame opens only on `/`.
+  // The default room (answer fifteen, item 5: every door). Its hero is HomePage's
+  // classic cluster, TOWELI_HERO in lib/bungalows.ts, over the classic home:0 art.
+  // `aliases`: App.tsx's other door into the same room, written the same page.
+  {
+    path: 'toweli',
+    aliases: ['towelie'],
+    title: 'TOWELI | Jungle Bay Island',
+    description:
+      'Toweli has the original bungalow on Jungle Bay Island, in classic Tegridy art, ' +
+      'living on Ethereum. Farm TOWELI, and check our work. Dank Memes + Time = Memetic Finance.',
+    image: '/art/iphone/IMG_0148.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '2048',
+    imageHeight: '1448',
+    imageAlt: "Toweli's bungalow door on Jungle Bay Island, in classic Tegridy art",
+    heroTitle: 'Farm TOWELI.',
+    heroLine: 'Check our work.',
+    heroArt: '/art/iphone/IMG_0148.jpg',
+    heroPosition: '4% 85%',
+  },
+  // nb1 has no entry: the open lot renders a landing, not a home hero, and serves
+  // the stock shell, where the venue's frame opens only on `/`.
 ];
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -308,10 +328,13 @@ if (launched) {
         throw new Error(`[bungalow-doors] ${door.path}: ${candidate} is not in dist/.`);
       }
     }
-    const dir = resolve(DIST, door.path);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(resolve(dir, 'index.html'), transform(shell, door, manifest));
-    console.log(`[bungalow-doors] wrote dist/${door.path}/index.html`);
+    const page = transform(shell, door, manifest);
+    for (const path of [door.path, ...(door.aliases ?? [])]) {
+      const dir = resolve(DIST, path);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(resolve(dir, 'index.html'), page);
+      console.log(`[bungalow-doors] wrote dist/${path}/index.html`);
+    }
   }
   console.log(`[bungalow-doors] ${DOORS.length} door(s) rendered.`);
 }
