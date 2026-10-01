@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
-import { GITHUB_REPO_URL } from '../lib/constants';
+import { SOURCE_URL } from '../lib/constants';
 
 // TRUST HUB — the one screen that frames the three detection surfaces as a single
 // anti-rug suite instead of three unrelated links buried in a "Stats" submenu.
@@ -157,7 +157,7 @@ export default function TrustHubPage() {
             { label: 'Contracts Verified', to: '/contracts' },
             { label: 'Timelocked Admin', to: '/security' },
             { label: 'Responsible Disclosure', to: '/security' },
-            { label: 'Open Source', href: GITHUB_REPO_URL },
+            { label: 'Open Source', href: SOURCE_URL },
           ].map((b) => (
             'href' in b ? (
               <a key={b.label} href={b.href} target="_blank" rel="noopener noreferrer"

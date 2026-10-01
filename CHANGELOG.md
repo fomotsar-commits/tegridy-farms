@@ -16,6 +16,7 @@ page keeps the newest thirty days.
 
 ### 2026-09-29
 
+- Source and audit links on /contracts, /security, /risks and the trust hub go through memetics.finance/source, which forwards them to wherever the code is hosted.
 - The heat words now match the island's /heat page: Builder 300°, Elder 800°, every other room adds a quarter of its own, the island's own weigh heavier, your clock on a token starts at your first hold, and Base is named beside Ethereum and Solana.
 - The heat explainer reads the island's whole current paragraph, and its current lines on weight and the Apes.
 - On /curve-launch, the door says the island reads every linked wallet, where it used to say a Solana-only wallet cannot be measured.

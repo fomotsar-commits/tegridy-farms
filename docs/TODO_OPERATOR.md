@@ -187,6 +187,93 @@ GitLab can merge.
 
 ---
 
+## ✅ 2026-09-29: the source links go to GitHub; the GitLab standby is public, so it can take them
+
+### ✅ O-0929-11: make the GitLab standby project public, so the source links can fail over (done 2026-09-30)
+
+**Where this stands.** The site's source and audit links (branch `fix/source-links-first-party`)
+redirect to GitHub, `https://github.com/fomotsar-commits/tegridy-farms`, the primary. That repo
+is ours and public: on 2026-09-30 `curl -s https://api.github.com/repos/fomotsar-commits/tegridy-farms`
+returned `"visibility": "public"`, and a file, a folder, the issue list and git's `info/refs`
+all answered. So merging the branch no longer waits on GitLab.
+
+**What is left.** If GitHub goes again, the four `/source` lines move to the GitLab standby.
+DEPLOY_RUNBOOK, "Moving the source links", gives the four lines exactly. That only works if the
+GitLab project is ours and public. A redirect to a name nobody owns sends every trust link on
+the site, and `held-through.json`, to whoever registers it. A private project sends them to a
+sign-in page.
+
+**Done 2026-09-30, by O-0929-H1 step 2A (above), which creates the standby public.** The group
+is `memetics-finance` (`memetics` was taken). The standby
+`memetics-finance/tegridy-farms` is public and holds exactly GitHub's branches and tags; the vault
+project stays private. `curl -s https://gitlab.com/api/v4/projects/memetics-finance%2Ftegridy-farms`
+returned `"visibility":"public"`, and a file, a folder, the issue list and `info/refs` answered
+without a sign-in. If the group is ever renamed, change the address block at the top of
+GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
+`frontend/src/test/sourceLinks.test.ts`, in one PR.
+
+**Before any failover, check again:** that curl must still show `"visibility":"public"`.
+`404 Project Not Found` means stop.
+
+---
+
+## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
+
+### ⬜ O-0929-10: four `security_txt!` fields, changed in the same commit as the upgrade
+
+**What is wrong.** cp-swap has been live on mainnet since 2026-09-29
+(`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`). Explorers show its on-chain security.txt,
+and no link in it does its job. Measured 2026-09-30: `policy` opens `SECURITY.md` on GitHub's
+`main`, a stale branch that lacks 1,817 of `mvp-launch`'s commits. `source_code` is a `404`,
+because `main` has no `solana/tegridy-amm`. `contacts` points at `memetic.fun/trust`, which is
+now another project's 404. And all three depend on one git host, which went dark from
+2026-09-24 to 2026-09-29. Only a program upgrade can change them. Do not upgrade for this alone.
+
+**Do, in the commit that builds the next cp-swap upgrade:** in
+`solana/tegridy-amm/programs/cp-swap/src/lib.rs`, set the macro to exactly these values. The
+email is the `Contact:` in `frontend/public/.well-known/security.txt` on the day you build
+(today `fomotsar@gmail.com`; if they differ, use the file's). Then drop the stale "add a
+dedicated security disclosure email here" comment inside the macro, because the email is now
+there:
+
+```rust
+solana_security_txt::security_txt! {
+    name: "tegridy-cp-amm",
+    project_url: "https://memetics.finance",
+    contacts: "email:fomotsar@gmail.com,link:https://memetics.finance/.well-known/security.txt",
+    policy: "https://memetics.finance/source/solana/tegridy-amm/SECURITY.md",
+    source_code: "https://memetics.finance/source/solana/tegridy-amm",
+    preferred_languages: "en"
+}
+```
+
+- Two contacts, email first. The email works even if memetics.finance is down, so the live
+  program is never left with one dead contact again. The link is second.
+- Every URL is on our own domain. `/.well-known/` is a static file (Vercel cannot redirect
+  that path). `/source/...` is a redirect in `frontend/vercel.json` to whichever git host holds
+  the code, so a future host move is a `vercel.json` edit, never another program upgrade. Never
+  put a git-host URL in a program binary again.
+- The edit changes cp-swap's diff against upstream Raydium, so move the diff-guard's
+  `EXPECTED_DELTA_SHA256` in the same commit. Start from the value on the deployed branch
+  (`ship/solana-launch-on`: `5c737ac7…`), not trunk's.
+
+**You should see**, before the upgrade:
+`curl -sI https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` answers `307`, and
+its `location` opens that file on the git host. Check the file itself opens, not a `404` page
+or the repo root: GitLab answers a path it does not have with the repo root. After the
+upgrade, the explorer's security tab for the program shows the four new values.
+
+### ⬜ O-0929-12: decide whether the two new Solana programs are in the root security scope
+
+Root `SECURITY.md` lists what is in scope, and scope decides safe harbour. The two programs that
+went live on 2026-09-29 are not on that list: cp-swap `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`
+and tegridy-launch `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`. Their own policy,
+`solana/tegridy-amm/SECURITY.md`, takes reports at the same email. Decide, then either add them
+to the root list and to the "In scope" block of `frontend/public/.well-known/security.txt`, or
+say in both that they are out of scope.
+
+---
+
 ## 🟡 2026-09-25: when GitHub access returns, switch on branch auto-delete
 
 ### ⬜ O-0925-1: turn on "Automatically delete head branches", then clear the merged ones

@@ -135,7 +135,11 @@
       "source": "/scanner",
       "destination": "/scan",
       "permanent": false
-    }
+    },
+    { "source": "/source", "destination": "https://github.com/fomotsar-commits/tegridy-farms", "permanent": false },
+    { "source": "/source-issues", "destination": "https://github.com/fomotsar-commits/tegridy-farms/issues", "permanent": false },
+    { "source": "/source/info/refs", "destination": "https://github.com/fomotsar-commits/tegridy-farms.git/info/refs", "permanent": false },
+    { "source": "/source/:path*", "destination": "https://github.com/fomotsar-commits/tegridy-farms/blob/mvp-launch/:path*", "permanent": false }
   ],
   "rewrites": [
     { "source": "/api/alchemy", "destination": "/api/alchemy" },
