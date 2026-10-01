@@ -9,6 +9,9 @@ page keeps the newest thirty days.
 ### 2026-09-30
 
 - On /competitions, the board is called the Volume board, and it links to the island's flames board, ranked by heat.
+- The heat ladder, its next-tier hint and the explainer's tier list use the island's current tiers: Builder at 300 degrees and Elder at 800.
+- The hero, the FAQ and llms.txt read the island's current sentence on rooms.
+- The heat explainer reads the island's whole current paragraph, and its current lines on weight and the Apes.
 
 ### 2026-09-29
 
