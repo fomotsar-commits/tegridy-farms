@@ -60,7 +60,7 @@ export async function readLadderPool(
   if (!info) return unreadable('there is no account at this pool address');
   if (!info.owner.equals(programId)) {
     return unreadable(
-      `that address belongs to ${info.owner.toBase58()}, not the ladder program — check the configured pool`,
+      `that address belongs to ${info.owner.toBase58()}, not the ladder program. Check the configured pool`,
     );
   }
   const d = decodeLadderPool(pool.toBase58(), info.data);

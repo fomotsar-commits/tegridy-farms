@@ -6,7 +6,7 @@ import { DOOR_ROUTES } from './fixtures/doorFrame';
 // A ROOM OPENS ONCE, ON ITS HERO. Each arrival is a new context, so the door has to
 // change the skin. One document per arrival, scrollY 0 at 1, 3 and 7 s, and the H1 in
 // the viewport at 3 and 7 s, and at 1 s for a door with its own HTML (its static
-// frame). /toweli serves the stock shell, so its 1 s H1 is logged. ROOM_ARRIVALS sets
+// frame), which every room route here now is, /toweli included. ROOM_ARRIVALS sets
 // the arrivals per route (default 2). Chromium classes only (desktop and Pixel 5).
 
 const ARRIVALS = Number(process.env.ROOM_ARRIVALS ?? 2);

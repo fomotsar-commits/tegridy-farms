@@ -59,6 +59,17 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
   );
   const explorer = bungalowExplorerUrl(bungalow);
   const chainLabel = bungalow.chain === 'solana' ? 'Solana' : bungalow.chain === 'base' ? 'Base' : 'Ethereum';
+  // Each chain's own swap fee. Solana: the fee account. Ethereum: SwapFeeRouter charges only
+  // on a fill in the venue's own pools, and pays stakers, POL and treasury. Base: the swap
+  // stack does not trade there (chains/registry.ts `ammSwap: false`).
+  const swapFeeLine =
+    bungalow.chain === 'solana'
+      ? isSolanaFeeConfigured()
+        ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
+        : 'the Solana swap surface is live here, but it takes no platform fee today, so there is nothing to share until one is switched on.'
+      : bungalow.chain === 'ethereum'
+        ? `the ${chainLabel} swap surface takes a platform fee only when a trade fills in the venue's own pools, and no share of it routes here today.`
+        : `the venue runs no swap on ${chainLabel}, so there is no swap fee to share.`;
   // Row 2 holds the lighthouse pool and the funding card side by side. With a ladder and
   // no lighthouse card (none, or members-only in the ladder's row), funding spans it.
   const fundingAlone = bungalow.chain === 'solana' && Boolean(bungalow.ladderPool) && (!bungalow.stakePool || membersOnly);
@@ -192,12 +203,8 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             <ul className="text-white/85 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
               {/* No creator-fee route: the venue does not control a pump.fun coin's creator
                   fee, and BAYLA's goes whole to the island. */}
-              {/* The fee claim follows the same gate as the swap's own fee line. */}
               <li>
-                <strong>Venue swap fees</strong>:{' '}
-                {isSolanaFeeConfigured()
-                  ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
-                  : 'the Solana swap surface is live here, but it takes no platform fee today, so there is nothing to share until one is switched on.'}
+                <strong>Venue swap fees</strong>: {swapFeeLine}
               </li>
               {/* Names the mechanism, never another resident. */}
               <li><strong>Community top-ups</strong>: direct, visible transfers into the reward pool, the same way every pool here is seeded.</li>

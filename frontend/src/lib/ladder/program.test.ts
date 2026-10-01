@@ -226,6 +226,20 @@ describe('quoteExit — the doors, and what each ACTUALLY costs', () => {
     expect(door(q, 'early').reason).toMatch(/^75% retained/);
   });
 
+  // The card prints the hatch's reason as is, and venue copy carries no em dash.
+  it('no door is explained with an em dash, in any state', () => {
+    let n = 0;
+    for (const pos of [locked, lockedOneYear, lockedOneWeek, matured]) {
+      for (const pool of [healthy, degraded]) {
+        for (const q of quoteExit(pos, pool, NOW)) {
+          expect(q.reason, `${q.door}: ${q.reason}`).not.toContain('—');
+          n += 1;
+        }
+      }
+    }
+    expect(n).toBe(24);
+  });
+
   it('the two normal doors PARTITION time — exactly one is open', () => {
     for (const [pos, open] of [[locked, 'early'], [matured, 'matured']] as const) {
       const q = quoteExit(pos, healthy, NOW);
