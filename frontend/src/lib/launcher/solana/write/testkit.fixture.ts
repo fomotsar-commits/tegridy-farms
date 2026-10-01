@@ -6,6 +6,7 @@ import { Buffer } from 'buffer';
 import { Keypair, PublicKey, type VersionedTransaction } from '@solana/web3.js';
 import {
   ACCOUNT_DISCRIMINATOR,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   BONDING_CURVE_LAYOUT,
   GLOBAL_CONFIG_LAYOUT,
   TOKEN_2022_PROGRAM_ID,
@@ -25,15 +26,21 @@ import {
   ACCOUNT_POOL_STATE,
   AMM_CONFIG_LEN,
   AMM_CONFIG_OFFSETS,
+  IX_INITIALIZE,
   POOL_STATE_LEN,
   POOL_STATE_OFFSETS,
+  decodeAmmConfig,
   deriveAuthority,
   deriveLpMint,
   deriveObservation,
   derivePool,
   deriveVault,
+  publicTierConfig,
   sortMints,
 } from '../../../solana/cpswap/program';
+import { isqrt } from '../../../solana/lp/liquidityMath';
+import { associatedTokenAddress } from '../curve/ix';
+import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 
 export const LAUNCH = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
 export const CPSWAP = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
@@ -141,18 +148,77 @@ export function encodeCurve(c: BondingCurve): Uint8Array {
   return d;
 }
 
-export function encodeAmmConfig(): Uint8Array {
+export interface AmmConfigOverrides {
+  index: number;
+  disableCreatePool: boolean;
+  tradeFeeRate: bigint;
+  protocolFeeRate: bigint;
+  fundFeeRate: bigint;
+  createPoolFee: bigint;
+  creatorFeeRate: bigint;
+}
+
+/** AmmConfig bytes. With no argument: the launch tier's (tier 0) rehearsal values, as always. */
+export function encodeAmmConfig(over: Partial<AmmConfigOverrides> = {}): Uint8Array {
   const o = AMM_CONFIG_OFFSETS;
   const d = new Uint8Array(AMM_CONFIG_LEN);
   d.set(ACCOUNT_AMM_CONFIG, 0);
   d[o.bump] = 255;
-  d.set(u64le(2_500n), o.tradeFeeRate);
-  d.set(u64le(120_000n), o.protocolFeeRate);
-  d.set(u64le(0n), o.fundFeeRate);
-  d.set(u64le(0n), o.createPoolFee);
+  d[o.disableCreatePool] = over.disableCreatePool ? 1 : 0;
+  new DataView(d.buffer).setUint16(o.index, over.index ?? 0, true);
+  d.set(u64le(over.tradeFeeRate ?? 2_500n), o.tradeFeeRate);
+  d.set(u64le(over.protocolFeeRate ?? 120_000n), o.protocolFeeRate);
+  d.set(u64le(over.fundFeeRate ?? 0n), o.fundFeeRate);
+  d.set(u64le(over.createPoolFee ?? 0n), o.createPoolFee);
   d.set(VAULT.toBytes(), o.protocolOwner);
   d.set(VAULT.toBytes(), o.fundOwner);
-  d.set(u64le(0n), o.creatorFeeRate);
+  d.set(u64le(over.creatorFeeRate ?? 0n), o.creatorFeeRate);
+  return d;
+}
+
+/**
+ * The public fee tier (tier 1) as the vault created it on mainnet (2026-10-01): index 1,
+ * 1% a trade, 16% of that to the protocol, no fund or creator fee, 0.15 SOL to open,
+ * creation on.
+ */
+export const TIER1_VALUES: AmmConfigOverrides = {
+  index: 1,
+  disableCreatePool: false,
+  tradeFeeRate: 10_000n,
+  protocolFeeRate: 160_000n,
+  fundFeeRate: 0n,
+  createPoolFee: 150_000_000n,
+  creatorFeeRate: 0n,
+};
+
+export interface FeeReceiverOptions {
+  /** The program that owns the account (default: the classic token program). */
+  program: PublicKey;
+  /** The mint it holds (default: wrapped SOL). */
+  mint: PublicKey;
+  /** 1 = set up (default), 0 = not set up, 2 = frozen. */
+  state: 0 | 1 | 2;
+  /** Whether it is a native wrapped-SOL account (default: yes). */
+  native: boolean;
+  /** Its token balance (default 0). */
+  amount: bigint;
+  /** Its byte length (default 165); longer is zero-padded. */
+  length: number;
+}
+
+/** The pool program's fee account for openings, as on mainnet: a native wrapped-SOL token account owned by the vault. */
+export function encodeFeeReceiver(over: Partial<FeeReceiverOptions> = {}): Uint8Array {
+  const base = encodeTokenAccountWith(over.mint ?? WSOL_MINT, VAULT, over.amount ?? 0n);
+  const d = new Uint8Array(over.length ?? 165);
+  d.set(base.subarray(0, Math.min(165, d.length)), 0);
+  if (d.length >= 165) {
+    d[108] = over.state ?? 1;
+    const v = new DataView(d.buffer);
+    if (over.native ?? true) {
+      v.setUint32(109, 1, true);
+      v.setBigUint64(113, BigInt(rent(165)), true);
+    }
+  }
   return d;
 }
 
@@ -452,6 +518,17 @@ export class FakeChain {
     return c;
   }
 
+  /** The public fee tier (tier 1) at its derived address, with the owner's values unless `over` says otherwise. */
+  addTier1(over: Partial<AmmConfigOverrides> = {}): this {
+    return this.set(publicTierConfig(CPSWAP), { lamports: rent(AMM_CONFIG_LEN), owner: CPSWAP, data: encodeAmmConfig({ ...TIER1_VALUES, ...over }) });
+  }
+
+  /** The pool program's fee account for openings (`CP_CREATE_POOL_FEE_RECEIVER`), ready unless `over` says otherwise. */
+  addFeeReceiver(over: Partial<FeeReceiverOptions> = {}): this {
+    const data = encodeFeeReceiver(over);
+    return this.set(CP_CREATE_POOL_FEE_RECEIVER, { lamports: rent(data.length), owner: over.program ?? TOKEN_PROGRAM_ID, data });
+  }
+
   addCurve(curve: BondingCurve, lamports?: bigint): this {
     const floor = BigInt(rent(179));
     return this.set(curvePda(curve.mint, LAUNCH), {
@@ -563,3 +640,83 @@ export class FakeChain {
     return null;
   };
 }
+
+/** The amount of a token account on the fake chain, or null when there is none. */
+function amountOnChain(c: FakeChain, k: PublicKey): bigint | null {
+  const a = c.accounts.get(k.toBase58());
+  if (!a || a.data.length < 72) return null;
+  return new DataView(a.data.buffer, a.data.byteOffset, a.data.byteLength).getBigUint64(64, true);
+}
+
+export interface CreateSimOptions {
+  /** What reaches the fee account, given the fee the tier on this chain charges (default: exactly that). */
+  feeArrives?: (fee: bigint) => bigint;
+}
+
+/**
+ * Runs cp-swap's `initialize` on the fake chain's accounts and reports the watched
+ * post-state: the wrapped-SOL account opened (rent) and funded, the tier's fee paid into
+ * the fee account, every pool account paid for (pool 637, price record 4075, share token
+ * 82, two 165-byte vaults, the opener's pool-share account 165), isqrt(a·b) − 100 shares
+ * to the opener, the tokens out of the opener's account, and the wrapped-SOL account
+ * closed back to the wallet when the transaction closes it. The program's own refusals:
+ * the tier switched off (6000), below 100 shares (6009), and an LP mint already there
+ * (the System program's "already in use", custom 0).
+ */
+export function createSimulator(o: CreateSimOptions = {}): SimHandler {
+  return (vtx, config, chain) => {
+    const keys = vtx.message.staticAccountKeys;
+    const ixs = vtx.message.compiledInstructions.map((ix) => ({ program: keys[ix.programIdIndex]!, accounts: ix.accountKeyIndexes.map((i) => keys[i]!), data: ix.data }));
+    const open = ixs.find((i) => i.program.equals(CPSWAP) && IX_INITIALIZE.every((b, j) => i.data[j] === b));
+    if (!open) return { err: 'no initialize', logs: [], unitsConsumed: 1 };
+    const d = open.data;
+    const u64 = (at: number) => new DataView(d.buffer, d.byteOffset, d.byteLength).getBigUint64(at, true);
+    const [init0, init1] = [u64(8), u64(16)];
+    const at = (i: number) => open.accounts[i]!;
+    const cpFail = (code: number) => ({ err: { InstructionError: [3, { Custom: code }] }, logs: [`Program ${CPSWAP.toBase58()} failed: custom program error: 0x${code.toString(16)}`], unitsConsumed: 30_000 });
+    const tierAcc = chain.accounts.get(at(1).toBase58());
+    const tier = tierAcc ? decodeAmmConfig(at(1).toBase58(), tierAcc.data) : null;
+    if (!tier) return cpFail(3012);
+    if (tier.disableCreatePool) return cpFail(6000);
+    if (chain.accounts.has(at(6).toBase58())) {
+      return {
+        err: { InstructionError: [3, { Custom: 0 }] },
+        logs: [`Allocate: account Address { address: ${at(6).toBase58()}, base: None } already in use`, 'Program 11111111111111111111111111111111 failed: custom program error: 0x0'],
+        unitsConsumed: 20_000,
+      };
+    }
+    const supply = isqrt(init0 * init1);
+    if (supply < 100n) return cpFail(6009);
+    const signer = at(0);
+    const wsolAta = associatedTokenAddress(WSOL_MINT, signer);
+    const solIs0 = at(4).equals(WSOL_MINT);
+    const userTok = at(solIs0 ? 8 : 7);
+    const tokenMint = at(solIs0 ? 5 : 4);
+    const [sol, tokens] = solIs0 ? [init0, init1] : [init1, init0];
+    const wrapped = ixs.filter((i) => i.program.equals(SYSTEM_PROGRAM)).reduce((n, i) => n + new DataView(i.data.buffer, i.data.byteOffset, i.data.byteLength).getBigUint64(4, true), 0n);
+    const wsolCreated = ixs.some((i) => i.program.equals(ASSOCIATED_TOKEN_PROGRAM_ID) && i.accounts[1]!.equals(wsolAta)) && !chain.accounts.has(wsolAta.toBase58());
+    const closes = ixs.some((i) => i.program.equals(TOKEN_PROGRAM_ID) && i.data[0] === 9);
+    const wsolBefore = amountOnChain(chain, wsolAta) ?? 0n;
+    const tokBefore = amountOnChain(chain, userTok) ?? 0n;
+    if (tokBefore < tokens) return { err: { InstructionError: [3, { Custom: 1 }] }, logs: [], unitsConsumed: 1 };
+    if (wsolBefore + wrapped < sol) return { err: { InstructionError: [3, { Custom: 1 }] }, logs: [], unitsConsumed: 1 };
+    if (!config?.accounts) return { err: null, logs: [], unitsConsumed: 120_000 };
+
+    const fee = tier.createPoolFee;
+    const arrives = o.feeArrives ? o.feeArrives(fee) : fee;
+    const wsolAfter = wsolBefore + wrapped - sol;
+    const poolRents = rent(POOL_STATE_LEN) + rent(4075) + rent(82) + rent(165) + rent(165) + rent(165);
+    const signerDelta = -Number(wrapped) - (wsolCreated ? rent(165) : 0) - Number(fee) - poolRents + (closes ? Number(wsolAfter) + rent(165) : 0);
+    const feeBefore = amountOnChain(chain, at(12)) ?? 0n;
+    const changes: Parameters<FakeChain['post']>[1] = {
+      [signer.toBase58()]: { lamportsDelta: signerDelta },
+      [userTok.toBase58()]: { tokenAmount: tokBefore - tokens, mint: tokenMint, owner: signer },
+      [wsolAta.toBase58()]: closes ? { closed: true } : { tokenAmount: wsolAfter, mint: WSOL_MINT, owner: signer },
+      [at(9).toBase58()]: { tokenAmount: supply - 100n, mint: at(6), owner: signer },
+      [at(12).toBase58()]: { tokenAmount: feeBefore + arrives, mint: WSOL_MINT, owner: VAULT },
+    };
+    return { err: null, logs: [], unitsConsumed: 120_000, accounts: chain.post(config.accounts.addresses, changes) };
+  };
+}
+
+const SYSTEM_PROGRAM = new PublicKey('11111111111111111111111111111111');

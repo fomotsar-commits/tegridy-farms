@@ -12,6 +12,7 @@ import {
   CLOCK, LAUNCH, PROGRAM, WSOL, buildPool, clockAccount, configBytes, fakeIndex, fakeRpc, key, observationBytes, tokenAccountBytes, type FakeAccount,
 } from './testkit.fixture';
 import { TOKEN_PROGRAM } from './tokenSafety';
+import { isCreatedPool, rememberCreatedPool } from './poolFinder';
 
 const opts = (fetchImpl: typeof fetch) => ({ programId: PROGRAM, launchProgramId: LAUNCH, fetchImpl });
 
@@ -199,5 +200,31 @@ describe('readFeeTiers', () => {
     const c0 = deriveAmmConfig(PROGRAM, 0).toBase58();
     const r = await readFeeTiers(fakeRpc({ [c0]: { owner: key().toBase58(), data: configBytes(0) } }), PROGRAM);
     expect(r.kind === 'ok' && r.tiers[0]!.state).toBe('not-a-config');
+  });
+});
+
+// SPEC_S2_CREATE N14: a pool this page opened at a one-off address is listed at once,
+// whatever the index says. The memory is module-wide, so every pool here is fresh.
+describe('findPools: pools this page opened', () => {
+  it('a remembered pool is read and listed when the index omits it or is down; one holding another token’s pool is never listed for this one', async () => {
+    const mint = key();
+    const mine = buildPool({ mint, configIndex: 1, address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 8n });
+    const otherMint = key();
+    const elsewhere = buildPool({ mint: otherMint, configIndex: 1, address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 8n });
+    const accounts: Record<string, FakeAccount> = { ...mine.accounts, ...elsewhere.accounts, [CLOCK]: clockAccount(5n) };
+    const before = await findPools(fakeRpc(accounts), mint, opts(fakeIndex({})));
+    expect(before.kind === 'ok' && before.search.pools).toEqual([]);
+    expect(isCreatedPool(mine.address.toBase58())).toBe(false);
+
+    rememberCreatedPool(mine.address.toBase58());
+    rememberCreatedPool(elsewhere.address.toBase58());
+    expect(isCreatedPool(mine.address.toBase58())).toBe(true);
+    for (const index of [fakeIndex({}), fakeIndex({}, { status: 502 })]) {
+      const r = await findPools(fakeRpc(accounts), mint, opts(index));
+      expect(r.kind === 'ok' && r.search.pools.map((p) => (p.kind === 'pool' ? p.view.address : p.kind))).toEqual([mine.address.toBase58()]);
+    }
+    // And the other token's search lists its own pool, not this one.
+    const other = await findPools(fakeRpc(accounts), otherMint, opts(fakeIndex({})));
+    expect(other.kind === 'ok' && other.search.pools.map((p) => (p.kind === 'pool' ? p.view.address : p.kind))).toEqual([elsewhere.address.toBase58()]);
   });
 });

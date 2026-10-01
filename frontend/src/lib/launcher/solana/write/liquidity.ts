@@ -139,7 +139,7 @@ export interface WriteSnapshot {
 /** The answer when the network could not be read: each prepare says it in its own words. */
 export const POOL_READ_FAILED = 'the pool could not be read';
 
-function toRaw(keys: PublicKey[], infos: unknown): (RawAccount | null)[] {
+export function toRaw(keys: PublicKey[], infos: unknown): (RawAccount | null)[] {
   if (!Array.isArray(infos) || infos.length !== keys.length) throw new Error('the account read returned the wrong number of accounts');
   return infos.map((info, i) => {
     if (info === null || info === undefined) return null;
@@ -151,7 +151,7 @@ function toRaw(keys: PublicKey[], infos: unknown): (RawAccount | null)[] {
   });
 }
 
-function rentOf(v: unknown): bigint {
+export function rentOf(v: unknown): bigint {
   if (typeof v !== 'number' || !Number.isSafeInteger(v) || v <= 0) throw new Error('the rent read was not a number');
   return BigInt(v);
 }

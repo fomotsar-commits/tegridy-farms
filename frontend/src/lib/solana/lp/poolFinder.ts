@@ -310,6 +310,25 @@ export type PoolSearchRead = { kind: 'ok'; search: PoolSearch } | { kind: 'unrea
  */
 export const MAX_CANDIDATES = 3 + POOL_INDEX_MAX;
 
+/**
+ * Pools this page opened, kept for the session (cleared only by a page load). A pool
+ * opened at a one-off address is found by the index or by this memory alone, so a
+ * search right after an opening lists it even when the index has not caught up or is
+ * down. Every search reads them; a remembered pool that holds another token's pool is
+ * never listed for this one (the same tokenMint filter as the index's answers).
+ */
+const createdPools = new Set<string>();
+
+/** Remember a pool this page just opened (a confirmed `lp-create`). */
+export function rememberCreatedPool(pool: string): void {
+  createdPools.add(pool);
+}
+
+/** Did this page open this pool in this session? */
+export function isCreatedPool(pool: string): boolean {
+  return createdPools.has(pool);
+}
+
 export async function findPools(
   rpc: SolanaRpc,
   mint: PublicKey,
@@ -317,7 +336,9 @@ export async function findPools(
 ): Promise<PoolSearchRead> {
   const known = knownPoolAddresses(mint, opts.programId, opts.launchProgramId);
   const index = await readPoolIndex({ mint: mint.toBase58() }, opts.programId.toBase58(), opts.fetchImpl);
-  const addresses = [...new Set([known.launchPool, ...known.standard.map((s) => s.address), ...(index.kind === 'ok' ? index.pools : [])])].slice(0, MAX_CANDIDATES);
+  const addresses = [
+    ...new Set([known.launchPool, ...known.standard.map((s) => s.address), ...createdPools, ...(index.kind === 'ok' ? index.pools : [])]),
+  ].slice(0, MAX_CANDIDATES);
 
   const read = await readPools(rpc, addresses, opts);
   if (read.kind === 'unread') return { kind: 'unread', detail: read.detail, index };

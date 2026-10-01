@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { MAX_POSITIONS, readPositions } from './positions';
+import { rememberCreatedShare } from './positions';
 import { TOKEN_PROGRAM } from './tokenSafety';
 import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeIndex, fakeRpc, key, mintBytes, tokenAccountBytes, type FakeAccount } from './testkit.fixture';
 
@@ -119,5 +120,26 @@ describe('readPositions: a share too small to take out', () => {
     const pos = r.kind === 'ok' ? r.positions[0] : undefined;
     expect(pos?.tooSmall).toBe(false);
     expect(pos?.value).toMatchObject({ token0: 7_000n, token1: 7_000n });
+  });
+});
+
+// SPEC_S2_CREATE N14: the share of a pool this page just opened is placed without the
+// index (which may not have the new pool yet, or be down). The cache is module state,
+// so every key here is fresh.
+describe('readPositions: the share of a pool this page opened', () => {
+  it('after rememberCreatedShare, an index that answers unread is never asked, and the share is placed "chain" and valued', async () => {
+    const wallet = key();
+    const p = buildPool({ mint: key(), address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000_000n });
+    const accounts: Record<string, FakeAccount> = { ...p.accounts, [CLOCK]: clockAccount(5n), [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 999_900n) } };
+    const asked: string[] = [];
+    const before = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({}, { status: 502, calls: asked })));
+    expect(before.kind === 'ok' && before.positions.map((x) => x.placement)).toEqual(['index-unread']);
+    expect(asked).toHaveLength(1);
+
+    rememberCreatedShare(PROGRAM, p.address);
+    const after: string[] = [];
+    const r = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({}, { status: 502, calls: after })));
+    expect(r.kind === 'ok' && r.positions.map((x) => [x.placement, x.pool?.kind, x.value?.sharePct])).toEqual([['chain', 'pool', 99.99]]);
+    expect(after).toEqual([]);
   });
 });

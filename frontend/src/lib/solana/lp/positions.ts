@@ -79,6 +79,17 @@ export const MAX_POSITIONS = 20;
  */
 const placedPools = new Map<string, { pool: string; via: 'found' | 'chain' }>();
 
+/**
+ * The share of a pool this page just opened (a confirmed `lp-create`), placed for the
+ * session as found on the chain: the pool is known from the opening itself, and its LP
+ * mint is derived from it, so the share needs no index lookup (the index may not have
+ * the new pool yet, or be down). `readPositions` still values it only when the pool,
+ * once read, names that LP mint itself.
+ */
+export function rememberCreatedShare(programId: PublicKey, pool: PublicKey): void {
+  placedPools.set(`${programId.toBase58()}:${deriveLpMint(programId, pool).toBase58()}`, { pool: pool.toBase58(), via: 'chain' });
+}
+
 type Placement = Pick<Position, 'placement' | 'placementDetail'> & { pool: string | null };
 
 const toBase58 = (b: Uint8Array) => new PublicKey(b).toBase58();
