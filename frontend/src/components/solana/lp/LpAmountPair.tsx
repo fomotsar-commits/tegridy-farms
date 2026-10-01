@@ -25,6 +25,7 @@ export function LpAmountPair({
   hints,
   errors,
   canMax,
+  labels = { sol: 'SOL to add', token: 'Tokens to add' },
 }: {
   sol: string;
   token: string;
@@ -38,9 +39,11 @@ export function LpAmountPair({
   errors?: { sol?: string | null; token?: string | null };
   /** Max is offered only for a side whose balance was read. */
   canMax: { sol: boolean; token: boolean };
+  /** The visible labels (and so the boxes' names). Opening a pool says "to put in". */
+  labels?: { sol: string; token: string };
 }) {
   const box = (side: LpSide) => {
-    const label = side === 'sol' ? 'SOL to add' : tokenDecimals === null ? 'Tokens to add (base units)' : 'Tokens to add';
+    const label = side === 'sol' ? labels.sol : tokenDecimals === null ? `${labels.token} (base units)` : labels.token;
     const value = side === 'sol' ? sol : token;
     return (
       <Field key={side} label={label} hint={hints[side]} error={errors?.[side] ?? null}>

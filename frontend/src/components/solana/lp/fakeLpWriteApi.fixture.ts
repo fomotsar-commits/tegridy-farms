@@ -6,7 +6,8 @@
 import { vi } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import * as validate from '../../../lib/launchMetadata/validate.js';
-import type { CurveWriteConfig, GateRpc, LpGate, LpOpenGate, LpWriteApi, TxSummary } from '../curve/ports';
+import type { AmmConfigView } from '../../../lib/solana/cpswap/program';
+import type { CreateFacts, CurveWriteConfig, GateRpc, LpGate, LpOpenGate, LpWriteApi, TxSummary } from '../curve/ports';
 
 /** The pool program the fake readers report (`LpReaders.programId`). The gate must name the same one. */
 export const LP_PROGRAM = 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT';
@@ -39,8 +40,12 @@ export function fakeLpApi(over: Partial<LpWriteApi> & { gate?: LpGate } = {}): L
   const api: LpWriteApi = {
     lpWriteConfig: vi.fn(() => lpCfg()),
     readLpGate: vi.fn(async () => gate),
+    // Mainnet before the vault creates the public tier: no opening is offered. A test
+    // that opens pools passes `readyFacts()`.
+    readCreateFacts: vi.fn(async () => notOpenFacts()),
     prepareLpDeposit: vi.fn(),
     prepareLpWithdraw: vi.fn(),
+    prepareLpCreate: vi.fn(),
     submitPrepared: vi.fn(),
     recheckOutcome: vi.fn(),
     explorerTxUrl: vi.fn((sig: string) => `https://explorer.test/tx/${sig}`),
@@ -100,6 +105,60 @@ export function lpWithdrawSummary(
     tokenAccount: tokenMint,
     tokenAccountRent: 0n,
     unwrapsWsol: true,
+    notices: [],
+    ...over,
+  };
+}
+
+/** Where the fake public tier lives. A fixed key: web3's address derivation cannot run under jsdom. */
+export const TIER1_ADDRESS = new PublicKey(new Uint8Array(32).fill(41));
+
+/** Tier 1 with the owner's values (2026-10-01): 1% a trade, 16% of it to the venue, 0.15 SOL to open. */
+export function tier1Config(over: Partial<AmmConfigView> = {}): AmmConfigView {
+  return {
+    address: TIER1_ADDRESS.toBase58(),
+    index: 1,
+    disableCreatePool: false,
+    tradeFeeRate: 10_000n,
+    protocolFeeRate: 160_000n,
+    fundFeeRate: 0n,
+    createPoolFee: 150_000_000n,
+    creatorFeeRate: 0n,
+    protocolOwner: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd',
+    fundOwner: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd',
+    ...over,
+  };
+}
+
+export const readyFacts = (over: Partial<AmmConfigView> = {}): CreateFacts => ({
+  tier: { kind: 'ready', address: TIER1_ADDRESS, config: tier1Config(over) },
+  feeAccount: { kind: 'ready' },
+});
+
+export const notOpenFacts = (): CreateFacts => ({ tier: { kind: 'not-open', address: TIER1_ADDRESS }, feeAccount: { kind: 'ready' } });
+
+/** An `lp-create` summary, as a prepare would return it. */
+export function lpCreateSummary(pool: PublicKey, tokenMint: PublicKey, over: Partial<Extract<TxSummary, { kind: 'lp-create' }>> = {}): TxSummary {
+  return {
+    kind: 'lp-create',
+    pool,
+    origin: 'standard',
+    config: tier1Config(),
+    tokenMint,
+    tokenDecimals: 6,
+    solIsToken0: true,
+    put: { sol: 1_000_000_000n, token: 100_000_000n },
+    supply: 10_000_000_000n,
+    lpAmount: 9_999_999_900n,
+    lpDecimals: 9,
+    locked: { sol: 10n, token: 1n },
+    createFee: 150_000_000n,
+    feeReceiver: new PublicKey(new Uint8Array(32).fill(42)),
+    rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
+    price: { state: 'agrees', pool: 0.01, reference: 0.01, against: 'outside', diff: 0 },
+    tokenWarnings: [],
+    unwrapsWsol: true,
+    wsolHeldBefore: 0n,
     notices: [],
     ...over,
   };

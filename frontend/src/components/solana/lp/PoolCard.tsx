@@ -1,4 +1,4 @@
-import type { PoolEntry, PoolView } from '../../../lib/solana/lp/poolFinder';
+import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { formatWhen, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { feeRateText, formatSolPrice, solText, tokenText } from '../../../lib/solana/lp/format';
 import { feeSplit } from '../../../lib/solana/cpswap/venue';
@@ -118,6 +118,11 @@ export function PoolCard({
         {view.origin === 'launch-pool' ? 'Launch pool' : view.origin === 'standard' ? `Standard address, fee tier ${cfg?.index ?? '?'}` : 'Pool at its own address'}
       </h3>
       <p className="text-white/50 text-[11px] mb-2">{ORIGIN_LABEL[view.origin]}</p>
+      {isCreatedPool(view.address) && (
+        <p className="text-emerald-300/90 text-[12px] mb-2" data-testid="lp-opened-here">
+          You opened this pool just now. Your share is under &apos;Your positions&apos;.
+        </p>
+      )}
       <div className="text-white/60 text-[11px] leading-relaxed space-y-2">
         <Row label="Pool address" value={view.address} />
         <Row label="Token" value={view.tokenMint} />

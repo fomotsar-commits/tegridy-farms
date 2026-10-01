@@ -65,4 +65,17 @@ describe('readWalletFacts', () => {
     expect(calls.filter(([m]) => m === 'getMinimumBalanceForRentExemption').length).toBeLessThanOrEqual(2);
     expect(calls.filter(([m]) => m === 'getMultipleAccounts')).toHaveLength(2);
   });
+
+  // SPEC_S2_CREATE 2.3 (K4): an opening also needs the deposits the new pool's own
+  // accounts keep for good, from the same per-size rent reads.
+  it('with `opening`, adds what the pool, its price record, share token and two vaults keep forever; without it, nothing changes', async () => {
+    const w = wallet();
+    const a = { owner: w.owner.toBase58(), tokenMint: w.mint.toBase58(), tokenProgram: TOKEN_PROGRAM, lpMint: null };
+    const opened = await readWalletFacts(fakeRpc(w.accounts), { ...a, opening: true });
+    expect(opened.kind).toBe('ok');
+    if (opened.kind !== 'ok') return;
+    expect(opened.rents.neverRefunded).toBe(rentFor(637) + rentFor(4075) + rentFor(82) + rentFor(165) + rentFor(165));
+    const plain = await readWalletFacts(fakeRpc(w.accounts), a);
+    expect(plain.kind === 'ok' && Object.keys(plain.rents).sort()).toEqual(['tokenAccount165', 'walletFloor']);
+  });
 });

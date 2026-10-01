@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PublicKey } from '@solana/web3.js';
 import { formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve/format';
+import { LOCKED_LP } from '../../../lib/solana/lp/liquidityMath';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import type { TxFlowState } from '../curve/useTxFlow';
 import type { LpWrites } from './useLpWrites';
@@ -15,6 +16,13 @@ export const unitsExact = (raw: bigint, decimals: number) => formatTokenAmount(r
 /** An amount said "about": four decimals is plenty for a preview the review restates exactly. */
 export const solAbout = (lamports: bigint) => `${formatSol(lamports, 4)} SOL`;
 export const tokensAbout = (raw: bigint, decimals: number) => `${formatTokenAmount(raw, decimals, 4).text} tokens`;
+
+/**
+ * The pool shares the pool program keeps in every new pool forever (100 of the smallest
+ * unit), written as the share counts on this page are: in 9 decimals. "100 pool shares"
+ * would read a billion times too large next to the "You get" row.
+ */
+export const LOCKED_SHARES_TEXT = `${formatTokenAmount(LOCKED_LP, 9, 9).text} pool shares (${LOCKED_LP.toString()} of the smallest unit)`;
 
 /** A share of the pool as a percentage; a real share that rounds to nothing says so. */
 export function sharePct(part: bigint, whole: bigint): string {
@@ -31,17 +39,17 @@ export function sharePct(part: bigint, whole: bigint): string {
 export function useWalletFacts(
   writes: LpWrites,
   owner: PublicKey | null,
-  a: { tokenMint: string; tokenProgram: string; lpMint: string | null },
+  a: { tokenMint: string; tokenProgram: string; lpMint: string | null; opening?: true },
   nonce: number,
 ): WalletFacts | null {
   const ownerKey = owner?.toBase58() ?? null;
-  const key = ownerKey ? `${ownerKey}#${a.tokenMint}#${a.tokenProgram}#${a.lpMint ?? ''}#${nonce}` : null;
+  const key = ownerKey ? `${ownerKey}#${a.tokenMint}#${a.tokenProgram}#${a.lpMint ?? ''}#${a.opening ? 'open' : ''}#${nonce}` : null;
   const [answer, setAnswer] = useState<{ key: string; facts: WalletFacts } | null>(null);
   const { readers } = writes;
   useEffect(() => {
     if (!owner || !key) return;
     let live = true;
-    readers.wallet(owner, a.tokenMint, a.tokenProgram, a.lpMint).then(
+    (a.opening ? readers.wallet(owner, a.tokenMint, a.tokenProgram, a.lpMint, { opening: true }) : readers.wallet(owner, a.tokenMint, a.tokenProgram, a.lpMint)).then(
       (facts) => live && setAnswer({ key, facts }),
       (e: unknown) => live && setAnswer({ key, facts: { kind: 'unread', detail: e instanceof Error ? e.message : String(e) } }),
     );

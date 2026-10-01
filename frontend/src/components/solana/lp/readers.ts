@@ -26,9 +26,10 @@ export interface LpReaders {
   /**
    * The wallet's SOL, its token account for the pool's token, its wrapped-SOL account
    * and whether it has a pool-share account: for the panels' hints and Max buttons only.
-   * Every number a transaction carries is read again when Review is pressed.
+   * Every number a transaction carries is read again when Review is pressed. With
+   * `opening`, also the deposits a new pool's own accounts keep for good.
    */
-  wallet(owner: PublicKey, tokenMint: string, tokenProgram: string, lpMint: string | null): Promise<WalletFacts>;
+  wallet(owner: PublicKey, tokenMint: string, tokenProgram: string, lpMint: string | null, opts?: { opening: true }): Promise<WalletFacts>;
   /** Find a share's pool from its own chain history, when our pool index cannot answer (D12). */
   placeShareOnChain(share: { lpMint: string; lpAccount: string }): Promise<ChainPlacement>;
 }
@@ -45,7 +46,7 @@ export function browserLpReaders(): LpReaders | null {
     outsidePrice: (mint, decimals) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }),
     positions: (owner, limit) => readPositions(rpc, owner, { ...opts, limit }),
     feeTiers: () => readFeeTiers(rpc, programId),
-    wallet: (owner, tokenMint, tokenProgram, lpMint) => readWalletFacts(rpc, { owner: owner.toBase58(), tokenMint, tokenProgram, lpMint }),
+    wallet: (owner, tokenMint, tokenProgram, lpMint, o) => readWalletFacts(rpc, { owner: owner.toBase58(), tokenMint, tokenProgram, lpMint, ...(o?.opening ? { opening: true as const } : {}) }),
     placeShareOnChain: (share) => placeShareOnChain(rpc, opts, share),
   };
 }

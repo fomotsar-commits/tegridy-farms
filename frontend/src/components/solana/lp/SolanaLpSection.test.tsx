@@ -10,9 +10,11 @@ import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState } from '
 import type { Position } from '../../../lib/solana/lp/positions';
 import { Row } from '../curve/ui';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
+import { fakeLpApi, unusedGateRpc } from './fakeLpWriteApi.fixture';
 
 const wallet = vi.hoisted(() => ({ publicKey: null as null | { toBase58(): string } }));
-vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => wallet }));
+// useConnection is only reached with LP's mode 'on' (the last describe below).
+vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => wallet, useConnection: () => ({ connection: { rpcEndpoint: 'fake' } }) }));
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
 
 const MINT = key();
@@ -335,5 +337,29 @@ describe('your positions: a share too small to take out', () => {
     expect(row).toHaveTextContent("Too small to take out at the pool's current size: one side would round to zero.");
     expect(row).not.toHaveTextContent(/Worth if withdrawn now/);
     expect(row).not.toHaveTextContent(/could not be worked out/);
+  });
+});
+
+// SPEC_S2_CREATE N20 (K4): opening a pool checks its price against Jupiter's, so with LP's
+// mode 'on' a readable token is priced even when it has no pool yet. In mode 'off' nothing
+// changes: no pool, no Jupiter call.
+describe('the outside price for a token with no pool', () => {
+  it("mode 'on': asked once; mode 'off': not asked", async () => {
+    const on = readers({ findPools: vi.fn(async () => search([])) });
+    const api = fakeLpApi();
+    const view1 = render(
+      <MemoryRouter initialEntries={[`/pools?mint=${M}`]}>
+        <LpInner readers={on} writes={{ mode: 'on', load: vi.fn(async () => api), gateRpc: unusedGateRpc }} />
+      </MemoryRouter>,
+    );
+    await screen.findByTestId('lp-no-pools');
+    await waitFor(() => expect(on.outsidePrice).toHaveBeenCalledTimes(1));
+    expect(on.outsidePrice).toHaveBeenCalledWith(M, 6);
+    view1.unmount();
+
+    const off = readers({ findPools: vi.fn(async () => search([])) });
+    mount(off);
+    await screen.findByTestId('lp-no-pools');
+    expect(off.outsidePrice).not.toHaveBeenCalled();
   });
 });

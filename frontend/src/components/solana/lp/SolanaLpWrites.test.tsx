@@ -178,7 +178,7 @@ describe('Add liquidity', () => {
     expect(await within(c).findByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
     expect(c).toHaveAttribute('data-add', 'offer');
     expect(within(c).getByText('These checks run again, on fresh reads, when you press Review.')).toBeInTheDocument();
-    expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/sends real transactions/);
+    expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/Opening a pool, adding and removing liquidity here send real transactions/);
     expect(screen.getByTestId('lp-disclosure')).not.toHaveTextContent(/only reads/);
   });
 

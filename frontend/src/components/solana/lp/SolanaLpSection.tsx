@@ -90,7 +90,7 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
       <LpDisclosure programId={readers.programId} mode={mode} />
       {mode !== 'off' && <LpWritesTop />}
       <FeeTiers readers={readers} />
-      <PoolFinder readers={readers} mint={mint} onMint={onMint} linkError={linkError} reloadKey={reloadKey} />
+      <PoolFinder readers={readers} mint={mint} onMint={onMint} linkError={linkError} reloadKey={reloadKey} wantOutside={mode === 'on'} />
       <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} />
     </div>
   );
@@ -136,13 +136,13 @@ function LpWritesTop() {
 const NOTE_WHAT: Record<LpKind, string> = {
   'lp-deposit': 'adding liquidity',
   'lp-withdraw': 'removing liquidity',
-  'lp-create': 'opening a pool',
+  'lp-create': 'opening a pool. Opening another pool stays off until this is checked.',
 };
 
 /** The section's one sentence about what it can do, by LP's mode (spec 4.3). */
 const DISCLOSURE_NOTICE: Record<LpWriteMode, string> = {
   off: 'This section only reads. Adding and removing liquidity here is not switched on yet.',
-  on: 'Adding and removing liquidity here sends real transactions. Each one is read again, checked and test-run on the network before your wallet is asked to sign. This page shows no yield, because none has been measured.',
+  on: 'Opening a pool, adding and removing liquidity here send real transactions. Each one is read again, checked and test-run on the network before your wallet is asked to sign. This page shows no yield, because none has been measured.',
   'withdraw-only':
     'Adding liquidity from this site is paused right now. Removing it still works, and each removal is checked and test-run before your wallet is asked to sign.',
 };

@@ -1,26 +1,29 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
 import { browserCurveRpc, browserRpc } from '../../../lib/launcher/solana/curve/rpc';
 import type { LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
-import type { PositionsRead } from '../../../lib/solana/lp/positions';
+import { rememberCreatedShare, type PositionsRead } from '../../../lib/solana/lp/positions';
+import { rememberCreatedPool } from '../../../lib/solana/lp/poolFinder';
 import { withReadCommitment } from '../curve/confirmedRpc';
 import { browserGateRpc } from '../curve/gateRpc';
-import { LP_PENDING_SCOPE } from '../curve/pendingTrade';
+import { LP_PENDING_SCOPE, readPendingTrades } from '../curve/pendingTrade';
 import { useCurveSigner, type CurveSignerState } from '../curve/useCurveSigner';
 import { usePendingTrades, type CheckSignature, type PendingTradesState } from '../curve/usePendingTrades';
 import { useLpGate } from '../curve/useWriteGate';
-import type { CurveWriteConfig, GateRpc, LpGate, LpWriteApi, WriteRpc } from '../curve/ports';
+import type { CreateFacts, CurveWriteConfig, GateRpc, LpGate, LpWriteApi, WriteRpc } from '../curve/ports';
 import { loadLpWriteApi } from './lpWriteApi';
 import type { LpReaders } from './readers';
 
 /**
- * Everything an Add or Remove panel needs, for every card and row in the LP section,
- * from one place: the write code (loaded only when LP's switch is not 'off'), the LP
- * gate, the connection that sends, the wallet, the pending notes, and which panel is
- * open.
+ * Everything an Add, Remove or Open-a-pool panel needs, for every card and row in the LP
+ * section, from one place: the write code (loaded only when LP's switch is not 'off'),
+ * the LP gate, the create facts (the public fee tier and the fee account, read beside
+ * the gate and never inside it), the connection that sends, the wallet, the pending
+ * notes, and which panel is open.
  *
- * ONE PANEL AT A TIME. `active` names the open panel (`add:<pool>` or
- * `remove:<lpAccount>`). Opening another closes it, unless it is busy (preparing,
+ * ONE PANEL AT A TIME. `active` names the open panel (`add:<pool>`, `remove:<lpAccount>`
+ * or `create:<mint>`). Opening another closes it, unless it is busy (preparing,
  * signing, sent, or an unknown outcome with a signature): then every other entry
  * button is disabled. One live `useTxFlow` is what the pending lock assumes.
  */
@@ -43,20 +46,37 @@ export interface LpWrites {
   signerState: CurveSignerState;
   readers: LpReaders;
   pending: PendingTradesState;
-  active: { kind: 'add' | 'remove'; key: string } | null;
+  active: { kind: PanelKind; key: string } | null;
   busy: boolean;
-  /** False (and nothing changes) while another panel is busy. */
-  open(kind: 'add' | 'remove', key: string, opener: HTMLButtonElement | null): boolean;
+  /**
+   * False (and nothing changes) while another panel is busy. On close, focus goes back to
+   * `opener`, or to `fallback` (the card's heading) when the opener is gone or switched off.
+   */
+  open(kind: PanelKind, key: string, opener: HTMLButtonElement | null, fallback?: HTMLElement | null): boolean;
   close(): void;
   setBusy(b: boolean): void;
   /** A flow went back to idle after an outcome: read the pools and the positions again. */
   finished(): void;
+  /** Reads the gate again, and the create facts with it. */
   refreshGate(): void;
+  /**
+   * The public fee tier and the fee account, for opening a pool only: null until read.
+   * Read once the gate is open with the mode 'on'; it never changes the gate, Add or Remove.
+   */
+  createFacts: CreateFacts | null;
+  refreshCreateFacts(): void;
+  /**
+   * A confirmed opening of `pool`: this tab remembers the pool (the finder lists it, and
+   * the card says "you opened one") and its share's placement (Remove is offered at once).
+   */
+  remember(pool: string): void;
   /** Pool shares the wallet holds of this share mint, from the last positions read; null when unread. */
   heldShares(lpMint: string): bigint | null;
   /** "Your positions" reports each answer here, so a deposit can say the share before and after. */
   reportPositions(read: PositionsRead | null): void;
 }
+
+export type PanelKind = 'add' | 'remove' | 'create';
 
 const LpWritesContext = createContext<LpWrites | null>(null);
 
@@ -114,14 +134,36 @@ export function LpWritesProvider({
   }, [onFinished]);
   const finished = useCallback(() => finishedRef.current?.(), []);
 
+  // The pool program the page reads (and, with no mismatch, writes to): the created
+  // share's placement is keyed by it, exactly as the positions read keys it.
+  const programId = readers.programId;
+  const remember = useCallback(
+    (pool: string) => {
+      rememberCreatedPool(pool);
+      try {
+        rememberCreatedShare(new PublicKey(programId), new PublicKey(pool));
+      } catch {
+        // Only a shortcut: without it the share is still placed by the index or the chain.
+      }
+    },
+    [programId],
+  );
+
   // A liquidity note is looked up with its config and its kind, so a refusal found
-  // there is said in that kind's own words.
+  // there is said in that kind's own words. A confirmed opening found here (after a
+  // reload, or on Check again) is remembered like one confirmed in its own panel: its
+  // pool is read from this tab's note before the note is cleared.
   const check = useMemo<CheckSignature | null>(
     () =>
       api && cfg
-        ? (sig, lvbh, kind) => api.recheckOutcome(connection, sig, { lastValidBlockHeight: lvbh ?? undefined, cfg, kind })
+        ? async (sig, lvbh, kind) => {
+            const note = readPendingTrades(LP_PENDING_SCOPE).find((n) => n.signature === sig);
+            const o = await api.recheckOutcome(connection, sig, { lastValidBlockHeight: lvbh ?? undefined, cfg, kind });
+            if (o.status === 'confirmed' && note?.kind === 'lp-create' && note.pool) remember(note.pool);
+            return o;
+          }
         : null,
-    [api, cfg, connection],
+    [api, cfg, connection, remember],
   );
   const pending = usePendingTrades(LP_PENDING_SCOPE, check, finished);
 
@@ -129,12 +171,14 @@ export function LpWritesProvider({
   const [busy, setBusyState] = useState(false);
   const busyRef = useRef(false);
   const opener = useRef<HTMLButtonElement | null>(null);
+  const openerFallback = useRef<HTMLElement | null>(null);
   const [focusOpener, setFocusOpener] = useState(0);
 
   const open = useCallback(
-    (kind: 'add' | 'remove', key: string, from: HTMLButtonElement | null) => {
+    (kind: PanelKind, key: string, from: HTMLButtonElement | null, fallback: HTMLElement | null = null) => {
       if (busyRef.current) return false;
       opener.current = from;
+      openerFallback.current = fallback;
       setActive({ kind, key });
       return true;
     },
@@ -155,7 +199,45 @@ export function LpWritesProvider({
     if (focusOpener === 0) return;
     const el = opener.current;
     if (el && el.isConnected && !el.disabled) el.focus();
+    else if (openerFallback.current?.isConnected) openerFallback.current.focus();
   }, [focusOpener]);
+
+  // The create facts: only once the gate is open with the mode 'on' (opening a pool is
+  // paused with adding). An answer counts only for the gate it was asked under; the last
+  // answer stays on screen while the facts are read again.
+  const [facts, setFacts] = useState<{ gate: LpGate; facts: CreateFacts } | null>(null);
+  const [factsNonce, setFactsNonce] = useState(0);
+  const factsGate = gate?.kind === 'open' && gate.mode === 'on' && mode === 'on' ? gate : null;
+  useEffect(() => {
+    if (!api || !factsGate) return;
+    let live = true;
+    // `readCreateFacts` never throws. If it ever did, that is an unread tier, never a ready one.
+    Promise.resolve()
+      .then(() => api.readCreateFacts(gateRpc, factsGate.cfg))
+      .then(
+        (f) => {
+          if (live) setFacts({ gate: factsGate, facts: f });
+        },
+        (e: unknown) => {
+          if (!live) return;
+          const detail = e instanceof Error ? e.message : String(e);
+          setFacts({
+            gate: factsGate,
+            facts: { tier: { kind: 'unread', address: factsGate.cfg.cpSwapProgram, detail }, feeAccount: { kind: 'unread', detail } },
+          });
+        },
+      );
+    return () => {
+      live = false;
+    };
+  }, [api, factsGate, gateRpc, factsNonce]);
+  const createFacts = factsGate && facts && facts.gate === factsGate ? facts.facts : null;
+  const refreshCreateFacts = useCallback(() => setFactsNonce((n) => n + 1), []);
+  const refreshGateOnly = gateState.refresh;
+  const refreshGate = useCallback(() => {
+    refreshGateOnly();
+    refreshCreateFacts();
+  }, [refreshGateOnly, refreshCreateFacts]);
 
   const [positions, setPositions] = useState<PositionsRead | null>(null);
   const reportPositions = useCallback((read: PositionsRead | null) => setPositions(read), []);
@@ -186,11 +268,17 @@ export function LpWritesProvider({
       close,
       setBusy,
       finished,
-      refreshGate: gateState.refresh,
+      refreshGate,
+      createFacts,
+      refreshCreateFacts,
+      remember,
       heldShares,
       reportPositions,
     }),
-    [mode, gateState, api, cfg, gate, mismatch, connection, signerState, readers, pending, active, busy, open, close, setBusy, finished, heldShares, reportPositions],
+    [
+      mode, gateState, api, cfg, gate, mismatch, connection, signerState, readers, pending, active, busy, open, close, setBusy, finished,
+      refreshGate, createFacts, refreshCreateFacts, remember, heldShares, reportPositions,
+    ],
   );
   return <LpWritesContext.Provider value={value}>{children}</LpWritesContext.Provider>;
 }

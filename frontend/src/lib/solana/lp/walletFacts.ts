@@ -3,6 +3,7 @@ import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { associatedTokenAddress } from '../../launcher/solana/curve/ix';
 import { getMultipleAccounts, type RawAccount } from './accounts';
+import { NEVER_REFUNDED_ACCOUNT_SIZES } from './poolFinder';
 import { TOKEN_PROGRAM, WSOL_MINT } from './tokenSafety';
 
 /**
@@ -13,6 +14,11 @@ import { TOKEN_PROGRAM, WSOL_MINT } from './tokenSafety';
  * transaction is read again when Review is pressed (write/liquidity.ts).
  *
  * An unread wallet is `unread`, never a balance of 0: a panel then shows no Max.
+ *
+ * Opening a pool (`opening: true`) also needs what the new pool's own accounts keep in
+ * deposits for good (the pool, its price record, its share token and its two vaults):
+ * `rents.neverRefunded`, from the same per-size rent reads. Without `opening` the answer
+ * is exactly what it always was.
  */
 
 export type WalletFacts =
@@ -23,7 +29,8 @@ export type WalletFacts =
       token: { address: string; amount: bigint } | null;
       wsol: { exists: boolean; amount: bigint };
       lpAccountExists: boolean;
-      rents: { walletFloor: bigint; tokenAccount165: bigint };
+      /** `neverRefunded` only when asked with `opening`. */
+      rents: { walletFloor: bigint; tokenAccount165: bigint; neverRefunded?: bigint };
     }
   | { kind: 'unread'; detail: string };
 
@@ -53,14 +60,19 @@ function tokenAmount(a: RawAccount, program: string, mint: string, what: string)
 
 export async function readWalletFacts(
   rpc: SolanaRpc,
-  a: { owner: string; tokenMint: string; tokenProgram: string; lpMint: string | null },
+  a: { owner: string; tokenMint: string; tokenProgram: string; lpMint: string | null; opening?: true },
 ): Promise<WalletFacts> {
   try {
     const owner = new PublicKey(a.owner);
     const tokenAddress = associatedTokenAddress(new PublicKey(a.tokenMint), owner, new PublicKey(a.tokenProgram)).toBase58();
     const wsolAddress = associatedTokenAddress(new PublicKey(WSOL_MINT), owner).toBase58();
     const keys = [a.owner, tokenAddress, wsolAddress, ...(a.lpMint ? [associatedTokenAddress(new PublicKey(a.lpMint), owner).toBase58()] : [])];
-    const [accounts, walletFloor, tokenAccount165] = await Promise.all([getMultipleAccounts(rpc, keys), rent(rpc, 0), rent(rpc, 165)]);
+    const [accounts, walletFloor, tokenAccount165, neverRefunded] = await Promise.all([
+      getMultipleAccounts(rpc, keys),
+      rent(rpc, 0),
+      rent(rpc, 165),
+      a.opening ? Promise.all(NEVER_REFUNDED_ACCOUNT_SIZES.map((n) => rent(rpc, n))).then((r) => r.reduce((sum, v) => sum + v, 0n)) : null,
+    ]);
     const [wallet, tok, wsol, lp] = accounts;
     return {
       kind: 'ok',
@@ -68,7 +80,7 @@ export async function readWalletFacts(
       token: tok ? { address: tokenAddress, amount: tokenAmount(tok, a.tokenProgram, a.tokenMint, 'token') } : null,
       wsol: wsol ? { exists: true, amount: tokenAmount(wsol, TOKEN_PROGRAM, WSOL_MINT, 'wrapped-SOL') } : { exists: false, amount: 0n },
       lpAccountExists: !!lp,
-      rents: { walletFloor, tokenAccount165 },
+      rents: neverRefunded === null ? { walletFloor, tokenAccount165 } : { walletFloor, tokenAccount165, neverRefunded },
     };
   } catch (e) {
     return { kind: 'unread', detail: clipDetail(e) };

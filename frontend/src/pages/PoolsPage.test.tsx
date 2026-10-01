@@ -207,8 +207,12 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     lp.mode = 'on';
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    expect(screen.getByText(/below you can add liquidity to a pool whose checks pass or take yours out/i)).toBeInTheDocument();
-    expect(screen.getByText(/This site can add and remove liquidity; it does not open pools yet\./)).toBeInTheDocument();
+    // SPEC_S2_CREATE 2.6 (K4): opening a pool joins the 'on' copy, honest that the public tier may not exist yet.
+    expect(screen.getByText(/below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool once the public fee tier exists\./i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/This site can add and remove liquidity, and open new pools on the public fee tier once that tier exists \(the pools section below says whether it does\)\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/does not open pools/i)).toBeNull();
     // The swap's routing card keeps its own "not switched on yet" (addendum D24); this is the LP one.
     expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
     expect(screen.queryByText(/only reads pools so far/i)).toBeNull();
@@ -220,8 +224,8 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     lp.mode = 'withdraw-only';
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    expect(screen.getByText(/Adding liquidity from here is paused; taking yours out still works\./)).toBeInTheDocument();
-    expect(screen.getByText(/This site can take liquidity out; adding is paused, and it does not open pools\./)).toBeInTheDocument();
+    expect(screen.getByText(/Adding liquidity and opening pools from here are paused; taking yours out still works\./)).toBeInTheDocument();
+    expect(screen.getByText(/This site can take liquidity out; adding liquidity and opening pools are paused\./)).toBeInTheDocument();
     expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
   });
 });
