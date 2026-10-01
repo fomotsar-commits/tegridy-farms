@@ -124,11 +124,11 @@ describe('a members-only pool on the dashboard', () => {
     mount(MEMBERS_ONLY);
     await settle();
     expect(ladderCard()).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Stake BAYLA' }).getAttribute('href')).toBe('/farm');
+    expect(screen.getByRole('link', { name: 'Stake BAYLA' }).getAttribute('href')).toBe('/earn/bayla');
     // Not the card, not its rate and vault, not the connect copy's "lighthouse
     // position", not the surfaces link: the word does not appear on the page.
     expect(pageText()).not.toMatch(/lighthouse|Streamflow|Configured rate|Reward vault|See the pool/i);
-    expect(screen.getByRole('link', { name: 'The lock ladder' }).getAttribute('href')).toBe('/farm');
+    expect(screen.getByRole('link', { name: 'The lock ladder' }).getAttribute('href')).toBe('/earn/bayla');
     expect(staking.readEntries).not.toHaveBeenCalled();
     expect(staking.readPool).not.toHaveBeenCalled();
   });
@@ -158,7 +158,7 @@ describe('a members-only pool on the dashboard', () => {
     expect(pageText()).toContain('50,000');
     // The claim strip sits UNDER the ladder on the pool page, and the card says so.
     expect(screen.getByText(/takes no new stakes/).textContent).toMatch(/under the lock ladder/);
-    expect(screen.getByRole('link', { name: 'Manage position' }).getAttribute('href')).toBe('/farm');
+    expect(screen.getByRole('link', { name: 'Manage position' }).getAttribute('href')).toBe('/earn/bayla');
     // The member card takes the slot, and still never advertises the pool's rate.
     expect(ladderCard()).toBeNull();
     expect(pageText()).not.toMatch(/Configured rate|The pool is live|See the pool/);

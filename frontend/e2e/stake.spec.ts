@@ -17,7 +17,7 @@ const onAnvil = !!process.env.ANVIL_RPC_URL;
 
 test.describe('Stake surface', () => {
   test('disconnected /farm shows the connect prompt', async ({ page, walletMock: _w }) => {
-    await page.goto('/farm');
+    await page.goto('/earn/toweli');
     // Disconnected, /farm renders no page h1 at all — the whole surface is
     // replaced by the ConnectPrompt region. The old assertion here read
     // `h1` for /farm|stake/ and would have failed the moment it was allowed
@@ -30,7 +30,7 @@ test.describe('Stake surface', () => {
     const pageErrors: string[] = [];
     page.on('pageerror', (err) => pageErrors.push(err.message));
     await walletMock.connect();
-    await page.goto('/farm');
+    await page.goto('/earn/toweli');
     await expect(page.locator('h1')).toContainText(/farm/i);
     await expect(page.getByRole('heading', { name: /stake toweli/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /lp farming/i })).toBeVisible();
@@ -41,7 +41,7 @@ test.describe('Stake surface', () => {
 
   test('stake input is typeable when wallet is connected', async ({ page, walletMock }) => {
     await walletMock.connect();
-    await page.goto('/farm');
+    await page.goto('/earn/toweli');
 
     const stakeInput = page.getByRole('textbox', { name: /amount of toweli to stake/i });
     await expect(stakeInput).toBeVisible();
@@ -68,7 +68,7 @@ test.describe('Stake surface', () => {
     // green tests red. Spending from an account only this test uses ends that.
     const account = await walletMock.useIsolatedForkAccount();
     await walletMock.connect(account);
-    await page.goto('/farm');
+    await page.goto('/earn/toweli');
 
     // 1. Stake
     const amount = page.getByRole('textbox', { name: /amount of toweli to stake/i });

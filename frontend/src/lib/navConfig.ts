@@ -160,11 +160,15 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     // Earning: staking is the hub, the one surface a stranger can read unconnected.
+    // /earn is ALWAYS the list of every pool; one pool is /earn/<id> (App.tsx), so
+    // the word and this tab lead back to the list from inside any pool. It was
+    // /farm until 2026-09-30, which showed the active room's pool instead, so a
+    // visitor inside one pool had no way back to choose another.
     heading: 'Earn',
-    hub: '/farm',
+    hub: '/earn',
     items: [
       // "Staking", not "Pools": Pools is the top-bar word for providing liquidity.
-      { to: '/farm', label: 'Staking' },
+      { to: '/earn', label: 'Staking' },
       ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'Borrow on NFTs', tabLabel: 'NFT Loans' }] : []),
       // Unpilled: the splitter is deployed and a `/?ref=0x…` link needs no server.
       { to: '/referrals', label: 'Referrals' },

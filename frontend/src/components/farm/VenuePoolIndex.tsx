@@ -1,10 +1,11 @@
-import { Link, useNavigate } from 'react-router-dom';
-import { announceActiveBungalow, BUNGALOWS, DEFAULT_BUNGALOW_ID, setActiveBungalow } from '../../lib/bungalows';
+import { Link } from 'react-router-dom';
+import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from '../../lib/bungalows';
 import { TEGRIDY_STAKING_ADDRESS, isDeployed } from '../../lib/constants';
 import { poolShape } from '../../lib/poolShape';
 
 /**
- * Every pool on the island, for a visitor who has chosen no room yet.
+ * Every pool on the island: /earn, whatever room the visitor is in. Each row
+ * opens that pool at /earn/<id>, and each pool links back here.
  *
  * ⚠️ WHY THIS EXISTS AT ALL. /farm gated on
  * `bungalow && bungalow.id !== DEFAULT_BUNGALOW_ID`, and `getActiveBungalow()`
@@ -50,14 +51,6 @@ interface PoolRow {
 }
 
 export function VenuePoolIndex() {
-  const navigate = useNavigate();
-  // A room switch is in place: /farm re-reads the skin and renders that room's pool.
-  const openRoom = (id: string) => {
-    setActiveBungalow(id);
-    announceActiveBungalow();
-    navigate('/farm');
-    window.scrollTo(0, 0);
-  };
   // Every settled resident that actually has a staking program registered. A
   // bungalow with no `stakePool` has nothing to list, and listing it with a
   // dash would advertise a pool that does not exist.
@@ -151,16 +144,15 @@ export function VenuePoolIndex() {
                   <td className="px-4 py-3.5 text-white/75 text-[13px]">{CHAIN_LABEL[b.chain] ?? b.chain}</td>
                   <td className="px-4 py-3.5 text-white/60 text-[12.5px]">{b.terms}</td>
                   <td className="px-4 py-3.5 text-right">
-                    {/* A plain <Link> would land on /farm still wearing the
-                        venue's skin and render this index again: a dead click. */}
-                    <button
-                      type="button"
-                      onClick={() => openRoom(b.id)}
+                    {/* A real link: each pool has its own address, /earn/<id>, which
+                        enters that pool's room on arrival (App.tsx EarnPoolRoute). */}
+                    <Link
+                      to={`/earn/${b.id}`}
                       className="inline-flex items-center justify-center whitespace-nowrap px-3.5 py-2 min-h-[36px] rounded-lg text-[12.5px] font-semibold transition-all hover:brightness-110"
                       style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)' }}
                     >
                       Open {b.symbol}
-                    </button>
+                    </Link>
                   </td>
                 </tr>
               ))}
