@@ -1,28 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
+import { phoneThrottle } from './fixtures/doorFrame';
 
-// THE FIRST FRAME IS THE HERO - answer ten, ruling 2, walked on a production build.
-//
-// The island's measurement, on a production build with a phone throttle (150 ms
-// round trip, 1.6 Mbps, CPU 4x): `/` painted NOTHING until 6.7 s, then "Loading..."
-// for a second, then the H1 at 7.8 s. A holder reported the same, unprompted:
-// "Loading... for a couple of seconds. Impatient degens leave."
-//
-// Three promises, each asserted the way it can actually fail:
-//
-//   1. H1 VISIBLE UNDER 1,500 MS ON THE THROTTLE. Read from the Element Timing API
-//      on the static H1 (elementtiming="first-frame-h1"): that is the moment the
-//      browser PAINTED those words, not the moment a node existed. A DOM read would
-//      pass on markup hidden behind a stylesheet that had not arrived.
-//   2. "LOADING" NEVER ENTERS THE PAGE. A MutationObserver armed before any script
-//      records every text node inserted, so a skeleton that appeared and left again
-//      still fails. Absent from the DOM means absent from every frame.
-//   3. AN ADDRESS SUBMITTED BEFORE ANY JAVASCRIPT RUNS STILL READS. The entry chunk
-//      is blocked outright, the visitor pastes and submits the static field, and
-//      the browser's own GET must land on /?heat=<address>; then the app loads and
-//      reads that wallet.
-//
-// Chromium only: the throttle is CDP, and the numbers are a promise about Chromium's
-// paint, the engine the island measured with.
+// THE FIRST FRAME IS THE HERO (answer ten, ruling 2), on a production build. The H1's
+// paint is read from Element Timing, not the DOM; a MutationObserver armed before any
+// script sees any "Loading" that came and went; an address submitted with no script
+// lands on /?heat= and reads. Chromium only: the throttle is CDP.
 
 const ADDRESS = '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a';
 const OTHER = '0x420698cfdeddea6bc78d59bc17798113ad278f9d';
@@ -64,18 +46,6 @@ async function clientNavigate(page: Page, path: string) {
     window.history.pushState({}, '', to);
     window.dispatchEvent(new PopStateEvent('popstate'));
   }, path);
-}
-
-async function phoneThrottle(page: Page) {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Network.enable');
-  await cdp.send('Network.emulateNetworkConditions', {
-    offline: false,
-    latency: 150,
-    downloadThroughput: (1.6 * 1024 * 1024) / 8,
-    uploadThroughput: (750 * 1024) / 8,
-  });
-  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
 }
 
 /** A cold visitor: no stored skin, nothing seeded, so `/` opens the venue's frame. */
@@ -162,19 +132,10 @@ test.describe('the first frame is the hero (ruling 2)', () => {
     await expect(page.locator('main#main-content').getByText(/195\.5/).first()).toBeVisible();
   });
 
-  // THE WINDOW THE FRAME EXISTS FOR, walked with the app SLOW rather than absent.
-  //
-  // The test above blocks the entry chunk outright, which proves the no-script form
-  // and nothing about the seconds in between, when the frame is on screen AND the app
-  // is on its way. A review found three losses in exactly that window that an aborted
-  // chunk can never show:
-  //   - the frame's field was wired (a shared ?heat= filled in, ?ref= carried as a
-  //     hidden input) only at DOMContentLoaded, which waits for the whole module
-  //     graph: about 7.5 s on the phone throttle, against a frame painted at 0.7 s;
-  //   - React's fallback on `/` blanked what had been typed, dropped focus, and had
-  //     no hidden inputs, so a submit from it lost the referral;
-  //   - the hero then READ the half-typed address nobody had submitted.
-  // So these hold the chunks and release them by hand, the way a phone delivers them.
+  // The seconds while the frame is on screen and the app is still arriving: these hold
+  // the chunks and release them by hand, the way a phone delivers them. The field must
+  // be wired before the module graph runs, survive both swaps with its focus and hidden
+  // inputs, and never be read until it is submitted.
 
   test('while the app is still arriving, a shared read is in the field and a referral rides the form', async ({ page }) => {
     test.slow();

@@ -6,17 +6,10 @@ import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 
 /**
- * Token-first hero cluster for a bungalow that speaks for itself (Bayla).
- * Rendered by HomePage IN PLACE OF the TOWELI H1/copy/CTA/quote cluster when
- * `getBungalowIdentity()` is non-null; the chain pills around it stay shared
- * (they are venue facts, not token copy). The security badge used to stay too;
- * wave seven, element C moved it off the hero entirely, to /trust.
- *
- * Honesty rules carried over from the surface it replaces: no yield claims,
- * no numbers that drift — the copy speaks lore and links to checkable
- * surfaces (trade route, scanner, contract). The Stake CTA routes to /farm,
- * which in bungalow mode renders the self-gating BungalowFarmPanel — it can
- * never advertise a pool that does not exist.
+ * The hero of a room that speaks for itself, rendered by HomePage in place of the TOWELI
+ * cluster when getBungalowIdentity() is non-null. No yield claims and no numbers that
+ * drift: lore, and links to surfaces anyone can check. Stake routes to /farm, whose
+ * BungalowFarmPanel never advertises a pool that does not exist.
  */
 export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity } }) {
   const id = bungalow.identity;
@@ -54,23 +47,9 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
             {trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`}
           </a>
         ))}
-        {/* ONE FILLED BUTTON, 2026-09-05 — the same rule VenueHero already
-            follows (see its "Launch on Heat" note).
-
-            This row shipped THREE full-weight calls to action: Trade in filled
-            gold, Stake in filled kyle-green (`.btn-primary`), Scan in outlined
-            kyle-green. Two filled buttons side by side is no hierarchy at all,
-            and the green was doing double duty — the TopNav's Connect wears the
-            same hue in the same viewport, so "green" meant both "stake here"
-            and "connect your wallet".
-
-            Trade is the primary: it is the one action every visitor to a
-            resident's room can complete, whoever they are. Stake drops to an
-            outline in the SAME kyle green — same colour, less shout — and Scan
-            moves onto --color-stan, which index.css:48 already documents as the
-            trust/security/audit hue and is exactly what the scanner is. The two
-            secondary actions are now told apart by meaning rather than by
-            reading their labels. Connect leaves green entirely (TopNav.tsx). */}
+        {/* One filled button, the rule VenueHero keeps too: Trade, the action any visitor
+            can complete. Stake is an outline in the same kyle green, and Scan wears
+            --color-stan, the trust hue, so the two secondary actions differ by meaning. */}
         <Link
           to="/farm"
           className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"

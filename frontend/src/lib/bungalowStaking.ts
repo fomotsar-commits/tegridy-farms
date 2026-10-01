@@ -361,34 +361,11 @@ function bnToNumber(v: unknown, fallback = 0): number {
 }
 
 /**
- * Reward pools for a stake pool, from BOTH reward programs, each tagged with
- * which one it came from.
- *
- * WHY THIS EXISTS. `client.searchRewardPools` is hardwired to the FIXED
- * program — its body is `this.programs.rewardPoolProgram.account.rewardPool
- * .all(...)`. A dynamic pool attached to the same stake pool is therefore
- * INVISIBLE to it, and every number derived from it would silently omit the
- * pool that is actually paying. So the dynamic program is queried directly.
- *
- * The memcmp offset is 10 (Anchor's 8-byte discriminator + bump + nonce), the
- * same layout the SDK uses for the fixed program — verified empirically
- * against a live dynamic pool (stake pool Fgwemm7V…, reward pool HBLhyss5…),
- * because sharing a struct shape across sibling programs is an assumption, not
- * a guarantee. A filtered query is also required rather than a bare scan: the
- * venue's own RPC proxy caps response size and an unfiltered
- * getProgramAccounts over this program exceeds it.
- *
- * Either half failing is survivable and does NOT fail the read — a pool we
- * cannot see is reported as absent by the caller, never as a zero rate.
- */
-async function searchAllRewardPools(client: any, stakePool: string): Promise<{ acc: any; kind: 'fixed' | 'dynamic' }[]> {
-  return (await searchAllRewardPoolsChecked(client, stakePool)).pools;
-}
-
-/**
- * `searchAllRewardPools`, plus whether BOTH halves answered. A caller that SUMS over
- * the pools (readEntries' accruals) must know when one half was silently absent: the
- * pools it did find are real, but a total over them is partial.
+ * Reward pools for a stake pool from BOTH reward programs (the SDK's own search sees
+ * only the fixed one), and whether both halves answered. Filtered at memcmp offset 10,
+ * verified against a live dynamic pool; the RPC proxy refuses an unfiltered scan. A
+ * missing half makes the list partial: readPool fails on it, readEntries marks
+ * every open entry pendingUnread.
  */
 async function searchAllRewardPoolsChecked(
   client: any,
@@ -708,8 +685,10 @@ export async function readPool(stakePool: string): Promise<Result<{ pool: PoolVi
     // is gone. Saying "could not be read right now" there disguises a
     // permanent misconfig as a transient outage.
     if (!pool) return { ok: false, reason: 'No stake pool exists at this address. If this persists, the configured pool address is wrong.' };
-    // BOTH programs — the SDK's own search covers only the fixed one.
-    const rewardAccounts = await searchAllRewardPools(client, stakePool);
+    // A partial list is an outage: an exit claims only the listed pools, then closes.
+    const found = await searchAllRewardPoolsChecked(client, stakePool);
+    if (!found.complete) return { ok: false, reason: READ_FAIL };
+    const rewardAccounts = found.pools;
 
     const stakeMint = String(pool?.mint ?? '');
     // Decimals decide every human number on this surface (and the reward RATE,
@@ -1018,7 +997,7 @@ export function nextVacantNonce(entries: StakeEntryView[]): number | null {
 
 function writeFailure(err: unknown, fallback: string): Failure {
   const msg = err instanceof Error ? err.message : String(err ?? '');
-  if (/reject|declin|denied/i.test(msg)) return { ok: false, reason: 'You declined the signature — nothing moved.' };
+  if (/reject|declin|denied/i.test(msg)) return { ok: false, reason: 'You declined the signature. Nothing moved.' };
   // Streamflow custom error 6012 = the reward vault cannot cover the rewards
   // this action must pay out. PROVEN ON DEVNET (2026-08-28, same program ids
   // as mainnet): while accrued > vault, claim AND unstake&claim both revert —
@@ -1028,7 +1007,7 @@ function writeFailure(err: unknown, fallback: string): Failure {
     return {
       ok: false,
       reason:
-        'The reward vault cannot cover the accrued rewards this action pays out, so it reverted — nothing moved, nothing is lost. ' +
+        'The reward vault cannot cover the accrued rewards this action pays out, so it reverted. Nothing moved, and nothing is lost. ' +
         'Claims and exits work again once the vault is topped up; rewards keep accruing meanwhile.',
     };
   }
@@ -1054,7 +1033,7 @@ function writeFailure(err: unknown, fallback: string): Failure {
     return {
       ok: false,
       reason:
-        'This position has passed a hard limit inside the reward program, so it can no longer pay out — nothing moved, and this will not clear by retrying. ' +
+        'This position has passed a hard limit inside the reward program, so it can no longer pay out. Nothing moved, and this will not clear by retrying. ' +
         'Your staked BAYLA is safe and still returns in full when the lock ends; it is the unclaimed rewards on this position that can no longer be collected.',
       permanent: true,
     };
@@ -1078,7 +1057,7 @@ function writeFailure(err: unknown, fallback: string): Failure {
     return {
       ok: false,
       reason:
-        'The reward vault cannot cover this payout right now, so it reverted — nothing moved, nothing is lost. ' +
+        'The reward vault cannot cover this payout right now, so it reverted. Nothing moved, and nothing is lost. ' +
         'This one DOES clear: it works again as soon as the vault is topped up, and rewards keep accruing meanwhile.',
     };
   }
@@ -1092,7 +1071,7 @@ function writeFailure(err: unknown, fallback: string): Failure {
     const sigNote = typeof sig === 'string' && sig ? ` Signature: ${sig}` : '';
     return {
       ok: false,
-      reason: `Outcome unknown — the transaction was sent and may still land. Check your wallet or Solscan before retrying.${sigNote}`,
+      reason: `Outcome unknown: the transaction was sent and may still land. Check your wallet or Solscan before retrying.${sigNote}`,
     };
   }
   return { ok: false, reason: `${fallback}${msg ? ` (${msg.slice(0, 140)})` : ''}` };
@@ -1171,7 +1150,7 @@ export async function stake(args: {
     const res: any = await client.execute([ataIx, ...(stakePrep?.ixs ?? []), ...rewardIxs], ext);
     return { ok: true, txId: String(res?.txId ?? res?.signature ?? '') };
   } catch (err) {
-    return writeFailure(err, 'The stake did not go through — nothing moved.');
+    return writeFailure(err, 'The stake did not go through. Nothing moved.');
   }
 }
 
@@ -1200,7 +1179,7 @@ export async function unstakeAndClaim(args: {
     );
     return { ok: true, txId: String(res?.txId ?? '') };
   } catch (err) {
-    return writeFailure(err, 'The unstake did not go through — your stake is untouched.');
+    return writeFailure(err, 'The unstake did not go through. Your stake is untouched.');
   }
 }
 
@@ -1257,7 +1236,16 @@ export async function unstakeAndCloseForfeitingRewards(args: {
     // exactly as before. It becomes load-bearing the day the dynamic pool is
     // attached, when closing blind would forfeit a WORKING reward balance.
     const savable = claimablePoolsBefore(args.entry, args.pool.rewardPools);
+    // Each step is built on invoker.publicKey as it is THEN, and an adapter swaps it in
+    // place on an account change; `savable` was chosen from the first account's figures.
+    const signer = args.invoker.publicKey?.toBase58() ?? null;
+    const switched = () => (args.invoker.publicKey?.toBase58() ?? null) !== signer;
+    const stopped: Failure = {
+      ok: false,
+      reason: 'The wallet changed partway through, so the rescue stopped before closing. Your stake is untouched.',
+    };
     for (const rp of savable) {
+      if (switched()) return stopped;
       const claimed = await claimRewards({
         invoker: args.invoker,
         pool: args.pool,
@@ -1284,12 +1272,13 @@ export async function unstakeAndCloseForfeitingRewards(args: {
             ok: false,
             reason:
               `Rewards from pool #${rp.nonce} could not be claimed first, so the rescue ` +
-              `stopped before closing — closing now would destroy them permanently. ` +
+              `stopped before closing, because closing now would destroy them permanently. ` +
               `Your stake is untouched. ${claimed.reason}`,
           };
         }
       }
     }
+    if (switched()) return stopped;
     const client = await makeClient();
     // Same argument shape as unstakeAndClaim — the SDK aliases
     // UnstakeAndClaimArgs = UnstakeAndCloseArgs.
@@ -1310,7 +1299,7 @@ export async function unstakeAndCloseForfeitingRewards(args: {
     );
     return { ok: true, txId: String(res?.txId ?? '') };
   } catch (err) {
-    return writeFailure(err, 'The rescue unstake did not go through — your stake is untouched.');
+    return writeFailure(err, 'The rescue unstake did not go through. Your stake is untouched.');
   }
 }
 
@@ -1337,7 +1326,7 @@ export async function claimRewards(args: {
     );
     return { ok: true, txId: String(res?.txId ?? '') };
   } catch (err) {
-    return writeFailure(err, 'The claim did not go through — your rewards are untouched.');
+    return writeFailure(err, 'The claim did not go through. Your rewards are untouched.');
   }
 }
 

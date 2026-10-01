@@ -93,6 +93,12 @@ describe('the explainer is the island paragraph opening', () => {
       /added together|read per token|as a share of its supply|a fresh bag starts cold|Degrees are the temperature/,
     );
   });
+
+  it('says one person, every wallet, under the instrument', () => {
+    const { container } = mount();
+    expect(screen.getByText('One person, every wallet: linked wallets read as a single flame.').tagName).toBe('P');
+    expect(container.textContent).not.toMatch(/measured per wallet|clock at the move/);
+  });
 });
 
 // ANSWER TEN, RULING 2: WHAT WAS TYPED BEFORE THE HERO EXISTED.

@@ -49,7 +49,7 @@ unchanged: `docs/CI_ON_GITLAB.md`.
 7. Every fix is seen red first: its test fails on the pre-fix code before it passes.
 8. A search that could not run is not a negative result. Say it did not complete.
 9. A comment states the present constraint in six lines or fewer. The story goes in the commit body. Recut a file when you touch it, never as a sweep.
-10. A note rides the PR of the work that taught it, or one `docs/notes-<date>` PR per session. Merged branches are deleted.
+10. A note rides the PR of the work that taught it, or one `docs/notes-<date>` PR per session. Merged branches are deleted: keep GitHub's "Automatically delete head branches" setting on (to-do O-0925-1 switches it on).
 11. Docs do not run the money paths: a PR touching only `**/*.md` and `docs/**` skips the build; the Doc guards job still runs.
 12. The root is a front door (`src/test/frontDoor.test.ts` pins the list). Live docs live in `docs/`, audits in `docs/audits/`, old plans and reports in `docs/archive/`.
 13. `CHANGELOG.md` is one plain line per user-facing change, newest thirty days; the long form lives in git.

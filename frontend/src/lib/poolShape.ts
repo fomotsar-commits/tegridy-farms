@@ -4,6 +4,7 @@
 // keeps a component-only export (a non-component export there breaks fast refresh for
 // the whole module).
 import { MIN_BOOST_BPS, MAX_BOOST_BPS } from './constants';
+import { stakePoolMembersOnly } from './bungalows';
 
 /**
  * The lock ladder's endpoints, as multipliers, from the contract constants
@@ -23,27 +24,21 @@ const BOOST_CEILING = `${(MAX_BOOST_BPS / 10_000).toFixed(2)}×`;
 const LADDER_TERMS = `Lock ladder · 7d–4y, ${BOOST_FLOOR}–${BOOST_CEILING}`;
 
 /**
- * What the row can honestly say about a pool's shape, from the registry alone.
- *
- * ⚠️ "Streamflow", not "Streamflow · locked", for a Streamflow row. The registry
- * records the PROGRAM and nothing about lock terms: there is no lock field, and the
- * retired BAYLA pool ran flat weights. Asserting "locked" from `chain` alone is
- * exactly the kind of claim this file's header forbids — a property nothing was read
- * to establish. The room states its own terms.
- *
- * ⚠️ AND A SOLANA POOL IS NO LONGER ALWAYS STREAMFLOW. Which program it is, is named
- * by which FIELD carries its address: `stakePool` is Streamflow, `ladderPool` is the
- * venue's own bayla-ladder. A bungalow mid-migration has BOTH, and the row says so
- * rather than picking one and quietly dropping the other — a pool listed nowhere is
- * a pool a staker cannot find their way back to.
+ * What the row can honestly say about a pool's shape, from the registry alone. A
+ * Streamflow row is "Streamflow", never "locked": the registry records the program,
+ * not lock terms. The FIELD names the program (`stakePool` Streamflow, `ladderPool`
+ * the venue's ladder); with both open the row names both. A members-only Streamflow
+ * pool (stakePoolMembersOnly) is not named: this table is public.
  */
 export function poolShape(b: {
   poolKind?: 'plain' | 'ladder';
   chain: string;
   stakePool?: string;
   ladderPool?: string;
+  depositsClosed?: true;
 }): string {
   if (b.chain === 'solana') {
+    if (stakePoolMembersOnly(b)) return LADDER_TERMS;
     if (b.ladderPool && b.stakePool) return 'Streamflow + lock ladder';
     if (b.ladderPool) return LADDER_TERMS;
     return 'Streamflow';

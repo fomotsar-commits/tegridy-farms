@@ -73,9 +73,11 @@ describe('llms.txt says only what the venue itself says', () => {
   });
 
   it('quotes the held-time sentences verbatim from the constants the page renders', () => {
-    for (const sentence of [VENUE.description, VENUE.heroLine, VENUE.heatPlain, VENUE.heatPerWallet]) {
+    for (const sentence of [VENUE.description, VENUE.heroLine, VENUE.heatPlain, VENUE.heatOnePerson]) {
       expect(text).toContain(sentence);
     }
+    expect(text).toContain('\nOne person, every wallet: linked wallets read as a single flame.\n');
+    expect(text).not.toMatch(/measured per wallet|wallet's clock/);
     const floor = heatLaunchFloor();
     expect(text).toContain(heatExampleLine(floor, tierAtFloor(floor)));
     // Pinned as well as derived: a derived line alone follows any floor.

@@ -26,9 +26,17 @@ const OWNER = 'Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj';
 
 /* ─────────────────────────── the rig ─────────────────────────── */
 
-vi.mock('../solana/SolanaProviders', () => ({
-  SolanaProviders: ({ children }: { children: React.ReactNode }) => children,
-}));
+// Counts mounts: the bare card must mount none, so SolanaPoolStack can share one.
+const providerMounts = vi.hoisted(() => ({ n: 0 }));
+vi.mock('../solana/SolanaProviders', async () => {
+  const { useEffect } = await import('react');
+  return {
+    SolanaProviders: ({ children }: { children: React.ReactNode }) => {
+      useEffect(() => { providerMounts.n += 1; }, []);
+      return children;
+    },
+  };
+});
 
 const walletState = vi.hoisted(() => ({ publicKey: null as { toBase58: () => string } | null }));
 // STABLE. `useConnection` returns the same object across renders in the real
@@ -97,7 +105,7 @@ vi.mock('../../lib/ladder/write', () => ({
   ladderClaimCarried: writes.carried,
 }));
 
-const { SolanaLadderPoolLive } = await import('./SolanaLadderPoolLive');
+const { SolanaLadderPoolLive, SolanaLadderPoolCard } = await import('./SolanaLadderPoolLive');
 
 /* ─────────────────────────── fixtures ─────────────────────────── */
 
@@ -463,6 +471,71 @@ describe('with no wallet connected', () => {
     // Pool-level figures do not need a wallet, and withholding them would make the
     // card look broken to anyone deciding whether to connect at all.
     expect(screen.getByText('Reward vault')).toBeTruthy();
+  });
+
+  // THE WAY IN WHEN THE BODY CANNOT DRAW. Under SolanaPoolStack this card is the only
+  // Connect for a member of the closed Streamflow pool, whose claim strip stays hidden
+  // until a wallet connects. A ladder that fails to read must not take that claim with it.
+  const connects = () => screen.queryAllByRole('button', { name: /Connect a Solana wallet/ });
+
+  it('a readable pool shows exactly ONE connect button, not the fallback as well', async () => {
+    walletState.publicKey = null;
+    draw();
+    await screen.findByText('Reward vault');
+    expect(connects()).toHaveLength(1);
+  });
+
+  it('a failed pool read still offers exactly one connect button', async () => {
+    walletState.publicKey = null;
+    reads.pool = { ok: false, unreadable: true, reason: 'there is no account at this pool address' };
+    draw();
+    await screen.findByText(/no account at this pool address/);
+    expect(connects()).toHaveLength(1);
+    // Its own wrapper: a direct child of the card's flex column stretches full width.
+    expect(connects()[0]!.parentElement!.className).not.toMatch(/flex-col/);
+  });
+
+  it('an unconfigured deployment still offers exactly one connect button', async () => {
+    walletState.publicKey = null;
+    cfg.configured = false;
+    draw();
+    await screen.findByText(/not configured yet/);
+    expect(connects()).toHaveLength(1);
+  });
+
+  it('a pool staking a different mint still offers exactly one connect button', async () => {
+    walletState.publicKey = null;
+    reads.pool = { ok: true, value: poolView({ mint: 'So11111111111111111111111111111111111111112' }) };
+    draw();
+    await screen.findByText(/does not stake BAYLA/);
+    expect(connects()).toHaveLength(1);
+  });
+
+  it('no connect button flashes while the pool is still being read', async () => {
+    walletState.publicKey = null;
+    reads.pool = new Promise(() => {});
+    draw();
+    await screen.findByText('Reading the pool…');
+    expect(connects()).toHaveLength(0);
+  });
+
+  it('a CONNECTED wallet never sees the fallback on a failed read', async () => {
+    reads.pool = { ok: false, unreadable: true, reason: 'there is no account at this pool address' };
+    draw();
+    await screen.findByText(/no account at this pool address/);
+    expect(connects()).toHaveLength(0);
+  });
+
+  // A second WalletProvider reads the saved wallet only when it mounts, so a member who
+  // connected through this card would not appear in the strip under it until a reload.
+  it('the bare card mounts no wallet context, so the claim strip under it shares one', async () => {
+    providerMounts.n = 0;
+    walletState.publicKey = null;
+    render(<SolanaLadderPoolCard bungalow={BUNGALOW} />);
+    await screen.findByText('Reward vault');
+    expect(providerMounts.n).toBe(0);
+    draw();
+    await waitFor(() => expect(providerMounts.n).toBe(1));
   });
 });
 
