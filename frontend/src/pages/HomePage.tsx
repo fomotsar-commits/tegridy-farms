@@ -942,7 +942,7 @@ export default function HomePage() {
                 ? [{
                     to: '/eth-curve',
                     title: 'Memetics Curve',
-                    desc: 'Our own zero-toll bonding curve. Launch in one signature, then graduate into our own pool with the LP burned — no Airlock, no petition, no third-party cut.',
+                    desc: 'Our own zero-toll bonding curve. Launch, then graduate into our own pool with the LP burned — no Airlock, no petition, no third-party cut.',
                     stat: 'Zero-toll',
                     label: 'Live · Ethereum, Base & Robinhood',
                     art: pageArt('home', 17),

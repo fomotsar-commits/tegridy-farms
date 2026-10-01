@@ -8,7 +8,6 @@
 // not meet the tier's structural bar. All wording is neutral and factual.
 
 import type { Address, Hex } from 'viem';
-import type { HeatTier } from '../heat/heatOracle';
 
 /** Tiers are STRUCTURAL gates, not quality ratings. See gate.ts. */
 export type LaunchTier =
@@ -78,39 +77,18 @@ export interface FeeConstitutionLine {
 }
 
 /**
- * HOW THIS LAUNCH'S VENUE LINE WAS PRICED. Published beside the constitution because the
- * constitution alone shows the split without showing what set it.
- *
- * Present ONLY when a pricing feature was in force (see launchPricing.isStandardPricing);
- * absent means every launch's standard rate, which the constitution already states. That
- * absence is what keeps `disclosuresDigest` identical for sheets computed before pricing
- * existed.
- *
- * The bps here are shares of the migration pool's TRADE FEE, matching FeeConstitutionLine
- * — not shares of trade volume, and not a fee charged to create the launch (there is
- * none; a creator pays network gas only).
+ * How this launch's venue line was priced: the creator revenue share, the same for every
+ * launch. Present ONLY while that dial is on (launchPricing.isStandardPricing); absent means
+ * the standard rate, which keeps `disclosuresDigest` unchanged. The bps are shares of the
+ * migration pool's TRADE FEE, like FeeConstitutionLine; a creator pays network gas only.
  */
 export interface LaunchPricingDisclosure {
   /** bps of the pool trade fee the venue keeps under this launch's constitution. */
   venueShareBps: number;
   /** The venue's standard line, so the reader can see the discount rather than be told it. */
   standardVenueShareBps: number;
-  /** bps the launcher's Heat tier moved from the venue's line to the creator. */
-  tierDiscountBps: number;
   /** bps the creator revenue share moved from the venue's line to the creator. */
   creatorRevenueShareBps: number;
-  /**
-   * The Heat tier the price was resolved at, rendered VERBATIM as the island words it.
-   * NULL when no fresh reading existed — never a fallback tier, because a tier the island
-   * did not give is a claim about a wallet nobody measured.
-   */
-  pricedAtTier: HeatTier | null;
-  /**
-   * THE THIRD STATE for `pricedAtTier`. FALSE when tier pricing was in force and the
-   * instrument gave nothing to price on, so the standard rate is a fallback rather than
-   * this wallet's price. Emitted only when false.
-   */
-  tierReadable?: boolean;
   /** Plain-language, buyer-facing. Factual; never a projection of what a creator will earn. */
   note: string;
 }
@@ -153,7 +131,7 @@ export interface LaunchFactSheet {
   feeConstitution: FeeConstitutionLine[];
   /**
    * What set the venue's line of `feeConstitution` above. Absent = the standard rate with
-   * neither pricing feature in force, which is what the constitution already says.
+   * the creator revenue share off, which is what the constitution already says.
    */
   pricing?: LaunchPricingDisclosure;
   vesting: VestingSchedule[];

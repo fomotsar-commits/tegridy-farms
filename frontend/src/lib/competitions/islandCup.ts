@@ -1,4 +1,4 @@
-// THE ISLAND CUP — a volume board over the island's own registered pools,
+// THE VOLUME BOARD (named islandCup in code) over the island's own registered pools,
 // scored from the trade feed this app already reads, with no I/O in this file.
 //
 // ─── WHY A SECOND BOARD AT ALL ───────────────────────────────────────────────
@@ -544,5 +544,5 @@ export function cupShareText(
   newestFillIso: string,
 ): string {
   const provisional = status === 'complete' ? '' : ', provisional';
-  return `#${rank} of ${of} wallets (${poolsAnswered} of ${poolsTotal} pools answered${provisional}) on the Island Cup, ${SITE_HOST}/competitions, read at ${newestFillIso}`;
+  return `#${rank} of ${of} wallets (${poolsAnswered} of ${poolsTotal} pools answered${provisional}) on the ${SITE_HOST} volume board, ${SITE_HOST}/competitions, read at ${newestFillIso}`;
 }
