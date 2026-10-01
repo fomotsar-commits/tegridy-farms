@@ -167,6 +167,20 @@ describe('deployment honesty', () => {
     expect(screen.queryByText(/could not be read/i)).not.toBeInTheDocument();
   });
 
+  // 2026-10-01: the LP release ships this read-only view against the LIVE program for
+  // the first time. Deployed + nothing looked up used to read "Couldn't read / A read
+  // failed" and an "outside its permitted range" error on the trade card.
+  it('a deployed program with nothing looked up says so, with no failed read and no trade error', () => {
+    renderView({ probe: DEPLOYED, snapshot: null, mint: null });
+    expect(screen.getByText('Not looked up yet')).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't read")).not.toBeInTheDocument();
+    expect(screen.queryByText(/a read failed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/outside its permitted range/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/look up a launch above to see its curve here/i)).toBeInTheDocument();
+    expect(screen.getByText(/switched off for now/i)).toBeInTheDocument();
+    expect(screen.queryByText(/until the new program is deployed/i)).not.toBeInTheDocument();
+  });
+
   it('shows CHECKING rather than a verdict while the probe is in flight', () => {
     // A pending read must never render as either answer.
     renderView({ probe: null });

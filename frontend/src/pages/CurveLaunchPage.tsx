@@ -228,12 +228,15 @@ export function TradePanel({
   paused,
   writeClient,
   gateNotOpen = false,
+  lookedUp = true,
 }: {
   phase: LaunchPhase;
   curve: BondingCurve | null;
   decimals: number | null;
   paused: boolean | null;
   writeClient: CurveWriteClient | null;
+  /** False: no launch has been looked up, so there is no reason to give for "blocked". */
+  lookedUp?: boolean;
   /**
    * Writes are switched on for this site, but the check above did not open them.
    * The status card above says why; this panel must not claim a different reason.
@@ -290,7 +293,11 @@ export function TradePanel({
         ))}
       </div>
 
-      {blocked && <p className="text-amber-300/90 mb-3">{LAUNCH_ERROR_COPY[blocked]}</p>}
+      {!lookedUp ? (
+        <p className="text-white/50 mb-3">Look up a launch above to see its curve here.</p>
+      ) : (
+        blocked && <p className="text-amber-300/90 mb-3">{LAUNCH_ERROR_COPY[blocked]}</p>
+      )}
 
       <Field
         label={side === 'buy' ? 'Spend (SOL)' : decimals === null ? 'Sell (token base units)' : 'Sell (tokens)'}
@@ -352,7 +359,7 @@ export function TradePanel({
         <p className="text-white/40 text-[10px] leading-relaxed mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           {gateNotOpen
             ? 'Launching and trading are not available right now; see the note above. The quote above is the same arithmetic the program runs.'
-            : 'There is no signing path on this page. Launching and trading here stay switched off until the new program is deployed and this site is pointed at it. The quote above is the same arithmetic the program runs, shown so the terms can be checked before any of this goes live.'}
+            : 'There is no signing path on this page. Launching and trading from this site are switched off for now. The quote above is the same arithmetic the program runs, shown so the terms can be checked.'}
         </p>
       ) : (
         <button type="button" className="btn-primary w-full py-2.5 text-[13px] mt-3 disabled:opacity-60" disabled={disabled || !quote}>
@@ -722,6 +729,7 @@ export function CurveLaunchView({
           paused={paused}
           writeClient={writeClient}
           gateNotOpen={gateBanner != null}
+          lookedUp={lookedUp}
         />
 
         <CreateChecklist
