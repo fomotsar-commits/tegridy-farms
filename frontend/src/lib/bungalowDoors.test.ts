@@ -131,12 +131,15 @@ const spoken = (el: Element | null | undefined) => (el?.textContent ?? '').repla
 const parse = (html: string) => new DOMParser().parseFromString(html, 'text/html');
 const EM_DASH = String.fromCharCode(0x2014);
 const CHAIN_WORD = { ethereum: 'Ethereum', base: 'Base', solana: 'Solana' } as const;
-/** Every name a JSON-LD node or any node inside it gives itself. */
-const namesIn = (v: unknown): string[] =>
-  Array.isArray(v) ? v.flatMap(namesIn)
-  : v && typeof v === 'object'
-    ? Object.entries(v).flatMap(([k, x]) => (typeof x === 'string' ? (/^(name|alternateName|headline)$/.test(k) ? [x] : []) : namesIn(x)))
-    : [];
+/** Every word a JSON-LD block says, under any key and at any depth, except an address.
+ *  Not only name/alternateName/headline: `author: 'MEMETICS.FINANCE'` names the venue too,
+ *  and a names-only read passed it. */
+const wordsIn = (v: unknown): string[] =>
+  typeof v === 'string' ? (/^https?:\/\//.test(v) ? [] : [v])
+  : Array.isArray(v) ? v.flatMap(wordsIn)
+  : v && typeof v === 'object' ? Object.values(v).flatMap(wordsIn)
+  : [];
+const NAMES_THE_VENUE = /memetics[\s.]?finance/i;
 
 describe('transform writes the door its own first frame', () => {
   for (const door of DOORS) {
@@ -190,7 +193,7 @@ describe('transform writes the door its own first frame', () => {
       // The venue is only the site the page belongs to, the WebApplication index.html
       // declares, pointed at by its address.
       expect(ld.isPartOf).toEqual({ '@type': 'WebApplication', url: SITE_URL });
-      expect(namesIn(ld).filter((n) => /memetics\.finance/i.test(n))).toEqual([]);
+      expect(wordsIn(ld).filter((w) => NAMES_THE_VENUE.test(w))).toEqual([]);
       expect(JSON.stringify(ld)).not.toContain(EM_DASH);
     });
 

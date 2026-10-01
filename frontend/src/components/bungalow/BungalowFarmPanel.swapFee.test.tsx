@@ -34,7 +34,11 @@ const swapServed = (b: Bungalow) => getChainConfig(EVM_CHAIN_ID[b.chain])!.capab
 // What the line claims, read as meaning rather than as one exact wording.
 const SAYS_SWAP_RUNS = /swap surface (is live|takes|captures)/i;
 const SAYS_NO_FEE = /\bno (platform |swap )?fee\b|\btakes no\b/i;
-const SAYS_SHARE_REACHES_POOL = /can route here/i;
+// A share, in any wording, that reaches this room's pool; "no share of it routes here" is
+// the denial and does not count. Not just "can route here": "a share of it routes here
+// today" said the same false thing on the Ethereum line and passed.
+const SAYS_SHARE_REACHES_POOL =
+  /(?<!\bno )\b(share|part|cut|portion)\b[^.]*?\b(can route|routes?|reaches|goes|flows|is paid)\b[^.]*?\b(here|this pool|the pool|this room|this bungalow)\b/i;
 
 function swapFeeLine(b: Bungalow, feeOn: boolean): string {
   solanaFee.on = feeOn;
