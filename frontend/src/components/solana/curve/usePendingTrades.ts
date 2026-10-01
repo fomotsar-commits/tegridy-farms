@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clipDetail } from '../../../lib/launcher/solana/curve';
+import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import { clearPendingTrade, readPendingTrades, savePendingTrade, type PendingTrade } from './pendingTrade';
-import type { LpKind, PreparedTx, TxOutcome } from './ports';
+import type { LpKind, PreparedTx, TxOutcome, TxSummary } from './ports';
 
 /**
  * The page-level half of "sent, not confirmed yet": a transaction in this scope (one
@@ -33,9 +34,16 @@ export interface PendingTradesState {
   sent(signature: string, prepared: PreparedTx): void;
 }
 
+type LpSummary = Extract<TxSummary, { kind: LpKind }>;
+
+/** A liquidity summary (adding, removing or opening a pool), each of which names its pool. */
+function isLpSummary(s: TxSummary): s is LpSummary {
+  return isLpKind(s.kind);
+}
+
 /** The pool a liquidity note names; nothing for any other kind. */
 function poolOf(p: PreparedTx): string | null {
-  return p.summary.kind === 'lp-deposit' || p.summary.kind === 'lp-withdraw' ? p.summary.pool.toBase58() : null;
+  return isLpSummary(p.summary) ? p.summary.pool.toBase58() : null;
 }
 
 /**
@@ -78,7 +86,7 @@ export function usePendingTrades(
     for (const n of current) {
       let o: TxOutcome;
       try {
-        o = await (n.kind === 'lp-deposit' || n.kind === 'lp-withdraw'
+        o = await (isLpKind(n.kind)
           ? check(n.signature, n.lastValidBlockHeight, n.kind)
           : check(n.signature, n.lastValidBlockHeight));
       } catch (e) {

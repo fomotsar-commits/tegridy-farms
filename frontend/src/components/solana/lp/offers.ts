@@ -13,8 +13,9 @@ import type { LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { minLpForBothSides } from '../../../lib/solana/lp/liquidityMath';
 import type { PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { Position } from '../../../lib/solana/lp/positions';
+import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import type { PendingTrade } from '../curve/pendingTrade';
-import type { LpGate } from '../curve/ports';
+import type { LpGate, LpKind } from '../curve/ports';
 
 export type DepositOffer = 'offer' | 'paused-here' | 'held' | 'checks' | 'gate' | 'off';
 
@@ -68,16 +69,22 @@ export function withdrawOffer(a: { mode: LpWriteMode; gate: LpGate | null; posit
   return 'offer';
 }
 
-const LP_SIDE = { 'lp-deposit': 'add', 'lp-withdraw': 'remove' } as const;
+/** Which form each liquidity kind's pending note holds. A Record, so a new kind must say. */
+const LP_SIDE: Readonly<Record<LpKind, 'add' | 'remove' | 'create'>> = {
+  'lp-deposit': 'add',
+  'lp-withdraw': 'remove',
+  'lp-create': 'create',
+};
 
 /**
  * Does a pending liquidity note hold this pool in this direction? A note whose pool
  * could not be read back (`pool: null`) holds every pool: it fails closed. Notes of
- * other kinds never hold a liquidity form.
+ * other kinds never hold a liquidity form, and a pending opening never holds Add or
+ * Remove (it is not a repeat of either).
  */
 export function lpHeld(notes: PendingTrade[], pool: string, side: 'add' | 'remove'): boolean {
   return notes.some((n) => {
-    if (n.kind !== 'lp-deposit' && n.kind !== 'lp-withdraw') return false;
+    if (!isLpKind(n.kind)) return false;
     if (LP_SIDE[n.kind] !== side) return false;
     return n.pool === null || n.pool === pool;
   });

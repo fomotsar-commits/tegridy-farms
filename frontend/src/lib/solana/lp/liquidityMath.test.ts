@@ -7,8 +7,12 @@ import { lpTokensToTradingTokens } from '../cpswap/math';
 import type { PoolStateView } from '../cpswap/program';
 import type { PoolSnapshot } from '../cpswap/read';
 import {
+  LOCKED_LP,
+  MAX_LOCK_BPS,
   U64_MAX,
   isPlanProblem,
+  isqrt,
+  openingProblem,
   lpForMaxIn,
   maxInFor,
   minLpForBothSides,
@@ -250,5 +254,75 @@ describe('spendableSol: the rent band, one term at a time', () => {
 
   it('is never negative', () => {
     expect(spendableSol({ ...a, lamports: 1_000n })).toBe(0n);
+  });
+});
+
+// ── opening a pool (SPEC_S2_CREATE N8) ───────────────────────────────────────
+
+describe('isqrt: the exact floor square root the program takes of init0·init1', () => {
+  const isFloorRoot = (n: bigint, r: bigint) => r * r <= n && n < (r + 1n) * (r + 1n);
+
+  it('is exact on 20,000 random products up to (2^64 − 1)², far past where a float root drifts', () => {
+    const r = rng(7);
+    const u64 = () => {
+      // A random size, then random bits: every magnitude up to u64::MAX is reached.
+      const bits = 1 + Math.floor(r.next() * 64);
+      let v = 0n;
+      for (let i = 0; i < bits; i++) v = (v << 1n) | (r.next() < 0.5 ? 0n : 1n);
+      return v | (1n << BigInt(bits - 1));
+    };
+    for (let i = 0; i < 20_000; i++) {
+      const n = u64() * u64();
+      const root = isqrt(n);
+      if (!isFloorRoot(n, root)) throw new Error(`isqrt(${n}) = ${root}`);
+    }
+  });
+
+  it('at the edges: 0 to 4, around 100, and around k² for k = 2^32 and 2^64 − 1', () => {
+    expect([0n, 1n, 2n, 3n, 4n].map(isqrt)).toEqual([0n, 1n, 1n, 1n, 2n]);
+    expect([99n, 100n, 101n].map(isqrt)).toEqual([9n, 10n, 10n]);
+    for (const k of [1n << 32n, U64_MAX]) {
+      expect(isqrt(k * k - 1n)).toBe(k - 1n);
+      expect(isqrt(k * k)).toBe(k);
+      expect(isqrt(k * k + 1n)).toBe(k);
+    }
+  });
+
+  it('refuses a negative number', () => {
+    expect(() => isqrt(-1n)).toThrow(RangeError);
+  });
+});
+
+describe('openingProblem: the site’s share rule for a new pool', () => {
+  it('the locked part is the program’s 100 shares, at most 0.1% of the pool', () => {
+    expect(LOCKED_LP).toBe(100n);
+    expect(MAX_LOCK_BPS).toBe(10n);
+  });
+
+  it('an empty side', () => {
+    expect(openingProblem(0n, 5n)).toEqual({ problem: 'empty-side' });
+    expect(openingProblem(5n, 0n)).toEqual({ problem: 'empty-side' });
+  });
+
+  it('a side past u64', () => {
+    expect(openingProblem(U64_MAX + 1n, 5n)).toEqual({ problem: 'overflow' });
+    expect(openingProblem(5n, U64_MAX + 1n)).toEqual({ problem: 'overflow' });
+  });
+
+  it('isqrt exactly 100 is too small: the program would LAND it and give the opener 0 shares', () => {
+    expect(openingProblem(100n, 100n)).toEqual({ problem: 'too-small', supply: 100n });
+    expect(openingProblem(99n, 100n)).toEqual({ problem: 'too-small', supply: 99n });
+  });
+
+  it('above 100 but under 100,000 locks more than 0.1%', () => {
+    expect(openingProblem(101n, 101n)).toEqual({ problem: 'lock-too-large', supply: 101n });
+    expect(openingProblem(99_999n, 99_999n)).toEqual({ problem: 'lock-too-large', supply: 99_999n });
+  });
+
+  it('100,000 shares exactly is allowed, and so is any real opening', () => {
+    expect(openingProblem(100_000n, 100_000n)).toBeNull();
+    // 0.1 SOL against 10^12 token units: 10^10 shares.
+    expect(openingProblem(100_000_000n, 1_000_000_000_000n)).toBeNull();
+    expect(openingProblem(U64_MAX, U64_MAX)).toBeNull();
   });
 });

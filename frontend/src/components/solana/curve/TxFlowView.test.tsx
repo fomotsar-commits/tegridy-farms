@@ -3,7 +3,7 @@ import { act, fireEvent, render, renderHook, screen } from '@testing-library/rea
 import { TxFlowView, TxOutcomeCard } from './TxFlowView';
 import { REVIEW_TTL_MS, useTxFlow } from './useTxFlow';
 import { CREATOR, KEY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
-import type { TxOutcome, TxSigner, TxSummary, WriteRpc } from './ports';
+import type { PreparedTx, TxOutcome, TxSigner, TxSummary, WriteRpc } from './ports';
 
 const SOL_1 = 1_000_000_000n;
 
@@ -819,5 +819,108 @@ describe('liquidity outcomes', () => {
     render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
     expect(document.body.textContent).toContain('Taking liquidity out again now could take out more than you meant.');
     expect(document.body.textContent).not.toMatch(/fail/i);
+  });
+});
+
+// Opening a pool (spec 4.4). Every row comes from the prepared transaction, never from
+// what the panel was typed into; the fee account's test-run line and the rent line are
+// said for an opening; and an opening left unknown warns about a second pool.
+describe('opening a pool: the review', () => {
+  const config = {
+    address: KEY(6).toBase58(), index: 1, disableCreatePool: false, tradeFeeRate: 10_000n, protocolFeeRate: 160_000n,
+    fundFeeRate: 0n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
+  };
+  const create = (over: Partial<Extract<TxSummary, { kind: 'lp-create' }>> = {}): TxSummary => ({
+    kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, solIsToken0: true,
+    put: { sol: 1_000_000_000n, token: 5_000_000n },
+    supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
+    locked: { sol: 1_414n, token: 7n },
+    createFee: 150_000_000n, feeReceiver: KEY(8),
+    rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
+    price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
+    tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }],
+    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['A spender is approved on your token account.'], ...over,
+  });
+  const value = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
+  const review = async (summary: TxSummary, over: Partial<PreparedTx> = {}) => {
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(summary, over) })));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+  };
+
+  it('every row, from the prepared summary', async () => {
+    await review(create());
+    expect(screen.getByRole('heading', { name: 'Review: open a pool' })).toBeInTheDocument();
+    expect(value('Pool')).toBe(KEY(40).toBase58());
+    expect(value('Pool kind')).toBe('Standard address for fee tier 1');
+    expect(value('Token (mint)')).toBe(KEY(41).toBase58());
+    expect(value('Fee tier')).toMatch(/^1: traders pay 1% a trade; LPs keep \d+\.\d{3}% of each trade$/);
+    expect(value('You put in')).toBe('1 SOL and 5 tokens, exactly');
+    expect(value('Opening price')).toBe('1 token = 0.2 SOL. Market (Jupiter, read just now): 0.195 SOL, 2.6% above');
+    expect(value('Opens for trading')).toBe('At once (one second after it lands)');
+    expect(value('Fee to open the pool')).toBe(
+      `0.15 SOL, paid to the team's vault (into ${KEY(8).toBase58()}, the account the pool program fixes); not refundable`,
+    );
+    expect(value('Account deposits that never come back')).toBe(
+      '0.04 SOL (the pool, its price record, its share token and its two vaults; none can be closed)',
+    );
+    expect(value('Your pool-share account')).toBe('0.00203928 SOL (it comes back if you close that account later)');
+    expect(value('You get')).toBe('0.070710578 pool shares, exactly');
+    expect(value('Locked in the pool forever')).toMatch(/^0\.0000001 pool shares \(100 of the smallest unit\), worth about .+ SOL and .+ tokens at these amounts$/);
+    expect(value('Your share of the pool')).toBe('100.00%');
+    expect(screen.getByText('Read these about this token first:')).toBeInTheDocument();
+    expect(screen.getByText('Its creator can still mint more.')).toBeInTheDocument();
+    expect(screen.getByText('Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.')).toBeInTheDocument();
+    expect(screen.getByText('A spender is approved on your token account.')).toBeInTheDocument();
+    expect(screen.getByText(/wrapped into a token account for the opening, and that account is closed in the same transaction/)).toBeInTheDocument();
+    expect(screen.queryByText(/needs a second signature/)).not.toBeInTheDocument();
+  });
+
+  it('a pool at its own address says so, and names the second signature', async () => {
+    await review(create({ origin: 'other', tokenWarnings: [], notices: [], unwrapsWsol: false, wsolHeldBefore: 500_000_000n }));
+    expect(value('Pool kind')).toBe('Its own address: the standard address is taken, so this pool gets a new address made in this browser');
+    expect(
+      screen.getByText(/Your wallet will show that this transaction needs a second signature\. That is the new pool's own address: this page signs it after you, then forgets the key\./),
+    ).toBeInTheDocument();
+    expect(screen.getByText('You already hold 0.5 wrapped SOL. It is left exactly as it is.')).toBeInTheDocument();
+    expect(screen.queryByText('Read these about this token first:')).not.toBeInTheDocument();
+  });
+
+  it("the rent line names the pool's accounts and the pool-share account, and the fee account's line names the vault", async () => {
+    await review(create(), {
+      simulated: {
+        signerLamportsDelta: -1_192_039_280n,
+        tokenDeltas: [{ mint: KEY(9), account: KEY(8), delta: 150_000_000n, role: 'treasury', decimals: 9 }],
+      },
+    });
+    expect(
+      screen.getByText(
+        "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('One-time account rent')).not.toBeInTheDocument();
+    expect(value("Test run: the fee to open arrives at the team's vault (SOL)")).toBe('+0.15');
+    expect(screen.queryByText('Test run: the platform treasury receives')).not.toBeInTheDocument();
+  });
+
+  it('the priority fee is measured against the SOL put in', async () => {
+    // 12,000 lamports of priority (the fixture) against 100,000 lamports put in.
+    await review(create({ put: { sol: 100_000n, token: 5_000_000n } }));
+    expect(value('Priority fee')).toMatch(/\(12\.00% of this trade\)$/);
+  });
+});
+
+describe('opening a pool: the outcome', () => {
+  it('unknown warns about a second pool and a second fee, and never says failed', () => {
+    render(
+      <TxOutcomeCard outcome={{ status: 'unknown', signature: SIG, message: 'slow' }} explorerUrl={null} onRecheck={vi.fn()} onReset={vi.fn()} rechecking={false} kind="lp-create" />,
+    );
+    const text = document.body.textContent ?? '';
+    expect(text).toContain(
+      'It may still land. Opening a pool again now could open a second pool and pay the fee to open twice. Check again, or look it up on the explorer.',
+    );
+    expect(text).not.toContain('Sending again could make you pay twice.');
+    expect(text).not.toMatch(/fail/i);
   });
 });

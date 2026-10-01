@@ -12,7 +12,8 @@
 import { launchErrorName, type LaunchErrorName } from '../curve/program';
 import type { LaunchQuoteErrorCode } from '../curve/math';
 import { CP_SWAP_ERROR_COPY, cpSwapErrorName } from '../../../solana/cpswap/errors';
-import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../curve/program';
+import { ASSOCIATED_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../curve/program';
+import { isLpKind } from './lpKinds';
 import type { CurveWriteConfig, LpKind, TxKind } from './types';
 
 export type FailingProgram = 'launch' | 'cp-swap' | 'other';
@@ -79,7 +80,7 @@ const LP_FROZEN =
   "The token's issuer has frozen an account this needs (the pool's vault or your token account), so nothing can move. That is the issuer's doing, not the pool program's.";
 const LP_ATA_OWNER = 'One of your token accounts now belongs to another wallet, so this was stopped before anything moved.';
 
-export const LP_FAILURE_COPY: Record<LpKind, LpFailureCopy> = {
+export const LP_FAILURE_COPY: Record<Exclude<LpKind, 'lp-create'>, LpFailureCopy> = {
   'lp-deposit': {
     notApproved:
       "Deposits were switched off on this pool by the pool program's admin (the team's vault) before this ran. Nothing was added.",
@@ -104,11 +105,64 @@ export const LP_FAILURE_COPY: Record<LpKind, LpFailureCopy> = {
   },
 };
 
-const isLpKind = (k: TxKind | undefined): k is LpKind => k === 'lp-deposit' || k === 'lp-withdraw';
+/**
+ * Opening a pool's failures, in its own words (spec 3.5). A front-run at the standard
+ * address is the System program's custom 0 (Anchor's `init` of the pool's share token
+ * finds the account in use before the handler runs), and the innermost failing program
+ * speaks first, so that line names it. cp-swap 6000 at `initialize` means the fee
+ * tier's `disable_create_pool` is on, not a pool's deposit switch.
+ */
+export const CREATE_FAILURE_COPY = {
+  notApproved:
+    "Opening new pools on the public fee tier was switched off by the pool program's admin (the team's vault) before this ran. Nothing was opened.",
+  addressInUse: 'Someone opened a pool at this address first. Nothing was opened. Start over: the site will use a new address.',
+  emptySupply: 'One side of the opening was empty when it ran. Nothing was opened.',
+  notSupportMint: 'The pool program does not take this kind of token. Nothing was opened.',
+  initLpAmountTooLess:
+    'Too small: the pool program keeps 100 pool shares in every new pool forever, and this opening would not cover them. Nothing was opened.',
+  tokenOwner: LP_ATA_OWNER,
+  accountMissing:
+    'An account the pool program needs is missing or wrong (the public fee tier, or the account that receives the fee to open a pool), so no pool can be opened right now. Nothing was opened.',
+  constraint: 'The pool program refused the accounts this named. That is a fault in this site; nothing was opened. Please tell us.',
+  accountFrozen: "Your token account is frozen by the token's issuer, so nothing can move out of it. Nothing was opened.",
+} as const;
+
+/** Anchor's own error numbers (anchor-lang 0.32.1 error.rs), raised inside cp-swap. */
+const ANCHOR_CONSTRAINT_TOKEN_OWNER = 2015;
+const ANCHOR_ACCOUNT_OWNED_BY_WRONG_PROGRAM = 3007;
+const ANCHOR_ACCOUNT_NOT_INITIALIZED = 3012;
+
+/** The opening's sentence for this failing program and code, or null to use the general rules (token 1, lamports, rent). */
+export function createFailure(program: FailingProgram, id: string, code: number): string | null {
+  if (program === 'cp-swap') {
+    switch (code) {
+      case 6000:
+        return CREATE_FAILURE_COPY.notApproved;
+      case 6002:
+        return CREATE_FAILURE_COPY.emptySupply;
+      case 6007:
+        return CREATE_FAILURE_COPY.notSupportMint;
+      case 6009:
+        return CREATE_FAILURE_COPY.initLpAmountTooLess;
+      case ANCHOR_CONSTRAINT_TOKEN_OWNER:
+        return CREATE_FAILURE_COPY.tokenOwner;
+      case ANCHOR_ACCOUNT_OWNED_BY_WRONG_PROGRAM:
+      case ANCHOR_ACCOUNT_NOT_INITIALIZED:
+        return CREATE_FAILURE_COPY.accountMissing;
+      default:
+        // Every other Anchor constraint (2000-2999, 2501 RequireEqViolated included).
+        return code >= 2000 && code <= 2999 ? CREATE_FAILURE_COPY.constraint : null;
+    }
+  }
+  if (id === SYSTEM_PROGRAM_ID.toBase58() && code === 0) return CREATE_FAILURE_COPY.addressInUse;
+  if (TOKEN_PROGRAMS.has(id) && code === 17) return CREATE_FAILURE_COPY.accountFrozen;
+  return null;
+}
 
 /** The liquidity sentence for this failing program and code, or null to use the general one. */
 function lpFailure(kind: TxKind | undefined, program: FailingProgram, id: string, code: number | null): string | null {
   if (!isLpKind(kind) || code === null) return null;
+  if (kind === 'lp-create') return createFailure(program, id, code);
   const c = LP_FAILURE_COPY[kind];
   if (program === 'cp-swap') {
     switch (code) {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clipDetail } from '../../../lib/launcher/solana/curve';
+import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, WriteApi, WriteRpc } from './ports';
 
 /**
@@ -219,7 +220,7 @@ export function useTxFlow(
         rpc,
         sig,
         p
-          ? p.kind === 'lp-deposit' || p.kind === 'lp-withdraw'
+          ? isLpKind(p.kind)
             ? { lastValidBlockHeight: p.lastValidBlockHeight, cfg: p.check.intent.cfg, kind: p.kind }
             : { lastValidBlockHeight: p.lastValidBlockHeight }
           : undefined,

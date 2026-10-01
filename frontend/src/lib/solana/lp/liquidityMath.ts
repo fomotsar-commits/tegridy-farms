@@ -195,6 +195,55 @@ export function planWithdraw(s: PoolSnapshot, a: { held: bigint; pctBps: bigint;
   };
 }
 
+// ── opening a pool ────────────────────────────────────────────────────────────
+//
+// initialize.rs: the pool's whole share count is `isqrt(init0·init1)`, the program keeps
+// `LOCKED_LP` of it in the pool forever, and the opener gets the rest. It refuses only
+// BELOW 100 (`liquidity.checked_sub(100)`): at exactly 100 the opening LANDS and mints the
+// opener nothing. This site's own rule steps over that trap and keeps the locked part
+// at most 0.1% of the pool.
+
+/** The pool shares cp-swap keeps in every new pool forever (initialize.rs). */
+export const LOCKED_LP = 100n;
+/** The locked 100 may be at most this many basis points of the pool: 0.1%. */
+export const MAX_LOCK_BPS = 10n;
+
+/** Floor square root, exact for any size (Newton's method on bigint). RangeError below 0. */
+export function isqrt(n: bigint): bigint {
+  if (n < 0n) throw new RangeError('isqrt of a negative number');
+  if (n < 2n) return n;
+  // Start at a power of two at or above the root, then step down to it.
+  let x = 1n << BigInt(Math.ceil(n.toString(2).length / 2));
+  for (;;) {
+    const y = (x + n / x) >> 1n;
+    if (y >= x) return x;
+    x = y;
+  }
+}
+
+export type CreateProblem =
+  | { problem: 'empty-side' }
+  | { problem: 'overflow' }
+  /** supply ≤ 100: the program refuses it, or (at exactly 100) lands it and mints the opener nothing. */
+  | { problem: 'too-small'; supply: bigint }
+  /** 100 < supply < 100,000: the locked 100 would be more than 0.1% of the pool. */
+  | { problem: 'lock-too-large'; supply: bigint }
+  | { problem: 'over-balance'; side: 'sol' | 'token'; need: bigint; have: bigint };
+
+/**
+ * Why an opening with these amounts must not be built, or null. Order: an empty side,
+ * a value past u64, a supply the program refuses or turns into nothing (≤ 100), and a
+ * locked part above 0.1% of the pool.
+ */
+export function openingProblem(amount0: bigint, amount1: bigint): Exclude<CreateProblem, { problem: 'over-balance' }> | null {
+  if (amount0 < 1n || amount1 < 1n) return { problem: 'empty-side' };
+  if (amount0 > U64_MAX || amount1 > U64_MAX) return { problem: 'overflow' };
+  const supply = isqrt(amount0 * amount1);
+  if (supply <= LOCKED_LP) return { problem: 'too-small', supply };
+  if (LOCKED_LP * BPS > supply * MAX_LOCK_BPS) return { problem: 'lock-too-large', supply };
+  return null;
+}
+
 /**
  * The most SOL a deposit may take from this wallet (section 3.8, the rent band):
  * `max(0, lamports − feeReserve − lpAccountRent − max(wsolCreateRent, walletFloor))`.

@@ -95,8 +95,8 @@ export interface ActionAvailability {
   poolSwap: boolean;
 }
 
-/** Adding and removing liquidity in one of our cp-swap pools. */
-export type LpKind = 'lp-deposit' | 'lp-withdraw';
+/** Adding and removing liquidity in one of our cp-swap pools, and opening a new one. */
+export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create';
 
 export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | LpKind;
 
@@ -161,7 +161,13 @@ export type IntentStep =
   /** cp-swap `deposit`: exactly `lpAmount` pool shares, at most `max0` / `max1` of each side. */
   | { kind: 'pool-deposit'; pool: PublicKey; lpAmount: bigint; max0: bigint; max1: bigint }
   /** cp-swap `withdraw`: `lpAmount` pool shares out of `lpAccount`, at least `min0` / `min1` back. */
-  | { kind: 'pool-withdraw'; pool: PublicKey; lpAccount: PublicKey; lpAmount: bigint; min0: bigint; min1: bigint };
+  | { kind: 'pool-withdraw'; pool: PublicKey; lpAccount: PublicKey; lpAmount: bigint; min0: bigint; min1: bigint }
+  /**
+   * cp-swap `initialize`: open `pool` on fee tier `ammConfig` (always tier 1) with exactly
+   * `init0` / `init1`. Its open time is always 0 (the decoder refuses any other), so it is
+   * not carried.
+   */
+  | { kind: 'pool-create'; pool: PublicKey; ammConfig: PublicKey; init0: bigint; init1: bigint };
 
 export type TxSummary =
   | {
@@ -234,7 +240,8 @@ export type TxSummary =
       unwrapsWsol: boolean;
     }
   | LpDepositSummary
-  | LpWithdrawSummary;
+  | LpWithdrawSummary
+  | LpCreateSummary;
 
 /**
  * Adding liquidity, as the review shows it. Every amount comes from the prepared
@@ -296,6 +303,41 @@ export interface LpWithdrawSummary {
 }
 
 /**
+ * Opening a new pool on the public fee tier, as the review shows it. Every amount comes
+ * from the prepared transaction: `put` is decoded from its bytes, the rents and the fee
+ * were read while preparing.
+ */
+export interface LpCreateSummary {
+  kind: 'lp-create';
+  pool: PublicKey;
+  /** `standard`: the pool's standard address for tier 1. `other`: a fresh key made in this browser. */
+  origin: 'standard' | 'other';
+  /** Tier 1 as read while preparing. Never null: prepare refuses without it. */
+  config: AmmConfigView;
+  tokenMint: PublicKey;
+  tokenDecimals: number;
+  solIsToken0: boolean;
+  /** Decoded from the bytes: exactly what goes in. */
+  put: { sol: bigint; token: bigint };
+  /** isqrt(sol·token), the pool's whole share count; `lpAmount` = supply − 100. */
+  supply: bigint;
+  lpAmount: bigint;
+  lpDecimals: 9;
+  /** What the 100 locked shares are worth at the opening amounts (display). */
+  locked: { sol: bigint; token: bigint };
+  createFee: bigint;
+  feeReceiver: PublicKey;
+  /** Read while preparing: the pool's own accounts (never returned), the opener's pool-share account (refundable). */
+  rents: { neverRefunded: bigint; lpAccount: bigint };
+  /** The opening check that passed: state 'agrees', against 'outside'. */
+  price: PriceCheck;
+  tokenWarnings: SafetyReason[];
+  unwrapsWsol: boolean;
+  wsolHeldBefore: bigint;
+  notices: string[];
+}
+
+/**
  * The trade fee's SCHEDULED split. The program pays the creator's share to the
  * creator and the rest to the fee recipient, EXCEPT that a leg which would leave
  * its receiver below rent is folded (creator into platform) or waived (platform,
@@ -329,7 +371,10 @@ export interface PreparedTx {
   kind: TxKind;
   /** Legacy transaction: fee payer = the wallet, blockhash and compute budget set. */
   tx: Transaction;
-  /** `create`: the fresh mint keypair (kept in memory only). Everything else: none. */
+  /**
+   * `create`: the fresh mint keypair. `lp-create` on a one-off address: the new pool's
+   * keypair. Memory only. Everything else: none.
+   */
   extraSigners: Keypair[];
   blockhash: string;
   lastValidBlockHeight: number;

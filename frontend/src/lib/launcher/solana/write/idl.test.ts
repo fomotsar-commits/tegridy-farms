@@ -37,9 +37,19 @@ import {
   sortMints,
 } from '../curve/program';
 import { associatedTokenAddress, migrateToAmmIx, sellIx } from '../curve/ix';
-import { IX_DEPOSIT, IX_WITHDRAW, deriveAuthority, deriveObservation, deriveVault } from '../../../solana/cpswap/program';
 import {
-  DEPOSIT_ACCOUNTS, MEMO_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, WITHDRAW_ACCOUNTS, depositIx, swapBaseInputIx, withdrawIx,
+  IX_DEPOSIT,
+  IX_INITIALIZE,
+  IX_WITHDRAW,
+  deriveAuthority,
+  deriveLpMint as cpDeriveLpMint,
+  deriveObservation,
+  derivePool as cpDerivePool,
+  deriveVault,
+  publicTierConfig,
+} from '../../../solana/cpswap/program';
+import {
+  DEPOSIT_ACCOUNTS, INITIALIZE_ACCOUNTS, MEMO_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, WITHDRAW_ACCOUNTS, depositIx, initializeIx, swapBaseInputIx, withdrawIx,
 } from '../../../solana/cpswap/ix';
 import { CP_SWAP_ERROR_CODES, CP_SWAP_ERROR_COPY } from '../../../solana/cpswap/errors';
 import { CP_CREATE_POOL_FEE_RECEIVER, launchIndexAddress } from './config';
@@ -339,6 +349,48 @@ describe('cp-swap deposit and withdraw match the committed mainnet IDL', () => {
     assertParity(ix, spec, lpByName, CPSWAP);
     expect(ix.data.length).toBe(32);
     expect([u64At(ix.data, 8), u64At(ix.data, 16), u64At(ix.data, 24)]).toEqual([11n, 22n, 33n]);
+  });
+});
+
+describe('cp-swap initialize matches the committed mainnet IDL', () => {
+  // Opening a pool from this site (lp-create). The decoder pins all 20 slots by name and
+  // order (intent.ts poolInitialize), so the list it pins is held to the release's IDL.
+  const flags = (spec: IdlIx) => spec.accounts.map((a) => [a.name, !!a.signer, !!a.writable]);
+  const tier1 = publicTierConfig(CPSWAP);
+  const [t0, t1] = sortMints(WSOL_MINT, MINT);
+
+  it('20 accounts by name, order and flags, the discriminator, and init_amount_0, init_amount_1, open_time', () => {
+    const spec = ixOf(cpIdl(), 'initialize');
+    expect(spec.accounts).toHaveLength(20);
+    expect(INITIALIZE_ACCOUNTS.map((a) => [a.name, a.s, a.w])).toEqual(flags(spec));
+    expect(Array.from(IX_INITIALIZE)).toEqual(spec.discriminator);
+    expect(spec.args.map((a) => [a.name, a.type])).toEqual([['init_amount_0', 'u64'], ['init_amount_1', 'u64'], ['open_time', 'u64']]);
+  });
+
+  it('the opening the site builds, at the standard address, position by position', () => {
+    const spec = ixOf(cpIdl(), 'initialize');
+    const pool = cpDerivePool(CPSWAP, tier1, t0, t1);
+    const lpMint = cpDeriveLpMint(CPSWAP, pool);
+    const byName: Record<string, PublicKey> = {
+      creator: TRADER, amm_config: tier1, authority: deriveAuthority(CPSWAP), pool_state: pool,
+      token_0_mint: t0, token_1_mint: t1, lp_mint: lpMint,
+      creator_token_0: associatedTokenAddress(t0, TRADER), creator_token_1: associatedTokenAddress(t1, TRADER),
+      creator_lp_token: associatedTokenAddress(lpMint, TRADER),
+      token_0_vault: deriveVault(CPSWAP, pool, t0), token_1_vault: deriveVault(CPSWAP, pool, t1),
+      create_pool_fee: CP_CREATE_POOL_FEE_RECEIVER, observation_state: deriveObservation(CPSWAP, pool),
+      token_program: TOKEN_PROGRAM_ID, token_0_program: TOKEN_PROGRAM_ID, token_1_program: TOKEN_PROGRAM_ID,
+      associated_token_program: ASSOCIATED_TOKEN_PROGRAM_ID, system_program: SYSTEM_PROGRAM_ID, rent: SYSVAR_RENT_PUBKEY,
+    };
+    const ix = initializeIx({
+      programId: CPSWAP, creator: TRADER, ammConfig: tier1, token0Mint: t0, token1Mint: t1,
+      creatorToken0: byName.creator_token_0!, creatorToken1: byName.creator_token_1!, creatorLpToken: byName.creator_lp_token!,
+      token0Program: TOKEN_PROGRAM_ID, token1Program: TOKEN_PROGRAM_ID, createPoolFee: CP_CREATE_POOL_FEE_RECEIVER,
+      initAmount0: 11n, initAmount1: 22n, openTime: 0n,
+    });
+    expect(ix.keys).toHaveLength(20);
+    assertParity(ix, spec, byName, CPSWAP);
+    expect(ix.data.length).toBe(32);
+    expect([u64At(ix.data, 8), u64At(ix.data, 16), u64At(ix.data, 24)]).toEqual([11n, 22n, 0n]);
   });
 });
 

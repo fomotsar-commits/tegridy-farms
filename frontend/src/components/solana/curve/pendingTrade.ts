@@ -4,8 +4,8 @@
 // is how someone pays twice.
 //
 // It covers buy, sell, graduation and pool swaps (one scope per launch mint), and
-// adding and removing liquidity (one scope for every pool, each note naming its
-// pool). The create flow has its own note (pendingLaunch.ts).
+// adding and removing liquidity and opening a pool (one scope for every pool, each
+// note naming its pool). The launch create flow has its own note (pendingLaunch.ts).
 //
 // sessionStorage, and only as a convenience: it can be empty, blocked or throw (a
 // private window, cleared site data), and the page must still be right without it.
@@ -13,6 +13,7 @@
 // shows any form the note holds.
 
 import { PublicKey } from '@solana/web3.js';
+import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import type { TxKind } from './ports';
 
 /**
@@ -47,9 +48,9 @@ const KNOWN: Record<TradeKind, true> = {
   'pool-sell': true,
   'lp-deposit': true,
   'lp-withdraw': true,
+  'lp-create': true,
 };
 const TRADE_KINDS: ReadonlySet<string> = new Set(Object.keys(KNOWN));
-const isLpKind = (k: TradeKind) => k === 'lp-deposit' || k === 'lp-withdraw';
 
 export interface PendingTrade {
   kind: TradeKind;

@@ -3,7 +3,7 @@ import { describeTreasury, formatSol, formatTokenAmount } from '../../../lib/lau
 import { ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import { feeSplit } from '../../../lib/solana/cpswap/venue';
-import { feeRateText } from '../../../lib/solana/lp/format';
+import { feeRateText, formatSolPrice } from '../../../lib/solana/lp/format';
 import type { FeeSplitView, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, WriteApi } from './ports';
 import type { TxFlow } from './useTxFlow';
 
@@ -42,6 +42,8 @@ function tradeLamports(s: TxSummary): bigint | null {
     case 'lp-deposit':
     case 'lp-withdraw':
       return s.quoted.sol;
+    case 'lp-create':
+      return s.put.sol;
     default:
       return null;
   }
@@ -179,6 +181,8 @@ export function SummaryRows({
       return <LpDepositRows summary={summary} />;
     case 'lp-withdraw':
       return <LpWithdrawRows summary={summary} />;
+    case 'lp-create':
+      return <LpCreateRows summary={summary} />;
     default:
       // A new kind of transaction is a compile error here until it has rows.
       return noRowsFor(summary);
@@ -357,6 +361,88 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
   );
 }
 
+/** What a live mint authority allows, said once more where a pool is about to be opened. */
+const MINT_AUTHORITY_LINE = 'Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.';
+
+/** The opening price against the market, from the check that passed while preparing. */
+function openingPriceText(p: Extract<TxSummary, { kind: 'lp-create' }>['price']): string {
+  if ((p.state === 'agrees' || p.state === 'disagrees') && p.against === 'outside') {
+    const d = (Math.abs(p.diff) * 100).toFixed(1);
+    return `1 token = ${formatSolPrice(p.pool)} SOL. Market (Jupiter, read just now): ${formatSolPrice(p.reference)} SOL, ${d}% ${p.diff >= 0 ? 'above' : 'below'}`;
+  }
+  return priceText(p);
+}
+
+/** Opening a pool. Every value from the prepared transaction: the amounts from its bytes, the fee and rents as read while preparing. */
+function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-create' }> }) {
+  const tok = (v: bigint) => tokenText(v, s.tokenDecimals);
+  const shares = (v: bigint) => unitsExact(v, s.lpDecimals);
+  // The pool's share count less what the opener gets: the program's locked part.
+  const lockedShares = s.supply - s.lpAmount;
+  const pct = s.supply > 0n ? Number((s.lpAmount * 1_000_000n) / s.supply) / 10_000 : 0;
+  return (
+    <>
+      <Row label="Pool" value={s.pool.toBase58()} />
+      <Row
+        label="Pool kind"
+        value={
+          s.origin === 'standard'
+            ? 'Standard address for fee tier 1'
+            : 'Its own address: the standard address is taken, so this pool gets a new address made in this browser'
+        }
+        mono={false}
+      />
+      <Row label="Token (mint)" value={s.tokenMint.toBase58()} />
+      <Row label="Fee tier" value={feeTierText(s.config)} mono={false} />
+      <Row label="You put in" value={`${solExact(s.put.sol)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} />
+      <Row label="Opening price" value={openingPriceText(s.price)} mono={false} />
+      <Row label="Opens for trading" value="At once (one second after it lands)" mono={false} />
+      <Row
+        label="Fee to open the pool"
+        value={`${solExact(s.createFee)}, paid to the team's vault (into ${s.feeReceiver.toBase58()}, the account the pool program fixes); not refundable`}
+      />
+      <Row
+        label="Account deposits that never come back"
+        value={`${solExact(s.rents.neverRefunded)} (the pool, its price record, its share token and its two vaults; none can be closed)`}
+      />
+      <Row label="Your pool-share account" value={`${solExact(s.rents.lpAccount)} (it comes back if you close that account later)`} />
+      <Row label="You get" value={`${shares(s.lpAmount)} pool shares, exactly`} />
+      <Row
+        label="Locked in the pool forever"
+        value={`${shares(lockedShares)} pool shares (${lockedShares.toString()} of the smallest unit), worth about ${SOL(s.locked.sol)} and ${tok(s.locked.token)} tokens at these amounts`}
+      />
+      <Row label="Your share of the pool" value={shareText(pct)} />
+      {s.tokenWarnings.length > 0 && (
+        <div className="space-y-1">
+          <Notice tone="warn">Read these about this token first:</Notice>
+          <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+            {s.tokenWarnings.map((w) => (
+              <li key={w.code}>{w.text}</li>
+            ))}
+            {s.tokenWarnings.some((w) => w.code === 'mint-authority') && <li>{MINT_AUTHORITY_LINE}</li>}
+          </ul>
+        </div>
+      )}
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
+      <Notice>
+        {s.unwrapsWsol
+          ? 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'
+          : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. It is left exactly as it is.`}
+      </Notice>
+      {s.origin === 'other' && (
+        <Notice tone="warn">
+          Your wallet will show that this transaction needs a second signature. That is the new pool&apos;s own address: this
+          page signs it after you, then forgets the key.
+        </Notice>
+      )}
+    </>
+  );
+}
+
 /**
  * The pool creator's cut, when the pool charges one. cp-swap takes it on top of the
  * trade fee: from what you pay, or from what you receive, depending on the pool.
@@ -393,6 +479,27 @@ const TEST_RUN_LABEL: Record<TokenRole, string> = {
   lp: 'Test run: your pool shares change by',
 };
 
+/** The test-run line for an account, said for what this kind of transaction does with it. */
+function testRunLabel(kind: TxKind, role: TokenRole): string {
+  // An opening's `treasury` account is the pool program's fee account, owned by the team's vault.
+  if (kind === 'lp-create' && role === 'treasury') return "Test run: the fee to open arrives at the team's vault (SOL)";
+  return TEST_RUN_LABEL[role];
+}
+
+/** What the one-time account rent line is called, per kind. A Record, so a new kind must say. */
+const RENT_ROW_LABEL: Record<TxKind, string> = {
+  create: "One-time account rent (your token, its curve and vault, the treasury's token account, any token account of yours)",
+  buy: 'One-time account rent',
+  sell: 'One-time account rent',
+  migrate: 'One-time account rent',
+  'pool-buy': 'One-time account rent',
+  'pool-sell': 'One-time account rent',
+  'lp-deposit': 'One-time deposit for your new token account (it stays in that account)',
+  'lp-withdraw': 'One-time deposit for your new token account (it stays in that account)',
+  'lp-create':
+    "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
+};
+
 export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals: number | null }) {
   const f = prepared.fees;
   const base = tradeLamports(prepared.summary);
@@ -414,16 +521,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
         </Notice>
       )}
       {f.newAccountRentLamports > 0n && (
-        <Row
-          label={
-            prepared.kind === 'create'
-              ? "One-time account rent (your token, its curve and vault, the treasury's token account, any token account of yours)"
-              : prepared.kind === 'lp-deposit' || prepared.kind === 'lp-withdraw'
-                ? 'One-time deposit for your new token account (it stays in that account)'
-                : 'One-time account rent'
-          }
-          value={SOL(f.newAccountRentLamports)}
-        />
+        <Row label={RENT_ROW_LABEL[prepared.kind]} value={SOL(f.newAccountRentLamports)} />
       )}
       {prepared.kind === 'create' && (
         <p className="text-white/40 text-[10px]">
@@ -437,7 +535,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
         .map((t) => (
           <Row
             key={t.account.toBase58()}
-            label={TEST_RUN_LABEL[t.role ?? 'token']}
+            label={testRunLabel(prepared.kind, t.role ?? 'token')}
             // Each account in its own mint's decimals when the builder knew them.
             value={`${t.delta < 0n ? '-' : '+'}${tokenText(t.delta < 0n ? -t.delta : t.delta, t.decimals ?? decimals)}`}
           />
@@ -455,6 +553,7 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   'pool-sell': 'Review your pool sell',
   'lp-deposit': 'Review: add liquidity',
   'lp-withdraw': 'Review: remove liquidity',
+  'lp-create': 'Review: open a pool',
 };
 
 export function TxReview({
@@ -506,7 +605,19 @@ function feesSpentText(fees: PreparedTx['fees'] | null | undefined): string {
   return `Nothing moved except the fees: ${SOL(fees.baseLamports + fees.priorityLamports)} (${which}).`;
 }
 
-const EXPIRED_TEXT = 'Did not go through, and it can no longer go through. Nothing was charged. It is safe to try again.';
+/** What not to do while a sent transaction is unconfirmed: each kind's own risk in repeating it. */
+function unknownLine(kind: TxKind | undefined): string {
+  switch (kind) {
+    case 'lp-withdraw':
+      return 'It may still land. Taking liquidity out again now could take out more than you meant. Check again, or look it up on the explorer.';
+    case 'lp-create':
+      return 'It may still land. Opening a pool again now could open a second pool and pay the fee to open twice. Check again, or look it up on the explorer.';
+    default:
+      return 'It may still land. Sending again could make you pay twice. Check again, or look it up on the explorer.';
+  }
+}
+
+const EXPIRED_TEXT ='Did not go through, and it can no longer go through. Nothing was charged. It is safe to try again.';
 
 const NOT_SENT_COPY: Record<'build' | 'simulate' | 'sign' | 'send', string> = {
   build: 'Not sent. We could not build this transaction.',
@@ -597,11 +708,7 @@ export function TxOutcomeCard({
           <div className="space-y-1.5" data-testid="tx-outcome" data-status="unknown">
             <div ref={boxRef} tabIndex={-1} role="alert" className="space-y-1.5 outline-none">
               <Notice tone="warn">Sent, not confirmed yet. Do not retry until you check.</Notice>
-              <Notice>
-                {kind === 'lp-withdraw'
-                  ? 'It may still land. Taking liquidity out again now could take out more than you meant. Check again, or look it up on the explorer.'
-                  : 'It may still land. Sending again could make you pay twice. Check again, or look it up on the explorer.'}
-              </Notice>
+              <Notice>{unknownLine(kind)}</Notice>
               <SignatureRow signature={outcome.signature} />
               {explorerUrl && <ExplorerLink href={explorerUrl} />}
             </div>
