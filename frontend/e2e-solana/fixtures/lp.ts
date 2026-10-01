@@ -12,16 +12,18 @@ import {
 } from '@solana/web3.js';
 import {
   AuthorityType, ExtensionType, MINT_SIZE, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
-  createAssociatedTokenAccountIdempotentInstruction, createInitializeMint2Instruction, createInitializeTransferHookInstruction,
-  createMintToInstruction, createSetAuthorityInstruction, createSyncNativeInstruction, getAssociatedTokenAddressSync, getMintLen,
+  createAssociatedTokenAccountIdempotentInstruction, createCloseAccountInstruction, createFreezeAccountInstruction,
+  createInitializeMetadataPointerInstruction, createInitializeMint2Instruction, createInitializeTransferHookInstruction,
+  createMintToInstruction, createSetAuthorityInstruction, createSyncNativeInstruction, createTransferCheckedInstruction,
+  getAssociatedTokenAddressSync, getMintLen, tokenMetadataInitializeWithRentTransfer, tokenMetadataUpdateAuthority,
 } from '@solana/spl-token';
 import type { BrowserContext, Route } from '@playwright/test';
 import { initializeIx } from '../../src/lib/solana/cpswap/ix';
-import { deriveAmmConfig, deriveLpMint, derivePool, sortMints } from '../../src/lib/solana/cpswap/program';
-import { CP_SWAP_PROGRAM, LOCALNET_RPC, METAPLEX, WSOL, assertLocalCluster, chain, metadataAddress } from './chain';
+import { deriveAmmConfig, deriveLpMint, derivePool, deriveVault, sortMints } from '../../src/lib/solana/cpswap/program';
+import { CP_SWAP_PROGRAM, CREATE_POOL_FEE_RECEIVER, LOCALNET_RPC, METAPLEX, WSOL, accountOwner, assertLocalCluster, chain, metadataAddress, mintFacts, tokenAmount } from './chain';
 
-/** The vault's WSOL account: cp-swap's fixed create-pool-fee receiver. */
-export const CREATE_POOL_FEE_RECEIVER = new PublicKey('2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa');
+/** The vault's WSOL account: cp-swap's fixed create-pool-fee receiver (defined in chain.ts). */
+export { CREATE_POOL_FEE_RECEIVER };
 
 async function send(ixs: TransactionInstruction[], signers: Keypair[]): Promise<string> {
   await assertLocalCluster();
@@ -100,6 +102,39 @@ export async function createTransferHookToken(owner: Keypair): Promise<PublicKey
   return mint.publicKey;
 }
 
+export interface Token2022MetadataOpts { name: string; symbol: string; decimals?: number; supply: bigint }
+
+/**
+ * A Token-2022 token whose ONLY extensions are MetadataPointer and TokenMetadata (the
+ * BAYLA shape), minted to `owner`'s Token-2022 ATA: no freeze authority, the metadata's
+ * update authority removed, the mint authority revoked. The pool program accepts exactly
+ * these two extensions, and so does the site's token check.
+ *
+ * Built from `@solana/spl-token` alone (0.4.15 carries the metadata actions); the
+ * metadata initialize tops up the mint's rent for the TLV entry it appends.
+ */
+export async function createToken2022MetadataOnly(owner: Keypair, o: Token2022MetadataOpts): Promise<PublicKey> {
+  await assertLocalCluster();
+  const mint = Keypair.generate();
+  const space = getMintLen([ExtensionType.MetadataPointer]);
+  const rent = await chain().getMinimumBalanceForRentExemption(space);
+  await send([
+    SystemProgram.createAccount({ fromPubkey: owner.publicKey, newAccountPubkey: mint.publicKey, lamports: rent, space, programId: TOKEN_2022_PROGRAM_ID }),
+    createInitializeMetadataPointerInstruction(mint.publicKey, null, mint.publicKey, TOKEN_2022_PROGRAM_ID),
+    createInitializeMint2Instruction(mint.publicKey, o.decimals ?? 6, owner.publicKey, null, TOKEN_2022_PROGRAM_ID),
+  ], [owner, mint]);
+  const confirm = { commitment: 'confirmed' as const, preflightCommitment: 'confirmed' as const };
+  await tokenMetadataInitializeWithRentTransfer(chain(), owner, mint.publicKey, owner.publicKey, owner, o.name, o.symbol, 'https://example.test/token.json', [], confirm, TOKEN_2022_PROGRAM_ID);
+  await tokenMetadataUpdateAuthority(chain(), owner, mint.publicKey, owner, null, [], confirm, TOKEN_2022_PROGRAM_ID);
+  const account = getAssociatedTokenAddressSync(mint.publicKey, owner.publicKey, false, TOKEN_2022_PROGRAM_ID);
+  await send([
+    createAssociatedTokenAccountIdempotentInstruction(owner.publicKey, account, owner.publicKey, mint.publicKey, TOKEN_2022_PROGRAM_ID),
+    createMintToInstruction(mint.publicKey, account, owner.publicKey, o.supply, [], TOKEN_2022_PROGRAM_ID),
+    createSetAuthorityInstruction(mint.publicKey, owner.publicKey, AuthorityType.MintTokens, null, [], TOKEN_2022_PROGRAM_ID),
+  ], [owner]);
+  return mint.publicKey;
+}
+
 export interface CreatedPool {
   address: PublicKey;
   lpMint: PublicKey;
@@ -113,13 +148,19 @@ export interface CreatedPool {
  * `at: 'standard'` uses the standard address for the fee tier; `at: 'fresh'` a new
  * signing keypair (the fallback when the standard address is taken).
  */
-export async function createSolPool(creator: Keypair, mint: PublicKey, o: { configIndex: 0 | 1; sol: bigint; tokens: bigint; openTime?: bigint; at: 'standard' | 'fresh' }): Promise<CreatedPool> {
+export async function createSolPool(
+  creator: Keypair,
+  mint: PublicKey,
+  o: { configIndex: 0 | 1; sol: bigint; tokens: bigint; openTime?: bigint; at: 'standard' | 'fresh'; tokenProgram?: PublicKey },
+): Promise<CreatedPool> {
   const config = deriveAmmConfig(CP_SWAP_PROGRAM, o.configIndex);
   const { token0, token1, flipped } = sortMints(WSOL, mint);
   // sortMints(a, b): flipped means b sorted first, i.e. the token is token0.
   const solIs0 = !flipped;
+  // The token side follows its mint's program (classic or Token-2022); wrapped SOL is classic.
+  const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
   const wsolAta = getAssociatedTokenAddressSync(WSOL, creator.publicKey);
-  const tokenAta = getAssociatedTokenAddressSync(mint, creator.publicKey);
+  const tokenAta = getAssociatedTokenAddressSync(mint, creator.publicKey, false, tokenProgram);
   const fresh = o.at === 'fresh' ? Keypair.generate() : null;
   const standard = derivePool(CP_SWAP_PROGRAM, config, token0, token1);
   const address = fresh ? fresh.publicKey : standard;
@@ -133,8 +174,8 @@ export async function createSolPool(creator: Keypair, mint: PublicKey, o: { conf
     creatorToken0: solIs0 ? wsolAta : tokenAta,
     creatorToken1: solIs0 ? tokenAta : wsolAta,
     creatorLpToken: getAssociatedTokenAddressSync(lpMint, creator.publicKey),
-    token0Program: TOKEN_PROGRAM_ID,
-    token1Program: TOKEN_PROGRAM_ID,
+    token0Program: solIs0 ? TOKEN_PROGRAM_ID : tokenProgram,
+    token1Program: solIs0 ? tokenProgram : TOKEN_PROGRAM_ID,
     createPoolFee: CREATE_POOL_FEE_RECEIVER,
     initAmount0: solIs0 ? o.sol : o.tokens,
     initAmount1: solIs0 ? o.tokens : o.sol,
@@ -148,6 +189,55 @@ export async function createSolPool(creator: Keypair, mint: PublicKey, o: { conf
     init,
   ], fresh ? [creator, fresh] : [creator]);
   return { address, lpMint, config, standard: address.equals(standard), signature };
+}
+
+/**
+ * The token's freeze authority freezes the pool's own vault for that token, so nothing
+ * can leave it: a withdrawal is then blocked by the issuer, not by the pool program.
+ */
+export async function freezeVault(pool: PublicKey, mint: PublicKey, freezeAuthority: Keypair): Promise<PublicKey> {
+  const program = (await accountOwner(mint)) ?? TOKEN_PROGRAM_ID;
+  const vault = deriveVault(CP_SWAP_PROGRAM, pool, mint);
+  await send([createFreezeAccountInstruction(vault, mint, freezeAuthority.publicKey, [], program)], [freezeAuthority]);
+  return vault;
+}
+
+/**
+ * Move `amount` pool shares from `from`'s share ATA to `to`'s (created if missing).
+ * Pool-share mints are always classic.
+ */
+export async function transferLp(from: Keypair, to: PublicKey, lpMint: PublicKey, amount: bigint): Promise<PublicKey> {
+  const src = getAssociatedTokenAddressSync(lpMint, from.publicKey);
+  const dst = getAssociatedTokenAddressSync(lpMint, to, true);
+  const { decimals } = await mintFacts(lpMint);
+  await send([
+    createAssociatedTokenAccountIdempotentInstruction(from.publicKey, dst, to, lpMint),
+    createTransferCheckedInstruction(src, lpMint, dst, from.publicKey, amount, decimals),
+  ], [from]);
+  return dst;
+}
+
+/**
+ * Empty and close `kp`'s ATA for `mint` under `program`: its tokens go to a fresh
+ * holder's ATA first (a token account must be empty to close), its rent back to `kp`.
+ */
+export async function closeTokenAccount(kp: Keypair, mint: PublicKey, program: PublicKey = TOKEN_PROGRAM_ID): Promise<{ closed: PublicKey; movedTo: PublicKey | null }> {
+  const account = getAssociatedTokenAddressSync(mint, kp.publicKey, false, program);
+  const held = (await tokenAmount(account)) ?? 0n;
+  const ixs: TransactionInstruction[] = [];
+  let movedTo: PublicKey | null = null;
+  if (held > 0n) {
+    const holder = Keypair.generate().publicKey;
+    movedTo = getAssociatedTokenAddressSync(mint, holder, false, program);
+    const { decimals } = await mintFacts(mint);
+    ixs.push(
+      createAssociatedTokenAccountIdempotentInstruction(kp.publicKey, movedTo, holder, mint, program),
+      createTransferCheckedInstruction(account, mint, movedTo, kp.publicKey, held, decimals, [], program),
+    );
+  }
+  ixs.push(createCloseAccountInstruction(account, kp.publicKey, kp.publicKey, [], program));
+  await send(ixs, [kp]);
+  return { closed: account, movedTo };
 }
 
 // ── the two server-side neighbours of the page, for the browser context ───────

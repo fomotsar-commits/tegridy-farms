@@ -73,6 +73,26 @@ export const ui = {
     feeTiers: (p: Page) => p.getByTestId('fee-tier'),
     positions: (p: Page) => p.getByTestId('lp-positions'),
     position: (p: Page) => p.getByTestId('lp-position'),
+    // ── stage 2: adding and removing (src/components/solana/lp/*Panel.tsx). Each takes
+    // a page, or a pool card / position row to stay inside it.
+    addButton: (s: Page | Locator) => s.getByRole('button', { name: 'Add liquidity', exact: true }),
+    addPanel: (s: Page | Locator) => s.getByTestId('lp-add-panel'),
+    solToAdd: (s: Page | Locator) => s.getByLabel('SOL to add', { exact: true }),
+    /** "Tokens to add", or "Tokens to add (base units)" when the token's decimals are unread. */
+    tokensToAdd: (s: Page | Locator) => s.getByLabel(/^Tokens to add( \(base units\))?$/),
+    maxSol: (s: Page | Locator) => s.getByRole('button', { name: 'Max SOL', exact: true }),
+    maxTokens: (s: Page | Locator) => s.getByRole('button', { name: 'Max tokens', exact: true }),
+    reviewAdd: (s: Page | Locator) => s.getByRole('button', { name: 'Review: add liquidity', exact: true }),
+    removeButton: (s: Page | Locator) => s.getByRole('button', { name: 'Remove liquidity', exact: true }),
+    removePanel: (s: Page | Locator) => s.getByTestId('lp-remove-panel'),
+    /** 25%, 50%, 75% or All, inside the group "How much to take out". */
+    percent: (s: Page | Locator, label: '25%' | '50%' | '75%' | 'All') =>
+      s.getByRole('group', { name: 'How much to take out' }).getByRole('button', { name: label, exact: true }),
+    otherPercent: (s: Page | Locator) => s.getByLabel('Other percent', { exact: true }),
+    reviewRemove: (s: Page | Locator) => s.getByRole('button', { name: 'Review: remove liquidity', exact: true }),
+    findOnChain: (s: Page | Locator) => s.getByRole('button', { name: "Find this share's pool on the chain", exact: true }),
+    /** The LP note sent from this tab before a reload, not answered yet. */
+    pending: (p: Page) => p.getByTestId('lp-pending'),
   },
   graduate: (p: Page) => p.getByRole('button', { name: 'Review: finish graduation' }),
   checkAgain: (p: Page) => p.getByRole('button', { name: 'Check again' }),
@@ -133,6 +153,33 @@ export async function checkAtSizes(p: Page, label: string, pressable: Array<[Loc
     await expectNoSidewaysScroll(p);
     for (const [loc, what] of pressable) await expectClickable(loc, `${what} (${label}, ${s.name} ${s.width}px)`);
     if (dir) await p.screenshot({ path: `${dir.replace(/[\\/]+$/, '')}/${label}-${s.name}.png`, fullPage: true });
+  }
+  if (original) await p.setViewportSize(original);
+}
+
+/**
+ * The LP section's layout rule, at a phone (390), an iPad (820) and a desktop (1280):
+ * no sideways page scroll; each of `controls` scrolled to the middle of the screen (as a
+ * thumb scrolls, so nothing sticky sits over it) and then on top at its own centre
+ * (elementFromPoint); every input in the LP section at least 16px (no zoom on focus);
+ * every visible button in it at least 44px tall. Puts the viewport back afterwards.
+ */
+export async function expectPressableAtSizes(p: Page, label: string, controls: Array<[Locator, string]>): Promise<void> {
+  const original = p.viewportSize();
+  const heights: Record<number, number> = { 390: 844, 820: 1180, 1280: 900 };
+  const section = ui.lp.section(p);
+  for (const width of [390, 820, 1280] as const) {
+    await p.setViewportSize({ width, height: heights[width] });
+    await expectNoSidewaysScroll(p);
+    for (const [loc, what] of controls) {
+      await expect(loc, `${what} should be visible (${label}, ${width}px)`).toBeVisible();
+      await loc.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+      await expectClickable(loc, `${what} (${label}, ${width}px)`);
+    }
+    const fields = await section.locator('input').evaluateAll((els) => els.map((e) => ({ n: e.getAttribute('aria-label') ?? e.id, px: parseFloat(getComputedStyle(e).fontSize) })));
+    for (const f of fields) expect(f.px, `input "${f.n}" font (${label}, ${width}px)`).toBeGreaterThanOrEqual(16);
+    const buttons = await section.locator('button:visible').evaluateAll((els) => els.map((e) => ({ t: (e.textContent ?? '').trim().slice(0, 30), h: e.getBoundingClientRect().height })));
+    for (const b of buttons) expect(b.h, `button "${b.t}" height (${label}, ${width}px)`).toBeGreaterThanOrEqual(44);
   }
   if (original) await p.setViewportSize(original);
 }
