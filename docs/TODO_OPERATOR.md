@@ -29,6 +29,29 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟡 2026-09-25: when GitHub access returns, switch on branch auto-delete
+
+### ⬜ O-0925-1: turn on "Automatically delete head branches", then clear the merged ones
+
+**What is wrong.** CLAUDE.md law 10 says merged branches are deleted, but the repository setting
+that does it is off, and nobody can switch it on while the account is suspended (every git and `gh`
+call to GitHub has returned 403 since 2026-09-24). At the last fetch, 2026-09-24, the remote held
+381 branches, and 128 of them were merged into `mvp-launch` by ancestry. That test misses
+squash-merged branches, so the real number of merged branches is higher.
+
+**Do, once access returns:**
+
+1. On GitHub: Settings, General, Pull Requests. Tick "Automatically delete head branches".
+2. `git fetch --prune origin`, then list the merged branches with
+   `git branch -r --merged origin/mvp-launch`, leaving out `origin/mvp-launch`, `origin/main` and
+   `origin/HEAD`.
+3. Delete those, after checking that none is the head of an open PR
+   (`gh pr list --state open --json headRefName`).
+
+**You should see** the next merged PR's branch disappear on its own.
+
+---
+
 ## 🟡 2026-09-17 — redeploy StakingMonitorView (display only, no funds, not urgent)
 
 ### ⬜ O-0917-1 — one deploy of a stateless view, then a one-line address swap

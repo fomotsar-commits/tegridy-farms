@@ -4,6 +4,8 @@ import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { getReadProvider } from "../lib/rpcProvider";
+import { liveIpfsUrl } from "../../lib/ipfsGateways";
+import { IpfsImg } from "../../components/IpfsImg";
 
 const MAX_GRID = 24;
 
@@ -188,7 +190,9 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
               try {
                 const url = new URL(avatar);
                 if (url.protocol === "https:" || url.protocol === "http:") {
-                  setEnsAvatar(avatar);
+                  // ethers resolves an ipfs:// avatar onto gateway.ipfs.io,
+                  // retired 2026-09-21: move it onto a live gateway.
+                  setEnsAvatar(liveIpfsUrl(avatar));
                 }
               } catch {
                 /* malformed URL — ignore */
@@ -351,9 +355,10 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
           }}
         >
           {ensAvatar ? (
-            <img
+            <IpfsImg
               src={ensAvatar}
               alt="ENS Avatar"
+              onExhausted={() => setEnsAvatar(null)}
               style={{
                 width: 80,
                 height: 80,

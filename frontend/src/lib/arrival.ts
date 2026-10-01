@@ -68,9 +68,8 @@ export const VENUE = {
     'Stake meme tokens, swap on Ethereum, Base and Solana, and check any token before you buy.',
   /** Second person, present tense, the viewer's own stake. */
   heroHook: 'Your heat already exists. It started counting at your first buy.',
-  /** Under the instrument, and in llms.txt: one source, so the two cannot disagree. */
-  heatPerWallet:
-    "Held time is measured per wallet. A bag moved to a new wallet starts that wallet's clock at the move.",
+  /** The island's sentence, verbatim: under the instrument, in the FAQ and in llms.txt. */
+  heatOnePerson: 'One person, every wallet: linked wallets read as a single flame.',
   /** The island's sentences, verbatim: the hero and llms.txt carry the first two, the
    *  Maths fold the whole paragraph; islandClaims.test.ts pins them. Never a formula. */
   heatPlain: HEAT_OPENING,

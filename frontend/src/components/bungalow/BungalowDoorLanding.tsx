@@ -46,7 +46,7 @@ const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
 export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
   const hasToken = Boolean(bungalow.address);
   usePageTitle(
-    hasToken ? `${bungalow.symbol} — Jungle Bay Island` : 'Jungle Bay Island',
+    hasToken ? `${bungalow.symbol} on Jungle Bay Island` : 'Jungle Bay Island',
     hasToken
       ? `${bungalow.name} has a bungalow on Jungle Bay Island — ${bungalow.tagline} Contract, trade route and held-time heat, on ${CHAIN_LABEL[bungalow.chain]}.`
       : 'A quiet bungalow on Jungle Bay Island — someone is building here.',

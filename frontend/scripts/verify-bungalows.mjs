@@ -112,12 +112,14 @@ try {
       }
       if (name === 'farm') {
         ok('B: farm renders the BAYLA panel', await page.locator(`h1:has-text("Stake ${SYM}.")`).count() === 1);
-        // Since 2026-08-26 the live pool address ships pinned in the registry,
-        // so the pool slot renders the LIVE lighthouse section (its own
-        // loading/outage/live states are all acceptable here — dev has no
-        // /api/solrpc, so the honest outage line is the usual dev state).
-        // The dark "Not deployed yet" card must be GONE.
-        ok('B: farm pool slot is the LIVE lighthouse', await page.locator('text=The lighthouse pool · LIVE').count() === 1);
+        // The closed lighthouse pool is members-only once the ladder env is set: this
+        // disconnected visitor then sees the ladder and no lighthouse card. Without the
+        // ladder env the closed pool keeps its full card. Never "Not deployed yet".
+        const ladderCards = await page.locator('text=The lock ladder · LIVE').count();
+        const lighthouseCards = await page.locator('text=The lighthouse pool · closed to deposits').count();
+        ok('B: farm pool slot is live (the ladder alone, or the closed lighthouse card)',
+          ladderCards === 1 ? lighthouseCards === 0 : lighthouseCards === 1,
+          `ladder ${ladderCards}, lighthouse ${lighthouseCards}`);
         ok('B: the dark card retired with the pin', await page.locator('text=Not deployed yet').count() === 0);
         ok('B: farm drops the TOWELI stack', await page.locator('text=TOWELI Price').count() === 0);
         ok('B: heat oracle card present', await page.locator('text=Check your heat').count() >= 1);

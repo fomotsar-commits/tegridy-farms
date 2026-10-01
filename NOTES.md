@@ -15,6 +15,45 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-24 — MetaMask's SDK does not read through your wagmi transports, and `enableAnalytics: false` does not switch its analytics off
+
+**Believed:** once the CSP allows every RPC host in the wagmi transports, a connected wallet
+can read; RainbowKit's MetaMask row disables MetaMask's analytics; and a desktop probe
+with the extension, which shows no SDK socket, clears the CSP for MetaMask everywhere.
+
+**Measured** (RainbowKit 2.2.11, wagmi connectors 8.2.0, @metamask/connect-evm 2.1.1,
+viem 2.56.5; Playwright Pixel 5 and iPhone 15 against a production build with the
+vercel.json CSP injected):
+- On a phone, and on desktop with the extension, the row uses wagmi's `metaMask()`. It
+  hands the SDK `supportedNetworks` = each chain's `rpcUrls.default.http[0]`, and the SDK
+  `fetch`es 33 methods straight there (reads such as eth_call, eth_estimateGas,
+  eth_getTransactionCount and receipts, plus eth_sendRawTransaction), with no fallback to
+  the wallet. viem's mainnet default
+  is `https://ethereum.reth.rs/rpc` (it moves between viem versions). Refused by the CSP,
+  mainnet reads threw `RPCErr52 ... Failed to fetch` while Base (default allowed) answered.
+  WalletConnect differs: wagmi builds its rpcMap from the transports.
+- A phone browser gets the SDK's relay transport: it opens `metamask://connect/mwp?...`,
+  then a websocket to `wss://mm-sdk-relay.api.cx.metamask.io/connection/websocket`.
+  Refused, WebKit drops the session to `disconnected` and throws
+  `null is not an object (evaluating 'this._transport.close')`. Desktop with the extension
+  uses a browser transport and never opens that socket.
+- RainbowKit passes `enableAnalytics: false`, the old `@metamask/sdk` option. connect-evm
+  v2 reads `analytics.enabled`, and wagmi spreads your parameters and then sets
+  `analytics: { integrationType: 'wagmi' }`, so no config reaches it. It POSTs to
+  `mm-sdk-analytics.api.cx.metamask.io`; refused, it retries on a backoff capped at 30s
+  and logs `Sender: Failed to send batch` each time.
+
+**Do:** allowlist what the SDK build contains, not what your config names: read `wss://`
+and RPC URLs out of the shipped package and each chain's `rpcUrls.default`. To test a CSP
+locally, `vite preview` sends no Vercel headers: inject it with Playwright
+`route.fetch()` + `fulfill({ response, headers })` on document requests, with
+`serviceWorkers: 'block'`. `route.abort()` a custom-scheme deep link (a 204 blanks the
+page in WebKit). `globalThis.__METAMASK_CONNECT_MULTICHAIN_SINGLETON__` resolves to the
+SDK core; `invokeMethod({ scope: 'eip155:1', request })` drives its read router with no
+wallet present.
+
+---
+
 ## 2026-09-22 — a `toContain('80°')` pin stays green on a page that says 180°
 
 **Believed:** a test that asserts a threshold goes red when the page shows a different

@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { validateMetadataUri, toFetchableUrl, checkMetadataDocument } from './metadataUri';
+import { validateMetadataUri, toFetchableUrl, toFetchableUrls, checkMetadataDocument, IPFS_CHECK_DEADLINE_MS } from './metadataUri';
+import { IPFS_GATEWAYS, IPFS_STEP_TIMEOUT_MS } from '../../ipfsGateways';
+
+const GW = (cid: string) => IPFS_GATEWAYS.map((g) => `${g}${cid}`);
 
 // These checks exist because the launched token is created with
 // AUTHORITY_IMMUTABLE — no update authority — so the metadata URI is PERMANENT.
@@ -44,10 +47,17 @@ describe('validateMetadataUri', () => {
 
 describe('toFetchableUrl', () => {
   it('maps ipfs:// and ar:// to gateways and leaves https:// alone', () => {
-    expect(toFetchableUrl('ipfs://bafy123')).toBe('https://ipfs.io/ipfs/bafy123');
+    expect(toFetchableUrl('ipfs://bafy123')).toBe('https://ipfs.filebase.io/ipfs/bafy123');
     expect(toFetchableUrl('ar://abc')).toBe('https://arweave.net/abc');
     expect(toFetchableUrl('https://x.com/m.json')).toBe('https://x.com/m.json');
     expect(toFetchableUrl('ftp://x')).toBeNull();
+  });
+
+  it('tries the site-wide gateway list, never a retired gateway', () => {
+    expect(toFetchableUrls('ipfs://bafy123')).toEqual(GW('bafy123'));
+    for (const u of toFetchableUrls('ipfs://bafy123')) {
+      expect(u).not.toMatch(/\/\/(ipfs\.io|dweb\.link|cloudflare-ipfs\.com)\//);
+    }
   });
 });
 
@@ -65,7 +75,7 @@ describe('checkMetadataDocument', () => {
   it('calls the GATEWAY url, never the raw ipfs:// scheme', async () => {
     const f = vi.fn(async () => res('{"name":"x"}'));
     await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
-    expect((f as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0]).toBe('https://ipfs.io/ipfs/bafy');
+    expect((f as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0]).toBe(GW('bafy')[0]);
   });
 
   it('treats an https 404 as INVALID — the host is authoritative for its own path', async () => {
@@ -89,33 +99,68 @@ describe('checkMetadataDocument', () => {
 
   it('retries a second gateway when the first 404s, and uses what it finds', async () => {
     const f = vi.fn(async (url: string) =>
-      url.startsWith('https://ipfs.io/') ? res('', { ok: false, status: 404 }) : res('{"name":"real"}'),
+      url === GW('bafy')[0] ? res('', { ok: false, status: 404 }) : res('{"name":"real"}'),
     );
     const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
     expect(v).toMatchObject({ status: 'ok', name: 'real' });
-    expect(f.mock.calls.map((c) => c[0])).toEqual([
-      'https://ipfs.io/ipfs/bafy',
-      'https://dweb.link/ipfs/bafy',
-    ]);
+    expect(f.mock.calls.map((c) => c[0])).toEqual(GW('bafy').slice(0, 2));
+  });
+
+  // 2026-09-21: ipfs.io and dweb.link were retired and answered 403 (a bot
+  // challenge) and 429 instead of 404. A walk that only moved on after a 404
+  // stopped at the first dead gateway and never tried a live one.
+  it('moves on after a refusal, a network error or a HANG, and finds the document on the last gateway', async () => {
+    const f = vi.fn((url: string, init?: { signal?: AbortSignal }) => {
+      const i = GW('bafy').indexOf(url);
+      if (i === 0) return Promise.resolve(res('', { ok: false, status: 403 }));
+      if (i === 1) return Promise.reject(new TypeError('Failed to fetch'));
+      if (i === 2) {
+        return new Promise<Response>((_r, rej) => {
+          init?.signal?.addEventListener('abort', () => {
+            const e = new Error('aborted'); e.name = 'AbortError'; rej(e);
+          });
+        });
+      }
+      return Promise.resolve(res('{"name":"real"}'));
+    });
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch, 5000, 20);
+    expect(v).toMatchObject({ status: 'ok', name: 'real' });
+    expect(f.mock.calls.map((c) => c[0])).toEqual(GW('bafy'));
+  });
+
+  it('a mix of 404s and refusals is UNKNOWN, never invalid and never the propagation warning', async () => {
+    const f = vi.fn(async (url: string) =>
+      res('', { ok: false, status: url === GW('bafy')[0] ? 429 : 404 }),
+    );
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
+    expect(v.status).toBe('unknown');
+    expect(v.status === 'unknown' && v.severity).toBeUndefined();
+    expect(f).toHaveBeenCalledTimes(IPFS_GATEWAYS.length);
   });
 
   it('does NOT call an ipfs 404 invalid even when every gateway 404s', async () => {
     // The whole point: this must stay a warning the launcher reads, never a
-    // block. Two Protocol Labs gateways agreeing is not proof of absence, and
-    // IPFS has no authoritative "this CID does not exist" answer to give.
+    // block. Gateways agreeing is not proof of absence, and IPFS has no
+    // authoritative "this CID does not exist" answer to give.
     const f = vi.fn(async () => res('', { ok: false, status: 404 }));
     const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
     expect(v.status).toBe('unknown');
     expect(v.status === 'unknown' && v.severity).toBe('warning');
     expect(v.status === 'unknown' && v.reason).toMatch(/propagated/);
-    expect(f).toHaveBeenCalledTimes(2);
+    expect(f).toHaveBeenCalledTimes(IPFS_GATEWAYS.length);
   });
 
-  it('does not retry a non-404 gateway failure — a 500 is already `unknown`', async () => {
+  it('retries a non-404 gateway failure too, and a 500 everywhere stays `unknown`', async () => {
     const f = vi.fn(async () => res('', { ok: false, status: 500 }));
     const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
     expect(v.status).toBe('unknown');
     expect(v.status === 'unknown' && v.severity).toBeUndefined();
+    expect(f).toHaveBeenCalledTimes(IPFS_GATEWAYS.length);
+  });
+
+  it('does not retry an https:// failure: that host is authoritative', async () => {
+    const f = vi.fn(async () => res('', { ok: false, status: 500 }));
+    await checkMetadataDocument('https://x/m', f as unknown as typeof fetch);
     expect(f).toHaveBeenCalledTimes(1);
   });
 
@@ -148,5 +193,112 @@ describe('checkMetadataDocument', () => {
     }));
     const v = await checkMetadataDocument('https://x/m', hang as unknown as typeof fetch, 10);
     expect(v).toEqual({ status: 'unknown', reason: 'The check timed out.' });
+  });
+
+  it('the overall deadline still wins over the per-gateway walk', async () => {
+    const hang = vi.fn((_u: string, init?: { signal?: AbortSignal }) => new Promise<Response>((_r, rej) => {
+      init?.signal?.addEventListener('abort', () => {
+        const e = new Error('aborted'); e.name = 'AbortError'; rej(e);
+      });
+    }));
+    const v = await checkMetadataDocument('ipfs://bafy', hang as unknown as typeof fetch, 10, 60_000);
+    expect(v).toEqual({ status: 'unknown', reason: 'The check timed out.' });
+    expect(hang).toHaveBeenCalledTimes(1);
+  });
+
+  // ── the budgets (review R5) ───────────────────────────────────────────────
+  //
+  // The overall deadline was 8s against a 6s step: a hung first gateway left 2s
+  // for the other three, so Pinata (the one gateway that served every uncached
+  // CID, up to 7.5s to answer) could never be reached.
+
+  it('by default, the deadline covers a step on every gateway', () => {
+    expect(IPFS_CHECK_DEADLINE_MS).toBeGreaterThanOrEqual(IPFS_STEP_TIMEOUT_MS * IPFS_GATEWAYS.length);
+  });
+
+  it('by default, a hung first gateway still leaves time for a 7.5s answer from the next', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = vi.fn((url: string, init?: { signal?: AbortSignal }) => new Promise<Response>((resolve, rej) => {
+        init?.signal?.addEventListener('abort', () => {
+          const e = new Error('aborted'); e.name = 'AbortError'; rej(e);
+        });
+        if (url === GW('bafy')[1]) setTimeout(() => resolve(res('{"name":"slow but real"}')), 7500);
+      }));
+      const p = checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
+      await vi.advanceTimersByTimeAsync(IPFS_STEP_TIMEOUT_MS + 7500);
+      await expect(p).resolves.toMatchObject({ status: 'ok', name: 'slow but real' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps https:// on its short single-host deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const hang = vi.fn((_u: string, init?: { signal?: AbortSignal }) => new Promise<Response>((_r, rej) => {
+        init?.signal?.addEventListener('abort', () => {
+          const e = new Error('aborted'); e.name = 'AbortError'; rej(e);
+        });
+      }));
+      const p = checkMetadataDocument('https://x/m', hang as unknown as typeof fetch);
+      await vi.advanceTimersByTimeAsync(8000);
+      await expect(p).resolves.toEqual({ status: 'unknown', reason: 'The check timed out.' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the deadline also bounds a gateway that sent headers and then stalled', async () => {
+    const stalled = { ok: true, status: 200, text: () => new Promise<string>(() => {}) } as unknown as Response;
+    const f = vi.fn(async () => stalled);
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch, 30, 20);
+    expect(v).toEqual({ status: 'unknown', reason: 'The check timed out.' });
+  });
+
+  // Review R3: the step budget covered only the headers. A gateway that sent
+  // 200 headers and then stalled its body held the check until the overall
+  // deadline (42s by default), and the gateways after it were never asked.
+  it('a gateway that stalls its body is left after one step, and the next one answers', async () => {
+    const stalled = { ok: true, status: 200, text: () => new Promise<string>(() => {}) } as unknown as Response;
+    const f = vi.fn(async (url: string) => (url === GW('bafy')[0] ? stalled : res('{"name":"real"}')));
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch, 1000, 20);
+    expect(v).toMatchObject({ status: 'ok', name: 'real' });
+    expect(f.mock.calls.map((c) => c[0])).toEqual(GW('bafy').slice(0, 2));
+  });
+
+  it('a stalled body is no answer: never read as "not JSON", never the 404 warning', async () => {
+    const stalled = { ok: true, status: 200, text: () => new Promise<string>(() => {}) } as unknown as Response;
+    const last = GW('bafy').at(-1);
+    const f = vi.fn(async (url: string) => (url === last ? stalled : res('', { ok: false, status: 404 })));
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch, 1000, 20);
+    expect(v.status).toBe('unknown');
+    expect(v.status === 'unknown' && v.severity).toBeUndefined();
+    expect(f).toHaveBeenCalledTimes(IPFS_GATEWAYS.length);
+  });
+
+  // ── a 200 that is not JSON (review R5) ──────────────────────────────────────
+
+  it("one gateway's non-JSON 200 does not outrank the next gateway's real JSON", async () => {
+    const f = vi.fn(async (url: string) =>
+      url === GW('bafy')[0] ? res('<html>Just a moment...</html>') : res('{"name":"real"}'),
+    );
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
+    expect(v).toMatchObject({ status: 'ok', name: 'real' });
+  });
+
+  it('a lone non-JSON 200 that no other gateway confirms is a warning, not invalid', async () => {
+    const f = vi.fn(async (url: string) =>
+      url === GW('bafy')[0] ? res('<html>Just a moment...</html>') : res('', { ok: false, status: 504 }),
+    );
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
+    expect(v).toMatchObject({ status: 'unknown', severity: 'warning' });
+  });
+
+  it('the same non-JSON bytes from two gateways ARE the content: invalid', async () => {
+    const f = vi.fn(async () => res('PNG not json'));
+    const v = await checkMetadataDocument('ipfs://bafy', f as unknown as typeof fetch);
+    expect(v).toEqual({ status: 'invalid', reason: 'That URI does not return JSON.' });
+    expect(f).toHaveBeenCalledTimes(2);
   });
 });

@@ -15,9 +15,9 @@ import {
 // prose beside it. Each count holds both ways: a new dash fails its route, and so does a
 // fixed one until the number comes down.
 
-// A CI measurement under `vite preview`: no /api function, no VITE_INDEXER_URL and no push
-// keys, so production renders branches this table never walks. The chart's own branches are
-// guarded in src/components/chart/chartCopyDashes.test.ts.
+// A CI measurement under `vite preview`: no /api function (a few /api paths proxy live, per
+// vite.config.ts), no VITE_INDEXER_URL and no push keys, so production renders branches this
+// table never walks. The chart's own branches are guarded in src/components/chart/chartCopyDashes.test.ts.
 
 /** Venue-voice routes, counted on the desktop production build. At 0 a route is finished
  *  and fails on its first prose node, naming the copy. */
@@ -272,5 +272,69 @@ test.describe('element I: em dashes in the rooms', () => {
       .map(navigablePath);
     expect(doors.length, 'the app routes fourteen doors, thirteen ids plus the towelie alias').toBe(14);
     expect(Object.keys(ROOM_VOICE_DEBT).sort()).toEqual([...doors].sort());
+  });
+});
+
+// Element I on each room's farm, /farm?bungalow=<id>, keyed by registry id. The reads are
+// sealed (every /api path and every host but localhost aborted), so each pool card renders
+// its unread branch and the count holds from run to run; live-read copy is not walked here.
+// toweli's farm is its own room's prose, and nb1, not yet live, falls through to the venue's.
+const ROOM_FARM_DEBT: Record<string, number> = {
+  toweli: 11,
+  bayla: 0,
+  bobo: 0,
+  soy: 0,
+  brainlet: 0,
+  rizz: 0,
+  // The six EVM ladders: the unread card's "The pool could not be read just now" line.
+  pepe: 1,
+  qr: 1,
+  mfer: 1,
+  bnkr: 1,
+  drb: 1,
+  jbm: 1,
+  nb1: 0,
+};
+
+test.describe("element I: em dashes on each room's farm", () => {
+  for (const [id, budget] of Object.entries(ROOM_FARM_DEBT)) {
+    const path = `/farm?bungalow=${id}`;
+    test(`${path} carries ${budget} prose em dash${budget === 1 ? '' : 'es'}`, async ({ page }) => {
+      test.skip(test.info().project.name !== 'chromium', 'the debt here is a desktop measurement');
+      test.slow();
+      await page.addInitScript(() => {
+        try {
+          localStorage.setItem('tegridy-onboarding-seen', '1');
+          localStorage.setItem('tegridy_telemetry_consent', 'denied');
+          localStorage.setItem('tegridy-bungalow', 'venue');
+        } catch { /* private mode */ }
+      });
+      await page.route('**/api/**', (r) => r.abort());
+      await page.route((url) => url.hostname !== 'localhost', (r) => r.abort());
+      await settle(page, path);
+
+      const hits = await proseDashes(page);
+      const shown = hits.slice(0, 8).map((h) => `  ${h.owner}: ${h.text}`).join('\n');
+
+      if (budget === 0) {
+        expect(hits.length, `${path} is at zero and gained prose em dashes:\n${shown}`).toBe(0);
+        return;
+      }
+      expect(
+        hits.length,
+        hits.length > budget
+          ? `${path} gained prose em dashes (${budget} -> ${hits.length}). First few:\n${shown}`
+          : `${path} is DOWN to ${hits.length} from ${budget}. Good: lower the number in ROOM_FARM_DEBT to ${hits.length}.`,
+      ).toBe(budget);
+    });
+  }
+
+  test('the farm table walks every registry id the doors route, once', () => {
+    const ids = ROUTES
+      .filter((r) => r.owner === 'pages/HomePage.tsx' && r.voice !== 'venue')
+      .map((r) => navigablePath(r).slice(1))
+      .filter((id) => id !== 'towelie');
+    expect(ids.length, 'thirteen registry ids').toBe(13);
+    expect(Object.keys(ROOM_FARM_DEBT).sort()).toEqual([...ids].sort());
   });
 });
