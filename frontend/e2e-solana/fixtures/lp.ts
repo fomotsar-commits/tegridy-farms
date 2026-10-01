@@ -249,8 +249,12 @@ export async function closeTokenAccount(kp: Keypair, mint: PublicKey, program: P
  * Each call is one actor (one browser context) and gets its own client address: the
  * real rate limiter keys on `req.ip` (api/_lib/ratelimit.js `extractIp`), so without
  * one every actor in the run shared a single bucket.
+ *
+ * `omit`: pool addresses left out of every answer, read at answer time (a spec may add
+ * to the set later): the index "answering without" a pool, as a stale or lagging index
+ * would. Nothing else in the answer changes.
  */
-export async function installPoolIndex(context: BrowserContext, o: { down?: boolean } = {}): Promise<{ calls: string[] }> {
+export async function installPoolIndex(context: BrowserContext, o: { down?: boolean; omit?: ReadonlySet<string> } = {}): Promise<{ calls: string[] }> {
   process.env.SOLANA_RPC_URL = LOCALNET_RPC;
   const mod = (await import(new URL('../../api/_lib/pool-index.js', import.meta.url).href)) as {
     handlePoolIndex: (req: unknown, res: unknown) => Promise<unknown>;
@@ -272,6 +276,11 @@ export async function installPoolIndex(context: BrowserContext, o: { down?: bool
     };
     const req = { ip, method: route.request().method(), query: Object.fromEntries(url.searchParams.entries()), headers: await route.request().allHeaders() };
     await mod.handlePoolIndex(req, res);
+    if (o.omit?.size && out.status === 200) {
+      const payload = JSON.parse(out.body) as { pools?: unknown };
+      if (Array.isArray(payload.pools)) payload.pools = payload.pools.filter((p) => !o.omit!.has(String(p)));
+      out.body = JSON.stringify(payload);
+    }
     return route.fulfill({ status: out.status, contentType: 'application/json', headers: out.headers, body: out.body });
   });
   return { calls };
