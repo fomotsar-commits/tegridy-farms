@@ -16,7 +16,7 @@ import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
 import type { LpOpenGate, LpWriteApi } from '../curve/ports';
 import { ALL_BPS, PercentPicker } from './PercentPicker';
 import { PanelFrame } from './PanelFrame';
-import { sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useWalletFacts } from './panelKit';
+import { sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { lpHeld } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -113,6 +113,8 @@ function RemoveInner({
         problemText = 'This could not be worked out from the pool as the page read it. Read your positions again.';
     }
   }
+  // Read out once typing settles, never on every keystroke (its numbers change with each digit).
+  const alertText = useSettledAlert(problemText);
 
   // Where the tokens land: the associated account under the pool's token program, which
   // the withdrawal opens when it is missing. Said only once the wallet was read.
@@ -237,7 +239,7 @@ function RemoveInner({
           <WalletNeeded state={writes.signerState} />
           <div className="space-y-2">
             <p role="alert" className="text-rose-300/90">
-              {problemText}
+              {alertText}
             </p>
             {takeAll && (
               <button type="button" className="btn-secondary w-full min-h-[44px] text-[12px]" onClick={() => setPct(ALL_BPS)}>

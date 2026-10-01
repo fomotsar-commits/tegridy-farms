@@ -303,7 +303,8 @@ describe('Add liquidity', () => {
     const panel = await screen.findByTestId('lp-add-panel');
     await within(panel).findByRole('button', { name: 'Max SOL' });
     fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '1' } });
-    expect(panel).toHaveTextContent(/This needs up to 99\.\d+ tokens and your wallet has 10 tokens\./);
+    // The problems line is read out once typing settles (B review person-4).
+    await waitFor(() => expect(panel).toHaveTextContent(/This needs up to 99\.\d+ tokens and your wallet has 10 tokens\./));
     expect(within(panel).getByRole('button', { name: 'Review: add liquidity' })).toBeDisabled();
     fireEvent.click(within(panel).getByRole('button', { name: 'Use the most both balances allow' }));
     // 10 tokens at 100 tokens per SOL: 0.1 SOL drives, and the plan fits.
@@ -394,7 +395,8 @@ describe('Remove liquidity', () => {
     fireEvent.click(await within(row).findByRole('button', { name: 'Remove liquidity' }));
     const panel = await screen.findByTestId('lp-remove-panel');
     fireEvent.change(within(panel).getByLabelText('Other percent'), { target: { value: '95' } });
-    expect(panel).toHaveTextContent(/too few to ever take out at this pool’s size/);
+    // The problems line is read out once typing settles (B review person-4).
+    await waitFor(() => expect(panel).toHaveTextContent(/too few to ever take out at this pool’s size/));
     expect(within(panel).getByRole('button', { name: 'Review: remove liquidity' })).toBeDisabled();
     fireEvent.click(within(panel).getByRole('button', { name: 'Take out all of it' }));
     expect(within(panel).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');

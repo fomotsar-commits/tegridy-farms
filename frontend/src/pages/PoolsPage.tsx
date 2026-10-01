@@ -236,14 +236,16 @@ const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-p
 
 // What this site itself can do with the pools follows LP's own switch
 // (lib/launcher/solana/lpWriteFlag.ts), so flipping that one line changes these too.
+// Whether the public fee tier exists, or takes new pools, is never said here: only the
+// create card's live read of the tier says that.
 const HERO_LP_LINE: Record<LpWriteMode, string> = {
   off: 'This site reads pools and shares; adding and removing liquidity from here is not switched on yet.',
-  on: 'This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool once the public fee tier exists.',
+  on: 'This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier (the pools section says whether that can be done right now).',
   'withdraw-only': 'This site reads pools and shares. Adding liquidity and opening pools from here are paused; taking yours out still works.',
 };
 const VENUE_LP_LINE: Record<LpWriteMode, string> = {
   off: 'This site only reads pools so far.',
-  on: 'This site can add and remove liquidity, and open new pools on the public fee tier once that tier exists (the pools section below says whether it does).',
+  on: 'This site can add and remove liquidity, and open new pools on the public fee tier (the pools section below says whether it can right now).',
   'withdraw-only': 'This site can take liquidity out; adding liquidity and opening pools are paused.',
 };
 

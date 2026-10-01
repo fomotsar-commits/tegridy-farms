@@ -311,17 +311,22 @@ export type PoolSearchRead = { kind: 'ok'; search: PoolSearch } | { kind: 'unrea
 export const MAX_CANDIDATES = 3 + POOL_INDEX_MAX;
 
 /**
- * Pools this page opened, kept for the session (cleared only by a page load). A pool
- * opened at a one-off address is found by the index or by this memory alone, so a
- * search right after an opening lists it even when the index has not caught up or is
- * down. Every search reads them; a remembered pool that holds another token's pool is
- * never listed for this one (the same tokenMint filter as the index's answers).
+ * Pools this page opened, kept for the session (cleared only by a page load), each with
+ * its token when known. A pool opened at a one-off address is found by the index or by
+ * this memory alone, so a search right after an opening lists it even when the index has
+ * not caught up or is down.
+ *
+ * A search reads only the remembered pools of ITS token (and any whose token is not
+ * known: one confirmed from a note after a reload), AFTER every address the index and
+ * the known addresses name, so a remembered pool never takes an index answer's place
+ * under the cap. A remembered pool that holds another token's pool is never listed for
+ * this one (the same tokenMint filter as the index's answers).
  */
-const createdPools = new Set<string>();
+const createdPools = new Map<string, string | null>();
 
-/** Remember a pool this page just opened (a confirmed `lp-create`). */
-export function rememberCreatedPool(pool: string): void {
-  createdPools.add(pool);
+/** Remember a pool this page just opened (a confirmed `lp-create`), with its token when known. */
+export function rememberCreatedPool(pool: string, tokenMint: string | null = null): void {
+  createdPools.set(pool, tokenMint ?? createdPools.get(pool) ?? null);
 }
 
 /** Did this page open this pool in this session? */
@@ -334,11 +339,13 @@ export async function findPools(
   mint: PublicKey,
   opts: ReadPoolsOptions & { fetchImpl?: typeof fetch },
 ): Promise<PoolSearchRead> {
+  const m = mint.toBase58();
   const known = knownPoolAddresses(mint, opts.programId, opts.launchProgramId);
-  const index = await readPoolIndex({ mint: mint.toBase58() }, opts.programId.toBase58(), opts.fetchImpl);
-  const addresses = [
-    ...new Set([known.launchPool, ...known.standard.map((s) => s.address), ...createdPools, ...(index.kind === 'ok' ? index.pools : [])]),
-  ].slice(0, MAX_CANDIDATES);
+  const index = await readPoolIndex({ mint: m }, opts.programId.toBase58(), opts.fetchImpl);
+  const named = [...new Set([known.launchPool, ...known.standard.map((s) => s.address), ...(index.kind === 'ok' ? index.pools : [])])].slice(0, MAX_CANDIDATES);
+  const namedSet = new Set(named);
+  const remembered = [...createdPools].filter(([pool, token]) => !namedSet.has(pool) && (token === null || token === m)).map(([pool]) => pool);
+  const addresses = [...named, ...remembered];
 
   const read = await readPools(rpc, addresses, opts);
   if (read.kind === 'unread') return { kind: 'unread', detail: read.detail, index };
@@ -347,7 +354,6 @@ export async function findPools(
   const knownState: Record<string, PoolEntry['kind']> = {};
   const pools: PoolSearch['pools'] = [];
   let otherPairs = 0;
-  const m = mint.toBase58();
   for (const e of read.entries) {
     const address = e.kind === 'pool' ? e.view.address : e.address;
     if (knownSet.has(address)) knownState[address] = e.kind;

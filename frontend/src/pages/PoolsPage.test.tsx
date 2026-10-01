@@ -207,11 +207,15 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     lp.mode = 'on';
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    // SPEC_S2_CREATE 2.6 (K4): opening a pool joins the 'on' copy, honest that the public tier may not exist yet.
-    expect(screen.getByText(/below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool once the public fee tier exists\./i)).toBeInTheDocument();
+    // SPEC_S2_CREATE 2.6 (K4): opening a pool joins the 'on' copy. Whether the public tier
+    // exists is said only by the create card's live read, never by this fixed copy (B review parity-3).
     expect(
-      screen.getByText(/This site can add and remove liquidity, and open new pools on the public fee tier once that tier exists \(the pools section below says whether it does\)\./),
+      screen.getByText(/below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier \(the pools section says whether that can be done right now\)\./i),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(/This site can add and remove liquidity, and open new pools on the public fee tier \(the pools section below says whether it can right now\)\./),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/once (the public fee tier|that tier) exists/i);
     expect(screen.queryByText(/does not open pools/i)).toBeNull();
     // The swap's routing card keeps its own "not switched on yet" (addendum D24); this is the LP one.
     expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();

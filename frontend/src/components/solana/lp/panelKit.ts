@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PublicKey } from '@solana/web3.js';
 import { formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve/format';
-import { LOCKED_LP } from '../../../lib/solana/lp/liquidityMath';
+import { LOCKED_SHARES_TEXT } from '../../../lib/solana/lp/liquidityMath';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import type { TxFlowState } from '../curve/useTxFlow';
 import type { LpWrites } from './useLpWrites';
@@ -19,10 +19,10 @@ export const tokensAbout = (raw: bigint, decimals: number) => `${formatTokenAmou
 
 /**
  * The pool shares the pool program keeps in every new pool forever (100 of the smallest
- * unit), written as the share counts on this page are: in 9 decimals. "100 pool shares"
- * would read a billion times too large next to the "You get" row.
+ * unit), written as the share counts on this page are: in 9 decimals. One text, shared
+ * with the write layer's refusals (lib/solana/lp/liquidityMath.ts).
  */
-export const LOCKED_SHARES_TEXT = `${formatTokenAmount(LOCKED_LP, 9, 9).text} pool shares (${LOCKED_LP.toString()} of the smallest unit)`;
+export { LOCKED_SHARES_TEXT };
 
 /** A share of the pool as a percentage; a real share that rounds to nothing says so. */
 export function sharePct(part: bigint, whole: bigint): string {
@@ -60,6 +60,16 @@ export function useWalletFacts(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readers, key]);
   return answer && answer.key === key ? answer.facts : null;
+}
+
+/**
+ * A problem line for a `role="alert"`: shown once typing settles (500 ms), so a screen
+ * reader is not interrupted on every digit by numbers that change with each one; cleared
+ * at once when the problem goes (an empty alert says nothing).
+ */
+export function useSettledAlert(text: string): string {
+  const settled = useDebounced(text);
+  return text === '' ? '' : settled;
 }
 
 /** `text`, 500 ms after it last changed: a status line that does not speak every keystroke. */

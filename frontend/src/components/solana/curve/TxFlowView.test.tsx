@@ -924,3 +924,39 @@ describe('opening a pool: the outcome', () => {
     expect(text).not.toMatch(/fail/i);
   });
 });
+
+// B review person-5: on the review a person reads before signing, a sentence breaks only
+// between words; only an address row (Pool, Token) may break anywhere.
+describe('opening a pool: the review wraps sentences between words', () => {
+  it('every prose row is mono={false}; the address rows stay mono', async () => {
+    const config = {
+      address: KEY(6).toBase58(), index: 1, disableCreatePool: false, tradeFeeRate: 10_000n, protocolFeeRate: 160_000n,
+      fundFeeRate: 0n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
+    };
+    const summary: TxSummary = {
+      kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, solIsToken0: true,
+      put: { sol: 1_000_000_000n, token: 5_000_000n }, supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
+      locked: { sol: 1_414n, token: 7n }, createFee: 150_000_000n, feeReceiver: KEY(8),
+      rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
+      price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
+      tokenWarnings: [], unwrapsWsol: true, wsolHeldBefore: 0n, notices: [],
+    };
+    const api = fakeApi();
+    const { result } = renderHook(() => useTxFlow(api, rpc));
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(summary) })));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    const valueOf = (label: string) => screen.getByText(label).nextElementSibling as HTMLElement;
+    for (const label of [
+      'You put in',
+      'Fee to open the pool',
+      'Account deposits that never come back',
+      'Your pool-share account',
+      'You get',
+      'Locked in the pool forever',
+      'Your share of the pool',
+    ]) {
+      expect(valueOf(label).className, label).not.toMatch(/break-all/);
+    }
+    for (const label of ['Pool', 'Token (mint)']) expect(valueOf(label).className, label).toMatch(/break-all/);
+  });
+});

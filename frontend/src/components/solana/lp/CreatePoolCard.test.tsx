@@ -300,3 +300,41 @@ describe('a pending opening', () => {
     await settled('opened-here');
   });
 });
+
+// B review person-3: a Read again that comes back with the same answer is not silence.
+describe('Read again says it is reading, and what it found', () => {
+  it('price-unread: busy while it reads, then "the same answer" when Jupiter fails again', async () => {
+    const unread = { kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' };
+    const r = readers({ outsidePrice: vi.fn(async () => unread) });
+    mount(r);
+    const c = await settled('price-unread');
+    expect(c).toHaveAttribute('aria-busy', 'false');
+    let release!: () => void;
+    (r.outsidePrice as ReturnType<typeof vi.fn>).mockImplementationOnce(() => new Promise((res) => (release = () => res(unread))));
+    fireEvent.click(within(c).getByRole('button', { name: 'Read again' }));
+    await waitFor(() => expect(c).toHaveAttribute('aria-busy', 'true'));
+    const status = within(c).getByTestId('lp-create-reread');
+    expect(status).toHaveAttribute('role', 'status');
+    expect(status).toHaveTextContent('Reading again…');
+    const button = within(c).getByRole('button', { name: 'Read again' });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    // A second press while it reads asks nothing more.
+    fireEvent.click(button);
+    await act(async () => release());
+    await waitFor(() => expect(status).toHaveTextContent('Read again just now: the same answer.'));
+    expect(c).toHaveAttribute('aria-busy', 'false');
+    expect(r.outsidePrice).toHaveBeenCalledTimes(2);
+  });
+
+  it('tier-unread: a fee-tier read that answers differently says the answer is new', async () => {
+    const readCreateFacts = vi
+      .fn()
+      .mockResolvedValueOnce({ tier: { kind: 'unread', address: TIER1_ADDRESS, detail: 'HTTP 503' }, feeAccount: { kind: 'ready' } })
+      .mockResolvedValue(readyFacts());
+    mount(readers(), { api: fakeLpApi({ readCreateFacts }) });
+    const c = await settled('tier-unread');
+    fireEvent.click(within(c).getByRole('button', { name: 'Read again' }));
+    await waitFor(() => expect(c).toHaveAttribute('data-create', 'offer'));
+    expect(within(c).getByTestId('lp-create-reread')).toHaveTextContent('Read again just now: the answer above is new.');
+  });
+});

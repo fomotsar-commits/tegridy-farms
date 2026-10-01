@@ -206,6 +206,20 @@ async function checkOpenedPool(o: {
   expect((await tokenAmount(CREATE_POOL_FEE_RECEIVER))! - o.feeBefore, 'the fee account received exactly the fee').toBe(o.fee);
 }
 
+/**
+ * The opener's SOL change, worked out in Node from fresh reads (SPEC_S2_CREATE 3.3, 5.5):
+ * what went in, tier 1's fee, the pool's never-refunded deposits, the pool-share account's
+ * rent and the landed network fee. A wrapped-SOL account the opening makes is closed in
+ * the same transaction, and one the wallet already held ends as it began, so neither
+ * moves SOL. Not the review's own test-run line: that comes from the same simulation the
+ * page shows, so a change that took more SOL would show on both sides.
+ */
+async function checkOpenerSol(t: Awaited<ReturnType<typeof landedTx>>, owner: PublicKey, solIn: bigint): Promise<void> {
+  const [tier, rents] = await Promise.all([tierView(1), liveRents()]);
+  const networkFee = BigInt(t.meta!.fee);
+  expect(lamportDelta(t, owner), "the opener's SOL change, worked out in Node").toBe(-(solIn + tier.createPoolFee + rents.neverRefunded + rents.r165 + networkFee));
+}
+
 /** What the wallet signed for an opening: one initialize, open_time 0, the fee account and tier 1 in their slots. */
 function checkSignedOpening(a: Actor, pool: PublicKey, origin: 'standard' | 'co-signer') {
   const opens = a.wallet.lastSigned().instructions.filter((i) => i.program === 'cp-swap');
@@ -318,8 +332,20 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     checkSignedOpening(a, pool, 'standard');
     await checkOpenedPool({ pool, mint: A.t1, owner: A.opener.publicKey, sol: solIn, token, signature, feeBefore, tokenBefore, fee: tier.createPoolFee });
     expect(signedSol(lamportDelta(t, A.opener.publicKey)), 'the SOL change is the test run line').toBe(testRunSol);
+    await checkOpenerSol(t, A.opener.publicKey, solIn);
     expect(await accountOwner(ata(WSOL, A.opener.publicKey)), 'no wrapped-SOL account left').toBeNull();
 
+    // The outcome's Close goes back to the panel's form. The amounts it opened with are
+    // gone, and with the card now saying "you opened one", Review stays off even when the
+    // amounts are typed again: no second pool by accident.
+    await press(ui.outcome(p).getByRole('button', { name: 'Close' }), 'close the outcome');
+    await expect(createCard(p)).toHaveAttribute('data-create', 'opened-here', { timeout: 60_000 });
+    await expect(ui.lp.create.solToPut(p)).toHaveValue('');
+    await expect(ui.lp.create.panel(p)).toContainText('You opened a pool for this token just now. Add to it instead of opening another, so Review is off here.');
+    await ui.lp.create.solToPut(p).fill('1');
+    await press(ui.lp.create.match(p), 'Match the market price');
+    await expect(ui.lp.create.review(p)).toBeDisabled();
+    expect(a.wallet.signed()).toHaveLength(1);
     await closeAll(p, ui.lp.create.panel(p));
     await expect(poolCard(p, pool)).toContainText("You opened this pool just now. Your share is under 'Your positions'.", { timeout: 60_000 });
     await expect(createCard(p)).toHaveAttribute('data-create', 'opened-here', { timeout: 60_000 });
@@ -566,6 +592,7 @@ test.describe('group B (chromium only)', () => {
     expect(message.header.numRequiredSignatures).toBe(2);
     expect(txAccountKeys(t).slice(0, 2).map((k) => k.toBase58())).toEqual([B.c4.publicKey.toBase58(), pool.toBase58()]);
     await checkOpenedPool({ pool, mint: B.t4, owner: B.c4.publicKey, sol: solIn, token, signature, feeBefore, tokenBefore, fee: (await tierView(1)).createPoolFee });
+    await checkOpenerSol(t, B.c4.publicKey, solIn);
     expect(Buffer.from((await chain().getAccountInfo(B.squat4.address, 'confirmed'))!.data).equals(Buffer.from(squatBytes)), "the squat pool's bytes are unchanged").toBe(true);
 
     await closeAll(p, ui.lp.create.panel(p));
@@ -747,8 +774,9 @@ test.describe('group B (chromium only)', () => {
     const rows = await reviewCreate(p);
     const pool = await checkCreateReview(p, rows, { mint: B.t9, sol: solIn, token: balance, origin: 'standard', market: stubMarket(FAIR) });
     const feeBefore = (await tokenAmount(CREATE_POOL_FEE_RECEIVER))!;
-    const { signature } = await signConfirmed(a);
+    const { signature, t } = await signConfirmed(a);
     await checkOpenedPool({ pool, mint: B.t9, owner: B.c9.publicKey, sol: solIn, token: balance, tokenProgram: TOKEN_2022_PROGRAM_ID, signature, feeBefore, tokenBefore: balance, fee: (await tierView(1)).createPoolFee });
+    await checkOpenerSol(t, B.c9.publicKey, solIn);
     expect(a.wallet.signed().flatMap((r) => r.instructions).some((i) => i.program === 'token-2022'), 'no top-level Token-2022 instruction').toBe(false);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
@@ -908,7 +936,8 @@ test.describe('group B (chromium only)', () => {
     const token = parseDecimalToBaseUnits(await ui.lp.create.tokensToPut(p).inputValue(), DEC)!;
     const rows = await reviewCreate(p);
     await checkCreateReview(p, rows, { mint: B.t13, sol: spendable, token, origin: 'standard', market: stubMarket(FAIR) });
-    await signConfirmed(a);
+    const { t } = await signConfirmed(a);
+    await checkOpenerSol(t, B.r13.publicKey, spendable);
     expect((await lamports(B.r13.publicKey)) >= rents.r0, 'wallet R keeps at least the rent floor').toBe(true);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
@@ -927,13 +956,13 @@ test.describe('group B (chromium only)', () => {
     await ui.lp.create.solToPut(p).fill(formatSol(100n, 9));
     await ui.lp.create.tokensToPut(p).fill(tokensToInput(100n));
     await expect(ui.lp.create.price(p)).toHaveAttribute('data-price', 'agrees');
-    await expect(alert).toHaveText('Too small: the pool program keeps 100 pool shares in every new pool forever, and this opening would not cover them. Put in more of either side.');
+    await expect(alert).toHaveText(`Too small: the pool program keeps ${LOCKED_SHARES} in every new pool forever, and this opening would not cover them. Put in more of either side.`);
     await expect(ui.lp.create.review(p)).toBeDisabled();
     // 50,000 each: isqrt 50,000, so the locked 100 would be 0.2% of the pool.
     await ui.lp.create.solToPut(p).fill(formatSol(50_000n, 9));
     await ui.lp.create.tokensToPut(p).fill(tokensToInput(50_000n));
     await expect(ui.lp.create.price(p)).toHaveAttribute('data-price', 'agrees');
-    await expect(alert).toHaveText('Too small to be worth it: the 100 pool shares the pool program keeps forever would be 0.2% of this pool. Put in more, so that part is 0.1% or less.');
+    await expect(alert).toHaveText(`Too small to be worth it: the ${LOCKED_SHARES} the pool program keeps forever would be 0.2% of this pool. Put in more, so that part is 0.1% or less.`);
     await expect(ui.lp.create.review(p)).toBeDisabled();
     expect(a.wallet.records).toEqual([]);
     expect(a.rpc.violations).toEqual([]);
@@ -988,7 +1017,8 @@ test.describe('group B (chromium only)', () => {
     const rows = await reviewCreate(p);
     await checkCreateReview(p, rows, { mint: B.t15, sol: solIn, token, origin: 'standard', market: stubMarket(FAIR) });
     await expect(ui.review(p)).toContainText(`You already hold ${formatSol(sol(0.5), 9)} wrapped SOL. It is left exactly as it is.`);
-    await signConfirmed(a);
+    const { t } = await signConfirmed(a);
+    await checkOpenerSol(t, B.w15.publicKey, solIn);
     expect(await tokenAmount(wsolAcc), 'exactly the 0.5 SOL it held').toBe(sol(0.5));
     expect(a.wallet.signed().flatMap((r) => r.instructions).some((i) => i.name === 'close-wsol'), 'never unwrapped').toBe(false);
     expect(a.rpc.violations).toEqual([]);
@@ -1075,8 +1105,10 @@ test.describe('group B (chromium only)', () => {
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
     await expect(createCard(p)).toContainText(MONEY);
     const body = (await p.locator('body').innerText()).replace(/\s+/g, ' ');
-    expect(body).toContain('This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool once the public fee tier exists.');
-    expect(body).toContain('This site can add and remove liquidity, and open new pools on the public fee tier once that tier exists (the pools section below says whether it does).');
+    expect(body).toContain('This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier (the pools section says whether that can be done right now).');
+    expect(body).toContain('This site can add and remove liquidity, and open new pools on the public fee tier (the pools section below says whether it can right now).');
+    // Whether tier 1 exists is said only by the create card's live read, never by fixed page copy.
+    expect(body).not.toMatch(/once (the public fee tier|that tier) exists/);
     expect(body).toContain('still goes through Jupiter');
     const panel = await openCreate(p);
     await expect(panel.getByTestId('lp-before-you-open')).toContainText(MONEY);

@@ -64,12 +64,15 @@ export interface LpWrites {
    * Read once the gate is open with the mode 'on'; it never changes the gate, Add or Remove.
    */
   createFacts: CreateFacts | null;
+  /** The create facts are being read (again): what `createFacts` shows is the last answer. */
+  createFactsReading: boolean;
   refreshCreateFacts(): void;
   /**
-   * A confirmed opening of `pool`: this tab remembers the pool (the finder lists it, and
-   * the card says "you opened one") and its share's placement (Remove is offered at once).
+   * A confirmed opening of `pool` (for `tokenMint`, when known): this tab remembers the
+   * pool (the finder lists it for that token, and the card says "you opened one") and its
+   * share's placement (Remove is offered at once).
    */
-  remember(pool: string): void;
+  remember(pool: string, tokenMint?: string): void;
   /** Pool shares the wallet holds of this share mint, from the last positions read; null when unread. */
   heldShares(lpMint: string): bigint | null;
   /** "Your positions" reports each answer here, so a deposit can say the share before and after. */
@@ -138,8 +141,8 @@ export function LpWritesProvider({
   // share's placement is keyed by it, exactly as the positions read keys it.
   const programId = readers.programId;
   const remember = useCallback(
-    (pool: string) => {
-      rememberCreatedPool(pool);
+    (pool: string, tokenMint?: string) => {
+      rememberCreatedPool(pool, tokenMint ?? null);
       try {
         rememberCreatedShare(new PublicKey(programId), new PublicKey(pool));
       } catch {
@@ -165,7 +168,9 @@ export function LpWritesProvider({
         : null,
     [api, cfg, connection, remember],
   );
-  const pending = usePendingTrades(LP_PENDING_SCOPE, check, finished);
+  // Live: a note holds every card in this tab the moment it is written (another pool,
+  // another token, a panel that was closed or left), not only after a reload.
+  const pending = usePendingTrades(LP_PENDING_SCOPE, check, finished, { live: true });
 
   const [active, setActive] = useState<LpWrites['active']>(null);
   const [busy, setBusyState] = useState(false);
@@ -205,7 +210,7 @@ export function LpWritesProvider({
   // The create facts: only once the gate is open with the mode 'on' (opening a pool is
   // paused with adding). An answer counts only for the gate it was asked under; the last
   // answer stays on screen while the facts are read again.
-  const [facts, setFacts] = useState<{ gate: LpGate; facts: CreateFacts } | null>(null);
+  const [facts, setFacts] = useState<{ gate: LpGate; facts: CreateFacts; nonce: number } | null>(null);
   const [factsNonce, setFactsNonce] = useState(0);
   const factsGate = gate?.kind === 'open' && gate.mode === 'on' && mode === 'on' ? gate : null;
   useEffect(() => {
@@ -216,7 +221,7 @@ export function LpWritesProvider({
       .then(() => api.readCreateFacts(gateRpc, factsGate.cfg))
       .then(
         (f) => {
-          if (live) setFacts({ gate: factsGate, facts: f });
+          if (live) setFacts({ gate: factsGate, facts: f, nonce: factsNonce });
         },
         (e: unknown) => {
           if (!live) return;
@@ -224,6 +229,7 @@ export function LpWritesProvider({
           setFacts({
             gate: factsGate,
             facts: { tier: { kind: 'unread', address: factsGate.cfg.cpSwapProgram, detail }, feeAccount: { kind: 'unread', detail } },
+            nonce: factsNonce,
           });
         },
       );
@@ -232,6 +238,7 @@ export function LpWritesProvider({
     };
   }, [api, factsGate, gateRpc, factsNonce]);
   const createFacts = factsGate && facts && facts.gate === factsGate ? facts.facts : null;
+  const createFactsReading = !!api && factsGate !== null && !(facts && facts.gate === factsGate && facts.nonce === factsNonce);
   const refreshCreateFacts = useCallback(() => setFactsNonce((n) => n + 1), []);
   const refreshGateOnly = gateState.refresh;
   const refreshGate = useCallback(() => {
@@ -270,6 +277,7 @@ export function LpWritesProvider({
       finished,
       refreshGate,
       createFacts,
+      createFactsReading,
       refreshCreateFacts,
       remember,
       heldShares,
@@ -277,7 +285,7 @@ export function LpWritesProvider({
     }),
     [
       mode, gateState, api, cfg, gate, mismatch, connection, signerState, readers, pending, active, busy, open, close, setBusy, finished,
-      refreshGate, createFacts, refreshCreateFacts, remember, heldShares, reportPositions,
+      refreshGate, createFacts, createFactsReading, refreshCreateFacts, remember, heldShares, reportPositions,
     ],
   );
   return <LpWritesContext.Provider value={value}>{children}</LpWritesContext.Provider>;

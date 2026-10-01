@@ -19,8 +19,8 @@ import type { LpOpenGate, LpWriteApi, TierState, TierTerms } from '../curve/port
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
-import { LOCKED_SHARES_TEXT, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useWalletFacts } from './panelKit';
-import { createHeld } from './offers';
+import { LOCKED_SHARES_TEXT, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
+import { createHeld, type CreateOffer } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const SOL_DECIMALS = 9;
@@ -30,11 +30,29 @@ const TOLERANCE_PCT = PRICE_TOLERANCE * 100;
 
 // The same words as the builder's refusals (write/createPool.ts CREATE_COPY), said here
 // before Review. The builder is not imported: this file is in the page's own bundle, and
-// the write layer loads only through lpWriteApi.ts.
-const TOO_SMALL =
-  'Too small: the pool program keeps 100 pool shares in every new pool forever, and this opening would not cover them. Put in more of either side.';
+// the write layer loads only through lpWriteApi.ts. The locked part is said in 9
+// decimals, as every share count on this page is.
+const TOO_SMALL = `Too small: the pool program keeps ${LOCKED_SHARES_TEXT} in every new pool forever, and this opening would not cover them. Put in more of either side.`;
 const lockTooLarge = (pct: string) =>
-  `Too small to be worth it: the 100 pool shares the pool program keeps forever would be ${pct}% of this pool. Put in more, so that part is 0.1% or less.`;
+  `Too small to be worth it: the ${LOCKED_SHARES_TEXT} the pool program keeps forever would be ${pct}% of this pool. Put in more, so that part is 0.1% or less.`;
+
+/**
+ * Why an open panel's Review is off when its card no longer offers an opening. 'held'
+ * has its own line, and an unready tier has the tier's line.
+ */
+function offerOffLine(offer: CreateOffer): string | null {
+  switch (offer) {
+    case 'offer':
+    case 'held':
+      return null;
+    case 'opened-here':
+      return 'You opened a pool for this token just now. Add to it instead of opening another, so Review is off here.';
+    case 'exists':
+      return 'This token already has a pool on the public fee tier that passes the checks. Add to it instead, so Review is off here.';
+    default:
+      return 'Opening a pool is off right now (the card above says why), so Review is off here.';
+  }
+}
 const rentBand = (most: string) =>
   `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and stay open on the network. The most you can put in from this wallet is ${most}.`;
 
@@ -73,6 +91,13 @@ export function CreatePoolPanel(p: {
   tier: TierState | null;
   /** Whether the search found anything at the standard tier-1 address. Prepare decides for good. */
   standard: 'empty' | 'taken';
+  /**
+   * The card's answer now. An open panel obeys it: Review only while it is `offer`, so a
+   * panel left open after its own opening, or after someone else's, never opens a second.
+   */
+  offer: CreateOffer;
+  /** The card's inputs are being read again: Review waits for the new answer. */
+  reading: boolean;
   onClose: () => void;
   onReread: () => void;
 }) {
@@ -90,6 +115,8 @@ function CreateInner({
   outsideAt,
   tier,
   standard,
+  offer,
+  reading,
   onClose,
   onReread,
   writes,
@@ -119,7 +146,9 @@ function CreateInner({
     (outcome, prepared, sentSignature) => {
       lastOutcome.current = outcome.status;
       pending.record(outcome, prepared, sentSignature);
-      if (outcome.status === 'confirmed' && prepared?.summary.kind === 'lp-create') remember(prepared.summary.pool.toBase58());
+      if (outcome.status === 'confirmed' && prepared?.summary.kind === 'lp-create') {
+        remember(prepared.summary.pool.toBase58(), prepared.summary.tokenMint.toBase58());
+      }
     },
     [pending, remember],
   );
@@ -129,6 +158,11 @@ function CreateInner({
     setFactsNonce((n) => n + 1);
     // A refusal before signing is often "the terms changed": read the tier again too.
     if (lastOutcome.current === 'not-sent') refreshCreateFacts();
+    // Opened: the amounts it opened with are spent. Nothing here may be reviewed again.
+    if (lastOutcome.current === 'confirmed') {
+      setBoxes({ sol: '', token: '' });
+      setDriving(null);
+    }
   }, [refreshCreateFacts]);
   useFlowReports(writes, flow.state.step, flow.locked, reread);
 
@@ -235,6 +269,8 @@ function CreateInner({
   const status = useDebounced(
     preview && opening !== null ? `You would open the pool at 1 token = ${formatSolPrice(opening)} SOL and get ${unitsExact(preview.lp, LP_DECIMALS)} pool shares.` : '',
   );
+  // Read out once typing settles, never on every keystroke (its numbers change with each digit).
+  const alertText = useSettledAlert(problemText);
   const held = createHeld(pending.notes);
   const blockedByOther = writes.busy && flow.state.step === 'idle';
   const canReview =
@@ -247,6 +283,8 @@ function CreateInner({
     !problem &&
     check.verdict === 'allowed' &&
     !held &&
+    offer === 'offer' &&
+    !reading &&
     !flow.locked &&
     !blockedByOther;
   const review = () => {
@@ -272,6 +310,20 @@ function CreateInner({
     flow.state.step === 'outcome' && flow.state.outcome.status === 'confirmed' && flow.state.prepared?.summary.kind === 'lp-create'
       ? flow.state.prepared.summary.pool.toBase58()
       : null;
+  // A pressed Read again for the market price: what the line said before, until the new answer is in.
+  const marketKey = outside === null ? 'none' : outside.kind === 'ok' ? `ok:${outside.solPerToken}` : `${outside.kind}:${outside.detail}`;
+  const [askedMarket, setAskedMarket] = useState<string | null>(null);
+  const [saidMarket, setSaidMarket] = useState<'same' | 'changed' | null>(null);
+  if (askedMarket !== null && !reading) {
+    setAskedMarket(null);
+    setSaidMarket(askedMarket === marketKey ? 'same' : 'changed');
+  }
+  const readMarketAgain = () => {
+    if (reading) return;
+    setAskedMarket(marketKey);
+    setSaidMarket(null);
+    onReread();
+  };
   const priceState = check.price.state === 'agrees' || check.price.state === 'disagrees' || check.price.state === 'empty' ? check.price.state : 'unread';
   const readAt = outsideAt === null ? '' : `, read ${new Date(outsideAt).toLocaleTimeString('en-GB', { hour12: false })}`;
 
@@ -301,6 +353,7 @@ function CreateInner({
       {readyConfig === null && flow.state.step === 'idle' && (
         <Notice tone="warn">The public fee tier is not ready to open pools right now (see the card above), so Review is off.</Notice>
       )}
+      {readyConfig !== null && flow.state.step === 'idle' && offerOffLine(offer) && <Notice tone="warn">{offerOffLine(offer)}</Notice>}
       {confirmedPool && (
         <Notice>
           Your pool is open at <span className="font-mono break-all">{confirmedPool}</span>. Swaps can start one second after it landed.
@@ -335,9 +388,23 @@ function CreateInner({
                 ? `Market price (Jupiter${readAt}): 1 token = ${formatSolPrice(market)} SOL.`
                 : `Market price (Jupiter): could not be read (${outside && outside.kind !== 'ok' ? outside.detail : 'not read'}).`}
             </p>
-            <button type="button" className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px]" onClick={onReread}>
+            <button
+              type="button"
+              className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60"
+              aria-disabled={reading}
+              onClick={readMarketAgain}
+            >
               Read again
             </button>
+            <p role="status" className="text-white/55 text-[11px]">
+              {askedMarket !== null
+                ? 'Reading the market price again…'
+                : saidMarket === 'same'
+                  ? 'Read again just now: the same answer.'
+                  : saidMarket === 'changed'
+                    ? 'Read again just now: the line above is new.'
+                    : ''}
+            </p>
           </div>
           <LpAmountPair
             sol={boxes.sol}
@@ -421,7 +488,7 @@ function CreateInner({
           {/* Always there, so a new problem is read out the moment it appears. */}
           <div className="space-y-2">
             <p role="alert" className="text-rose-300/90">
-              {problemText}
+              {alertText}
             </p>
             {fix && (
               <button type="button" className="btn-secondary w-full min-h-[44px] text-[12px]" onClick={fix.run}>

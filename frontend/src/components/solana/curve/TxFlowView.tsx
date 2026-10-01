@@ -394,24 +394,28 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       />
       <Row label="Token (mint)" value={s.tokenMint.toBase58()} />
       <Row label="Fee tier" value={feeTierText(s.config)} mono={false} />
-      <Row label="You put in" value={`${solExact(s.put.sol)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} />
+      {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
+      <Row label="You put in" value={`${solExact(s.put.sol)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
       <Row label="Opening price" value={openingPriceText(s.price)} mono={false} />
       <Row label="Opens for trading" value="At once (one second after it lands)" mono={false} />
       <Row
         label="Fee to open the pool"
         value={`${solExact(s.createFee)}, paid to the team's vault (into ${s.feeReceiver.toBase58()}, the account the pool program fixes); not refundable`}
+        mono={false}
       />
       <Row
         label="Account deposits that never come back"
         value={`${solExact(s.rents.neverRefunded)} (the pool, its price record, its share token and its two vaults; none can be closed)`}
+        mono={false}
       />
-      <Row label="Your pool-share account" value={`${solExact(s.rents.lpAccount)} (it comes back if you close that account later)`} />
-      <Row label="You get" value={`${shares(s.lpAmount)} pool shares, exactly`} />
+      <Row label="Your pool-share account" value={`${solExact(s.rents.lpAccount)} (it comes back if you close that account later)`} mono={false} />
+      <Row label="You get" value={`${shares(s.lpAmount)} pool shares, exactly`} mono={false} />
       <Row
         label="Locked in the pool forever"
         value={`${shares(lockedShares)} pool shares (${lockedShares.toString()} of the smallest unit), worth about ${SOL(s.locked.sol)} and ${tok(s.locked.token)} tokens at these amounts`}
+        mono={false}
       />
-      <Row label="Your share of the pool" value={shareText(pct)} />
+      <Row label="Your share of the pool" value={shareText(pct)} mono={false} />
       {s.tokenWarnings.length > 0 && (
         <div className="space-y-1">
           <Notice tone="warn">Read these about this token first:</Notice>

@@ -240,7 +240,17 @@ function SearchResults({ state, onReread }: { state: Extract<SearchState, { stat
           )}
         </div>
       )}
-      <CreatePoolCard mint={mint} safety={safety} decimals={decimals} search={pools} healths={healths} outside={outside} outsideAt={outsideAt} onReread={onReread} />
+      <CreatePoolCard
+        mint={mint}
+        safety={safety}
+        decimals={decimals}
+        search={pools}
+        healths={healths}
+        outside={outside}
+        outsideAt={outsideAt}
+        onReread={onReread}
+        refreshing={state.refreshing === true}
+      />
     </div>
   );
 }

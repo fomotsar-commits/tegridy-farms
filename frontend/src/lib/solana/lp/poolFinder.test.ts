@@ -228,3 +228,45 @@ describe('findPools: pools this page opened', () => {
     expect(other.kind === 'ok' && other.search.pools.map((p) => (p.kind === 'pool' ? p.view.address : p.kind))).toEqual([elsewhere.address.toBase58()]);
   });
 });
+
+// B review parity-2: a remembered pool is read only for its own token, and after every
+// address the index names, so it never takes an index answer's place under the cap and
+// never shows as an unread pool on another token's list.
+describe('findPools: remembered pools never crowd out or leak into another token', () => {
+  it('96 index pools are all read and listed next to a remembered pool of this token; other tokens’ remembered pools are not read', async () => {
+    const mint = key();
+    const pools = Array.from({ length: POOL_INDEX_MAX }, (_, i) => buildPool({ mint, configIndex: 1, address: key(), solReserve: BigInt(i + 2) * 10n ** 6n, tokenReserve: 10n }));
+    const mine = buildPool({ mint, configIndex: 1, address: key(), solReserve: 10n ** 6n, tokenReserve: 10n });
+    const otherMint = key();
+    const others = Array.from({ length: 3 }, () => buildPool({ mint: otherMint, configIndex: 1, address: key(), solReserve: 10n ** 9n, tokenReserve: 10n }));
+    rememberCreatedPool(mine.address.toBase58(), mint.toBase58());
+    for (const o of others) rememberCreatedPool(o.address.toBase58(), otherMint.toBase58());
+    const accounts = Object.assign({ [CLOCK]: clockAccount(5n) }, ...pools.map((p) => p.accounts), mine.accounts, ...others.map((o) => o.accounts));
+    const calls: [string, unknown[]][] = [];
+    const r = await findPools(fakeRpc(accounts, { calls }), mint, opts(fakeIndex({ [`mint:${mint.toBase58()}`]: pools.map((p) => p.address.toBase58()) })));
+    expect(r.kind).toBe('ok');
+    if (r.kind !== 'ok') return;
+    const listed = r.search.pools.map((p) => (p.kind === 'pool' ? p.view.address : p.kind));
+    expect(listed).toHaveLength(POOL_INDEX_MAX + 1);
+    expect(new Set(listed)).toEqual(new Set([...pools.map((p) => p.address.toBase58()), mine.address.toBase58()]));
+    const asked = new Set(calls.filter(([m]) => m === 'getMultipleAccounts').flatMap(([, params]) => (params as [string[]])[0]));
+    for (const o of others) expect(asked.has(o.address.toBase58()), 'another token’s remembered pool is not read').toBe(false);
+  });
+
+  it('a remembered pool of another token whose vaults cannot be read is never listed for this one', async () => {
+    const mint = key();
+    const otherMint = key();
+    const broken = buildPool({ mint: otherMint, configIndex: 1, address: key(), solReserve: 10n ** 9n, tokenReserve: 10n });
+    rememberCreatedPool(broken.address.toBase58(), otherMint.toBase58());
+    // The pool and its config, but no vaults: its own token's search lists it as unread.
+    const accounts: Record<string, FakeAccount> = {
+      [CLOCK]: clockAccount(5n),
+      [broken.address.toBase58()]: broken.accounts[broken.address.toBase58()]!,
+      [broken.config.toBase58()]: broken.accounts[broken.config.toBase58()]!,
+    };
+    const own = await findPools(fakeRpc(accounts), otherMint, opts(fakeIndex({})));
+    expect(own.kind === 'ok' && own.search.pools.map((p) => p.kind)).toEqual(['unread']);
+    const r = await findPools(fakeRpc(accounts), mint, opts(fakeIndex({})));
+    expect(r.kind === 'ok' && r.search.pools).toEqual([]);
+  });
+});

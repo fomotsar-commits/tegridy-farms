@@ -57,7 +57,7 @@ import {
 import { initializeIx } from '../../../solana/cpswap/ix';
 import { ratePercent } from '../../../solana/cpswap/math';
 import type { RawAccount } from '../../../solana/lp/accounts';
-import { LOCKED_LP, U64_MAX, feeReserveFor, isqrt, planCreate, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
+import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, planCreate, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
 import { TOKEN_2022_NATIVE_MINT, assessOpening } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { PRICE_TOLERANCE, tokenReasons } from '../../../solana/lp/poolHealth';
@@ -102,10 +102,9 @@ export const CREATE_COPY = {
   priceUnread: (detail: string) =>
     `We could not get a market price from Jupiter just now (${detail}), so we did not build the opening. Try again in a moment.`,
   notBuilt: (reasons: string[]) => `We did not build this opening: ${reasons.join(' ')}`,
-  tooSmall:
-    'Too small: the pool program keeps 100 pool shares in every new pool forever, and this opening would not cover them. Put in more of either side.',
+  tooSmall: `Too small: the pool program keeps ${LOCKED_SHARES_TEXT} in every new pool forever, and this opening would not cover them. Put in more of either side.`,
   lockTooLarge: (pct: string) =>
-    `Too small to be worth it: the 100 pool shares the pool program keeps forever would be ${pct}% of this pool. Put in more, so that part is 0.1% or less.`,
+    `Too small to be worth it: the ${LOCKED_SHARES_TEXT} the pool program keeps forever would be ${pct}% of this pool. Put in more, so that part is 0.1% or less.`,
   rentBand: (most: string) =>
     `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and stay open on the network. The most you can put in from this wallet is ${most}.`,
   signerMismatch: "Internal check failed: the pool's signer does not match the review.",

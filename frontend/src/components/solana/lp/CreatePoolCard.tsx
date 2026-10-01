@@ -1,4 +1,4 @@
-import { useId, useRef } from 'react';
+import { useId, useRef, useState } from 'react';
 import { formatSol } from '../../../lib/launcher/solana/curve/format';
 import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import { isCreatedPool, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
@@ -41,6 +41,8 @@ export function CreatePoolCard(p: {
   outsideAt: number | null;
   /** Search the same token again (pools, token and price). */
   onReread: () => void;
+  /** The search on screen is the last answer, shown while the same token is read again. */
+  refreshing?: boolean;
 }) {
   const writes = useLpWrites();
   if (!writes) return null;
@@ -56,11 +58,14 @@ function CreateCard({
   outside,
   outsideAt,
   onReread,
+  refreshing = false,
   writes,
 }: Parameters<typeof CreatePoolCard>[0] & { writes: LpWrites }) {
   const headingId = useId();
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const facts = writes.createFacts;
+  // Anything this card judges is being read again: the search, or the create facts.
+  const reading = refreshing || writes.createFactsReading;
   const offer: CreateOffer = createOffer({
     mode: writes.mode,
     gate: writes.gate,
@@ -72,6 +77,20 @@ function CreateCard({
     healths,
     openedHere: isCreatedPool,
   });
+  const answer = answerKey(offer, facts, outside, search, healths);
+  // A pressed Read again: what the card said before, until the new answer is in.
+  const [asked, setAsked] = useState<string | null>(null);
+  const [said, setSaid] = useState<'same' | 'changed' | null>(null);
+  if (asked !== null && !reading) {
+    setAsked(null);
+    setSaid(asked === answer ? 'same' : 'changed');
+  }
+  const readAgain = (run: () => void) => () => {
+    if (reading) return;
+    setAsked(answer);
+    setSaid(null);
+    run();
+  };
   if (offer === 'off') return null;
 
   const key = `create:${mint}`;
@@ -93,12 +112,30 @@ function CreateCard({
       data-testid="lp-create"
       data-create={offer}
       aria-labelledby={headingId}
+      aria-busy={reading}
     >
       <h3 id={headingId} ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[13px] mb-2 outline-none" style={SHADOW}>
         Open a new pool
       </h3>
       <div className="text-white/70 text-[12px] leading-relaxed space-y-2">
-        <OfferLines offer={offer} facts={facts} safety={safety} outside={outside} search={search} healths={healths} writes={writes} onReread={onReread} />
+        {/* A changed answer is read out as it lands. */}
+        <div aria-live="polite" className="space-y-2">
+          <OfferLines
+            offer={offer}
+            facts={facts}
+            safety={safety}
+            outside={outside}
+            search={search}
+            healths={healths}
+            busy={reading}
+            onReread={readAgain(onReread)}
+            onRereadFacts={readAgain(writes.refreshCreateFacts)}
+          />
+        </div>
+        {/* What the last Read again found, so the same answer is not silence. */}
+        <p role="status" className="text-white/55 text-[11px]" data-testid="lp-create-reread">
+          {asked !== null ? 'Reading again…' : said === 'same' ? 'Read again just now: the same answer.' : said === 'changed' ? 'Read again just now: the answer above is new.' : ''}
+        </p>
         {offer === 'offer' && (
           <>
             <p className="text-white/60 text-[11px]">{MONEY_NOTE}</p>
@@ -126,6 +163,8 @@ function CreateCard({
             outsideAt={outsideAt}
             tier={tier}
             standard={standard}
+            offer={offer}
+            reading={reading}
             onClose={writes.close}
             onReread={onReread}
           />
@@ -150,9 +189,31 @@ function poolsUnreadDetail(search: PoolSearchRead, healths: ReadonlyMap<string, 
   return 'a pool could not be checked';
 }
 
-function ReadAgain({ onClick }: { onClick: () => void }) {
+/**
+ * What the card's answer rests on, as one string: the answer and every detail its line
+ * shows. Two reads that give the same string said the same thing.
+ */
+function answerKey(offer: CreateOffer, facts: CreateFacts | null, outside: OutsidePrice | null, search: PoolSearchRead, healths: ReadonlyMap<string, PoolHealth>): string {
+  return [
+    offer,
+    outside?.kind === 'unread' ? outside.detail : '',
+    facts?.tier.kind === 'unread' ? facts.tier.detail : '',
+    facts?.feeAccount.kind === 'unread' ? facts.feeAccount.detail : '',
+    offer === 'pools-unread' ? poolsUnreadDetail(search, healths) : '',
+  ].join('|');
+}
+
+/** Read again. While a read runs it stays focusable but does nothing (aria-disabled), so focus is not lost. */
+function ReadAgain({ onClick, busy = false }: { onClick: () => void; busy?: boolean }) {
   return (
-    <button type="button" className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px]" onClick={onClick}>
+    <button
+      type="button"
+      className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60"
+      aria-disabled={busy}
+      onClick={() => {
+        if (!busy) onClick();
+      }}
+    >
       Read again
     </button>
   );
@@ -165,8 +226,9 @@ function OfferLines({
   outside,
   search,
   healths,
-  writes,
+  busy,
   onReread,
+  onRereadFacts,
 }: {
   offer: CreateOffer;
   facts: CreateFacts | null;
@@ -174,8 +236,11 @@ function OfferLines({
   outside: OutsidePrice | null;
   search: PoolSearchRead;
   healths: ReadonlyMap<string, PoolHealth>;
-  writes: LpWrites;
+  busy: boolean;
+  /** Read the token, its pools and the price again. */
   onReread: () => void;
+  /** Read the public fee tier and the fee account again. */
+  onRereadFacts: () => void;
 }) {
   const tier = facts?.tier;
   switch (offer) {
@@ -228,7 +293,7 @@ function OfferLines({
             We could not read every pool for this token ({poolsUnreadDetail(search, healths)}), so we cannot tell whether one you could add to
             already exists. Opening a pool is off until we can.
           </p>
-          <ReadAgain onClick={onReread} />
+          <ReadAgain onClick={onReread} busy={busy} />
         </>
       );
     case 'no-route':
@@ -245,7 +310,7 @@ function OfferLines({
             We could not get this token&apos;s market price from Jupiter just now ({outside?.kind === 'unread' ? outside.detail : 'not read'}), so we
             cannot check an opening price. Opening a pool is off until we can.
           </p>
-          <ReadAgain onClick={onReread} />
+          <ReadAgain onClick={onReread} busy={busy} />
         </>
       );
     case 'token-refused': {
@@ -256,7 +321,7 @@ function OfferLines({
       return (
         <>
           <p>We could not read this token just now, so opening a pool is off until we can.</p>
-          <ReadAgain onClick={onReread} />
+          <ReadAgain onClick={onReread} busy={busy} />
         </>
       );
     case 'fee-account': {
@@ -276,7 +341,7 @@ function OfferLines({
             We could not read the account that receives the fee to open a pool ({facts?.feeAccount.kind === 'unread' ? facts.feeAccount.detail : 'not read'}),
             so opening a pool is off until we can.
           </p>
-          <ReadAgain onClick={writes.refreshCreateFacts} />
+          <ReadAgain onClick={onRereadFacts} busy={busy} />
         </>
       );
     case 'tier-fee-too-high':
@@ -303,7 +368,7 @@ function OfferLines({
       return (
         <>
           <p>We could not read the public fee tier just now ({tier?.kind === 'unread' ? tier.detail : 'not read'}), so opening a pool is off until we can.</p>
-          <ReadAgain onClick={writes.refreshCreateFacts} />
+          <ReadAgain onClick={onRereadFacts} busy={busy} />
         </>
       );
     case 'checking':

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clipDetail } from '../../../lib/launcher/solana/curve';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
-import { clearPendingTrade, readPendingTrades, savePendingTrade, type PendingTrade } from './pendingTrade';
+import { PENDING_TRADE_TTL_MS, clearPendingTrade, readPendingTrades, savePendingTrade, type PendingTrade } from './pendingTrade';
 import type { LpKind, PreparedTx, TxOutcome, TxSummary } from './ports';
 
 /**
@@ -61,7 +61,27 @@ export function usePendingTrades(
   check: CheckSignature | null,
   /** The chain answered for at least one note: read the launch again. */
   onResolved: () => void,
+  /**
+   * `live`: the notes this hook writes and clears are in `notes` at once, not only after
+   * a reload, and a note it wrote stays there while this tab lives even when
+   * sessionStorage throws. The liquidity section asks for it: its notes hold forms on
+   * EVERY card in the tab (another pool, another token), and the panel that sent one can
+   * be closed or left. The curve page does not: its own panel keeps showing the "sent"
+   * step, and a non-empty `notes` would hide that panel's form.
+   */
+  o: { live?: boolean } = {},
 ): PendingTradesState {
+  const live = o.live === true;
+  // Live only: the notes this tab wrote, so a blocked sessionStorage still holds here.
+  const written = useRef(new Map<string, PendingTrade>());
+  const current = useCallback((): PendingTrade[] => {
+    const stored = readPendingTrades(scope);
+    if (!live) return stored;
+    const now = Date.now();
+    const seen = new Set(stored.map((n) => n.signature));
+    const extra = [...written.current.values()].filter((n) => !seen.has(n.signature) && now - n.sentAt <= PENDING_TRADE_TTL_MS);
+    return [...stored, ...extra].sort((a, b) => b.sentAt - a.sentAt);
+  }, [scope, live]);
   const [notes, setNotes] = useState<PendingTrade[]>(() => readPendingTrades(scope));
   const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -74,8 +94,8 @@ export function usePendingTrades(
 
   const recheck = useCallback(async () => {
     if (!check || busy.current) return;
-    const current = readPendingTrades(scope);
-    if (current.length === 0) {
+    const toCheck = current();
+    if (toCheck.length === 0) {
       setNotes([]);
       return;
     }
@@ -83,7 +103,7 @@ export function usePendingTrades(
     setChecking(true);
     let resolved = false;
     let last: string | null = null;
-    for (const n of current) {
+    for (const n of toCheck) {
       let o: TxOutcome;
       try {
         o = await (isLpKind(n.kind)
@@ -95,6 +115,7 @@ export function usePendingTrades(
       }
       if (o.status === 'confirmed' || o.status === 'reverted' || o.status === 'expired') {
         clearPendingTrade(scope, n.signature);
+        written.current.delete(n.signature);
         resolved = true;
       } else if (o.status === 'unknown') {
         last = o.message;
@@ -103,9 +124,9 @@ export function usePendingTrades(
     busy.current = false;
     setChecking(false);
     setMessage(last);
-    setNotes(readPendingTrades(scope));
+    setNotes(current());
     if (resolved) resolvedRef.current();
-  }, [check, scope]);
+  }, [check, scope, current]);
 
   // Check on arrival, before any form this scope holds is shown.
   useEffect(() => {
@@ -117,18 +138,35 @@ export function usePendingTrades(
   const dismiss = useCallback(() => {
     if (busy.current) return;
     clearPendingTrade(scope);
+    written.current.clear();
     setNotes([]);
     setMessage(null);
   }, [scope]);
 
+  /** Live only: what this tab now holds, after a write or a clear of `signature`. */
+  const follow = useCallback(
+    (note: PendingTrade | null, cleared: string | null) => {
+      if (!live) return;
+      if (note) written.current.set(note.signature, note);
+      if (cleared) written.current.delete(cleared);
+      // The arrival check is for notes found on load; a note written here has its own
+      // panel's answer coming (or Check again on the card).
+      autoChecked.current = true;
+      setNotes(current());
+    },
+    [live, current],
+  );
+
   const sent = useCallback(
     (signature: string, prepared: PreparedTx) => {
       if (prepared.kind === 'create') return;
-      // Storage only: the panel that sent it keeps showing its own "sent" step. The
-      // note is what a reload, or a trip away and back, finds.
-      savePendingTrade(scope, { kind: prepared.kind, signature, lastValidBlockHeight: prepared.lastValidBlockHeight, pool: poolOf(prepared) });
+      // Storage: the note is what a reload, or a trip away and back, finds. Without
+      // `live`, storage only: the panel that sent it keeps showing its own "sent" step.
+      const note = { kind: prepared.kind, signature, lastValidBlockHeight: prepared.lastValidBlockHeight, pool: poolOf(prepared) };
+      savePendingTrade(scope, note);
+      follow({ ...note, sentAt: Date.now() }, null);
     },
-    [scope],
+    [scope, follow],
   );
 
   const record = useCallback(
@@ -139,13 +177,16 @@ export function usePendingTrades(
       const sig = ('signature' in outcome && outcome.signature) || sentSignature || '';
       if (!sig) return;
       if (outcome.status === 'unknown') {
-        savePendingTrade(scope, { kind: prepared.kind, signature: sig, lastValidBlockHeight: prepared.lastValidBlockHeight, pool: poolOf(prepared) });
+        const note = { kind: prepared.kind, signature: sig, lastValidBlockHeight: prepared.lastValidBlockHeight, pool: poolOf(prepared) };
+        savePendingTrade(scope, note);
+        follow({ ...note, sentAt: Date.now() }, null);
       } else {
         // Confirmed, refused or expired: the chain answered for this one.
         clearPendingTrade(scope, sig);
+        follow(null, sig);
       }
     },
-    [scope],
+    [scope, follow],
   );
 
   return { notes, checking, message, recheck: () => void recheck(), dismiss, record, sent };

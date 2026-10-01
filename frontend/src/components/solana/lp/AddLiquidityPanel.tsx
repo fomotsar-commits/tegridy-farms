@@ -16,7 +16,7 @@ import type { LpOpenGate, LpWriteApi } from '../curve/ports';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { LpBeforeYouAdd, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
-import { sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useWalletFacts } from './panelKit';
+import { sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { lpHeld } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -160,6 +160,8 @@ function AddInner({
         problemText = 'These amounts could not be worked out.';
     }
   }
+  // Read out once typing settles, never on every keystroke (its numbers change with each digit).
+  const alertText = useSettledAlert(problemText);
 
   // ── the preview ──
   const S = pool.lpSupply;
@@ -258,7 +260,7 @@ function AddInner({
           {/* Always there, so a new problem is read out the moment it appears. */}
           <div className="space-y-2">
             <p role="alert" className="text-rose-300/90">
-              {problemText}
+              {alertText}
             </p>
             {fix && (
               <button type="button" className="btn-secondary w-full min-h-[44px] text-[12px]" onClick={fix.run}>

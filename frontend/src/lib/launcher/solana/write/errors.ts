@@ -14,6 +14,7 @@ import type { LaunchQuoteErrorCode } from '../curve/math';
 import { CP_SWAP_ERROR_COPY, cpSwapErrorName } from '../../../solana/cpswap/errors';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../curve/program';
 import { isLpKind } from './lpKinds';
+import { LOCKED_SHARES_TEXT } from '../../../solana/lp/liquidityMath';
 import type { CurveWriteConfig, LpKind, TxKind } from './types';
 
 export type FailingProgram = 'launch' | 'cp-swap' | 'other';
@@ -118,8 +119,7 @@ export const CREATE_FAILURE_COPY = {
   addressInUse: 'Someone opened a pool at this address first. Nothing was opened. Start over: the site will use a new address.',
   emptySupply: 'One side of the opening was empty when it ran. Nothing was opened.',
   notSupportMint: 'The pool program does not take this kind of token. Nothing was opened.',
-  initLpAmountTooLess:
-    'Too small: the pool program keeps 100 pool shares in every new pool forever, and this opening would not cover them. Nothing was opened.',
+  initLpAmountTooLess: `Too small: the pool program keeps ${LOCKED_SHARES_TEXT} in every new pool forever, and this opening would not cover them. Nothing was opened.`,
   tokenOwner: LP_ATA_OWNER,
   accountMissing:
     'An account the pool program needs is missing or wrong (the public fee tier, or the account that receives the fee to open a pool), so no pool can be opened right now. Nothing was opened.',

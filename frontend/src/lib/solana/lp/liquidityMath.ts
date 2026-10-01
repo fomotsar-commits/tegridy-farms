@@ -205,6 +205,12 @@ export function planWithdraw(s: PoolSnapshot, a: { held: bigint; pctBps: bigint;
 
 /** The pool shares cp-swap keeps in every new pool forever (initialize.rs). */
 export const LOCKED_LP = 100n;
+/**
+ * The locked shares in words, as every share count on the site is written: in the share
+ * token's 9 decimals, then in its smallest unit. "100 pool shares" would read a billion
+ * times too large next to "You get". The page and the write layer both say it this way.
+ */
+export const LOCKED_SHARES_TEXT = `${(Number(LOCKED_LP) / 1e9).toFixed(9).replace(/0+$/, '')} pool shares (${LOCKED_LP.toString()} of the smallest unit)`;
 /** The locked 100 may be at most this many basis points of the pool: 0.1%. */
 export const MAX_LOCK_BPS = 10n;
 

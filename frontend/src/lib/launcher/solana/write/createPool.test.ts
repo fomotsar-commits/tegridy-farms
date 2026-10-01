@@ -584,3 +584,17 @@ describe('size', () => {
     expect(p.sizeBytes).toBeLessThanOrEqual(TX_SIZE_LIMIT - 150);
   });
 });
+
+// B review person-2: the refusals say the locked part the way the panel's disclosure and
+// review say it, in 9 decimals. "100 pool shares" reads a billion times too large.
+describe('the locked part, in the refusals', () => {
+  it('too small, lock too large and the program’s own 6009 say "0.0000001 pool shares (100 of the smallest unit)", never "100 pool shares"', async () => {
+    const { CREATE_FAILURE_COPY } = await import('./errors');
+    const { LOCKED_SHARES_TEXT } = await import('../../../solana/lp/liquidityMath');
+    expect(LOCKED_SHARES_TEXT).toBe('0.0000001 pool shares (100 of the smallest unit)');
+    for (const text of [CREATE_COPY.tooSmall, CREATE_COPY.lockTooLarge('0.2'), CREATE_FAILURE_COPY.initLpAmountTooLess]) {
+      expect(text).toContain(LOCKED_SHARES_TEXT);
+      expect(text).not.toMatch(/(^|[^.\d])100 pool shares/);
+    }
+  });
+});

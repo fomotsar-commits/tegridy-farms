@@ -228,6 +228,8 @@ describe('the panel', () => {
     fireEvent.change(tokens(panel), { target: { value: '100' } });
     expect(within(panel).getByTestId('lp-create-price')).toHaveAttribute('data-price', 'disagrees');
     const alert = within(panel).getByRole('alert');
+    // The line is read out once typing settles (B review person-4).
+    await waitFor(() => expect(alert).not.toHaveTextContent(''));
     expect(alert).toHaveTextContent(/^Your opening price is 50\.0% above the market price\. Bots would trade against your pool as soon as it opens, taking about 0\.05\d* SOL of what you put in\. Pools opened from this site must start within 3% of the market\.$/);
     expect(reviewButton(panel)).toBeDisabled();
     // The line's own Match keeps the token box (typed last).
@@ -245,14 +247,22 @@ describe('the panel', () => {
     // 100 lamports and 10 token units, at the market: isqrt(1,000) = 31, at or below 100.
     fireEvent.change(sol(panel), { target: { value: '0.0000001' } });
     fireEvent.change(tokens(panel), { target: { value: '0.00001' } });
-    expect(within(panel).getByRole('alert')).toHaveTextContent(
-      'Too small: the pool program keeps 100 pool shares in every new pool forever, and this opening would not cover them. Put in more of either side.',
+    // The locked part is said in 9 decimals, as everywhere on this page (B review person-2).
+    await waitFor(() =>
+      expect(within(panel).getByRole('alert')).toHaveTextContent(
+        'Too small: the pool program keeps 0.0000001 pool shares (100 of the smallest unit) in every new pool forever, and this opening would not cover them. Put in more of either side.',
+      ),
     );
     expect(reviewButton(panel)).toBeDisabled();
     // 10,000 lamports and 1,000 units: isqrt(1e7) = 3,162, so the locked 100 are 3.16%.
     fireEvent.change(sol(panel), { target: { value: '0.00001' } });
     fireEvent.change(tokens(panel), { target: { value: '0.001' } });
-    expect(within(panel).getByRole('alert')).toHaveTextContent('the 100 pool shares the pool program keeps forever would be 3.16% of this pool.');
+    await waitFor(() =>
+      expect(within(panel).getByRole('alert')).toHaveTextContent(
+        'the 0.0000001 pool shares (100 of the smallest unit) the pool program keeps forever would be 3.16% of this pool.',
+      ),
+    );
+    expect(panel).not.toHaveTextContent(/(^|[^.\d])100 pool shares/);
     expect(reviewButton(panel)).toBeDisabled();
   });
 
@@ -271,6 +281,7 @@ describe('the panel', () => {
     await within(panel).findByRole('button', { name: 'Max SOL' });
     fireEvent.change(sol(panel), { target: { value: '4.9' } });
     fireEvent.click(matchButton(panel));
+    await waitFor(() => expect(within(panel).getByRole('alert')).not.toHaveTextContent(''));
     expect(within(panel).getByRole('alert')).toHaveTextContent(
       'That would leave your wallet with too little SOL to pay the fee to open, the account deposits and stay open on the network. The most you can put in from this wallet is 4.80491144 SOL.',
     );
@@ -285,7 +296,7 @@ describe('the panel', () => {
     await within(panel).findByRole('button', { name: 'Max SOL' });
     fireEvent.change(sol(panel), { target: { value: '1' } });
     fireEvent.click(matchButton(panel));
-    expect(within(panel).getByRole('alert')).toHaveTextContent('You have 10 tokens; this needs 100 tokens.');
+    await waitFor(() => expect(within(panel).getByRole('alert')).toHaveTextContent('You have 10 tokens; this needs 100 tokens.'));
     expect(reviewButton(panel)).toBeDisabled();
     fireEvent.click(within(within(panel).getByRole('alert').parentElement!).getByRole('button', { name: 'Use the most both balances allow' }));
     expect(sol(panel)).toHaveValue('0.1');
@@ -300,6 +311,42 @@ describe('the panel', () => {
     expect(within(panel).queryByRole('button', { name: 'Max SOL' })).toBeNull();
     expect(within(panel).queryByRole('button', { name: 'Max tokens' })).toBeNull();
     expect(within(panel).queryByRole('button', { name: 'Use the most both balances allow' })).toBeNull();
+  });
+
+  // B review person-4: the problems line's numbers change with every digit; a screen
+  // reader hears it once typing settles, not on each keystroke.
+  it('the problems line is read out once typing settles, not on every digit', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    const alert = within(panel).getByRole('alert');
+    fireEvent.change(tokens(panel), { target: { value: '100' } });
+    fireEvent.change(sol(panel), { target: { value: '1.5' } });
+    expect(within(panel).getByTestId('lp-create-price')).toHaveAttribute('data-price', 'disagrees');
+    // Not yet: the person is still typing.
+    expect(alert).toHaveTextContent('');
+    fireEvent.change(sol(panel), { target: { value: '1.52' } });
+    expect(alert).toHaveTextContent('');
+    await waitFor(() => expect(alert).toHaveTextContent(/^Your opening price is 52\.0% above the market price\./));
+    // A fixed problem goes at once.
+    fireEvent.change(sol(panel), { target: { value: '1' } });
+    expect(alert).toHaveTextContent('');
+  });
+
+  // B review person-3: the market price's Read again says it is reading, and what it found.
+  it("the market price's Read again says it is reading, then that the answer is the same", async () => {
+    const r = readers();
+    mount(r);
+    const { panel } = await openPanel();
+    const market = within(panel).getByTestId('lp-create-market');
+    let release!: () => void;
+    (r.outsidePrice as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => new Promise((res) => (release = () => res({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const }))),
+    );
+    fireEvent.click(within(market).getByRole('button', { name: 'Read again' }));
+    await waitFor(() => expect(within(market).getByRole('status')).toHaveTextContent('Reading the market price again…'));
+    expect(within(market).getByRole('button', { name: 'Read again' })).toHaveAttribute('aria-disabled', 'true');
+    await act(async () => release());
+    await waitFor(() => expect(within(market).getByRole('status')).toHaveTextContent('Read again just now: the same answer.'));
   });
 
   it('the market price row says when Jupiter was read', async () => {
