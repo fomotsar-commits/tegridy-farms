@@ -5,6 +5,9 @@ import { BUNGALOWS, DEFAULT_BUNGALOW_ID, TOWELI_HERO, type Bungalow } from './bu
 import { pageArt } from './artConfig';
 import { derivedUrl, naturalWidthOf, widthsFor } from './artSrcSet';
 import { DOORS, transform } from '../../scripts/render-bungalow-doors.mjs';
+import { pageHashes, pinnedHashes } from '../../scripts/lib/csp-hashes.mjs';
+import { expectedHashes } from '../../scripts/csp-hash.mjs';
+import { SITE_URL } from './constants';
 
 // scripts/render-bungalow-doors.mjs is deliberately self-contained (it runs
 // under Vercel's Node with no TS loader), which means its DOORS manifest can
@@ -126,6 +129,14 @@ describe("a door's first frame is the hero its own page renders", () => {
 const shell = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8');
 const spoken = (el: Element | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 const parse = (html: string) => new DOMParser().parseFromString(html, 'text/html');
+const EM_DASH = String.fromCharCode(0x2014);
+const CHAIN_WORD = { ethereum: 'Ethereum', base: 'Base', solana: 'Solana' } as const;
+/** Every name a JSON-LD node or any node inside it gives itself. */
+const namesIn = (v: unknown): string[] =>
+  Array.isArray(v) ? v.flatMap(namesIn)
+  : v && typeof v === 'object'
+    ? Object.entries(v).flatMap(([k, x]) => (typeof x === 'string' ? (/^(name|alternateName|headline)$/.test(k) ? [x] : []) : namesIn(x)))
+    : [];
 
 describe('transform writes the door its own first frame', () => {
   for (const door of DOORS) {
@@ -155,6 +166,41 @@ describe('transform writes the door its own first frame', () => {
       expect(inline).toEqual(['application/ld+json']);
     });
 
+    // Answer fifteen, item 8: "the door link previews and the structured data naming
+    // MEMETICS.FINANCE." What an unfurler reads is the head, before any script runs.
+    it(`${door.path}: its link preview reads the door's own words, without an em dash`, () => {
+      const doc = parse(transform(shell, door));
+      const content = (sel: string) => doc.querySelector(sel)?.getAttribute('content');
+      expect(['meta[name="description"]', 'meta[property="og:description"]', 'meta[name="twitter:description"]'].map(content))
+        .toEqual([door.description, door.description, door.description]);
+      expect(['meta[property="og:image:alt"]', 'meta[name="twitter:image:alt"]'].map(content)).toEqual([door.imageAlt, door.imageAlt]);
+      const read = [doc.title, ...Array.from(doc.querySelectorAll('meta[content]'), (m) => m.getAttribute('content')!)];
+      expect(read.filter((v) => v.includes(EM_DASH))).toEqual([]);
+    });
+
+    it(`${door.path}: its structured data is about the room, and never names MEMETICS.FINANCE`, () => {
+      const doc = parse(transform(shell, door));
+      const blocks = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'), (s) => JSON.parse(s.textContent ?? ''));
+      expect(blocks).toHaveLength(1);
+      const ld = blocks[0];
+      // The page is the subject: a WebPage named and described as the door, at its own address.
+      expect(ld).toMatchObject({ '@context': 'https://schema.org', '@type': 'WebPage', name: door.title, description: door.description });
+      expect(ld.url).toBe(doc.querySelector('link[rel="canonical"]')?.getAttribute('href'));
+      expect(ld.url).toBe(`${SITE_URL}/${door.path}`);
+      // The venue is only the site the page belongs to, the WebApplication index.html
+      // declares, pointed at by its address.
+      expect(ld.isPartOf).toEqual({ '@type': 'WebApplication', url: SITE_URL });
+      expect(namesIn(ld).filter((n) => /memetics\.finance/i.test(n))).toEqual([]);
+      expect(JSON.stringify(ld)).not.toContain(EM_DASH);
+    });
+
+    it(`${door.path}: its preview names its room's own chain, and no other`, () => {
+      const room = BUNGALOWS.find((b) => b.id === door.path)!;
+      const words = `${door.description} ${door.imageAlt}`;
+      const said = Object.values(CHAIN_WORD).filter((w) => new RegExp(`\\b${w}\\b`).test(words));
+      expect(said).toEqual([CHAIN_WORD[room.chain as keyof typeof CHAIN_WORD]]);
+    });
+
     it(`${door.path}: asks for its art the way ArtImg does, eagerly, so it is fetched once`, () => {
       const img = parse(transform(shell, door)).querySelector('#first-frame img')!;
       const src = door.heroArt;
@@ -182,16 +228,23 @@ describe('transform writes the door its own first frame', () => {
     const hostile: Door = {
       ...DOORS[0]!,
       title: 'A "quoted" <b>title</b> & $& $1',
+      description: '</script><script>alert(2)</script><!-- & "q" $&',
       heroTitle: '<script>alert(1)</script>',
       heroLine: '"&amp; $\' $`',
       heroPosition: '1% 2%" onload="x',
     };
     const out = transform(shell, hostile);
     expect(out).not.toContain('<script>alert(1)</script>');
+    expect(out).not.toContain('<script>alert(2)</script>');
     expect(out).not.toContain('onload="x');
     const doc = parse(out);
     expect(doc.title).toBe(hostile.title);
     expect(spoken(doc.querySelector('#first-frame h1'))).toBe(`${hostile.heroTitle} ${hostile.heroLine}`);
+    // The JSON-LD is a script's text, where HTML escapes mean nothing: it must hold the
+    // field as written and still never close its own element.
+    const ld = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'), (s) => JSON.parse(s.textContent ?? ''));
+    expect(ld.map((x) => [x.name, x.description])).toEqual([[hostile.title, hostile.description]]);
+    expect(doc.querySelectorAll('script:not([src])')).toHaveLength(1);
   });
 
   it('dies unless the shell carries exactly one first frame', () => {
@@ -207,5 +260,39 @@ describe('transform writes the door its own first frame', () => {
     expect(() => transform(withVenueHeading, DOORS[0]!)).toThrow(/names MEMETICS\.FINANCE/);
     const withSecondH1 = shell.replace(body, `${body}<h1>Another heading</h1>`);
     expect(() => transform(withSecondH1, DOORS[0]!)).toThrow(/h1 outside the first frame/);
+  });
+
+  it("dies unless the shell carries exactly one JSON-LD block to replace", () => {
+    const block = shell.match(/<script type="application\/ld\+json">[\s\S]*?<\/script>/)![0];
+    expect(() => transform(shell.replace(block, ''), DOORS[0]!)).toThrow(/JSON-LD/);
+    expect(() => transform(shell.replace(block, block + block), DOORS[0]!)).toThrow(/JSON-LD/);
+  });
+});
+
+// Each door page carries its own JSON-LD, so its own inline-script hash. vercel.json's CSP
+// pins every one, computed by scripts/csp-hash.mjs --write and never typed by hand.
+describe("vercel.json's CSP pins what every door page serves", () => {
+  const vercelJson = readFileSync(resolve(process.cwd(), 'vercel.json'), 'utf8');
+  const pinned = pinnedHashes(vercelJson);
+  const fix = 'run `node scripts/csp-hash.mjs --write` and commit vercel.json';
+
+  it('pins every inline script each door page carries', () => {
+    for (const door of DOORS) {
+      const hashes = pageHashes(transform(shell, door));
+      expect(hashes, `${door.path}: one inline script, its JSON-LD`).toHaveLength(1);
+      for (const h of hashes) expect(pinned, `${door.path}: vercel.json does not pin ${h}; ${fix}`).toContain(h);
+    }
+  });
+
+  it('pins nothing that no page carries, each once', () => {
+    const served = new Set([shell, ...DOORS.map((d: Door) => transform(shell, d))].flatMap(pageHashes));
+    expect(pinned.filter((h) => !served.has(h)), `stale pins; ${fix}`).toEqual([]);
+    expect(new Set(pinned).size, 'a hash pinned twice').toBe(pinned.length);
+  });
+
+  it('is what csp-hash.mjs --write would pin: the venue page, then each door', () => {
+    const want = [...new Set([shell, ...DOORS.map((d: Door) => transform(shell, d))].flatMap(pageHashes))];
+    expect(expectedHashes(shell)).toEqual(want);
+    expect(pinned, fix).toEqual(want);
   });
 });

@@ -1,6 +1,6 @@
 // Writes dist/<door>/index.html for each Jungle Bay bungalow, after `vite build`.
 // Vercel serves that file at /<door> before the SPA rewrite, so a door carries its own
-// <head> (unfurl tags) and its own first frame: the heading and art its React hero
+// <head> (unfurl tags, structured data) and its own first frame: the heading and art its React hero
 // renders, so a crawler reads the door and a visitor sees no swap when React takes over.
 // FAIL-LOUD: every transform matches exactly once or the build dies. DOORS is plain JS
 // (no TS loader here); src/lib/bungalowDoors.test.ts pins it to the registry and pageArt.
@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { derivedUrl, widthsForEntry } from './derivative-url.mjs';
+import { pageHashes, pinnedHashes } from './lib/csp-hashes.mjs';
 
 const SITE = 'https://memetics.finance'; // canonical origin, per index.html's own tags
 const DIST = resolve(process.cwd(), 'dist');
@@ -19,12 +20,14 @@ const MANIFEST_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'sr
 // KEPT AS LITERAL OBJECTS on purpose: bungalowDoors.test.ts pins this file
 // with line-shape regexes (path:/image: lines) — a factory would defeat the
 // lock-step and let the registry and this manifest drift silently.
+// A link preview is the room's voice, so it reads without an em dash (answer fifteen,
+// item 8), and names the room's own chain: bungalowDoors.test.ts pins both.
 const settledDesc = (name, chain) =>
-  `${name} has a settled bungalow on Jungle Bay Island — contract, trade route ` +
-  `and held-time heat live today on ${chain}. The full art skin opens with the ` +
-  `community's drop. Dank Memes + Time = Memetic Finance.`;
+  `${name} has a settled bungalow on Jungle Bay Island, living on ${chain}. Its ` +
+  `contract, trade route and held-time heat are live today. The full art skin opens ` +
+  `with the community's drop. Dank Memes + Time = Memetic Finance.`;
 const settledAlt = (name) =>
-  `${name}'s bungalow door on Jungle Bay Island — classic island art until the community's drop`;
+  `${name}'s bungalow door on Jungle Bay Island, in classic island art until the community's drop`;
 // The first frame: BungalowHero's H1 (heroTitle, heroLine) over pageArt('home', 0).
 const SETTLED_LINE = 'Settled on Jungle Bay Island.';
 
@@ -33,14 +36,14 @@ export const DOORS = [
     path: 'bayla',
     title: 'BAYLA | The muse of Jungle Bay Island',
     description:
-      'Bayla is the muse of Jungle Bay Island — brought to light by the Jungle Bay ' +
+      'Bayla is the muse of Jungle Bay Island, brought to light by the Jungle Bay ' +
       'Artists Collective, living on Solana. Trade her, hold her for heat, and stake ' +
-      'at the lighthouse — the pool is live on-chain. Dank Memes + Time = Memetic Finance.',
+      'at the lighthouse: the pool is live on-chain. Dank Memes + Time = Memetic Finance.',
     image: '/art/bayla/bayla-23.jpg',
     imageType: 'image/jpeg',
     imageWidth: '2048',
     imageHeight: '1152',
-    imageAlt: 'BAYLA / SOL on Jungle Bay Island — the muse of the island, on Solana',
+    imageAlt: 'BAYLA / SOL on Jungle Bay Island: the muse of the island, on Solana',
     heroTitle: 'BAYLA.',
     heroLine: 'The muse was always here.',
     heroArt: '/art/bayla/bayla-05.jpg',
@@ -168,7 +171,7 @@ export const DOORS = [
   {
     path: 'rizz',
     title: 'RIZZ | Jungle Bay Island',
-    description: settledDesc('RIZZ', 'Base'),
+    description: settledDesc('RIZZ', 'Solana'),
     image: '/art/jungle-dark.jpg',
     imageType: 'image/jpeg',
     imageWidth: '238',
@@ -211,6 +214,22 @@ export function srcsetFor(src, manifest) {
   const widths = entry === undefined ? [] : widthsForEntry(entry);
   if (!natural || widths.length === 0) return undefined;
   return [...widths.map((w) => `${derivedUrl(src, w)} ${w}w`), `${src} ${natural}w`].join(', ');
+}
+
+/** The door's structured data (answer fifteen, item 8: it named MEMETICS.FINANCE). The
+ *  page is its own subject: a WebPage named and described as the door, at its own address.
+ *  The venue stays only as the site the page is part of, the WebApplication index.html
+ *  declares, pointed at by its address rather than its name. Every `<` is written as a
+ *  JSON unicode escape, so no field can close the script element it sits in. */
+export function doorJsonLd(door) {
+  return JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: door.title,
+    description: door.description,
+    url: `${SITE}/${door.path}`,
+    isPartOf: { '@type': 'WebApplication', url: SITE },
+  }).replace(/</g, '\\u003c');
 }
 
 /** The heading's markup: BungalowHero's H1, a real space before the break. */
@@ -287,6 +306,10 @@ export function transform(html, door, manifest = JSON.parse(readFileSync(MANIFES
   swap('twitter:image" ', /<meta name="twitter:image" content="[^"]*" \/>/, `<meta name="twitter:image" content="${abs(door.image)}" />`);
   swap('twitter:image:alt', /<meta name="twitter:image:alt" content="[^"]*" \/>/, `<meta name="twitter:image:alt" content="${alt}" />`);
   swap('twitter:url', /<meta name="twitter:url" content="[^"]*" \/>/, `<meta name="twitter:url" content="${url}" />`);
+  // The venue's structured data out, the door's in. Its CSP hash is the door's own:
+  // scripts/csp-hash.mjs --write pins it in vercel.json, and the build checks it below.
+  swap('JSON-LD', /<script type="application\/ld\+json">[\s\S]*?<\/script>/,
+    `<script type="application/ld+json">${doorJsonLd(door)}</script>`);
   // The venue's frame out, the door's in. The attribute means "a static frame is on
   // screen": index.html's CSS shows it, theme-init keeps it, and the first route skips
   // its fade-in. The no-script heading becomes a paragraph, so the door's is the only h1.
@@ -313,6 +336,17 @@ if (launched) {
   }
   const shell = readFileSync(shellPath, 'utf8');
   const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'));
+  // The CSP pins every inline script by hash, and vercel.json is what Vercel serves it
+  // from. Check the pages this build wrote, not the source: they are what a browser hashes.
+  const pinned = new Set(pinnedHashes(readFileSync(resolve(process.cwd(), 'vercel.json'), 'utf8')));
+  const checkPinned = (route, page) => {
+    for (const hash of pageHashes(page)) {
+      if (!pinned.has(hash)) {
+        throw new Error(`[bungalow-doors] ${route}: vercel.json's CSP does not pin its inline script ${hash}. Run \`node scripts/csp-hash.mjs --write\` and commit vercel.json.`);
+      }
+    }
+  };
+  checkPinned('/', shell);
 
   for (const door of DOORS) {
     for (const file of [door.image, door.heroArt]) {
@@ -329,6 +363,7 @@ if (launched) {
       }
     }
     const page = transform(shell, door, manifest);
+    checkPinned(`/${door.path}`, page);
     for (const path of [door.path, ...(door.aliases ?? [])]) {
       const dir = resolve(DIST, path);
       mkdirSync(dir, { recursive: true });
