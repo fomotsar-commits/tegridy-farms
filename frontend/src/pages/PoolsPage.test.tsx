@@ -136,6 +136,18 @@ describe('when the venue is live', () => {
     expect(screen.getByText('0.3 SOL')).toBeInTheDocument();
     expect(screen.getByText(/read from the chain on load/i)).toBeInTheDocument();
   });
+
+  // The page also offers "Open a pool" on the public tier, which charges its own fee. This card
+  // reads the graduation tier only, so it must say which tier it is, or its "Open a pool" figure
+  // reads as the price of opening a pool here.
+  it('names the tier it reads, and says pools opened here use the public tier', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
+    expect(sheet).toHaveTextContent(/tier 0, graduated launch pools/);
+    expect(sheet).toHaveTextContent(/fee on tier 0/);
+    expect(sheet).toHaveTextContent(/Pools opened from this site use the public fee tier/);
+  });
 });
 
 describe('when the chain cannot be read', () => {

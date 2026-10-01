@@ -126,7 +126,9 @@ export default function PoolsPage() {
         <section className="rounded-2xl p-6 mt-6" style={CARD} aria-label="Fee sheet">
           <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
             <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
-              {liveConfig ? 'Fees · read from the chain' : 'Fees · proposed, not yet on chain'}
+              {liveConfig
+                ? `Fees · tier ${liveConfig.index}, graduated launch pools · read from the chain`
+                : 'Fees · proposed, not yet on chain'}
             </p>
             {!liveConfig && (
               <span className="text-[10px] px-2 py-0.5 rounded-full"
@@ -146,16 +148,18 @@ export default function PoolsPage() {
             <Stat
               label="Open a pool"
               value={`${solOf(liveConfig?.createPoolFee ?? RECOMMENDED_AMM_CONFIG.createPoolFee)} SOL`}
-              sub="fee; account deposits extra"
+              sub={liveConfig ? `fee on tier ${liveConfig.index}; account deposits extra` : 'fee; account deposits extra'}
             />
           </div>
 
           <p className="text-white/70 text-[13px] leading-relaxed">
             {liveConfig ? (
               <>
-                These are the live <code className="font-mono text-white/85">AmmConfig</code> rates,
-                read from the chain on load — not a copy in this page. Retuning them on
-                chain changes this card without a deploy.
+                These are the live <code className="font-mono text-white/85">AmmConfig</code> rates
+                of fee tier {liveConfig.index}, where launches graduate, read from the chain on
+                load — not a copy in this page. Retuning them on chain changes this card without a
+                deploy. Pools opened from this site use the public fee tier instead; the fee tiers
+                in the pools section below are read live for both.
               </>
             ) : (
               <>
