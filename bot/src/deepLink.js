@@ -31,6 +31,8 @@ export const PARAM_READERS = Object.freeze({
   "/swap": ["tab"],
   "/terminal": [],
   "/dashboard": [],
+  // Earn's list of every pool (/farm until 2026-09-30, which still redirects).
+  "/earn": [],
   "/farm": [],
 });
 

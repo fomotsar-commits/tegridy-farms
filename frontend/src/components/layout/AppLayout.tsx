@@ -49,13 +49,15 @@ import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 
 const NAV_ORDER = [
-  '/', '/dashboard', '/farm', '/swap', '/nft-finance', '/gallery', '/tokenomics',
+  '/', '/dashboard', '/earn', '/swap', '/nft-finance', '/gallery', '/tokenomics',
   '/lore', '/leaderboard', '/community', '/premium', '/history', '/admin',
 ];
 
 function getGlitchConfig(from: string, to: string): GlitchConfig {
-  const fromIdx = NAV_ORDER.indexOf(from);
-  const toIdx = NAV_ORDER.indexOf(to);
+  // By first segment, so one pool (/earn/bayla) sits where Earn does.
+  const section = (path: string) => '/' + (path.split('/')[1] ?? '');
+  const fromIdx = NAV_ORDER.indexOf(section(from));
+  const toIdx = NAV_ORDER.indexOf(section(to));
   const direction: GlitchConfig['direction'] = toIdx > fromIdx ? 'forward' : 'backward';
   const mobile = typeof window !== 'undefined' && window.innerWidth < 768;
   if (from === '/' || to === '/') {

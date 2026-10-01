@@ -38,7 +38,8 @@ import type SignClientClass from '@walletconnect/sign-client';
  *  - Chain ids, the method name, the connect proposal, the method check and
  *    the icon: @walletconnect/solana-adapter@0.0.9 (Apache-2.0) src/constants.ts,
  *    src/utils.ts getConnectParams(), src/core.ts checkIfWalletSupportsMethod,
- *    src/adapter.ts.
+ *    src/adapter.ts. The proposal's methods and events since 2026-09-30:
+ *    PROPOSED_METHODS, which names its sources.
  *  - The request's parameters: the WalletConnect Solana RPC spec
  *    (docs.walletconnect.com/wallets/chains/solana.md, solana_signTransaction):
  *    `transaction`, plus the deprecated legacy fields in the spec's own shapes.
@@ -125,7 +126,7 @@ import type SignClientClass from '@walletconnect/sign-client';
  *     read "the wallet's signature doesn't match this transaction" on every
  *     write until a reload.
  *  9. Every card hears a session end or an account switch.
- *     /farm?bungalow=bayla mounts two SolanaProviders, so two adapters hold
+ *     /earn/bayla mounts two SolanaProviders, so two adapters hold
  *     ONE session on the one client. sign-client's own disconnect() emits
  *     nothing locally (deleteSession with emitEvent:false), so a Disconnect
  *     in one card, the wallet ending it, and the wallet's session_update are
@@ -148,6 +149,28 @@ export const WalletConnectWalletName = 'WalletConnect' as WalletName<'WalletConn
 const MAINNET = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
 const DEPRECATED_MAINNET = 'solana:4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ';
 const SIGN_TRANSACTION = 'solana_signTransaction';
+
+/**
+ * What the QR asks a wallet for: the six methods of the WalletConnect Solana
+ * RPC reference (docs.walletconnect.com/wallets/chains/solana) and the two
+ * events WalletConnect's own AppKit proposes for every namespace. This site
+ * only ever SENDS solana_signTransaction; the rest are asked for so the
+ * proposal is the one wallets are built and tested against. Trust's own
+ * connect SDK (trustwallet/trust-connect-sdk, namespaces/solana) and Jupiter
+ * Mobile's (@jup-ag/jup-mobile-adapter, on AppKit) both propose these six.
+ * Until 2026-09-30 this asked for solana_signTransaction alone, a shape no
+ * reference wallet flow uses; whether Trust or Jupiter accepted it was never
+ * observed.
+ */
+const PROPOSED_METHODS = [
+  'solana_getAccounts',
+  'solana_requestAccounts',
+  'solana_signMessage',
+  SIGN_TRANSACTION,
+  'solana_signAllTransactions',
+  'solana_signAndSendTransaction',
+];
+const PROPOSED_EVENTS = ['accountsChanged', 'chainChanged'];
 
 /**
  * Keys this client's storage apart from RainbowKit's two EVM clients. FIXED
@@ -222,7 +245,8 @@ export const PAIRING_REASONS = {
   declined: 'Your wallet declined the connection. Nothing was shared.',
   unsupported: "That wallet can't connect to Solana this way. Pick another wallet.",
   expired: 'The QR code expired. Tap WalletConnect for a new one.',
-  noSolana: "That wallet didn't share a Solana address. Pick a wallet that supports Solana.",
+  noSolana:
+    "That wallet didn't share a Solana address. An account imported from an Ethereum private key has none. Pick a wallet with a Solana address.",
   startFailed: "WalletConnect didn't start. Check your connection, or pick another wallet.",
 } as const;
 
@@ -569,11 +593,11 @@ export class WalletConnectWalletAdapter extends BaseSignerWalletAdapter {
         return;
       }
 
-      // @walletconnect/solana-adapter@0.0.9 utils.ts getConnectParams(Mainnet),
-      // minus solana_signMessage: nothing on this site signs a Solana message.
+      // The chains of @walletconnect/solana-adapter@0.0.9 utils.ts
+      // getConnectParams(Mainnet); methods and events: PROPOSED_METHODS.
       const proposing = client.connect({
         optionalNamespaces: {
-          solana: { chains: [MAINNET, DEPRECATED_MAINNET], methods: [SIGN_TRANSACTION], events: [] },
+          solana: { chains: [MAINNET, DEPRECATED_MAINNET], methods: PROPOSED_METHODS, events: PROPOSED_EVENTS },
         },
       });
       const { uri, approval } = await Promise.race([

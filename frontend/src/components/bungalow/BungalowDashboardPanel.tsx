@@ -55,7 +55,7 @@ import { BungalowHolders } from './BungalowHolders';
  * (or deny one that is).
  *
  * A members-only pool (stakePoolMembersOnly) is shown only to a wallet with an open
- * position in it, as on /farm; everyone else gets a card pointing at the lock ladder.
+ * position in it, as on its pool page (/earn/<id>); everyone else gets a card pointing at the lock ladder.
  * A failed stakes or pool read is an outage line with Try again on every pool, never
  * "not a member", "Reading…" forever, or a silently missing rate.
  *
@@ -121,7 +121,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
   // pool is also configured, every "nothing staked" sentence below becomes a claim
   // about a program this panel never looked at — and telling someone with a live
   // ladder position that they have nothing staked is the worst answer this surface
-  // can give. It does not read the ladder (that is /farm's card, which owns the
+  // can give. It does not read the ladder (that is its pool page's card, which owns the
   // ladder client); it stops speaking for it.
   const ladderPool = bungalow.ladderPool;
   const membersOnly = stakePoolMembersOnly(bungalow);
@@ -283,7 +283,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
           principal is untouched and comes back at unlock.
         </p>
       )}
-      <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px] inline-block">Manage position</Link>
+      <Link to={`/earn/${bungalow.id}`} className="btn-secondary px-4 py-2 text-[12px] inline-block">Manage position</Link>
     </>
   );
 
@@ -324,7 +324,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                     {membersOnly ? 'Your balance and your heat' : 'Your balance, your lighthouse position and your heat'}, read
                     straight off the chain. Connecting signs nothing and moves nothing: every deposit is
                     a separate signature you make on the {' '}
-                    <Link to="/farm" className="underline underline-offset-2 hover:text-white">pool page</Link>.
+                    <Link to={`/earn/${bungalow.id}`} className="underline underline-offset-2 hover:text-white">pool page</Link>.
                   </p>
                   <button type="button" onClick={openConnect} className="btn-primary px-5 py-2.5 text-[13px] mt-auto self-start">
                     Connect Solana Wallet
@@ -372,7 +372,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                     {ladderPool ? ' There is a lock-ladder pool too; the pool page covers both.' : ''}
                   </p>
                   <PoolFacts facts={poolFacts} failed={poolReadFailed} onRetry={retryReads} symbol={bungalow.symbol} />
-                  <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px] inline-block">See the pool</Link>
+                  <Link to={`/earn/${bungalow.id}`} className="btn-secondary px-4 py-2 text-[12px] inline-block">See the pool</Link>
                 </>
               ) : stakeLoading ? (
                 <p className="text-white/70 text-[13px]">Reading your position…</p>
@@ -405,7 +405,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                     )}
                   </p>
                   <PoolFacts facts={poolFacts} failed={poolReadFailed} onRetry={retryReads} symbol={bungalow.symbol} />
-                  <Link to="/farm" className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
+                  <Link to={`/earn/${bungalow.id}`} className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
                 </>
               ) : (
                 position
@@ -433,7 +433,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                 {bungalow.symbol} staking runs on the venue&rsquo;s own lock ladder. Its terms, and
                 any position you hold there, are read live on the pool page.
               </p>
-              <Link to="/farm" className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
+              <Link to={`/earn/${bungalow.id}`} className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
               {stakeReadFailed && (
                 <p role="status" className="text-[12px] mt-3 mb-0" style={{ color: '#f0b26b' }}>
                   Your {bungalow.symbol} positions could not be checked right now. That is an
@@ -455,7 +455,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                   aria-label={`${trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`} (opens in new tab)`}
                   className="btn-primary px-4 py-2 text-[12px] inline-block text-center">{trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`} ↗</a>
               ))}
-              <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px]">{membersOnly ? 'The lock ladder' : 'The lighthouse pool'}</Link>
+              <Link to={`/earn/${bungalow.id}`} className="btn-secondary px-4 py-2 text-[12px]">{membersOnly ? 'The lock ladder' : 'The lighthouse pool'}</Link>
               {bungalow.address && (
                 <Link to={bungalowScanRoute(bungalow)!} className="btn-secondary px-4 py-2 text-[12px]">Scan {bungalow.symbol}</Link>
               )}
