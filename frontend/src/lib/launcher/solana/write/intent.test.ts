@@ -8,16 +8,17 @@ import { describe, it, expect } from 'vitest';
 import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
 import {
   createApproveInstruction,
+  createAssociatedTokenAccountIdempotentInstruction,
   createCloseAccountInstruction,
   createSetAuthorityInstruction,
   createTransferInstruction,
   AuthorityType,
   createInitializeMint2Instruction,
 } from '@solana/spl-token';
-import { TOKEN_PROGRAM_ID, WSOL_MINT, poolStatePda } from '../curve/program';
+import { TOKEN_PROGRAM_ID, WSOL_MINT, cpLpMintPda, poolStatePda, sortMints } from '../curve/program';
 import { associatedTokenAddress, buyIx, sellIx, updateGlobalIx } from '../curve/ix';
 import { deriveObservation, deriveVault } from '../../../solana/cpswap/program';
-import { swapBaseInputIx } from '../../../solana/cpswap/ix';
+import { TOKEN_2022_PROGRAM_ID, depositIx, swapBaseInputIx, withdrawIx } from '../../../solana/cpswap/ix';
 import { computeUnitLimit, decodeIntent, LIGHTHOUSE_PROGRAM_ID, priorityLamports } from './intent';
 import { createLaunchInstructions } from './launch';
 import { createMetadataV3Ix, metadataPda } from './metaplex';
@@ -68,6 +69,10 @@ const swap = (over: Partial<{ output: PublicKey; min: bigint; pool: PublicKey }>
 };
 
 const poolCtx: IntentContext = { ...ctx, kind: 'pool-buy' };
+
+/** The same instruction with one account slot replaced. */
+const withKey = (ix: TransactionInstruction, i: number, pubkey: PublicKey) =>
+  new TransactionInstruction({ programId: ix.programId, keys: ix.keys.map((k, n) => (n === i ? { ...k, pubkey } : k)), data: ix.data });
 
 const refused = (ixs: TransactionInstruction[], why: RegExp, c: IntentContext = ctx) => {
   const r = decodeIntent(ixs, c);
@@ -136,6 +141,91 @@ describe('refused: moving value anywhere but the signer', () => {
   });
   it('a pool swap against a squatted standard-address pool', () => {
     refused([swap({ pool: Keypair.generate().publicKey })], /different pool/, poolCtx);
+  });
+});
+
+// Pins on the decoder as it stands, before the pool's deposit and withdraw join it:
+// each check below is named by the account slot it guards, and each test changes
+// that one slot only, so deleting the check lets the transaction through.
+describe('refused: a token account opened for anyone but the signer, or for anything else', () => {
+  const create = (o: Partial<{ payer: PublicKey; owner: PublicKey; mint: PublicKey; address: PublicKey; program: PublicKey }> = {}) => {
+    const owner = o.owner ?? ME;
+    const mint = o.mint ?? MINT;
+    return createAssociatedTokenAccountIdempotentInstruction(
+      o.payer ?? ME, o.address ?? associatedTokenAddress(mint, owner), owner, mint, o.program ?? TOKEN_PROGRAM_ID,
+    );
+  };
+
+  it('the signer’s own account for this token or wrapped SOL is accepted', () => {
+    expect(decodeIntent([create()], ctx).ok).toBe(true);
+    expect(decodeIntent([create({ mint: WSOL_MINT })], ctx).ok).toBe(true);
+  });
+  it('paid for by someone else, or owned by someone else', () => {
+    refused([create({ payer: STRANGER })], /for someone else/);
+    refused([create({ owner: STRANGER })], /for someone else/);
+  });
+  it('for an unrelated token', () => {
+    refused([create({ mint: Keypair.generate().publicKey })], /unrelated token/);
+  });
+  it('under the wrong system or token program', () => {
+    refused([withKey(create(), 4, STRANGER)], /wrong programs/);
+    refused([withKey(create(), 5, TOKEN_2022_PROGRAM_ID)], /wrong programs/);
+  });
+  it('at an address that is not the signer’s account for that token', () => {
+    refused([create({ address: associatedTokenAddress(MINT, STRANGER) })], /wrong address/);
+    refused([create({ address: associatedTokenAddress(WSOL_MINT, ME) })], /wrong address/);
+  });
+});
+
+describe('refused: a pool swap with any slot that is not this launch’s pool', () => {
+  const fresh = () => Keypair.generate().publicKey;
+
+  it.each([
+    [1, fresh(), /wrong pool authority/],
+    [2, fresh(), /wrong fee settings/],
+    [4, associatedTokenAddress(WSOL_MINT, STRANGER), /spends from an account that is not yours/],
+    [6, fresh(), /wrong pool vault/],
+    [7, fresh(), /wrong pool vault/],
+    [8, TOKEN_2022_PROGRAM_ID, /wrong token program/],
+    [9, TOKEN_2022_PROGRAM_ID, /wrong token program/],
+    [12, fresh(), /wrong price record/],
+  ] as const)('slot %i replaced', (slot, pubkey, why) => {
+    expect(decodeIntent([swap()], poolCtx).ok).toBe(true);
+    refused([withKey(swap(), slot, pubkey)], why, poolCtx);
+  });
+
+  it('a swap that is not between SOL and this token, even with every other slot consistent', () => {
+    const other = Keypair.generate().publicKey;
+    const pool = poolStatePda(MINT, LAUNCH);
+    const between = (input: PublicKey, output: PublicKey) => swapBaseInputIx({
+      programId: CPSWAP, payer: ME, ammConfig: AMM_CONFIG, poolState: pool,
+      inputTokenAccount: associatedTokenAddress(input, ME), outputTokenAccount: associatedTokenAddress(output, ME),
+      inputVault: deriveVault(CPSWAP, pool, input), outputVault: deriveVault(CPSWAP, pool, output),
+      inputTokenProgram: TOKEN_PROGRAM_ID, outputTokenProgram: TOKEN_PROGRAM_ID,
+      inputTokenMint: input, outputTokenMint: output, observationState: deriveObservation(CPSWAP, pool),
+      amountIn: 5n, minimumAmountOut: 3n,
+    });
+    refused([between(other, MINT)], /not between SOL and this token/, poolCtx);
+    refused([between(WSOL_MINT, other)], /not between SOL and this token/, poolCtx);
+    refused([between(MINT, MINT)], /not between SOL and this token/, poolCtx);
+  });
+
+  it('a withdraw or deposit instruction inside a pool-buy (or a pool-sell) is refused', () => {
+    const pool = poolStatePda(MINT, LAUNCH);
+    const [m0, m1] = sortMints(WSOL_MINT, MINT);
+    const lpMint = cpLpMintPda(pool, CPSWAP);
+    const common = {
+      programId: CPSWAP, owner: ME, poolState: pool, ownerLpToken: associatedTokenAddress(lpMint, ME),
+      token0Account: associatedTokenAddress(m0, ME), token1Account: associatedTokenAddress(m1, ME),
+      token0Vault: deriveVault(CPSWAP, pool, m0), token1Vault: deriveVault(CPSWAP, pool, m1),
+      vault0Mint: m0, vault1Mint: m1, lpMint, lpTokenAmount: 5n,
+    };
+    const deposit = depositIx({ ...common, maximumToken0Amount: 7n, maximumToken1Amount: 9n });
+    const withdraw = withdrawIx({ ...common, minimumToken0Amount: 7n, minimumToken1Amount: 9n });
+    for (const kind of ['pool-buy', 'pool-sell'] as const) {
+      refused([deposit], /a pool instruction other than a swap/, { ...ctx, kind });
+      refused([withdraw], /a pool instruction other than a swap/, { ...ctx, kind });
+    }
   });
 });
 

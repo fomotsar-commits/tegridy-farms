@@ -37,8 +37,10 @@ import {
   sortMints,
 } from '../curve/program';
 import { associatedTokenAddress, migrateToAmmIx, sellIx } from '../curve/ix';
-import { deriveAuthority, deriveObservation, deriveVault } from '../../../solana/cpswap/program';
-import { swapBaseInputIx } from '../../../solana/cpswap/ix';
+import { IX_DEPOSIT, IX_WITHDRAW, deriveAuthority, deriveObservation, deriveVault } from '../../../solana/cpswap/program';
+import {
+  DEPOSIT_ACCOUNTS, MEMO_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, WITHDRAW_ACCOUNTS, depositIx, swapBaseInputIx, withdrawIx,
+} from '../../../solana/cpswap/ix';
 import { CP_SWAP_ERROR_CODES, CP_SWAP_ERROR_COPY } from '../../../solana/cpswap/errors';
 import { CP_CREATE_POOL_FEE_RECEIVER, launchIndexAddress } from './config';
 import { createLaunchInstructions } from './launch';
@@ -283,6 +285,60 @@ describe('cp-swap swap_base_input matches the fork IDL', () => {
     const pool = poolStatePda(MINT, LAUNCH);
     expect(deriveVault(CPSWAP, pool, MINT).equals(cpPoolVaultPda(pool, MINT, CPSWAP))).toBe(true);
     expect(deriveObservation(CPSWAP, pool).equals(cpObservationPda(pool, CPSWAP))).toBe(true);
+  });
+});
+
+describe('cp-swap deposit and withdraw match the committed mainnet IDL', () => {
+  // Deposit and withdraw have never run on the mainnet binary from this site; until
+  // now only ix.test.ts held them, and it reads the Rust source. These hold them to
+  // the release's own IDL: the account list as data (name, order, flags), the built
+  // instruction position by position, the discriminators, and where each argument sits.
+  const lpAccounts = (spec: IdlIx) => spec.accounts.map((a) => [a.name, !!a.signer, !!a.writable]);
+  const lpPool = poolStatePda(MINT, LAUNCH);
+  const [lpM0, lpM1] = sortMints(WSOL_MINT, MINT);
+  const lpMint = cpLpMintPda(lpPool, CPSWAP);
+  const lpCommon = {
+    programId: CPSWAP, owner: TRADER, poolState: lpPool, ownerLpToken: associatedTokenAddress(lpMint, TRADER),
+    token0Account: associatedTokenAddress(lpM0, TRADER), token1Account: associatedTokenAddress(lpM1, TRADER),
+    token0Vault: deriveVault(CPSWAP, lpPool, lpM0), token1Vault: deriveVault(CPSWAP, lpPool, lpM1),
+    vault0Mint: lpM0, vault1Mint: lpM1, lpMint, lpTokenAmount: 11n,
+  };
+  const lpByName: Record<string, PublicKey> = {
+    owner: TRADER, authority: deriveAuthority(CPSWAP), pool_state: lpPool, owner_lp_token: lpCommon.ownerLpToken,
+    token_0_account: lpCommon.token0Account, token_1_account: lpCommon.token1Account,
+    token_0_vault: lpCommon.token0Vault, token_1_vault: lpCommon.token1Vault,
+    token_program: TOKEN_PROGRAM_ID, token_program_2022: TOKEN_2022_PROGRAM_ID,
+    vault_0_mint: lpM0, vault_1_mint: lpM1, lp_mint: lpMint, memo_program: MEMO_PROGRAM_ID,
+  };
+
+  it('deposit matches the committed mainnet IDL: 13 accounts, discriminator, three u64 args at 8, 16 and 24', () => {
+    const spec = ixOf(cpIdl(), 'deposit');
+    expect(spec.accounts).toHaveLength(13);
+    expect(DEPOSIT_ACCOUNTS.map((a) => [a.name, a.s, a.w])).toEqual(lpAccounts(spec));
+    expect(Array.from(IX_DEPOSIT)).toEqual(spec.discriminator);
+    expect(spec.args.map((a) => [a.name, a.type])).toEqual([
+      ['lp_token_amount', 'u64'], ['maximum_token_0_amount', 'u64'], ['maximum_token_1_amount', 'u64'],
+    ]);
+    const ix = depositIx({ ...lpCommon, maximumToken0Amount: 22n, maximumToken1Amount: 33n });
+    expect(ix.keys).toHaveLength(13);
+    assertParity(ix, spec, lpByName, CPSWAP);
+    expect(ix.data.length).toBe(32);
+    expect([u64At(ix.data, 8), u64At(ix.data, 16), u64At(ix.data, 24)]).toEqual([11n, 22n, 33n]);
+  });
+
+  it('withdraw matches the committed mainnet IDL: 14 accounts (the memo program last), discriminator, three u64 args', () => {
+    const spec = ixOf(cpIdl(), 'withdraw');
+    expect(spec.accounts).toHaveLength(14);
+    expect(WITHDRAW_ACCOUNTS.map((a) => [a.name, a.s, a.w])).toEqual(lpAccounts(spec));
+    expect(Array.from(IX_WITHDRAW)).toEqual(spec.discriminator);
+    expect(spec.args.map((a) => [a.name, a.type])).toEqual([
+      ['lp_token_amount', 'u64'], ['minimum_token_0_amount', 'u64'], ['minimum_token_1_amount', 'u64'],
+    ]);
+    const ix = withdrawIx({ ...lpCommon, minimumToken0Amount: 22n, minimumToken1Amount: 33n });
+    expect(ix.keys).toHaveLength(14);
+    assertParity(ix, spec, lpByName, CPSWAP);
+    expect(ix.data.length).toBe(32);
+    expect([u64At(ix.data, 8), u64At(ix.data, 16), u64At(ix.data, 24)]).toEqual([11n, 22n, 33n]);
   });
 });
 
