@@ -153,4 +153,10 @@ regexes = [
   # was signed by nothing and no server accepts it. Flagged by the default `jwt` rule.
   # EXACT STRING, per this file's doctrine: a real token cannot hide behind it.
   '''\beyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiJ0ZXN0In0\.c2lnbmF0dXJl\b''',
+  #
+  # A Token-2022 MINT on Solana mainnet (getAccountInfo 2026-10-01: owner
+  # TokenzQdB…, parsed type "mint"), the held token in the heat-gate fixtures
+  # (LaunchCreateForm.heatGate.test.tsx:59, e2e-solana/fixtures/heatStub.ts:40,
+  # commit 2de8a915). Flagged by `generic-api-key` as `token_address: '…'`.
+  '''\b7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump\b''',
 ]

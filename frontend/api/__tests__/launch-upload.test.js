@@ -73,7 +73,8 @@ function fakeUpstream({ imageDuplicate = false, jsonFails = false, rows = [], re
       if (kv.image) return ok({ rows: refs[kv.image.value] ?? [] });
       return ok({ rows });
     }
-    if (u.startsWith("https://api.mainnet-beta.solana.com") || u.startsWith("http://rpc.test")) {
+    const origin = new URL(u).origin;
+    if (origin === "https://api.mainnet-beta.solana.com" || origin === "http://rpc.test") {
       if (rpcFails) return new Response("nope", { status: 500 });
       const body = JSON.parse(init.body);
       const value = body.params[0].map((addr) => (curves[addr] === undefined ? null : { owner: curves[addr], lamports: 1, data: ["", "base64"] }));
