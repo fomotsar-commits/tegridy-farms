@@ -42,9 +42,14 @@ export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
  * mint is a copy, however clean its mint looks. `mint: null` = there is no real one on
  * Solana (TOWELI lives on Ethereum only), so every claim is a copy.
  *
- * Launch tickers are not listed: anyone can launch the same ticker on our launcher, so
- * there is no single "real" one to compare against. The mint address stays the only
- * identity, and the card says so on every token.
+ * The island's tokens that have ONE real Solana mint in the island canon (bungalows.ts)
+ * are listed, so "open the first BOBO pool here" with a look-alike BOBO is refused by
+ * name: Jupiter would price the copy, so the price check alone cannot catch it. Each
+ * mint is pinned by a test to its bungalows.ts entry.
+ *
+ * Launch tickers are still not listed: anyone can launch the same ticker on our
+ * launcher, so there is no single "real" one to compare against. The mint address stays
+ * the only identity, and the card says so on every token.
  */
 export const WELL_KNOWN_NAMES: readonly { label: string; mint: string | null; names: readonly string[] }[] = [
   { label: 'SOL', mint: WSOL_MINT, names: ['SOL', 'WSOL', 'Wrapped SOL', 'Solana', 'Wrapped Solana'] },
@@ -52,6 +57,10 @@ export const WELL_KNOWN_NAMES: readonly { label: string; mint: string | null; na
   { label: 'USDT', mint: USDT_MINT, names: ['USDT', 'Tether', 'Tether USD', 'USDTether'] },
   { label: 'BAYLA', mint: BAYLA_MINT, names: ['BAYLA'] },
   { label: 'TOWELI', mint: null, names: ['TOWELI'] },
+  { label: 'BOBO', mint: '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', names: ['BOBO'] },
+  { label: 'SOY', mint: '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump', names: ['SOY'] },
+  { label: 'BRAINLET', mint: '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump', names: ['BRAINLET'] },
+  { label: 'RIZZ', mint: '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k', names: ['RIZZ'] },
 ];
 
 /** Letters that look like Latin ones, folded to them, so "USDС" (a Cyrillic С) still reads as USDC. */

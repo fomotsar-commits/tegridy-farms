@@ -24,9 +24,10 @@ import {
   USDC_MINT,
   WSOL_MINT,
   BAYLA_MINT,
+  WELL_KNOWN_NAMES,
   type TokenSafety,
 } from './tokenSafety';
-import { BAYLA_MINT as SITE_BAYLA_MINT } from '../../bungalows';
+import { BAYLA_MINT as SITE_BAYLA_MINT, BUNGALOWS } from '../../bungalows';
 import type { RawAccount } from './accounts';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../../launcher/solana/write/metaplex';
 
@@ -225,6 +226,39 @@ describe('classifyToken', () => {
 
   it('BAYLA here is the same mint the rest of the site calls BAYLA', () => {
     expect(BAYLA_MINT).toBe(SITE_BAYLA_MINT);
+  });
+
+  it('the island tokens here are the same mints the island lists (bungalows.ts)', () => {
+    for (const label of ['BOBO', 'SOY', 'BRAINLET', 'RIZZ']) {
+      const listed = WELL_KNOWN_NAMES.find((k) => k.label === label);
+      const island = BUNGALOWS.find((b) => b.chain === 'solana' && b.symbol === label);
+      expect(listed, label).toBeDefined();
+      expect(island, label).toBeDefined();
+      expect(listed!.mint, label).toBe(island!.address);
+      expect(listed!.names, label).toEqual([label]);
+    }
+  });
+
+  it('a copied island name (BOBO, SOY, BRAINLET, RIZZ) from another mint is warned about; the real mint is not', () => {
+    const cases: [string, string, string][] = [
+      ['Bobo the Bear', 'BOBO', 'NOT the real BOBO'],
+      ['B.O.B.O', 'X', 'NOT the real BOBO'],
+      ['BОBО', 'X', 'NOT the real BOBO'], // Cyrillic capital O, twice
+      ['Soy', 'SOY', 'NOT the real SOY'],
+      ['Brainlet', 'BRAINLET', 'NOT the real BRAINLET'],
+      ['Rizz', 'RIZZ', 'NOT the real RIZZ'],
+    ];
+    for (const [name, symbol, says] of cases) {
+      const m = key();
+      const s = classifyToken(m.toBase58(), acct(m, TOKEN_PROGRAM, classicMint()), acct(metadataPda(m), METAPLEX_TOKEN_METADATA_ID.toBase58(), metaplexRecord(m, false, name, symbol)));
+      expect(reasons(s), name + ' / ' + symbol).toEqual({ blocks: [], warnings: ['copies-known-name'], verdict: 'warn' });
+      expect(s.kind === 'read' && s.warnings[0]!.text).toContain(says);
+    }
+    for (const label of ['BOBO', 'SOY', 'BRAINLET', 'RIZZ']) {
+      const real = new PublicKey(WELL_KNOWN_NAMES.find((k) => k.label === label)!.mint!);
+      const s = classifyToken(real.toBase58(), acct(real, TOKEN_PROGRAM, classicMint()), acct(metadataPda(real), METAPLEX_TOKEN_METADATA_ID.toBase58(), metaplexRecord(real, false, label, label)));
+      expect(reasons(s), label).toEqual({ blocks: [], warnings: [], verdict: 'ok' });
+    }
   });
 
   it('SOL itself, a non-mint and an empty address are never a clean verdict', () => {

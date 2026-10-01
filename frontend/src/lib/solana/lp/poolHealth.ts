@@ -136,7 +136,8 @@ export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'p
   else if (safety.kind === 'absent') refused.push('The token does not exist.');
   else if (safety.verdict === 'blocked') refused.push('This token is blocked on this site (see why above).');
   // A copied well-known name stays a warning on the token itself, but nobody adds
-  // liquidity here to a token that poses as SOL, USDC, USDT, BAYLA or TOWELI.
+  // liquidity here to a token that poses as one on WELL_KNOWN_NAMES (SOL, USDC, USDT,
+  // BAYLA, TOWELI and the island's Solana tokens).
   if (safety?.kind === 'read' && safety.warnings.some((w) => w.code === 'copies-known-name')) {
     refused.push(
       action === 'deposits'
