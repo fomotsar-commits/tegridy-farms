@@ -8,6 +8,7 @@ import {
   ACCOUNT_DISCRIMINATOR,
   BONDING_CURVE_LAYOUT,
   GLOBAL_CONFIG_LAYOUT,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   WSOL_MINT,
   cpAmmConfigPda,
@@ -26,8 +27,10 @@ import {
   AMM_CONFIG_OFFSETS,
   POOL_STATE_LEN,
   POOL_STATE_OFFSETS,
+  deriveAuthority,
   deriveLpMint,
   deriveObservation,
+  derivePool,
   deriveVault,
   sortMints,
 } from '../../../solana/cpswap/program';
@@ -155,11 +158,112 @@ export function encodeAmmConfig(): Uint8Array {
 
 /** A 165-byte SPL token account holding `amount` of `mint` for `owner`. */
 export function encodeTokenAccount(mint: PublicKey, owner: PublicKey, amount: bigint): Uint8Array {
+  return encodeTokenAccountWith(mint, owner, amount);
+}
+
+export interface TokenAccountOptions {
+  /** 1 = initialized (the default), 2 = frozen. */
+  state?: 1 | 2;
+  delegate?: PublicKey;
+  delegatedAmount?: bigint;
+  closeAuthority?: PublicKey;
+}
+
+/** The base 165-byte token account layout, shared by both token programs. */
+export function encodeTokenAccountWith(mint: PublicKey, owner: PublicKey, amount: bigint, o: TokenAccountOptions = {}): Uint8Array {
   const d = new Uint8Array(165);
+  const v = new DataView(d.buffer);
   d.set(mint.toBytes(), 0);
   d.set(owner.toBytes(), 32);
   d.set(u64le(amount), 64);
-  d[108] = 1; // initialized
+  if (o.delegate) {
+    v.setUint32(72, 1, true);
+    d.set(o.delegate.toBytes(), 76);
+    d.set(u64le(o.delegatedAmount ?? 0n), 121);
+  }
+  d[108] = o.state ?? 1;
+  if (o.closeAuthority) {
+    v.setUint32(129, 1, true);
+    d.set(o.closeAuthority.toBytes(), 133);
+  }
+  return d;
+}
+
+/** spl-token-2022 extension numbers used by these fixtures. */
+export const EXT = { ImmutableOwner: 7, MemoTransfer: 8, CpiGuard: 11, TransferFeeConfig: 1, MetadataPointer: 18, TokenMetadata: 19 } as const;
+
+/**
+ * A Token-2022 token account as the associated-token program creates it: the base
+ * layout, the account-type byte (2), then ImmutableOwner, so 170 bytes. CPI Guard and
+ * required memos add their own one-byte extensions after it.
+ */
+export function encodeToken2022Account(
+  mint: PublicKey,
+  owner: PublicKey,
+  amount: bigint,
+  o: TokenAccountOptions & { cpiGuard?: boolean; memoRequired?: boolean } = {},
+): Uint8Array {
+  const tlv: Array<[number, Uint8Array]> = [[EXT.ImmutableOwner, new Uint8Array(0)]];
+  if (o.memoRequired !== undefined) tlv.push([EXT.MemoTransfer, Uint8Array.of(o.memoRequired ? 1 : 0)]);
+  if (o.cpiGuard !== undefined) tlv.push([EXT.CpiGuard, Uint8Array.of(o.cpiGuard ? 1 : 0)]);
+  const len = 166 + tlv.reduce((n, [, b]) => n + 4 + b.length, 0);
+  const d = new Uint8Array(len);
+  d.set(encodeTokenAccountWith(mint, owner, amount, o), 0);
+  d[165] = 2; // AccountType::Account
+  const v = new DataView(d.buffer);
+  let at = 166;
+  for (const [type, body] of tlv) {
+    v.setUint16(at, type, true);
+    v.setUint16(at + 2, body.length, true);
+    d.set(body, at + 4);
+    at += 4 + body.length;
+  }
+  return d;
+}
+
+export interface MintOptions {
+  decimals?: number;
+  mintAuthority?: PublicKey;
+  freezeAuthority?: PublicKey;
+  supply?: bigint;
+}
+
+/** A classic 82-byte mint. */
+export function encodeMint(o: MintOptions = {}): Uint8Array {
+  const d = new Uint8Array(82);
+  const v = new DataView(d.buffer);
+  if (o.mintAuthority) {
+    v.setUint32(0, 1, true);
+    d.set(o.mintAuthority.toBytes(), 4);
+  }
+  d.set(u64le(o.supply ?? 1_000_000_000_000n), 36);
+  d[44] = o.decimals ?? 6;
+  d[45] = 1;
+  if (o.freezeAuthority) {
+    v.setUint32(46, 1, true);
+    d.set(o.freezeAuthority.toBytes(), 50);
+  }
+  return d;
+}
+
+/**
+ * A Token-2022 mint carrying `extensions` ([type, length], zero-filled bodies): the
+ * base mint, padding to 165, the account-type byte (1), then each extension. A zeroed
+ * metadata pointer or token-metadata body decodes as "no name".
+ */
+export function encodeMint2022(extensions: Array<[number, number]>, o: MintOptions = {}): Uint8Array {
+  const len = (extensions.length ? 166 : 82) + extensions.reduce((n, [, l]) => n + 4 + l, 0);
+  const d = new Uint8Array(len);
+  d.set(encodeMint(o), 0);
+  if (!extensions.length) return d;
+  d[165] = 1; // AccountType::Mint
+  const v = new DataView(d.buffer);
+  let at = 166;
+  for (const [type, l] of extensions) {
+    v.setUint16(at, type, true);
+    v.setUint16(at + 2, l, true);
+    at += 4 + l;
+  }
   return d;
 }
 
@@ -201,6 +305,95 @@ export function addLaunchPool(
   chain.tokenAccount(deriveVault(CPSWAP, pool, token0), token0, pool, amount(token0));
   chain.tokenAccount(deriveVault(CPSWAP, pool, token1), token1, pool, amount(token1));
   return pool;
+}
+
+export interface PoolFixture {
+  address: PublicKey;
+  token0: PublicKey;
+  token1: PublicKey;
+  vault0: PublicKey;
+  vault1: PublicKey;
+  lpMint: PublicKey;
+  observation: PublicKey;
+  solIsToken0: boolean;
+  /** The token side's vault. */
+  tokenVault: PublicKey;
+  solVault: PublicKey;
+}
+
+/**
+ * Any TOKEN/SOL pool of the pool program, every field derived from its address, its
+ * two vaults, its LP mint, and (for a launch pool) its price record. The token side
+ * may be Token-2022. Defaults: the standard address on fee tier 0 (AMM_CONFIG).
+ */
+export function addPool(
+  chain: FakeChain,
+  mint: PublicKey,
+  o: {
+    sol: bigint;
+    tokens: bigint;
+    lpSupply?: bigint;
+    status?: number;
+    openTime?: bigint;
+    address?: PublicKey;
+    /** At the launch program's address for this mint, with a never-traded price record. */
+    launch?: boolean;
+    tokenProgram?: PublicKey;
+    tokenDecimals?: number;
+    frozenTokenVault?: boolean;
+    /** Override recorded fields (to test a pool whose record and derivation disagree). */
+    record?: Partial<Record<'token0Vault' | 'token1Vault' | 'lpMint' | 'observationKey' | 'token0Program' | 'token1Program', PublicKey>>;
+  },
+): PoolFixture {
+  const { token0, token1 } = sortMints(WSOL_MINT, mint);
+  const address = o.address ?? (o.launch ? poolStatePda(mint, LAUNCH) : derivePool(CPSWAP, AMM_CONFIG, token0, token1));
+  const solIsToken0 = token0.equals(WSOL_MINT);
+  const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
+  const vault0 = deriveVault(CPSWAP, address, token0);
+  const vault1 = deriveVault(CPSWAP, address, token1);
+  const lpMint = deriveLpMint(CPSWAP, address);
+  const observation = deriveObservation(CPSWAP, address);
+  const off = POOL_STATE_OFFSETS;
+  const d = new Uint8Array(POOL_STATE_LEN);
+  d.set(ACCOUNT_POOL_STATE, 0);
+  const r = o.record ?? {};
+  const keys: Array<[number, PublicKey]> = [
+    [off.ammConfig, AMM_CONFIG],
+    [off.poolCreator, mint],
+    [off.token0Vault, r.token0Vault ?? vault0],
+    [off.token1Vault, r.token1Vault ?? vault1],
+    [off.lpMint, r.lpMint ?? lpMint],
+    [off.token0Mint, token0],
+    [off.token1Mint, token1],
+    [off.token0Program, r.token0Program ?? (solIsToken0 ? TOKEN_PROGRAM_ID : tokenProgram)],
+    [off.token1Program, r.token1Program ?? (solIsToken0 ? tokenProgram : TOKEN_PROGRAM_ID)],
+    [off.observationKey, r.observationKey ?? observation],
+  ];
+  for (const [at, k] of keys) d.set(k.toBytes(), at);
+  d[off.status] = o.status ?? 0;
+  d[off.lpMintDecimals] = 9;
+  const dec = o.tokenDecimals ?? 6;
+  d[off.mint0Decimals] = solIsToken0 ? 9 : dec;
+  d[off.mint1Decimals] = solIsToken0 ? dec : 9;
+  d.set(u64le(o.lpSupply ?? 1_000_000_000n), off.lpSupply);
+  d.set(u64le(o.openTime ?? 0n), off.openTime);
+  chain.set(address, { lamports: rent(POOL_STATE_LEN), owner: CPSWAP, data: d });
+  const authority = deriveAuthority(CPSWAP);
+  const solVault = solIsToken0 ? vault0 : vault1;
+  const tokenVault = solIsToken0 ? vault1 : vault0;
+  chain.tokenAccount(solVault, WSOL_MINT, authority, o.sol);
+  const vaultOpts = { state: o.frozenTokenVault ? (2 as const) : (1 as const) };
+  if (tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) chain.token2022Account(tokenVault, mint, authority, o.tokens, vaultOpts);
+  else chain.tokenAccount(tokenVault, mint, authority, o.tokens, vaultOpts);
+  chain.mint(lpMint, { decimals: 9, mintAuthority: authority, supply: o.lpSupply ?? 1_000_000_000n });
+  if (o.launch) {
+    // A never-traded price record: initialized 0, naming this pool.
+    const obs = new Uint8Array(4075);
+    obs.set([122, 174, 197, 53, 129, 9, 165, 132], 0);
+    obs.set(address.toBytes(), 11);
+    chain.set(observation, { lamports: rent(4075), owner: CPSWAP, data: obs });
+  }
+  return { address, token0, token1, vault0, vault1, lpMint, observation, solIsToken0, tokenVault, solVault };
 }
 
 const CLOCK_SYSVAR = new PublicKey('SysvarC1ock11111111111111111111111111111111');
@@ -272,8 +465,22 @@ export class FakeChain {
     return this.set(who, { lamports, owner: new PublicKey('11111111111111111111111111111111'), data: new Uint8Array(0) });
   }
 
-  tokenAccount(address: PublicKey, mint: PublicKey, owner: PublicKey, amount: bigint): this {
-    return this.set(address, { lamports: rent(165), owner: TOKEN_PROGRAM_ID, data: encodeTokenAccount(mint, owner, amount) });
+  tokenAccount(address: PublicKey, mint: PublicKey, owner: PublicKey, amount: bigint, o: TokenAccountOptions = {}): this {
+    return this.set(address, { lamports: rent(165), owner: TOKEN_PROGRAM_ID, data: encodeTokenAccountWith(mint, owner, amount, o) });
+  }
+
+  token2022Account(address: PublicKey, mint: PublicKey, owner: PublicKey, amount: bigint, o: TokenAccountOptions & { cpiGuard?: boolean; memoRequired?: boolean } = {}): this {
+    const data = encodeToken2022Account(mint, owner, amount, o);
+    return this.set(address, { lamports: rent(data.length), owner: TOKEN_2022_PROGRAM_ID, data });
+  }
+
+  mint(address: PublicKey, o: MintOptions = {}): this {
+    return this.set(address, { lamports: rent(82), owner: TOKEN_PROGRAM_ID, data: encodeMint(o) });
+  }
+
+  mint2022(address: PublicKey, extensions: Array<[number, number]>, o: MintOptions = {}): this {
+    const data = encodeMint2022(extensions, o);
+    return this.set(address, { lamports: rent(data.length), owner: TOKEN_2022_PROGRAM_ID, data });
   }
 
   info(address: PublicKey) {

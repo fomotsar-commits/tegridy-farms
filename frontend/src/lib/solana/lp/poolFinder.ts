@@ -81,10 +81,11 @@ export type PoolsRead =
   | { kind: 'ok'; entries: PoolEntry[]; chainNow: bigint | null }
   | { kind: 'unread'; detail: string };
 
-const CLOCK_SYSVAR = 'SysvarC1ock11111111111111111111111111111111';
+export const CLOCK_SYSVAR = 'SysvarC1ock11111111111111111111111111111111';
 const SYSVAR_OWNER = 'Sysvar1111111111111111111111111111111111111';
 
-function chainTimeOf(a: RawAccount | null): bigint | null {
+/** The cluster clock's unix time from the Clock sysvar account, or null when it is not one. */
+export function chainTimeOf(a: RawAccount | null): bigint | null {
   if (!a || a.owner !== SYSVAR_OWNER || a.data.length < 40) return null;
   return new DataView(a.data.buffer, a.data.byteOffset, a.data.byteLength).getBigInt64(32, true);
 }
