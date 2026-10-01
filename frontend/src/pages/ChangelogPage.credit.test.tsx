@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { EntryBadges } from './ChangelogPage';
+import ChangelogPage, { EntryBadges } from './ChangelogPage';
 
 // A DATED PUBLIC LINE IS THE BUILDER'S PAY, SO IT IS SPENT ON EXACTLY ONE PERSON.
 //
@@ -51,5 +51,19 @@ describe('changelog entry badges', () => {
 
     expect(credited?.className).toBe(bare?.className);
     expect(credited?.className).toContain('mb-3');
+  });
+});
+
+// CHANGELOG.md's twin of this guard is in src/test/frontDoor.test.ts. This one reads
+// the page's own list as it renders, since /changelog does not read CHANGELOG.md.
+describe('the changelog page', () => {
+  it('lists no line twice', () => {
+    const { container } = render(<ChangelogPage />);
+    const lines = [...container.querySelectorAll('[data-record="changelog"] li')].map((li) =>
+      (li.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    );
+
+    expect(lines.length).toBeGreaterThan(100);
+    expect(lines.filter((l, i) => lines.indexOf(l) !== i)).toEqual([]);
   });
 });
