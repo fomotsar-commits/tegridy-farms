@@ -19,6 +19,13 @@ vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({})
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 // The LP section has its own tests (components/solana/lp); here only WHEN it mounts matters.
 vi.mock('../components/solana/lp/SolanaLpSection', () => ({ default: () => <div data-testid="lp-section" /> }));
+// LP's own switch, steerable per test (spec addendum D24): the page's words about what this
+// site can do with the pools follow it. Every other test sees the shipped 'off'.
+const lp = vi.hoisted(() => ({ mode: 'off' as 'off' | 'on' | 'withdraw-only' }));
+vi.mock('../lib/launcher/solana/lpWriteFlag', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/launcher/solana/lpWriteFlag')>()),
+  lpWriteMode: () => lp.mode,
+}));
 
 const PROGRAM = '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y';
 
@@ -167,5 +174,54 @@ describe('always', () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/being redeployed/i)).toBeInTheDocument());
     expect(screen.queryByTestId('lp-section')).not.toBeInTheDocument();
+  });
+});
+
+// Addendum D24 (C8): the two "not switched on yet" sentences follow LP's own switch, so
+// flipping it (or the e2e build, where it is already 'on') never leaves this page saying
+// something false. The routing card is about the swap and stays in every mode.
+describe("what this site can do with the pools follows LP's own switch", () => {
+  const live = () =>
+    readVenue.mockResolvedValue({
+      kind: 'live',
+      programId: PROGRAM,
+      config: {
+        address: 'CfG1111111111111111111111111111111111111111',
+        index: 0, disableCreatePool: false,
+        tradeFeeRate: 2500n, protocolFeeRate: 200_000n, fundFeeRate: 0n,
+        createPoolFee: 0n, creatorFeeRate: 500n,
+        protocolOwner: 'Own1', fundOwner: 'Own2',
+      },
+    });
+  beforeEach(() => { lp.mode = 'off'; live(); });
+
+  it("'off': reads only, and says adding and removing are not switched on", async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    expect(screen.getByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/This site only reads pools so far\./)).toBeInTheDocument();
+    expect(screen.getByText(/still goes through\s+Jupiter/i)).toBeInTheDocument();
+  });
+
+  it("'on': says what the section below can do, and never that it is not switched on", async () => {
+    lp.mode = 'on';
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    expect(screen.getByText(/below you can add liquidity to a pool whose checks pass or take yours out/i)).toBeInTheDocument();
+    expect(screen.getByText(/This site can add and remove liquidity; it does not open pools yet\./)).toBeInTheDocument();
+    // The swap's routing card keeps its own "not switched on yet" (addendum D24); this is the LP one.
+    expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
+    expect(screen.queryByText(/only reads pools so far/i)).toBeNull();
+    // The swap's own routing is a different matter: still through Jupiter, in every mode.
+    expect(screen.getByText(/still goes through\s+Jupiter/i)).toBeInTheDocument();
+  });
+
+  it("'withdraw-only': adding is paused, taking liquidity out still works", async () => {
+    lp.mode = 'withdraw-only';
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    expect(screen.getByText(/Adding liquidity from here is paused; taking yours out still works\./)).toBeInTheDocument();
+    expect(screen.getByText(/This site can take liquidity out; adding is paused, and it does not open pools\./)).toBeInTheDocument();
+    expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
   });
 });

@@ -6,7 +6,8 @@ import { withReadCommitment } from '../curve/confirmedRpc';
 import { readTokenSafety, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
-import { readPositions, type PositionsRead } from '../../../lib/solana/lp/positions';
+import { placeShareOnChain, readPositions, type ChainPlacement, type PositionsRead } from '../../../lib/solana/lp/positions';
+import { readWalletFacts, type WalletFacts } from '../../../lib/solana/lp/walletFacts';
 
 /**
  * Everything the LP section reads, behind one interface so a component test can hand
@@ -22,6 +23,14 @@ export interface LpReaders {
   /** `limit`: how many pool shares to place (each costs one index lookup). */
   positions(owner: PublicKey, limit?: number): Promise<PositionsRead>;
   feeTiers(): Promise<FeeTierRead>;
+  /**
+   * The wallet's SOL, its token account for the pool's token, its wrapped-SOL account
+   * and whether it has a pool-share account: for the panels' hints and Max buttons only.
+   * Every number a transaction carries is read again when Review is pressed.
+   */
+  wallet(owner: PublicKey, tokenMint: string, tokenProgram: string, lpMint: string | null): Promise<WalletFacts>;
+  /** Find a share's pool from its own chain history, when our pool index cannot answer (D12). */
+  placeShareOnChain(share: { lpMint: string; lpAccount: string }): Promise<ChainPlacement>;
 }
 
 export function browserLpReaders(): LpReaders | null {
@@ -36,5 +45,7 @@ export function browserLpReaders(): LpReaders | null {
     outsidePrice: (mint, decimals) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }),
     positions: (owner, limit) => readPositions(rpc, owner, { ...opts, limit }),
     feeTiers: () => readFeeTiers(rpc, programId),
+    wallet: (owner, tokenMint, tokenProgram, lpMint) => readWalletFacts(rpc, { owner: owner.toBase58(), tokenMint, tokenProgram, lpMint }),
+    placeShareOnChain: (share) => placeShareOnChain(rpc, opts, share),
   };
 }

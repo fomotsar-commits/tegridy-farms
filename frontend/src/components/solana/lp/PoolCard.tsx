@@ -2,8 +2,12 @@ import type { PoolEntry, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { formatWhen, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { feeRateText, formatSolPrice, solText, tokenText } from '../../../lib/solana/lp/format';
 import { feeSplit } from '../../../lib/solana/cpswap/venue';
+import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
+import { AddLiquidityPanel } from './AddLiquidityPanel';
+import { depositOffer, lpHeld, type DepositOffer } from './offers';
+import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const ORIGIN_LABEL: Record<PoolView['origin'], string> = {
   'launch-pool': 'Launch pool: opened by the launch program when the token graduated',
@@ -73,7 +77,22 @@ function PriceRows({ price }: { price: PoolHealth['price'] }) {
   }
 }
 
-export function PoolCard({ view, health, tokenDecimals }: { view: PoolView; health: PoolHealth; tokenDecimals: number | null }) {
+export function PoolCard({
+  view,
+  health,
+  tokenDecimals,
+  safety = null,
+}: {
+  view: PoolView;
+  health: PoolHealth;
+  tokenDecimals: number | null;
+  /** The token's check, for the Add panel's warnings and its "calls itself" row. */
+  safety?: TokenSafety | null;
+}) {
+  const writes = useLpWrites();
+  const offer: DepositOffer = writes
+    ? depositOffer({ mode: writes.mode, gate: writes.gate, health, held: lpHeld(writes.pending.notes, view.address, 'add') })
+    : 'off';
   const { pool } = view.snapshot;
   const swaps = swapsText(health);
   const cfg = view.config;
@@ -93,6 +112,7 @@ export function PoolCard({ view, health, tokenDecimals }: { view: PoolView; heal
       data-withdrawals={health.withdrawals}
       data-deposits={health.deposits.verdict}
       data-price={price.state}
+      data-add={offer}
     >
       <h3 className="text-white font-semibold text-[13px] mb-1" style={SHADOW}>
         {view.origin === 'launch-pool' ? 'Launch pool' : view.origin === 'standard' ? `Standard address, fee tier ${cfg?.index ?? '?'}` : 'Pool at its own address'}
@@ -111,9 +131,10 @@ export function PoolCard({ view, health, tokenDecimals }: { view: PoolView; heal
           {health.deposits.reasons.map((r) => (
             <Notice key={r} tone={health.deposits.verdict === 'refused' ? 'bad' : 'warn'}>{r}</Notice>
           ))}
-          {health.deposits.verdict === 'allowed' && (
+          {!writes && health.deposits.verdict === 'allowed' && (
             <Notice>Adding liquidity from this page is not switched on yet. These checks will run again before any deposit.</Notice>
           )}
+          {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} />}
         </div>
 
         <Row label="In the pool" value={`${solText(view.solReserve)} and ${tokenText(view.tokenReserve, tokenDecimals)}`} mono={false} />
@@ -142,6 +163,70 @@ export function PoolCard({ view, health, tokenDecimals }: { view: PoolView; heal
       </div>
     </li>
   );
+}
+
+/** The line under a pool's deposit checks for each offer (spec 4.3), and the Add button and panel when offered. */
+function DepositOfferBlock({
+  writes,
+  offer,
+  view,
+  health,
+  safety,
+  tokenDecimals,
+}: {
+  writes: LpWrites;
+  offer: DepositOffer;
+  view: PoolView;
+  health: PoolHealth;
+  safety: TokenSafety | null;
+  tokenDecimals: number | null;
+}) {
+  const key = `add:${view.address}`;
+  const open = writes.active?.key === key;
+  // Another panel's flow is running: this one cannot open over it.
+  const blockedByOther = writes.busy && !open;
+  // An open panel stays mounted whatever the offer turns into while its flow runs: its
+  // own sent deposit makes this pool `held`, and the outcome on screen must not vanish.
+  const panel = open ? <AddLiquidityPanel view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} onClose={writes.close} /> : null;
+  return (
+    <div className="space-y-2 mt-2">
+      <OfferLine offer={offer} health={health} />
+      {offer === 'offer' && (
+        <>
+          {/* Stays mounted while its panel is open, so focus can come back to it on Close. */}
+          <button
+            type="button"
+            className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+            disabled={blockedByOther}
+            aria-expanded={open}
+            onClick={(e) => writes.open('add', key, e.currentTarget)}
+          >
+            Add liquidity
+          </button>
+          {blockedByOther && <Notice>Finish or close the open liquidity panel first.</Notice>}
+          <Notice>These checks run again, on fresh reads, when you press Review.</Notice>
+        </>
+      )}
+      {panel}
+    </div>
+  );
+}
+
+function OfferLine({ offer, health }: { offer: DepositOffer; health: PoolHealth }) {
+  switch (offer) {
+    case 'paused-here':
+      return <Notice>Adding liquidity from this site is paused. Removing it still works.</Notice>;
+    case 'held':
+      return <Notice tone="warn">A deposit you sent to this pool is not confirmed yet (see the top of this section).</Notice>;
+    case 'checks':
+      return health.deposits.verdict === 'unchecked' ? (
+        <Notice>We offer adding liquidity only after checking the pool&apos;s price against a price from outside it, and we could not get one.</Notice>
+      ) : null;
+    case 'offer':
+    case 'gate':
+    case 'off':
+      return null;
+  }
 }
 
 export function UnreadPoolCard({ entry }: { entry: Extract<PoolEntry, { kind: 'unread' }> }) {

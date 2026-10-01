@@ -4,7 +4,7 @@ import { ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import { feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, formatSolPrice } from '../../../lib/solana/lp/format';
-import type { FeeSplitView, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, WriteApi } from './ports';
+import type { FeeSplitView, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import type { TxFlow } from './useTxFlow';
 
 // What the user sees between pressing a Review button and the chain's answer.
@@ -771,7 +771,8 @@ export function TxFlowView({
   preparingText,
 }: {
   flow: TxFlow;
-  api: Pick<WriteApi, 'explorerTxUrl' | 'meta'>;
+  /** `WriteApi` and `LpWriteApi` both satisfy it. */
+  api: TxViewApi;
   cluster: SolanaCluster;
   decimals: number | null;
   /** `null` when no wallet that can sign is connected. */

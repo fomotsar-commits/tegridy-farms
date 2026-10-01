@@ -14,17 +14,20 @@ import type { LpReaders } from './readers';
 type SearchState =
   | { status: 'idle' }
   | { status: 'loading'; mint: string }
-  | { status: 'done'; mint: string; safety: TokenSafety; pools: PoolSearchRead; outside: OutsidePrice | null };
+  /** `refreshing`: the last answer for this same mint, shown while it is read again. */
+  | { status: 'done'; mint: string; safety: TokenSafety; pools: PoolSearchRead; outside: OutsidePrice | null; refreshing?: boolean };
 
 type Done = Extract<SearchState, { status: 'done' }>;
 
 /**
- * The search for `mint`. Results are stored with the question they answer (mint and
- * nonce), so a new question reads as loading until its own answer arrives, and a late
- * answer to an old question is never shown.
+ * The search for `mint`. Results are stored with the question they answer (mint, nonce
+ * and the section's reload key), so a late answer to an old question is never shown. A
+ * re-read of the SAME mint keeps showing the last answer until the new one arrives, so
+ * the cards and an open panel (with its outcome on screen) never unmount; only a
+ * different mint reads as loading.
  */
-function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number): SearchState {
-  const key = mint ? `${mint}#${nonce}` : null;
+function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, reloadKey: number): SearchState {
+  const key = mint ? `${mint}#${nonce}#${reloadKey}` : null;
   const [answer, setAnswer] = useState<{ key: string; value: Done } | null>(null);
   useEffect(() => {
     if (!mint || !key) return;
@@ -50,7 +53,8 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number): 
     };
   }, [readers, mint, key]);
   if (!mint || !key) return { status: 'idle' };
-  return answer?.key === key ? answer.value : { status: 'loading', mint };
+  if (answer?.key === key) return answer.value;
+  return answer?.value.mint === mint ? { ...answer.value, refreshing: true } : { status: 'loading', mint };
 }
 
 /**
@@ -62,16 +66,19 @@ export function PoolFinder({
   mint,
   onMint,
   linkError = null,
+  reloadKey = 0,
 }: {
   readers: LpReaders;
   mint: string | null;
   onMint: (m: string | null) => void;
   linkError?: { raw: string; reason: string } | null;
+  /** Bumped by the section after a liquidity flow finishes: read the same mint again. */
+  reloadKey?: number;
 }) {
   const [input, setInput] = useState(mint ?? linkError?.raw ?? '');
   const [error, setError] = useState<string | null>(linkError?.reason ?? null);
   const [nonce, setNonce] = useState(0);
-  const state = usePoolSearch(readers, mint, nonce);
+  const state = usePoolSearch(readers, mint, nonce, reloadKey);
   // A new ?mint= (a link, or back/forward) fills the field: adjusted during render, the
   // React way to follow a prop, rather than in an effect.
   const linkKey = mint ?? (linkError ? `bad:${linkError.raw}` : null);
@@ -139,6 +146,7 @@ export function PoolFinder({
       </p>
 
       {state.status === 'loading' && <p className="text-white/70 text-[13px]">Reading the token and its pools from the chain…</p>}
+      {state.status === 'done' && state.refreshing && <p className="text-white/55 text-[12px]">Reading the token and its pools again…</p>}
       {state.status === 'done' && <SearchResults state={state} />}
     </section>
   );
@@ -196,6 +204,7 @@ function SearchResults({ state }: { state: Extract<SearchState, { status: 'done'
                     key={p.view.address}
                     view={p.view}
                     tokenDecimals={decimals}
+                    safety={safety}
                     health={assessPool({ view: p.view, tokenDecimals: decimals, chainNow: pools.search.chainNow, outside, safety })}
                   />
                 ) : (

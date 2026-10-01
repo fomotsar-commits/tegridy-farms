@@ -49,7 +49,7 @@ export function PendingTradeCard({
       {/* aria-disabled, not disabled: a button switched off under the keyboard drops focus to the page. */}
       <button
         type="button"
-        className={`btn-primary w-full py-2 text-[12px] ${state.checking ? 'opacity-60' : ''}`}
+        className={`btn-primary w-full min-h-[44px] py-2 text-[12px] ${state.checking ? 'opacity-60' : ''}`}
         aria-disabled={state.checking || undefined}
         onClick={() => !state.checking && state.recheck()}
       >
@@ -57,7 +57,7 @@ export function PendingTradeCard({
       </button>
       <button
         type="button"
-        className={`btn-secondary w-full py-2 text-[12px] ${state.checking ? 'opacity-60' : ''}`}
+        className={`btn-secondary w-full min-h-[44px] py-2 text-[12px] ${state.checking ? 'opacity-60' : ''}`}
         aria-disabled={state.checking || undefined}
         onClick={() => !state.checking && state.dismiss()}
       >

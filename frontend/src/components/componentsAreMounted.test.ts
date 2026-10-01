@@ -90,13 +90,11 @@ const UNMOUNTED_BY_DESIGN: Array<{ pattern: RegExp; because: string }> = [
       'pages/CurveLaunchDetailPage.test.tsx), which is the only place it is imported.',
   },
   {
-    pattern: /^solana\/lp\/offers\.ts$/,
+    pattern: /^solana\/lp\/fakeLpWriteApi\.fixture\.ts$/,
     because:
-      'Adding and removing liquidity on /pools is built in steps (SPEC_S2 section 6). Step C6 ' +
-      'adds the pure rules for which button a pool card or a position row offers; step C8 ' +
-      'wires them into PoolCard and YourPositions. Until then nothing on the page offers a ' +
-      'liquidity action, by design. The exemption test below fails the moment C8 mounts it: ' +
-      'delete this entry then.',
+      'Test-only by construction: it imports `vi` from vitest, so it cannot ship. It is the ' +
+      'shared fake LpWriteApi for the /pools liquidity UI suites (components/solana/lp/*.test.tsx), ' +
+      'which is the only place it is imported.',
   },
 ];
 

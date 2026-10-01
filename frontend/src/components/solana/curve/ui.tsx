@@ -143,14 +143,21 @@ export function ImpactRows({ bps }: { bps: bigint | null }) {
   );
 }
 
+/** The picker's hint unless a caller says what a refusal means for its own transaction. */
+const SLIPPAGE_HINT =
+  'If the price moves more than this before your trade lands, the trade is refused and only the fees are spent (the network fee and any priority fee).';
+
 export function SlippagePicker({
   valueBps,
   onChange,
   disabled,
+  hint = SLIPPAGE_HINT,
 }: {
   valueBps: bigint | null;
   onChange: (bps: bigint | null) => void;
   disabled?: boolean;
+  /** What a refusal costs for this kind of transaction. Defaults to the trade's own words. */
+  hint?: string;
 }) {
   // The typed value is local so a preset click can clear it; the parent only ever
   // sees bps, or null for a value the picker will not honour.
@@ -207,8 +214,7 @@ export function SlippagePicker({
         />
       </div>
       <span id={hintId} className="text-white/40 text-[10px] block mt-1">
-        If the price moves more than this before your trade lands, the trade is refused and only the fees are spent (the
-        network fee and any priority fee).
+        {hint}
       </span>
       {/* Always there (empty when there is nothing to say), so what appears in them is read out. */}
       <span id={problemId}>
