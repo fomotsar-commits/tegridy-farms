@@ -57,13 +57,13 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/liquidity': 6,
   '/privacy': 7,
   '/trust': 7,
-  '/pools': 9,
+  '/pools': 7,
   '/nft-finance': 10,
   '/developers': 10,
   '/risks': 3,
   '/copy-trading': 11,
   '/tax': 13,
-  '/curve-launch': 8,
+  '/curve-launch': 7,
   '/eth-curve': 15,
   '/alerts': 17,
   // ScoringRules' written paragraphs; the Cup's coverage notice is a data-unread-ledger.
@@ -78,6 +78,12 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
  *  that matches the same-origin edge: import GECKO_EDGE_GLOB, never a literal. A dead stub
  *  fails nothing; it measures the SPA fallback's parse failure instead. */
 const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading', '/competitions']);
+
+/** The routes that ask /api/solrpc, which the preview proxies to Solana mainnet: what the
+ *  chain answers picks the branch (/curve-launch's write mode, /pools' live AMM card), so
+ *  the count moved with the network. Sealed, each is the branch that cannot read the chain,
+ *  on every machine. A route that starts asking the RPC belongs here. */
+const SOLRPC_SEALED_ROUTES = new Set(['/solana', '/pools', '/curve-launch']);
 
 /** `/nakamigos` opens on a full-viewport splash with no `main` behind it, so it
  *  needs the fixture's own driver rather than the standard mount probe. */
@@ -153,8 +159,19 @@ test.describe('element I: em dashes in venue-voice prose', () => {
       if (FEED_ROUTES.has(path)) {
         await page.route(GECKO_EDGE_GLOB, (r) => r.abort());
       }
+      let solrpcSealed = 0;
+      if (SOLRPC_SEALED_ROUTES.has(path)) {
+        await page.route('**/api/solrpc', (r) => {
+          solrpcSealed++;
+          return r.abort();
+        });
+      }
 
       await settle(page, path);
+      // A seal that catches nothing measures nothing: the route must still ask the RPC.
+      if (SOLRPC_SEALED_ROUTES.has(path)) {
+        expect(solrpcSealed, `${path} no longer asks /api/solrpc: take it out of SOLRPC_SEALED_ROUTES`).toBeGreaterThan(0);
+      }
 
       const hits = await proseDashes(page);
       const shown = hits.slice(0, 8).map((h) => `  ${h.owner}: ${h.text}`).join('\n');

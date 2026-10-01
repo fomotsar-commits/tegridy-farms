@@ -7,8 +7,15 @@ import { readPendingLaunch, savePendingLaunch } from './pendingLaunch';
 import type { CreateLaunchInput, OpenGate, TxOutcome, TxSummary, UploadInput, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
 import { IPFS_STEP_TIMEOUT_MS, ipfsGatewayUrls } from '../../../lib/ipfsGateways';
+import { assertMayLaunch } from '../../../lib/heat/launchGate';
 
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
+// The heat door at submit is proved against the real gate in LaunchCreateForm.heatGate.test.tsx;
+// here it is held open, so the rest of the form can be tested on its own.
+vi.mock('../../../lib/heat/launchGate', async (orig) => ({
+  ...(await orig<typeof import('../../../lib/heat/launchGate')>()),
+  assertMayLaunch: vi.fn(async () => null),
+}));
 
 const signMessage = vi.fn(async (m: Uint8Array) => m);
 const ready: CurveSignerState = {
@@ -338,6 +345,11 @@ describe('launch form: review and send', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
     });
+    // The door is asked first, about the wallet that signs the create.
+    expect(assertMayLaunch).toHaveBeenCalledWith(CREATOR.toBase58());
+    expect(vi.mocked(assertMayLaunch).mock.invocationCallOrder[0]!).toBeLessThan(
+      vi.mocked(api.meta.uploadLaunchMetadata).mock.invocationCallOrder[0]!,
+    );
     const input = vi.mocked(api.meta.uploadLaunchMetadata).mock.calls[0]![0];
     expect(input).toMatchObject({ name: 'Farm Fresh', symbol: 'FRESH', creator: CREATOR.toBase58() });
     const created = vi.mocked(api.prepareCreateLaunch).mock.calls[0]![2];
@@ -414,6 +426,24 @@ describe('launch form: review and send', () => {
     expect(api.meta.uploadLaunchMetadata).toHaveBeenCalledTimes(2);
     const calls = vi.mocked(api.prepareCreateLaunch).mock.calls;
     expect(calls[1]![2].mint.publicKey.toBase58()).not.toBe(calls[0]![2].mint.publicKey.toBase58());
+  });
+
+  // The real gate throws only HeatGateDenied (LaunchCreateForm.heatGate.test.tsx); any
+  // other throw from the door read must still leave the launch unsent.
+  it('a door read that fails in any other way is not sent either', async () => {
+    vi.mocked(assertMayLaunch).mockRejectedValueOnce(new Error('storage exploded'));
+    const api = renderForm(createApi());
+    await fillValid();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
+    });
+    const outcome = await screen.findByTestId('tx-outcome');
+    expect(outcome).toHaveAttribute('data-status', 'not-sent');
+    expect(outcome).toHaveTextContent('The launch door did not open for this wallet');
+    expect(outcome).toHaveTextContent('The island could not be read, so the door stays shut.');
+    expect(signMessage).not.toHaveBeenCalled();
+    expect(api.meta.uploadLaunchMetadata).not.toHaveBeenCalled();
+    expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
   });
 
   it('an upload that is refused stops before any transaction is built', async () => {

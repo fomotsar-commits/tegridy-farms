@@ -29,14 +29,7 @@ import {
   isAllowedNumeraire,
 } from './config';
 import type { FeeConstitutionLine } from './factSheet';
-import {
-  pricingRefusal,
-  resolveLaunchPricing,
-  standardLaunchPricing,
-  tierReadingFromAudit,
-  venueLineBps,
-  type ResolvedLaunchPricing,
-} from './launchPricing';
+import { standardLaunchPricing, type ResolvedLaunchPricing } from './launchPricing';
 import { LOCKER_CLAIMER_ADDRESS } from '../constants';
 import { assertMayLaunch, HeatGateDenied } from '../heat/launchGate';
 import type { GateAuditRow } from '../heat/gateAudit';
@@ -220,13 +213,9 @@ export interface LaunchMapOptions {
   minProceeds?: bigint;
   maxProceeds?: bigint;
   /**
-   * The launch's resolved price (Heat tier + creator revenue share). Resolve it ONCE from
-   * the Heat gate's own decision and pass the SAME object into the projected Fact Sheet
-   * and into this mapper, so the split shown before the signature is the split deployed by
-   * it. Omitted => today's standard rate, which is what every existing caller gets.
-   *
-   * `launchToken` re-checks this against a live reading before broadcasting, so a price
-   * that has since gone stale cannot be minted permanently.
+   * The launch's resolved price (the creator revenue share, the same for every wallet). Pass
+   * the SAME object into the projected Fact Sheet and into this mapper, so the split shown
+   * before the signature is the split deployed. Omitted => today's standard rate.
    */
   pricing?: ResolvedLaunchPricing;
 }
@@ -308,7 +297,7 @@ export function resolveFeeConstitution(
   // creator-directed pool, so the 10000 total and the Doppler floor are identities rather
   // than checks. Defaulting to `standardLaunchPricing()` makes every pre-existing caller
   // (and every already-computed disclosure) byte-identical to before pricing existed.
-  const creatorPoolBps = CREATOR_ATTENTION_POOL_BPS + pricing.creatorBonusBps;
+  const creatorPoolBps = CREATOR_ATTENTION_POOL_BPS + pricing.creatorShareBps;
 
   // Validate the creator's carve-out: non-negative whole bps that don't over-allocate.
   let splitSum = 0;
@@ -584,23 +573,6 @@ export async function launchToken(
       throw new LaunchError('heat-denied', e.message, { cause: e, broadcast: false });
     }
     throw e;
-  }
-
-  // THE PRICE MUST STILL BE EARNED AT THE MOMENT IT IS MINTED.
-  //
-  // The constitution in `cfg` was priced when the wizard read the door, and the locker
-  // makes it permanent the instant this transaction mines. So the discount is re-checked
-  // against the reading that JUST came back — not the one on a screen that has been open
-  // for ten minutes. `pricingRefusal` refuses in one direction only: a config claiming a
-  // deeper discount than the live reading supports. A config that keeps the venue's line
-  // at or above the live price deploys exactly what the creator was shown and is allowed
-  // through. A null gate row is the same as an unreadable instrument (fail-closed), and
-  // with both pricing dials off live and deployed are both the standard line, so this is
-  // inert on today's path.
-  const livePricing = resolveLaunchPricing(gateRow ? tierReadingFromAudit(gateRow) : null);
-  const refusal = pricingRefusal(venueLineBps(cfg.feeConstitution), livePricing);
-  if (refusal) {
-    throw new LaunchError('invalid-config', refusal, { broadcast: false });
   }
 
   const { DopplerSDK } = await import('@whetstone-research/doppler-sdk/evm');

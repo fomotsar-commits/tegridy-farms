@@ -88,7 +88,7 @@ export function FirstFrame() {
               className="ff-input"
               name="heat"
               placeholder="0x… or a Solana address"
-              aria-label="Wallet address to read Heat for (Ethereum or Solana)"
+              aria-label="Wallet address to read Heat for (Ethereum, Base, or Solana)"
               autoComplete="off"
               spellCheck={false}
               required

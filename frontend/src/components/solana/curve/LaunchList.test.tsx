@@ -37,9 +37,16 @@ function renderList(api: WriteApi, wallet = null as null | typeof CREATOR) {
 }
 
 describe('launch list', () => {
-  it('says anyone can appear and nothing was checked', async () => {
+  // The program accepts any wallet, and the list is read from the chain, so it cannot
+  // know which launches the venue's heat door let through.
+  it('says anyone can appear, and that the list cannot tell who came through the gate', async () => {
     renderList(fakeApi());
-    expect(screen.getByText(/Anyone can appear here, and we have not checked any of them/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Anyone can appear here, and this list cannot tell which makers came through the gate\. Always compare the full token address before you buy\./,
+      ),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/we have not checked any of them/);
   });
 
   it('an empty list says how far it looked, never "no launches"', async () => {

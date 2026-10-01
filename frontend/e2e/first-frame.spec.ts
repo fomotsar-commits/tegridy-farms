@@ -183,7 +183,7 @@ test.describe('the first frame is the hero (ruling 2)', () => {
     await expect(fallbackField).toHaveValue(ADDRESS);
 
     releaseHome();
-    const heroField = page.locator('main#main-content form input[aria-label="Wallet address to read Heat for (Ethereum or Solana)"]:not([name])');
+    const heroField = page.locator('main#main-content form input[aria-label="Wallet address to read Heat for (Ethereum, Base, or Solana)"]:not([name])');
     await expect(heroField).toBeVisible({ timeout: 60_000 });
     await expect(heroField, 'the hero dropped the address typed before it arrived').toHaveValue(ADDRESS);
     await expect(heroField, 'focus fell out of the field when the hero arrived').toBeFocused();
@@ -208,7 +208,7 @@ test.describe('the first frame is the hero (ruling 2)', () => {
     await expect(page.locator('main#main-content [aria-busy="true"] input[name="heat"]')).toHaveCount(0, { timeout: 15_000 });
     releaseHome();
     await clientNavigate(page, '/');
-    const heroField = page.locator('main#main-content form input[aria-label="Wallet address to read Heat for (Ethereum or Solana)"]:not([name])');
+    const heroField = page.locator('main#main-content form input[aria-label="Wallet address to read Heat for (Ethereum, Base, or Solana)"]:not([name])');
     await expect(heroField).toBeVisible({ timeout: 60_000 });
     await expect(heroField, 'an address typed minutes ago came back on a later visit').toHaveValue('');
   });

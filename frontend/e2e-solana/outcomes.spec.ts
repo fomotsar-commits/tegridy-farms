@@ -10,6 +10,7 @@ import { ata, buyDirect, createLaunchDirect, fundedKeypair, lamports, landedTx, 
 import { installTestWallet } from './fixtures/testWallet';
 import { installRpcGuard } from './fixtures/rpcGuard';
 import { installUploadStub, makePng } from './fixtures/uploadStub';
+import { installHeatStub } from './fixtures/heatStub';
 import { ui, checkAtSizes, clickReal, connectWallet, expectConnected } from './fixtures/ui';
 
 async function trader(browser: Browser, kp: Keypair) {
@@ -17,6 +18,7 @@ async function trader(browser: Browser, kp: Keypair) {
   const wallet = await installTestWallet(ctx, kp);
   const rpc = await installRpcGuard(ctx);
   await installUploadStub(ctx);
+  await installHeatStub(ctx);
   const page = await ctx.newPage();
   return { ctx, wallet, rpc, page };
 }
@@ -167,7 +169,7 @@ test('a reload WHILE a launch is in the air: the form comes back holding Review 
   const t = await trader(browser, kp);
   t.page.on('dialog', (d) => void d.accept());
   await t.page.goto('/curve-launch');
-  await connectWallet(t.page, ui.createForm(t.page));
+  await connectWallet(t.page, ui.door(t.page));
   const fill = async () => {
     await ui.form.picture(t.page).setInputFiles({ name: 'corn.png', mimeType: 'image/png', buffer: makePng() });
     await ui.form.name(t.page).fill('Reload Corn');

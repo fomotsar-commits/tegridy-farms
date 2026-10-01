@@ -13,6 +13,8 @@ import { TEST_WALLET_NAME } from './testWallet';
 
 export const ui = {
   gateBanner: (p: Page) => p.getByTestId('write-gate-banner'),
+  /** The heat door ("Who may plant"). The create form opens below it only while it is open. */
+  door: (p: Page) => p.getByRole('region', { name: 'Who may plant' }),
   createForm: (p: Page) => p.getByTestId('launch-create-form'),
   publicForever: (p: Page) => p.getByTestId('public-forever'),
   review: (p: Page) => p.getByTestId('tx-review'),

@@ -1,28 +1,26 @@
 // Finding launches, from the chain only: no database, no program-wide scan.
-//
 // `getProgramAccounts` is not allowed through our RPC proxy (an unbounded scan), so
 // launches cannot be enumerated. Instead this site's create transaction mentions a
 // fixed address (`launchIndexAddress`), and `getSignaturesForAddress` on it returns
 // those transactions, newest first.
-//
-// ⚠ ANYONE CAN MENTION THAT ADDRESS. It is public, and the launch program ignores
-// extra accounts, so a launch made anywhere can appear here, and cheap transactions
-// that merely mention it can push real launches down the list. So:
-//   - a page must label this list "Recent launches. Listed automatically. Anyone can
-//     appear here, and we have not checked them.", never "launches made on this site";
-//   - every item is re-checked: only a SUCCESSFUL transaction whose TOP-LEVEL
-//     instruction is `create_launch` on the configured program counts, and its curve
-//     must exist, be owned by that program, and name the same creator;
-//   - paging stops after a fixed number of pages, and the result says how many
-//     entries were looked at, so an empty list reads "none in the latest N", never
-//     "no launches";
-//   - `HIDDEN_MINTS` is a committed list of mints never shown.
-//
+
+// ⚠ ANYONE CAN MENTION THAT ADDRESS: the launch program ignores extra accounts, so a
+// launch made anywhere can appear here, and cheap transactions that merely mention it
+// can push real launches down the list. So a page must say that anyone can appear in
+// this list and that it cannot tell which makers came through the gate (LaunchList.tsx
+// holds the words), never "launches made on this site".
+
+// Every item is re-checked: only a SUCCESSFUL transaction whose TOP-LEVEL instruction
+// is `create_launch` on the configured program counts, and its curve must exist, be
+// owned by that program and name the same creator. Paging stops after a fixed number of
+// pages and the result says how many entries were looked at, so an empty list reads
+// "none in the latest N", never "no launches". `HIDDEN_MINTS` lists mints never shown.
+
 // Every row also carries what was bought in the launch transaction itself, by ANY
-// wallet, because a creator can buy most of the curve at the opening price in the
-// same transaction (directly, through another program, or from a second wallet) and
-// sell into later buyers. It is read from the transaction's token balances, never
-// from which instructions we recognise. "Could not read" is kept apart from 0.
+// wallet: a creator can buy most of the curve at the opening price in the same
+// transaction (directly, through another program, or from a second wallet) and sell
+// into later buyers. It is read from the transaction's token balances, never from which
+// instructions we recognise. "Could not read" is kept apart from 0.
 
 import { Buffer } from 'buffer';
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
@@ -238,13 +236,11 @@ export function fromBase58(s: string): Uint8Array | null {
 /** SPL Token `Transfer` (instruction 3): tag byte, then the amount as a little-endian u64. */
 const TOKEN_TRANSFER = 3;
 
-/**
- * The platform reserve this launch paid, read from create_launch's own call to the
- * token program: the transfer from the curve vault to the treasury's token account.
- * Only calls made BY our create_launch are looked at, so nothing else in the
- * transaction can pose as it. `0n` when create_launch made no such transfer (the
- * program skips it for a zero reserve); `null` when the RPC did not report the calls.
- */
+/** The platform reserve this launch paid, read from create_launch's own call to the
+ *  token program: the transfer from the curve vault to the treasury's token account.
+ *  Only calls made BY our create_launch are looked at, so nothing else in the
+ *  transaction can pose as it. `0n` when create_launch made no such transfer (the
+ *  program skips it for a zero reserve); `null` when the RPC did not report the calls. */
 function reservePaid(
   meta: NonNullable<RawTx['meta']>,
   keys: PublicKey[],
@@ -271,16 +267,12 @@ function reservePaid(
   return paid;
 }
 
-/**
- * Tokens of `mint` that reached any account other than the curve's own vault in this
- * transaction: the sum of every other account's increase, with the platform reserve
- * (`reserve`, paid inside create_launch, not a buy) taken off the treasury's token
- * account. That account can hold a buy too: when the treasury's own wallet launches
- * and buys, its tokens and the reserve land in the same account. `null` when the
- * balances are missing, when the curve vault is not among them (create_launch always
- * fills it, so its absence means the record is incomplete), when an amount does not
- * parse, or when the reserve could not be read.
- */
+/** Tokens of `mint` that reached any account but the curve's own vault in this transaction:
+ *  every other account's increase, less the platform reserve (`reserve`, paid inside
+ *  create_launch, not a buy) on the treasury's token account, which also holds a buy when
+ *  the treasury's own wallet launches and buys. `null` when the balances are missing, when
+ *  the curve vault is not among them (create_launch always fills it, so the record is
+ *  incomplete), when an amount does not parse, or when the reserve could not be read. */
 function boughtInLaunch(
   meta: NonNullable<RawTx['meta']>,
   keys: PublicKey[],
@@ -504,13 +496,10 @@ export function listLaunchesByCreator(
   return scan(rpc, cfg, creator, opts, (o) => o.creator.equals(creator));
 }
 
-/**
- * The transaction that created a launch, found from the chain.
- *
- * First through the token details account, which only the launch transaction
- * normally touches; then through the curve account's oldest signature (only when
- * its whole history fits in one page, so "oldest" is really oldest).
- */
+/** The transaction that created a launch, found from the chain: first through the token
+ *  details account, which only the launch transaction normally touches; then through the
+ *  curve account's oldest signature (only when its whole history fits in one page, so
+ *  "oldest" is really oldest). */
 export async function readLaunchOrigin(rpc: SolanaRpc, cfg: CurveWriteConfig, mint: PublicKey): Promise<Read<LaunchOrigin>> {
   const tryAddress = async (address: PublicKey, limit: number): Promise<Read<LaunchOrigin> | null> => {
     const sigs = asSigInfos(await rpc('getSignaturesForAddress', [address.toBase58(), { limit, commitment: 'confirmed' }]));

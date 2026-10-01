@@ -107,7 +107,7 @@ export interface FetchHeatOptions {
 
 export async function fetchHeat(address: string, opts: FetchHeatOptions = {}): Promise<HeatReading> {
   if (!isSupportedHeatAddress(address)) {
-    throw new HeatUnavailableError('That is not an Ethereum or Solana address.');
+    throw new HeatUnavailableError('That is not an Ethereum, Base, or Solana address.');
   }
 
   const key = cacheKey(address);
@@ -136,7 +136,7 @@ export async function fetchHeat(address: string, opts: FetchHeatOptions = {}): P
     opts.signal?.removeEventListener('abort', onAbort);
   }
 
-  if (res.status === 400) throw new HeatUnavailableError('That is not an Ethereum or Solana address.');
+  if (res.status === 400) throw new HeatUnavailableError('That is not an Ethereum, Base, or Solana address.');
   if (res.status === 429) throw new HeatUnavailableError('Too many readings requested. Try again shortly.');
   if (!res.ok) throw new HeatUnavailableError('The instrument is unreachable. Try again in a moment.');
 

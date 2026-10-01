@@ -178,11 +178,8 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the pool gets funded</p>
             <h2 className="heading-luxury text-xl text-white mb-3">Routes under evaluation</h2>
             <ul className="text-white/85 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
-              {/* pump.fun creator fees only exist for pump-born mints — the
-                  vanity suffix is how those mints identify themselves. */}
-              {bungalow.address?.endsWith('pump') && (
-                <li><strong>Creator-fee share</strong> from the graduated pump.fun pool: trading fees the pool already generates.</li>
-              )}
+              {/* No creator-fee route: the venue does not control a pump.fun coin's creator
+                  fee, and BAYLA's goes whole to the island. */}
               {/* The fee claim follows the same gate as the swap's own fee line. */}
               <li>
                 <strong>Venue swap fees</strong>:{' '}

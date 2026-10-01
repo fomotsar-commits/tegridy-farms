@@ -28,6 +28,10 @@ import { shortenAddress } from '../../lib/formatting';
 // for nobody here, which is stated on the page rather than approximated with a
 // column that looks like one.
 
+/** The island's sentence for its own board, verbatim (memetics.wtf/heat). */
+const ISLAND_FLAMES =
+  "See the flames of the island. Every person's wallets read together, ranked by heat.";
+
 export interface CupBoardProps {
   board: CupBoardData;
   status: CupBoardStatus;
@@ -42,7 +46,7 @@ export function CupBoard({ board, status, account }: CupBoardProps) {
   return (
     <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold text-white">Island Cup</h2>
+        <h2 className="text-sm font-semibold text-white">Volume board</h2>
         <p className="text-[11px] text-white/60">
           {board.legsRead} fill{board.legsRead === 1 ? '' : 's'} read ·{' '}
           {board.washedLegs} struck as round trips
@@ -51,6 +55,18 @@ export function CupBoard({ board, status, account }: CupBoardProps) {
             : ''}
         </p>
       </div>
+
+      {/* This board ranks by size. The island's own board ranks by heat, in its words. */}
+      <p className="mt-1.5 text-xs leading-relaxed">
+        <a
+          href="https://memetics.wtf/flames"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-4 text-white/80"
+        >
+          {ISLAND_FLAMES}
+        </a>
+      </p>
 
       {from !== null && board.newestFillAt !== null ? (
         <p className="mt-1.5 text-xs leading-relaxed text-white/75">
