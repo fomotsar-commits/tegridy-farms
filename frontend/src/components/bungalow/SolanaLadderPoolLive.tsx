@@ -100,7 +100,7 @@ type Config =
  */
 function resolveConfig(poolAddress: string): Config {
   if (!isLadderConfigured()) {
-    return { ok: false, reason: 'This pool is not configured yet — no ladder program address is set for this deployment.' };
+    return { ok: false, reason: 'This pool is not configured yet: no ladder program address is set for this deployment.' };
   }
   try {
     return { ok: true, programId: ladderProgramId(), pool: new PublicKey(poolAddress) };
@@ -477,7 +477,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
 
         {identityMismatch && pool && (
           <p role="alert" className="text-[13px] rounded-lg p-3 m-0" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
-            This pool does not stake {sym} — it reports {pool.mint.slice(0, 6)}…{pool.mint.slice(-4)} as its
+            This pool does not stake {sym}: it reports {pool.mint.slice(0, 6)}…{pool.mint.slice(-4)} as its
             staking mint. That is a configuration error, not a network problem, so no figures are shown and
             nothing here will send a transaction.
           </p>
@@ -500,7 +500,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
               <p role="alert" className="text-[13px] rounded-lg p-3 m-0" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
                 <strong>This pool has been declared degraded.</strong> It takes no new stakes. Every open
                 position still exits, and while it is degraded neither early exit nor the emergency hatch
-                charges any penalty — that is what the flag is for. The deployed program has no instruction
+                charges any penalty. That is what the flag is for. The deployed program has no instruction
                 to switch it back.
               </p>
             )}
@@ -572,11 +572,11 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                       </div>
                       {walletUpdating ? (
                         <p className="m-0 text-[12px]" style={{ color: 'rgba(255,255,255,0.72)' }}>
-                          Confirmed — reading your positions back.
+                          Confirmed. Reading your positions back.
                         </p>
                       ) : walletEmpty ? (
                         <p className="m-0 text-[12px]" style={{ color: 'rgba(255,255,255,0.72)' }}>
-                          No open positions — pick a rung below to start one.
+                          No open positions. Pick a rung below to start one.
                         </p>
                       ) : positions.length === 0 ? (
                         <p role="alert" className="m-0 text-[12px]" style={{ color: '#f0b26b' }}>
@@ -671,7 +671,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
               <div className="grid grid-cols-1 gap-6 @min-[52rem]:grid-cols-12">
                 <div className="min-w-0 @min-[52rem]:col-span-7">
                   <p className="text-[12px] mb-3 m-0" style={{ color: 'rgba(255,255,255,0.78)' }} id="ladder-rungs-label">
-                    Lock length — a longer lock carries more weight, and weight is what decides your share.
+                    Lock length: a longer lock carries more weight, and weight is what decides your share.
                   </p>
                   {/* TAP TARGETS (2026-09-21): seven rungs across a phone came out 40px
                       wide at 393px, under the 44px floor. On a narrow panel the rungs
@@ -847,7 +847,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                   <div className="rounded-[14px] p-4 flex flex-wrap items-center justify-between gap-3"
                     style={{ background: LEDGER_BG, border: '1px solid var(--color-kyle-40)' }}>
                     <p className="text-white/85 text-[13px] m-0">
-                      <strong>{fmtRaw(carriedRaw, decimals)} {sym}</strong> carried from a closed position —
+                      <strong>{fmtRaw(carriedRaw, decimals)} {sym}</strong> carried from a closed position:
                       rewards the reward vault could not cover when it closed, or that the emergency hatch set
                       aside. They are still yours.
                     </p>
@@ -867,7 +867,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                   {walletView?.truncated && (
                     <p role="alert" className="text-[12px] m-0" style={{ color: '#f0b26b' }}>
                       This wallet has more positions than one read could cover, so the list below is partial.
-                      Nothing is missing from your account — only from this view.
+                      Nothing is missing from your account, only from this view.
                     </p>
                   )}
 
@@ -877,7 +877,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                     <p className="text-white/60 text-[13px] m-0">No open positions in this pool.</p>
                   ) : positions.length === 0 ? (
                     <p className="text-[13px] m-0" style={{ color: '#f0b26b' }}>
-                      Your open positions could not be fully read, so none are listed — this is not an empty wallet.
+                      Your open positions could not be fully read, so none are listed. This is not an empty wallet.
                     </p>
                   ) : (
                     <ul className="space-y-3 list-none p-0 m-0">
@@ -943,26 +943,26 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                 {rewardWindow === 'live' ? (
                   <>
                     <li id={`${fid}-perday`}>
-                      <strong className="font-semibold" style={{ color: '#fff' }}>Rewards per day —</strong>{' '}
+                      <strong className="font-semibold" style={{ color: '#fff' }}>Rewards per day:</strong>{' '}
                       {belowFloor
                         ? 'scheduled, but nothing accrues while no one is staked, and that time is not paid out later'
                         : 'to all stakers combined, split by weight'}.
                     </li>
                     <li id={`${fid}-funded`}>
-                      <strong className="font-semibold" style={{ color: '#fff' }}>Funded through —</strong>{' '}
+                      <strong className="font-semibold" style={{ color: '#fff' }}>Funded through:</strong>{' '}
                       the current reward window closes in {humanDuration(runway ?? 0)}.
                     </li>
                   </>
                 ) : (
                   <li id={`${fid}-window`}>
-                    <strong className="font-semibold" style={{ color: '#fff' }}>Reward window —</strong>{' '}
+                    <strong className="font-semibold" style={{ color: '#fff' }}>Reward window:</strong>{' '}
                     {rewardWindow === 'ended'
-                      ? `closed ${dateOf(pool.periodFinish)} — no new rewards are accruing`
-                      : 'no reward window has ever been scheduled — no rewards are accruing'}.
+                      ? `closed ${dateOf(pool.periodFinish)}, so no new rewards are accruing`
+                      : 'no reward window has ever been scheduled, so no rewards are accruing'}.
                   </li>
                 )}
                 <li id={`${fid}-min`}>
-                  <strong className="font-semibold" style={{ color: '#fff' }}>Minimum stake —</strong>{' '}
+                  <strong className="font-semibold" style={{ color: '#fff' }}>Minimum stake:</strong>{' '}
                   the deployed program has no setter for it.
                 </li>
               </ul>
@@ -1185,7 +1185,7 @@ function PositionRow({
             time-left penalty before — and the program refuses whichever one is not
             open, so only the open one is offered. */}
         <ExitButton
-          label={matured ? `Withdraw ${fmtRaw(normal.receivesRaw, decimals)} ${sym}` : `Exit early — keep ${fmtRaw(normal.receivesRaw, decimals)} ${sym}`}
+          label={matured ? `Withdraw ${fmtRaw(normal.receivesRaw, decimals)} ${sym}` : `Exit early: keep ${fmtRaw(normal.receivesRaw, decimals)} ${sym}`}
           detail={matured
             ? `No penalty. ${rewardsPaid}`
             : pool.degraded
@@ -1205,8 +1205,8 @@ function PositionRow({
             quoted, never assumed. */}
         <ExitButton
           label={hatch.penaltyRaw > 0n
-            ? `Emergency withdraw — costs ${fmtRaw(hatch.penaltyRaw, decimals)} ${sym}`
-            : 'Emergency withdraw — no penalty'}
+            ? `Emergency withdraw: costs ${fmtRaw(hatch.penaltyRaw, decimals)} ${sym}`
+            : 'Emergency withdraw: no penalty'}
           detail={hatch.reason}
           needsConfirm
           confirmed={confirmFor === key('hatch')}

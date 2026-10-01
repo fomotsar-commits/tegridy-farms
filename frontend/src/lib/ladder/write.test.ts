@@ -312,6 +312,35 @@ describe('submitLadder', () => {
   });
 });
 
+// The ladder card prints a write's failure as is, and venue copy carries no em dash.
+describe('no failure a write can return carries an em dash', () => {
+  it('every program error, every classifier branch, and both submit outcomes', async () => {
+    const reasons: string[] = [];
+    const add = (r: { ok: boolean; reason?: string }) => { if (!r.ok && r.reason) reasons.push(r.reason); };
+    // Every code in the table: its sentence, or the named fallback for one without.
+    for (const code of Object.keys(LADDER_ERRORS)) add(classifyWriteError(new Error(`Error Number: ${code}.`), SIG));
+    for (const msg of [
+      'User rejected the request.',
+      'Attempt to debit an account but found no record of a prior credit.',
+      'AccountNotInitialized',
+      'Transaction simulation failed: Blockhash not found',
+      'Failed to fetch',
+    ]) add(classifyWriteError(new Error(msg)));
+    add(classifyWriteError(new Error('block height exceeded'), SIG));
+    add(await submitLadder(
+      fakeConn({ statuses: [{ err: { InstructionError: [0, 'ProgramFailedToComplete'] }, confirmationStatus: 'confirmed' }], logs: [] }),
+      fakeWallet(async () => SIG), SOME_IX, noSleep,
+    ));
+    let t = 0;
+    add(await submitLadder(fakeConn({ statuses: [null] }), fakeWallet(async () => SIG), SOME_IX, {
+      sleep: async () => { t += 2_000; }, now: () => t, timeoutMs: 6_000,
+    }));
+    add(await submitLadder(fakeConn({ statuses: [] }), fakeWallet(async () => SIG, null), [], noSleep));
+    expect(reasons).toHaveLength(Object.keys(LADDER_ERRORS).length + 9);
+    for (const reason of reasons) expect(reason).not.toContain('—');
+  });
+});
+
 /* ────────── 5. the account the program will not create for you ────────── */
 
 describe('every door prepends an idempotent ATA create', () => {
