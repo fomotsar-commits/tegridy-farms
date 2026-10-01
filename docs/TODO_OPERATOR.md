@@ -203,12 +203,14 @@ GitLab project is ours and public. A redirect to a name nobody owns sends every 
 the site, and `held-through.json`, to whoever registers it. A private project sends them to a
 sign-in page.
 
-**Done 2026-09-30.** The group is `memetics-finance` (`memetics` was taken). The standby
+**Done 2026-09-30, by O-0929-H1 step 2A (above), which creates the standby public.** The group
+is `memetics-finance` (`memetics` was taken). The standby
 `memetics-finance/tegridy-farms` is public and holds exactly GitHub's branches and tags; the vault
 project stays private. `curl -s https://gitlab.com/api/v4/projects/memetics-finance%2Ftegridy-farms`
 returned `"visibility":"public"`, and a file, a folder, the issue list and `info/refs` answered
-without a sign-in. If the group is ever renamed, change the runbook's four GitLab lines and
-`OUR_REPOS` in `frontend/src/test/sourceLinks.test.ts`, in one PR.
+without a sign-in. If the group is ever renamed, change the address block at the top of
+GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
+`frontend/src/test/sourceLinks.test.ts`, in one PR.
 
 **Before any failover, check again:** that curl must still show `"visibility":"public"`.
 `404 Project Not Found` means stop.

@@ -7,8 +7,10 @@ never the only copy again.** If GitHub disappears, GitLab takes over in about 15
 Read this page before any remote operation: a push, a merge, a mirror change, a deploy. The
 owner's setup list is section 2. The failover drill is section 5A.
 
-**The addresses live only here.** Every command below uses these names. If a name changes,
-change this block, and `MIRROR_URL` in `.github/workflows/mirror-to-gitlab.yml`. The GitLab group
+**The addresses live here.** Every command below uses these names. If a name changes, change
+this block, `MIRROR_URL` in `.github/workflows/mirror-to-gitlab.yml`, and the GitLab lines of
+`docs/DEPLOY_RUNBOOK.md`, "Moving the source links to another git host", with `OUR_REPOS` in
+`frontend/src/test/sourceLinks.test.ts`, in one pull request. The GitLab group
 is `memetics-finance` (renamed 2026-09-30; `memetics` was taken). Run the commands in Git Bash,
 from the root of a clean clone.
 
@@ -18,31 +20,10 @@ STANDBY=https://gitlab.com/memetics-finance/tegridy-farms.git            # publi
 VAULT_URL=https://gitlab.com/memetics-finance/tegridy-farms-vault.git    # private; every ref of the vault
 ```
 
-The four `/source` rules in `frontend/vercel.json`, pointed at the standby. Only the failover
-drill (5A step 6) uses them. Keep this order: the first rule that matches wins.
-
-```
-    {
-      "source": "/source",
-      "destination": "https://gitlab.com/memetics-finance/tegridy-farms",
-      "permanent": false
-    },
-    {
-      "source": "/source-issues",
-      "destination": "https://gitlab.com/memetics-finance/tegridy-farms/-/issues",
-      "permanent": false
-    },
-    {
-      "source": "/source/info/refs",
-      "destination": "https://gitlab.com/memetics-finance/tegridy-farms.git/info/refs",
-      "permanent": false
-    },
-    {
-      "source": "/source/:path*",
-      "destination": "https://gitlab.com/memetics-finance/tegridy-farms/-/blob/mvp-launch/:path*",
-      "permanent": false
-    }
-```
+The site's source links (the four `/source` rules in `frontend/vercel.json`) have one runbook:
+`docs/DEPLOY_RUNBOOK.md`, "Moving the source links to another git host". It holds the four lines
+for GitHub and for the standby, exactly, and the checks to run before and after a move. Only the
+failover drill (5A step 6) and the fail-back (5A.2) move them.
 
 ---
 
@@ -480,10 +461,11 @@ production deploys.
      cannot match that address. Old history stays as it is; that is harmless.
    - The mirror workflow is dead from here on. Clones push to GitLab directly.
 6. **Point the source links at GitLab: the first production build from GitLab.** In
-   `frontend/vercel.json`, give the four `/source` rules the destinations at the top of this page,
-   in that order. In the same merge request, update the address block at the top of this page:
-   `PRIMARY` becomes the GitLab URL, and the GitHub line says it is gone. Open and merge it with
-   `glab` (5A.1). Then:
+   `frontend/vercel.json`, replace the four `/source` lines with the GitLab ones in
+   `docs/DEPLOY_RUNBOOK.md`, "Moving the source links to another git host", exactly, after the
+   checks that section gives. In the same merge request, update the address block at the top of
+   this page: `PRIMARY` becomes the GitLab URL, and the GitHub line says it is gone. Open and
+   merge it with `glab` (5A.1). Then:
    1. `git -C /c/Users/jimbo/dev/tegridy-farms fetch origin`, then
       `git -C /c/Users/jimbo/dev/tegridy-farms rev-parse origin/mvp-launch`: the merge commit.
    2. Vercel > **Deployments**: its production build is **Staged**.
@@ -547,7 +529,8 @@ owner decides. To make GitHub primary again, in this order:
 3. Run `set-remotes.sh <clone> "$PRIMARY" "$STANDBY"` on each clone. It turns the frozen `github`
    record back into origin, and GitLab back into the standby.
 4. Redo 2C: a new deploy key, and the trunk rule back to merge No one, push only that key.
-5. Point the source links back at GitHub.
+5. Point the source links back at GitHub: the GitHub lines in `docs/DEPLOY_RUNBOOK.md`, "Moving
+   the source links to another git host".
 6. Switch GitLab CI off: `docs/CI_ON_GITLAB.md`, "Switching it off". Turn off **Pipelines must
    succeed** first, or nothing on GitLab can merge in the next outage.
 7. Move the scheduled jobs back to GitHub: `docs/OPS_SCHEDULER.md` section 8.
@@ -570,7 +553,8 @@ alarm), and each push from a clone prints an error for its GitLab half. The GitH
    refs that were never public.
 4. Make a new private vault project and push the local vault to it (2B step 2). Build a fresh
    vault first if the newest one is old (5D).
-5. Update the address block at the top of this page and `MIRROR_URL` in the workflow, make a new
+5. Update the address block at the top of this page and every place listed above it (`MIRROR_URL`
+   in the workflow, the standby's source-link lines and `OUR_REPOS`), make a new
    deploy key (2C), and run 2D again on each clone. A host other than gitlab.com also needs its own
    published host key and fingerprint in the workflow and in `mirrorToGitlab.test.ts`, and no
    `ci.skip` push option (`MIRROR_PUSH_OPTION`).
@@ -767,10 +751,10 @@ Each has its own doc:
 - **Scheduled jobs:** `docs/OPS_SCHEDULER.md`. Day to day GitHub runs them, the `github-crons`
   heartbeat says when they stop, and the owner's PC copies GitHub's backups weekly. In a
   failover, Windows Task Scheduler runs them with healthchecks.io alarms, not GitLab schedules.
-- **Source links through our own domain:** branch `fix/source-links-first-party`, its own pull
-  request, merged after this work. Once it lands, the `/source` rules point at GitHub day to
-  day, and 5A step 6 moves them. The on-chain security.txt of the live cp-swap program is item O-0929-10 of
-  `docs/TODO_OPERATOR.md` on that branch.
+- **Source links through our own domain:** `docs/DEPLOY_RUNBOOK.md`, "Moving the source links
+  to another git host". The `/source` rules point at GitHub day to day, and 5A step 6 moves them.
+  The on-chain security.txt of the live cp-swap program is item O-0929-10 of
+  `docs/TODO_OPERATOR.md`.
 
 Not covered:
 - **Builds that fetch from public github.com** (submodules, foundryup, anchor, gitleaks). They read

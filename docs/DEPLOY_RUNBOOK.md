@@ -160,7 +160,8 @@ links (cp-swap's does not yet: TODO_OPERATOR O-0929-10).
 ```
 
 **If GitHub is gone, point them at the GitLab standby.** This is one step of the GitHub-gone
-failover. Replace the four lines above with these four, exactly, then merge:
+failover (`docs/GIT_HOSTING.md` 5A step 6). This runbook is the only place these lines are
+written out. Replace the four lines above with these four, exactly, then merge:
 
 ```json
     { "source": "/source", "destination": "https://gitlab.com/memetics-finance/tegridy-farms", "permanent": false },
@@ -170,8 +171,9 @@ failover. Replace the four lines above with these four, exactly, then merge:
 ```
 
 To go back to GitHub, put the first four lines back. If the GitLab group is ever renamed from
-`memetics-finance`, change it in all four lines above and in `OUR_REPOS` in
-`frontend/src/test/sourceLinks.test.ts`.
+`memetics-finance`, change it in all four lines above, in `OUR_REPOS` in
+`frontend/src/test/sourceLinks.test.ts`, and in the address block at the top of
+`docs/GIT_HOSTING.md`, which lists the other places.
 
 **Before any move, the target must be ours and public.** Merging to `mvp-launch` deploys the
 redirects. A redirect to a name nobody owns sends every trust link on the site to whoever
