@@ -283,34 +283,51 @@ describe('tiers', () => {
   it.each([
     [0, 'Drifter'], [29.99, 'Drifter'],
     [30, 'Observer'], [79.99, 'Observer'],
-    [80, 'Resident'], [299.99, 'Resident'],
+    [80, 'Resident'], [150, 'Resident'], [250, 'Resident'], [299.99, 'Resident'],
     [300, 'Builder'], [799.99, 'Builder'],
     [800, 'Elder'], [1800, 'Elder'],
   ] as const)('%d° is %s', (deg, tier) => {
     expect(tierFor(deg)).toBe(tier);
   });
 
-  // The island's board: the lowest and highest degrees it served in each band. Below
-  // Resident from the 2026-09-23 read; Resident and up from the 2026-09-29 read, whose 80
-  // tier words all sit on the 30 / 80 / 300 / 800 ladder. Degrees and tier only.
+  // WARM (2026-08-07) and the 2026-09-23 board were served on the retired 150 / 250
+  // bands, so their pairs no longer place. These are the island's own words on today's:
+  // the board, as_of 2026-09-30T02:12:18Z (/api/flames?limit=500, 80 flames), the lowest
+  // and highest degrees it served in each band. On the retired bands 21 of those 80
+  // flames disagreed with their served word; on 30 / 80 / 300 / 800, none.
   it.each([
-    [27.22, 'Drifter'], [45.11, 'Observer'], [73.89, 'Observer'], [90.26, 'Resident'],
-    [156.8, 'Resident'], [273.27, 'Resident'], [285.34, 'Resident'], [394.66, 'Builder'],
-    [671.89, 'Builder'], [890.93, 'Elder'], [1798.77, 'Elder'],
+    [28.43, 'Drifter'], [50.64, 'Observer'], [75.05, 'Observer'], [91.67, 'Resident'],
+    [156.8, 'Resident'], [285.34, 'Resident'], [394.66, 'Builder'], [671.89, 'Builder'],
+    [890.93, 'Elder'], [1798.77, 'Elder'],
   ] as const)('agrees with the island: %d° was served %s', (deg, tier) => {
+    expect(tierFor(deg)).toBe(tier);
+  });
+
+  // The dEaD read, as_of 2026-09-29T12:06:58Z: the wallet's served word, and two of its
+  // rooms' served room_tier, one just past Builder's floor and one just short of Elder's.
+  it.each([
+    [1476.1, 'Elder'], [313.84, 'Builder'], [790.25, 'Builder'],
+  ] as const)('agrees with the dEaD read: %d° was served %s', (deg, tier) => {
     expect(tierFor(deg)).toBe(tier);
   });
 
   it('nextTier counts the remaining degrees, and is null at Elder', () => {
     expect(nextTier(195.54)).toEqual({ tier: 'Builder', floor: 300, remaining: 300 - 195.54 });
     expect(nextTier(0)).toEqual({ tier: 'Observer', floor: 30, remaining: 30 });
+    // The live defect: the card told a 200° wallet "50.00° to Elder".
+    expect(nextTier(200)).toEqual({ tier: 'Builder', floor: 300, remaining: 100 });
+    expect(nextTier(250)).toEqual({ tier: 'Builder', floor: 300, remaining: 50 });
+    expect(nextTier(300)).toEqual({ tier: 'Elder', floor: 800, remaining: 500 });
     expect(nextTier(799.99)).toEqual({ tier: 'Elder', floor: 800, remaining: 800 - 799.99 });
     expect(nextTier(800)).toBeNull();
+    expect(nextTier(1476.1)).toBeNull();
   });
 });
 
 describe('the island dials', () => {
-  // The island's line: "Observer 30° · Resident 80° · Builder 300° · Elder 800°."
+  // memetics.wtf/heat, fetched 2026-09-29 (Last-Modified 2026-09-30T02:08:02Z), prints
+  // ELDER 800°, BUILDER 300°, RESIDENT 80°, OBSERVER 30°, COLD below. /api/heat still
+  // serves the word Drifter under 30, so the bottom rung keeps the served word.
   it('publishes the island bands, 30 / 80 / 300 / 800', () => {
     expect(TIER_FLOORS.map((t) => [t.tier, t.floor])).toEqual([
       ['Elder', 800],
@@ -498,7 +515,8 @@ describe('tierAtFloor', () => {
   });
 
   it('names nothing between rungs, above the top, or a hair off a floor', () => {
-    for (const floor of [123, 10, 150, 250, 80.5, 299.99, 365, 1000]) {
+    // 150 and 250 are the Builder and Elder floors the island retired.
+    for (const floor of [123, 10, 150, 250, 80.5, 299.99, 180, 365, 1000]) {
       expect(tierAtFloor(floor), String(floor)).toBeNull();
     }
   });

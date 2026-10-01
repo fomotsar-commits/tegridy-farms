@@ -19,10 +19,14 @@ page keeps the newest thirty days.
 ### 2026-09-30
 
 - On /competitions, the board is called the Volume board, and it links to the island's flames board, ranked by heat.
+- The heat ladder, its next-tier hint and the explainer's tier list use the island's current tiers: Builder at 300 degrees and Elder at 800.
+- The hero, the FAQ and llms.txt read the island's current sentence on rooms.
+- The heat explainer reads the island's whole current paragraph, and its current lines on weight and the Apes.
 
 ### 2026-09-29
 
 - The heat words now match the island's /heat page: Builder 300°, Elder 800°, every other room adds a quarter of its own, the island's own weigh heavier, your clock on a token starts at your first hold, and Base is named beside Ethereum and Solana.
+- The heat explainer reads the island's whole current paragraph, and its current lines on weight and the Apes.
 - On /curve-launch, the door says the island reads every linked wallet, where it used to say a Solana-only wallet cannot be measured.
 - The venue counts 12 bungalows, as the island does, and /nb1 is the island's next open lot, linked to its harbor.
 - The BAYLA room links to the island's ledger.

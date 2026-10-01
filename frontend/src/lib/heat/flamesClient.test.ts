@@ -162,9 +162,11 @@ describe('parsing a flame', () => {
   });
 
   it('keeps the tier the island served, where the bands would name another', async () => {
-    // 524.27 is Elder by the bands; the island serves Builder, and Builder is the word.
+    // 850 is Elder by the bands (800); the island serves Builder, and Builder is the word.
+    // The pair must disagree on today's bands: 524.27 served Builder stopped proving
+    // anything once Builder ran to 800.
     fetchMock.mockResolvedValue(
-      res({ body: { flames: [BODY.flames[0], { ...BODY.flames[1], tier: 'Builder' }], as_of_unix: 1 } }),
+      res({ body: { flames: [BODY.flames[0], { ...BODY.flames[1], degrees: 850, tier: 'Builder' }], as_of_unix: 1 } }),
     );
     const board = await fetchFlames({ limit: 5 });
     expect(board?.flames.map((f) => f.tier)).toEqual(['Elder', 'Builder']);
