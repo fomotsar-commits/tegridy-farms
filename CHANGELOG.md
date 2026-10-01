@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-09-30
 
+- On the six Ethereum and Base rooms' farms, the swap-fee line names the room's own chain, not Solana, and says what that chain's swap fee really is.
 - On /competitions, the board is called the Volume board, and it links to the island's flames board, ranked by heat.
 - The heat ladder, its next-tier hint and the explainer's tier list use the island's current tiers: Builder at 300 degrees and Elder at 800.
 - The hero, the FAQ and llms.txt read the island's current sentence on rooms.
