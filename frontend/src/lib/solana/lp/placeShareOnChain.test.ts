@@ -95,6 +95,25 @@ describe('placeShareOnChain', () => {
     const broken: SolanaRpc = async () => ({ not: 'a list' });
     expect((await placeShareOnChain(broken, opts, { lpMint: s.lpMint, lpAccount: s.lpAccount })).kind).toBe('unread');
   });
+
+  // readPools reads the pool, then its vaults. When only that second read fails it
+  // still answers 'ok', with this pool's entry 'unread'. That is "try again", not
+  // "this share's pool is not on the chain".
+  it('the pool is found but its vaults cannot be read: unread, never "not found"; once the network answers it is placed', async () => {
+    const s = share();
+    const history = { [s.lpAccount]: [{ keys: [s.p.address.toBase58()] }] };
+    const base = chainWith(s.accounts, history);
+    let reads = 0;
+    const secondReadFails: SolanaRpc = async (method, params) => {
+      if (method === 'getMultipleAccounts' && ++reads === 2) throw new Error('HTTP 429');
+      return base(method, params);
+    };
+    const r = await placeShareOnChain(secondReadFails, opts, { lpMint: s.lpMint, lpAccount: s.lpAccount });
+    expect(reads).toBe(2);
+    expect(r).toEqual({ kind: 'unread', detail: expect.stringMatching(/HTTP 429/) });
+    // The same share, read again once the network answers: placed.
+    expect((await placeShareOnChain(chainWith(s.accounts, history), opts, { lpMint: s.lpMint, lpAccount: s.lpAccount })).kind).toBe('placed');
+  });
 });
 
 describe('a share placed on chain stays placed for the session', () => {

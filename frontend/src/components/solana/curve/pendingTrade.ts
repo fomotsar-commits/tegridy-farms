@@ -28,8 +28,14 @@ export const LP_PENDING_SCOPE = 'lp:pending';
  * window (about a minute and a half), so one sent this long ago can no longer land.
  */
 export const PENDING_TRADE_TTL_MS = 10 * 60_000;
-/** Kept per scope. More than this at once is not a real situation; the oldest are dropped. */
-const MAX_NOTES = 5;
+/**
+ * Kept per scope; past this the oldest are dropped, and dropping a live note reopens
+ * the form it held while its transaction can still land. The liquidity scope holds
+ * every pool, so it must outlast one note per pool and direction for the most
+ * positions a wallet shows (2 × MAX_POSITIONS = 40) and more. Each note is a separate
+ * signed send inside a ten-minute window, so 64 at once is not a real situation.
+ */
+export const MAX_NOTES = 64;
 
 export type TradeKind = Exclude<TxKind, 'create'>;
 /** Every kind a note may carry. A Record, so a new kind of transaction is a compile error here until it is listed. */
@@ -61,6 +67,13 @@ export interface PendingTrade {
 const SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,90}$/;
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
+/**
+ * The storage key for a scope. A bare mint address is that launch's scope, as every
+ * function here took before scopes existed, so a mint and `curveTradeScope(mint)` name
+ * the same notes, and a bare mint never reads a key that nothing writes.
+ */
+const storageKey = (scope: string): string => (BASE58.test(scope) ? curveTradeScope(scope) : scope);
+
 /** A pool address as stored, or null when it is not one. */
 function poolOf(v: unknown): string | null {
   if (typeof v !== 'string' || !BASE58.test(v)) return null;
@@ -88,7 +101,7 @@ function parse(raw: unknown, now: number): PendingTrade | null {
 /** Every live note in this scope, newest first. Unreadable storage = none. */
 export function readPendingTrades(scope: string, now: number = Date.now()): PendingTrade[] {
   try {
-    const raw = sessionStorage.getItem(scope);
+    const raw = sessionStorage.getItem(storageKey(scope));
     if (!raw) return [];
     const list: unknown = JSON.parse(raw);
     if (!Array.isArray(list)) return [];
@@ -109,8 +122,8 @@ function stored(n: PendingTrade): object {
 
 function write(scope: string, notes: PendingTrade[]): void {
   try {
-    if (notes.length === 0) sessionStorage.removeItem(scope);
-    else sessionStorage.setItem(scope, JSON.stringify(notes.slice(0, MAX_NOTES).map(stored)));
+    if (notes.length === 0) sessionStorage.removeItem(storageKey(scope));
+    else sessionStorage.setItem(storageKey(scope), JSON.stringify(notes.slice(0, MAX_NOTES).map(stored)));
   } catch {
     /* storage unavailable: the page still works, it just cannot remember across a reload */
   }

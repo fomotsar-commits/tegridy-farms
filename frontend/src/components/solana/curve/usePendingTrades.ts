@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clipDetail } from '../../../lib/launcher/solana/curve';
 import { clearPendingTrade, readPendingTrades, savePendingTrade, type PendingTrade } from './pendingTrade';
-import type { PreparedTx, TxOutcome } from './ports';
+import type { LpKind, PreparedTx, TxOutcome } from './ports';
 
 /**
  * The page-level half of "sent, not confirmed yet": a transaction in this scope (one
@@ -38,7 +38,13 @@ function poolOf(p: PreparedTx): string | null {
   return p.summary.kind === 'lp-deposit' || p.summary.kind === 'lp-withdraw' ? p.summary.pool.toBase58() : null;
 }
 
-export type CheckSignature = (signature: string, lastValidBlockHeight: number | null) => Promise<TxOutcome>;
+/**
+ * Look a note's transaction up again. A liquidity note's check is also told its kind,
+ * so a refusal found there is said in that kind's own words ("Withdrawals are switched
+ * off on this pool…"), not as a bare program error. Every other note is checked with
+ * the two arguments it always was.
+ */
+export type CheckSignature = (signature: string, lastValidBlockHeight: number | null, kind?: LpKind) => Promise<TxOutcome>;
 
 export function usePendingTrades(
   /** The storage scope: `curveTradeScope(mint)` for a launch, `LP_PENDING_SCOPE` for liquidity. */
@@ -72,7 +78,9 @@ export function usePendingTrades(
     for (const n of current) {
       let o: TxOutcome;
       try {
-        o = await check(n.signature, n.lastValidBlockHeight);
+        o = await (n.kind === 'lp-deposit' || n.kind === 'lp-withdraw'
+          ? check(n.signature, n.lastValidBlockHeight, n.kind)
+          : check(n.signature, n.lastValidBlockHeight));
       } catch (e) {
         // A failed read changes nothing we know: the note stays.
         o = { status: 'unknown', signature: n.signature, message: `Could not check just now (${clipDetail(e)}).` };

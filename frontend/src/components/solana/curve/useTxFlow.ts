@@ -211,11 +211,18 @@ export function useTxFlow(
     let outcome: TxOutcome;
     try {
       // With the blockhash window, "no record and the window has passed" becomes
-      // `expired` (safe to retry) instead of staying unknown.
+      // `expired` (safe to retry) instead of staying unknown. A liquidity transaction
+      // also passes its config and kind, so a refusal found now is said in its own
+      // words; every other kind is asked exactly as it always was.
+      const p = s.prepared;
       outcome = await api.recheckOutcome(
         rpc,
         sig,
-        s.prepared ? { lastValidBlockHeight: s.prepared.lastValidBlockHeight } : undefined,
+        p
+          ? p.kind === 'lp-deposit' || p.kind === 'lp-withdraw'
+            ? { lastValidBlockHeight: p.lastValidBlockHeight, cfg: p.check.intent.cfg, kind: p.kind }
+            : { lastValidBlockHeight: p.lastValidBlockHeight }
+          : undefined,
       );
     } catch (e) {
       // A failed re-read changes nothing we know. Keep the prior answer.

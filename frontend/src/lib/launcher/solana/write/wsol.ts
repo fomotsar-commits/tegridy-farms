@@ -7,6 +7,8 @@
 //
 // The close is planned only when the account was absent or held nothing in the
 // builder's read, so a wallet's own wrapped SOL is never unwrapped behind its back.
+// An account someone else can close, or a kept one an approved spender can draw
+// from, is not used at all (`wsolPlanFrom` says why).
 // Every builder that uses this also watches the account with a balance row, so
 // wrapped SOL that arrives after that read is blocked by the balance check, not paid
 // out.
@@ -19,9 +21,10 @@ import {
   createCloseAccountInstruction,
   createSyncNativeInstruction,
 } from '@solana/spl-token';
-import { SystemProgram, type PublicKey, type TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, SystemProgram, type TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
+import { formatSol } from '../curve/format';
 
 export interface WsolPlan {
   /** The signer's WSOL associated account. */
@@ -32,21 +35,40 @@ export interface WsolPlan {
   heldBefore: bigint;
 }
 
-function tokenAmount(data: Uint8Array): bigint | null {
-  if (data.length < 72) return null;
-  return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(64, true);
+/** The parts of a classic token account (165 bytes) this plan needs; null when it is not one. */
+function readAccount(data: Uint8Array): { amount: bigint; delegate: PublicKey | null; delegatedAmount: bigint; closeAuthority: PublicKey | null } | null {
+  if (data.length < 165) return null;
+  const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const opt = (at: number) => (v.getUint32(at, true) === 1 ? new PublicKey(data.subarray(at + 4, at + 36)) : null);
+  return { amount: v.getBigUint64(64, true), delegate: opt(72), delegatedAmount: v.getBigUint64(121, true), closeAuthority: opt(129) };
 }
 
 /**
  * Plan from the builder's read of the signer's WSOL account (`null` = absent).
- * A string = the account exists but is not a readable token account.
+ * A string = this account cannot be used, said in plain words:
+ *  - it is not a readable token account;
+ *  - someone other than the signer can close it. Wrapped SOL is native, so its close
+ *    authority can close it with SOL inside and send every lamport wherever it likes.
+ *    Kept, that would hand over what this transaction leaves in it; closed, the token
+ *    program refuses our close (only that authority may sign it), so the transaction
+ *    would fail. Either way it is not used. Only that authority can remove itself;
+ *  - it is kept (it already holds wrapped SOL, so this transaction leaves SOL in it)
+ *    and an approved spender can still move some out. A closed account is emptied and
+ *    closed in the same transaction, so a spender there can take nothing.
  */
 export function wsolPlanFrom(owner: PublicKey, account: { data: Uint8Array } | null): WsolPlan | string {
   const ata = associatedTokenAddress(WSOL_MINT, owner);
   if (!account) return { ata, closeAfter: true, heldBefore: 0n };
-  const held = tokenAmount(account.data);
-  if (held === null) return 'Your wrapped-SOL account could not be read.';
-  return { ata, closeAfter: held === 0n, heldBefore: held };
+  const acc = readAccount(account.data);
+  if (!acc) return 'Your wrapped-SOL account could not be read.';
+  if (acc.closeAuthority && !acc.closeAuthority.equals(owner)) {
+    return `${acc.closeAuthority.toBase58()} can close your wrapped-SOL account (${ata.toBase58()}) and take what is in it, and only that key can change that. This site will not use that account, so nothing was built.`;
+  }
+  const closeAfter = acc.amount === 0n;
+  if (!closeAfter && acc.delegate && acc.delegatedAmount > 0n) {
+    return `An approved spender (${acc.delegate.toBase58()}) can move up to ${formatSol(acc.delegatedAmount, 9)} wrapped SOL out of your wrapped-SOL account, and this would leave SOL in it. Revoke that approval in your wallet, then try again.`;
+  }
+  return { ata, closeAfter, heldBefore: acc.amount };
 }
 
 /** Create the signer's WSOL account if it is missing. The signer pays and owns it. */

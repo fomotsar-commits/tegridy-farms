@@ -3,11 +3,14 @@
 // note whose pool cannot be read holds every pool (it fails closed). The curve's
 // scope stays byte-identical; usePendingTrades.test.ts pins it.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
-import { KEY, SIG, buySummary, prepared } from './fakeWriteApi.fixture';
-import { LP_PENDING_SCOPE, curveTradeScope, readPendingTrades, savePendingTrade, type TradeKind } from './pendingTrade';
-import { usePendingTrades } from './usePendingTrades';
-import type { TxSummary } from './ports';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { KEY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
+import { LP_PENDING_SCOPE, MAX_NOTES, curveTradeScope, readPendingTrades, savePendingTrade, type TradeKind } from './pendingTrade';
+import { usePendingTrades, type CheckSignature } from './usePendingTrades';
+import { useTxFlow } from './useTxFlow';
+import { lpHeld } from '../lp/offers';
+import { MAX_POSITIONS } from '../../../lib/solana/lp/positions';
+import type { CurveWriteConfig, PreparedTx, TxSummary, WriteRpc } from './ports';
 
 // Spelled out rather than imported, so this file says what the stored bytes are.
 const LP = 'lp:pending';
@@ -104,9 +107,9 @@ describe('liquidity notes', () => {
     expect(readPendingTrades(LP)).toMatchObject([{ kind: 'lp-withdraw', pool: POOL.toBase58() }]);
   });
 
-  // usePendingTrades.test.ts's "ignores storage it cannot trust" now reads a scope
-  // nothing writes (it passes a bare mint, unedited), so the same check is made here
-  // against both real scopes.
+  // usePendingTrades.test.ts's "ignores storage it cannot trust" passes a bare mint
+  // (it is kept unedited); a bare mint names that launch's scope, so it reads what it
+  // writes. The same check is made here against both scopes, spelled as the pages do.
   it('ignores storage it cannot trust, in both scopes: a bad signature, an unknown kind, a note past its lifetime, bad JSON', () => {
     for (const scope of [LP, curve(MINT)]) {
       sessionStorage.setItem(
@@ -131,5 +134,71 @@ describe('liquidity notes', () => {
       sessionStorage.setItem(scope, JSON.stringify([...notes, { kind: 'transfer', signature: SIG, lastValidBlockHeight: 1, sentAt: now }]));
       expect(readPendingTrades(scope).map((n) => n.kind)).toEqual(kinds);
     }
+  });
+
+  // One scope holds every pool. A cap sized for one launch's notes dropped the oldest
+  // pool's note while its transaction could still land, reopening its form.
+  it('a note per pool is kept for more pools than a wallet shows positions: none of them lets go', () => {
+    const t0 = Date.now();
+    const pools = Array.from({ length: 2 * MAX_POSITIONS }, (_, i) => KEY(100 + i).toBase58());
+    pools.forEach((pool, i) => savePendingTrade(LP, { kind: 'lp-withdraw', signature: pool.repeat(2), lastValidBlockHeight: 1, pool }, t0 + i));
+    const notes = readPendingTrades(LP, t0 + pools.length);
+    expect(notes).toHaveLength(pools.length);
+    for (const pool of pools) expect(lpHeld(notes, pool, 'remove'), pool).toBe(true);
+    expect(MAX_NOTES).toBeGreaterThanOrEqual(2 * MAX_POSITIONS);
+  });
+});
+
+describe('a bare mint is that launch’s scope', () => {
+  // Every function took a mint before scopes existed, and the curve's own tests still
+  // pass one. A bare mint must read and write the launch's real key, never a key of its own.
+  it('reads the notes stored at curve-launch:pending-trade:<mint>, and writes there', () => {
+    sessionStorage.setItem(curve(MINT), JSON.stringify([{ kind: 'sell', signature: SIG, lastValidBlockHeight: 4, sentAt: Date.now() }]));
+    expect(readPendingTrades(MINT)).toMatchObject([{ kind: 'sell', signature: SIG }]);
+    sessionStorage.clear();
+    savePendingTrade(MINT, { kind: 'buy', signature: SIG2, lastValidBlockHeight: 5 });
+    expect(Array.from({ length: sessionStorage.length }, (_, i) => sessionStorage.key(i))).toEqual([curve(MINT)]);
+    expect(readPendingTrades(curve(MINT))).toMatchObject([{ kind: 'buy', signature: SIG2 }]);
+  });
+});
+
+describe('checking a liquidity transaction again says it in liquidity words', () => {
+  const CFG = { tag: 'the prepared transaction’s own config' } as unknown as CurveWriteConfig;
+
+  it('the pending card’s check is told a liquidity note’s kind; a curve note is checked exactly as before', async () => {
+    savePendingTrade(LP, { kind: 'lp-withdraw', signature: SIG, lastValidBlockHeight: 9, pool: POOL.toBase58() });
+    const lpCheck = vi.fn<CheckSignature>(async (s) => ({ status: 'unknown', signature: s, message: 'slow' }));
+    renderHook(() => usePendingTrades(LP, lpCheck, vi.fn()));
+    await waitFor(() => expect(lpCheck).toHaveBeenCalledWith(SIG, 9, 'lp-withdraw'));
+
+    savePendingTrade(curve(MINT), { kind: 'pool-sell', signature: SIG2, lastValidBlockHeight: 7 });
+    const curveCheck = vi.fn<CheckSignature>(async (s) => ({ status: 'unknown', signature: s, message: 'slow' }));
+    renderHook(() => usePendingTrades(curve(MINT), curveCheck, vi.fn()));
+    await waitFor(() => expect(curveCheck).toHaveBeenCalled());
+    expect(curveCheck.mock.calls[0]).toEqual([SIG2, 7]);
+  });
+
+  it('Check again on a liquidity outcome passes its config and kind; a curve outcome passes only the window', async () => {
+    for (const kind of ['lp-deposit', 'lp-withdraw'] as const) {
+      const api = fakeApi({
+        submitPrepared: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'slow' })),
+        recheckOutcome: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'slow' })),
+      });
+      const { result } = renderHook(() => useTxFlow(api, {} as WriteRpc));
+      const p = prepared(lpSummary(kind), { check: { intent: { cfg: CFG } } as unknown as PreparedTx['check'] });
+      await act(() => result.current.prepare(async () => ({ ok: true, prepared: p })));
+      await act(() => result.current.confirm({ publicKey: KEY(2), signTransaction: async (t) => t }));
+      await act(() => result.current.recheck());
+      expect(api.recheckOutcome).toHaveBeenCalledWith({}, SIG, { lastValidBlockHeight: 1234, cfg: CFG, kind });
+    }
+    const api = fakeApi({
+      submitPrepared: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'slow' })),
+      recheckOutcome: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'slow' })),
+    });
+    const { result } = renderHook(() => useTxFlow(api, {} as WriteRpc));
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
+    await act(() => result.current.confirm({ publicKey: KEY(2), signTransaction: async (t) => t }));
+    await act(() => result.current.recheck());
+    expect(api.recheckOutcome).toHaveBeenCalledWith({}, SIG, { lastValidBlockHeight: 1234 });
   });
 });

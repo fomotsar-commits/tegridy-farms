@@ -408,6 +408,18 @@ describe('prepareLpDeposit', () => {
     ok(await deposit(w, { maxIn: most }));
   });
 
+  // The SOL limit is spendableSol, never the wallet's balance. Typing tokens whose SOL
+  // cost is over it must not say "your wallet has {spendable}": the wallet app shows more.
+  it('typing tokens that cost more SOL than this wallet can put in names the most it can add, not a false balance', async () => {
+    const wallet = 1_000_000_000n;
+    const w = world({ wallet });
+    const most = spendableSol({ lamports: wallet, walletFloor: BigInt(rent(0)), feeReserve: LP_FEE_RESERVE, lpAccountRent: BigInt(rent(165)), wsolCreateRent: BigInt(rent(165)) });
+    // 200 tokens cost about 2 SOL at this pool's price.
+    const msg = refused(await deposit(w, { driving: 'token', maxIn: 200n * 10n ** 6n }));
+    expect(msg).toBe(LP_COPY.rentBand(`${(Number(most) / 1e9).toFixed(9).replace(/0+$/, '')} SOL`));
+    expect(msg).not.toMatch(/your wallet has/);
+  });
+
   it('refused when the other side moved beyond the maximum shown; within the tolerance it prepares', async () => {
     const w = world();
     const shown = (ok(await deposit(w)).summary as LpDepositSummary).max.token;
@@ -455,11 +467,41 @@ describe('prepareLpDeposit', () => {
     if (!r.ok) expect(r.outcome).toMatchObject({ stage: 'simulate', message: expect.stringMatching(/^Blocked: the simulation shows a different token amount/) });
   });
 
-  it('a pool-share account with a delegate is a notice on the review, not a refusal', async () => {
+  // A spender approved on the account the new shares land in can move them out: the
+  // shares would not be only yours. A drainer's usual approval is exactly this.
+  it('a pool-share account an approved spender can still draw from is refused, naming the spender; one with nothing left to spend is not', async () => {
     const w = world();
     w.chain.tokenAccount(w.lpAta, w.pool.lpMint, ME, 0n, { delegate: STRANGER, delegatedAmount: 5n });
-    const s = ok(await deposit(w)).summary as LpDepositSummary;
-    expect(s.notices).toEqual([`An approved spender (${STRANGER.toBase58()}) can move up to 0.000000005 out of the account this pays into.`]);
+    expect(refused(await deposit(w))).toBe(LP_COPY.delegatedDestination(STRANGER.toBase58(), '0.000000005', 'pool-share', w.lpAta.toBase58()));
+    const spent = world();
+    spent.chain.tokenAccount(spent.lpAta, spent.pool.lpMint, ME, 0n, { delegate: STRANGER, delegatedAmount: 0n });
+    expect((ok(await deposit(spent)).summary as LpDepositSummary).notices).toEqual([]);
+  });
+
+  it('a pool-share account a stranger can close once it is empty is a notice, not a refusal', async () => {
+    const w = world();
+    w.chain.tokenAccount(w.lpAta, w.pool.lpMint, ME, 0n, { closeAuthority: STRANGER });
+    expect((ok(await deposit(w)).summary as LpDepositSummary).notices).toEqual([LP_COPY.closeAuthorityNotice(STRANGER.toBase58(), 'pool-share')]);
+  });
+
+  // Wrapped SOL is native: its close authority can close it with SOL inside and keep
+  // every lamport. Kept, the unused SOL would sit there; empty, our close would fail.
+  it('a wrapped-SOL account a stranger can close is refused, kept or empty, and so is a kept one a spender can draw from', async () => {
+    const kept = world({ heldWsol: 10_000_000n });
+    kept.chain.tokenAccount(kept.wsolAta, WSOL_MINT, ME, 10_000_000n, { closeAuthority: STRANGER });
+    expect(refused(await deposit(kept))).toMatch(new RegExp(`^${STRANGER.toBase58()} can close your wrapped-SOL account .* and take what is in it`));
+    const empty = world({ heldWsol: 0n });
+    empty.chain.tokenAccount(empty.wsolAta, WSOL_MINT, ME, 0n, { closeAuthority: STRANGER });
+    expect(refused(await deposit(empty))).toMatch(new RegExp(`^${STRANGER.toBase58()} can close your wrapped-SOL account`));
+    const spender = world({ heldWsol: 10_000_000n });
+    spender.chain.tokenAccount(spender.wsolAta, WSOL_MINT, ME, 10_000_000n, { delegate: STRANGER, delegatedAmount: 10_000_000n });
+    expect(refused(await deposit(spender))).toBe(
+      `An approved spender (${STRANGER.toBase58()}) can move up to 0.01 wrapped SOL out of your wrapped-SOL account, and this would leave SOL in it. Revoke that approval in your wallet, then try again.`,
+    );
+    // Empty: it is filled, used and closed in this one transaction, so a spender can take nothing.
+    const closed = world({ heldWsol: 0n });
+    closed.chain.tokenAccount(closed.wsolAta, WSOL_MINT, ME, 0n, { delegate: STRANGER, delegatedAmount: 10_000_000n });
+    expect(ok(await deposit(closed)).steps.some((s) => s.kind === 'close-wsol')).toBe(true);
   });
 });
 
@@ -535,7 +577,7 @@ describe('prepareLpWithdraw: what may refuse it', () => {
     expect(refused(await withdraw(w))).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer fee.*Leaving without this site/);
   });
 
-  it('a payout account a stranger owns is refused, naming the owner; required memos are refused; a delegate is only a notice', async () => {
+  it('a payout account a stranger owns is refused, naming the owner; required memos are refused; so is a spender who could take the payout', async () => {
     const w = holding();
     w.chain.tokenAccount(w.tokenAta, w.mint, STRANGER, 0n);
     expect(refused(await withdraw(w))).toBe(LP_COPY.foreignOwner(w.tokenAta.toBase58(), STRANGER.toBase58()));
@@ -547,8 +589,32 @@ describe('prepareLpWithdraw: what may refuse it', () => {
     expect(refused(await withdraw(m))).toBe(LP_COPY.memosRequired);
     const d = holding();
     d.chain.tokenAccount(d.tokenAta, d.mint, ME, 0n, { delegate: STRANGER, delegatedAmount: 1_000_000n });
-    const s = ok(await withdraw(d)).summary as LpWithdrawSummary;
-    expect(s.notices).toContain(`An approved spender (${STRANGER.toBase58()}) can move up to 1 out of the account this pays into.`);
+    expect(refused(await withdraw(d))).toBe(LP_COPY.delegatedDestination(STRANGER.toBase58(), '1', 'token', d.tokenAta.toBase58()));
+  });
+
+  // The withdrawal's SOL lands in the signer's wrapped-SOL account. Kept, a stranger
+  // who can close it takes the payout in the next slot; empty, the close we plan is
+  // refused on chain (only that authority may sign it), so it is said here instead.
+  it('a wrapped-SOL account a stranger can close is refused, kept or empty; a kept one a spender can draw from too', async () => {
+    const kept = holding({ heldWsol: 10_000_000n });
+    kept.chain.tokenAccount(kept.wsolAta, WSOL_MINT, ME, 10_000_000n, { closeAuthority: STRANGER });
+    expect(refused(await withdraw(kept))).toMatch(new RegExp(`^${STRANGER.toBase58()} can close your wrapped-SOL account \\(${kept.wsolAta.toBase58()}\\) and take what is in it`));
+    const empty = holding({ heldWsol: 0n });
+    empty.chain.tokenAccount(empty.wsolAta, WSOL_MINT, ME, 0n, { closeAuthority: STRANGER });
+    expect(refused(await withdraw(empty))).toMatch(new RegExp(`^${STRANGER.toBase58()} can close your wrapped-SOL account`));
+    const spender = holding({ heldWsol: 10_000_000n });
+    spender.chain.tokenAccount(spender.wsolAta, WSOL_MINT, ME, 10_000_000n, { delegate: STRANGER, delegatedAmount: 1n });
+    expect(refused(await withdraw(spender))).toMatch(/^An approved spender .* wrapped-SOL account, and this would leave SOL in it\./);
+    // The signer as its own close authority is fine.
+    const own = holding({ heldWsol: 10_000_000n });
+    own.chain.tokenAccount(own.wsolAta, WSOL_MINT, ME, 10_000_000n, { closeAuthority: ME });
+    ok(await withdraw(own));
+  });
+
+  it('a payout token account a stranger can close once it is empty is a notice, not a refusal', async () => {
+    const w = holding();
+    w.chain.tokenAccount(w.tokenAta, w.mint, ME, 0n, { closeAuthority: STRANGER });
+    expect((ok(await withdraw(w)).summary as LpWithdrawSummary).notices).toContain(LP_COPY.closeAuthorityNotice(STRANGER.toBase58(), 'token'));
   });
 
   it('a pool-share account that is not the signer’s, not this pool’s share, or holds none is refused', async () => {

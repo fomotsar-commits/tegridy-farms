@@ -16,6 +16,7 @@ import type { PublicKey } from '@solana/web3.js';
 import type { CurveAccount, CurveRpc, CurveTerms, GlobalConfig, LaunchState, BondingCurve, Read, SolanaRpc } from '../../../lib/launcher/solana/curve';
 import type {
   CurveWriteConfig,
+  LpKind,
   OpenGate,
   Prepared,
   PreparedTx,
@@ -140,8 +141,11 @@ export interface WriteApi {
   ): Promise<Prepared>;
 
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;
-  /** With `lastValidBlockHeight`, a signature with no record past that height is `expired` (safe to retry). */
-  recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number }): Promise<TxOutcome>;
+  /**
+   * With `lastValidBlockHeight`, a signature with no record past that height is `expired` (safe to retry).
+   * With `cfg` and a liquidity `kind`, a refusal is said in that kind's words (useTxFlow passes them for LP kinds only).
+   */
+  recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; cfg?: CurveWriteConfig; kind?: LpKind }): Promise<TxOutcome>;
 
   readTokenMetadata(rpc: CurveRpc, mint: PublicKey): Promise<Read<TokenMetadata>>;
   /** Anyone can appear in this list. The page must say so. */

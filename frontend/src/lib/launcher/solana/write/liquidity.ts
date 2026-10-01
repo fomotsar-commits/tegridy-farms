@@ -91,6 +91,9 @@ export const LP_COPY = {
   frozenDestination: (what: string) => `Your ${what} account is frozen by the token's issuer, so nothing can be paid into it.`,
   cpiGuard: 'Your account for this token has CPI Guard switched on, which stops a pool taking tokens from it. Switch it off in your wallet, then try again.',
   memosRequired: 'Your account for this token only accepts transfers that carry a memo, and the pool cannot add one. Switch off required memos in your wallet, then try again.',
+  delegatedDestination: (spender: string, amount: string, what: string, address: string) =>
+    `An approved spender (${spender}) can move up to ${amount} out of your ${what} account (${address}), and this would pay into it. Revoke that approval in your wallet, then try again.`,
+  closeAuthorityNotice: (authority: string, what: string) => `${authority} can close your ${what} account once it is empty.`,
   notUsable: (what: string, address: string) => `The account at ${address} is not a ${what} account this site can use, so nothing was built.`,
   withdrawBit:
     "Withdrawals are switched off on this pool by the pool program's admin (the team's vault). Only the vault can switch them back on. Your pool shares stay in your wallet.",
@@ -353,7 +356,9 @@ function amountOf(acc: RawAccount | null): bigint {
  * the signer (or the refusal names its owner: an associated account's owner can be
  * reassigned, which is how drainers work), and not be frozen. Token-2022: a source
  * must not have CPI Guard locking transfers, and a destination must not require
- * memos. A delegate, or a close authority other than the signer, is a notice.
+ * memos. A destination with an approved spender who can still move something is
+ * refused (what arrives would not be only yours); one a stranger can close once it
+ * is empty is a notice. Wrapped SOL's spender and close authority: see wsolPlanFrom.
  * An absent account is not refused here; the caller decides what absence means.
  */
 export function accountCheck(
@@ -377,13 +382,19 @@ export function accountCheck(
     if (want.use === 'source' && getCpiGuard(unpacked)?.lockCpi) return { refuse: LP_COPY.cpiGuard, notices: [] };
     if (want.use === 'destination' && getMemoTransfer(unpacked)?.requireIncomingTransferMemos) return { refuse: LP_COPY.memosRequired, notices: [] };
   }
-  const notices: string[] = [];
-  if (b.delegate) {
+  // Wrapped SOL's delegate and close authority decide whether that account is used at
+  // all, so wsolPlanFrom (wsol.ts) rules on them, for every builder that uses it.
+  if (want.mint.equals(WSOL_MINT)) return { notices: [] };
+  if (want.use === 'destination' && b.delegate && b.delegatedAmount > 0n) {
+    // A spender approved on an account this pays into can move what arrives: the
+    // payout would not be only yours. Revoking is one step in the wallet.
     const amt = want.decimals === undefined ? `${b.delegatedAmount} of its smallest units` : formatTokenAmount(b.delegatedAmount, want.decimals, want.decimals).text;
-    notices.push(`An approved spender (${b.delegate.toBase58()}) can move up to ${amt} out of the account this pays into.`);
+    return { refuse: LP_COPY.delegatedDestination(b.delegate.toBase58(), amt, want.what, acc.address), notices: [] };
   }
-  if (b.closeAuthority && !b.closeAuthority.equals(want.owner)) {
-    notices.push(`${b.closeAuthority.toBase58()} can close your ${want.what === 'wrapped SOL' ? 'wrapped-SOL' : want.what} account and take what is in it.`);
+  const notices: string[] = [];
+  if (want.use === 'destination' && b.closeAuthority && !b.closeAuthority.equals(want.owner)) {
+    // Not native SOL: the token program lets a close authority close it only when it is empty.
+    notices.push(LP_COPY.closeAuthorityNotice(b.closeAuthority.toBase58(), want.what));
   }
   return { notices };
 }
@@ -441,7 +452,10 @@ function depositProblemCopy(p: PlanProblem, ctx: { driving: 'sol' | 'token'; dec
       return LP_COPY.tooSmallDeposit(unit(ctx.driving, (num + den - 1n) / den));
     }
     case 'over-balance':
-      if (p.side === 'sol' && ctx.driving === 'sol') return LP_COPY.rentBand(sol(p.have));
+      // On the SOL side `have` is spendableSol: the balance less the fee reserve, the
+      // account deposits and the wallet's rent floor. It is never "what your wallet
+      // has", whichever box was typed in, so it is named as the most you can add.
+      if (p.side === 'sol') return LP_COPY.rentBand(sol(p.have));
       return LP_COPY.overBalance(unit(p.side, p.need), unit(p.side, p.have));
     case 'overflow':
       return LP_COPY.gateSaysNo(['The amounts are too large for one transaction.']);
@@ -505,7 +519,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   // 9. Wrapped SOL.
   const plan = wsolPlanFrom(a.owner, snap.wsol.account);
   if (typeof plan === 'string') return notSent('build', plan);
-  const notices = [...lpCheck.notices, ...(plan.closeAfter ? [] : wsolCheck.notices)];
+  const notices = [...lpCheck.notices];
 
   // 10. What can go in.
   const availableToken = amountOf(snap.tokenAccount.account);
@@ -731,7 +745,7 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
   if (!snap.tokenAccount.account && tokRent === null) return notSent('build', LP_COPY.cannotBuild('its token account size is not one this site knows'));
 
   // 10. Said, never refused.
-  const notices = [...dest.notices, ...(plan.closeAfter ? [] : wsolCheck.notices)];
+  const notices = [...dest.notices];
   if (!swapEnabled(p)) notices.push(LP_COPY.swapsOff);
   else if (snap.chainNow !== null && snap.chainNow < p.openTime) notices.push(LP_COPY.swapsBlocked(formatWhen(p.openTime)));
   const safety = classifyToken(a.tokenMint.toBase58(), snap.mint, snap.metaplex);

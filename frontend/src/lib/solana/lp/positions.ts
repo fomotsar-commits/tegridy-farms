@@ -247,6 +247,9 @@ export async function placeShareOnChain(rpc: SolanaRpc, opts: ReadPoolsOptions, 
         const read = await readPools(rpc, [candidate], opts);
         if (read.kind === 'unread') return { kind: 'unread', detail: read.detail };
         const entry = read.entries[0];
+        // A pool whose vaults could not be read is a failed read, not an answer: say
+        // "try again", never "not on the chain".
+        if (entry?.kind === 'unread') return { kind: 'unread', detail: entry.detail };
         if (entry?.kind !== 'pool' || entry.view.snapshot.pool.lpMint !== share.lpMint) return { kind: 'not-found' };
         placedPools.set(`${program}:${share.lpMint}`, { pool: candidate, via: 'chain' });
         return { kind: 'placed', entry };
