@@ -3,9 +3,10 @@
  * button.
  *
  * The numbering is positional (Anchor numbers `#[error_code]` variants from 6000 in
- * declaration order), so this table is pinned against the fork's own IDL by
- * `errors.test.ts`: the names below must equal the IDL's names at the same codes,
- * and every IDL code must have a sentence.
+ * declaration order), so this table is pinned against the fork's own committed IDL
+ * by "cp-swap: 6000-6014, every code has plain-English copy" in
+ * `lib/launcher/solana/write/idl.test.ts`: the names below must equal the IDL's names
+ * at the same codes, and every IDL code must have a sentence.
  *
  * cp-swap and the launch program BOTH start at 6000, so a bare number never says
  * whose error it is. The caller must first work out which program failed (the
