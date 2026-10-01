@@ -28,10 +28,11 @@ import {
  * for name, flag for flag. Adding an account upstream fails the test; it does
  * not ship a transaction that reverts.
  *
- * NOTHING HERE HAS EVER EXECUTED. The program is not deployed (see program.ts),
- * so these builders are unexercised by construction until it is. The
- * source-derived test is what stands in for that until a validator can run them
- * — CI's `migration-rehearsal` job is where they get their first real execution.
+ * WHAT HAS RUN. `initializeIx` and `swapBaseInputIx` execute against the exact
+ * mainnet binary on a local validator: the e2e fixtures open pools with the first
+ * (e2e-solana/fixtures/lp.ts), and the site's pool swap is the second
+ * (launch-flow.spec.ts). `depositIx` and `withdrawIx` have never executed; for
+ * them, the source-derived test above is what stands in until an e2e runs them.
  *
  * Pure: no connection, no signing, no fetch.
  */
