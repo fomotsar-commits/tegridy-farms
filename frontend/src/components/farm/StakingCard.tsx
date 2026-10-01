@@ -535,7 +535,7 @@ export function StakingCard({
                   "bonus yield" with a link back to this same page was a live CTA for
                   a dead feature; show an honest status label until it deploys. */}
               {isDeployed(TEGRIDY_RESTAKING_ADDRESS) ? (
-                <Link to="/farm" className="text-center text-white/60 text-[12px] hover:text-white transition-colors mt-1">
+                <Link to="/earn/toweli" className="text-center text-white/60 text-[12px] hover:text-white transition-colors mt-1">
                   Restake for bonus yield &#8594;
                 </Link>
               ) : (

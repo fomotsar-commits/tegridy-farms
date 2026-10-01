@@ -179,6 +179,6 @@ describe('Dashboard LP boost notice', () => {
     // the failure mode, so the notice has to say the figure itself is wrong.
     expect(screen.getByText(/accruing at the unboosted rate/i)).toBeTruthy();
     const link = screen.getByRole('link', { name: /farm page/i });
-    expect(link.getAttribute('href')).toBe('/farm');
+    expect(link.getAttribute('href')).toBe('/earn/toweli');
   });
 });

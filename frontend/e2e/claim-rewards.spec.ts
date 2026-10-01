@@ -21,7 +21,7 @@ const onAnvil = !!process.env.ANVIL_RPC_URL;
 test.describe('Claim rewards surfaces', () => {
   test('/farm mounts the reward-bearing sections when connected', async ({ page, walletMock }) => {
     await walletMock.connect();
-    await page.goto('/farm');
+    await page.goto('/earn/toweli');
     // TWO SEPARATE FACTS, and collapsing them into one assertion is what made this
     // the flakiest test in the Anvil job.
     //
@@ -152,7 +152,7 @@ test.describe('Claim rewards surfaces', () => {
     // render specs read.
     const account = await walletMock.useIsolatedForkAccount();
     await walletMock.connect(account);
-    await page.goto('/farm');
+    await page.goto('/earn/toweli');
 
     // 1. Open a position, so there is something for rewards to accrue against.
     // 40,000 TOWELI, not a token amount, and the size is doing real work. Rewards accrue

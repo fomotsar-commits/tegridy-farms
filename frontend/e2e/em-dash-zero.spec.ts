@@ -32,7 +32,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/admin': 0,
   '/launch/0x0000000000000000000000000000000000000000': 0,
   '/vesting': 0,
-  '/farm': 0,
+  '/earn': 0,
   '/island': 0,
   '/airdrop': 0,
   '/exposure': 0,
@@ -276,11 +276,11 @@ test.describe('element I: em dashes in the rooms', () => {
   });
 });
 
-// Element I on each room's farm, /farm?bungalow=<id>, keyed by registry id. The reads are
+// Element I on each room's farm, /earn/<id>, keyed by registry id. The reads are
 // sealed (every /api path and every host but localhost aborted), so each pool card renders
 // its unread branch and the count holds from run to run. The BAYLA ladder card's read
 // branch is walked in the next block. toweli's farm is its own room's prose, and nb1, not
-// yet live, falls through to the venue's.
+// yet live, goes to the venue's list.
 const ROOM_FARM_DEBT: Record<string, number> = {
   toweli: 11,
   bayla: 0,
@@ -300,7 +300,7 @@ const ROOM_FARM_DEBT: Record<string, number> = {
 
 test.describe("element I: em dashes on each room's farm", () => {
   for (const [id, budget] of Object.entries(ROOM_FARM_DEBT)) {
-    const path = `/farm?bungalow=${id}`;
+    const path = `/earn/${id}`;
     test(`${path} carries ${budget} prose em dash${budget === 1 ? '' : 'es'}`, async ({ page }) => {
       test.skip(test.info().project.name !== 'chromium', 'the debt here is a desktop measurement');
       test.slow();
@@ -353,7 +353,7 @@ test.describe("element I: em dashes on each room's farm", () => {
 const LIVE_POOL = process.env.EM_DASH_LIVE_POOL === '1';
 
 test.describe('element I: the BAYLA lock ladder card, once its pool reads', () => {
-  const path = '/farm?bungalow=bayla';
+  const path = '/earn/bayla';
   test(`${path} reads ${LIVE_POOL ? 'the live pool' : 'the recorded pool'} and carries 0 prose em dashes`, async ({ page }) => {
     test.skip(test.info().project.name !== 'chromium', 'measured on the desktop project only');
     test.slow();

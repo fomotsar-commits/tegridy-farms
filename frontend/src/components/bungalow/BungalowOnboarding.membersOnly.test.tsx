@@ -30,7 +30,7 @@ describe('the welcome’s last step', () => {
     expect(text).toContain('The lock ladder');
     expect(text).toMatch(/BAYLA staking runs on the venue's own lock ladder/);
     expect(text).not.toMatch(/lighthouse/i);
-    expect(screen.getByRole('link', { name: 'See the ladder' }).getAttribute('href')).toBe('/farm');
+    expect(screen.getByRole('link', { name: 'See the ladder' }).getAttribute('href')).toBe('/earn/bayla');
   });
 
   it.each([

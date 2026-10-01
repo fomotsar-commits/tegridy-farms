@@ -211,7 +211,7 @@ test.describe('the first frame is the hero (ruling 2)', () => {
     await fallbackField.fill(ADDRESS);
 
     // Leave before the home page ever mounts, then come back to it client-side.
-    await clientNavigate(page, '/farm');
+    await clientNavigate(page, '/earn');
     await expect(page.locator('main#main-content [aria-busy="true"] input[name="heat"]')).toHaveCount(0, { timeout: 15_000 });
     releaseHome();
     await clientNavigate(page, '/');
@@ -222,8 +222,8 @@ test.describe('the first frame is the hero (ruling 2)', () => {
 
   test('the frame is shut and absent off the venue home', async ({ page }) => {
     await page.route('**/assets/index-*.js', (route) => route.abort());
-    await page.goto('/farm');
+    await page.goto('/earn');
     await page.waitForLoadState('domcontentloaded');
-    expect(await page.locator('#first-frame').count(), 'the venue hero is left in the DOM on /farm').toBe(0);
+    expect(await page.locator('#first-frame').count(), 'the venue hero is left in the DOM on /earn').toBe(0);
   });
 });

@@ -115,7 +115,7 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
       {/* Live market — self-hides when the registry has no indexed pool. */}
       <BungalowMarket bungalow={bungalow} />
 
-      {/* THE LIGHTHOUSE: READ-ONLY HERE, MANAGED AT /farm.
+      {/* THE LIGHTHOUSE: READ-ONLY HERE, MANAGED AT /earn/<id>.
           2026-08-31 BUG, caught by the TOWELI-parity study: this mounted the
           PLAIN Synthetix card against pools that are now LighthouseLadder.
           Every read the plain card issues also exists on the ladder, so the
@@ -155,9 +155,9 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
           <p className="text-[12px] text-white/70 mb-3">
             Locks run 7 days to 4 years, earning a 0.40x to 4.00x share — the venue&apos;s standard lock
             ladder. Staking, claiming and every exit live on the{' '}
-            <Link to="/farm" className="underline underline-offset-2 text-white hover:text-white/80">pool page</Link>.
+            <Link to={`/earn/${bungalow.id}`} className="underline underline-offset-2 text-white hover:text-white/80">pool page</Link>.
           </p>
-          <Link to="/farm" className="btn-secondary px-5 py-2 text-[13px] inline-block">Manage at the lighthouse →</Link>
+          <Link to={`/earn/${bungalow.id}`} className="btn-secondary px-5 py-2 text-[13px] inline-block">Manage at the lighthouse →</Link>
         </section>
       )}
 

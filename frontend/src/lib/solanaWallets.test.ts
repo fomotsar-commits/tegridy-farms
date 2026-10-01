@@ -11,6 +11,8 @@ import {
   CoinbaseWalletAdapter,
   CoinbaseWalletName,
   IPadAwarePhantomWalletAdapter,
+  JupiterWalletAdapter,
+  JupiterWalletName,
   MetaMaskWalletAdapter,
   MetaMaskWalletName,
   SolflareWalletAdapter,
@@ -715,5 +717,135 @@ describe.each(OPEN_APP_ROWS)('$name — an "Open app" row', (row) => {
     expect(adapter.connected).toBe(false);
     await expect(adapter.signTransaction({} as never)).rejects.toBeInstanceOf(WalletNotConnectedError);
     await expect(adapter.signMessage(new Uint8Array(1))).rejects.toBeInstanceOf(WalletNotConnectedError);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Jupiter — an "Open app" row with jup.ag's own hand-off
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('JupiterWalletAdapter', () => {
+  // jup.ag's own detection: Jupiter Mobile's in-app browser says JupiterBrowser/.
+  // WITH a Safari token, so that only the JupiterBrowser/ check, and not the
+  // general "no Safari token is a webview" rule, keeps the row from handing off.
+  const JUPITER_IN_APP = [
+    ['iOS', `${UA.iosSafari} JupiterBrowser/2.4.0`],
+    ['Android', `${UA.androidChrome} JupiterBrowser/2.4.0`],
+  ] as const;
+  const POOL = 'https://memetics.finance/earn/bayla';
+
+  it('is named exactly "Jupiter", the name the extension registers under', () => {
+    // The dedupe is by exact name: "Jupiter Wallet" (jup.ag's display label)
+    // would show an extension user two Jupiter rows, one of them dead.
+    expect(JupiterWalletName).toBe('Jupiter');
+    expect(new JupiterWalletAdapter().name).toBe('Jupiter');
+  });
+
+  it('a computer without the extension is NotDetected, pointing at the extension page', () => {
+    const adapter = new JupiterWalletAdapter();
+    expect(adapter.readyState).toBe(WalletReadyState.NotDetected);
+    expect(adapter.url).toBe('https://jup.ag/wallet');
+  });
+
+  it.each([
+    ['iOS Safari', UA.iosSafari],
+    ['Android Chrome', UA.androidChrome],
+  ])('%s is Loadable, and its install page is the mobile app', (_label, ua) => {
+    setUserAgent(ua);
+    const adapter = new JupiterWalletAdapter();
+    expect(adapter.readyState).toBe(WalletReadyState.Loadable);
+    expect(adapter.url).toBe('https://jup.ag/mobile');
+  });
+
+  it.each([
+    ['iPad Safari', MAC_SAFARI_UA],
+    ['an iPad in-app browser', IPAD_WEBVIEW_UA],
+  ])('%s is NotDetected, so the modal shows the QR a phone scans, beside the extension page', (_label, ua) => {
+    // Not a hand-off into an app the iPad may not have: the QR works with
+    // Jupiter Mobile on the visitor's phone either way.
+    setUserAgent(ua);
+    setTouchPoints(5);
+    const adapter = new JupiterWalletAdapter();
+    expect(adapter.readyState).toBe(WalletReadyState.NotDetected);
+    expect(adapter.url).toBe('https://jup.ag/wallet');
+  });
+
+  it('opens THIS page inside Jupiter Mobile the way jup.ag does: jupjupjup://browse/<page>, not encoded', async () => {
+    setLocation(POOL);
+    setUserAgent(UA.iosSafari);
+    await new JupiterWalletAdapter().connect();
+    expect(window.location.href).toBe(`jupjupjup://browse/${POOL}`);
+  });
+
+  it.each([
+    ['iOS', UA.iosSafari, 'https://apps.apple.com/us/app/jupiter-mobile-solana-wallet/id6484069059'],
+    ['Android', UA.androidChrome, 'https://play.google.com/store/apps/details?id=ag.jup.jupiter.android'],
+  ])('on %s, a page still in focus a second later (no app took over) goes to the store', async (_os, ua, store) => {
+    setLocation(POOL);
+    setUserAgent(ua);
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    await new JupiterWalletAdapter().connect();
+    vi.advanceTimersByTime(999);
+    expect(window.location.href).toBe(`jupjupjup://browse/${POOL}`);
+    vi.advanceTimersByTime(1);
+    expect(window.location.href).toBe(store);
+  });
+
+  it('stays put when the app took over (the page lost focus)', async () => {
+    setLocation(POOL);
+    setUserAgent(UA.iosSafari);
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    await new JupiterWalletAdapter().connect();
+    vi.advanceTimersByTime(2000);
+    expect(window.location.href).toBe(`jupjupjup://browse/${POOL}`);
+  });
+
+  it('stays put when the timer fires late: the phone backgrounded the page because the app took over', async () => {
+    // The visitor comes back from Jupiter, the page has focus again, and the
+    // overdue timer runs. It must not send them to the store.
+    setLocation(POOL);
+    setUserAgent(UA.iosSafari);
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    await new JupiterWalletAdapter().connect();
+    vi.setSystemTime(Date.now() + 30_000);
+    vi.advanceTimersByTime(1000);
+    expect(window.location.href).toBe(`jupjupjup://browse/${POOL}`);
+  });
+
+  it.each(JUPITER_IN_APP)('never offers a hop into Jupiter from inside Jupiter Mobile (%s)', async (_os, ua) => {
+    setUserAgent(ua);
+    const adapter = new JupiterWalletAdapter();
+    adapter.on('error', () => {});
+    expect(adapter.readyState).toBe(WalletReadyState.NotDetected);
+    await expect(adapter.connect()).rejects.toBeInstanceOf(WalletNotReadyError);
+    vi.advanceTimersByTime(2000);
+    expect(window.location.href).toBe(PAGE);
+  });
+
+  it('a computer refuses, and neither navigates nor falls back', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const adapter = new JupiterWalletAdapter();
+    adapter.on('error', () => {});
+    await expect(adapter.connect()).rejects.toBeInstanceOf(WalletNotReadyError);
+    vi.advanceTimersByTime(2000);
+    expect(window.location.href).toBe(PAGE);
+  });
+
+  it('autoConnect never navigates', async () => {
+    setLocation(POOL);
+    setUserAgent(UA.iosSafari);
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const adapter = new JupiterWalletAdapter();
+    expect(adapter.readyState).toBe(WalletReadyState.Loadable);
+    await adapter.autoConnect();
+    vi.advanceTimersByTime(2000);
+    expect(window.location.href).toBe(POOL);
+  });
+
+  it('declares legacy and v0, and never signs — the real wallet replaces this row first', async () => {
+    const adapter = new JupiterWalletAdapter();
+    adapter.on('error', () => {});
+    expect(adapter.supportedTransactionVersions).toEqual(new Set(['legacy', 0]));
+    await expect(adapter.signTransaction({} as never)).rejects.toBeInstanceOf(WalletNotConnectedError);
   });
 });

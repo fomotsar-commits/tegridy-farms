@@ -311,7 +311,7 @@ function OverviewStrip({ epoch, epochCount, feeBps }: { epoch: number; epochCoun
   );
 }
 
-// ─── Voting power banner (with /farm CTA) ──────────────────────────
+// ─── Voting power banner (with /earn/toweli CTA) ──────────────────────────
 // Exported for VoteIncentivesSection.power.test.tsx on the same grounds as
 // LeaderboardControls below: this banner only mounts once VoteIncentives is
 // wired into the frontend, so it is unreachable from a render of the section
@@ -359,7 +359,7 @@ export function VotingPowerBanner({ userPower, userUsed, powerUnread, deadline, 
             <div className="flex items-center gap-3 flex-wrap">
               <p className="text-yellow-300 text-[13px]">No voting power at this epoch's snapshot.</p>
               <Link
-                to="/farm"
+                to="/earn/toweli"
                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11.5px] font-semibold bg-purple-500/25 text-purple-100 border border-purple-400/45 hover:bg-purple-500/35 transition-colors"
               >
                 Stake TOWELI →
