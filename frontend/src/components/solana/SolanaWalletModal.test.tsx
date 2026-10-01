@@ -127,6 +127,18 @@ async function openList() {
 }
 
 /**
+ * Lets the mount-time restore of a saved wallet finish. While it runs the
+ * provider reports `connecting`, and a click read from that render does not
+ * connect. The restore is microtasks only: an awaited act() drains them and
+ * commits the re-render they queue. findByRole races that commit against a timer.
+ */
+async function restoreSettled() {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
+/**
  * The invariant: every wallet the provider offers has a row a visitor can see
  * and reach — in the dialog, in the tab order, not folded. Throws otherwise.
  */
@@ -243,10 +255,11 @@ describe('SolanaWalletModal — clicks', () => {
     localStorage.setItem('walletName', JSON.stringify('Trust'));
     const trust = new FakeWallet('Trust', WalletReadyState.Loadable);
     mount([new FakeWallet('Phantom', WalletReadyState.NotDetected), trust]);
+    await restoreSettled();
     const dialog = await openList();
     expect(trust.connectCalls).toBe(0);
     fireEvent.click(within(dialog).getByText('Trust Wallet'));
-    await waitFor(() => expect(trust.connectCalls).toBe(1));
+    expect(trust.connectCalls).toBe(1);
   });
 });
 
@@ -303,11 +316,8 @@ describe('useSolanaConnect — a saved wallet that is not installed', () => {
     localStorage.setItem('walletName', JSON.stringify('Phantom'));
     const phantom = new FakeWallet('Phantom', WalletReadyState.Installed);
     mount([phantom, new FakeWallet('Trust', WalletReadyState.NotDetected)]);
-    // Let the mount-time restore of the saved wallet finish: while it runs the
-    // provider reports `connecting`, and the hook rightly opens the list then.
-    await act(async () => {
-      await Promise.resolve();
-    });
+    // Mid-restore, the hook rightly opens the list instead.
+    await restoreSettled();
     fireEvent.click(screen.getByRole('button', { name: 'connect' }));
     await waitFor(() => expect(phantom.connectCalls).toBe(1));
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -323,9 +333,7 @@ describe('useSolanaConnect — a saved "Open app" wallet on a phone', () => {
     localStorage.setItem('walletName', JSON.stringify('MetaMask'));
     const metamask = new FakeWallet('MetaMask', WalletReadyState.Loadable);
     mount([new FakeWallet('Phantom', WalletReadyState.Loadable), metamask]);
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await restoreSettled();
     fireEvent.click(screen.getByRole('button', { name: 'connect' }));
     const dialog = await screen.findByRole('dialog');
     expect(metamask.connectCalls).toBe(0);
@@ -339,9 +347,7 @@ describe('useSolanaConnect — a saved "Open app" wallet on a phone', () => {
     const phantom = new FakeWallet('Phantom', WalletReadyState.Loadable);
     const metamask = new FakeWallet('MetaMask', WalletReadyState.Loadable);
     mount([phantom, metamask]);
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await restoreSettled();
     fireEvent.click(screen.getByRole('button', { name: 'connect' }));
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByText('Phantom'));
