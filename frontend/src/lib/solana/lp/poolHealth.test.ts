@@ -179,3 +179,23 @@ describe('assessPool: a launch pool is checked against its own recent average', 
     expect(h.deposits.verdict).toBe('unchecked');
   });
 });
+
+// D15: a token that poses as SOL, USDC, USDT, BAYLA or TOWELI from a different mint is
+// a warning on the token itself, and never takes a deposit here.
+describe('assessPool: a copied well-known name', () => {
+  it('refuses deposits into a perfect pool when the token copies a well-known name', () => {
+    const copy: TokenSafety = {
+      ...OK_TOKEN,
+      verdict: 'warn',
+      warnings: [{ code: 'copies-known-name', text: 'It calls itself USDC, but it is NOT the real USDC.' }],
+    } as TokenSafety;
+    const h = assessPool({ ...base, safety: copy, view: view(), outside: outside(0.01) });
+    expect(h.deposits.verdict).toBe('refused');
+    expect(h.deposits.reasons).toContain('It calls itself by a well-known token’s name but has a different mint. This site does not take deposits into copies.');
+  });
+
+  it('any other warning alone still allows deposits (a live mint authority stays a warning)', () => {
+    const warned: TokenSafety = { ...OK_TOKEN, verdict: 'warn', warnings: [{ code: 'mint-authority', text: 'x' }] } as TokenSafety;
+    expect(assessPool({ ...base, safety: warned, view: view(), outside: outside(0.01) }).deposits.verdict).toBe('allowed');
+  });
+});

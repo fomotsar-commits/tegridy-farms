@@ -238,7 +238,7 @@ describe('your positions', () => {
         kind: 'ok' as const,
         chainNow: 5n,
         totalShares: 1,
-        positions: [{ lpMint: v.snapshot.pool.lpMint, lpAccount: key().toBase58(), lpAmount: 250_000n, placement: 'found' as const, placementDetail: null, pool: { kind: 'pool' as const, view: v }, value: { token0: 1n, token1: 2n, sharePct: 25 } }],
+        positions: [{ lpMint: v.snapshot.pool.lpMint, lpAccount: key().toBase58(), lpAmount: 250_000n, placement: 'found' as const, placementDetail: null, pool: { kind: 'pool' as const, view: v }, value: { token0: 1n, token1: 2n, sharePct: 25 }, tooSmall: false }],
       })),
     });
     mount(r, '/pools');
@@ -252,7 +252,7 @@ describe('your positions', () => {
   // F3 / S1-R03: shares beyond the ones placed are counted and reachable, never dropped.
   it('says how many shares are not looked up yet, and looks up more on request', async () => {
     wallet.publicKey = key();
-    const unplaced = (): Position => ({ lpMint: key().toBase58(), lpAccount: key().toBase58(), lpAmount: 5n, placement: 'not-found', placementDetail: null, pool: null, value: null });
+    const unplaced = (): Position => ({ lpMint: key().toBase58(), lpAccount: key().toBase58(), lpAmount: 5n, placement: 'not-found', placementDetail: null, pool: null, value: null, tooSmall: false });
     const positions = vi.fn(async (_o: unknown, limit?: number) => ({ kind: 'ok' as const, chainNow: 1n, totalShares: 25, positions: Array.from({ length: Math.min(limit ?? 20, 25) }, unplaced) }));
     mount(readers({ positions }), '/pools');
     const more = await screen.findByTestId('lp-positions-more');
@@ -266,7 +266,7 @@ describe('your positions', () => {
   // S1-R02 + F3: a share whose pool is not TOKEN/SOL, or not a pool at all, is explained and set aside, nameless.
   it('explains a share in a pool that is not TOKEN/SOL or not confirmed, set apart without names', async () => {
     wallet.publicKey = key();
-    const pos = (pool: Position['pool']): Position => ({ lpMint: key().toBase58(), lpAccount: key().toBase58(), lpAmount: 5n, placement: 'found', placementDetail: null, pool, value: null });
+    const pos = (pool: Position['pool']): Position => ({ lpMint: key().toBase58(), lpAccount: key().toBase58(), lpAmount: 5n, placement: 'found', placementDetail: null, pool, value: null, tooSmall: false });
     const t0 = key().toBase58();
     const t1 = key().toBase58();
     mount(readers({
@@ -316,5 +316,24 @@ describe('Row', () => {
     expect(prose!.className).not.toMatch(/break-all/);
     expect(prose!.className).toMatch(/overflow-wrap:anywhere/);
     expect(mono!.className).toMatch(/break-all/);
+  });
+});
+
+// 6006: a share the pool program would refuse to burn is said to be too small, never
+// shown as a payout with a zero side.
+describe('your positions: a share too small to take out', () => {
+  it('says so in place of what it is worth', async () => {
+    wallet.publicKey = key();
+    const v = view();
+    mount(readers({
+      positions: vi.fn(async () => ({
+        kind: 'ok' as const, chainNow: 5n, totalShares: 1,
+        positions: [{ lpMint: v.snapshot.pool.lpMint, lpAccount: key().toBase58(), lpAmount: 7n, placement: 'found' as const, placementDetail: null, pool: { kind: 'pool' as const, view: v }, value: null, tooSmall: true }],
+      })),
+    }), '/pools');
+    const row = await screen.findByTestId('lp-position');
+    expect(row).toHaveTextContent("Too small to take out at the pool's current size: one side would round to zero.");
+    expect(row).not.toHaveTextContent(/Worth if withdrawn now/);
+    expect(row).not.toHaveTextContent(/could not be worked out/);
   });
 });

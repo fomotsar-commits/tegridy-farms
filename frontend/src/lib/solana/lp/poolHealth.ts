@@ -23,7 +23,8 @@ import { WSOL_MINT } from './tokenSafety';
  *   - its price is more than 3% from the reference price: the difference goes to the
  *     first arbitrage trade, paid out of the depositor's share;
  *   - the pool is empty on either side (no price at all);
- *   - the token itself is blocked (tokenSafety.ts).
+ *   - the token itself is blocked (tokenSafety.ts), or it copies a well-known token's
+ *     name from a different mint.
  *
  * THE REFERENCE PRICE. The outside price (Jupiter) when there is one. A launch pool,
  * which only the launch program can open, usually has none (it is the token's only
@@ -200,6 +201,11 @@ export function assessPool(input: {
   if (!safety || safety.kind === 'unread') unchecked.push('We could not read the token, so we cannot say whether it is safe.');
   else if (safety.kind === 'absent') refused.push('The token does not exist.');
   else if (safety.verdict === 'blocked') refused.push('This token is blocked on this site (see why above).');
+  // A copied well-known name stays a warning on the token itself, but nobody adds
+  // liquidity here to a token that poses as SOL, USDC, USDT, BAYLA or TOWELI.
+  if (safety?.kind === 'read' && safety.warnings.some((w) => w.code === 'copies-known-name')) {
+    refused.push('It calls itself by a well-known token’s name but has a different mint. This site does not take deposits into copies.');
+  }
 
   return {
     swaps,

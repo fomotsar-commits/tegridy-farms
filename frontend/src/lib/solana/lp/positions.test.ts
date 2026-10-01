@@ -95,3 +95,29 @@ describe('readPositions', () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+// 6006: burning a share that pays 0 on one side is refused by the pool program, so the
+// list never shows it as a payout with a zero side.
+describe('readPositions: a share too small to take out', () => {
+  it('a dust share is tooSmall, never a payout with a zero side', async () => {
+    const wallet = key();
+    // 10 lamports against 10^9 tokens over 10^6 shares: 7 shares are worth 0 SOL.
+    const p = buildPool({ mint: key(), address: key(), solReserve: 10n, tokenReserve: 10n ** 9n, lpSupply: 1_000_000n });
+    const accounts: Record<string, FakeAccount> = { ...p.accounts, [CLOCK]: clockAccount(5n), [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 7n) } };
+    const r = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({ [`lpMint:${p.lpMint.toBase58()}`]: [p.address.toBase58()] })));
+    const pos = r.kind === 'ok' ? r.positions[0] : undefined;
+    expect(pos?.pool?.kind).toBe('pool');
+    expect(pos?.tooSmall).toBe(true);
+    expect(pos?.value).toBeNull();
+  });
+
+  it('a share that pays on both sides is not tooSmall', async () => {
+    const wallet = key();
+    const p = buildPool({ mint: key(), address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000_000n });
+    const accounts: Record<string, FakeAccount> = { ...p.accounts, [CLOCK]: clockAccount(5n), [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 7n) } };
+    const r = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({ [`lpMint:${p.lpMint.toBase58()}`]: [p.address.toBase58()] })));
+    const pos = r.kind === 'ok' ? r.positions[0] : undefined;
+    expect(pos?.tooSmall).toBe(false);
+    expect(pos?.value).toMatchObject({ token0: 7_000n, token1: 7_000n });
+  });
+});

@@ -253,6 +253,8 @@ function PositionRow({ p, safety, chainNow, setAside = null }: { p: Position; sa
                 mono={false}
               />
             </>
+          ) : p.tooSmall ? (
+            <Notice tone="warn">Too small to take out at the pool&apos;s current size: one side would round to zero.</Notice>
           ) : (
             <Notice tone="warn">Its value could not be worked out.</Notice>
           )}

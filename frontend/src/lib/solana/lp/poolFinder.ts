@@ -113,13 +113,113 @@ export interface ReadPoolsOptions {
   launchProgramId: PublicKey;
 }
 
+type DecodedPool = NonNullable<ReturnType<typeof decodePoolState>>;
+
+/**
+ * The first look at a candidate address: is it one of our TOKEN/SOL pools at all?
+ * Either an entry that ends the read, or the decoded pool (and whether it sits at the
+ * launch program's address for its token) to read further.
+ */
+function firstLook(address: string, a: RawAccount | null, opts: ReadPoolsOptions): { entry: PoolEntry } | { pool: DecodedPool; launchPool: boolean } {
+  if (!a) return { entry: { kind: 'absent', address } };
+  if (a.owner !== opts.programId.toBase58()) return { entry: { kind: 'not-a-pool', address, detail: 'the account is not owned by the pool program' } };
+  const pool = decodePoolState(address, a.data);
+  if (!pool) return { entry: { kind: 'not-a-pool', address, detail: 'the account does not decode as a pool' } };
+  if (pool.token0Mint !== WSOL_MINT && pool.token1Mint !== WSOL_MINT) {
+    return { entry: { kind: 'other-pair', address, token0Mint: pool.token0Mint, token1Mint: pool.token1Mint } };
+  }
+  const tokenMint = pool.token0Mint === WSOL_MINT ? pool.token1Mint : pool.token0Mint;
+  const launchPool = address === poolStatePda(new PublicKey(tokenMint), opts.launchProgramId).toBase58();
+  return { pool, launchPool };
+}
+
+/**
+ * The second look: the pool's vaults, its fee settings and (a launch pool only) its
+ * price record, all read already. `observation` is ignored for any other pool.
+ */
+function secondLook(
+  address: string,
+  pool: DecodedPool,
+  launchPool: boolean,
+  a: { vault0: RawAccount | null; vault1: RawAccount | null; config: RawAccount | null; observation: RawAccount | null; opts: ReadPoolsOptions },
+): PoolEntry {
+  const program = a.opts.programId.toBase58();
+  const t0 = tokenVault(a.vault0, pool.token0Program);
+  const t1 = tokenVault(a.vault1, pool.token1Program);
+  if (t0 === null || t1 === null) {
+    return { kind: 'unread', address, detail: 'a pool vault is missing, is not a working token account, or is not owned by the token program the pool names' };
+  }
+  const reserve0 = vaultAmountWithoutFee(t0.amount, pool.protocolFeesToken0, pool.fundFeesToken0, pool.creatorFeesToken0);
+  const reserve1 = vaultAmountWithoutFee(t1.amount, pool.protocolFeesToken1, pool.fundFeesToken1, pool.creatorFeesToken1);
+  if (reserve0 === null || reserve1 === null) {
+    return { kind: 'unread', address, detail: 'the fees a pool owes are more than its vault holds' };
+  }
+  const cfgAcc = a.config;
+  const config = cfgAcc && cfgAcc.owner === program ? decodeAmmConfig(pool.ammConfig, cfgAcc.data) : null;
+
+  const solIsToken0 = pool.token0Mint === WSOL_MINT;
+  const tokenMint = solIsToken0 ? pool.token1Mint : pool.token0Mint;
+  const { token0, token1 } = sortMints(new PublicKey(pool.token0Mint), new PublicKey(pool.token1Mint));
+  let origin: PoolOrigin = 'other';
+  if (launchPool) origin = 'launch-pool';
+  else if (address === derivePool(a.opts.programId, new PublicKey(pool.ammConfig), token0, token1).toBase58()) origin = 'standard';
+
+  let history: PoolHistory = { kind: 'not-read' };
+  if (launchPool) {
+    const acc = a.observation;
+    const obs = acc && acc.owner === program ? decodeObservationState(acc.data) : null;
+    history = !acc
+      ? { kind: 'unread', detail: 'its price record account is missing' }
+      : !obs
+        ? { kind: 'unread', detail: 'its price record is not one the pool program wrote' }
+        : new PublicKey(obs.poolId).toBase58() !== address
+          ? { kind: 'unread', detail: 'its price record belongs to another pool' }
+          : { kind: 'ok', obs };
+  }
+
+  return {
+    kind: 'pool',
+    view: {
+      address,
+      origin,
+      snapshot: { pool, vault0Amount: t0.amount, vault1Amount: t1.amount, reserve0, reserve1 },
+      config,
+      tokenMint,
+      solIsToken0,
+      solReserve: solIsToken0 ? reserve0 : reserve1,
+      tokenReserve: solIsToken0 ? reserve1 : reserve0,
+      vaultsFrozen: t0.frozen || t1.frozen,
+      history,
+    },
+  };
+}
+
+/**
+ * One pool's entry from accounts already read: the pool, its two vaults, its fee
+ * settings and its price record (read for every pool, used for a launch pool only).
+ * Pure. `readPools` builds every entry with it, and the liquidity builders build the
+ * pool they write to with it from their own single read, so both judge a pool alike.
+ */
+export function poolViewFrom(a: {
+  address: string;
+  pool: RawAccount | null;
+  vault0: RawAccount | null;
+  vault1: RawAccount | null;
+  config: RawAccount | null;
+  observation: RawAccount | null;
+  opts: ReadPoolsOptions;
+}): PoolEntry {
+  const first = firstLook(a.address, a.pool, a.opts);
+  if ('entry' in first) return first.entry;
+  return secondLook(a.address, first.pool, first.launchPool, a);
+}
+
 /**
  * Read the pools at `addresses` (in that order, one entry each) plus the chain clock.
  * Two getMultipleAccounts rounds: the pools and the clock, then every vault and config
  * (and a launch pool's price record).
  */
 export async function readPools(rpc: SolanaRpc, addresses: string[], opts: ReadPoolsOptions): Promise<PoolsRead> {
-  const program = opts.programId.toBase58();
   let first: (RawAccount | null)[];
   try {
     first = await getMultipleAccounts(rpc, [...addresses, CLOCK_SYSVAR]);
@@ -129,20 +229,12 @@ export async function readPools(rpc: SolanaRpc, addresses: string[], opts: ReadP
   const chainNow = chainTimeOf(first[addresses.length] ?? null);
 
   const entries: PoolEntry[] = [];
-  const candidates: { i: number; pool: NonNullable<ReturnType<typeof decodePoolState>>; launchPool: boolean }[] = [];
+  const candidates: { i: number; pool: DecodedPool; launchPool: boolean }[] = [];
   addresses.forEach((address, i) => {
-    const a = first[i] ?? null;
-    if (!a) return entries.push({ kind: 'absent', address });
-    if (a.owner !== program) return entries.push({ kind: 'not-a-pool', address, detail: 'the account is not owned by the pool program' });
-    const pool = decodePoolState(address, a.data);
-    if (!pool) return entries.push({ kind: 'not-a-pool', address, detail: 'the account does not decode as a pool' });
-    if (pool.token0Mint !== WSOL_MINT && pool.token1Mint !== WSOL_MINT) {
-      return entries.push({ kind: 'other-pair', address, token0Mint: pool.token0Mint, token1Mint: pool.token1Mint });
-    }
-    const tokenMint = pool.token0Mint === WSOL_MINT ? pool.token1Mint : pool.token0Mint;
-    const launchPool = address === poolStatePda(new PublicKey(tokenMint), opts.launchProgramId).toBase58();
+    const look = firstLook(address, first[i] ?? null, opts);
+    if ('entry' in look) return entries.push(look.entry);
     entries.push({ kind: 'unread', address, detail: 'not read yet' });
-    candidates.push({ i, pool, launchPool });
+    candidates.push({ i, pool: look.pool, launchPool: look.launchPool });
   });
   if (!candidates.length) return { kind: 'ok', entries, chainNow };
 
@@ -165,58 +257,14 @@ export async function readPools(rpc: SolanaRpc, addresses: string[], opts: ReadP
   }
 
   candidates.forEach(({ i, pool, launchPool }, k) => {
-    const address = addresses[i]!;
-    const t0 = tokenVault(vaults[3 * k] ?? null, pool.token0Program);
-    const t1 = tokenVault(vaults[3 * k + 1] ?? null, pool.token1Program);
-    if (t0 === null || t1 === null) {
-      entries[i] = { kind: 'unread', address, detail: 'a pool vault is missing, is not a working token account, or is not owned by the token program the pool names' };
-      return;
-    }
-    const reserve0 = vaultAmountWithoutFee(t0.amount, pool.protocolFeesToken0, pool.fundFeesToken0, pool.creatorFeesToken0);
-    const reserve1 = vaultAmountWithoutFee(t1.amount, pool.protocolFeesToken1, pool.fundFeesToken1, pool.creatorFeesToken1);
-    if (reserve0 === null || reserve1 === null) {
-      entries[i] = { kind: 'unread', address, detail: 'the fees a pool owes are more than its vault holds' };
-      return;
-    }
-    const cfgAcc = vaults[3 * k + 2] ?? null;
-    const config = cfgAcc && cfgAcc.owner === program ? decodeAmmConfig(pool.ammConfig, cfgAcc.data) : null;
-
-    const solIsToken0 = pool.token0Mint === WSOL_MINT;
-    const tokenMint = solIsToken0 ? pool.token1Mint : pool.token0Mint;
-    const { token0, token1 } = sortMints(new PublicKey(pool.token0Mint), new PublicKey(pool.token1Mint));
-    let origin: PoolOrigin = 'other';
-    if (launchPool) origin = 'launch-pool';
-    else if (address === derivePool(opts.programId, new PublicKey(pool.ammConfig), token0, token1).toBase58()) origin = 'standard';
-
-    let history: PoolHistory = { kind: 'not-read' };
     const h = historyAt.get(k);
-    if (h !== undefined) {
-      const acc = vaults[h] ?? null;
-      const obs = acc && acc.owner === program ? decodeObservationState(acc.data) : null;
-      history = !acc
-        ? { kind: 'unread', detail: 'its price record account is missing' }
-        : !obs
-          ? { kind: 'unread', detail: 'its price record is not one the pool program wrote' }
-          : new PublicKey(obs.poolId).toBase58() !== address
-            ? { kind: 'unread', detail: 'its price record belongs to another pool' }
-            : { kind: 'ok', obs };
-    }
-
-    entries[i] = {
-      kind: 'pool',
-      view: {
-        address,
-        origin,
-        snapshot: { pool, vault0Amount: t0.amount, vault1Amount: t1.amount, reserve0, reserve1 },
-        config,
-        tokenMint,
-        solIsToken0,
-        solReserve: solIsToken0 ? reserve0 : reserve1,
-        tokenReserve: solIsToken0 ? reserve1 : reserve0,
-        vaultsFrozen: t0.frozen || t1.frozen,
-        history,
-      },
-    };
+    entries[i] = secondLook(addresses[i]!, pool, launchPool, {
+      vault0: vaults[3 * k] ?? null,
+      vault1: vaults[3 * k + 1] ?? null,
+      config: vaults[3 * k + 2] ?? null,
+      observation: h === undefined ? null : vaults[h] ?? null,
+      opts,
+    });
   });
   return { kind: 'ok', entries, chainNow };
 }

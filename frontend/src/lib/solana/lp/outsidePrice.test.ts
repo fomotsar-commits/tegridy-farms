@@ -104,3 +104,27 @@ describe('readPoolIndex', () => {
     expect((await readPoolIndex({ mint: MINT }, P, ok({ mint: MINT, program: P, pools: many, truncated: true }))).kind).toBe('unread');
   });
 });
+
+// Two holes in the "no route" rule (SPEC_S2 addendum 2.2): each let a failed Jupiter
+// read reach a launch pool's own-history check.
+describe('readOutsidePrice: only a real "no route" answer is no-route', () => {
+  it('a 404 that is not the proxy’s NO_ROUTE answer is unread, with the status', async () => {
+    const offList = async () => new Response(JSON.stringify({ error: 'Not found' }), { status: 404 });
+    expect(await readOutsidePrice(MINT, 6, guard(), offList as unknown as typeof fetch)).toEqual({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 404)' });
+  });
+
+  it('a 404 with a body that is not JSON is unread', async () => {
+    const platform = async () => new Response('<html>The page could not be found</html>', { status: 404 });
+    expect((await readOutsidePrice(MINT, 6, guard(), platform as unknown as typeof fetch)).kind).toBe('unread');
+  });
+
+  it('a priced buy and then "no route" on the sale back is unread, not no-route', async () => {
+    const priced = jupiter(0.0042);
+    const f = vi.fn(async (url: string) => {
+      const u = new URL(url, 'http://x');
+      if (u.searchParams.get('inputMint') === SOL) return priced(url);
+      return new Response(JSON.stringify({ error: 'No route', code: 'NO_ROUTE' }), { status: 404 });
+    });
+    expect(await readOutsidePrice(MINT, 6, guard(), f as unknown as typeof fetch)).toEqual({ kind: 'unread', detail: 'Jupiter priced a buy but not the sale back' });
+  });
+});

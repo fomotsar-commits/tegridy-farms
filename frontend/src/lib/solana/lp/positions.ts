@@ -40,8 +40,16 @@ export interface Position {
   placementDetail: string | null;
   /** The pool, read and checked; null when it could not be placed. */
   pool: PoolEntry | null;
-  /** What burning the whole share pays out right now; null when the pool was not read. */
+  /**
+   * What burning the whole share pays out right now; null when the pool was not read,
+   * or when the share is `tooSmall` (there is no payout: the program refuses it).
+   */
   value: { token0: bigint; token1: bigint; sharePct: number } | null;
+  /**
+   * The pool was read, and burning the whole share would pay 0 on one side, which the
+   * pool program refuses (6006). Never shown as a payout with a zero side.
+   */
+  tooSmall: boolean;
 }
 
 export type PositionsRead =
@@ -143,12 +151,14 @@ export async function readPositions(
         : { kind: 'unread' as const, address: pool, detail: read.detail }
       : null;
     let value: Position['value'] = null;
+    let tooSmall = false;
     // The pool must name this LP mint itself, not only derive to it.
     if (entry?.kind === 'pool' && entry.view.snapshot.pool.lpMint === share.mint) {
       const v = lpWithdrawValue(entry.view.snapshot, share.amount);
-      if (v) value = { token0: v.token0Amount, token1: v.token1Amount, sharePct: v.sharePct };
+      if (v && (v.token0Amount === 0n || v.token1Amount === 0n)) tooSmall = true;
+      else if (v) value = { token0: v.token0Amount, token1: v.token1Amount, sharePct: v.sharePct };
     }
-    return { lpMint: share.mint, lpAccount: share.address, lpAmount: share.amount, placement, placementDetail, pool: entry, value };
+    return { lpMint: share.mint, lpAccount: share.address, lpAmount: share.amount, placement, placementDetail, pool: entry, value, tooSmall };
   });
   // Most SOL first; shares with no value keep their stable order after them.
   const order = new Map(positions.map((p, i) => [p, i]));
