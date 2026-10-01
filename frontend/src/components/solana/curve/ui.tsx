@@ -48,12 +48,16 @@ export function Card({
  * Label/value row. Both sides wrap rather than truncate: the cards are
  * `overflow-hidden`, so a clipped value would silently disappear, and a
  * truncated base58 address reads like a different address.
+ *
+ * Only a mono value (an address, a signature) may break between any two
+ * characters. Words in a sentence break only at spaces, or mid-word only when
+ * one word alone is wider than the card, so a phone never reads "Blocked unt/il".
  */
 export function Row({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75">
       <span className="break-words">{label}</span>
-      <span className={`text-right break-all min-w-0 ${mono ? 'font-mono' : ''}`}>{value}</span>
+      <span className={`text-right min-w-0 break-all ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
   );
 }

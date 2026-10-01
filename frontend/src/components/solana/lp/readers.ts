@@ -19,7 +19,8 @@ export interface LpReaders {
   safety(mints: string[]): Promise<Map<string, TokenSafety>>;
   findPools(mint: PublicKey): Promise<PoolSearchRead>;
   outsidePrice(mint: string, decimals: number): Promise<OutsidePrice>;
-  positions(owner: PublicKey): Promise<PositionsRead>;
+  /** `limit`: how many pool shares to place (each costs one index lookup). */
+  positions(owner: PublicKey, limit?: number): Promise<PositionsRead>;
   feeTiers(): Promise<FeeTierRead>;
 }
 
@@ -32,8 +33,8 @@ export function browserLpReaders(): LpReaders | null {
     programId: programId.toBase58(),
     safety: (mints) => readTokenSafety(rpc, mints),
     findPools: (mint) => findPools(rpc, mint, opts),
-    outsidePrice: (mint, decimals) => readOutsidePrice(mint, decimals),
-    positions: (owner) => readPositions(rpc, owner, opts),
+    outsidePrice: (mint, decimals) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }),
+    positions: (owner, limit) => readPositions(rpc, owner, { ...opts, limit }),
     feeTiers: () => readFeeTiers(rpc, programId),
   };
 }

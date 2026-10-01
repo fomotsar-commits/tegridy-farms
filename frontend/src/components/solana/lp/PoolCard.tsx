@@ -1,5 +1,5 @@
 import type { PoolEntry, PoolView } from '../../../lib/solana/lp/poolFinder';
-import { formatWhen, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
+import { formatWhen, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { feeRateText, formatSolPrice, solText, tokenText } from '../../../lib/solana/lp/format';
 import { feeSplit } from '../../../lib/solana/cpswap/venue';
 import { Notice, Row } from '../curve/ui';
@@ -9,6 +9,12 @@ const ORIGIN_LABEL: Record<PoolView['origin'], string> = {
   'launch-pool': 'Launch pool: opened by the launch program when the token graduated',
   standard: 'At the standard address for its fee tier (anyone could have opened it)',
   other: 'At its own address (anyone could have opened it)',
+};
+
+const WITHDRAWALS_TEXT: Record<WithdrawalsState, string> = {
+  open: 'Open',
+  'switched-off': 'Switched off by the pool program’s admin',
+  'vault-frozen': 'Blocked: one of the pool’s vaults is frozen by the token’s issuer',
 };
 
 function swapsText(h: PoolHealth): { text: string; tone: 'good' | 'warn' | 'bad' } {
@@ -32,6 +38,41 @@ const DEPOSIT_TITLE = {
   unchecked: 'Deposits: not checked',
 } as const;
 
+function PriceRows({ price }: { price: PoolHealth['price'] }) {
+  switch (price.state) {
+    case 'empty-pool':
+      return <Row label="Price" value="No price: one side is empty" mono={false} />;
+    case 'no-trades-yet':
+      return (
+        <>
+          <Row label="Price here" value={`1 token = ${formatSolPrice(price.pool)} SOL`} mono={false} />
+          <Row label="Checked against" value="Nothing needed: nobody has traded since the launch program opened this pool at this price" mono={false} />
+        </>
+      );
+    case 'skipped':
+    case 'unread':
+      return (
+        <>
+          <Row label="Price here" value={price.pool === null ? 'not worked out' : `1 token = ${formatSolPrice(price.pool)} SOL`} mono={false} />
+          <Row label="Checked against" value={price.state === 'skipped' ? `Not compared: ${price.detail.replace(/^not compared, /, '')}` : `Nothing: ${price.detail}`} mono={false} />
+        </>
+      );
+    case 'agrees':
+    case 'disagrees':
+      return (
+        <>
+          <Row label="Price here" value={`1 token = ${formatSolPrice(price.pool)} SOL`} mono={false} />
+          <Row
+            label={price.against === 'outside' ? 'Outside price (Jupiter)' : 'Its own average, last 30 minutes'}
+            value={`1 token = ${formatSolPrice(price.reference)} SOL`}
+            mono={false}
+          />
+          <Row label="Difference" value={`${(price.diff * 100).toFixed(1)}% ${price.diff >= 0 ? 'above' : 'below'}`} mono={false} />
+        </>
+      );
+  }
+}
+
 export function PoolCard({ view, health, tokenDecimals }: { view: PoolView; health: PoolHealth; tokenDecimals: number | null }) {
   const { pool } = view.snapshot;
   const swaps = swapsText(health);
@@ -49,6 +90,7 @@ export function PoolCard({ view, health, tokenDecimals }: { view: PoolView; heal
       data-pool={view.address}
       data-origin={view.origin}
       data-swaps={health.swaps.state}
+      data-withdrawals={health.withdrawals}
       data-deposits={health.deposits.verdict}
       data-price={price.state}
     >
@@ -61,7 +103,7 @@ export function PoolCard({ view, health, tokenDecimals }: { view: PoolView; heal
         <Row label="Token" value={view.tokenMint} />
 
         <Row label="Swaps" value={swaps.text} mono={false} />
-        <Row label="Withdrawals" value={health.withdrawals === 'open' ? 'Open' : 'Switched off by the pool program’s admin'} mono={false} />
+        <Row label="Withdrawals" value={WITHDRAWALS_TEXT[health.withdrawals]} mono={false} />
         <div data-testid="lp-pool-deposits">
           <p className={`text-[12px] font-semibold ${health.deposits.verdict === 'allowed' ? 'text-emerald-300/90' : health.deposits.verdict === 'refused' ? 'text-rose-300/90' : 'text-amber-300/90'}`}>
             {DEPOSIT_TITLE[health.deposits.verdict]}
@@ -75,20 +117,7 @@ export function PoolCard({ view, health, tokenDecimals }: { view: PoolView; heal
         </div>
 
         <Row label="In the pool" value={`${solText(view.solReserve)} and ${tokenText(view.tokenReserve, tokenDecimals)}`} mono={false} />
-        {price.state === 'empty-pool' ? (
-          <Row label="Price" value="No price: one side is empty" mono={false} />
-        ) : price.state === 'unread' ? (
-          <>
-            <Row label="Price here" value={price.pool === null ? 'not worked out' : `1 token = ${formatSolPrice(price.pool)} SOL`} mono={false} />
-            <Row label="Outside price" value={`not read (${price.detail})`} mono={false} />
-          </>
-        ) : (
-          <>
-            <Row label="Price here" value={`1 token = ${formatSolPrice(price.pool)} SOL`} mono={false} />
-            <Row label="Outside price (Jupiter)" value={`1 token = ${formatSolPrice(price.outside)} SOL`} mono={false} />
-            <Row label="Difference" value={`${(price.diff * 100).toFixed(1)}% ${price.diff >= 0 ? 'above' : 'below'}`} mono={false} />
-          </>
-        )}
+        <PriceRows price={price} />
 
         {cfg && split ? (
           <>

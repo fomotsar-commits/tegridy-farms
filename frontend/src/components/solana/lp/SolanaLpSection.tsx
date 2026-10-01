@@ -5,7 +5,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { SolanaProviders } from '../SolanaProviders';
 import { feeSplit, solOf } from '../../../lib/solana/cpswap/venue';
-import { feeRateText } from '../../../lib/solana/lp/format';
+import { feeRateText, solText } from '../../../lib/solana/lp/format';
 import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
 import { Card, Notice, Row } from '../curve/ui';
 import { PoolFinder } from './PoolFinder';
@@ -35,6 +35,7 @@ export function LpInner({ readers }: { readers: LpReaders }) {
   const raw = params.get('mint');
   const parsed = raw ? parseMintInput(raw) : null;
   const mint = parsed?.ok ? parsed.mint : null;
+  const linkError = raw && parsed && !parsed.ok ? { raw, reason: parsed.reason } : null;
   const onMint = useCallback(
     (m: string | null) => {
       setParams((prev) => {
@@ -52,7 +53,7 @@ export function LpInner({ readers }: { readers: LpReaders }) {
     <div className="space-y-4 mt-6" data-testid="lp-section">
       <LpDisclosure programId={readers.programId} />
       <FeeTiers readers={readers} />
-      <PoolFinder readers={readers} mint={mint} onMint={onMint} />
+      <PoolFinder readers={readers} mint={mint} onMint={onMint} linkError={linkError} />
       <YourPositions readers={readers} owner={publicKey ?? null} />
     </div>
   );
@@ -79,6 +80,18 @@ export function LpDisclosure({ programId }: { programId: string }) {
       </Card>
     </section>
   );
+}
+
+/**
+ * What opening a pool costs: the tier's fee, plus the account deposits (rent) the pool
+ * program takes for the pool, its price record, its LP mint and its vaults, which are
+ * never refunded. "No fee" is never "free".
+ */
+function openingCost(fee: bigint, deposits: bigint | null): string {
+  const feeText = fee > 0n ? `${solOf(fee)} SOL fee` : 'No fee';
+  return deposits === null
+    ? `${feeText}, plus account deposits that are never refunded (their amount could not be read)`
+    : `${feeText}, plus about ${solText(deposits)} of account deposits that are never refunded`;
 }
 
 function FeeTiers({ readers }: { readers: LpReaders }) {
@@ -122,7 +135,7 @@ function FeeTiers({ readers }: { readers: LpReaders }) {
                     />
                     <Row
                       label="To open a pool"
-                      value={t.config.disableCreatePool ? 'switched off' : t.config.createPoolFee > 0n ? `${solOf(t.config.createPoolFee)} SOL` : 'free'}
+                      value={t.config.disableCreatePool ? 'switched off' : openingCost(t.config.createPoolFee, read.openingDeposits)}
                       mono={false}
                     />
                   </>

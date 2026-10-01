@@ -23,8 +23,10 @@ import {
   TOKEN_PROGRAM,
   USDC_MINT,
   WSOL_MINT,
+  BAYLA_MINT,
   type TokenSafety,
 } from './tokenSafety';
+import { BAYLA_MINT as SITE_BAYLA_MINT } from '../../bungalows';
 import type { RawAccount } from './accounts';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../../launcher/solana/write/metaplex';
 
@@ -166,10 +168,10 @@ describe('classifyToken', () => {
   });
 
   it('accepts a Token-2022 token whose only extensions carry a fixed name', () => {
-    const data = t22Mint(classicMint(), [pointer(null, mint), metadataExt(mint, null, 'Bayla', 'BAYLA')]);
+    const data = t22Mint(classicMint(), [pointer(null, mint), metadataExt(mint, null, 'Harvest', 'HRVST')]);
     const s = classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, data), null);
     expect(reasons(s)).toEqual({ blocks: [], warnings: [], verdict: 'ok' });
-    expect(s.kind === 'read' && [s.name, s.symbol, s.metadataSource]).toEqual(['Bayla', 'BAYLA', 'token-2022']);
+    expect(s.kind === 'read' && [s.name, s.symbol, s.metadataSource]).toEqual(['Harvest', 'HRVST', 'token-2022']);
   });
 
   it('warns on a live mint authority and on a name that can change (either kind of record)', () => {
@@ -192,6 +194,37 @@ describe('classifyToken', () => {
     const s = classifyToken(mint.toBase58(), acct(mint, TOKEN_PROGRAM, classicMint()), acct(metadataPda(mint), METAPLEX_TOKEN_METADATA_ID.toBase58(), metaplexRecord(key(), false, 'USD Coin', 'USDC')));
     expect(s.kind === 'read' && s.name).toBeNull();
     expect(reasons(s)).toMatchObject({ warnings: ['metadata-unreadable', 'no-metadata'] });
+  });
+
+  // F6: a clean mint that copies a well-known name is never "No problems found".
+  it('a clean copy of USDC, SOL, BAYLA or TOWELI is warned about, lookalike letters and all', () => {
+    const cases: [string, string, string][] = [
+      ['USD Coin', 'USDC', 'NOT the real USDC'],
+      ['Wrapped SOL', 'SOL', 'NOT the real SOL'],
+      ['Bayla', 'BAYLA', 'NOT the real BAYLA'],
+      ['Towelie', '$TOWELI', 'no real TOWELI'],
+      ['Totally real', 'USD\u0421', 'NOT the real USDC'], // a Cyrillic capital Es
+      ['\uff35\uff53\uff44\uff54', 'X', 'NOT the real USDT'], // full-width "Usdt"
+    ];
+    for (const [name, symbol, says] of cases) {
+      const m = key();
+      const s = classifyToken(m.toBase58(), acct(m, TOKEN_PROGRAM, classicMint()), acct(metadataPda(m), METAPLEX_TOKEN_METADATA_ID.toBase58(), metaplexRecord(m, false, name, symbol)));
+      expect(reasons(s), name + ' / ' + symbol).toEqual({ blocks: [], warnings: ['copies-known-name'], verdict: 'warn' });
+      expect(s.kind === 'read' && s.warnings[0]!.text).toContain(says);
+    }
+  });
+
+  it('the real USDC is not a copy of itself, and a name that merely contains a known one is not flagged', () => {
+    const usdc = new PublicKey(USDC_MINT);
+    const s = classifyToken(USDC_MINT, acct(usdc, TOKEN_PROGRAM, classicMint({ freezeAuthority: key() })), acct(metadataPda(usdc), METAPLEX_TOKEN_METADATA_ID.toBase58(), metaplexRecord(usdc, false, 'USD Coin', 'USDC')));
+    expect(reasons(s)).toMatchObject({ warnings: ['freeze-authority-accepted'] });
+    const m = key();
+    const t = classifyToken(m.toBase58(), acct(m, TOKEN_PROGRAM, classicMint()), acct(metadataPda(m), METAPLEX_TOKEN_METADATA_ID.toBase58(), metaplexRecord(m, false, 'Solana Doge', 'SDOGE')));
+    expect(reasons(t)).toEqual({ blocks: [], warnings: [], verdict: 'ok' });
+  });
+
+  it('BAYLA here is the same mint the rest of the site calls BAYLA', () => {
+    expect(BAYLA_MINT).toBe(SITE_BAYLA_MINT);
   });
 
   it('SOL itself, a non-mint and an empty address are never a clean verdict', () => {

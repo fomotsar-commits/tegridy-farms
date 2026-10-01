@@ -1,4 +1,8 @@
+import { PublicKey } from '@solana/web3.js';
 import { JUPITER_PROXY_BASE, SOL_MINT } from '../../solana';
+import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
+import { clipDetail } from '../../launcher/solana/curve/read';
+import { getMultipleAccounts } from './accounts';
 
 /**
  * The token's price OUTSIDE our pools, to check a pool's price against before anyone
@@ -12,9 +16,13 @@ import { JUPITER_PROXY_BASE, SOL_MINT } from '../../solana';
  * HOW. Two Jupiter quotes through our own proxy: 0.05 SOL into the token, then that many
  * tokens back into SOL. The buy price includes the route's fees and impact on one side,
  * the sell price on the other; their geometric mean cancels both, leaving the mid price.
- * No platform fee is asked for (no `platformFeeBps`), so our own fee does not bend it,
- * and Jupiter does not route through our program, so the answer is not our own pools
- * quoting themselves.
+ * No platform fee is asked for (no `platformFeeBps`), so our own fee does not bend it.
+ *
+ * NOT OUR OWN POOLS. Jupiter does not route through our pool program today, but if it
+ * ever lists it, a pushed pool of ours could supply its own "outside" price and agree
+ * with itself. So every pool a quote goes through (`routePlan[].swapInfo.ammKey`) is
+ * read from the chain, and a quote through any account our pool program owns is not an
+ * outside price. A quote without a readable route is not one either.
  *
  * Production's proxy turns every upstream error into a 502, so "Jupiter has no route for
  * this token" and "Jupiter is down" look the same here. Both are `unread`, which is
@@ -23,16 +31,34 @@ import { JUPITER_PROXY_BASE, SOL_MINT } from '../../solana';
 
 export const PROBE_LAMPORTS = 50_000_000n;
 const LAMPORTS_PER_SOL = 1e9;
+/** More pools than this in two quotes is not a route we can check in one read. */
+const MAX_ROUTE_POOLS = 40;
 
 export type OutsidePrice =
   | { kind: 'ok'; solPerToken: number; source: 'Jupiter' }
   | { kind: 'unread'; detail: string };
+
+/** How to tell whether a route goes through our own pools: the chain, and our program. */
+export interface OwnPoolGuard {
+  rpc: SolanaRpc;
+  programId: string;
+}
 
 interface QuoteShape {
   inputMint?: unknown;
   outputMint?: unknown;
   inAmount?: unknown;
   outAmount?: unknown;
+  routePlan?: unknown;
+}
+
+function isAddress(s: unknown): s is string {
+  if (typeof s !== 'string' || s.length < 32 || s.length > 44) return false;
+  try {
+    return new PublicKey(s).toBase58() === s;
+  } catch {
+    return false;
+  }
 }
 
 async function quote(
@@ -41,7 +67,7 @@ async function quote(
   amount: bigint,
   fetchImpl: typeof fetch,
   signal?: AbortSignal,
-): Promise<bigint> {
+): Promise<{ out: bigint; pools: string[] }> {
   const qs = new URLSearchParams({
     inputMint,
     outputMint,
@@ -59,12 +85,20 @@ async function quote(
   if (typeof q.outAmount !== 'string' || !/^\d{1,30}$/.test(q.outAmount)) throw new Error('Jupiter answered without an amount');
   const out = BigInt(q.outAmount);
   if (out <= 0n) throw new Error('Jupiter quoted nothing back');
-  return out;
+  if (!Array.isArray(q.routePlan) || q.routePlan.length === 0) throw new Error('Jupiter answered without the pools its price came from');
+  const pools: string[] = [];
+  for (const step of q.routePlan as unknown[]) {
+    const key = (step as { swapInfo?: { ammKey?: unknown } } | null)?.swapInfo?.ammKey;
+    if (!isAddress(key)) throw new Error('Jupiter named a pool its price came from that is not an address');
+    pools.push(key);
+  }
+  return { out, pools };
 }
 
 export async function readOutsidePrice(
   mint: string,
   tokenDecimals: number,
+  guard: OwnPoolGuard,
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
 ): Promise<OutsidePrice> {
@@ -72,16 +106,31 @@ export async function readOutsidePrice(
   if (!Number.isInteger(tokenDecimals) || tokenDecimals < 0 || tokenDecimals > 18) {
     return { kind: 'unread', detail: 'the token’s decimals were not read' };
   }
+  let tokensOut: bigint;
+  let lamportsBack: bigint;
+  let pools: string[];
   try {
-    const tokensOut = await quote(SOL_MINT, mint, PROBE_LAMPORTS, fetchImpl, signal);
-    const lamportsBack = await quote(mint, SOL_MINT, tokensOut, fetchImpl, signal);
-    const tokens = Number(tokensOut) / 10 ** tokenDecimals;
-    const buy = Number(PROBE_LAMPORTS) / LAMPORTS_PER_SOL / tokens;
-    const sell = Number(lamportsBack) / LAMPORTS_PER_SOL / tokens;
-    const mid = Math.sqrt(buy * sell);
-    if (!Number.isFinite(mid) || mid <= 0) return { kind: 'unread', detail: 'Jupiter’s quotes did not give a usable price' };
-    return { kind: 'ok', solPerToken: mid, source: 'Jupiter' };
+    const buy = await quote(SOL_MINT, mint, PROBE_LAMPORTS, fetchImpl, signal);
+    const sell = await quote(mint, SOL_MINT, buy.out, fetchImpl, signal);
+    tokensOut = buy.out;
+    lamportsBack = sell.out;
+    pools = [...new Set([...buy.pools, ...sell.pools])];
   } catch (e) {
     return { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
   }
+  if (pools.length > MAX_ROUTE_POOLS) return { kind: 'unread', detail: 'Jupiter’s price came through more pools than we can check' };
+  try {
+    const owners = await getMultipleAccounts(guard.rpc, pools);
+    if (owners.some((a) => a?.owner === guard.programId)) {
+      return { kind: 'unread', detail: 'Jupiter’s price came through our own pools, so it is not an outside price' };
+    }
+  } catch (e) {
+    return { kind: 'unread', detail: `the pools behind Jupiter’s price could not be checked (${clipDetail(e)})` };
+  }
+  const tokens = Number(tokensOut) / 10 ** tokenDecimals;
+  const buyPrice = Number(PROBE_LAMPORTS) / LAMPORTS_PER_SOL / tokens;
+  const sellPrice = Number(lamportsBack) / LAMPORTS_PER_SOL / tokens;
+  const mid = Math.sqrt(buyPrice * sellPrice);
+  if (!Number.isFinite(mid) || mid <= 0) return { kind: 'unread', detail: 'Jupiter’s quotes did not give a usable price' };
+  return { kind: 'ok', solPerToken: mid, source: 'Jupiter' };
 }

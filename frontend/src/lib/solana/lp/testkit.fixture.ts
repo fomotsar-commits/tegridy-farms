@@ -9,14 +9,18 @@ import {
   AMM_CONFIG_OFFSETS,
   POOL_STATE_LEN,
   POOL_STATE_OFFSETS,
+  decodeAmmConfig,
+  decodePoolState,
   deriveAmmConfig,
   deriveAuthority,
   deriveLpMint,
+  deriveObservation,
   derivePool,
   deriveVault,
   sortMints,
 } from '../cpswap/program';
 import { TOKEN_PROGRAM, WSOL_MINT } from './tokenSafety';
+import type { PoolView } from './poolFinder';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 
 export const PROGRAM = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
@@ -37,11 +41,13 @@ export function configBytes(index: number, tradeFeeRate = 10_000n, protocolFeeRa
   return d;
 }
 
-export function tokenAccountBytes(mint: PublicKey, owner: PublicKey, amount: bigint): Uint8Array {
+/** An SPL token account; `state` 1 = initialized (the default), 2 = frozen. */
+export function tokenAccountBytes(mint: PublicKey, owner: PublicKey, amount: bigint, state = 1): Uint8Array {
   const d = new Uint8Array(165);
   d.set(mint.toBytes(), 0);
   d.set(owner.toBytes(), 32);
   new DataView(d.buffer).setBigUint64(64, amount, true);
+  d[108] = state;
   return d;
 }
 
@@ -69,6 +75,8 @@ export interface PoolSpec {
   protocolFeesSol?: bigint;
   lpSupply?: bigint;
   tokenDecimals?: number;
+  /** Freeze the token-side vault (SPL account state 2). */
+  frozenVault?: boolean;
   /**
    * Random keys instead of program-derived addresses. For jsdom tests, where
    * findProgramAddressSync fails every bump; nothing under test derives there.
@@ -76,7 +84,7 @@ export interface PoolSpec {
   plain?: boolean;
 }
 
-export interface BuiltPool { address: PublicKey; lpMint: PublicKey; config: PublicKey; accounts: Record<string, FakeAccount> }
+export interface BuiltPool { address: PublicKey; lpMint: PublicKey; config: PublicKey; observation: PublicKey; accounts: Record<string, FakeAccount> }
 
 export function buildPool(s: PoolSpec): BuiltPool {
   const config = s.plain ? key() : deriveAmmConfig(PROGRAM, s.configIndex ?? 1);
@@ -85,6 +93,7 @@ export function buildPool(s: PoolSpec): BuiltPool {
   const v0 = s.plain ? key() : deriveVault(PROGRAM, address, token0);
   const v1 = s.plain ? key() : deriveVault(PROGRAM, address, token1);
   const lpMint = s.plain ? key() : deriveLpMint(PROGRAM, address);
+  const observation = s.plain ? key() : deriveObservation(PROGRAM, address);
   const solIs0 = token0.equals(WSOL);
   const d = new Uint8Array(POOL_STATE_LEN);
   d.set(ACCOUNT_POOL_STATE, 0);
@@ -99,6 +108,7 @@ export function buildPool(s: PoolSpec): BuiltPool {
   d.set(token1.toBytes(), o.token1Mint);
   d.set(new PublicKey(TOKEN_PROGRAM).toBytes(), o.token0Program);
   d.set(new PublicKey(TOKEN_PROGRAM).toBytes(), o.token1Program);
+  d.set(observation.toBytes(), o.observationKey);
   d[o.status] = s.status ?? 0;
   d[o.lpMintDecimals] = 9;
   d[o.mint0Decimals] = solIs0 ? 9 : (s.tokenDecimals ?? 6);
@@ -114,10 +124,11 @@ export function buildPool(s: PoolSpec): BuiltPool {
     address,
     lpMint,
     config,
+    observation,
     accounts: {
       [address.toBase58()]: { owner: PROGRAM.toBase58(), data: d },
       [solVault.toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(WSOL, authority, s.solReserve + fees) },
-      [tokVault.toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(s.mint, authority, s.tokenReserve) },
+      [tokVault.toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(s.mint, authority, s.tokenReserve, s.frozenVault ? 2 : 1) },
       [config.toBase58()]: { owner: PROGRAM.toBase58(), data: configBytes(s.configIndex ?? 1) },
       [lpMint.toBase58()]: { owner: TOKEN_PROGRAM, data: mintBytes(authority, 9) },
     },
@@ -148,16 +159,58 @@ export function fakeRpc(accounts: Record<string, FakeAccount>, opts: { fail?: Se
         .map(([pubkey, a]) => ({ pubkey, account: { data: [b64(a.data), 'base64'], owner: a.owner, lamports: 1 } }));
       return { context: { slot: 1 }, value };
     }
+    if (method === 'getMinimumBalanceForRentExemption') return (128 + (params as [number])[0]) * 6960;
     throw new Error(`fake rpc: ${method} not handled`);
   };
 }
 
-/** A fetch for /api/pools that answers from a table, keyed `mint:<m>` / `lpMint:<m>`. */
-export function fakeIndex(table: Record<string, string[]>, opts: { status?: number } = {}): typeof fetch {
+/** A fetch for /api/pools that answers from a table, keyed `mint:<m>` / `lpMint:<m>`, for the pool program PROGRAM. */
+export function fakeIndex(table: Record<string, string[]>, opts: { status?: number; program?: string; truncated?: boolean; calls?: string[] } = {}): typeof fetch {
   return (async (url: string) => {
     const u = new URL(url, 'http://x');
     const [k, v] = [...u.searchParams.entries()][0]!;
+    opts.calls?.push(`${k}:${v}`);
     if (opts.status) return new Response('{}', { status: opts.status });
-    return new Response(JSON.stringify({ [k]: v, pools: table[`${k}:${v}`] ?? [], truncated: false }), { status: 200 });
+    return new Response(JSON.stringify({ [k]: v, program: opts.program ?? PROGRAM.toBase58(), pools: table[`${k}:${v}`] ?? [], truncated: opts.truncated ?? false }), { status: 200 });
   }) as unknown as typeof fetch;
+}
+
+/** Observation (price record) bytes, by the oracle.rs layout. `obs`: [slot, timestamp, cumulative0, cumulative1]. */
+export function observationBytes(o: { pool: PublicKey; initialized?: boolean; index?: number; lastUpdate?: bigint; obs?: [number, bigint, bigint, bigint][] }): Uint8Array {
+  const d = new Uint8Array(4075);
+  d.set([122, 174, 197, 53, 129, 9, 165, 132], 0);
+  const v = new DataView(d.buffer);
+  d[8] = o.initialized === false ? 0 : 1;
+  v.setUint16(9, o.index ?? 0, true);
+  d.set(o.pool.toBytes(), 11);
+  const U64 = (1n << 64n) - 1n;
+  for (const [slot, t, c0, c1] of o.obs ?? []) {
+    const at = 43 + slot * 40;
+    v.setBigUint64(at, t, true);
+    v.setBigUint64(at + 8, c0 & U64, true);
+    v.setBigUint64(at + 16, c0 >> 64n, true);
+    v.setBigUint64(at + 24, c1 & U64, true);
+    v.setBigUint64(at + 32, c1 >> 64n, true);
+  }
+  v.setBigUint64(43 + 4000, o.lastUpdate ?? 0n, true);
+  return d;
+}
+
+/** A PoolView over a built pool, with the reserves it was built with. */
+export function viewOf(b: BuiltPool, s: { sol: bigint; tok: bigint; origin?: PoolView['origin']; frozen?: boolean; history?: PoolView['history']; config?: PoolView['config'] | 'decoded' }): PoolView {
+  const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
+  const solIs0 = pool.token0Mint === WSOL_MINT;
+  const tokenMint = solIs0 ? pool.token1Mint : pool.token0Mint;
+  return {
+    address: b.address.toBase58(),
+    origin: s.origin ?? 'other',
+    snapshot: { pool, vault0Amount: solIs0 ? s.sol : s.tok, vault1Amount: solIs0 ? s.tok : s.sol, reserve0: solIs0 ? s.sol : s.tok, reserve1: solIs0 ? s.tok : s.sol },
+    config: s.config === undefined || s.config === 'decoded' ? decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data) : s.config,
+    tokenMint,
+    solIsToken0: solIs0,
+    solReserve: s.sol,
+    tokenReserve: s.tok,
+    vaultsFrozen: s.frozen ?? false,
+    history: s.history ?? { kind: 'not-read' },
+  };
 }

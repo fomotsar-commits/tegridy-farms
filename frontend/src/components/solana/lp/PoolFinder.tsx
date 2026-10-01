@@ -53,17 +53,38 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number): 
   return answer?.key === key ? answer.value : { status: 'loading', mint };
 }
 
-export function PoolFinder({ readers, mint, onMint }: { readers: LpReaders; mint: string | null; onMint: (m: string | null) => void }) {
-  const [input, setInput] = useState(mint ?? '');
-  const [error, setError] = useState<string | null>(null);
+/**
+ * `linkError`: a `?mint=` that did not parse. Its text is put back in the field with the
+ * reason, rather than the field quietly coming up empty.
+ */
+export function PoolFinder({
+  readers,
+  mint,
+  onMint,
+  linkError = null,
+}: {
+  readers: LpReaders;
+  mint: string | null;
+  onMint: (m: string | null) => void;
+  linkError?: { raw: string; reason: string } | null;
+}) {
+  const [input, setInput] = useState(mint ?? linkError?.raw ?? '');
+  const [error, setError] = useState<string | null>(linkError?.reason ?? null);
   const [nonce, setNonce] = useState(0);
   const state = usePoolSearch(readers, mint, nonce);
   // A new ?mint= (a link, or back/forward) fills the field: adjusted during render, the
   // React way to follow a prop, rather than in an effect.
-  const [shownMint, setShownMint] = useState(mint);
-  if (mint !== shownMint) {
-    setShownMint(mint);
-    if (mint) setInput(mint);
+  const linkKey = mint ?? (linkError ? `bad:${linkError.raw}` : null);
+  const [shownLink, setShownLink] = useState(linkKey);
+  if (linkKey !== shownLink) {
+    setShownLink(linkKey);
+    if (mint) {
+      setInput(mint);
+      setError(null);
+    } else if (linkError) {
+      setInput(linkError.raw);
+      setError(linkError.reason);
+    }
   }
 
   const submit = useCallback(() => {
@@ -123,11 +144,20 @@ export function PoolFinder({ readers, mint, onMint }: { readers: LpReaders; mint
   );
 }
 
+const count = (n: number, one: string, many: string) => (n === 1 ? `One ${one}` : `${n} ${many}`);
+
 function announce(s: Extract<SearchState, { status: 'done' }>): string {
   if (s.pools.kind === 'unread') return 'The pools could not be read.';
-  const n = s.pools.search.pools.length;
-  const verdict = s.safety.kind === 'read' ? (s.safety.verdict === 'blocked' ? ' This token is blocked on this site.' : '') : ' The token could not be read.';
-  return `${n === 0 ? 'No pools' : n === 1 ? 'One pool' : `${n} pools`} found for this token.${verdict}`;
+  const { pools, index } = s.pools.search;
+  const read = pools.filter((p) => p.kind === 'pool').length;
+  const unread = pools.length - read;
+  const parts = [`${read === 0 ? 'No pools' : count(read, 'pool', 'pools')} found for this token.`];
+  if (unread) parts.push(`${count(unread, 'more pool', 'more pools')} could not be read.`);
+  if (index.kind === 'unread') parts.push('Our pool index could not be read, so there may be other pools.');
+  else if (index.truncated) parts.push('Our pool index returned its maximum, so there may be more pools.');
+  if (s.safety.kind !== 'read') parts.push('The token could not be read.');
+  else if (s.safety.verdict === 'blocked') parts.push('This token is blocked on this site.');
+  return parts.join(' ');
 }
 
 function SearchResults({ state }: { state: Extract<SearchState, { status: 'done' }> }) {
@@ -147,7 +177,13 @@ function SearchResults({ state }: { state: Extract<SearchState, { status: 'done'
           <IndexNote read={pools} />
           {pools.search.pools.length === 0 ? (
             <Card title="Pools">
-              <p data-testid="lp-no-pools">No TOKEN/SOL pools found for this token{pools.search.index.kind === 'ok' ? '.' : ' at the addresses we could check.'}</p>
+              <p data-testid="lp-no-pools">
+                {pools.search.index.kind !== 'ok'
+                  ? 'No TOKEN/SOL pools found at the addresses we could check.'
+                  : pools.search.index.truncated
+                    ? 'None of the pools our index returned is a TOKEN/SOL pool we can show. It returned its maximum, so there may be more.'
+                    : 'No TOKEN/SOL pools found for this token.'}
+              </p>
               {pools.search.otherPairs > 0 && (
                 <Notice>{pools.search.otherPairs} pool(s) pair this token with something other than SOL. This site only shows TOKEN/SOL pools for now.</Notice>
               )}
@@ -160,15 +196,7 @@ function SearchResults({ state }: { state: Extract<SearchState, { status: 'done'
                     key={p.view.address}
                     view={p.view}
                     tokenDecimals={decimals}
-                    health={assessPool({
-                      snapshot: p.view.snapshot,
-                      tokenMint: mint,
-                      tokenDecimals: decimals,
-                      chainNow: pools.search.chainNow,
-                      outside,
-                      safety,
-                      isLaunchPool: p.view.origin === 'launch-pool',
-                    })}
+                    health={assessPool({ view: p.view, tokenDecimals: decimals, chainNow: pools.search.chainNow, outside, safety })}
                   />
                 ) : (
                   <UnreadPoolCard key={p.address} entry={p} />
@@ -191,11 +219,18 @@ function IndexNote({ read }: { read: Extract<PoolSearchRead, { kind: 'ok' }> }) 
   return (
     <div className="text-white/55 text-[11px] leading-relaxed space-y-1" data-testid="lp-index-note">
       {index.kind === 'ok' ? (
-        <p>
-          Pools are listed from our pool index and each one is then read and checked on chain. Deepest first. None of them is
-          “the” pool for this token: anyone can open one, at any price.
-          {index.truncated && ' The index returned its maximum; there may be more.'}
-        </p>
+        <>
+          <p>
+            Pools are listed from our pool index and each one is then read and checked on chain. Deepest first. None of them is
+            “the” pool for this token: anyone can open one, at any price.
+          </p>
+          {index.truncated && (
+            <p className="text-amber-300/90" data-testid="lp-index-truncated">
+              Our pool index returned its maximum: the pools holding the most SOL. There may be more pools for this token that are not
+              listed here.
+            </p>
+          )}
+        </>
       ) : (
         <p className="text-amber-300/90">
           Our pool index could not be read ({index.detail}), so only the addresses we can work out ourselves were checked:

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { readPositions } from './positions';
+import { MAX_POSITIONS, readPositions } from './positions';
 import { TOKEN_PROGRAM } from './tokenSafety';
 import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeIndex, fakeRpc, key, mintBytes, tokenAccountBytes, type FakeAccount } from './testkit.fixture';
 
@@ -47,8 +47,31 @@ describe('readPositions', () => {
     const p = buildPool({ mint: key(), address: key(), solReserve: 10n, tokenReserve: 10n });
     const accounts = { ...p.accounts, [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 7n) } };
     const r = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({}, { status: 502 })));
-    expect(r.kind === 'ok' && r.positions.map((x) => x.placement)).toEqual(['index-unread']);
+    expect(r.kind === 'ok' && r.positions.map((x) => [x.placement, x.placementDetail])).toEqual([['index-unread', 'the pool index answered HTTP 502']]);
     const bad = await readPositions(fakeRpc(accounts, { fail: new Set(['getTokenAccountsByOwner']) }), wallet, opts(fakeIndex({})));
     expect(bad.kind).toBe('unread');
+  });
+
+  // F3 / S1-R03: a stranger can send junk pool shares to any wallet. None of the wallet's
+  // shares may silently drop off the list, and the ones placed are ordered by value.
+  it('says how many shares there are beyond the ones placed, places more on request, and lists the most valuable first', async () => {
+    const wallet = key();
+    const accounts: Record<string, FakeAccount> = { [CLOCK]: clockAccount(5n) };
+    const table: Record<string, string[]> = {};
+    const n = MAX_POSITIONS + 5;
+    for (let i = 0; i < n; i++) {
+      const p = buildPool({ mint: key(), address: key(), solReserve: BigInt(i + 1) * 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
+      Object.assign(accounts, p.accounts);
+      accounts[key().toBase58()] = { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 100n) };
+      table[`lpMint:${p.lpMint.toBase58()}`] = [p.address.toBase58()];
+    }
+    const calls: string[] = [];
+    const first = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex(table, { calls })));
+    expect(first.kind === 'ok' && [first.positions.length, first.totalShares]).toEqual([MAX_POSITIONS, n]);
+    expect(calls).toHaveLength(MAX_POSITIONS);
+    const sol = (first.kind === 'ok' ? first.positions : []).map((p) => (p.value && p.pool?.kind === 'pool' ? (p.pool.view.solIsToken0 ? p.value.token0 : p.value.token1) : -1n));
+    expect(sol).toEqual([...sol].sort((a, b) => (a > b ? -1 : a < b ? 1 : 0)));
+    const all = await readPositions(fakeRpc(accounts), wallet, { ...opts(fakeIndex(table)), limit: MAX_POSITIONS * 2 });
+    expect(all.kind === 'ok' && [all.positions.length, all.totalShares]).toEqual([n, n]);
   });
 });

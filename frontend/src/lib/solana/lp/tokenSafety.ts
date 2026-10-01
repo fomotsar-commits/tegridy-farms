@@ -34,6 +34,52 @@ export const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 export const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 export const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 
+/** BAYLA, the token of this site's Solana side (the same mint as bungalows.ts BAYLA_MINT, pinned by a test). */
+export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
+
+/**
+ * Names that belong to ONE token. A token calling itself one of these from any other
+ * mint is a copy, however clean its mint looks. `mint: null` = there is no real one on
+ * Solana (TOWELI lives on Ethereum only), so every claim is a copy.
+ *
+ * Launch tickers are not listed: anyone can launch the same ticker on our launcher, so
+ * there is no single "real" one to compare against. The mint address stays the only
+ * identity, and the card says so on every token.
+ */
+export const WELL_KNOWN_NAMES: readonly { label: string; mint: string | null; names: readonly string[] }[] = [
+  { label: 'SOL', mint: WSOL_MINT, names: ['SOL', 'WSOL', 'Wrapped SOL', 'Solana', 'Wrapped Solana'] },
+  { label: 'USDC', mint: USDC_MINT, names: ['USDC', 'USD Coin', 'USDCoin'] },
+  { label: 'USDT', mint: USDT_MINT, names: ['USDT', 'Tether', 'Tether USD', 'USDTether'] },
+  { label: 'BAYLA', mint: BAYLA_MINT, names: ['BAYLA'] },
+  { label: 'TOWELI', mint: null, names: ['TOWELI'] },
+];
+
+/** Letters that look like Latin ones, folded to them, so "USDС" (a Cyrillic С) still reads as USDC. */
+const LOOKALIKES: Record<string, string> = {
+  а: 'a', в: 'b', е: 'e', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', ѕ: 's', і: 'i', ј: 'j', ԁ: 'd', ԛ: 'q', ԝ: 'w',
+  α: 'a', β: 'b', ε: 'e', ι: 'i', κ: 'k', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', ζ: 'z', η: 'n', μ: 'u',
+};
+
+/** A name folded for comparison: compatibility forms, lookalikes, case, and everything but letters and digits removed. */
+export function foldName(s: string): string {
+  const base = s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  let out = '';
+  for (const ch of base) out += LOOKALIKES[ch] ?? ch;
+  return out.replace(/[^a-z0-9]/g, '');
+}
+
+const WELL_KNOWN_FOLDED = WELL_KNOWN_NAMES.flatMap((k) => k.names.map((n) => ({ folded: foldName(n), known: k })));
+
+/** The well-known token `name`/`symbol` claims to be, when `mint` is not that token; else null. */
+export function copiedWellKnownName(mint: string, name: string | null, symbol: string | null): (typeof WELL_KNOWN_NAMES)[number] | null {
+  const claims = [name, symbol].filter((x): x is string => !!x).map(foldName).filter(Boolean);
+  for (const c of claims) {
+    const hit = WELL_KNOWN_FOLDED.find((k) => k.folded === c);
+    if (hit && hit.known.mint !== mint) return hit.known;
+  }
+  return null;
+}
+
 /** USDC and USDT keep a freeze authority by design; the site accepts that and says so. */
 export const FREEZE_AUTHORITY_ACCEPTED = new Set([USDC_MINT, USDT_MINT]);
 
@@ -227,7 +273,8 @@ export interface SafetyReason {
     | 'metadata-mutable'
     | 'no-metadata'
     | 'metadata-elsewhere'
-    | 'metadata-unreadable';
+    | 'metadata-unreadable'
+    | 'copies-known-name';
   text: string;
 }
 
@@ -358,6 +405,15 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
   }
   if (anyMutable) {
     warnings.push({ code: 'metadata-mutable', text: 'Its name, symbol and picture can still be changed by whoever controls them.' });
+  }
+  const copied = copiedWellKnownName(mint, name, symbol);
+  if (copied) {
+    warnings.push({
+      code: 'copies-known-name',
+      text: copied.mint
+        ? `It calls itself ${copied.label}, but it is NOT the real ${copied.label} (whose mint is ${copied.mint}). It is a different token that copied the name.`
+        : `It calls itself ${copied.label}, but there is no real ${copied.label} on Solana. It is a different token that copied the name.`,
+    });
   }
   return done(f, name, symbol, source);
 }

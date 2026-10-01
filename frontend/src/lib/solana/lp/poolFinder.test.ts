@@ -4,12 +4,14 @@
 // standard addresses and whatever the index returns, and checks every one on chain.
 import { describe, it, expect } from 'vitest';
 import { Keypair } from '@solana/web3.js';
-import { findPools, knownPoolAddresses, readFeeTiers } from './poolFinder';
+import { MAX_CANDIDATES, NEVER_REFUNDED_ACCOUNT_SIZES, findPools, knownPoolAddresses, readFeeTiers } from './poolFinder';
+import { POOL_INDEX_MAX } from './poolIndex';
 import { poolStatePda } from '../../launcher/solana/curve/program';
 import { deriveAmmConfig } from '../cpswap/program';
 import {
-  CLOCK, LAUNCH, PROGRAM, WSOL, buildPool, clockAccount, configBytes, fakeIndex, fakeRpc, key, type FakeAccount,
+  CLOCK, LAUNCH, PROGRAM, WSOL, buildPool, clockAccount, configBytes, fakeIndex, fakeRpc, key, observationBytes, tokenAccountBytes, type FakeAccount,
 } from './testkit.fixture';
+import { TOKEN_PROGRAM } from './tokenSafety';
 
 const opts = (fetchImpl: typeof fetch) => ({ programId: PROGRAM, launchProgramId: LAUNCH, fetchImpl });
 
@@ -108,6 +110,62 @@ describe('findPools', () => {
   });
 });
 
+describe('findPools: what a pool read must not hide', () => {
+  // F7: a frozen vault means nobody can withdraw; the vault's state byte says so.
+  it('a frozen vault is read as frozen, and a vault that is not a working token account is unread', async () => {
+    const mint = key();
+    const p = buildPool({ mint, configIndex: 1, solReserve: 10n ** 9n, tokenReserve: 10n ** 9n, frozenVault: true });
+    const r = await findPools(fakeRpc({ ...p.accounts, [CLOCK]: clockAccount(5n) }), mint, opts(fakeIndex({})));
+    const e = r.kind === 'ok' ? r.search.pools[0] : null;
+    expect(e?.kind === 'pool' && e.view.vaultsFrozen).toBe(true);
+
+    const q = buildPool({ mint, configIndex: 0, solReserve: 10n ** 9n, tokenReserve: 10n ** 9n });
+    const vaultAddr = Object.keys(q.accounts).find((a) => q.accounts[a]!.data.length === 165 && q.accounts[a]!.data[108] === 1)!;
+    q.accounts[vaultAddr] = { owner: TOKEN_PROGRAM, data: tokenAccountBytes(mint, key(), 5n, 0) }; // state 0: uninitialized
+    const r2 = await findPools(fakeRpc({ ...q.accounts, [CLOCK]: clockAccount(5n) }), mint, opts(fakeIndex({})));
+    expect(r2.kind === 'ok' && r2.search.pools.map((x) => x.kind)).toEqual(['unread']);
+  });
+
+  // F5: the launch pool's own price record is read with it (and only for the launch pool).
+  it('reads the launch pool’s price record, checks it is that pool’s, and leaves other pools’ unread', async () => {
+    const mint = key();
+    const lp = buildPool({ mint, configIndex: 0, address: poolStatePda(mint, LAUNCH), solReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
+    const other = buildPool({ mint, configIndex: 1, solReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
+    const accounts: Record<string, FakeAccount> = {
+      ...lp.accounts, ...other.accounts, [CLOCK]: clockAccount(5n),
+      [lp.observation.toBase58()]: { owner: PROGRAM.toBase58(), data: observationBytes({ pool: lp.address, initialized: false }) },
+      [other.observation.toBase58()]: { owner: PROGRAM.toBase58(), data: observationBytes({ pool: other.address, initialized: false }) },
+    };
+    const r = await findPools(fakeRpc(accounts), mint, opts(fakeIndex({})));
+    const byOrigin = Object.fromEntries((r.kind === 'ok' ? r.search.pools : []).map((e) => (e.kind === 'pool' ? [e.view.origin, e.view.history.kind] : ['x', 'x'])));
+    expect(byOrigin).toEqual({ 'launch-pool': 'ok', standard: 'not-read' });
+
+    // A record that names another pool is not this pool's record.
+    accounts[lp.observation.toBase58()] = { owner: PROGRAM.toBase58(), data: observationBytes({ pool: other.address }) };
+    const r2 = await findPools(fakeRpc(accounts), mint, opts(fakeIndex({})));
+    const launch = r2.kind === 'ok' ? r2.search.pools.find((e) => e.kind === 'pool' && e.view.origin === 'launch-pool') : undefined;
+    expect(launch?.kind === 'pool' && launch.view.history).toMatchObject({ kind: 'unread', detail: expect.stringMatching(/another pool/) });
+  });
+
+  // S1-R01: everything the index may return is read; nothing it names is cut here.
+  it('reads every address the index may return, plus the three it works out', async () => {
+    expect(MAX_CANDIDATES).toBeGreaterThanOrEqual(3 + POOL_INDEX_MAX);
+    const mint = key();
+    const pools = Array.from({ length: POOL_INDEX_MAX }, (_, i) => buildPool({ mint, configIndex: 1, address: key(), solReserve: BigInt(i + 1) * 10n ** 6n, tokenReserve: 10n }));
+    const accounts = Object.assign({ [CLOCK]: clockAccount(5n) }, ...pools.map((p) => p.accounts));
+    const r = await findPools(fakeRpc(accounts), mint, opts(fakeIndex({ [`mint:${mint.toBase58()}`]: pools.map((p) => p.address.toBase58()) }, { truncated: true })));
+    expect(r.kind === 'ok' && r.search.pools).toHaveLength(POOL_INDEX_MAX);
+    expect(r.kind === 'ok' && r.search.index).toMatchObject({ kind: 'ok', truncated: true });
+  });
+
+  // S1-R06: an index answering for another program is unread, never "no pools".
+  it('an index that answered for another pool program is unread, not an empty list', async () => {
+    const mint = key();
+    const r = await findPools(fakeRpc({ [CLOCK]: clockAccount(5n) }), mint, opts(fakeIndex({}, { program: key().toBase58() })));
+    expect(r.kind === 'ok' && r.search.index.kind).toBe('unread');
+  });
+});
+
 describe('knownPoolAddresses', () => {
   it('checks the public tier (1) before the graduation tier (0), both for the sorted pair', () => {
     const mint = key();
@@ -125,6 +183,16 @@ describe('readFeeTiers', () => {
     const c0 = deriveAmmConfig(PROGRAM, 0).toBase58();
     const r = await readFeeTiers(fakeRpc({ [c0]: { owner: PROGRAM.toBase58(), data: configBytes(0, 2_500n, 120_000n) } }), PROGRAM);
     expect(r.kind === 'ok' && r.tiers.map((t) => [t.index, t.state, t.config?.tradeFeeRate])).toEqual([[0, 'live', 2_500n], [1, 'absent', undefined]]);
+  });
+
+  // S1-R04: opening a pool is never "free": the accounts it creates hold rent for good.
+  it('reads what opening a pool locks up in account deposits, and says unread when it cannot', async () => {
+    const r = await readFeeTiers(fakeRpc({}), PROGRAM);
+    const expected = NEVER_REFUNDED_ACCOUNT_SIZES.reduce((sum, n) => sum + BigInt((128 + n) * 6960), 0n);
+    expect(r.kind === 'ok' && r.openingDeposits).toBe(expected);
+    expect(expected).toBeGreaterThan(35_000_000n); // about 0.04 SOL
+    const bad = await readFeeTiers(fakeRpc({}, { fail: new Set(['getMinimumBalanceForRentExemption']) }), PROGRAM);
+    expect(bad.kind === 'ok' && bad.openingDeposits).toBeNull();
   });
 
   it('a config account owned by someone else is not a fee tier', async () => {
