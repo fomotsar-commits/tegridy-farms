@@ -267,7 +267,7 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
     return notSent('simulate', `Could not run the safety check: ${clipDetail(e)}`);
   }
   if (!first.ok) {
-    const why = explainFailure(first.err, first.logs, spec.intent.cfg);
+    const why = explainFailure(first.err, first.logs, spec.intent.cfg, spec.kind);
     return notSent('simulate', why.message, first.logs);
   }
 
@@ -296,7 +296,7 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
     return notSent('simulate', `Could not run the safety check: ${clipDetail(e)}`);
   }
   if (!second.ok) {
-    const why = explainFailure(second.err, second.logs, spec.intent.cfg);
+    const why = explainFailure(second.err, second.logs, spec.intent.cfg, spec.kind);
     return notSent('simulate', why.message, second.logs);
   }
 

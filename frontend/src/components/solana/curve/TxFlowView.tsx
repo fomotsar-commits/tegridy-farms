@@ -2,7 +2,9 @@ import { useEffect, useRef, type ReactNode, type Ref } from 'react';
 import { describeTreasury, formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
 import { ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
-import type { FeeSplitView, PreparedTx, SolanaCluster, TokenRole, TxOutcome, TxSigner, TxSummary, WriteApi } from './ports';
+import { feeSplit } from '../../../lib/solana/cpswap/venue';
+import { feeRateText } from '../../../lib/solana/lp/format';
+import type { FeeSplitView, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, WriteApi } from './ports';
 import type { TxFlow } from './useTxFlow';
 
 // What the user sees between pressing a Review button and the chain's answer.
@@ -19,8 +21,8 @@ import type { TxFlow } from './useTxFlow';
 
 const SOL = (l: bigint) => `${formatSol(l)} SOL`;
 const signedSol = (l: bigint) => `${l < 0n ? '-' : '+'}${SOL(l < 0n ? -l : l)}`;
-function tokenText(v: bigint, d: number | null): string {
-  const f = formatTokenAmount(v, d);
+function tokenText(v: bigint, d: number | null, maxFractionDigits?: number): string {
+  const f = formatTokenAmount(v, d, maxFractionDigits);
   return f.isBaseUnits ? `${f.text} (base units)` : f.text;
 }
 
@@ -37,6 +39,9 @@ function tradeLamports(s: TxSummary): bigint | null {
       return s.quote.outAmount;
     case 'create':
       return s.openingBuy ? s.openingBuy.quote.lamportsIn : null;
+    case 'lp-deposit':
+    case 'lp-withdraw':
+      return s.quoted.sol;
     default:
       return null;
   }
@@ -58,6 +63,11 @@ function FeeSplitRows({ split }: { split: FeeSplitView }) {
       </p>
     </>
   );
+}
+
+/** Takes `never`, so a summary kind with no rows below does not compile. */
+function noRowsFor(_summary: never): null {
+  return null;
 }
 
 export function SummaryRows({
@@ -165,6 +175,13 @@ export function SummaryRows({
         </>
       );
     }
+    case 'lp-deposit':
+      return <LpDepositRows summary={summary} />;
+    case 'lp-withdraw':
+      return <LpWithdrawRows summary={summary} />;
+    default:
+      // A new kind of transaction is a compile error here until it has rows.
+      return noRowsFor(summary);
   }
 }
 
@@ -203,6 +220,139 @@ function CreateReserveRows({ summary }: { summary: Extract<TxSummary, { kind: 'c
           : " This page cannot confirm that account is a multisig: it is not the platform's known Squads vault."}{' '}
         The program does not stop the treasury selling those tokens, including while the curve is live.
       </p>
+    </>
+  );
+}
+
+// ── liquidity ────────────────────────────────────────────────────────────────
+// Every value below comes from the prepared transaction: the maxima and minima are
+// decoded from its bytes, the amounts were worked out from the read it was built
+// on. A row never falls back to a value the panel was typed into.
+
+type LpSummary = Extract<TxSummary, { kind: 'lp-deposit' | 'lp-withdraw' }>;
+
+// A bound the program enforces, or a count of pool shares, is printed to its last
+// digit: rounding "at most" down, or "you get" either way, would misstate it.
+const solExact = (l: bigint) => `${formatSol(l, 9)} SOL`;
+const unitsExact = (v: bigint, d: number) => tokenText(v, d, d);
+
+function poolKindText(s: LpSummary): string {
+  switch (s.origin) {
+    case 'launch-pool':
+      return 'Launch pool: opened by the launch program at graduation';
+    case 'standard':
+      return s.config ? `Standard address for fee tier ${s.config.index}` : 'Standard address for its fee tier';
+    case 'other':
+      return 'Its own address';
+  }
+}
+
+function feeTierText(config: LpSummary['config']): string {
+  if (!config) return 'not read';
+  return `${config.index}: traders pay ${feeRateText(config.tradeFeeRate)} a trade; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade`;
+}
+
+/** A share of the pool, said as a percentage; a real share that rounds to nothing says so. */
+function shareText(pct: number): string {
+  if (!Number.isFinite(pct) || pct <= 0) return 'none';
+  return pct < 0.01 ? '<0.01%' : `${pct.toFixed(2)}%`;
+}
+
+function priceText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price']): string {
+  switch (p.state) {
+    case 'agrees':
+    case 'disagrees': {
+      const d = (Math.abs(p.diff) * 100).toFixed(1);
+      return p.against === 'outside'
+        ? `${d}% ${p.diff >= 0 ? 'above' : 'below'} the outside price (Jupiter), read just now`
+        : `${d}% from its own average over the last 30 minutes`;
+    }
+    case 'no-trades-yet':
+      return 'nobody has traded since the launch program opened it';
+    case 'empty-pool':
+      return 'not checked: the pool is empty';
+    case 'skipped':
+    case 'unread':
+      return `not checked (${p.detail})`;
+  }
+}
+
+function LpPoolRows({ summary }: { summary: LpSummary }) {
+  return (
+    <>
+      <Row label="Pool" value={summary.pool.toBase58()} />
+      <Row label="Pool kind" value={poolKindText(summary)} mono={false} />
+      <Row label="Token (mint)" value={summary.tokenMint.toBase58()} />
+    </>
+  );
+}
+
+function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-deposit' }> }) {
+  const tok = (v: bigint) => tokenText(v, s.tokenDecimals);
+  const limited =
+    s.limitedByBalance === 'token' ? ' (all the tokens you have)' : s.limitedByBalance === 'sol' ? ' (all the SOL you can spend)' : '';
+  const unused = s.max.sol > s.quoted.sol ? s.max.sol - s.quoted.sol : 0n;
+  return (
+    <>
+      <LpPoolRows summary={s} />
+      <Row label="Fee tier" value={feeTierText(s.config)} mono={false} />
+      <Row label="You put in about" value={`${SOL(s.quoted.sol)} and ${tok(s.quoted.token)} tokens`} />
+      <Row label="At most" value={`${solExact(s.max.sol)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} />
+      <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} />
+      <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
+      <Row label="Price check" value={priceText(s.price)} mono={false} />
+      <Row label="Pool fee to add" value="none" mono={false} />
+      {s.tokenWarnings.length > 0 && (
+        <div className="space-y-1">
+          <Notice tone="warn">Read these about this token first:</Notice>
+          <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+            {s.tokenWarnings.map((w) => (
+              <li key={w.code}>{w.text}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
+      <Notice>
+        {s.unwrapsWsol
+          ? 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'
+          : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. It is left exactly as it is. Up to ${solExact(unused)} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`}
+      </Notice>
+    </>
+  );
+}
+
+function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-withdraw' }> }) {
+  const tok = (v: bigint) => tokenText(v, s.tokenDecimals);
+  const shares = (v: bigint) => unitsExact(v, s.lpDecimals);
+  const ofYours = sharePercent(s.lpAmount, s.heldBefore);
+  return (
+    <>
+      <LpPoolRows summary={s} />
+      <Row label="Pool shares you give back" value={`${shares(s.lpAmount)}${ofYours ? ` (${ofYours} of yours)` : ''}`} />
+      {s.all && <Notice>This is all of your share in this pool.</Notice>}
+      <Row label="You get about" value={`${SOL(s.quoted.sol)} and ${tok(s.quoted.token)} tokens`} />
+      <Row label="You get at least" value={`${solExact(s.min.sol)} and ${unitsExact(s.min.token, s.tokenDecimals)} tokens`} />
+      <Row label="You keep" value={s.keep > 0n ? `${shares(s.keep)} pool shares` : 'none in this pool'} />
+      <Row
+        label="The tokens arrive in"
+        value={`${s.tokenAccount.toBase58()}${
+          s.tokenAccountRent > 0n
+            ? ` (opened for you; its deposit of ${solExact(s.tokenAccountRent)} stays in that account)`
+            : ''
+        }`}
+      />
+      <Row label="The SOL arrives" value={s.unwrapsWsol ? 'as plain SOL' : 'as wrapped SOL in the account you already hold'} mono={false} />
+      <Row label="Pool fee to take out" value="none" mono={false} />
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
     </>
   );
 }
@@ -268,7 +418,9 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
           label={
             prepared.kind === 'create'
               ? "One-time account rent (your token, its curve and vault, the treasury's token account, any token account of yours)"
-              : 'One-time account rent'
+              : prepared.kind === 'lp-deposit' || prepared.kind === 'lp-withdraw'
+                ? 'One-time deposit for your new token account (it stays in that account)'
+                : 'One-time account rent'
           }
           value={SOL(f.newAccountRentLamports)}
         />
@@ -301,6 +453,8 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   migrate: 'Review: finish graduation',
   'pool-buy': 'Review your pool buy',
   'pool-sell': 'Review your pool sell',
+  'lp-deposit': 'Review: add liquidity',
+  'lp-withdraw': 'Review: remove liquidity',
 };
 
 export function TxReview({
@@ -370,6 +524,7 @@ export function TxOutcomeCard({
   boxRef,
   fees,
   checks = 0,
+  kind,
 }: {
   outcome: TxOutcome;
   /** `null` when there is no signature to link. */
@@ -383,6 +538,8 @@ export function TxOutcomeCard({
   fees?: PreparedTx['fees'] | null;
   /** How many times Check again has answered. */
   checks?: number;
+  /** What the transaction was for, when known: taking liquidity out again has its own risk to name. */
+  kind?: TxKind;
 }) {
   // Done is news; everything else needs the user to read it before acting.
   const a11y = {
@@ -441,7 +598,9 @@ export function TxOutcomeCard({
             <div ref={boxRef} tabIndex={-1} role="alert" className="space-y-1.5 outline-none">
               <Notice tone="warn">Sent, not confirmed yet. Do not retry until you check.</Notice>
               <Notice>
-                It may still land. Sending again could make you pay twice. Check again, or look it up on the explorer.
+                {kind === 'lp-withdraw'
+                  ? 'It may still land. Taking liquidity out again now could take out more than you meant. Check again, or look it up on the explorer.'
+                  : 'It may still land. Sending again could make you pay twice. Check again, or look it up on the explorer.'}
               </Notice>
               <SignatureRow signature={outcome.signature} />
               {explorerUrl && <ExplorerLink href={explorerUrl} />}
@@ -611,6 +770,7 @@ export function TxFlowView({
       boxRef={setFocus}
       fees={s.prepared?.fees ?? null}
       checks={s.checks ?? 0}
+      kind={s.prepared?.kind}
     />
   );
 }

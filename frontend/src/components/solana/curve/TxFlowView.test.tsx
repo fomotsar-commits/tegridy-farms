@@ -676,3 +676,148 @@ describe('every button is at least 44px tall at every width', () => {
     }
   });
 });
+
+// Spec 4.5: adding and removing liquidity. Every row comes from the prepared
+// transaction's summary (the maxima and minima were decoded from its bytes), so each
+// value below is one the summary carries and no form could have supplied.
+describe('liquidity reviews', () => {
+  const config = {
+    address: KEY(6).toBase58(), index: 1, disableCreatePool: false, tradeFeeRate: 2_500n, protocolFeeRate: 120_000n,
+    fundFeeRate: 0n, createPoolFee: 0n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
+  };
+  const deposit = (over: Partial<Extract<TxSummary, { kind: 'lp-deposit' }>> = {}): TxSummary => ({
+    kind: 'lp-deposit', pool: KEY(30), origin: 'standard', config, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
+    lpAmount: 123_456_789_012n, lpDecimals: 9,
+    quoted: { sol: 2_000_000_000n, token: 5_000_000n }, max: { sol: 2_020_000_001n, token: 5_050_001n },
+    limitedByBalance: 'none', sharePct: { before: 0, after: 12.5 },
+    price: { state: 'agrees', pool: 1, reference: 1, against: 'outside', diff: -0.012 },
+    tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }],
+    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['An approved spender can move tokens.'], ...over,
+  });
+  const withdraw = (over: Partial<Extract<TxSummary, { kind: 'lp-withdraw' }>> = {}): TxSummary => ({
+    kind: 'lp-withdraw', pool: KEY(30), origin: 'launch-pool', config: null, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
+    lpAccount: KEY(32), lpAmount: 250_000_000n, lpDecimals: 9, heldBefore: 1_000_000_000n, all: false, keep: 750_000_000n,
+    quoted: { sol: 1_000_000_000n, token: 3_000_000n }, min: { sol: 990_000_001n, token: 2_970_001n },
+    tokenAccount: KEY(33), tokenAccountRent: 2_074_080n, unwrapsWsol: false, notices: ['Swaps on this pool are switched off.'], ...over,
+  });
+  const value = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
+  const review = async (summary: TxSummary) => {
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(summary) })));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+  };
+
+  it('adding: every row, from the prepared summary, bounds to the last digit', async () => {
+    await review(deposit());
+    expect(screen.getByRole('heading', { name: 'Review: add liquidity' })).toBeInTheDocument();
+    expect(value('Pool')).toBe(KEY(30).toBase58());
+    expect(value('Pool kind')).toBe('Standard address for fee tier 1');
+    expect(value('Token (mint)')).toBe(KEY(31).toBase58());
+    expect(value('Fee tier')).toBe('1: traders pay 0.25% a trade; LPs keep 0.220% of each trade');
+    expect(value('You put in about')).toBe('2 SOL and 5 tokens');
+    expect(value('At most')).toBe('2.020000001 SOL and 5.050001 tokens');
+    expect(value('You get')).toBe('123.456789012 pool shares, exactly');
+    expect(value('Your share of the pool')).toBe('none → 12.50%');
+    expect(value('Price check')).toBe('1.2% below the outside price (Jupiter), read just now');
+    expect(value('Pool fee to add')).toBe('none');
+    expect(screen.getByText('Read these about this token first:')).toBeInTheDocument();
+    expect(screen.getByText('Its creator can still mint more.')).toBeInTheDocument();
+    expect(screen.getByText('An approved spender can move tokens.')).toBeInTheDocument();
+    expect(screen.getByText(/closed at the end, so anything not used comes back as plain SOL/)).toBeInTheDocument();
+  });
+
+  it('adding: a balance-limited side, an own-average price, a launch pool, unread fees and kept wrapped SOL', async () => {
+    await review(
+      deposit({
+        limitedByBalance: 'token', origin: 'launch-pool', config: null,
+        price: { state: 'agrees', pool: 1, reference: 1, against: 'own-average', diff: 0.021 },
+        unwrapsWsol: false, wsolHeldBefore: 500_000_000n, tokenWarnings: [], notices: [],
+      }),
+    );
+    expect(value('At most')).toBe('2.020000001 SOL and 5.050001 tokens (all the tokens you have)');
+    expect(value('Pool kind')).toBe('Launch pool: opened by the launch program at graduation');
+    expect(value('Fee tier')).toBe('not read');
+    expect(value('Price check')).toBe('2.1% from its own average over the last 30 minutes');
+    expect(screen.getByText(/You already hold 0\.5 wrapped SOL\. It is left exactly as it is\. Up to 0\.020000001 SOL/)).toBeInTheDocument();
+    expect(screen.queryByText('Read these about this token first:')).not.toBeInTheDocument();
+  });
+
+  it('adding to a launch pool nobody has traded yet', async () => {
+    await review(deposit({ origin: 'launch-pool', price: { state: 'no-trades-yet', pool: 1 } }));
+    expect(value('Price check')).toBe('nobody has traded since the launch program opened it');
+  });
+
+  it('removing: every row, from the prepared summary', async () => {
+    await review(withdraw());
+    expect(screen.getByRole('heading', { name: 'Review: remove liquidity' })).toBeInTheDocument();
+    expect(value('Pool kind')).toBe('Launch pool: opened by the launch program at graduation');
+    expect(value('Pool shares you give back')).toBe('0.25 (25.00% of yours)');
+    expect(value('You get about')).toBe('1 SOL and 3 tokens');
+    expect(value('You get at least')).toBe('0.990000001 SOL and 2.970001 tokens');
+    expect(value('You keep')).toBe('0.75 pool shares');
+    expect(value('The tokens arrive in')).toBe(`${KEY(33).toBase58()} (opened for you; its deposit of 0.00207408 SOL stays in that account)`);
+    expect(value('The SOL arrives')).toBe('as wrapped SOL in the account you already hold');
+    expect(value('Pool fee to take out')).toBe('none');
+    expect(screen.getByText('Swaps on this pool are switched off.')).toBeInTheDocument();
+    expect(screen.queryByText('This is all of your share in this pool.')).not.toBeInTheDocument();
+  });
+
+  it('removing all of it: nothing kept, an existing token account, plain SOL', async () => {
+    await review(withdraw({ lpAmount: 1_000_000_000n, all: true, keep: 0n, tokenAccountRent: 0n, unwrapsWsol: true, origin: 'other' }));
+    expect(value('Pool kind')).toBe('Its own address');
+    expect(value('Pool shares you give back')).toBe('1 (100.00% of yours)');
+    expect(screen.getByText('This is all of your share in this pool.')).toBeInTheDocument();
+    expect(value('You keep')).toBe('none in this pool');
+    expect(value('The tokens arrive in')).toBe(KEY(33).toBase58());
+    expect(value('The SOL arrives')).toBe('as plain SOL');
+  });
+
+  it('a new token account’s rent is called a deposit that stays in the account, for both kinds', async () => {
+    await review(withdraw());
+    expect(screen.getByText('One-time deposit for your new token account (it stays in that account)')).toBeInTheDocument();
+    expect(screen.queryByText('One-time account rent')).not.toBeInTheDocument();
+  });
+
+  it('the priority fee is measured against the SOL side of the liquidity change', async () => {
+    // 12,000 lamports of priority (the fixture) against 100,000 lamports quoted.
+    await review(deposit({ quoted: { sol: 100_000n, token: 5_000_000n } }));
+    expect(value('Priority fee')).toMatch(/\(12\.00% of this trade\)$/);
+  });
+});
+
+describe('liquidity outcomes', () => {
+  it('unknown is never "failed" for either kind; taking liquidity out again has its own warning', () => {
+    for (const kind of ['lp-deposit', 'lp-withdraw'] as const) {
+      const view = render(
+        <TxOutcomeCard outcome={{ status: 'unknown', signature: SIG, message: 'slow' }} explorerUrl={null} onRecheck={vi.fn()} onReset={vi.fn()} rechecking={false} kind={kind} />,
+      );
+      const text = document.body.textContent ?? '';
+      expect(text).not.toMatch(/fail/i);
+      expect(text).toMatch(/Sent, not confirmed yet\. Do not retry until you check\./);
+      if (kind === 'lp-withdraw') {
+        expect(text).toContain(
+          'It may still land. Taking liquidity out again now could take out more than you meant. Check again, or look it up on the explorer.',
+        );
+      } else {
+        expect(text).toContain('It may still land. Sending again could make you pay twice. Check again, or look it up on the explorer.');
+      }
+      view.unmount();
+    }
+  });
+
+  it('the flow tells the outcome card what was sent, so a withdrawal left unknown gets its warning', async () => {
+    const api = fakeApi({ submitPrepared: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'slow' })) });
+    const { result } = flowAt(api);
+    const summary: TxSummary = {
+      kind: 'lp-withdraw', pool: KEY(30), origin: 'standard', config: null, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
+      lpAccount: KEY(32), lpAmount: 1n, lpDecimals: 9, heldBefore: 1n, all: true, keep: 0n, quoted: { sol: 1n, token: 1n },
+      min: { sol: 1n, token: 1n }, tokenAccount: KEY(33), tokenAccountRent: 0n, unwrapsWsol: true, notices: [],
+    };
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(summary) })));
+    await act(() => result.current.confirm(signer));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+    expect(document.body.textContent).toContain('Taking liquidity out again now could take out more than you meant.');
+    expect(document.body.textContent).not.toMatch(/fail/i);
+  });
+});

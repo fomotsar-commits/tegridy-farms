@@ -12,8 +12,8 @@
 import { launchErrorName, type LaunchErrorName } from '../curve/program';
 import type { LaunchQuoteErrorCode } from '../curve/math';
 import { CP_SWAP_ERROR_COPY, cpSwapErrorName } from '../../../solana/cpswap/errors';
-import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../curve/program';
-import type { CurveWriteConfig } from './types';
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../curve/program';
+import type { CurveWriteConfig, LpKind, TxKind } from './types';
 
 export type FailingProgram = 'launch' | 'cp-swap' | 'other';
 
@@ -49,6 +49,88 @@ export const LAUNCH_FAILURE_COPY: Record<LaunchErrorName, string> = {
   PlatformReserveAlreadyReleased: 'No longer used: the platform reserve is paid when a token is created.',
   CpSwapProgramNotPinned: 'The pool program in this transaction is not the one the launch program uses.',
 };
+
+/**
+ * Liquidity failures, said for what the person was doing. Used ONLY for the two
+ * liquidity kinds: the pool's own codes mean something different to someone adding
+ * than to someone taking out ("switched off" is a closed door for one and a locked
+ * exit for the other), and the swap copy in CP_SWAP_ERROR_COPY stays the swap's.
+ */
+export interface LpFailureCopy {
+  /** cp-swap 6000 NotApproved: the pool's deposit or withdraw switch is off. */
+  notApproved: string;
+  /** cp-swap 6005 ExceededSlippage. */
+  exceededSlippage: string;
+  /** cp-swap 6006 ZeroTradingTokens. */
+  zeroTradingTokens: string;
+  /** cp-swap 6011 MathOverflow and 6012 InsufficientVault. `{n}` is the code. */
+  booksOff: string;
+  /** Anchor 2506 (a `require_gte!` failing) inside cp-swap. `null` = the program's general line. */
+  heldTooFew: string | null;
+  /** Either token program's 17, AccountFrozen. */
+  accountFrozen: string;
+  /** The associated-token program's 0, InvalidOwner: an account it would reuse belongs to another wallet. */
+  ataInvalidOwner: string;
+}
+
+// The copy is final (spec 3.9), with plain apostrophes, so it reads the same in
+// the page and in the spec the e2e checks it against.
+const LP_FROZEN =
+  "The token's issuer has frozen an account this needs (the pool's vault or your token account), so nothing can move. That is the issuer's doing, not the pool program's.";
+const LP_ATA_OWNER = 'One of your token accounts now belongs to another wallet, so this was stopped before anything moved.';
+
+export const LP_FAILURE_COPY: Record<LpKind, LpFailureCopy> = {
+  'lp-deposit': {
+    notApproved:
+      "Deposits were switched off on this pool by the pool program's admin (the team's vault) before this ran. Nothing was added.",
+    exceededSlippage:
+      "The pool's price moved past your tolerance before this ran, so it would have cost more than your maximum. Start over to see the new amounts.",
+    zeroTradingTokens: "Too small: at this pool's size one side would round to zero. Add a larger amount.",
+    booksOff: "The pool's books did not add up when this ran (error {n}). Do not add to this pool; tell us.",
+    heldTooFew: null,
+    accountFrozen: LP_FROZEN,
+    ataInvalidOwner: LP_ATA_OWNER,
+  },
+  'lp-withdraw': {
+    notApproved:
+      "Withdrawals are switched off on this pool by the pool program's admin (the team's vault). Only the vault can switch them back on. Your pool shares are still in your wallet.",
+    exceededSlippage:
+      "The pool's price moved past your tolerance before this ran, so you would have received less than your minimum. Start over to see the new amounts.",
+    zeroTradingTokens: 'Too small: one side would round to zero. Take out a larger share, or all of it.',
+    booksOff: "The pool's books did not add up when this ran (error {n}). Your shares are still in your wallet; tell us.",
+    heldTooFew: 'Your wallet held fewer pool shares than this tried to take out when it ran. Read your positions again.',
+    accountFrozen: LP_FROZEN,
+    ataInvalidOwner: LP_ATA_OWNER,
+  },
+};
+
+const isLpKind = (k: TxKind | undefined): k is LpKind => k === 'lp-deposit' || k === 'lp-withdraw';
+
+/** The liquidity sentence for this failing program and code, or null to use the general one. */
+function lpFailure(kind: TxKind | undefined, program: FailingProgram, id: string, code: number | null): string | null {
+  if (!isLpKind(kind) || code === null) return null;
+  const c = LP_FAILURE_COPY[kind];
+  if (program === 'cp-swap') {
+    switch (code) {
+      case 6000:
+        return c.notApproved;
+      case 6005:
+        return c.exceededSlippage;
+      case 6006:
+        return c.zeroTradingTokens;
+      case 6011:
+      case 6012:
+        return c.booksOff.replace('{n}', String(code));
+      case 2506:
+        return c.heldTooFew;
+      default:
+        return null;
+    }
+  }
+  if (TOKEN_PROGRAMS.has(id) && code === 17) return c.accountFrozen;
+  if (id === ASSOCIATED_TOKEN_PROGRAM_ID.toBase58() && code === 0) return c.ataInvalidOwner;
+  return null;
+}
 
 /** Plain-English reason for a program error. `code` null = the program did not give one. */
 export function describeFailure(program: FailingProgram, code: number | null): string {
@@ -114,12 +196,14 @@ const NOT_ENOUGH_SOL =
  * Explain a failed simulation or a reverted transaction.
  *
  * `err` is the RPC's `TransactionError` value (a string or an object); `logs` its
- * log lines, which may be missing. Never throws.
+ * log lines, which may be missing. `kind` is what the transaction was for: a
+ * liquidity kind gets LP_FAILURE_COPY where it has a sentence. Never throws.
  */
 export function explainFailure(
   err: unknown,
   logs: readonly string[] | null | undefined,
   cfg: Pick<CurveWriteConfig, 'programId' | 'cpSwapProgram'>,
+  kind?: TxKind,
 ): FailureExplanation {
   const lines = Array.isArray(logs) ? logs.filter((l): l is string => typeof l === 'string') : [];
   const joined = lines.join('\n');
@@ -147,6 +231,8 @@ export function explainFailure(
     const hex = CUSTOM.exec(rest);
     const code = hex ? parseInt(hex[1]!, 16) : null;
     const program = programOf(id, cfg);
+    const lp = lpFailure(kind, program, id, code);
+    if (lp !== null) return { program, code, message: lp };
     // Both token programs number "insufficient funds" 1.
     if (program === 'other' && TOKEN_PROGRAMS.has(id) && code === 1) {
       return { program, code, message: 'You do not hold that many tokens.' };
