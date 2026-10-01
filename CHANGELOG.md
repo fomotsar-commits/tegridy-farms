@@ -6,11 +6,18 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-01
+
+- On /pools, the Solana section finds a token's pools by its address, checks the token and each pool's fee tier, price and status, and shows a connected wallet's pool shares. It only reads: adding and removing liquidity from the site comes next.
+- On /pools, a token or pool check that could not be read says so, and never shows as safe, healthy or empty.
+- /pools no longer says the Solana swap sends a trade to our own pool when ours pays more. The swap compares the two and still trades through Jupiter.
+- /curve-launch reads the live Solana launch program. Launching and trading from the site are switched off for now, and the Solana Curve tab says Soon.
+- On /curve-launch, the Who may plant door reads a wallet's heat from the island. Once launching is switched on, the create form opens only for a Solana wallet at Resident or better, and Review reads that wallet again before anything is signed.
+- A Solana launch's page says a maker at Resident or better can grow a new token through the memetics.finance gate, and that the program itself accepts any wallet.
+- Towelie says Solana has our own curve at /curve-launch instead of saying Solana is swap-only.
+
 ### 2026-09-30
 
-- On /curve-launch, the create form opens only for a connected Solana wallet that reads Resident or better, and pressing Review reads that wallet again before anything is signed. Opening a launch, the list and trading stay open to anyone.
-- A Solana launch's page says a maker at Resident or better can grow a new token through the memetics.finance gate, and that the program itself accepts any wallet.
-- Towelie says Solana has our own curve at /curve-launch, where makers at Resident or better launch, instead of saying Solana is swap-only.
 - On /competitions, the board is called the Volume board, and it links to the island's flames board, ranked by heat.
 
 ### 2026-09-29
