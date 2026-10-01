@@ -7,6 +7,7 @@ import {
   navigablePath,
   GECKO_EDGE_GLOB,
 } from './fixtures/routes';
+import { BAYLA_LADDER_RECORDING } from './fixtures/baylaLadderPool';
 
 // Element I: zero em dashes in venue-voice prose, and an exact count per route until then.
 // A text node that contains U+2014 and whose trimmed content is not exactly U+2014 is prose
@@ -63,7 +64,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/risks': 3,
   '/copy-trading': 11,
   '/tax': 13,
-  '/curve-launch': 14,
+  '/curve-launch': 13,
   '/eth-curve': 15,
   '/alerts': 17,
   // ScoringRules' written paragraphs; the Cup's coverage notice is a data-unread-ledger.
@@ -277,8 +278,9 @@ test.describe('element I: em dashes in the rooms', () => {
 
 // Element I on each room's farm, /farm?bungalow=<id>, keyed by registry id. The reads are
 // sealed (every /api path and every host but localhost aborted), so each pool card renders
-// its unread branch and the count holds from run to run; live-read copy is not walked here.
-// toweli's farm is its own room's prose, and nb1, not yet live, falls through to the venue's.
+// its unread branch and the count holds from run to run. The BAYLA ladder card's read
+// branch is walked in the next block. toweli's farm is its own room's prose, and nb1, not
+// yet live, falls through to the venue's.
 const ROOM_FARM_DEBT: Record<string, number> = {
   toweli: 11,
   bayla: 0,
@@ -336,5 +338,83 @@ test.describe("element I: em dashes on each room's farm", () => {
       .filter((id) => id !== 'towelie');
     expect(ids.length, 'thirteen registry ids').toBe(13);
     expect(Object.keys(ROOM_FARM_DEBT).sort()).toEqual([...ids].sort());
+  });
+});
+
+// Element I on the BAYLA lock ladder card once its pool reads (answer fifteen, item 8).
+// Everything is sealed as above except /api/solrpc, which answers. By default it answers
+// from a recording of the live pool (fixtures/baylaLadderPool.ts, written by
+// scripts/record-bayla-ladder-fixture.mjs): the gate stays hermetic, so a rate-limited
+// public RPC cannot turn it red, and the count holds from run to run. With
+// EM_DASH_LIVE_POOL=1 the request goes through the preview's proxy to mainnet, so one run
+// reads the pool as it stands. Either way the card must show figures it read, or the test
+// fails: a card that never read proves nothing. The build has to carry the ladder
+// (VITE_BAYLA_LADDER_PROGRAM and VITE_BAYLA_LADDER_POOL), as production's and CI's do.
+const LIVE_POOL = process.env.EM_DASH_LIVE_POOL === '1';
+
+test.describe('element I: the BAYLA lock ladder card, once its pool reads', () => {
+  const path = '/farm?bungalow=bayla';
+  test(`${path} reads ${LIVE_POOL ? 'the live pool' : 'the recorded pool'} and carries 0 prose em dashes`, async ({ page }) => {
+    test.skip(test.info().project.name !== 'chromium', 'measured on the desktop project only');
+    test.slow();
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem('tegridy-onboarding-seen', '1');
+        localStorage.setItem('tegridy_telemetry_consent', 'denied');
+        localStorage.setItem('tegridy-bungalow', 'venue');
+      } catch { /* private mode */ }
+    });
+    await page.route('**/api/**', (r) => r.abort());
+    await page.route((url) => url.hostname !== 'localhost', (r) => r.abort());
+    // Registered last, so it runs first. A call the recording does not hold is aborted like
+    // every other read, and named if the card then fails to read.
+    const answers: Record<string, unknown> = BAYLA_LADDER_RECORDING.answers;
+    const unanswered: string[] = [];
+    await page.route('**/api/solrpc', (route) => {
+      if (LIVE_POOL) return route.continue();
+      let body: unknown = null;
+      try { body = route.request().postDataJSON(); } catch { /* not JSON: unanswered */ }
+      const calls = (Array.isArray(body) ? body : [body]) as { id?: unknown; method?: unknown; params?: unknown[] }[];
+      const keys = calls.map((c) => `${String(c?.method)}:${String(c?.params?.[0])}`);
+      if (!keys.every((k) => k in answers)) {
+        unanswered.push(...keys);
+        return route.abort();
+      }
+      const replies = calls.map((c, i) => ({ jsonrpc: '2.0', id: c.id, result: answers[keys[i]!] }));
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(Array.isArray(body) ? replies : replies[0]),
+      });
+    });
+
+    await settle(page, path);
+
+    // A build without the ladder serves the closed Streamflow card here, and no ladder.
+    if ((await page.getByText(/The lock ladder is live for BAYLA/).count()) === 0) {
+      expect(process.env.CI, 'the CI build sets the ladder, as production does, and this build has none').toBeFalsy();
+      test.skip(true, 'this build carries no ladder: build with VITE_BAYLA_LADDER_PROGRAM and VITE_BAYLA_LADDER_POOL set');
+    }
+
+    // The ledger draws only from a pool that read and stakes BAYLA's own mint, and each
+    // figure is a number it read, never the unread mark.
+    const ledger = page.locator('section[data-ledger]');
+    const why = unanswered.length ? ` (unanswered: ${unanswered.join(', ')})` : '';
+    await expect(ledger, `the ladder card did not read its pool${why}`).toHaveCount(1);
+    // ledger.tsx's contract: the label, then the value <p>, whose first child is the figure.
+    const figure = (label: string) => ledger.getByText(label, { exact: true })
+      .evaluate((el) => el.nextElementSibling?.firstElementChild?.textContent ?? '');
+    const locked = await figure('BAYLA locked here');
+    const vault = await figure('Reward vault');
+    expect(locked, 'BAYLA locked here is a figure it read').toMatch(/\d/);
+    expect(vault, 'the reward vault is a figure it read').toMatch(/\d/);
+    test.info().annotations.push({
+      type: 'pool',
+      description: `${LIVE_POOL ? 'live' : `recorded at slot ${BAYLA_LADDER_RECORDING.slot}`}: ${locked} BAYLA locked, reward vault ${vault} BAYLA`,
+    });
+
+    const hits = await proseDashes(page);
+    const shown = hits.slice(0, 20).map((h) => `  ${h.owner}: ${h.text}`).join('\n');
+    expect(hits.length, `${path}, its ladder read, carries prose em dashes:\n${shown}`).toBe(0);
   });
 });

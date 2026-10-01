@@ -77,6 +77,12 @@ describe('fetchHeat — fail-closed', () => {
     await expect(fetchHeat('not-an-address')).rejects.toBeInstanceOf(HeatUnavailableError);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('names every chain it reads when it refuses an address, here and on a 400', async () => {
+    await expect(fetchHeat('not-an-address')).rejects.toThrow('That is not an Ethereum, Base, or Solana address.');
+    fetchMock.mockResolvedValue(status(400));
+    await expect(fetchHeat(ADDR)).rejects.toThrow('That is not an Ethereum, Base, or Solana address.');
+  });
 });
 
 describe('the TTL cache — minutes, never days', () => {

@@ -127,12 +127,18 @@ async function crawl(page: Page, html: string) {
   }, html);
 }
 
-test('a crawler reads each door by its own heading, and /toweli as the stock shell', async ({ page, request }) => {
+test('a crawler reads each door by its own heading, /toweli and its alias included', async ({ page, request }) => {
+  // Answer fifteen, item 5: "The done-means was every door." The TOWELI room is the
+  // door that was left on the stock shell; its alias opens the same room.
+  expect(DOOR_ROUTES).toEqual(expect.arrayContaining(['/toweli', '/towelie']));
   await page.goto('about:blank');
+  const stock = await (await request.get('/index.html')).text();
   for (const route of DOOR_ROUTES) {
     const res = await request.get(route);
     expect(res.ok(), `${route}: not served`).toBe(true);
-    const door = await crawl(page, await res.text());
+    const html = await res.text();
+    expect(html === stock, `${route}: served the stock shell`).toBe(false);
+    const door = await crawl(page, html);
     expect(door.title, `${route}: served the stock shell, not the door's own HTML`).not.toMatch(/^MEMETICS\.FINANCE/);
     expect(door.headings, `${route}: the headings a crawler reads`).toEqual([`H1 ${doorHeading(route)}`]);
     expect(door.gate, `${route}: the frame ships hidden`).toBe('venue');
@@ -149,21 +155,32 @@ test('a crawler reads each door by its own heading, and /toweli as the stock she
       expect(art.headers()['content-type'] ?? '', `${route}: ${url} is not an image the build produced`).toMatch(/^image\//);
     }
   }
-  const stock = await (await request.get('/index.html')).text();
-  expect(await (await request.get('/toweli')).text(), '/toweli must serve the stock shell').toBe(stock);
-  const toweli = await crawl(page, stock);
-  expect(toweli.gate, 'the stock shell opens no frame from the HTML').toBeNull();
-  expect(toweli.headings[0], "/toweli's HTML still carries the venue's own frame").toBe('H1 MEMETICS.FINANCE Held time counts here.');
+  // A route that is no door still gets the stock shell, whose frame opens only on `/`.
+  expect(await (await request.get('/farm')).text(), '/farm must serve the stock shell').toBe(stock);
+  const farm = await crawl(page, stock);
+  expect(farm.gate, 'the stock shell opens no frame from the HTML').toBeNull();
+  expect(farm.headings[0], "the stock shell still carries the venue's own frame").toBe('H1 MEMETICS.FINANCE Held time counts here.');
 });
 
-test('the preview serves a door the way Vercel does, with or without a query', async ({ request }) => {
-  for (const path of ['/bayla', '/bayla?heat=0x0000000000000000000000000000000000000000', '/bayla/']) {
+test('the preview serves a door the way Vercel does, with or without a query or a slash', async ({ request }) => {
+  const cases: [string, string][] = [
+    ['/bayla', 'BAYLA | The muse of Jungle Bay Island'],
+    ['/bayla?heat=0x0000000000000000000000000000000000000000', 'BAYLA | The muse of Jungle Bay Island'],
+    ['/bayla/', 'BAYLA | The muse of Jungle Bay Island'],
+    ['/toweli', 'TOWELI | Jungle Bay Island'],
+    ['/toweli/', 'TOWELI | Jungle Bay Island'],
+    ['/toweli?ref=0x0000000000000000000000000000000000000000', 'TOWELI | Jungle Bay Island'],
+    ['/towelie', 'TOWELI | Jungle Bay Island'],
+  ];
+  for (const [path, title] of cases) {
     const html = await (await request.get(path)).text();
-    expect(html, path).toContain('<title>BAYLA | The muse of Jungle Bay Island</title>');
+    expect(html, path).toContain(`<title>${title}</title>`);
   }
+  // The alias is the same room, so it names the room's own address as canonical.
+  expect(await (await request.get('/towelie')).text()).toContain('<link rel="canonical" href="https://memetics.finance/toweli" />');
 });
 
-test('with the app script blocked, every door shows its own heading, and /toweli none', async ({ page }) => {
+test('with the app script blocked, every door shows its own heading, and a page that is no door none', async ({ page }) => {
   await page.route('**/assets/index-*.js', (r) => r.abort());
   for (const route of DOOR_ROUTES) {
     await page.goto(route);
@@ -172,21 +189,23 @@ test('with the app script blocked, every door shows its own heading, and /toweli
     await expect(h1, route).toBeInViewport();
     await expect(page.locator('h1'), `${route}: a second heading`).toHaveCount(1);
   }
-  await page.goto('/toweli');
+  await page.goto('/farm');
   await expect(page.locator('#first-frame')).toHaveCount(0);
 });
 
 test.describe('with JavaScript off', () => {
   test.use({ javaScriptEnabled: false });
-  test('/bayla reads as BAYLA: its heading on screen, the notice a paragraph', async ({ page }) => {
-    await page.goto('/bayla');
-    await expect(page.locator('#first-frame h1')).toBeVisible();
-    await expect(page.getByRole('heading')).toHaveText([doorHeading('/bayla')]);
-    await expect(page.locator('noscript p').first()).toHaveText('MEMETICS.FINANCE requires JavaScript');
-  });
+  for (const [route, room] of [['/bayla', 'BAYLA'], ['/toweli', 'TOWELI']] as const) {
+    test(`${route} reads as ${room}: its heading on screen, the notice a paragraph`, async ({ page }) => {
+      await page.goto(route);
+      await expect(page.locator('#first-frame h1')).toBeVisible();
+      await expect(page.getByRole('heading')).toHaveText([doorHeading(route)]);
+      await expect(page.locator('noscript p').first()).toHaveText('MEMETICS.FINANCE requires JavaScript');
+    });
+  }
 });
 
-for (const route of ['/bayla', '/pepe']) {
+for (const route of ['/bayla', '/pepe', '/toweli']) {
   test(`on the phone throttle, ${route} paints its heading under 1 s and never loses it`, async ({ page }) => {
     test.slow();
     await page.addInitScript(watchHeading, doorHeading(route));
@@ -206,47 +225,50 @@ for (const route of ['/bayla', '/pepe']) {
   });
 }
 
-test('the handoff keeps the heading where it was, from HTML to fallback to hero', async ({ page }) => {
-  test.slow();
-  const route = '/bayla';
-  const heading = doorHeading(route);
-  await page.addInitScript(watchHeading, heading);
-  const releaseEntry = await hold(page, '**/assets/index-*.js');
-  const releaseHome = await hold(page, '**/assets/HomePage-*.js');
-  await page.goto(route, { waitUntil: 'commit' });
-  // The box, and the words' own run: a change of letter-spacing moves the second only.
-  const rect = (sel: string) => page.locator(sel).first().evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const t = range.getBoundingClientRect();
-    return { top: r.top, left: r.left, width: r.width, height: r.height, textWidth: t.width };
+// /toweli too: its hero is HomePage's classic cluster, not BungalowHero, so it is the
+// one door whose hero is a different component from the one the frame was placed for.
+for (const route of ['/bayla', '/toweli']) {
+  test(`the handoff keeps ${route}'s heading where it was, from HTML to fallback to hero`, async ({ page }) => {
+    test.slow();
+    const heading = doorHeading(route);
+    await page.addInitScript(watchHeading, heading);
+    const releaseEntry = await hold(page, '**/assets/index-*.js');
+    const releaseHome = await hold(page, '**/assets/HomePage-*.js');
+    await page.goto(route, { waitUntil: 'commit' });
+    // The box, and the words' own run: a change of letter-spacing moves the second only.
+    const rect = (sel: string) => page.locator(sel).first().evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const t = range.getBoundingClientRect();
+      return { top: r.top, left: r.left, width: r.width, height: r.height, textWidth: t.width };
+    });
+    const near = (a: Record<string, number>, b: Record<string, number>, what: string) => {
+      for (const k of ['top', 'left', 'width', 'height', 'textWidth']) {
+        expect(Math.abs(a[k]! - b[k]!), `${what} moved the heading (${k}: ${b[k]} then ${a[k]})`).toBeLessThanOrEqual(1);
+      }
+    };
+
+    const staticH1 = page.locator('#first-frame h1');
+    await expect(staticH1).toHaveText(heading, { timeout: 15_000 });
+    await page.evaluate(() => document.fonts.ready);
+    const before = await rect('#first-frame h1');
+
+    releaseEntry();
+    const fallback = page.locator('main#main-content [aria-busy="true"] h1');
+    await expect(fallback).toHaveText(heading, { timeout: 60_000 });
+    near(await rect('main#main-content [aria-busy="true"] h1'), before, 'the fallback');
+
+    releaseHome();
+    await expect(page.locator('main#main-content [aria-busy="true"]')).toHaveCount(0, { timeout: 60_000 });
+    const hero = page.locator('main#main-content h1').first();
+    await expect(hero).toHaveText(heading);
+    await expect(hero).toBeInViewport();
+    near(await rect('main#main-content h1'), before, 'the hero');
+    await expect.poll(async () => (await readWatch(page)).done, { timeout: 15_000 }).toBe(true);
+    const w = await readWatch(page);
+    expect(w.gaps, 'moments with no heading on screen across the two swaps').toEqual([]);
+    expect(w.loading, '"Loading" entered the page').toEqual([]);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
   });
-  const near = (a: Record<string, number>, b: Record<string, number>, what: string) => {
-    for (const k of ['top', 'left', 'width', 'height', 'textWidth']) {
-      expect(Math.abs(a[k]! - b[k]!), `${what} moved the heading (${k}: ${b[k]} then ${a[k]})`).toBeLessThanOrEqual(1);
-    }
-  };
-
-  const staticH1 = page.locator('#first-frame h1');
-  await expect(staticH1).toHaveText(heading, { timeout: 15_000 });
-  await page.evaluate(() => document.fonts.ready);
-  const before = await rect('#first-frame h1');
-
-  releaseEntry();
-  const fallback = page.locator('main#main-content [aria-busy="true"] h1');
-  await expect(fallback).toHaveText(heading, { timeout: 60_000 });
-  near(await rect('main#main-content [aria-busy="true"] h1'), before, 'the fallback');
-
-  releaseHome();
-  await expect(page.locator('main#main-content [aria-busy="true"]')).toHaveCount(0, { timeout: 60_000 });
-  const hero = page.locator('main#main-content h1').first();
-  await expect(hero).toHaveText(heading);
-  await expect(hero).toBeInViewport();
-  near(await rect('main#main-content h1'), before, 'the hero');
-  await expect.poll(async () => (await readWatch(page)).done, { timeout: 15_000 }).toBe(true);
-  const w = await readWatch(page);
-  expect(w.gaps, 'moments with no heading on screen across the two swaps').toEqual([]);
-  expect(w.loading, '"Loading" entered the page').toEqual([]);
-  expect(await page.evaluate(() => window.scrollY)).toBe(0);
-});
+}

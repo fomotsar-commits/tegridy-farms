@@ -239,7 +239,7 @@ export function renderLlmsTxt(f: LlmsFacts, meta: { date: string; commit?: strin
   out.push(f.launchFloorLine, '');
 
   out.push('## Read any wallet', '');
-  out.push(`- ${f.siteUrl}/read/<address>: the held time of any Ethereum or Solana wallet. No wallet connection needed.`);
+  out.push(`- ${f.siteUrl}/read/<address>: the held time of any Ethereum, Base, or Solana wallet. No wallet connection needed.`);
   out.push(`- ${f.siteUrl}/scan: holder concentration for a token. A descriptive measurement, not a verdict.`, '');
 
   const doorLine = (d: DoorFact) =>

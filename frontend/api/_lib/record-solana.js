@@ -1,29 +1,9 @@
-// Solana chain reads for the birth record.
-//
-// ## Scope, deliberately narrow
-//
-// This reads the SPL mint account and nothing else. That gives the two facts the
-// directive's precision law actually turns on — `decimals` (snapshotted, because the
-// curve rail's decimals are a launch parameter, not a constant) and `total_supply` —
-// plus the mint/freeze authorities, which are the closest thing to a lock the mint
-// itself can prove.
-//
-// Everything else is declared `unread` rather than guessed:
-//
-//   name / symbol   Live in a Metaplex metadata PDA as borsh strings that are NUL-PUFFED
-//                   to fixed widths. Parsing them wrong ships `\0` inside a JSON
-//                   document consumed by machines, and our own curve rail does not write
-//                   that account at all. An honest `unread` beats a fragile parse.
-//   plates          The curve program's allocation split is not derivable from the mint.
-//   fee_instruction The DBC fee schedule lives on the partner CONFIG account, which this
-//                   route is not given (the record is keyed by mint, not by pool).
-//   creator         Not derivable without the create transaction.
-//
-// ## Why it does not call /api/solrpc
-//
-// That proxy is origin-gated: a lambda-to-lambda fetch sends no `Origin` and gets a 403
-// under `VERCEL_ENV=production|preview`, and it would burn the browser's shared per-IP
-// budget. Read the upstream directly.
+// Solana chain reads for the birth record: the mint account and nothing else. It gives the
+// facts the precision law turns on (`decimals`, `total_supply`) and the mint and freeze
+// authorities, the closest thing to a lock a mint can prove. name, symbol, plates, the fee
+// instruction and the creator are declared `unread`, never guessed. It reads the upstream RPC
+// directly: /api/solrpc is origin-gated, so a lambda-to-lambda call would get a 403 and spend
+// the browser's shared per-IP budget.
 
 /** SPL Token mint account layout — a fixed 82 bytes. */
 const MINT_ACCOUNT_BYTES = 82;
@@ -34,21 +14,30 @@ const OFFSET_DECIMALS = 44; // u8
 const OFFSET_IS_INITIALIZED = 45; // u8
 const OFFSET_FREEZE_AUTHORITY_TAG = 46; // COption tag
 
-/**
- * The only programs that may own a mint. Same ids as
- * src/lib/launcher/solana/curve/program.ts (TOKEN_PROGRAM_ID / TOKEN_2022_PROGRAM_ID).
- *
- * WITHOUT THIS CHECK, BYTES ALONE DECIDE. An SPL *token account* is 165 bytes and its
- * bytes 44/45 land inside the owner pubkey — so one whose owner happens to have byte 45
- * == 1 and byte 44 <= 18 decodes as a "mint", and bytes 36..44 of that pubkey get
- * published as `total_supply`. An attacker can grind such a keypair in seconds and mint
- * a birth certificate with chosen decimals and supply. The account's owning PROGRAM is
- * the only thing that actually says "this is a mint".
- */
-const TOKEN_PROGRAM_IDS = new Set([
-  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-]);
+/** The only programs that may own a mint (ids as in src/lib/launcher/solana/curve/program.ts).
+ *  The owner decides, never bytes alone: a 165-byte token account whose owner pubkey sets
+ *  byte 45 to 1 and byte 44 to 18 or less would decode as a mint and publish a chosen
+ *  supply, and such a keypair grinds in seconds. */
+const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+const TOKEN_PROGRAM_IDS = new Set(["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", TOKEN_2022_PROGRAM_ID]);
+
+/** A Token-2022 mint with extensions is longer than a token account's 165 bytes, and the byte
+ *  after those 165 says Mint (1). 355 bytes is a multisig, a length Token-2022 never gives a
+ *  mint. Recognised only to answer truly (BAYLA is one); this venue never decodes one. */
+const OFFSET_ACCOUNT_TYPE = 165;
+const ACCOUNT_TYPE_MINT = 1;
+const MULTISIG_BYTES = 355;
+const TOKEN_2022_MINT_REASON =
+  "This is a Token-2022 mint. This venue's launcher makes no Token-2022 mints, and this record cannot read one that carries extensions.";
+
+function isToken2022MintWithExtensions(owner, buf) {
+  return (
+    owner === TOKEN_2022_PROGRAM_ID &&
+    buf.length !== MULTISIG_BYTES &&
+    buf[OFFSET_ACCOUNT_TYPE] === ACCOUNT_TYPE_MINT &&
+    buf[OFFSET_IS_INITIALIZED] === 1
+  );
+}
 
 const RPC_TIMEOUT_MS = 6000;
 
@@ -76,18 +65,11 @@ async function solRpc(method, params) {
   return json.result;
 }
 
-/**
- * Decode the parts of an SPL mint we publish.
- *
- * Returns null for anything that is not an initialised 82-byte mint — a token-2022 mint
- * with extensions, a token account, or a random address all land here, and none of them
- * should be read as "a mint with zero supply".
- */
+/** Decode the parts of an initialised 82-byte SPL mint we publish. Anything else returns
+ *  null (a Token-2022 mint with extensions, a token account, a random address), so none of
+ *  them reads as a mint with zero supply. The length is EXACT: a minimum admitted a 165-byte
+ *  token account, whose bytes 44 and 45 sit inside its owner pubkey. */
 export function decodeMintAccount(buf) {
-  // EXACT length, not a minimum. `< 82` admits every LONGER account — including a
-  // 165-byte token account, whose bytes 44/45 sit inside its owner pubkey and can
-  // satisfy the decimals/initialised checks by coincidence. The doc comment above has
-  // always claimed a token account returns null; `<` did not deliver that.
   if (!buf || buf.length !== MINT_ACCOUNT_BYTES) return null;
   if (buf[OFFSET_IS_INITIALIZED] !== 1) return null;
 
@@ -141,7 +123,10 @@ export async function readSolanaRecordInput(ca, opts = {}) {
   const buf = Buffer.from(value.data[0], "base64");
   const mint = decodeMintAccount(buf);
   if (!mint) {
-    return { absent: true, reason: "That address is not an initialised SPL mint." };
+    const reason = isToken2022MintWithExtensions(value.owner, buf)
+      ? TOKEN_2022_MINT_REASON
+      : "That address is not an initialised SPL mint.";
+    return { absent: true, reason };
   }
 
   // THE MINT IS THE FACT, not the launch config. `PoolConfig.tokenDecimal` is the
