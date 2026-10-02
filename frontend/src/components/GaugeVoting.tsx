@@ -141,11 +141,11 @@ export function GaugeVoting() {
   const { isSuccess, isReverted } = useReceiptOutcome(receiptQuery, {
     hash: txHash,
     chainId: CHAIN_ID,
-    // Every repeat reverts on-chain (AlreadyCommitted / AlreadyVotedThisEpoch),
-    // but handleCommit saves a NEW salt before it prompts, so the repeat that
-    // matters is a second commit.
-    repeatCost:
-      'a second vote or reveal reverts, and a second commit also replaces the reveal secret saved in this browser, so the first vote could not be revealed.',
+    // Every repeat reverts on-chain (AlreadyCommitted / AlreadyVotedThisEpoch).
+    // handleCommit still saves a new salt before it prompts, but that ADDS a
+    // record (see Commit-Reveal Local Storage), so the landed commit's salt
+    // survives and the reveal still works.
+    repeatCost: 'a second commit, vote or reveal reverts on-chain.',
   });
 
   // Stable boolean from a runtime constant — hooks below run unconditionally

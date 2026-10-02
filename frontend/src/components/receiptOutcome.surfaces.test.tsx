@@ -84,7 +84,7 @@ const SURFACES: Surface[] = [
     name: 'GaugeVoting',
     mount: ui(<GaugeVoting />),
     reverted: /your vote was not recorded/i,
-    repeat: /replaces the reveal secret saved in this browser/i,
+    repeat: /a second commit, vote or reveal reverts on-chain/i,
   },
   {
     name: 'LegacyStakingExit',
