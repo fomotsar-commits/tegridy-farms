@@ -14,13 +14,20 @@
  * A markdown table would not have caught it, because a wrong address looks exactly like
  * a right one. Only decoding does. So this is a CHECK, not a document:
  *
+ *   0. EVERY SECTION IS READ — each top-level key of addresses.json is either a row
+ *                   section in ROW_SECTIONS or a named non-row key. An unknown key is a
+ *                   hard failure, because rows the checks below never iterate are
+ *                   unchecked whatever `expect` they carry. That was true of every
+ *                   `base` and `robinhood` row until 2026-09-17.
  *   1. STRUCTURE  — every address decodes. EVM to 20 bytes with a valid EIP-55
  *                   checksum; Solana base58 to exactly 32 bytes. This is the check that
  *                   would have caught the fabrication.
- *   2. NO TRUNCATION — any '…' or '...' anywhere in the registry is a hard failure.
+ *   2. NO TRUNCATION — any '…' or '...' in an address field is a hard failure.
  *                   Truncation is what started the whole incident.
- *   3. NO DUPLICATES — the same address under two ids means two people think they own
- *                   different things.
+ *   3. NO DUPLICATES — the same address under two ids ON THE SAME CHAIN means two people
+ *                   think they own different things. Keyed per chain, because a CREATE
+ *                   address depends only on deployer + nonce: one deployer's nonce 7 is
+ *                   a different contract on mainnet, Base and Robinhood.
  *   4. DENYLIST   — the fabricated address and the burned keypair can never be
  *                   reintroduced, even by an honest copy-paste.
  *   5. DRIFT (code → registry)
@@ -31,9 +38,10 @@
  *                   whole of its reach: a file carrying live mainnet addresses that is not
  *                   named in it is not "clean", it is unlooked-at.
  *   6. DRIFT (chain → registry)
- *                 — every contract this repo has actually CREATED on mainnet, read out
- *                   of the Foundry broadcast receipts, must be a live entry, denylisted,
- *                   or explicitly retired in `retiredDeploys`.
+ *                 — every contract this repo has actually CREATED on mainnet, Base or
+ *                   Robinhood, read out of the Foundry broadcast receipts, must be a
+ *                   registry row ON THAT CHAIN, denylisted, or (mainnet only) retired
+ *                   in `retiredDeploys`.
  *
  * WHY 6 EXISTS — the guard used to be one-directional and could not fail on a missing
  * entry. Check 5 walks a fixed list of source files and asks the registry about each
@@ -91,7 +99,7 @@
  * Run:  node scripts/verify-addresses.mjs             (offline; fast; CI-safe)
  *       node scripts/verify-addresses.mjs --onchain   (also reads live chain state)
  *       node scripts/verify-addresses.mjs --markdown  (emit the registry as a table)
- *       node scripts/verify-addresses.mjs --self-test (prove 5, 5b, 6 and 7 can still fail)
+ *       node scripts/verify-addresses.mjs --self-test (prove 0-3b, 5, 5b, 6 and 7 can still fail)
  *
  * Exits non-zero on any failure so CI fails loudly.
  *
@@ -99,10 +107,11 @@
  * repository is public. `custody` says WHO controls a key, never WHERE it is stored.
  */
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
-import { getAddress, isAddress } from 'viem';
+import { getAddress, getContractAddress, isAddress } from 'viem';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REGISTRY = join(HERE, 'addresses.json');
@@ -110,8 +119,31 @@ const CONSTANTS = join(HERE, '..', 'src', 'lib', 'constants.ts');
 const YIELD_PROTOCOLS = join(HERE, '..', 'src', 'lib', 'yield', 'protocols.ts');
 const CURVE_PROGRAM = join(HERE, '..', 'src', 'lib', 'launcher', 'solana', 'curve', 'program.ts');
 const BROADCAST = join(HERE, '..', '..', 'contracts', 'broadcast');
-/** Ethereum mainnet. Foundry files broadcasts under broadcast/<script>/<chainId>/. */
-const MAINNET_CHAIN_DIR = '1';
+/**
+ * The EVM chains this file can check, by chain id. Foundry files broadcasts under
+ * broadcast/<script>/<chainId>/, and a registry row names its chain through the section
+ * it sits in (ROW_SECTIONS) or, in `ethereum`, through its own `chainId`.
+ */
+const EVM_CHAINS = { 1: 'mainnet', 8453: 'Base', 4663: 'Robinhood' };
+const MAINNET = 1;
+
+/**
+ * Every top-level list of registry ROWS, and the chain its rows live on. A section
+ * missing from here is a section no check reads, so check 0 fails on any top-level key
+ * that is neither a row section nor one of NON_ROW_KEYS.
+ *
+ * In `base` and `robinhood` the section IS the chain. In `ethereum` the row says: a
+ * `chainId` (number or array, default 1) is how the CREATE2-twin L2 Safes name both
+ * chains from one row.
+ */
+const ROW_SECTIONS = {
+  solana: { kind: 'solana' },
+  ethereum: { kind: 'evm' },
+  base: { kind: 'evm', chainId: 8453 },
+  robinhood: { kind: 'evm', chainId: 4663 },
+};
+/** Top-level keys that hold no rows. Each is checked (or deliberately not) further down. */
+const NON_ROW_KEYS = new Set(['$comment', 'denylist', 'retiredDeploys', 'heatRegistry']);
 
 /**
  * AUDIT FIX TF-058: pick the newest receipt by its OWN `timestamp`, not by the
@@ -213,43 +245,105 @@ function checkEvm(address, label) {
   return true;
 }
 
-// ── 1 + 2. Structure and truncation ─────────────────────────────────────────────
-const seen = new Map();
-const allEntries = [];
+// ── 0. Every top-level key is read by something ─────────────────────────────────
+//
+// Until 2026-09-17 every check below walked `reg.solana` and `reg.ethereum` by name, so
+// the `base` and `robinhood` arrays were never read. A truncated address, a non-address,
+// a duplicate, `expect.type: "contarct"` and a deleted `role` in a base row all exited 0,
+// and every `expect` there was inert. Naming the sections one more time would fix those
+// two and leave the next one (`arbitrum`, `solanaDevnet`) exactly as blind, so the key
+// set is closed instead: a key nothing reads is a failure, not a quiet extra.
+function checkTopLevelKeys(registry) {
+  for (const key of Object.keys(registry)) {
+    if (Object.hasOwn(ROW_SECTIONS, key) || NON_ROW_KEYS.has(key)) continue;
+    fail(
+      `addresses.json has a top-level "${key}" that no check reads, so every row under it is ` +
+        `UNCHECKED whatever \`expect\` it carries. Add it to ROW_SECTIONS with its chain, or ` +
+        `move its rows into a section that is read.`,
+    );
+  }
+}
 
-// A section note — `{ "$comment": "…" }` with no address — is a legal row in either
-// list. It carries no address and must be skipped rather than validated, or the
+// ── 1 + 2. Structure and truncation, 3. per-chain duplicates ────────────────────
+
+// A section note — `{ "$comment": "…" }` with no address — is a legal row in any
+// section. It carries no address and must be skipped rather than validated, or the
 // registry cannot explain itself inline. It must NOT be able to smuggle an entry
 // through: anything with an `address` is validated no matter what else it holds.
 const isNote = (e) => e && e.$comment !== undefined && e.address === undefined;
 
-for (const e of reg.solana ?? []) {
-  if (isNote(e)) continue;
-  allEntries.push({ ...e, chain: 'solana' });
-  if (checkSolana(e.address, `solana/${e.id}`)) {
-    if (seen.has(e.address)) fail(`duplicate address ${e.address}: "${e.id}" and "${seen.get(e.address)}"`);
-    else seen.set(e.address, e.id);
+const chainName = (c) => (c === 'solana' ? 'Solana' : `${EVM_CHAINS[c]} (${c})`);
+
+/**
+ * The chain(s) a row's address lives on, or null (after failing) when the row names a
+ * chain this file cannot read. That must not be a quiet skip: the chain also keys the
+ * duplicate check, so a typo'd `8543` would dodge that as well as the chain read.
+ */
+function rowChains(section, e, label) {
+  const spec = ROW_SECTIONS[section];
+  if (spec.kind === 'solana') return ['solana'];
+  if (spec.chainId !== undefined) {
+    if (e.chainId !== undefined && e.chainId !== spec.chainId) {
+      fail(`${label}: chainId ${JSON.stringify(e.chainId)} contradicts its section, which is chain ${spec.chainId}`);
+      return null;
+    }
+    return [spec.chainId];
   }
-}
-for (const e of reg.ethereum ?? []) {
-  if (isNote(e)) continue;
-  allEntries.push({ ...e, chain: 'ethereum' });
-  if (checkEvm(e.address, `ethereum/${e.id}`)) {
-    const k = e.address.toLowerCase();
-    if (seen.has(k)) fail(`duplicate address ${e.address}: "${e.id}" and "${seen.get(k)}"`);
-    else seen.set(k, e.id);
+  const ids = Array.isArray(e.chainId) ? e.chainId : [e.chainId ?? MAINNET];
+  if (!ids.length || !ids.every((c) => Number.isInteger(c) && Object.hasOwn(EVM_CHAINS, c))) {
+    fail(`${label}: chainId ${JSON.stringify(e.chainId)} names no chain this checker reads (${Object.keys(EVM_CHAINS).join(', ')})`);
+    return null;
   }
+  return ids;
 }
-for (const [chain, toks] of Object.entries(reg.heatRegistry ?? {})) {
-  if (!Array.isArray(toks)) continue;
-  for (const t of toks) checkEvm(getAddress(t.address), `heatRegistry/${chain}/${t.symbol}`);
+
+/**
+ * Validate every row of every ROW_SECTIONS section and return the rows tagged with
+ * `section`, `kind` and `chains`. It reports only through `fail`/`warn`, so --self-test
+ * can run it on a synthetic registry.
+ *
+ * Duplicates are keyed by (chain, address), never by address alone. A CREATE address
+ * depends only on deployer and nonce, so 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3 is
+ * three different contracts: tegridy-staking-admin on mainnet, the router on Base and the
+ * factory on Robinhood. CREATE2 twins such as tegridy-factory-lib are the same code at
+ * the same address on 1 and 8453. Both are correct rows, and one global map would call
+ * them duplicates.
+ */
+function checkRows(registry) {
+  const seen = new Map();
+  const entries = [];
+  for (const [section, spec] of Object.entries(ROW_SECTIONS)) {
+    const rows = registry[section];
+    if (rows === undefined) continue;
+    if (!Array.isArray(rows)) {
+      fail(`"${section}" must be an array of rows; it is ${typeof rows}, so none of it was checked`);
+      continue;
+    }
+    for (const e of rows) {
+      if (isNote(e)) continue;
+      const label = `${section}/${e.id}`;
+      const chains = rowChains(section, e, label);
+      entries.push({ ...e, section, kind: spec.kind, chains: chains ?? [] });
+      const ok = spec.kind === 'solana' ? checkSolana(e.address, label) : checkEvm(e.address, label);
+      if (!ok || !chains) continue;
+      const addr = spec.kind === 'solana' ? e.address : e.address.toLowerCase();
+      for (const c of chains) {
+        const k = `${c}:${addr}`;
+        if (seen.has(k)) fail(`duplicate address ${e.address} on ${chainName(c)}: "${label}" and "${seen.get(k)}"`);
+        else seen.set(k, label);
+      }
+    }
+  }
+  return entries;
 }
 
 // ── 3. Every entry must actually say what it is and who holds it ────────────────
-for (const e of allEntries) {
-  if (!e.id) fail(`an entry has no id: ${JSON.stringify(e).slice(0, 80)}`);
-  if (!e.role) fail(`${e.chain}/${e.id}: no role — an unexplained address is how this incident started`);
-  if (!e.status) fail(`${e.chain}/${e.id}: no status`);
+function checkRoles(entries) {
+  for (const e of entries) {
+    if (!e.id) fail(`an entry has no id: ${JSON.stringify(e).slice(0, 80)}`);
+    if (!e.role) fail(`${e.section}/${e.id}: no role — an unexplained address is how this incident started`);
+    if (!e.status) fail(`${e.section}/${e.id}: no status`);
+  }
 }
 
 // ── 3b. An `expect.type` the chain read does not understand is WORSE than none ──
@@ -266,24 +360,36 @@ for (const e of allEntries) {
 //
 // So the accepted set is written down once, here, and anything outside it is a hard
 // failure that names the alternatives. `contract` and `eoa` are the only two the
-// Ethereum path implements today — `absent` is deliberately NOT accepted for an EVM
-// entry, because eth_getCode cannot tell "never deployed" from "EOA": both answer 0x.
-// An EVM address that must not exist belongs in `denylist`, which is enforced.
+// EVM path implements today (every EVM section: ethereum, base, robinhood) — `absent`
+// is deliberately NOT accepted for an EVM entry, because eth_getCode cannot tell "never
+// deployed" from "EOA": both answer 0x. An EVM address that must not exist belongs in
+// `denylist`, which is enforced.
 const EXPECT_TYPES = {
   solana: new Set(['wallet', 'program-owned', 'token-account', 'executable', 'absent']),
-  ethereum: new Set(['contract', 'eoa']),
+  evm: new Set(['contract', 'eoa']),
 };
-for (const e of allEntries) {
-  const want = e.expect?.type;
-  if (want === undefined) continue; // unasserted is honest; it is counted elsewhere
-  const allowed = EXPECT_TYPES[e.chain];
-  if (!allowed.has(want)) {
-    fail(
-      `${e.chain}/${e.id}: expect.type "${want}" is not one of ${[...allowed].join(', ')} — ` +
-        `it would match no branch in the chain read and assert NOTHING, while still counting ` +
-        `as an asserted entry. Fix the value or drop the expect block.`,
-    );
+function checkExpectTypes(entries) {
+  for (const e of entries) {
+    const want = e.expect?.type;
+    if (want === undefined) continue; // unasserted is honest; it is counted elsewhere
+    const allowed = EXPECT_TYPES[e.kind];
+    if (!allowed.has(want)) {
+      fail(
+        `${e.section}/${e.id}: expect.type "${want}" is not one of ${[...allowed].join(', ')} — ` +
+          `it would match no branch in the chain read and assert NOTHING, while still counting ` +
+          `as an asserted entry. Fix the value or drop the expect block.`,
+      );
+    }
   }
+}
+
+checkTopLevelKeys(reg);
+const allEntries = checkRows(reg);
+checkRoles(allEntries);
+checkExpectTypes(allEntries);
+for (const [chain, toks] of Object.entries(reg.heatRegistry ?? {})) {
+  if (!Array.isArray(toks)) continue;
+  for (const t of toks) checkEvm(getAddress(t.address), `heatRegistry/${chain}/${t.symbol}`);
 }
 
 // ── 4. Denylist ─────────────────────────────────────────────────────────────────
@@ -294,7 +400,7 @@ for (const d of reg.denylist ?? []) {
   const live = allEntries.find(
     (e) => e.address === d.address || e.address?.toLowerCase?.() === d.address.toLowerCase(),
   );
-  if (live) fail(`DENYLISTED address ${d.address} is present as live entry "${live.id}" — ${d.reason}`);
+  if (live) fail(`DENYLISTED address ${d.address} is present as live entry "${live.section}/${live.id}" — ${d.reason}`);
   if (!d.skipValidation && d.chain === 'solana') {
     const b = base58Decode(d.address);
     if (b && b.length === 32) {
@@ -306,7 +412,7 @@ for (const d of reg.denylist ?? []) {
 // ── The two drift directions ────────────────────────────────────────────────────
 const ZERO = '0x0000000000000000000000000000000000000000';
 
-/** Every EVM address registered as LIVE, lowercased. */
+/** Every `ethereum`-section address, whatever its chainId, lowercased. Check 5's allow-set. */
 const registeredLive = new Set(
   (reg.ethereum ?? []).filter((e) => e.address).map((e) => e.address.toLowerCase()),
 );
@@ -315,6 +421,24 @@ const retired = new Set(
   (reg.retiredDeploys?.addresses ?? []).map((e) => e.address.toLowerCase()),
 );
 const denylisted = new Set((reg.denylist ?? []).map((d) => String(d.address).toLowerCase()));
+
+/**
+ * EVM rows by the chain they live on: chain id -> Set of lowercased addresses. Check 6
+ * classifies a chain's CREATEs against that chain's set and never the union, because a
+ * row for 0x4B134C08… on mainnet says nothing about the contract at 0x4B134C08… on Base.
+ */
+function registeredByChain(entries) {
+  const byChain = new Map();
+  for (const e of entries) {
+    if (e.kind !== 'evm' || typeof e.address !== 'string') continue;
+    for (const c of e.chains) {
+      if (!byChain.has(c)) byChain.set(c, new Set());
+      byChain.get(c).add(e.address.toLowerCase());
+    }
+  }
+  return byChain;
+}
+const registeredOnChain = registeredByChain(allEntries);
 
 /**
  * Strip `//` and block comments before scanning for address literals.
@@ -443,63 +567,126 @@ try {
 // vault — is invisible to 5 and unmissable here.
 //
 // Source: Foundry's own receipts. `contractAddress` on a CREATE/CREATE2 in
-// broadcast/<script>/1/run-latest.json is the address the transaction actually
+// broadcast/<script>/<chainId>/run-latest.json is the address the transaction actually
 // produced, written by the tool that produced it. Nobody transcribes it, so it cannot
 // carry a typo, and it appears the moment a deploy happens.
 //
+// Every chain in EVM_CHAINS, each against ITS OWN rows. This read only `/1/` until
+// 2026-09-17, so no Base or Robinhood deploy could fail it. A CREATE on Base is
+// classified by a `base` row (or an `ethereum` row whose chainId names 8453), never by
+// a mainnet row at the same address: the same deployer at the same nonce is a
+// different contract on each chain. `retiredDeploys` is mainnet-only for that reason.
+// A retired L2 contract stays in its section with a retired status, as the Base
+// lighthouses do.
+//
+// `hash` is never read. Foundry can label a transaction with ANOTHER transaction's hash
+// from the same run (10 of 14 in DeployBaseMVP's Base receipt), so a CREATE is checked
+// by (from, nonce), which is what fixes its address. A receipt whose `contractAddress`
+// disagrees with its own from/nonce is a failure, not something to trust.
+//
 // `dry-run/` is deliberately excluded: those are simulated addresses that were never
-// created on mainnet, and demanding registry entries for them would flood the registry
+// created on-chain, and demanding registry entries for them would flood the registry
 // with fiction.
-let broadcastsChecked = 0;
-const unclassified = new Map();
+
+/**
+ * Every top-level CREATE/CREATE2 in the newest receipt of each broadcast/<script>/<cid>/.
+ * It reports through `fail`/`warn` only, so --self-test can point it at a synthetic tree.
+ */
+function scanBroadcasts(root, cid) {
+  const creates = [];
+  for (const script of readdirSync(root)) {
+    const dir = join(root, script, String(cid));
+    const runLatest = join(dir, 'run-latest.json');
+    if (!existsSync(runLatest)) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(readFileSync(runLatest, 'utf-8'));
+    } catch (e) {
+      fail(`${script}/${cid}/run-latest.json is unreadable (${e.message}) — a broadcast receipt that cannot be parsed is an UNCHECKED deploy, not an absent one`);
+      continue;
+    }
+    // AUDIT FIX TF-058: prefer the newest receipt BY TIMESTAMP. `run-latest`
+    // is a copy of whichever run happened last in this directory, which is
+    // not necessarily the newest deploy of this script.
+    const newest = newestReceipt(dir);
+    if (newest && Number(newest.parsed.timestamp ?? 0) > Number(parsed.timestamp ?? 0)) {
+      warn(
+        `${script}/${cid}/run-latest.json is STALE — ${basename(newest.path)} is newer ` +
+          `(${newest.parsed.timestamp} > ${parsed.timestamp}); reading the newer receipt`,
+      );
+      parsed = newest.parsed;
+    }
+    for (const tx of parsed.transactions ?? []) {
+      if (tx.transactionType !== 'CREATE' && tx.transactionType !== 'CREATE2') continue;
+      if (!tx.contractAddress) continue;
+      if (tx.transactionType === 'CREATE') {
+        let derived = null;
+        try {
+          derived = getContractAddress({ from: tx.transaction.from, nonce: BigInt(tx.transaction.nonce) });
+        } catch { /* no usable from/nonce: reported below */ }
+        if (derived?.toLowerCase() !== tx.contractAddress.toLowerCase()) {
+          fail(
+            `${script}/${cid}: the receipt says ${tx.contractName ?? '(unnamed)'} was created at ` +
+              `${tx.contractAddress}, but its from/nonce give ${derived ?? 'no address'}. The label ` +
+              `cannot be trusted; key it by (from, nonce).`,
+          );
+          continue;
+        }
+      }
+      creates.push({ addr: tx.contractAddress.toLowerCase(), name: tx.contractName ?? '(unnamed)', script });
+    }
+  }
+  return creates;
+}
+
+/** A CREATE on chain `cid` is classified by a row ON THAT CHAIN, a denylist entry, or (mainnet only) retiredDeploys. */
+function isClassified(addr, cid, known) {
+  const a = addr.toLowerCase();
+  return Boolean(known.byChain.get(cid)?.has(a) || (cid === MAINNET && known.retired.has(a)) || known.denylisted.has(a));
+}
+
+/** The registry section a chain's rows belong in, for the failure text. */
+const sectionFor = (cid) => Object.entries(ROW_SECTIONS).find(([, s]) => s.chainId === cid)?.[0] ?? 'ethereum';
+
+function unclassifiedCreateMessage({ addr, name, script }, cid) {
+  if (cid === MAINNET) {
+    return (
+      `${script} created ${name} at ${getAddress(addr)} on mainnet, and it is in NEITHER the ` +
+      `registry NOR retiredDeploys. Every contract this repo has put on mainnet must be ` +
+      `classified: add it to "ethereum" with a role and custody if it is live, or to ` +
+      `"retiredDeploys" if it is abandoned.`
+    );
+  }
+  return (
+    `${script} created ${name} at ${getAddress(addr)} on ${chainName(cid)}, and no row ON THAT ` +
+    `CHAIN names it. A row for the same address on another chain does not count: it is a ` +
+    `different contract there. Add it to "${sectionFor(cid)}" with a role and status ` +
+    `(a retired status if it is abandoned).`
+  );
+}
+
+/** CREATEs per chain id. Mainnet's count is the one the zero guard at the bottom requires. */
+const createsScanned = new Map();
+const knownDeploys = { byChain: registeredOnChain, retired, denylisted };
 try {
   if (!existsSync(BROADCAST)) {
     warn(`no contracts/broadcast directory at ${BROADCAST} — check 6 (chain → registry) did NOT run`);
   } else {
-    for (const script of readdirSync(BROADCAST)) {
-      const runLatest = join(BROADCAST, script, MAINNET_CHAIN_DIR, 'run-latest.json');
-      if (!existsSync(runLatest)) continue;
-      let parsed;
-      try {
-        parsed = JSON.parse(readFileSync(runLatest, 'utf-8'));
-      } catch (e) {
-        fail(`${script}/1/run-latest.json is unreadable (${e.message}) — a broadcast receipt that cannot be parsed is an UNCHECKED deploy, not an absent one`);
-        continue;
+    for (const cid of Object.keys(EVM_CHAINS).map(Number)) {
+      const creates = scanBroadcasts(BROADCAST, cid);
+      createsScanned.set(cid, creates.length);
+      const reported = new Set();
+      for (const c of creates) {
+        if (isClassified(c.addr, cid, knownDeploys) || reported.has(c.addr)) continue;
+        reported.add(c.addr);
+        fail(unclassifiedCreateMessage(c, cid));
       }
-      // AUDIT FIX TF-058: prefer the newest receipt BY TIMESTAMP. `run-latest`
-      // is a copy of whichever run happened last in this directory, which is
-      // not necessarily the newest deploy of this script.
-      const newest = newestReceipt(join(BROADCAST, script, MAINNET_CHAIN_DIR));
-      if (newest && Number(newest.parsed.timestamp ?? 0) > Number(parsed.timestamp ?? 0)) {
-        warn(
-          `${script}/1/run-latest.json is STALE — ${basename(newest.path)} is newer ` +
-            `(${newest.parsed.timestamp} > ${parsed.timestamp}); reading the newer receipt`,
-        );
-        parsed = newest.parsed;
-      }
-      for (const tx of parsed.transactions ?? []) {
-        if (tx.transactionType !== 'CREATE' && tx.transactionType !== 'CREATE2') continue;
-        if (!tx.contractAddress) continue;
-        const addr = tx.contractAddress.toLowerCase();
-        broadcastsChecked++;
-        if (registeredLive.has(addr) || retired.has(addr) || denylisted.has(addr)) continue;
-        if (!unclassified.has(addr)) {
-          unclassified.set(addr, { name: tx.contractName ?? '(unnamed)', script });
-        }
-      }
-    }
-    for (const [addr, { name, script }] of unclassified) {
-      fail(
-        `${script} created ${name} at ${getAddress(addr)} on mainnet, and it is in NEITHER the ` +
-          `registry NOR retiredDeploys. Every contract this repo has put on mainnet must be ` +
-          `classified: add it to "ethereum" with a role and custody if it is live, or to ` +
-          `"retiredDeploys" if it is abandoned.`,
-      );
     }
   }
 } catch (e) {
   fail(`could not scan contracts/broadcast for the reverse drift check: ${e.message}`);
 }
+const broadcastsChecked = createsScanned.get(MAINNET) ?? 0;
 
 // A retired entry that no longer corresponds to any receipt is stale bookkeeping: it
 // silently widens the allow-set for check 6 forever. Warn rather than fail — a receipt
@@ -507,7 +694,7 @@ try {
 if (broadcastsChecked > 0) {
   const deployed = new Set();
   for (const script of existsSync(BROADCAST) ? readdirSync(BROADCAST) : []) {
-    const runLatest = join(BROADCAST, script, MAINNET_CHAIN_DIR, 'run-latest.json');
+    const runLatest = join(BROADCAST, script, String(MAINNET), 'run-latest.json');
     if (!existsSync(runLatest)) continue;
     try {
       for (const tx of JSON.parse(readFileSync(runLatest, 'utf-8')).transactions ?? []) {
@@ -517,7 +704,7 @@ if (broadcastsChecked > 0) {
   }
   for (const e of reg.retiredDeploys?.addresses ?? []) {
     if (!checkEvm(e.address, `retiredDeploys/${e.contract ?? e.address}`)) continue;
-    if (registeredLive.has(e.address.toLowerCase())) {
+    if (registeredOnChain.get(MAINNET)?.has(e.address.toLowerCase())) {
       fail(`${e.address} is listed BOTH as a live registry entry and in retiredDeploys — pick one`);
     }
     if (!deployed.has(e.address.toLowerCase())) {
@@ -586,6 +773,15 @@ export function classifyEvmBatch(json) {
 }
 
 const chunk = (xs, n) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
+
+/**
+ * One (entry, chain) read per chain an EVM row lives on, from the `chains` that
+ * `checkRows` resolved. Pure, so --self-test can prove a `base` row is read on 8453 and
+ * never on mainnet, where the same address is usually a different contract.
+ */
+export function evmReadPairs(entries) {
+  return entries.filter((e) => e.kind === 'evm').flatMap((e) => e.chains.map((cid) => ({ e, cid })));
+}
 
 // ── Live chain state. ON BY DEFAULT — see the dispatch at the bottom. ────────────
 async function onchain() {
@@ -684,7 +880,7 @@ async function onchain() {
   console.log('\n── live chain state ─────────────────────────────────────────');
   const skipped = [];
   const solEntries = (reg.solana ?? []).filter((x) => !isNote(x));
-  const ethEntries = (reg.ethereum ?? []).filter((x) => !isNote(x));
+  const evmEntries = allEntries.filter((e) => e.kind === 'evm');
 
   // Batched: one request per chain, not one per address. That is not only cheaper —
   // it is what makes the skip path rare. Sixty sequential calls to a free endpoint
@@ -714,40 +910,47 @@ async function onchain() {
     });
   }
 
-  // EVM entries are per-CHAIN. `chainId` (number or array; default 1 = mainnet)
-  // names every chain the entry's `expect` must hold on — the L2 role Safes are
-  // CREATE2 twins that must carry code on BOTH 8453 and 4663, while the
-  // Robinhood-only curve launcher names 4663 alone. Before this, the read sent
-  // every ethereum-section address to the MAINNET RPC, so an L2 entry was
-  // structurally unverifiable: "expects a CONTRACT; no code" — true on chain 1,
-  // a lie about the entry. Keyed on the entry itself like the Solana devnet
-  // exemption above (a property of which chain the entry DESCRIBES), never
-  // inferred from prose. A chainId with no RPC here is a hard FAIL, not a
-  // skip — an unverifiable entry must never read as a verified one.
+  // EVM entries are per-CHAIN, and the chain comes from `rowChains`: the section for
+  // `base` (8453) and `robinhood` (4663), the row's `chainId` (number or array; default
+  // 1 = mainnet) in `ethereum`. The L2 role Safes are CREATE2 twins that must carry
+  // code on BOTH 8453 and 4663, while the Robinhood-only curve launcher names 4663
+  // alone. Before chainId, the read sent every ethereum-section address to the MAINNET
+  // RPC, so an L2 entry was structurally unverifiable: "expects a CONTRACT; no code" —
+  // true on chain 1, a lie about the entry. And until 2026-09-17 it read no `base` or
+  // `robinhood` row at all, so their `expect` blocks asserted nothing. Keyed on the
+  // entry itself like the Solana devnet exemption above (a property of which chain the
+  // entry DESCRIBES), never inferred from prose. A chain with no RPC here is a hard
+  // FAIL, not a skip — an unverifiable entry must never read as a verified one.
   const EVM_RPCS = {
     1: ETH_RPC,
     8453: process.env.BASE_RPC || 'https://mainnet.base.org',
     4663: process.env.RH_RPC || 'https://rpc.mainnet.chain.robinhood.com',
   };
   const evmPairs = [];
-  for (const e of ethEntries) {
-    const chains = Array.isArray(e.chainId) ? e.chainId : [e.chainId ?? 1];
-    for (const cid of chains) {
-      if (!EVM_RPCS[cid]) {
-        fail(`ethereum/${e.id}: chainId ${cid} has no RPC in EVM_RPCS — teach the checker that chain or fix the entry`);
-        continue;
-      }
-      evmPairs.push({ e, cid });
+  for (const p of evmReadPairs(evmEntries)) {
+    if (!EVM_RPCS[p.cid]) {
+      fail(`${p.e.section}/${p.e.id}: chain ${p.cid} has no RPC in EVM_RPCS — teach the checker that chain or fix the entry`);
+      continue;
     }
+    evmPairs.push(p);
   }
-  const evmLabel = (e, cid) => (cid === 1 ? e.id : `${e.id}@${cid}`);
+  // `ethereum` rows print as they always have (bare id; `id@chain` off mainnet). Rows of
+  // a chain's own section name the section instead, since their ids repeat per chain.
+  const evmLabel = (e, cid) => (e.section !== 'ethereum' ? `${e.section}/${e.id}` : cid === MAINNET ? e.id : `${e.id}@${cid}`);
+  const evmRef = (e, cid) => (e.section === 'ethereum' ? `ethereum/${evmLabel(e, cid)}` : evmLabel(e, cid));
   const byChain = new Map();
   for (const p of evmPairs) {
     if (!byChain.has(p.cid)) byChain.set(p.cid, []);
     byChain.get(p.cid).push(p);
   }
+  // Per-chain batch ceilings. MEASURED 2026-09-17: mainnet.base.org answers a batch of
+  // more than 10 with ONE error object, `-32014 maximum 10 calls in 1 batch`, so once the
+  // `base` rows were read (20 Base pairs) every one of them came back NOT CHECKED. That
+  // is the honest outcome, but a chain that is always skipped is as inert as a chain
+  // that is never read. Other chains keep 50.
+  const EVM_BATCH_MAX = { 8453: 10 };
   for (const [cid, pairs] of byChain) {
-    for (const group of chunk(pairs, 50)) {
+    for (const group of chunk(pairs, EVM_BATCH_MAX[cid] ?? 50)) {
       const res = await post(
         EVM_RPCS[cid],
         group.map((p, i) => ({ jsonrpc: '2.0', id: i, method: 'eth_getCode', params: [safeAddress(p.e.address), 'latest'] })),
@@ -755,26 +958,25 @@ async function onchain() {
       const cls = res.ok ? classifyEvmBatch(res.json) : unanswered(res.reason);
       if (!cls.answered) {
         warn(`EVM chain ${cid} read SKIPPED for ${group.length} address(es): ${cls.reason}`);
-        for (const p of group) { console.log(`  ${evmLabel(p.e, p.cid).padEnd(30)} (NOT CHECKED)`); skipped.push(`ethereum/${evmLabel(p.e, p.cid)}`); }
+        for (const p of group) { console.log(`  ${evmLabel(p.e, p.cid).padEnd(30)} (NOT CHECKED)`); skipped.push(evmRef(p.e, p.cid)); }
         continue;
       }
       group.forEach((p, i) => {
         const { e, cid: pcid } = p;
         if (!cls.byId.has(i)) {
           console.log(`  ${evmLabel(e, pcid).padEnd(30)} (NOT CHECKED)`);
-          skipped.push(`ethereum/${evmLabel(e, pcid)}`);
+          skipped.push(evmRef(e, pcid));
           return;
         }
         const code = cls.byId.get(i);
         const hasCode = code !== '0x' && !/^0x0*$/.test(code);
         console.log(`  ${evmLabel(e, pcid).padEnd(30)} ${hasCode ? `contract (${(code.length - 2) / 2} bytes)` : 'EOA / no code'}`);
-        // Ethereum entries carry no `expect` block today, so only what the registry
-        // actually states is enforced. Add `"expect": {"type": "contract"|"eoa"}`
-        // to an entry and it is checked from that moment on — on EVERY chain the
-        // entry names.
+        // Only what the registry actually states is enforced. Add
+        // `"expect": {"type": "contract"|"eoa"}` to an entry and it is checked from
+        // that moment on — on EVERY chain the entry names.
         const want = e.expect?.type;
-        if (want === 'contract' && !hasCode) fail(`ethereum/${evmLabel(e, pcid)}: registry expects a CONTRACT; the address has no code`);
-        if (want === 'eoa' && hasCode) fail(`ethereum/${evmLabel(e, pcid)}: registry expects an EOA; the address HAS code`);
+        if (want === 'contract' && !hasCode) fail(`${evmRef(e, pcid)}: registry expects a CONTRACT; the address has no code`);
+        if (want === 'eoa' && hasCode) fail(`${evmRef(e, pcid)}: registry expects an EOA; the address HAS code`);
       });
     }
   }
@@ -789,9 +991,12 @@ async function onchain() {
   // `expect` is READ but nothing about it is ASSERTED, and a green line next to it
   // means only that a request succeeded. Count it out loud so the gap stays visible
   // instead of looking like 39 passing checks.
-  const unasserted = ethEntries.filter((e) => !e.expect?.type).length;
-  if (unasserted) {
-    console.log(`  ${unasserted} of ${ethEntries.length} Ethereum entries declare no expect.type — read, but NOT asserted`);
+  for (const section of Object.keys(ROW_SECTIONS)) {
+    const rows = evmEntries.filter((e) => e.section === section);
+    const unasserted = rows.filter((e) => !e.expect?.type).length;
+    if (unasserted) {
+      console.log(`  ${unasserted} of ${rows.length} ${section} entries declare no expect.type — read, but NOT asserted`);
+    }
   }
   const heat = Object.values(reg.heatRegistry ?? {}).filter(Array.isArray).flat().length;
   if (heat) console.log(`  heatRegistry: ${heat} third-party token(s) NOT chain-checked (Base + mainnet; structure only)`);
@@ -814,8 +1019,10 @@ function markdown() {
       .filter((e) => !isNote(e))
       .map((e) => `| \`${e.address}\` | ${cell(e.id)} | ${cell(e.role)} | ${cell(e.custody)} | ${cell(e.status)} |`)
       .join('\n');
-  console.log(`## Solana\n\n| Address | ID | Role | Custody | Status |\n|---|---|---|---|---|\n${rows(reg.solana)}\n`);
-  console.log(`## Ethereum\n\n| Address | ID | Role | Custody | Status |\n|---|---|---|---|---|\n${rows(reg.ethereum)}\n`);
+  for (const section of Object.keys(ROW_SECTIONS)) {
+    const title = section[0].toUpperCase() + section.slice(1);
+    console.log(`## ${title}\n\n| Address | ID | Role | Custody | Status |\n|---|---|---|---|---|\n${rows(reg[section])}\n`);
+  }
   const retiredRows = (reg.retiredDeploys?.addresses ?? [])
     .map((e) => `| \`${e.address}\` | ${cell(e.contract)} | ${cell(e.script)} | ${cell(e.note)} |`)
     .join('\n');
@@ -957,18 +1164,158 @@ function selfTest() {
   //    asserts nothing, and still reads as "this entry is asserted" to anything that
   //    counts truthy `expect.type`. So the check needs its own proof, plus controls in
   //    both directions, or a later refactor could delete it without a red anywhere.
-  const badType = (chain, want) => !EXPECT_TYPES[chain].has(want);
-  t('check 3b rejects a MISSPELLED evm expect.type', badType('ethereum', 'contarct'));
-  t('check 3b rejects a plausible-but-unimplemented evm expect.type ("safe")', badType('ethereum', 'safe'));
-  t('check 3b rejects "absent" on an EVM entry — eth_getCode cannot distinguish it from an EOA', badType('ethereum', 'absent'));
-  t('check 3b rejects a Solana type used on an evm entry', badType('ethereum', 'executable'));
+  const badType = (kind, want) => !EXPECT_TYPES[kind].has(want);
+  t('check 3b rejects a MISSPELLED evm expect.type', badType('evm', 'contarct'));
+  t('check 3b rejects a plausible-but-unimplemented evm expect.type ("safe")', badType('evm', 'safe'));
+  t('check 3b rejects "absent" on an EVM entry — eth_getCode cannot distinguish it from an EOA', badType('evm', 'absent'));
+  t('check 3b rejects a Solana type used on an evm entry', badType('evm', 'executable'));
   // CONTROLS: every value the chain read actually implements must pass, or 3b would
   // simply be a check that always fires.
-  t('check 3b passes both implemented evm types', !badType('ethereum', 'contract') && !badType('ethereum', 'eoa'));
+  t('check 3b passes both implemented evm types', !badType('evm', 'contract') && !badType('evm', 'eoa'));
   t(
     'check 3b passes every implemented solana type',
     ['wallet', 'program-owned', 'token-account', 'executable', 'absent'].every((v) => !badType('solana', v)),
   );
+
+  // 10. EVERY SECTION IS READ, and duplicates are per CHAIN. Until 2026-09-17 checks
+  //     1-3b and the chain read walked `solana` and `ethereum` by name, so a truncated
+  //     address, a non-address, a duplicate, `expect.type: "contarct"` and a deleted
+  //     `role` in a `base` row all exited 0. These cases run the REAL checkRows /
+  //     checkRoles / checkExpectTypes on a synthetic registry and read back only the
+  //     failures that run raised.
+  const collect = (fn) => {
+    const f0 = failures.length;
+    const w0 = warnings.length;
+    let value;
+    try {
+      value = fn();
+    } finally {
+      warnings.splice(w0);
+    }
+    return { failed: failures.splice(f0), value };
+  };
+  // Real cross-chain shapes. A is one deployer's CREATE at the same nonce on three
+  // chains: three different contracts. B is a CREATE2 twin, the same code on 1 and 8453.
+  const A = '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3';
+  const B = '0xf968e9d314848f19Dc3aB138493e8F62952d655f';
+  const C = '0xB021651dACaD5dabf83ef587297E093DfA0c95Ec';
+  const row = (id, address, extra = {}) => ({ id, address, role: 'r', status: 's', ...extra });
+  const fixture = () => ({
+    ethereum: [row('staking-admin', A), row('factory-lib', B)],
+    base: [row('router', A), row('factory-lib', B), row('twap', C, { expect: { type: 'contract' } })],
+    robinhood: [row('factory', A)],
+  });
+  const rowFailures = (mutate) => {
+    const r = fixture();
+    mutate(r);
+    return collect(() => {
+      const es = checkRows(r);
+      checkRoles(es);
+      checkExpectTypes(es);
+    }).failed;
+  };
+  const failsWith = (mutate, ...parts) => rowFailures(mutate).some((m) => parts.every((p) => m.includes(p)));
+
+  t(
+    'CONTROL: one address on three chains, and a CREATE2 twin on two, are NOT duplicates',
+    rowFailures(() => {}).length === 0,
+  );
+  t('check 1-2 reads base: a TRUNCATED base address fails', failsWith((r) => { r.base[2].address = '0xB021651d…c95Ec'; }, 'base/twap', 'TRUNCATED'));
+  t('check 1 reads base: a non-address in a base row fails', failsWith((r) => { r.base[2].address = 'not-an-address'; }, 'base/twap', 'not a valid EVM address'));
+  t('check 1-2 reads robinhood: a TRUNCATED robinhood address fails', failsWith((r) => { r.robinhood[0].address = '0x4B134C08…06f3'; }, 'robinhood/factory', 'TRUNCATED'));
+  t('check 3 (dup) reads base: two base rows on one address fail', failsWith((r) => { r.base[2].address = A; }, 'duplicate', 'Base (8453)', 'base/twap'));
+  t(
+    'check 3 (dup) crosses sections on ONE chain: an ethereum row whose chainId names 4663 collides with the robinhood row',
+    failsWith((r) => { r.ethereum.push(row('l2-x', A, { chainId: 4663 })); }, 'duplicate', 'Robinhood (4663)', 'ethereum/l2-x'),
+  );
+  t(
+    'check 3 (dup) crosses sections for a chainId ARRAY: [8453, 4663] collides with the base row',
+    failsWith((r) => { r.ethereum.push(row('l2-y', C, { chainId: [8453, 4663] })); }, 'duplicate', 'Base (8453)', 'ethereum/l2-y'),
+  );
+  t('check 3 reads base: a base row with no role fails', failsWith((r) => { delete r.base[2].role; }, 'base/twap: no role'));
+  t('check 3 reads robinhood: a robinhood row with no status fails', failsWith((r) => { delete r.robinhood[0].status; }, 'robinhood/factory: no status'));
+  t('check 3b reads base: expect.type "contarct" in a base row fails', failsWith((r) => { r.base[2].expect = { type: 'contarct' }; }, 'base/twap', 'contarct'));
+  t('check 3b reads robinhood: expect.type "absent" on a robinhood (EVM) row fails', failsWith((r) => { r.robinhood[0].expect = { type: 'absent' }; }, 'robinhood/factory', 'absent'));
+  t('a base row whose chainId contradicts its section fails', failsWith((r) => { r.base[0].chainId = 1; }, 'base/router', 'contradicts'));
+  t('an ethereum chainId this checker cannot read (8543) fails rather than dodging the duplicate check', failsWith((r) => { r.ethereum[0].chainId = 8543; }, 'ethereum/staking-admin', 'names no chain'));
+  t('an EMPTY chainId array fails rather than placing the row on no chain', failsWith((r) => { r.ethereum[0].chainId = []; }, 'ethereum/staking-admin', 'names no chain'));
+  t('a section that is not an array fails rather than being skipped', failsWith((r) => { r.base = { router: A }; }, '"base" must be an array'));
+  t(
+    'EVERY ROW_SECTIONS section is iterated: a truncated address fails in each one',
+    Object.keys(ROW_SECTIONS).every((s) =>
+      collect(() => checkRows({ [s]: [row('x', 'abc…def')] })).failed.some((m) => m.includes(`${s}/x`) && m.includes('TRUNCATED')),
+    ),
+  );
+
+  // 0. The closed key set. Naming base and robinhood above fixes those two; this is what
+  //    stops the NEXT section from being as blind as they were.
+  t(
+    'check 0 fails on a top-level section no check reads',
+    collect(() => checkTopLevelKeys({ ...fixture(), arbitrum: [row('x', A)] })).failed.some((m) => m.includes('"arbitrum"')),
+  );
+  t('CONTROL: check 0 passes every key of the real addresses.json', collect(() => checkTopLevelKeys(reg)).failed.length === 0);
+
+  // 11. The chain read routes each row to ITS chain: a base row is read on 8453 and
+  //     never on mainnet, where the same address is usually a different contract.
+  const pairs = new Set(
+    evmReadPairs(collect(() => checkRows(fixture())).value).map((p) => `${p.e.section}/${p.e.id}@${p.cid}`),
+  );
+  t('the chain read reads a base row on Base (8453)', pairs.has('base/twap@8453'));
+  t('the chain read reads a robinhood row on Robinhood (4663)', pairs.has('robinhood/factory@4663'));
+  t('the chain read does NOT read a base row on mainnet', !pairs.has('base/twap@1') && !pairs.has('base/router@1'));
+  t('CONTROL: an ethereum row with no chainId is still read on mainnet', pairs.has('ethereum/staking-admin@1'));
+
+  // 12. Check 6 per chain. A CREATE is classified only by a row on ITS chain; a mainnet
+  //     row (or a retired mainnet deploy) at the same address says nothing about Base.
+  const D = '0x1111111111111111111111111111111111111111';
+  const onlyMainnetA = { ethereum: [row('staking-admin', A)], base: [row('twap', C)] };
+  const known = {
+    byChain: registeredByChain(collect(() => checkRows(onlyMainnetA)).value),
+    retired: new Set([D]),
+    denylisted: new Set(),
+  };
+  t('check 6: a Base CREATE at an address registered ONLY on mainnet is unclassified', !isClassified(A, 8453, known));
+  t('CONTROL: check 6 classifies that address on mainnet', isClassified(A, 1, known));
+  t('check 6: a Base CREATE registered in `base` is classified', isClassified(C, 8453, known));
+  t('check 6: a `base` row does not classify a mainnet CREATE at the same address', !isClassified(C, 1, known));
+  t('check 6: retiredDeploys (mainnet) does not classify a Base CREATE', isClassified(D, 1, known) && !isClassified(D, 8453, known));
+  t(
+    'check 6 scans every chain in EVM_CHAINS (mainnet, Base AND Robinhood receipts)',
+    !existsSync(BROADCAST) || Object.keys(EVM_CHAINS).every((c) => createsScanned.has(Number(c))),
+  );
+
+  // 12b. scanBroadcasts end to end on a synthetic broadcast tree, so the directory it
+  //      reads for each chain is proven rather than assumed.
+  const tmp = mkdtempSync(join(tmpdir(), 'verify-addresses-'));
+  try {
+    const DEPLOYER = '0x14898258122C0740106391E6e8E4F17F3b6d456E';
+    const at = (nonce) => getContractAddress({ from: DEPLOYER, nonce: BigInt(nonce) });
+    const create = (nonce, contractAddress = at(nonce)) => ({
+      transactionType: 'CREATE',
+      contractName: `C${nonce}`,
+      contractAddress,
+      transaction: { from: DEPLOYER, nonce: `0x${nonce.toString(16)}` },
+    });
+    const put = (script, cid, file, body) => {
+      mkdirSync(join(tmp, script, String(cid)), { recursive: true });
+      writeFileSync(join(tmp, script, String(cid), file), JSON.stringify(body));
+    };
+    put('DeployL2.s.sol', 8453, 'run-latest.json', { timestamp: 1, transactions: [create(7)] });
+    put('DeployL2.s.sol', 8453, 'run-2.json', { timestamp: 2, transactions: [create(8)] });
+    put('DeployRh.s.sol', 4663, 'run-latest.json', { timestamp: 1, transactions: [create(19)] });
+    put('DeployBad.s.sol', 1, 'run-latest.json', { timestamp: 1, transactions: [create(3, A)] });
+
+    const base = collect(() => scanBroadcasts(tmp, 8453)).value.map((c) => c.addr);
+    t('check 6 reads broadcast/*/8453/, and the NEWEST receipt there', base.length === 1 && base[0] === at(8).toLowerCase());
+    const rh = collect(() => scanBroadcasts(tmp, 4663)).value.map((c) => c.addr);
+    t('check 6 reads broadcast/*/4663/', rh.length === 1 && rh[0] === at(19).toLowerCase());
+    t(
+      'check 6 keys a CREATE by (from, nonce): a receipt whose contractAddress disagrees fails',
+      collect(() => scanBroadcasts(tmp, 1)).failed.some((m) => m.includes('DeployBad.s.sol/1') && m.includes('(from, nonce)')),
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 
   for (const r of rows) console.log(`  ${r.ok ? 'ok  ' : 'FAIL'} ${r.name}`);
   const bad = rows.filter((r) => !r.ok);
@@ -987,15 +1334,28 @@ if (args.includes('--markdown')) { markdown(); process.exit(0); }
 if (args.includes('--self-test')) { process.exit(selfTest() ? 0 : 1); }
 
 console.log(
-  `address registry: ${(reg.solana ?? []).filter((e) => !isNote(e)).length} Solana, ` +
-    `${(reg.ethereum ?? []).filter((e) => !isNote(e)).length} Ethereum, ` +
-    `${(reg.retiredDeploys?.addresses ?? []).length} retired, ${(reg.denylist ?? []).length} denylisted`,
+  `address registry: ` +
+    Object.keys(ROW_SECTIONS)
+      .map((s) => `${allEntries.filter((e) => e.section === s).length} ${s[0].toUpperCase()}${s.slice(1)}`)
+      .join(', ') +
+    `, ${(reg.retiredDeploys?.addresses ?? []).length} retired, ${(reg.denylist ?? []).length} denylisted`,
 );
 console.log(
   `  drift: ${[...literalsChecked].map(([label, n]) => `${n} ${label}`).join(' + ')} EVM literals -> registry, ` +
     `${solanaLiteralsChecked} curve/program.ts Solana literals -> registry, ` +
-    `${broadcastsChecked} mainnet CREATEs from broadcast receipts -> registry`,
+    `${[...createsScanned].map(([cid, n]) => `${n} ${EVM_CHAINS[cid]}`).join(' + ')} CREATEs from broadcast receipts -> registry`,
 );
+// An L2 with registry rows and no receipts is not a failure (the receipts may never
+// have been committed), but it is a chain check 6 cannot see, and it says so every run.
+for (const [cid, n] of createsScanned) {
+  const rows = registeredOnChain.get(cid)?.size ?? 0;
+  if (cid === MAINNET || n > 0 || rows === 0) continue;
+  warn(
+    `check 6 read ZERO top-level ${EVM_CHAINS[cid]} CREATEs from contracts/broadcast/*/${cid}/ while ` +
+      `the registry lists ${rows} ${EVM_CHAINS[cid]} address(es), so nothing here can notice an ` +
+      `unregistered ${EVM_CHAINS[cid]} deploy`,
+  );
+}
 // A count of zero on any side means the check found nothing to look at, which is
 // not the same as finding nothing wrong. Say so rather than print "all checks passed".
 // Per SOURCE, not summed: a total stays comfortably non-zero while one file of the two
