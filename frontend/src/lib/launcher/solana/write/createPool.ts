@@ -68,7 +68,7 @@ import { LP_COPY, accountCheck, rentOf, toRaw, type LpPrepareReads } from './liq
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import type { CurveWriteConfig, IntentStep, LpCreateSummary, LpOpenGate, PoolPins, Prepared, TierTerms, TxSummary, WriteRpc } from './types';
-import { closeWsolIxs, openWsolIx, wrapIxs, wsolPlanFrom } from './wsol';
+import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
 
 // ── copy (SPEC_S2_CREATE 3.5) ────────────────────────────────────────────────
 
@@ -538,17 +538,27 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
         { account: CP_CREATE_POOL_FEE_RECEIVER, mint: WSOL_MINT, role: 'treasury', decimals: 9 },
       ],
     },
-    expect: () => ({
-      maxSolOut,
-      tokens: [
-        { account: pins.lpAccount, mint: pins.lpMint, minDelta: planned.lp, maxDelta: planned.lp },
-        { account: tokenAddress, mint: a.tokenMint, minDelta: -a.token, maxDelta: -a.token },
-        // Wrapped in and spent by the opening: it ends exactly where it began, closed or kept.
-        { account: plan.ata, mint: WSOL_MINT, minDelta: 0n, maxDelta: 0n },
-        // The fee on screen, exactly: a stale or lying tier read is blocked here, before any signature.
-        { account: CP_CREATE_POOL_FEE_RECEIVER, mint: WSOL_MINT, minDelta: createFee, maxDelta: createFee },
-      ],
-    }),
+    expect: (pre, rents) => {
+      // Both wrapped-SOL accounts are synced by this transaction, which also turns
+      // lamports they already held into balance (syncCredit). Mainnet's fee account,
+      // set up under the old rent, gains 550,840 that way on its first opening. The pool
+      // program moves and syncs the fee account only when there is a fee to open.
+      const feeCredit = createFee === 0n ? 0n : syncCredit(pre.tokens.get(CP_CREATE_POOL_FEE_RECEIVER.toBase58()), rents.tokenAccount);
+      const keptCredit = plan.closeAfter ? 0n : syncCredit(pre.tokens.get(plan.ata.toBase58()), rents.tokenAccount);
+      return {
+        maxSolOut,
+        tokens: [
+          { account: pins.lpAccount, mint: pins.lpMint, minDelta: planned.lp, maxDelta: planned.lp },
+          { account: tokenAddress, mint: a.tokenMint, minDelta: -a.token, maxDelta: -a.token },
+          // Wrapped in and spent by the opening: it ends where it began, closed or kept
+          // (kept: plus exactly what its own sync credits).
+          { account: plan.ata, mint: WSOL_MINT, minDelta: keptCredit, maxDelta: keptCredit },
+          // The fee on screen plus exactly what the account already held: a stale or lying
+          // tier read is blocked here, before any signature.
+          { account: CP_CREATE_POOL_FEE_RECEIVER, mint: WSOL_MINT, minDelta: createFee + feeCredit, maxDelta: createFee + feeCredit },
+        ],
+      };
+    },
     newAccountRent: () => neverRefunded + lpAccountRent,
     summarize: (steps): TxSummary | string => {
       const problem = createStepsProblem(steps, {

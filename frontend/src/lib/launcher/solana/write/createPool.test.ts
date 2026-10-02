@@ -456,13 +456,85 @@ describe('the balance check is exact', () => {
     if (!r.ok) expect(r.outcome).toMatchObject({ status: 'not-sent', stage: 'simulate', message: 'Blocked: the simulation shows a different token amount than this screen says.' });
   });
 
-  it('wrapped SOL the wallet already holds is left exactly as it is: kept, never closed', async () => {
+  it('wrapped SOL the wallet already holds is never spent: kept, never closed', async () => {
     const w = world({ heldWsol: 500_000_000n });
     const p = ok(await create(w));
     const s = summaryOf(p);
     expect(p.steps.some((x) => x.kind === 'close-wsol')).toBe(false);
     expect(s.unwrapsWsol).toBe(false);
     expect(s.wsolHeldBefore).toBe(500_000_000n);
+    expect(row(p, w.wsolAta)).toEqual([0n, 0n]);
+  });
+});
+
+// ── a sync credits what an account already held (mainnet, 2026-10-02) ──────────
+//
+// The fee account was set up under the old rent, and mainnet's token program re-prices a
+// native account's reserve when it syncs, so the first opening credits it the fee PLUS
+// 550,840 lamports it had been holding as reserve. An exact fee row blocked every opening
+// on mainnet while this suite, whose chain never synced anything, stayed green.
+
+describe('a sync credits exactly what a wrapped-SOL account already held, and nothing more', () => {
+  const OLD_RESERVE_SURPLUS = 550_840n;
+  const OLD_RESERVE = R(165) + OLD_RESERVE_SURPLUS;
+  const row = (p: PreparedTx, k: PublicKey) => {
+    const r = p.check.expect.tokens.find((t) => t.account.equals(k))!;
+    return [r.minDelta, r.maxDelta];
+  };
+  const moved = (p: PreparedTx, k: PublicKey) => p.simulated.tokenDeltas.find((d) => d.account.equals(k))!.delta;
+  const BLOCKED = { status: 'not-sent', stage: 'simulate', message: 'Blocked: the simulation shows a different token amount than this screen says.' };
+
+  it('the fee account set up under the old rent: the opening prepares, and the fee account gains exactly the fee plus that surplus', async () => {
+    const w = world({ feeReceiver: { reserve: OLD_RESERVE } });
+    const p = ok(await create(w));
+    expect(moved(p, CP_CREATE_POOL_FEE_RECEIVER)).toBe(FEE + OLD_RESERVE_SURPLUS);
+    expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([FEE + OLD_RESERVE_SURPLUS, FEE + OLD_RESERVE_SURPLUS]);
+  });
+
+  it('a token program that keeps the stored reserve instead (not mainnet): refused, never accepted on a guess', async () => {
+    const w = world({ feeReceiver: { reserve: OLD_RESERVE } });
+    w.chain.simulate = createSimulator({ keepsReserve: true });
+    const r = await create(w);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.outcome).toMatchObject(BLOCKED);
+  });
+
+  it('lamports someone sent to the fee account before Review are credited with the fee, and allowed exactly', async () => {
+    const w = world({ feeReceiver: { unsynced: 1_000n } });
+    const p = ok(await create(w));
+    expect(moved(p, CP_CREATE_POOL_FEE_RECEIVER)).toBe(FEE + 1_000n);
+    expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([FEE + 1_000n, FEE + 1_000n]);
+  });
+
+  it('a fee one lamport off the one shown, either way, is still blocked on an account set up under the old rent', async () => {
+    for (const arrives of [(fee: bigint) => fee + 1n, (fee: bigint) => fee - 1n]) {
+      const w = world({ feeReceiver: { reserve: OLD_RESERVE } });
+      w.chain.simulate = createSimulator({ feeArrives: arrives });
+      const r = await create(w);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.outcome).toMatchObject(BLOCKED);
+    }
+  });
+
+  it('a tier with no fee to open: the program neither pays nor syncs the fee account, so lamports sitting there are not expected to move', async () => {
+    const free = { ...TERMS, createPoolFee: 0n };
+    const w = world({ tier: { createPoolFee: 0n }, feeReceiver: { unsynced: 1_000n } });
+    const p = ok(await create(w, { shown: { terms: free, standard: 'empty' } }));
+    expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([0n, 0n]);
+  });
+
+  it('wrapped SOL the wallet keeps, in an account set up under the old rent: the wrap’s sync credits exactly its surplus, and the opening prepares', async () => {
+    const w = world({ heldWsol: 500_000_000n, wsolOptions: { native: { reserve: OLD_RESERVE } } });
+    const p = ok(await create(w));
+    expect(summaryOf(p).unwrapsWsol).toBe(false);
+    expect(moved(p, w.wsolAta)).toBe(OLD_RESERVE_SURPLUS);
+    expect(row(p, w.wsolAta)).toEqual([OLD_RESERVE_SURPLUS, OLD_RESERVE_SURPLUS]);
+  });
+
+  it('a wrapped-SOL account the opening closes is still exact: it ends empty, whatever it held as reserve', async () => {
+    const w = world({ heldWsol: 0n, wsolOptions: { native: { reserve: OLD_RESERVE, unsynced: 5_000n } } });
+    const p = ok(await create(w));
+    expect(summaryOf(p).unwrapsWsol).toBe(true);
     expect(row(p, w.wsolAta)).toEqual([0n, 0n]);
   });
 });

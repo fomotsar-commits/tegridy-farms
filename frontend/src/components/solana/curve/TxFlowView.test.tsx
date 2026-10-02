@@ -809,7 +809,7 @@ describe('liquidity reviews', () => {
     expect(value('Pool kind')).toBe('Launch pool: opened by the launch program at graduation');
     expect(value('Fee tier')).toBe('not read');
     expect(value('Price check')).toBe('2.1% from its own average over the last 30 minutes');
-    expect(screen.getByText(/You already hold 0\.5 wrapped SOL\. It is left exactly as it is\. Up to 0\.020000001 SOL/)).toBeInTheDocument();
+    expect(screen.getByText(/You already hold 0\.5 wrapped SOL\. None of it is spent\. Up to 0\.020000001 SOL/)).toBeInTheDocument();
     expect(screen.queryByText('Read these about this token first:')).not.toBeInTheDocument();
   });
 
@@ -953,7 +953,7 @@ describe('opening a pool: the review', () => {
     expect(
       screen.getByText(/Your wallet will show that this transaction needs a second signature\. That is the new pool's own address: this page signs it after you, then forgets the key\./),
     ).toBeInTheDocument();
-    expect(screen.getByText('You already hold 0.5 wrapped SOL. It is left exactly as it is.')).toBeInTheDocument();
+    expect(screen.getByText('You already hold 0.5 wrapped SOL. None of it is spent.')).toBeInTheDocument();
     expect(screen.queryByText('Read these about this token first:')).not.toBeInTheDocument();
   });
 
@@ -970,7 +970,7 @@ describe('opening a pool: the review', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText('One-time account rent')).not.toBeInTheDocument();
-    expect(value("Test run: the fee to open arrives at the team's vault (SOL)")).toBe('+0.15');
+    expect(value("Test run: the team's vault account gains, in SOL (the fee, plus any SOL that account was already holding)")).toBe('+0.15');
     expect(screen.queryByText('Test run: the platform treasury receives')).not.toBeInTheDocument();
   });
 

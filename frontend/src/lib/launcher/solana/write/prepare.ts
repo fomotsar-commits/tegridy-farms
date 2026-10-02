@@ -48,6 +48,7 @@ import type {
   PreparedCheck,
   PreparedTx,
   PreState,
+  PreToken,
   SimulatedEffect,
   TxKind,
   TxSummary,
@@ -99,6 +100,13 @@ function tokenAmount(data: Uint8Array | null | undefined): bigint | null {
   return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(64, true);
 }
 
+/** A native (wrapped-SOL) account's stored rent reserve: `is_native`, bytes 109-120. Null when it is not native. */
+export function nativeReserve(data: Uint8Array | null | undefined): bigint | null {
+  if (!data || data.length < 121) return null;
+  const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return v.getUint32(109, true) === 1 ? v.getBigUint64(113, true) : null;
+}
+
 function b64ToBytes(s: string): Uint8Array {
   const bin = atob(s);
   const out = new Uint8Array(bin.length);
@@ -112,16 +120,16 @@ async function readPreState(rpc: WriteRpc, watch: WatchList): Promise<PreState> 
   if (!Array.isArray(infos) || infos.length !== keys.length) {
     throw new Error('the balance read returned the wrong number of accounts');
   }
-  const tokens = new Map<string, { exists: boolean; amount: bigint }>();
+  const tokens = new Map<string, PreToken>();
   watch.tokenAccounts.forEach((t, i) => {
     const info = infos[i + 1];
     if (!info) {
-      tokens.set(t.account.toBase58(), { exists: false, amount: 0n });
+      tokens.set(t.account.toBase58(), { exists: false, amount: 0n, lamports: 0n, nativeReserve: null });
       return;
     }
     const amt = tokenAmount(info.data);
     if (amt === null) throw new Error(`${t.account.toBase58()} is not a token account`);
-    tokens.set(t.account.toBase58(), { exists: true, amount: amt });
+    tokens.set(t.account.toBase58(), { exists: true, amount: amt, lamports: BigInt(info.lamports), nativeReserve: nativeReserve(info.data) });
   });
   return { signerLamports: BigInt(infos[0]?.lamports ?? 0), tokens };
 }

@@ -453,6 +453,17 @@ describe('prepareLpDeposit', () => {
     expect([row.minDelta, row.maxDelta]).toEqual([0n, 100_000_000n - 1n]);
   });
 
+  // Mainnet, 2026-10-02: the wrap's sync also credits a kept account set up under the old
+  // rent with its old reserve's surplus (550,840), so the upper bound carries it too.
+  it('kept wrapped SOL in an account set up under the old rent: both bounds move up by exactly that surplus', async () => {
+    const SURPLUS = 550_840n;
+    const w = world({ heldWsol: 500_000_000n });
+    w.chain.tokenAccount(w.wsolAta, WSOL_MINT, ME, 500_000_000n, { native: { reserve: BigInt(rent(165)) + SURPLUS } });
+    const p = ok(await deposit(w));
+    const row = p.check.expect.tokens.find((t) => t.account.equals(w.wsolAta))!;
+    expect([row.minDelta, row.maxDelta]).toEqual([SURPLUS, 100_000_000n - 1n + SURPLUS]);
+  });
+
   it('wrapped SOL that reaches an empty account between the builder’s read and the balance read is BLOCKED, not unwrapped', async () => {
     const w = world();
     const orig = w.chain.getMultipleAccountsInfo;

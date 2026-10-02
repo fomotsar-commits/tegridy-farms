@@ -212,6 +212,15 @@ export interface FeeReceiverOptions {
   amount: bigint;
   /** Its byte length (default 165); longer is zero-padded. */
   length: number;
+  /**
+   * Native only: the reserve it stores (default: this chain's rent for 165 bytes). Mainnet's
+   * was set under a higher rent than mainnet charges now. This chain's rent(165) happens to
+   * equal mainnet's OLD figure, so model staleness as rent(165) + a surplus, never with
+   * mainnet's literal numbers.
+   */
+  reserve: bigint;
+  /** Native only: lamports above reserve + balance that no sync has turned into balance yet (default 0). */
+  unsynced: bigint;
 }
 
 /** The pool program's fee account for openings, as on mainnet: a native wrapped-SOL token account owned by the vault. */
@@ -224,7 +233,7 @@ export function encodeFeeReceiver(over: Partial<FeeReceiverOptions> = {}): Uint8
     const v = new DataView(d.buffer);
     if (over.native ?? true) {
       v.setUint32(109, 1, true);
-      v.setBigUint64(113, BigInt(rent(165)), true);
+      v.setBigUint64(113, over.reserve ?? BigInt(rent(165)), true);
     }
   }
   return d;
@@ -241,6 +250,8 @@ export interface TokenAccountOptions {
   delegate?: PublicKey;
   delegatedAmount?: bigint;
   closeAuthority?: PublicKey;
+  /** Wrapped SOL: mark it native with this stored reserve, holding `unsynced` lamports beyond reserve + balance. */
+  native?: { reserve: bigint; unsynced?: bigint };
 }
 
 /** The base 165-byte token account layout, shared by both token programs. */
@@ -256,6 +267,10 @@ export function encodeTokenAccountWith(mint: PublicKey, owner: PublicKey, amount
     d.set(u64le(o.delegatedAmount ?? 0n), 121);
   }
   d[108] = o.state ?? 1;
+  if (o.native) {
+    v.setUint32(109, 1, true);
+    v.setBigUint64(113, o.native.reserve, true);
+  }
   if (o.closeAuthority) {
     v.setUint32(129, 1, true);
     d.set(o.closeAuthority.toBytes(), 133);
@@ -559,7 +574,12 @@ export class FakeChain {
   /** The pool program's fee account for openings (`CP_CREATE_POOL_FEE_RECEIVER`), ready unless `over` says otherwise. */
   addFeeReceiver(over: Partial<FeeReceiverOptions> = {}): this {
     const data = encodeFeeReceiver(over);
-    return this.set(CP_CREATE_POOL_FEE_RECEIVER, { lamports: rent(data.length), owner: over.program ?? TOKEN_PROGRAM_ID, data });
+    // A native account holds its reserve, its balance and anything not yet synced.
+    const lamports =
+      (over.native ?? true) && data.length === 165
+        ? Number((over.reserve ?? BigInt(rent(165))) + (over.amount ?? 0n) + (over.unsynced ?? 0n))
+        : rent(data.length);
+    return this.set(CP_CREATE_POOL_FEE_RECEIVER, { lamports, owner: over.program ?? TOKEN_PROGRAM_ID, data });
   }
 
   addCurve(curve: BondingCurve, lamports?: bigint): this {
@@ -576,7 +596,8 @@ export class FakeChain {
   }
 
   tokenAccount(address: PublicKey, mint: PublicKey, owner: PublicKey, amount: bigint, o: TokenAccountOptions = {}): this {
-    return this.set(address, { lamports: rent(165), owner: TOKEN_PROGRAM_ID, data: encodeTokenAccountWith(mint, owner, amount, o) });
+    const lamports = o.native ? Number(o.native.reserve + amount + (o.native.unsynced ?? 0n)) : rent(165);
+    return this.set(address, { lamports, owner: TOKEN_PROGRAM_ID, data: encodeTokenAccountWith(mint, owner, amount, o) });
   }
 
   token2022Account(address: PublicKey, mint: PublicKey, owner: PublicKey, amount: bigint, o: TokenAccountOptions & { cpiGuard?: boolean; memoRequired?: boolean } = {}): this {
@@ -684,6 +705,15 @@ function amountOnChain(c: FakeChain, k: PublicKey): bigint | null {
 export interface CreateSimOptions {
   /** What reaches the fee account, given the fee the tier on this chain charges (default: exactly that). */
   feeArrives?: (fee: bigint) => bigint;
+  /** A token program that keeps a native account's stored reserve on sync (default: re-prices it to this chain's rent, as mainnet's does). */
+  keepsReserve?: boolean;
+}
+
+/** A native account's stored reserve (`is_native`, bytes 109-120), or null. Kept apart from prepare.ts's reader on purpose. */
+function storedReserve(data: Uint8Array): bigint | null {
+  if (data.length < 121) return null;
+  const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return v.getUint32(109, true) === 1 ? v.getBigUint64(113, true) : null;
 }
 
 /**
@@ -737,16 +767,29 @@ export function createSimulator(o: CreateSimOptions = {}): SimHandler {
 
     const fee = tier.createPoolFee;
     const arrives = o.feeArrives ? o.feeArrives(fee) : fee;
-    const wsolAfter = wsolBefore + wrapped - sol;
+    // A sync sets a native account's balance to its lamports less its reserve, so lamports
+    // it already held above reserve + balance become balance too. Mainnet's token program
+    // also re-prices the reserve to the current rent (modelled downward only: rent has only
+    // fallen, and the site refuses a rise rather than modelling it).
+    const rentNow = BigInt(rent(165));
+    const synced = (k: PublicKey, lamportsIn: bigint, lamportsOut: bigint): bigint | null => {
+      const acc = chain.accounts.get(k.toBase58());
+      const stored = acc ? storedReserve(acc.data) : null;
+      if (!acc || stored === null) return null;
+      const reserve = o.keepsReserve || stored < rentNow ? stored : rentNow;
+      return BigInt(acc.lamports) + lamportsIn - lamportsOut - reserve;
+    };
+    const wsolAfter = (closes ? null : synced(wsolAta, wrapped, sol)) ?? wsolBefore + wrapped - sol;
     const poolRents = rent(POOL_STATE_LEN) + rent(4075) + rent(82) + rent(165) + rent(165) + rent(165);
     const signerDelta = -Number(wrapped) - (wsolCreated ? rent(165) : 0) - Number(fee) - poolRents + (closes ? Number(wsolAfter) + rent(165) : 0);
-    const feeBefore = amountOnChain(chain, at(12)) ?? 0n;
+    // cp-swap moves the fee and syncs the fee account only when the tier charges one.
+    const feeAfter = fee === 0n ? (amountOnChain(chain, at(12)) ?? 0n) : (synced(at(12), arrives, 0n) ?? (amountOnChain(chain, at(12)) ?? 0n) + arrives);
     const changes: Parameters<FakeChain['post']>[1] = {
       [signer.toBase58()]: { lamportsDelta: signerDelta },
       [userTok.toBase58()]: { tokenAmount: tokBefore - tokens, mint: tokenMint, owner: signer },
       [wsolAta.toBase58()]: closes ? { closed: true } : { tokenAmount: wsolAfter, mint: WSOL_MINT, owner: signer },
       [at(9).toBase58()]: { tokenAmount: supply - 100n, mint: at(6), owner: signer },
-      [at(12).toBase58()]: { tokenAmount: feeBefore + arrives, mint: WSOL_MINT, owner: VAULT },
+      [at(12).toBase58()]: { tokenAmount: feeAfter, mint: WSOL_MINT, owner: VAULT },
     };
     return { err: null, logs: [], unitsConsumed: 120_000, accounts: chain.post(config.accounts.addresses, changes) };
   };

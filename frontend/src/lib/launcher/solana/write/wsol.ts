@@ -25,6 +25,7 @@ import { PublicKey, SystemProgram, type TransactionInstruction } from '@solana/w
 import { TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { formatSol } from '../curve/format';
+import type { PreToken } from './types';
 
 export interface WsolPlan {
   /** The signer's WSOL associated account. */
@@ -89,6 +90,23 @@ export function wrapIxs(owner: PublicKey, lamports: bigint): TransactionInstruct
     SystemProgram.transfer({ fromPubkey: owner, toPubkey: ata, lamports }),
     createSyncNativeInstruction(ata, TOKEN_PROGRAM_ID),
   ];
+}
+
+/**
+ * What one sync adds to a wrapped-SOL account's balance on top of what the transaction
+ * itself moves: the lamports it already held above today's reserve and its balance, read
+ * before the build. Mainnet's token program re-prices the stored reserve to today's rent
+ * on every sync: after the 2026 rent cut, an account set up under the old rent gains the
+ * 550,840 lamports it had been holding as reserve. Only lamports the account already
+ * held are credited, never the wallet's; an account that is missing or not native gets 0.
+ * Exact on purpose. A token program that kept the stored reserve, or a rent rise (which
+ * would lower the balance), lands off this number and the check refuses: it fails closed.
+ */
+export function syncCredit(pre: PreToken | undefined, rentNow: bigint): bigint {
+  if (!pre || !pre.exists || pre.nativeReserve === null) return 0n;
+  const reserve = rentNow < pre.nativeReserve ? rentNow : pre.nativeReserve;
+  const above = pre.lamports - reserve - pre.amount;
+  return above > 0n ? above : 0n;
 }
 
 /** The close back to the signer, or nothing when the plan keeps the account. */

@@ -62,7 +62,7 @@ import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import { slippageProblem } from './trade';
 import type { CurveWriteConfig, IntentStep, LpOpenGate, PoolPins, Prepared, TxSummary, WriteRpc } from './types';
-import { closeWsolIxs, openWsolIx, wrapIxs, wsolPlanFrom } from './wsol';
+import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
 
 // ── copy (spec 3.9) ──────────────────────────────────────────────────────────
 
@@ -595,14 +595,15 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
     },
     expect: (pre, rents) => {
       const lpExists = pre.tokens.get(lpAta.toBase58())?.exists ?? false;
+      const kept = plan.closeAfter ? 0n : syncCredit(pre.tokens.get(plan.ata.toBase58()), rents.tokenAccount);
       return {
         maxSolOut: maxSol + (lpExists ? 0n : rents.tokenAccount),
         tokens: [
           { account: lpAta, mint: lpMint, minDelta: planned.lp, maxDelta: planned.lp },
           { account: tokenAddress, mint: a.tokenMint, minDelta: -maxTok, maxDelta: -1n },
           // Closed: it ends where it began. Kept: only what the pool did not use stays,
-          // and the person's own wrapped SOL is never spent.
-          { account: plan.ata, mint: WSOL_MINT, minDelta: 0n, maxDelta: plan.closeAfter ? 0n : maxSol - 1n },
+          // plus what the wrap's sync credits, and the person's own wrapped SOL is never spent.
+          { account: plan.ata, mint: WSOL_MINT, minDelta: kept, maxDelta: plan.closeAfter ? 0n : maxSol - 1n + kept },
         ],
       };
     },

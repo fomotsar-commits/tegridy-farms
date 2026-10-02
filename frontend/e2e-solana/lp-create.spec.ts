@@ -133,7 +133,7 @@ async function checkCreateReview(
   expect(rows['Locked in the pool forever']).toBe(`${LOCKED_SHARES}, worth about ${SOL(plan.locked.sol)} and ${tok(plan.locked.token, d)} tokens at these amounts`);
   const share = Number((plan.lp * 1_000_000n) / plan.supply) / 10_000;
   expect(rows['Your share of the pool']).toBe(share < 0.01 ? '<0.01%' : `${share.toFixed(2)}%`);
-  expect(rows["Test run: the fee to open arrives at the team's vault (SOL)"]).toBe(`+${tok(tier.createPoolFee, 9)}`);
+  expect(rows["Test run: the team's vault account gains, in SOL (the fee, plus any SOL that account was already holding)"]).toBe(`+${tok(tier.createPoolFee, 9)}`);
   await expect(ui.review(p).getByTestId('lp-review-disclosure')).toContainText(MONEY);
   return pool;
 }
@@ -1012,11 +1012,11 @@ test.describe('group B (chromium only)', () => {
     await openPools(p, B.t15);
     await connect(p);
     const panel = await openCreate(p);
-    await expect(panel).toContainText(`You already hold ${units(sol(0.5), 9)} wrapped SOL. It is left exactly as it is.`, { timeout: 30_000 });
+    await expect(panel).toContainText(`You already hold ${units(sol(0.5), 9)} wrapped SOL. None of it is spent.`, { timeout: 30_000 });
     const { sol: solIn, token } = await solThenMatch(p, '0.2');
     const rows = await reviewCreate(p);
     await checkCreateReview(p, rows, { mint: B.t15, sol: solIn, token, origin: 'standard', market: stubMarket(FAIR) });
-    await expect(ui.review(p)).toContainText(`You already hold ${formatSol(sol(0.5), 9)} wrapped SOL. It is left exactly as it is.`);
+    await expect(ui.review(p)).toContainText(`You already hold ${formatSol(sol(0.5), 9)} wrapped SOL. None of it is spent.`);
     const { t } = await signConfirmed(a);
     await checkOpenerSol(t, B.w15.publicKey, solIn);
     expect(await tokenAmount(wsolAcc), 'exactly the 0.5 SOL it held').toBe(sol(0.5));

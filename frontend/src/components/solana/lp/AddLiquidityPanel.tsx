@@ -278,7 +278,7 @@ function AddInner({
           </div>
           <p className="text-white/40 text-[10px]">
             {wsolKept && facts?.kind === 'ok'
-              ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. It is left exactly as it is. Up to ${plan ? solExact(solOf(plan).max - solOf(plan).cost) : 'the unused part'} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`
+              ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. None of it is spent. Up to ${plan ? solExact(solOf(plan).max - solOf(plan).cost) : 'the unused part'} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`
               : 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'}
           </p>
         </>

@@ -746,6 +746,26 @@ describe('pool swap', () => {
     expect(p.summary).toMatchObject({ kind: 'pool-buy', unwrapsWsol: true, pool: POOL });
   });
 
+  // Mainnet, 2026-10-02: a kept WSOL account set up under the old rent gains its old
+  // reserve's surplus (550,840) as balance at the wrap's sync. An exact 0 blocked the buy.
+  it('buy, keeping a WSOL account set up under the old rent: the sync credits exactly its surplus, and only that', async () => {
+    const SURPLUS = 550_840n;
+    const WSOL_ATA = associatedTokenAddress(WSOL_MINT, ME);
+    for (const [credited, prepares] of [[SURPLUS, true], [SURPLUS + 1n, false], [SURPLUS - 1n, false]] as const) {
+      const { chain, gate, lp } = await poolSetup();
+      const out = quoteOwnPool(lp.snapshot, gate.ammConfig, WSOL_MINT.toBase58(), 100_000_000n)!.outAmount;
+      chain.tokenAccount(WSOL_ATA, WSOL_MINT, ME, 5n, { native: { reserve: BigInt(TOKEN_RENT) + SURPLUS } });
+      simulating(chain, {
+        [ME.toBase58()]: { lamportsDelta: -(100_000_000 + TOKEN_RENT) },
+        [ATA.toBase58()]: { tokenAmount: out, mint: MINT, owner: ME },
+        [WSOL_ATA.toBase58()]: { tokenAmount: 5n + credited, mint: WSOL_MINT, owner: ME },
+      });
+      const r = await preparePoolSwap(W(chain), gate, { owner: ME, mint: MINT, pool: lp, side: 'buy', amountIn: 100_000_000n, slippageBps: 100n });
+      expect(r.ok, `credited ${credited}`).toBe(prepares);
+      if (r.ok) expect(r.prepared.summary).toMatchObject({ kind: 'pool-buy', unwrapsWsol: false });
+    }
+  });
+
   it('sell: does NOT unwrap a WSOL account that already held wrapped SOL', async () => {
     const { chain, gate, lp } = await poolSetup();
     const WSOL_ATA = associatedTokenAddress(WSOL_MINT, ME);
