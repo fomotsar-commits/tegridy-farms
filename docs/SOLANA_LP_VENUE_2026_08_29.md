@@ -122,6 +122,11 @@ a spent id as deployed.
 
 ## 2. The fee sheet — competitive, and grounded
 
+**Superseded 2026-10-01.** Mainnet config 0 was created with rates other than
+these, and `RECOMMENDED_AMM_CONFIG` was deleted from `venue.ts`. `/pools` now
+shows only rates it read from the chain. What follows is the 2026-08-29
+proposal, kept as history.
+
 `RECOMMENDED_AMM_CONFIG` in `venue.ts`. Denominator is 1,000,000.
 
 | parameter | value | meaning |

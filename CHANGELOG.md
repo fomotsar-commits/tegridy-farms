@@ -15,6 +15,8 @@ page keeps the newest thirty days.
 - The security policy no longer puts memetic.fun in scope.
 - The indexer no longer treats memetic.fun as a name for this venue.
 - memetic.fun can no longer call the venue's API as if it were the venue.
+- On /pools, fees appear only once read from the chain: a failed read says the fee tiers could not be read just now and offers Try again, where it used to show an old fee proposal.
+- On /pools, a site built without the pool program's id says so, where it used to say the AMM was being redeployed.
 - The privacy policy says exactly what an error report holds: one is sent only with your consent and without cookies, wallet addresses and tokens are removed before it is stored, and withdrawing consent deletes any report still waiting in your browser.
 - The privacy page gives 14 days' notice at its top: from 16 October 2026, error reports you opt in to are stored on our server, kept for 30 days and then deleted automatically, and none is sent or stored before that date.
 
