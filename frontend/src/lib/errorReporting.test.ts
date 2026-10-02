@@ -1,9 +1,15 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { ERROR_REPORTING_STARTS_AT_MS } from '../../api/_lib/errorPolicy.js';
 
 // We need to test internal functions. The module uses module-level state,
 // so we re-import fresh for some tests via vi.resetModules().
 // For sanitize/sanitizeUrl we test through the public reportError API
 // and inspect localStorage side-effects.
+//
+// THE CLOCK IS PINNED to a fixed instant after 2026-10-16 (the day reports may first
+// be sent), so no test here depends on the day it runs. The date itself is tested in
+// its own block at the end, on both sides.
+const OPEN = new Date('2026-11-20T12:00:00Z');
 
 describe('errorReporting', () => {
   beforeEach(() => {
@@ -13,6 +19,7 @@ describe('errorReporting', () => {
     // under test actually runs; the gate itself is covered separately below.
     localStorage.setItem('tegridy_telemetry_consent', 'granted');
     vi.useFakeTimers();
+    vi.setSystemTime(OPEN);
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('no endpoint'))));
     // Ensure no VITE_ERROR_ENDPOINT so errors go to localStorage
     vi.stubEnv('VITE_ERROR_ENDPOINT', '');
@@ -221,7 +228,7 @@ describe('errorReporting: delivery', () => {
     localStorage.clear();
     localStorage.setItem('tegridy_telemetry_consent', 'granted');
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-10-02T12:00:00Z'));
+    vi.setSystemTime(OPEN);
     vi.stubEnv('VITE_ERROR_ENDPOINT', ENDPOINT);
     reply = () => Promise.resolve(new Response('{}', { status: 200 }));
     fetchMock = vi.fn(() => reply());
@@ -451,5 +458,94 @@ describe('errorReporting: delivery', () => {
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(stored().map((e) => e.message)).toEqual(['while waiting']);
+  });
+});
+
+// ── 2026-10-16T00:00:00Z: the first instant a report may leave the browser ──
+//
+// The owner's decision of 2026-10-02: the Privacy page gives 14 days' notice (its own
+// section 9), so nothing is sent before the date even if VITE_ERROR_ENDPOINT is set early,
+// and nothing that happened before the date is sent after it. The date is the shared
+// constant in api/_lib/errorPolicy.js, which api/errors.js enforces again.
+describe('errorReporting: nothing is sent before 2026-10-16', () => {
+  const START = ERROR_REPORTING_STARTS_AT_MS;
+  const BATCH_MS = 5_000;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('tegridy_telemetry_consent', 'granted');
+    vi.useFakeTimers();
+    vi.stubEnv('VITE_ERROR_ENDPOINT', '/api/errors');
+    fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  const load = () => import('./errorReporting');
+  const sentMessages = () =>
+    fetchMock.mock.calls.flatMap((c) => (JSON.parse(c[1].body as string).errors as Array<{ message: string }>).map((e) => e.message));
+
+  it('is the constant the server enforces: 2026-10-16T00:00:00Z', () => {
+    expect(new Date(START).toISOString()).toBe('2026-10-16T00:00:00.000Z');
+  });
+
+  it('a batch whose send falls one millisecond before the start is not sent, with the endpoint set', async () => {
+    vi.setSystemTime(START - BATCH_MS - 1);
+    const { reportError } = await load();
+    reportError(new Error('too early'));
+    await vi.advanceTimersByTimeAsync(BATCH_MS);
+    expect(Date.now()).toBe(START - 1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('on the day the notice was posted, nothing is sent however long the page stays open', async () => {
+    vi.setSystemTime(new Date('2026-10-02T12:00:00Z'));
+    const { reportError, installGlobalHandlers } = await load();
+    installGlobalHandlers();
+    for (let i = 0; i < 5; i++) {
+      reportError(new Error(`early ${i}`));
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('from the start instant, a report is sent', async () => {
+    vi.setSystemTime(START);
+    const { reportError } = await load();
+    reportError(new Error('on time'));
+    await vi.advanceTimersByTimeAsync(BATCH_MS + 1000);
+    expect(sentMessages()).toEqual(['on time']);
+  });
+
+  it('a report captured before the start is never sent after it; a later one is', async () => {
+    vi.setSystemTime(START - 60_000);
+    const { reportError } = await load();
+    reportError(new Error('captured before'));
+    await vi.advanceTimersByTimeAsync(BATCH_MS + 1000);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    vi.setSystemTime(START + 60_000);
+    reportError(new Error('captured after'));
+    await vi.advanceTimersByTimeAsync(BATCH_MS + 1000);
+    expect(sentMessages()).toEqual(['captured after']);
+    expect(localStorage.getItem('tegridy_error_log')).toBeNull();
+  });
+
+  it('a buffer left from before the start is dropped on the first page load after it, not sent', async () => {
+    localStorage.setItem('tegridy_error_log', JSON.stringify([{ message: 'last week', timestamp: START - 1, url: '' }]));
+    vi.setSystemTime(START + 60_000);
+    const { installGlobalHandlers } = await load();
+    installGlobalHandlers();
+    await vi.advanceTimersByTimeAsync(BATCH_MS + 1000);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem('tegridy_error_log')).toBeNull();
   });
 });

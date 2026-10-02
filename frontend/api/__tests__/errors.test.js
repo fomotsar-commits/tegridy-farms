@@ -15,11 +15,20 @@
 //   5. RATE LIMITS. The per-IP limiter and the aggregate breaker are called with the
 //      signatures ratelimit.js actually exports. errors.ratelimit.test.js runs the real
 //      limiter.
+//   6. THE START DATE. Nothing is stored before 2026-10-16T00:00:00Z (the owner's decision
+//      of 2026-10-02, honouring the Privacy page's 14-day notice), and no entry that
+//      happened before it is stored after it.
+//   7. THE BACKSTOP PURGE. After a stored batch, reports older than 30 days are deleted, at
+//      most once an hour per instance. The hourly workflow is the main purge.
+//
+// THE CLOCK IS PINNED. Every test runs at a fixed instant after the start date, set
+// below, so none of them depends on the day it runs; the date tests set their own.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { checkRateLimit, checkGlobalLimit } from "../_lib/ratelimit.js";
+import { ERROR_REPORTING_STARTS_AT_MS, errorRetentionCutoff } from "../_lib/errorPolicy.js";
 
 vi.mock("../_lib/ratelimit.js", () => ({
   checkRateLimit: vi.fn(async () => true),
@@ -99,8 +108,24 @@ const SOY_MINT = "8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump"; // public, list
 const FAKE_KEY = "FAKEKEYFAKEKEYFAKEKEYFAKEKEY0000";
 const FAKE_JWT = ["eyJ" + "a".repeat(20), "eyJ" + "b".repeat(20), "c".repeat(20)].join(".");
 
+/** A fixed instant well after the start date: the clock every test runs at by default. */
+const OPEN = Date.UTC(2026, 10, 20, 12);
+const HOUR = 60 * 60 * 1000;
+
+/** The backstop purge talks to PostgREST with fetch. Each call is recorded here. */
+let purgeCalls = [];
+let purgeReply = () => new Response(null, { status: 204, headers: { "Content-Range": "*/0" } });
+
 let handler;
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(OPEN);
+  purgeCalls = [];
+  purgeReply = () => new Response(null, { status: 204, headers: { "Content-Range": "*/0" } });
+  vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+    purgeCalls.push({ url: String(url), init });
+    return purgeReply();
+  }));
   vi.resetModules();
   vi.mocked(checkRateLimit).mockClear();
   vi.mocked(checkGlobalLimit).mockClear();
@@ -117,6 +142,8 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -496,5 +523,113 @@ describe("errors: refusals", () => {
     const s = makeRes();
     await handler({ method: "GET", headers: { origin: ORIGIN } }, s.res);
     expect(status(s)).toBe(405);
+  });
+});
+
+describe("errors: nothing is stored before 2026-10-16T00:00:00Z", () => {
+  const post = async (entry = clientEntry()) => {
+    const s = makeRes();
+    await handler(makeReq(consented([entry])), s.res);
+    return s;
+  };
+
+  it("one millisecond before the start: refused like any closed sink, before the limiter or the table", async () => {
+    vi.setSystemTime(ERROR_REPORTING_STARTS_AT_MS - 1);
+    const s = await post(clientEntry({ timestamp: ERROR_REPORTING_STARTS_AT_MS - 1000 }));
+    expect(status(s)).toBe(503);
+    expect(payload(s)).toEqual(SINK_UNAVAILABLE);
+    expect(Number(s.headers["retry-after"])).toBeGreaterThan(0);
+    expect(insertCalls).toBe(0);
+    expect(checkRateLimit).not.toHaveBeenCalled();
+    expect(purgeCalls).toEqual([]);
+  });
+
+  it("on the day the notice was posted, too", async () => {
+    vi.setSystemTime(Date.UTC(2026, 9, 2, 12));
+    const s = await post(clientEntry({ timestamp: Date.UTC(2026, 9, 2, 11) }));
+    expect(status(s)).toBe(503);
+    expect(insertCalls).toBe(0);
+  });
+
+  it("from the start instant itself: stored", async () => {
+    vi.setSystemTime(ERROR_REPORTING_STARTS_AT_MS);
+    const s = await post(clientEntry({ timestamp: ERROR_REPORTING_STARTS_AT_MS }));
+    expect(status(s)).toBe(200);
+    expect(payload(s).accepted).toBe(1);
+    expect(inserted).toHaveLength(1);
+  });
+
+  it("after the start, an entry that HAPPENED before it is rejected and its siblings kept", async () => {
+    // A browser could hold a report from before the date; the notice promises none is stored.
+    vi.setSystemTime(ERROR_REPORTING_STARTS_AT_MS + HOUR);
+    const s = makeRes();
+    await handler(makeReq(consented([
+      clientEntry({ message: "from before", timestamp: ERROR_REPORTING_STARTS_AT_MS - 1 }),
+      clientEntry({ message: "from after", timestamp: ERROR_REPORTING_STARTS_AT_MS + 1 }),
+    ])), s.res);
+    expect(status(s)).toBe(200);
+    expect(payload(s).accepted).toBe(1);
+    expect(payload(s).reasons["before-start"]).toBe(1);
+    expect(inserted.map((r) => r.message)).toEqual(["from after"]);
+  });
+});
+
+describe("errors: the backstop purge after a stored batch", () => {
+  const post = async () => {
+    const s = makeRes();
+    await handler(makeReq(consented([clientEntry()])), s.res);
+    return s;
+  };
+
+  it("deletes reports received more than 30 days ago, with the service key, on the configured project", async () => {
+    await post();
+    expect(purgeCalls).toHaveLength(1);
+    const u = new URL(purgeCalls[0].url);
+    expect(u.origin).toBe("https://test.supabase.co");
+    expect(u.pathname).toBe("/rest/v1/error_events");
+    expect(u.searchParams.get("received_at")).toBe(`lt.${errorRetentionCutoff(OPEN)}`);
+    expect(purgeCalls[0].init.method).toBe("DELETE");
+    expect(purgeCalls[0].init.headers).toMatchObject({ apikey: "service-role" });
+  });
+
+  it("runs at most once an hour per instance", async () => {
+    await post();
+    await post();
+    vi.setSystemTime(OPEN + HOUR - 1);
+    await post();
+    expect(purgeCalls).toHaveLength(1);
+    vi.setSystemTime(OPEN + HOUR);
+    await post();
+    expect(purgeCalls).toHaveLength(2);
+    expect(new URL(purgeCalls[1].url).searchParams.get("received_at")).toBe(`lt.${errorRetentionCutoff(OPEN + HOUR)}`);
+  });
+
+  it("a purge that fails does not touch the answer to the browser", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    purgeReply = () => new Response("{}", { status: 500 });
+    const s = await post();
+    expect(status(s)).toBe(200);
+    expect(payload(s).accepted).toBe(1);
+    expect(JSON.stringify(log.mock.calls)).not.toContain("service-role");
+  });
+
+  it("a purge that throws does not either", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    purgeReply = () => { throw new TypeError("fetch failed"); };
+    const s = await post();
+    expect(status(s)).toBe(200);
+  });
+
+  it("does not run after a failed insert, or when nothing was stored", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    insertError = { code: "PGRST205", message: "no table" };
+    await post();
+    expect(purgeCalls).toEqual([]);
+    vi.resetModules();
+    insertError = null;
+    const h = (await import("../errors.js")).default;
+    const s = makeRes();
+    await h(makeReq(consented([{ message: 42 }])), s.res);
+    expect(purgeCalls).toEqual([]);
   });
 });

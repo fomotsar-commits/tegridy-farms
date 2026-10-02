@@ -1,4 +1,6 @@
 import { hasConsent } from './consent';
+// The start date is the server's constant, not a copy (api/_lib/errorPolicy.js).
+import { ERROR_REPORTING_STARTS_AT_MS, errorReportingOpen } from '../../api/_lib/errorPolicy.js';
 
 const STORAGE_KEY = 'tegridy_error_log';
 const MAX_BUFFER = 50;
@@ -18,6 +20,12 @@ const BATCH_INTERVAL_MS = 5_000;
  * zero on every reload. The buffer is sent when the wait is over, on the next
  * error or the next page load, at most MAX_BUFFER entries a request, and
  * entries older than a week are not sent at all.
+ *
+ * NOTHING BEFORE THE START DATE (owner, 2026-10-02). The Privacy page gives 14 days'
+ * notice, as its section 9 promises, so before ERROR_REPORTING_STARTS_AT nothing is
+ * sent even if VITE_ERROR_ENDPOINT is set, and after it an entry captured before it
+ * is dropped, never sent. api/errors.js refuses both again on its side. The date is
+ * written once, in api/_lib/errorPolicy.js; this file never spells it.
  */
 const BACKOFF_KEY = 'tegridy_error_backoff';
 const BACKOFF_BASE_MS = 60_000;
@@ -191,11 +199,17 @@ function noteSuccess() {
   }
 }
 
-/** A stored entry worth sending: the right shape (it came from localStorage) and under a week old. */
+/**
+ * A stored entry worth sending: the right shape (it came from localStorage), under a
+ * week old, and captured on or after the start date.
+ */
 function isReplayable(e: unknown, now: number): e is ErrorEntry {
   if (!e || typeof e !== 'object') return false;
   const { message, timestamp } = e as Partial<ErrorEntry>;
-  return typeof message === 'string' && typeof timestamp === 'number' && now - timestamp <= MAX_REPLAY_AGE_MS;
+  return typeof message === 'string'
+    && typeof timestamp === 'number'
+    && timestamp >= ERROR_REPORTING_STARTS_AT_MS
+    && now - timestamp <= MAX_REPLAY_AGE_MS;
 }
 
 /** Validate the error endpoint to prevent exfiltration to unexpected origins. */
@@ -254,7 +268,8 @@ function flush() {
 
   const endpoint = import.meta.env.VITE_ERROR_ENDPOINT;
   const now = Date.now();
-  if (!endpoint || !isAllowedEndpoint(endpoint) || inFlight || now < readBackoff().until) {
+  // Before the start date the browser sends nothing, whatever the endpoint says.
+  if (!endpoint || !errorReportingOpen(now) || !isAllowedEndpoint(endpoint) || inFlight || now < readBackoff().until) {
     persistToLocalStorage(batch.splice(0));
     return;
   }

@@ -51,6 +51,12 @@ async function post(handler, ip) {
 
 let handler;
 beforeEach(async () => {
+  // A fixed instant after 2026-10-16, when the route starts storing: these tests are about
+  // the limiter, so they must not depend on the day they run (errors.test.js tests the date).
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(Date.UTC(2026, 10, 20, 12));
+  // The backstop purge after a stored batch reaches PostgREST through fetch: never the network.
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })));
   counts.clear();
   vi.resetModules();
   process.env.SUPABASE_URL = "https://test.supabase.co";
@@ -62,6 +68,8 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;

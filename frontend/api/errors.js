@@ -12,6 +12,19 @@
 // found out from a user. 013_analytics_events.sql opens with the same sentence
 // about VITE_ANALYTICS_ENDPOINT: this is the second time the shape has happened.
 //
+// NOTHING BEFORE THE START DATE, AND NOTHING KEPT PAST 30 DAYS (owner, 2026-10-02)
+// -------------------------------------------------------------------------------
+// The Privacy page gives 14 days' notice of this change, as its own section 9
+// promises, so until ERROR_REPORTING_STARTS_AT (api/_lib/errorPolicy.js, the
+// constant the browser reads too, and the only place the date is written; this
+// file never spells it) every batch is refused like a closed sink,
+// before the limiter or the table, even if VITE_ERROR_ENDPOINT was set early.
+// After it, an entry that HAPPENED before it is rejected ("before-start").
+// Rows are deleted once they are 30 days old: hourly by
+// .github/workflows/error-retention.yml, and here, after a stored batch, at most
+// once an hour per instance, as a backstop (api/_lib/errorPurge.js, one delete
+// for both). A failed backstop purge never changes the answer to the browser.
+//
 // THE GAP BEFORE THE OPERATOR STEPS (docs/TODO_OPERATOR.md, 2026-10-02)
 // --------------------------------------------------------------------
 // This route ships before migration 026 is applied and possibly before Upstash
@@ -60,6 +73,8 @@ import { createClient } from "@supabase/supabase-js";
 import { checkRateLimit, checkGlobalLimit } from "./_lib/ratelimit.js";
 import { logSafe } from "./_lib/logSafe.js";
 import { redactRpcUrl } from "./_lib/redact-url.js";
+import { ERROR_REPORTING_STARTS_AT_MS, errorReportingOpen } from "./_lib/errorPolicy.js";
+import { purgeExpiredErrorEvents } from "./_lib/errorPurge.js";
 import { containsAddress } from "./analytics.js";
 
 // The client sends at most 50 entries of at most ~2 KB each.
@@ -216,6 +231,10 @@ export function validateEntry(e, ownOrigins = buildAllowedOrigins()) {
   if (!Number.isFinite(ts) || ts < OLDEST_TS || ts > Date.now() + FUTURE_SLACK_MS) {
     return { ok: false, reason: "bad-timestamp" };
   }
+  // The notice says reporting starts on this date: nothing from before it is stored.
+  if (ts < ERROR_REPORTING_STARTS_AT_MS) {
+    return { ok: false, reason: "before-start" };
+  }
 
   return {
     ok: true,
@@ -237,6 +256,27 @@ function warnOnce(key, text) {
   console.error(text);
 }
 let sinkDownUntil = 0;
+
+/** The backstop purge runs at most this often per instance; the hourly workflow is the main one. */
+const PURGE_EVERY_MS = 60 * 60_000;
+/** A short ceiling: this runs before the answer to the browser. */
+const PURGE_TIMEOUT_MS = 3_000;
+let lastPurgeAt = -Infinity;
+
+async function backstopPurge() {
+  const now = Date.now();
+  if (now - lastPurgeAt < PURGE_EVERY_MS) return;
+  lastPurgeAt = now;
+  const r = await purgeExpiredErrorEvents({
+    supabaseUrl: SUPABASE_URL,
+    serviceKey: SUPABASE_SERVICE_KEY,
+    nowMs: now,
+    timeoutMs: PURGE_TIMEOUT_MS,
+  });
+  if (!r.ok) {
+    warnOnce("purge", `[errors] backstop 30-day purge failed (${r.reason}); the hourly error-retention workflow is the main purge.`);
+  }
+}
 
 function unavailable(res, retryAfterSec) {
   res.setHeader("Retry-After", String(retryAfterSec));
@@ -270,6 +310,10 @@ async function handle(req, res) {
   if (!ownOrigins.has(req.headers?.origin || "")) {
     return res.status(403).json({ error: "Origin not allowed" });
   }
+
+  // Before the start date the sink is closed, whatever is configured. Same words as
+  // every other refusal, and nothing logged: this is the plan, not a fault.
+  if (!errorReportingOpen(Date.now())) return unavailable(res, RETRY_AFTER_UNCONFIGURED_SEC);
 
   if (!upstashConfigured()) {
     warnOnce("upstash", "[errors] UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set: refusing every batch (fail closed).");
@@ -335,6 +379,13 @@ async function handle(req, res) {
       logSafe(error),
     );
     return unavailable(res, RETRY_AFTER_UNAVAILABLE_SEC);
+  }
+
+  // Never throws (errorPurge.js returns every outcome as a value); the catch is a belt.
+  try {
+    await backstopPurge();
+  } catch {
+    // the stored batch stands; the hourly workflow purges
   }
 
   return res.status(200).json({

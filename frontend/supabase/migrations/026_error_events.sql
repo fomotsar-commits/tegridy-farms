@@ -32,6 +32,21 @@
 --   * only a batch the client marked `consent: "granted"` is written.
 --   * the CHECK below is the fail-closed backstop for anything reaching
 --     PostgREST by another path.
+--   * nothing is stored before 2026-10-16T00:00:00Z, and every row is deleted
+--     once it is more than 30 days old (owner's decisions, 2026-10-02; the
+--     Privacy page says both). The delete runs hourly from
+--     .github/workflows/error-retention.yml and, as a backstop, from
+--     api/errors.js after a stored batch: both through
+--     api/_lib/errorPurge.js, as service_role, filtered on received_at. That
+--     is why service_role gets DELETE below and received_at gets an index.
+--     The weekly backup (supabase-backup.yml) does not copy this table, so no
+--     report outlives its 30 days in a backup either.
+--
+-- PREREQUISITE: public.schema_migrations, the ledger this file writes its own
+-- row into at the end. It is 000_base_schema.sql section 0. If
+--   select to_regclass('public.schema_migrations');
+-- returns null, run the nine statements in supabase/MIGRATIONS.md section 1
+-- first, then this file. Without the ledger the last statement fails.
 --
 -- ORDER (docs/TODO_OPERATOR.md, 2026-10-02). Run in the Supabase SQL editor,
 -- never `supabase db push`. This file does NOT depend on 024 or 025: it creates
@@ -101,6 +116,9 @@ CREATE INDEX IF NOT EXISTS idx_error_occurred
   ON error_events(occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_error_message_time
   ON error_events(message, occurred_at DESC);
+-- The 30-day purge deletes WHERE received_at < now() - 30 days, every hour.
+CREATE INDEX IF NOT EXISTS idx_error_received
+  ON error_events(received_at);
 
 -- RLS: writes arrive ONLY through api/errors.js using the service role, which
 -- bypasses RLS. Enabling RLS with no policy therefore denies every anon/authed
@@ -115,8 +133,8 @@ REVOKE ALL ON error_events FROM anon, authenticated;
 
 -- 008_grant_new_table_roles.sql established that new tables need explicit
 -- sequence grants for the roles that use them. service_role bypasses RLS but
--- still needs table + sequence privileges.
-GRANT INSERT, SELECT ON error_events TO service_role;
+-- still needs table + sequence privileges. DELETE is for the 30-day purge.
+GRANT INSERT, SELECT, DELETE ON error_events TO service_role;
 GRANT USAGE, SELECT ON SEQUENCE error_events_id_seq TO service_role;
 
 -- Reload the PostgREST schema cache. Without this the table EXISTS and
@@ -132,7 +150,7 @@ NOTIFY pgrst, 'reload schema';
 INSERT INTO public.schema_migrations (filename, note)
 VALUES (
   '026_error_events.sql',
-  'error_events created for api/errors.js: RLS on, no policies, anon/authenticated revoked, service_role INSERT/SELECT only.'
+  'error_events created for api/errors.js: RLS on, no policies, anon/authenticated revoked, service_role INSERT/SELECT/DELETE only (DELETE for the 30-day purge).'
 )
 ON CONFLICT (filename) DO NOTHING;
 
@@ -146,3 +164,7 @@ ON CONFLICT (filename) DO NOTHING;
 -- select grantee, privilege_type from information_schema.role_table_grants
 --  where table_name = 'error_events' and grantee in ('anon','authenticated');
 --                                                               -- zero rows
+--
+-- select privilege_type from information_schema.role_table_grants
+--  where table_name = 'error_events' and grantee = 'service_role';
+--                                     -- includes INSERT, SELECT and DELETE
