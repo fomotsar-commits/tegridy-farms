@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LP_WRITES, lpWriteMode } from './lpWriteFlag';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 // LP's own switch (spec D1). Production reads only the committed constant; a dev
 // server or the named e2e build can turn a committed 'off' into 'on' with the same
@@ -36,6 +40,19 @@ describe('LP write mode', () => {
     expect(lpWriteMode(E2E, 'off')).toBe('off');
     // DEV must be the boolean, not a string an env file could inject.
     expect(lpWriteMode({ DEV: 'true', MODE: 'production', VITE_SOLANA_CURVE_WRITES: '1' }, 'off')).toBe('off');
+  });
+
+  // The same rule as the curve's switch (curveWriteFlag.ts curveWriteEnvOverridesAllowed):
+  // Vite inlines DEV from NODE_ENV, so `NODE_ENV=development vite build` ships DEV true.
+  // Only code a dev server compiled (src/devServerDefine.d.ts) may honour the flag.
+  it('a build with DEV true (NODE_ENV=development on the build host) still ignores the env flag', () => {
+    for (const v of [false, undefined]) {
+      vi.stubGlobal('__VITE_DEV_SERVER__', v);
+      expect(lpWriteMode({ ...DEV, VITE_SOLANA_CURVE_WRITES: '1' }, 'off'), String(v)).toBe('off');
+      expect(lpWriteMode({ DEV: true, MODE: 'production', VITE_SOLANA_CURVE_WRITES: '1' }, 'off'), String(v)).toBe('off');
+      // The named local-validator build is its own, explicit exception.
+      expect(lpWriteMode({ ...E2E, VITE_SOLANA_CURVE_WRITES: '1' }, 'off'), String(v)).toBe('on');
+    }
   });
 
   it('a committed withdraw-only is never raised by env', () => {
