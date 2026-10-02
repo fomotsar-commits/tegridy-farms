@@ -548,7 +548,7 @@ Full detail: **[TOKENOMICS.md](docs/TOKENOMICS.md)** · **[REVENUE_ANALYSIS.md](
 ## For developers
 
 ### Prerequisites
-- **Node.js 20+** and `pnpm` (or `npm`)
+- **Node.js 24** (the version in `.nvmrc`) and `pnpm` (or `npm`)
 - **Foundry** for contracts: [getfoundry.sh](https://getfoundry.sh/)
 - **An RPC URL** for local dev/tests · **A WalletConnect project ID** for the wallet modal
 - **Anchor + Solana CLI** only if you're touching `solana/tegridy-amm/`
