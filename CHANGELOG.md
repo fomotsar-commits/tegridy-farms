@@ -15,6 +15,9 @@ page keeps the newest thirty days.
 - Share to X posts your receipt (amount, lock, boost, APR and the transaction link) with @JungleBayAC and your room's hashtag, and always fits X's 280 characters.
 - The receipt card image is drawn before you tap Share, so the share sheet, the image copy and the X window open on your tap instead of after it, where a browser such as iPhone Safari can block them.
 - Copy Image on a receipt copies the card as a picture; it had been copying only the text, because the image could not be drawn.
+- On a phone, Share to X attaches the receipt card through the share menu, and closing the menu still leaves a link to post it on X; on a computer it opens X and copies the card for you to paste.
+- When Copy Image cannot copy the picture, it copies the receipt as text and says so, and if nothing could be copied it says that too.
+- A receipt no longer shows a broken character where a long name is cut in the middle of an emoji.
 - The security policy no longer puts memetic.fun in scope.
 - The indexer no longer treats memetic.fun as a name for this venue.
 - memetic.fun can no longer call the venue's API as if it were the venue.
