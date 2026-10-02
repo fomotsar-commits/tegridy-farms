@@ -4,7 +4,8 @@ import { toast } from 'sonner';
 import { REVENUE_DISTRIBUTOR_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
 import { REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
-import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome } from '../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
 import { getTxUrl } from '../lib/explorer';
 
 export function useRevenueStats() {
@@ -18,7 +19,7 @@ export function useRevenueStats() {
   const isPending = isClaimPending;
   const writeError = claimError;
 
-  const receiptQuery = useWaitForTransactionReceipt({ hash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
   // receipt was FETCHED". Only receipt.status === 'success' is a real success.
@@ -27,7 +28,11 @@ export function useRevenueStats() {
   // (wagmi THROWS on a reverted receipt, so the revert effect below never fired)
   // and so does "we could not READ the receipt", which was toasted "Transaction
   // failed". receiptOutcome splits them by error type; see lib/txErrors.ts.
-  const { isSuccess, isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
+  // And a receipt is only proof of its OWN transaction: a claim the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
 
   // F47 (T7): the global lifetime figures (totalDistributed / totalClaimed /
   // epochCount / totalReferralsPaid) are public protocol stats — they back the
@@ -172,11 +177,13 @@ export function useRevenueStats() {
       const t = setTimeout(resetClaim, 0);
       return () => clearTimeout(t);
     }
-    if (isReceiptUnreadable || writeError) {
+    // A cancelled or replaced tx resets here too; its warning is
+    // useReplacedTxNotice's, above.
+    if (isReceiptUnreadable || isReplaced || writeError) {
       // F474: a writeError carries the wallet rejection — classify it, so a cancel
       // shows "Cancelled" rather than a scary failure string.
       if (writeError) surfaceTxError(writeError, toast, { component: 'useRevenueStats' });
-      else if (hash) {
+      else if (hash && isReceiptUnreadable) {
         // The receipt READ failed (the revert case has its own effect below). This
         // said "Transaction failed" about a CLAIM that may already have paid out.
         // See surfaceUnconfirmedTx.
@@ -189,7 +196,7 @@ export function useRevenueStats() {
       const t = setTimeout(resetClaim, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isReceiptUnreadable, writeError, refetch, resetClaim, hash, chainId]);
+  }, [isSuccess, isReceiptUnreadable, isReplaced, writeError, refetch, resetClaim, hash, chainId]);
 
   // On-chain revert: we read the receipt and the tx failed — honest error instead
   // of "Transaction confirmed!". Unreachable until 2026-09-17 (see derivation above).

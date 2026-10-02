@@ -21,6 +21,14 @@
 // `receiptOutcome()`, `useReceiptOutcome()` or `isRevertedReceiptError()` —
 // which are the only readers that tell a revert from an unreadable receipt.
 // A file that adds a wait without one fails here, and says which.
+//
+// AND EVERY WAIT RECORDS WHY ITS TRANSACTION WAS REPLACED. When the wallet
+// replaces a pending tx at its nonce, viem resolves the wait with the
+// REPLACEMENT's receipt (a cancel's says success) and says why only through
+// `onReplaced`. receiptOutcome() needs that reason to tell a speed-up (the same
+// call, which ran) from a cancel (which did not); without it every speed-up
+// reads as "replaced". So each `useWaitForTransactionReceipt(` call passes
+// `onReplaced: noteReplacement`, checked per call, not per file.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -51,6 +59,22 @@ const SPLIT = /\b(?:receiptOutcome|useReceiptOutcome|isRevertedReceiptError)\(/g
 // The dead derivation itself: a revert read off a receipt that was "fetched".
 const DEAD_REVERT = /(?:Fetched|isSuccess)\s*&&\s*!!\s*[\w.]+\s*&&\s*[\w.]+\.status\s*!==\s*'success'/g;
 
+/** The argument text of every `useWaitForTransactionReceipt(...)` call in `src`. */
+function waitCalls(src: string): string[] {
+  const calls: string[] = [];
+  for (let i = src.indexOf('useWaitForTransactionReceipt('); i >= 0; i = src.indexOf('useWaitForTransactionReceipt(', i + 1)) {
+    let depth = 0;
+    let j = i + 'useWaitForTransactionReceipt'.length;
+    do {
+      if (src[j] === '(') depth++;
+      else if (src[j] === ')') depth--;
+      j++;
+    } while (depth > 0 && j < src.length);
+    calls.push(src.slice(i, j));
+  }
+  return calls;
+}
+
 const consumers = walk(SRC)
   .filter((f) => !f.endsWith(join('lib', 'txErrors.ts')))
   .map((f) => ({ file: relative(SRC, f).replace(/\\/g, '/'), src: code(f) }))
@@ -67,6 +91,18 @@ describe('every useWaitForTransactionReceipt consumer reads the thrown revert', 
       .filter(({ waits, splits }) => splits < waits)
       .map(({ file, waits, splits }) => `${file}: ${waits} receipt wait(s), ${splits} split call(s)`);
     expect(short, 'these files read a receipt wait without telling a revert from an unreadable receipt').toEqual([]);
+  });
+
+  it('passes onReplaced: noteReplacement on every receipt wait', () => {
+    const missing = consumers.flatMap(({ file, src }) =>
+      waitCalls(src)
+        .filter((call) => !/\bonReplaced:\s*noteReplacement\b/.test(call))
+        .map((call) => `${file}: ${call.replace(/\s+/g, ' ').slice(0, 90)}`),
+    );
+    expect(
+      missing,
+      'these waits never learn WHY a replaced tx was replaced, so a speed-up reads as a cancel',
+    ).toEqual([]);
   });
 
   it('derives no revert from `isSuccess && receipt.status !== "success"` alone', () => {

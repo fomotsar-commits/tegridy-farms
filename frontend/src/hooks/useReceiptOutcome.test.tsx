@@ -16,6 +16,7 @@ vi.mock('sonner', () => ({
 }));
 
 import { useReceiptOutcome } from './useReceiptOutcome';
+import { noteReplacement } from '../lib/txErrors';
 
 const HASH = '0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed' as const;
 const REPEAT = 'a second one does the thing twice.';
@@ -33,13 +34,13 @@ beforeEach(() => {
 describe('useReceiptOutcome', () => {
   it('a thrown revert is a revert, and draws no "can\'t tell" warning', () => {
     const o = run({ isSuccess: false, isError: true, error: revert() });
-    expect(o).toEqual({ isSuccess: false, isReverted: true, isReceiptUnreadable: false });
+    expect(o).toEqual({ isSuccess: false, isReverted: true, isReceiptUnreadable: false, isReplaced: false, replacement: null });
     expect(toast.warning).not.toHaveBeenCalled();
   });
 
   it('an unreadable receipt is neither success nor revert, and says so with the hash and the resend cost', () => {
     const o = run({ isSuccess: false, isError: true, error: unread() });
-    expect(o).toEqual({ isSuccess: false, isReverted: false, isReceiptUnreadable: true });
+    expect(o).toEqual({ isSuccess: false, isReverted: false, isReceiptUnreadable: true, isReplaced: false, replacement: null });
     expect(toast.warning).toHaveBeenCalledTimes(1);
     const [title, opts] = vi.mocked(toast.warning).mock.calls[0] as [string, Record<string, unknown>];
     expect(title).toMatch(/couldn.?t confirm/i);
@@ -52,13 +53,67 @@ describe('useReceiptOutcome', () => {
   });
 
   it('a successful receipt is a success and says nothing', () => {
-    const o = run({ isSuccess: true, isError: false, data: { status: 'success' } });
-    expect(o).toEqual({ isSuccess: true, isReverted: false, isReceiptUnreadable: false });
+    const o = run({ isSuccess: true, isError: false, data: { status: 'success', transactionHash: HASH } });
+    expect(o).toEqual({ isSuccess: true, isReverted: false, isReceiptUnreadable: false, isReplaced: false, replacement: null });
     expect(toast.warning).not.toHaveBeenCalled();
   });
 
   it('says nothing without a hash to point at', () => {
     run({ isSuccess: false, isError: true, error: unread() }, { hash: undefined });
     expect(toast.warning).not.toHaveBeenCalled();
+  });
+});
+
+// viem resolves a replaced wait with the REPLACEMENT's receipt (measured in
+// lib/txErrors.receipt.test.ts). Each case submits its own hash, because viem's
+// reason is recorded per submitted hash.
+describe('useReceiptOutcome: a receipt that is not the submitted transaction', () => {
+  const OTHER = '0x0dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd00dd0' as const;
+  const submitted = (n: number) => `0x${n.toString(16).padStart(64, 'e')}` as `0x${string}`;
+  const landed = { isSuccess: true, isError: false, data: { status: 'success', transactionHash: OTHER } };
+
+  it('a cancel is not a success, and says what was sent did not happen', () => {
+    const hash = submitted(1);
+    noteReplacement({ reason: 'cancelled', replacedTransaction: { hash } });
+    const o = run(landed, { hash });
+    expect(o).toEqual({
+      isSuccess: false, isReverted: false, isReceiptUnreadable: false,
+      isReplaced: true, replacement: { hash: OTHER, reason: 'cancelled' },
+    });
+    expect(toast.warning).toHaveBeenCalledTimes(1);
+    const [title, opts] = vi.mocked(toast.warning).mock.calls[0] as [string, Record<string, unknown>];
+    expect(title).toMatch(/cancel/i);
+    expect(String(opts.description)).toMatch(/did not happen/i);
+    expect(String(opts.description)).toMatch(/0x0dd00dd0/);
+    expect(opts.id).toBe(`replaced-${hash}`);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('a speed-up is a success and says nothing: the same call ran', () => {
+    const hash = submitted(2);
+    noteReplacement({ reason: 'repriced', replacedTransaction: { hash } });
+    const o = run(landed, { hash });
+    expect(o.isSuccess).toBe(true);
+    expect(o.isReplaced).toBe(false);
+    expect(o.replacement).toEqual({ hash: OTHER, reason: 'repriced' });
+    expect(toast.warning).not.toHaveBeenCalled();
+  });
+
+  it('with no recorded reason it is not a success, and makes no claim either way', () => {
+    const o = run(landed, { hash: submitted(3) });
+    expect(o.isSuccess).toBe(false);
+    expect(o.isReplaced).toBe(true);
+    const [, opts] = vi.mocked(toast.warning).mock.calls[0] as [string, Record<string, unknown>];
+    expect(String(opts.description)).toMatch(/before you send it again/i);
+    expect(String(opts.description)).not.toMatch(/did not happen/i);
+  });
+
+  it('matches the submitted hash regardless of case', () => {
+    const o = run(
+      { isSuccess: true, isError: false, data: { status: 'success', transactionHash: HASH.toUpperCase().replace('0X', '0x') } },
+      { hash: HASH },
+    );
+    expect(o.isSuccess).toBe(true);
+    expect(o.replacement).toBeNull();
   });
 });

@@ -32,6 +32,7 @@ import { useTabListKeys } from '../../hooks/useTabListKeys';
 import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { artImgProps } from '../../lib/artSrcSet';
+import { noteReplacement } from '../../lib/txErrors';
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -569,7 +570,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
   const [approvalStep, setApprovalStep] = useState<'check' | 'approving' | 'approved'>('check');
 
   const { writeContract, data: txHash } = useWriteContract();
-  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
   // was FETCHED. 2026-09-17: and a revert never reaches it — wagmi THROWS on a
@@ -583,12 +584,13 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
   });
 
   const { writeContract: writeApproval, data: approvalTxHash } = useWriteContract();
-  const approvalQuery = useWaitForTransactionReceipt({ hash: approvalTxHash });
+  const approvalQuery = useWaitForTransactionReceipt({ hash: approvalTxHash, onReplaced: noteReplacement });
   const { isLoading: isApproving } = approvalQuery;
   const {
     isSuccess: approvalSuccess,
     isReverted: approvalReverted,
     isReceiptUnreadable: approvalUnreadable,
+    isReplaced: approvalReplaced,
   } = useReceiptOutcome(approvalQuery, {
     hash: approvalTxHash,
     chainId: CHAIN_ID,
@@ -705,13 +707,14 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
   // Reverted OR unreadable approval: reset the step (it was set to 'approving' on
   // submit and would otherwise stick there, leaving the button disabled forever).
   // Unreadable also re-reads the allowance — if the approval did land, that read
-  // is what hides the button.
+  // is what hides the button. So does an approval the wallet cancelled or
+  // replaced: its receipt is the cancel's, and it used to read as "approved".
   useEffect(() => {
-    if (!approvalReverted && !approvalUnreadable) return;
+    if (!approvalReverted && !approvalUnreadable && !approvalReplaced) return;
     setApprovalStep('check');
     if (approvalReverted) toast.error('Approval reverted on-chain — the collection was not approved.');
     else refetchApproval();
-  }, [approvalReverted, approvalUnreadable, refetchApproval]);
+  }, [approvalReverted, approvalUnreadable, approvalReplaced, refetchApproval]);
 
   // Reset approval step when switching modes or collections
   useEffect(() => {
@@ -1175,7 +1178,7 @@ export function PoolAdminPanel({
 
   const chainId = useChainId();
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): raw isSuccess means "receipt FETCHED".
   // 2026-09-17: and wagmi THROWS on a reverted receipt, so the `status` gate
@@ -1644,7 +1647,7 @@ function PoolCard({
   // isPending = wallet signing phase; isConfirming = on-chain confirmation.
   // Both must gate buttons to prevent double-submit during wallet prompt.
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const poolTxQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const poolTxQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = poolTxQuery;
   // AUDIT (receipt-status, 2026-08-24): raw isSuccess means "receipt FETCHED",
   // and the submission callback below already toasted "Liquidity added!/withdrawn!".
@@ -2143,7 +2146,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
   // one for the factory.createPool call. Keeping them separate means we
   // can watch receipts independently and react to each stage.
   const { writeContract: writeApprove, data: approveTx, isPending: isApprovePending } = useWriteContract();
-  const approveQuery = useWaitForTransactionReceipt({ hash: approveTx });
+  const approveQuery = useWaitForTransactionReceipt({ hash: approveTx, onReplaced: noteReplacement });
   const { isLoading: isApproveConfirming } = approveQuery;
   // AUDIT (receipt-status, 2026-08-24): raw isSuccess means "receipt FETCHED".
   // 2026-09-17: and wagmi THROWS on a reverted receipt, so the `status` gate on
@@ -2155,7 +2158,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
   });
 
   const { writeContract: writeDeploy, data: deployTx, isPending: isDeployPending } = useWriteContract();
-  const deployQuery = useWaitForTransactionReceipt({ hash: deployTx });
+  const deployQuery = useWaitForTransactionReceipt({ hash: deployTx, onReplaced: noteReplacement });
   const { data: deployReceipt, isLoading: isDeployConfirming } = deployQuery;
   const { isSuccess: isDeploySuccess, isReverted: isDeployReverted } = useReceiptOutcome(deployQuery, {
     hash: deployTx,

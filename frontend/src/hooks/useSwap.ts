@@ -10,7 +10,8 @@ import { type TokenInfo, DEFAULT_TOKENS } from '../lib/tokenList';
 import { decodeRevertReason } from '../lib/revertDecoder';
 import { trackSwap } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
-import { surfaceUnconfirmedTx, receiptOutcome } from '../lib/txErrors';
+import { surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
 import { useSwapQuote, QUOTE_MAX_AGE_MS as _QUOTE_MAX_AGE_MS } from './useSwapQuote';
 import { useSwapAllowance } from './useSwapAllowance';
 
@@ -247,7 +248,7 @@ export function useSwap() {
     query: { enabled: !!address && !!toToken && !toToken.isNative, refetchInterval: 30_000 },
   });
 
-  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
   // FETCHED", so on its own it fired "WAGMI! Swap confirmed" + trackSwap for
@@ -259,9 +260,14 @@ export function useSwap() {
   // `isSuccess`, never fired; and "we could not READ the receipt" lands there
   // too. Neither had a handler, which is what left the latch stuck below.
   // receiptOutcome splits them by error type; see lib/txErrors.ts.
-  const { isSuccess, isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
-  /** Not a confirmed success. Covers both "it reverted" and "we never found out". */
-  const isTxError = isReceiptUnreadable || isReverted;
+  //
+  // And a receipt is only proof of its OWN transaction: a swap the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
+  /** Not a confirmed success: it reverted, we never found out, or it was replaced. */
+  const isTxError = isReceiptUnreadable || isReverted || isReplaced;
 
   const [fotRetryAttempted, setFotRetryAttempted] = useState(false);
 
@@ -382,8 +388,12 @@ export function useSwap() {
   //
   // Shares `lastHandledHashRef` with the other two so exactly one of the three
   // ever claims a given hash.
+  //
+  // A swap the wallet CANCELLED or replaced takes the same path: it is terminal,
+  // it did not happen, and it would otherwise have fired the success effect. Its
+  // warning is useReplacedTxNotice's, above.
   useEffect(() => {
-    if (!isReceiptUnreadable || !hash) return;
+    if (!(isReceiptUnreadable || isReplaced) || !hash) return;
     if (lastHandledHashRef.current === hash) return;
     lastHandledHashRef.current = hash;
     const wasApprove = lastActionRef.current === 'approve';
@@ -401,6 +411,7 @@ export function useSwap() {
     // a next step computed from before the transaction.
     allowance.refetchAllowance();
     refetchFromBalance();
+    if (isReplaced) return;
     surfaceUnconfirmedTx(toast, {
       hash,
       explorerUrl: getTxUrl(chainId, hash),
@@ -408,7 +419,7 @@ export function useSwap() {
         ? 'your allowance is already set and a second approval just costs gas.'
         : 'a second swap trades your tokens all over again.',
     });
-  }, [isReceiptUnreadable, hash, allowance, refetchFromBalance, chainId]);
+  }, [isReceiptUnreadable, isReplaced, hash, allowance, refetchFromBalance, chainId]);
 
   useEffect(() => {
     if (!writeError) return;

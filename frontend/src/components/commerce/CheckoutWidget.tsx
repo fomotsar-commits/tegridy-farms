@@ -21,7 +21,7 @@ import { recordSettlement } from '../../lib/commerce/store';
 import { canSign, settlementStandingText, type SettlementAttestation } from '../../lib/commerce/settlement';
 import { judgeReceipt } from '../../lib/commerce/receiptProof';
 import { paymentLinkUrl } from '../../lib/commerce/paymentLink';
-import { receiptOutcome, shortHash } from '../../lib/txErrors';
+import { noteReplacement, receiptOutcome, shortHash } from '../../lib/txErrors';
 import { getTxUrl } from '../../lib/explorer';
 import { SettlementDisclosure } from './SettlementDisclosure';
 import { ProofOfPaymentPanel } from './ProofOfPaymentPanel';
@@ -162,7 +162,7 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
   });
 
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
-  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
   const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's `isSuccess` only means the receipt
   // was FETCHED. Only `receipt.status === 'success'` is a real success, and since
@@ -173,7 +173,18 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
   // never rendered. A reverted transfer, and one whose receipt could not be read,
   // both left the panel empty with "Pay the exact amount" re-armed: for the
   // second, an invitation to pay twice. receiptOutcome tells them apart.
-  const { isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
+  //
+  // And a receipt is only proof of its OWN transaction. When the wallet replaces
+  // the payment at its nonce, the wait resolves with the REPLACEMENT's receipt
+  // (lib/txErrors.ts): a cancel's is a success with no logs, and judging it here
+  // judged the cancel. A speed-up's is the payment itself, but under a new hash,
+  // and the proof link and the merchant's record were both bound to the hash
+  // that never mined. `paidHash` is the one that did.
+  const outcome = receiptOutcome(receiptQuery, txHash);
+  const { isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  const replacementHash = outcome.replacement?.hash;
+  const replacementReason = outcome.replacement?.reason;
+  const paidHash = replacementReason === 'repriced' ? replacementHash : txHash;
   const { data: block } = useBlock({
     blockNumber: receipt?.blockNumber,
     chainId: invoice?.chainId,
@@ -182,7 +193,7 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
 
   const verdict = useMemo(
     () =>
-      invoice && receipt
+      invoice && receipt && !isReplaced
         ? judgeReceipt(
             invoice,
             { status: receipt.status, logs: receipt.logs },
@@ -193,7 +204,7 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
           // returning it. The status is all a revert verdict reads.
           ? judgeReceipt(invoice, { status: 'reverted', logs: [] }, null)
           : null,
-    [invoice, receipt, block, isReverted],
+    [invoice, receipt, block, isReverted, isReplaced],
   );
 
   // Three states, not two. `undefined` from a read that has not answered is not
@@ -225,9 +236,9 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
   }
 
   async function reportPayment() {
-    if (!invoice || !address || !txHash) return;
+    if (!invoice || !address || !paidHash) return;
     try {
-      const res = await recordSettlement({ invoiceId: invoice.id, txHash, payer: address }, { fetchImpl });
+      const res = await recordSettlement({ invoiceId: invoice.id, txHash: paidHash, payer: address }, { fetchImpl });
       setPosted({
         kind: 'sent',
         detail:
@@ -531,7 +542,7 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
                 </>
               ) : null}
 
-              {(isReceiptFetched || isReverted) && txHash && verdict ? (
+              {(isReceiptFetched || isReverted) && paidHash && verdict ? (
                 <div
                   className={`mt-4 rounded-lg border p-3 ${
                     verdict.verification === 'chain-confirmed'
@@ -552,7 +563,7 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
                       : ' — block time not read'}
                     .
                   </p>
-                  <p className="mt-2 break-all font-mono text-[11px] text-white/60">{txHash}</p>
+                  <p className="mt-2 break-all font-mono text-[11px] text-white/60">{paidHash}</p>
 
                   {verdict.verification === 'chain-confirmed' && link.status === 'verified' ? (
                     <div className="mt-3">
@@ -562,10 +573,10 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
                         needs no account and no server. Keep the hash: it is the only proof that binds.
                       </p>
                       <code className="mt-2 block break-all rounded bg-black/40 px-2 py-1 text-[11px] text-white/85">
-                        {paymentLinkUrl(link.payload, txHash)}
+                        {paymentLinkUrl(link.payload, paidHash)}
                       </code>
                       <CopyButton
-                        text={paymentLinkUrl(link.payload, txHash)}
+                        text={paymentLinkUrl(link.payload, paidHash)}
                         display="Copy the proof link"
                         className="btn-secondary mt-2 min-h-11 px-4 py-1.5 text-[12px]"
                       />
@@ -616,6 +627,30 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
                   <p className="mt-2 break-all font-mono text-[11px] text-white/60">{txHash}</p>
                   <a
                     href={getTxUrl(invoice.chainId, txHash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary mt-3 inline-flex min-h-11 items-center px-4 py-1.5 text-[12px]"
+                  >
+                    Check on the explorer
+                  </a>
+                </div>
+              ) : null}
+
+              {isReplaced && replacementHash && txHash ? (
+                <div className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/[0.06] p-3">
+                  <p className="text-[13px] leading-relaxed text-white/85">
+                    {replacementReason === 'cancelled'
+                      ? `${shortHash(txHash)} was cancelled in your wallet: an empty transaction confirmed in its place, so this payment did not happen and the merchant was not paid by it.`
+                      : replacementReason === 'replaced'
+                        ? `Your wallet replaced ${shortHash(txHash)} with a different transaction, which confirmed in its place, so this payment did not happen as sent.`
+                        : `Another transaction from your wallet confirmed in place of ${shortHash(txHash)}. If you sped it up, the merchant may have been paid under the new hash; if you cancelled or changed it, they were not.`}
+                  </p>
+                  <p className="mt-2 text-[13px] leading-relaxed text-white/75">
+                    Check what confirmed on the explorer before you pay again.
+                  </p>
+                  <p className="mt-2 break-all font-mono text-[11px] text-white/60">{replacementHash}</p>
+                  <a
+                    href={getTxUrl(invoice.chainId, replacementHash)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn-secondary mt-3 inline-flex min-h-11 items-center px-4 py-1.5 text-[12px]"

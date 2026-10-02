@@ -2,7 +2,7 @@ import { useBlock, useWaitForTransactionReceipt } from 'wagmi';
 import type { Hex } from 'viem';
 import type { Invoice } from '../lib/commerce/invoice';
 import { judgeReceipt, type ReceiptVerdict } from '../lib/commerce/receiptProof';
-import { receiptOutcome } from '../lib/txErrors';
+import { noteReplacement, receiptOutcome } from '../lib/txErrors';
 import { useTrackedTransactionReceipt } from './useTransactionReceipt';
 
 // Turning a transaction hash into a verdict about one invoice.
@@ -44,11 +44,16 @@ export function useReceiptProof(invoice: Invoice | null, txHash: Hex | null): Re
   const chainId = invoice?.chainId;
 
   const tracked = useTrackedTransactionReceipt(hash, 1);
-  const receiptQuery = useWaitForTransactionReceipt({ hash, confirmations: 1, chainId });
+  const receiptQuery = useWaitForTransactionReceipt({ hash, confirmations: 1, chainId, onReplaced: noteReplacement });
   const { data: receipt } = receiptQuery;
   // wagmi THROWS on a reverted receipt instead of returning it, so a revert on
   // the invoice's chain arrives here as an error, with no receipt to judge.
-  const { isReverted } = receiptOutcome(receiptQuery);
+  //
+  // And when the sender's wallet replaced this hash at its nonce, the wait
+  // resolves with the REPLACEMENT's receipt (lib/txErrors.ts). A proof binds
+  // THIS hash, so another transaction's receipt is never judged under its name,
+  // not even a speed-up's: the merchant is pointed at the hash that did mine.
+  const { isReverted, replacement } = receiptOutcome(receiptQuery, hash);
 
   const blockNumber = receipt?.blockNumber ?? tracked.blockNumber ?? null;
   // The block is read for its own timestamp — chain time, never Date.now(). A
@@ -61,6 +66,18 @@ export function useReceiptProof(invoice: Invoice | null, txHash: Hex | null): Re
   });
 
   if (!invoice || !hash) return { status: 'idle' };
+
+  if (replacement) {
+    return {
+      status: 'unread',
+      detail:
+        replacement.reason === 'repriced'
+          ? `This hash never mined: the sender sped it up, and the same transaction confirmed as ${replacement.hash}. ` +
+            'Verify that hash instead. Nothing here is a verdict on this one.'
+          : `This hash never mined: the sender's wallet replaced it at the same nonce with ${replacement.hash}, ` +
+            'which confirmed instead. Nothing here is a verdict on the payment.',
+    };
+  }
 
   switch (tracked.status) {
     case 'idle':

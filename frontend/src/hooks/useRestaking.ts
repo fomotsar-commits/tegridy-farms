@@ -4,7 +4,8 @@ import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_RESTAKING_ABI, TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import { TEGRIDY_RESTAKING_ADDRESS, TEGRIDY_STAKING_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
-import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome } from '../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
 import { getTxUrl } from '../lib/explorer';
 
 export function useRestaking() {
@@ -15,7 +16,7 @@ export function useRestaking() {
   const isDeployed = checkDeployed(TEGRIDY_RESTAKING_ADDRESS);
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
   // receipt was FETCHED". Only receipt.status === 'success' is a real success.
@@ -23,8 +24,11 @@ export function useRestaking() {
   // 2026-09-17: and wagmi's `isError` is TWO facts. A real revert arrives there
   // (wagmi THROWS on a reverted receipt, so the revert effect below never fired)
   // and so does "we could not READ the receipt". receiptOutcome splits them by
-  // error type; see lib/txErrors.ts.
-  const { isSuccess, isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
+  // error type; see lib/txErrors.ts. And a receipt is only proof of its OWN
+  // transaction: a cancelled restake resolves with the cancel's success receipt.
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
 
   // Read user's staking position + restaking state in parallel.
   // R043 H-062-02: chainId pin on every entry. NOT also gated on the wallet's

@@ -5,7 +5,7 @@ import { useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagm
 import { TEGRIDY_LAUNCHPAD_V2_ADDRESS, CHAIN_ID, isDeployed } from '../../../lib/constants';
 import { TEGRIDY_LAUNCHPAD_V2_ABI } from '../../../lib/contracts';
 import { getAddressUrl, getTxUrl } from '../../../lib/explorer';
-import { receiptOutcome } from '../../../lib/txErrors';
+import { noteReplacement, receiptOutcome } from '../../../lib/txErrors';
 import { arweaveUri } from '../../../lib/irysClient';
 import type { WizardState, WizardAction } from './wizardReducer';
 import { BTN_EMERALD, LABEL } from '../launchpadConstants';
@@ -21,7 +21,7 @@ export function Step5_Deploy({
   onBack: () => void;
 }) {
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
   const { isLoading: isConfirming, data: receipt } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's `isSuccess` only means the receipt
   // was FETCHED. Only `receipt.status === 'success'` is a real success.
@@ -31,7 +31,11 @@ export function Step5_Deploy({
   // "Deploy Collection" in silence, and so did one whose receipt could not be
   // read, where a second click creates a SECOND collection. receiptOutcome
   // splits wagmi's `isError`, and each case now says what it is.
-  const { isSuccess, isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
+  //
+  // And a receipt is only proof of its OWN transaction: a deploy the wallet
+  // cancelled resolves with the cancel's success receipt (lib/txErrors.ts).
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced, replacement } =
+    receiptOutcome(receiptQuery, txHash);
   const [localErr, setLocalErr] = useState<string | null>(null);
   const chainId = useChainId();
 
@@ -199,6 +203,20 @@ export function Step5_Deploy({
             Check it on Etherscan
           </a>{' '}
           before you deploy again: if it landed, a second deploy creates a second collection.
+        </div>
+      )}
+
+      {isReplaced && replacement && (
+        <div className="rounded-lg p-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[12px]" role="status">
+          {replacement.reason === 'cancelled'
+            ? 'The deploy was cancelled in your wallet: an empty transaction confirmed in its place, so no collection was created.'
+            : replacement.reason === 'replaced'
+              ? 'Your wallet replaced the deploy with a different transaction, which confirmed in its place, so the deploy did not happen as sent.'
+              : 'Another transaction from your wallet confirmed in place of the deploy. If you sped it up, the collection may exist; if you cancelled or changed it, it does not.'}{' '}
+          <a href={getTxUrl(CHAIN_ID, replacement.hash)} target="_blank" rel="noopener noreferrer" className="underline">
+            Check what confirmed on Etherscan
+          </a>{' '}
+          before you deploy again: a second deploy creates a second collection.
         </div>
       )}
 

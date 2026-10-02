@@ -12,7 +12,7 @@ import { useCountdown } from '../../hooks/useCountdown';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
-import { surfaceTxError } from '../../lib/txErrors';
+import { surfaceTxError, noteReplacement } from '../../lib/txErrors';
 import { artImgProps } from '../../lib/artSrcSet';
 
 // Per-collection art for the collateral selector — pulls from each project's
@@ -295,7 +295,7 @@ function LendTab() {
 
   const chainId = useChainId();
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
-  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // wagmi THROWS on a reverted receipt, so a revert arrives on `isError`, which
   // nothing here read: a reverted createOffer was silent. See useReceiptOutcome.
@@ -731,7 +731,7 @@ function OfferCard({
   const tokenId = offer.tokenId.toString();
 
   const { writeContract: approveNft, data: approveTx, isPending: approving } = useWriteContract();
-  const approveQuery = useWaitForTransactionReceipt({ hash: approveTx });
+  const approveQuery = useWaitForTransactionReceipt({ hash: approveTx, onReplaced: noteReplacement });
   const { isLoading: approveConfirming } = approveQuery;
   // A revert arrives on wagmi's `isError` (it THROWS on a reverted receipt), which
   // neither leg read: both were silent on a revert. See useReceiptOutcome.
@@ -742,7 +742,7 @@ function OfferCard({
   });
 
   const { writeContract: acceptOffer, data: acceptTx, isPending: accepting } = useWriteContract();
-  const acceptQuery = useWaitForTransactionReceipt({ hash: acceptTx });
+  const acceptQuery = useWaitForTransactionReceipt({ hash: acceptTx, onReplaced: noteReplacement });
   const { isLoading: acceptConfirming } = acceptQuery;
   const { isSuccess: acceptSuccess, isReverted: acceptReverted } = useReceiptOutcome(acceptQuery, {
     hash: acceptTx,
@@ -1048,7 +1048,7 @@ function LoanCard({ loan, userAddress, onLoanChanged }: { loan: LoanData & { id:
   });
 
   const { writeContract: repayLoan, data: repayTx, isPending: repaying } = useWriteContract();
-  const repayQuery = useWaitForTransactionReceipt({ hash: repayTx });
+  const repayQuery = useWaitForTransactionReceipt({ hash: repayTx, onReplaced: noteReplacement });
   const { isLoading: repayConfirming } = repayQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's `isSuccess` means "receipt was
   // FETCHED". Only `receipt.status === 'success'` repaid anything.
@@ -1063,7 +1063,7 @@ function LoanCard({ loan, userAddress, onLoanChanged }: { loan: LoanData & { id:
   });
 
   const { writeContract: claimDefault, data: claimTx, isPending: claiming } = useWriteContract();
-  const claimQuery = useWaitForTransactionReceipt({ hash: claimTx });
+  const claimQuery = useWaitForTransactionReceipt({ hash: claimTx, onReplaced: noteReplacement });
   const { isLoading: claimConfirming } = claimQuery;
   const { isSuccess: claimSuccess, isReverted: claimReverted } = useReceiptOutcome(claimQuery, {
     hash: claimTx,

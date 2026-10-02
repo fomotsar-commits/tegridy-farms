@@ -10,7 +10,7 @@ import {
 } from '../hooks/useTransactionReceipt';
 import { formatTokenAmount } from '../lib/formatting';
 import { getTxUrl, getChainLabel } from '../lib/explorer';
-import { receiptOutcome } from '../lib/txErrors';
+import { noteReplacement, receiptOutcome } from '../lib/txErrors';
 import { pageArt } from '../lib/artConfig';
 import { RECEIPT_COPY } from '../lib/copy';
 import { SITE_URL } from '../lib/constants';
@@ -20,7 +20,9 @@ import { artImgProps } from '../lib/artSrcSet';
 
 // 'unconfirmed': the receipt wait gave up without reading a result. Not 'failed',
 // which claims a revert nobody saw.
-type TxStatus = 'pending' | 'confirmed' | 'failed' | 'unconfirmed';
+// 'replaced': the wallet cancelled or replaced it, so it did not happen as sent
+// (the wait resolves with the REPLACEMENT's receipt; see lib/txErrors.ts).
+type TxStatus = 'pending' | 'confirmed' | 'failed' | 'unconfirmed' | 'replaced';
 
 /* ─── Sanitize text for rendered receipts ───
    F10: every value here is rendered as a JSX text node (and via html2canvas of
@@ -237,16 +239,23 @@ function TransactionReceiptOverlay({
     hash: safeTxHash as `0x${string}` | undefined,
     confirmations: 2,
     query: { enabled: !!safeTxHash },
+    onReplaced: noteReplacement,
   });
-  const { isSuccess: rcptOk, isReverted: rcptReverted, isReceiptUnreadable: rcptUnreadable } =
-    receiptOutcome(rcptQuery);
+  const {
+    isSuccess: rcptOk, isReverted: rcptReverted, isReceiptUnreadable: rcptUnreadable,
+    isReplaced: rcptReplaced, replacement: rcptReplacement,
+  } = receiptOutcome(rcptQuery, safeTxHash ?? undefined);
+  // With no recorded reason the replacement may be a speed-up: that is "can't
+  // tell", not "did not happen".
+  const rcptReplacedUnknown = rcptReplacement?.reason === 'unknown';
   const status: TxStatus = useMemo(() => {
     if (!safeTxHash) return 'confirmed'; // legacy / synthetic receipts
     if (rcptReverted) return 'failed';
     if (rcptUnreadable) return 'unconfirmed';
+    if (rcptReplaced) return rcptReplacedUnknown ? 'unconfirmed' : 'replaced';
     if (rcptOk) return 'confirmed';
     return 'pending';
-  }, [safeTxHash, rcptOk, rcptReverted, rcptUnreadable]);
+  }, [safeTxHash, rcptOk, rcptReverted, rcptUnreadable, rcptReplaced, rcptReplacedUnknown]);
 
   const chainLabel = getChainLabel(chainId);
 
@@ -287,7 +296,7 @@ function TransactionReceiptOverlay({
   }, [config.verb, etherscanUrl]);
 
   const handleShareX = useCallback(() => {
-    if (status === 'failed') return; // disabled
+    if (status === 'failed' || status === 'replaced') return; // disabled
     if (status === 'pending' || status === 'unconfirmed') {
       setShowPendingShareModal(true);
       return;
@@ -404,7 +413,7 @@ function TransactionReceiptOverlay({
                 className={`text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide ${
                   status === 'confirmed'
                     ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                    : status === 'failed'
+                    : status === 'failed' || status === 'replaced'
                       ? 'bg-red-500/15 text-red-300 border border-red-500/30'
                       : status === 'unconfirmed'
                         ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
@@ -415,7 +424,9 @@ function TransactionReceiptOverlay({
                   ? 'Confirmed'
                   : status === 'failed'
                     ? 'Reverted'
-                    : status === 'unconfirmed'
+                    : status === 'replaced'
+                      ? 'Replaced'
+                      : status === 'unconfirmed'
                       ? 'Unconfirmed'
                       : 'Pending'}
               </div>
@@ -489,11 +500,13 @@ function TransactionReceiptOverlay({
           <div className="flex gap-2">
             <button
               onClick={handleShareX}
-              disabled={status === 'failed'}
-              aria-disabled={status === 'failed'}
+              disabled={status === 'failed' || status === 'replaced'}
+              aria-disabled={status === 'failed' || status === 'replaced'}
               title={
                 status === 'failed'
                   ? 'Cannot share — transaction reverted'
+                  : status === 'replaced'
+                    ? 'Cannot share: your wallet cancelled or replaced this transaction, so it did not happen'
                   : status === 'pending'
                     ? 'Tx still pending — confirm before sharing'
                     : status === 'unconfirmed'

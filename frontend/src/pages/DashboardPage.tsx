@@ -62,6 +62,7 @@ const EvmBungalowDashboardPanel = lazy(() =>
   import('../components/bungalow/EvmBungalowDashboardPanel').then((m) => ({ default: m.EvmBungalowDashboardPanel })),
 );
 import { artImgProps } from '../lib/artSrcSet';
+import { noteReplacement } from '../lib/txErrors';
 
 // AUDIT DASH-UX: tabbed view promised by commit b21fed0 but never shipped.
 // Header + summary stats stay above the tabs so at-a-glance portfolio value
@@ -1112,7 +1113,7 @@ export function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; 
   });
 
   const { writeContract, data: hash, isPending } = useWriteContract();
-  const claimQuery = useWaitForTransactionReceipt({ hash });
+  const claimQuery = useWaitForTransactionReceipt({ hash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = claimQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
   // was FETCHED. 2026-09-17: and a revert never reaches it — wagmi THROWS on a

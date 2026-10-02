@@ -26,6 +26,8 @@ const w = vi.hoisted(() => ({
   /** What the receipt wait reports once a hash is being watched. */
   receipt: { isSuccess: false, isError: false, error: null as unknown, data: undefined as unknown },
   reads: {} as Record<string, unknown>,
+  /** viem's reason, passed to `onReplaced` when the receipt is another tx's. */
+  replacedReason: undefined as 'cancelled' | 'replaced' | 'repriced' | undefined,
 }));
 
 vi.mock('wagmi', async () => {
@@ -42,10 +44,14 @@ vi.mock('wagmi', async () => {
       isError: false,
       refetch: v.fn(),
     }),
-    useWaitForTransactionReceipt: ({ hash, query }: { hash?: string; query?: { enabled?: boolean } }) =>
-      hash && query?.enabled !== false
-        ? w.receipt
-        : { isSuccess: false, isError: false, error: null, data: undefined },
+    useWaitForTransactionReceipt: ({ hash, query, onReplaced }: {
+      hash?: string; query?: { enabled?: boolean }; onReplaced?: (r: unknown) => void;
+    }) => {
+      if (!hash || query?.enabled === false) return { isSuccess: false, isError: false, error: null, data: undefined };
+      // As viem does: the reason goes to onReplaced just before the replacement's receipt resolves.
+      if (w.replacedReason) onReplaced?.({ reason: w.replacedReason, replacedTransaction: { hash } });
+      return w.receipt;
+    },
   };
 });
 
@@ -86,6 +92,7 @@ const DEFERRED_LAUNCH = {
 
 beforeEach(() => {
   w.receipt = { isSuccess: false, isError: false, error: null, data: undefined };
+  w.replacedReason = undefined;
   w.reads = {};
   vi.mocked(toast.error).mockClear();
   vi.mocked(toast.warning).mockClear();
@@ -95,6 +102,19 @@ beforeEach(() => {
 const failWith = (error: unknown) => {
   w.receipt = { isSuccess: false, isError: true, error, data: undefined };
 };
+
+/**
+ * The wallet cancelled the tx: viem RESOLVES the wait with the cancel's receipt,
+ * a success under another hash (lib/txErrors.receipt.test.ts measures it).
+ */
+const OTHER = `0x${'cd'.repeat(32)}` as const;
+const cancelledInWallet = () => {
+  w.replacedReason = 'cancelled';
+  w.receipt = { isSuccess: true, isError: false, error: null, data: { status: 'success', transactionHash: OTHER } };
+};
+
+/** Toast titles, joined, for asserting on. */
+const titles = (fn: typeof toast.success) => vi.mocked(fn).mock.calls.map(([m]) => String(m));
 
 describe('CurveTradePanel releases its latch when the receipt wait fails', () => {
   const panel = () =>
@@ -134,6 +154,19 @@ describe('CurveTradePanel releases its latch when the receipt wait fails', () =>
     expect(opts.description).toMatch(/second finalize reverts/i);
     expect(vi.mocked(toast.error).mock.calls.map(([m]) => String(m)).filter((m) => /revert|fail/i.test(m))).toEqual([]);
   });
+
+  it('a tx the wallet cancelled is not "confirmed": it says cancelled and gives the button back', () => {
+    cancelledInWallet();
+    panel();
+    fireEvent.click(finalize());
+
+    expect(titles(toast.success).filter((m) => /confirmed/i.test(m)), 'the cancel read as the finalize').toEqual([]);
+    expect(finalize()).toHaveTextContent('Finalize graduation');
+    expect(finalize()).toBeEnabled();
+    const [title, opts] = vi.mocked(toast.warning).mock.calls[0] as [string, { description: string }];
+    expect(title).toMatch(/cancel/i);
+    expect(opts.description).toMatch(/did not happen/i);
+  });
 });
 
 describe('CurveCreatorClaim releases its latch when the receipt wait fails', () => {
@@ -168,5 +201,17 @@ describe('CurveCreatorClaim releases its latch when the receipt wait fails', () 
     const [, opts] = vi.mocked(toast.warning).mock.calls[0] as [string, { description: string }];
     expect(opts.description).toMatch(/can.?t tell whether it went through/i);
     expect(vi.mocked(toast.error).mock.calls.map(([m]) => String(m)).filter((m) => /revert|fail/i.test(m))).toEqual([]);
+  });
+
+  it('a claim the wallet cancelled is not "claimed": it says cancelled and gives Claim back', () => {
+    cancelledInWallet();
+    claim();
+    fireEvent.click(button());
+
+    expect(titles(toast.success).filter((m) => /claimed/i.test(m)), 'the cancel read as the claim').toEqual([]);
+    expect(button()).toHaveTextContent(/^Claim$/);
+    expect(button()).toBeEnabled();
+    const [title] = vi.mocked(toast.warning).mock.calls[0] as [string];
+    expect(title).toMatch(/cancel/i);
   });
 });

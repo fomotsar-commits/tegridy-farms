@@ -11,6 +11,7 @@ import { INPUT, LABEL, BTN_EMERALD, PHASE_LABELS } from './launchpadConstants';
 import { ArtCard } from './launchpadShared';
 import { TypedConfirmation } from '../ui/TypedConfirmation';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
+import { noteReplacement } from '../../lib/txErrors';
 
 /** Whole non-negative integer, as typed. `type=number` still admits "1.5" and "1e3". */
 function safeWholeBigInt(value: string): bigint | null {
@@ -71,7 +72,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
   const [dutchDuration, setDutchDuration] = useState('');
 
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
   // was FETCHED; a reverted admin write must not read as applied.

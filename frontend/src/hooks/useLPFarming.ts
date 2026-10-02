@@ -6,7 +6,8 @@ import { LP_FARMING_ABI, ERC20_ABI } from '../lib/contracts';
 import { LP_FARMING_ADDRESS, TEGRIDY_LP_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { getTxUrl } from '../lib/explorer';
 import { safeParseEtherPositive } from '../lib/safeParseEther';
-import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome } from '../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 
@@ -21,7 +22,7 @@ export function useLPFarming() {
   // the underlying viem call listens on the wallet's CURRENT chain — if the user
   // switched mid-flight (or clicked "switch network" right after submitting),
   // confirmation listens on the wrong chain and silently never fires.
-  const receiptQuery = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
+  const receiptQuery = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
   // FETCHED", so it can never alone mean a stake/withdraw/claim succeeded.
@@ -32,7 +33,12 @@ export function useLPFarming() {
   // was toasted "Transaction failed". receiptOutcome splits them by error type; see
   // lib/txErrors.ts. No `isTxError` aggregate: merging the two back into one flag
   // is how they came to share one wrong message.
-  const { isSuccess, isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
+  //
+  // And a receipt is only proof of its OWN transaction: a stake the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
 
   // R034 H2: address-snapshot + last-handled-hash refs to drop receipt-effect
   // for a wallet that swapped between submit and confirm.
@@ -255,24 +261,29 @@ export function useLPFarming() {
   // failed" with no description — a dead end that reads as
   // "your LP stake is gone" for a transaction that may have been mined fine.
   // Its own effect, because a revert says retry and this says look first.
+  //
+  // A cancelled or replaced tx ends here too: terminal, and not this stake. Its
+  // warning is useReplacedTxNotice's, above.
   useEffect(() => {
-    if (!isReceiptUnreadable || !hash) return;
+    if (!(isReceiptUnreadable || isReplaced) || !hash) return;
     if (lastHandledHashRef.current === hash) return;
     if (txAddressRef.current && txAddressRef.current !== address) {
       lastHandledHashRef.current = hash;
       return;
     }
     lastHandledHashRef.current = hash;
-    surfaceUnconfirmedTx(toast, {
-      hash,
-      explorerUrl: getTxUrl(chainId, hash),
-      repeatCost: 'sending it again stakes, withdraws or claims a second time.',
-    });
+    if (isReceiptUnreadable) {
+      surfaceUnconfirmedTx(toast, {
+        hash,
+        explorerUrl: getTxUrl(chainId, hash),
+        repeatCost: 'sending it again stakes, withdraws or claims a second time.',
+      });
+    }
     // Re-read the farm anyway: if it did land, the staked balance moved, and
     // the position card is the only surface that can show that without a receipt.
     refetch();
     setTimeout(() => reset(), 4000);
-  }, [isReceiptUnreadable, hash, address, chainId, reset, refetch]);
+  }, [isReceiptUnreadable, isReplaced, hash, address, chainId, reset, refetch]);
 
   useEffect(() => {
     if (writeError) {

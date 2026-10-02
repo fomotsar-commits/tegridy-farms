@@ -68,6 +68,11 @@ interface WriteStatus {
   blockNumber?: bigint;
   errorName?: string;
   /**
+   * The receipt belongs to THIS hash, not `hash`: the wallet replaced the tx at
+   * its nonce, and viem resolves the wait with the replacement's receipt.
+   */
+  receiptHash?: Address;
+  /**
    * The RECEIPT wait failed with exactly this error, and the write did not. wagmi
    * throws a viem CallExecutionError for a reverted receipt and a viem read error
    * (TransactionReceiptNotFoundError, HttpRequestError…) when the receipt could not
@@ -245,7 +250,7 @@ vi.mock('wagmi', () => {
       ? {
           status: state.writeStatus.receiptStatus ?? ('success' as const),
           blockNumber: state.writeStatus.blockNumber,
-          transactionHash: state.writeStatus.hash,
+          transactionHash: state.writeStatus.receiptHash ?? state.writeStatus.hash,
         }
       : undefined,
     isLoading: state.writeStatus.isConfirming,

@@ -11,7 +11,7 @@ import {
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../lib/contracts';
 import { getTxUrl } from '../lib/explorer';
-import { receiptOutcome, surfaceTxError, surfaceUnconfirmedTx } from '../lib/txErrors';
+import { noteReplacement, receiptOutcome, surfaceReplacedTx, surfaceTxError, surfaceUnconfirmedTx } from '../lib/txErrors';
 import {
   depositPlan,
   YIELD_CHAIN_ID,
@@ -181,9 +181,11 @@ export function useYieldDeposit({ venue, amountText, rocket }: UseYieldDepositAr
   const receiptQuery = useWaitForTransactionReceipt({
     chainId: YIELD_CHAIN_ID,
     hash,
+    onReplaced: noteReplacement,
   });
   const { data: receipt, isSuccess: receiptFetched, isError: receiptError } = receiptQuery;
-  const { isReverted: receiptReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
+  const { isReverted: receiptReverted, isReceiptUnreadable, isReplaced, replacement } =
+    receiptOutcome(receiptQuery, hash);
 
   useEffect(() => {
     if (!receiptFetched || !receipt || !hash) return;
@@ -193,6 +195,19 @@ export function useYieldDeposit({ venue, amountText, rocket }: UseYieldDepositAr
       // A different wallet is connected than the one that submitted. Say nothing
       // about a transaction this account did not send.
       setPhase('idle');
+      return;
+    }
+    // A receipt is only proof of its OWN transaction. When the wallet cancels or
+    // replaces this step, the wait resolves with the REPLACEMENT's receipt, a
+    // success (lib/txErrors.ts). Read as ours, a cancelled approval said
+    // "Approved" and moved the stepper on to a deposit with no allowance behind it.
+    if (isReplaced && replacement) {
+      setPhase(replacement.reason === 'unknown' ? 'unconfirmed' : 'idle');
+      surfaceReplacedTx(toast, {
+        hash,
+        replacement,
+        explorerUrl: getTxUrl(YIELD_CHAIN_ID, replacement.hash),
+      });
       return;
     }
     // wagmi's isSuccess only means the receipt arrived. A reverted transaction
@@ -248,7 +263,7 @@ export function useYieldDeposit({ venue, amountText, rocket }: UseYieldDepositAr
       setPhase('idle');
     }
 
-  }, [receiptFetched, receipt, hash, address, refetchErc20, resetWrite, stepIndex, client, venue.id]);
+  }, [receiptFetched, receipt, hash, address, refetchErc20, resetWrite, stepIndex, client, venue.id, isReplaced, replacement]);
 
   // wagmi's `isError` is two facts (2026-09-17): a revert, which it THROWS rather
   // than returning as a receipt, and a receipt it could not read. Both used to

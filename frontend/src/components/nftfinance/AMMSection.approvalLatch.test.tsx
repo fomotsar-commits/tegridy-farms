@@ -69,3 +69,23 @@ describe('AMM sell-side approval latch', () => {
     });
   }
 });
+
+// A wallet "cancel" of the approval: viem RESOLVES the wait with the cancel's
+// success receipt (lib/txErrors.receipt.test.ts), which moved this step to
+// 'approved' with no approval on chain.
+describe('AMM sell-side approval the wallet cancelled', () => {
+  it('is not "approved": the Approve button comes back', async () => {
+    const { noteReplacement } = await import('../../lib/txErrors');
+    const approve = openSellApproval();
+    const submitted = `0x${'e1'.repeat(32)}` as const;
+    noteReplacement({ reason: 'cancelled', replacedTransaction: { hash: submitted } });
+    wagmiMock.setWriteStatus({
+      hash: submitted, isSuccess: true, receiptStatus: 'success', receiptHash: `0x${'0d'.repeat(32)}`,
+    });
+    fireEvent.click(approve);
+
+    const after = screen.getByRole('button', { name: /approve collection|approving/i });
+    expect(after).toHaveTextContent('Step 1: Approve Collection');
+    expect(after).toBeEnabled();
+  });
+});

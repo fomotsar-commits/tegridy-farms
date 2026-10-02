@@ -24,6 +24,8 @@ const TOKEN = '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2' as const;
 const w = vi.hoisted(() => ({
   chainId: 1,
   receiptError: undefined as unknown,
+  /** The wallet replaced the tx: viem RESOLVES with this other tx's success receipt. */
+  replacedReason: undefined as 'cancelled' | 'replaced' | 'repriced' | undefined,
   reads: new Map<string, unknown>(),
 }));
 
@@ -51,10 +53,18 @@ vi.mock('wagmi', async () => {
       isPending: false,
     }),
     useSendTransaction: () => ({ sendTransaction: v.fn(), data: HASH, isPending: false, error: null }),
-    useWaitForTransactionReceipt: ({ hash }: { hash?: string }) =>
-      hash && w.receiptError !== undefined
+    useWaitForTransactionReceipt: ({ hash, onReplaced }: { hash?: string; onReplaced?: (r: unknown) => void }) => {
+      if (hash && w.replacedReason) {
+        onReplaced?.({ reason: w.replacedReason, replacedTransaction: { hash } });
+        return {
+          isLoading: false, isSuccess: true, isError: false, error: null,
+          data: { status: 'success', transactionHash: `0x${'cd'.repeat(32)}`, logs: [], blockNumber: 1n },
+        };
+      }
+      return hash && w.receiptError !== undefined
         ? { isLoading: false, isSuccess: false, isError: true, error: w.receiptError, data: undefined }
-        : idle,
+        : idle;
+    },
   };
 });
 
@@ -81,6 +91,7 @@ const text = () => document.body.textContent ?? '';
 beforeEach(() => {
   w.chainId = 1;
   w.receiptError = undefined;
+  w.replacedReason = undefined;
   w.reads = new Map();
 });
 
@@ -121,6 +132,13 @@ describe('ShieldPositionCard', () => {
     expect(text()).not.toMatch(/reverted on-chain/i);
     expect(text()).not.toMatch(/Repayment confirmed/i);
   });
+
+  it('a repay the wallet cancelled says it did not happen, never "Repayment confirmed"', () => {
+    w.replacedReason = 'cancelled';
+    render(<ShieldPositionCard position={position} />);
+    expect(screen.getByText(/cancelled in your wallet, so it did not happen/i)).toBeInTheDocument();
+    expect(text(), 'a cancel read as the repay').not.toMatch(/Repayment confirmed/i);
+  });
 });
 
 describe('Step5_Deploy', () => {
@@ -139,6 +157,13 @@ describe('Step5_Deploy', () => {
     expect(screen.getByText(/can.?t tell whether the collection\s+was created/i)).toBeInTheDocument();
     expect(text()).toMatch(/a second deploy creates a second collection/i);
     expect(text()).not.toMatch(/reverted on-chain/i);
+  });
+
+  it('a deploy the wallet cancelled says no collection was created, and never "Deployed"', () => {
+    w.replacedReason = 'cancelled';
+    deploy();
+    expect(screen.getByText(/cancelled in your wallet: an empty transaction confirmed in its place, so no collection was created/i)).toBeInTheDocument();
+    expect(text(), 'a cancel read as the deploy, and locked the button').not.toMatch(/Deployed ✓/);
   });
 });
 
@@ -201,6 +226,14 @@ describe('bungalow pools: the "Last tx" line', () => {
       expect(await screen.findByText(/can.?t tell whether it went through/i)).toBeInTheDocument();
       expect(text()).not.toMatch(/· pending/);
       expect(text()).not.toMatch(/REVERTED/);
+    });
+
+    it(`${p.name}: a tx the wallet cancelled reads cancelled, not confirmed`, async () => {
+      w.replacedReason = 'cancelled';
+      p.mount();
+      fireEvent.click(screen.getByRole('button', { name: p.claim }));
+      expect(await screen.findByText(/cancelled in your wallet, so it did not happen/i)).toBeInTheDocument();
+      expect(text(), 'a cancel read as the claim').not.toMatch(/· confirmed/);
     });
   }
 });

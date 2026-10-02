@@ -35,6 +35,7 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { getTokenUrl } from '../lib/explorer';
 import { ERC20_ABI } from '../lib/contracts';
 import { shortenAddress } from '../lib/formatting';
+import { noteReplacement } from '../lib/txErrors';
 
 const PAGE_ID = 'eth-curve';
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
@@ -116,20 +117,23 @@ export function CurveCreatorClaim({ launcher, chainId, token, creator }: { launc
     hash: txHash ?? undefined,
     chainId,
     query: { enabled: txHash !== null },
+    onReplaced: noteReplacement,
   });
-  const { isSuccess, isReverted, isReceiptUnreadable } = useReceiptOutcome(receiptQuery, {
+  // A claim the wallet cancelled or replaced is a fourth end: the wait resolves
+  // with the cancel's success receipt, which said "Creator fees claimed."
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = useReceiptOutcome(receiptQuery, {
     hash: txHash ?? undefined,
     chainId,
     repeatCost: 'claiming again pays out only what has accrued since, or reverts if nothing has.',
   });
   useEffect(() => {
-    if (!txHash || !(isSuccess || isReverted || isReceiptUnreadable)) return;
+    if (!txHash || !(isSuccess || isReverted || isReceiptUnreadable || isReplaced)) return;
     if (isSuccess) toast.success('Creator fees claimed.');
     else if (isReverted) toast.error('Claim failed on-chain (reverted) — nothing was paid out.');
-    // Unreadable: useReceiptOutcome has already said we can't tell.
+    // Unreadable or replaced: useReceiptOutcome has already said which.
     setTxHash(null);
     void refetch();
-  }, [txHash, isSuccess, isReverted, isReceiptUnreadable, refetch]);
+  }, [txHash, isSuccess, isReverted, isReceiptUnreadable, isReplaced, refetch]);
 
   // The gate: only the on-chain creator ever sees this surface.
   if (!account || account.toLowerCase() !== creator.toLowerCase()) return null;

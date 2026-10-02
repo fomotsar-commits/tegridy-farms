@@ -22,6 +22,7 @@ import { CallExecutionError, ExecutionRevertedError, TransactionReceiptNotFoundE
 import { toast } from 'sonner';
 import { wagmiMock } from '../test-utils/wagmi-mocks';
 import { renderWithProviders } from '../test-utils/render';
+import { noteReplacement } from '../lib/txErrors';
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() },
@@ -204,6 +205,24 @@ for (const s of SURFACES) {
       expect(mine[0]!.description).toContain(HASH.slice(0, 10));
       expect(errorToasts().filter((m) => /revert|fail/i.test(m)), 'an unreadable receipt was called a failure').toEqual([]);
       expect(toast.success).not.toHaveBeenCalled();
+    });
+
+    // viem RESOLVES a replaced wait with the replacement's receipt, and a wallet
+    // cancel's says success (lib/txErrors.receipt.test.ts). The shared mock gives
+    // every wait in the tree that receipt, so no success toast may fire anywhere.
+    it('a tx the wallet cancelled is not a success: no success toast, and it says cancelled', () => {
+      const submitted = `0x${'c0'.repeat(32)}` as const;
+      noteReplacement({ reason: 'cancelled', replacedTransaction: { hash: submitted } });
+      wagmiMock.setWriteStatus({
+        hash: submitted, isSuccess: true, receiptStatus: 'success', receiptHash: `0x${'0d'.repeat(32)}`,
+      });
+      s.mount();
+
+      expect(vi.mocked(toast.success).mock.calls.map(([m]) => String(m)), 'a cancel read as this action').toEqual([]);
+      const cancelled = warnings().filter((w) => /cancel/i.test(w.title));
+      expect(cancelled.length, `warnings: ${JSON.stringify(warnings())}`).toBeGreaterThan(0);
+      expect(cancelled[0]!.description).toMatch(/did not happen/i);
+      expect(errorToasts().filter((m) => /revert|fail/i.test(m))).toEqual([]);
     });
   });
 }

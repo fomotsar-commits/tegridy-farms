@@ -26,6 +26,7 @@ import { IntegratorFeesPanel } from '../components/launcher/IntegratorFeesPanel'
 import { BirthQueuePanel } from '../components/BirthQueuePanel';
 import { LAUNCHER_INTEGRATOR_ADDRESS } from '../lib/launcher/config';
 import { lpEmissionsPhase } from '../lib/lpEmissions';
+import { noteReplacement } from '../lib/txErrors';
 
 // Minimal ABI fragments for owner/admin reads not in the shared ABIs
 const OWNER_ABI = [
@@ -112,13 +113,13 @@ function PauseControls({
   refetchReads: () => Promise<unknown>;
 }) {
   const { writeContract, data: txHash, isPending: isSigning, error: writeError } = useWriteContract();
-  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
   // was FETCHED. 2026-09-17: and a revert never reaches it — wagmi THROWS on a
   // reverted receipt, so the revert toast below was dead and a reverted pause was
   // silent. useReceiptOutcome splits `isError` into revert vs unreadable.
-  const { isSuccess, isReverted, isReceiptUnreadable } = useReceiptOutcome(receiptQuery, {
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = useReceiptOutcome(receiptQuery, {
     hash: txHash,
     chainId: CHAIN_ID,
     repeatCost: 'the contract is already in the state you asked for.',
@@ -151,10 +152,11 @@ function PauseControls({
   }, [isReverted, txHash, isPaused]);
 
   // Unreadable: nothing is known, so re-read the pill rather than leave it
-  // asserting the pre-transaction state beside a "can't tell" warning.
+  // asserting the pre-transaction state beside a "can't tell" warning. The same
+  // for a pause the wallet cancelled or replaced.
   useEffect(() => {
-    if (isReceiptUnreadable) void refetchReads();
-  }, [isReceiptUnreadable, refetchReads]);
+    if (isReceiptUnreadable || isReplaced) void refetchReads();
+  }, [isReceiptUnreadable, isReplaced, refetchReads]);
 
   // F384: surface a wallet rejection / gas-estimate failure instead of failing
   // silently (mirrors usePremiumAccess error toasting). Deduped per error.
