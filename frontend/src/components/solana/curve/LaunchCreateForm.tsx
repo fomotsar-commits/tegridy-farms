@@ -420,6 +420,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
     setPrepNote("Reading this wallet's held time from the island before anything is signed…");
 
     const walletMoved = () => !alive.current || !liveSigner.current?.publicKey.equals(creator);
+    const checkAtReview = plantCheck;
     void flow.prepare(async (): Promise<Prepared> => {
       // THE DOOR, AT SUBMIT: read live at every Review, whatever the door above showed. The
       // venue's check only (the program accepts any signer). The maker is the wallet that
@@ -431,6 +432,9 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
         readPlant(api, rpc, creator),
         readPlantStop(api, rpc, creator),
       ]);
+      // The form shows this read when the flow comes back, never the older one: a refusal
+      // and the balance under it must agree, and Review must not light up on a stale read.
+      setPlantRead({ maker: creator.toBase58(), check: checkAtReview, read: plantNow });
       if (refusal) return { ok: false, outcome: refusal };
       if (walletMoved()) {
         const message =

@@ -808,6 +808,29 @@ describe('launch form: the plant', () => {
     expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
   });
 
+  // The form must not come back showing the balance from before the refusal, with
+  // Review on and focused, only to switch it off under the keyboard a moment later.
+  it('after Review refuses a wallet emptied since, Start over shows the balance the refusal named, and Review stays off', async () => {
+    const read = plantRead(async () => balance(150_000_000_000n));
+    renderForm(createApi({ readPlantBalance: read }));
+    await fillValid();
+    await settle();
+    expect(reviewButton()).not.toBeDisabled();
+    read.mockImplementation(async () => balance(0n));
+    await act(async () => {
+      fireEvent.click(reviewButton());
+    });
+    expect(await screen.findByTestId('tx-outcome')).toHaveTextContent('Your wallet holds 0 $BAYLA. A launch plants 100,000.');
+    // Any read after this never answers: what the form shows on return is what it already knew.
+    read.mockImplementation(() => new Promise<never>(() => {}));
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Start over' }));
+    });
+    expect(row('Your $BAYLA').lastElementChild).toHaveTextContent(/^0 \$BAYLA$/);
+    expect(reviewButton()).toBeDisabled();
+    expect(screen.getByTestId('review-missing')).toHaveTextContent('Your wallet holds 0 $BAYLA. A launch plants 100,000.');
+  });
+
   it('Review: a balance that cannot be read then is not sent either', async () => {
     const read = plantRead(async () => balance(150_000_000_000n));
     const api = createApi({ readPlantBalance: read });
