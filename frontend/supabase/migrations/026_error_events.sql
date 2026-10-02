@@ -1,0 +1,170 @@
+-- ============================================================
+-- 026_error_events.sql — first-party client-error sink
+--
+-- WHY
+-- ---
+-- This is the second time this project has shipped a finished, careful
+-- telemetry client and never given it somewhere to send. Read the header of
+-- 013_analytics_events.sql: "VITE_ANALYTICS_ENDPOINT was never set, so every
+-- event it batched was discarded." The same sentence has been true of
+-- VITE_ERROR_ENDPOINT and src/lib/errorReporting.ts the entire time.
+--
+-- The cost came due on 2026-09-04: an Alchemy key rotation took the frontend
+-- and the indexer dark together, and the operator learned about it from a
+-- user, because every client-side error was being written to a write-only
+-- localStorage buffer that nothing ever reads.
+--
+-- PRIVACY SHAPE — this table is the enforcement point for a published promise.
+-- PrivacyPage §3 describes the error reporter; §5 enumerates the server-side
+-- tables as a CLOSED list, and `error_events` is added to it in the same
+-- change that creates this table. A table absent from §5 is a broken promise,
+-- not an oversight.
+--
+--   * there is NO wallet column and NO session column. ErrorEntry carries
+--     neither — the record is strictly LESS linkable than §3 currently
+--     describes ("with the same session identifier"), and that sentence is
+--     corrected in the same change rather than left to overstate what we hold.
+--   * the API scrubs every field BEFORE insert (api/errors.js header): URLs keep
+--     their host and route words only, tokens and query values are masked, and
+--     wallet addresses (EVM and Solana) and long opaque strings are redacted. The
+--     likeliest carrier is `url`: the client's sanitizeUrl() clears query and
+--     hash but never the PATH, and App.tsx routes include `read/:address`.
+--   * only a batch the client marked `consent: "granted"` is written.
+--   * the CHECK below is the fail-closed backstop for anything reaching
+--     PostgREST by another path.
+--   * nothing is stored before 2026-10-16T00:00:00Z, and every row is deleted
+--     once it is more than 30 days old (owner's decisions, 2026-10-02; the
+--     Privacy page says both). The delete runs hourly from
+--     .github/workflows/error-retention.yml and, as a backstop, from
+--     api/errors.js after a stored batch: both through
+--     api/_lib/errorPurge.js, as service_role, filtered on received_at. That
+--     is why service_role gets DELETE below and received_at gets an index.
+--     The weekly backup (supabase-backup.yml) does not copy this table, so no
+--     report outlives its 30 days in a backup either.
+--
+-- PREREQUISITE: public.schema_migrations, the ledger this file writes its own
+-- row into at the end. It is 000_base_schema.sql section 0. If
+--   select to_regclass('public.schema_migrations');
+-- returns null, run the nine statements in supabase/MIGRATIONS.md section 1
+-- first, then this file. Without the ledger the last statement fails.
+--
+-- ORDER (docs/TODO_OPERATOR.md, 2026-10-02). Run in the Supabase SQL editor,
+-- never `supabase db push`. This file does NOT depend on 024 or 025: it creates
+-- and grants only its own table and sequence and touches nothing they touch, so
+-- it can go before them, after them or alone. It must run BEFORE
+-- VITE_ERROR_ENDPOINT is set; until it does, api/errors.js answers 503 and the
+-- client keeps its buffer. Idempotent: re-running it is safe.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS error_events (
+  id              bigserial PRIMARY KEY,
+  message         text        NOT NULL,
+  stack           text,
+  component_stack text,
+  url             text,
+  occurred_at     timestamptz NOT NULL,
+  received_at     timestamptz NOT NULL DEFAULT now()
+);
+
+-- Bound the obvious abuse shapes. The API cuts to these same ceilings
+-- (MAX_MESSAGE, MAX_STACK, MAX_URL) before inserting; this is the backstop, not
+-- the primary control. The client already cuts every field to 500.
+ALTER TABLE error_events
+  DROP CONSTRAINT IF EXISTS error_events_shape;
+ALTER TABLE error_events
+  ADD CONSTRAINT error_events_shape
+  CHECK (
+    length(message) BETWEEN 1 AND 2000
+    AND (stack IS NULL OR length(stack) <= 2000)
+    AND (component_stack IS NULL OR length(component_stack) <= 2000)
+    AND (url IS NULL OR length(url) <= 500)
+  );
+
+-- THE PRIVACY INVARIANT — backstop only. The real check is in api/errors.js.
+--
+-- Rejects any row carrying an EVM address in a free-text column. `0x` followed
+-- by exactly 40 hex characters is unambiguous: no ordinary error text has that
+-- shape, so the false-positive rate is ~0.
+--
+-- A base58 / Solana-pubkey check is DELIBERATELY NOT HERE, for the reason
+-- 013's header sets out at length: the obvious pattern matches as a SUBSTRING,
+-- so any 32-char run of ordinary alphanumerics inside a longer value trips it.
+-- In a CHECK constraint that is not a dropped row — the INSERT raises and the
+-- endpoint 503s. Stack traces are FULL of long alphanumeric runs (minified
+-- symbol names, content hashes, source-map ids), so the false-positive rate
+-- here would be far worse than it is on analytics properties.
+--
+-- A Solana pubkey embedded mid-stack-trace is caught in the API instead, by a
+-- whole-token scan (a run of 32 to 44 base58 characters bounded by anything
+-- that is not base58), which a CHECK constraint cannot express without the
+-- substring problem above.
+ALTER TABLE error_events
+  DROP CONSTRAINT IF EXISTS error_events_no_addresses;
+ALTER TABLE error_events
+  ADD CONSTRAINT error_events_no_addresses
+  CHECK (
+    coalesce(message, '')        !~ '0x[a-fA-F0-9]{40}'
+    AND coalesce(stack, '')           !~ '0x[a-fA-F0-9]{40}'
+    AND coalesce(component_stack, '') !~ '0x[a-fA-F0-9]{40}'
+    AND coalesce(url, '')             !~ '0x[a-fA-F0-9]{40}'
+  );
+
+-- Time-ordered reads are the only access pattern that matters: "what broke in
+-- the last hour", and "is this spiking right now". Grouping by message is how
+-- a crash loop is recognised, so it gets its own index.
+CREATE INDEX IF NOT EXISTS idx_error_occurred
+  ON error_events(occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_error_message_time
+  ON error_events(message, occurred_at DESC);
+-- The 30-day purge deletes WHERE received_at < now() - 30 days, every hour.
+CREATE INDEX IF NOT EXISTS idx_error_received
+  ON error_events(received_at);
+
+-- RLS: writes arrive ONLY through api/errors.js using the service role, which
+-- bypasses RLS. Enabling RLS with no policy therefore denies every anon/authed
+-- client by default — deliberate, and required by rlsCoverage.test.ts, which
+-- fails the build for any CREATEd table without it. There is no legitimate
+-- reason for a browser to read this table.
+ALTER TABLE error_events ENABLE ROW LEVEL SECURITY;
+
+-- No SELECT/INSERT/UPDATE/DELETE policies are created on purpose. If a read
+-- surface is ever needed, add an aggregate VIEW rather than opening this table.
+REVOKE ALL ON error_events FROM anon, authenticated;
+
+-- 008_grant_new_table_roles.sql established that new tables need explicit
+-- sequence grants for the roles that use them. service_role bypasses RLS but
+-- still needs table + sequence privileges. DELETE is for the 30-day purge.
+GRANT INSERT, SELECT, DELETE ON error_events TO service_role;
+GRANT USAGE, SELECT ON SEQUENCE error_events_id_seq TO service_role;
+
+-- Reload the PostgREST schema cache. Without this the table EXISTS and
+-- PostgREST keeps answering PGRST205, so the migration looks like it did
+-- nothing and the route 503s on every insert - the same "built but invisible"
+-- shape that put this whole change on the board. 014's header documents it
+-- first-hand; supabase-restore.test.mjs fails any table-creating migration
+-- that neither does this nor is named in RESTORE.md.
+NOTIFY pgrst, 'reload schema';
+
+-- Record this file in the ledger (000 section 0), as 016 to 025 do, so
+-- "was 026 applied?" is a query and not a guess.
+INSERT INTO public.schema_migrations (filename, note)
+VALUES (
+  '026_error_events.sql',
+  'error_events created for api/errors.js: RLS on, no policies, anon/authenticated revoked, service_role INSERT/SELECT/DELETE only (DELETE for the 30-day purge).'
+)
+ON CONFLICT (filename) DO NOTHING;
+
+-- VERIFICATION, read-only:
+--
+-- select filename, applied_at from public.schema_migrations
+--  where filename = '026_error_events.sql';                    -- one row
+--
+-- select relrowsecurity from pg_class where relname = 'error_events';  -- true
+--
+-- select grantee, privilege_type from information_schema.role_table_grants
+--  where table_name = 'error_events' and grantee in ('anon','authenticated');
+--                                                               -- zero rows
+--
+-- select privilege_type from information_schema.role_table_grants
+--  where table_name = 'error_events' and grantee = 'service_role';
+--                                     -- includes INSERT, SELECT and DELETE
