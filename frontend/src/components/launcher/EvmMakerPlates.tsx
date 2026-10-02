@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePublicClient } from 'wagmi';
 import type { Address } from 'viem';
 import {
@@ -28,6 +28,25 @@ import {
 
 const curveCard = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
 
+/** A read that throws (our bug, not the chain) still ends "Reading...", in words. */
+const stopped = (e: unknown) =>
+  ({ kind: 'unreadable', detail: `the read stopped: ${e instanceof Error ? e.message : String(e)}`.slice(0, 160) }) as const;
+
+/**
+ * "Read again" unmounts its own button, which would drop the keyboard to the page. So the
+ * press moves focus to the block's status line, which stays mounted and announces the rest.
+ */
+function useRetry(onRetry?: () => void) {
+  const status = useRef<HTMLDivElement>(null);
+  const retry = onRetry
+    ? () => {
+        onRetry();
+        status.current?.focus();
+      }
+    : undefined;
+  return { status, retry };
+}
+
 function TxLink({ chainId, tx }: { chainId: number; tx: string }) {
   return (
     <a
@@ -55,29 +74,32 @@ export function CurveMakerCreateBuyView({
   onRetry?: () => void;
 }) {
   const lines = read?.kind === 'ok' ? curveCreateBuyLines(read.value) : null;
+  const { status, retry } = useRetry(onRetry);
   return (
     <div className="rounded-2xl p-4 space-y-1.5 text-[12.5px] leading-relaxed" style={curveCard} data-testid="curve-maker-create-buy">
-      {read === null && <p className="text-white/60 animate-pulse">{CURVE_READING}</p>}
-      {read?.kind === 'unreadable' && (
-        <>
-          <p className="text-white/75">{CREATE_BUY_UNREADABLE}</p>
-          <p className="text-white/40 text-[10px] break-words">{read.detail}</p>
-          {onRetry && (
-            <button type="button" onClick={onRetry} className="btn-secondary px-3 py-1.5 text-[12px]">
-              Read again
-            </button>
-          )}
-        </>
-      )}
-      {read?.kind === 'ok' && lines && (
-        <>
-          <p className="text-white/80">{lines.maker}</p>
-          {lines.others && <p className="text-white/75">{lines.others}</p>}
-          <p className="text-white/40 text-[11px]">
-            Read from <TxLink chainId={chainId} tx={read.value.tx} />.
-          </p>
-        </>
-      )}
+      <div ref={status} role="status" tabIndex={-1} className="space-y-1.5 outline-none">
+        {read === null && <p className="text-white/60 animate-pulse">{CURVE_READING}</p>}
+        {read?.kind === 'unreadable' && (
+          <>
+            <p className="text-white/75">{CREATE_BUY_UNREADABLE}</p>
+            <p className="text-white/40 text-[10px] break-words">{read.detail}</p>
+            {retry && (
+              <button type="button" onClick={retry} className="btn-secondary px-3 py-1.5 text-[12px]">
+                Read again
+              </button>
+            )}
+          </>
+        )}
+        {read?.kind === 'ok' && lines && (
+          <>
+            <p className="text-white/80">{lines.maker}</p>
+            {lines.others && <p className="text-white/75">{lines.others}</p>}
+            <p className="text-white/40 text-[11px]">
+              Read from <TxLink chainId={chainId} tx={read.value.tx} />.
+            </p>
+          </>
+        )}
+      </div>
       <p className="text-white/45 text-[11px]">Maker&apos;s wallet</p>
       <p className="text-white/80 font-mono text-[12px] break-all">{creator}</p>
       <p className="text-white/75">{CURVE_NO_LOCK}</p>
@@ -104,9 +126,11 @@ export function CurveMakerCreateBuy({
   const [done, setDone] = useState<{ key: string; read: PlatesRead<CurveCreateBuy> } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    void readCurveCreateBuy(client, { chainId, launcher, token, creator }).then((read) => {
-      if (!cancelled) setDone({ key, read });
-    });
+    void readCurveCreateBuy(client, { chainId, launcher, token, creator })
+      .catch(stopped)
+      .then((read) => {
+        if (!cancelled) setDone({ key, read });
+      });
     return () => {
       cancelled = true;
     };
@@ -118,18 +142,19 @@ export function CurveMakerCreateBuy({
 /** /launch: the maker's allocation, its lock, and what the launch transaction bought. null = reading. */
 export function MakerPlatesView({ plates, onRetry }: { plates: DopplerPlates | null; onRetry?: () => void }) {
   const lines = plates?.kind === 'read' ? dopplerPlatesLines(plates) : null;
+  const { status, retry } = useRetry(onRetry);
   return (
     <section className="glass-card rounded-xl p-5 mb-4" data-testid="maker-plates">
       <h2 className="text-[14px] font-semibold text-text-primary">The maker&apos;s allocation</h2>
-      <div className="mt-2 space-y-1.5 text-[12.5px] text-text-secondary leading-relaxed">
+      <div ref={status} role="status" tabIndex={-1} className="mt-2 space-y-1.5 text-[12.5px] text-text-secondary leading-relaxed outline-none">
         {plates === null && <p className="animate-pulse">{ALLOCATION_READING}</p>}
         {plates?.kind === 'not-doppler' && <p>{NOT_DOPPLER}</p>}
         {plates?.kind === 'unreadable' && (
           <>
             <p>{ALLOCATION_UNREADABLE}</p>
             <p className="text-[11px] text-text-muted break-words">{plates.detail}</p>
-            {onRetry && (
-              <button type="button" onClick={onRetry} className="btn-secondary text-[12px] px-3 py-1.5">
+            {retry && (
+              <button type="button" onClick={retry} className="btn-secondary text-[12px] px-3 py-1.5">
                 Read again
               </button>
             )}
@@ -157,9 +182,11 @@ export function MakerPlatesCard({ client, token }: { client: PlatesReadClient | 
   const [done, setDone] = useState<{ key: string; plates: DopplerPlates } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    void readDopplerPlates(client, token).then((plates) => {
-      if (!cancelled) setDone({ key, plates });
-    });
+    void readDopplerPlates(client, token)
+      .catch(stopped)
+      .then((plates) => {
+        if (!cancelled) setDone({ key, plates });
+      });
     return () => {
       cancelled = true;
     };

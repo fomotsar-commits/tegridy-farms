@@ -192,6 +192,12 @@ describe('/eth-curve block', () => {
     expect(screen.getByText(curveCreateBuyLines(buy()).maker)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'its launch transaction' })).toHaveAttribute('href', `https://robinhoodchain.blockscout.com/tx/${TX}`);
   });
+
+  it('read: what other wallets got in the same transaction is on the block, not only in the copy', () => {
+    const v = buy({ othersTokens: 11n * E24, others: 2 });
+    render(<CurveMakerCreateBuyView chainId={1} creator={MAKER} read={{ kind: 'ok', value: v }} />);
+    expect(screen.getByText('Other wallets got 1.10% of the supply in the same transaction (2 wallets).')).toBeInTheDocument();
+  });
 });
 
 describe('/launch card', () => {
@@ -226,6 +232,11 @@ describe('/launch card', () => {
     expect(screen.getByRole('link', { name: 'its launch transaction' })).toHaveAttribute('href', `https://etherscan.io/tx/${TX}`);
     rerender(<MakerPlatesView plates={read(birth({ toMaker: E24 }))} />);
     expect(screen.queryByText(/Bought in the launch transaction/)).not.toBeInTheDocument();
+  });
+
+  it('read: other wallets\' allocations are on the card, not only in the copy', () => {
+    render(<MakerPlatesView plates={read(birth({ othersAmount: 50n * E24, others: 1 }))} />);
+    expect(screen.getByText('Other wallets were allocated 5.00% of the supply at birth (1 wallet).')).toBeInTheDocument();
   });
 
   it('read, no premine: the maker\'s wallet and the bought line are on the card', () => {
