@@ -123,6 +123,7 @@ jobs:
       - name: Tests that read markdown
         run: >-
           npx vitest run
+          api/__tests__/alerts-surface-parity.test.ts
           api/__tests__/commerce-surface-parity.test.js
           scripts/supabase-restore.test.mjs
           src/lib/docsAddressTruth.test.ts
