@@ -31,15 +31,31 @@ stop and say so — a surprise is information.
 
 ## 🔴 2026-10-02: turn on error reports (PR #466), in this order
 
-Approved by the owner on 2026-10-02. Merging PR #466 changes nothing a visitor sees: reports
-stay off until step 4. Until every step is done, `/api/errors` answers 503 and stores nothing,
-and browsers keep their reports and wait, so a step done late costs a delay, never a flood.
-**026 does not depend on 024 or 025.** It creates and grants only its own table, so it can run
-before them, after them or alone; 024 and 025 keep their own runbook further down.
+Approved by the owner on 2026-10-02, with two decisions: **reports are kept 30 days, then
+deleted automatically**, and **nothing is sent or stored before 2026-10-16**, because the Privacy
+page's section 9 promises 14 days' notice of a change like this one. The notice is on the page
+from the moment this PR deploys.
 
-1. **First: merge PR #466 and let it deploy.** Do not set step 4's variable before this is live.
-2. **Apply the migration.** Supabase dashboard, SQL Editor: paste
-   `frontend/supabase/migrations/026_error_events.sql` and run it. Never `supabase db push`.
+The date is enforced in code on both sides: before 2026-10-16T00:00:00Z the browser sends
+nothing and `/api/errors` stores nothing, even if step 5's variable is set early. Until every
+step is done the route answers 503 and stores nothing, and browsers keep their reports and wait,
+so a step done late costs a delay, never a flood. **026 does not depend on 024 or 025.** It
+creates and grants only its own table, so it can run before them, after them or alone; 024 and
+025 keep their own runbook further down.
+
+**No new secret.** The 30-day delete runs hourly in a new GitHub workflow, Error Retention, with
+the `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` repository secrets the Supabase backup already uses.
+Nothing named `CRON_SECRET`, or anything else, needs creating.
+
+1. **Now: merge PR #466 and let it deploy.**
+2. **Apply the migration.** First, in the Supabase SQL Editor, run
+   `select to_regclass('public.schema_migrations');`
+   If it returns `null`, the migration ledger was never created in production: run the nine
+   statements in `frontend/supabase/MIGRATIONS.md` section 1 first (the same as section 0 of
+   `000_base_schema.sql`; they create that one table and touch nothing else). 026 ends by writing
+   its own row into that ledger, so without it 026 stops with an error at its last statement.
+   Then paste `frontend/supabase/migrations/026_error_events.sql` and run it. Never
+   `supabase db push`. 026 is safe to run twice.
    **You should see** one row from
    `select filename, applied_at from public.schema_migrations where filename = '026_error_events.sql';`
 3. **Check four server variables in Vercel** (Settings, Environment Variables, Production):
@@ -47,15 +63,24 @@ before them, after them or alone; 024 and 025 keep their own runbook further dow
    The two Supabase ones should already be there (the analytics sink uses them). If the Upstash
    pair is missing, create a free Upstash Redis database and add both. Note: that also moves every
    other `/api` route from per-instance to shared rate limits, which is the intended mode.
-4. **Last: set `VITE_ERROR_ENDPOINT` to `/api/errors`** (Production) and redeploy. It is read at
-   build time, so it does nothing until the next deploy.
-5. **Check it works**, in PowerShell:
+4. **Check the 30-day delete.** GitHub, Settings, Secrets and variables, Actions: `SUPABASE_URL`
+   and `SUPABASE_SERVICE_KEY` should be listed (they were set on 2026-07-30). They must point at
+   the **same Supabase project** as Vercel's. Then Actions, Error Retention, Run workflow.
+   **You should see** a green run that says `Deleted 0 error report(s)` (or, before step 2, a
+   notice that `error_events` does not exist yet). A red run means a report may be kept past 30
+   days: the run's message says whether a secret is missing, the key was refused, or Supabase did
+   not answer.
+5. **On or after 2026-10-16: set `VITE_ERROR_ENDPOINT` to `/api/errors`** (Production) and
+   redeploy. It is read at build time, so it does nothing until the next deploy.
+6. **Check it works**, on or after 2026-10-16, in PowerShell:
    ```
-   Invoke-RestMethod -Method Post -Uri https://memetics.finance/api/errors -Headers @{ Origin = 'https://memetics.finance' } -ContentType 'application/json' -Body '{"consent":"granted","errors":[{"message":"operator check 2026-10-02","timestamp":"2026-10-02T12:00:00Z","url":"https://memetics.finance/"}]}'
+   $body = @{ consent = 'granted'; errors = @(@{ message = 'operator check'; timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); url = 'https://memetics.finance/' }) } | ConvertTo-Json -Depth 3
+   Invoke-RestMethod -Method Post -Uri https://memetics.finance/api/errors -Headers @{ Origin = 'https://memetics.finance' } -ContentType 'application/json' -Body $body
    ```
    **You should see** `accepted : 1`. `Error sink unavailable` means step 2 or 3 is not done (the
-   Vercel function log names which). Then remove the check row in the SQL Editor:
-   `delete from error_events where message = 'operator check 2026-10-02';`
+   Vercel function log names which), or that it is still before 2026-10-16, when that answer is
+   the plan. Then remove the check row in the SQL Editor:
+   `delete from error_events where message = 'operator check';`
 
 The outside health probe in the same PR (step 6 of Synthetic Monitor) needs nothing from you.
 

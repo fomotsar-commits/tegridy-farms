@@ -17,7 +17,7 @@ const SECTIONS = [
   {
     id: 'analytics',
     title: '3. Analytics',
-    body: 'We operate a first-party, privacy-preserving analytics pipeline to monitor Protocol health. No third-party analytics or tracking scripts are loaded. When enabled (controlled by the VITE_ANALYTICS_ENDPOINT build-time environment variable), the frontend batches and sends a small set of event records to our own analytics endpoint. Events emitted: page views; swaps (token symbols, amount, route); stakes and unstakes (amount, lock duration); NFT purchases (collection, token ID, price); wallet-connect events (the name of the wallet provider such as "MetaMask" or "Rainbow" — not your wallet address); and client-side errors (sanitized error message and feature context). Every event carries a random per-tab session identifier and a timestamp. Event records do NOT include your wallet address, IP, name, email, browser fingerprint, or any PII, and the session identifier is not linked to any identity. If no analytics endpoint is configured, events are logged to the browser console only. Separately, a client-side error reporter (VITE_ERROR_ENDPOINT, if configured) sends error reports to our own endpoint, and only while you have opted in through the consent row in the footer. Consent is checked when an error is captured and again when it is sent, and withdrawing it deletes any reports still waiting in your browser. Before sending, your browser removes private keys, mnemonics, bearer tokens and Ethereum addresses from the message and stack, and the query string from the page address (frontend/src/lib/errorReporting.ts), and our server scrubs again before anything is stored (frontend/api/errors.js): a page address keeps only the site and the page name, query strings and tokens are masked, and Ethereum and Solana addresses and other long identifiers are removed. An error record is a message, an optional stack, the page address and a timestamp. It carries no session identifier, no wallet address and no IP, and the report is sent without cookies, so nothing ties one record to another or to you. If our server cannot accept reports yet, your browser keeps at most 50 and tries again after a wait; reports older than seven days are never sent.',
+    body: 'We operate a first-party, privacy-preserving analytics pipeline to monitor Protocol health. No third-party analytics or tracking scripts are loaded. When enabled (controlled by the VITE_ANALYTICS_ENDPOINT build-time environment variable), the frontend batches and sends a small set of event records to our own analytics endpoint. Events emitted: page views; swaps (token symbols, amount, route); stakes and unstakes (amount, lock duration); NFT purchases (collection, token ID, price); wallet-connect events (the name of the wallet provider such as "MetaMask" or "Rainbow" — not your wallet address); and client-side errors (sanitized error message and feature context). Every event carries a random per-tab session identifier and a timestamp. Event records do NOT include your wallet address, IP, name, email, browser fingerprint, or any PII, and the session identifier is not linked to any identity. If no analytics endpoint is configured, events are logged to the browser console only. Separately, from 16 October 2026, a client-side error reporter (VITE_ERROR_ENDPOINT) sends error reports to our own endpoint, and only while you have opted in through the consent row in the footer. Before that date no error report is sent or stored, and an error that happened before it is never sent. Consent is checked when an error is captured and again when it is sent, and withdrawing it deletes any reports still waiting in your browser. Before sending, your browser removes private keys, mnemonics, bearer tokens and Ethereum addresses from the message and stack, and the query string from the page address (frontend/src/lib/errorReporting.ts), and our server scrubs again before anything is stored (frontend/api/errors.js): a page address keeps only the site and the page name, query strings and tokens are masked, and Ethereum and Solana addresses and other long identifiers are removed. Exactly this is stored for each report: the error message, the stack trace and the component stack when there is one, the page address, the time the error happened and the time our server received it, plus a running row number. It carries no session identifier, no wallet address and no IP, and the report is sent without cookies, so nothing ties one record to another or to you. Each report is kept for 30 days and then deleted automatically. If our server cannot accept reports yet, your browser keeps at most 50 and tries again after a wait; reports older than seven days are never sent.',
   },
   {
     id: 'third-party-services',
@@ -27,7 +27,7 @@ const SECTIONS = [
   {
     id: 'data-storage',
     title: '5. Data Storage',
-    body: 'Client side (your browser): all user preference data is stored in your browser\'s localStorage and sessionStorage. You control it and can clear it at any time through your browser settings. Server side (Supabase): to make opt-in features work, we store the minimum data required, keyed only by public wallet address. The tables are: `messages` (chat posts you publish), `user_profiles` / `user_favorites` / `user_watchlist` (discovery surfaces tied to your wallet), `votes` (governance and opinion votes), `trade_offers` (peer-to-peer trade records), `push_subscriptions` (browser push endpoints you opt into), `native_orders` (signed marketplace orders), `siwe_nonces` (single-use auth nonces, auto-deleted within 5 minutes), `revoked_jwts` (per-session revocation list so logged-out tokens stop working — pruned as each token expires), and `error_events` (client-side error reports, sent only with your consent and scrubbed on our server before storage: message, stack, page address and timestamp; no wallet address, no session identifier and no IP, so rows cannot be linked to each other or to you). Row-Level Security is enforced on every row by the wallet claim in your SIWE-issued JWT; writes that don\'t match your wallet are rejected at the database. Blockchain (Ethereum): transaction data is permanently and publicly recorded by Ethereum itself. It is not controlled by the Protocol and cannot be altered or removed by any party.',
+    body: 'Client side (your browser): all user preference data is stored in your browser\'s localStorage and sessionStorage. You control it and can clear it at any time through your browser settings. Server side (Supabase): to make opt-in features work, we store the minimum data required, keyed only by public wallet address. The tables are: `messages` (chat posts you publish), `user_profiles` / `user_favorites` / `user_watchlist` (discovery surfaces tied to your wallet), `votes` (governance and opinion votes), `trade_offers` (peer-to-peer trade records), `push_subscriptions` (browser push endpoints you opt into), `native_orders` (signed marketplace orders), `siwe_nonces` (single-use auth nonces, auto-deleted within 5 minutes), `revoked_jwts` (per-session revocation list so logged-out tokens stop working — pruned as each token expires), and `error_events` (client-side error reports, stored from 16 October 2026 and only with your consent, scrubbed on our server before storage: the error message, stack trace, component stack, page address, the time of the error and the time we received it; no wallet address, no session identifier and no IP, so rows cannot be linked to each other or to you; each report is kept for 30 days and then deleted automatically). Row-Level Security is enforced on every row by the wallet claim in your SIWE-issued JWT; writes that don\'t match your wallet are rejected at the database. Blockchain (Ethereum): transaction data is permanently and publicly recorded by Ethereum itself. It is not controlled by the Protocol and cannot be altered or removed by any party.',
   },
   {
     id: 'your-rights',
@@ -81,6 +81,41 @@ export default function PrivacyPage() {
             How memetics.finance handles your data — plain English, no dark patterns.
           </p>
         </m.div>
+
+        {/* Section 9's promise, kept: a change that broadens what we collect is called
+            out here for at least 14 days before it takes effect. The date and the 30 days
+            are the constants the code enforces (api/_lib/errorPolicy.js), and
+            PrivacyPage.test.tsx holds these words to them. Posted 2026-10-02. */}
+        <div
+          role="note"
+          aria-labelledby="notice-error-reports-heading"
+          className="rounded-2xl p-6 md:p-8 mb-6 backdrop-blur-md"
+          style={{
+            background: 'rgba(13, 21, 48, 0.92)',
+            border: '1px solid var(--color-purple-12)',
+          }}
+        >
+          <h2 id="notice-error-reports-heading" className="text-lg font-semibold text-white mb-3">
+            Notice of a change on 16 October 2026: error reports
+          </h2>
+          <div className="space-y-3 text-white/80 text-sm leading-relaxed">
+            <p>
+              Posted on 2 October 2026, 14 days ahead, as section 9 below promises. From 16 October 2026, if you
+              have opted in to error reports through the consent row in the footer, your browser will send a report
+              to our own server when this site runs into an error, and we will store it.
+            </p>
+            <p>
+              A stored report holds the error message, the stack trace and component stack if there is one, the
+              page address without its query string, the time the error happened and the time we received it.
+              Wallet addresses, keys and tokens are removed first. It has no wallet address, no session identifier
+              and no IP, so it cannot be tied to you. Each report is kept for 30 days and then deleted automatically.
+            </p>
+            <p>
+              Until 16 October 2026, no error report is sent to our server or stored there. If you have not opted
+              in, nothing changes for you. Sections 3 and 5 below give the details.
+            </p>
+          </div>
+        </div>
 
         <div className="space-y-6">
           {SECTIONS.map((section, i) => (
