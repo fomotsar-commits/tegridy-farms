@@ -1,4 +1,4 @@
-import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, SEAPORT_DOMAIN } from "./constants";
+import { CONTRACT, COLLECTION_SLUG, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, SEAPORT_DOMAIN } from "./constants";
 import { liveIpfsUrl } from "../lib/ipfsGateways";
 import { venueCollectionByContract, venueRefusalForAll } from "./lib/venue";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
