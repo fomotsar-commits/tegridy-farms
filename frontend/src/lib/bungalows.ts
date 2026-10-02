@@ -289,6 +289,17 @@ export const BUNGALOWS: Bungalow[] = [
  *  numbers its lots after its bungalows, so the open lot here is BUNGALOW_COUNT + 1. */
 export const BUNGALOW_COUNT = BUNGALOWS.filter((b) => b.chain !== 'tbd').length;
 
+/** The open lot's heading and picture (answer sixteen, ruling 9). Its landing
+ *  (BungalowDoorLanding) and its busy fallback (LotFrame) read these; its static frame
+ *  (scripts/render-bungalow-doors.mjs) is pinned to them by bungalowDoors.test.ts. The
+ *  picture is the owner's pick (naka31, 2026-10-02), fixed: no stored skin changes it. */
+export const OPEN_LOT_HERO = {
+  heroTitle: 'Unmarked.',
+  heroLine: `Lot ${BUNGALOW_COUNT + 1}, for the next community.`,
+  heroArt: '/splash/new/7.jpg',
+  heroPosition: '50% 28%',
+} as const;
+
 /** Storage key. Survives quota eviction only because storage.ts lists it in EVICTION_PROTECTED_KEYS. */
 export const BUNGALOW_STORAGE_KEY = 'tegridy-bungalow';
 

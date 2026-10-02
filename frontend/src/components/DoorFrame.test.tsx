@@ -3,11 +3,13 @@ import { render, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { DOORS, HEADING_STYLE, PILL_ROW_STYLE, transform } from '../../scripts/render-bungalow-doors.mjs';
-import { BUNGALOWS, DEFAULT_BUNGALOW_ID, TOWELI_HERO, type Bungalow, type BungalowIdentity } from '../lib/bungalows';
+import { DOORS, HEADING_STYLE, LOT_FRAME, PILL_ROW_STYLE, transform } from '../../scripts/render-bungalow-doors.mjs';
+import { BUNGALOWS, DEFAULT_BUNGALOW_ID, OPEN_LOT_HERO, TOWELI_HERO, type Bungalow, type BungalowIdentity } from '../lib/bungalows';
 import { pageArt } from '../lib/artConfig';
-import { DoorFrame } from './DoorFrame';
+import { DoorFrame, LotFrame } from './DoorFrame';
 import { BungalowHero } from './bungalow/BungalowHero';
+import { BungalowDoor } from './bungalow/BungalowDoor';
+import { BungalowDoorLanding } from './bungalow/BungalowDoorLanding';
 
 // A door's heading is on screen three times: the build's static frame, this fallback
 // (React's first commit replaces the first), then the hero. All three read the same
@@ -46,8 +48,15 @@ afterEach(() => {
   window.history.replaceState(null, '', '/');
 });
 
+// Every door but the open lot opens a live room's home; the lot opens its landing.
+const HOME_DOORS = DOORS.filter((d) => BUNGALOWS.find((b) => b.id === d.path)?.live);
+
 describe("a door's fallback while its home page loads", () => {
-  for (const door of DOORS) {
+  it('covers every door but the open lot, which has a fallback of its own', () => {
+    expect(DOORS.filter((d) => !HOME_DOORS.includes(d)).map((d) => d.path)).toEqual(['nb1']);
+  });
+
+  for (const door of HOME_DOORS) {
     it(`${door.path}: says what the static frame said and what the hero will say`, () => {
       localStorage.setItem('tegridy-bungalow', door.path);
       const bungalow = BUNGALOWS.find((b) => b.id === door.path)!;
@@ -83,7 +92,7 @@ describe("a door's fallback while its home page loads", () => {
     });
   }
 
-  it('keeps the skeleton for a door with no hero of its own', () => {
+  it('keeps the skeleton for a door with no hero of its own (BungalowDoor gives the lot LotFrame)', () => {
     localStorage.setItem('tegridy-bungalow', 'nb1');
     const frame = render(<DoorFrame id="nb1" />).container;
     expect(frame.querySelector('h1')).toBeNull();
@@ -121,6 +130,92 @@ describe("a door's fallback while its home page loads", () => {
       const frame = render(<DoorFrame id="bayla" />).container;
       expect(frame.querySelector('h1'), `stored skin ${stored}`).toBeNull();
       cleanup();
+    }
+  });
+});
+
+// Answer sixteen, ruling 9: the open lot's heading in its own words over its own picture,
+// the same bar as the twelve. Its page is the landing, so its frame sits where the
+// landing's plaque sits (LOT_FRAME), and the picture is fixed (OPEN_LOT_HERO).
+describe("the open lot's fallback while its landing loads", () => {
+  const lotDoor = DOORS.find((d) => d.path === 'nb1')!;
+  const lot = BUNGALOWS.find((b) => b.id === 'nb1')!;
+  const heading = `${OPEN_LOT_HERO.heroTitle} ${OPEN_LOT_HERO.heroLine}`;
+  const staticFrame = () => new DOMParser().parseFromString(transform(shell, lotDoor), 'text/html').getElementById('first-frame')!;
+  const landing = () => render(<MemoryRouter><BungalowDoorLanding bungalow={lot} /></MemoryRouter>).container;
+
+  it('is what BungalowDoor shows for the lot until the landing arrives: never nothing, never the skeleton', async () => {
+    const view = render(<MemoryRouter><BungalowDoor id="nb1"><div>home</div></BungalowDoor></MemoryRouter>);
+    const busy = view.container.querySelector('[aria-busy="true"]');
+    expect(busy, 'the heading leaves the screen while the landing chunk loads').not.toBeNull();
+    expect(busy!.querySelector('h1')?.textContent).toBe(heading);
+    expect(view.container.querySelector('[aria-label="Loading page"]')).toBeNull();
+    await view.findByRole('link', { name: /How a community gets a bungalow here\./ });
+    expect(view.container.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(view.container.querySelector('h1')?.textContent).toBe(heading);
+  });
+
+  it('says what the static frame said and what the landing will say', () => {
+    const frame = render(<LotFrame />).container;
+    expect(frame.firstElementChild?.getAttribute('aria-busy')).toBe('true');
+    expect(frame.querySelector('h1')?.textContent).toBe(heading);
+    expect(frame.textContent).not.toMatch(/loading/i);
+    expect(staticFrame().querySelector('h1')?.textContent).toBe(heading);
+    expect(landing().querySelector('h1')?.textContent).toBe(heading);
+  });
+
+  it("holds the landing's place, as the static frame does", () => {
+    const frame = render(<LotFrame />).container;
+    const html = staticFrame();
+    const placed = (root: ParentNode) => ({
+      wrap: (root.querySelector('.ff-wrap') as HTMLElement).style.cssText,
+      col: (root.querySelector('.ff-col') as HTMLElement).style.cssText,
+      spacer: (root.querySelector('.ff-col > div[aria-hidden="true"]') as HTMLElement).style.cssText,
+      veil: (root.querySelector('.ff-bg > div') as HTMLElement | null)?.style.cssText,
+      h1: (root.querySelector('h1') as HTMLElement).style.cssText,
+    });
+    const want = {
+      wrap: cssText(LOT_FRAME.wrap),
+      col: cssText(LOT_FRAME.col),
+      spacer: cssText(LOT_FRAME.spacer),
+      veil: cssText(LOT_FRAME.veil),
+      h1: cssText(HEADING_STYLE),
+    };
+    expect(placed(frame), 'the fallback').toEqual(want);
+    expect(placed(html), 'the static frame').toEqual(want);
+    expect(html.querySelector('.ff-col > div[aria-hidden="true"]')?.nextElementSibling?.tagName).toBe('H1');
+    // The landing's own veil, so the picture does not darken at the swap.
+    const veil = landing().querySelector('.fixed > div.absolute') as HTMLElement;
+    expect(veil.style.background).toBe((frame.querySelector('.ff-bg > div') as HTMLElement).style.background);
+  });
+
+  it('draws the lot its own picture, eagerly, whatever skin is stored', () => {
+    const html = staticFrame().querySelector('img')!;
+    expect([html.getAttribute('src'), html.style.objectPosition]).toEqual([OPEN_LOT_HERO.heroArt, OPEN_LOT_HERO.heroPosition]);
+    for (const stored of [null, 'venue', 'bayla', 'pepe', DEFAULT_BUNGALOW_ID]) {
+      localStorage.clear();
+      if (stored) localStorage.setItem('tegridy-bungalow', stored);
+      for (const [who, img] of [
+        ['the fallback', render(<LotFrame />).container.querySelector('.ff-bg img')],
+        ['the landing', landing().querySelector('.fixed img')],
+      ] as const) {
+        const what = `${who}, stored skin ${stored}`;
+        expect(img?.getAttribute('src'), what).toBe(OPEN_LOT_HERO.heroArt);
+        expect((img as HTMLElement | null)?.style.objectPosition, what).toBe(OPEN_LOT_HERO.heroPosition);
+        expect(img?.getAttribute('alt'), what).toBe('');
+        expect(img?.getAttribute('loading'), what).toBeNull();
+        expect(img?.getAttribute('fetchpriority'), what).toBe('high');
+      }
+      cleanup();
+    }
+  });
+
+  it("is the lot's alone: every other door's frame keeps the hero's place", () => {
+    for (const door of HOME_DOORS) {
+      const html = new DOMParser().parseFromString(transform(shell, door), 'text/html');
+      expect(html.querySelector('.ff-wrap')?.getAttribute('style'), door.path).toBeNull();
+      expect(html.querySelector('.ff-col')?.getAttribute('style'), door.path).toBeNull();
+      expect(html.querySelectorAll('.ff-bg > *'), door.path).toHaveLength(1);
     }
   });
 });

@@ -31,6 +31,17 @@ const settledAlt = (name) =>
 // The first frame: BungalowHero's H1 (heroTitle, heroLine) over pageArt('home', 0).
 const SETTLED_LINE = 'Settled on Jungle Bay Island.';
 
+// The open lot's landing (BungalowDoorLanding) is no hero: its plaque sits 6rem down (the
+// nav's 3.5rem, then pt-10) across the whole column, under an eyebrow line (16.5 px, then
+// mb-2), over a veil. Its frame holds the same, so the heading does not move. Measured in
+// a production build; LotFrame in DoorFrame.tsx carries the same four.
+export const LOT_FRAME = {
+  wrap: 'padding-top:6rem',
+  col: 'max-width:none',
+  spacer: 'height:16.5px;margin:0 0 0.5rem',
+  veil: 'position:absolute;inset:0;background:rgba(6,12,26,0.62)',
+};
+
 export const DOORS = [
   {
     path: 'bayla',
@@ -201,8 +212,27 @@ export const DOORS = [
     heroArt: '/art/iphone/IMG_0148.jpg',
     heroPosition: '4% 85%',
   },
-  // nb1 has no entry: the open lot renders a landing, not a home hero, and serves
-  // the stock shell, where the venue's frame opens only on `/`.
+  // The island's open lot (answer sixteen, ruling 9: every door means every door). Its
+  // first frame is its landing's heading (OPEN_LOT_HERO in lib/bungalows.ts) over the
+  // owner's pick, in the landing's place (LOT_FRAME). No chain: the lot has none yet.
+  // "13" is typed here (no TS loader); bungalowDoors.test.ts pins it to BUNGALOW_COUNT + 1.
+  {
+    path: 'nb1',
+    title: 'Lot 13 | Jungle Bay Island',
+    description:
+      'Lot 13 on Jungle Bay Island is unmarked: an open lot, for the next community. ' +
+      "The island's harbor says how a community gets a bungalow here. Dank Memes + Time = Memetic Finance.",
+    image: '/splash/new/7.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '1536',
+    imageHeight: '2048',
+    imageAlt: 'Lot 13 on Jungle Bay Island, unmarked: a monkey with a pick and a pack walks toward the hills at sunrise',
+    heroTitle: 'Unmarked.',
+    heroLine: 'Lot 13, for the next community.',
+    heroArt: '/splash/new/7.jpg',
+    heroPosition: '50% 28%',
+    frame: LOT_FRAME,
+  },
 ];
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -241,7 +271,8 @@ const headingHtml = (door) => `${esc(door.heroTitle)} <br><span>${esc(door.heroL
 export const PILL_ROW_STYLE = 'height:24.5px;margin:0 0 1.25rem';
 export const HEADING_STYLE = 'letter-spacing:0.01em';
 
-/** The door's first frame: the ff-* markup index.html styles, with no venue copy. */
+/** The door's first frame: the ff-* markup index.html styles, with no venue copy. A door
+ *  with a `frame` (the open lot) sits in its own page's place instead of the hero's. */
 function doorFrame(door, manifest) {
   const srcset = srcsetFor(door.heroArt, manifest);
   const img = [
@@ -250,9 +281,11 @@ function doorFrame(door, manifest) {
     'alt="" width="1200" height="800" fetchpriority="high" decoding="async"',
     door.heroPosition && `style="object-position:${esc(door.heroPosition)}"`,
   ].filter(Boolean).join(' ');
+  const f = door.frame;
+  const styled = (style) => (style ? ` style="${esc(style)}"` : '');
   return (
-    `<!-- first-frame --><div id="first-frame"><div class="ff-bg"><img ${img}></div>` +
-    `<div class="ff-wrap"><div class="ff-col"><div aria-hidden="true" style="${PILL_ROW_STYLE}"></div>` +
+    `<!-- first-frame --><div id="first-frame"><div class="ff-bg"><img ${img}>${f ? `<div${styled(f.veil)}></div>` : ''}</div>` +
+    `<div class="ff-wrap"${styled(f?.wrap)}><div class="ff-col"${styled(f?.col)}><div aria-hidden="true" style="${esc(f?.spacer ?? PILL_ROW_STYLE)}"></div>` +
     `<h1 class="ff-h1" elementtiming="first-frame-h1" style="${HEADING_STYLE}">${headingHtml(door)}</h1></div></div></div><!-- /first-frame -->`
   );
 }

@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { BUNGALOWS, DEFAULT_BUNGALOW_ID, TOWELI_HERO, type Bungalow } from './bungalows';
-import { pageArt } from './artConfig';
+import { BUNGALOWS, BUNGALOW_COUNT, DEFAULT_BUNGALOW_ID, OPEN_LOT_HERO, TOWELI_HERO, type Bungalow } from './bungalows';
+import { ART, pageArt } from './artConfig';
 import { derivedUrl, naturalWidthOf, widthsFor } from './artSrcSet';
 import { DOORS, transform } from '../../scripts/render-bungalow-doors.mjs';
 import { pageHashes, pinnedHashes } from '../../scripts/lib/csp-hashes.mjs';
@@ -24,6 +24,24 @@ const ogImages = [...script.matchAll(/^\s*image: '([^']+)',$/gm)].map((m) => m[1
  *  room the classic cluster's (HomePage). Undefined: a room with no hero of its own. */
 const heroOf = (b: Bungalow | undefined) =>
   b?.identity ?? (b?.id === DEFAULT_BUNGALOW_ID ? TOWELI_HERO : undefined);
+
+/** The open lot: not live, so its door renders the landing (BungalowDoor), and no address,
+ *  so the landing heads it with the lot's words, OPEN_LOT_HERO (BungalowDoorLanding). */
+const isLot = (b: Bungalow | undefined) => !!b && !b.live && !b.address;
+const LOT_PATH = BUNGALOWS.find(isLot)!.id;
+
+/** A JPEG's or PNG's own pixel size, read from its header. */
+function pixelSize(file: string): [number, number] {
+  const d = readFileSync(file);
+  if (d[0] === 0x89) return [d.readUInt32BE(16), d.readUInt32BE(20)];
+  for (let i = 2; i < d.length;) {
+    if (d[i] !== 0xff) { i += 1; continue; }
+    const m = d[i + 1]!;
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return [d.readUInt16BE(i + 7), d.readUInt16BE(i + 5)];
+    i += 2 + d.readUInt16BE(i + 2);
+  }
+  throw new Error(`${file}: no frame header`);
+}
 
 /** Every alias door App.tsx mounts for a room, as { path, id }. */
 const appSource = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8');
@@ -86,6 +104,14 @@ describe('bungalow door unfurls (scripts/render-bungalow-doors.mjs)', () => {
     }
   });
 
+  it('declares each og image at its own pixel size and type', () => {
+    for (const door of DOORS) {
+      const [w, h] = pixelSize(resolve(process.cwd(), `public${door.image}`));
+      expect([door.imageWidth, door.imageHeight], `${door.path}: ${door.image}`).toEqual([String(w), String(h)]);
+      expect(door.imageType, door.path).toBe(door.image.endsWith('.png') ? 'image/png' : 'image/jpeg');
+    }
+  });
+
   it('keeps the vercel door cache-headers rule in step with the registry slugs', () => {
     const vercel = readFileSync(resolve(process.cwd(), 'vercel.json'), 'utf8');
     const rule = vercel.match(/"source": "\/\(([a-z0-9|-]+)\)",\s*\n\s*"headers": \[\s*\n\s*\{ "key": "Cache-Control", "value": "no-cache/);
@@ -105,7 +131,8 @@ describe("a door's first frame is the hero its own page renders", () => {
 
   it('reads the heading React renders for that door, word for word', () => {
     for (const door of DOORS) {
-      const hero = heroOf(BUNGALOWS.find((b) => b.id === door.path && b.live));
+      const b = BUNGALOWS.find((x) => x.id === door.path);
+      const hero = isLot(b) ? OPEN_LOT_HERO : heroOf(b?.live ? b : undefined);
       expect(hero, `${door.path} renders no hero of its own`).toBeTruthy();
       expect([door.heroTitle, door.heroLine], door.path).toEqual([hero!.heroTitle, hero!.heroLine]);
     }
@@ -113,6 +140,8 @@ describe("a door's first frame is the hero its own page renders", () => {
 
   it("paints the art React paints behind that door's hero, at the same crop", () => {
     for (const door of DOORS) {
+      // The open lot's landing paints a fixed picture, not home:0: pinned below.
+      if (door.path === LOT_PATH) continue;
       localStorage.setItem('tegridy-bungalow', door.path);
       const art = pageArt('home', 0);
       expect({ src: door.heroArt, position: door.heroPosition }, door.path).toEqual({ src: art.src, position: art.objectPosition });
@@ -120,9 +149,28 @@ describe("a door's first frame is the hero its own page renders", () => {
     }
   });
 
-  it('leaves only the quiet slot, which renders a landing and no home hero, on the stock shell', () => {
-    expect(DOORS.map((d: Door) => d.path)).not.toContain('nb1');
-    expect(heroOf(BUNGALOWS.find((b) => b.id === 'nb1'))).toBeUndefined();
+  // Answer sixteen, ruling 9: "/nb1, the unmarked lot: yes, its own first frame. Every door
+  // means every door. The lot's heading in its own words over the shore's art."
+  it("gives the open lot its own door: its landing's heading, over the owner's pick", () => {
+    expect(LOT_PATH).toBe('nb1');
+    const lot = DOORS.find((d: Door) => d.path === LOT_PATH);
+    expect(lot, 'the open lot has no door page: a stranger reads the stock shell').toBeTruthy();
+    expect(OPEN_LOT_HERO.heroTitle).toBe('Unmarked.');
+    expect(OPEN_LOT_HERO.heroLine).toBe(`Lot ${BUNGALOW_COUNT + 1}, for the next community.`);
+    const { heroTitle, heroLine, heroArt, heroPosition } = lot!;
+    expect({ heroTitle, heroLine, heroArt, heroPosition }).toEqual(OPEN_LOT_HERO);
+    // The owner's pick, 2026-10-02: naka31 at 50% 28%, its door card's crop.
+    expect([OPEN_LOT_HERO.heroArt, OPEN_LOT_HERO.heroPosition]).toEqual([ART.naka31.src, '50% 28%']);
+    expect(lot!.image, 'its link preview shows the same picture').toBe(OPEN_LOT_HERO.heroArt);
+  });
+
+  it('numbers the lot after the bungalows wherever the script types its number', () => {
+    // The script has no TS loader, so "13" is typed there: a 13th bungalow must move it.
+    const lot = DOORS.find((d: Door) => d.path === LOT_PATH)!;
+    const numbers = [lot.title, lot.description, lot.imageAlt, lot.heroLine]
+      .flatMap((s) => [...s.matchAll(/\bLot (\d+)\b/g)].map((m) => Number(m[1])));
+    expect(numbers.length).toBeGreaterThan(0);
+    expect(new Set(numbers)).toEqual(new Set([BUNGALOW_COUNT + 1]));
   });
 });
 
@@ -201,7 +249,9 @@ describe('transform writes the door its own first frame', () => {
       const room = BUNGALOWS.find((b) => b.id === door.path)!;
       const words = `${door.description} ${door.imageAlt}`;
       const said = Object.values(CHAIN_WORD).filter((w) => new RegExp(`\\b${w}\\b`).test(words));
-      expect(said).toEqual([CHAIN_WORD[room.chain as keyof typeof CHAIN_WORD]]);
+      // The open lot (chain 'tbd') lives on no chain yet, so its preview names none.
+      const own = CHAIN_WORD[room.chain as keyof typeof CHAIN_WORD];
+      expect(said).toEqual(own ? [own] : []);
     });
 
     it(`${door.path}: asks for its art the way ArtImg does, eagerly, so it is fetched once`, () => {
