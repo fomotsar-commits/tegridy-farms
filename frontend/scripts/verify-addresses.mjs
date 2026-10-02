@@ -39,7 +39,8 @@
  *                   named in it is not "clean", it is unlooked-at.
  *   6. DRIFT (chain → registry)
  *                 — every contract this repo has actually CREATED on mainnet, Base or
- *                   Robinhood, read out of the Foundry broadcast receipts, must be a
+ *                   Robinhood, read out of the Foundry broadcast receipts (including
+ *                   the ones created inside a transaction), must be a
  *                   registry row ON THAT CHAIN, denylisted, or (mainnet only) retired
  *                   in `retiredDeploys`.
  *
@@ -584,12 +585,20 @@ try {
 // by (from, nonce), which is what fixes its address. A receipt whose `contractAddress`
 // disagrees with its own from/nonce is a failure, not something to trust.
 //
+// A contract created INSIDE a transaction is not a top-level CREATE. Foundry lists it
+// under that transaction's `additionalContracts`: the template a factory's constructor
+// deploys, the pair createPair makes, a Safe from createProxyWithNonce. Until
+// 2026-09-18 this read only the top level, so five mainnet contracts had no row
+// (two of them the live templates every launchpad-v2 drop and NFT pool clone runs),
+// and the four L2 role Safes were never read at all.
+//
 // `dry-run/` is deliberately excluded: those are simulated addresses that were never
 // created on-chain, and demanding registry entries for them would flood the registry
 // with fiction.
 
 /**
- * Every top-level CREATE/CREATE2 in the newest receipt of each broadcast/<script>/<cid>/.
+ * Every CREATE/CREATE2 in the newest receipt of each broadcast/<script>/<cid>/: the
+ * top-level ones, and the ones made inside a transaction (`nested: true`).
  * It reports through `fail`/`warn` only, so --self-test can point it at a synthetic tree.
  */
 function scanBroadcasts(root, cid) {
@@ -617,6 +626,27 @@ function scanBroadcasts(root, cid) {
       parsed = newest.parsed;
     }
     for (const tx of parsed.transactions ?? []) {
+      // Created INSIDE this transaction, whatever its own type. There is no from/nonce to
+      // re-derive these from: the creator's nonce lives in its history and a CREATE2 salt
+      // in the call's arguments. The trace wrote each address.
+      const creator = tx.function
+        ? `${tx.contractName ? `${tx.contractName}.` : ''}${tx.function}`
+        : `the ${tx.contractName ?? '(unnamed)'} constructor`;
+      for (const inner of tx.additionalContracts ?? []) {
+        if (typeof inner?.address !== 'string' || !isAddress(inner.address, { strict: false })) {
+          fail(
+            `${script}/${cid}: an additionalContracts entry under ${creator} has no readable address ` +
+              `(${JSON.stringify(inner?.address)}). A creation that cannot be read is an UNCHECKED deploy, not an absent one.`,
+          );
+          continue;
+        }
+        creates.push({
+          addr: inner.address.toLowerCase(),
+          name: `${inner.contractName ?? '(unnamed)'} (created by ${creator})`,
+          script,
+          nested: true,
+        });
+      }
       if (tx.transactionType !== 'CREATE' && tx.transactionType !== 'CREATE2') continue;
       if (!tx.contractAddress) continue;
       if (tx.transactionType === 'CREATE') {
@@ -667,6 +697,8 @@ function unclassifiedCreateMessage({ addr, name, script }, cid) {
 
 /** CREATEs per chain id. Mainnet's count is the one the zero guard at the bottom requires. */
 const createsScanned = new Map();
+/** How many of those were created inside a transaction, per chain id. */
+const nestedScanned = new Map();
 const knownDeploys = { byChain: registeredOnChain, retired, denylisted };
 try {
   if (!existsSync(BROADCAST)) {
@@ -675,6 +707,7 @@ try {
     for (const cid of Object.keys(EVM_CHAINS).map(Number)) {
       const creates = scanBroadcasts(BROADCAST, cid);
       createsScanned.set(cid, creates.length);
+      nestedScanned.set(cid, creates.filter((c) => c.nested).length);
       const reported = new Set();
       for (const c of creates) {
         if (isClassified(c.addr, cid, knownDeploys) || reported.has(c.addr)) continue;
@@ -699,6 +732,9 @@ if (broadcastsChecked > 0) {
     try {
       for (const tx of JSON.parse(readFileSync(runLatest, 'utf-8')).transactions ?? []) {
         if (tx.contractAddress) deployed.add(tx.contractAddress.toLowerCase());
+        for (const inner of tx.additionalContracts ?? []) {
+          if (typeof inner?.address === 'string') deployed.add(inner.address.toLowerCase());
+        }
       }
     } catch { /* already reported as a failure above */ }
   }
@@ -1317,6 +1353,70 @@ function selfTest() {
     rmSync(tmp, { recursive: true, force: true });
   }
 
+  // 12c. Contracts created INSIDE a transaction. Foundry records them under the parent's
+  //      `additionalContracts`, never as a top-level CREATE: a template a factory's
+  //      constructor deploys, the pair createPair makes, a Safe from createProxyWithNonce.
+  //      Until 2026-09-18 check 6 read only the top level, so five mainnet contracts
+  //      (two of them live templates every clone delegates to) passed with no row.
+  const nestedTmp = mkdtempSync(join(tmpdir(), 'verify-addresses-nested-'));
+  try {
+    const DEPLOYER = '0x14898258122C0740106391E6e8E4F17F3b6d456E';
+    const FACTORY = getContractAddress({ from: DEPLOYER, nonce: 30n });
+    const TEMPLATE = getContractAddress({ from: FACTORY, nonce: 1n });
+    const PAIR = getContractAddress({ from: FACTORY, nonce: 2n });
+    const SAFE = getContractAddress({ from: FACTORY, nonce: 3n });
+    const nested = (transactionType, contractName, address) => ({ transactionType, contractName, address, initCode: '0x' });
+    const put = (script, cid, transactions) => {
+      mkdirSync(join(nestedTmp, script, String(cid)), { recursive: true });
+      writeFileSync(join(nestedTmp, script, String(cid), 'run-latest.json'), JSON.stringify({ timestamp: 1, transactions }));
+    };
+    put('DeployNested.s.sol', 1, [
+      {
+        transactionType: 'CREATE',
+        contractName: 'Factory',
+        contractAddress: FACTORY,
+        transaction: { from: DEPLOYER, nonce: '0x1e' },
+        additionalContracts: [nested('CREATE', 'Template', TEMPLATE)],
+      },
+      {
+        transactionType: 'CALL',
+        contractName: 'Factory',
+        function: 'createPair(address,address)',
+        contractAddress: FACTORY,
+        transaction: { from: DEPLOYER, nonce: '0x1f' },
+        additionalContracts: [nested('CREATE2', 'Pair', PAIR)],
+      },
+    ]);
+    put('DeploySafes.s.sol', 8453, [
+      {
+        transactionType: 'CALL',
+        contractName: null,
+        function: 'createProxyWithNonce(address,bytes,uint256)',
+        transaction: { from: DEPLOYER, nonce: '0x0' },
+        additionalContracts: [nested('CREATE2', null, SAFE)],
+      },
+    ]);
+    put('DeployUnreadable.s.sol', 4663, [
+      { transactionType: 'CALL', transaction: { from: DEPLOYER, nonce: '0x0' }, additionalContracts: [{ transactionType: 'CREATE', contractName: 'X' }] },
+    ]);
+
+    const mainnetNested = collect(() => scanBroadcasts(nestedTmp, 1)).value.map((c) => c.addr);
+    const baseNested = collect(() => scanBroadcasts(nestedTmp, 8453)).value.map((c) => c.addr);
+    t('check 6 reads a contract a CONSTRUCTOR created (additionalContracts on a CREATE)', mainnetNested.includes(TEMPLATE.toLowerCase()));
+    t('check 6 reads a contract a CALL created (createPair -> CREATE2 pair)', mainnetNested.includes(PAIR.toLowerCase()));
+    t('check 6 still reads the top-level CREATE beside its nested one', mainnetNested.includes(FACTORY.toLowerCase()));
+    t(
+      'check 6 reads nested creations PER CHAIN: a Base Safe proxy is scanned on 8453 and not on 1',
+      baseNested.includes(SAFE.toLowerCase()) && !mainnetNested.includes(SAFE.toLowerCase()),
+    );
+    t(
+      'a nested creation with no readable address FAILS check 6 rather than being skipped',
+      collect(() => scanBroadcasts(nestedTmp, 4663)).failed.some((m) => m.includes('DeployUnreadable.s.sol/4663') && m.includes('additionalContracts')),
+    );
+  } finally {
+    rmSync(nestedTmp, { recursive: true, force: true });
+  }
+
   for (const r of rows) console.log(`  ${r.ok ? 'ok  ' : 'FAIL'} ${r.name}`);
   const bad = rows.filter((r) => !r.ok);
   if (bad.length) {
@@ -1343,7 +1443,9 @@ console.log(
 console.log(
   `  drift: ${[...literalsChecked].map(([label, n]) => `${n} ${label}`).join(' + ')} EVM literals -> registry, ` +
     `${solanaLiteralsChecked} curve/program.ts Solana literals -> registry, ` +
-    `${[...createsScanned].map(([cid, n]) => `${n} ${EVM_CHAINS[cid]}`).join(' + ')} CREATEs from broadcast receipts -> registry`,
+    `${[...createsScanned]
+      .map(([cid, n]) => `${n} ${EVM_CHAINS[cid]}${nestedScanned.get(cid) ? ` (${nestedScanned.get(cid)} nested)` : ''}`)
+      .join(' + ')} CREATEs from broadcast receipts -> registry`,
 );
 // An L2 with registry rows and no receipts is not a failure (the receipts may never
 // have been committed), but it is a chain check 6 cannot see, and it says so every run.
@@ -1351,7 +1453,7 @@ for (const [cid, n] of createsScanned) {
   const rows = registeredOnChain.get(cid)?.size ?? 0;
   if (cid === MAINNET || n > 0 || rows === 0) continue;
   warn(
-    `check 6 read ZERO top-level ${EVM_CHAINS[cid]} CREATEs from contracts/broadcast/*/${cid}/ while ` +
+    `check 6 read ZERO ${EVM_CHAINS[cid]} CREATEs from contracts/broadcast/*/${cid}/ while ` +
       `the registry lists ${rows} ${EVM_CHAINS[cid]} address(es), so nothing here can notice an ` +
       `unregistered ${EVM_CHAINS[cid]} deploy`,
   );
