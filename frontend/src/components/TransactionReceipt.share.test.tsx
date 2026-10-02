@@ -1,179 +1,370 @@
 /**
- * SHARE THE RECEIPT, NOT A SLOGAN.
+ * SHARE THE RECEIPT, AND STILL SAY WHERE IT HAPPENED.
  *
- * "Share to X" used to post `Just <verb> on @JungleBayAC! 🌿 #TOWELI #DeFi`
- * plus a bare Etherscan link. Three problems, and the tests below pin all of
- * them as fixed:
- *   1. it read as spam and told a reader nothing they could act on
- *   2. the `url=` param made the post's link preview Etherscan's page, not ours
- *   3. the hashtag was hardcoded to one resident's ticker while this component
- *      mounts app-wide, so a BAYLA staker's post carried #TOWELI
+ * "Share to X" used to post `Just <verb> on @JungleBayAC! 🌿 #<room> #DeFi` plus a
+ * bare Etherscan link: a slogan that told a reader nothing. The owner's call
+ * (2026-10-02): post the receipt block itself (venue, rule, action, the numbers,
+ * the tx link) and KEEP the @JungleBayAC mention and the hashtag that follows the
+ * active room. Everything fits in X's 280, counted the way X counts, and when it
+ * does not fit the receipt is trimmed: the mention and the tag are never cut.
  *
- * The format now sent is the receipt itself — the same block Copy Image already
- * falls back to — which is what people actually post.
+ * And every call that needs the click's user gesture (the share sheet, the
+ * clipboard write, the X window) happens INSIDE the click. A browser such as iOS
+ * Safari refuses those calls once the click handler has awaited something, so the
+ * card is rendered ahead of time instead of on the click. The tests model that
+ * browser: each of those calls is refused unless it arrives during the tap.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { wagmiMock } from '../test-utils/wagmi-mocks';
 import { TransactionReceiptProvider } from './TransactionReceipt';
 import { useTransactionReceipt } from '../hooks/useTransactionReceipt';
+import { BUNGALOW_STORAGE_KEY } from '../lib/bungalows';
 
 // jsdom has no real canvas. Failing the render is the honest default and drives
-// the "could not copy" branch; flip `canvasWorks` to exercise the paths that
-// need a real PNG.
+// the "could not copy" branch; flip `works` to exercise the paths that need a PNG.
 const canvasState = vi.hoisted(() => ({ works: false }));
-vi.mock('html2canvas', () => ({
-  default: vi.fn(async () => {
+const html2canvasMock = vi.hoisted(() =>
+  vi.fn(async (_el: HTMLElement, _opts?: unknown) => {
     if (!canvasState.works) throw new Error('no canvas in jsdom');
     return {
-      toBlob: (cb: (b: Blob | null) => void) =>
-        cb(new Blob(['fake-png'], { type: 'image/png' })),
+      toBlob: (cb: (b: Blob | null) => void) => cb(new Blob(['fake-png'], { type: 'image/png' })),
     };
   }),
-}));
+);
+vi.mock('html2canvas', () => ({ default: html2canvasMock }));
 
-function Opener({ data = { amount: '50000000000000000000000', token: 'TOWELI' } }: { data?: Record<string, unknown> }) {
+const HASH = `0x${'ab'.repeat(32)}`;
+
+const STAKE = {
+  amount: '50000',
+  token: 'TOWELI',
+  lockDuration: '4 Years',
+  boost: '4.00',
+  estimatedAPR: '1237.33',
+};
+
+function Opener({ type = 'stake', data }: { type?: string; data: Record<string, unknown> }) {
   const { showReceipt } = useTransactionReceipt();
-  return (
-    <button onClick={() => showReceipt({ type: 'stake', data } as never)}>open receipt</button>
-  );
+  return <button onClick={() => showReceipt({ type, data } as never)}>open receipt</button>;
 }
 
-function openAndShare(data?: Record<string, unknown>) {
+/** Open a receipt. With a tx hash, the receipt wait is set to a confirmed success. */
+function openReceipt(data: Record<string, unknown> = STAKE, type = 'stake') {
+  if (typeof data.txHash === 'string') {
+    wagmiMock.setWriteStatus({ hash: data.txHash as `0x${string}`, isSuccess: true, receiptStatus: 'success' });
+  }
   render(
     <TransactionReceiptProvider>
-      <Opener data={data} />
+      <Opener type={type} data={data} />
     </TransactionReceiptProvider>,
   );
   fireEvent.click(screen.getByText('open receipt'));
-  fireEvent.click(screen.getByText('Share to X'));
+  return screen.getByRole('dialog');
 }
 
-/** The `text` param of the intent URL window.open was called with. */
-function sharedText(spy: ReturnType<typeof vi.fn>): string {
-  const url = new URL(String(spy.mock.calls.at(-1)?.[0]));
+/* ─── The gesture model ───
+   `inGesture` is true only while a tap is being dispatched, which is exactly the
+   window in which a strict browser honours a popup, a share sheet or a clipboard
+   write. Anything the component awaits first lands after it has closed. */
+let inGesture = false;
+function tap(el: HTMLElement) {
+  inGesture = true;
+  try {
+    fireEvent.click(el);
+  } finally {
+    inGesture = false;
+  }
+}
+const notAllowed = () => new DOMException('not in a user gesture', 'NotAllowedError');
+
+type Popup = { url: string; inGesture: boolean };
+let popups: Popup[];
+/** Ordered log of the gesture-bound calls, to read what happened before what. */
+let calls: string[];
+
+class FakeClipboardItem {
+  constructor(readonly items: Record<string, Blob | PromiseLike<Blob>>) {}
+  get types() { return Object.keys(this.items); }
+  getType(t: string) { return Promise.resolve(this.items[t]); }
+}
+
+/** A clipboard that, like a real one, refuses outside the gesture and fails when an item's data never arrives. */
+function installClipboard() {
+  const write = vi.fn((items: FakeClipboardItem[]) => {
+    calls.push('clipboard.write');
+    if (!inGesture) return Promise.reject(notAllowed());
+    return Promise.all(items.flatMap((i) => i.types.map((t) => i.getType(t)))).then(() => undefined);
+  });
+  const writeText = vi.fn(async (_t: string) => undefined);
+  vi.stubGlobal('ClipboardItem', FakeClipboardItem);
+  return { write, writeText };
+}
+
+/** A share sheet that takes files, refuses outside the gesture, or fails as told. */
+function installShareSheet(outcome: 'ok' | 'abort' | 'error' = 'ok') {
+  const share = vi.fn((_data: { files?: File[]; text?: string }) => {
+    calls.push('share');
+    if (!inGesture) return Promise.reject(notAllowed());
+    if (outcome === 'abort') return Promise.reject(Object.assign(new Error('cancelled'), { name: 'AbortError' }));
+    if (outcome === 'error') return Promise.reject(new Error('share target failed'));
+    return Promise.resolve();
+  });
+  return { share, canShare: (d: { files?: File[] }) => Array.isArray(d?.files) };
+}
+
+function stubNavigator(extra: Record<string, unknown>) {
+  vi.stubGlobal('navigator', { ...navigator, ...extra });
+}
+
+/** The `text` param of the X intent the last popup opened. */
+function sharedText(): string {
+  const url = new URL(popups.at(-1)!.url);
   return url.searchParams.get('text') ?? '';
 }
 
-let openSpy: ReturnType<typeof vi.fn>;
+/** Wait until the card has been rendered to a PNG ahead of any tap. */
+async function cardRendered() {
+  await waitFor(() => expect(html2canvasMock).toHaveBeenCalled(), { timeout: 3000 });
+  await act(async () => {
+    await html2canvasMock.mock.results.at(-1)!.value;
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+/* ─── X's character count ───
+   An independent model of twitter-text's v3 config, which X uses: a code point
+   counts 1 in U+0000-U+10FF and three punctuation ranges, 2 everywhere else
+   (CJK, emoji, the box-drawing rule), and every link counts 23 whatever its
+   length, including a bare domain such as MEMETICS.FINANCE. */
+function xWeight(text: string): number {
+  const one = (cp: number) =>
+    cp <= 0x10ff || (cp >= 0x2000 && cp <= 0x200d) || (cp >= 0x2010 && cp <= 0x201f) || (cp >= 0x2032 && cp <= 0x2037);
+  return text.split(/(\s+)/).reduce((n, word) => {
+    if (/^https?:\/\/\S+$/.test(word) || /^[\w-]+(\.[\w-]+)*\.[a-z]{2,}$/i.test(word)) return n + 23;
+    let w = 0;
+    for (const ch of word) w += one(ch.codePointAt(0)!) ? 1 : 2;
+    return n + w;
+  }, 0);
+}
 
 beforeEach(() => {
   wagmiMock.reset();
   canvasState.works = false;
-  openSpy = vi.fn();
-  vi.stubGlobal('open', openSpy);
+  html2canvasMock.mockClear();
+  inGesture = false;
+  popups = [];
+  calls = [];
+  vi.stubGlobal('open', vi.fn((url: string) => {
+    calls.push('open');
+    popups.push({ url, inGesture });
+    // A popup blocker returns null for a window opened outside the gesture.
+    return inGesture ? ({ closed: false } as unknown as Window) : null;
+  }));
+  localStorage.removeItem(BUNGALOW_STORAGE_KEY);
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  localStorage.removeItem(BUNGALOW_STORAGE_KEY);
+});
 
-describe('receipt share — posts the receipt', () => {
-  it('sends the receipt block, not the slogan', async () => {
-    openAndShare();
-    await waitFor(() => expect(openSpy).toHaveBeenCalled());
-    const text = sharedText(openSpy);
+const shareButton = (dialog: HTMLElement) => within(dialog).getByRole('button', { name: /share to x/i });
 
-    // The shape people actually post: venue, rule, action, then the numbers.
-    expect(text).toContain('MEMETICS.FINANCE');
-    expect(text).toContain('━'.repeat(30));
-    expect(text).toMatch(/Amount: .*TOWELI/);
+describe('receipt share: the composed post', () => {
+  it('posts the receipt fields in order: venue, rule, action, amount, lock, boost, APR, then the tx link', async () => {
+    const dialog = openReceipt({ ...STAKE, txHash: HASH });
+    tap(shareButton(dialog));
+    await waitFor(() => expect(popups.length).toBe(1));
+    const lines = sharedText().split('\n');
 
-    // And none of what it replaced.
+    const at = (re: RegExp) => lines.findIndex((l) => re.test(l));
+    const order = [
+      at(/^\u{1F33F} MEMETICS\.FINANCE$/u),
+      at(/^\u{2501}{30}$/u),
+      at(/^LOCKED DOWN, HELD TIME ON$/),
+      at(/^Amount: 50000\.0000 TOWELI$/),
+      at(/^Lock Duration: 4 Years$/),
+      at(/^Boost: 4\.00x$/),
+      at(/^Est\. APR: 1237\.33%$/),
+      at(new RegExp(`^Tx: https://etherscan\\.io/tx/${HASH}$`)),
+    ];
+    expect(order.every((i) => i >= 0), `missing a receipt line in:\n${lines.join('\n')}`).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+
+    // None of the slogan it replaced, and no separate `url=` (which made the
+    // post's preview Etherscan's page rather than ours).
+    const text = sharedText();
     expect(text).not.toContain('Just ');
-    expect(text).not.toContain('@JungleBayAC');
     expect(text).not.toContain('#DeFi');
+    expect(new URL(popups[0].url).searchParams.get('url')).toBeNull();
   });
 
-  it('carries no hashtag at all, so it cannot tag the wrong resident', async () => {
-    openAndShare();
-    await waitFor(() => expect(openSpy).toHaveBeenCalled());
-    // The old bug was a hardcoded #TOWELI on an app-wide component. A format
-    // with no '#' anywhere has no room for that class of mistake.
-    expect(sharedText(openSpy)).not.toContain('#');
+  it('keeps the @JungleBayAC mention and tags the room the visitor is in', async () => {
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'bayla');
+    tap(shareButton(openReceipt()));
+    await waitFor(() => expect(popups.length).toBe(1));
+    const text = sharedText();
+    expect(text).toContain('@JungleBayAC');
+    expect(text).toContain('#BAYLA');
+    // A BAYLA staker's post must not carry another resident's ticker.
+    expect(text).not.toContain('#TOWELI');
+    // Both ride on the last line, after the receipt.
+    expect(text.split('\n').at(-1)).toBe('@JungleBayAC #BAYLA');
   });
 
-  it('does not append a separate url param', async () => {
-    openAndShare();
-    await waitFor(() => expect(openSpy).toHaveBeenCalled());
-    const url = new URL(String(openSpy.mock.calls.at(-1)?.[0]));
-    // `url=` is what made the post preview Etherscan's page rather than ours.
-    expect(url.searchParams.get('url')).toBeNull();
+  it('with no room chosen, the venue tags itself, never a resident', async () => {
+    tap(shareButton(openReceipt()));
+    await waitFor(() => expect(popups.length).toBe(1));
+    expect(sharedText().split('\n').at(-1)).toBe('@JungleBayAC #MemeticFinance');
   });
 
-  it('stays inside the 280-character limit', async () => {
-    openAndShare();
-    await waitFor(() => expect(openSpy).toHaveBeenCalled());
-    expect(sharedText(openSpy).length).toBeLessThanOrEqual(280);
+  it("stays within X's 280, counted the way X counts it", async () => {
+    // Long enough to need trimming. The box-drawing rule counts DOUBLE on X and
+    // the venue name is linked (23), so a budget measured in JS string length
+    // lets a post through that X then refuses to send.
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'bayla');
+    tap(shareButton(openReceipt({
+      ...STAKE,
+      token: 'T'.repeat(40),
+      lockDuration: 'L'.repeat(60),
+      txHash: HASH,
+    })));
+    await waitFor(() => expect(popups.length).toBe(1));
+    const text = sharedText();
+    expect(xWeight(text), text).toBeLessThanOrEqual(280);
   });
 
-  it('attaches the card as a real file when the platform takes files', async () => {
+  it('trims the receipt first: rows go from the end, and the mention, tag and tx link stay whole', async () => {
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'bayla');
+    tap(shareButton(openReceipt({
+      ...STAKE,
+      token: 'T'.repeat(40),
+      lockDuration: 'L'.repeat(60),
+      txHash: HASH,
+    })));
+    await waitFor(() => expect(popups.length).toBe(1));
+    const text = sharedText();
+    expect(xWeight(text), text).toBeLessThanOrEqual(280);
+    expect(text.split('\n').at(-1)).toBe('@JungleBayAC #BAYLA');
+    expect(text).toContain(`Tx: https://etherscan.io/tx/${HASH}`);
+    // The first figure survives; the last ones are the first to go.
+    expect(text).toMatch(/^Amount: 50000\.0000 T+$/m);
+    expect(text).not.toContain('Est. APR');
+  });
+
+  it('a token name X counts double cannot push the mention or tag out', async () => {
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'bayla');
+    // 120 CJK characters: within the card's field cap, and 240 on X's count by itself.
+    tap(shareButton(openReceipt({ ...STAKE, token: '\u{4EE3}'.repeat(120), txHash: HASH })));
+    await waitFor(() => expect(popups.length).toBe(1));
+    const text = sharedText();
+    expect(xWeight(text), text).toBeLessThanOrEqual(280);
+    expect(text.split('\n').at(-1)).toBe('@JungleBayAC #BAYLA');
+    expect(text).toContain(`Tx: https://etherscan.io/tx/${HASH}`);
+    expect(text).toContain('MEMETICS.FINANCE');
+  });
+});
+
+describe('receipt share: every gesture-bound call happens inside the tap', () => {
+  it('opens X inside the tap, not after the card has rendered', async () => {
     canvasState.works = true;
-    // Typed with a parameter so the recorded call can be read back - a bare
-    // `vi.fn(async () => …)` has a zero-length argument tuple and tsc rejects
-    // indexing into it.
-    const shareSpy = vi.fn(async (_data: { files?: File[]; text?: string }) => undefined);
-    vi.stubGlobal('navigator', {
-      ...navigator,
-      canShare: (d: { files?: File[] }) => Array.isArray(d?.files),
-      share: shareSpy,
-    });
+    tap(shareButton(openReceipt()));
+    await waitFor(() => expect(popups.length).toBe(1));
+    expect(popups[0].inGesture, 'the X window was opened after the tap ended: a popup blocker eats it').toBe(true);
+  });
 
-    openAndShare();
-    await waitFor(() => expect(shareSpy).toHaveBeenCalled());
+  it('puts the card on the clipboard inside the tap, before X takes focus', async () => {
+    canvasState.works = true;
+    const clipboard = installClipboard();
+    stubNavigator({ clipboard });
+    tap(shareButton(openReceipt()));
 
-    const arg = shareSpy.mock.calls[0][0] as { files: File[]; text: string };
+    const hint = await screen.findByTestId('receipt-share-hint');
+    await waitFor(() => expect(hint.textContent).toMatch(/Receipt image copied/i));
+    expect(calls.slice(0, 2)).toEqual(['clipboard.write', 'open']);
+    expect(popups[0].inGesture).toBe(true);
+  });
+
+  it('hands the share sheet the card inside the tap (phones)', async () => {
+    canvasState.works = true;
+    const sheet = installShareSheet('ok');
+    stubNavigator(sheet);
+    const dialog = openReceipt({ ...STAKE, txHash: HASH });
+    await cardRendered();
+
+    tap(shareButton(dialog));
+    expect(sheet.share, 'the share sheet was not opened during the tap').toHaveBeenCalledTimes(1);
+    const arg = sheet.share.mock.calls[0][0] as { files: File[]; text: string };
     expect(arg.files[0].type).toBe('image/png');
     expect(arg.text).toContain('MEMETICS.FINANCE');
-    // The image went WITH the post - there is nothing to paste, so no popup and
-    // no hint telling the user to do anything.
-    expect(openSpy).not.toHaveBeenCalled();
+    expect(arg.text).toContain('@JungleBayAC');
+    // The image went WITH the post: no popup, and nothing to tell the user.
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(popups).toEqual([]);
     expect(screen.queryByTestId('receipt-share-hint')).toBeNull();
   });
 
   it('a cancelled share sheet is a decision, not a failure', async () => {
     canvasState.works = true;
-    const abort = Object.assign(new Error('cancelled'), { name: 'AbortError' });
-    vi.stubGlobal('navigator', {
-      ...navigator,
-      canShare: () => true,
-      share: vi.fn(async () => { throw abort; }),
-    });
-
-    openAndShare();
+    stubNavigator(installShareSheet('abort'));
+    const dialog = openReceipt();
+    await cardRendered();
+    tap(shareButton(dialog));
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
     // Backing out of the sheet must not then shove a popup at the user.
-    await new Promise((r) => setTimeout(r, 50));
-    expect(openSpy).not.toHaveBeenCalled();
+    expect(popups).toEqual([]);
+    expect(screen.queryByTestId('receipt-share-hint')).toBeNull();
   });
 
-  it('falls back to the intent when the share sheet fails for any other reason', async () => {
+  it('a share sheet that fails offers a link to X, never a popup after the tap has ended', async () => {
     canvasState.works = true;
-    vi.stubGlobal('navigator', {
-      ...navigator,
-      canShare: () => true,
-      share: vi.fn(async () => { throw new Error('NotAllowedError'); }),
-    });
+    stubNavigator(installShareSheet('error'));
+    const dialog = openReceipt();
+    await cardRendered();
+    tap(shareButton(dialog));
 
-    openAndShare();
-    await waitFor(() => expect(openSpy).toHaveBeenCalled());
-    expect(sharedText(openSpy)).toContain('MEMETICS.FINANCE');
+    const hint = await screen.findByTestId('receipt-share-hint');
+    // The tap is spent, so a popup now would be blocked. A link is a fresh tap.
+    expect(popups).toEqual([]);
+    const link = within(hint).getByRole('link', { name: /post it on x/i });
+    const text = new URL(link.getAttribute('href')!).searchParams.get('text') ?? '';
+    expect(text).toContain('MEMETICS.FINANCE');
+    expect(text).toContain('@JungleBayAC');
   });
 
   it('does not claim files are supported when canShare is absent', async () => {
     canvasState.works = true;
-    const shareSpy = vi.fn(async (_data: unknown) => undefined);
-    // `share` exists but `canShare` does not - the browsers that silently drop
+    const share = vi.fn(async (_data: unknown) => undefined);
+    // `share` exists but `canShare` does not: the browsers that silently drop
     // attachments. Probing only for `share` would post text and lie about it.
-    vi.stubGlobal('navigator', { ...navigator, share: shareSpy });
-
-    openAndShare();
-    await waitFor(() => expect(openSpy).toHaveBeenCalled());
-    expect(shareSpy).not.toHaveBeenCalled();
+    stubNavigator({ share });
+    const dialog = openReceipt();
+    await cardRendered();
+    tap(shareButton(dialog));
+    await waitFor(() => expect(popups.length).toBe(1));
+    expect(share).not.toHaveBeenCalled();
   });
 
   it('tells the poster the truth when the image could not be copied', async () => {
-    openAndShare();
+    const clipboard = installClipboard();
+    stubNavigator({ clipboard });
+    tap(shareButton(openReceipt()));
     const hint = await screen.findByTestId('receipt-share-hint');
-    // html2canvas is mocked to throw, so the honest hint is the failure one —
-    // never "paste the image" when nothing was put on the clipboard.
-    expect(hint.textContent).toMatch(/could not copy/i);
+    // html2canvas is mocked to throw, so the honest hint is the failure one:
+    // never "paste the image" when nothing reached the clipboard.
+    await waitFor(() => expect(hint.textContent).toMatch(/could not copy/i));
     expect(hint.textContent).not.toMatch(/Receipt image copied/i);
+  });
+
+  it('Copy Image writes to the clipboard inside the tap too', async () => {
+    canvasState.works = true;
+    const clipboard = installClipboard();
+    stubNavigator({ clipboard });
+    const dialog = openReceipt();
+    tap(within(dialog).getByRole('button', { name: /copy image/i }));
+    expect(clipboard.write, 'Copy Image wrote nothing during the tap').toHaveBeenCalledTimes(1);
+    await act(async () => { await clipboard.write.mock.results[0].value; });
+    // The image landed, so no text fallback replaced it.
+    expect(clipboard.writeText).not.toHaveBeenCalled();
   });
 });

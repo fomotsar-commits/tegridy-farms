@@ -14,6 +14,7 @@ import { noteReplacement, receiptOutcome } from '../lib/txErrors';
 import { pageArt } from '../lib/artConfig';
 import { RECEIPT_COPY } from '../lib/copy';
 import { VENUE } from '../lib/arrival';
+import { getActiveBungalow } from '../lib/bungalows';
 import { artImgProps } from '../lib/artSrcSet';
 
 // 'unconfirmed': the receipt wait gave up without reading a result. Not 'failed',
@@ -259,10 +260,10 @@ function TransactionReceiptOverlay({
 
   // Share-to-X gating: pending shows a confirmation modal; failed disables.
   const [showPendingShareModal, setShowPendingShareModal] = useState(false);
-  // Whether the receipt image reached the clipboard on the last share. An X web
-  // intent cannot carry an attachment, so the poster pastes it - and we must not
-  // tell them to paste something that is not there. `null` = not shared yet.
-  const [shareHint, setShareHint] = useState<'ready' | 'no-image' | null>(null);
+  // What to tell the poster after a share. An X web intent cannot carry an
+  // attachment, so they paste the card, and we must not tell them to paste
+  // something that is not there. `null` = nothing to say.
+  const [shareHint, setShareHint] = useState<ShareHint | null>(null);
 
   // Escape closes the topmost layer only: the pending-share confirm sits INSIDE
   // the receipt card, so dismissing it must not also throw away the receipt.
@@ -284,14 +285,20 @@ function TransactionReceiptOverlay({
    * caller never promises the user an image that does not exist.
    */
   const renderCardBlob = useCallback(async (): Promise<Blob | null> => {
-    if (!cardRef.current) return null;
+    const node = cardRef.current;
+    if (!node) return null;
     try {
       const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(cardRef.current, {
+      const canvas = await html2canvas(node, {
         backgroundColor: '#060c1a',
         scale: 2,
         logging: false,
         useCORS: true,
+        // A render can start while the card is still sliding in: draw it at rest.
+        onclone: (_doc, el) => {
+          el.style.opacity = '1';
+          el.style.transform = 'none';
+        },
       });
       return await new Promise<Blob | null>((resolve) => {
         canvas.toBlob(resolve, 'image/png');
@@ -301,79 +308,76 @@ function TransactionReceiptOverlay({
     }
   }, []);
 
-  /** Put the rendered card on the clipboard. True only if it actually landed. */
-  const copyCardImage = useCallback(async (): Promise<boolean> => {
-    const blob = await renderCardBlob();
-    if (!blob) return false;
-    try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-      return true;
-    } catch {
-      return false;
-    }
-  }, [renderCardBlob]);
+  // THE CARD IS RENDERED BEFORE ANYONE TAPS. The share sheet, the clipboard
+  // write and the X window all need the tap's user gesture, and iOS Safari (and
+  // Firefox, for the clipboard) refuses them once the click handler has awaited
+  // anything, such as a lazy html2canvas import and a render. So the PNG is made
+  // ahead, once per status because the badge is part of the picture, and a tap
+  // only reads it. A tap that comes first starts the render itself.
+  const shotRef = useRef<CardShot | null>(null);
+  const cardShot = useCallback((): CardShot => {
+    const have = shotRef.current;
+    if (have && have.status === status) return have;
+    const shot: CardShot = { status, png: renderCardBlob() };
+    shot.png.then((blob) => { shot.blob = blob; });
+    shotRef.current = shot;
+    return shot;
+  }, [status, renderCardBlob]);
+  useEffect(() => {
+    const t = setTimeout(cardShot, CARD_SHOT_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [cardShot]);
 
-  const performShare = useCallback(async () => {
-    // SHARE THE RECEIPT, NOT A SLOGAN. This posted "Just <verb> on
-    // @JungleBayAC!" plus hashtags and a bare Etherscan link. It reads as spam,
-    // it says nothing a reader can act on, and its link preview is Etherscan's
-    // page rather than anything of ours. What people actually post is the
-    // receipt itself - venue, rule, then the numbers - so send exactly that:
-    // the same block `buildReceiptText` already produces for the clipboard.
-    //
-    // It also retires a bug class rather than fixing it once more. The hashtag
-    // was hardcoded `#TOWELI` while this component mounts app-wide, so a BAYLA
-    // staker's tweet went out tagged with another resident's ticker. The format
-    // carries no hashtag at all, so the venue can no longer speak for a resident.
-    //
-    // THE IMAGE, TWO WAYS. A tweet with the receipt card reads far better than
-    // one without, so attach it properly where the browser can and fall back to
-    // a paste where it cannot.
-    //
-    // 1. Web Share, when the platform will take FILES (mobile Safari/Chrome).
-    //    The card goes to the share sheet as a real attachment - nothing to
-    //    paste, which is the whole point on a phone. `canShare({ files })` is
-    //    the only honest probe: `navigator.share` exists in browsers that
-    //    silently drop files, and feature-detecting the method alone would send
-    //    a text-only post while telling the user the image went with it.
-    // 2. Otherwise the intent popup, with the card on the clipboard to paste.
-    //    A web intent cannot carry an attachment, and the clipboard write must
-    //    happen BEFORE the popup - it needs the click's user gesture and loses
-    //    it once focus moves to the new window.
-    const text = buildShareText(receipt, config, rows, chainId);
-    const blob = await renderCardBlob();
+  const performShare = useCallback(() => {
+    // THE RECEIPT, AND WHERE IT HAPPENED (owner, 2026-10-02). This posted "Just
+    // <verb> on @JungleBayAC!" plus hashtags and a bare Etherscan link: a slogan
+    // that told a reader nothing. It now posts the receipt block people actually
+    // post (see buildShareText) and keeps the @JungleBayAC mention and the room's
+    // hashtag. THE HASHTAG FOLLOWS THE ROOM (2026-09-05): this component mounts
+    // app-wide from AppLayout, so a hardcoded `#TOWELI` once tagged a BAYLA
+    // staker's post with another resident's ticker. With nothing chosen the venue
+    // tags itself, never a resident.
+    const active = getActiveBungalow();
+    const tag = active?.symbol ? `#${active.symbol}` : '#MemeticFinance';
+    const text = buildShareText(receipt, config, rows, chainId, tag);
+    const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+    const shot = cardShot();
 
-    if (blob) {
-      const file = new File([blob], 'memetics-receipt.png', { type: 'image/png' });
+    // EVERYTHING BELOW RUNS INSIDE THE TAP: nothing is awaited before a call
+    // that needs the gesture. Only outcomes are awaited, to word the hint.
+    //
+    // 1. Web Share, when the platform takes FILES (mobile Safari/Chrome): the
+    //    card goes to the share sheet as a real attachment. `canShare({ files })`
+    //    is the only honest probe; `navigator.share` exists in browsers that
+    //    silently drop files. It needs a finished PNG, which the pre-render gives.
+    if (shot.blob) {
+      const file = new File([shot.blob], 'memetics-receipt.png', { type: 'image/png' });
       if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file], text });
-          setShareHint(null); // the image went with it; nothing to tell them
-          return;
-        } catch (err) {
-          // A cancelled sheet is a decision, not a failure - do not then shove
-          // a popup at someone who just backed out. Anything else falls through
-          // to the intent path below.
-          if ((err as { name?: string })?.name === 'AbortError') return;
-        }
+        navigator.share({ files: [file], text }).then(
+          () => setShareHint(null), // the image went with it; nothing to tell them
+          (err: unknown) => {
+            // A cancelled sheet is a decision, not a failure. Any other failure
+            // has spent the gesture, so a popup now would be blocked: offer the
+            // intent as a link, which the user's own tap opens.
+            if ((err as { name?: string })?.name === 'AbortError') return;
+            setShareHint({ image: null, xLink: intent });
+          },
+        );
+        return;
       }
     }
 
-    let copied = false;
-    if (blob) {
-      try {
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-        copied = true;
-      } catch {
-        copied = false;
-      }
-    }
-    setShareHint(copied ? 'ready' : 'no-image');
-    window.open(
-      `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
-      '_blank',
-    );
-  }, [renderCardBlob, receipt, config, rows, chainId]);
+    // 2. Otherwise the X intent, with the card on the clipboard to paste. The
+    //    write starts BEFORE the window opens, while this page still has focus.
+    const copied = writeCardToClipboard(shot);
+    const win = window.open(intent, '_blank');
+    try {
+      if (win) win.opener = null; // x.com gets no handle on this tab
+    } catch { /* already cross-origin: nothing to sever */ }
+    // A blocked popup comes back null: hand the user the link instead.
+    const xLink = win === null ? intent : null;
+    copied.then((ok) => setShareHint({ image: ok ? 'copied' : 'missing', xLink }));
+  }, [cardShot, receipt, config, rows, chainId]);
 
   const handleShareX = useCallback(() => {
     if (status === 'failed' || status === 'replaced') return; // disabled
@@ -385,7 +389,8 @@ function TransactionReceiptOverlay({
   }, [status, performShare]);
 
   const handleCopyImage = useCallback(async () => {
-    if (await copyCardImage()) return;
+    // The write starts inside the tap, like Share's; only its outcome is awaited.
+    if (await writeCardToClipboard(cardShot())) return;
     // Fallback: copy the receipt as text. `chainId` is in the dep list now - it
     // is read here and was missing, so after a chain switch this closure kept
     // building the previous chain's explorer link.
@@ -395,7 +400,7 @@ function TransactionReceiptOverlay({
     } catch {
       /* no clipboard at all - nothing further to offer */
     }
-  }, [copyCardImage, receipt, config, rows, timestamp, chainId]);
+  }, [cardShot, receipt, config, rows, timestamp, chainId]);
 
   return (
     <m.div
@@ -610,22 +615,37 @@ function TransactionReceiptOverlay({
             </button>
           </div>
 
+          {/* data-html2canvas-ignore: the card is re-rendered when its status
+              changes, and this note is not part of the receipt. */}
           {shareHint && (
-            <p
+            <div
               data-testid="receipt-share-hint"
-              className="text-[11px] text-center mt-3"
-              style={{ color: shareHint === 'ready' ? 'rgba(255,255,255,0.62)' : 'rgba(255,178,55,0.85)' }}
+              data-html2canvas-ignore="true"
+              className="text-[11px] text-center mt-3 space-y-1"
             >
-              {shareHint === 'ready'
-                ? 'Receipt image copied \u{2014} paste it into the post (Ctrl+V).'
-                : 'Could not copy the receipt image \u{2014} use Copy Image, then paste.'}
-            </p>
+              {shareHint.image && (
+                <p style={{ color: shareHint.image === 'copied' ? 'rgba(255,255,255,0.62)' : 'rgba(255,178,55,0.85)' }}>
+                  {shareHint.image === 'copied'
+                    ? 'Receipt image copied. Paste it into the post.'
+                    : 'Could not copy the receipt image. Use Copy Image, then paste.'}
+                </p>
+              )}
+              {shareHint.xLink && (
+                <p style={{ color: 'rgba(255,178,55,0.85)' }}>
+                  Could not open the share window.{' '}
+                  <a href={shareHint.xLink} target="_blank" rel="noopener noreferrer" className="underline text-white">
+                    Post it on X
+                  </a>
+                </p>
+              )}
+            </div>
           )}
 
           {/* R040 M5: pending-share warning. Modal lives inside the card so a
               tap on backdrop dismisses just the modal, not the receipt. */}
           {showPendingShareModal && (
             <div
+              data-html2canvas-ignore="true"
               role="alertdialog"
               aria-labelledby="pending-share-title"
               aria-describedby="pending-share-desc"
@@ -669,45 +689,126 @@ function TransactionReceiptOverlay({
   );
 }
 
-/* ─── Text fallback for clipboard ─── */
+/* ─── Sharing ─── */
+
+/** What the poster is told after a share: whether the card reached the
+ *  clipboard (null when no write was involved), and the X intent as a plain
+ *  link when no share window could be opened for them. */
+type ShareHint = { image: 'copied' | 'missing' | null; xLink: string | null };
+
+/** The card as a PNG for one status. `blob` is undefined while it renders and
+ *  null when the render failed. */
+type CardShot = { status: TxStatus; png: Promise<Blob | null>; blob?: Blob | null };
+
+/** Wait out the card's entrance spring (about half a second) before rendering
+ *  it, so the render does not compete with the animation for the main thread.
+ *  Correctness does not depend on it: the render draws the card at rest. */
+const CARD_SHOT_DELAY_MS = 600;
 
 /**
- * The block sent to X.
- *
- * Deliberately the SAME shape as `buildReceiptText` below, because that is what
- * people actually post - the venue's timeline is full of pasted receipts, and a
- * reader learns more from four labelled numbers than from any slogan. Two
- * differences: no timestamp (X stamps the post itself) and a hard character
- * budget, because the intent truncates silently and the numbers are the point.
+ * Start putting the card on the clipboard and resolve true only if it landed.
+ * Call it synchronously inside the tap: a ClipboardItem takes a PROMISE of the
+ * PNG, so the write begins within the gesture even while the render finishes.
  */
-const TWEET_LIMIT = 280;
-/** X rewrites every link to exactly this length, whatever the original. */
-const TCO_LEN = 23;
+function writeCardToClipboard(shot: CardShot): Promise<boolean> {
+  if (shot.blob === null) return Promise.resolve(false); // the render already failed
+  let png: Blob | Promise<Blob>;
+  if (shot.blob) {
+    png = shot.blob;
+  } else {
+    png = shot.png.then((b) => b ?? Promise.reject(new Error('no receipt image')));
+    // A clipboard that refuses before reading the item leaves this rejection
+    // with no one to handle it; the outcome is reported through the write.
+    png.catch(() => undefined);
+  }
+  try {
+    return navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]).then(
+      () => true,
+      () => false,
+    );
+  } catch {
+    return Promise.resolve(false); // no async clipboard or ClipboardItem here
+  }
+}
 
+const TWEET_LIMIT = 280;
+/** X rewrites every link to a t.co link of exactly this length, whatever the original. */
+const TCO_LEN = 23;
+const MENTION = '@JungleBayAC';
+/** Text X may turn into a link: a bare domain such as MEMETICS.FINANCE. */
+const LINKABLE = /[\p{L}\p{N}]\.\p{L}{2,}/gu;
+
+/**
+ * X's count for `text`, never below X's own. X weighs characters (twitter-text
+ * config v3): U+0000-U+10FF and three punctuation ranges count 1, everything
+ * else counts 2, so the box-drawing rule costs double and so does CJK. Anything
+ * X may link is charged 23 on top of its own characters: a slight over-count
+ * (MEMETICS.FINANCE is linked, so X counts 23 for it), never an under-count.
+ */
+function xLength(text: string): number {
+  let n = 0;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    const single =
+      cp <= 0x10ff ||
+      (cp >= 0x2000 && cp <= 0x200d) ||
+      (cp >= 0x2010 && cp <= 0x201f) ||
+      (cp >= 0x2032 && cp <= 0x2037);
+    n += single ? 1 : 2;
+  }
+  return n + (text.match(LINKABLE)?.length ?? 0) * TCO_LEN;
+}
+
+/** Cut `text` to fit `budget` on X's count, ending in an ellipsis. */
+function clipToX(text: string, budget: number): string {
+  const chars = Array.from(text);
+  while (chars.length > 0 && xLength(`${chars.join('')}\u{2026}`) > budget) chars.pop();
+  return `${chars.join('').trimEnd()}\u{2026}`;
+}
+
+/**
+ * The post sent to X: the receipt block people actually post (venue, rule,
+ * action, the numbers, the tx link), then the @JungleBayAC mention and the
+ * room's hashtag on the last line.
+ *
+ * The block is the SAME shape as `buildReceiptText` below, because the
+ * venue's timeline is full of pasted receipts and a reader learns more from
+ * labelled numbers than from any slogan. No timestamp: X stamps the post.
+ *
+ * It must fit X's 280 as X counts it, or the composer refuses to send. The
+ * receipt gives way and the mention and tag never do: first the decorative
+ * rule goes (it costs 60 on X's count), then detail rows from the end (the
+ * first figure stays), and only then is what is left clipped. The tx link is
+ * never cut either, so it always resolves.
+ */
 function buildShareText(
   receipt: ReceiptData,
   config: { label: string },
   rows: { label: string; value: string }[],
-  chainId?: number,
+  chainId: number | undefined,
+  tag: string,
 ): string {
-  const head = [`\u{1F33F} ${VENUE.name}`, '\u{2501}'.repeat(30), '', config.label, ''];
   const validHash = sanitizeTxHash(receipt.data.txHash);
   const txUrl = validHash ? getTxUrl(chainId, validHash) : null;
-  const tail = txUrl ? ['', `Tx: ${txUrl}`] : [];
+  const tx = txUrl ? `\n\nTx: ${txUrl}` : '';
+  const footer = `\n\n${MENTION} ${tag}`;
+  // The link is counted at its POSTED length, not its literal one.
+  const budget = TWEET_LIMIT - (txUrl ? xLength('\n\nTx: ') + TCO_LEN : 0) - xLength(footer);
 
-  // Measure the link at its POSTED length, not its literal one, or a long
-  // explorer URL makes us drop rows we did not need to.
-  const cost = (lines: string[]) =>
-    lines.reduce((n, l) => n + l.length + 1, 0) + (txUrl ? TCO_LEN - txUrl.length : 0);
-
+  const venue = `\u{1F33F} ${VENUE.name}`;
+  let rule = ['\u{2501}'.repeat(30)];
   const body = rows.map((r) => `${r.label}: ${r.value}`);
-  // Drop detail rows from the end rather than let X cut a number in half. Keep
-  // at least one: a receipt with no figures is not worth posting.
-  while (body.length > 1 && cost([...head, ...body, ...tail]) > TWEET_LIMIT) {
-    body.pop();
-  }
-  return [...head, ...body, ...tail].join('\n');
+  const block = () =>
+    [venue, ...rule, '', config.label, ...(body.length > 0 ? ['', ...body] : [])].join('\n');
+
+  if (xLength(block()) > budget) rule = [];
+  while (body.length > 1 && xLength(block()) > budget) body.pop();
+  let text = block();
+  if (xLength(text) > budget) text = clipToX(text, budget);
+  return text + tx + footer;
 }
+
+/* ─── Text fallback for clipboard ─── */
 
 function buildReceiptText(
   receipt: ReceiptData,
