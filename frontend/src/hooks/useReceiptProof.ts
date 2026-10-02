@@ -2,6 +2,7 @@ import { useBlock, useWaitForTransactionReceipt } from 'wagmi';
 import type { Hex } from 'viem';
 import type { Invoice } from '../lib/commerce/invoice';
 import { judgeReceipt, type ReceiptVerdict } from '../lib/commerce/receiptProof';
+import { receiptOutcome } from '../lib/txErrors';
 import { useTrackedTransactionReceipt } from './useTransactionReceipt';
 
 // Turning a transaction hash into a verdict about one invoice.
@@ -43,7 +44,11 @@ export function useReceiptProof(invoice: Invoice | null, txHash: Hex | null): Re
   const chainId = invoice?.chainId;
 
   const tracked = useTrackedTransactionReceipt(hash, 1);
-  const { data: receipt } = useWaitForTransactionReceipt({ hash, confirmations: 1, chainId });
+  const receiptQuery = useWaitForTransactionReceipt({ hash, confirmations: 1, chainId });
+  const { data: receipt } = receiptQuery;
+  // wagmi THROWS on a reverted receipt instead of returning it, so a revert on
+  // the invoice's chain arrives here as an error, with no receipt to judge.
+  const { isReverted } = receiptOutcome(receiptQuery);
 
   const blockNumber = receipt?.blockNumber ?? tracked.blockNumber ?? null;
   // The block is read for its own timestamp — chain time, never Date.now(). A
@@ -72,6 +77,17 @@ export function useReceiptProof(invoice: Invoice | null, txHash: Hex | null): Re
     case 'confirmed':
     case 'failed': {
       if (!receipt) {
+        // A revert never arrives as a receipt (wagmi throws it; see
+        // lib/txErrors.ts). Until 2026-09-17 the tracker called it 'dropped', and
+        // this panel told the merchant no such transaction was found. It was
+        // found, and it reverted: that IS a verdict, and the status is all it reads.
+        if (tracked.status === 'failed' && isReverted) {
+          return {
+            status: 'judged',
+            verdict: judgeReceipt(invoice, { status: 'reverted', logs: [] }, null),
+            blockNumber: null,
+          };
+        }
         // The tracker reached a terminal state and the receipt is not in hand.
         // Nothing can be judged from that, and guessing would be inventing one.
         return { status: 'reading' };

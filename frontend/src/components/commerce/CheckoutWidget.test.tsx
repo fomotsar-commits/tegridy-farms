@@ -9,7 +9,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { encodeAbiParameters, encodeEventTopics, erc20Abi, pad, type Log } from 'viem';
+import {
+  CallExecutionError,
+  ExecutionRevertedError,
+  TransactionReceiptNotFoundError,
+  encodeAbiParameters,
+  encodeEventTopics,
+  erc20Abi,
+  pad,
+  type Log,
+} from 'viem';
 
 const MERCHANT = '0x1111111111111111111111111111111111111111' as const;
 const BUYER = '0x2222222222222222222222222222222222222222' as const;
@@ -29,6 +38,8 @@ interface Harness {
   balanceError: boolean;
   receipt: { status: 'success' | 'reverted'; logs: Log[]; blockNumber: bigint } | undefined;
   block: { timestamp: bigint } | undefined;
+  /** What the receipt wait failed with: wagmi THROWS a revert, and a read can fail. */
+  receiptError: unknown;
 }
 
 const h: Harness = {
@@ -42,6 +53,7 @@ const h: Harness = {
   balanceError: false,
   receipt: undefined,
   block: undefined,
+  receiptError: undefined,
 };
 
 // ONE object for the whole file, because real wagmi memoises its public client
@@ -68,7 +80,7 @@ vi.mock('wagmi', () => ({
   }),
   useWriteContract: () => ({
     writeContract: vi.fn(),
-    data: h.receipt ? HASH : undefined,
+    data: h.receipt || h.receiptError !== undefined ? HASH : undefined,
     isPending: false,
     reset: vi.fn(),
   }),
@@ -76,8 +88,8 @@ vi.mock('wagmi', () => ({
     data: h.receipt,
     isLoading: false,
     isSuccess: h.receipt !== undefined,
-    isError: false,
-    error: null,
+    isError: h.receiptError !== undefined,
+    error: h.receiptError ?? null,
   }),
   useBlock: () => ({ data: h.block }),
 }));
@@ -150,6 +162,7 @@ beforeEach(() => {
   h.balanceError = false;
   h.receipt = undefined;
   h.block = undefined;
+  h.receiptError = undefined;
 });
 
 describe('the link is judged before any figure is a debt', () => {
@@ -302,6 +315,31 @@ describe('the receipt is judged from its logs, not announced from its status', (
     h.block = undefined;
     draw(verified());
     expect(await screen.findByText(/block time not read/i)).toBeInTheDocument();
+  });
+
+  // wagmi never returns a reverted receipt: waitForTransactionReceipt THROWS on
+  // one. Until 2026-09-17 this widget read only `data`, so a reverted transfer
+  // and a transfer whose receipt could not be read BOTH left the panel empty with
+  // "Pay the exact amount" re-armed — for the second, an invitation to pay twice.
+  it('says a thrown revert moved nothing, rather than showing nothing', async () => {
+    h.receiptError = new CallExecutionError(new ExecutionRevertedError({ message: 'execution reverted' }), {});
+    draw(verified());
+    expect(await screen.findByText(/reverted on chain, so no WETH moved and the merchant was not paid/i)).toBeInTheDocument();
+    expect(screen.getByText(/does NOT contain the transfer to you/i)).toBeInTheDocument();
+    expect(document.body.textContent ?? '').not.toMatch(/can.?t tell whether the merchant was paid/i);
+  });
+
+  it('says an unreadable receipt could have landed, and what paying again costs', async () => {
+    h.receiptError = new TransactionReceiptNotFoundError({ hash: HASH });
+    draw(verified());
+    expect(await screen.findByText(/can.?t tell whether\s+the merchant was paid/i)).toBeInTheDocument();
+    expect(screen.getByText(/paying again sends 1\.?0* WETH a\s+second time/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /check on the explorer/i }).getAttribute('href')).toContain(HASH);
+    // Neither verdict: nothing was read.
+    const text = document.body.textContent ?? '';
+    expect(text).not.toMatch(/does NOT contain the transfer to you/i);
+    expect(text).not.toMatch(/the transfer to you was found in it/i);
+    expect(text).not.toMatch(/reverted/i);
   });
 
   it('hands the buyer a proof link that carries the hash', async () => {

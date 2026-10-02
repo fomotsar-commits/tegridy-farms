@@ -1,10 +1,11 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useAccount, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { toast } from 'sonner';
 import type { Address, Hex } from 'viem';
 import { AIRDROP_FACTORY_ABI, ERC20_ABI } from '../lib/contracts';
 import { AIRDROP_FACTORY_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { surfaceTxError } from '../lib/txErrors';
+import { useReceiptOutcome } from './useReceiptOutcome';
 
 /**
  * AirdropFactory reads + the campaign-creation write.
@@ -64,7 +65,18 @@ export function useAirdropFactory() {
   };
 
   const { writeContract, data: hash, isPending, reset } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const { isLoading: isConfirming } = receiptQuery;
+  // wagmi THROWS on a reverted receipt, so a reverted approve/create arrived on
+  // `isError`, which nothing read: a revert and an unreadable receipt were silent.
+  const { isSuccess, isReverted } = useReceiptOutcome(receiptQuery, {
+    hash,
+    chainId: CHAIN_ID,
+    repeatCost: 'a second approval only costs gas, but a second create funds another campaign.',
+  });
+  useEffect(() => {
+    if (isReverted) toast.error('Transaction reverted on-chain — nothing was approved or funded, and no tokens moved.');
+  }, [isReverted]);
 
   /** Approve the factory to pull the funding amount. Required before `createCampaign`. */
   const approve = useCallback(

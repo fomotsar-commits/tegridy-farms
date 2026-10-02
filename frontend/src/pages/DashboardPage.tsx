@@ -12,6 +12,7 @@ import { useLpPosition } from '../hooks/useLpPosition';
 import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { useFarmActions } from '../hooks/useFarmActions';
+import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
 import { useDCA } from '../hooks/useDCA';
@@ -1094,7 +1095,7 @@ export function POLAccumulatorCard() {
   );
 }
 
-function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
+export function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
   // R047 M1: pin chainId on the read so a wallet on the wrong chain can't
   // surface stale 0 ETH from a different network. Wrong-chain UI surfaces
   // the page-level "Wrong network detected" banner instead.
@@ -1111,12 +1112,17 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
   });
 
   const { writeContract, data: hash, isPending } = useWriteContract();
-  const { data: claimReceipt, isLoading: isConfirming, isSuccess: isClaimReceiptFetched } = useWaitForTransactionReceipt({ hash });
+  const claimQuery = useWaitForTransactionReceipt({ hash });
+  const { isLoading: isConfirming } = claimQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate the
-  // success toast on receipt.status.
-  const isClaimReverted = isClaimReceiptFetched && !!claimReceipt && claimReceipt.status !== 'success';
-  const isClaimSuccess = isClaimReceiptFetched && !isClaimReverted;
+  // was FETCHED. 2026-09-17: and a revert never reaches it — wagmi THROWS on a
+  // reverted receipt, so the revert toast below was dead and a reverted claim
+  // silent. useReceiptOutcome reads the thrown revert.
+  const { isSuccess: isClaimSuccess, isReverted: isClaimReverted } = useReceiptOutcome(claimQuery, {
+    hash,
+    chainId: CHAIN_ID,
+    repeatCost: 'claiming again only claims what has accrued since, or reverts if nothing has.',
+  });
 
   const pending = pendingETH ? Number(formatEther(pendingETH as bigint)) : 0;
 

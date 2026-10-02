@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
+import { CallExecutionError, ExecutionRevertedError, TransactionReceiptNotFoundError } from 'viem';
 import { wagmiMock } from '../test-utils/wagmi-mocks';
 
 import { useTrackedTransactionReceipt } from './useTransactionReceipt';
@@ -52,6 +53,29 @@ describe('useTrackedTransactionReceipt — R044 H3 reorg defense', () => {
     expect(result.current.status).toBe('failed');
     expect(result.current.isConfirmed).toBe(false);
     expect(result.current.isTerminal).toBe(true);
+  });
+
+  // wagmi 3 never delivers the shape above: its waitForTransactionReceipt THROWS
+  // on a reverted receipt (it replays the tx through viem `call`, which wraps the
+  // failure in CallExecutionError). Until 2026-09-17 that landed in the 'dropped'
+  // fallback, so every real revert read as "not found", and the 'failed' branch
+  // above could not fire. The shape wagmi actually produces:
+  it('reports failed when wagmi THROWS the revert (CallExecutionError), not dropped', () => {
+    wagmiMock.setWriteStatus({
+      hash: HASH,
+      receiptError: new CallExecutionError(new ExecutionRevertedError({ message: 'execution reverted' }), {}),
+    });
+    const { result } = renderHook(() => useTrackedTransactionReceipt(HASH));
+    expect(result.current.status).toBe('failed');
+    expect(result.current.isConfirmed).toBe(false);
+    expect(result.current.isTerminal).toBe(true);
+  });
+
+  it('keeps an UNREADABLE receipt off "failed": a read error proves nothing about the tx', () => {
+    wagmiMock.setWriteStatus({ hash: HASH, receiptError: new TransactionReceiptNotFoundError({ hash: HASH }) });
+    const { result } = renderHook(() => useTrackedTransactionReceipt(HASH));
+    expect(result.current.status).toBe('dropped');
+    expect(result.current.isConfirmed).toBe(false);
   });
 
   it('reports replaced when wagmi raises TransactionReplacedError', () => {

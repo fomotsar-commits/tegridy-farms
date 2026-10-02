@@ -31,6 +31,15 @@ import {
   type CurveIdentityResolution,
 } from '../../lib/launcher/curveIdentity';
 import { useCurveIdentity } from '../../hooks/useCurveIdentity';
+import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
+
+/** Completes "…before you send it again: if it landed, ___" per action. */
+const REPEAT_COST: Record<string, string> = {
+  Buy: 'a second buy spends the ETH again.',
+  Sell: 'a second sell sells more tokens.',
+  Approval: 'a second approval only costs gas.',
+  'Finalize graduation': 'a second finalize reverts, because the curve has already graduated.',
+};
 
 const ERC20_MIN_ABI = [
   { type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ name: 'o', type: 'address' }, { name: 's', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
@@ -470,24 +479,35 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
   // the submitted hash to the RECEIPT. wagmi's fetch-success is not on-chain
   // success — a reverted tx also has a receipt — so status is checked
   // explicitly and a revert comes back as a red toast, never silence.
+  //
+  // 2026-09-17: that red toast never fired. wagmi THROWS on a reverted receipt,
+  // so a revert reached `isError`, never `isSuccess` — and `tx` cleared only on
+  // `isSuccess`, so a reverted (or unreadable) buy/sell held the whole panel on
+  // "Confirming on-chain…" until a reload. It now releases on all three.
   const [tx, setTx] = useState<{ hash: `0x${string}`; label: string } | null>(null);
-  const { data: receipt, isSuccess: receiptFetched } = useWaitForTransactionReceipt({
+  const receiptQuery = useWaitForTransactionReceipt({
     hash: tx?.hash,
     chainId,
     query: { enabled: tx !== null },
   });
+  const { isSuccess, isReverted, isReceiptUnreadable } = useReceiptOutcome(receiptQuery, {
+    hash: tx?.hash,
+    chainId,
+    repeatCost: (tx && REPEAT_COST[tx.label]) ?? 'sending it again repeats it.',
+  });
   useEffect(() => {
-    if (!tx || !receiptFetched || !receipt) return;
-    if (receipt.status === 'success') {
+    if (!tx || !(isSuccess || isReverted || isReceiptUnreadable)) return;
+    if (isSuccess) {
       toast.success(`${tx.label} confirmed.`);
-    } else {
+    } else if (isReverted) {
       toast.error(`${tx.label} failed on-chain (reverted) — nothing changed. Check slippage, or whether the curve just closed.`);
     }
+    // Unreadable: useReceiptOutcome has already said we can't tell.
     setTx(null);
     void refetchLaunch();
     void refetchBalance();
     void refetchAllowance();
-  }, [tx, receiptFetched, receipt, refetchLaunch, refetchBalance, refetchAllowance]);
+  }, [tx, isSuccess, isReverted, isReceiptUnreadable, refetchLaunch, refetchBalance, refetchAllowance]);
 
   const launch = useMemo(() => toCurveLaunch(launchRaw), [launchRaw]);
   // Hook order: resolve identity unconditionally (before the loading return).

@@ -17,6 +17,7 @@ import { useAccount, useReadContract, useReadContracts, useWriteContract, useWai
 import { toast } from 'sonner';
 import { formatEther, isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { trackPageView } from '../lib/analytics';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
@@ -87,7 +88,7 @@ export function CurveCreatorClaimView({ claimableWei, pending, mining = false, o
   );
 }
 
-function CurveCreatorClaim({ launcher, chainId, token, creator }: { launcher: Address; chainId: number; token: Address; creator: Address }) {
+export function CurveCreatorClaim({ launcher, chainId, token, creator }: { launcher: Address; chainId: number; token: Address; creator: Address }) {
   const { address: account } = useAccount();
   const { writeContract, isPending } = useWriteContract();
   const { data: claimableRaw, refetch } = useReadContract({
@@ -105,19 +106,30 @@ function CurveCreatorClaim({ launcher, chainId, token, creator }: { launcher: Ad
   // a second click submitted a guaranteed NothingToClaim revert. The button now
   // holds through the receipt, the refetch runs after it, and a revert comes
   // back as a red toast instead of silence.
+  //
+  // 2026-09-17: that red toast never fired. wagmi THROWS on a reverted receipt,
+  // so a revert reached `isError`, never `isSuccess` — and `txHash` cleared only
+  // on `isSuccess`, so a reverted (or unreadable) claim held the button on
+  // "Confirming on-chain…" until a reload. It now releases on all three.
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
-  const { data: receipt, isSuccess: receiptFetched } = useWaitForTransactionReceipt({
+  const receiptQuery = useWaitForTransactionReceipt({
     hash: txHash ?? undefined,
     chainId,
     query: { enabled: txHash !== null },
   });
+  const { isSuccess, isReverted, isReceiptUnreadable } = useReceiptOutcome(receiptQuery, {
+    hash: txHash ?? undefined,
+    chainId,
+    repeatCost: 'claiming again pays out only what has accrued since, or reverts if nothing has.',
+  });
   useEffect(() => {
-    if (!txHash || !receiptFetched || !receipt) return;
-    if (receipt.status === 'success') toast.success('Creator fees claimed.');
-    else toast.error('Claim failed on-chain (reverted) — nothing was paid out.');
+    if (!txHash || !(isSuccess || isReverted || isReceiptUnreadable)) return;
+    if (isSuccess) toast.success('Creator fees claimed.');
+    else if (isReverted) toast.error('Claim failed on-chain (reverted) — nothing was paid out.');
+    // Unreadable: useReceiptOutcome has already said we can't tell.
     setTxHash(null);
     void refetch();
-  }, [txHash, receiptFetched, receipt, refetch]);
+  }, [txHash, isSuccess, isReverted, isReceiptUnreadable, refetch]);
 
   // The gate: only the on-chain creator ever sees this surface.
   if (!account || account.toLowerCase() !== creator.toLowerCase()) return null;
