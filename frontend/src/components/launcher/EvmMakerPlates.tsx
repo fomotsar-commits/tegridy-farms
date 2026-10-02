@@ -17,7 +17,7 @@ import {
   CURVE_NO_LOCK,
   CURVE_READING,
   MAKER_IS_SENDER,
-  NO_ALLOCATION,
+  NOT_DOPPLER,
   curveCreateBuyLines,
   dopplerPlatesLines,
 } from './makerPlatesCopy';
@@ -117,13 +117,13 @@ export function CurveMakerCreateBuy({
 
 /** /launch: the maker's allocation, its lock, and what the launch transaction bought. null = reading. */
 export function MakerPlatesView({ plates, onRetry }: { plates: DopplerPlates | null; onRetry?: () => void }) {
-  const lines = plates?.kind === 'read' ? dopplerPlatesLines(plates.birth, plates.vestingStart, plates.released) : null;
+  const lines = plates?.kind === 'read' ? dopplerPlatesLines(plates) : null;
   return (
     <section className="glass-card rounded-xl p-5 mb-4" data-testid="maker-plates">
       <h2 className="text-[14px] font-semibold text-text-primary">The maker&apos;s allocation</h2>
       <div className="mt-2 space-y-1.5 text-[12.5px] text-text-secondary leading-relaxed">
         {plates === null && <p className="animate-pulse">{ALLOCATION_READING}</p>}
-        {plates?.kind === 'none' && <p>{NO_ALLOCATION}</p>}
+        {plates?.kind === 'not-doppler' && <p>{NOT_DOPPLER}</p>}
         {plates?.kind === 'unreadable' && (
           <>
             <p>{ALLOCATION_UNREADABLE}</p>
@@ -139,9 +139,9 @@ export function MakerPlatesView({ plates, onRetry }: { plates: DopplerPlates | n
           <>
             <p className="break-words">{lines.allocation}</p>
             {lines.others && <p>{lines.others}</p>}
-            <p>{lines.bought}</p>
+            {lines.bought && <p>{lines.bought}</p>}
             <p className="text-[11px] text-text-muted">
-              {MAKER_IS_SENDER} Read from <TxLink chainId={1} tx={plates.birth.tx} />.
+              {plates.birth.maker && `${MAKER_IS_SENDER} `}Read from <TxLink chainId={1} tx={plates.birth.tx} />.
             </p>
           </>
         )}

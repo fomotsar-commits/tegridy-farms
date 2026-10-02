@@ -5,10 +5,13 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { encodeAbiParameters, encodeEventTopics, getAddress, toEventSelector, toFunctionSelector, type Address, type Hex } from 'viem';
-import { dopplerERC20V1Abi } from '@whetstone-research/doppler-sdk/evm';
+import { airlockAbi, dopplerERC20V1Abi } from '@whetstone-research/doppler-sdk/evm';
 import { CURVE_LAUNCHER_ABI, CURVE_TOTAL_SUPPLY, previewBuy, saleSupplyForReserveBps } from './curve';
+import { AIRLOCK_CREATE_EVENT } from './ourLaunches';
+import { LAUNCHER_INTEGRATOR_ADDRESS } from './config';
 import {
   DOPPLER_PLATES_ABI,
+  asBirthReceipt,
   curveCreateBuyFromReceipt,
   dopplerBirthFromReceipt,
   fetchBirthHint,
@@ -24,13 +27,18 @@ const TOKEN = getAddress('0x10422e419fe9858f9da77d2f30fecfbb4482e790');
 const OTHER_TOKEN = getAddress('0x00000000000000000000000000000000000000aa');
 const MAKER = getAddress('0x295c4315fd4c0710d286b69e7cd5cecd289d5e6c');
 const OTHER = getAddress('0x86c2dc44f8d298c6c2d63a9ac9862511505938e0');
+const SAFE = getAddress('0x5afe5afe5afe5afe5afe5afe5afe5afe5afe5afe');
 const AIRLOCK = getAddress('0xde3599a2ec440b296373a983c85c365da55d9dfa');
+// The dynamic auction's pool initializer, as the real birth's Create log names it.
+const V4_INITIALIZER = getAddress('0x53b4c21a6cb61d64f636abbfa6e8e90e6558e8ad');
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
 const TX = '0x730b0c9f5f1c272b054f132459d81802950f04b74f7f8342718885c71134b250' as Hex;
 
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const receipt = (logs: BirthLog[], over: Partial<BirthReceipt> = {}): BirthReceipt => ({
   status: 'success',
   from: MAKER,
+  to: null,
   transactionHash: TX,
   logs,
   ...over,
@@ -138,6 +146,31 @@ describe('the Memetics Curve: the server is a hint, and every failure is unreada
   });
 });
 
+describe("asBirthReceipt: an RPC's receipt is input, down to each log", () => {
+  const good = { status: 'success', from: MAKER, to: AIRLOCK, transactionHash: TX, logs: [launchCreated()] };
+
+  it('keeps a well-formed receipt, with or without a recipient', () => {
+    expect(asBirthReceipt(good)).not.toBeNull();
+    expect(asBirthReceipt({ ...good, to: null })?.to).toBeNull();
+    expect(asBirthReceipt({ ...good, to: undefined })?.to).toBeNull();
+  });
+
+  it.each([
+    ['a log with no address', { ...launchCreated(), address: undefined }],
+    ['a log whose address is not one', { ...launchCreated(), address: '0x1234' }],
+    ['a log with a topic that is not 32 bytes of hex', { ...launchCreated(), topics: ['0xnothex'] }],
+    ['a log whose topics are not a list', { ...launchCreated(), topics: 'nope' }],
+    ['a log whose data is not hex', { ...launchCreated(), data: 'zz' }],
+    ['a log that is not an object', null],
+  ])('refuses %s, so nothing downstream can throw on it', (_label, log) => {
+    expect(asBirthReceipt({ ...good, logs: [launchCreated(), log] })).toBeNull();
+  });
+
+  it('refuses a recipient that is not an address', () => {
+    expect(asBirthReceipt({ ...good, to: '0xdead' })).toBeNull();
+  });
+});
+
 describe('fetchBirthHint: our own endpoint, strict about its answer', () => {
   afterEach(() => vi.unstubAllGlobals());
   const reply = (body: unknown, status = 200) =>
@@ -177,17 +210,37 @@ const dEvent = <N extends 'VestingScheduleCreated' | 'VestingAllocated' | 'Trans
 const E26 = 10n ** 26n;
 const DAY = 86_400n;
 
-/** The real birth's token logs, in order, plus the Airlock's own log as noise. */
-function dopplerBirth(extra: BirthLog[] = [], schedule = { cliff: 0n, duration: DAY }): BirthReceipt {
-  return receipt([
-    dEvent('VestingScheduleCreated', { scheduleId: 0n, ...schedule }),
-    dEvent('VestingAllocated', { beneficiary: MAKER, scheduleId: 0n, amount: 8n * E26 }),
-    dEvent('Transfer', { from: ZERO, to: TOKEN, amount: 8n * E26 }),
-    dEvent('Transfer', { from: ZERO, to: AIRLOCK, amount: 2n * E26 }),
-    dEvent('Transfer', { from: AIRLOCK, to: OTHER, amount: 2n * E26 }),
-    { address: AIRLOCK, topics: [toEventSelector('Create(address,address,address,address)')], data: '0x' },
-    ...extra,
-  ]);
+/** The Airlock's own Create log: asset, numeraire (indexed), initializer, pool or hook. */
+function airlockCreate(o: { address?: Address; asset?: Address; initializer?: Address } = {}): BirthLog {
+  return {
+    address: o.address ?? AIRLOCK,
+    topics: encodeEventTopics({ abi: [AIRLOCK_CREATE_EVENT], eventName: 'Create', args: { numeraire: ZERO } }) as Hex[],
+    data: encodeAbiParameters([{ type: 'address' }, { type: 'address' }, { type: 'address' }], [o.asset ?? TOKEN, o.initializer ?? V4_INITIALIZER, OTHER]),
+  };
+}
+
+/** The real birth's token logs, in order, and the Airlock's Create, sent straight to the Airlock. */
+function dopplerBirth(extra: BirthLog[] = [], schedule = { cliff: 0n, duration: DAY }, over: Partial<BirthReceipt> = {}): BirthReceipt {
+  return receipt(
+    [
+      dEvent('VestingScheduleCreated', { scheduleId: 0n, ...schedule }),
+      dEvent('VestingAllocated', { beneficiary: MAKER, scheduleId: 0n, amount: 8n * E26 }),
+      dEvent('Transfer', { from: ZERO, to: TOKEN, amount: 8n * E26 }),
+      dEvent('Transfer', { from: ZERO, to: AIRLOCK, amount: 2n * E26 }),
+      dEvent('Transfer', { from: AIRLOCK, to: OTHER, amount: 2n * E26 }),
+      airlockCreate(),
+      ...extra,
+    ],
+    { to: AIRLOCK, ...over },
+  );
+}
+
+/** A launch with no premine (the /launch default): the whole supply minted to the Airlock, no vesting. */
+function fairLaunch(over: Partial<BirthReceipt> = {}): BirthReceipt {
+  return receipt(
+    [dEvent('Transfer', { from: ZERO, to: AIRLOCK, amount: 10n * E26 }), dEvent('Transfer', { from: AIRLOCK, to: OTHER, amount: 10n * E26 }), airlockCreate()],
+    { to: AIRLOCK, ...over },
+  );
 }
 
 describe("Doppler: the maker's allocation, schedule and create-buy from the birth receipt", () => {
@@ -198,6 +251,7 @@ describe("Doppler: the maker's allocation, schedule and create-buy from the birt
       value: {
         tx: TX,
         maker: MAKER,
+        initializer: V4_INITIALIZER,
         birthSupply: 10n * E26,
         makerAmount: 8n * E26,
         makerSchedules: [{ id: 0n, cliff: 0n, duration: DAY }],
@@ -206,6 +260,36 @@ describe("Doppler: the maker's allocation, schedule and create-buy from the birt
         toMaker: 0n,
       },
     });
+  });
+
+  // A contract can emit the template's events itself and claim any lock it likes. Only a
+  // transaction in which Doppler's Airlock created this very token is a launch.
+  it("refuses a transaction in which Doppler's Airlock did not create this token", () => {
+    const own = dopplerBirth().logs.filter((l) => !same(l.address, AIRLOCK));
+    const cases: [string, BirthLog[]][] = [
+      ['no Create at all (a look-alike token)', own],
+      ['a Create for another token', [...own, airlockCreate({ asset: OTHER_TOKEN })]],
+      ['a Create from another contract', [...own, airlockCreate({ address: OTHER_TOKEN })]],
+      ['two Creates for it', [...own, airlockCreate(), airlockCreate()]],
+    ];
+    for (const [label, logs] of cases) {
+      const r = dopplerBirthFromReceipt(receipt(logs, { to: AIRLOCK }), TOKEN);
+      expect(r.kind === 'unreadable' && r.detail, label).toMatch(/Airlock/);
+    }
+  });
+
+  it('reads a launch with no premine: no allocation, and nothing reached the maker', () => {
+    const r = dopplerBirthFromReceipt(fairLaunch(), TOKEN);
+    expect(r.kind === 'ok' && r.value).toMatchObject({ maker: MAKER, birthSupply: 10n * E26, makerAmount: 0n, othersAmount: 0n, others: 0, toMaker: 0n, makerSchedules: [] });
+  });
+
+  // A smart wallet's launch is sent by a bundler or an executor, and its premine goes to the
+  // wallet itself. The sender is not the maker, so the maker is not named at all.
+  it('names the maker only when the sender called the Airlock itself', () => {
+    for (const to of [SAFE, null]) {
+      const r = dopplerBirthFromReceipt(dopplerBirth([dEvent('Transfer', { from: AIRLOCK, to: MAKER, amount: E26 })], undefined, { to }), TOKEN);
+      expect(r.kind === 'ok' && r.value, String(to)).toMatchObject({ maker: null, makerAmount: 0n, makerSchedules: [], othersAmount: 8n * E26, others: 1, toMaker: null });
+    }
   });
 
   it("counts another beneficiary apart from the maker, and a transfer to the maker as what it received", () => {
@@ -230,14 +314,13 @@ describe("Doppler: the maker's allocation, schedule and create-buy from the birt
     expect(r.kind === 'ok' && [r.value.makerAmount, r.value.birthSupply, r.value.toMaker]).toEqual([8n * E26, 10n * E26, 0n]);
   });
 
-  it('refuses a receipt with no allocation by this token, an unknown schedule, no mint, or a revert', () => {
+  it('refuses an unknown schedule, no mint, or a revert', () => {
     const own = dopplerBirth().logs;
-    const [, allocated, mint] = own;
+    const [, , mint] = own;
     const isMint = (l: BirthLog) => l.topics[0] === mint!.topics[0] && l.topics[1] === mint!.topics[1];
     const cases: [BirthReceipt, RegExp][] = [
-      [receipt(own.filter((l) => l.topics[0] !== allocated!.topics[0])), /allocated nothing/],
-      [receipt([dEvent('VestingAllocated', { beneficiary: MAKER, scheduleId: 7n, amount: E26 }), ...own]), /schedule/],
-      [receipt(own.filter((l) => !isMint(l))), /supply at birth/],
+      [receipt([dEvent('VestingAllocated', { beneficiary: MAKER, scheduleId: 7n, amount: E26 }), ...own], { to: AIRLOCK }), /schedule/],
+      [receipt(own.filter((l) => !isMint(l)), { to: AIRLOCK }), /supply at birth/],
       [{ ...dopplerBirth(), status: 'reverted' }, /did not succeed/],
     ];
     for (const [c, why] of cases) {
@@ -261,23 +344,29 @@ describe('lockWindow: the dates come from the schedule', () => {
   });
 });
 
-describe('readDopplerPlates: two reads must agree before "none", and unread is never 0', () => {
+/** Doppler's Airlock record for an asset, as getAssetData returns it (10 words). */
+const assetRecord = (integrator: Address = LAUNCHER_INTEGRATOR_ADDRESS, poolInitializer: Address = V4_INITIALIZER) =>
+  [ZERO, OTHER, OTHER, OTHER, poolInitializer, OTHER, ZERO, 9n * E26, 10n * E26, integrator] as const;
+
+describe('readDopplerPlates: only a Doppler launch, and unread is never 0', () => {
   const START = 1_778_105_483n;
+  const NOW_MS = 1_800_000_000_000;
   function client(o: { receipt?: unknown; reads?: Record<string, unknown> } = {}) {
+    const reads: Record<string, unknown> = { getAssetData: assetRecord(), ...o.reads };
     return {
       getTransactionReceipt: vi.fn(async () => o.receipt ?? dopplerBirth()),
       readContract: vi.fn(async (args: { functionName: string; args?: unknown[] }) => {
-        const v = o.reads?.[args.functionName];
+        const v = reads[args.functionName];
         if (v instanceof Error || v === undefined) throw v ?? new Error(`no stub for ${args.functionName}`);
         return typeof v === 'function' ? (v as (a?: unknown[]) => unknown)(args.args) : v;
       }),
     };
   }
 
-  it('reads the start and what was released for each of the maker\'s schedules', async () => {
+  it("reads the start, what the maker has claimed from each schedule, and when it read", async () => {
     const c = client({ reads: { vestingStart: START, vestingOf: (a?: unknown[]) => [8n * E26, a?.[1] === 0n ? 5n * E26 : 0n] } });
-    const p = await readDopplerPlates(c, TOKEN, async () => TX);
-    expect(p.kind === 'read' && [p.vestingStart, p.released, p.birth.makerAmount]).toEqual([START, 5n * E26, 8n * E26]);
+    const p = await readDopplerPlates(c, TOKEN, async () => TX, () => NOW_MS);
+    expect(p.kind === 'read' && [p.vestingStart, p.released, p.birth.makerAmount, p.readAt]).toEqual([START, 5n * E26, 8n * E26, 1_800_000_000n]);
     expect(c.readContract).toHaveBeenCalledWith(expect.objectContaining({ functionName: 'vestingOf', args: [MAKER, 0n] }));
   });
 
@@ -286,20 +375,63 @@ describe('readDopplerPlates: two reads must agree before "none", and unread is n
     expect(p.kind === 'read' && [p.vestingStart, p.released]).toEqual([null, null]);
   });
 
-  it('"none" only when our server found no allocation AND the token says vestedTotalAmount() is 0', async () => {
-    expect(await readDopplerPlates(client({ reads: { vestedTotalAmount: 0n } }), TOKEN, async () => null)).toEqual({ kind: 'none' });
-    expect((await readDopplerPlates(client({ reads: { vestedTotalAmount: E26 } }), TOKEN, async () => null)).kind).toBe('unreadable');
-    expect((await readDopplerPlates(client({ reads: { vestedTotalAmount: new Error('revert') } }), TOKEN, async () => null)).kind).toBe('unreadable');
+  it("an address Doppler's Airlock has no record of is not a Doppler launch, said without a lookup", async () => {
+    const hint = vi.fn(async () => TX);
+    const empty = [ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, 0n, 0n, ZERO];
+    expect(await readDopplerPlates(client({ reads: { getAssetData: empty } }), TOKEN, hint)).toEqual({ kind: 'not-doppler' });
+    expect(hint).not.toHaveBeenCalled();
+  });
+
+  it("an Airlock record we could not read is unreadable, never \"not Doppler\"", async () => {
+    const p = await readDopplerPlates(client({ reads: { getAssetData: new Error('rpc down') } }), TOKEN, async () => TX);
+    expect(p.kind).toBe('unreadable');
+  });
+
+  it('a launch with no premine reads as one only when the token agrees it allocated nothing', async () => {
+    const p = await readDopplerPlates(client({ receipt: fairLaunch(), reads: { vestedTotalAmount: 0n } }), TOKEN, async () => TX);
+    expect(p.kind === 'read' && [p.birth.maker, p.birth.makerAmount, p.birth.othersAmount, p.birth.toMaker]).toEqual([MAKER, 0n, 0n, 0n]);
+    for (const vested of [E26, new Error('revert')]) {
+      const q = await readDopplerPlates(client({ receipt: fairLaunch(), reads: { vestedTotalAmount: vested } }), TOKEN, async () => TX);
+      expect(q.kind).toBe('unreadable');
+    }
+  });
+
+  it('a Doppler launch whose transaction the server cannot find yet is unreadable', async () => {
+    const p = await readDopplerPlates(client(), TOKEN, async () => null);
+    expect(p.kind === 'unreadable' && p.detail).toMatch(/not in the indexed history/);
+  });
+
+  it("says the auction opens after creation only for our integrator's dynamic auction", async () => {
+    const reads = { vestingStart: START, vestingOf: [8n * E26, 0n] };
+    const ours = await readDopplerPlates(client({ reads }), TOKEN, async () => TX);
+    expect(ours.kind === 'read' && ours.ourAuction).toBe(true);
+    const theirs = await readDopplerPlates(client({ reads: { ...reads, getAssetData: assetRecord(OTHER) } }), TOKEN, async () => TX);
+    expect(theirs.kind === 'read' && theirs.ourAuction).toBe(false);
+    const multicurve = dopplerBirth().logs.map((l) => (same(l.address, AIRLOCK) ? airlockCreate({ initializer: OTHER }) : l));
+    const other = await readDopplerPlates(client({ receipt: receipt(multicurve, { to: AIRLOCK }), reads }), TOKEN, async () => TX);
+    expect(other.kind === 'read' && other.ourAuction).toBe(false);
+  });
+
+  it('reads no vesting for a maker it could not name', async () => {
+    const c = client({ receipt: dopplerBirth([], undefined, { to: SAFE }) });
+    const p = await readDopplerPlates(c, TOKEN, async () => TX);
+    expect(p.kind === 'read' && [p.birth.maker, p.vestingStart, p.released]).toEqual([null, null, null]);
+    expect(c.readContract).not.toHaveBeenCalledWith(expect.objectContaining({ functionName: 'vestingOf' }));
   });
 
   it('a failed lookup or receipt read is unreadable', async () => {
     expect((await readDopplerPlates(client(), TOKEN, async () => Promise.reject(new Error('502')))).kind).toBe('unreadable');
-    const broken = { getTransactionReceipt: async () => Promise.reject(new Error('rpc')), readContract: async () => 0n };
+    const broken = { getTransactionReceipt: async () => Promise.reject(new Error('rpc')), readContract: async () => assetRecord() };
     expect((await readDopplerPlates(broken, TOKEN, async () => TX)).kind).toBe('unreadable');
   });
 });
 
 describe('DOPPLER_PLATES_ABI is DopplerERC20V1 as the SDK ships it', () => {
+  it("the Airlock's Create event is the SDK's", () => {
+    const sdk = airlockAbi.find((x) => x.type === 'event' && x.name === 'Create');
+    expect(toEventSelector(AIRLOCK_CREATE_EVENT)).toBe(toEventSelector(sdk as never));
+  });
+
   it('each event has the SDK ABI selector, and each getter its signature', () => {
     for (const item of DOPPLER_PLATES_ABI) {
       const sdk = dopplerERC20V1Abi.find((x) => x.type === item.type && 'name' in x && x.name === item.name);

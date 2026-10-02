@@ -6,11 +6,14 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { encodeAbiParameters, encodeEventTopics, getAddress, type Hex } from 'viem';
 import { DOPPLER_PLATES_ABI } from '../lib/launcher/birthPlates';
+import { AIRLOCK_CREATE_EVENT } from '../lib/launcher/ourLaunches';
+import { LAUNCHER_INTEGRATOR_ADDRESS } from '../lib/launcher/config';
 import { BOUGHT_NONE } from '../components/launcher/makerPlatesCopy';
 
 const TOKEN = getAddress('0x10422e419fe9858f9da77d2f30fecfbb4482e790');
 const MAKER = getAddress('0x295c4315fd4c0710d286b69e7cd5cecd289d5e6c');
 const AIRLOCK = getAddress('0xde3599a2ec440b296373a983c85c365da55d9dfa');
+const V4_INITIALIZER = getAddress('0x53b4c21a6cb61d64f636abbfa6e8e90e6558e8ad');
 const ZERO = '0x0000000000000000000000000000000000000000';
 const TX = '0x730b0c9f5f1c272b054f132459d81802950f04b74f7f8342718885c71134b250' as Hex;
 const E26 = 10n ** 26n;
@@ -25,6 +28,11 @@ function log(eventName: 'VestingScheduleCreated' | 'VestingAllocated' | 'Transfe
     data: encodeAbiParameters(data, data.map((i) => args[i.name!]) as never),
   };
 }
+const airlockCreate = {
+  address: AIRLOCK,
+  topics: encodeEventTopics({ abi: [AIRLOCK_CREATE_EVENT], eventName: 'Create', args: { numeraire: ZERO } }),
+  data: encodeAbiParameters([{ type: 'address' }, { type: 'address' }, { type: 'address' }], [TOKEN, V4_INITIALIZER, MAKER]),
+};
 
 // The dossier's first read (getCode) never answers, so the page stays on its loading line.
 const client = vi.hoisted(() => ({
@@ -41,36 +49,47 @@ vi.mock('framer-motion', () => {
 
 import LaunchTokenPage from './LaunchTokenPage';
 
+function stubReads(vestedTotal = 8n * E26) {
+  client.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
+    if (functionName === 'getAssetData') return [ZERO, MAKER, MAKER, MAKER, V4_INITIALIZER, MAKER, ZERO, 9n * E26, 10n * E26, LAUNCHER_INTEGRATOR_ADDRESS];
+    if (functionName === 'vestingStart') return 1_778_105_483n;
+    if (functionName === 'vestingOf') return [8n * E26, 8n * E26];
+    if (functionName === 'vestedTotalAmount') return vestedTotal;
+    throw new Error(`no stub for ${functionName}`);
+  });
+}
+
 beforeEach(() => {
   client.getTransactionReceipt.mockResolvedValue({
     status: 'success',
     from: MAKER,
+    to: AIRLOCK,
     transactionHash: TX,
     logs: [
       log('VestingScheduleCreated', { scheduleId: 0n, cliff: 0n, duration: 86_400n }),
       log('VestingAllocated', { beneficiary: MAKER, scheduleId: 0n, amount: 8n * E26 }),
       log('Transfer', { from: ZERO, to: TOKEN, amount: 8n * E26 }),
       log('Transfer', { from: ZERO, to: AIRLOCK, amount: 2n * E26 }),
+      airlockCreate,
     ],
   });
-  client.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
-    if (functionName === 'vestingStart') return 1_778_105_483n;
-    if (functionName === 'vestingOf') return [8n * E26, 8n * E26];
-    throw new Error(`no stub for ${functionName}`);
-  });
+  stubReads();
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ tx: TX, block: 25_038_892 }) })));
 });
 afterEach(() => vi.unstubAllGlobals());
 
+const renderPage = () =>
+  render(
+    <MemoryRouter initialEntries={[`/launch/${TOKEN}`]}>
+      <Routes>
+        <Route path="/launch/:token" element={<LaunchTokenPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
 describe("/launch/:token: the maker's allocation", () => {
   it('sits right after the header, before the dossier, and does not wait for it', async () => {
-    render(
-      <MemoryRouter initialEntries={[`/launch/${TOKEN}`]}>
-        <Routes>
-          <Route path="/launch/:token" element={<LaunchTokenPage />} />
-        </Routes>
-      </MemoryRouter>,
-    );
+    renderPage();
     const line = await screen.findByText(
       `The maker's allocation: 80.00% of the supply (800,000,000 tokens) to ${MAKER}, locked by the token's own vesting: nothing before 2026-05-06 22:11 UTC, all released by 2026-05-07 22:11 UTC; 800,000,000 tokens released so far.`,
     );
@@ -82,5 +101,23 @@ describe("/launch/:token: the maker's allocation", () => {
     expect(heading.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(card.compareDocumentPosition(loading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(client.getTransactionReceipt).toHaveBeenCalledWith({ hash: TX });
+  });
+
+  // The wizard's default is no premine: its launch must still show the maker's wallet and
+  // what the maker bought, the same plates as the other rails.
+  it('a launch with no premine shows the maker and what it bought', async () => {
+    client.getTransactionReceipt.mockResolvedValue({
+      status: 'success',
+      from: MAKER,
+      to: AIRLOCK,
+      transactionHash: TX,
+      logs: [log('Transfer', { from: ZERO, to: AIRLOCK, amount: 10n * E26 }), airlockCreate],
+    });
+    stubReads(0n);
+    renderPage();
+    const line = await screen.findByText(`No allocation at birth. The maker's wallet is ${MAKER}.`);
+    const card = screen.getByTestId('maker-plates');
+    expect(card).toContainElement(line);
+    expect(card).toHaveTextContent(BOUGHT_NONE);
   });
 });

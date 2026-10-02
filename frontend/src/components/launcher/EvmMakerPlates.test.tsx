@@ -4,7 +4,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { getAddress, type Hex } from 'viem';
-import type { CurveCreateBuy, DopplerBirth } from '../../lib/launcher/birthPlates';
+import type { CurveCreateBuy, DopplerBirth, DopplerPlates } from '../../lib/launcher/birthPlates';
 import { CurveMakerCreateBuyView, MakerPlatesView } from './EvmMakerPlates';
 import {
   ALLOCATION_READING,
@@ -13,6 +13,9 @@ import {
   CREATE_BUY_UNREADABLE,
   CURVE_NO_LOCK,
   CURVE_READING,
+  MAKER_IS_SENDER,
+  MAKER_UNNAMED,
+  NOT_DOPPLER,
   NO_ALLOCATION,
   curveCreateBuyLines,
   dopplerPlatesLines,
@@ -32,12 +35,24 @@ const buy = (o: Partial<CurveCreateBuy> = {}): CurveCreateBuy => ({ tx: TX, crea
 const birth = (o: Partial<DopplerBirth> = {}): DopplerBirth => ({
   tx: TX,
   maker: MAKER,
+  initializer: getAddress('0x53b4c21a6cb61d64f636abbfa6e8e90e6558e8ad'),
   birthSupply: 1000n * E24,
   makerAmount: 800n * E24,
   makerSchedules: [{ id: 0n, cliff: 0n, duration: DAY }],
   othersAmount: 0n,
   others: 0,
   toMaker: 0n,
+  ...o,
+});
+type Read = Extract<DopplerPlates, { kind: 'read' }>;
+/** A read plate, read the day after the real birth unless told otherwise. */
+const read = (b: DopplerBirth = birth(), o: Partial<Omit<Read, 'kind' | 'birth'>> = {}): Read => ({
+  kind: 'read',
+  birth: b,
+  vestingStart: START,
+  released: 0n,
+  readAt: START + DAY / 2n,
+  ourAuction: true,
   ...o,
 });
 
@@ -55,7 +70,7 @@ describe('the words', () => {
   });
 
   it("Doppler: the maker's allocation and its lock, read from the schedule (the real birth: no cliff, one day)", () => {
-    expect(dopplerPlatesLines(birth(), START, 0n)).toEqual({
+    expect(dopplerPlatesLines(read())).toEqual({
       allocation: `The maker's allocation: 80.00% of the supply (800,000,000 tokens) to ${MAKER}, locked by the token's own vesting: nothing before 2026-05-06 22:11 UTC, all released by 2026-05-07 22:11 UTC; 0 tokens released so far.`,
       others: null,
       bought: BOUGHT_NONE,
@@ -64,25 +79,45 @@ describe('the words', () => {
   });
 
   it('Doppler: a cliff and an end come from start + cliff and start + duration', () => {
-    const lines = dopplerPlatesLines(birth({ makerSchedules: [{ id: 0n, cliff: 90n * DAY, duration: 365n * DAY }] }), START, 12n * E24);
+    const lines = dopplerPlatesLines(read(birth({ makerSchedules: [{ id: 0n, cliff: 90n * DAY, duration: 365n * DAY }] }), { released: 12n * E24 }));
     expect(lines.allocation).toContain('nothing before 2026-08-04 22:11 UTC, all released by 2027-05-06 22:11 UTC; 12,000,000 tokens released so far.');
   });
 
   it('Doppler: unread pieces are said, never 0; a zero-length schedule is not called a lock', () => {
-    expect(dopplerPlatesLines(birth(), START, null).allocation).toContain('; how much is released so far could not be read.');
-    expect(dopplerPlatesLines(birth(), null, 0n).allocation).toContain("locked by the token's own vesting (its dates could not be read);");
-    expect(dopplerPlatesLines(birth({ makerSchedules: [{ id: 0n, cliff: 0n, duration: 0n }] }), START, 0n).allocation).toContain(
+    expect(dopplerPlatesLines(read(birth(), { released: null })).allocation).toContain('; how much is released so far could not be read.');
+    expect(dopplerPlatesLines(read(birth(), { vestingStart: null })).allocation).toContain("locked by the token's own vesting (its dates could not be read);");
+    expect(dopplerPlatesLines(read(birth({ makerSchedules: [{ id: 0n, cliff: 0n, duration: 0n }] }))).allocation).toContain(
       "not locked: the token's own vesting released it all at birth;",
     );
   });
 
   it('Doppler: nothing to the maker, other wallets, and what reached the maker in the launch transaction', () => {
-    const lines = dopplerPlatesLines(birth({ makerAmount: 0n, makerSchedules: [], othersAmount: 50n * E24, others: 1, toMaker: 3n * E24 }), START, null);
+    const lines = dopplerPlatesLines(read(birth({ makerAmount: 0n, makerSchedules: [], othersAmount: 50n * E24, others: 1, toMaker: 3n * E24 }), { released: null }));
     expect(lines.allocation).toBe(`Nothing was allocated at birth to the maker's wallet, ${MAKER}.`);
     expect(lines.others).toBe('Other wallets were allocated 5.00% of the supply at birth (1 wallet).');
     expect(lines.bought).toBe(
       "Received in the launch transaction: 0.30% of the supply (3,000,000 tokens) reached the maker's wallet outside the vesting.",
     );
+  });
+
+  // Rulings 3 and 4: the maker's wallet and the bought line on every rail, a launch with no
+  // premine included (the /launch default), where it once read only "No allocation at birth."
+  it('Doppler: a launch with no premine still names the maker and what it bought', () => {
+    const lines = dopplerPlatesLines(read(birth({ makerAmount: 0n, makerSchedules: [] }), { vestingStart: null, released: null }));
+    expect(lines).toEqual({ allocation: `${NO_ALLOCATION} The maker's wallet is ${MAKER}.`, others: null, bought: BOUGHT_NONE });
+  });
+
+  // A smart wallet's launch is sent by a relay: the sender is not the maker, so no plate is
+  // pinned on it, nothing is said to be "none", and every allocation is listed unattributed.
+  it('Doppler: a maker who could not be named is said so, and no "nothing" or "none" is pinned on the sender', () => {
+    const unnamed = birth({ maker: null, makerAmount: 0n, makerSchedules: [], othersAmount: 100n * E24, others: 1, toMaker: null });
+    expect(dopplerPlatesLines(read(unnamed, { vestingStart: null, released: null }))).toEqual({
+      allocation: MAKER_UNNAMED,
+      others: 'Wallets were allocated 10.00% of the supply at birth (1 wallet).',
+      bought: null,
+    });
+    const bare = birth({ maker: null, makerAmount: 0n, makerSchedules: [], toMaker: null });
+    expect(dopplerPlatesLines(read(bare, { vestingStart: null, released: null })).others).toBe(NO_ALLOCATION);
   });
 
   it('amounts and times', () => {
@@ -125,12 +160,19 @@ describe('/eth-curve block', () => {
 });
 
 describe('/launch card', () => {
-  it('while reading, and "No allocation at birth." only for a read none', () => {
-    const { rerender } = render(<MakerPlatesView plates={null} />);
+  it('while reading', () => {
+    render(<MakerPlatesView plates={null} />);
     expect(screen.getByText(ALLOCATION_READING)).toBeInTheDocument();
-    rerender(<MakerPlatesView plates={{ kind: 'none' }} />);
-    expect(screen.getByText(NO_ALLOCATION)).toBeInTheDocument();
-    expect(screen.queryByText(BOUGHT_NONE)).not.toBeInTheDocument();
+  });
+
+  // The zero address, WETH, any token Doppler never made: the chain answered, so this is
+  // a finding, said once, with no "our read failed" and no Read again that cannot succeed.
+  it('not a Doppler launch: says so plainly, and offers no re-read', () => {
+    const { container } = render(<MakerPlatesView plates={{ kind: 'not-doppler' }} onRetry={() => {}} />);
+    expect(screen.getByText(NOT_DOPPLER)).toBeInTheDocument();
+    expect(screen.queryByText(ALLOCATION_UNREADABLE)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Read again' })).not.toBeInTheDocument();
+    expect(text(container)).not.toMatch(/\b0(\.0+)?%|\b0 tokens|none/);
   });
 
   it('unreadable: no "none", no bought line, no 0', () => {
@@ -142,16 +184,37 @@ describe('/launch card', () => {
   });
 
   it('read: the allocation, and "Bought ... none" only when the receipt showed nothing reaching the maker', () => {
-    const { rerender } = render(<MakerPlatesView plates={{ kind: 'read', birth: birth(), vestingStart: START, released: 0n }} />);
-    expect(screen.getByText(dopplerPlatesLines(birth(), START, 0n).allocation)).toBeInTheDocument();
+    const { rerender } = render(<MakerPlatesView plates={read()} />);
+    expect(screen.getByText(dopplerPlatesLines(read()).allocation)).toBeInTheDocument();
     expect(screen.getByText(BOUGHT_NONE)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(MAKER_IS_SENDER))).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'its launch transaction' })).toHaveAttribute('href', `https://etherscan.io/tx/${TX}`);
-    rerender(<MakerPlatesView plates={{ kind: 'read', birth: birth({ toMaker: E24 }), vestingStart: START, released: 0n }} />);
+    rerender(<MakerPlatesView plates={read(birth({ toMaker: E24 }))} />);
     expect(screen.queryByText(BOUGHT_NONE)).not.toBeInTheDocument();
   });
 
+  it('read, no premine: the maker\'s wallet and the bought line are on the card', () => {
+    const { container } = render(<MakerPlatesView plates={read(birth({ makerAmount: 0n, makerSchedules: [] }), { vestingStart: null, released: null })} />);
+    expect(container).toHaveTextContent(MAKER);
+    expect(screen.getByText(BOUGHT_NONE)).toBeInTheDocument();
+  });
+
+  it('read, maker not named: no sender line, no "none", and the allocations unattributed', () => {
+    const unnamed = birth({ maker: null, makerAmount: 0n, makerSchedules: [], othersAmount: 100n * E24, others: 1, toMaker: null });
+    const { container } = render(<MakerPlatesView plates={read(unnamed, { vestingStart: null, released: null })} />);
+    expect(screen.getByText(MAKER_UNNAMED)).toBeInTheDocument();
+    expect(text(container)).not.toContain(MAKER_IS_SENDER);
+    expect(text(container)).not.toMatch(/none|Nothing was allocated/);
+  });
+
   it('carries no em dash in any state', () => {
-    const states = [null, { kind: 'none' } as const, { kind: 'unreadable', detail: 'x' } as const, { kind: 'read', birth: birth({ others: 1, othersAmount: E24, toMaker: E24 }), vestingStart: START, released: null } as const];
+    const states = [
+      null,
+      { kind: 'not-doppler' } as const,
+      { kind: 'unreadable', detail: 'x' } as const,
+      read(birth({ others: 1, othersAmount: E24, toMaker: E24 }), { released: null }),
+      read(birth({ maker: null, makerAmount: 0n, makerSchedules: [], others: 2, othersAmount: E24, toMaker: null })),
+    ];
     for (const p of states) {
       const { container, unmount } = render(<MakerPlatesView plates={p} />);
       expect(text(container)).not.toContain(EM_DASH);
