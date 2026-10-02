@@ -80,9 +80,9 @@ describe("evm-birth: the constants are the chain's", () => {
     expect(mod.LAUNCH_CREATED_TOPIC0).toBe(toEventSelector(ev));
   });
 
-  it("VestingAllocated's topic is the one the Doppler SDK's DopplerERC20V1 ABI derives", () => {
-    const ev = dopplerERC20V1Abi.find((x) => x.type === "event" && x.name === "VestingAllocated");
-    expect(mod.VESTING_ALLOCATED_TOPIC0).toBe(toEventSelector(ev));
+  it("Transfer's topic is the one the Doppler SDK's DopplerERC20V1 ABI derives", () => {
+    const ev = dopplerERC20V1Abi.find((x) => x.type === "event" && x.name === "Transfer");
+    expect(mod.TRANSFER_TOPIC0).toBe(toEventSelector(ev));
   });
 
   it("each chain's launcher is the one the site trades through", () => {
@@ -135,11 +135,11 @@ describe("curve-birth: Ethereum and Base read keyless Blockscout", () => {
 
 describe("curve-birth: Robinhood reads its RPC in windows it accepts", () => {
   const HEAD = 78_104_297;
-  function robinhood({ hit = null, fail = null } = {}) {
+  function robinhood({ hit = null, fail = null, head = "0x" + HEAD.toString(16) } = {}) {
     return vi.fn(async (url, init) => {
       const { method, params } = JSON.parse(init.body);
       if (fail === method) return answer({ jsonrpc: "2.0", id: 1, error: { code: -32602, message: "nope" } });
-      if (method === "eth_blockNumber") return answer({ jsonrpc: "2.0", id: 1, result: "0x" + HEAD.toString(16) });
+      if (method === "eth_blockNumber") return answer({ jsonrpc: "2.0", id: 1, result: head });
       const [f] = params;
       const from = Number(f.fromBlock);
       const to = Number(f.toBlock);
@@ -181,6 +181,31 @@ describe("curve-birth: Robinhood reads its RPC in windows it accepts", () => {
     const res = await call("handleCurveBirth", { chain: "4663", token: TOKEN });
     expect(res.statusCode).toBe(502);
     expect(res.headers["Cache-Control"]).toBeUndefined();
+  });
+
+  // The RPC's head is input. One past the window budget, below the deploy block, or not a
+  // number at all: each is a 502 before any eth_getLogs, never a read of part of the history.
+  const FROM = 46_343_018;
+  for (const [label, head] of [
+    ["a head 41 windows past the deploy block", "0x" + (FROM + 40 * 10_000_000).toString(16)],
+    ["a head below the deploy block", "0x" + (FROM - 1).toString(16)],
+    ["a head that is not hex", "latest"],
+    ["no head at all", null],
+    ["the largest safe head", "0x1fffffffffffff"],
+  ]) {
+    it(`${label} is a 502 with no eth_getLogs`, async () => {
+      fetchMock = robinhood({ head });
+      vi.stubGlobal("fetch", fetchMock);
+      const res = await call("handleCurveBirth", { chain: "4663", token: TOKEN });
+      expect(res.statusCode).toBe(502);
+      expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body).method)).toEqual(["eth_blockNumber"]);
+    });
+  }
+
+  it("counts the windows before it builds one, so a bogus head costs nothing", () => {
+    const head = FROM + 10_000_000 * 1_000_000;
+    expect(() => mod.blockWindows(FROM, head)).toThrow(/too many windows/);
+    expect(mod.blockWindows(FROM, FROM + 40 * 10_000_000 - 1)).toHaveLength(40);
   });
 });
 
@@ -256,13 +281,17 @@ describe("curve-birth and doppler-birth: strict input, refused before any networ
   });
 });
 
-describe("doppler-birth: the token's own VestingAllocated logs on eth.blockscout.com", () => {
-  it("returns the one transaction its allocations were made in", async () => {
+describe("doppler-birth: the token's first mint on eth.blockscout.com", () => {
+  const ZERO_TOPIC = pad("0x0000000000000000000000000000000000000000");
+
+  // A launch with no premine emits no vesting event at all, so the birth is found by the
+  // token's own mint (Transfer from the zero address), which every launch has.
+  it("returns the transaction of the token's mint, with or without a premine", async () => {
     const t = TOKEN.toLowerCase();
     fetchMock.mockResolvedValueOnce(
       ok([
-        bsLog(t, [mod.VESTING_ALLOCATED_TOPIC0, pad("0x295c4315fd4c0710d286b69e7cd5cecd289d5e6c"), "0x" + "0".repeat(64)]),
-        bsLog(t, [mod.VESTING_ALLOCATED_TOPIC0, pad(OTHER_TOKEN), "0x" + "0".repeat(63) + "1"]),
+        bsLog(t, [mod.TRANSFER_TOPIC0, ZERO_TOPIC, pad(TOKEN)]),
+        bsLog(t, [mod.TRANSFER_TOPIC0, ZERO_TOPIC, pad("0xde3599a2ec440b296373a983c85c365da55d9dfa")]),
       ]),
     );
     const res = await call("handleDopplerBirth", { token: TOKEN });
@@ -271,10 +300,23 @@ describe("doppler-birth: the token's own VestingAllocated logs on eth.blockscout
     const url = new URL(fetchMock.mock.calls[0][0]);
     expect(url.host).toBe("eth.blockscout.com");
     expect(url.searchParams.get("address")).toBe(t);
-    expect(url.searchParams.get("topic0")).toBe(mod.VESTING_ALLOCATED_TOPIC0);
+    expect(url.searchParams.get("topic0")).toBe(mod.TRANSFER_TOPIC0);
+    expect(url.searchParams.get("topic1")).toBe(ZERO_TOPIC);
+    expect(url.searchParams.get("topic0_1_opr")).toBe("and");
   });
 
-  it("answers { tx: null } for a token whose history holds no allocation", async () => {
+  it("a later mint (an older template's inflation) never hides the birth: the earliest one wins", async () => {
+    const t = TOKEN.toLowerCase();
+    const at = (tx, block, logIndex) => ({ ...bsLog(t, [mod.TRANSFER_TOPIC0, ZERO_TOPIC, pad(OTHER_TOKEN)], tx, block), logIndex });
+    fetchMock.mockResolvedValueOnce(ok([at(TX2, 0x17e2000, "0x0"), at(TX, 0x17e102c, "0x5")]));
+    expect((await call("handleDopplerBirth", { token: TOKEN })).body).toEqual({ tx: TX, block: 0x17e102c });
+    fetchMock.mockResolvedValueOnce(ok([at(TX2, 0x17e102c, "0x9"), at(TX, 0x17e102c, "0x2")]));
+    expect((await call("handleDopplerBirth", { token: TOKEN })).body.tx).toBe(TX);
+    fetchMock.mockResolvedValueOnce(ok([at(TX2, 0x17e102c, "0x9"), { ...at(TX, 0x17e102c, "0x2"), blockNumber: "soon" }]));
+    expect((await call("handleDopplerBirth", { token: TOKEN })).statusCode).toBe(502);
+  });
+
+  it("answers { tx: null } for a token whose history holds no mint", async () => {
     const res = await call("handleDopplerBirth", { token: TOKEN, chain: "1" });
     expect(res.body).toEqual({ tx: null, block: null });
   });
@@ -284,6 +326,25 @@ describe("doppler-birth: the token's own VestingAllocated logs on eth.blockscout
     const res = await call("handleDopplerBirth", { token: TOKEN });
     expect(res.statusCode).toBe(502);
   });
+});
+
+describe("curve-birth and doppler-birth: a refused rate limit stops the request before any upstream call", () => {
+  const HANDLERS = [["handleCurveBirth", { chain: "4663", token: TOKEN }], ["handleDopplerBirth", { token: TOKEN }]];
+  for (const [handler, query] of HANDLERS) {
+    for (const [limiter, status] of [["checkRateLimit", 429], ["checkGlobalLimit", 503]]) {
+      it(`${handler}: ${limiter} refusing is a ${status}, and nothing is fetched`, async () => {
+        const rl = await import("../ratelimit.js");
+        rl[limiter].mockImplementationOnce(async (...args) => {
+          args.find((a) => typeof a?.status === "function").status(status).json({ error: "limited" });
+          return false;
+        });
+        const res = await call(handler, query);
+        expect(res.statusCode).toBe(status);
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(rl[limiter]).toHaveBeenCalledWith(...(limiter === "checkRateLimit" ? [expect.anything()] : []), expect.anything(), expect.objectContaining({ identifier: "evm-birth" }));
+      });
+    }
+  }
 });
 
 describe("routing: both resources cost no function of their own", () => {

@@ -13,7 +13,8 @@ import { logSafe } from "./logSafe.js";
 // keccak256 of each event's signature. evm-birth.test.js recomputes both from the ABIs the
 // browser decodes with (curve.ts, the Doppler SDK), so neither can drift silently.
 export const LAUNCH_CREATED_TOPIC0 = "0x27bf21dabc3fdff383eb57006a7345f5ff0deaaa4ea3e258bdd07518bef13131";
-export const VESTING_ALLOCATED_TOPIC0 = "0x6b467f0a76daac5283d2251b6e7660fed01ea99dbd70aa7092f3318731690c9d";
+export const TRANSFER_TOPIC0 = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const ZERO_TOPIC = "0x" + "0".repeat(64);
 
 const ETH_BLOCKSCOUT = "https://eth.blockscout.com/api";
 const BASE_BLOCKSCOUT = "https://base.blockscout.com/api";
@@ -65,11 +66,12 @@ export function addressTopic(address) {
 
 /**
  * The one transaction the matching logs came from. Logs that do not match the filter are
- * dropped (the browser re-checks anyway); logs from two transactions, or a malformed hash,
- * throw, because then we do not know which one is the birth.
+ * dropped (the browser re-checks anyway). Logs from two transactions throw, because then we
+ * do not know which one is the birth, unless `earliest` says the first one is the birth
+ * (a token's first mint): then every matching log must say where it sits in the chain.
  */
-export function birthTxFrom(logs, want) {
-  const txs = new Map();
+export function birthTxFrom(logs, want, { earliest = false } = {}) {
+  const found = [];
   for (const log of Array.isArray(logs) ? logs : []) {
     const topics = Array.isArray(log?.topics) ? log.topics.map((t) => String(t).toLowerCase()) : [];
     if (String(log?.address).toLowerCase() !== want.address) continue;
@@ -78,11 +80,15 @@ export function birthTxFrom(logs, want) {
     const tx = String(log?.transactionHash ?? "");
     if (!TX_RE.test(tx)) throw new Error("a matching log carries no transaction hash");
     const block = Number(log?.blockNumber);
-    txs.set(tx.toLowerCase(), Number.isSafeInteger(block) && block >= 0 ? block : null);
+    const index = Number(log?.logIndex);
+    const placed = Number.isSafeInteger(block) && block >= 0;
+    if (earliest && !(placed && Number.isSafeInteger(index) && index >= 0)) throw new Error("a matching log does not say where it sits");
+    found.push({ tx: tx.toLowerCase(), block: placed ? block : null, index });
   }
-  if (txs.size > 1) throw new Error("matching logs come from more than one transaction");
-  const [entry] = txs;
-  return entry ? { tx: entry[0], block: entry[1] } : null;
+  if (found.length === 0) return null;
+  if (earliest) found.sort((a, b) => a.block - b.block || a.index - b.index);
+  else if (new Set(found.map((f) => f.tx)).size > 1) throw new Error("matching logs come from more than one transaction");
+  return { tx: found[0].tx, block: found[0].block };
 }
 
 async function readJson(url, init) {
@@ -121,8 +127,13 @@ async function rpcCall(url, method, params) {
   return j.result;
 }
 
-/** [from, to] windows, inclusive, each at most RPC_WINDOW_BLOCKS long, covering from..head. */
+/**
+ * [from, to] windows, inclusive, each at most RPC_WINDOW_BLOCKS long, covering from..head.
+ * Counted before any is built: the head is the RPC's answer, and a bogus one must not
+ * cost a loop of hundreds of millions of arrays.
+ */
 export function blockWindows(fromBlock, head) {
+  if (Math.ceil((head - fromBlock + 1) / RPC_WINDOW_BLOCKS) > MAX_WINDOWS) throw new Error("too many windows to read");
   const out = [];
   for (let s = fromBlock; s <= head; s += RPC_WINDOW_BLOCKS) out.push([s, Math.min(s + RPC_WINDOW_BLOCKS - 1, head)]);
   return out;
@@ -134,7 +145,6 @@ export async function rpcLogs(url, { address, topic0, topic1, fromBlock }) {
   const head = typeof headHex === "string" && /^0x[0-9a-f]+$/i.test(headHex) ? Number(headHex) : NaN;
   if (!Number.isSafeInteger(head) || head < fromBlock) throw new Error("rpc head unreadable");
   const windows = blockWindows(fromBlock, head);
-  if (windows.length > MAX_WINDOWS) throw new Error("too many windows to read");
   const pages = await Promise.all(
     windows.map(([from, to]) =>
       rpcCall(url, "eth_getLogs", [{ address, topics: [topic0, topic1], fromBlock: `0x${from.toString(16)}`, toBlock: `0x${to.toString(16)}` }]),
@@ -153,11 +163,14 @@ export async function findCurveBirth(chainId, token) {
   return birthTxFrom(logs, want);
 }
 
-/** Doppler (/launch): the token's own VestingAllocated logs, all emitted by its initialize. */
+/**
+ * Doppler (/launch): the token's first mint. Every launch mints at birth, with or without a
+ * premine (a launch with none emits no vesting event), and the earliest mint is the birth.
+ */
 export async function findDopplerBirth(token) {
-  const want = { address: token.toLowerCase(), topic0: VESTING_ALLOCATED_TOPIC0 };
+  const want = { address: token.toLowerCase(), topic0: TRANSFER_TOPIC0, topic1: ZERO_TOPIC };
   const logs = await blockscoutLogs(ETH_BLOCKSCOUT, { ...want, fromBlock: DOPPLER_FROM_BLOCK });
-  return birthTxFrom(logs, want);
+  return birthTxFrom(logs, want, { earliest: true });
 }
 
 async function gate(req, res) {
