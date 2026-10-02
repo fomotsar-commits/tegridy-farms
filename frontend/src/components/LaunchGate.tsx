@@ -183,12 +183,12 @@ function Door({ rail, address, signProof, onOpen, connect, children }: DoorProps
 
   const { decision } = phase;
   // A verdict opens the lane only for the wallet it was read for, never for the one
-  // that replaced it before the re-read lands. Solana has no proof step (see DoorProps);
-  // dialled off, its lane stays open whatever the reading, as the note below says.
+  // that replaced it before the re-read lands. Solana has no proof step (see DoorProps).
+  // Dialled off, the door only informs on both rails: the lane stays open whatever the
+  // reading, as the note below says, and the call at submit reads the wallet again.
   const forThisWallet = decision.address === address;
-  const open =
-    forThisWallet &&
-    (rail === 'solana' ? decision.state === 'WARM' || !isHeatGateEnabled() : decision.state === 'WARM' && proved);
+  const verdictOpens = rail === 'solana' ? decision.state === 'WARM' : decision.state === 'WARM' && proved;
+  const open = forThisWallet && (verdictOpens || !isHeatGateEnabled());
 
   const door = (
     <Frame state={decision.state}>

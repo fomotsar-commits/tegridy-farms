@@ -1,26 +1,14 @@
-// Create-a-launch surface for the OWN curve. Deploys a fixed-supply token and
-// opens its bonding curve in one tx; any attached ETH is the creator's atomic
-// opening buy (nobody can trade before the creator's own first position,
-// because the token does not exist until this call). Metadata bounds mirror the
-// contract's BadTokenMetadata (name 1-64, symbol 1-16).
-//
-// Identity (image / description / socials) ships WITH the launch: the image is
-// uploaded to Arweave via Irys before the tx (token-independent), and after the
-// receipt confirms, a metadata JSON tagged with the new token address is
-// published under the creator's own signature — the serverless, spoof-resistant
-// binding lib/launcher/curveIdentity.ts documents. The token address itself is
-// parsed from the receipt's LaunchCreated log, so the success card can hand the
-// creator their coin instead of a dead-end toast.
-//
-// Failure honesty: an image-upload failure stops BEFORE any tx (nothing
-// on-chain, nothing lost). A metadata failure AFTER the tx leaves a live
-// launch with no identity — the card says exactly that and offers a retry;
-// trading is never blocked on identity.
+// Create a launch on the venue's own EVM curve: create() deploys the token and opens its
+// curve, and attached ETH is the creator's opening buy, before anyone else can trade.
+// Name 1-64 and symbol 1-16 mirror the contract's BadTokenMetadata. Order: the heat gate
+// reads the connected wallet (fails closed: a refusal signs and sends nothing), the image
+// goes to Arweave via Irys, the create tx, then the identity JSON under the creator's
+// signature (curveIdentity.ts). A failed identity publish leaves a live launch and a retry.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { usePublicClient, useReadContract, useWriteContract } from 'wagmi';
+import { useAccount, usePublicClient, useReadContract, useWriteContract } from 'wagmi';
 import { toast } from 'sonner';
 import { parseEventLogs, type Address } from 'viem';
 import { sanitizeDecimalInput } from '../../lib/formatting';
@@ -34,6 +22,7 @@ import {
   IDENTITY_IMAGE_MAX_BYTES,
 } from '../../lib/launcher/curveIdentity';
 import { useIrysUpload } from '../../hooks/useIrysUpload';
+import { assertMayLaunch } from '../../lib/heat/launchGate';
 
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
 const inputCls = 'w-full px-3 py-2 rounded-lg bg-black/55 text-white text-[13px] outline-none';
@@ -54,6 +43,7 @@ export interface CurveCreateFields {
  *  terminal stages swap it for the success card. */
 export type CurveCreateStage =
   | 'idle'
+  | 'reading-heat'
   | 'uploading-image'
   | 'awaiting-wallet'
   | 'confirming'
@@ -62,6 +52,7 @@ export type CurveCreateStage =
   | 'identity-failed';
 
 const BUSY_LABEL: Record<Exclude<CurveCreateStage, 'idle' | 'done' | 'identity-failed'>, string> = {
+  'reading-heat': 'Reading held time…',
   'uploading-image': 'Uploading image…',
   'awaiting-wallet': 'Confirm in wallet…',
   confirming: 'Confirming on-chain…',
@@ -353,17 +344,14 @@ export interface CurveCreatePanelProps {
 }
 
 export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: CurveCreatePanelProps) {
+  const { address } = useAccount();
   const { writeContractAsync } = useWriteContract();
   // Pinned to the curve's chain — reads must never follow the wallet's chain.
   const publicClient = usePublicClient({ chainId });
 
-  // AUDIT FIX TF-023: the terms a creator SIGNS ON are read, never hardcoded.
-  // `create()` snapshots the owner-tunable `launchConfig` onto the launch, and
-  // `setLaunchConfig` can retune it — immediately, for every subsequent create,
-  // with no frontend deploy and no signal this panel consumed. The copy below
-  // used to state a flat "40%" and "3.69%"; after any retune it would have kept
-  // stating them, on the one screen where someone commits to those economics.
-  // Same read shape as CurveTradePanel.tsx:438-445.
+  // AUDIT FIX TF-023: the terms a creator signs on are read, never hardcoded. create()
+  // snapshots the owner-tunable launchConfig, and setLaunchConfig can retune it at any
+  // time with no frontend deploy. Same read shape as CurveTradePanel.tsx.
   const { data: cfgRaw } = useReadContract({
     address: launcher,
     abi: CURVE_LAUNCHER_ABI,
@@ -411,10 +399,19 @@ export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: Curv
 
   const onCreate = async (fields: CurveCreateFields) => {
     try {
+      // The gate runs before the image-upload signature and reads the wallet live. No
+      // wallet, or a cold, stale or unreadable reading, throws into the catch below, so a
+      // refusal signs and sends nothing.
+      setStage('reading-heat');
+      if (!address) throw new Error('Connect a wallet to launch.');
+      await assertMayLaunch(address);
+
       setStage('uploading-image');
       const imageTxId = await uploadFile(fields.image);
 
       setStage('awaiting-wallet');
+      // Sent from the wallet the gate just read: switching accounts mid-flow cannot hand
+      // the create to a wallet nobody read.
       const hash = await writeContractAsync({
         address: launcher,
         abi: CURVE_LAUNCHER_ABI,
@@ -422,6 +419,7 @@ export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: Curv
         args: [fields.name, fields.symbol],
         value: fields.openingBuyWei,
         chainId,
+        account: address,
       });
 
       setStage('confirming');
