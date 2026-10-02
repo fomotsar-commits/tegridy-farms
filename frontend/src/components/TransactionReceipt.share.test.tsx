@@ -84,7 +84,8 @@ let popups: Popup[];
 let calls: string[];
 
 class FakeClipboardItem {
-  constructor(readonly items: Record<string, Blob | PromiseLike<Blob>>) {}
+  readonly items: Record<string, Blob | PromiseLike<Blob>>;
+  constructor(items: Record<string, Blob | PromiseLike<Blob>>) { this.items = items; }
   get types() { return Object.keys(this.items); }
   getType(t: string) { return Promise.resolve(this.items[t]); }
 }
