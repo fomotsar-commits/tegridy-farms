@@ -17,6 +17,7 @@ import { useAccount, useReadContract, useReadContracts, useWriteContract, useWai
 import { toast } from 'sonner';
 import { formatEther, isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { trackPageView } from '../lib/analytics';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
@@ -34,6 +35,7 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { getTokenUrl } from '../lib/explorer';
 import { ERC20_ABI } from '../lib/contracts';
 import { shortenAddress } from '../lib/formatting';
+import { noteReplacement } from '../lib/txErrors';
 
 const PAGE_ID = 'eth-curve';
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
@@ -87,7 +89,7 @@ export function CurveCreatorClaimView({ claimableWei, pending, mining = false, o
   );
 }
 
-function CurveCreatorClaim({ launcher, chainId, token, creator }: { launcher: Address; chainId: number; token: Address; creator: Address }) {
+export function CurveCreatorClaim({ launcher, chainId, token, creator }: { launcher: Address; chainId: number; token: Address; creator: Address }) {
   const { address: account } = useAccount();
   const { writeContract, isPending } = useWriteContract();
   const { data: claimableRaw, refetch } = useReadContract({
@@ -105,19 +107,33 @@ function CurveCreatorClaim({ launcher, chainId, token, creator }: { launcher: Ad
   // a second click submitted a guaranteed NothingToClaim revert. The button now
   // holds through the receipt, the refetch runs after it, and a revert comes
   // back as a red toast instead of silence.
+  //
+  // 2026-09-17: that red toast never fired. wagmi THROWS on a reverted receipt,
+  // so a revert reached `isError`, never `isSuccess` — and `txHash` cleared only
+  // on `isSuccess`, so a reverted (or unreadable) claim held the button on
+  // "Confirming on-chain…" until a reload. It now releases on all three.
   const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
-  const { data: receipt, isSuccess: receiptFetched } = useWaitForTransactionReceipt({
+  const receiptQuery = useWaitForTransactionReceipt({
     hash: txHash ?? undefined,
     chainId,
     query: { enabled: txHash !== null },
+    onReplaced: noteReplacement,
+  });
+  // A claim the wallet cancelled or replaced is a fourth end: the wait resolves
+  // with the cancel's success receipt, which said "Creator fees claimed."
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = useReceiptOutcome(receiptQuery, {
+    hash: txHash ?? undefined,
+    chainId,
+    repeatCost: 'claiming again pays out only what has accrued since, or reverts if nothing has.',
   });
   useEffect(() => {
-    if (!txHash || !receiptFetched || !receipt) return;
-    if (receipt.status === 'success') toast.success('Creator fees claimed.');
-    else toast.error('Claim failed on-chain (reverted) — nothing was paid out.');
+    if (!txHash || !(isSuccess || isReverted || isReceiptUnreadable || isReplaced)) return;
+    if (isSuccess) toast.success('Creator fees claimed.');
+    else if (isReverted) toast.error('Claim failed on-chain (reverted) — nothing was paid out.');
+    // Unreadable or replaced: useReceiptOutcome has already said which.
     setTxHash(null);
     void refetch();
-  }, [txHash, receiptFetched, receipt, refetch]);
+  }, [txHash, isSuccess, isReverted, isReceiptUnreadable, isReplaced, refetch]);
 
   // The gate: only the on-chain creator ever sees this surface.
   if (!account || account.toLowerCase() !== creator.toLowerCase()) return null;
@@ -300,7 +316,7 @@ export default function CurveTokenPage() {
           <div className="rounded-2xl p-5" style={cardStyle}>
             <p className="text-white/85 text-sm font-semibold">No curve launch at this address.</p>
             <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
-              Checked every chain the Memetics curve is deployed on — nothing launched from our
+              Checked every chain the Memetics curve is deployed on. Nothing launched from our
               launcher lives at{' '}
               <span className="font-mono break-all">{token}</span>. If it was just created, give
               the RPC a few seconds and reload.{' '}
@@ -343,7 +359,7 @@ export default function CurveTokenPage() {
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Link to="/swap" className="btn-primary px-4 py-2 text-[12px]">Trade it on the venue swap</Link>
-                  <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px]">The farm (real ETH yield)</Link>
+                  <Link to="/earn" className="btn-secondary px-4 py-2 text-[12px]">The farm (real ETH yield)</Link>
                 </div>
               </div>
             )}

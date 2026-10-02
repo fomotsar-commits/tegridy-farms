@@ -49,6 +49,7 @@ import {
   LAMPORTS_PER_SOL,
   PublicKey,
   SystemProgram,
+  SYSVAR_CLOCK_PUBKEY,
 } from "@solana/web3.js";
 import { assert } from "chai";
 import * as fs from "fs";
@@ -81,12 +82,23 @@ function loadProgram(provider: AnchorProvider): AnyProgram {
   return new Program(idl, provider) as AnyProgram;
 }
 
-/** Anchor surfaces the program's own error NAME; assert on that, never on a number. */
+/**
+ * Anchor surfaces the program's own error NAME; assert on that, never on a number.
+ *
+ * FIXED 2026-09-17 — this helper used to pass when the instruction SUCCEEDED. The
+ * `assert.fail` sat inside the `try`, so its AssertionError was caught by the `catch`
+ * below, whose `assert.include(msg, name)` then matched the failure's OWN text
+ * ("expected <name>, but the instruction SUCCEEDED" contains <name>). Every rejection
+ * test in this file was therefore unproven against success. The L-1 test was the
+ * witness: `notify(1, 0)` inside a live window yields a non-zero rate and succeeds, and
+ * CI reported it passing. The success branch now fails OUTSIDE the try.
+ */
 async function rejectsWith(p: Promise<unknown>, name: string, what: string) {
+  let outcome: "succeeded" | "rejected" = "succeeded";
   try {
     await p;
-    assert.fail(`${what}: expected ${name}, but the instruction SUCCEEDED`);
   } catch (e) {
+    outcome = "rejected";
     const msg = String((e as Error)?.message ?? e);
     assert.include(
       msg,
@@ -95,6 +107,16 @@ async function rejectsWith(p: Promise<unknown>, name: string, what: string) {
         `reason proves nothing about the constraint. Full error: ${msg}`
     );
   }
+  if (outcome === "succeeded") {
+    assert.fail(`${what}: expected ${name}, but the instruction SUCCEEDED`);
+  }
+}
+
+/** The cluster's own clock (Clock sysvar, unix_timestamp at offset 32), never Date.now(). */
+async function chainNow(conn: anchor.web3.Connection): Promise<number> {
+  const info = await conn.getAccountInfo(SYSVAR_CLOCK_PUBKEY);
+  if (!info || info.data.length < 40) throw new Error("could not read the Clock sysvar");
+  return Number(info.data.readBigInt64LE(32));
 }
 
 describe("bayla-ladder", () => {
@@ -580,6 +602,22 @@ describe("bayla-ladder", () => {
         tokenProgram: ctx.programId,
       });
 
+    // MOVED ABOVE the positive control on 2026-09-17. It must run while this pool has
+    // NEVER been funded (period_finish == 0), which makes `notify(1, 0)` a FRESH window:
+    // rate = 1 / 7,776,000 = 0 -> RewardRateTooSmall, deterministically. Run inside a
+    // live window it was never a refusal at all — the fold-in gives a non-zero rate and
+    // the call SUCCEEDED, which the old `rejectsWith` reported as a pass — and with the
+    // rate guard it would now be refused for a different reason, depending on timing.
+    it("REFUSES an amount too small to express as a per-second rate (audit L-1)", async () => {
+      const before = await program.account.pool.fetch(ctx.pool);
+      assert.equal(before.periodFinish.toString(), "0", "precondition: a never-funded pool");
+      await rejectsWith(
+        notify(new BN(1), new BN(0)).rpc(),
+        "RewardRateTooSmall",
+        "a 1-unit reload truncated to rate 0, extended the window 90 days, and emitted nothing"
+      );
+    });
+
     it("POSITIVE CONTROL: funds a 90-day window and sets a per-second rate", async () => {
       await notify(tok(90_000), new BN(0)).rpc();
       const pool = await program.account.pool.fetch(ctx.pool);
@@ -592,12 +630,32 @@ describe("bayla-ladder", () => {
       assert.isTrue(pool.periodFinish.toNumber() > 0);
     });
 
-    it("REFUSES an amount too small to express as a per-second rate (audit L-1)", async () =>
-      rejectsWith(
-        notify(new BN(1), new BN(0)).rpc(),
-        "RewardRateTooSmall",
-        "a 1-unit reload truncated to rate 0, extended the window 90 days, and emitted nothing"
-      ));
+    it("THE RATE GUARD: a dust reload inside a live window is REFUSED (review I07)", async () => {
+      // The zero-cost grief: `notify_reward(0, 1)` mid-window re-spreads the unspent tail
+      // over a fresh 90 days and lowers the rate. Before 2026-09-17 a copied authority key
+      // could repeat it forever. Runs straight after the positive control, so the window
+      // is live.
+      const before = await program.account.pool.fetch(ctx.pool);
+      // TIMING, handled rather than hoped for: in the SAME chain second as the last
+      // notify nothing has been emitted, so `(1 + remaining x R) / D` floors back to R —
+      // the rate genuinely holds and the guard correctly lets it through. Wait on the
+      // cluster clock (never the wall clock) until at least one second has elapsed.
+      const lastNotify = before.lastUpdateTime.toNumber();
+      for (let i = 0; i < 40 && (await chainNow(conn)) <= lastNotify; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      assert.isAbove(await chainNow(conn), lastNotify, "the chain clock never advanced");
+      assert.isBelow(await chainNow(conn), before.periodFinish.toNumber(), "the window must be live");
+
+      await rejectsWith(
+        notify(new BN(0), new BN(1)).rpc(),
+        "RewardRateWouldDecrease",
+        "a 1-unit from_budget reload inside a live window lowered the rate — the guard is not wired"
+      );
+      const after = await program.account.pool.fetch(ctx.pool);
+      assert.equal(after.rewardRate.toString(), before.rewardRate.toString(), "rate unchanged");
+      assert.equal(after.periodFinish.toString(), before.periodFinish.toString(), "window not extended");
+    });
 
     it("REFUSES scheduling nothing at all", async () =>
       rejectsWith(notify(new BN(0), new BN(0)).rpc(), "ZeroAmount", ""));
@@ -707,7 +765,7 @@ describe("bayla-ladder", () => {
         "NOTE: the MATURED path cannot be reached without a clock warp — see the header"
       ));
 
-    it("early_exit takes exactly 25%, and the penalty lands in the REWARD vault", async () => {
+    it("early_exit on a 4-year lock takes the 75% cap, and the penalty lands in the REWARD vault", async () => {
       const before = await bal(carolAta);
       const rvBefore = await bal(vaultPda(REWARD_VAULT_SEED, ctx.pool));
       await program.methods
@@ -717,11 +775,15 @@ describe("bayla-ladder", () => {
         .rpc();
 
       const out = (await bal(carolAta)).sub(before);
-      const penalty = tok(10_000).div(new BN(4));
+      // veYFI's schedule, min(time_left / 4y, 75%) (owner decision 2026-09-17). The beforeEach
+      // lock is MAX_LOCK, so time_left is over three years and the cap applies exactly:
+      // 10,000 staked -> 7,500 penalty, 2,500 back.
+      const penalty = tok(10_000).mul(new BN(3)).div(new BN(4));
+      assert.equal(penalty.toString(), tok(7_500).toString(), "arithmetic of the fixture");
       assert.equal(
         out.toString(),
         tok(10_000).sub(penalty).toString(),
-        "must receive 75% of principal"
+        "must receive 25% of principal"
       );
       assert.equal(
         (await bal(vaultPda(REWARD_VAULT_SEED, ctx.pool)))
@@ -747,6 +809,56 @@ describe("bayla-ladder", () => {
         us.principal.toString(),
         "0",
         "an exit must free the wallet's allocation"
+      );
+    });
+
+    it("a 7-day lock left early pays veYFI's time-left share, nowhere near the 75% cap", async () => {
+      // penalty = amount x min(time_left / 4y, 75%), two floors as veYFI does them. A 7-day
+      // lock exited straight away has at most 7 days left, so it forfeits at most 7/1460 of
+      // principal (~0.48%). Bounded, not exact: the exit's clock second is not known in
+      // advance. A flat 75% here would forfeit 7,500; the schedule forfeits under 48.
+      const nonce = 1;
+      await program.methods
+        .stake(tok(10_000), new BN(MIN_LOCK))
+        .accounts({
+          owner: carol.publicKey,
+          pool: ctx.pool,
+          mint: ctx.mint,
+          userStats: userPda(ctx.pool, carol.publicKey),
+          position: positionPda(ctx.pool, carol.publicKey, nonce),
+          ownerAta: carolAta,
+          stakeVault: vaultPda(STAKE_VAULT_SEED, ctx.pool),
+          tokenProgram: ctx.programId,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([carol])
+        .rpc();
+      const before = await bal(carolAta);
+      const rvBefore = await bal(vaultPda(REWARD_VAULT_SEED, ctx.pool));
+      await program.methods
+        .earlyExit()
+        .accounts({ ...exitAccounts(), position: positionPda(ctx.pool, carol.publicKey, nonce) })
+        .signers([carol])
+        .rpc();
+
+      const penalty = tok(10_000).sub((await bal(carolAta)).sub(before));
+      const SCALE = new BN(10).pow(new BN(18));
+      const charge = (secsLeft: number) =>
+        tok(10_000).mul(new BN(secsLeft).mul(SCALE).div(new BN(MAX_LOCK))).div(SCALE);
+      const upper = charge(MIN_LOCK);
+      const lower = charge(MIN_LOCK - 600);
+      assert.isTrue(
+        penalty.lte(upper) && penalty.gte(lower),
+        `penalty ${penalty.toString()} is outside [${lower.toString()}, ${upper.toString()}]`
+      );
+      assert.isTrue(penalty.gtn(0), "a locked early exit must still pay something");
+      assert.equal(
+        (await bal(vaultPda(REWARD_VAULT_SEED, ctx.pool))).sub(rvBefore).toString(),
+        penalty.toString(),
+        "the time-left penalty is retained as reward budget, exactly as the capped one"
+      );
+      assert.isNull(
+        await conn.getAccountInfo(positionPda(ctx.pool, carol.publicKey, nonce))
       );
     });
 
@@ -776,13 +888,13 @@ describe("bayla-ladder", () => {
       const out = (await bal(carolAta)).sub(before);
       assert.equal(
         out.toString(),
-        tok(7_500).toString(),
-        "75% out while locked"
+        tok(2_500).toString(),
+        "25% out on a 4-year lock (the hatch charges the same capped 75% as early_exit)"
       );
       const pool = await program.account.pool.fetch(ctx.pool);
       assert.equal(
         pool.orphanedPenalty.toString(),
-        tok(2_500).toString(),
+        tok(7_500).toString(),
         "the hatch cannot reach the reward vault, so the penalty parks for the sweep"
       );
       assert.isTrue(
@@ -826,27 +938,31 @@ describe("bayla-ladder", () => {
 
       assert.equal(
         (await bal(vaultPda(REWARD_VAULT_SEED, ctx.pool))).toString(),
-        tok(2_500).toString()
+        tok(7_500).toString()
       );
       const pool = await program.account.pool.fetch(ctx.pool);
       assert.equal(pool.orphanedPenalty.toString(), "0");
       assert.equal(
         pool.penaltyCollectedCumulative.toString(),
-        tok(2_500).toString()
+        tok(7_500).toString()
       );
     });
 
     it("AUDIT H-1: a retained penalty is SCHEDULABLE with no fresh capital", async () => {
       // This is the finding that mattered most. Before the fix the rate was a pure
-      // function of the freshly-transferred `amount`, so the 25% a leaver left behind
-      // — which the pool PROMISES to whoever stays — could never be paid to anyone.
+      // function of the freshly-transferred `amount`, so the penalty a leaver left behind
+      // (25% when H-1 was found; up to 75%, by time left, since 2026-09-17) could never be
+      // scheduled at all.
       // A `notify_reward(0, penalty)` was impossible: `amount > 0` was required.
+      // This pool has never been funded (period_finish == 0), so the rate guard does not
+      // apply here; mid-window, a penalty-only reload would be refused unless it covers
+      // what the window has emitted since the last notify.
       await program.methods
         .earlyExit()
         .accounts(exitAccounts())
         .signers([carol])
         .rpc();
-      const penalty = tok(2_500);
+      const penalty = tok(7_500);
       assert.equal(
         (await bal(vaultPda(REWARD_VAULT_SEED, ctx.pool))).toString(),
         penalty.toString()

@@ -4,7 +4,9 @@ import { toast } from 'sonner';
 import { TEGRIDY_DROP_V2_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
+import { getTxUrl } from '../lib/explorer';
 import type { ContractMetadata } from '../lib/nftMetadata';
 
 /// Resolve an `ar://` URI (or bare Arweave tx ID) into a gateway URL the
@@ -54,18 +56,28 @@ export function useNFTDropV2(dropAddress: string) {
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   // AUDIT FIX FE-LOW-04: pin receipt resolution to CHAIN_ID — see useLPFarming.ts.
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isReceiptError } = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
+  const receiptQuery = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
-  // receipt was FETCHED" — it latches true for on-chain REVERTED mints too. Only
-  // receipt.status === 'success' is a real success. isReverted folds into
-  // isTxError so the `inFlight` guard below can't latch forever after a revert.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
-  const isTxError = isReceiptError || isReverted;
+  // receipt was FETCHED". Only receipt.status === 'success' is a real success.
+  // 2026-09-17: and wagmi's `isError` is both a real revert (wagmi THROWS on a
+  // reverted receipt) and "we could not READ the receipt"; receiptOutcome splits
+  // them by error type (lib/txErrors.ts). Both fold into isTxError so the
+  // `inFlight` guard below can't latch forever after either. A mint the wallet
+  // cancelled or replaced is a third such end: its receipt is the cancel's, and
+  // says success (see lib/txErrors.ts). Its warning is useReplacedTxNotice's.
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
+  const isTxError = isReceiptUnreadable || isReverted || isReplaced;
 
   const enabled = !!dropAddress && dropAddress !== '0x0000000000000000000000000000000000000000';
 
   // R043 H-062-02 + H-062-04: chainId pin on every entry, 60s poll (was 30s).
+  // NOT gated on useChainId() === CHAIN_ID: the pins already read mainnet, and
+  // that gate left a visitor whose wallet was last on Base or Robinhood with a
+  // sale nobody read ("0/0" minted, "Minting closed") - see useLPFarming.ts.
+  // `onMainnet` still guards mint() and refund(), which send from the wallet.
   const { data, refetch } = useReadContracts({
     contracts: [
       { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'mintPhase', chainId: CHAIN_ID },
@@ -81,7 +93,7 @@ export function useNFTDropV2(dropAddress: string) {
       { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'creator', chainId: CHAIN_ID },
       { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'contractURI', chainId: CHAIN_ID },
     ],
-    query: { enabled: enabled && onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
+    query: { enabled, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
 
   const currentPhase = data?.[0]?.status === 'success' ? Number(data[0].result as number) : 0;
@@ -103,12 +115,40 @@ export function useNFTDropV2(dropAddress: string) {
   // real money. Two separately-named facts, because they gate different things:
   // only a SUCCESSFUL read may arm a signature (so pending and disabled queries
   // disarm too), while the "network did not answer" copy is scoped to a read we
-  // actually issued - off mainnet, or with a placeholder address, the batch is
-  // disabled and that is not an outage.
+  // actually issued - with a placeholder address the batch is disabled, and
+  // that is not an outage. A wallet on another chain IS asked (the batch is
+  // chain-pinned, not chain-gated), so its failures count.
   /** The `currentPrice()` call came back `status: 'success'`. A pending, disabled or failed read is `false`. */
   const priceReadOk = data?.[1]?.status === 'success';
   /** The price read was attempted and did not land. `currentPrice` is 0n here, and that 0 is not a price. */
-  const priceUnread = enabled && onMainnet && !!data && data[1]?.status !== 'success';
+  const priceUnread = enabled && !!data && data[1]?.status !== 'success';
+
+  // OUTAGE-AS-OPEN. The other reads the Mint button gates on collapse the same
+  // way, and every one of them lands on the side that DISARMS a guard: unread
+  // `paused` is false, unread `maxSupply` is 0 so `isSoldOut` below reads "not
+  // sold out", unread `maxPerWallet` is 0, which the contract means as "no cap"
+  // (TegridyDropV2.sol:528), and unread `mintPhase` is 0, i.e. CLOSED - so the
+  // page told buyers "the creator hasn't opened the sale yet" about a sale it
+  // never read. Same two facts as the price, same scoping. Written out per
+  // index, not as a loop, so a per-index scan can see which reads are covered.
+  /** mintPhase, totalSupply, maxSupply, maxPerWallet and paused ALL came back `status: 'success'`. */
+  const saleStateReadOk =
+    data?.[0]?.status === 'success' && // mintPhase
+    data?.[2]?.status === 'success' && // totalSupply
+    data?.[3]?.status === 'success' && // maxSupply
+    data?.[5]?.status === 'success' && // maxPerWallet
+    data?.[8]?.status === 'success'; // paused
+  /** A sale-state read was attempted and did not land. Phase, supply, cap and pause above are then display defaults, not the contract's state. */
+  const saleStateUnread = enabled && !!data && !saleStateReadOk;
+  // The remaining collapses are left unsignalled ON PURPOSE (adjudicated
+  // 2026-09-10), so a per-index scan still lists them:
+  //   [4] owner -> '' hides the owner panels: fails closed, claims nothing to a buyer.
+  //   [6] paidPerWallet -> 0n makes canRefund false, which only matters on a
+  //       cancelled sale - and cancelSale() reverts CancelAfterFirstMint once
+  //       anything has minted (TegridyDropV2.sol:1066, in every live template),
+  //       so no wallet can be owed a refund: "No refund owed" is true by construction.
+  //   [7] revealed, [10] creator -> no consumer.   [11] contractURI -> '' falls
+  //       back to the on-chain name, a display default.
 
   /** Only meaningful when `priceReadOk`. */
   const currentPriceFormatted = Number(formatWei(currentPrice, 18, 8));
@@ -226,6 +266,15 @@ export function useNFTDropV2(dropAddress: string) {
       });
       return;
     }
+    // OUTAGE-AS-OPEN. Same rule for the rest of the sale: an unread pause,
+    // phase, supply or wallet cap is a guard that stopped guarding, not a
+    // green light. A successful read of any of them passes straight through.
+    if (!saleStateReadOk) {
+      toast.error('Sale state could not be read', {
+        description: 'Reload before minting - the pause, phase, supply and wallet cap must all be known.',
+      });
+      return;
+    }
     lastActionRef.current = 'mint';
     const totalCost = currentPrice * BigInt(quantity);
     writeContract({
@@ -280,13 +329,22 @@ export function useNFTDropV2(dropAddress: string) {
             ? 'No ETH was sent back — your refund is still claimable.'
             : 'Nothing was minted and your ETH was not taken.',
         });
-      } else {
-        toast.error(lastActionRef.current === 'refund' ? 'Refund failed' : 'Mint failed');
+      } else if (hash && isReceiptUnreadable) {
+        // Neither a rejection nor a revert: the receipt READ failed, so nothing at all
+        // is known. This said "Mint failed" — and a resent mint on a drop that already
+        // minted spends the price a second time. See surfaceUnconfirmedTx.
+        surfaceUnconfirmedTx(toast, {
+          hash,
+          explorerUrl: getTxUrl(chainId, hash),
+          repeatCost: lastActionRef.current === 'refund'
+            ? 'the refund is already back in your wallet and a second one only costs gas.'
+            : 'a second mint pays the mint price all over again.',
+        });
       }
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, isReverted, writeError, reset]);
+  }, [isSuccess, isTxError, isReverted, isReceiptUnreadable, writeError, reset, hash, chainId]);
 
   return {
     // Read data
@@ -298,7 +356,9 @@ export function useNFTDropV2(dropAddress: string) {
     currentPriceFormatted,
     priceReadOk,
     priceUnread,
-    /** The wallet is on CHAIN_ID, i.e. the reads above were actually issued. */
+    saleStateReadOk,
+    saleStateUnread,
+    /** The wallet is on CHAIN_ID, so mint() and refund() will send. Says nothing about the reads above: they are pinned to CHAIN_ID and run from any chain. */
     onMainnet,
     // NB: total/supply alias kept so shared launchpad components that accept
     // { mintPrice, totalMinted } (see CreatorRevenueDashboard) Just Work.

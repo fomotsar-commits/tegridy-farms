@@ -2,6 +2,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { derivedUrl, widthsFor, artSrcSet, naturalWidthOf, DERIVATIVE_WIDTHS } from './artSrcSet';
+// The BUILD side's copy, imported so the two can be compared by running them
+// rather than by pinning a string that a harmless refactor would red.
+import {
+  derivedUrl as buildDerivedUrl,
+  widthsForEntry,
+} from '../../scripts/derivative-url.mjs';
 
 /**
  * THE GENERATOR AND THE RUNTIME MUST AGREE, and nothing else enforces it.
@@ -148,6 +154,50 @@ describe('the two manifest forms', () => {
   const manifest = JSON.parse(
     readFileSync(join(process.cwd(), 'src', 'lib', 'artDerivatives.generated.json'), 'utf8'),
   ) as Record<string, number | number[]>;
+
+  // THE ONE THAT RUNS IN CI, and the reason the two below are not the whole story.
+  //
+  // Both on-disk checks in this block take their skip branch on EVERY CI run:
+  // public/_derived is gitignored, the "Lint, Type Check & Test" job runs
+  // `npm ci --ignore-scripts` then `npm test` and never builds, and .npmrc's
+  // ignore-scripts=true means no pre/post hook can ever be added to change that
+  // (adding one is what caused the 2026-09-04 outage in the first place). They
+  // warn rather than fail, which is honest, but a guard that never executes is
+  // not coverage and must not be counted as any.
+  //
+  // What DOES cover the outage is the Build job, twice over: the generator
+  // self-checks MISSING and LARGER against public/_derived as it writes, and
+  // scripts/verify-dist-derivatives.mjs re-asks the question of dist/ at the end.
+  // Neither of those can see the gap below, though.
+  //
+  // THE GAP. The candidate set is computed in three places that cannot import one
+  // another -- the generator, the dist verifier, and lib/artSrcSet.ts, which is
+  // bundled for a browser. The first two now share scripts/derivative-url.mjs, so
+  // the build fails if the generator drifts. Nothing held the RUNTIME to it: drift
+  // in artSrcSet.ts alone leaves every file the scripts look for present, every
+  // gate green, and the browser requesting URLs that do not exist -- a srcset 404
+  // is a broken image, not a fallback to src, and on Vercel it is not even a 404
+  // but a 200 of index.html that caches.
+  //
+  // So this drives BOTH implementations over the real manifest and demands they
+  // agree. It reads no derivatives, which is exactly why it is the check that
+  // survives CI.
+  it('the runtime advertises exactly what the shipping guard verifies', () => {
+    let compared = 0;
+    for (const [src, entry] of Object.entries(manifest)) {
+      const shipGate = widthsForEntry(entry).map((w) => buildDerivedUrl(src, w));
+      const runtime = widthsFor(src).map((w) => derivedUrl(src, w));
+      expect(
+        runtime,
+        `${src}: the bundle asks for these, the dist guard checks for those — one of ` +
+          `lib/artSrcSet.ts or scripts/derivative-url.mjs has drifted`,
+      ).toEqual(shipGate);
+      compared += runtime.length;
+    }
+    // Without this the whole test passes on an empty manifest, which is the
+    // failure state it is meant to detect.
+    expect(compared, 'no candidates compared — the manifest read as empty').toBeGreaterThan(100);
+  });
 
   it('EVERY advertised candidate has a file behind it', () => {
     // THE assertion this whole contract exists for, and the only one that would

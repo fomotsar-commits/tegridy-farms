@@ -77,7 +77,7 @@ export function resolvePairTokens(token0: string, token1: string): PairTokenReso
       ok: false,
       reason:
         'Neither leg of this pair is a venue quote token, so there is no side to price the other in. ' +
-        'The indexer should not be tracking it at all — see the allowlist in indexer/ponder.schema.ts.',
+        'The indexer should not be tracking it at all; see the allowlist in indexer/ponder.schema.ts.',
     };
   }
 

@@ -132,7 +132,7 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
 
       <p className="text-[10px] text-white/40 mt-3">
         Price, liquidity, volume and the trade split are read from GeckoTerminal for this
-        pool on read — nothing here refreshes on its own. A dash means the figure could
+        pool on read. Nothing here refreshes on its own. A dash means the figure could
         not be read, not that it is zero.
       </p>
     </section>

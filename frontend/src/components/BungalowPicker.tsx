@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { Modal } from './ui/Modal';
 import { artSrcSet } from '../lib/artSrcSet';
 import { isToweliVoice } from '../lib/arrival';
@@ -6,11 +7,13 @@ import { isToweliVoice } from '../lib/arrival';
 import { OPEN_DOOR_IDS } from './VenueDoors';
 import {
   BUNGALOWS,
+  BUNGALOW_COUNT,
   getActiveBungalow,
   setActiveBungalow,
   type Bungalow,
 } from '../lib/bungalows';
 import { ART } from '../lib/artConfig';
+import { doorArt } from '../lib/doorArt';
 
 const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
   ethereum: 'Ethereum',
@@ -20,28 +23,17 @@ const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
 };
 
 /**
- * Jungle Bay Island bungalow picker — the screen after the intro.
- *
- * Thirteen bungalows, one per community token. Entering one re-skins every
- * background surface with that bungalow's art pool (see lib/bungalows.ts);
- * buttons, copy and contracts are untouched. Only live bungalows are
- * selectable; the rest render as locked "Soon" cards so the island's shape
- * is visible before every token is confirmed.
- *
- * Dismissal (Escape / "Stay here") persists the CURRENT bungalow so the
- * picker doesn't re-open on the next visit — it is a welcome, not a gate.
- * The footer's Bungalows button reopens it any time (OPEN_BUNGALOWS_EVENT).
- *
- * Switching to a different bungalow persists the choice and reloads:
- * `pageArt()` is consumed at module scope in places (loader constants,
- * STAT_ARTS), so a reload is the only way every surface re-resolves
- * consistently — and it matches the app's existing splash-replay pattern.
+ * The hall of doors, opened on a tap and never by itself. Live bungalows are
+ * selectable; the quiet slot is locked. Picking another bungalow walks through its
+ * door inside the app, where the skin switches in place. Dismissal keeps the
+ * current skin and counts as a choice; the footer's Bungalows button reopens it.
  */
 export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () => void }) {
   // ARRIVAL IDENTITY 2026-08-27: no implicit Toweli default. Nothing chosen
   // means the visitor is at the venue itself, so no card claims "You are
   // here" until a door has actually been walked.
   const currentId = getActiveBungalow()?.id ?? null;
+  const navigate = useNavigate();
 
   const dismiss = () => {
     // Persist the status quo so dismissal counts as a choice and the picker
@@ -57,20 +49,13 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
     // still arrives with the community's art drop, so no choice is persisted
     // and the current skin stays.
     if (b.chain === 'tbd') return;
-    if (!b.live) {
-      onClose();
-      window.location.assign(`/${b.id}`);
-      return;
-    }
-    setActiveBungalow(b.id);
+    onClose();
     if (b.id === currentId) {
-      onClose();
+      setActiveBungalow(b.id);
       return;
     }
-    // Enter through the bungalow's front door so the address bar carries the
-    // memetics.finance/<bungalow> format. The choice is already persisted, so
-    // the door renders directly without a second reload.
-    window.location.assign(`/${b.id}`);
+    // The door writes and announces the choice; the address bar carries /<id>.
+    navigate(`/${b.id}`);
   };
 
   return (
@@ -83,11 +68,12 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
       art={ART.jungleBus.src}
     >
       <p className="text-white/80 text-[13px] leading-relaxed mb-4">
+        {/* The count is read from the registry, never typed: the open lot is no bungalow. */}
         {isToweliVoice()
-          ? 'Thirteen bungalows, one island. Live bungalows dress the app\u2019s backgrounds in their own art; settled doors are open \u2014 plaque, contract and trade route \u2014 while their art drops arrive. Same farm, same rails, different vibes.'
+          ? `${BUNGALOW_COUNT} bungalows, one island. Live bungalows dress the app\u2019s backgrounds in their own art; settled doors are open \u2014 plaque, contract and trade route \u2014 while their art drops arrive. Same farm, same rails, different vibes.`
           /* ARRIVAL IDENTITY 2026-08-31: the venue speaks its own law here
              (island-authored venue strings carry no em dashes, per lane law). */
-          : 'Thirteen bungalows, one island. Open doors show in full color; settled doors are greyed while their people move in, and each still opens to its plaque, contract and trade route. Walk in where you hold.'}
+          : `${BUNGALOW_COUNT} bungalows, one island. Open doors show in full color; settled doors are greyed while their people move in, and each still opens to its plaque, contract and trade route. Walk in where you hold.`}
       </p>
 
       <div
@@ -97,12 +83,16 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
         {/* THE WAY BACK lives on the WORDMARK, not in here (owner, 2026-08-31).
             This hall is the island's residents; the venue is not one of them, and
             listing it as a fourteenth tile read like a bungalow you could move
-            into. The two ways to the venue are now: the arrival after the intro,
-            and clicking the MEMETICS.FINANCE wordmark in the nav — which clears
-            the stored bungalow and walks home. See TopNav. */}
+            into. The two ways to the venue are now: a first arrival at `/`, which
+            opens straight on the venue's own page, and clicking the
+            MEMETICS.FINANCE wordmark in the nav — which clears the stored
+            bungalow and walks home. See TopNav. */}
         {BUNGALOWS.map((b) => {
           const isCurrent = b.id === currentId;
           const locked = b.chain === 'tbd'; // only the quiet slot stays locked
+          // Same resolver VenueDoors uses, so the card behind this modal and the
+          // row inside it can never show different pictures for one door.
+          const door = doorArt(b);
           return (
             <button
               key={b.id}
@@ -124,16 +114,16 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
                 {/* RESPONSIVE, 2026-09-04 — same rails as VenueDoors, which
                     renders the same thumbnails on the page behind this modal. */}
                 <img
-                  src={b.thumb}
-                  {...(artSrcSet(b.thumb)
-                    ? { srcSet: artSrcSet(b.thumb), sizes: '(max-width: 640px) 50vw, 300px' }
+                  src={door.src}
+                  {...(artSrcSet(door.src)
+                    ? { srcSet: artSrcSet(door.src), sizes: '(max-width: 640px) 50vw, 300px' }
                     : {})}
                   alt=""
                   loading="lazy"
                   width={300}
                   height={64}
                   className={`w-full h-full object-cover ${locked || !OPEN_DOOR_IDS.has(b.id) ? 'grayscale' : ''}`}
-                  style={b.thumbPosition ? { objectPosition: b.thumbPosition } : undefined}
+                  style={door.objectPosition ? { objectPosition: door.objectPosition } : undefined}
                 />
               </div>
               <div className="p-2.5">

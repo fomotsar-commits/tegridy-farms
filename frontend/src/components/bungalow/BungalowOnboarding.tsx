@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Modal } from '../ui/Modal';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
+import { stakePoolMembersOnly } from '../../lib/bungalows';
 import { pageArt } from '../../lib/artConfig';
 
 /**
@@ -13,19 +14,44 @@ import { pageArt } from '../../lib/artConfig';
  * Copy rule inherited from every first-touch surface here: no yield claims,
  * nothing "coming soon" with a date. Three steps: who she is, what is live
  * today, what the lighthouse pool will be when it exists.
+ * A members-only pool (stakePoolMembersOnly) is not introduced: a welcome cannot
+ * tell who its members are, so the last step introduces the lock ladder instead.
  */
-export function BungalowOnboarding({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity } }) {
+export function BungalowOnboarding({
+  bungalow,
+  invitedOpen = false,
+  onInvitedClose,
+}: {
+  bungalow: Bungalow & { identity: BungalowIdentity };
+  /**
+   * WAVE SEVEN, element E: this welcome no longer opens itself.
+   *
+   * It used to greet every first visit to every room, which is precisely the
+   * "nothing opens over the page unasked" the wave removes — and the lore card
+   * already says most of what it says. The copy is NOT deleted: the room's
+   * "About this bungalow" link raises OPEN_BUNGALOW_ABOUT_EVENT, AppLayout
+   * holds the flag, and it arrives here. Same shape as the venue welcome's
+   * invited mode, so there is one mechanism for "a modal exists only behind a
+   * tap" rather than two.
+   */
+  invitedOpen?: boolean;
+  onInvitedClose?: () => void;
+}) {
   const storageKey = `tegridy-onboarding-${bungalow.id}-seen`;
-  const [open, setOpen] = useState(() => {
-    try { return localStorage.getItem(storageKey) !== '1'; } catch { return true; }
-  });
   const [step, setStep] = useState(0);
 
+  const open = invitedOpen;
+
   const close = () => {
+    // Still recorded, so nothing about the old first-visit bookkeeping changes
+    // for anyone who reads that key; it simply no longer decides whether the
+    // modal appears.
     try { localStorage.setItem(storageKey, '1'); } catch { /* private mode */ }
-    setOpen(false);
+    setStep(0);
+    onInvitedClose?.();
   };
 
+  const membersOnly = stakePoolMembersOnly(bungalow);
   const steps = [
     {
       title: `Welcome to the ${bungalow.name} bungalow`,
@@ -35,7 +61,10 @@ export function BungalowOnboarding({ bungalow }: { bungalow: Bungalow & { identi
       title: 'Live today',
       body: `Trade ${bungalow.symbol}, scan it on the two-chain scanner, and check any wallet's heat — the island's held-time oracle. Time held is what counts.`,
     },
-    {
+    membersOnly ? {
+      title: 'The lock ladder',
+      body: `${bungalow.symbol} staking runs on the venue's own lock ladder, and the farm page reads it directly. A dry vault reads as a real zero, so nothing here will ever advertise rewards that are not already on-chain.`,
+    } : {
       title: 'The lighthouse pool',
       // Branch on the same registry fact that flips the farm page live —
       // "being built" was still showing in prod after the pool shipped
@@ -63,8 +92,8 @@ export function BungalowOnboarding({ bungalow }: { bungalow: Bungalow & { identi
             Skip
           </button>
           {isLast ? (
-            <Link to="/farm" onClick={close} className="btn-primary px-5 py-2 text-[13px] inline-block text-center">
-              See the lighthouse
+            <Link to={`/earn/${bungalow.id}`} onClick={close} className="btn-primary px-5 py-2 text-[13px] inline-block text-center">
+              {membersOnly ? 'See the ladder' : 'See the lighthouse'}
             </Link>
           ) : (
             <button type="button" onClick={() => setStep((s) => s + 1)} className="btn-primary px-5 py-2 text-[13px]">

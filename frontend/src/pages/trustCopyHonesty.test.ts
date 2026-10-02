@@ -1,37 +1,19 @@
-// TRUST-COPY GUARD — the claims a first-time visitor reads, and the two files
-// this app serves to machines.
-//
-// Every assertion here failed before 2026-09-03. They are grouped because they
-// are one failure mode wearing four costumes: a string that was true when it was
-// typed and was never re-checked against the thing it describes.
-//
-//   1. The brand word retired on 2026-08-31 still shipping in RENDERED copy —
-//      the /contracts meta description and lead, the marketplace's only exit
-//      link, the dashboard's score card, the gallery's attribution.
-//   2. "Tegridy Score" on /dashboard vs "Venue Score" on the page it links to:
-//      one instrument, two names.
-//   3. Evidence links resolving to branch `main`, 1,048 commits behind the
-//      branch this site is built from, while /contracts linked the same repo
-//      correctly — so the app disagreed with itself about which branch is
-//      authoritative.
-//   4. The Home Farm card's "2 pools" stat contradicting its own body.
-//
-// The brand rule, precisely: CODE keeps its Tegridy identifiers (contract names,
-// storage keys, the CoW `appCode`, hook and component names) — renaming a storage
-// key orphans real user data. It is RENDERED STRINGS that must not carry it.
-// RisksPage is exempt where it says the name WAS retired; that sentence needs the
-// word to be true.
+// TRUST-COPY GUARD: the claims a first-time visitor reads, and the files this app serves
+// to machines, each pinned to the thing it describes because each was once true when typed
+// and then went stale. Rendered strings must not carry the retired Tegridy brand; code keeps
+// its Tegridy identifiers (renaming a storage key orphans user data), and RisksPage may say
+// the name was retired.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SITE_URL, GITHUB_BRANCH, GITHUB_BLOB_BASE, SOCIAL_LINKS } from '../lib/constants';
+import { SITE_URL, SOURCE_URL, SOCIAL_LINKS } from '../lib/constants';
 import { farmCardStat, farmCardDesc } from '../lib/lpEmissions';
-import { FAQ_DATA } from './FAQPage';
+import { venueFaq, TOWELI_FAQ_DATA } from '../lib/faqData';
 
 const read = (...parts: string[]) => readFileSync(join(process.cwd(), ...parts), 'utf8');
 
-// ── 1 + 2. The retired brand in rendered copy ───────────────────────────────
+// ── The retired brand in rendered copy ──────────────────────────────────────
 describe('the retired brand does not reach the reader', () => {
   const surfaces: { what: string; source: string }[] = [
     { what: '/contracts meta description and lead paragraph', source: read('src', 'pages', 'ContractsPage.tsx') },
@@ -72,27 +54,30 @@ describe('the retired brand does not reach the reader', () => {
   });
 });
 
-// ── 3. Evidence links point at the branch the site ships from ───────────────
+// ── Evidence links point at the branch the site ships from ──────────────────
 describe('audit evidence links', () => {
-  it('no page carries its own repo-branch literal', () => {
-    // Both trust pages had their own `blob/main` literals while /contracts had
-    // `blob/mvp-launch`. One constant, or they drift again.
-    for (const f of ['SecurityPage.tsx', 'RisksPage.tsx', 'ContractsPage.tsx']) {
+  it('no page carries its own git-host URL', () => {
+    // Pages link SOURCE_URL; the host and branch live in one place (vercel.json).
+    for (const f of ['SecurityPage.tsx', 'RisksPage.tsx', 'ContractsPage.tsx', 'TrustHubPage.tsx']) {
       const src = read('src', 'pages', f);
-      expect(src, `${f} still hardcodes a github.com repo URL`).not.toMatch(
-        /https:\/\/github\.com\/[^"'`\s]+\/(blob|tree)\//,
-      );
+      const hosts = [...src.matchAll(/https?:\/\/[^\s"'`)<>]+/g)].map((m) => {
+        try { return new URL(m[0]).hostname; } catch { return ''; }
+      });
+      expect(hosts.filter((h) => /(^|\.)(github\.com|gitlab\.com|bitbucket\.org)$/.test(h)), `${f} hardcodes a git-host URL`).toEqual([]);
     }
   });
 
-  it('the shared base points at the deploy branch, never `main`', () => {
-    expect(GITHUB_BRANCH).toBe('mvp-launch');
-    expect(GITHUB_BLOB_BASE).toContain('/blob/mvp-launch');
-    expect(GITHUB_BLOB_BASE).not.toContain('/blob/main');
+  it('the shared base is ours, and it opens files on the deploy branch, never `main`', () => {
+    expect(SOURCE_URL).toBe(`${SITE_URL}/source`);
+    const redirects: { source: string; destination: string }[] = JSON.parse(read('vercel.json')).redirects;
+    const files = redirects.find((r) => r.source === '/source/:path*');
+    expect(files, 'no /source/:path* redirect in vercel.json').toBeTruthy();
+    expect(files!.destination).toMatch(/\/mvp-launch\/:path\*$/);
+    expect(files!.destination).not.toMatch(/\/main\//);
   });
 });
 
-// ── 4. The Farm card's stat and body come off one read ──────────────────────
+// ── The Farm card's stat and body come off one read ─────────────────────────
 describe('the Home Farm card', () => {
   it('never claims two pools once the LP emissions period has ended', () => {
     expect(farmCardStat('ended')).not.toContain('2 pools');
@@ -131,14 +116,33 @@ describe('the $JBM ecosystem card', () => {
 describe('social links', () => {
   it('are declared once and imported, not re-listed per page', () => {
     for (const [where, ...parts] of [
+      // HomePage left this list 2026-09-15 (answer eight, ruling 7): the
+      // trust strip and the social pills moved off the arrival, so the
+      // Footer is the shared list's only consumer and the only page to
+      // police for re-declaring it.
       ['Footer', 'src', 'components', 'layout', 'Footer.tsx'],
-      ['HomePage', 'src', 'pages', 'HomePage.tsx'],
     ] as const) {
       const src = read(...(parts as unknown as string[]));
       expect(src, `${where} re-declares the social list`).not.toMatch(/const (SOCIAL_LINKS|COMMUNITY_LINKS)\s*(:|=)/);
       expect(src, `${where} does not import the shared list`).toContain('SOCIAL_LINKS');
     }
     expect(SOCIAL_LINKS.length).toBeGreaterThan(0);
+  });
+
+  // Owner ruling 2026-09-17: there is no Telegram channel and there never will be.
+  // A link to one is a link to whoever registers the handle. (Carried from #596 when
+  // answer eleven split it: the removals land now, the invite waits for its owner.)
+  it('carry no Telegram link', () => {
+    const telegram = SOCIAL_LINKS.filter((l) => /(^|\.|\/\/)(t\.me|telegram\.(me|org))\//i.test(l.href) || /telegram/i.test(l.label));
+    expect(telegram).toEqual([]);
+  });
+
+  // Answer eleven, ruling 1: a Discord link here must be one Discord says is permanent and
+  // the venue's own server, and CI asks Discord on every run
+  // (scripts/verify-discord-invites.mjs). What cannot be checked offline is pinned here:
+  // the vanity Discord answers "Unknown Invite" for is not listed again.
+  it('carry no dead Discord vanity', () => {
+    expect(SOCIAL_LINKS.filter((l) => /discord\.gg\/junglebay\b/i.test(l.href))).toEqual([]);
   });
 });
 
@@ -170,6 +174,16 @@ describe('public/.well-known/security.txt', () => {
     expect(txt).not.toContain('https://tegridyfarms.vercel.app');
   });
 
+  it('puts no memetic.fun host in scope', () => {
+    // memetic.fun serves the Island Lab, another application, so it is not in scope through
+    // the dapp. Prose after the scope list may still name it to say so.
+    const start = txt.indexOf('── In scope');
+    const end = txt.indexOf('Nothing else is in scope');
+    expect(start, 'security.txt has no "In scope" list').toBeGreaterThanOrEqual(0);
+    expect(end, 'security.txt has no "Nothing else is in scope" line').toBeGreaterThan(start);
+    expect(txt.slice(start, end)).not.toMatch(/memetic\.fun/);
+  });
+
   it('parses as RFC 9116 fields, not as one long comment', () => {
     // Sanity for the guards above: if a future edit comments out the field
     // block, `fields` empties and every assertion here passes vacuously.
@@ -181,12 +195,12 @@ describe('public/.well-known/security.txt', () => {
 
 // ── The FAQ's opening answer agrees with its own network answer ─────────────
 describe('the FAQ opener', () => {
-  const all = FAQ_DATA.flatMap((s) => s.items);
+  const all = venueFaq(80).flatMap((s) => s.items);
   const opener = all[0]!;
   const network = all.find((i) => /what network/i.test(i.q))!;
 
   it('is the answer the schema.org payload leads with', () => {
-    // The first item of FAQ_DATA is the first `mainEntity` of the emitted
+    // The first item of venueFaq() is the first `mainEntity` of the emitted
     // FAQPage JSON-LD, so it is the sentence a search engine quotes.
     expect(opener.q).toMatch(/what is memetics\.finance/i);
   });
@@ -210,10 +224,14 @@ describe('the FAQ opener', () => {
     }
   });
 
-  it('keeps the TOWELI-staking detail as an Ethereum-specific claim', () => {
-    // Do not let the multi-chain framing rot into "multichain staking":
-    // TOWELI staking really is Ethereum-only.
-    expect(opener.a).toMatch(/On Ethereum you stake TOWELI/);
+  it('speaks as the venue, and the TOWELI detail lives in the TOWELI room', () => {
+    // Answer seven, ruling 2. This test used to REQUIRE "On Ethereum you stake
+    // TOWELI" in the venue's opener, the exact thing the ruling removes. The
+    // staking answer moved word for word into the room's own list, and it
+    // still says what staking takes.
+    for (const item of all) expect(`${item.q} ${item.a}`).not.toMatch(/TOWELI|Tegridy/i);
+    const room = TOWELI_FAQ_DATA.flatMap((s) => s.items).map((i) => i.a).join(' ');
+    expect(room).toMatch(/Deposit TOWELI tokens into the staking contract/);
   });
 });
 

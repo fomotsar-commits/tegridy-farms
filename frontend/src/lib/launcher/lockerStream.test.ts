@@ -13,6 +13,7 @@ import {
   readLockPosition,
   readBeneficiaryClaim,
   lockResolverFor,
+  verdictFromReads,
   LOCKER_V1_ABI,
   type MigrationStream,
 } from './lockerStream';
@@ -249,6 +250,47 @@ describe('readBeneficiaryClaim — what a published beneficiary actually accrued
   // beneficiary is owed on a page whose whole purpose is disclosure.
   it('returns null (not 0) when the read fails', async () => {
     await expect(readBeneficiaryClaim(mockClient(null, { throws: true }), TOKEN, ZERO)).resolves.toBeNull();
+  });
+});
+
+// The data layer setting `unsupported` is only half a fix — the UI has to act on it.
+// Before this rule existed, LaunchPage did `if (s.graduated) …` and otherwise rendered
+// "No fee stream for this token … it either hasn't graduated yet, or it wasn't launched
+// through this rail" — a flat, false claim about a token we had simply failed to read.
+describe('verdictFromReads — never turns an unreadable locker into a claim about the token', () => {
+  const read = (o: Partial<MigrationStream>): MigrationStream => ({
+    graduated: false, numeraire: ETH_NUMERAIRE, poolId: migrationPoolId(TOKEN),
+    locker: null, locked: false, unlockAt: null, beneficiaries: [], ...o,
+  });
+
+  it('an unsupported read is NOT reported as "not graduated"', () => {
+    expect(verdictFromReads([read({ unsupported: true })]).kind).toBe('unsupported');
+  });
+
+  it('unreadable outranks absent — one unsupported pair taints a genuine miss', () => {
+    // The token may have graduated against exactly the pair we could not read.
+    expect(verdictFromReads([read({}), read({ unsupported: true })]).kind).toBe('unsupported');
+  });
+
+  it('only a real read of every pair may claim "not graduated"', () => {
+    expect(verdictFromReads([read({}), read({})]).kind).toBe('not-graduated');
+  });
+
+  it('reading nothing at all claims nothing', () => {
+    expect(verdictFromReads([]).kind).toBe('unsupported');
+  });
+
+  it('a graduated read wins and carries its stream through', () => {
+    const hit = read({ graduated: true, locker: DOPPLER_MAINNET.support.streamableFeesLocker });
+    const v = verdictFromReads([read({ unsupported: true }), hit]);
+    expect(v).toEqual({ kind: 'graduated', stream: hit });
+  });
+
+  // Guards the wiring, not just the rule: today readMigrationStream is uniformly
+  // unsupported, so the live page must be in the honest state, never the accusatory one.
+  it('end-to-end today: the real reader yields unsupported, not not-graduated', async () => {
+    const s = await readMigrationStream(mockClient(null), TOKEN);
+    expect(verdictFromReads([s]).kind).toBe('unsupported');
   });
 });
 

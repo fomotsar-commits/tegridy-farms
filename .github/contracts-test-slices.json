@@ -69,7 +69,7 @@
     },
     {
       "slice": "audit-deep",
-      "pattern": "test/Audit{Microscope_,R014_}*.t.sol"
+      "pattern": "test/Audit{Medium_,Microscope_,R014_}*.t.sol"
     },
     {
       "slice": "tegridy",
@@ -85,7 +85,7 @@
     },
     {
       "slice": "misc",
-      "pattern": "test/{C01_,C1_,CommunityGrants,Gauge,GovernanceGates,KickForfeitDoS,LockerClaimer,Meme,MVPLaunch_,POLAccumulator,PremiumAccess,RedTeam,Referral,Restaking,RevenueDistributor,Staking,SwapFeeRouter,Toweli,TransferOwnershipToMultisig,VoteIncentives}*.t.sol"
+      "pattern": "test/{C01_,C1_,CommunityGrants,Gauge,GovernanceGates,KickForfeitDoS,LockerClaimer,M19_,Meme,MVPLaunch_,POLAccumulator,PremiumAccess,RedTeam,Referral,Restaking,RevenueDistributor,Staking,SwapFeeRouter,Toweli,TransferOwnershipToMultisig,VoteIncentives}*.t.sol"
     },
     {
       "slice": "v4",

@@ -14,22 +14,24 @@
  *   /read/<addr>  held-time share links — the card IS the holder's number, and
  *                 is the whole reason the share exists (wave seven, element M).
  *
- * HONESTY RULE for the trust cards: the card states WHAT THE PAGE MEASURES and
- * identifies the subject — it NEVER asserts a verdict, score or band. The real
- * read is computed client-side from holder data that is partly key-gated, so a
- * card claiming "safe"/"concentrated" could contradict the page it links to.
+ * HONESTY RULE, one law for every card here: a card ASSERTS NOTHING OF THE
+ * VENUE'S OWN. It states what the page measures, identifies the subject, and
+ * repeats only figures somebody else published. It never carries a verdict,
+ * score or band that this venue computed.
+ *
+ * That is why /scan and /deployer name their subject and stop: their read is
+ * OURS, computed client-side from partly key-gated holder data, so a card
+ * claiming "safe" or "concentrated" could contradict the page it links to.
  * Identity (name/symbol) is fetched from a keyless upstream and is factual; if
  * that lookup fails the card degrades to the address alone. Never invent either.
  *
- * WHY /read IS DIFFERENT, and why that is not the rule bending. The rule above
- * exists because a /scan verdict is OURS, computed here from partly key-gated
- * data, so the card could contradict the page. A heat reading is neither: it is
- * SERVED whole by Jungle Bay Island's oracle, readable server-side, and is the
- * same number the page itself will render. Printing the tier on the card is
- * QUOTING the island, not asserting a band of our own — the venue never
- * computes, re-tiers or rounds it into a judgement. The rule as written still
- * binds every card whose subject we measure ourselves; it was never about
- * refusing to repeat a number somebody else published.
+ * And it is why /read MAY print a tier, without the rule bending. A heat
+ * reading is not ours: Jungle Bay Island serves it whole, it is readable
+ * server-side, and it is the same number the page itself will render. Printing
+ * it is QUOTING the island verbatim, not asserting a band of our own — the
+ * venue never computes, re-tiers or rounds it into a judgement. One law, and
+ * both cards obey it. (Wording ruled by the island, wave seven answer two §1.6,
+ * so the next reader finds one rule here rather than two.)
  *
  * The honesty that DOES bind here is the other one: a cold wallet and a failed
  * read both fall back to the generic card. A zero is never printed, because
@@ -44,6 +46,29 @@
 export const config = {
   matcher: ["/nakamigos/:path*", "/scan", "/deployer", "/read/:path*"],
 };
+
+/**
+ * THE HOST THIS VENUE CLAIMS AS ITS OWN — never `new URL(req.url).origin`.
+ *
+ * KEEP IN SYNC with SITE_URL in src/lib/constants.ts. Inlined for the same reason
+ * COLLECTIONS below is: this middleware bundles standalone at the edge and cannot
+ * reach into the app's TS sources. Drift is not left to memory — the two are
+ * asserted equal by src/lib/__tests__/canonicalHost.test.ts.
+ *
+ * WHY IT MATTERS HERE MORE THAN ANYWHERE. Every card this file emits carries a
+ * `rel=canonical` and an `og:url`, and it used to build both from the REQUEST
+ * origin. The venue answers on more than one host, so the same share link
+ * unfurled on `memetic.fun` and on `memetics.finance` produced two documents,
+ * each swearing it was the canonical one — a crawler arriving on the alias was
+ * told the alias was authoritative and could never converge. Fixing robots.txt
+ * and sitemap.xml alone would have left this surface still doing it, and it is
+ * the only surface a crawler reaches by following a share link.
+ *
+ * The request origin is still the right thing for the INTERNAL api/ fetches
+ * below: those must hit THIS deployment (a preview build has to call its own
+ * functions, not production's). Only the public-facing stamps move.
+ */
+const CANONICAL_ORIGIN = "https://memetics.finance";
 
 // Social unfurlers only — all fetch previews without executing JS.
 const UNFURL_BOTS = /twitterbot|discordbot|telegrambot|facebookexternalhit|linkedinbot|slackbot|slack-imgproxy|slack-linkexpanding|whatsapp|embedly|pinterest(bot)?|redditbot|skypeuripreview|vkshare|tumblr/i;
@@ -156,9 +181,10 @@ async function tokenIdentity(address) {
   return name || symbol ? { name, symbol } : null;
 }
 
-async function trustCard(url, origin) {
-  const pageUrl = origin + url.pathname + url.search;
-  const image = `${origin}/og.png`;
+async function trustCard(url) {
+  // The PATH is the crawler's; the HOST is ours. See CANONICAL_ORIGIN.
+  const pageUrl = CANONICAL_ORIGIN + url.pathname + url.search;
+  const image = `${CANONICAL_ORIGIN}/og.png`;
   const siteName = "Tegridy Farms";
 
   if (url.pathname === "/scan") {
@@ -169,7 +195,7 @@ async function trustCard(url, origin) {
         title: "Token Scanner — Tegridy Farms",
         description:
           "Paste any Ethereum or Solana token address for a holder-concentration and distribution read: effective holder count, top-holder shares, every exclusion listed, and a timestamp. A descriptive measurement, not a verdict.",
-        image, url: `${origin}/scan`, siteName,
+        image, url: `${CANONICAL_ORIGIN}/scan`, siteName,
       }));
     }
     const id = await tokenIdentity(token);
@@ -190,7 +216,7 @@ async function trustCard(url, origin) {
       title: "Deployer Graph — Tegridy Farms",
       description:
         "Look up any wallet to see the tokens it deployed directly and where each one stands today. Gaps are stated plainly — factory-launched tokens and launch-time baselines are not covered.",
-      image, url: `${origin}/deployer`, siteName,
+      image, url: `${CANONICAL_ORIGIN}/deployer`, siteName,
     }));
   }
   return respond(ogHtml({
@@ -239,8 +265,8 @@ async function heatReading(address) {
   };
 }
 
-async function readCard(url, origin) {
-  const image = `${origin}/og.png`;
+async function readCard(url) {
+  const image = `${CANONICAL_ORIGIN}/og.png`;
   const siteName = "memetics.finance";
   const address = (url.pathname.split("/")[2] || "").trim();
 
@@ -249,7 +275,7 @@ async function readCard(url, origin) {
       title: READ_GENERIC_TITLE,
       description: READ_DESCRIPTION,
       image,
-      url: `${origin}/`,
+      url: `${CANONICAL_ORIGIN}/`,
       siteName,
     }));
 
@@ -266,7 +292,7 @@ async function readCard(url, origin) {
     title: `${r.tier} · ${r.days.toLocaleString("en-US")} days held · ${r.degrees.toFixed(1)}° on Jungle Bay Island`,
     description: READ_DESCRIPTION,
     image,
-    url: `${origin}/read/${address}`,
+    url: `${CANONICAL_ORIGIN}/read/${address}`,
     siteName,
   }));
 }
@@ -276,37 +302,40 @@ export default async function middleware(req) {
   if (!UNFURL_BOTS.test(ua)) return; // humans + JS crawlers → SPA
 
   const url = new URL(req.url);
-  const origin = url.origin;
+  // THIS deployment's own origin — for calling our own api/ functions, and for
+  // nothing a crawler ever reads. A preview build must hit its own functions, so
+  // this one genuinely is the request's. Every public stamp uses CANONICAL_ORIGIN.
+  const selfOrigin = url.origin;
 
   // Held-time share links (element M). Checked before the trust tools purely
   // because it is the most-shared surface of the wave.
   if (url.pathname === "/read" || url.pathname.startsWith("/read/")) {
-    return readCard(url, origin);
+    return readCard(url);
   }
 
   // Trust-tool share links (the scanner + deployer graph both emit them).
   if (url.pathname === "/scan" || url.pathname === "/deployer") {
-    return trustCard(url, origin);
+    return trustCard(url);
   }
 
   const segments = url.pathname.split("/").filter(Boolean); // ["nakamigos", slug?, tab?]
   const slug = segments[1] || "";
   const collection = COLLECTIONS[slug];
-  const pageUrl = origin + url.pathname + url.search;
+  const pageUrl = CANONICAL_ORIGIN + url.pathname + url.search;
 
   // /nakamigos landing (or unknown slug): site-level card
   if (!collection) {
     return respond(ogHtml({
       title: "Tradermigos — NFT trading floor",
       description: "Browse, trade, and analyze Nakamigos, GNSS Art & Jungle Bay. P2P swaps settled on Seaport, live floors, rarity, and a 1% flat fee that funds the treasury.",
-      image: `${origin}/og.png`,
-      url: `${origin}/nakamigos`,
+      image: `${CANONICAL_ORIGIN}/og.png`,
+      url: `${CANONICAL_ORIGIN}/nakamigos`,
     }));
   }
 
-  const absImage = (img) => (img.startsWith("http") ? img : origin + img);
+  const absImage = (img) => (img.startsWith("http") ? img : CANONICAL_ORIGIN + img);
   const floorData = await fetchJson(
-    `${origin}/api/alchemy?endpoint=getFloorPrice&contractAddress=${collection.contract}`
+    `${selfOrigin}/api/alchemy?endpoint=getFloorPrice&contractAddress=${collection.contract}`
   );
   const floor = floorData?.openSea?.floorPrice;
   const floorTxt = Number.isFinite(floor) ? `Floor ${floor.toFixed(4)} ETH · ` : "";
@@ -315,7 +344,7 @@ export default async function middleware(req) {
   const tokenId = url.searchParams.get("token");
   if (tokenId && /^\d{1,10}$/.test(tokenId)) {
     const meta = await fetchJson(
-      `${origin}/api/alchemy?endpoint=getNFTMetadataBatch`,
+      `${selfOrigin}/api/alchemy?endpoint=getNFTMetadataBatch`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

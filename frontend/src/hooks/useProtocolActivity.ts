@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { TOWELI_WETH_LP_ADDRESS } from '../lib/constants';
 import type { PulseItem, PulseKind } from '../lib/protocolEvents/types';
+import { geckoEdgeUrl } from '../lib/geckoTerminal/edge';
 
 // A live "what's moving in TOWELI" feed — the research-backed on-chain-intelligence
 // hook. Sourced from GeckoTerminal's public trades API (free, keyless, CORS-OK)
@@ -25,7 +26,16 @@ export interface ProtocolActivity {
   error: boolean;
 }
 
-const ENDPOINT = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${TOWELI_WETH_LP_ADDRESS}/trades`;
+/**
+ * The venue's own pulse feed, read through the same-origin edge rather than
+ * browser-direct (see src/lib/geckoTerminal/edge.ts). Exported so the
+ * same-origin invariant can be asserted on the URL itself — this hook polls on
+ * a 60s interval and rendering it to read one string would be the slower and
+ * less direct way to pin the property that matters.
+ */
+export const PROTOCOL_ACTIVITY_ENDPOINT = geckoEdgeUrl(
+  `/networks/eth/pools/${TOWELI_WETH_LP_ADDRESS}/trades`,
+);
 const WHALE_USD = 250; // flag sizeable moves for a sub-cent token
 const POLL_MS = 60_000;
 
@@ -48,7 +58,7 @@ export function useProtocolActivity(): ProtocolActivity {
 
     async function load() {
       try {
-        const res = await fetch(ENDPOINT, { headers: { accept: 'application/json' } });
+        const res = await fetch(PROTOCOL_ACTIVITY_ENDPOINT, { headers: { accept: 'application/json' } });
         if (!res.ok) throw new Error(`gecko ${res.status}`);
         const json = (await res.json()) as { data?: GeckoTrade[] };
         const items: PulseItem[] = (json.data ?? [])

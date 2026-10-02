@@ -228,8 +228,10 @@ describe('parseGeckoPoolList — the money is shown or withheld, never invented'
 
 describe('URLs', () => {
   it('names the two list views', () => {
-    expect(geckoPoolsUrl('eth', 'new')).toBe('https://api.geckoterminal.com/api/v2/networks/eth/new_pools');
-    expect(geckoPoolsUrl('solana', 'trending')).toBe('https://api.geckoterminal.com/api/v2/networks/solana/trending_pools');
+    // Same-origin edge (src/lib/geckoTerminal/edge.ts). The upstream path is
+    // still pinned exactly - it is the whole request-shaping surface.
+    expect(geckoPoolsUrl('eth', 'new')).toBe('/api/aggregator?resource=gecko-read&path=/networks/eth/new_pools');
+    expect(geckoPoolsUrl('solana', 'trending')).toBe('/api/aggregator?resource=gecko-read&path=/networks/solana/trending_pools');
   });
 
   it('joins multi addresses with commas in the PATH', () => {
@@ -237,7 +239,7 @@ describe('URLs', () => {
       '0xa43fe16908251ee70ef74718545e4fe6c5ccec9f',
       '0x11950d141ecb863f01007add7d1a342041227b58',
     ]);
-    expect(url).toBe('https://api.geckoterminal.com/api/v2/networks/eth/pools/multi/0xa43fe16908251ee70ef74718545e4fe6c5ccec9f,0x11950d141ecb863f01007add7d1a342041227b58');
+    expect(url).toBe('/api/aggregator?resource=gecko-read&path=/networks/eth/pools/multi/0xa43fe16908251ee70ef74718545e4fe6c5ccec9f,0x11950d141ecb863f01007add7d1a342041227b58');
   });
 
   it('never lets an unvalidated string reach the path', () => {
@@ -248,7 +250,7 @@ describe('URLs', () => {
       'not-an-address',
       '0xdeadbeef,0xdeadbeef',
     ]);
-    expect(url).toBe('https://api.geckoterminal.com/api/v2/networks/eth/pools/multi/0xa43fe16908251ee70ef74718545e4fe6c5ccec9f');
+    expect(url).toBe('/api/aggregator?resource=gecko-read&path=/networks/eth/pools/multi/0xa43fe16908251ee70ef74718545e4fe6c5ccec9f');
     expect(url).not.toContain('..');
   });
 
@@ -262,7 +264,7 @@ describe('URLs', () => {
     expect(geckoPoolsMultiUrl('solana', ['3HCKRmDnU3Fy43uaK99EtBvfyEevbCC1c8GkD9srs85C']))
       .toContain('/multi/3HCKRmDnU3Fy43uaK99EtBvfyEevbCC1c8GkD9srs85C');
     expect(geckoPoolsMultiUrl('solana', ['0xa43fe16908251ee70ef74718545e4fe6c5ccec9f']))
-      .toBe('https://api.geckoterminal.com/api/v2/networks/solana/pools/multi/');
+      .toBe('/api/aggregator?resource=gecko-read&path=/networks/solana/pools/multi/');
   });
 });
 

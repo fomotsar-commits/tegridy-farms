@@ -12,6 +12,7 @@ import { useLpPosition } from '../hooks/useLpPosition';
 import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { useFarmActions } from '../hooks/useFarmActions';
+import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
 import { useDCA } from '../hooks/useDCA';
@@ -28,6 +29,12 @@ import { PositionHealth } from '../components/PositionHealth';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { FlashValue } from '../components/FlashValue';
 import { PriceChart } from '../components/chart/PriceChart';
+// Both PriceChart mounts below sit in the TOWELI branch of this page (the
+// wrapper returns <VenueDashboard /> for every other arrival voice), and they
+// used to rely on PriceChart defaulting to this market. The default is gone —
+// a chart that picks a resident by omission is how the venue ended up speaking
+// as one — so the branch that means it says so.
+import { TOWELI_MARKET } from '../lib/chart/market';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -55,6 +62,7 @@ const EvmBungalowDashboardPanel = lazy(() =>
   import('../components/bungalow/EvmBungalowDashboardPanel').then((m) => ({ default: m.EvmBungalowDashboardPanel })),
 );
 import { artImgProps } from '../lib/artSrcSet';
+import { noteReplacement } from '../lib/txErrors';
 
 // AUDIT DASH-UX: tabbed view promised by commit b21fed0 but never shipped.
 // Header + summary stats stay above the tabs so at-a-glance portfolio value
@@ -135,7 +143,7 @@ function VenueDashboard() {
           Your positions
         </h1>
         <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          Positions live in the room they were opened in &mdash; each resident&apos;s pool is its own
+          Positions live in the room they were opened in. Each resident&apos;s pool is its own
           token, on its own chain, read by its own panel. Open a room to see what you hold there.
           The venue itself holds nothing on your behalf.
         </p>
@@ -319,7 +327,10 @@ function ToweliDashboard() {
               // read errored — a fabricated number about the protocol's flagship
               // claim, on the first screen a disconnected visitor sees. Same
               // shape RealYieldProof.tsx uses per call.
-              revenueStats.isDataError
+              // `|| globalUnread`: isDataError is the QUERY-level flag and
+              // allowFailure defaults true, so it cannot see one failed leg —
+              // which is the case that renders a fabricated 0.0000 ETH here.
+              revenueStats.isDataError || revenueStats.globalUnread
                 ? { l: 'ETH Distributed', v: '–', sub: 'read unavailable' }
                 : { l: 'ETH Distributed', v: revenueStats.isDataLoading ? null : `${revenueStats.totalDistributed.toFixed(4)} ETH` },
             ] as { l: string; v: string | null; sub?: string; showSparkline?: boolean }[]).map((s) => (
@@ -340,12 +351,12 @@ function ToweliDashboard() {
           {/* TOWELI price chart — wallet-independent. */}
           <div className="rounded-xl glass-card-animated p-4 mb-2" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(6,12,26,0.72)' }}>
             <div className="h-[260px]">
-              <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
+              <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart market={TOWELI_MARKET} /></ErrorBoundary>
             </div>
           </div>
         </div>
 
-        {/* F519: use the shared dark-card ConnectPrompt (same as /farm) so the
+        {/* F519: use the shared dark-card ConnectPrompt (same as /earn/toweli) so the
             wallet-gate stays legible over the busy camo art instead of the bare
             text-center block that dissolved into the camouflage at 820px+. */}
         <div className="relative z-10 flex items-center justify-center px-6 pb-16">
@@ -562,7 +573,7 @@ function ToweliDashboard() {
             <m.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
               <div className="relative rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}>
-                <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
+                <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart market={TOWELI_MARKET} /></ErrorBoundary>
               </div>
             </m.div>
           </m.div>
@@ -629,7 +640,7 @@ function ToweliDashboard() {
                     {/* Restaking is DEFERRED to Phase 7 (TEGRIDY_RESTAKING_ADDRESS
                         zeroed). Same dead-CTA fix as StakingCard.tsx. */}
                     {isDeployed(TEGRIDY_RESTAKING_ADDRESS) && (
-                      <Link to="/farm" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
+                      <Link to="/earn/toweli" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
                         Restake for bonus yield &#8594;
                       </Link>
                     )}
@@ -666,7 +677,7 @@ function ToweliDashboard() {
                 </div>
                 <div className="relative z-10 p-8 py-12 text-center">
                   <p className="text-white text-[15px] mb-4">No staking position yet</p>
-                  <Link to="/farm" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
+                  <Link to="/earn/toweli" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
                 </div>
               </m.div>
             )}
@@ -741,7 +752,7 @@ function ToweliDashboard() {
                         <p className="text-amber-200 text-[11px] leading-snug">
                           Your JBAC boost is not applied to this staked LP, so the pending figure is
                           accruing at the unboosted rate. Refresh it on the{' '}
-                          <Link to="/farm" className="underline hover:text-amber-100">Farm page</Link>.
+                          <Link to="/earn/toweli" className="underline hover:text-amber-100">Farm page</Link>.
                         </p>
                       </div>
                     )}
@@ -752,7 +763,7 @@ function ToweliDashboard() {
                           : 'Held in your wallet as the TGLP token · earns a cut of swap fees'}
                       </span>
                       {lpPos.farmingDeployed && lpPos.stakedLp > 0n ? (
-                        <Link to="/farm" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
+                        <Link to="/earn/toweli" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
                           Manage on Farm &#8594;
                         </Link>
                       ) : (
@@ -888,7 +899,14 @@ function ToweliDashboard() {
 
             {/* F148: friendly "all claimed" empty state when there's nothing
                 outstanding across staking, unsettled, ETH revenue, and referrals. */}
-            {pendingTotal < 0.01 && pos.unsettledRewards <= 0n && revenueStats.pendingRevenue < 0.000001 && revenueStats.referralPending < 0.000001 && (
+            {/* `pendingUnread` is required here because this panel makes the
+                one claim a user acts on by doing NOTHING. pendingETH and
+                getReferralInfo collapse to 0n on a failed leg, and
+                `isDataError` cannot see a single failed leg (allowFailure
+                defaults true), so the panel rendered "all caught up" over
+                unread balances. Claiming is what resets the 7d / 14d / 90d
+                forfeiture clocks — silence here runs them down. */}
+            {!revenueStats.pendingUnread && pendingTotal < 0.01 && pos.unsettledRewards <= 0n && revenueStats.pendingRevenue < 0.000001 && revenueStats.referralPending < 0.000001 && (
               <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <div className="relative z-10 p-6 text-center">
@@ -896,7 +914,7 @@ function ToweliDashboard() {
                   <p className="text-white/60 text-[12px]">
                     {pos.hasPosition
                       ? 'Your staking rewards keep accruing. Check back as they build up.'
-                      : <>Stake TOWELI on the <Link to="/farm" className="underline hover:text-white">Farm</Link> to start earning claimable rewards.</>}
+                      : <>Stake TOWELI on the <Link to="/earn/toweli" className="underline hover:text-white">Farm</Link> to start earning claimable rewards.</>}
                   </p>
                 </div>
               </m.div>
@@ -911,6 +929,7 @@ function ToweliDashboard() {
                 referralPending={revenueStats.referralPending}
                 referralPendingBig={revenueStats.referralPendingBig}
                 hasReferrer={revenueStats.hasReferrer}
+                referrerUnread={revenueStats.referrerUnread}
                 referrer={revenueStats.referrer}
                 onClaim={revenueStats.claimReferralRewards}
                 onSetReferrer={revenueStats.setReferrer}
@@ -1077,7 +1096,7 @@ export function POLAccumulatorCard() {
   );
 }
 
-function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
+export function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
   // R047 M1: pin chainId on the read so a wallet on the wrong chain can't
   // surface stale 0 ETH from a different network. Wrong-chain UI surfaces
   // the page-level "Wrong network detected" banner instead.
@@ -1094,12 +1113,17 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
   });
 
   const { writeContract, data: hash, isPending } = useWriteContract();
-  const { data: claimReceipt, isLoading: isConfirming, isSuccess: isClaimReceiptFetched } = useWaitForTransactionReceipt({ hash });
+  const claimQuery = useWaitForTransactionReceipt({ hash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = claimQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate the
-  // success toast on receipt.status.
-  const isClaimReverted = isClaimReceiptFetched && !!claimReceipt && claimReceipt.status !== 'success';
-  const isClaimSuccess = isClaimReceiptFetched && !isClaimReverted;
+  // was FETCHED. 2026-09-17: and a revert never reaches it — wagmi THROWS on a
+  // reverted receipt, so the revert toast below was dead and a reverted claim
+  // silent. useReceiptOutcome reads the thrown revert.
+  const { isSuccess: isClaimSuccess, isReverted: isClaimReverted } = useReceiptOutcome(claimQuery, {
+    hash,
+    chainId: CHAIN_ID,
+    repeatCost: 'claiming again only claims what has accrued since, or reverts if nothing has.',
+  });
 
   const pending = pendingETH ? Number(formatEther(pendingETH as bigint)) : 0;
 

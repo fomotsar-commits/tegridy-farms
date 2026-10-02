@@ -256,7 +256,7 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
       <section className={CARD}>
         <h2 className="text-sm font-semibold text-white">Sign an invoice</h2>
         <p className="mt-1 text-[12px] leading-relaxed text-white/60">
-          The payee is the wallet you sign with — there is no field for it, so an invoice can only ever name
+          The payee is the wallet you sign with. There is no field for it, so an invoice can only ever name
           you. The amount is denominated in the asset you pick and in nothing else: a fiat price would have to
           be converted at a rate nobody agreed to. Nothing on this venue stores what you sign; the link IS the
           invoice.

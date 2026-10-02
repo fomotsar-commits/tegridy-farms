@@ -4,6 +4,18 @@ import { UNISWAP_V2_PAIR_ABI, CHAINLINK_FEED_ABI, TEGRIDY_TWAP_ABI } from '../li
 import { TEGRIDY_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, TEGRIDY_TWAP_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { safeSetItem, safeGetItem, safeJsonParse } from '../lib/storage';
 import { geckoTerminalTokenPriceSchema, parseOrNull } from '../lib/schemas/geckoTerminal';
+import { geckoEdgeUrl } from '../lib/geckoTerminal/edge';
+
+/**
+ * The display-price read, through the same-origin edge rather than
+ * browser-direct (see src/lib/geckoTerminal/edge.ts). This one refreshes every
+ * 60s in every open tab, so it was the single largest contributor to the
+ * keyless budget the whole site shares. Exported so the same-origin invariant
+ * is assertable on the URL without mounting a hook that needs wagmi.
+ */
+export const TOWELI_PRICE_ENDPOINT = geckoEdgeUrl(
+  `/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`,
+);
 
 // R075: every cache key carries its own schema version. A stale entry from
 // a different commit, a tampered `signedAt`, or a future-signed payload is
@@ -258,10 +270,7 @@ export function useToweliPrice() {
     const fetchPrice = () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10_000); // 10s timeout
-      fetch(
-        `https://api.geckoterminal.com/api/v2/simple/networks/eth/token_price/${TOWELI_ADDRESS.toLowerCase()}`,
-        { signal: controller.signal },
-      )
+      fetch(TOWELI_PRICE_ENDPOINT, { signal: controller.signal })
         .then(r => r.json())
         .then((d: unknown) => {
           if (cancelled) return;

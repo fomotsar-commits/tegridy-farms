@@ -48,22 +48,31 @@ import { AUDITABLE_ROUTES, gotoNakamigos, gotoRoute, navigablePath } from '../e2
  * quietly becomes wrong. CodeQL failed this PR on exactly that, correctly.
  */
 const NOISE_HOSTS: readonly { host: string; why: string }[] = [
-  // 46 of 64 routes log `blocked by CORS policy` -> net::ERR_FAILED for
-  // /trades, /ohlcv/* and /simple/networks/*/token_price.
+  // ── DELETED 2026-09-10: the geckoterminal.com entry. ──────────────────────
   //
-  // ⚠️ IT IS RATE LIMITING, NOT A CORS POLICY, and an earlier version of this
-  // comment had it wrong. `connect-src` in vercel.json allows the host, AND the
-  // upstream answers `200` with `access-control-allow-origin: *` for all three
-  // of those exact paths when curled (measured 2026-09-05). What the browser
-  // reports as CORS is a 429 whose ERROR response omits the ACAO header — the
-  // header is present on success and absent on throttle, so a throttled read is
-  // indistinguishable from a blocked one from inside the page.
+  // It excused `blocked by CORS policy` -> net::ERR_FAILED on 46 of 64 routes,
+  // for /trades, /ohlcv/* and /simple/networks/*/token_price. The entry itself
+  // recorded that the diagnosis in the message was wrong: `connect-src` allowed
+  // the host and the upstream answered 200 with `access-control-allow-origin: *`
+  // for all three of those exact paths when curled (measured 2026-09-05). What
+  // the browser reported as CORS was a 429 whose ERROR response omits the ACAO
+  // header, so a throttled read was indistinguishable from a blocked one.
   //
-  // That inverts the obvious fix: a bare proxy would put every visitor's reads
-  // on ONE Vercel egress IP and exhaust the keyless budget FASTER. Only a
-  // CACHING proxy helps, because it collapses N visitors into one upstream call.
-  // ZERO GeckoTerminal reads are proxied on trunk today — 8 direct call sites.
-  { host: 'geckoterminal.com', why: 'GeckoTerminal keyless rate limit under burst — needs a CACHING proxy, not a bare one' },
+  // That inverted the obvious fix — a bare proxy would put every visitor's reads
+  // on ONE Vercel egress IP and exhaust the keyless budget FASTER; only a CACHING
+  // proxy helps, because it collapses N visitors into one upstream call. That is
+  // what `?resource=gecko-read` (api/_lib/gecko-read.js, s-maxage=45) now is, and
+  // all seven browser-direct call sites were moved onto it.
+  //
+  // Deleting the entry is the POINT of this list, not housekeeping — the same
+  // move made for the indexer-CSP entry below. While it stood, 46 routes passed
+  // whether or not those panels worked, so this sweep could not have told you the
+  // fix landed and cannot now let it regress silently. Do the same for any other
+  // entry whose cause gets fixed.
+  //
+  // ⚠️ THE ACCEPTANCE RUN IS OWED: this deletion only becomes evidence once the
+  // change is DEPLOYED and this sweep runs green against prod. It cannot be run
+  // from a dev box — the baseURL is the production host.
   // The RPC ranker pings every endpoint in the roster on boot; the losers answer
   // 4xx and that is the ranker working, not a page failing.
   { host: 'drpc.org', why: 'RPC roster ranking pings — reference_viem_rank_ping_storm' },
@@ -156,8 +165,16 @@ function classify(
   return { known: false };
 }
 
-/** Our own origin, so a failing response can be told from a third party's. */
-const baseOrigin = new URL(process.env.PROD_URL || 'https://memetic.fun').origin;
+/**
+ * Our own origin, so a failing response can be told from a third party's.
+ *
+ * The fallback MUST stay identical to playwright.prod.config.ts's `baseURL`
+ * fallback. They are two reads of the same default, and when they disagreed the
+ * sweep navigated one host while classifying responses against another — so our
+ * own requests looked third-party and every real failure was filed as somebody
+ * else's noise. Both are the canonical host (src/lib/constants.ts SITE_URL).
+ */
+const baseOrigin = new URL(process.env.PROD_URL || 'https://memetics.finance').origin;
 
 for (const route of AUDITABLE_ROUTES) {
   const path = navigablePath(route);

@@ -4,6 +4,9 @@ import { toast } from 'sonner';
 import { PREMIUM_ACCESS_ABI, ERC20_ABI } from '../lib/contracts';
 import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS, JBAC_NFT_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
+import { getTxUrl } from '../lib/explorer';
+import { surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
 
 export function usePremiumAccess() {
   const chainId = useChainId();
@@ -16,25 +19,39 @@ export function usePremiumAccess() {
   const isPending = isApprovePending || isActionPending;
 
   // Track each tx independently so approve doesn't shadow the subsequent action tx
-  const { data: approveReceipt, isLoading: isApproveConfirming, isSuccess: isApproveReceiptFetched, isError: isApproveTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: approveHash });
-  const { data: actionReceipt, isLoading: isActionConfirming, isSuccess: isActionReceiptFetched, isError: isActionTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: actionHash });
+  const approveQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: approveHash, onReplaced: noteReplacement });
+  const actionQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: actionHash, onReplaced: noteReplacement });
 
   // AUDIT (receipt-status, 2026-08-24): wagmi's `isSuccess` only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too, which fired the
-  // "confirmed!" toasts for a reverted approve/subscribe. Only
-  // `receipt.status === 'success'` is a real success.
-  const isApproveReverted = isApproveReceiptFetched && !!approveReceipt && approveReceipt.status !== 'success';
-  const isApproveSuccess = isApproveReceiptFetched && !isApproveReverted;
-  const isActionReverted = isActionReceiptFetched && !!actionReceipt && actionReceipt.status !== 'success';
-  const isActionSuccess = isActionReceiptFetched && !isActionReverted;
+  // was FETCHED, which fired the "confirmed!" toasts for a reverted approve/subscribe.
+  // Only `receipt.status === 'success'` is a real success.
+  //
+  // 2026-09-17: and wagmi's `isError` is TWO facts. A real revert arrives there
+  // (wagmi THROWS on a reverted receipt, so the revert effects below never fired)
+  // and so does "we could not READ the receipt", which was toasted "failed
+  // on-chain". receiptOutcome splits them by error type; see lib/txErrors.ts.
+  //
+  // And a receipt is only proof of its OWN transaction: a subscribe the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const approveOutcome = receiptOutcome(approveQuery, approveHash);
+  const actionOutcome = receiptOutcome(actionQuery, actionHash);
+  const {
+    isSuccess: isApproveSuccess, isReverted: isApproveReverted, isReceiptUnreadable: isApproveUnreadable,
+    isReplaced: isApproveReplaced,
+  } = approveOutcome;
+  const {
+    isSuccess: isActionSuccess, isReverted: isActionReverted, isReceiptUnreadable: isActionUnreadable,
+    isReplaced: isActionReplaced,
+  } = actionOutcome;
+  useReplacedTxNotice(approveOutcome, approveHash, chainId);
+  useReplacedTxNotice(actionOutcome, actionHash, chainId);
 
-  const isConfirming = isApproveConfirming || isActionConfirming;
+  const isConfirming = approveQuery.isLoading || actionQuery.isLoading;
   const isSuccess = isApproveSuccess || isActionSuccess;
-  void (isApproveTxError || isActionTxError);
   const hash = actionHash ?? approveHash;
 
   // Check if user holds a JBAC NFT
-  const { data: jbacBalance } = useReadContract({
+  const { data: jbacBalance, isError: isJbacError, isLoading: isJbacLoading } = useReadContract({
     address: JBAC_NFT_ADDRESS,
     abi: ERC20_ABI,
     chainId: CHAIN_ID,
@@ -43,6 +60,20 @@ export function usePremiumAccess() {
     query: { enabled: !!address },
   });
   const holdsJBAC = jbacBalance != null && (jbacBalance as bigint) > 0n;
+
+  /** The JBAC entitlement check did not land.
+   *
+   *  THIS IS A SEPARATE useReadContract, not part of the seven-entry batch, and
+   *  it originally destructured only `data` — so a failed read was
+   *  indistinguishable from "owns zero apes". It LOOKS fail-closed, because the
+   *  collapse HIDES the "Activate NFT Premium" button (PremiumPage.tsx:513).
+   *  Judged at the wallet it is fail-OPEN: the card's own copy two lines above
+   *  still reads "You get lifetime Gold Card access for free ... just claim your
+   *  access", while the paid plan grid is gated on `!hasPremium &&
+   *  !premiumUnread` — both false here — so Subscribe is fully armed at a
+   *  correct price. A JBAC holder is told the access is free, given no way to
+   *  take it, and handed a working purchase flow for what they already own. */
+  const jbacUnread = !!address && !isJbacLoading && isJbacError;
 
   const { data, refetch, isLoading: isDataLoading, isError: isDataError, error: dataError } = useReadContracts({
     contracts: [
@@ -77,6 +108,45 @@ export function usePremiumAccess() {
   const totalRevenue = data?.[4]?.status === 'success' ? (data[4].result as bigint) : 0n;
   const userBalance = data?.[5]?.status === 'success' ? (data[5].result as bigint) : 0n;
   const allowance = data?.[6]?.status === 'success' ? (data[6].result as bigint) : 0n;
+
+  // WHICH ENTRIES DID NOT LAND.
+  //
+  // `useReadContracts` defaults allowFailure to TRUE and this call does not
+  // override it, so ONE failed entry out of the seven still resolves the query
+  // SUCCESSFULLY: `isDataError` stays false and `isDataLoading` stays false.
+  // PremiumPage's red "Error Loading Data" banner (:167, gated on
+  // `premium.isDataError`) and every loading skeleton therefore stay hidden, and
+  // the page renders as if fully and confidently loaded while carrying a value
+  // nobody read. Per-entry is the only honest granularity here.
+  //
+  // Scoped to a batch that actually ran: a disconnected visitor and an
+  // undeployed contract never asked, and a not-attempted read must not be
+  // reported as a failed one.
+  const batchRan = !!address && isDeployed(PREMIUM_ACCESS_ADDRESS) && !isDataLoading;
+  const entryUnread = (i: number) => batchRan && data?.[i]?.status !== 'success';
+
+  /** Membership status unread. NOT the same fact as "you have no membership". */
+  const premiumUnread = entryUnread(0);
+
+  /** The purchase cannot be priced or afford-checked. Any one of these is fatal
+   *  to the quote: monthlyFee prices it, userBalance gates it, allowance routes
+   *  Approve vs Subscribe. They are collapsed into one flag because they arm the
+   *  SAME control and a partial answer is not a cheaper kind of wrong. */
+  const quoteUnread = entryUnread(2) || entryUnread(5) || entryUnread(6);
+
+  /** Display-only: the subscriber and revenue tiles. */
+  const statsUnread = entryUnread(3) || entryUnread(4);
+
+  /** getSubscription did not land, so `isLifetime`, `expiresAt` and
+   *  `daysRemaining` are not facts. Entry [1] was the one entry of the seven
+   *  covered by nothing.
+   *
+   *  It only renders behind `hasPremium`, so the reach is narrower than the
+   *  others — but inside that window the collapse SILENTLY DOWNGRADES a
+   *  LIFETIME holder to a plain one (PremiumPage.tsx:199) and deletes the
+   *  renewal countdown at :201, which is the only thing on screen telling a
+   *  monthly subscriber to renew before their access lapses. */
+  const subscriptionUnread = entryUnread(1);
 
   const monthlyFeeFormatted = Number(formatWei(monthlyFee, 18, 8));
   const totalRevenueFormatted = Number(formatWei(totalRevenue, 18, 4));
@@ -145,21 +215,37 @@ export function usePremiumAccess() {
     }
   }, [isActionSuccess, refetch, resetAction]);
 
+  // The receipt READ failed. Both of these said "failed on-chain", a claim about a
+  // transaction nobody looked at. See surfaceUnconfirmedTx in lib/txErrors.ts.
+  // A cancelled or replaced tx resets the same way; its warning is
+  // useReplacedTxNotice's, above.
   useEffect(() => {
-    if (isApproveTxError) {
-      toast.error('Approval transaction failed on-chain');
+    if ((isApproveUnreadable || isApproveReplaced) && approveHash) {
+      if (isApproveUnreadable) {
+        surfaceUnconfirmedTx(toast, {
+          hash: approveHash,
+          explorerUrl: getTxUrl(chainId, approveHash),
+          repeatCost: 'your allowance is already set and a second approval just costs gas.',
+        });
+      }
       const t = setTimeout(() => { resetApprove(); }, 0);
       return () => clearTimeout(t);
     }
-  }, [isApproveTxError, resetApprove]);
+  }, [isApproveUnreadable, isApproveReplaced, approveHash, chainId, resetApprove]);
 
   useEffect(() => {
-    if (isActionTxError) {
-      toast.error('Transaction failed on-chain');
+    if ((isActionUnreadable || isActionReplaced) && actionHash) {
+      if (isActionUnreadable) {
+        surfaceUnconfirmedTx(toast, {
+          hash: actionHash,
+          explorerUrl: getTxUrl(chainId, actionHash),
+          repeatCost: 'a second subscribe pays for the months again, and a second activation just costs gas.',
+        });
+      }
       const t = setTimeout(() => { resetAction(); }, 0);
       return () => clearTimeout(t);
     }
-  }, [isActionTxError, resetAction]);
+  }, [isActionUnreadable, isActionReplaced, actionHash, chainId, resetAction]);
 
   useEffect(() => {
     if (isApproveReverted) {
@@ -199,6 +285,11 @@ export function usePremiumAccess() {
   return {
     // Subscription status
     hasPremium,
+    premiumUnread,
+    jbacUnread,
+    subscriptionUnread,
+    quoteUnread,
+    statsUnread,
     isActive,
     isLifetime,
     expiresAt,

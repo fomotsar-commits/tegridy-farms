@@ -22,6 +22,7 @@ import {
   type PoolOutcome,
 } from './islandCup';
 import { BUNGALOWS } from '../bungalows';
+import { SITE_HOST } from '../constants';
 import { TOWELI_MARKET } from '../chart/market';
 import type { PoolTrade } from '../geckoTerminal/poolTrades';
 
@@ -379,6 +380,12 @@ describe('the shareable sentence carries its caveats', () => {
 
   it('omits provisional only when every pool answered in full', () => {
     expect(cupShareText(1, 2, 12, 12, 'complete', utcMinute(T0))).not.toContain('provisional');
+  });
+
+  it("names the venue's volume board, never the island", () => {
+    const text = cupShareText(3, 40, 11, 12, 'partial', utcMinute(T0));
+    expect(text).toContain(`on the ${SITE_HOST} volume board, ${SITE_HOST}/competitions, read at`);
+    expect(text).not.toMatch(/island/i);
   });
 });
 

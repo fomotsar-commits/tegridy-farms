@@ -1,32 +1,15 @@
-// WHAT THE ISLAND HAS ACTUALLY CONFIRMED ABOUT THE INSTRUMENT — Wave 3, phase 06(b).
-//
-// The venue published a number the island never gave it. `heatOracle.ts` carried
-// `TWAB_WINDOW_DAYS = 180` under the header "CONFIRMED BY THE ISLAND 2026-08-07", and
-// an explainer built a whole mechanic on top of it: that the window ROLLS, so "a wallet
-// that sells decays out of the average over the following 180 days". Both were rendered
-// to users on /leaderboard.
-//
-// Wave 3 says plainly: that constant is not island-confirmed, and the decay story built
-// on it is untrue. The instrument's confirmed properties are exactly three —
-//
-//     continuous · zero-anchored from first hold · velocity-blind
-//
-// — and wallets should be shown HELD TIME SINCE FIRST HOLD. No calendar. No decay
-// schedule. Exact window semantics arrive from the island when they are published.
-//
-// This is the same defect class as the fee claims: an unknown published as a confident
-// value. It is worse here, because the number was attributed to a third party who never
-// said it. So these tests pin the RULE, not the wording: the venue may describe the
-// three properties, and may not state a window length or a decay mechanic anywhere a
-// user can read it.
-//
-// When the island publishes the window, delete the guard in `does not state an averaging
-// window` and nothing else — the three properties stay true either way.
+// The venue explains heat in the island's sentences and states no formula, TWAB, window
+// length, decay mechanic, sum of rooms, share-of-supply definition or link to
+// memetics.wtf/island anywhere a reader is shown. The guards read the strings and JSX
+// text a reader sees (userText), or source with its comments stripped (prose).
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { extname, join, relative } from 'node:path';
+import ts from 'typescript';
 import * as oracle from './heatOracle';
+import { VENUE } from '../arrival';
+import { venueFaq } from '../faqData';
 
 const SRC = join(process.cwd(), 'src');
 
@@ -97,17 +80,454 @@ describe('the three confirmed properties survive', () => {
     expect(heatCard).toMatch(/churn earns nothing|velocity[- ]blind/i);
   });
 
-  it('still explains that it is continuous, not a snapshot', () => {
-    expect(heatCard).toMatch(/balance at every\s+moment|continuous/i);
+  it('still names it continuous, the island label with no gloss of its own', () => {
+    expect(heatCard).toMatch(/\bcontinuous\b/i);
   });
 });
 
-describe('the launch floor is the island word, unchanged', () => {
-  it('is 80 — Resident', () => {
-    // Confirmed in writing by the island in Wave 3. Recorded so a future "tidy-up"
-    // cannot drift it without failing here.
+// The island's law page carries the formula. The venue explains heat in the island's
+// sentences and states no per-token cap, no unreachable tier and no curve arithmetic of
+// its own. The island's paragraph, shown word for word, now carries its own rate points
+// ("nothing under 0.0001% of a supply, a full day at 0.01%, two at 1%"); wave seven had
+// retired the venue's what-the-curve-pays table, so that sentence waits on an island
+// ruling. If the island says no, the fix is on the island's page, not a cut venue copy.
+describe('the venue teaches the whole published law, not one term of it', () => {
+  const userFacing = walk(SRC).map(prose).join('\n');
+
+  it('states no per-token cap of 100 anywhere a user can read it', () => {
+    expect(userFacing).not.toMatch(/0 to 100 degrees/i);
+    expect(userFacing).not.toMatch(/caps? at 100/i);
+    expect(userFacing).not.toMatch(/never exceed 100/i);
+  });
+
+  it('does not claim the upper tiers are unreachable from one position', () => {
+    expect(userFacing).not.toMatch(/unreachable on a single position/i);
+  });
+
+  it('no longer says the averaging period is unpublished, because it is published', () => {
+    expect(userFacing).not.toMatch(/has not been published/i);
+  });
+
+  // memetics.wtf/heat as fetched 2026-09-29 (Last-Modified 2026-09-30T02:08:02Z), tags
+  // stripped. Word for word: the paragraph under the ruler (heatParagraph, and heatPlain
+  // as its first two sentences) and the fourth "In plain words" line (the Maths fold's
+  // Weight line, pinned in HeatCard.test.tsx).
+  // heatSize is not a straight copy: it is the rate definition's clauses in the island's
+  // words, each capitalised and ended with a period, with the line's lead-in dropped.
+  // The page's apostrophes are all straight (U+0027).
+  it('explains in the island paragraph, word for word', () => {
+    const paragraph = 'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds a quarter of its own, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Past Resident the number reads like fire: every degree costs a little more than the last, and the hottest flames stay in range. Size can raise what a day is worth, it cannot buy a day, and price never enters it. The rate is one curve for every wallet: nothing under 0.0001% of a supply, a full day at 0.01%, two at 1%, and never more. From a real position up, ten times the bag adds half a day. The tier words bind your island heat. Trading speed cannot move it.';
+    expect(VENUE.heatParagraph).toBe(paragraph);
+    // The hero and llms.txt carry the paragraph's first two sentences, and only those.
+    expect(VENUE.heatPlain).toBe('Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds a quarter of its own, so breadth amplifies depth and never replaces it.');
+    expect(VENUE.heatParagraph.startsWith(`${VENUE.heatPlain} `)).toBe(true);
+    expect(VENUE.heatDays).toBe('Your clock on a token starts at your first hold.');
+    expect(VENUE.heatSize).toBe('A real position earns a full day. The largest holders earn up to two. Dust earns nothing. An Ape counts by the piece: one is a full day, ten are two.');
+    // The Maths fold renders all three from VENUE; Weight stays its own sentence.
+    const heatCard = prose(join(SRC, 'components', 'HeatCard.tsx'));
+    for (const key of ['heatParagraph', 'heatDays', 'heatSize']) expect(heatCard).toContain(`VENUE.${key}`);
+    expect(heatCard, 'weight is not defined as the published multiplier').toMatch(/published\s*\{?'?\s*\}?\s*multiplier/i);
+  });
+
+  it('names the Resident band the paragraph names, so a band cannot move without the words', () => {
+    const resident = oracle.TIER_FLOORS.find((t) => t.tier === 'Resident');
+    expect(VENUE.heatParagraph).toContain(`reads ${resident?.floor}°, Resident.`);
+  });
+
+  it('retires the arithmetic it can no longer do honestly', () => {
+    // A table of what the size curve pays, and a single-token share for
+    // Observer, are not anybody's number once weight and loyalty are in the law.
+    const heatCard = prose(join(SRC, 'components', 'HeatCard.tsx'));
+    expect(heatCard).not.toMatch(/What the curve pays/i);
+    expect(heatCard).not.toMatch(/of its whole supply/i);
+  });
+});
+
+describe('the launch floor is the island word', () => {
+  it('is 80, Resident', () => {
     expect(oracle.LAUNCH_FLOOR).toBe(80);
     const resident = oracle.TIER_FLOORS.find((t) => t.tier === 'Resident');
     expect(resident?.floor).toBe(80);
+  });
+});
+
+// Shipped source: src and api (tests excluded), public's text files, index.html,
+// middleware.js, vercel.json and the build scripts that write text into dist.
+// userText() is what a file can put in front of a reader: a script's
+// string literals, template text and JSX text read from the TypeScript AST (so no
+// comment, and no `/*` inside a string, hides or adds anything), one per line with its
+// whitespace collapsed; any other file whole, minus HTML comments. Entities are decoded.
+const ROOT = process.cwd();
+const TEXT = /\.(tsx?|jsx?|mjs|cjs|html|json|txt|xml|webmanifest)$/;
+function shipped(): string[] {
+  const files = walk(SRC);
+  const stack = [join(ROOT, 'api'), join(ROOT, 'public')];
+  while (stack.length) {
+    const dir = stack.pop()!;
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name !== '__tests__') stack.push(p);
+      } else if (TEXT.test(e.name) && !/\.test\./.test(e.name)) files.push(p);
+    }
+  }
+  const single = ['index.html', 'middleware.js', 'vercel.json', 'scripts/render-bungalow-doors.mjs', 'scripts/llms-txt.mjs'];
+  return [...files, ...single.map((f) => join(ROOT, f))];
+}
+
+const SCRIPT: Record<string, ts.ScriptKind> = {
+  '.ts': ts.ScriptKind.TS,
+  '.tsx': ts.ScriptKind.TSX,
+  '.js': ts.ScriptKind.JS,
+  '.jsx': ts.ScriptKind.JSX,
+  '.mjs': ts.ScriptKind.JS,
+  '.cjs': ts.ScriptKind.JS,
+};
+// Every named entity a shipped file writes, so no guard reads "&ndash;" where a reader
+// sees "–" (a range "Builder 150&ndash;249&deg;" slipped the band row before these were
+// here). Pinned below: a table that falls behind the source fails that test.
+const NAMED: Record<string, string> = {
+  times: '×', middot: '·', sdot: '⋅', minus: '−', nbsp: ' ', amp: '&', apos: "'", quot: '"', deg: '°', radic: '√', divide: '÷',
+  ndash: '–', mdash: '—', rsquo: '’', lsquo: '‘', ldquo: '“', rdquo: '”', hellip: '…', rarr: '→', darr: '↓', ge: '≥',
+  lt: '<', gt: '>',
+};
+function decode(s: string): string {
+  return s.replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (m, e: string) => {
+    if (e[0] !== '#') return NAMED[e] ?? m;
+    const n = /^#[xX]/.test(e) ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+    return n <= 0x10ffff ? String.fromCodePoint(n) : m;
+  });
+}
+function userText(file: string): string {
+  const raw = readFileSync(file, 'utf8');
+  const kind = SCRIPT[extname(file)];
+  const parts: string[] = [];
+  if (kind === undefined) {
+    parts.push(/\.(html|xml)$/.test(file) ? raw.replace(/<!--[\s\S]*?-->/g, ' ') : raw);
+  } else {
+    const visit = (n: ts.Node): void => {
+      if (
+        ts.isStringLiteral(n) ||
+        ts.isNoSubstitutionTemplateLiteral(n) ||
+        ts.isTemplateHead(n) ||
+        ts.isTemplateMiddle(n) ||
+        ts.isTemplateTail(n) ||
+        ts.isJsxText(n)
+      ) {
+        parts.push(n.text.replace(/\s+/g, ' '));
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(ts.createSourceFile(file, raw, ts.ScriptTarget.Latest, false, kind));
+  }
+  return decode(parts.join('\n'));
+}
+// Read once, while the file is collected: parsing every shipped file can outlast one
+// test's timeout on a loaded machine.
+const SHIPPED = new Map(shipped().map((f) => [f, userText(f)] as const));
+const shown = (file: string): string => SHIPPED.get(file) ?? '';
+
+describe('the guards below read what a reader is shown', () => {
+  it('sees strings, JSX text with its entities decoded, and the first frame', () => {
+    expect(SHIPPED.size).toBeGreaterThan(800);
+    expect(shown(join(SRC, 'lib', 'arrival.ts'))).toContain(VENUE.heatDays);
+    // prose() loses this item: its block strip starts at the `/*` in '/splash/*.png'.
+    expect(shown(join(SRC, 'pages', 'ChangelogPage.tsx'))).toContain('Added reentrancy tests for NFT Pool contracts');
+    expect(shown(join(SRC, 'pages', 'SecurityPage.tsx'))).toContain("the venue's record");
+    expect(shown(join(ROOT, 'index.html'))).toContain('Your heat already exists.');
+    expect(shown(join(ROOT, 'middleware.js'))).toContain('Held time counts here.');
+    expect(shown(join(SRC, 'components', 'HeatCard.tsx'))).not.toContain('VENUE.heatParagraph');
+  });
+
+  it('decodes every named entity a shipped file writes', () => {
+    const left = [...SHIPPED].flatMap(([f, text]) => (text.match(/&[a-zA-Z]+;/g) ?? []).map((e) => `${relative(ROOT, f)}: ${e}`));
+    expect(left, `an entity the guards read as its spelling, not as what a reader sees:\n${left.join('\n')}`).toEqual([]);
+  });
+
+  it('reads the build scripts that write text into dist, and the deploy config', () => {
+    expect(shown(join(ROOT, 'scripts', 'render-bungalow-doors.mjs'))).toContain('hold her for heat');
+    expect(shown(join(ROOT, 'scripts', 'llms-txt.mjs'))).toContain('dist/llms.txt did not read back as written');
+    expect(shown(join(ROOT, 'vercel.json'))).toContain('"outputDirectory": "dist"');
+  });
+
+  it('decodes the entities a formula can be written with', () => {
+    expect(decode('80 &middot; &radic;(warm days &divide; 180) &times; 2')).toBe('80 · √(warm days ÷ 180) × 2');
+  });
+});
+
+// The venue reads heat and never computes it, so it carries sentences, never a formula:
+// a heat term on either side of `=` with an operator on the line, a `Heat:` definition
+// with one, √, ∝, sqrt or Σ beside heat or rooms. A query string (`?heat=0x…`,
+// `resource=heat`) is not one, `x` is an operator only standing alone, and `Σ(share²)`
+// passes.
+const TERM = String.raw`(?:island_heat|heat|deg(?:rees)?|warm days)`;
+const OP = String.raw`(?:[+×·⋅*÷/^√∝−]|\s[-x]\s)`;
+const FORMULA = new RegExp(
+  [
+    String.raw`(?<![?&\w])${TERM}\s*=\s*(?:Σ|[^=\n]*?${OP})`,
+    String.raw`${OP}[^=\n]{0,60}\s=\s*${TERM}\b`,
+    String.raw`\b${TERM}\s*:\s*[\w\s()]{1,40}?[×·⋅*÷/]`,
+    String.raw`Σ\s*(?:rooms?|tokens?|degrees)|weight\s*[×·⋅*]\s*\(|days held\s*[×·⋅*]\s*rate|1\s*[−-]\s*e\s*\^`,
+    String.raw`[√∝]|\bsqrt\s*\(|\bsquare root\b|\bwarm days\s*=`,
+  ].join('|'),
+  'i',
+);
+
+describe('no formula, TWAB or time-weighted in user-facing source', () => {
+  it('knows the island law lines as formulas, and the island paragraph as sentences', () => {
+    expect(FORMULA.test('degrees = 80 · √( warm days ÷ 180 )')).toBe(true);
+    expect(FORMULA.test('degrees = 80 · ( warm days ÷ 180 )')).toBe(true);
+    expect(FORMULA.test('warm days = weight · days held · rate')).toBe(true);
+    expect(FORMULA.test('heat = weight × ( size + loyalty )')).toBe(true);
+    expect(FORMULA.test('degrees = 80 x ( warm days ÷ 180 )')).toBe(true);
+    expect(FORMULA.test('80 · sqrt( warm days ÷ 180 )')).toBe(true);
+    expect(FORMULA.test('deg = 80 · sqrt(d/180)')).toBe(true);
+    expect(FORMULA.test('heat = Σ rooms')).toBe(true);
+    expect(FORMULA.test('island_heat = weight × days')).toBe(true);
+    for (const line of [
+      'heat = size + loyalty',
+      'degrees = warm days ÷ 180',
+      'heat = warm days / 180',
+      'heat = days held ÷ 180',
+      'heat = days held / 180',
+      'heat = (weight × days) ÷ 180',
+      'Heat: weight × days × rate',
+      'warm days × weight × rate = heat',
+      'degrees ∝ square root of warm days',
+    ]) {
+      expect(FORMULA.test(line), line).toBe(true);
+    }
+    for (const line of [
+      '/api/aggregator?resource=heat',
+      'https://memetics.wtf/heat?address=0x000000000000000000000000000000000000dEaD&x=1',
+      'Dank Memes + Time = Memetic Finance.',
+    ]) {
+      expect(FORMULA.test(line), line).toBe(false);
+    }
+    expect(FORMULA.test('/?heat=0xabc')).toBe(false);
+    expect(FORMULA.test('https://memetics.finance/?heat=0x000000000000000000000000000000000000dEaD')).toBe(false);
+    expect(FORMULA.test('Σ(share²)')).toBe(false);
+    expect(FORMULA.test(VENUE.heatParagraph)).toBe(false);
+  });
+
+  const TWAB = /\btwab\b/i;
+  const TIME_WEIGHTED = /time[\s\u00ad\u2010-\u2015-]*weighted/i;
+  it('knows TWAB in any case, and time-weighted with any hyphen or space', () => {
+    for (const s of ['your twab', 'a Twab', 'TWAB']) expect(TWAB.test(s), s).toBe(true);
+    for (const sep of ['-', ' ', '\u00a0', '\u00ad', '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '']) {
+      expect(TIME_WEIGHTED.test(`time${sep}weighted`), JSON.stringify(sep)).toBe(true);
+    }
+    expect(TWAB.test('TWAP orders')).toBe(false);
+  });
+
+  // The retired Maths-fold sentence averaged over held time; the island paragraph replaced it.
+  const AVERAGING = /average is taken|whole held time/i;
+  it('knows the retired averaging sentence, and the island paragraph is not it', () => {
+    expect(AVERAGING.test('The average is taken over your whole held time.')).toBe(true);
+    expect(AVERAGING.test(VENUE.heatParagraph)).toBe(false);
+  });
+
+  const GUARDS: [string, RegExp][] = [
+    ['a formula line', FORMULA],
+    ['TWAB', TWAB],
+    ['time-weighted', TIME_WEIGHTED],
+    ['TWAB gloss', /balance at every\s+moment|balance held across time/i],
+    ['averaging sentence', AVERAGING],
+  ];
+  for (const [name, re] of GUARDS) {
+    it(`states no ${name}`, () => {
+      const offenders = [...SHIPPED].flatMap(([f, text]) => {
+        const m = re.exec(text);
+        return m ? [`${relative(ROOT, f)}: "${m[0]}"`] : [];
+      });
+      expect(offenders, `${name} in user-facing source:\n${offenders.join('\n')}`).toEqual([]);
+    });
+  }
+
+  it('exports no heat curve or formula constant from the oracle', () => {
+    for (const name of ['HEAT_K', 'heatDegreesFor', 'shareForDegrees']) {
+      expect(name in oracle, `heatOracle exports ${name}`).toBe(false);
+    }
+  });
+});
+
+// The island is linked by its public paths, never memetics.wtf/island.
+describe('no link to memetics.wtf/island', () => {
+  it('names it in no shipped source', () => {
+    const offenders = [...SHIPPED].filter(([, text]) => /memetics\.wtf\/+island/i.test(text)).map(([f]) => relative(ROOT, f));
+    expect(offenders, `memetics.wtf/island is linked from:\n${offenders.join('\n')}`).toEqual([]);
+  });
+});
+
+// The island ranks by heat. The venue's board ranks by size, so it goes by the venue's
+// name for it ("Volume board"), never "Island Cup" (owner, 2026-09-30, H10).
+describe("no size ranking under the island's name", () => {
+  it('says "Island Cup" nowhere a reader is shown', () => {
+    const offenders = [...SHIPPED].filter(([, text]) => /island\s+cup/i.test(text)).map(([f]) => relative(ROOT, f));
+    expect(offenders, `"Island Cup" is shown from:\n${offenders.join('\n')}`).toEqual([]);
+  });
+});
+
+// The deepest room sets the heat and every other room amplifies it, so no user-facing
+// sentence adds heat up across rooms or tokens, or says the number comes from them, and
+// `summed` is refused anywhere. "adds to your heat" is the island's own sentence.
+describe('no heat-summing sentence in user-facing source', () => {
+  const SUMMING =
+    /added\s+together|\bsummed\b|\bsum across\b|\brows sum to\b|\bon your total\b|\bsum of (?:your|the|its|every) (?:rooms?|tokens?|degrees|heat)\b|\badds? up across\b/i;
+  const HEAT_SUM =
+    /\b(?:heat|degrees?|warmth|flame)\b[^.\n]{0,80}\b(?:added together|summed|sums?|adds? up|combined|totall?ed|total of|added to)\b|\b(?:added together|summed|sums?|adds? up|combined|total of)\b[^.\n]{0,80}\b(?:heat|degrees?|rooms?|everything you hold)\b|\bwhere (?:the|your)\b[^.\n]{0,40}?\b(?:heat|degrees?)\s+comes? from\b|°\s*comes? from\b/i;
+  const offenders = (re: RegExp) =>
+    [...SHIPPED].flatMap(([f, text]) => {
+      const m = re.exec(text);
+      return m ? [`${relative(ROOT, f)}: "${m[0]}"`] : [];
+    });
+
+  it('says no heat is added together, summed, or totalled across rooms', () => {
+    const found = offenders(SUMMING);
+    expect(found, `a summing sentence in user-facing source:\n${found.join('\n')}`).toEqual([]);
+  });
+
+  it('pairs no heat word with a summing word in one sentence', () => {
+    const found = offenders(HEAT_SUM);
+    expect(found, `heat and a summing word in one sentence:\n${found.join('\n')}`).toEqual([]);
+  });
+
+  it('knows a summing sentence from the island paragraph and from unrelated sums', () => {
+    for (const bad of [
+      'It is read per token and added together across everything you hold.',
+      'Your heat is summed across every token you hold.',
+      'Sum across 10 tokens',
+      'These rows sum to 1979.59°',
+      'The tiers, on your total',
+      'Degrees from each room add up to your heat.',
+      'Your heat is the total of your rooms.',
+      "Each room's degrees are added to your heat.",
+      'Where your heat comes from',
+      '° comes from',
+    ]) {
+      expect(SUMMING.test(bad) || HEAT_SUM.test(bad), bad).toBe(true);
+    }
+    for (const ok of [
+      VENUE.heatParagraph,
+      'Every fill below comes from GeckoTerminal’s public trade feed.',
+      'Heat measures how long a wallet has held island tokens.',
+      // The island's own sentence: every token adds, and the paragraph says how much.
+      'Every token the island measures adds to your heat.',
+      'Only swaps that spend the season quote token add to a total.',
+      'Weights must sum to 10000.',
+      'measured against the sum of ETH lent',
+    ]) {
+      expect(SUMMING.test(ok) || HEAT_SUM.test(ok), ok).toBe(false);
+    }
+  });
+});
+
+// Every heat explainer speaks in the island's sentences: none defines heat as a share of
+// a supply, and the FAQ answers "What is Heat?" with the paragraph's own words.
+describe('every heat explainer carries the island sentences', () => {
+  it('defines heat by no share of supply anywhere a reader is shown', () => {
+    const found = [...SHIPPED].flatMap(([f, text]) => {
+      const m = /how much of a token you (?:have )?held|as a share of its supply/i.exec(text);
+      return m ? [`${relative(ROOT, f)}: "${m[0]}"`] : [];
+    });
+    expect(found, `a share-of-supply definition of heat:\n${found.join('\n')}`).toEqual([]);
+  });
+
+  it('answers "What is Heat?" in the island sentences', () => {
+    const answer = venueFaq(80).flatMap((s) => s.items).find((i) => i.q === 'What is Heat?')?.a;
+    expect(answer).toBe(`${VENUE.heatPlain} ${VENUE.heatDays} Price never enters it.`);
+  });
+
+  it('says one person, every wallet, under the instrument and in the FAQ', () => {
+    expect(VENUE.heatOnePerson).toBe('One person, every wallet: linked wallets read as a single flame.');
+    const answer = venueFaq(80).flatMap((s) => s.items).find((i) => i.q === 'Can Heat be bought?')?.a;
+    expect(answer).toBe(
+      'No. A fresh bag starts near zero however big it is. Only time held moves it. One person, every wallet: linked wallets read as a single flame.',
+    );
+  });
+
+  // Wording the island has retired reaches no reader, so no two surfaces disagree.
+  // \s+ between words, in every row: userText() puts each string literal on its own line,
+  // so a sentence split across a `+` join reads "the one \nbefore" (arrival.ts split it
+  // just there), and a row with a plain space is blind to it.
+  // A retired band is 150 or 250 as a whole figure (never the tail of 1,250 or 2150),
+  // with or without decimals, as a degree, a plus, a range or "to" another figure.
+  const OLD_BAND = String.raw`\b(?<![.,])(?:150|250)(?:\.\d+)?\s*(?:°|degrees|\+|[-–]\s*\d|to\s+\d)`;
+  const RETIRED: [string, RegExp][] = [
+    ['a per-wallet clock', /measured\s+per\s+wallet|wallet['’]s\s+clock|clock\s+at\s+the\s+move/i],
+    ['the calculation fold label', /how\s+is\s+this\s+calculated|hide\s+the\s+maths/i],
+    ['a clock that starts at a buy', /your\s+first\s+buy/i],
+    ['a second word for the weight of the Apes', /\btriple[\s-]+weight|\bApes?\b[^.]{0,60}?(?:\btriple\b|(?:\bx|×)\s*3\b|\b3\s*[x×]|(?<![\d.])(?:3|three)(?:\s+times\b|[\s-]*fold\b))/i],
+    ['the retired edge wording', /\bcarr(?:y|ies)\s+their\s+edge\b/i],
+    ['the retired breadth rule', /\bhalf\s+as\s+much\s+as\s+the\s+one\s+before\b/i],
+    ['the retired past-Resident sentence', /\btakes\s+longer\s+than\s+the\s+last\b/i],
+    ['an old tier band typed as text', new RegExp(String.raw`\b(?:Builder|Elder)s?\b[^.]{0,24}?${OLD_BAND}|${OLD_BAND}[^.]{0,24}?\b(?:Builder|Elder)s?\b`, 'i')],
+    ['a Solana wallet that cannot be measured', /cannot\s+yet\s+be\s+measured/i],
+    ['an open lot someone is building on', /someone\s+is\s+building\s+here/i],
+  ];
+  for (const [name, re] of RETIRED) {
+    it(`retires ${name}`, () => {
+      const found = [...SHIPPED].flatMap(([f, text]) => {
+        const m = re.exec(text);
+        return m ? [`${relative(ROOT, f)}: "${m[0]}"`] : [];
+      });
+      expect(found, `${name} in user-facing source:\n${found.join('\n')}`).toEqual([]);
+    });
+  }
+
+  // A guard that cannot fire is armed, not inert: each row knows the sentence it retires,
+  // split across a literal join too, and stays silent on the island's current lines.
+  // Each sample is read through decode(), as the sweep reads a file, so a JSX entity
+  // spelling ("&ndash;", "&rsquo;") is a sample like any other.
+  it('knows each retired sentence, split across a literal join too, and passes the island ones', () => {
+    const re = Object.fromEntries(RETIRED);
+    for (const [name, old] of [
+      ['a per-wallet clock', 'Heat is measured per \nwallet.'],
+      ['a per-wallet clock', "each wallet's \nclock"],
+      ['a per-wallet clock', 'your wallet&rsquo;s clock'],
+      ['a per-wallet clock', 'the clock at the \nmove'],
+      ['the calculation fold label', 'How is this \ncalculated?'],
+      ['the calculation fold label', 'Hide the \nmaths'],
+      ['a clock that starts at a buy', 'Your clock starts at your first \nbuy.'],
+      ['a Solana wallet that cannot be measured', 'A Solana-only wallet cannot yet \nbe measured.'],
+      ['an open lot someone is building on', 'Someone is building \nhere.'],
+      ['a second word for the weight of the Apes', 'The Apes carry triple weight, JBM and BAYLA carry their edge'],
+      ['a second word for the weight of the Apes', 'The Apes count x3 here.'],
+      ['a second word for the weight of the Apes', 'Apes ×3'],
+      ['a second word for the weight of the Apes', 'the Apes count\nthree times'],
+      ['a second word for the weight of the Apes', 'Apes weigh 3 times as much'],
+      ['a second word for the weight of the Apes', 'Apes weigh three-fold'],
+      ['the retired edge wording', 'JBM and BAYLA carry their edge'],
+      ['the retired breadth rule', 'every other room adds half as much as the one \nbefore it'],
+      ['the retired past-Resident sentence', 'Each degree after that takes longer\nthan the last.'],
+      ['an old tier band typed as text', 'Elder at 250°'],
+      ['an old tier band typed as text', 'from 150 degrees, Builder'],
+      ['an old tier band typed as text', 'Elder at 250.00°'],
+      ['an old tier band typed as text', 'Builder 150–249°'],
+      ['an old tier band typed as text', 'Builder 150&ndash;249&deg;'],
+      ['an old tier band typed as text', 'Builder: 150+ degrees'],
+      ['an old tier band typed as text', 'Elders (250+ degrees)'],
+      ['an old tier band typed as text', 'Builder from 150 to 249 degrees'],
+    ] as const) {
+      expect(re[name]!.test(decode(old)), `${name}: ${JSON.stringify(old)}`).toBe(true);
+    }
+    for (const now of [
+      VENUE.heatPlain,
+      VENUE.heatParagraph,
+      VENUE.heatSize,
+      // The weight line the Maths fold shows, the island's words.
+      "The island's own weigh heavier: the Apes, JBM and BAYLA carry the island's edge, the home team leans warm. An Ape counts by the piece.",
+      // The island's law line and its weight legend, so neither is refused if shown.
+      "Home weighs heavier. The Apes, JBM and BAYLA carry the island's edge.",
+      'Apes, JBM and BAYLA ×1.5 · home team ×1.25 · every measured token ×1',
+      'Apes contract 0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d',
+      'Builder 300° · Elder 800°',
+      // The island's own multiplier said in words, and a figure that only contains 150:
+      // the rows retire the old numbers, not their neighbours.
+      'Apes weigh 1.5 times as much',
+      'Elder at 1,250° and Builder at 2150 degrees',
+    ]) {
+      for (const [name, r] of RETIRED) expect(r.test(now), `${name}: ${now}`).toBe(false);
+    }
   });
 });

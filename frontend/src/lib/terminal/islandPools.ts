@@ -25,17 +25,28 @@ export interface IslandPool {
 }
 
 /**
- * The venue's own pool, listed alongside the residents.
+ * The TOWELI/WETH pool, listed alongside the other residents' pools.
+ *
+ * IT IS HERE AS A ROW, NOT AS A REGISTRY ENTRY, and that is the only thing
+ * special about it: TOWELI's market lives in lib/chart/market.ts rather than on
+ * its bungalow row, so `marketOf` alone would silently drop it.
+ *
+ * ⚠️ ITS LABEL USED TO READ "TOWELI (the venue's own pool)" — and that label is
+ * PROSE, not an internal key: useIslandTape's ledger line reads it back to the
+ * user whenever a pool does not answer. It contradicted the paragraph directly
+ * below it, and it contradicted the venue's own ruling — pages/venueVoice.test.tsx,
+ * "THE VENUE DOES NOT HAVE A TOKEN. ITS RESIDENTS DO." TOWELI is one resident of
+ * Jungle Bay Island; the venue owns no pool because it has no token to pool.
  *
  * It carries NO static market claim — no "deepest pool", no depth figure, no
  * ranking. It is one more row, read from the same upstream, subject to the same
- * withholding rules. A venue that exempted its own pool from its own honesty
- * rules would have written those rules for other people.
+ * withholding rules. A venue that exempted one resident's pool from its own
+ * honesty rules would have written those rules for other people.
  */
-export const VENUE_POOL: IslandPool = {
+export const TOWELI_POOL: IslandPool = {
   network: 'eth',
   pool: TOWELI_WETH_LP_ADDRESS,
-  label: 'TOWELI (the venue’s own pool)',
+  label: 'TOWELI',
 };
 
 /** Case rule per network — base58 is case-sensitive, hex is not. */
@@ -47,7 +58,7 @@ export function islandPools(bungalows: readonly Bungalow[] = BUNGALOWS): IslandP
   const out: IslandPool[] = [];
   const seen = new Set<string>();
 
-  for (const candidate of [VENUE_POOL, ...bungalows.flatMap(marketOf)]) {
+  for (const candidate of [TOWELI_POOL, ...bungalows.flatMap(marketOf)]) {
     const key = dedupeKey(candidate);
     if (seen.has(key)) continue;
     seen.add(key);

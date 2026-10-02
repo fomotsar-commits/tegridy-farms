@@ -30,6 +30,17 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// The signature tests import from BOTH sides rather than re-deriving the scheme
+// here: a drift between the two would otherwise show up only as a production
+// outage. Static, not `await import()` inside each it(): the first load of
+// botLink.js's graph inside a test body runs on the 5000ms testTimeout clock —
+// at collection nothing bounds it.
+import { verifyBotSignature, botSigningString, canonicalBotBody } from '../_lib/botLink.js';
+import {
+  signBotRequest,
+  botSigningString as botSide,
+  canonicalBotBody as botCanonical,
+} from '../../../bot/src/venueClient.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const API = join(HERE, '..');
@@ -287,16 +298,7 @@ describe('the endpoint is reachable, and reachable only the way it claims', () =
 });
 
 describe('the bot and the API agree on the signature, or every call 401s', () => {
-  it('produces a signature the API verifies, over the same canonical material', async () => {
-    // Imported from BOTH sides rather than re-derived here: a drift between the
-    // two would otherwise show up only as a production outage.
-    const { verifyBotSignature, botSigningString, canonicalBotBody } = await import('../_lib/botLink.js');
-    const {
-      signBotRequest,
-      botSigningString: botSide,
-      canonicalBotBody: botCanonical,
-    } = await import('../../../bot/src/venueClient.js');
-
+  it('produces a signature the API verifies, over the same canonical material', () => {
     const secret = 'shared-secret';
     const action = { action: 'status', chatRef: 'a'.repeat(64) };
     const now = 1_700_000_000_000;
@@ -314,9 +316,7 @@ describe('the bot and the API agree on the signature, or every call 401s', () =>
     ).toEqual({ ok: true });
   });
 
-  it('signs the fields the handler acts on, so extra fields cannot ride along unsigned', async () => {
-    const { verifyBotSignature, canonicalBotBody } = await import('../_lib/botLink.js');
-    const { signBotRequest } = await import('../../../bot/src/venueClient.js');
+  it('signs the fields the handler acts on, so extra fields cannot ride along unsigned', () => {
     const secret = 'shared-secret';
     const timestamp = '1700000000';
     const honest = { action: 'status', chatRef: 'a'.repeat(64) };
@@ -335,9 +335,7 @@ describe('the bot and the API agree on the signature, or every call 401s', () =>
     ).toBe(true);
   });
 
-  it('rejects a replayed signature once the window has passed', async () => {
-    const { verifyBotSignature } = await import('../_lib/botLink.js');
-    const { signBotRequest } = await import('../../../bot/src/venueClient.js');
+  it('rejects a replayed signature once the window has passed', () => {
     const secret = 'shared-secret';
     const rawBody = '{}';
     const timestamp = '1700000000';
@@ -351,9 +349,7 @@ describe('the bot and the API agree on the signature, or every call 401s', () =>
     });
   });
 
-  it('rejects a body altered after signing', async () => {
-    const { verifyBotSignature } = await import('../_lib/botLink.js');
-    const { signBotRequest } = await import('../../../bot/src/venueClient.js');
+  it('rejects a body altered after signing', () => {
     const secret = 'shared-secret';
     const timestamp = '1700000000';
     const signature = signBotRequest(secret, timestamp, '{"action":"status"}');
@@ -368,8 +364,7 @@ describe('the bot and the API agree on the signature, or every call 401s', () =>
     ).toBe(false);
   });
 
-  it('distinguishes an unconfigured deployment from a bad signature', async () => {
-    const { verifyBotSignature } = await import('../_lib/botLink.js');
+  it('distinguishes an unconfigured deployment from a bad signature', () => {
     // One means the operator has not set BOT_LINK_SECRET and the bot must stop
     // retrying; the other is a compromise indicator. Collapsing them loses both.
     expect(verifyBotSignature({ secret: null, timestamp: '1', signature: 'ab', rawBody: '' })).toEqual({

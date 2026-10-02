@@ -84,6 +84,11 @@ Eliminated outright because their stake path cannot accept a Token-2022 mint —
 
 **Attach a dynamic reward pool to `EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f`.** You hold the authority (`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`) and the pool is `permissionless: false`, so only you can.
 
+> **Since 2026-09-21 the authority is `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`, not
+> `GCCSLE7d…`** (tx `4TWgasfpW454rjkJYo1P6gPitrc5QLhBNKvHkDfxDNPp6CcrCFyy5As6Rjas9pFMFBXZTbiPqSe34UD3qb7zyPnm`).
+> The old key lived in plaintext in a OneDrive folder. Anything below that needs the
+> pool's authority must be signed with the `Fu7mNAv6…` keyfile.
+
 Sequence:
 
 1. **Create the dynamic reward pool.** *Route caveat:* `@streamflow/staking` 13.4.0 cannot create one — `CreateRewardPoolArgs` carries `rewardAmount`/`rewardPeriod` with no way to select dynamic. It can fully *operate* one (`fundPool`, `claimRewards`, `createRewardEntry`, `closeRewardEntry` all accept `rewardPoolType: "fixed" | "dynamic"`). Create it through Streamflow's app, or with a direct Anchor call against the `reward_pool_dynamic.json` IDL that ships inside the SDK. This is integration work against a deployed audited program — it does not trip the no-custom-code rule, but it is off the paved path, so confirm the route with Streamflow first.

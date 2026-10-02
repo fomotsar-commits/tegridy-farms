@@ -131,10 +131,10 @@ describe('YieldCalculator', () => {
     expect(annualLabel.textContent).toContain('$0.00');
   });
 
-  it('renders a "Start farming" CTA that links to /farm', () => {
+  it('renders a "Start farming" CTA that links to the TOWELI pool', () => {
     renderCalc();
     const cta = screen.getByRole('link', { name: /Go to Farm page to stake/i });
-    expect(cta).toHaveAttribute('href', '/farm');
+    expect(cta).toHaveAttribute('href', '/earn/toweli');
   });
 
   // F65: the calculator must consume the numeric aprNum (not Number(apr), which

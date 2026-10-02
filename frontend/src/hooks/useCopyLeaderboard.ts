@@ -11,7 +11,8 @@ import { useIndexedQuery, type IndexedStatus } from './useIndexedQuery';
 
 // The follow board, over the F1 indexer.
 //
-// THE INDEXER IS NOT HOSTED. With VITE_INDEXER_URL unset this parks in
+// WITHOUT AN INDEXER. Production has one configured; with VITE_INDEXER_URL
+// unset (CI, local builds, previews) this parks in
 // `unavailable` and emits no request, and the page must render that as "we could
 // not read who has been trading" — never as an empty board. An empty
 // copy-trading board is a claim that nobody is trading the venue, which is a

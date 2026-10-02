@@ -38,6 +38,7 @@ function card(overrides: Partial<CurveGridCardData> = {}): CurveGridCardData {
     marketCapWei: 210526315789473684n,
     progressBps: 2500,
     graduated: false,
+    planter: null,
     ...overrides,
   };
 }
@@ -91,5 +92,95 @@ describe('CurveGridCardView', () => {
     expect(screen.queryByRole('progressbar')).toBeNull();
     // Post-graduation the curve has no honest mcap — say so, never fabricate.
     expect(screen.getByText(/pool-priced/i)).toBeInTheDocument();
+  });
+});
+
+// ── Element P: the planter's flame, five states (answer nine) ──────────
+//
+// Session nine could ship four: the tape returned null for anything without a
+// handle, so an unnamed-but-warm planter, a cold one and an unreachable
+// instrument were one observation. Answer nine put is_cold on the row and made
+// an unnamed flame answer WITH a row, so all five are distinguishable now. The
+// fifth - no row at all - still renders nothing, because a failed read is not a
+// fact about a planter.
+describe('element P: the planter on a launch card', () => {
+  const PLANTER = '0x12345678901234567890123456789012345abcd0';
+  const named = { xHandle: 'greencifer', isCold: false, tier: 'Builder', days: 214 };
+
+  function line() {
+    return document.querySelector('[data-element="p-planter"]');
+  }
+  function show(planter: CurveGridCardData['planter']) {
+    render(
+      <MemoryRouter>
+        <CurveGridCardView card={card({ planter })} chainId={8453} />
+      </MemoryRouter>,
+    );
+  }
+
+  it('names the planter, the tier and the days, separated by middle dots', () => {
+    show({ address: PLANTER, row: named });
+    // The middle dot is element N's separator for these same three facts, and
+    // it keeps this line outside element I's em-dash budgets entirely.
+    expect(line()?.textContent).toBe('Planted by @greencifer \u00b7 Builder \u00b7 214 days held');
+    expect(line()?.textContent).not.toContain('\u2014');
+  });
+
+  it("puts the island's door OUTSIDE the card's own link, not inside it", () => {
+    // The door and the card are both links, and the card used to wrap the door.
+    // An <a> inside an <a> is invalid HTML: React warns, and any path that
+    // PARSES this markup rather than constructing it (pre-render, hydration)
+    // closes the outer anchor early, which puts the card's click target
+    // somewhere nobody chose. The card is a container with a stretched link now.
+    show({ address: PLANTER, row: { xHandle: null, isCold: false, tier: '', days: null } });
+    const door = screen.getByRole('link', { name: 'Put yours on it' });
+    const card = screen.getByRole('link', { name: /on the curve$/ });
+    expect(door.closest('a')).toBe(door);
+    expect(card.contains(door)).toBe(false);
+    // And the card is still one link over the whole card, not a bare div.
+    expect(card.className).toContain('absolute');
+  });
+
+  it('prints the tier alone when the island sent no held-since', () => {
+    show({ address: PLANTER, row: { ...named, days: null } });
+    expect(line()?.textContent).toBe('Planted by @greencifer \u00b7 Builder');
+    // A zero here would read as "planted today", which is a claim.
+    expect(line()?.textContent).not.toContain('0 days');
+  });
+
+  it('offers the door when the flame is warm but unnamed', () => {
+    show({ address: PLANTER, row: { xHandle: null, isCold: false, tier: '', days: null } });
+    expect(line()?.textContent).toContain('Planted by a flame with no name yet.');
+    const door = screen.getByRole('link', { name: 'Put yours on it' });
+    expect(door).toHaveAttribute('href', 'https://memetics.wtf/register');
+    // No standing beside an unnamed flame: that is the tape's own law, and the
+    // wire does not even carry it.
+    expect(line()?.textContent).not.toContain('Builder');
+    expect(line()?.textContent).not.toContain('days held');
+  });
+
+  it('names a COLD planter by address, and claims no held time', () => {
+    show({ address: PLANTER, row: { xHandle: null, isCold: true, tier: '', days: null } });
+    // shortenAddress is the venue's house form: first six, last four.
+    expect(line()?.textContent).toBe('Planted by 0x1234...bcd0. No held time on the island yet.');
+    // Cold is not unnamed: the two were the same absence until answer nine.
+    expect(line()?.textContent).not.toContain('no name yet');
+  });
+
+  it('renders NO line at all when there is no row for the planter', () => {
+    // A failed read, or an address the island refused. Not a cold planter, and
+    // the card says nothing rather than guessing which.
+    show(null);
+    expect(line()).toBeNull();
+    expect(screen.queryByText(/Planted by/)).toBeNull();
+  });
+
+  it('is dark until the first launch, because no card is built at zero', () => {
+    render(
+      <MemoryRouter>
+        <CurveLaunchesGridView chainName="Base" launchCount={0n} tokens={[]} renderCard={() => null} />
+      </MemoryRouter>,
+    );
+    expect(document.querySelector('[data-element="p-planter"]')).toBeNull();
   });
 });

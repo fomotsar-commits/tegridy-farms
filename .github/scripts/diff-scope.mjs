@@ -43,7 +43,9 @@
 // unreadable one, a pattern list that is somehow empty — all run.
 //
 // Usage:  git diff --name-only base head | node .github/scripts/diff-scope.mjs 'contracts/**' 'a/b.ts'
-// Prints `true` or `false` on stdout. Exit code is 0 unless the ARGUMENTS are
+//         ... | node .github/scripts/diff-scope.mjs --outside '**/*.md' 'docs/**'
+// Prints `true` or `false` on stdout: does any file match, or with --outside, does
+// any file fall outside the patterns. Exit code is 0 unless the ARGUMENTS are
 // unusable, which is a bug in the caller rather than a verdict.
 
 /**
@@ -101,6 +103,17 @@ export function inScope(files, patterns) {
   return files.some((f) => res.some((re) => re.test(f)));
 }
 
+/**
+ * Does any changed file fall OUTSIDE the patterns? False only when every file matches,
+ * which is how ci.yml skips an all-docs diff. Told nothing, it answers true.
+ */
+export function outsideScope(files, patterns) {
+  if (!Array.isArray(patterns) || patterns.length === 0) return true;
+  if (!Array.isArray(files) || files.length === 0) return true;
+  const res = patterns.map(patternToRegExp);
+  return files.some((f) => !res.some((re) => re.test(f)));
+}
+
 /** Read the whole of stdin. Any failure is an empty read, which means "run". */
 async function readStdin() {
   try {
@@ -123,22 +136,23 @@ export function parseFileList(text) {
 
 const isMain = process.argv[1] && process.argv[1].endsWith('diff-scope.mjs');
 if (isMain) {
-  const patterns = process.argv.slice(2);
+  const outside = process.argv[2] === '--outside';
+  const patterns = process.argv.slice(outside ? 3 : 2);
   if (patterns.length === 0) {
-    // Not a verdict — a caller that passes no patterns has written a job that
-    // can never narrow anything, and should be told rather than handed `true`.
+    // Not a verdict: a caller with no patterns can never narrow anything.
     console.error('diff-scope: no patterns given; pass the workflow\'s `paths:` list as arguments');
     process.exit(2);
   }
   const files = parseFileList(await readStdin());
-  const verdict = inScope(files, patterns);
+  const verdict = outside ? outsideScope(files, patterns) : inScope(files, patterns);
+  const mode = outside ? 'outside' : 'inside';
   console.error(
-    `diff-scope: ${files.length} changed file(s) against ${patterns.length} pattern(s) -> ${verdict}`,
+    `diff-scope (${mode}): ${files.length} changed file(s) against ${patterns.length} pattern(s) -> ${verdict}`,
   );
   if (!verdict) {
-    // Name what was skipped. A silent skip and a silent pass look identical in
-    // a log six weeks later.
-    console.error(`diff-scope: none of [${patterns.join(', ')}] matched; the real job will be skipped`);
+    // Name what was skipped: a silent skip and a silent pass read the same in a log.
+    const why = outside ? 'every file matched' : 'none matched';
+    console.error(`diff-scope: ${why} [${patterns.join(', ')}]; the real job will be skipped`);
   }
   process.stdout.write(verdict ? 'true' : 'false');
 }

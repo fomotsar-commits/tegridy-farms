@@ -32,6 +32,8 @@ interface ITegridyStakingMonitorRead {
     function rewardToken() external view returns (address);
     // Stake-cap scalar (public state var auto-getter) for the cap-utilization views.
     function maxTotalStaked() external view returns (uint256);
+    // Pause flag (OZ Pausable's public view, not a storage getter) for `earned`.
+    function paused() external view returns (bool);
 }
 
 interface IMonitorERC20Balance {
@@ -64,6 +66,15 @@ contract StakingMonitorView {
     ///         `TegridyStaking.earned(uint256)`.
     /// @dev    Inflates the Position struct from the public mapping tuple, pulls the
     ///         reward-math scalars, then defers to `StakingViewLib.earnedFromMem`.
+    ///
+    ///         Pause-aware (2026-09-17). While paused the write path adds nothing:
+    ///         `pause()` settles first, `StakingRewardLib.accumulateRewards` skips
+    ///         emission and only advances `lastUpdateTime`, and `unpause()` re-anchors
+    ///         it. So while paused the projection is anchored at now, exactly as the
+    ///         write path would leave it. Without this, the view showed pause-window
+    ///         emission that `getReward` never pays, over whatever denominator the
+    ///         emergency withdrawals left behind. `paused()` is read in this same call,
+    ///         so pause state can never be unknown here: a failed read reverts the view.
     function earned(uint256 tokenId) external view returns (uint256) {
         Position memory p = _loadPosition(tokenId);
         ITegridyStakingMonitorRead s = staking;
@@ -71,7 +82,7 @@ contract StakingMonitorView {
         return StakingViewLib.earnedFromMem(
             p,
             s.rewardPerTokenStored(),
-            s.lastUpdateTime(),
+            s.paused() ? block.timestamp : s.lastUpdateTime(),
             s.rewardRate(),
             s.totalBoostedStake(),
             available,

@@ -75,8 +75,8 @@ Exactly what the code reads (`src/config.js`).
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | **Yes** | From @BotFather. Without it nothing can be received or sent, and the process refuses to start rather than idling silently. |
 | `BOT_LINK_SECRET` | **Yes** | Shared with the Vercel deployment. See the warning below. |
-| `VENUE_ORIGIN` | No | Defaults to `https://memetic.fun`. Where `/api/aggregator` lives. |
-| `APP_ORIGIN` | No | Defaults to `https://memetic.fun`. What the bot puts in the links it hands back. |
+| `VENUE_ORIGIN` | No | Defaults to `https://memetics.finance`, the canonical host (`SITE_URL` in `frontend/src/lib/constants.ts`). Where `/api/aggregator` lives. |
+| `APP_ORIGIN` | No | Defaults to `https://memetics.finance`. What the bot puts in the links it hands back. |
 | `INDEXER_URL` | No | The indexer's **public proxy origin**, no path — the same value as the frontend's `VITE_INDEXER_URL`. Unset means `/history` answers "no indexer is hosted", never "you have no swaps". |
 | `TELEGRAM_POLL_TIMEOUT_SEC` | No | Long-poll seconds. Default 30. |
 

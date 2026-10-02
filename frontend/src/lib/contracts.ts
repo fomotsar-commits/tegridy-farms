@@ -51,6 +51,9 @@ export const TEGRIDY_STAKING_ABI = [
   // Extended staking operations
   { type: 'function', name: 'extendLock', inputs: [{ name: 'tokenId', type: 'uint256' }, { name: '_newLockDuration', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'emergencyExitPosition', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  // The PAUSED door (`whenPaused`): full principal, no penalty, rewards FORFEITED.
+  // emergencyExitPosition above is a different door - expired locks only, and it PAYS.
+  { type: 'function', name: 'emergencyWithdrawPosition', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'claimUnsettled', inputs: [], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'unsettledRewards', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'revalidateBoost', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
@@ -322,6 +325,7 @@ export const VOTE_INCENTIVES_ABI = [
     { name: 'salt', type: 'bytes32' },
   ], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'sweepForfeitedBond', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }, { name: 'commitIndex', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'voterCommitCount', inputs: [{ name: 'user', type: 'address' }, { name: 'epoch', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'voterCommits', inputs: [{ name: '', type: 'address' }, { name: '', type: 'uint256' }, { name: '', type: 'uint256' }], outputs: [
     { name: 'commitHash', type: 'bytes32' },
     { name: 'bond', type: 'uint96' },

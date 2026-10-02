@@ -47,10 +47,7 @@ import {
   type AttentionSplit,
 } from '../lib/launcher/launchService';
 import {
-  isCreatorFeeShareEnabled,
-  isHeatTierPricingEnabled,
-  readLaunchPricing,
-  standardLaunchPricing,
+  resolveLaunchPricing,
   toPricingDisclosure,
   type ResolvedLaunchPricing,
 } from '../lib/launcher/launchPricing';
@@ -62,7 +59,7 @@ import {
   EAS_SCHEMA_REGISTRY_ABI,
 } from '../lib/launcher/attestation';
 import { collectTokenFacts, viemChainReader } from '../lib/launcher/collector';
-import { readMigrationStream, lockResolverFor, type MigrationStream } from '../lib/launcher/lockerStream';
+import { readMigrationStream, lockResolverFor, verdictFromReads, type MigrationStream } from '../lib/launcher/lockerStream';
 import type { FeeConstitutionLine } from '../lib/launcher/factSheet';
 import { fetchLauncherOutcomes } from '../lib/launcher/outcomesClient';
 import type { LaunchSummary } from '../lib/launcher/ordering';
@@ -73,7 +70,6 @@ import { isAddress, getAddress, type Address } from 'viem';
 import { CHAIN_ID } from '../lib/constants';
 import {
   dayTwoEconomyPhrase,
-  dayTwoEconomyShortPhrase,
   type LpEmissionsPhase,
 } from '../lib/lpEmissions';
 import { useLpEmissionsPhase } from '../hooks/useLpEmissionsPhase';
@@ -159,9 +155,8 @@ export function parseAttentionSplits(rows: WizardState['attentionSplits']): Atte
  *
  * `pricing` is the SAME resolved object `onLaunch` hands to
  * `wizardConfigToLaunchConfig`, so the split previewed here is the split signed. With
- * both dials off it is `standardLaunchPricing()`, `toPricingDisclosure` returns
- * undefined, and this projection is byte-identical to the one that existed before
- * pricing was threaded — which is what keeps `disclosuresDigest` stable.
+ * the creator revenue share off, `toPricingDisclosure` returns undefined and
+ * `disclosuresDigest` stays stable.
  */
 function projectFactSheet(
   w: WizardState,
@@ -211,8 +206,8 @@ function projectFactSheet(
     teamAllocationVestedBps: w.premineBps, // wizard only offers on-chain-vested premine
     observedAt: nowSeconds,
     // Spread, not `pricing: toPricingDisclosure(...)`: an explicit `undefined` would be a
-    // present key, and gate.ts only forwards the field when it is there. Absent is the
-    // state that means "neither dial is in force", which is today.
+    // present key, and gate.ts only forwards the field when it is there. Absent means the
+    // standard rate, which is today.
     ...(() => {
       const disclosure = toPricingDisclosure(pricing);
       return disclosure ? { pricing: disclosure } : {};
@@ -278,53 +273,11 @@ export default function LaunchPage() {
   // registry when a launch succeeds and only offer the button once the schema is
   // live; otherwise say so plainly. null = still checking / unknown.
   const [schemaReady, setSchemaReady] = useState<boolean | null>(null);
-  // THE LAUNCH'S PRICE. Resolved ONCE per wallet and handed to BOTH the projected Fact
-  // Sheet and the launch config, because the split shown must be the split signed —
-  // `readLaunchPricing`'s own contract, since calling it twice can legitimately return two
-  // different prices.
-  //
-  // TODAY'S RATE IS THE FALLBACK, NOT A LAST RESORT. `standardLaunchPricing()` is the
-  // venue's standard line with both dials off, no tier claimed and no discount; every state
-  // except "a fresh reading came back, for THIS wallet, while a dial was on" resolves to
-  // exactly it. So an oracle outage prices at the standard rate instead of at a guessed
-  // tier, which is the same rule the door itself uses.
-  //
-  // The reading is STORED WITH THE ADDRESS IT WAS TAKEN FOR, and only used while the two
-  // still match. Keying it that way is what stops the other wallet's price from being the
-  // one on screen for the moment between switching accounts and the next read landing —
-  // it falls back to standard, which can only ever be the more expensive answer.
-  const standardPricing = useMemo(() => standardLaunchPricing(), []);
-  const [pricingRead, setPricingRead] = useState<{ address: string; pricing: ResolvedLaunchPricing } | null>(null);
-
-  // The dials are the only consumer of a Heat reading TAKEN FOR PRICING. With both off —
-  // which is the shipped state — this effect makes no request at all: the resolver would
-  // return the standard line from any reading, so a read whose answer cannot change the
-  // price would be quota spent on nothing. Flip either flag and the read starts happening
-  // with no other change. (The door's OWN read, for the launch gate, is unaffected: it
-  // lives in <LaunchGate /> and in launchToken, and still happens either way.)
-  const pricingDialsOn = isHeatTierPricingEnabled() || isCreatorFeeShareEnabled();
-  // Narrowed with an explicit null test rather than an optional chain:
-  // `pricingRead?.address === address` is false when pricingRead is null, so the
-  // guard was correct at runtime, but it does not narrow the later property
-  // access — and with no wallet connected `address` is undefined, so an
-  // undefined === undefined comparison would have reached into a null read.
-  const pricing =
-    pricingDialsOn && pricingRead !== null && address !== undefined && pricingRead.address === address
-      ? pricingRead.pricing
-      : standardPricing;
-
-  useEffect(() => {
-    if (!pricingDialsOn || !address) return;
-    const ac = new AbortController();
-    void (async () => {
-      // `readLaunchPricing` never throws — an unreachable island returns the STALE
-      // decision, which prices at the standard rate through the same path as every other
-      // unreadable state. So there is no catch here by design.
-      const next = await readLaunchPricing(address, { signal: ac.signal });
-      if (!ac.signal.aborted) setPricingRead({ address, pricing: next });
-    })();
-    return () => ac.abort();
-  }, [address, pricingDialsOn]);
+  // THE LAUNCH'S PRICE, resolved once and handed to BOTH the projected Fact Sheet and the
+  // launch config, so the split shown is the split signed. It takes no wallet: the island
+  // rules "Same price for everyone." Heat decides who may launch (<LaunchGate />,
+  // launchToken), never what a launch costs.
+  const pricing = useMemo(() => resolveLaunchPricing(), []);
 
   const sheet = useMemo(() => projectFactSheet(w, now, pricing), [w, now, pricing]);
 
@@ -444,10 +397,7 @@ export default function LaunchPage() {
         numerairePriceUsd,
         numeraire: numeraireAddr,
         attentionSplits: parseAttentionSplits(w.attentionSplits),
-        // The SAME object the Fact Sheet above was projected from. `launchToken` re-checks
-        // it against a live reading before broadcasting and refuses a config claiming a
-        // deeper discount than the island currently supports; with both dials off, live
-        // and deployed are both the standard line, so that check is a no-op today.
+        // The SAME object the Fact Sheet above was projected from.
         pricing,
       });
       const result = await launchToken(walletClient, publicClient, cfg);
@@ -541,7 +491,7 @@ export default function LaunchPage() {
   if (!isLauncherEnabled()) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-10">
-        <LaunchHeader lpPhase={lpPhase} />
+        <LaunchHeader />
         {/* ⚠ UNREACHABLE TODAY. LAUNCHER_ENABLED is true (lib/launcher/config.ts), so
             isLauncherEnabled() short-circuits this whole branch and the live wizard
             renders instead. Kept as the fail-closed path if the flag is ever turned
@@ -573,7 +523,7 @@ export default function LaunchPage() {
     <>
       <PageArtBackdrop pageId="launch" />
       <div className="relative z-10 max-w-3xl mx-auto px-4 py-10">
-      <LaunchHeader lpPhase={lpPhase} />
+      <LaunchHeader />
 
       {/* THE DOOR, above the wizard. It reads held time live and explains itself, so a
           cold builder learns what warmth is here rather than at the submit button.
@@ -642,15 +592,50 @@ export default function LaunchPage() {
           first-time launcher needs (audited template, what a Fact Sheet is and is not,
           the fee split, the afterlife) was reaching nobody. Below the wizard so the
           four steps still lead the page. */}
-      <LauncherExplainer />
+      {/* WAVE SEVEN, element F: EVERY ESSAY SECTION, UNCHANGED, UNDER ONE DOOR.
+          The copy inside is byte-identical — "unchanged" is the directive's own
+          word, and it is also what keeps four source-reading tests green
+          (launchFeeCopy, meteoraRetired, termsLauncherCoverage, attentionSplits
+          all regex this file rather than the DOM).
 
-      {/* Graduation destination. Above the re-attestation panel because it answers the
-          question that panel presupposes — which venue the liquidity went to, on what
-          lock terms, and who collects that pool's fee. States plainly that graduation
-          runs through the external migrator today. */}
-      <div className="mt-12">
-        <GraduationVenuePanel />
-      </div>
+          A <details>, not a conditional render, and that is load-bearing twice
+          over. It is keyboard- and screen-reader-native with no JS; and a closed
+          <details> keeps its children IN THE DOM, so the em-dash guard's text
+          walk still counts them and /launch's budget does not silently drop by
+          thirty when a visitor has not opened the door.
+
+          PostGraduationReattest stays OUTSIDE. It is a working tool rather than
+          prose, and folding it would hide the unlabelled input that IS
+          /launch's declared `form-field-label` violation — the a11y sweep
+          would then find [] against an expected list and red for a reason that
+          has nothing to do with this element. */}
+      <details
+        className="group rounded-2xl overflow-hidden mt-10"
+        style={{ background: 'rgba(4,9,18,0.6)', border: '1px solid var(--color-purple-25)' }}
+      >
+        <summary className="cursor-pointer list-none px-4 py-3.5 min-h-[48px] flex items-center justify-between gap-3 text-white text-[14px] font-semibold">
+          <span>How the rail works</span>
+          <svg
+            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+            className="opacity-60 flex-shrink-0 transition-transform group-open:rotate-180"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </summary>
+
+        <div className="px-4 pb-5 pt-1">
+          <LauncherExplainer />
+
+          {/* Graduation destination. Above the re-attestation panel because it answers the
+              question that panel presupposes — which venue the liquidity went to, on what
+              lock terms, and who collects that pool's fee. States plainly that graduation
+              runs through the external migrator today. */}
+          <div className="mt-12">
+            <GraduationVenuePanel />
+          </div>
+        </div>
+      </details>
 
       {/* Post-graduation re-attestation — the fully-verifiable fee disclosure, read
           from the graduated pool's StreamableFeesLocker. Distinct from the pre-launch
@@ -828,7 +813,7 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
           ba4d3399 corrected this sentence to a static "period ended and is not currently
           funded"; the live read replaces it so a re-funded period needs no code change. */}
       <p className="text-emerald-200/60 text-xs mt-3 leading-relaxed">
-        After the auction graduates into a V4 pool, this token can plug into the Tegridy
+        After the auction graduates into a V4 pool, this token can plug into the venue's day-2
         economy — {dayTwoEconomyPhrase(lpPhase)}. Few launchers give a launch any day-2
         economy at all.
       </p>
@@ -853,6 +838,10 @@ type ReattestPhase =
   | { phase: 'idle' }
   | { phase: 'reading' }
   | { phase: 'not-graduated' }
+  // Distinct from 'not-graduated' on purpose: the locker read is unavailable, which says
+  // NOTHING about this token. Collapsing the two is what let a permanently broken call
+  // render for weeks as an ordinary "hasn't graduated yet" empty state.
+  | { phase: 'unsupported' }
   | { phase: 'ready'; sheet: LaunchFactSheet; lines: FeeConstitutionLine[]; poolId: string; locker: string; pair: string }
   | { phase: 'attesting'; sheet: LaunchFactSheet; lines: FeeConstitutionLine[]; poolId: string; locker: string; pair: string }
   | { phase: 'done'; uid: string; txHash: string }
@@ -887,15 +876,20 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
       const tokenAddr = getAddress(token) as Address;
       const ready = await factSheetSchemaRegistered(publicClient);
       setSchemaReady(ready);
-      // Auto-detect the base pair: read the locker for each allowed numeraire; the one it
-      // actually graduated against has a stream (streams() reverts for the others). ETH-only
-      // while exotic is gated off, so this is a single read in the common case.
-      let stream: MigrationStream | null = null;
+      // Auto-detect the base pair: read the locker for each allowed numeraire and keep the
+      // one that actually holds a stream. ETH-only while exotic is gated off, so this is a
+      // single read in the common case.
+      const reads: MigrationStream[] = [];
       for (const numeraire of allowedNumeraires()) {
         const s = await readMigrationStream(publicClient, tokenAddr, numeraire);
-        if (s.graduated) { stream = s; break; }
+        reads.push(s);
+        if (s.graduated) break; // short-circuit: no need to read the remaining pairs
       }
-      if (!stream) return setState({ phase: 'not-graduated' });
+      // verdictFromReads keeps "not in the locker" apart from "couldn't read the locker";
+      // both of its non-graduated kinds are render phases below.
+      const verdict = verdictFromReads(reads);
+      if (verdict.kind !== 'graduated') return setState({ phase: verdict.kind });
+      const stream = verdict.stream;
       if (stream.beneficiaries.length === 0) {
         return setState({ phase: 'error', message: 'The migration stream exists but exposes no fee beneficiaries — nothing to attest.' });
       }
@@ -974,6 +968,17 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
           No fee stream for this token in Doppler&rsquo;s StreamableFeesLocker — it either hasn&rsquo;t graduated yet
           (price discovery still running), or it wasn&rsquo;t launched through this rail. Re-attestation reads the
           real split once the auction migrates to its V4 pool.
+        </p>
+      )}
+
+      {/* Deliberately says nothing about the token — the limitation is ours, not its. */}
+      {state.phase === 'unsupported' && (
+        <p className="mt-3 text-amber-300/80 text-xs leading-relaxed break-words">
+          Automatic re-attestation isn&rsquo;t available yet. The locker holding graduated-pool fees indexes
+          positions by their Uniswap V4 position id, and we can&rsquo;t yet map a token to that id on-chain — so
+          we can&rsquo;t read this token&rsquo;s split from here. <strong className="text-amber-200">This is a gap on
+          our side and says nothing about this token</strong> — it may well have graduated. If it launched
+          through this rail, the fee split it committed at launch is unaffected and still on-chain.
         </p>
       )}
 
@@ -1081,7 +1086,7 @@ function LauncherExplainer() {
 
       <ExplainerCard title="Why an audited template matters">
         <p>
-          Neither you nor Tegridy writes the token contract. Every launch is pinned to Doppler's{' '}
+          Neither you nor the venue writes the token contract. Every launch is pinned to Doppler's{' '}
           <code className="text-white/70">DopplerERC20V1</code> factory — the template already whitelisted on Doppler's
           mainnet Airlock, with no mint, no fee-on-transfer, no blacklist, and no upgrade path.
         </p>
@@ -1152,23 +1157,65 @@ function LauncherExplainer() {
         </p>
       </ExplainerCard>
 
-      <ExplainerCard title="The Launch Afterlife — a day 2">
+      {/* WAVE SEVEN, answer eight, ruling 5: THE AFTERLIFE, AS THE VENUE'S.
+
+          This card sold a launch on one resident's rails - a veTOWELI-boosted
+          farm and a share of TOWELI emissions - in the venue's own essay, on
+          the venue's own page. The census counted it, and the island ruled it
+          a product claim in TOWELI's voice rather than a copy defect.
+
+          NOTHING IS DELETED. Those words move, unchanged, into the declared
+          TOWELI section directly below - the ruling's own condition - so the
+          claim still stands where a reader can weigh it, under the name of the
+          protocol making it. What is here now is what the VENUE has to say
+          about a launch's day two, and it is three things it can answer for
+          itself: the clock, the door, and the flame. */}
+      {/* ANSWER TEN, RULING 5: the clock left this card for the ledger itself
+          (LaunchAfterlife's header), because this card sits inside a fold no
+          stranger opens and the ledger does not. The card keeps the door and the
+          flame, which is exactly what the ruling left it. */}
+      <ExplainerCard title="The Launch Afterlife: a day 2">
         <p>
-          Most launchers graduate a token into nothing. Because this launcher sits inside a DeFi protocol that is
-          already deployed, a graduated Tegridy launch has somewhere to go: a boosted LP-farming program on its own
-          graduated pool — one per-pool staker escrowing Uniswap V4 position NFTs, boosted by veTOWELI — and the
-          ability to apply to the existing GaugeController for a share of TOWELI emissions.
+          When its community settles, it gets its own door in the hall: its own room, its own art, and its own board.
         </p>
-        <ul className="list-disc pl-4 space-y-1">
-          <li>Every afterlife feature is opt-in and reviewed per feature. Launching grants none of them automatically.</li>
-          <li>A gauge is an <em>application</em> through the standard timelocked process — not a promise of emissions.</li>
-          <li>
-            The Uniswap V4 PositionManager is wired, so a graduated launch reports boosted-LP farming as
-            <em> eligible</em> — but that means the infrastructure is in place, not that farming is running: the
-            per-pool staker is deployed for each launch by a re-homed-Safe owner, never automatically.
-          </li>
-        </ul>
+        <p>
+          And its planter keeps a flame on the launch card, so whoever planted it is named beside what they planted.
+        </p>
       </ExplainerCard>
+
+      {/* TOWELI'S RAILS, UNDER TOWELI'S NAME (same ruling). Every word inside
+          this section is the old card's, byte for byte. What changed is who is
+          saying them.
+
+          AND THE COUNT MOVES WITH THE WORDS: element I and the voice census
+          both skip a declared TOWELI section by structure, so /launch's em-dash
+          budget drops by four - the THREE dash-bearing text nodes that moved in
+          here (five dashes among them; element I counts nodes, not characters)
+          and the card title's own dash, which is a colon now.
+          That is a move, not a cleanup, and the budget comment says so - which
+          is also why src/pages/recordSurfaces.test.ts pins who may declare one
+          of these at all, and one per file. */}
+      <section data-voice="toweli" aria-label="TOWELI's protocol: boosted LP farming and gauge emissions">
+        <ExplainerCard title="TOWELI's rails, if a launch wants them">
+          <p>
+            Most launchers graduate a token into nothing. Because this launcher sits inside a DeFi protocol that is
+            already deployed, a graduated launch has somewhere to go: a boosted LP-farming program on its own
+            graduated pool — one per-pool staker escrowing Uniswap V4 position NFTs, boosted by veTOWELI — and the
+            ability to apply to the existing GaugeController for a share of TOWELI emissions. Both of those rails belong
+            to TOWELI, one resident of this island, and are named here because they are what actually exists — not
+            because a launch here is denominated in anyone's token.
+          </p>
+          <ul className="list-disc pl-4 space-y-1">
+            <li>Every afterlife feature is opt-in and reviewed per feature. Launching grants none of them automatically.</li>
+            <li>A gauge is an <em>application</em> through the standard timelocked process — not a promise of emissions.</li>
+            <li>
+              The Uniswap V4 PositionManager is wired, so a graduated launch reports boosted-LP farming as
+              <em> eligible</em> — but that means the infrastructure is in place, not that farming is running: the
+              per-pool staker is deployed for each launch by a re-homed-Safe owner, never automatically.
+            </li>
+          </ul>
+        </ExplainerCard>
+      </section>
 
       <ExplainerCard title="What is built, and what is still open">
         <p>
@@ -1207,15 +1254,22 @@ function LauncherExplainer() {
   );
 }
 
-function LaunchHeader({ lpPhase }: { lpPhase: LpEmissionsPhase }) {
+function LaunchHeader() {
   return (
     <div className="mb-6">
       <h1 className="text-2xl font-bold text-white">Launch a token</h1>
+      {/* WAVE SEVEN, element F: ONE SENTENCE. This was 38 words carrying four
+          claims — the rail, the audited template, the Fact Sheet, the V4
+          graduation and the day-2 economy — stacked above a wizard nobody had
+          reached yet. Every one of them is still made, in full, inside "How the
+          rail works" below, which is where somebody who wants them goes.
+
+          `dayTwoEconomyShortPhrase(lpPhase)` leaves with it rather than being
+          hardcoded away: the Afterlife card in the explainer renders the same
+          live phrase, so the claim keeps its one source and cannot go stale in
+          two places. */}
       <p className="text-white/60 text-sm mt-1 max-w-xl">
-        The verifiable, V4-native rail. Every launch uses Doppler's audited non-upgradeable template, publishes a
-        machine-checked Fact Sheet, and graduates into a Uniswap V4 pool — with a day-2 economy{' '}
-        {/* "LP farming today" was hardcoded and went stale the day the emissions period ended. */}
-        ({dayTwoEconomyShortPhrase(lpPhase)}) that few other launchers offer.
+        Ship a token with its disclosure attached, on an audited template.
       </p>
     </div>
   );
@@ -1314,7 +1368,7 @@ function StepDetails({ w, set }: { w: WizardState; set: <K extends keyof WizardS
   return (
     <div>
       <Field label="Token name">
-        <input className={inputCls} value={w.name} onChange={(e) => set('name', e.target.value)} placeholder="Tegridy Launch" maxLength={64} />
+        <input className={inputCls} value={w.name} onChange={(e) => set('name', e.target.value)} placeholder="Your token" maxLength={64} />
       </Field>
       <Field label="Symbol">
         <input className={inputCls} value={w.symbol} onChange={(e) => set('symbol', e.target.value.toUpperCase())} placeholder="TGL" maxLength={11} />

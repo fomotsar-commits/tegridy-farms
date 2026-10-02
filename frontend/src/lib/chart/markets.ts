@@ -8,7 +8,9 @@
 // reads (`hasChartableMarket`), so the pill cannot drift from the page.
 //
 // WHAT THESE POOL STRINGS ARE. They are GeckoTerminal PATH IDENTIFIERS and are
-// passed to exactly one host: api.geckoterminal.com. They are never handed to an
+// passed to exactly one upstream — GeckoTerminal, and since 2026-09-10 by way of
+// this app's own edge-cached resource rather than browser-direct
+// (lib/geckoTerminal/edge.ts). They are never handed to an
 // RPC, never used as a call target, and never checksummed — the ten resident
 // pools are stored lowercase/un-checksummed and are deliberately NOT in
 // scripts/addresses.json (verify-addresses.mjs scopes its rule to constants.ts

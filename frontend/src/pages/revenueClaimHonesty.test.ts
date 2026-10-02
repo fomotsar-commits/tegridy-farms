@@ -92,7 +92,8 @@ describe('no surface hardcodes a paid-yield claim', () => {
 describe('the timelock claim agrees across every page that makes it', () => {
   // #199 corrected /security and /risks and missed /faq, leaving the FAQ as the most
   // REASSURING of the three. A reader who checks two pages believes the softer one.
-  const PAGES = ['FAQPage.tsx', 'RisksPage.tsx', 'SecurityPage.tsx'];
+  // lib/faqData.ts holds the FAQ's words since wave seven row Q.
+  const PAGES = ['FAQPage.tsx', '../lib/faqData.ts', 'RisksPage.tsx', 'SecurityPage.tsx'];
 
   for (const f of PAGES) {
     it(`${f} does not claim a blanket timelock over EVERY parameter`, () => {
@@ -103,7 +104,7 @@ describe('the timelock claim agrees across every page that makes it', () => {
   }
 
   it('the FAQ names what the timelock does NOT cover', () => {
-    const src = page('FAQPage.tsx');
+    const src = page('../lib/faqData.ts');
     // Matching /risks: sensitive params are delayed; some setters and pause are not.
     expect(src).toMatch(/immediately/i);
     expect(src).toMatch(/emergency pause/i);

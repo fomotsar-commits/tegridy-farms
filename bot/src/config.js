@@ -1,30 +1,22 @@
-// Everything this process reads from its environment, and — just as important —
-// what it refuses to do when a piece is missing.
-//
-// THE RULE THIS FILE ENFORCES: an unset variable degrades one capability to an
-// explicit "unavailable", never to a plausible answer. A bot that answers "you
-// hold nothing" because its indexer URL is unset has told a user something false
-// about their money, and it looked exactly like the truth. So every capability
-// below is a tri-state — on, off with a reason, misconfigured with a reason — and
-// `describeCapabilities()` is what /status prints so the reason is one message
-// away rather than buried in a log the user cannot read.
-//
-// There is no variable here that holds, unlocks or derives a key, and there never
-// will be. `frontend/api/__tests__/bot-noncustodial.test.js` scans this whole
-// directory and fails the build if one appears. It lives on the frontend side
-// deliberately: that suite runs on every change to the repo, so the guard cannot be
-// skipped by anyone who never touches the bot.
+// Everything this process reads from its environment. An unset variable degrades one
+// capability to an explicit "unavailable", never to a plausible answer like "you hold
+// nothing": each capability is on, off with a reason, or misconfigured with a reason, and
+// describeCapabilities() is what /status prints. No variable here holds, unlocks or derives
+// a key; frontend/api/__tests__/bot-noncustodial.test.js scans bot/ and fails the build if
+// one appears.
 
 /** Read once, at boot, so nothing snapshots a value mid-flight. */
 export function loadConfig(env = process.env) {
   return {
     botToken: str(env.TELEGRAM_BOT_TOKEN),
     linkSecret: str(env.BOT_LINK_SECRET),
-    venueOrigin: origin(env.VENUE_ORIGIN) ?? "https://memetic.fun",
-    appOrigin: origin(env.APP_ORIGIN) ?? "https://memetic.fun",
-    // Same variable name and same meaning as the frontend's VITE_INDEXER_URL: the
-    // PUBLIC PROXY origin of the Ponder service, no path. Its absence IS the gate
-    // — see indexer/DEPLOY.md §5 and src/lib/indexer/client.ts.
+    // Every link the bot mints is a share link, so both default to the venue's canonical
+    // host, SITE_URL in frontend/src/lib/constants.ts. frontend/src/test/botOrigins.test.ts
+    // pins these defaults, and the ones bot/.env.example and bot/DEPLOY.md state, to it.
+    venueOrigin: origin(env.VENUE_ORIGIN) ?? "https://memetics.finance",
+    appOrigin: origin(env.APP_ORIGIN) ?? "https://memetics.finance",
+    // Same meaning as the frontend's VITE_INDEXER_URL: the indexer's public proxy origin,
+    // no path. Its absence is the gate (indexer/DEPLOY.md section 5).
     indexerUrl: origin(env.INDEXER_URL),
     indexerUrlRaw: str(env.INDEXER_URL),
     pollTimeoutSec: int(env.TELEGRAM_POLL_TIMEOUT_SEC, 30),
@@ -42,11 +34,8 @@ function int(v, fallback) {
 }
 
 /**
- * An http(s) origin with any trailing path stripped, or null.
- *
- * A relative or exotic-scheme value must not survive into a fetch — it would fail
- * in a way that reads as an outage of the service rather than as the typo it is.
- * Same reasoning as `indexerOrigin()` in src/lib/indexer/client.ts.
+ * An http(s) origin with any trailing path stripped, or null. A relative or other-scheme
+ * value must not reach a fetch, where it would read as an outage rather than a typo.
  */
 function origin(v) {
   const raw = str(v);
@@ -62,12 +51,9 @@ function origin(v) {
 }
 
 /**
- * The two variables without which there is no bot at all.
- *
- * Deliberately fatal rather than degraded: with no token nothing can be received,
- * and with no secret every chat derives the same ref, which would join unrelated
- * users onto one binding. Starting anyway and reporting per-message would mean a
- * misconfigured deploy looks alive in the platform dashboard.
+ * The two variables without which there is no bot. Fatal, not degraded: with no token
+ * nothing is received, with no secret every chat derives the same ref and unrelated users
+ * share one binding, and a deploy that started anyway would look alive in the dashboard.
  */
 export function fatalConfigProblems(cfg) {
   const out = [];
@@ -83,11 +69,8 @@ export function fatalConfigProblems(cfg) {
 }
 
 /**
- * Per-capability state, printed by /status so a user is never left guessing why an
- * answer did not arrive.
- *
- * `available: false` here is why a command answers "unavailable". It is never why a
- * command answers zero.
+ * Per-capability state, printed by /status. `available: false` is why a command answers
+ * "unavailable"; it is never why a command answers zero.
  */
 export function describeCapabilities(cfg) {
   const caps = [
@@ -124,9 +107,8 @@ export function describeCapabilities(cfg) {
     });
   }
 
-  // Not a variable and not a dial. There is no keeper anywhere in this venue, and
-  // an operator must not be able to make one exist by setting an environment
-  // variable — the same reason KEEPER_AVAILABLE is a constant in the frontend.
+  // Not a variable: there is no keeper in this venue, and an environment variable must not
+  // be able to make one exist. The frontend's KEEPER_AVAILABLE is a constant for the same reason.
   caps.push({
     id: "execution",
     label: "Trading from chat",

@@ -90,7 +90,7 @@ function useTypewriter(text: string | undefined, charMs = 18): string {
 const ROUTE_TIPS: Record<string, string> = {
   '/':            "Welcome to the farm. Don't forget your towel.",
   '/dashboard':   "This is your portfolio. Stake longer, earn more.",
-  '/farm':        "4× boost at max lock. Math checks out, I think.",
+  '/earn/toweli': "4× boost at max lock. Math checks out, I think.",
   '/swap':        "Trade TOWELI here. Or whatever — I'm just a towel.",
   '/liquidity':   "Add liquidity, earn fees. Easy money. Probably.",
   '/community':   "Vote, post bounties, propose grants. The island demands it.",

@@ -17,9 +17,19 @@
  * Wallet fixture: e2e/fixtures/wallet.ts. See swap.spec.ts for why the anvil
  * gate lives INSIDE the test that needs it rather than in describe scope.
  */
-import { test, expect, expectTxReceipt, advancePastApproval } from './fixtures/wallet';
+import {
+  test, expect, expectTxReceipt, advancePastApproval, expectMinedSuccessfully, forkTxCount, forkTxHash,
+  anvilRpc, blindReceiptReads, expectUnconfirmedToast, expectRevertToast, recordToasts, starveNextSend,
+  type WalletMock,
+} from './fixtures/wallet';
+import type { Locator, Page } from '@playwright/test';
+import { ROUTE_MOUNT_TIMEOUT } from './fixtures/routes';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
+
+// The swap page's two lazy chunks — the Swap section host and TradePage itself.
+// Vite names a lazy chunk after its module: `assets/TradePage-<hash>.js`.
+const SWAP_PAGE_CHUNKS = /\/assets\/Trade(?:Host)?Page-[\w-]+\.js$/;
 
 test.describe('Liquidity surface', () => {
   test('disconnected /liquidity renders the page with title and gate', async ({ page, walletMock: _w }) => {
@@ -50,9 +60,40 @@ test.describe('Liquidity surface', () => {
     // Links shared while the tab lived on /swap still exist. An unknown tab
     // resolves to 'swap', so without this they would silently land on the wrong
     // surface — which looks like the feature was deleted rather than moved.
+    //
+    // ⚠ AND WITHOUT THE SWAP PAGE. The redirect used to run in an effect inside
+    // TradePage, so following the link meant fetching the swap host, then
+    // TradePage's own chunk, rendering the whole swap page, and only then
+    // fetching this one — four serial chunk loads inside the heading's 5s where a
+    // direct /liquidity visit has two. That is what flaked under load
+    // (2026-09-10). App.tsx answers the link now, and holding the swap chunks
+    // open is what pins it: if the redirect ever needs them again it cannot
+    // happen at all, so this fails on every run rather than on a slow one.
+    const swapChunks: string[] = [];
+    await page.route(SWAP_PAGE_CHUNKS, (route) => {
+      swapChunks.push(route.request().url()); // …and never answered
+    });
+
     await page.goto('/swap?tab=liquidity');
-    await expect(page).toHaveURL(/liquidity$/);
+    // The PATH. This was `toHaveURL(/liquidity$/)`, which the starting url
+    // `…/swap?tab=liquidity` satisfies too: it passed before any redirect ran in
+    // 48 of 50 measured runs, so the line asserted nothing.
+    await expect(page, 'the old link never left /swap — the redirect is waiting on the swap page').toHaveURL(
+      (url) => url.pathname === '/liquidity',
+    );
     await expect(page.locator('h1')).toContainText(/liquidity/i);
+    expect(swapChunks, 'the old link fetched the swap page on its way to /liquidity').toEqual([]);
+
+    // CONTROL: the pattern really does name the swap page. Were a rename or a
+    // chunk-naming change to stop it matching, the hold above would be a no-op
+    // and this test would pass whether or not the redirect waits.
+    await page.goto('/swap', { waitUntil: 'commit' });
+    await expect
+      .poll(() => swapChunks.length, {
+        message: `${SWAP_PAGE_CHUNKS} matched no request on /swap — it no longer names the swap page's chunks`,
+        timeout: ROUTE_MOUNT_TIMEOUT,
+      })
+      .toBeGreaterThan(0);
   });
 
   test('connected wallet renders the LiquidityTab without page errors', async ({ page, walletMock }) => {
@@ -143,8 +184,15 @@ test.describe('Liquidity surface', () => {
     // matches NOTHING at all, and the 20s `toBeEnabled` guard fires — that is the 22.4s
     // and 21.9s retries. One cause, all three durations.
     await advancePastApproval(cta, /^Grow the Crop$/, 'add liquidity');
+    // ASK THE CHAIN, THEN THE PAGE. `expectMinedSuccessfully` reads this click's own
+    // transaction off the node, so a revert fails HERE, under a message that says so,
+    // instead of surfacing later as a missing or stale link. The receipt check then demands
+    // the link for THAT hash: this card also renders a receipt for the TOWELI approval just
+    // sent, and that link must not stand in for the add.
+    const addSent = forkTxCount(page);
     await cta.click();
-    const addHash = await expectTxReceipt(page, 'add liquidity');
+    const addHash = await expectMinedSuccessfully(page, 'add liquidity', addSent);
+    await expectTxReceipt(page, 'add liquidity', { hash: addHash });
 
     // THE ADD MUST HAVE MINTED LP. A receipt alone does not prove that — an approval
     // has one too. This banner renders only when `hasLP` is true, i.e. the on-chain LP
@@ -163,10 +211,20 @@ test.describe('Liquidity surface', () => {
     await panel.getByRole('button', { name: '100%' }).click();
 
     await advancePastApproval(cta, /^Pull Crop Out$/, 'remove liquidity');
+    const removeSent = forkTxCount(page);
     await cta.click();
-    // `notHash` matters here: this surface overwrites ONE receipt line, so without it
-    // the add's link satisfies the remove's assertion and the burn need never happen.
-    await expectTxReceipt(page, 'remove liquidity', addHash);
+    // ⚠ THIS IS THE LEG THAT FLAKED. It failed in CI in three shapes — the empty-state
+    // assertion below timing out, `expectTxReceipt` finding no link, and a 3.0m test
+    // timeout inside `expectTxReceipt` — and all three are what a burn that REVERTED looks
+    // like from the DOM. The revert mechanism is gas; see `bufferGas` in the fixture.
+    //
+    // This line used to pass `addHash` as `notHash`, and that could not guard it: it bars
+    // the ADD's link, while the link on the card at the moment of this click is the LP
+    // APPROVAL's — a third hash. So a burn that never landed passed here on the approval's
+    // receipt and failed thirty seconds later below, as "the burn did not land". The exact
+    // hash the click sent is what closes that.
+    const removeHash = await expectMinedSuccessfully(page, 'remove liquidity', removeSent);
+    await expectTxReceipt(page, 'remove liquidity', { hash: removeHash });
 
     // And the position is genuinely gone — the empty-state copy the app renders when
     // `hasLP` goes false (LiquidityTab.tsx:526).
@@ -174,5 +232,104 @@ test.describe('Liquidity surface', () => {
       page.getByText("You don't hold any LP for this pair."),
       'the remove confirmed but the account still holds LP — the burn did not land.',
     ).toBeVisible({ timeout: 30_000 });
+  });
+
+  // ── A RECEIPT THE APP CANNOT READ vs A TRANSACTION THAT REVERTED ──────────────────
+  // wagmi reports BOTH on `useWaitForTransactionReceipt().isError`: it THROWS on a
+  // reverted receipt, and it errors when the receipt read fails. They need opposite
+  // advice, so these two legs pin each one against the real app on the fork. Pre-fix
+  // trunk toasted "Transaction failed" for both; the first port of the unreadable fix
+  // told the revert it "may well have succeeded". Each leg fails on one of those.
+
+  /** Connect a fresh fork account on /liquidity with an add quoted and its approval done. */
+  async function readyAnAdd(page: Page, walletMock: WalletMock): Promise<Locator> {
+    const account = await walletMock.useIsolatedForkAccount();
+    await walletMock.connect(account);
+    await page.goto('/liquidity');
+    const panel = page.getByRole('tabpanel', { name: 'Add / Remove' });
+    const cta = panel.getByTestId('liquidity-submit');
+    await expect(
+      page.getByText('Your share of the pool'),
+      'the pair never read back from the fork — see the add → remove leg above.',
+    ).toBeVisible({ timeout: 20_000 });
+    const inputs = page.getByRole('spinbutton', { name: '0.0' });
+    await inputs.first().fill('0.001');
+    await expect(
+      inputs.nth(1),
+      'the pool did not auto-pair Token B from its reserves — see the add → remove leg above.',
+    ).not.toHaveValue('', { timeout: 20_000 });
+    // The approval confirms while receipts still work: these legs are about the ADD.
+    await advancePastApproval(cta, /^Grow the Crop$/, 'add liquidity');
+    return cta;
+  }
+
+  test('an add whose receipt cannot be read is not reported as a failure (Anvil only)', async ({ page, walletMock }) => {
+    test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
+    // Measured 2026-09-10: an addLiquidityETH that was MINED AND SUCCESSFUL reported a
+    // bare "Transaction failed" after viem exhausted its retries against a node
+    // answering `{result: null}`. "Failed" is an instruction to resend, and a resent
+    // add deposits the pair a second time. `blindReceiptReads` reproduces that; see its
+    // comment in fixtures/wallet.ts for why the transaction still lands.
+    test.setTimeout(240_000);
+    const cta = await readyAnAdd(page, walletMock);
+
+    const blind = await blindReceiptReads(page);
+    // Start the transcript BEFORE the click — the pre-fix toast lives ~4s and a
+    // locator sampled afterwards cannot see it. See recordToasts.
+    const toasts = await recordToasts(page);
+    const sent = forkTxCount(page);
+    await cta.click();
+
+    // FIRST, WHAT HAPPENED ON CHAIN: the add succeeded. Without this the leg would pass
+    // just as happily against a genuinely broken add.
+    const addHash = await expectMinedSuccessfully(page, 'add liquidity', sent);
+    await expect
+      .poll(() => blind.receiptsAskedFor().map((h) => h.toLowerCase()).includes(addHash), {
+        timeout: 30_000,
+        message: 'the app never asked for THIS add\'s receipt, so nothing was blinded and this leg proves nothing.',
+      })
+      .toBe(true);
+
+    // THEN, WHAT THE USER WAS TOLD: not silence, not a verdict — that we cannot tell.
+    await expectUnconfirmedToast(page, toasts, 'add liquidity with an unreadable receipt');
+
+    // And the LP really is there, reached through reads that were never blinded.
+    await expect(
+      page.getByText('Your liquidity is safe'),
+      'the add was mined successfully but the account holds no LP — then the transaction ' +
+        'under test was not an add, and the toast assertion above was about the wrong thing.',
+    ).toBeVisible({ timeout: 60_000 });
+  });
+
+  test('an add that genuinely reverts says it reverted, not that it is unconfirmed (Anvil only)', async ({ page, walletMock }) => {
+    test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
+    test.setTimeout(180_000);
+    const cta = await readyAnAdd(page, walletMock);
+
+    const toasts = await recordToasts(page);
+    // ~60k gas clears addLiquidityETH's intrinsic cost and runs out mid-execution: a
+    // real mined revert, and one wagmi's replay reproduces (it reuses the tx's gas).
+    starveNextSend(page, 60_000n);
+    const sent = forkTxCount(page);
+    await cta.click();
+
+    // FIRST, WHAT HAPPENED ON CHAIN: it reverted. Read off the node, never inferred.
+    let hash = '';
+    await expect
+      .poll(async () => {
+        const tx = forkTxHash(page, sent);
+        if (!tx) return 'NOT SENT';
+        hash = tx;
+        const r = (await anvilRpc('eth_getTransactionReceipt', [tx])) as { status: string } | null;
+        return r ? r.status : 'NOT MINED';
+      }, {
+        timeout: 30_000,
+        message: 'the starved add never mined as a revert — without a real revert this leg measures nothing.',
+      })
+      .toBe('0x0');
+    expect(hash).toMatch(/^0x[0-9a-f]{64}$/i);
+
+    // THEN, WHAT THE USER WAS TOLD.
+    await expectRevertToast(page, toasts, 'add liquidity that reverted on-chain');
   });
 });

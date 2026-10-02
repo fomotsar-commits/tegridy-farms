@@ -15,6 +15,7 @@
  */
 
 import { test, expect } from './fixtures/wallet';
+import { gotoRoute } from './fixtures/routes';
 
 test.describe('a11y landmarks — core pages', () => {
   // PIN THE VENUE'S SETTLED STATE. `/` is wrapped in <BungalowDoor id={VENUE_ID}>,
@@ -70,31 +71,59 @@ test.describe('a11y landmarks — core pages', () => {
     await expect(swapTab).toHaveAttribute('aria-selected', 'true');
   });
 
-  test('TradePage swap amount input has a contextual aria-label', async ({ page, walletMock }) => {
-    await page.goto('/swap');
-    await walletMock.connect();
-    // The input's aria-label embeds the selected From token symbol. We don't
-    // assert the exact token (depends on wagmi connect timing); we only
-    // assert the label contains "to pay".
-    const amountInput = page.getByRole('textbox', { name: /amount of .* to pay/i });
-    // Only asserted if the connected-state input renders. Skip if the mock
-    // hasn't hydrated the swap card — that path is exercised in
-    // trade-page.spec.ts.
-    const count = await amountInput.count();
-    if (count > 0) {
-      await expect(amountInput.first()).toBeVisible();
-    }
+  test('TradePage swap amount input has a contextual aria-label', async ({ page, walletMock: _w }) => {
+    // NO WALLET, AND NO CONDITIONAL. The From amount input renders for a
+    // disconnected visitor: TradePage's swap form is public (the T7 note above
+    // its From block), and only the action button gates on connect.
+    //
+    // This used to `goto('/swap')`, connect, and assert only `if (count() > 0)`,
+    // so it PASSED while asserting nothing. count() read 0 on all four projects
+    // (measured 2026-09-10, --workers=1), for two separate reasons:
+    //   1. timing: on three of them count() ran before the lazy TradePage chunk
+    //      had even been requested (chromium: +153ms after load, the route
+    //      skeleton still aria-busy);
+    //   2. role: the input is `type="number"`, which is a spinbutton, and the
+    //      locator asked for a textbox. On mobile-chrome the input WAS mounted
+    //      when count() ran, and it still read 0. Mounted page, every project:
+    //      textbox 0, spinbutton 1.
+    //
+    // Found by position, then asserted by name, so a renamed label fails on the
+    // label it actually has rather than on "element not found". The From amount
+    // ("You Pay") is the first spinbutton in the Swap panel.
+    await gotoRoute(page, '/swap');
+    const amountInput = page.getByRole('tabpanel', { name: /^swap$/i }).getByRole('spinbutton').first();
+    await expect(
+      amountInput,
+      'the From amount input is missing from a mounted /swap with no wallet connected. The swap form ' +
+        'renders for everyone (TradePage, T7). Do not reinstate a conditional.',
+    ).toBeVisible();
+    // The label embeds the selected From token; the symbol itself is not pinned.
+    await expect(amountInput).toHaveAccessibleName(/amount of .* to pay/i);
   });
 
   test('TokenSelectModal dialog is labelled by its visible heading', async ({ page, walletMock: _w }) => {
-    await page.goto('/swap');
-    // Force-render the modal without a full wallet flow — look for the
-    // dialog after clicking a From token button. The button's aria-label
-    // starts with "Change token to pay with".
+    // NO WALLET, AND NO SKIP. The From-token button renders for a disconnected
+    // visitor: TradePage's swap form is public (the T7 note above its From
+    // block) and only the action button gates on connect.
+    //
+    // This used to read `fromButton.count()` straight after `page.goto` and skip
+    // on 0, blaming "the wallet gate". count() does not wait, and /swap is two
+    // lazy() chunks — TradeHostPage, then TradePage — that are only REQUESTED
+    // after the `load` event goto resolves on. Measured 2026-09-10 (chromium,
+    // --workers=1, 5 of 5 runs): count() read 0 with eth_accounts [], the chunks
+    // were requested ~35ms and ~125ms after load, and the button was visible ~1s
+    // later. It skipped on every run and asserted nothing.
+    //
+    // gotoRoute waits for the lazy page to actually mount, so a missing button
+    // below is a fact about the mounted page, not about how fast chunks arrived.
+    await gotoRoute(page, '/swap');
     const fromButton = page.getByRole('button', { name: /change token to pay with/i }).first();
-    if ((await fromButton.count()) === 0) {
-      test.skip(true, 'TokenSelectModal is only rendered after wallet gate clears; skipping in disconnected run.');
-    }
+    await expect(
+      fromButton,
+      'the From-token button is missing from a mounted /swap with no wallet connected. The swap form ' +
+        'renders for everyone (TradePage, T7); if that changed on purpose, call walletMock.connect() ' +
+        'before navigating. Do not reinstate a skip.',
+    ).toBeVisible();
     await fromButton.click();
 
     const dialog = page.getByRole('dialog', { name: /select token/i });
@@ -110,14 +139,38 @@ test.describe('a11y landmarks — core pages', () => {
     await expect(mainNav).toBeVisible();
   });
 
-  test('OnboardingModal, if rendered, uses aria-labelledby against its title', async ({ page, walletMock: _w }) => {
-    await page.goto('/');
-    const dialog = page.getByRole('dialog', { name: /welcome|get a wallet|stake towel/i });
-    if ((await dialog.count()) === 0) {
-      test.skip(true, 'Onboarding modal only fires on first visit; localStorage in CI marks visited.');
-    }
-    await expect(dialog.first()).toBeVisible();
-    const titleNode = page.locator('#onboarding-title');
-    await expect(titleNode).toHaveCount(1);
+  test('OnboardingModal uses aria-labelledby against its visible title', async ({ page, walletMock: _w }) => {
+    // NO SKIP, and no waiting for a dialog to open itself: none does any more.
+    // Answer ten, ruling 1 made the TOWELI welcome INVITED like every other one,
+    // so this opens it the way a visitor does, from the TOWELI home's own
+    // "Take the tour" link. What is under test is unchanged: the dialog is
+    // labelled by its visible title. (`#onboarding-title` is an id nothing
+    // renders; Modal gives its title a useId() id.)
+    //
+    // Clear the seen-key and wear the TOWELI skin, then walk /toweli. Its door
+    // already matches the stored skin, so there is no BungalowDoor reload to
+    // race. Registered here, these run AFTER the fixture's init scripts and the
+    // venue pin in the beforeEach, so these writes are the ones that stick.
+    await page.addInitScript(() => {
+      try {
+        localStorage.removeItem('tegridy-onboarding-seen');
+        localStorage.setItem('tegridy-bungalow', 'toweli');
+      } catch { /* ignore */ }
+    });
+    await gotoRoute(page, '/toweli');
+    await page.getByRole('button', { name: 'First time here? Take the tour' }).click();
+
+    // Found by its heading, not by its accessible name, so a broken label fails
+    // on the label assertions below rather than on "element not found".
+    const dialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: /^welcome to/i }) });
+    await expect(
+      dialog,
+      'the TOWELI tour did not open the welcome on /toweli. Do not reinstate a skip.',
+    ).toBeVisible();
+    const title = dialog.getByRole('heading', { name: /^welcome to/i });
+    const titleId = await title.getAttribute('id', { timeout: 5_000 });
+    expect(titleId, 'the onboarding title carries no id for the dialog to be labelled by').toBeTruthy();
+    await expect(dialog).toHaveAttribute('aria-labelledby', titleId!);
+    await expect(dialog).toHaveAccessibleName((await title.textContent({ timeout: 5_000 }))?.trim() ?? '');
   });
 });

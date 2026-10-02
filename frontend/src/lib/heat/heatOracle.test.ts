@@ -9,18 +9,17 @@ import {
   normalizeXHandle,
   isStale,
   tierFor,
+  tierAtFloor,
   nextTier,
-  heatDegreesFor,
-  shareForDegrees,
   gateDecision,
   TIER_FLOORS,
-  HEAT_K,
   LAUNCH_FLOOR,
   GATE_MAX_AGE_DAYS,
 } from './heatOracle';
 
-// A real Elder: 12 measured tokens, island_heat 195.54. Trimmed to 4 rows for size;
-// `degrees` is left at the true full-sum value on purpose (see the sum test below).
+// A real reading, captured 2026-08-07: 12 measured tokens, 195.54 degrees, and the tier
+// word the island served that day. Trimmed to 4 rows for size; `degrees` and
+// `token_count` are the served values, never derived from the rows.
 const WARM = {
   address: '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a',
   degrees: 195.54,
@@ -81,13 +80,11 @@ describe('heatEnvelopeFailure — an outage must never read as a low score', () 
 });
 
 describe('parseHeatReading', () => {
-  it('island_heat is the SUM of the per-token degrees', () => {
+  it('parses every breakdown row and the served token count', () => {
     const r = parseHeatReading(WARM);
-    const summed = r.breakdown.reduce((a, b) => a + b.degrees, 0);
-    // The fixture is trimmed to 4 of 12 rows, so the sum is a lower bound on the total.
-    expect(summed).toBeLessThanOrEqual(r.degrees + 0.01);
+    expect(r.degrees).toBe(195.54);
     expect(r.tokenCount).toBe(12);
-    expect(r.breakdown).toHaveLength(4);
+    expect(r.breakdown.map((b) => b.degrees)).toEqual([96.84, 51.37, 32.85, 1.44]);
   });
 
   it('carries the two distinct freshness stamps apart', () => {
@@ -139,14 +136,14 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
     expect(d.reason).toBe('qualified');
   });
 
-  it('WARM exactly AT the floor — 80° is Resident, and Residents may plant', () => {
+  it('WARM exactly AT the floor: 80° is Resident, and Residents may plant', () => {
     const d = gateDecision(ADDR, at(80), asOf);
     expect(d.state).toBe('WARM');
     expect(d.qualified).toBe(true);
   });
 
   it('COLD one hundredth of a degree below the floor', () => {
-    const d = gateDecision(ADDR, at(79.99), asOf);
+    const d = gateDecision(ADDR, at(79.99, 'Observer'), asOf);
     expect(d.state).toBe('COLD');
     expect(d.qualified).toBe(false);
     expect(d.reason).toBe('below-floor');
@@ -157,8 +154,55 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
     expect(d.degrees).toBe(42.5);
     expect(d.detail).toContain('42.50°');
     expect(d.detail).toContain('Observer');
-    expect(d.detail).toContain('80°');
+    expect(d.detail).toContain('The door opens at 80°,');
     expect(d.detail).toContain('held time');
+  });
+
+  // THE WALLET'S TIER, NOT THE FLOOR'S (follow-up to answer ten, ruling 4). The line read
+  // "95.00° — Resident. The door opens at 123°": the wallet's tier word sat right beside
+  // the floor, the very pairing ruling 4 took off the other four surfaces, joined by a
+  // prose em dash that only a read ever put on screen. At floor 123, a Resident wallet is
+  // exactly the case where "Resident" and "123" must not read as one sentence.
+  it('names the tier as the wallet\'s own reading, never beside the floor, and with no em dash', () => {
+    const cold = gateDecision(ADDR, at(95, 'Resident'), asOf, 123);
+    const warm = gateDecision(ADDR, at(195.54, 'Builder'), asOf, 123);
+    for (const d of [cold, warm]) {
+      expect(d.detail, d.state).not.toContain('—');
+      expect(d.detail, d.state).toMatch(/^This wallet reads \d+\.\d{2}° \((Resident|Builder)\)\. /);
+    }
+    expect(cold.detail).toContain('This wallet reads 95.00° (Resident). The door opens at 123°');
+    expect(cold.detail).not.toMatch(/Resident\. The door opens/);
+    expect(warm.detail).toBe('This wallet reads 195.54° (Builder). The launch lane is open.');
+  });
+
+  // 95° sits in the Resident band and the island served Observer: every word and field
+  // the door keeps says Observer, because the tier beside a wallet is the served one.
+  it('names the served tier in WARM, COLD and STALE, even where the bands would name another', () => {
+    const warm = gateDecision(ADDR, at(95, 'Observer'), asOf);
+    expect(warm.state).toBe('WARM');
+    expect(warm.tier).toBe('Observer');
+    expect(warm.detail).toBe('This wallet reads 95.00° (Observer). The launch lane is open.');
+    const cold = gateDecision(ADDR, at(95, 'Observer'), asOf, 100);
+    expect(cold.state).toBe('COLD');
+    expect(cold.tier).toBe('Observer');
+    expect(cold.detail.startsWith('This wallet reads 95.00° (Observer). The door opens at 100°,')).toBe(true);
+    const stale = gateDecision(ADDR, at(95, 'Observer'), asOf + 30 * DAY);
+    expect(stale.state).toBe('STALE');
+    expect(stale.tier).toBe('Observer');
+  });
+
+  // Every branch of the same function, not the two the fix was about: a review found the
+  // unreadable branch still ending "Nothing has been decided — try again", which the door
+  // shows and the launch error banner repeats, and which no walk without a wallet renders.
+  it('says every verdict without a prose em dash: unreadable, stale, cold and warm', () => {
+    const verdicts = [
+      gateDecision(ADDR, null, asOf, 123),
+      gateDecision(ADDR, at(195.54, 'Builder'), asOf + 30 * DAY, 123),
+      gateDecision(ADDR, at(95, 'Resident'), asOf, 123),
+      gateDecision(ADDR, at(195.54, 'Builder'), asOf, 123),
+    ];
+    expect(verdicts.map((d) => d.state)).toEqual(['STALE', 'STALE', 'COLD', 'WARM']);
+    for (const d of verdicts) expect(d.detail, `${d.state}: ${d.detail}`).not.toContain('—');
   });
 
   it('a wallet with no measured holdings is COLD, not STALE — its null reckoning date is not an outage', () => {
@@ -239,95 +283,74 @@ describe('tiers', () => {
   it.each([
     [0, 'Drifter'], [29.99, 'Drifter'],
     [30, 'Observer'], [79.99, 'Observer'],
-    [80, 'Resident'], [149.99, 'Resident'],
-    [150, 'Builder'], [249.99, 'Builder'],
-    [250, 'Elder'], [1000, 'Elder'],
+    [80, 'Resident'], [150, 'Resident'], [250, 'Resident'], [299.99, 'Resident'],
+    [300, 'Builder'], [799.99, 'Builder'],
+    [800, 'Elder'], [1800, 'Elder'],
   ] as const)('%d° is %s', (deg, tier) => {
     expect(tierFor(deg)).toBe(tier);
   });
 
-  it('agrees with the real payload’s own tier word', () => {
-    const r = parseHeatReading(WARM);
-    expect(tierFor(r.degrees)).toBe(r.tier);
+  // WARM (2026-08-07) and the 2026-09-23 board were served on the retired 150 / 250
+  // bands, so their pairs no longer place. These are the island's own words on today's:
+  // the board, as_of 2026-09-30T02:12:18Z (/api/flames?limit=500, 80 flames), the lowest
+  // and highest degrees it served in each band. On the retired bands 21 of those 80
+  // flames disagreed with their served word; on 30 / 80 / 300 / 800, none.
+  it.each([
+    [28.43, 'Drifter'], [50.64, 'Observer'], [75.05, 'Observer'], [91.67, 'Resident'],
+    [156.8, 'Resident'], [285.34, 'Resident'], [394.66, 'Builder'], [671.89, 'Builder'],
+    [890.93, 'Elder'], [1798.77, 'Elder'],
+  ] as const)('agrees with the island: %d° was served %s', (deg, tier) => {
+    expect(tierFor(deg)).toBe(tier);
+  });
+
+  // The dEaD read, as_of 2026-09-29T12:06:58Z: the wallet's served word, and two of its
+  // rooms' served room_tier, one just past Builder's floor and one just short of Elder's.
+  it.each([
+    [1476.1, 'Elder'], [313.84, 'Builder'], [790.25, 'Builder'],
+  ] as const)('agrees with the dEaD read: %d° was served %s', (deg, tier) => {
+    expect(tierFor(deg)).toBe(tier);
   });
 
   it('nextTier counts the remaining degrees, and is null at Elder', () => {
-    expect(nextTier(195.54)).toEqual({ tier: 'Elder', floor: 250, remaining: 250 - 195.54 });
+    expect(nextTier(195.54)).toEqual({ tier: 'Builder', floor: 300, remaining: 300 - 195.54 });
     expect(nextTier(0)).toEqual({ tier: 'Observer', floor: 30, remaining: 30 });
-    expect(nextTier(250)).toBeNull();
+    // The live defect: the card told a 200° wallet "50.00° to Elder".
+    expect(nextTier(200)).toEqual({ tier: 'Builder', floor: 300, remaining: 100 });
+    expect(nextTier(250)).toEqual({ tier: 'Builder', floor: 300, remaining: 50 });
+    expect(nextTier(300)).toEqual({ tier: 'Elder', floor: 800, remaining: 500 });
+    expect(nextTier(799.99)).toEqual({ tier: 'Elder', floor: 800, remaining: 800 - 799.99 });
+    expect(nextTier(800)).toBeNull();
+    expect(nextTier(1476.1)).toBeNull();
   });
 });
 
-describe('the curve (display only — the oracle is the ruler)', () => {
-  it('is zero-anchored: no share, no warmth', () => {
-    expect(heatDegreesFor(0)).toBe(0);
+describe('the island dials', () => {
+  // memetics.wtf/heat, fetched 2026-09-29 (Last-Modified 2026-09-30T02:08:02Z), prints
+  // ELDER 800°, BUILDER 300°, RESIDENT 80°, OBSERVER 30°, COLD below. /api/heat still
+  // serves the word Drifter under 30, so the bottom rung keeps the served word.
+  it('publishes the island bands, 30 / 80 / 300 / 800', () => {
+    expect(TIER_FLOORS.map((t) => [t.tier, t.floor])).toEqual([
+      ['Elder', 800],
+      ['Builder', 300],
+      ['Resident', 80],
+      ['Observer', 30],
+      ['Drifter', 0],
+    ]);
   });
 
-  it('is bounded to the 0–100 per-token cap', () => {
-    // The curve is asymptotic, so no share can exceed 100. It does round to exactly
-    // 100 in float64 well before share=1 (e^-60 is ~8.8e-27), which is why this pins
-    // the BOUND rather than a strict inequality.
-    for (const share of [0, 0.001, 0.05, 0.5, 1]) {
-      const d = heatDegreesFor(share);
-      expect(d).toBeGreaterThanOrEqual(0);
-      expect(d).toBeLessThanOrEqual(100);
-    }
-    // A realistic whale position is still short of the cap — the interesting range.
-    expect(heatDegreesFor(0.05)).toBeCloseTo(95.02, 1);
+  it('carries the island ladder and nothing the venue wrote: a name and a floor per band', () => {
+    for (const band of TIER_FLOORS) expect(Object.keys(band).sort(), band.tier).toEqual(['floor', 'tier']);
   });
 
-  it('a negative or nonsense share is 0, never NaN', () => {
-    expect(heatDegreesFor(-1)).toBe(0);
-    expect(heatDegreesFor(Number.NaN)).toBe(0);
-  });
-
-  it('is monotonic in share', () => {
-    const pts = [0.001, 0.005, 0.01, 0.02, 0.05].map(heatDegreesFor);
-    for (let i = 1; i < pts.length; i++) expect(pts[i]).toBeGreaterThan(pts[i - 1]!);
-  });
-
-  it('matches the island’s constant K = 60', () => {
-    expect(HEAT_K).toBe(60);
-    // 1% of supply, time-weighted, on one token.
-    expect(heatDegreesFor(0.01)).toBeCloseTo(100 * (1 - Math.exp(-0.6)), 6);
-  });
-
-  it('shareForDegrees inverts the curve', () => {
-    for (const d of [5, 30, 80, 95]) {
-      expect(heatDegreesFor(shareForDegrees(d)!)).toBeCloseTo(d, 6);
-    }
-    expect(shareForDegrees(100)).toBeNull();
-  });
-
-  it('reproduces the spec’s own worked example', () => {
-    // "Wallet 0xe91b…610e holding ~66.9M JBM since late January reads 0.72°" — a large
-    // bag, held six weeks, still nearly cold. Pinning the direction, not the wallet.
-    const share = shareForDegrees(0.72)!;
-    expect(share).toBeGreaterThan(0);
-    expect(share).toBeLessThan(0.0002); // ~0.012% of supply, time-weighted
-  });
-
-  it('pins the island-confirmed constants', () => {
-    // Told to us rather than derived; if either moves, that is a decision someone
-    // made, and it should break a test rather than slip through.
-    //
-    // ⚠ TWAB_WINDOW_DAYS was in this list, asserted as 180 and labelled
-    // island-confirmed. It never was. The island said so in Wave 3, and the venue had
-    // been rendering both the number and a decay mechanic built on it to users. The
-    // constant is gone; islandClaims.test.ts now fails if a window length or a decay
-    // story reappears in any user-facing source.
-    //
-    // A test that pins a fabricated constant does not protect the value — it protects
-    // the fabrication, and makes removing it look like a regression.
+  it('pins the launch floor and the freshness window', () => {
+    // A moved value is a decision someone made: it breaks here rather than slipping through.
     expect(LAUNCH_FLOOR).toBe(80);
     expect(GATE_MAX_AGE_DAYS).toBe(7);
   });
 
   it('the launch floor is a REAL tier boundary, not a number someone typed', () => {
-    // "LAUNCH_FLOOR is config; the island has set it: 80 (Resident). The tier word
-    // carries the meaning on the door: Residents may plant." Pin the correspondence,
-    // so moving the floor off a tier boundary breaks rather than quietly de-meaning
-    // the door's copy.
+    // Residents may plant: the floor sits exactly on the Resident rung, so moving
+    // one without the other breaks here.
     expect(TIER_FLOORS.find((t) => t.floor === LAUNCH_FLOOR)?.tier).toBe('Resident');
     expect(tierFor(LAUNCH_FLOOR)).toBe('Resident');
   });
@@ -416,5 +439,92 @@ describe('parseHeatReading — the handle rides the reading', () => {
     const r = parseHeatReading({ ...WARM, x_handle: '//evil.example' });
     expect(r.xHandle).toBeNull();
     expect(r.degrees).toBe(195.54); // the reading itself still stands
+  });
+});
+
+describe("the island's retired flag on a breakdown row", () => {
+  // The island flags a mint it no longer scans with `retired: true`. The parser reads
+  // the flag strictly and keeps every row with the degrees the island served for it.
+  const ROW = {
+    token_address: '0xaaa',
+    chain: 'ethereum',
+    name: 'Bobo',
+    symbol: 'BOBO',
+    heat_degrees: 92.74,
+    first_seen_at_unix: 1642281378,
+    last_transfer_at_unix: 1787701079,
+  };
+  const envelope = (rows: unknown[]) => ({
+    address: '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a',
+    degrees: 100,
+    tier: 'Resident',
+    is_cold: false,
+    held_since_unix: 1642281378,
+    as_of_unix: 1789000000,
+    token_count: rows.length,
+    breakdown: rows,
+  });
+
+  it('reads the flag the envelope actually sends', () => {
+    const r = parseHeatReading(envelope([{ ...ROW, retired: true }]));
+    expect(r.breakdown[0]!.retired).toBe(true);
+  });
+
+  it('reads a row the island did not flag as not retired', () => {
+    const r = parseHeatReading(envelope([{ ...ROW, retired: false }]));
+    expect(r.breakdown[0]!.retired).toBe(false);
+  });
+
+  it('treats an absent flag as not retired, never as unknown', () => {
+    // Older envelopes, and any row the upstream stops sending it on. A row that
+    // is not flagged is not retired; there is no third state to render.
+    const r = parseHeatReading(envelope([ROW]));
+    expect(r.breakdown[0]!.retired).toBe(false);
+  });
+
+  it('does not coerce a truthy non-boolean into retired', () => {
+    // `retired: "false"` is a string and every string is truthy. A loose read
+    // here would retire every row on the day the upstream changed its encoding.
+    const r = parseHeatReading(envelope([{ ...ROW, retired: 'false' }]));
+    expect(r.breakdown[0]!.retired).toBe(false);
+  });
+
+  it('keeps a retired row and its served degrees, and drops none', () => {
+    // "Retired" reads like "excluded", and the parser must not act on that reading:
+    // the row stays, with the island's own degrees, and the served total is untouched.
+    const r = parseHeatReading(
+      envelope([{ ...ROW, retired: true }, { ...ROW, token_address: '0xbbb', symbol: 'SOY', heat_degrees: 1.99, retired: false }]),
+    );
+    expect(r.breakdown.map((b) => [b.symbol, b.degrees, b.retired])).toEqual([
+      ['BOBO', 92.74, true],
+      ['SOY', 1.99, false],
+    ]);
+    expect(r.degrees).toBe(100);
+  });
+});
+
+// tierFor answers "what tier is this number" (123 is Resident), which picks the rung the
+// launch sentence hangs under. Naming a tier beside the floor is a different question,
+// answered only when the floor sits exactly on a rung: tierAtFloor, pinned here.
+describe('tierAtFloor', () => {
+  it('names the tier only when the floor sits exactly on its rung', () => {
+    expect(tierAtFloor(30)).toBe('Observer');
+    expect(tierAtFloor(80)).toBe('Resident');
+    expect(tierAtFloor(300)).toBe('Builder');
+    expect(tierAtFloor(800)).toBe('Elder');
+  });
+
+  it('names nothing between rungs, above the top, or a hair off a floor', () => {
+    // 150 and 250 are the Builder and Elder floors the island retired.
+    for (const floor of [123, 10, 150, 250, 80.5, 299.99, 180, 365, 1000]) {
+      expect(tierAtFloor(floor), String(floor)).toBeNull();
+    }
+  });
+
+  it('agrees with tierFor wherever it does name a tier', () => {
+    for (const t of TIER_FLOORS) {
+      const named = tierAtFloor(t.floor);
+      if (named !== null) expect(named).toBe(tierFor(t.floor));
+    }
   });
 });

@@ -138,10 +138,11 @@ not after**.
 
 ### 3.1 The Heat argument is real, and it is the strongest one on this page
 
-The launch gate reads Heat from the island. Heat is per-wallet, summed across the island's
-measured registry, and **the registry demonstrably measures Base tokens.** The captured real
-reading in `frontend/src/lib/heat/heatOracle.test.ts` — documented there as "a real Elder: 12
-measured tokens, island_heat 195.54", trimmed to four rows — breaks down as:
+The launch gate reads Heat from the island. Heat is per-wallet, read across the island's
+measured registry: the deepest room sets it and the rest amplify. **The registry demonstrably
+measures Base tokens.** The captured real reading in `frontend/src/lib/heat/heatOracle.test.ts`
+(a real Builder reading: 12 measured tokens, 195.54 degrees, trimmed to four rows) has these
+rooms:
 
 | token | chain | degrees |
 |---|---|---|
@@ -150,7 +151,7 @@ measured tokens, island_heat 195.54", trimmed to four rows — breaks down as:
 | Jungle Bay Memes | **base** | 32.85 |
 | TOWELI | ethereum | 1.44 |
 
-Three Base rows supply 181.06° of that wallet's 195.54°. The mainnet row supplies 1.44°. The
+Its three deepest rooms are Base tokens; its one mainnet room reads 1.44°. The
 reputational instrument this venue gates launches on already lives, overwhelmingly, on Base.
 That is not a vibe; it is the fixture.
 
@@ -256,7 +257,7 @@ constructed on a chain without veTOWELI.
 
 `DeployMVP.s.sol` constructs `TegridyFactory` with the **deployer EOA** as guardian and queues
 `proposeGuardianChange(pauseGuardian)` at deploy (audit M6). Its printed runbook then asks the
-multisig to (2) `acceptFeeToSetter()` after 48h, and (3b) `executeGuardianChange()`.
+multisig to (2) `acceptFeeToSetter()` after 24h, and (3b) `executeGuardianChange()`.
 
 **Step 2 destroys step 3b.** Audit F-30-10 made `acceptFeeToSetter` force-cancel any pending
 `GUARDIAN_CHANGE` queued by the outgoing setter (`TegridyFactory.sol:396-401`). The Safe's own
@@ -347,7 +348,10 @@ satisfied, this is an afternoon plus a ceremony, not a project.
    Read all fourteen `D-INV-*` printouts. It refuses every chain but 8453, so it cannot be
    pointed at mainnet by accident.
 4. Broadcast. Complete the ceremony the summary prints: accept three ownerships within the
-   14-day expiry, then `acceptFeeToSetter()` after 48h. There is no guardian rotation step.
+   14-day expiry, then `acceptFeeToSetter()` after 24h. There is no guardian rotation step.
+   (`FEE_TO_SETTER_DELAY` reads **86400** on the deployed Base factory — 24h, not 48h. The 48h
+   figure elsewhere in this file belongs to `GUARDIAN_CHANGE_DELAY`, which really is **172800**.
+   Both re-read from chain 2026-09-09.)
 5. `script/CheckCanonicalWETH.s.sol`, then `script/base/VerifyBaseMVP.s.sol`. All green or stop.
 6. **Publish the bridge cadence before the first fee lands.**
 7. Add a second `ChainConfig` to `frontend/src/lib/chains/registry.ts` with

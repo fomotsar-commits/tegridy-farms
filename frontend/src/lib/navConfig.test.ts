@@ -13,6 +13,7 @@ import {
   NFT_FINANCE_ADDRESSES_LIVE,
   COMMUNITY_LIVE,
   COMMUNITY_ADDRESSES_LIVE,
+  tradeRoute,
 } from './navConfig';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -391,6 +392,25 @@ describe('navConfig', () => {
     }
   });
 
+  // A phone or iPad tab shows `compactTabLabel` in place of its label (RouteTabs.tsx).
+  // It is a shorthand for the tab, never its name: shorter than what it replaces, and
+  // still unique within its strip.
+  it('shortens the Copy Trading tab to CT, and keeps every compact tab label a shorthand', () => {
+    const copy = NAV_SECTIONS.find((s) => s.heading === 'Earn')?.items.find((i) => i.to === '/copy-trading');
+    expect(copy?.label, 'the canonical name stays Copy Trading').toBe('Copy Trading');
+    expect(copy?.compactTabLabel).toBe('CT');
+    for (const s of [...NAV_SECTIONS, { heading: 'Numbers', items: NUMBERS_TABS }]) {
+      for (const i of s.items) {
+        if (i.compactTabLabel === undefined) continue;
+        const full = i.tabLabel ?? i.label;
+        expect(i.compactTabLabel.trim().length, `${i.to} has an empty compact label`).toBeGreaterThan(0);
+        expect(i.compactTabLabel.length, `${i.to}'s compact label is no shorter than "${full}"`).toBeLessThan(full.length);
+      }
+      const compact = s.items.map((i) => i.compactTabLabel ?? i.tabLabel ?? i.label);
+      expect(new Set(compact).size, `duplicate compact tab labels in the ${s.heading} strip`).toBe(compact.length);
+    }
+  });
+
   // THE FINDABILITY BUG, 2026-09-04. This entry read 'Memetics Curve (EVM)' with
   // `soon`/`live` keyed to the MAINNET address alone, while the launcher has been
   // live on Base and Robinhood Chain since 2026-08-25. "(EVM)" is not a string
@@ -451,45 +471,38 @@ describe('navConfig', () => {
   });
 });
 
-/**
- * TRADE_ROUTE — which swap surface "Trade" lands on.
- *
- * The venue has two, and the nav hardcoded the Ethereum one. Standing in a
- * Solana bungalow (BAYLA) and clicking Trade therefore opened a swap that
- * cannot touch the token whose page you were on. These pin the default per
- * chain; ChainSwitch.test.tsx pins that the other surface stays one click
- * away, so the default is never a trap.
- *
- * Resolved at module scope, so each case has to re-import the module with the
- * bungalow already persisted — exactly how the app sees it after a reload.
- */
-describe('TRADE_ROUTE', () => {
+// Where Swap lands follows the room's chain, read when the nav renders: a
+// door switches the skin in place, so a value taken at import would keep the
+// previous room's swap. ChainSwitch.test.tsx pins that the other surface stays
+// one click away, so the default is never a trap.
+describe('tradeRoute', () => {
   afterEach(() => {
     window.localStorage.clear();
-    vi.resetModules();
   });
 
-  async function loadWithBungalow(id: string | null) {
-    window.localStorage.clear();
-    if (id) window.localStorage.setItem('tegridy-bungalow', id);
-    vi.resetModules();
-    return import('./navConfig');
-  }
+  const swapWord = () => PRIMARY_NAV.find((n) => n.label === 'Swap')?.to;
+  const swapSection = () => NAV_SECTIONS.find((s) => s.heading === 'Swap')!;
 
-  it('is the Ethereum swap by default', async () => {
-    const nav = await loadWithBungalow(null);
-    expect(nav.TRADE_ROUTE).toBe('/swap');
-    expect(nav.PRIMARY_NAV.find((n) => n.label === 'Swap')?.to).toBe('/swap');
+  it('follows the skin with no module reload', () => {
+    expect(tradeRoute()).toBe('/swap');
+    expect(swapWord()).toBe('/swap');
+
+    window.localStorage.setItem('tegridy-bungalow', 'bayla');
+    expect(tradeRoute(), 'a Solana room lands on the Solana swap').toBe('/solana');
+    expect(swapWord()).toBe('/solana');
+    expect(swapSection().primaryTo).toBe('/solana');
+
+    window.localStorage.setItem('tegridy-bungalow', 'toweli');
+    expect(tradeRoute(), 'the classic TOWELI room lands on the Ethereum swap').toBe('/swap');
+    expect(swapWord()).toBe('/swap');
+    expect(swapSection().primaryTo).toBe('/swap');
   });
 
-  it('is the Ethereum swap in the classic TOWELI bungalow', async () => {
-    const nav = await loadWithBungalow('toweli');
-    expect(nav.TRADE_ROUTE).toBe('/swap');
-  });
-
-  it('is the Solana swap inside a Solana bungalow', async () => {
-    const nav = await loadWithBungalow('bayla');
-    expect(nav.TRADE_ROUTE).toBe('/solana');
-    expect(nav.PRIMARY_NAV.find((n) => n.label === 'Swap')?.to).toBe('/solana');
+  it('lands on a tab the Swap section really has, in every room', () => {
+    for (const id of [null, 'bayla', 'toweli', 'pepe']) {
+      window.localStorage.clear();
+      if (id) window.localStorage.setItem('tegridy-bungalow', id);
+      expect(swapSection().items.map((i) => i.to), String(id)).toContain(tradeRoute());
+    }
   });
 });

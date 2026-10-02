@@ -6,7 +6,8 @@ import { TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI, ERC20_ABI, UNISWAP_V2_PAIR_ABI
 import { liquidityVenueOn, type LiquidityVenue } from '../lib/chains/liquidityVenue';
 import { type TokenInfo } from '../lib/tokenList';
 import { getTxUrl } from '../lib/explorer';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 const PLACEHOLDER_ADDR = '0x0000000000000000000000000000000000000001' as const;
@@ -24,16 +25,44 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   const userAddr = address ?? PLACEHOLDER_ADDR;
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash, onReplaced: noteReplacement });
+  const { data: receipt, isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
-  // receipt was FETCHED" — it latches true for on-chain REVERTED txs too. Only
-  // receipt.status === 'success' is a real success; the toasts below key off this.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  // receipt was FETCHED". Only receipt.status === 'success' is a real success.
+  //
+  // 2026-09-17: and wagmi's `isError` is TWO facts. A real revert arrives there
+  // (wagmi throws on a reverted receipt, so the old `isSuccess`-keyed revert
+  // branch never fired), and so does "we could not READ the receipt", which was
+  // toasted "Transaction failed" about adds that had landed. receiptOutcome
+  // splits them by error type — see lib/txErrors.ts for the measurements.
+  // And a receipt is only proof of its OWN transaction: an add the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
   // 2026-07-26: an approval is a prerequisite, not the liquidity op. Track which
   // is in flight (set in every write fn below) so the toast can say "approved —
   // one more step" instead of "Liquidity operation confirmed!" after a mere approval.
   const lastActionRef = useRef<'approve' | 'liquidity'>('liquidity');
+
+  // … AND THE SAME CALL, APPLIED TO THE RECEIPT. That 2026-07-26 fix reached the
+  // TOAST only. The "Confirmed! View on Explorer" line on the card kept rendering for
+  // ANY confirmed write, so approving TOWELI put an explorer link under the form that
+  // reads exactly like the add already landed — "looks finished but it's only an
+  // approval". FarmPage settled this for staking in the same pass ("an approval is a
+  // prerequisite, not a completion, so it now gets NO receipt", FarmPage.tsx:313); this
+  // is that decision reaching liquidity.
+  //
+  // Derived from the RECEIPT's own `to`, not from lastActionRef, on purpose: the ref is
+  // a claim about what we meant to send at click time, while the receipt is the chain's
+  // answer about what was actually sent. Every liquidity action goes to the router;
+  // every approval goes to a token or to the pair.
+  //
+  // It errs toward saying less, never more: a smart-contract wallet whose transaction
+  // reaches the router through a bundler has the EntryPoint as its `to`, so a real add
+  // confirms with no line on the card (the toast still reports it).
+  const isLiquidityReceipt =
+    !!receipt && !!venue && receipt.to?.toLowerCase() === venue.router.toLowerCase();
 
   // Resolve addresses (substitute WETH for native ETH)
   const addrA = useMemo(() => {
@@ -111,6 +140,23 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   const tokenAAllowance = data?.[6]?.status === 'success' ? data[6].result as bigint : 0n;
   const tokenBBalance = data?.[7]?.status === 'success' ? data[7].result as bigint : 0n;
   const tokenBAllowance = data?.[8]?.status === 'success' ? data[8].result as bigint : 0n;
+
+  // The wallet balances [5]/[7] feed CLAIMS in LiquidityTab: "Balance: 0.0000"
+  // and, once an amount is typed, "Not enough TOWELI". A failed read collapses to
+  // 0n and made both claims about a wallet nobody read. `…ReadOk` needs a
+  // POSITIVE read, so a pending one claims nothing either; `…Unread` is the
+  // attempted-and-failed half the UI names. For a native side these read WETH
+  // and mean nothing - the tab reads native ETH with useBalance instead.
+  const tokenABalanceReadOk = data?.[5]?.status === 'success';
+  const tokenBBalanceReadOk = data?.[7]?.status === 'success';
+  const tokenABalanceUnread = !!data && data[5]?.status !== 'success';
+  const tokenBBalanceUnread = !!data && data[7]?.status !== 'success';
+  // The allowances [4]/[6]/[8] stay collapsed ON PURPOSE (adjudicated
+  // 2026-09-10). An unread allowance reads 0n, "not approved", which can only
+  // put an Approve in front of the user: it never skips a needed approval and
+  // never arms the add or the remove itself. It is not free - while the read
+  // keeps failing, Approve re-arms after every approval - but its worst case is
+  // a redundant approval, not a signature on a number nobody read.
 
   // Determine which reserve is tokenA and which is tokenB
   const isToken0A = token0 === addrA.toLowerCase();
@@ -205,16 +251,34 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     }
   }, [isSuccess, hash]);
 
+  // The receipt read failed, which says nothing about the transaction. Do NOT
+  // fold this into the revert branch below: a revert is a receipt we read, this
+  // is one we didn't, and telling someone an add "failed" when it landed is how
+  // they deposit the pair a second time.
+  //
+  // A cancelled or replaced tx resets the same way; its warning is
+  // useReplacedTxNotice's, above.
   useEffect(() => {
-    if (isTxError && hash) {
-      toast.error('Transaction failed', { id: `err-${hash}` });
+    if ((isReceiptUnreadable || isReplaced) && hash) {
+      if (isReceiptUnreadable) {
+        surfaceUnconfirmedTx(toast, {
+          hash,
+          explorerUrl: getTxUrl(chainId, hash),
+          repeatCost: lastActionRef.current === 'approve'
+            ? 'your allowance is already set and a second approval just costs gas.'
+            : 'sending it again adds or removes liquidity a second time.',
+        });
+      }
+      // Re-read the pool anyway: if the add did land, the LP balance moved, and
+      // the position panel is the one surface that can show it without a receipt.
+      refetch();
       const t = setTimeout(() => reset(), 4000);
       return () => clearTimeout(t);
     }
-  }, [isTxError, hash]);
+  }, [isReceiptUnreadable, isReplaced, hash, chainId]);
 
-  // On-chain revert: the receipt fetch succeeded (so isTxError stays false) but
-  // the tx failed — honest error instead of the success toast (see derivation above).
+  // On-chain revert: we read the receipt and it says the tx failed. Honest error
+  // instead of the success toast. Unreachable until 2026-09-17 (see above).
   useEffect(() => {
     if (isReverted && hash) {
       toast.error('Transaction reverted on-chain', {
@@ -419,6 +483,10 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     tokenABalanceFormatted: formatUnits(tokenABalance, decimalsA),
     tokenBBalance,
     tokenBBalanceFormatted: formatUnits(tokenBBalance, decimalsB),
+    tokenABalanceReadOk,
+    tokenABalanceUnread,
+    tokenBBalanceReadOk,
+    tokenBBalanceUnread,
     // Allowances
     tokenAAllowance,
     tokenBAllowance,
@@ -444,6 +512,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     isPending,
     isConfirming,
     isSuccess,
+    isLiquidityReceipt,
     isLoadingPool,
     hash,
     reset,

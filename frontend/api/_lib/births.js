@@ -56,8 +56,6 @@ const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const MAX_BODY_BYTES = 4096;
 
 const ALLOWED_ORIGINS = [
-  "https://memetic.fun",
-  "https://www.memetic.fun",
   "https://memetics.finance",
   "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",
@@ -71,6 +69,11 @@ if (process.env.NODE_ENV === "development") {
  *
  * Derived rather than written out a second time so adding an origin above cannot leave a
  * venue able to serve the app but unable to sign its own records.
+ *
+ * The same derivation cuts the other way. memetic.fun left ALLOWED_ORIGINS on 2026-09-23
+ * because it serves the Island Lab, not this venue (see auth/siwe.js), so a record_url on
+ * it would be a page we do not serve carrying our signature. notifyBirth.ts has minted on
+ * the canonical host since #478.
  */
 const RECORD_HOSTS = new Set(ALLOWED_ORIGINS.map((o) => new URL(o).hostname));
 
@@ -78,9 +81,10 @@ const RECORD_HOSTS = new Set(ALLOWED_ORIGINS.map((o) => new URL(o).hostname));
  * Is this a record_url we are willing to put our venue signature on?
  *
  * Parsed with `new URL` and compared on `hostname` EXACTLY. Never a substring test and
- * never an unanchored regex: `https://memetic.fun.evil.tld/...` contains "memetic.fun",
- * and `includes()` would wave it through. (CodeQL flags that shape at HIGH as
- * js/incomplete-url-substring-sanitization, which is the same defect stated as a rule.)
+ * never an unanchored regex: `https://memetics.finance.evil.tld/...` contains
+ * "memetics.finance", and `includes()` would wave it through. (CodeQL flags that shape at
+ * HIGH as js/incomplete-url-substring-sanitization, which is the same defect stated as a
+ * rule.)
  *
  * The path must also be the record route for THIS token, so a well-formed pair cannot
  * point the island at some other token's certificate.

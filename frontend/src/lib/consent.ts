@@ -1,6 +1,6 @@
 // Consent gate for analytics + error reporting (R046 / agent 066 finding H-1).
 // GDPR/ePrivacy: deny-by-default. NO telemetry fires until the user explicitly
-// opts in via the ConsentBanner. Choice is persisted in localStorage so we
+// opts in via the footer's ConsentRow. Choice is persisted in localStorage so we
 // don't re-prompt on every visit.
 
 const STORAGE_KEY = 'tegridy_telemetry_consent';
@@ -10,7 +10,7 @@ export type ConsentState = 'granted' | 'denied' | 'pending';
 /**
  * Read the user's current telemetry consent.
  *
- * Returns 'pending' on first visit (banner should show), 'granted' / 'denied'
+ * Returns 'pending' on first visit (the footer row shows), 'granted' / 'denied'
  * after the user has made a choice. Defensive against environments where
  * localStorage is unavailable (privacy mode, SSR) — those return 'pending'
  * which means deny-by-default for the gate callers.

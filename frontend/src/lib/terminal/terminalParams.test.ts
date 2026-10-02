@@ -64,10 +64,10 @@ describe('?pool= is a lookup key, never a request ingredient', () => {
     // defeat both.
     const hostile = '../../search/pools?query=x';
     expect(geckoPoolsUrl(parse(`net=${encodeURIComponent(hostile)}`).network, 'new')).toBe(
-      'https://api.geckoterminal.com/api/v2/networks/eth/new_pools',
+      '/api/aggregator?resource=gecko-read&path=/networks/eth/new_pools',
     );
     expect(geckoPoolsMultiUrl('eth', [hostile])).toBe(
-      'https://api.geckoterminal.com/api/v2/networks/eth/pools/multi/',
+      '/api/aggregator?resource=gecko-read&path=/networks/eth/pools/multi/',
     );
     expect(geckoPoolsMultiUrl('eth', [hostile])).not.toContain('search');
   });

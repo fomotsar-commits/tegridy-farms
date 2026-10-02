@@ -51,6 +51,7 @@ lapses, and how the operator would notice. Sources: env usage across `frontend/a
 | Breaks on lapse/pause | Native listings vanish (reads degrade to `degraded:true` empty lists), order create/cancel/fill 5xx, DMs/profiles/push subs down, proxy writes 503 (revocation check fails closed) |
 | Detection | **Weak — gap.** The synthetic monitor accepts `degraded:true` responses as healthy (probes grep for `orders`/`trades`, which the degraded shape contains). Vercel logs only |
 | Backup | `.github/workflows/supabase-backup.yml` — weekly encrypted artifact, 90-day retention. Signed Seaport orders are bearer instruments; the backup is what lets makers see/cancel orders if the DB is lost |
+| Second copy, since 2026-09-30 | Each week a task on the owner's PC copies GitHub's newest backups to OneDrive, checks each file, and fails loudly if the weekly backup stopped (`scripts/ops/pull-github-backups.mjs`). It runs once the owner registers it. If GitHub is gone, `scripts/ops/supabase-backup.mjs` takes the same backup by hand: [OPS_SCHEDULER.md](OPS_SCHEDULER.md) |
 
 ### 5. Upstash Redis (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`)
 | | |
@@ -83,11 +84,12 @@ lapses, and how the operator would notice. Sources: env usage across `frontend/a
 ### 8. GitHub Actions
 | | |
 |---|---|
-| Used by | CI, Slither, CodeQL, gitleaks, release, synthetic monitor (every 30 min), Supabase backup (weekly) |
+| Used by | CI, Slither, CodeQL, gitleaks, release, synthetic monitor (every 30 min), Supabase backup (weekly), the mirror to the GitLab standby (every push, and daily) |
 | Free tier | Repo is **public** → standard-runner minutes are free/unmetered. If it ever goes private: the synthetic monitor alone ≈ 1.5k min/mo of the 2k free |
 | Today | $0 |
 | Breaks | Monitors + backups stop — a meta-failure: the detection layer itself dies. Also: GitHub auto-disables `schedule:` workflows after **60 days without repo activity** |
-| Detection | None automated for the cron-disable case; check the Actions tab during quiet months |
+| Detection | A dead-man switch, once this work merges and the owner sets the `HC_PING_URL_GITHUB_CRONS` secret: the last step of `synthetic-monitor.yml` pings healthchecks.io every 30 minutes, and the `github-crons` check emails the owner when the pings stop. It pings on every run, pass or fail, so a prod outage cannot mute it. It shows that GitHub's scheduler runs, not that each workflow runs: one workflow can stop alone (a file GitHub cannot parse, or one disabled by hand). Of those, only the backup is also watched from outside, by the weekly pull's STALE check. Before it, the schedules stopped for 5+ days in 2026-09 and nothing noticed |
+| Failover | If GitHub is gone, `scripts/ops/run-job.mjs` runs the six scheduled jobs on another scheduler (the owner's PC first), reporting to healthchecks.io: [OPS_SCHEDULER.md](OPS_SCHEDULER.md) |
 
 ### 9. VAPID keypair (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `VITE_VAPID_PUBLIC_KEY`)
 | | |
@@ -113,7 +115,25 @@ lapses, and how the operator would notice. Sources: env usage across `frontend/a
 | Squatter risk | The domain is hardcoded in the CORS allowlists of `etherscan.js`, `alchemy.js`, `opensea.js`, `orderbook.js`, `supabase-proxy.js` **and** is the default `ALLOWED_ORIGIN` fallback of `api/v1` (and the other proxies). If registration lapses and a squatter registers it, their origin is **pre-authorized** against our API proxies — free quota burn, and `supabase-proxy.js` grants it *credentialed* CORS (cookie-bearing requests) — plus brand phishing against existing users. Either renew it, or if dropping it intentionally, strip it from all six allowlists first |
 | Detection | **None — gap.** It is down today and nothing fired (the synthetic monitor only probes the vercel.app alias) |
 
-### 12. Optional / currently unset
+### 12. healthchecks.io (`HC_PING_URL_GITHUB_CRONS`, `HC_PING_URL_GITLAB_STANDBY`, `HC_PING_URL_<JOB>`, since 2026-09-29)
+| | |
+|---|---|
+| Used by | Day to day: `github-crons` (pinged by `synthetic-monitor.yml`), `gitlab-standby` (pinged by `mirror-to-gitlab.yml`), and `backup-pull` and `git-vault-backup` (the owner's PC). In a failover, one check per job `scripts/ops/run-job.mjs` runs ([OPS_SCHEDULER.md](OPS_SCHEDULER.md)) |
+| Free tier | 20 checks; four used day to day, ten with the failover checks made in advance |
+| Today | $0 |
+| Breaks on lapse | No alarm reaches the owner, and a stop in GitHub's schedules goes unnoticed again. The jobs still run |
+| Detection | None from inside; the owner stops getting any email. Log in once a month |
+
+### 13. GitLab, the live standby (since 2026-09-30)
+| | |
+|---|---|
+| Used by | A public copy of GitHub's branches and tags that every push reaches, and a private vault project. GitHub stays the primary ([GIT_HOSTING.md](GIT_HOSTING.md)) |
+| Free tier | Free plan: 5 GiB per push and 10 GiB per repo; the repo is about 150 MB. Its own CI is off (no runner, no minutes used) |
+| Today | $0 |
+| Breaks on lapse | Nothing day to day: GitHub stays primary and production is untouched. GitHub would again be the only host copy, until a new standby is made from a mirror clone of GitHub (GIT_HOSTING.md 5B) |
+| Detection | The Mirror to GitLab run on the trunk goes red, and the `gitlab-standby` check goes DOWN |
+
+### 14. Optional / currently unset
 `VITE_ANALYTICS_ENDPOINT`, `VITE_ERROR_ENDPOINT` — no-op until pointed at a sink; $0
 unless that sink is paid. `SEAPORT_CHAIN_ID`, `ALLOWED_ORIGINS`, `DISABLE_SECURE_COOKIE`
 are config, not vendors.
@@ -139,4 +159,4 @@ equivalent NFT-fee flow.
 1. Synthetic monitor treats Supabase `degraded:true` as healthy — probe should fail (or warn) on the degraded shape.
 2. No probe for nakamigos.gallery (already down, never fired) — add a probe or decide to drop the domain and strip the CORS allowlists.
 3. No probe for OpenSea/Etherscan key health — both fail silently to empty UI sections.
-4. Scheduled workflows self-disable after 60 idle days — calendar reminder or keep-alive commit.
+4. Scheduled workflows self-disable after 60 idle days — calendar reminder or keep-alive commit. Now caught either way: once `HC_PING_URL_GITHUB_CRONS` is set, the `github-crons` check emails the owner when the schedules stop ([OPS_SCHEDULER.md](OPS_SCHEDULER.md)).

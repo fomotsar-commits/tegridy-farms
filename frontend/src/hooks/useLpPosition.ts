@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useReadContracts, useChainId } from 'wagmi';
+import { useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
 import { ERC20_ABI, UNISWAP_V2_PAIR_ABI, LP_FARMING_ABI } from '../lib/contracts';
 import { TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS, LP_FARMING_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
@@ -47,12 +47,14 @@ export interface LpPosition {
  * `LP_FARMING_ADDRESS` is set — they fail closed to 0, so this is safe pre-deploy.
  */
 export function useLpPosition(address?: `0x${string}`): LpPosition {
-  const chainId = useChainId();
-  const onRightChain = chainId === CHAIN_ID;
   const lp = TEGRIDY_LP_ADDRESS as `0x${string}`;
   const farm = LP_FARMING_ADDRESS as `0x${string}`;
   const farmingDeployed = isDeployed(LP_FARMING_ADDRESS);
 
+  // Every read is pinned to mainnet. NOT gated on useChainId() === CHAIN_ID as
+  // well: for a wallet on Base or Robinhood that gate disabled the batch, and the
+  // Dashboard dropped a real LP position with no notice. Nothing here arms a
+  // write; the card only links to /farm and /liquidity. See useLPFarming.ts.
   const { data, isLoading } = useReadContracts({
     contracts: [
       { address: lp, abi: ERC20_ABI, functionName: 'balanceOf', args: [address ?? ZERO], chainId: CHAIN_ID },
@@ -63,7 +65,7 @@ export function useLpPosition(address?: `0x${string}`): LpPosition {
       { address: farm, abi: LP_FARMING_ABI, functionName: 'rawBalanceOf', args: [address ?? ZERO], chainId: CHAIN_ID },
       { address: farm, abi: LP_FARMING_ABI, functionName: 'earned', args: [address ?? ZERO], chainId: CHAIN_ID },
     ],
-    query: { enabled: !!address && onRightChain && lp !== ZERO, refetchInterval: 30_000 },
+    query: { enabled: !!address && lp !== ZERO, refetchInterval: 30_000 },
   });
 
   // OUTAGE-AS-ZERO. balanceOf/rawBalanceOf/earned all collapse to 0n on a failed
@@ -75,10 +77,11 @@ export function useLpPosition(address?: `0x${string}`): LpPosition {
   // told a second lie of their own — a 0.00% share and a $0.00 valuation on a
   // position that is still there. Keep the collapse for display; carry the failure
   // next to it, one flag per claim. Scoped to a read that was actually ATTEMPTED:
-  // a disconnected or wrong-network visitor asked nothing, and the farm legs fail
-  // legitimately until the farm is deployed — a not-attempted read must never
-  // render as a failed one.
-  const readsEnabled = !!address && onRightChain && lp !== ZERO && !isLoading;
+  // a disconnected visitor asked nothing, and the farm legs fail legitimately
+  // until the farm is deployed — a not-attempted read must never render as a
+  // failed one. The wallet's chain is not in that scope: the batch runs from any
+  // chain, so a failure off mainnet is a real outage.
+  const readsEnabled = !!address && lp !== ZERO && !isLoading;
   const lpUnread = readsEnabled && !!data
     && (data[0]?.status !== 'success'
       || (farmingDeployed && (data[4]?.status !== 'success' || data[5]?.status !== 'success')));

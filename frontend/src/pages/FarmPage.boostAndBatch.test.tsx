@@ -16,7 +16,7 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const hooks = vi.hoisted(() => ({
   needsRefresh: false,
@@ -139,10 +139,14 @@ vi.mock('../components/farm/StakingCard', () => ({
 import FarmPage from './FarmPage';
 import { BUNGALOW_STORAGE_KEY } from '../lib/bungalows';
 
+// TOWELI's pool has its own address, /earn/toweli (App.tsx EarnPoolRoute);
+// /earn alone is the list of every pool, whatever room is stored.
 function renderFarm() {
   return render(
-    <MemoryRouter>
-      <FarmPage />
+    <MemoryRouter initialEntries={['/earn/toweli']}>
+      <Routes>
+        <Route path="/earn/:poolId" element={<FarmPage />} />
+      </Routes>
     </MemoryRouter>,
   );
 }
@@ -181,6 +185,10 @@ beforeEach(() => {
  * state. Real storage, not a mocked gate — that keeps the assertions pointed at
  * the SAME predicate the app runs, so if the gate changes shape again these
  * fail rather than quietly testing a stub.
+ *
+ * 2026-09-30: the ADDRESS picks the pool now — /earn/toweli, rendered by
+ * renderFarm() — and /earn alone is the list whatever room is stored. The room
+ * is still stored here, as the pool's door (EarnPoolRoute) stores it in the app.
  */
 
 // The venue speaks for the whole island; the classic TOWELI stack lives in its

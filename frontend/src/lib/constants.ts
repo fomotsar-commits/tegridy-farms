@@ -255,9 +255,31 @@ export const CURRENT_SEASON = {
 // serve, and api/ deliberately keeps BOTH in its origin allowlist — this constant is
 // about declared identity, not access.
 // ARRIVAL IDENTITY 2026-08-27: the canonical public origin is the venue's
-// own name. memetic.fun and memetics.fun stay attached as redirect aliases
-// in Vercel; share links and og URLs mint on the canonical.
+// own name. Share links and og URLs mint on the canonical, never on the host
+// the request arrived at.
+//
+// 2026-09-20: memetic.fun STOPPED BEING AN ALIAS. It is not a redirect to here
+// any more and it is not this venue at all: it serves the Memetics Lab from a
+// separate Vercel project, so this repo's vercel.json never runs for it. The
+// canonical-host law is unchanged and is now enforced in the other direction,
+// by canonicalHost.test.ts and by the synthetic monitor: this venue must NOT
+// answer on that host. www.memetics.finance is the remaining redirect alias.
+//
+// memetics.fun (with the s) is a different name again and still sits on
+// registrar parking. It has never pointed here.
 export const SITE_URL = 'https://memetics.finance';
+
+/**
+ * The canonical host without a scheme, for copy and truncated display.
+ *
+ * DERIVED, never typed out. Three places used to carry their own bare host
+ * string — a referral widget, an Island Cup share line and the tax-export CSV
+ * header — and when SITE_URL moved on 2026-08-27 those three kept minting the
+ * old host into text users copy, paste and share. Two of them had also
+ * re-declared this exact expression locally, which is the same drift one layer
+ * down. One definition, downstream of SITE_URL, so the next move carries them.
+ */
+export const SITE_HOST = SITE_URL.replace(/^https?:\/\//, '');
 
 // External links
 export const ETHERSCAN_TOKEN = `https://etherscan.io/token/${TOWELI_ADDRESS}`;
@@ -266,29 +288,31 @@ export const UNISWAP_ADD_LIQUIDITY_URL = `https://app.uniswap.org/add/v2/ETH/${T
 export const GECKOTERMINAL_URL = `https://www.geckoterminal.com/eth/pools/${TOWELI_WETH_LP_ADDRESS}`;
 export const GECKOTERMINAL_EMBED = `https://www.geckoterminal.com/eth/pools/${TOWELI_WETH_LP_ADDRESS}?embed=1&info=0&swaps=0&light_chart=0`;
 
-// The repository a skeptic is sent to for evidence. ONE constant, because the
-// pages that link it kept inventing their own branch: /contracts already pointed
-// at `mvp-launch` (the branch this site actually ships from) while /security and
-// /risks still linked `main`, which is 1,048 commits behind it and serves a
-// genuinely different audit ledger. An evidence link that resolves to a snapshot
-// the project abandoned is worse than no link, because it looks checkable.
-export const GITHUB_REPO_URL = 'https://github.com/fomotsar-commits/tegridy-farms';
-/** The branch the deployed site is built from — not the repo's `main`. */
-export const GITHUB_BRANCH = 'mvp-launch';
-/** File links: `${GITHUB_BLOB_BASE}/<path>`. */
-export const GITHUB_BLOB_BASE = `${GITHUB_REPO_URL}/blob/${GITHUB_BRANCH}`;
-/** Directory / anchor links: `${GITHUB_TREE_BASE}#security`. */
-export const GITHUB_TREE_BASE = `${GITHUB_REPO_URL}/tree/${GITHUB_BRANCH}`;
+// The source a skeptic is sent to for evidence, always through our own domain.
+// The /source redirects in frontend/vercel.json pick the git host and the branch
+// the site ships from, so a host move is one vercel.json edit, never a code change.
+// `${SOURCE_URL}/<path>` opens a file or a directory. Absolute on purpose: other
+// sites read held-through.json, and the local preview server has no redirects.
+export const SOURCE_URL = `${SITE_URL}/source`;
 
 // The venue's community channels. Previously declared TWICE — once in
 // components/layout/Footer.tsx and once in pages/HomePage.tsx, whose comment
 // claimed "keep one source so Home and Footer can't drift" while being the
 // second copy. One list now, so a handle change is one edit and cannot half-land.
+//
+// ANSWER ELEVEN, RULING 1. An empty slot is honest; a dead link and a stranger's
+// handle are not.
+//   - Discord: discord.gg/junglebay was dead (Discord answers "Unknown Invite") and came
+//     down. The slot was refilled on 2026-09-19 by the OWNER, who created a permanent
+//     invite in Discord's own server settings and handed it over directly. No claude
+//     mints or relays one. CI asks Discord about every invite the site ships, on every
+//     run, and fails an expiring, dead or foreign one (scripts/verify-discord-invites.mjs).
+//     Resolved live when it landed: guild 910243729997168721 ("Jungle Bay"),
+//     expires_at null, inviter greencifer. The gate reads that SNOWFLAKE, not the name —
+//     the server is called "Jungle Bay", and a name is a label anyone can copy.
+//   - Telegram: none, and there never will be (owner, 2026-09-17). The retired
+//     brand's t.me handle pointed at whoever holds it.
 export const SOCIAL_LINKS: readonly { href: string; label: string }[] = [
   { href: 'https://x.com/junglebayac', label: 'Twitter / X' },
-  { href: 'https://discord.gg/junglebay', label: 'Discord' },
-  // ⚠ OPERATOR: this handle is the RETIRED brand's. It is left in place rather
-  // than guessed at because only the operator can say whether the channel moved
-  // or should be dropped; when the answer lands, this is the single line to edit.
-  { href: 'https://t.me/tegridyfarms', label: 'Telegram' },
+  { href: 'https://discord.gg/jMqEV3zSvD', label: 'Discord' },
 ];

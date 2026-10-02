@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useAccount, useReadContracts, usePublicClient, useChainId } from 'wagmi';
+import { useAccount, useReadContracts, usePublicClient } from 'wagmi';
 import { parseAbiItem } from 'viem';
 import {
   getPointsData, recordAction,
@@ -23,8 +23,6 @@ const SWAP_EXECUTED_EVENT = parseAbiItem(
 export function usePoints() {
   const { address } = useAccount();
   const publicClient = usePublicClient({ chainId: CHAIN_ID });
-  const chainId = useChainId();
-  const onMainnet = chainId === CHAIN_ID;
   const [data, setData] = useState<PointsData | null>(null);
   const [swapCount, setSwapCount] = useState(0);
   const [swapCountUnread, setSwapCountUnread] = useState(false);
@@ -32,10 +30,13 @@ export function usePoints() {
 
   const userAddr = address ?? ZERO_ADDR;
   const stakingDeployed = checkDeployed(TEGRIDY_STAKING_ADDRESS);
-  const enabled = stakingDeployed && !!address && onMainnet;
+  const enabled = stakingDeployed && !!address;
 
   // R043 H-062-02: chainId pin on every entry so a wrong-chain wallet doesn't
-  // read another chain's balances into the points computation.
+  // read another chain's balances into the points computation. NOT gated on
+  // useChainId() === CHAIN_ID as well: that gate scored a wallet on Base on its
+  // swap count alone (the getLogs scan below was never gated), and
+  // reconcilePoints() saved the understated total. See useLPFarming.ts.
   const { data: contractData } = useReadContracts({
     contracts: [
       { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: [userAddr], chainId: CHAIN_ID },
@@ -68,6 +69,21 @@ export function usePoints() {
     : undefined;
   const stakedAmount = position ? position[0] : 0n;
   const lockDuration = position ? Number(position[3]) : 0;
+
+  // OUTAGE-AS-ZERO, the contract half. The swap scan below was the only input
+  // with a signal, but the other four understate points the same way when they
+  // fail: an unread userTokenId [0] reads 0n, so the position is never even asked
+  // for and the stake and lock-day points vanish; an unread LP balanceOf [1] drops
+  // the LP points; an unread getReferralInfo [2] reads as zero referrals; and an
+  // unread getPosition drops the stake points of a wallet whose token id DID land.
+  // Scoped like swapCountUnread: only reads we actually issued.
+  const metricsUnread =
+    (enabled && !!contractData && (
+      contractData[0]?.status !== 'success' || // userTokenId
+      contractData[1]?.status !== 'success' || // LP balanceOf
+      contractData[2]?.status !== 'success' // getReferralInfo
+    )) ||
+    (enabled && hasTokenId && !!posData && posData[0]?.status !== 'success'); // getPosition
 
   // OUTAGE-AS-ZERO. A refused getLogs scan set swapCount to 0, which is also the
   // honest "this wallet has never swapped here", so an RPC that would not answer
@@ -167,6 +183,11 @@ export function usePoints() {
     // OUTAGE-AS-ZERO. True only when a scan we issued came back refused: points,
     // tier and the swap badges are understated, not earned-and-zero.
     swapCountUnread,
+    // OUTAGE-AS-ZERO. True when a staking, LP or referral read we issued came
+    // back failed: points, tier and those badges are understated, not earned-and-zero.
+    metricsUnread,
+    /** Either half failed. Withhold points and tier rather than show them short. */
+    pointsUnread: swapCountUnread || metricsUnread,
     // R037: precise about which values are on-chain verified vs client estimates.
     disclaimer: 'On-chain: points + badges (derived from swap count, staking, LP balance, referral count). Client-side: streak counter (computed locally from your visit cadence).',
   };

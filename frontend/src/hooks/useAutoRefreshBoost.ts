@@ -30,6 +30,15 @@ export function useAutoRefreshBoost(opts: {
 }): { needsRefresh: boolean; effectiveBalance: bigint; rawBalance: bigint } {
   const { address } = useAccount();
   const chainId = useChainId();
+  // KEPT, where useLPFarming, useUserPosition, useNFTBoost and the rest dropped
+  // it: this gate is about a WRITE, not a read. The reads are pinned to mainnet
+  // and would answer on any chain, but `needsRefresh` is the trigger for a
+  // refreshBoost transaction. Auto mode sends it unprompted and writes the
+  // one-shot key below BEFORE it does, and refreshBoost refuses off mainnet
+  // (useLPFarming.ts) - so fired on Base it would spend the only auto-refresh
+  // this (wallet, JBAC count) gets on a write that never went out. Prompt mode
+  // offers the same write. The cost: off mainnet the Dashboard's stale-boost
+  // caveat stays hidden until the wallet switches.
   const onMainnet = chainId === CHAIN_ID;
   const isDeployed = checkDeployed(LP_FARMING_ADDRESS);
   const { holdsJBAC, jbacCount } = useNFTBoost();

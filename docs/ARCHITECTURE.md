@@ -118,8 +118,8 @@ The staker rail is also not a straight line. `SwapFeeRouter._recordReferralFee` 
 fee to `ReferralSplitter` at swap time; `referralFeeBps` (2000) is kept for the referrer, or for the
 treasury when none qualifies, and the ~80% remainder is credited back as `callerCredit` recoverable
 only by a permissionless `recoverCallerCredit()`. That call has never been made, so nothing has
-reached `RevenueDistributor`. See [REVENUE_ANALYSIS.md](../REVENUE_ANALYSIS.md) for the calibration
-discussion and [CONTRACTS.md](../CONTRACTS.md) for the live reads.
+reached `RevenueDistributor`. See [REVENUE_ANALYSIS.md](archive/REVENUE_ANALYSIS.md) for the calibration
+discussion and [CONTRACTS.md](CONTRACTS.md) for the live reads.
 
 ```mermaid
 sequenceDiagram
@@ -337,8 +337,8 @@ flowchart LR
 
 ## Notes & open questions
 
-- **Frontend ↔ indexer wiring is planned but not live.** Leaderboard and History pages currently read from Etherscan proxy; migrating to the Ponder GraphQL layer is [ROADMAP.md](../ROADMAP.md) item.
-- **`TegridyTWAP` oracle contract is deployed but not yet consulted.** Wiring it into `useToweliPrice` as a third resilience leg is tracked in [FIX_STATUS.md](../FIX_STATUS.md).
+- **Frontend ↔ indexer wiring is planned but not live.** Leaderboard and History pages currently read from Etherscan proxy; migrating to the Ponder GraphQL layer is [ROADMAP.md](ROADMAP.md) item.
+- **`TegridyTWAP` oracle contract is deployed but not yet consulted.** Wiring it into `useToweliPrice` as a third resilience leg is tracked in [FIX_STATUS.md](archive/FIX_STATUS.md).
 - **`TegridyFeeHook` (Uniswap V4 hook)** has source in-repo but no deploy script — requires CREATE2 salt-mining for the required address prefix. Tracked as audit item B7.
 - **Multisig migration** (see [GOVERNANCE.md](GOVERNANCE.md)) is the single biggest outstanding trust-model improvement.
 - **Gauge commit-reveal** is **live in contracts and UI** but toggleable back to legacy one-step voting for emergencies. A future timelocked proposal can close the legacy path permanently once all known integrators migrate.

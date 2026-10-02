@@ -130,6 +130,16 @@ async function fetchBestOfferOrThrow(tokenId, slug = COLLECTION_SLUG, { openseaS
     orderHash: data.order_hash,
     protocolAddress: data.protocol_address || SEAPORT_ADDRESS,
     tokenContract: nftItem?.token || null,
+    // THE TOKEN WE ASKED ABOUT — never `nftItem.identifierOrCriteria`.
+    //
+    // On a criteria offer (itemType 4/5) that field is the MERKLE ROOT of every
+    // token the bid covers, not a token id: the live trait offer measured on
+    // 2026-09-09 carried 1957256797975633146717778987413593388746698729618...
+    // there while covering ~900 real ids. Reading it as a token id would hand
+    // `acceptOffer` a number that is not an NFT, and the fill would name the
+    // wrong asset. This route is token-scoped, so the id it was queried FOR is
+    // the id that fills the offer, and that is the honest source.
+    tokenId: String(tokenId),
     expiry: Number.isFinite(endSec) ? new Date(endSec * 1000) : null,
   };
 }
@@ -277,12 +287,16 @@ function normalizeOffer(order) {
   // already describes ("a 50-item bid ended up rendering above the floor and
   // inverting the spread"). That fix landed in ONE normalizer and not this one.
   //
-  // HONESTY NOTE ON SEVERITY: I could not reproduce a quantity > 1 on the route
-  // this now reads. Measured 2026-09-05 on `offers/collection/nakamigos/all`:
-  // 50 of 50 rows were itemType 2 (exact token) with quantity 1, and price.value
-  // equalled offer[0].startAmount on every one. So this is DEFENSIVE, not a live
-  // mispricing being corrected — dividing by 1 is the identity, and it costs
-  // nothing to be right if a multi-item bid ever arrives.
+  // SEVERITY, RE-MEASURED — this is NOT defensive any more.
+  //
+  // The 2026-09-05 note here said a quantity > 1 could not be reproduced on this
+  // route (50 of 50 rows itemType 2, quantity 1) and called the divide purely
+  // defensive. Re-measured 2026-09-09 on the same read,
+  // `offers/collection/nakamigos/all&limit=50`: itemType {2: 43, 4: 7} and
+  // quantities {1: 46, 5: 3, 9: 1} — FOUR of fifty rows are multi-item bids.
+  // Undivided, a 9-item bid renders at 9x its true per-token price and sorts to
+  // the top of the seller's book. The divide below is correcting live rows, so
+  // do not relax it back to a no-op on the strength of the older sample.
   //
   // Reuses the exported collectionOfferQuantity rather than a second copy.
   const quantity = collectionOfferQuantity(params);
@@ -947,6 +961,35 @@ export async function acceptOffer(offer) {
     if (_walletErr) return _walletErr;
 
     // Get fulfillment data from OpenSea — via proxy
+    //
+    // `consideration` NAMES THE TOKEN THAT FILLS A CRITERIA OFFER.
+    //
+    // A criteria offer (ERC721_WITH_CRITERIA, itemType 4 — a collection or trait
+    // bid) does not name a token: its consideration item holds a merkle root over
+    // every id the bid covers. Without a `consideration` field this POST has no
+    // way to know which of those the seller is handing over, so it cannot build
+    // the criteria resolver, and it rejects the request outright.
+    //
+    // MEASURED 2026-09-09 against live orders, real token owners as fulfiller,
+    // protocol seaport1.6. All four cells, the field the only variable:
+    //   criteria offer (itemType 4), without -> HTTP 400, upstream rejected
+    //   criteria offer (itemType 4), with    -> HTTP 200, matchAdvancedOrders
+    //   exact-token offer (itemType 2), without -> HTTP 200
+    //   exact-token offer (itemType 2), with    -> HTTP 200
+    // `matchAdvancedOrders` is already in SEAPORT_FULFILLMENT_FUNCTIONS, so the
+    // signature gate below admits the criteria fill rather than aborting it.
+    //
+    // This retires the note that used to sit further down claiming the field
+    // "needs a real fill to verify — it cannot be confirmed read-only". It can:
+    // `offers/fulfillment_data` only BUILDS calldata, it signs and sends nothing,
+    // so the whole matrix above cost nothing and settled it.
+    const nftContract = offer.tokenContract || CONTRACT;
+    // Sent whenever the token is known, not only for criteria orders. The bottom
+    // two rows of that matrix are why: on an exact-token offer the field merely
+    // restates what the order already pins and is accepted just the same. So this
+    // does NOT branch on itemType — which is just as well, because the itemType
+    // does not survive onto the normalized offer this receives.
+    const fillTokenId = offer.tokenId == null ? null : String(offer.tokenId);
     let data;
     try {
       data = await openseaPost("offers/fulfillment_data", {
@@ -956,6 +999,9 @@ export async function acceptOffer(offer) {
           protocol_address: offer.protocolAddress || SEAPORT_ADDRESS,
         },
         fulfiller: { address: sellerAddress },
+        ...(fillTokenId
+          ? { consideration: { asset_contract_address: nftContract, token_id: fillTokenId } }
+          : {}),
       });
     } catch {
       return { error: "failed", message: "Could not get fulfillment data" };
@@ -994,18 +1040,14 @@ export async function acceptOffer(offer) {
     // It is not hypothetical and it is not rare. Measured 2026-09-05 against
     // the live collection: `offers/collection/nakamigos/nfts/{id}/best` returns
     // an ERC721_WITH_CRITERIA order (itemType 4) for 10 of 12 sampled tokens,
-    // and this POST omits the `consideration` field that tells OpenSea WHICH
-    // token fills a criteria offer — so the failure lands on the majority of
-    // tokens, on the one screen where an owner is accepting money.
-    //
-    // Reordering does not by itself make criteria fills succeed. It makes them
-    // fail for FREE, which is the part that was costing users. Supplying
-    // `consideration` is the follow-up, and it needs a real fill to verify —
-    // it cannot be confirmed read-only, so it is deliberately NOT guessed here.
+    // and that POST used to omit the `consideration` field that tells OpenSea
+    // WHICH token fills a criteria offer — so the failure landed on the majority
+    // of tokens, on the one screen where an owner is accepting money. That field
+    // is now supplied at the POST above, which is what makes those fills work at
+    // all; this ordering is still what makes a fill that DOES fail cost nothing.
     //
     // Everything above this line is a read or a validation. Nothing above it
     // can cost the seller gas.
-    const nftContract = offer.tokenContract || CONTRACT;
     const erc721ABI = [
       "function isApprovedForAll(address,address) view returns (bool)",
       "function setApprovalForAll(address,bool)",

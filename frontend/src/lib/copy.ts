@@ -146,6 +146,16 @@ export const FAQ_INTRO = {
     "Look. We're not gonna bullshit you. This is a real farm. With real yield. Earned with held time. Below are the questions we hear most.",
 } as const;
 
+/**
+ * WAVE SEVEN, row Q: THE VENUE'S FAQ OPENER. /faq speaks as the venue now.
+ * FAQ_INTRO above stays the TOWELI room's own, and HomePage's room FAQ still
+ * reads it, so rewriting that one in place would have changed the room's voice.
+ */
+export const VENUE_FAQ_INTRO = {
+  headline: 'Frequently asked questions',
+  subheading: 'The venue, in short answers.',
+} as const;
+
 // ═══════════════════════════════════════════════════════════════
 // Towelie one-liners — rotate randomly in confirm modals and
 // empty states. Accessible, dismissable, never blocking.
@@ -193,3 +203,36 @@ export const POOL_FLAVOR: Record<string, string> = {
 export function poolFlavorLabel(poolId: string, fallback: string): string {
   return POOL_FLAVOR[poolId] ?? fallback;
 }
+
+/**
+ * THE HOME /swap CARD'S COPY. It lives here, and not beside the grid that
+ * renders it, for the reason `react-refresh/only-export-components` gives: a
+ * page module may export components and nothing else. Same move `farmCardDesc`/`farmCardStat` made for the card
+ * sitting next to it (lib/lpEmissions.ts, pinned by trustCopyHonesty.test.ts).
+ *
+ * 2026-09-12: this read "Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage
+ * controls." over `stat: 'Uniswap V2'`, and both UNDERSTATED the surface the card
+ * links to. useSwapQuote races NINE sources for every quote — the venue's own
+ * pool (the 'tegridy' route, executed through SwapFeeRouter and printed as
+ * "Venue DEX" on the route line), Uniswap V2, and the seven aggregators in
+ * AGGREGATOR_NAMES — and takes the best. Naming only Uniswap V2 left the venue's
+ * OWN DEX out of the description of the venue's own swap surface, and pinned a
+ * whole token list to a single pair.
+ *
+ * ⚠️ THE TOWELI MENTION IS NOT THE BUG, and deleting it would be a different
+ * one. This grid renders behind `IS_TOWELI_ARRIVAL && !bungalowIdentity` — it is
+ * TOWELI's own bungalow, where the classic stack is his furniture and is true
+ * (WAVE SEVEN element D below, and the /farm card beside this one says "Stake
+ * TOWELI to earn now" deliberately). What is corrected here is the understatement,
+ * not the ticker.
+ *
+ * `label` stays 'Ethereum' because that one was already RIGHT, and was checked
+ * rather than assumed: CHAIN_ID is 1 and the aggregator leg short-circuits unless
+ * the wallet is on SUPPORTED_CHAIN_ID === 1, so this surface is mainnet-only. The
+ * venue's second chain is the /solana card below, which carries its own label.
+ */
+export const HOME_SWAP_CARD = {
+  desc: 'Swap TOWELI or any listed token on the venue DEX, Uniswap V2, or the routed aggregators. Best quote wins, with custom slippage controls.',
+  stat: 'Best route',
+  label: 'Ethereum',
+} as const;

@@ -398,7 +398,7 @@ export async function readPoolPrice(rule: AlertRule, deps: ReaderDeps = {}): Pro
     return unavailable(
       row.withheld
         ? 'GeckoTerminal quoted this pool with figures this app will not read — a negative or missing reserve makes the price untrustworthy — so nothing could be compared. That is an outage, not a zero.'
-        : 'GeckoTerminal returned no price for this pool, so nothing could be compared — that is an outage, not a zero.',
+        : 'GeckoTerminal returned no price for this pool, so nothing could be compared. That is an outage, not a zero.',
     );
   }
   return {

@@ -50,7 +50,35 @@ const KNOWN_BLIND_SPOTS = [
   'a bare `return 0` inside a useMemo (useSwapQuote priceImpact, PR #420) -- too common a literal to match without drowning in false positives',
   'aggregate flags computed with .every() so they only fire when EVERY read failed (useMyLoans, PR #406) -- a partial failure stays silent',
   'server-side JSON wires (api/**), which use the Observed/ReadFailed pair instead; this guard only walks src/',
+  'A PARTIAL SIGNAL EXEMPTS THE WHOLE FILE -- see the census line above. One signal word anywhere clears every collapse in that file, however many are left unguarded. This is the same shape as the .every() spot one level up: there, a partial failure stays silent; here, a partial FIX does.',
 ];
+
+// T18 2026-09-10 -- the burn-down triage, so the remaining list is a work queue
+// and not a shrug. Every entry was read against its contract address in
+// src/lib/constants.ts; "dormant" means that address is literally 0x0 today, so
+// the batch is `enabled: false` and the collapse cannot be reached until the
+// rail ships. Dormant is NOT absolution -- it is the reason the deadline is the
+// rail's launch day rather than now.
+const BASELINE_TRIAGE = {
+  'src/hooks/useAutoRefreshBoost.ts':
+    'LIVE (LPFarming). Fail-CLOSED by luck: needsRefresh requires BOTH balances > 0n, so any collapse disarms the refreshBoost prompt rather than firing it. But raw/effective are RETURNED bare, so a partial read hands a caller a real raw balance beside a fabricated 0 effective one.',
+  'src/hooks/useBribes.ts':
+    'DORMANT (VOTE_INCENTIVES_ADDRESS == 0x0). Worst shape in the list once it ships: bribeFeeBps collapses to a hardcoded 300, i.e. an outage renders as a specific 3% fee nobody read.',
+  'src/hooks/useGaugeList.ts':
+    'DORMANT (GAUGE_CONTROLLER_ADDRESS == 0x0). Per-gauge weight/emission collapse to 0n inside a map, so one failed entry in a batch of many silently zeroes a single row while its neighbours look fine.',
+  'src/hooks/usePremiumAccess.ts':
+    'LIVE (PremiumAccess). hasPremium collapses to false (fail-closed, correct), but monthlyFeeToweli collapses to 0n -- a price of zero on the surface that sizes an approval.',
+  'src/hooks/useProtocolStats.ts':
+    'LIVE (SwapFeeRouter + TegridyStaking). Contained at its ONE consumer: ProtocolStats.tsx gates every card on > 0, so an outage hides the cards instead of publishing $0 lifetime volume. The trap is that the hook exports bare zeros with no signal, so consumer number two inherits it.',
+  'src/hooks/useRestaking.ts':
+    'DORMANT (TEGRIDY_RESTAKING_ADDRESS == 0x0; see reference_restaking_not_deployed). Also carries the value-proxy shape usePoolData was fixed for: `restakerData ? ... : 0n`.',
+  'src/hooks/useRevenueStats.ts':
+    'LIVE (RevenueDistributor + ReferralSplitter). pendingETH collapsing to 0n is the exact shape PR #406 fixed elsewhere -- a claim button reading "nothing to claim" on an outage.',
+  'src/hooks/useSwapAllowance.ts':
+    'LIVE (ERC20 allowance vs SwapFeeRouter / UniV2 router). Collapse is fail-safe in direction (0n allowance over-prompts an approve, it never skips one), so the cost is a wasted approval tx, not a loss.',
+  'src/hooks/useTegridyScore.ts':
+    'DORMANT (COMMUNITY_GRANTS_ADDRESS and MEME_BOUNTY_BOARD_ADDRESS are both 0x0). The two flagged collapses are on those two dormant reads; the live TegridyStaking read in the same file is not among them.',
+};
 
 const ZEROISH = String.raw`(?:0n|0|\[\]|false|''|"")`;
 
@@ -78,7 +106,25 @@ const COLLAPSE_PATTERNS = [
 // The house vocabulary for "this read did not land". Any of these in the file
 // is enough -- this guard checks that the concept exists, not that it is wired
 // correctly. Wiring it correctly is what review is for.
-const SIGNAL_RE = /\b\w*(?:Unread|ReadOk|ReadFailed|Observed|Available|Unavailable)\b/;
+//
+// `Incomplete` was missing and is a real house spelling, not a synonym invented
+// here: useAirdropFactory.ts:35 and useVestingFactory.ts:26 both declare
+// `readIncomplete` in their return TYPE, useVestingStreams.ts:182-184 forwards it
+// as `registryIncomplete`/`streamReadIncomplete`, and VestingDashboard.tsx:141,147
+// renders a banner off each. That is the concept fully wired, in four files, and
+// the guard was blind to all of it -- both hooks sat on the baseline as offenders
+// for having done the work.
+//
+// Widening this list widens the exemption below, so the census exists.
+//
+// T18 2026-09-10: `Known` was added for EvmLighthousePoolLive.tsx, which had the
+// signal all along, spelled outside this list: `view.coreKnown` withholds every
+// figure on an outage instead of rendering zeros. (That component was doubly a
+// false positive: its flagged `amountRaw ?? 0n` hits are the parsed AMOUNT INPUT
+// BOX, not a contract read at all -- the read-alias-default pattern keys on a
+// `Raw` suffix and cannot tell the two apart. Left as-is; narrowing the pattern
+// would cost real catches.)
+const SIGNAL_RE = /\b\w*(?:Unread|ReadOk|ReadFailed|Observed|Available|Unavailable|Incomplete|Known)\b/;
 const USES_READ_RE = /\buseReadContracts?\b/;
 
 function walk(dir, out = []) {
@@ -91,28 +137,72 @@ function walk(dir, out = []) {
   return out;
 }
 
-/** @returns {{file: string, shapes: string[]}[]} files that collapse a read with no unread signal */
-export function scan(root = SRC_ROOT) {
-  const offenders = [];
+/** @returns {{file: string, shapes: string[], sites: number, exempt: boolean}[]} every file that collapses a read */
+function scanAll(root = SRC_ROOT) {
+  const found = [];
   for (const full of walk(root)) {
     const src = readFileSync(full, 'utf8');
     if (!USES_READ_RE.test(src)) continue;
 
     const shapes = [];
+    let sites = 0;
     for (const { id, re } of COLLAPSE_PATTERNS) {
       re.lastIndex = 0;
       const n = (src.match(re) || []).length;
-      if (n) shapes.push(`${id}x${n}`);
+      if (n) { shapes.push(`${id}x${n}`); sites += n; }
     }
     if (!shapes.length) continue;
-    if (SIGNAL_RE.test(src)) continue; // collapses, but says so somewhere -> fine
 
-    offenders.push({
+    found.push({
       file: relative(join(HERE, '..'), full).replace(/\\/g, '/'),
       shapes,
+      sites,
+      exempt: SIGNAL_RE.test(src), // collapses, but says so somewhere -> not an offender
     });
   }
-  return offenders.sort((a, b) => a.file.localeCompare(b.file));
+  return found.sort((a, b) => a.file.localeCompare(b.file));
+}
+
+/** @returns {{file: string, shapes: string[]}[]} files that collapse a read with no unread signal */
+export function scan(root = SRC_ROOT) {
+  return scanAll(root).filter((f) => !f.exempt).map(({ file, shapes }) => ({ file, shapes }));
+}
+
+/**
+ * The other side of the same walk: files that collapse a read AND carry a signal,
+ * so scan() never sees them however many collapses are left unguarded.
+ *
+ * This is NOT a defect list and must never fail the build -- most of these files
+ * are correct, and some are the exemplars the failure message points at. It is a
+ * MEASUREMENT of how much the file-scoped exemption covers, because a caveat in
+ * prose is not a number anyone acts on.
+ *
+ * IT MEASURES EXPOSURE, NOT DEBT. IT GOES *UP* WHEN YOU FIX SOMETHING.
+ *
+ * Expect this and do not "correct" it. The house convention KEEPS the collapse
+ * and adds a signal beside it, so:
+ *   - fixing one leg of an already-exempt file changes nothing -- `minStake` is
+ *     guarded now and its file's count did not move;
+ *   - fixing a BASELINED file moves the whole file across, and every collapse
+ *     site in it joins this number. usePremiumAccess left the baseline (11 ->
+ *     10) and the census rose by exactly its 7 sites, 69 -> 76. That is the
+ *     guard reporting honestly, not a regression.
+ *
+ * The number falls only if a file stops collapsing altogether, which is not
+ * what the convention asks for. Read it as "collapse sites this guard never
+ * looked at", never as a burn-down chart. THE BASELINE IS THE BURN-DOWN CHART.
+ *
+ * Worked example, and the reason this exists: useLPFarming.ts derives
+ * `positionUnread` from entries [5][6][7] of an 11-entry batch -- correctly, and
+ * it is consumed on screen. That one signal also exempts entry [10], `minStake`,
+ * which collapses to 0n and leaves LPFarmingSection.tsx:272's
+ * `minStake > 0n && stakeWei < minStake` guard reading false. A stake cap that
+ * silently stops capping is the second item in this file's own header.
+ *
+ * @returns {{file: string, shapes: string[], sites: number}[]}
+ */
+export function scanExempt(root = SRC_ROOT) {
+  return scanAll(root).filter((f) => f.exempt).map(({ file, shapes, sites }) => ({ file, shapes, sites }));
 }
 
 // ── self-test ──────────────────────────────────────────────────────────────
@@ -132,6 +222,29 @@ function selfTest() {
       src: `const count = someArray.length ?? 0;` },
     { name: 'a genuine zero from a successful read is untouched', flagged: false,
       src: `const { data } = useReadContracts({});\nconst n = data?.[0]?.status === 'success' ? Number(data[0].result) : null;` },
+    { name: 'Incomplete counts as a signal (useVestingFactory / useAirdropFactory spelling)', flagged: false,
+      src: `const { data } = useReadContracts({});\nconst total = data?.[0]?.status === 'success' ? data[0].result as bigint : 0n;\nconst readIncomplete = !data || data.some((r) => r.status !== 'success');` },
+    // T18: the `Known` spelling the baseline review found in use. It expresses
+    // the same property the guard is actually asking for.
+    { name: 'coreKnown counts as a signal (EvmLighthousePoolLive)', flagged: false,
+      src: `const { data } = useReadContracts({});\nconst staked = data?.[0]?.status === 'success' ? data[0].result as bigint : 0n;\nconst coreKnown = data?.[0]?.status === 'success';` },
+    // ...and the widening must not turn into a blanket amnesty: a file that
+    // collapses and says nothing is still flagged, however it is spelled.
+    { name: 'collapse with an unrelated vocabulary is still flagged', flagged: true,
+      src: `const { data } = useReadContracts({});\nconst staked = data?.[0]?.status === 'success' ? data[0].result as bigint : 0n;\nconst isLoading = false;\nconst refetch = () => {};` },
+    // THE FIG LEAF, pinned as a test so it cannot be mistaken for an oversight.
+    // Two collapses; a signal covering only the first; the file goes unflagged.
+    // flagged:false is the CORRECT answer for this guard as designed -- the
+    // census below is what stops that answer being read as "both are fine".
+    // The census counts EXEMPTIONS, not signals. A file that already returns
+    // `T | null` has nothing collapsed to be exempted from, so it must not
+    // appear -- otherwise the number inflates with correct files and stops
+    // meaning anything. (Without this case the census assertion passes even if
+    // its collapse requirement is deleted.)
+    { name: 'a signal with nothing collapsed is not census material', flagged: false, exempt: false,
+      src: `const { data } = useReadContracts({});\nconst n = data?.[0]?.status === 'success' ? Number(data[0].result) : null;\nconst nUnread = data?.[0]?.status !== 'success';` },
+    { name: 'a partial signal exempts the WHOLE file -- by design, and counted', flagged: false, exempt: true,
+      src: `const { data } = useReadContracts({});\nconst staked = data?.[5]?.status === 'success' ? data[5].result as bigint : 0n;\nconst minStake = data?.[10]?.status === 'success' ? data[10].result as bigint : 0n;\nconst positionUnread = data?.[5]?.status !== 'success';` },
   ];
 
   let failed = 0;
@@ -140,9 +253,17 @@ function selfTest() {
     const collapses = COLLAPSE_PATTERNS.some(({ re }) => { re.lastIndex = 0; return re.test(c.src); });
     const hasSignal = SIGNAL_RE.test(c.src);
     const flagged = usesRead && collapses && !hasSignal;
-    const ok = flagged === c.flagged;
+    let ok = flagged === c.flagged;
+    let detail = ok ? '' : ` (expected flagged=${c.flagged}, got ${flagged})`;
+    // `exempt` asserts the census would COUNT this file -- collapses present and
+    // a signal present. Without it, the fig-leaf case above is indistinguishable
+    // from a file with nothing to guard.
+    if (ok && c.exempt !== undefined) {
+      const counted = usesRead && collapses && hasSignal;
+      if (counted !== c.exempt) { ok = false; detail = ` (expected census exempt=${c.exempt}, got ${counted})`; }
+    }
     if (!ok) failed++;
-    console.log(`${ok ? '  ok  ' : '  FAIL'} ${c.name}${ok ? '' : ` (expected flagged=${c.flagged}, got ${flagged})`}`);
+    console.log(`${ok ? '  ok  ' : '  FAIL'} ${c.name}${detail}`);
   }
   if (failed) {
     console.error(`\ncheck-unread-signal self-test: ${failed} case(s) failed`);
@@ -166,7 +287,7 @@ if (argv.includes('--update')) {
   writeFileSync(
     BASELINE_PATH,
     JSON.stringify({
-      note: 'Files that collapse a contract read with no unread signal, as of the guard landing. This list may SHRINK, never grow. See check-unread-signal.mjs.',
+      note: 'Files that collapse a contract read with no unread signal. This list may SHRINK, never grow. Per-file triage (live vs dormant rail, and what a degraded read renders as) lives in BASELINE_TRIAGE in check-unread-signal.mjs and prints on every green run.',
       files: offenders.map((o) => o.file),
     }, null, 2) + '\n',
   );
@@ -217,5 +338,27 @@ if (fixed.length) {
 if (bad) process.exit(1);
 
 console.log(`check-unread-signal: ok (${offenders.length} baselined file(s) still to burn down)`);
+for (const o of offenders) {
+  console.log(`  - ${o.file} [${o.shapes.join(', ')}]`);
+  const why = BASELINE_TRIAGE[o.file];
+  if (why) console.log(`      ${why}`);
+}
+
+// The exemption, as a number rather than a caveat. Advisory only -- it never
+// sets `bad`, because a file here is usually correct and two of them are the
+// exemplars quoted above. What it stops is reading "ok" as "nothing collapses
+// unguarded in src/", which is not what this guard measures and never was.
+const exempt = scanExempt();
+if (exempt.length) {
+  const sites = exempt.reduce((n, f) => n + f.sites, 0);
+  console.log(
+    `Exempted by a file-scoped signal: ${exempt.length} file(s), ${sites} collapse site(s) ` +
+    '-- unreviewed by this guard (--census to list)',
+  );
+  if (argv.includes('--census')) {
+    for (const f of exempt) console.log(`  ${f.file}  [${f.shapes.join(', ')}]`);
+  }
+}
+
 console.log('Blind spots this guard does NOT cover:');
 for (const s of KNOWN_BLIND_SPOTS) console.log(`  - ${s}`);

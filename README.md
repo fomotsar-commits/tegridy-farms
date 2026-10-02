@@ -21,7 +21,9 @@
 
 > **A DeFi protocol across four chains.** On **Ethereum**: swap fees are routed toward TOWELI stakers (the rail has collected and has **never paid out** — see [Live deployment status](#live-deployment-status)), votes are weighted by how long you have locked, and the whole thing runs on fixed-supply TOWELI. On **Base (8453)** and **Robinhood Chain (4663)**: the same DEX/fee stack, live since 2026-08-25, with fees landing in a **remittance Safe** — queued for the bridge, explicitly *not* staker yield. On **Solana**: a Jupiter-routed swap with DCA, and Streamflow staking lighthouses for the island's Solana residents — **TOWELI itself never ships there.** Real yield. No inflation tricks.
 
-> **Live at [memetics.finance](https://memetics.finance) and [memetic.fun](https://memetic.fun)** — two co-equal production origins, neither redirecting to the other. The surfaces taking the most build effort today are the **island build-out** (thirteen bungalows, ten lighthouse staking pools across Ethereum/Base/Solana) and the **token launchers** — our own [`TegridyCurveLauncher`](https://etherscan.io/address/0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE) on three EVM chains, plus the Doppler rail at [/launch](https://memetics.finance/launch).
+> **Live at [memetics.finance](https://memetics.finance)** — the one canonical origin. `www.memetics.finance` and `tegridyfarms.vercel.app` **permanently redirect (308) onto it** (`frontend/vercel.json`); they are ways in, not second homes. `memetic.fun` and `www.memetic.fun` are not this venue: since 2026-09-20 they serve the Island Lab from a separate Vercel project. **What the synthetic monitor actually measures**, every 30 minutes: the canonical host answers 200 and serves the app shell plus the API routes; each of those two aliases answers a *permanent* redirect (301 or 308) whose `Location` is the canonical host, since a plain 200 on an alias is itself the outage; and `memetic.fun` does not serve this venue's app shell. `llms.txt`'s alias sentence is derived from the same `vercel.json`, so the file, the monitor and the deploy config cannot drift apart. This line claimed until 2026-09-19 that the `tegridyfarms*.vercel.app` aliases redirected; both were measured answering **200**, and `tegridyfarms.vercel.app` was fixed on 2026-09-20.
+
+> ⚠️ **One host is still outside all of this, and no commit can close it.** `tegridyfarms-three.vercel.app` answers **200** with a *stale* copy of the whole venue — a different bundle hash from production, and no `/llms.txt` (that path SPA-falls-back to `200 text/html`). It is a **separate Vercel project**, so this repo's `vercel.json` never runs for it and the redirect that used to sit there had never fired once. It is an operator action in the Vercel dashboard: delete that project, or repoint the domain at this one. Until then it is deliberately absent from the monitor and from `llms.txt`, because neither may claim a redirect that does not happen. This line used to read "two co-equal production origins, neither redirecting to the other", which had stopped being true when SITE_URL moved on 2026-08-27 and was never true of a site that also ships a single `rel=canonical`. The surfaces taking the most build effort today are the **island build-out** (thirteen bungalows, ten lighthouse staking pools across Ethereum/Base/Solana) and the **token launchers** — our own [`TegridyCurveLauncher`](https://etherscan.io/address/0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE) on three EVM chains, plus the Doppler rail at [/launch](https://memetics.finance/launch).
 
 > ⚠️ **Status: live, hardening in progress, not yet decentralized.** The core protocol was **redeployed to Ethereum mainnet on 2026-06-06** (the "MVP" set), the audited **gated-feature batch — 11 contracts** — was deployed and Etherscan-verified on **2026-07-16**, the capital-free revenue surfaces went live in the app on **2026-07-21/22**, and the **Base + Robinhood legs** deployed on **2026-08-25**. Ownership still sits behind the deployer key on mainnet (Safe rebuild + 2-of-2 accept ceremony pending — [`docs/SAFE_REHOME_RUNBOOK.md`](docs/SAFE_REHOME_RUNBOOK.md)), the emission/spend-side features (governance, grants, bounties) stay **frontend-gated until a revenue line funds them**, and there is **no professional human-firm audit yet**. Size deposits accordingly.
 
@@ -36,7 +38,7 @@
 
 Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there — the contracts are standard Synthetix / Curve / Aave / Uniswap / Gondi / Raydium primitives, copied from battle-tested sources on purpose. Since **2026-08-26** that is standing rule 0: *only battle-tested, billion-dollar, unhacked upstreams*, with minimal surface on top.
 
-- **Website:** [memetics.finance](https://memetics.finance) · [memetic.fun](https://memetic.fun)
+- **Website:** [memetics.finance](https://memetics.finance) (canonical; `www.memetics.finance` permanently redirects here)
 - **Token:** [`TOWELI`](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D) · 1,000,000,000 fixed supply · Ethereum Mainnet (unchanged across the relaunch — only the protocol contracts were redeployed)
 - **Price / liquidity:** [GeckoTerminal](https://www.geckoterminal.com/eth/pools/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D) (the deep TOWELI/WETH liquidity lives in the Uniswap V2 pool)
 
@@ -107,11 +109,11 @@ was ever true. Two bullets below describe the Meteora Solana rail, which was **d
 
 - ✅ **Relaunch MVP is live on mainnet** (deployed 2026-06-06 via `DeployMVP`, block ~25,263,328). Staking, the native DEX, SwapFeeRouter, RevenueDistributor, TWAP, POLAccumulator, ReferralSplitter, TokenURIReader, and (since 2026-06-08) LP Farming are all deployed and wired.
 - ✅ **Gated-feature batch deployed on-chain 2026-07-16** (11 contracts, all Etherscan-verified): GaugeController, VoteIncentives (+Admin), PremiumAccess, TegridyNFTPoolFactory, TegridyNFTLending (+Admin), MemeBountyBoard, CommunityGrants, and TegridyLaunchpadV2 (+ its DropV2 template). Each cleared a fresh pre-deploy adversarial audit wave.
-- ✅ **Capital-free surfaces un-gated in the app 2026-07-21/22** (operator-authorized): P2P NFT lending, the NFT AMM, the launchpad, Premium, and the EVM token launcher are **live at [memetic.fun](https://memetic.fun)** — verified against the deployed bytecode (every frontend ABI selector checked on-chain) before the flip. Their fees accrue to the **treasury Safe** (`0x7D26…Bd7d`). GaugeController, VoteIncentives, CommunityGrants, and MemeBountyBoard stay app-gated: they *spend* (emissions/grants/bounties), so they wait for a revenue line to fund them.
-- ✅ **Legacy exit surface (2026-07-22):** two retired pre-relaunch staking contracts still held user funds; the Farm page now shows an **exit-only card** (withdraw/early-withdraw, no deposit path) to any wallet with a legacy position, and the contracts are listed as *retired — withdraw only* on [/contracts](https://memetic.fun/contracts).
+- ✅ **Capital-free surfaces un-gated in the app 2026-07-21/22** (operator-authorized): P2P NFT lending, the NFT AMM, the launchpad, Premium, and the EVM token launcher are **live at [memetics.finance](https://memetics.finance)** — verified against the deployed bytecode (every frontend ABI selector checked on-chain) before the flip. Their fees accrue to the **treasury Safe** (`0x7D26…Bd7d`). GaugeController, VoteIncentives, CommunityGrants, and MemeBountyBoard stay app-gated: they *spend* (emissions/grants/bounties), so they wait for a revenue line to fund them.
+- ✅ **Legacy exit surface (2026-07-22):** two retired pre-relaunch staking contracts still held user funds; the Farm page now shows an **exit-only card** (withdraw/early-withdraw, no deposit path) to any wallet with a legacy position, and the contracts are listed as *retired — withdraw only* on [/contracts](https://memetics.finance/contracts).
 - ✅ **Trust tooling + limit orders live (2026-07-22):** token scanner, wallet exposure, deployer reputation, launch simulator/afterlife, and NFT market-integrity surfaces shipped (see [Trust tooling](#trust-tooling)), and **gasless limit orders via CoW Protocol** are live on the Trade page.
 - ✅ **Launcher hardening wave (2026-07-24 → 07-30).** The EVM launcher went from "switched on" to actually working: the launch button had been refusing roughly six attempts in seven (it shared the swap path's 300s Chainlink staleness gate against a ~3600s ETH/USD heartbeat — now a separate `ethUsdForLaunch` window); the Explorer/Afterlife feed was a hardcoded empty array and now reads real provenance from `Airlock.getAssetData`; auction bands that could have gone on-chain ~10× wrong are refused before signing; Fact Sheet splits now attest the **real resolved** constitution rather than a template; and the protocol's 15% fee line was re-pointed from `RevenueDistributor` to the **Treasury Safe** before launch #1 (the Doppler locker pays `msg.sender` only, so the original beneficiary could never have claimed it). The honest cost: that line is **not** staker yield today.
-- ✅ **Launcher revenue is now readable and withdrawable (2026-07-30).** `Airlock.collectIntegratorFees` had been live on-chain with zero callers anywhere in the repo. An **Integrator Fees panel** now ships on [/admin](https://memetic.fun/admin), gated to `LAUNCHER_INTEGRATOR_ADDRESS` — which is *not* the protocol owner, so that page is now two-role and asymmetric (the integrator sees the fees panel and nothing else). Balances distinguish "nothing owed" from "could not read": a failed balance read is never painted as a confident zero next to a withdraw button.
+- ✅ **Launcher revenue is now readable and withdrawable (2026-07-30).** `Airlock.collectIntegratorFees` had been live on-chain with zero callers anywhere in the repo. An **Integrator Fees panel** now ships on [/admin](https://memetics.finance/admin), gated to `LAUNCHER_INTEGRATOR_ADDRESS` — which is *not* the protocol owner, so that page is now two-role and asymmetric (the integrator sees the fees panel and nothing else). Balances distinguish "nothing owed" from "could not read": a failed balance read is never painted as a confident zero next to a withdraw button.
 - ✅ **Exotic base pairs + Solana launcher preview un-gated (2026-07-27).** `EXOTIC_LAUNCHES_ENABLED = true` — creators may pair a launch against **TOWELI** instead of ETH (opt-in; ETH stays the default). `SOLANA_LAUNCHER_ENABLED = true` renders `/solana-launch` as a live config **preview** — it is **not** an in-app money path (the page has no signer; real Solana launches still go through the operator's out-of-band CLI). *(Superseded 2026-08-23: the Meteora rail and the `/solana-launch` route were both deleted.)*
 - ✅ **Meteora DBC partner config live on Solana mainnet (2026-08-01).** The operator ran `create-config` against a verified Squads v4 fee vault, so the Solana rail is armed and can accept its first launch. **Zero tokens have launched through it** — the Fact-Sheet numbers on `/solana-launch` are builder defaults, not a track record. The same change closed the custody gate: `verifySquadsVault` now enforces the Squads `Multisig` discriminator **and a threshold ≥ 2**, so neither a 1-of-1 multisig nor a substituted Squads account type can be named as `feeClaimer`. ~~`/solana-launch` remains preview-only with no in-app submit path.~~ — **superseded 2026-08-04 by #259**, which shipped the in-app submit path; the preview state now means "no partner config published into this build", not "no submit path exists". *(The two bullets above this one are dated and describe what was true on their date; only this trailing claim outlived its truth.)* *(Superseded 2026-08-23: the Meteora rail and the `/solana-launch` route were both deleted.)*
 - ✅ **Heat wave two shipped (2026-08-11).** The ruler, the launch gate and the birth-socket card, in the island directive's strict phase order, plus the chain-derived birth-record route at `/record/:chain/:ca.json`. One deviation from a prior operator decision was flagged rather than applied silently: the 180-day tenure floor is gone, replaced by a degrees floor of 80° (Resident), because held time is already priced inside a TWAB-based, zero-anchored number.
@@ -264,7 +266,7 @@ flowchart LR
 > The dashed edge is the whole story: it is the only way value gets from the splitter back
 > to the staker rail, it is permissionless, and it has never been traversed.
 
-**Where the new fees land (honest version):** the NFT-lending, NFT-pool, launchpad, and premium surfaces went live 2026-07-21/22, and their fees accrue to the **treasury Safe** today — *not* to the staker stream yet. Routing them into `RevenueDistributor` is a deliberate later step (the treasury needs to cover operating costs first — see [`REVENUE_ANALYSIS.md`](REVENUE_ANALYSIS.md)). The front-door swap fee remains the one rail *aimed* at stakers directly — and per the fee-rail bullet in [Live deployment status](#live-deployment-status), it has collected without delivering. Volume on the new surfaces starts from zero — no revenue is implied until the chain shows it.
+**Where the new fees land (honest version):** the NFT-lending, NFT-pool, launchpad, and premium surfaces went live 2026-07-21/22, and their fees accrue to the **treasury Safe** today — *not* to the staker stream yet. Routing them into `RevenueDistributor` is a deliberate later step (the treasury needs to cover operating costs first — see [`REVENUE_ANALYSIS.md`](docs/archive/REVENUE_ANALYSIS.md)). The front-door swap fee remains the one rail *aimed* at stakers directly — and per the fee-rail bullet in [Live deployment status](#live-deployment-status), it has collected without delivering. Volume on the new surfaces starts from zero — no revenue is implied until the chain shows it.
 
 ### 2. The staking position as universal collateral
 
@@ -328,18 +330,17 @@ You don't need to read the contracts. Four steps from cold wallet to earning yie
 ### 1. Get a wallet
 MetaMask, Rabby, Coinbase Wallet, **Phantom** or **Trust** — or anything RainbowKit supports.
 Fund it with ETH for gas. For the Solana surfaces (the swap and the four Solana bungalow
-lighthouses) use Phantom or another Solana wallet; **Trust is deliberately absent from the
-Solana modal**, because its adapter is legacy-only and would connect and then fail on every
-swap. TOWELI itself is Ethereum-only.
+lighthouses) use Phantom, Trust, or another Solana wallet — **Trust works on both sides as
+of 2026-09-15**. TOWELI itself is Ethereum-only.
 
 ### 2. Get TOWELI
-- **App swap:** [memetic.fun/swap](https://memetic.fun/swap) — the smart front-door; the protocol fee is routed toward stakers (nothing has arrived yet — see the fee-rail bullet above).
+- **App swap:** [memetics.finance/swap](https://memetics.finance/swap) — the smart front-door; the protocol fee is routed toward stakers (nothing has arrived yet — see the fee-rail bullet above).
 - **Uniswap V2:** [app.uniswap.org](https://app.uniswap.org/swap?outputCurrency=0x420698CFdEDdEa6bc78D59bC17798113ad278F9D&chain=ethereum) — works, but Uniswap keeps the fees.
 
 Price & liquidity: [GeckoTerminal](https://www.geckoterminal.com/eth/pools/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D).
 
 ### 3. Stake & lock
-Go to [memetic.fun/farm](https://memetic.fun/farm) and pick a lock:
+Go to [memetics.finance/earn/toweli](https://memetics.finance/earn/toweli) and pick a lock:
 
 | Lock | Boost | Flavor |
 |---|---|---|
@@ -365,7 +366,7 @@ Hold a [JBAC NFT](https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336
   have **no early exit at all**, so read the lock warning before you sign.
 - **Vote on gauges** — the governance contracts (`GaugeController` + `VoteIncentives`) are **deployed on-chain**; voting un-gates in the app once ownership hands off to the Safe.
 
-New to DeFi? See [QUICKSTART.md](QUICKSTART.md) or [FAQ.md](FAQ.md).
+New to DeFi? See [QUICKSTART.md](docs/QUICKSTART.md) or [FAQ.md](docs/FAQ.md).
 
 ---
 
@@ -398,7 +399,7 @@ the fee constitution divides:
 
 | Phase | Pool | Fee | Who takes it |
 |---|---|---|---|
-| **1 — the auction** | The Doppler dynamic-auction pool | `LAUNCH_FEE_TIER = 10,000` hundredths of a bip = **1%** | Collected by Doppler as a third-party **integrator fee** to `LAUNCHER_INTEGRATOR_ADDRESS`, an address the protocol controls off-chain and can re-point by redeploying the frontend. **No split of this fee is enforced on-chain**, and none is promised. It is read + withdrawn from the Integrator Fees panel on [/admin](https://memetic.fun/admin). |
+| **1 — the auction** | The Doppler dynamic-auction pool | `LAUNCH_FEE_TIER = 10,000` hundredths of a bip = **1%** | Collected by Doppler as a third-party **integrator fee** to `LAUNCHER_INTEGRATOR_ADDRESS`, an address the protocol controls off-chain and can re-point by redeploying the frontend. **No split of this fee is enforced on-chain**, and none is promised. It is read + withdrawn from the Integrator Fees panel on [/admin](https://memetics.finance/admin). |
 | **2 — after graduation** | The Uniswap **V4** pool the liquidity migrates into — `MIGRATION_POOL.fee = 3000`, `tickSpacing 60` ([`airlock.ts`](frontend/src/lib/launcher/airlock.ts), verified on-chain 2026-07-26) | **0.3%** | **This** is what the launch's fee constitution divides, streamed by the on-chain locker: **Creator 70% · attention beneficiaries 10% · Tegridy 15% · Doppler 5%** (`DEFAULT_FEE_CONSTITUTION`, bps summing to 10,000). Fixed at creation and published in the Fact Sheet. Where the Tegridy 15% *lands* depends on the pair — see below. |
 
 Where that 15% lands depends on the pair, and the reason is worth stating because it drove a
@@ -451,16 +452,16 @@ And it now reads **which holders are contracts**, via `eth_getCode`. The exclusi
 
 | Surface | Where | What it tells you |
 |---|---|---|
-| **Trust hub** | [/trust](https://memetic.fun/trust) | The index for the suite — a deliberately thin page that owns no detection logic, so the tools below are discoverable instead of buried in a submenu. |
-| **Token scanner** | [/scan](https://memetic.fun/scan) | Paste any ETH or Solana token → holder-distribution report with a three-band risk verdict and a separate data-confidence flag. |
-| **Wallet exposure** | [/exposure](https://memetic.fun/exposure) | The scanner pointed inward — how concentrated the tokens you hold are. Reads a curated token set plus any address you paste; it does not enumerate every token in your wallet. Position sizes are exact on-chain reads; a token whose holder distribution can't be read is marked *not measured*, never scored. |
-| **Deployer reputation** | [/deployer](https://memetic.fun/deployer) | A deployer address's launch track record, shareable via `?address=` links. Shows "unobserved" when there is no history — it never invents one. |
-| **Launch simulator** | [/launch-simulator](https://memetic.fun/launch-simulator) | Preview the distribution band + fact-sheet tier your token would earn *before* you launch it. |
-| **Launch afterlife** | [/launch](https://memetic.fun/launch) | What actually happened to tokens launched through the launcher — outcome tracking above the launch explorer. |
+| **Trust hub** | [/trust](https://memetics.finance/trust) | The index for the suite — a deliberately thin page that owns no detection logic, so the tools below are discoverable instead of buried in a submenu. |
+| **Token scanner** | [/scan](https://memetics.finance/scan) | Paste any ETH or Solana token → holder-distribution report with a three-band risk verdict and a separate data-confidence flag. |
+| **Wallet exposure** | [/exposure](https://memetics.finance/exposure) | The scanner pointed inward — how concentrated the tokens you hold are. Reads a curated token set plus any address you paste; it does not enumerate every token in your wallet. Position sizes are exact on-chain reads; a token whose holder distribution can't be read is marked *not measured*, never scored. |
+| **Deployer reputation** | [/deployer](https://memetics.finance/deployer) | A deployer address's launch track record, shareable via `?address=` links. Shows "unobserved" when there is no history — it never invents one. |
+| **Launch simulator** | [/launch-simulator](https://memetics.finance/launch-simulator) | Preview the distribution band + fact-sheet tier your token would earn *before* you launch it. |
+| **Launch afterlife** | [/launch](https://memetics.finance/launch) | What actually happened to tokens launched through the launcher — outcome tracking above the launch explorer. |
 | **Token record** | `/launch/:token` | The permanent per-launch dossier: provenance from `Airlock.getAssetData`, resolved Fact Sheet, EAS attestation, migration stream. See [Token launcher](#token-launcher). |
 | **NFT market integrity** | Tradermigos → Integrity tab | Wash-trade, coordinated-cluster, and fake-floor detection over OpenSea + on-chain data (recent-window scoped; gaps disclosed). |
 
-The same 2026-07-22 wave made **limit orders** live on the Trade page ([/swap](https://memetic.fun/swap)): gasless, MEV-protected orders placed through **CoW Protocol** solvers — no keeper infrastructure, orders fill at your price or better.
+The same 2026-07-22 wave made **limit orders** live on the Trade page ([/swap](https://memetics.finance/swap)): gasless, MEV-protected orders placed through **CoW Protocol** solvers — no keeper infrastructure, orders fill at your price or better.
 
 ---
 
@@ -475,13 +476,18 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
   cancel returns unspent — plus a price chart, a priority/speed control, USD-denominated
   input, remembered pairs and real receipts. Pure fee-capture; we custody no liquidity.
   Frontend: [`SolanaSwapPage.tsx`](frontend/src/pages/SolanaSwapPage.tsx).
-- **Wallets.** Phantom is in both the EVM and Solana modals (vendored, because importing
-  RainbowKit's `/wallets` barrel fails the **production** build against wagmi 3.7.6 —
-  `portoWallet` and `geminiWallet` import named exports that no longer exist). **Trust is on
-  the EVM side only, deliberately:** its Solana adapter declares
-  `supportedTransactionVersions = null`, i.e. legacy-only, so it would connect happily and
-  then throw on every versioned swap. Phantom's EVM entry cannot work in mobile Safari at
-  all; the app states that rather than papering over it.
+- **Wallets.** Phantom and Trust are both in the EVM and Solana modals, and both are
+  vendored — importing RainbowKit's `/wallets` barrel fails the **production** build against
+  wagmi 3.7.6 (`portoWallet` and `geminiWallet` import named exports that no longer exist),
+  and on the Solana side `@solana/wallet-adapter-trust` is stale in a way that matters.
+  **Trust was EVM-only until 2026-09-15** on the grounds that its packaged Solana adapter
+  declares `supportedTransactionVersions = null` — legacy-only — so it would connect happily
+  and then throw on every versioned write. That reading of the *package* was right and still
+  is; it was the wrong reading of the *wallet*. Trust's own Wallet Standard implementation
+  declares `['legacy', 0]` and `wallet-core` has signed v0 since 2023, so the venue vendors
+  an adapter with the honest declaration instead (`frontend/src/lib/solanaWallets.ts`) rather
+  than adopting a package whose metadata is stale. Phantom's EVM entry cannot work in mobile
+  Safari at all; the app states that rather than papering over it.
 - **Bungalow lighthouses (live).** Five Streamflow staking pools — BAYLA (2026-08-26, the
   first, and Token-2022 rather than legacy SPL), then BOBO, SOY, BRAINLET and RIZZ
   (2026-08-30). The whole pool lifecycle was rehearsed on **devnet with real transactions**
@@ -529,13 +535,13 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
 
 ## Tokenomics in one minute
 
-- **Total supply:** 1,000,000,000 TOWELI. **Fixed** — `mint(address,uint256)` is not in the live bytecode. `burn(uint256)` and `burnFrom(address,uint256)` **are**: any holder can destroy their own TOWELI, so supply is a ceiling, not a constant. The protocol itself burns nothing. See [TOKENOMICS.md](TOKENOMICS.md) for the on-chain capability read.
+- **Total supply:** 1,000,000,000 TOWELI. **Fixed** — `mint(address,uint256)` is not in the live bytecode. `burn(uint256)` and `burnFrom(address,uint256)` **are**: any holder can destroy their own TOWELI, so supply is a ceiling, not a constant. The protocol itself burns nothing. See [TOKENOMICS.md](docs/TOKENOMICS.md) for the on-chain capability read.
 - **Engagement season:** Season 3 (2026-06-07 → 2026-09-05) — an engagement/leaderboard window. LP-farm reward rate, total funded, and period-end are read **live from the contract**; nothing here renders a number the chain can't back.
 - **Revenue flow (wiring, not history):** the 0.5% smart-front-door fee → `SwapFeeRouter` (collected in ETH) → `ReferralSplitter` (**20% off the top, unremovable**; the rest parked as `callerCredit` awaiting a permissionless `recoverCallerCredit()`) → back to `SwapFeeRouter` → `RevenueDistributor` → stakers claim their share **per epoch** (each epoch needs ≥ 1 ETH pooled and ≥ 4h since the last — it's discrete, not a continuous drip). **Zero epochs have opened.** The native pair's separate 0.3% grows the pool for LPs.
 - **Penalty flow:** 25% early-exit penalty → the **treasury** (`safeTransfer(treasury, penalty)`, emitting `PenaltySentToTreasury`). The penalty-recycle split was removed for EIP-170 size; it does *not* redistribute to stakers.
 - **Treasury take:** the native pair's ⅙ slice of its 0.3% accrues to `feeTo` as **LP tokens** (a treasury asset — *not* staker ETH); the front-door's 0.5% is the leg pointed at stakers, and `stakerShareBps` (default `10000`, floor `5000`) governs the share of what survives the referral split, not of the fee. Lending / launchpad / NFT-pool / premium fees join the same staker stream once those surfaces un-gate — none of them do today.
 
-Full detail: **[TOKENOMICS.md](TOKENOMICS.md)** · **[REVENUE_ANALYSIS.md](REVENUE_ANALYSIS.md)** (honest fee-lever benchmarks).
+Full detail: **[TOKENOMICS.md](docs/TOKENOMICS.md)** · **[REVENUE_ANALYSIS.md](docs/archive/REVENUE_ANALYSIS.md)** (honest fee-lever benchmarks).
 
 ---
 
@@ -663,15 +669,17 @@ tegriddy-farms/
 ├── indexer-solana/      The Solana leg, beside Ponder against the same Postgres
 ├── solana/tegridy-amm/  Raydium CPMM fork + tegridy-launch curve — deployed 2026-08-08,
 │                        CLOSED 2026-08-13; program ids permanently spent. See TEGRIDY_FORK.md
-├── docs/                Architecture, deploy runbooks, island plans, audit ledgers
-└── *.md                 AUDITS, FIX_STATUS, TOKENOMICS, ROADMAP, SECURITY, CHANGELOG, …
+├── docs/                Live docs (FAQ, CONTRACTS, TOKENOMICS, QUICKSTART, ROADMAP, AUDITS,
+│                        HALL_OF_FAME), architecture, runbooks and island plans; audits/ holds
+│                        the audit passes and archive/ the old plans and reports
+└── *.md                 README, CLAUDE, NOTES, CHANGELOG, SECURITY, CONTRIBUTING, CODE_OF_CONDUCT, NOTICE
 ```
 
 ### Deeper docs
 | Doc | For |
 |---|---|
 | [docs/GOLIVE_HANDOFF.md](docs/GOLIVE_HANDOFF.md) | **Current** ownership-handoff state + tx data |
-| [RELAUNCH_RUNBOOK.md](RELAUNCH_RUNBOOK.md) | Relaunch deploy sequence |
+| [RELAUNCH_RUNBOOK.md](docs/archive/RELAUNCH_RUNBOOK.md) | Relaunch deploy sequence |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the contracts fit together |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Mainnet deploy runbook + rollback |
 | [docs/GOVERNANCE.md](docs/GOVERNANCE.md) | Admin keys, timelock, multisig plan |
@@ -698,8 +706,8 @@ Tegridy Farms treats its own custom code as a known-risk attack surface: the sta
   - **2026-08-28** — a frontend audit ([#340](https://github.com/fomotsar-commits/tegridy-farms/pull/340)): 53 verified, 46 fixed.
   - **2026-08-30** — a 45-agent island gap scan, which caught a shipped EIP-55 defect within the hour of it landing.
   - **2026-09-03** — a four-lane review sweep (53 findings survived verification; 50 fixed, 3 declined with reasons) and an external field review of the live site (**20 findings, 9 of them misdiagnosed**).
-  Findings that can be expressed as a regression test have one, and a test only counts once it has been shown to **fail on the pre-fix code**. Historical artifacts are indexed in [`AUDITS.md`](AUDITS.md) and [`FIX_STATUS.md`](FIX_STATUS.md).
-- **One review to an external methodology** (Spartan, [`SPARTAN_AUDIT.txt`](SPARTAN_AUDIT.txt)) has been done. Its own Appendix C says who wrote it: "The reviewer is an AI assistant (Claude, Anthropic) acting at the direction of the repository owner." The *methodology* is external; the *reviewer* was not. It is not a third-party audit and this README does not claim it as one.
+  Findings that can be expressed as a regression test have one, and a test only counts once it has been shown to **fail on the pre-fix code**. Historical artifacts are indexed in [`AUDITS.md`](docs/AUDITS.md) and [`FIX_STATUS.md`](docs/archive/FIX_STATUS.md).
+- **One review to an external methodology** (Spartan, [`SPARTAN_AUDIT.txt`](docs/archive/SPARTAN_AUDIT.txt)) has been done. Its own Appendix C says who wrote it: "The reviewer is an AI assistant (Claude, Anthropic) acting at the direction of the repository owner." The *methodology* is external; the *reviewer* was not. It is not a third-party audit and this README does not claim it as one.
 - **No professional-firm audit yet.** A paid review (OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena) is on the roadmap and **not yet scheduled**. Gated surfaces each get a dedicated audit wave before they deploy.
 - **Responsible disclosure:** see [`SECURITY.md`](SECURITY.md). Please don't file security reports as public issues.
 
@@ -848,7 +856,7 @@ Live directory in the app: [memetics.finance/contracts](https://memetics.finance
 
 ## Roadmap & status
 
-Full roadmap in [`ROADMAP.md`](ROADMAP.md) · shipping cadence in [`CHANGELOG.md`](CHANGELOG.md) ·
+Full roadmap in [`ROADMAP.md`](docs/ROADMAP.md) · shipping cadence in [`CHANGELOG.md`](CHANGELOG.md) ·
 the single operator entry point is [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md).
 
 **Near-term go-live gates:**

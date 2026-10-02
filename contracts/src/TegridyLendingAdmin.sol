@@ -74,6 +74,9 @@ contract TegridyLendingAdmin is OwnableNoRenounce, TimelockAdmin {
     error MinAprTooHigh();
     error ActiveLoansPresent(address collateral, uint256 count);
     error RemovalCancelLimitReached();
+    /// @dev AUDIT FIX [T17-EOA-TYPE-FILTER]: same selector name and shape as the sibling
+    ///      declarations on TegridyLending / TegridyStaking / MemeBountyBoard.
+    error NotAContract();
     /// @dev AUDIT FIX (M-26 / F-33-2): proposeSweepDonatedToweli `_to` must
     ///      equal the LIVE treasury at propose time. Mirrors the apply-time
     ///      revert on TegridyLending.applySweepDonatedToweli; lifting the
@@ -402,8 +405,25 @@ contract TegridyLendingAdmin is OwnableNoRenounce, TimelockAdmin {
     }
 
     // ─── Accepted collateral whitelist ────────────────────────────────
+    /// @dev AUDIT FIX [T17-EOA-TYPE-FILTER]: propose-time half of the collateral type filter,
+    ///      so a doomed proposal fails fast instead of burning the CAP_CHANGE_TIMELOCK wait.
+    ///      Body copied verbatim from `MemeBountyBoard.setRestakingContract` (MBB-WIRE-01);
+    ///      length-23 is the `0xef0100` + 20-byte EIP-7702 delegation pointer.
+    ///
+    ///      Held INLINE rather than behind a `_requireContract` helper: this is the only call
+    ///      site in this contract, and the optimizer re-inlines a single-call-site private
+    ///      function anyway, so a helper would be source indirection for zero bytes. The
+    ///      execute-time recheck lives on the lending host in
+    ///      `applyAcceptedCollateralChange`, where four call sites DO make the helper pay.
+    ///
+    ///      GATED ON `_add` — a REMOVAL proposal must never be blocked by the code check, or
+    ///      an entry that lost its code becomes unremovable.
     function proposeAcceptedCollateral(address _collateral, bool _add) external onlyOwner {
         if (_collateral == address(0)) revert ZeroAddress();
+        if (_add) {
+            uint256 codeLen = _collateral.code.length;
+            if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        }
         pendingAcceptedCollateral = _collateral;
         pendingAcceptedCollateralAdd = _add;
         _propose(ACCEPTED_COLLATERAL_CHANGE, CAP_CHANGE_TIMELOCK);

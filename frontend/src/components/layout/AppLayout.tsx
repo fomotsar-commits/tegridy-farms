@@ -1,4 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom';
+import { ToweliRoomStrip } from './ToweliRoomStrip';
+import { isToweliRoomPage } from '../../lib/routeVoice';
 import { useAccount, useSwitchChain } from 'wagmi';
 import { trackWalletConnect } from '../../lib/analytics';
 import { mainnet } from 'wagmi/chains';
@@ -11,7 +13,6 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
 
 import { isChainConfigured, unconfiguredChainLabel } from '../../lib/chains';
-import { AppLoader } from '../loader';
 import { PriceProvider } from '../../contexts/PriceContext';
 import { ConfettiProvider } from '../Confetti';
 import { TransactionReceiptProvider } from '../TransactionReceipt';
@@ -41,21 +42,22 @@ import { PageTransition } from '../motion';
 import { OnboardingModal } from '../ui/OnboardingModal';
 import { BungalowPicker } from '../BungalowPicker';
 import { BungalowOnboarding } from '../bungalow/BungalowOnboarding';
-import { MuseBubble } from '../bungalow/MuseBubble';
-import { BUNGALOWS, hasChosenBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
-import { ConsentBanner } from '../ui/ConsentBanner';
+import { BUNGALOWS, getBungalowIdentity, OPEN_BUNGALOWS_EVENT, OPEN_BUNGALOW_ABOUT_EVENT } from '../../lib/bungalows';
 import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
 import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
+import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 
 const NAV_ORDER = [
-  '/', '/dashboard', '/farm', '/swap', '/nft-finance', '/gallery', '/tokenomics',
+  '/', '/dashboard', '/earn', '/swap', '/nft-finance', '/gallery', '/tokenomics',
   '/lore', '/leaderboard', '/community', '/premium', '/history', '/admin',
 ];
 
 function getGlitchConfig(from: string, to: string): GlitchConfig {
-  const fromIdx = NAV_ORDER.indexOf(from);
-  const toIdx = NAV_ORDER.indexOf(to);
+  // By first segment, so one pool (/earn/bayla) sits where Earn does.
+  const section = (path: string) => '/' + (path.split('/')[1] ?? '');
+  const fromIdx = NAV_ORDER.indexOf(section(from));
+  const toIdx = NAV_ORDER.indexOf(section(to));
   const direction: GlitchConfig['direction'] = toIdx > fromIdx ? 'forward' : 'backward';
   const mobile = typeof window !== 'undefined' && window.innerWidth < 768;
   if (from === '/' || to === '/') {
@@ -93,6 +95,53 @@ function RouteGlitch() {
 
 export function AppLayout() {
   const location = useLocation();
+  // Everything below that reads the skin re-renders when a door switches it.
+  useActiveBungalowId();
+
+  /* WAVE SEVEN, answer eight, ruling 1: THE BAND IS NEVER COVERED.
+   *
+   * The band is in flow, first inside main, and element E forbids it from
+   * being sticky or fixed. RouteTabs is `position: fixed` at the header's
+   * 56px, so on the six room paths the tab bar painted straight over it: the
+   * island read "You are in the TOWE" with the tabs covering the rest, and the
+   * band's own "TOWELI room" link sat under the strip's pointer-events column,
+   * unclickable as well as unreadable.
+   *
+   * So the tabs move down instead, by however much of the band is still below
+   * the header. MEASURED, not assumed: the band is `flex-wrap`, one line at
+   * 1280 and two at 390, and it scrolls away with the page, so the offset
+   * shrinks back to zero as it goes. The var defaults to 0px, which is why no
+   * route without a band moves at all.
+   */
+  const contentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const host = contentRef.current;
+    if (!host) return;
+    const band = document.querySelector<HTMLElement>('[data-room="toweli"]');
+    if (!band) {
+      host.style.removeProperty('--room-band-h');
+      return;
+    }
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      host.style.setProperty('--room-band-h', `${Math.max(0, Math.round(band.getBoundingClientRect().bottom - 56))}px`);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    measure();
+    const ro = new ResizeObserver(schedule);
+    ro.observe(band);
+    window.addEventListener('scroll', schedule, { passive: true });
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      ro.disconnect();
+      window.removeEventListener('scroll', schedule);
+      host.style.removeProperty('--room-band-h');
+    };
+  }, [location.pathname]);
+
 
   // True when the current path IS a settled (not-live) resident's door — the
   // landing page speaks for that token, so every other voice stays outside.
@@ -119,28 +168,17 @@ export function AppLayout() {
     if (isConnected && connector?.name) trackWalletConnect(connector.name);
   }, [isConnected, connector?.name]);
 
-  // F7: gate the first-visit OnboardingModal on splash completion. Otherwise the
-  // modal mounts open UNDER the splash, its document-level Escape handler fires
-  // on the same ESC the user presses to skip the splash (silently marking
-  // onboarding "seen"), and its focus trap steals focus while the splash still
-  // covers it. AppLoader calls onComplete exactly once — whether the splash
-  // plays or is skipped (repeat visit / reduced-motion) — so this flips true the
-  // moment the splash is gone.
-  const [splashDone, setSplashDone] = useState(false);
-
-  // Jungle Bay bungalow picker — the screen after the intro. `freshSplash`
-  // captures whether this document load actually played (or would have
-  // played) the splash: the state initializer runs before AppLoader mounts
-  // and sets `tf_loaded`, so a pre-seeded session (returning tab, e2e
-  // fixtures) reads true here and never auto-opens the picker. It auto-opens
-  // exactly once — first splash with no persisted choice — and any dismissal
-  // persists a choice (see BungalowPicker), so it never nags.
-  const [freshSplash] = useState(() => {
-    try { return !sessionStorage.getItem('tf_loaded'); } catch { return false; }
-  });
-  const [bungalowChosenAtMount] = useState(() => hasChosenBungalow());
-  const [pickerDismissed, setPickerDismissed] = useState(false);
-  // Footer's "Bungalows" button (and anything else) can reopen it any time.
+  // ANSWER TEN, RULING 1: THE VENUE OPENS STRAIGHT TO THE PAGE. The layout used to
+  // wrap everything in the arrival curtain, and three things rode on it: a
+  // `splashDone` flag that held the welcomes back until the curtain lifted, an
+  // arrival record (`tf_loaded`) that decided whether the curtain played, and a
+  // picker leg that auto-opened on a first TOWELI visit once the curtain was
+  // gone. With no curtain there is nothing to wait for and nothing to record, so
+  // all three are gone rather than left dangling: the welcomes render from the
+  // first commit, and the picker opens only when someone asks for it. The film
+  // itself kept its home on /island, behind its own tap.
+  //
+  // The bungalow picker. Footer's "Bungalows" button (and anything else) opens it.
   const [pickerRequested, setPickerRequested] = useState(false);
   useEffect(() => {
     const openPicker = () => setPickerRequested(true);
@@ -154,21 +192,23 @@ export function AppLayout() {
     window.addEventListener(OPEN_VENUE_WELCOME_EVENT, openWelcome);
     return () => window.removeEventListener(OPEN_VENUE_WELCOME_EVENT, openWelcome);
   }, []);
-  // Derived, not set in an effect (react-hooks/set-state-in-effect): auto-open
-  // exactly once — first real splash, no persisted choice, not yet dismissed.
-  const pickerOpen = pickerRequested
-    // ARRIVAL IDENTITY 2026-08-31: the VENUE arrival never auto-opens the picker.
-    // The venue home carries the hall of doors in the page itself now, so the
-    // first impression is intro → hero → hall, not a modal wall. The picker
-    // stays one click away (hero CTA, footer); inside a bungalow the classic
-    // flow is untouched (a walked door has already persisted its choice, so the
-    // auto-open leg was only ever reachable on venue arrivals anyway).
-    || (isToweliVoice() && splashDone && freshSplash && !bungalowChosenAtMount && !pickerDismissed);
-  const closePicker = () => { setPickerDismissed(true); setPickerRequested(false); };
+
+  // WAVE SEVEN, element E: the room's welcome, on request only. Same shape as
+  // the venue's above, because it is the same rule — a modal exists behind a tap.
+  const [aboutRequested, setAboutRequested] = useState(false);
+  useEffect(() => {
+    const openAbout = () => setAboutRequested(true);
+    window.addEventListener(OPEN_BUNGALOW_ABOUT_EVENT, openAbout);
+    return () => window.removeEventListener(OPEN_BUNGALOW_ABOUT_EVENT, openAbout);
+  }, []);
+  // BY TAP ONLY, EVERYWHERE (element E, and answer ten ruling 1(c)). The auto-open
+  // leg used the curtain as its only delay; with no curtain it would have opened
+  // over a cold TOWELI page at mount.
+  const pickerOpen = pickerRequested;
+  const closePicker = () => setPickerRequested(false);
   // Token-first bungalow (Bayla): mute the Towelie personality surfaces —
   // the assistant bubble and the TOWELI-scripted onboarding are the wrong
-  // voice there. Both return untouched in the Toweli default. Stable per
-  // document (bungalow switches reload).
+  // voice there. Both return untouched in the Toweli default.
   const bungalowIdentity = getBungalowIdentity();
 
   // F44: announce route changes to screen readers. SPA navigations are otherwise
@@ -182,7 +222,6 @@ export function AppLayout() {
   }, [location.pathname]);
 
   return (
-    <AppLoader onComplete={() => setSplashDone(true)}>
     <PriceProvider>
     <ConfettiProvider>
     <TransactionReceiptProvider>
@@ -209,6 +248,7 @@ export function AppLayout() {
           (calc(3.5rem + env(safe-area-inset-top))) so nothing tucks under the
           fixed header on a notched standalone launch. */}
       <div
+        ref={contentRef}
         className="min-h-screen relative z-10 pb-20 min-[800px]:pb-0 safe-area-content-bottom"
         style={{ paddingTop: 'calc(3.5rem + env(safe-area-inset-top, 0px))' }}
       >
@@ -246,6 +286,9 @@ export function AppLayout() {
             without it some browsers scroll but leave focus in the nav, sending
             the next Tab back to the header instead of into the content. */}
         <main id="main-content" tabIndex={-1}>
+          {/* WAVE SEVEN, row Q: TOWELI's protocol pages carry the room's band,
+              in flow and first in main (ToweliRoomStrip says why). */}
+          {isToweliRoomPage(location.pathname) && <ToweliRoomStrip />}
           <PageTransition pathname={location.pathname}>
             <ErrorBoundary resetKeys={[location.pathname]}>
               <Outlet />
@@ -269,32 +312,47 @@ export function AppLayout() {
       {/* ARRIVAL IDENTITY 2026-08-27: Towelie floats only inside his own
           bungalow. Identity bungalows keep the muse; the venue default
           keeps the arrival clean. */}
-      {!onSettledDoorstep && (bungalowIdentity ? <MuseBubble bungalow={bungalowIdentity} /> : isToweliVoice() ? (
+      {/* WAVE SEVEN, element E: the MuseBubble mount is GONE from every room.
+          It floated bottom-right over the page on arrival, unasked, which is
+          the whole class this element removes. Nothing is lost: the muse LINE
+          already renders in the room's own hero pill (BungalowHero:89-97),
+          which is where a visitor reads it without a thing appearing over
+          their content. Towelie keeps his assistant in his own farm. */}
+      {!onSettledDoorstep && !bungalowIdentity && isToweliVoice() && (
         <Suspense fallback={null}>
           <TowelieAssistant />
         </Suspense>
-      ) : null)}
+      )}
       <BungalowPicker open={pickerOpen} onClose={closePicker} />
-      {/* F7: only after the splash finishes (see splashDone above), and held
-          back while the bungalow picker is up so a first visit sees intro →
-          bungalow choice → onboarding, not all three stacked. In a
-          token-first bungalow the TOWELI-scripted tour is replaced by the
-          bungalow's own three-step welcome.
+      {/* Held back while the bungalow picker is up, so the two are never
+          stacked. In a token-first bungalow the TOWELI-scripted tour is
+          replaced by the bungalow's own three-step welcome.
           ARRIVAL FLOW 2026-08-31: the venue arrival auto-opens nothing — the
           intro hands straight to the hero and the hall of doors. The venue's
           five-step welcome renders in INVITED mode (opens only from the
           hero's tour pill via OPEN_VENUE_WELCOME_EVENT). */}
-      {splashDone && !pickerOpen && !onSettledDoorstep && (
+      {/* WAVE SEVEN, element E: a room's welcome is INVITED now, like the
+          venue's. It opened itself on the first visit to every bungalow; it
+          waits for the room's "About this bungalow" link instead. The copy is
+          kept, not cut — the lore card and this modal both still say it. */}
+      {/* ANSWER TEN, RULING 1: no welcome opens unasked, on any route, the TOWELI
+          room included. The TOWELI-voice welcome was the last one that opened
+          itself (it waited only for the curtain); it is invited now like the
+          venue's, from the "Take the tour" link on the TOWELI home, and still
+          carries TOWELI's own script. */}
+      {!pickerOpen && !onSettledDoorstep && (
         bungalowIdentity
-          ? <BungalowOnboarding bungalow={bungalowIdentity} />
-          : isToweliVoice()
-            ? <OnboardingModal />
-            : <OnboardingModal invited invitedOpen={welcomeRequested} onInvitedClose={() => setWelcomeRequested(false)} />
+          ? (
+            <BungalowOnboarding
+              bungalow={bungalowIdentity}
+              invitedOpen={aboutRequested}
+              onInvitedClose={() => setAboutRequested(false)}
+            />
+          )
+          : <OnboardingModal invited invitedOpen={welcomeRequested} onInvitedClose={() => setWelcomeRequested(false)} />
       )}
-      {/* R046 / H-1: GDPR/ePrivacy consent gate. Renders only on first visit
-          (consent === 'pending'); analytics + error reporting are blocked
-          until the user clicks Accept or Decline. */}
-      <ConsentBanner />
+      {/* R046 / H-1: the consent ask is a footer row now (ConsentRow, wave
+          seven row S). Telemetry stays blocked until it is answered. */}
       {/* WALLET-02: advisory notice when a wallet connection stalls. Not a
           <Toaster> toast on purpose — RainbowKit pins its modal at
           z-index 2147483646, so anything lower renders behind the very
@@ -320,6 +378,5 @@ export function AppLayout() {
     </TransactionReceiptProvider>
     </ConfettiProvider>
     </PriceProvider>
-    </AppLoader>
   );
 }

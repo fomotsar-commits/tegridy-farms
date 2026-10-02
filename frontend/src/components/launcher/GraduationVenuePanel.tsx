@@ -16,6 +16,7 @@ import { useGraduationFeeLine } from '../../hooks/useGraduationFeeLine';
 import {
   resolveSolanaGraduationVenue,
   plannedVenueMigrator,
+  VENUE_HOOK_NAME,
   feeLineStatement,
   claimAuthorityStatement,
   feePercent,
@@ -57,11 +58,36 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
+/**
+ * WAVE SEVEN, answer eight, ruling 5: A CONTRACT'S NAME IS AN IDENTIFIER.
+ *
+ * `TegridyV4Hook` is what the artifact is called on chain. Renaming it in copy
+ * would misname a real thing an operator has to go and find, and leaving it in
+ * prose billed the venue for speaking the retired brand - the voice census
+ * counted it on /launch and was right to. So it renders as what it is: an
+ * identifier, in code font, the same class as /contracts.
+ *
+ * The census skips an IDENTIFIER-SHAPED <code> by structure. Shaped, not
+ * merely tagged: a <code> holding a sentence still counts, so this is not a
+ * way to launder prose out of the count.
+ */
+function VenueText({ text }: { text: string }) {
+  const at = text.indexOf(VENUE_HOOK_NAME);
+  if (at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <code className="font-mono">{VENUE_HOOK_NAME}</code>
+      {text.slice(at + VENUE_HOOK_NAME.length)}
+    </>
+  );
+}
+
 function RailBlock({ plan }: { plan: GraduationVenuePlan }) {
   const lockLabel = formatLockDuration(plan.lpLock.durationSeconds);
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-2">
-      <Row label="Venue">{plan.pool.venue}</Row>
+      <Row label="Venue"><VenueText text={plan.pool.venue} /></Row>
       <Row label="Migrator">
         {plan.migrator.address ? shortenAddress(plan.migrator.address) : '—'} · {plan.migrator.label}
       </Row>
@@ -247,7 +273,7 @@ export function GraduationVenuePanel() {
           {/* Explicitly a target, not a roadmap promise: the address below is unset and the
               list is the operator's, in order. */}
           <p className="text-xs text-white/60 mb-2">
-            Target venue: {planned.venue}. Migrator address is currently unset
+            Target venue: <VenueText text={planned.venue} />. Migrator address is currently unset
             ({shortenAddress(planned.address)}), which is why the external path above is what runs.
           </p>
           <ol className="list-decimal ml-5 space-y-1 text-xs text-white/65">

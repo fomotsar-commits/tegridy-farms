@@ -89,10 +89,11 @@ export default defineConfig({
     // src/lib/pwa/serviceWorker.test.ts; it is the network layer under test here
     // that must not be bypassed.
     serviceWorkers: 'block',
-    // AppLoader auto-skips when the browser advertises `prefers-reduced-motion:
-    // reduce` — without this, every test sits behind a fullscreen canvas intro
-    // for the entire duration. See frontend/src/components/loader/AppLoader.tsx
-    // (`shouldSkipAtMount`).
+    // Reduced motion for every spec: framer's MotionConfig then settles
+    // entrances immediately, which a11y-routes.spec.ts depends on. (It used to
+    // be here to make the arrival curtain skip itself; the curtain is gone,
+    // answer ten ruling 1, and e2e/arrival.spec.ts opts back out on purpose to
+    // prove it stays gone.)
     //
     // This MUST live under `contextOptions`, not at the top level of `use`.
     // Playwright has no top-level `use.reducedMotion` fixture — the emulation

@@ -6,6 +6,7 @@ import {
   GOVERNANCE_COPY,
   COMMUNITY_TAB_INTRO,
   FAQ_INTRO,
+  VENUE_FAQ_INTRO,
   TOWELIE_QUOTES,
   ERROR_COPY,
   POOL_FLAVOR,
@@ -144,6 +145,16 @@ describe('FAQ_INTRO', () => {
     // word does not.
     expect(FAQ_INTRO.subheading).toMatch(/held time/i);
     expect(FAQ_INTRO.subheading).not.toMatch(/tegridy/i);
+  });
+});
+
+describe('VENUE_FAQ_INTRO', () => {
+  it('opens /faq as the venue: an FAQ heading and no resident brand', () => {
+    // smoke.spec.ts holds the /faq h1 to /FAQ|Frequently Asked Questions/i.
+    expect(VENUE_FAQ_INTRO.headline).toMatch(/FAQ|Frequently Asked Questions/i);
+    for (const line of [VENUE_FAQ_INTRO.headline, VENUE_FAQ_INTRO.subheading]) {
+      expect(line).not.toMatch(/tegridy|TOWELI/i);
+    }
   });
 });
 

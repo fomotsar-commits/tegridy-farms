@@ -9,7 +9,7 @@ import {
 //
 // The status used to come from `Date.now()`: inside the declared dates the page
 // said "Counting now", which was true about the calendar and false about
-// everything else — no indexer is hosted, so nothing was counting. A clock knows
+// everything else — no indexer was hosted then, so nothing was counting. A clock knows
 // what day it is and nothing whatsoever about whether a season is being read.
 //
 // So the status line is SOURCE-CONDITIONAL. `syncedAt` is the head timestamp a

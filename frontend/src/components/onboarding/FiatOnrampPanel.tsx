@@ -157,7 +157,7 @@ export function FiatOnrampPanel({ walletAddress, chain = 'ethereum' }: FiatOnram
 
       {state.kind === 'unavailable' && (
         <p className="text-amber-300/80 text-[12px]" role="status">
-          {state.reason} Card purchases are unavailable right now — this is an outage, not
+          {state.reason} Card purchases are unavailable right now. That is an outage, not
           a price or a limit on your account.
         </p>
       )}

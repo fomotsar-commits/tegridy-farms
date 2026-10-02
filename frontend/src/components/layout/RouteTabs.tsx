@@ -1,6 +1,8 @@
+import { useLayoutEffect, useRef } from 'react';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import type { NavItem } from '../../lib/navConfig';
 import { tabDomId } from './routeTabId';
+import { revealScrollLeft } from './tabStripScroll';
 
 /**
  * The sticky pill tab strip shared by every route-navigating tabbed host.
@@ -54,17 +56,60 @@ export interface RouteTabsProps {
   onSelect: (to: string) => void;
 }
 
+/**
+ * A tab's label. With a `compactTabLabel`, phones and iPads see that instead,
+ * aria-hidden, while the full label stays the accessible name (sr-only there;
+ * the tab is `relative` so the sr-only box stays inside it).
+ */
+function TabLabel({ item }: { item: NavItem }) {
+  const label = item.tabLabel ?? item.label;
+  if (!item.compactTabLabel) return <span>{label}</span>;
+  return (
+    <>
+      <span className="handheld:sr-only">{label}</span>
+      <span aria-hidden="true" className="hidden handheld:inline">
+        {item.compactTabLabel}
+      </span>
+    </>
+  );
+}
+
 export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: RouteTabsProps) {
   const keys = items.map((i) => i.to);
   const tabKeys = useTabListKeys(keys, active, onSelect);
+  const listRef = useRef<HTMLDivElement>(null);
+  const keyList = keys.join(' ');
+
+  /* A strip that scrolls shows the selected tab whole: on landing, on a new
+     selection, and when the strip or a tab resizes (web fonts, rotation). It
+     moves only the strip's own scrollLeft, before paint, never the page. */
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const reveal = () => {
+      const tab = list.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      if (!tab) return;
+      const box = tab.getBoundingClientRect();
+      const start = box.left - list.getBoundingClientRect().left - list.clientLeft + list.scrollLeft;
+      const next = revealScrollLeft({ start, end: start + box.width }, list);
+      if (Math.abs(next - list.scrollLeft) > 0.5) list.scrollLeft = next;
+    };
+    reveal();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(reveal);
+    ro.observe(list);
+    for (const tab of list.children) ro.observe(tab);
+    return () => ro.disconnect();
+  }, [active, keyList]);
 
   return (
     <div
       className="fixed left-0 right-0 z-30 px-4 md:px-6 pointer-events-none"
-      style={{ top: 56 }}
+      style={{ top: 'calc(56px + var(--room-band-h, 0px))' }}
     >
       <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
         <div
+          ref={listRef}
           role="tablist"
           aria-label={ariaLabel}
           onKeyDown={tabKeys.onKeyDown}
@@ -92,9 +137,12 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
               tabIndex={tabKeys.tabIndex(item.to)}
               ref={tabKeys.ref(item.to)}
               onClick={() => onSelect(item.to)}
-              /* F402: min-w + the row's overflow-x-auto lets long strips scroll
-                 on narrow phones instead of clipping, while flex-1 keeps the
-                 equal-width look once there is room. */
+              /* WIDTH: each tab starts at 64px (the floor) and takes an equal
+                 share of spare room, wider only where its label needs it. It
+                 never shrinks below label plus padding (min-w-max, shrink 0), so
+                 no label paints over the next tab; a strip too wide scrolls
+                 sideways instead. Padding only sets that minimum, and md:px-1
+                 keeps the 13.5px labels inside an iPad strip's equal share. */
               /* 44px ON TOUCH (A11Y-R07's floor), 40px on desktop. The three
                  hosts this markup was extracted from all shipped a flat 40px —
                  about 4px under the repo's own touch floor for the primary way
@@ -112,14 +160,14 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
                  40px. Measured live across nine hosts at 799px before the fix.
                  e2e/tab-target-size.spec.ts only ever swept 390px, which is why
                  nothing caught it. */
-              className="flex-1 min-w-[64px] px-2 md:px-3 py-2 min-h-[44px] min-[800px]:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
+              className="relative flex-[1_0_64px] min-w-max px-2 md:px-1 py-2 min-h-[44px] min-[800px]:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
               style={
                 active === item.to
                   ? { background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }
                   : undefined
               }
             >
-              <span>{item.tabLabel ?? item.label}</span>
+              <TabLabel item={item} />
               {item.soon && (
                 <span className="rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/30 text-[8.5px] font-semibold leading-none px-1 py-0.5 uppercase tracking-wide">
                   Soon

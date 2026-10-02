@@ -29,7 +29,13 @@ jobs:
         shell: bash
         run: |
           set -u
-          BASE="https://tegridyfarms.vercel.app"
+          # THE CANONICAL HOST, not the deploy alias. Until 2026-09-20 this probed
+          # https://tegridyfarms.vercel.app, which served the whole venue under a
+          # second name — the leak answer thirteen ruled on. That host now
+          # redirects (vercel.json), so probing it for 200 would fail by design;
+          # it moves into ALIASES below and is checked for a permanent redirect
+          # instead. The API probes follow the app to the canonical origin.
+          BASE="https://memetics.finance"
           FAILS=""
 
           probe() { # name url grep_pattern
@@ -59,24 +65,121 @@ jobs:
           # TLS, a DNS edit, a lapsed registration — and the alias would stay green
           # through all of it. memetics.finance was registered 2026-08-02 for one
           # year, so its expiry lands inside the plan window.
-          for host in "memetic.fun" "memetics.finance"; do
-            probe "$host app shell" "https://$host/" "/assets/"
+          #
+          # ONE CANONICAL HOST (frontend/src/lib/constants.ts SITE_URL). Only it may
+          # answer 200; memetic.fun is a redirect alias and this loop used to demand
+          # 200 from it too — the moment vercel.json started 301ing it, that probe
+          # would have paged every 15 minutes about a host behaving exactly as
+          # designed. The alias is still monitored, just against the right contract:
+          # it must REDIRECT, and it must land on the canonical host. That is the
+          # stronger check anyway — a 200 on the alias is now itself the outage,
+          # because it means the redirect silently stopped shipping.
+          CANONICAL="memetics.finance"
+          # tegridyfarms.vercel.app joined 2026-09-20 (answer thirteen, ruling 2):
+          # it was serving the entire venue under a second name, which the
+          # canonical-host law (#478) forbids. It is the project's own .vercel.app
+          # domain, so vercel.json's redirect governs it.
+          #
+          # tegridyfarms-three.vercel.app is deliberately NOT here, and the reason
+          # matters: it is a DIFFERENT Vercel project serving a stale build (its
+          # bundle hash differs from production's and it has no /llms.txt — that
+          # path SPA-falls-back to 200 text/html). This repo's vercel.json never
+          # executes for it, so vercel.json:119 has never fired and no edit here
+          # can make it redirect. Listing it would page every 30 minutes about
+          # something no commit can fix. It needs an operator action in the Vercel
+          # dashboard; until then llms.txt correctly omits it, because that rule's
+          # destination is not the canonical origin.
+          # memetic.fun and www.memetic.fun LEFT THIS LIST on 2026-09-20. They are
+          # not aliases of this venue any more: they serve the Memetics Lab from a
+          # DIFFERENT Vercel project, so this repo's vercel.json never executes for
+          # them and no edit here could make them redirect. Demanding one would page
+          # every 15 minutes about a host behaving exactly as designed, which is the
+          # same shape of mistake #478 made by demanding a literal 301.
+          #
+          # The law they used to enforce is enforced below instead, inverted. #478
+          # was never "the alias must redirect" - that was one mechanism for it. The
+          # law is that THIS VENUE ANSWERS UNDER ONE NAME, and a host we do not serve
+          # satisfies it as completely as a redirect did.
+          ALIASES="www.memetics.finance tegridyfarms.vercel.app"
 
-            # www -> apex must be a redirect, not a 200 and not a dead host. This
-            # rule lived ONLY in prod for a while, in no commit on any branch, so
-            # it is exactly the kind of thing that vanishes on the next deploy.
-            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://www.$host/" 2>/dev/null)" || code="curl-failed"
+          probe "$CANONICAL app shell" "https://$CANONICAL/" "/assets/"
+
+          # Each alias must answer with a PERMANENT redirect AND point at the
+          # canonical host. Checking only for "a 3xx" would pass a redirect loop or
+          # a redirect to anywhere at all — which is how a misrouted domain reads
+          # as healthy.
+          #
+          # 301 OR 308, because vercel.json expresses these as `"permanent": true`
+          # and Vercel emits 308 for that (307 for `false`) — a `redirects` entry
+          # never produces a 301. This loop demanded a literal 301 from #478
+          # (2026-09-12) and then failed EVERY scheduled run from 2026-09-13T06:20Z
+          # onward: it asserted a status code the config it shipped alongside could
+          # not emit. Production was correct the whole time — 308 is the
+          # method-preserving twin of 301 and search engines consolidate on it
+          # identically — so the literal was the defect, not the redirect. Pin the
+          # invariant (permanent, and onto the canonical host), not one vendor's
+          # choice of code. A temporary still fails: a 302/303/307 here means
+          # someone flipped `permanent` to false and the SEO signal quietly stopped
+          # consolidating.
+          for host in $ALIASES; do
+            read -r code location <<<"$(curl -sS -o /dev/null --max-time 20 \
+              -w '%{http_code} %{redirect_url}' "https://$host/" 2>/dev/null)" \
+              || { FAILS="$FAILS\n- $host: curl failed"; continue; }
             case "$code" in
-              30[0-9]) : ;;
-              *) FAILS="$FAILS\n- www.$host: expected a 3xx redirect to the apex, got $code" ;;
+              301|308) : ;;
+              *)
+                FAILS="$FAILS\n- $host: expected a permanent redirect (301 or 308) to https://$CANONICAL/, got $code"
+                continue
+                ;;
+            esac
+            case "$location" in
+              "https://$CANONICAL"|"https://$CANONICAL"/*) : ;;
+              *) FAILS="$FAILS\n- $host: ${code}s to '$location', not the canonical host https://$CANONICAL/" ;;
             esac
           done
 
+          # THE INVERSE OF THE ALIAS LOOP, for a host that is no longer ours.
+          #
+          # memetic.fun serves the Memetics Lab. The failure worth watching is not
+          # "it stopped redirecting" but "it started serving US again", which is what
+          # a re-attach of the domain to this Vercel project looks like. That is the
+          # canonical-host law breaking in the only direction still open to it, and it
+          # is exactly what went unnoticed with tegridyfarms.vercel.app until it cost
+          # a ruling to undo.
+          #
+          # NO -L. Following the redirect would land on the canonical host, find its
+          # app shell, and report a perfectly healthy redirect as a violation.
+          #
+          # It asserts an ABSENCE, so it is written not to pass vacuously: a non-200
+          # is reported inconclusive rather than as health. This venue does not own
+          # the Lab uptime and must never page on it. While the domain is still
+          # mid-move and answering 308, that is the branch this takes.
+          FOREIGN="memetic.fun"
+          foreign_code="$(curl -sS -o /dev/null --max-time 20 -w '%{http_code}' "https://$FOREIGN/" 2>/dev/null || echo 000)"
+          if [ "$foreign_code" = "200" ]; then
+            if curl -sS --max-time 20 "https://$FOREIGN/" 2>/dev/null | grep -q '/assets/'; then
+              FAILS="$FAILS\n- $FOREIGN: THIS VENUE is answering on it (served our app shell). The domain is back on this Vercel project; the canonical-host law forbids a second front door."
+            fi
+          else
+            printf 'note: %s answered %s, so the "not us" check is inconclusive. Not ours to page on.\n' "$FOREIGN" "$foreign_code"
+          fi
+
           if [ -n "$FAILS" ]; then
+            REPORT="$(printf 'Synthetic monitor failures at %s UTC:%b' "$(date -u '+%Y-%m-%d %H:%M')" "$FAILS")"
+
+            # To the STEP LOG as well as to $GITHUB_OUTPUT. The report used to go
+            # only to $GITHUB_OUTPUT, which `gh run view --log-failed` does not
+            # render — so this step's log showed the script source and a bare
+            # `exit 1`, and the one fact an operator needs (WHICH host, and what it
+            # actually returned) was recoverable only by reproducing the probe by
+            # hand. An alarm that cannot say what tripped it gets ignored, which is
+            # exactly what happened for two days.
+            printf '%s\n' "$REPORT"
+
             printf 'failed=true\n' >> "$GITHUB_OUTPUT"
             {
               printf 'report<<EOF\n'
-              printf 'Synthetic monitor failures at %s UTC:%b\n' "$(date -u '+%Y-%m-%d %H:%M')" "$FAILS"
+              printf '%s\n' "$REPORT"
               printf 'EOF\n'
             } >> "$GITHUB_OUTPUT"
             exit 1
@@ -144,3 +247,42 @@ jobs:
             gh issue close "$N" --repo "$GITHUB_REPOSITORY" 2>/dev/null \
               || echo "WARNING: could not close #$N — prod is healthy; this is bookkeeping only"
           done
+
+      # Dead-man switch for GitHub's own schedules, which stopped for 5+ days in 2026-09 and
+      # told nobody. healthchecks.io emails when these pings stop (docs/OPS_SCHEDULER.md,
+      # section 2). Every run pings the base URL, pass or fail: a /fail would hold the check
+      # DOWN through a probe outage and mute it. The prod-incident issue reports the probe.
+      # curl reads the URL on stdin, never argv. No secret, or a ping that did not land, is
+      # a warning, never a red run: the missing ping is itself the alarm.
+      - name: Heartbeat to healthchecks.io
+        if: ${{ !cancelled() }}
+        timeout-minutes: 2
+        env:
+          HC_PING_URL: ${{ secrets.HC_PING_URL_GITHUB_CRONS }}
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+          REPORT: ${{ steps.probe.outputs.report }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -u
+          if [ -z "${HC_PING_URL:-}" ]; then
+            echo "::warning title=No heartbeat::HC_PING_URL_GITHUB_CRONS is not set, so nothing outside GitHub notices if its schedules stop. See docs/OPS_SCHEDULER.md section 2."
+            exit 0
+          fi
+          case "$HC_PING_URL" in
+            *[[:space:]\"\\]*) usable=no ;;
+            https://?*) usable=yes ;;
+            *) usable=no ;;
+          esac
+          if [ "$usable" != yes ]; then
+            echo "::warning title=No heartbeat::HC_PING_URL_GITHUB_CRONS is set but is not a plain https URL, so no ping was sent."
+            exit 0
+          fi
+          target="${HC_PING_URL%/}"
+          body="$RUNNER_TEMP/heartbeat-body.txt"
+          printf 'synthetic-monitor: %s\n%s\n\n%s\n' "$PROBE_OUTCOME" "$RUN_URL" "${REPORT:-}" > "$body"
+          if printf 'url = "%s"\n' "$target" | curl --config - -fsS -o /dev/null --max-time 10 --retry 3 --retry-all-errors --retry-delay 2 --data-binary "@$body"; then
+            echo "Heartbeat sent (probe: $PROBE_OUTCOME)."
+          else
+            echo "::warning title=Heartbeat not delivered::curl could not reach healthchecks.io. The check raises the missed ping itself."
+          fi

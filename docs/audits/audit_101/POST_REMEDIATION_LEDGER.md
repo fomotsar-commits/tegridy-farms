@@ -1,0 +1,449 @@
+# Post-Remediation Audit Ledger — 2026-04-26
+
+**Purpose:** Honest reconciliation between (a) what prior audit-remediation docs claimed had shipped to `main` and (b) what was actually live in the contract source on 2026-04-26. Written after a deep parallel-agent verification pass + 10 batches of remediation commits.
+
+**Why this exists:** Prior to this work, `R017.md`, `R020.md`, `R023.md`, and `R028.md` each described HIGH-severity fixes as "shipped" or "verified present." Source-level grep showed they were absent — the legacy vulnerable code was still in `main`. Test files explicitly marked some remediations as "DEFERRED" or "DISABLED." This ledger is the new single source of truth for what is actually live.
+
+---
+
+## Verification methodology
+
+1. 8 specialized auditor agents ran in parallel against current `main` to scan for vulnerabilities.
+2. Findings classified Critical / High / Medium / Low.
+3. Each Critical and High verified manually against actual source code (not the claimed-fix doc).
+4. 3 follow-up triage agents re-verified the borderline Highs and all 30 Mediums.
+5. 10 batches (A–J) landed fixes for the verified findings, each with regression tests.
+6. Foundry demonstration tests in [`contracts/test/AuditDemonstration.t.sol`](../contracts/test/AuditDemonstration.t.sol) prove each fix actually works.
+
+**False-positive rate observed:** ~58% across the original Critical+High pool, ~63% across Mediums. Many agent-flagged findings were already correctly handled by the existing code. The remaining ~40% were real and unshipped, including several that contradicted the public security claims.
+
+---
+
+## Commits (10 batches)
+
+| # | Commit | Contract(s) touched | Findings closed | Severity |
+|---|---|---|---|---|
+| A | `393b084` | TegridyFactory | H-1, H-1b, H-2 | HIGH |
+| B | `1b7ad2f` | VoteIncentives | C-4, H-12 | CRIT + HIGH |
+| C | `7e29572` | TegridyDropV2 | C-1 | CRIT |
+| D | `71a532d` | TegridyRestaking | H-7 | HIGH |
+| E | `a2c78d4` | TegridyFeeHook | H-5 | HIGH |
+| F | `ab42bb2` | TegridyStaking | C-2 | HIGH |
+| G | `d4c93bf` | TegridyRestaking | H-8 | HIGH |
+| H | `2626dc5` | PremiumAccess + TegridyStaking | M-24, M-30 | MED |
+| I | `1ec721c` | MemeBountyBoard + POLAccumulator | M-16, M-28 | MED |
+| J | `5fad774` | TegridyTWAP | M-2 | MED |
+| size-1 | `99eaf9b` + `b3092b6` | TegridyStaking + new TegridyStakingAdmin | EIP-170 split | INFRA |
+| size-2 | `cb3d12b` | SwapFeeRouter + new SwapFeeRouterAdmin | EIP-170 split | INFRA |
+
+---
+
+## Architectural split — TegridyStaking → TegridyStaking + TegridyStakingAdmin
+
+**Why:** The triple-check sweep found TegridyStaking's runtime bytecode at 29,461 bytes — 4,885 bytes OVER the EIP-170 mainnet limit (24,576). The contract could not be redeployed. Source-level fixes from this campaign (Batch F MAX_POSITIONS, Batch H ceiling-div, Wave 1 custom errors) were stuck.
+
+**What changed:** All 7 timelocked admin function triplets (rewardRate, treasury, restakingContract, maxUnsettledRewards, lendingContract, extendFee, penaltyRecycle) plus their pending state moved from TegridyStaking into a new sister contract [`TegridyStakingAdmin.sol`](../../../contracts/src/TegridyStakingAdmin.sol). TegridyStaking exposes `onlyAdmin`-gated `apply*` setters that the Admin contract calls during execute.
+
+**Result:**
+- TegridyStaking: 29,461 → **22,492 bytes** (saved 6,953 bytes; +2,084 margin under EIP-170)
+- TegridyStakingAdmin (new): 10,079 bytes (well within limit)
+- All 1,927 forge tests pass — no regression
+- Public hot-path functions (stake, withdraw, claim, getReward, votingPowerOf, transferFrom etc.) unchanged
+
+**Wiring:** One-shot `staking.setStakingAdmin(address(admin))` at deploy time. Single trust anchor.
+
+**Public surface delta** (relevant for frontend, indexer, deploy scripts):
+- Callers that used `staking.proposeRewardRate(...)` etc. now use `admin.proposeRewardRate(...)`
+- `staking.rewardRateChangeTime()` etc. moved to `admin.rewardRateChangeTime()`
+- All other public surface unchanged
+- Frontend ABI imports for the 18 admin functions need to point at the new admin contract (follow-up for dApp team)
+- Indexer ABI may want to track admin-contract events too (follow-up)
+
+---
+
+## Architectural split — SwapFeeRouter → SwapFeeRouter + SwapFeeRouterAdmin
+
+**Why:** Same EIP-170 issue surfaced for SwapFeeRouter during the triple-check (25,930 bytes — 1,354 over the 24,576-byte limit). Same playbook as TegridyStaking.
+
+**What changed:** All 9 timelocked admin function triplets (fee, treasury, referralSplitter, pairFee, premiumDiscount, premiumAccess, revenueDistributor, feeSplit, polAccumulator) plus their pending state moved into [`SwapFeeRouterAdmin.sol`](../../../contracts/src/SwapFeeRouterAdmin.sol). Router exposes 9 `onlyAdmin`-gated `apply*` setters.
+
+**Result:**
+- SwapFeeRouter: 25,930 → **16,735 bytes** (saved 9,195 bytes / 35.5%; +7,841 margin under EIP-170)
+- SwapFeeRouterAdmin (new): 12,886 bytes (+11,690 margin)
+- All 1,927 forge tests pass — no regression
+- All user-facing swap functions (`swapExactETHForTokens`, `swapExactTokensForETH`, `swapExactTokensForTokens`, plus 3 FoT variants) signatures unchanged
+- Audit-fix code preserved (NEW-A4 deadline guard, NEW-A5 cooldown, AUDIT C1, AUDIT C4 pending distribution, AUDIT M-2 fail-open premium, AUDIT M-4 50k gas stipend, AUDIT M-6 FoT)
+
+**Wiring:** One-shot `router.setSwapFeeRouterAdmin(address(admin))` at deploy time. Single trust anchor. Same pattern as TegridyStaking.
+
+**Public surface delta**:
+- Callers that used `router.proposeFeeChange(...)` etc. now use `admin.proposeFeeChange(...)` — applies to all 9 triplets
+- `router.treasuryChangeTime()` etc. moved to `admin.treasuryChangeTime()`
+- All swap-side functions unchanged
+- Frontend ABI imports + `ConfigureFeePolicy.s.sol` runbook need the admin address (placeholder set, operator must fill in post-deploy)
+
+---
+
+## Confirmed and FIXED (14 findings across 10 batches)
+
+### Critical (3)
+
+| ID | Surface | What changed | Replaces (claimed-but-unshipped) |
+|---|---|---|---|
+| C-1 | `TegridyDropV2.setMerkleRoot` | Replaced with timelocked `propose/execute/cancel` (24h delay, phase-gated, value-bound) | R023 H-01 |
+| C-2 | `TegridyStaking.MAX_POSITIONS_PER_HOLDER` | Lowered 100 → 50 to halve every integrator's `votingPowerOf` gas cost | — (new) |
+| C-4 | `VoteIncentives` zero-vote bribe lockup | Added `refundUnvotedBribe` (permissionless per-depositor pull, 14d grace after revealDeadline) | R020 H-1 |
+
+### High (7)
+
+| ID | Surface | What changed | Replaces |
+|---|---|---|---|
+| H-1 | `TegridyFactory.setGuardian` | Initial-only; rotation now via `proposeGuardianChange` / `executeGuardianChange` (48h timelock) | R028 H-01 |
+| H-1b | (same) | `pendingGuardian` + `cancelGuardianChange` added | — |
+| H-2 | `TegridyFactory.emergencyDisablePair` | Now only force-cancels pending RE-ENABLE proposals; pending DISABLEs left intact (no governance veto) | — (new) |
+| H-5 | `TegridyFeeHook.executeSyncAccruedFees` | Allows upward sync bounded by on-chain `IPoolManager.balanceOf(this, currencyId)` — recovery path for under-counting drift | — (new) |
+| H-7 | `TegridyRestaking.decayExpiredRestaker` | Reordered: settle → shrink `totalRestaked` → `_accrueBonus()` → re-anchor debt. CEI tightened (debt anchor before transfer) | R017 H-3 RETRY |
+| H-8 | `TegridyRestaking.boostedAmountAt` | Per-restaker `Checkpoints.Trace208` history; `upperLookup` returns boost actually held at `_ts`, not the post-decay cache | — (new) |
+| H-12 | `VoteIncentives.depositBribe` | Enforces `DEFAULT_MIN_TOKEN_BRIBE = 1e15` when no per-token min configured; per-token override via 24h timelocked setter | R020 H-3 |
+
+### Medium (4)
+
+| ID | Surface | What changed |
+|---|---|---|
+| M-2 | `TegridyTWAP` rebootstrap | Emits `DeviationBypassed` event + stamps `lastBypassUsed[pair]` so consumers can detect and cool-off |
+| M-16 | `POLAccumulator.MIN_BACKSTOP_BPS` | Raised 5000 → 9000; caps slippage at 10% on the addLiquidityETH leg |
+| M-24 | `TegridyStaking._splitPenalty` | Ceiling division on `recycled`; sub-wei dust now favors stakers, not treasury |
+| M-28 | `MemeBountyBoard.emergencyForceCancel` | Aggregate-votes branch now also requires `uniqueVoterCount >= MIN_UNIQUE_VOTERS`; whales alone can't deadlock bounties |
+| M-30 | `PremiumAccess.batchReconcileExpired` | Added `nonReentrant` for parity with `cancelSubscription` |
+
+---
+
+## Confirmed but DEFERRED (4 findings)
+
+| ID | Surface | Why deferred |
+|---|---|---|
+| H-10 | `PremiumAccess.hasPremium()` | Documented integration risk only. `SwapFeeRouter` (the only in-protocol consumer) correctly uses `hasPremiumSecure`. Third-party integrators warned via NatSpec. |
+| M-5 | `SwapFeeRouter` 1-wei min fee | >100x overage on dust amounts. Fix (revert on too-small) could break dust UX. Edge-case impact tiny. |
+| M-7 | `WETHFallbackLib` 10k gas stipend | Borderline. Lowering to 2300 would break legitimate Gnosis Safe receivers. 10k allows ~3 SSTOREs of "free work" — limited blast radius. |
+| M-12 | `TegridyStaking._writeCheckpoint` O(n) | Mitigated by Batch F cap reduction (100→50). Full O(1) cached aggregate deferred because lazy-expiry semantics make cache invalidation non-trivial. |
+
+---
+
+## NEEDS-DEEP-TEST (3 findings)
+
+| ID | Surface | Reason |
+|---|---|---|
+| M-4 | `TegridyRouter.quote()` rounding | Multi-hop divergence between `getAmountsOut` and actual swap math needs empirical measurement. |
+| M-8 | `SwapFeeRouter.distributeFeesToStakers` | Treasury-fold path may violate split invariant. Likely intentional but warrants test verification. |
+| M-12 | (above) | (also see Deferred above) |
+
+---
+
+## False positives cleared (28 findings)
+
+The original parallel-agent scan flagged 28 issues that don't reproduce against actual source. Cleared so future scans don't re-discover them:
+
+| Tier | IDs |
+|---|---|
+| Critical | C-3 |
+| High | H-3, H-4, H-6, H-9, H-11, H-13, H-15, H-16 |
+| Medium | M-1, M-3, M-6 (already fixed by Batch A), M-9, M-10, M-11, M-13, M-14, M-15, M-17, M-18, M-19, M-20, M-21, M-22, M-23, M-25, M-26, M-27, M-29 |
+
+Brief reasoning for each is in [`contracts/test/AuditDemonstration.t.sol`](../contracts/test/AuditDemonstration.t.sol) inline comments. Highlights:
+
+- **C-3**: `userTotalVotes` cap on [VoteIncentives.sol:388](../contracts/src/VoteIncentives.sol:388) prevents same-pair vote inflation. Two 500-power calls equal one 1000-power call.
+- **H-13**: bond clearing happens in same tx as `safeTransfer`; failed transfer reverts the whole tx and rolls back state.
+- **M-19**: `Proposal.recipient` is mutable in storage but no setter exists; current attack surface is zero.
+- **M-29**: DropV2 withdraw is intentionally gated to closed/sold-out states — `cancelSale()` is the early-refund path.
+
+---
+
+## Drift between prior remediation docs and pre-fix `main`
+
+This is the meta-finding worth highlighting. Before Batches A–J, these docs claimed fixes were shipped that **were not in `main`**:
+
+| Doc | Status claimed | Actual state on 2026-04-26 (pre-fix) |
+|---|---|---|
+| `R017.md` | "RETRY pass corrected H-3 ordering" | `_accrueBonus()` still ran BEFORE `totalRestaked` shrink |
+| `R020.md` | `refundUnvotedBribe` "shipped"; `DEFAULT_MIN_TOKEN_BRIBE` "added"; `_commitRevealFromGenesis` ctor arg "added" | None of the three present in source |
+| `R023.md` | "Legacy `setMerkleRoot(bytes32)` removed; replaced by `proposeMerkleRoot` / `executeMerkleRoot`" | Legacy `setMerkleRoot` still at line 412; propose/execute functions absent |
+| `R028.md` (per diff agent) | `proposeGuardian` / `executeGuardian` "added" | Functions did not exist; only the legacy 1-step `setGuardian` was present |
+
+`R028 H-01` is interesting: the diff-verification agent INITIALLY reported it as shipped, then the foundry test `test_H1b_NoProposeGuardianExists` proved otherwise. Trust-but-verify cuts both ways.
+
+The test file [`contracts/test/R020_VoteIncentives.t.sol:131-135`](../contracts/test/R020_VoteIncentives.t.sol:131) explicitly acknowledged the deferral with a stub:
+
+> *"DISABLED: refundUnvotedBribe(uint256,address,address) was deferred — the current VoteIncentives does not expose a stranded-bribe rescue path and UNVOTED_REFUND_GRACE is not declared. The two tests below are stubbed to keep the file compiling; the spec is documented in R020.md (H-1) and will be re-enabled when the rescue path lands."*
+
+The R020 doc itself reported `Suite result: ok. 7 passed; 0 failed; 0 skipped` — the tests that pass are stubs returning early; they do not exercise the prescribed function.
+
+---
+
+## Tests
+
+Demonstration tests proving each post-fix behavior:
+
+- [`contracts/test/AuditDemonstration.t.sol`](../contracts/test/AuditDemonstration.t.sol) — 8 passing tests covering C-4, H-1, H-1b, H-2, H-2b, H-12 (with code-only confirmation notes for C-1, C-2, H-5, H-7, H-8, H-10, M-2, M-16, M-24, M-28, M-30)
+
+Regression-test summary across the modified contracts (counts as run during this campaign):
+
+- TegridyFactory: 30 + 66 = 96
+- VoteIncentives + GaugeController: 7 + 14 + 39 + 816 = 876
+- TegridyDropV2: 27
+- TegridyRestaking: 73 + 12 = 85
+- TegridyFeeHook: 33 + 5 = 38
+- TegridyStaking: 94 + 7 + 24 = 125 (subset; full Audit195_Staking is larger)
+- PremiumAccess: 26
+- MemeBountyBoard: 24
+- TegridyTWAP: 24
+- AuditDemonstration: 8
+
+All pass against post-Batch-J `main`.
+
+---
+
+## Recommendation for users diligencing this protocol
+
+The earlier `AUDITS.md` `tl;dr` table is honest about methodology (8 internal AI passes, 1 paid external) but the public security artifacts (`SECURITY_AUDIT_300_AGENT.md`, SecurityPage) overstated the remediation completeness. The 2026-04-26 batches close that gap for the highest-severity items.
+
+**Before depositing significant value:**
+1. Re-read `SPARTAN_AUDIT.txt` (most rigorous external review).
+2. Verify Batches A–J are actually deployed on the chain you're depositing on (not just merged to `main`).
+3. Note that 4 confirmed findings remain DEFERRED (H-10, M-5, M-7, M-12) with the rationale above.
+4. A paid human audit by a recognized firm is still on the roadmap and not yet scheduled.
+
+**For new auditors:** the AI-agent findings have a documented ~58% false-positive rate at HIGH severity and ~63% at MEDIUM. Spot-check before fixing.
+
+---
+
+## Pass-5 closure (2026-05-02)
+
+Single-pass append for the Pass-5 cross-contract sweep
+([master report](./PASS5_2026_05_02.md)). 3 findings, 1 HIGH + 1 LOW + 1 INFO.
+
+| ID | Severity | Surface | What changed |
+|---|---|---|---|
+| PASS5-REV-H1 | HIGH | `RevenueDistributor.distribute()` | Sibling-miss vs `distributePermissionless`. Pass-5 surfaced; pass-6 era closure tracked separately. |
+| PASS5-PA-L1 | LOW (promoted to MED in pass-6) | `PremiumAccess.subscribe` extension | Closed in pass-6 commit `722d1f1` — see pass-6 section below. |
+| PASS5-INFO-1 | INFO | Audit signal | 4 invariants × 128k stateful calls — PASS. CI-blocking recommendation. |
+
+---
+
+## Pass-6 closures (2026-05-03)
+
+Pass-6 fresh-eyes meta-audit (master report:
+[`PASS6_2026_05_03.md`](./PASS6_2026_05_03.md)) closed 10 NEW contract findings
++ 7 NEW frontend findings across 6 commits. The pass was authored through
+the lens of 2024-2026 DeFi exploit retrospectives (Curve / Euler / Conic /
+KyberSwap Elastic / Onyx / Penpie / Jimbos / Radiant / BonqDAO / Hundred /
+Velocore / Atlantis / Munchables / BlueBerry / Pendle / Sturdy / Inverse /
+Platypus / Poly Network).
+
+### Commits
+
+| # | Commit | Surface(s) touched | Findings closed | Severity |
+|---|---|---|---|---|
+| P6-A | `722d1f1` | TegridyLending, TegridyNFTLending, TegridyTWAP, SwapFeeRouter, TegridyRestaking, PremiumAccess, GaugeController, POLAccumulator | LD-NEW-H1, LD-NEW-H2, TWAP HIGH-2, TWAP HIGH-3, SwapFeeRouter HIGH-4, PASS5-PA-L1 (MED), N-1, F-1, F-2, LD-NEW-M4, MEDIUM-5 | 4 HIGH + 6 MED |
+| P6-B | `b1fb6d4` | frontend (`contracts.ts`, `useNFTDropV2`, `useLPFarming`, `siweAuth`) + cumulative FRESH-EYES batch | FE-HIGH-01, FE-HIGH-02, FE-LOW-04 | 2 HIGH + 1 LOW |
+| P6-C | `8266289` | TegridyRestaking (cross-protocol mirror) + TegridyLending (comment tightening) | LD-NEW-H1 mirror | 1 HIGH |
+| P6-D | `21db70b` | NEW `contracts/test/Pass6_Regressions.t.sol` | regression tests for the 3 NEW HIGHs | TEST |
+| P6-E | `975e5af` | `vercel.json` rewrites → 7 Vercel serverless wrappers under `frontend/api/{provider}/[...path].js` + shared `frontend/api/_lib/aggregator-proxy.js` | FE-CRIT-01 | 1 CRIT |
+| P6-F | `4b3a47f` | frontend swap surface (`aggregator.ts`, `useDCA`, `DCATab`, `useLimitOrders`, `useSwap`, `useSwapAllowance`, `TradePage`) | FE-HIGH-03, FE-HIGH-04, FE-HIGH-05, FE-HIGH-06 | 4 HIGH |
+| P6-G | `672e4d8` | `vercel.json` (post-fact catch-up: P6-E and P6-F both wrote it but neither staged due to a simultaneous-commit race; FE-CRIT-01 was inert until this landed) | — | OPS |
+| P6-H | `378d70d` | `AUDITS.md` lineage line | "Internal AI-agent reviews" count `8 → 10` (pass-5 + pass-6) | DOC |
+| P6-I | `eed1c65` | `CommunityGrants`, `RevenueDistributor`, `slither.config.json`, NEW `slither.config.notes.md`, `contracts/src/.slither.deadcode-suppress.md`, `FIX_STATUS.md` | dead-code helpers deleted; slither config schema cleanup; FIX_STATUS framing refresh | POLISH |
+| P6-J | `7889f25` | NEW `contracts/test/invariants/Pass6_LendingSolvency.t.sol`, `Pass6_DropV2SupplyConservation.t.sol`, `Pass6_RestakingResidualCrossProto.t.sol`, `Pass6_TWAPFirstObsBypass.t.sol` | 4 NEW invariant suites · 13 invariants · 1.664M stateful calls · 0 reverts | INVARIANT |
+
+### Confirmed and FIXED
+
+#### Contract HIGHs (5)
+
+| ID | Surface | What changed |
+|---|---|---|
+| LD-NEW-H1 | `TegridyLending.pullEscrowRewards` | `staking.ownerOf(loan.tokenId) == address(this)` gate skips per-tokenId pull when NFT is currently re-escrowed at lending — credits belong to the active loan. ([TegridyLending.sol:1620-1633](../../../contracts/src/TegridyLending.sol#L1620)) |
+| LD-NEW-H1 mirror | `TegridyRestaking.claimResidualForTokenId` | Returns 0 paid + emits `ResidualPullDeferredCrossHolder` when `staking.ownerOf(tokenId)` is neither this contract nor `msg.sender`. Residual claim stays live for retry. ([TegridyRestaking.sol:1163-1195](../../../contracts/src/TegridyRestaking.sol#L1163)) |
+| LD-NEW-H2 | `TegridyNFTLending.repayLoan` / `claimDefault` | New `_safeOutboundTransfer` helper performs `transferFrom` then re-checks `ownerOf(tokenId)` post-condition. Mismatch sets `stuckCollateralRecipient[loanId]` + emits `CollateralRedirected`. ([TegridyNFTLending.sol:620-697,755-771](../../../contracts/src/TegridyNFTLending.sol#L620)) |
+| TWAP HIGH-2 | `TegridyTWAP.consult()` | Reverts `PairDisabled` when `factory.disabledPairs(pair)` is true. ([TegridyTWAP.sol:472](../../../contracts/src/TegridyTWAP.sol#L472)) |
+| TWAP HIGH-3 | `TegridyTWAP.update()` first observation | First obs now stamped `bypassed = true` + `lastBypassUsed[pair] = block.timestamp`. Bootstrap rolls out of consult lookup window before consumers trust it. ([TegridyTWAP.sol:309-331](../../../contracts/src/TegridyTWAP.sol#L309)) |
+| SwapFeeRouter HIGH-4 | `convertTokenFeesToETH` + FoT variant — multi-hop branches | Multi-hop now invalidates `lastConversionSnapshot[token]` (`timestamp = 0`). Forces next 2-hop into bootstrap (owner-only). ([SwapFeeRouter.sol:1554-1563](../../../contracts/src/SwapFeeRouter.sol#L1554) and [L1652-1660](../../../contracts/src/SwapFeeRouter.sol#L1652)) |
+
+#### Contract MEDs (5)
+
+| ID | Surface | What changed |
+|---|---|---|
+| PASS5-PA-L1 (MED) | `PremiumAccess.subscribe` extension | Removed `totalRevenue += consumedEscrow;` — original cost was already counted at first subscribe. ([PremiumAccess.sol:309-330](../../../contracts/src/PremiumAccess.sol#L309)) |
+| N-1 | `GaugeController.proposeRemoveGauge` | New `error GaugeRemovePending()`; reverts when `pendingGaugeRemove != 0`. ([GaugeController.sol:201,788](../../../contracts/src/GaugeController.sol#L201)) |
+| F-1 | `TegridyRestaking._boostedAmountAt` | Splits the predicate at `_timestamp < liveLockEnd` — returns `cached` directly for historical lookups in the kick-window. Preserves DR-04 over-credit defense at `_timestamp >= liveLockEnd`. ([TegridyRestaking.sol:486-512](../../../contracts/src/TegridyRestaking.sol#L486)) |
+| F-2 | `TegridyRestaking.executeAttributeStuckRewards` | Subtracts `totalActivePrincipal` AND `totalPendingUnsettled` from the unattributed pool. ([TegridyRestaking.sol:1389-1408](../../../contracts/src/TegridyRestaking.sol#L1389)) |
+| LD-NEW-M4 | `TegridyLending` TWAP staleness gates | Directional pre-check `if (latest.timestamp > block.timestamp) revert OracleStale();` ahead of subtraction, mirrored on `lastBypass`. ([TegridyLending.sol:1245,1256](../../../contracts/src/TegridyLending.sol#L1245)) |
+| MEDIUM-5 | `POLAccumulator.HARVEST_TWAP_DEVIATION_BPS` | Narrowed 200 → 50 bps to match `TWAP_SAFETY_BPS`. ([POLAccumulator.sol:131](../../../contracts/src/POLAccumulator.sol#L131)) |
+
+#### Frontend (1 CRIT + 5 HIGH + 1 LOW)
+
+| ID | Surface | What changed |
+|---|---|---|
+| FE-CRIT-01 | `vercel.json` aggregator rewrites (`/api/{odos,cow,lifi,kyber,openocean,paraswap,swapapi}/*`) | 7 rewrites replaced by Vercel serverless wrappers under `frontend/api/{provider}/[...path].js`. Shared `frontend/api/_lib/aggregator-proxy.js` enforces 7 gates: method/origin/rate-limit/path/body+response-cap/query/response-cleanup. 53 NEW tests in `frontend/api/__tests__/aggregator-proxy.test.js`. |
+| FE-HIGH-01 | TegridyDropV2 mint ABI | 2-arg → 3-arg (`mint(uint256 quantity, uint256 allowedAmount, bytes32[] proof)`); `useNFTDropV2.mint()` accepts optional `allowedAmount` (default 0). ([frontend/src/lib/contracts.ts:420-421](../../../frontend/src/lib/contracts.ts#L420), [frontend/src/hooks/useNFTDropV2.ts](../../../frontend/src/hooks/useNFTDropV2.ts)) |
+| FE-HIGH-02 | SIWE client | `buildSiweMessage` sets `expirationTime` (5-min, aligned to server `MAX_MESSAGE_TTL_MS`) + `notBefore` (30s skew tolerance). ([frontend/src/nakamigos/lib/siweAuth.js:41-60](../../../frontend/src/nakamigos/lib/siweAuth.js#L41)) |
+| FE-HIGH-03 | SwapAPI direct fetch | Routed through same-origin `/api/swapapi/*` so the third party never sees user wallet/IP/referer. ([frontend/src/lib/aggregator.ts:86](../../../frontend/src/lib/aggregator.ts#L86)) |
+| FE-HIGH-04 | DCA hardcoded 5% slippage | Per-schedule `slippageBps` field bounded to `[10, 300]` bps; default 50 bps; UI presets+custom; storage validator updated. ([frontend/src/hooks/useDCA.ts](../../../frontend/src/hooks/useDCA.ts), [frontend/src/components/swap/DCATab.tsx](../../../frontend/src/components/swap/DCATab.tsx)) |
+| FE-HIGH-05 | Limit-order minOut | At execute-time re-quote AMM: `minOut = min(targetDerivedMinOut, onChainOut * (1 - slippage))`; stale-target gate; default slippage 5% → 1%. ([frontend/src/hooks/useLimitOrders.ts:284](../../../frontend/src/hooks/useLimitOrders.ts#L284)) |
+| FE-HIGH-06 | Custom-token decimals/symbol spoofing | On-chain re-verify on hydration + add; mismatches evicted. `useSwapAllowance` refuses `MAX_UINT256` for non-DEFAULT tokens (exact-amount approval). UI banner. ([frontend/src/hooks/useSwap.ts](../../../frontend/src/hooks/useSwap.ts), [frontend/src/hooks/useSwapAllowance.ts](../../../frontend/src/hooks/useSwapAllowance.ts), [frontend/src/pages/TradePage.tsx](../../../frontend/src/pages/TradePage.tsx)) |
+| FE-LOW-04 | `useLPFarming` + `useNFTDropV2` `useWaitForTransactionReceipt` | Pin `chainId: CHAIN_ID`. ([frontend/src/hooks/useLPFarming.ts:24](../../../frontend/src/hooks/useLPFarming.ts#L24), [frontend/src/hooks/useNFTDropV2.ts:43](../../../frontend/src/hooks/useNFTDropV2.ts#L43)) |
+
+### Tests
+
+[`contracts/test/Pass6_Regressions.t.sol`](../contracts/test/Pass6_Regressions.t.sol)
+adds 4 NEW unit-style PoC tests (commit `21db70b`):
+
+- `test_LD_NEW_H1_oldLoanCannotDrainNewLoanCredits`
+- `test_LD_NEW_H1_mirror_residualClaimantBlockedByLendingEscrow`
+- `test_LD_NEW_H2_silentNoOpRepay_marksStuck`
+- `test_TWAP_HIGH_2_consultRevertsWhenPairDisabled`
+
+[`contracts/test/invariants/Pass6_*.t.sol`](../../../contracts/test/invariants/) adds
+4 NEW stateful-invariant suites (commit `7889f25`) with 13 invariants total,
+each running 256 runs × 500 calls = **1.664M total stateful calls · 0 reverts ·
+~210s wall clock**:
+
+- `Pass6_LendingSolvency.t.sol` — INV-E (3 invariants): active-offer ETH solvency · open-loan NFT escrow uniqueness · `pullEscrowRewards` non-recipient gate
+- `Pass6_DropV2SupplyConservation.t.sol` — INV-G (5 invariants): supplyCap · wallet-accounting sum · cancel→zero-supply · phase-change auth · payment conservation
+- `Pass6_RestakingResidualCrossProto.t.sol` — INV-H (2 invariants): cross-holder gate (LD-NEW-H1 mirror) · residualClaimant integrity
+- `Pass6_TWAPFirstObsBypass.t.sol` — INV-I (3 invariants): consult-bypass propagation · first-obs flagged bypassed · consult-reverts-on-disabled-pair
+
+INV-F (NFT-Pool LP-fee) and INV-J (vote-incentives bond conservation) intentionally skipped — see `.audit_101/PASS6_2026_05_03.md` §6 for skip rationale.
+
+198 tests pass across the unit-suite affected scope (Lending / NFTLending /
+TWAP / Restaking). The unit suite + the four invariant suites together turn
+the verification-agent's narrative reasoning into CI-blocking guard rails —
+the fix-template is now both the regression-test template AND the invariant
+template.
+
+### Deferred
+
+None — all initially-deferred items (FE-CRIT-01, FE-HIGH-3/4/5/6) landed
+during the same pass via parallel-agent commits `975e5af` and `4b3a47f`.
+
+### Net pass-6 totals
+
+- **Contract findings:** 0 Critical · 5 High · 5 Medium — all CLOSED.
+- **Frontend findings:** 1 Critical · 5 High · 1 Low — all CLOSED.
+- **Cumulative across 6 passes:** 388 + 10 = **398 contract findings**;
+  + 7 frontend pass-6 closures = **405 audit-tracked items**.
+
+---
+
+## Pass-7 Closures (2026-05-03 → 2026-05-04)
+
+3 parallel worktree agents (oracle/AMM/fees, staking/governance, lending/NFT)
+re-attacked everything claimed closed by passes 1–6 + Spartan, plus the
+pass-6 invariant suite. Surfaced **1 Critical + 6 High + 4 Medium + 1 Low +
+1 Info = 13 NEW findings**, all closed in same-week remediation. Master
+report: [PASS7_2026_05_03.md](./PASS7_2026_05_03.md).
+
+| Finding | Sev | File:Line | Commit | Pattern |
+|---|---|---|---|---|
+| HOOK-01 | Critical | TegridyFeeHook.sol:282-302 | e15d785 | V4 hook `manager.take` inside afterSwap to settle hookDelta |
+| TWAP-01 | High | TegridyTWAP.sol:738 | 47ac719 | Drop V3-AMM-L1 carve-out; bypassed-anchor consult fail-closed |
+| GAUGE-H1 | High | GaugeController.sol:743-765 | 27a1653 | proposeAddGauge reverts while pendingGaugeRemove set |
+| LENDING-01 | High | TegridyLending.sol:824-834 | b6b356d | acceptOffer post-condition `staking.ownerOf == address(this)` |
+| LENDING-02 | High | TegridyLending.sol:993-1163 | b6b356d | `_safeOutboundTransferStaking` + stuck-collateral recovery |
+| LENDING-03 | High | TegridyLending.sol:840-851,955-1028,1108-1149 | b6b356d | settled-vs-settled cross-loan drain via snapshot+delta |
+| NFTLENDING-01 | High | TegridyNFTLending.sol:721-744 | b6b356d | claimStuckCollateral retries via `_safeOutboundTransfer` |
+| POL-02 | Med | POLAccumulator.sol:813-822,838-847 | 47ac719 | Mirror lending bypass-cooldown (60-min refuse) |
+| HOOK-03 | Med | TegridyFeeHook.sol:354-366 | e15d785 | claimFees uses plain IERC20.safeTransfer |
+| LPFARM-M1 | Med | TegridyLPFarming.sol:204-241 | afaeafb | Synthetix checkpoint-at-interaction for boost cache |
+| NFTLENDING-02 | Med | TegridyNFTLending.sol:996-1018 | b6b356d | Cancel-while-still-live carve-out |
+| DOC-04 | Low | Test/doc | 47ac719 | TWAP test realignment + FIX_STATUS narrowing |
+| SFR-05 | Info | SwapFeeRouter.sol:172-201,494-515,1923-1946 | 1649ad6 | L2 sequencer-uptime gate (one-shot setter) |
+| LENDING-04 | High | TegridyLending.sol:1845-1869 | 750e572 | directPaid + legacy double-claim reconcile (post-pass-7 surface) |
+
+### Net pass-7 totals
+
+- **Contract findings:** 1 Critical · 7 High · 4 Medium · 1 Low · 1 Info — all CLOSED.
+- **Cumulative across 7 passes:** 405 (pass-6) + 13 (pass-7) = **418 audit-tracked items**.
+
+---
+
+## Pass-8 Closures (2026-05-04 → 2026-05-06)
+
+100-agent fresh-eye adversarial pass run end-to-end against the full source
+tree (no prior-audit-doc consultation), organized as five waves: 30
+per-contract deep audits + 40 vulnerability-class scans + 15 cross-contract
+integration audits + 10 economic / MEV / game-theory + 5 specialized
+(compiler / toolchain / size / test-coverage / 2026-exploit pattern web
+research). Surfaced **~675 raw → ~275 unique findings after dedup** with
+**10 Critical + ~140 High + ~165 Medium + ~110 Low + ~250 Info**. Master
+report: [PASS8_2026_05_04.md](./PASS8_2026_05_04.md).
+
+**All in-scope items closed across 18 batches** (commits adfa452 → 1d058e2).
+Owner-trust subset (admin treasury rotation, captured-key drain paths,
+single-key pause, etc.) deferred to a dedicated multisig-policy phase per
+scope decision.
+
+### Pass-8 batches at a glance
+
+| Batch | Commit | Theme | Cluster |
+|---|---|---|---|
+| 1 | adfa452 family | LD-04 + GOV-ECON-01 + EIP-170 CI | Foundations |
+| 2 | adfa452 family | Restaker disenfranchisement (6 consumers) | VotePowerOracle wiring |
+| 3 | adfa452 family | Surgical exploit-by-anyone (5 contracts) | Authorization |
+| 4 | 895a183 family | TegridyLending split | Phase 0.1 |
+| 5 | 895a183 family | VoteIncentives split | Phase 0.3 |
+| 6 | 895a183 family | TegridyStaking trim + Restaking | Phase 0.2/0.4 partial |
+| 7 | 895a183 family | Solmate → Solady ERC721 | Phase 0.2 size |
+| 8 | 895a183 family | Phase 0.2 final-state assessment | Size headroom |
+| 9 | adfa452 | CCR-01 JBAC reentry + script migration | Phase 1.6 prep |
+| 10 | 08bf9ce | TF-INT-02 ERC20 fee stranding | Hook/integration |
+| 11 | 819bf50 | GOV-INT-01 GaugeController/VoteIncentives | Pair binding |
+| 12 | 6c1b607 | Phase 1.6 self-bribe + sub-quorum | Bribe market |
+| 13 | cb66614 | NFTPool fixture refresh | Test maint |
+| 14 | 895a183 | Phase 0.2 finish (TegridyStaking 24,544 B) | Phase 0.2 close |
+| 15 | 65ec7fa | Phase 3.5 lending offer expiry | BendDAO pattern |
+| 16 | 71bb3e8 | TegridyFeeHook PoolKey allowlist | Hook gate |
+| 17 | 7a605a8 | TegridyNFTPool ERC-2981 royalty | NFT pool |
+| 18 | 1d058e2 | ETH-ingress counters | Monitoring |
+
+### Phase 0 — Deployability final state
+
+| Contract | Final size | Headroom | Outcome |
+|---|---|---|---|
+| TegridyStaking | 24,544 B | 32 B | Solady + JBAC vault split + inline _clearPosition + drop supportsInterface + optimizer_runs=1 + 11 constants public→internal |
+| TegridyLending | 18,292 B | 6,284 B | Split into TegridyLending + TegridyLendingAdmin |
+| VoteIncentives | 22,447 B | 2,129 B | Split into VoteIncentives + VoteIncentivesAdmin |
+| TegridyRestaking | 24,011 B | 665 B | Trim |
+| TegridyFeeHook | 12,106 B | 12,470 B | (no change) |
+| TegridyNFTPool | 12,402 B | 12,174 B | (no change) |
+| TegridyStakingJbacVault | 1,615 B | 22,961 B | NEW sister contract |
+
+### Phase 1 invariants enforced (CCR-01)
+
+All 5 staking exit paths reordered so `_clearPosition` (which `_burn`s) runs
+**before** the JBAC return callback. Post-burn, Solady's `_ownerOf[id] == 0`
+causes any reentrant `transferFrom` / `acceptOffer` to revert. Same defense
+closes CCR-02 on TegridyRestaking.
+
+### Confirmed non-findings during pass-8 triage
+
+- **Phase 1.7** "governance VP double-spend" — each consumer (RevenueDistributor,
+  VoteIncentives, MemeBountyBoard, CommunityGrants) operates an independent
+  reward pool; VP is per-pool, not fungible.
+- **DROP-REVEAL-FORCE-RESOLVE** — TegridyDropV2 is mint-then-reveal (not
+  commit-reveal raffle); reveal is optional one-shot; cancellation pre-mint
+  only (DEEP-DROP-05); under-reveal cannot brick the drop.
+
+### Pass-8 test posture
+
+- **2,574 / 2,574 forge tests passing** across the active scope (post-pass-8 closure).
+- **6 PASS8 PoC files** under `contracts/test/PASS8_*.t.sol`:
+  GOV_INT_01 (12) + PHASE_1_6 (9) + PHASE_3_5 (10) + HOOK_ALLOWLIST (6) +
+  ROYALTY (5) + ETH_COUNTERS (4) = **46 tests**.
+- ~25 legacy tests updated for vault wiring, admin migration, ERC721 import
+  alias, and hardcoded constants after public→internal trimming.
+
+### Net pass-8 totals
+
+- **Closed:** 10 Critical + ~140 High + ~165 Medium + ~110 Low + ~250 Info
+  (after triage / dedup), minus owner-trust deferred subset.
+- **Cumulative across 8 passes:** 418 (pass-7) + ~275 (pass-8 deduped) =
+  **~693 audit-tracked items** total.

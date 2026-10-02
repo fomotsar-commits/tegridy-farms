@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import type { LoaderState, Particle } from './types';
 import {
-  LOADER_GALLERY, LOADER_WORDS, GOLD, T_VOID_END, T_ART_DURATION, T_ART_COUNT,
+  ART_COLLECTION, GOLD,
   T_CRACK_DURATION, T_EXIT_FINALIZE,
+  FILM_TIMING, SKIP_DISSOLVE_MS,
 } from './constants';
 import { preloadImages } from './preload';
-import { shouldSkipAtMount } from './skip';
 import {
   shuffle, easeInOutCubic, coverFit, getTextPixels,
   buildCrackPaths, MAX_PARTICLES,
@@ -21,14 +21,36 @@ import { drawCracks, drawSpiderWeb, buildExitDOM, tickRagdollShards } from './ph
 import { createMorphParticles, updateMorphParticles } from './fx/particleMorph';
 import { AudioEngine } from './fx/audio';
 import { PostFX } from './fx/postfx';
+import { loaderIdentity } from '../../lib/arrival';
 
-// THE OVERLAY ONLY. `children` used to be rendered here; the eager shell in
-// ./index.tsx owns them now (PERF-16), so the app tree is not held behind this
-// module's lazy chunk. The prop is GONE rather than ignored: an optional
+// THE OVERLAY ONLY. `children` used to be rendered here, then by an eager shell in
+// ./index.tsx (PERF-16) so the app tree was not held behind this module's lazy
+// chunk; answer ten deleted that shell with the curtain, and the only mount left is
+// the Island page's film. The prop is GONE rather than ignored: an optional
 // `children` that silently rendered nothing is the kind of prop someone passes
 // once and then debugs for an hour.
-export function AppLoader({ onComplete }: { onComplete?: () => void }) {
-  const [visible, setVisible] = useState(() => !shouldSkipAtMount());
+/**
+ * THE FILM, AND ONLY THE FILM (answer ten, ruling 1).
+ *
+ * Four pieces, shatter, vortex, hold, click-to-crack: the whole ~14.5 s arrival,
+ * unchanged. "Watch the arrival" on /island mounts it for somebody who came to
+ * see it, and that is now the only place it plays.
+ *
+ * This component used to have a second life as THE CURTAIN, a short pass-through
+ * variant the layout mounted over every cold arrival, chosen by a `full` prop
+ * that defaulted to the curtain. The island ruled the curtain off the arrival, so
+ * that variant is deleted rather than left dormant: with the old default, any
+ * future `<AppLoader onComplete>` written without the prop would have quietly put
+ * the curtain back on a stranger's first seconds. The film's own art, timing and
+ * controls are untouched; everything removed here only ever ran for the curtain.
+ */
+export function AppLoader({
+  onComplete,
+}: {
+  onComplete?: () => void;
+}) {
+  const [visible, setVisible] = useState(true);
+  const timing = FILM_TIMING;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<AudioEngine | null>(null);
@@ -38,6 +60,10 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
   // visitors aren't held for the full ~15-19s intro. The art/choreography is
   // unchanged — this only adds an opt-out (mirrors the existing Escape-to-skip).
   const [showSkip, setShowSkip] = useState(false);
+  // Set by the canvas effect while the art is loading: starts the loop straight into
+  // the dissolve. Nothing animates before the preload settles, so without it a skip
+  // in that window had no loop to dissolve it (see proceed() below).
+  const skipWhileLoadingRef = useRef<(() => void) | null>(null);
 
   const stateRef = useRef<LoaderState>({
     phase: 'loading',
@@ -65,6 +91,20 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
     vortexCenterY: 0,
     trailParticles: [],
     audioInitialized: false,
+    words: { main: '', sub: '' },
+    subliminal: [],
+  });
+
+  // A PARENT RE-RENDER IS NOT A NEW FILM.
+  //
+  // IslandPage passes onComplete as an inline arrow, a new function on every
+  // render. finalize used to be keyed on onComplete, and the canvas effect is
+  // keyed on finalize, so each parent render restarted the choreography from the
+  // void. finalize is stable for the life of a mount, and calls whichever
+  // onComplete is current when it runs.
+  const onCompleteRef = useRef(onComplete);
+  useLayoutEffect(() => {
+    onCompleteRef.current = onComplete;
   });
 
   const finalize = useCallback(() => {
@@ -74,18 +114,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       audioRef.current?.dispose();
       postfxRef.current?.dispose();
     }, 500);
-    onComplete?.();
-  }, [onComplete]);
-
-  /* Skip for repeat visits or reduced-motion preference. R007: the
-   * decision happens during `useState` lazy init (`shouldSkipAtMount`),
-   * so `visible` is already `false` on the very first render. Here we
-   * just fire `onComplete?.()` once so consumers can swap to the real
-   * app — no synchronous setState in effect body. */
-  useEffect(() => {
-    if (!visible) onComplete?.();
-    // Run only once per mount; consumers expect a single onComplete call.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    onCompleteRef.current?.();
   }, []);
 
   /* Initialize audio on first user gesture */
@@ -125,20 +154,34 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
     if (!visible) return;
     const s = stateRef.current;
     if (s.phase !== 'skip' && s.phase !== 'exit' && s.phase !== 'exit-crack') {
+      // A gesture on the film is a viewer engaging with something that goes on
+      // playing, so it starts the audio.
       initAudio();
       s.phase = 'skip';
       s.exitStart = performance.now();
+      skipWhileLoadingRef.current?.();
     }
   }, [visible, initAudio]);
 
-  /* ESC to skip with style */
+  /* ESCAPE ENDS THE FILM, AND NOTHING ELSE DOES BY ACCIDENT.
+   *
+   * The film is deliberate: somebody clicked "Watch the arrival" to see it, so a
+   * scroll or a stray key must not dismiss it. Escape and the Skip button end it,
+   * as they always did. Bound on the window, capture, so a stopPropagation in the
+   * app underneath cannot strand the film up.
+   */
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') skipIntro();
+    if (!visible) return;
+    const lift = (e: Event) => {
+      if (!(e instanceof KeyboardEvent && e.key === 'Escape')) return;
+      skipIntro();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [skipIntro]);
+    window.addEventListener('keydown', lift, { passive: true, capture: true });
+    return () => {
+      window.removeEventListener('keydown', lift, { capture: true });
+    };
+  }, [visible, skipIntro]);
+
 
   /* F304: reveal the visible Skip button 400ms after the intro starts. */
   useEffect(() => {
@@ -158,6 +201,10 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
     const s = stateRef.current;
     s.dpr = Math.min(window.devicePixelRatio || 1, 2);
     s.isMobile = window.innerWidth < 768;
+    // The arrival voice (words, flash set, gallery) is read when the film starts.
+    const identity = loaderIdentity();
+    s.words = { main: identity.main, sub: identity.sub };
+    s.subliminal = identity.subliminal;
 
     let W = window.innerWidth;
     let H = window.innerHeight;
@@ -202,7 +249,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
     let exitDOMState: ReturnType<typeof buildExitDOM> | null = null;
 
     /* Load images */
-    const chosen = shuffle(LOADER_GALLERY).slice(0, T_ART_COUNT);
+    const chosen = shuffle(identity.gallery ?? ART_COLLECTION).slice(0, timing.artCount);
     const srcs = chosen.map((a) => a.src);
     const titles = chosen.map((a) => a.title);
 
@@ -235,15 +282,30 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
     const proceed = (loaded: HTMLImageElement[]) => {
       if (disposed || settled) return;
       settled = true;
+      skipWhileLoadingRef.current = null;
       s.images = loaded;
       s.titles = loaded.length === 0 ? [] : titles.slice(0, loaded.length);
-      s.phase = 'void';
-      s.t0 = performance.now();
+      // A Skip or Escape while the art was loading has already chosen the ending.
+      // This used to set 'void' unconditionally, overwriting that choice, and the
+      // whole film then played to a visitor who had asked to leave it.
+      if (s.phase !== 'skip') {
+        s.phase = 'void';
+        s.t0 = performance.now();
+      }
       rafId = requestAnimationFrame(tick);
     };
 
-    const preloadTimer = window.setTimeout(() => proceed([]), PRELOAD_BUDGET_MS);
-
+    /* THE FILM WAITS FOR ITS ART, up to PRELOAD_BUDGET_MS. It is a deliberate
+     * viewing with no deadline, so waiting for its pictures is what the visitor
+     * asked for; the budget only bounds a slow or failed image. */
+    // Declared out here because the effect's cleanup clears it.
+    let preloadTimer = 0;
+    preloadTimer = window.setTimeout(() => proceed([]), PRELOAD_BUDGET_MS);
+    // A skip before the art arrives does not wait for it: dissolve now.
+    skipWhileLoadingRef.current = () => {
+      window.clearTimeout(preloadTimer);
+      proceed([]);
+    };
     preloadImages(srcs).then((results) => {
       window.clearTimeout(preloadTimer);
       proceed(results.filter((r): r is HTMLImageElement => r !== null));
@@ -303,8 +365,8 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       // Larger font sizes on mobile so text has enough pixel targets
       const mainSize = s.isMobile ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
       const subSize = s.isMobile ? Math.min(60, W * 0.09) : Math.min(60, W * 0.07);
-      const mainPts = getTextPixels(LOADER_WORDS.main, mainSize, W, H, -subSize * 0.5);
-      const subPts = getTextPixels(LOADER_WORDS.sub, subSize, W, H, mainSize * 0.45);
+      const mainPts = getTextPixels(s.words.main, mainSize, W, H, -subSize * 0.5);
+      const subPts = getTextPixels(s.words.sub, subSize, W, H, mainSize * 0.45);
       // Shuffle text pixel targets so particles spread evenly across the full text
       // Without this, scan-order (L→R, T→B) means the right side gets no coverage
       // when particle count < target count (1000 particles vs 3000+ targets on mobile)
@@ -339,7 +401,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       /* VOID */
       if (phase === 'void') {
         drawVoidPhase(ctx!, W, H, elapsed);
-        if (elapsed >= T_VOID_END) {
+        if (elapsed >= timing.voidEnd) {
           if (s.images.length === 0) {
             s.phase = 'textForm';
             s.t0 = now;
@@ -368,8 +430,8 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       /* ART GALLERY */
       if (phase === 'art') {
         const artElapsed = elapsed;
-        const pieceIdx = Math.floor(artElapsed / T_ART_DURATION);
-        const pieceTime = artElapsed % T_ART_DURATION;
+        const pieceIdx = Math.floor(artElapsed / timing.artDuration);
+        const pieceTime = artElapsed % timing.artDuration;
         bloomIntensity = 0.3;
 
         drawGoldenLine(ctx!, W, H, 1, 0.2);
@@ -420,7 +482,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
             }
           }
           if (glitchTime >= 900 && glitchTime < 1040) {
-            drawSubliminalText(ctx!, W, H);
+            drawSubliminalText(ctx!, W, H, s.subliminal);
           }
           // Spawn morph particles at start of glitch
           if (glitchTime < 50 && s.morphParticles.length === 0) {
@@ -462,7 +524,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
         drawGoldenLine(ctx!, W, H, 1, 0.1 + tp * 0.15);
         drawPurpleMist(ctx!, W, H, tp * 0.4);
         bloomIntensity = 0.5;
-        if (drawTextFormPhase(ctx!, W, H, elapsed, s)) {
+        if (drawTextFormPhase(ctx!, W, H, elapsed, s, timing.textForm)) {
           s.phase = 'hold';
           s.t0 = now;
         }
@@ -518,9 +580,9 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
         ctx!.font = `bold ${mainSize}px "Inter", "Helvetica Neue", sans-serif`;
         ctx!.textAlign = 'center'; ctx!.textBaseline = 'middle';
         ctx!.fillStyle = '#fff'; ctx!.shadowColor = '#fff'; ctx!.shadowBlur = 20;
-        ctx!.fillText(LOADER_WORDS.main, W / 2, H / 2 - subSize * 0.5);
+        ctx!.fillText(s.words.main, W / 2, H / 2 - subSize * 0.5);
         ctx!.font = `bold ${subSize}px "Inter", "Helvetica Neue", sans-serif`;
-        ctx!.fillText(LOADER_WORDS.sub, W / 2, H / 2 + mainSize * 0.45);
+        ctx!.fillText(s.words.sub, W / 2, H / 2 + mainSize * 0.45);
         ctx!.restore();
         }
 
@@ -565,12 +627,10 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
           const allDone = tickRagdollShards(exitDOMState.shards, W, H, now);
           if (allDone || exitElapsed >= T_EXIT_FINALIZE) {
             exitDOMState.cleanup();
-            sessionStorage.setItem('tf_loaded', '1');
             finalize();
             return;
           }
         } else if (exitElapsed >= T_EXIT_FINALIZE) {
-          sessionStorage.setItem('tf_loaded', '1');
           finalize();
           return;
         }
@@ -579,7 +639,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       /* SKIP: Dissolve */
       if (phase === 'skip') {
         const skipElapsed = now - s.exitStart;
-        const progress = Math.min(1, skipElapsed / 400);
+        const progress = Math.min(1, skipElapsed / SKIP_DISSOLVE_MS);
 
         // Scatter particles outward
         for (const p of s.particles) {
@@ -606,7 +666,6 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
 
         if (progress >= 1) {
           audioRef.current?.fadeOutAmbient(0.2);
-          sessionStorage.setItem('tf_loaded', '1');
           finalize();
           return;
         }
@@ -624,12 +683,17 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       disposed = true;
       cancelAnimationFrame(rafId);
       window.clearTimeout(preloadTimer);
+      skipWhileLoadingRef.current = null;
       window.removeEventListener('resize', resize);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('touchmove', onTouchMove);
       exitDOMState?.cleanup();
     };
-  }, [visible, finalize, initAudio]);
+    // `timing` is a module constant, and `finalize` is stable for the life of a
+    // mount (it reads onComplete through a ref): while it was keyed on the
+    // parent's inline onComplete, every parent render restarted this effect, and
+    // the film with it, from the void. IslandPage passes an inline arrow too.
+  }, [visible, finalize, initAudio, timing]);
 
   const toggleMute = useCallback(() => {
     const next = !muted;
@@ -643,13 +707,18 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
         <div
           ref={overlayRef}
           onClick={handleClick}
+          // The e2e's handle on the film, and the proof no arrival overlay is up
+          // anywhere else: nothing but this element carries data-arrival.
+          data-arrival="film"
           style={{
             position: 'fixed',
             inset: 0,
             zIndex: 9999,
             background: '#000',
-            cursor: 'pointer',
             touchAction: 'none',
+            // The film takes pointer events: its click-to-crack exit is part of
+            // the art, and `handleClick` above serves it.
+            pointerEvents: 'auto',
           }}
         >
           <canvas
@@ -662,11 +731,12 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
               zIndex: 0,
             }}
           />
-          {/* Mute button */}
+          {/* Mute. The film is a deliberate viewing with sound worth controlling. */}
           <button
             onClick={(e) => { e.stopPropagation(); toggleMute(); }}
             style={{
               position: 'absolute',
+              pointerEvents: 'auto',
               top: 16,
               right: 16,
               zIndex: 10,
@@ -693,6 +763,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
               onClick={(e) => { e.stopPropagation(); skipIntro(); }}
               style={{
                 position: 'absolute',
+                pointerEvents: 'auto',
                 bottom: 24,
                 right: 16,
                 zIndex: 10,

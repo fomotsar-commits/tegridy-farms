@@ -51,9 +51,96 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Docs do not run the money paths. `scope` answers run=false only for a pull request
+  # whose every changed path, old and new for a rename, is markdown or under docs/.
+  # lint-typecheck-test then skips, and build, e2e and e2e-anvil skip behind it; a
+  # skipped job reports success. A push and every uncertain answer run everything, and
+  # a failed scope job runs the whole chain: each job reads its own need's result.
+  # `docs-guards` always runs the tests that read markdown (requiredCheckSynthesis.test.ts
+  # derives that list from the test files).
+  scope:
+    name: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.q.outputs.run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Does this diff touch anything outside the docs?
+        id: q
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          say() { echo "run=$1" >> "$GITHUB_OUTPUT"; exit 0; }
+          [ -n "${PR:-}" ] || { echo "not a pull_request: everything runs"; say true; }
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)') || {
+            echo "::warning::gh could not list every changed file, running everything"
+            say true
+          }
+          if [ -z "$files" ]; then
+            echo "::warning::could not list this PR's changed files, running everything"
+            say true
+          fi
+          if [ "$(printf '%s\n' "$files" | wc -l)" -ge 3000 ]; then
+            echo "::warning::changed-file list is at the API cap, running everything"
+            say true
+          fi
+          verdict=$(printf '%s\n' "$files" | node .github/scripts/diff-scope.mjs --outside \
+            '**/*.md' \
+            'docs/**')
+          case "$verdict" in
+            true|false) say "$verdict" ;;
+            *) echo "::warning::diff-scope returned '$verdict', running everything"; say true ;;
+          esac
+
+  docs-guards:
+    name: Doc guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci --ignore-scripts
+
+      - name: Tests that read markdown
+        run: >-
+          npx vitest run
+          api/__tests__/commerce-surface-parity.test.js
+          scripts/supabase-restore.test.mjs
+          src/lib/docsAddressTruth.test.ts
+          src/lib/docsClaimHonesty.test.ts
+          src/lib/docsReconciliation.test.ts
+          src/lib/launcher/solana/spentProgramIds.test.ts
+          src/lib/whetstonePetitionTruth.test.ts
+          src/test/botOrigins.test.ts
+          src/test/frontDoor.test.ts
+          src/test/mirrorToGitlab.test.ts
+
   lint-typecheck-test:
     name: Lint, Type Check & Test
     runs-on: ubuntu-latest
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     defaults:
       run:
         working-directory: frontend
@@ -117,6 +204,16 @@ jobs:
         # pre-existing failures); this flip is correct for mvp-launch and must
         # be re-checked before porting to main.
         run: npm test
+
+      # Answer eleven, ruling 1: no Discord invite ships unless Discord's own API says
+      # it is permanent (expires_at null) and belongs to the server the owners named.
+      # Here and not in the build: a Discord outage must not stop a production deploy,
+      # but it must stop a merge that would ship an invite nobody could resolve. With
+      # no invite in the source it makes no network call. The rule and its tests:
+      # scripts/lib/discord-invites.mjs and scripts/discord-invites.test.mjs.
+      - name: Discord invites resolve
+        if: ${{ !cancelled() }}
+        run: node scripts/verify-discord-invites.mjs
 
       # indexer-solana/ is a separate Node service, so its tests cannot be
       # collected by the step above: vitest's `root` is frontend/ and include
@@ -254,6 +351,14 @@ jobs:
         working-directory: .
         run: node scripts/oneshot-guard.mjs --self-test
 
+      # The scripts that move every ref between git hosts and back them up. Their value is their
+      # guards (never force, trunk first, prove the host's set, refuse a partial source), so the
+      # tests run on every push. Throwaway repos only: git, bash, sha256sum and ssh-keygen, no network.
+      - name: Git-hosting script tests
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: bash scripts/git-hosting/test/run-all.sh
+
       # THE PULL-REQUEST GATE FOR THE MONITORING RULES.
       #
       # contracts/monitoring/lib/arbLinkage.mjs decides whether the arb-linkage
@@ -290,10 +395,33 @@ jobs:
         working-directory: .
         run: node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
 
+      # The two endpoint redactors and the guards that keep the ops scripts using
+      # them. Separate from the step above because it is not a monitoring rule, and a
+      # step name that stops describing what it runs is how coverage goes unnoticed.
+      #
+      # Same bare-runner constraint: plain `node --test`, no frontend install. It also
+      # spawns bash to source contracts/script/lib/redact-url.sh, which ubuntu-latest
+      # has; the test FAILS rather than skips if bash is missing.
+      - name: Endpoint redaction unit tests
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: node --test scripts/lib/redact-url.test.mjs
+
+      # scripts/ops/: the weekly pull of GitHub's backups, the heartbeat step in
+      # synthetic-monitor.yml, and the failover runner for this repo's crons. Bare node
+      # plus gpg, tar and bash, which ubuntu-latest has; a missing tool FAILS, never skips.
+      - name: Ops runner unit tests
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: node --test scripts/ops/env-file.test.mjs scripts/ops/supabase-backup.test.mjs scripts/ops/run-job.test.mjs scripts/ops/pull-github-backups.test.mjs scripts/ops/heartbeat.test.mjs
+
   build:
     name: Build
     runs-on: ubuntu-latest
     needs: lint-typecheck-test
+    if: >-
+      !cancelled() &&
+      needs.lint-typecheck-test.result == 'success'
     defaults:
       run:
         working-directory: frontend
@@ -321,12 +449,21 @@ jobs:
         run: npm run build
         env:
           VITE_WALLETCONNECT_PROJECT_ID: ${{ secrets.VITE_WALLETCONNECT_PROJECT_ID }}
+          # The BAYLA lock ladder, as production builds it (scripts/addresses.json
+          # bayla-ladder-program / bayla-ladder-pool; public addresses, not secrets).
+          # Without them /earn/bayla has no ladder card, and
+          # em-dash-zero.spec.ts fails rather than walk nothing.
+          VITE_BAYLA_LADDER_PROGRAM: EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ
+          VITE_BAYLA_LADDER_POOL: Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV
 
       - name: Build (no WalletConnect, fork PR)
         if: |
           github.event_name == 'pull_request' &&
           github.event.pull_request.head.repo.full_name != github.repository
         run: npm run build
+        env:
+          VITE_BAYLA_LADDER_PROGRAM: EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ
+          VITE_BAYLA_LADDER_POOL: Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
@@ -339,6 +476,9 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     needs: build
+    if: >-
+      !cancelled() &&
+      needs.build.result == 'success'
     defaults:
       run:
         working-directory: frontend
@@ -438,6 +578,9 @@ jobs:
     name: E2E Tests (Anvil fork — money paths)
     runs-on: ubuntu-latest
     needs: build
+    if: >-
+      !cancelled() &&
+      needs.build.result == 'success'
     timeout-minutes: 30
     defaults:
       run:
@@ -481,7 +624,21 @@ jobs:
       - name: Money-path E2E against an Anvil mainnet fork
         env:
           E2E_REQUIRE_ANVIL: "1"
-          ANVIL_FORK_URL: https://ethereum-rpc.publicnode.com
+          # SECRET FIRST, FREE ENDPOINT AS THE DOCUMENTED FALLBACK.
+          #
+          # publicnode gated archive requests behind a token on 2026-09-09 and a
+          # fork IS an archive request, so the hardcoded default that used to sit
+          # here took trunk red and every PR with it. Two free defaults have now
+          # died this way, which makes the endpoint a consumable and a bare
+          # literal the wrong shape for it.
+          #
+          # Set the ANVIL_FORK_URL repo secret to a keyed archive RPC and this job
+          # picks it up with no code change; leave it unset and the job runs on
+          # drpc, which forks today. No key is ever committed. (Secrets are empty
+          # on fork-PR runs, which fall back to drpc — the same as today.)
+          # See frontend/scripts/run-e2e-with-anvil.mjs for the reproduction and
+          # for how to verify a replacement endpoint.
+          ANVIL_FORK_URL: ${{ secrets.ANVIL_FORK_URL || 'https://eth.drpc.org' }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: anvil-report.json
         run: |
           npm run e2e -- --project=chromium --reporter=list,json \
