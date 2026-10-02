@@ -10,8 +10,8 @@ afterEach(() => {
 
 describe('curve write flag', () => {
   it('ships switched OFF (the LP release), so a production build never loads the write path', () => {
-    // Owner 2026-10-01: launching waits for the island's Q2 answer. No env variable can
-    // turn a production build on; only this constant can.
+    // Owner 2026-10-02: launching stays off until the owner's own one-line PR after #682.
+    // No env variable can turn a production build on; only this constant can.
     expect(CURVE_WRITES_ENABLED).toBe(false);
     expect(isCurveWriteEnabled({ DEV: false, PROD: true, MODE: 'production' })).toBe(false);
     expect(isCurveWriteEnabled({ DEV: false, PROD: true, MODE: 'production', VITE_SOLANA_CURVE_WRITES: '1' })).toBe(false);

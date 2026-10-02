@@ -21,9 +21,9 @@
 import { compiledByDevServer } from '../../devServer';
 
 /**
- * OFF in the LP release (2026-10-01): the owner ships the launch pages read-only until
- * Jungle Bay Island answers Q2 (may Solana launches open before "born in $BAYLA"?).
- * The ids stay the registered restart ids, so switching launching on is this one line.
+ * OFF by the owner's decision (2026-10-02): the island has ruled the SOL lane open
+ * (answer sixteen, ruling 1), and the owner switches launching on in its own one-line
+ * PR after #682 ships. The ids stay the registered restart ids, so that PR is this line.
  *
  * Website release 2 (branch ship/solana-launch-on) set it ON together with those ids.
  * Even ON, the write layer still reads the chain before it offers anything
