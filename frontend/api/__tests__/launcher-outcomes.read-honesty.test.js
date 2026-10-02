@@ -33,7 +33,7 @@ const CREATOR = "0x1489825812345678901234567890123456789abc";
 function makeReq(baselines) {
   return {
     method: "POST",
-    headers: { origin: "https://memetic.fun" },
+    headers: { origin: "https://memetics.finance" },
     body: { baselines },
   };
 }

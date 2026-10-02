@@ -1,11 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 
 // CANONICAL-ORIGIN GUARD.
 //
-// memetic.fun is the production domain (see reference_vercel_deploy_procedure), but every
-// origin-gated surface under api/ hardcodes a 3-entry allowlist that listed only
+// memetic.fun was the production domain on 2026-07-30 (see reference_vercel_deploy_procedure),
+// but every origin-gated surface under api/ hardcoded a 3-entry allowlist that listed only
 // nakamigos.gallery + tegridyfarms.vercel.app, relying on a `process.env.ALLOWED_ORIGIN`
 // that is not set in prod. Verified live on 2026-07-30:
 //
@@ -16,8 +16,14 @@ import { join } from "node:path";
 // of failure was one env var away on eleven other surfaces. An allowlist that omits your
 // own canonical domain is not a security control, it is an outage.
 //
+// The canonical host has since become memetics.finance (#478, 2026-09-12), and on
+// 2026-09-20 memetic.fun stopped being this venue at all — see the FOREIGN-HOST GUARD below.
+// The lesson above is unchanged; only the name it applies to moved.
+//
 // api/auth/siwe.js derives its SIWE `domain` allowlist from this SAME set
 // (`[...allowedOriginsSet].map(u => new URL(u).host)`), so the two stay coherent.
+
+const CANONICAL = "https://memetics.finance";
 
 const ORIGIN_GATED = [
   "api/alchemy.js",
@@ -31,10 +37,25 @@ const ORIGIN_GATED = [
   "api/supabase-proxy.js",
   "api/v1/index.js",
   "api/_lib/aggregator-proxy.js",
+  "api/_lib/births.js",
+  "api/_lib/gecko-read.js",
+  "api/_lib/heat.js",
   "api/_lib/launch-cohort.js",
   "api/_lib/launch-radar.js",
   "api/_lib/launcher-outcomes.js",
+  "api/_lib/pool-market.js",
 ];
+
+// Comments are stripped before any "does the code mention X" check: the removal notes name
+// these domains deliberately, and a guard that a comment can trip would be reverted the
+// first time it fired spuriously.
+function executableCode(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .filter((l) => !/^\s*\/\//.test(l))
+    .join("\n");
+}
 
 // UNOWNED-ORIGIN GUARD (2026-08-02).
 //
@@ -52,21 +73,63 @@ const ORIGIN_GATED = [
 // An allowlist entry for a domain you do not own is not a convenience, it is a grant.
 const UNOWNED_ORIGINS = ["nakamigos.gallery"];
 
+// FOREIGN-HOST GUARD (2026-09-23).
+//
+// The same finding a third time, with a twist: this domain IS ours to register, but not
+// ours to serve. Since 2026-09-20 memetic.fun and www.memetic.fun are bound to the
+// `memetic-fun-lab-proxy` Vercel project and serve the Island Lab from a Cloudflare Worker.
+// The venue must not answer there (the canonical-host law, #478, inverted in
+// src/lib/__tests__/canonicalHost.test.ts and synthetic-monitor.yml). But every allowlist
+// below still named both hosts — eighteen files, five of them feeding Allow-Credentials — so a page the
+// venue does not control could call the Supabase proxy, auth/me, v1 key management and
+// the five `?resource=` handlers with Allow-Credentials, and because the SIWE domain list
+// is derived from the same set, a message signed FOR memetic.fun was a venue login.
+// Verified live before the fix: `OPTIONS /api/auth/me` with `Origin: https://memetic.fun`
+// answered `Access-Control-Allow-Origin: https://memetic.fun` + `Allow-Credentials: true`.
+//
+// Owning a registration is not the test. Serving the page is. The bare host covers `www.`.
+const FOREIGN_HOSTS = ["memetic.fun"];
+
+// Origins this deployment actually serves. The fallback below is handed to origins that
+// are NOT allowlisted, so it must be one of these — otherwise a lapsed registration, or a
+// host re-pointed at someone else's project, turns into a standing cross-origin grant.
+// These are deliberately NOT interchangeable with the allowlist: an origin can be removed
+// from the allowlist and still be a safe fallback, and vice versa.
+//
+// memetic.fun was on this list until 2026-09-23 and is exactly the failure it guards
+// against: as the ALLOWED_ORIGIN default on four surfaces, an UNMATCHED request from
+// memetic.fun was handed its own name back, the allowlist entry by another road.
+const VENUE_ORIGINS = [
+  "https://memetics.finance",
+  "https://www.memetics.finance",
+  "https://tegridyfarms.vercel.app",
+];
+
+function walkJs(dir, acc = []) {
+  for (const entry of readdirSync(dir)) {
+    if (entry === "__tests__" || entry === "node_modules") continue;
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) walkJs(full, acc);
+    else if (entry.endsWith(".js")) acc.push(full);
+  }
+  return acc;
+}
+
 describe("canonical origin is allowlisted on every origin-gated api surface", () => {
   for (const rel of ORIGIN_GATED) {
-    it(`${rel} allows https://memetic.fun`, () => {
+    it(`${rel} allows ${CANONICAL}`, () => {
       const src = readFileSync(join(process.cwd(), rel), "utf8");
-      expect(src).toContain('"https://memetic.fun"');
+      expect(src).toContain(`"${CANONICAL}"`);
     });
   }
 
-  it("every file that gates on tegridyfarms.vercel.app also lists memetic.fun", () => {
+  it("every file that gates on tegridyfarms.vercel.app also lists the canonical origin", () => {
     // Catches a NEW origin-gated surface added without the canonical domain — the
-    // failure mode that produced the live 403, rather than just the twelve known files.
+    // failure mode that produced the live 403, rather than just the known files.
     for (const rel of ORIGIN_GATED) {
       const src = readFileSync(join(process.cwd(), rel), "utf8");
       const gates = /"https:\/\/tegridyfarms\.vercel\.app",/.test(src);
-      if (gates) expect(src, `${rel} gates on the vercel origin but omits memetic.fun`).toContain('"https://memetic.fun"');
+      if (gates) expect(src, `${rel} gates on the vercel origin but omits ${CANONICAL}`).toContain(`"${CANONICAL}"`);
     }
   });
 });
@@ -74,44 +137,26 @@ describe("canonical origin is allowlisted on every origin-gated api surface", ()
 describe("no origin-gated surface admits a domain we do not own", () => {
   for (const rel of ORIGIN_GATED) {
     it(`${rel} does not reference an unowned origin`, () => {
-      const src = readFileSync(join(process.cwd(), rel), "utf8");
-      // Strip comments first: the removal notes name the domain deliberately, and a guard
-      // that a comment can trip would be reverted the first time it fired spuriously.
-      const code = src
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .split("\n")
-        .filter((l) => !/^\s*\/\//.test(l))
-        .join("\n");
+      const code = executableCode(readFileSync(join(process.cwd(), rel), "utf8"));
       for (const dead of UNOWNED_ORIGINS) {
         expect(code, `${rel} still references ${dead} in executable code`).not.toContain(dead);
       }
     });
   }
 
-  // Origins the project demonstrably controls. The fallback below is handed to origins that
-  // are NOT allowlisted, so it must be a domain we own — otherwise a lapsed registration
-  // turns into a standing cross-origin grant, which is exactly what happened here.
-  // These three are deliberately NOT interchangeable with the allowlist: an origin can be
-  // removed from the allowlist and still be a safe fallback, and vice versa.
-  const OWNED_ORIGINS = [
-    "https://memetic.fun",
-    "https://www.memetic.fun",
-    "https://tegridyfarms.vercel.app",
-  ];
-
-  it("no surface falls back to an origin we do not own, for an UNMATCHED origin", () => {
+  it("no surface falls back to an origin this venue does not serve, for an UNMATCHED origin", () => {
     // orderbook.js et al do `ALLOWED_ORIGINS.has(origin) ? origin : ALLOWED_ORIGIN`, so the
     // ALLOWED_ORIGIN default is echoed to every origin that is NOT on the allowlist.
-    // NB this asserts OWNERSHIP, not canonicality: solrpc.js and _lib/aggregator-proxy.js
-    // legitimately default to the vercel alias. Making all of them canonical is a separate,
-    // behaviour-changing cleanup and does not belong in a security fix.
+    // NB this asserts the venue SERVES it, not canonicality: solrpc.js and
+    // _lib/aggregator-proxy.js legitimately default to the vercel alias. Making all of them
+    // canonical is a separate, behaviour-changing cleanup and does not belong in a security fix.
     let checked = 0;
     for (const rel of ORIGIN_GATED) {
       const src = readFileSync(join(process.cwd(), rel), "utf8");
       const m = src.match(/process\.env\.ALLOWED_ORIGIN\s*\|\|\s*"([^"]+)"/);
       if (m) {
         checked += 1;
-        expect(OWNED_ORIGINS, `${rel} defaults unmatched origins to ${m[1]}, which we do not own`)
+        expect(VENUE_ORIGINS, `${rel} defaults unmatched origins to ${m[1]}, which this venue does not serve`)
           .toContain(m[1]);
       }
     }
@@ -120,4 +165,86 @@ describe("no origin-gated surface admits a domain we do not own", () => {
     expect(checked, "no ALLOWED_ORIGIN literal defaults found — has the idiom changed?")
       .toBeGreaterThanOrEqual(5);
   });
+});
+
+describe("no api surface admits a host that is not this venue (memetic.fun, 2026-09-20)", () => {
+  const API_DIR = join(process.cwd(), "api");
+
+  it("no api/ file names memetic.fun in executable code — allowlist, fallback or otherwise", () => {
+    // Every api/ file, not just ORIGIN_GATED: a NEW handler with its own copy of an old
+    // allowlist is precisely how a removed origin comes back.
+    const files = walkJs(API_DIR);
+    // Guard the guard: a walk that found nothing would pass vacuously.
+    expect(files.length).toBeGreaterThan(ORIGIN_GATED.length);
+    const offenders = [];
+    for (const f of files) {
+      const code = executableCode(readFileSync(f, "utf8"));
+      for (const host of FOREIGN_HOSTS) {
+        if (code.includes(host)) offenders.push(`${relative(API_DIR, f).split(sep).join("/")} → ${host}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  // Behavioural, not textual: a real preflight against every directly routed handler, as
+  // the browser on memetic.fun would send it. A source scan cannot see an origin arriving
+  // through a fallback, a derived set or an env default; the response headers can.
+  const HANDLERS = [
+    "../alchemy.js",
+    "../analytics.js",
+    "../auth/me.js",
+    "../auth/siwe.js",
+    "../etherscan.js",
+    "../opensea.js",
+    "../orderbook.js",
+    "../solrpc.js",
+    "../supabase-proxy.js",
+    "../v1/index.js",
+  ];
+
+  function preflight(origin) {
+    const headers = {};
+    const res = {
+      statusCode: 0,
+      setHeader: (k, v) => { headers[k.toLowerCase()] = v; },
+      status(c) { this.statusCode = c; return this; },
+      json() { return this; },
+      end() { return this; },
+    };
+    const req = {
+      method: "OPTIONS",
+      query: {},
+      body: {},
+      headers: { origin, "access-control-request-method": "POST" },
+    };
+    return { req, res, headers };
+  }
+
+  beforeAll(() => {
+    // Production shape: no dev localhost widening, the same gate the live site runs.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_ENV", "production");
+  });
+  afterAll(() => {
+    vi.unstubAllEnvs();
+  });
+
+  for (const rel of HANDLERS) {
+    it(`${rel.slice(3)} grants memetic.fun nothing on a preflight`, async () => {
+      const handler = (await import(rel)).default;
+
+      // Control first: the canonical origin IS granted, so this harness demonstrably
+      // reaches the CORS code. Without it a handler that set no headers at all would pass.
+      const ok = preflight(CANONICAL);
+      await handler(ok.req, ok.res);
+      expect(ok.headers["access-control-allow-origin"], `${rel} control`).toBe(CANONICAL);
+
+      for (const origin of ["https://memetic.fun", "https://www.memetic.fun"]) {
+        const { req, res, headers } = preflight(origin);
+        await handler(req, res);
+        expect(headers["access-control-allow-origin"], `${rel} echoed ${origin}`).not.toBe(origin);
+        expect(headers["access-control-allow-credentials"], `${rel} credentialed ${origin}`).not.toBe("true");
+      }
+    });
+  }
 });

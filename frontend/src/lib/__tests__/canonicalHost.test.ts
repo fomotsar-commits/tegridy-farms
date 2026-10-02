@@ -1,28 +1,8 @@
-// ONE canonical host, asserted across every surface that tells a crawler where
-// this site lives.
-//
-// WHY THIS FILE EXISTS. The venue served two hosts, and the signals disagreed
-// about which one was authoritative: index.html said `memetics.finance` while
-// robots.txt handed out a sitemap on `memetic.fun` and all 43 <loc> entries in
-// that sitemap named the alias. A crawler was therefore told the canonical host
-// by one file and given the URL set on the other — the duplicate-content
-// collision a single-canonical policy exists to prevent. The edge middleware
-// was worse than either: it stamped `rel=canonical` and `og:url` from
-// `req.url`'s origin, so it echoed back whichever host the crawler happened to
-// arrive on and could never converge.
-//
-// WHAT IS PINNED, AND WHAT DELIBERATELY IS NOT. Every assertion below is
-// derived from `SITE_URL` in src/lib/constants.ts — the one place trunk decided
-// the host (see its ARRIVAL IDENTITY 2026-08-27 note). Nothing here hardcodes
-// "memetics.finance", so moving the venue is a ONE-LINE change in constants.ts
-// and this file follows; and a surface left behind on the old host turns red
-// instead of quietly disagreeing.
-//
-// NOT pinned here: the api/ CORS allowlists. Those deliberately admit BOTH
-// hosts (constants.ts says so in as many words) because they govern ACCESS, not
-// declared identity — an alias that 301s still has in-flight clients. They are
-// covered by api/__tests__/origin-allowlist-parity.test.js, and widening the
-// scope of this file to them would break a live surface for a cosmetic tidy.
+// ONE canonical host, SITE_URL in src/lib/constants.ts, on every surface that tells a
+// crawler where the venue lives. Nothing here hardcodes it, so moving the venue is one line
+// in constants.ts, and a surface left on the old host turns red. The api/ CORS allowlists
+// govern access, not declared identity, so they are not pinned here:
+// api/__tests__/origin-allowlist-parity.test.js covers them.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -42,23 +22,10 @@ const CANONICAL_HOST = CANONICAL.host;
 const ALIAS_HOST = 'www.memetics.finance';
 
 /**
- * A host the venue DOES NOT ANSWER ON AT ALL, and must never start answering on.
- *
- * memetic.fun was an alias, and this file used to assert that it redirected here.
- * It now serves the Memetics Lab, which is a different application on a different
- * host, so the venue makes no claim on it: no redirect rule, no canonical stamp,
- * no place in the sitemap.
- *
- * The canonical-host law (#478) is unchanged and the guard below is STRONGER than
- * the one it replaces. The law was never "the alias must redirect" — that was one
- * mechanism for it. The law is that THIS VENUE ANSWERS UNDER ONE NAME. A redirect
- * satisfied it; so does a host the venue does not serve. What would break it is
- * this host quietly becoming a second front door, which is exactly what happened
- * to tegridyfarms.vercel.app and cost a ruling to undo.
- *
- * A redirect rule reappearing here is the tell that someone re-attached the domain
- * to this Vercel project, because a rule is only ever written to suppress a host
- * this project is serving.
+ * A host the venue must never answer on (#478: the venue answers under one name).
+ * memetic.fun serves the Island Lab from its own Vercel project, so the venue makes no
+ * claim on it. A vercel.json rule for it would mean the domain was re-attached to this
+ * project, since a rule is only written to suppress a host this project serves.
  */
 const FOREIGN_HOST = 'memetic.fun';
 
@@ -102,23 +69,14 @@ describe('the site names exactly one canonical host', () => {
     expect(url.origin).toBe(CANONICAL_ORIGIN);
   });
 
-  // index.html's own tags — rel=canonical, og:url, twitter:url, the JSON-LD `url`,
-  // and the bungalow-door pre-render that carries a second copy of the origin — are
-  // NOT re-asserted here. src/lib/siteIdentity.test.ts already pins all of them to
-  // SITE_URL, and it also guards the CSP sha256 over the inline JSON-LD. They were
-  // already correct when this file was written; duplicating them would have added
-  // four assertions that are green before AND after the fix, which is not coverage.
+  // index.html's own tags (rel=canonical, og:url, twitter:url, the JSON-LD `url` and the
+  // bungalow-door pre-render) are pinned to SITE_URL by src/lib/siteIdentity.test.ts.
 });
 
 describe('the edge middleware stamps the canonical host, not the requested one', () => {
-  // The real property is INVARIANCE: the card a crawler gets must be the same
-  // document whichever host it knocked on. Asserting only "equals the canonical
-  // origin" would still pass a middleware that merely happened to be handed the
-  // canonical host by the test; asserting the two requests AGREE cannot.
-  //
-  // Both routes below answer without touching the network: /scan with an
-  // unparseable token short-circuits to the generic scanner card, and
-  // /nakamigos with no slug is the collection landing card.
+  // The property is INVARIANCE: a crawler gets the same card whichever host it asked,
+  // which "equals the canonical origin" alone would not prove. Both routes answer without
+  // the network: an unparseable /scan token and the bare /nakamigos landing card.
   for (const path of ['/scan?token=not-an-address', '/nakamigos']) {
     it(`serves a host-independent card for ${path}`, async () => {
       const onCanonical = await botStamp(path, CANONICAL_HOST);
@@ -154,9 +112,8 @@ describe('vercel.json permanently redirects the aliases onto the canonical host'
   it('sends the bare alias host to the canonical origin, permanently', () => {
     const rule = hostRule(ALIAS_HOST);
     expect(rule, `no catch-all host redirect for ${ALIAS_HOST}`).toBeTruthy();
-    // `permanent: true` makes Vercel emit 308 (it emits 307 for `false`); a
-    // `redirects` entry never emits 301. Saying "301" here is what led the
-    // synthetic monitor to demand a literal 301 and fail every run for two days.
+    // `permanent: true` makes Vercel emit 308 (307 for `false`). A `redirects` entry never
+    // emits 301, so nothing that checks these hosts may demand one.
     expect(rule!.permanent, 'an alias redirect must be permanent (308), not a 307').toBe(true);
     expect(new URL(rule!.destination.replace('$1', '')).origin).toBe(CANONICAL_ORIGIN);
   });
@@ -170,13 +127,8 @@ describe('vercel.json permanently redirects the aliases onto the canonical host'
       .map((r) => `${r.has!.find((h) => h.type === 'host')!.value} -> ${r.destination}`);
     expect(chained, 'host redirects that hop through another redirected host').toEqual([]);
 
-    // AND THE HALF THIS TEST ONLY CLAIMED TO CHECK until 2026-09-20. The filter
-    // above flags a destination that is ITSELF a redirected host, so it catches a
-    // chain — but a host redirect pointing at some third host that is simply not
-    // redirected at all sailed through, while the test's name said "lands every
-    // host redirect ON the canonical origin". A mutation proved it: repointing
-    // tegridyfarms.vercel.app at a host with no rule of its own left this green.
-    // The name was the honest statement of intent; the assertion is now that.
+    // The filter above only catches a destination that is itself redirected. A rule aimed
+    // at a third host with no rule of its own passes it, so land every one ON the canonical.
     const offCanonical = redirects
       .filter((r) => r.has?.some((h) => h.type === 'host'))
       .filter((r) => new URL(r.destination.replace('$1', '')).origin !== CANONICAL_ORIGIN)
@@ -208,12 +160,9 @@ describe('vercel.json permanently redirects the aliases onto the canonical host'
   });
 
   it('keeps the foreign host out of what a crawler actually reads', () => {
-    // STRUCTURAL, NOT A SUBSTRING SEARCH. Both files carry XML/# comments that
-    // narrate the host history and name memetic.fun in prose. A crawler never
-    // reads those, and a blunt `.includes()` over the file text fails on them —
-    // which would push the next person to delete the history to get green, or to
-    // add this file to an exemption list. Assert on the machine-read surfaces:
-    // the <loc> entries, and robots' directive lines with comments stripped.
+    // Structural, not a substring search: both files name memetic.fun in comments that a
+    // crawler never reads. Assert on the machine-read surfaces, the <loc> entries and
+    // robots' directive lines with comments stripped.
     const locOrigins = new Set(sitemapLocOrigins(read('public', 'sitemap.xml')));
     const strays = [...locOrigins].filter((o) => new URL(o).host === FOREIGN_HOST);
     expect(strays, `sitemap <loc> entries on ${FOREIGN_HOST}`).toEqual([]);

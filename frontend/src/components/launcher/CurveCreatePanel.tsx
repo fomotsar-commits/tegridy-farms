@@ -15,14 +15,16 @@
 // Failure honesty: an image-upload failure stops BEFORE any tx (nothing
 // on-chain, nothing lost). A metadata failure AFTER the tx leaves a live
 // launch with no identity — the card says exactly that and offers a retry;
-// trading is never blocked on identity.
+// trading is never blocked on identity. A create receipt we could not READ
+// is neither: the coin may exist, so the card says it cannot tell and offers
+// to check again, instead of an armed form one click from a second launch.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { usePublicClient, useReadContract, useWriteContract } from 'wagmi';
 import { toast } from 'sonner';
-import { parseEventLogs, type Address } from 'viem';
+import { parseEventLogs, type Address, type TransactionReceipt } from 'viem';
 import { sanitizeDecimalInput } from '../../lib/formatting';
 import { safeParseEther } from '../../lib/safeParseEther';
 import { CURVE_LAUNCHER_ABI } from '../../lib/launcher/curve';
@@ -34,6 +36,8 @@ import {
   IDENTITY_IMAGE_MAX_BYTES,
 } from '../../lib/launcher/curveIdentity';
 import { useIrysUpload } from '../../hooks/useIrysUpload';
+import { getTxUrl } from '../../lib/explorer';
+import { surfaceUnconfirmedTx } from '../../lib/txErrors';
 
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
 const inputCls = 'w-full px-3 py-2 rounded-lg bg-black/55 text-white text-[13px] outline-none';
@@ -51,7 +55,9 @@ export interface CurveCreateFields {
 }
 
 /** The create flow's visible machine. Busy stages disable the form; the two
- *  terminal stages swap it for the success card. */
+ *  terminal stages swap it for the success card, and 'unconfirmed' (the create
+ *  tx was sent but its receipt could not be read) swaps it for a card that can
+ *  check again. */
 export type CurveCreateStage =
   | 'idle'
   | 'uploading-image'
@@ -59,14 +65,22 @@ export type CurveCreateStage =
   | 'confirming'
   | 'publishing-identity'
   | 'done'
-  | 'identity-failed';
+  | 'identity-failed'
+  | 'unconfirmed';
 
-const BUSY_LABEL: Record<Exclude<CurveCreateStage, 'idle' | 'done' | 'identity-failed'>, string> = {
+const BUSY_LABEL: Record<Exclude<CurveCreateStage, 'idle' | 'done' | 'identity-failed' | 'unconfirmed'>, string> = {
   'uploading-image': 'Uploading image…',
   'awaiting-wallet': 'Confirm in wallet…',
   confirming: 'Confirming on-chain…',
   'publishing-identity': 'Publishing identity…',
 };
+
+/** A create tx that was sent, with what the post-receipt steps need. */
+interface SentLaunch {
+  hash: `0x${string}`;
+  imageTxId: string;
+  fields: CurveCreateFields;
+}
 
 export interface CurveCreateViewProps {
   nativeSymbol?: string;
@@ -78,6 +92,10 @@ export interface CurveCreateViewProps {
   onRetryIdentity: () => void;
   /** Clear the terminal state to create another launch. */
   onReset: () => void;
+  /** The sent create tx whose receipt could not be read, shown in 'unconfirmed'. */
+  unconfirmedTx?: { hash: string; url: string } | null;
+  /** Re-read that receipt; finishes the launch if it can. */
+  onRecheck?: () => void;
   /** Hand the created token to the page (e.g. to prefill the trade panel). */
   onTrade?: (token: Address) => void;
   /**
@@ -98,6 +116,8 @@ export function CurveCreateView({
   onReset,
   onTrade,
   terms = null, // AUDIT FIX TF-023
+  unconfirmedTx = null,
+  onRecheck,
 }: CurveCreateViewProps) {
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
@@ -126,7 +146,7 @@ export function CurveCreateView({
   // Opening buy is optional; empty is 0. A non-empty, un-parseable value blocks.
   const openingWei = opening.trim() === '' ? 0n : safeParseEther(opening);
   const openingOk = openingWei !== null;
-  const busy = stage !== 'idle' && stage !== 'done' && stage !== 'identity-failed';
+  const busy = stage !== 'idle' && stage !== 'done' && stage !== 'identity-failed' && stage !== 'unconfirmed';
   const disabled = busy || !nameOk || !symbolOk || !openingOk || !image || imageError !== null;
 
   const pickImage = (file: File | null) => {
@@ -139,6 +159,52 @@ export function CurveCreateView({
     setImageError(err);
     setImage(err ? null : file);
   };
+
+  // Sent, but the result is unreadable. The coin may exist, so this is not the
+  // form: re-arming "Create launch" here would be one click from a second coin.
+  if (stage === 'unconfirmed') {
+    return (
+      <m.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="rounded-2xl p-5 space-y-3"
+        style={cardStyle}
+      >
+        <p className="text-white/90 text-sm font-semibold">We couldn’t confirm your launch</p>
+        <p className="text-amber-300/90 text-[11px] leading-relaxed">
+          The create transaction was sent, but we couldn’t read its result, so we can’t tell whether your
+          coin exists yet. Check it before you launch again: a second launch creates a second coin, with its
+          own opening buy.
+        </p>
+        {unconfirmedTx && (
+          <a
+            href={unconfirmedTx.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block text-[11px] text-white/80 underline break-all"
+          >
+            View {unconfirmedTx.hash} on the explorer
+          </a>
+        )}
+        <div className="flex gap-2">
+          {onRecheck && (
+            <button type="button" className="btn-primary flex-1 py-2.5 text-[13px]" onClick={onRecheck}>
+              Check again
+            </button>
+          )}
+          <button
+            type="button"
+            className="flex-1 py-2.5 text-[13px] rounded-lg text-white/70 hover:text-white bg-black/40"
+            style={inputStyle}
+            onClick={onReset}
+          >
+            Start over
+          </button>
+        </div>
+      </m.div>
+    );
+  }
 
   // Terminal states: the launch exists — show the coin, not the form.
   if (stage === 'done' || stage === 'identity-failed') {
@@ -391,6 +457,9 @@ export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: Curv
   const [createdToken, setCreatedToken] = useState<Address | null>(null);
   // Kept for the identity retry after a post-tx publish failure.
   const [pendingIdentity, setPendingIdentity] = useState<{ imageTxId: string; fields: CurveCreateFields } | null>(null);
+  // A sent create tx whose receipt could not be read, kept so "Check again" can
+  // finish the launch from the same tx.
+  const [unconfirmed, setUnconfirmed] = useState<SentLaunch | null>(null);
 
   const publishIdentity = async (token: Address, imageTxId: string, fields: CurveCreateFields) => {
     const metadata = buildIdentityMetadata({
@@ -426,31 +495,77 @@ export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: Curv
 
       setStage('confirming');
       if (!publicClient) throw new Error('No client for the curve chain.');
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      const created = parseEventLogs({
-        abi: CURVE_LAUNCHER_ABI,
-        logs: receipt.logs,
-        eventName: 'LaunchCreated',
-      }).find((log) => log.address.toLowerCase() === launcher.toLowerCase());
-      if (!created) throw new Error(`Launch confirmed (tx ${hash}) but no LaunchCreated log was found.`);
-      const token = created.args.token;
-      setCreatedToken(token);
-      onCreated?.(token);
-
-      setStage('publishing-identity');
+      let receipt: TransactionReceipt;
       try {
-        await publishIdentity(token, imageTxId, fields);
-        setStage('done');
-        toast.success('Launch created — your curve is live.');
+        receipt = await publicClient.waitForTransactionReceipt({ hash });
       } catch {
-        // The launch is live; only the off-chain identity is missing.
-        setPendingIdentity({ imageTxId, fields });
-        setStage('identity-failed');
-        toast.error('Launch is live, but publishing the image failed — you can retry.');
+        // viem RETURNS a reverted receipt (checked in settleLaunch), so this only
+        // means the receipt could not be read. The coin may exist: not a failure.
+        holdUnconfirmed({ hash, imageTxId, fields });
+        return;
       }
+      await settleLaunch(receipt, { hash, imageTxId, fields });
     } catch (e) {
       setStage('idle');
       toast.error(e instanceof Error ? e.message : 'The wallet rejected the launch.');
+    }
+  };
+
+  const holdUnconfirmed = (sent: SentLaunch) => {
+    setUnconfirmed(sent);
+    setStage('unconfirmed');
+    surfaceUnconfirmedTx(toast, {
+      hash: sent.hash,
+      explorerUrl: getTxUrl(chainId, sent.hash),
+      repeatCost: 'launching again creates a second coin, with its own opening buy.',
+    });
+  };
+
+  /** Everything after a create receipt was READ. Throws on a revert or a missing log. */
+  const settleLaunch = async (receipt: TransactionReceipt, { hash, imageTxId, fields }: SentLaunch) => {
+    if (receipt.status !== 'success') {
+      throw new Error('The launch reverted on-chain: no coin was created, and only gas was spent.');
+    }
+    const created = parseEventLogs({
+      abi: CURVE_LAUNCHER_ABI,
+      logs: receipt.logs,
+      eventName: 'LaunchCreated',
+    }).find((log) => log.address.toLowerCase() === launcher.toLowerCase());
+    if (!created) throw new Error(`Launch confirmed (tx ${hash}) but no LaunchCreated log was found.`);
+    const token = created.args.token;
+    setCreatedToken(token);
+    onCreated?.(token);
+
+    setStage('publishing-identity');
+    try {
+      await publishIdentity(token, imageTxId, fields);
+      setStage('done');
+      toast.success('Launch created — your curve is live.');
+    } catch {
+      // The launch is live; only the off-chain identity is missing.
+      setPendingIdentity({ imageTxId, fields });
+      setStage('identity-failed');
+      toast.error('Launch is live, but publishing the image failed — you can retry.');
+    }
+  };
+
+  const onRecheck = async () => {
+    if (!unconfirmed || !publicClient) return;
+    const sent = unconfirmed;
+    setStage('confirming');
+    try {
+      let receipt: TransactionReceipt;
+      try {
+        receipt = await publicClient.getTransactionReceipt({ hash: sent.hash });
+      } catch {
+        holdUnconfirmed(sent); // still unreadable, or not mined yet
+        return;
+      }
+      setUnconfirmed(null);
+      await settleLaunch(receipt, sent);
+    } catch (e) {
+      setStage('idle');
+      toast.error(e instanceof Error ? e.message : 'Could not finish the launch.');
     }
   };
 
@@ -472,6 +587,7 @@ export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: Curv
     setStage('idle');
     setCreatedToken(null);
     setPendingIdentity(null);
+    setUnconfirmed(null);
   };
 
   return (
@@ -483,6 +599,8 @@ export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: Curv
       onReset={onReset}
       onTrade={onTrade}
       terms={terms}
+      unconfirmedTx={unconfirmed ? { hash: unconfirmed.hash, url: getTxUrl(chainId, unconfirmed.hash) } : null}
+      onRecheck={() => void onRecheck()}
     />
   );
 }

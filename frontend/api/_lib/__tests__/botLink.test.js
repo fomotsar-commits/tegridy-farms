@@ -98,7 +98,7 @@ function browserReq({ method = "GET", body, jwt } = {}) {
     query: {},
     body,
     headers: {
-      origin: "https://memetic.fun",
+      origin: "https://memetics.finance",
       ...(jwt ? { cookie: `siwe_jwt=${jwt}` } : {}),
     },
   };

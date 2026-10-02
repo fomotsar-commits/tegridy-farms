@@ -52,10 +52,13 @@ function isProdLikeEnv() {
 
 // Origin allowlist mirroring alchemy.js / opensea.js / orderbook.js. Kept
 // in one place so security policy doesn't drift between proxies.
+//
+// This is also the credentialed set for every `?resource=` handler that
+// imports isOriginAllowed (airdrop, alerts, botLink, commerce, referrals).
+// 2026-09-23: `memetic.fun` + `www.memetic.fun` removed — they serve the Island
+// Lab, not this venue. See auth/siwe.js.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://memetic.fun",
-    "https://www.memetic.fun",
     "https://memetics.finance",
     "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",
