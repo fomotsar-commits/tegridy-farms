@@ -712,6 +712,40 @@ describe('launch form: the plant', () => {
     });
   }
 
+  // A button switched off or removed under the keyboard drops focus to the page body.
+  it('Read again stays put while it reads, so keyboard focus stays on it, and the answer is announced', async () => {
+    type PlantRead = Awaited<ReturnType<WriteApi['readPlantBalance']>>;
+    let answer: (r: PlantRead) => void = () => {};
+    const read = plantRead(async () => UNREADABLE);
+    renderForm(createApi({ readPlantBalance: read }));
+    await fillValid();
+    expect(row('Your $BAYLA').closest('[role="status"]')).not.toBeNull();
+    const again = screen.getByRole('button', { name: 'Read again' });
+    again.focus();
+    read.mockImplementation(() => new Promise<PlantRead>((r) => (answer = r)));
+    await act(async () => {
+      fireEvent.click(again);
+    });
+    // While it reads: the same button, still focused, saying so, and a second press does nothing.
+    expect(again.isConnected).toBe(true);
+    expect(document.activeElement).toBe(again);
+    expect(again).toHaveAttribute('aria-disabled', 'true');
+    expect(again).toHaveTextContent('Reading…');
+    const calls = read.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(again);
+    });
+    expect(read.mock.calls.length).toBe(calls);
+    // It fails again: the same button offers to read again, and focus never moved.
+    await act(async () => {
+      answer(UNREADABLE);
+    });
+    expect(again.isConnected).toBe(true);
+    expect(document.activeElement).toBe(again);
+    expect(again).toHaveTextContent('Read again');
+    expect(again).not.toHaveAttribute('aria-disabled');
+  });
+
   it("a balance read for one wallet never counts for the wallet that replaced it", async () => {
     const OTHER = KEY(20);
     const read = plantRead(async (_rpc, owner) =>

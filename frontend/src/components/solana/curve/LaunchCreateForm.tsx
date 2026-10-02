@@ -374,6 +374,10 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
   }, [api, rpc, maker, idle, plantCheck]);
   const plant = plantRead && plantRead.maker === maker && plantRead.check === plantCheck ? plantRead.read : null;
   const plantBlock = maker === WORKSHOP_WALLET ? PLANT_FROM_WORKSHOP : plant ? plantShortfall(plant) : null;
+  // This wallet's last read, kept while a newer one runs: a failed read's "Read again"
+  // stays on screen (and under the keyboard) until the next answer.
+  const lastPlant = plantRead && plantRead.maker === maker ? plantRead.read : null;
+  const plantRereading = lastPlant !== null && plant === null;
 
   // The mint keypair lives in memory only. A reload or a wallet round trip loses it,
   // and then everything starts again with a new keypair and a new upload. The one
@@ -888,19 +892,27 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
           <Row label="Plant" value={PLANT_TERMS} mono={false} />
         </div>
         {signer && (
-          <Row
-            label="Your $BAYLA"
-            value={!plant ? 'reading…' : plant.kind === 'ok' ? `${baylaText(plant.value.amount)} $BAYLA` : 'could not read'}
-            mono={false}
-          />
+          // A live region, so the answer to a read (and a Read again) is read out.
+          <div role="status">
+            <Row
+              label="Your $BAYLA"
+              value={!plant ? 'reading…' : plant.kind === 'ok' ? `${baylaText(plant.value.amount)} $BAYLA` : 'could not read'}
+              mono={false}
+            />
+          </div>
         )}
-        {plant && plant.kind !== 'ok' && (
+        {lastPlant && lastPlant.kind !== 'ok' && (
           <button
             type="button"
-            className="btn-secondary px-4 py-2 text-[12px] min-h-[44px]"
-            onClick={() => setPlantCheck((n) => n + 1)}
+            className={`btn-secondary px-4 py-2 text-[12px] min-h-[44px] ${plantRereading ? 'opacity-60' : ''}`}
+            // Not `disabled`, as TxFlowView's Check again: a button switched off under the
+            // keyboard drops focus to the page. It does nothing while the read runs.
+            aria-disabled={plantRereading || undefined}
+            onClick={() => {
+              if (!plantRereading) setPlantCheck((n) => n + 1);
+            }}
           >
-            Read again
+            {plantRereading ? 'Reading…' : 'Read again'}
           </button>
         )}
       </div>
