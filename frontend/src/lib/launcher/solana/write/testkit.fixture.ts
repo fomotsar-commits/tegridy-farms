@@ -8,6 +8,7 @@ import {
   ACCOUNT_DISCRIMINATOR,
   BONDING_CURVE_LAYOUT,
   GLOBAL_CONFIG_LAYOUT,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   WSOL_MINT,
   cpAmmConfigPda,
@@ -31,6 +32,14 @@ import {
   deriveVault,
   sortMints,
 } from '../../../solana/cpswap/program';
+import {
+  BAYLA_MINT,
+  PLANT_BURN_RAW,
+  PLANT_WORKSHOP_RAW,
+  WORKSHOP_BAYLA_ACCOUNT,
+  WORKSHOP_WALLET,
+  baylaAccountOf,
+} from './plant';
 
 export const LAUNCH = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
 export const CPSWAP = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
@@ -164,6 +173,43 @@ export function encodeTokenAccount(mint: PublicKey, owner: PublicKey, amount: bi
 }
 
 /**
+ * A Token-2022 token account as the associated-account program makes one: the
+ * 165-byte base, account type 2 at byte 165, then an ImmutableOwner extension (type
+ * 7, length 0). 170 bytes, the size of the Workshop's $BAYLA account on mainnet.
+ */
+export function encodeToken2022Account(mint: PublicKey, owner: PublicKey, amount: bigint): Uint8Array {
+  const d = new Uint8Array(170);
+  d.set(encodeTokenAccount(mint, owner, amount), 0);
+  d[165] = 2;
+  d[166] = 7;
+  return d;
+}
+
+/** 250,000 $BAYLA: what the test maker holds unless a test says otherwise. */
+export const MAKER_BAYLA = 250_000_000_000n;
+/** The Workshop's $BAYLA balance as read on mainnet, 2026-10-01. */
+export const WORKSHOP_BAYLA = 135_491_275_155_257n;
+
+/** The plant's two accounts: `maker`'s own $BAYLA account holding `makerAmount`, and the Workshop's. */
+export function addPlantAccounts(chain: FakeChain, maker: PublicKey, makerAmount: bigint = MAKER_BAYLA): FakeChain {
+  chain.token2022Account(baylaAccountOf(maker), BAYLA_MINT, maker, makerAmount);
+  return chain.token2022Account(WORKSHOP_BAYLA_ACCOUNT, BAYLA_MINT, WORKSHOP_WALLET, WORKSHOP_BAYLA);
+}
+
+/** Simulated post-state for the plant: `burned + toWorkshop` leaves the maker, `toWorkshop` reaches the Workshop. */
+export function plantMoved(
+  maker: PublicKey,
+  o: { burned?: bigint; toWorkshop?: bigint; makerAmount?: bigint } = {},
+): Record<string, { tokenAmount: bigint; mint: PublicKey; owner: PublicKey }> {
+  const burned = o.burned ?? PLANT_BURN_RAW;
+  const toWorkshop = o.toWorkshop ?? PLANT_WORKSHOP_RAW;
+  return {
+    [baylaAccountOf(maker).toBase58()]: { tokenAmount: (o.makerAmount ?? MAKER_BAYLA) - burned - toWorkshop, mint: BAYLA_MINT, owner: maker },
+    [WORKSHOP_BAYLA_ACCOUNT.toBase58()]: { tokenAmount: WORKSHOP_BAYLA + toWorkshop, mint: BAYLA_MINT, owner: WORKSHOP_WALLET },
+  };
+}
+
+/**
  * A graduated launch's pool, as `migrate_to_amm` leaves it: at the launch program's
  * own address, every field derived, both vaults holding `sol` and `tokens`.
  */
@@ -274,6 +320,11 @@ export class FakeChain {
 
   tokenAccount(address: PublicKey, mint: PublicKey, owner: PublicKey, amount: bigint): this {
     return this.set(address, { lamports: rent(165), owner: TOKEN_PROGRAM_ID, data: encodeTokenAccount(mint, owner, amount) });
+  }
+
+  /** A Token-2022 token account (the $BAYLA plant's accounts). */
+  token2022Account(address: PublicKey, mint: PublicKey, owner: PublicKey, amount: bigint): this {
+    return this.set(address, { lamports: rent(170), owner: TOKEN_2022_PROGRAM_ID, data: encodeToken2022Account(mint, owner, amount) });
   }
 
   info(address: PublicKey) {

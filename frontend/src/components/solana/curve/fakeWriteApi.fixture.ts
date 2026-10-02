@@ -16,6 +16,20 @@ export const KEY = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 export const MINT = KEY(1);
 export const CREATOR = KEY(2);
 
+/**
+ * The $BAYLA plant every create summary carries. `from` is a stand-in: deriving the
+ * creator's real $BAYLA account needs PDA maths, which fails under jsdom.
+ */
+export const PLANT_SUMMARY: Extract<TxSummary, { kind: 'create' }>['plant'] = {
+  total: 100_000_000_000n,
+  burned: 50_000_000_000n,
+  toWorkshop: 50_000_000_000n,
+  from: KEY(13),
+  workshopAccount: new PublicKey('9i7vMCBcTSs3CsEZNcNDmH5Lh8yuH6aqYULNHWfxatwT'),
+  mint: new PublicKey('7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump'),
+  decimals: 6,
+};
+
 export function globalCfg(over: Partial<GlobalConfig> = {}): GlobalConfig {
   return {
     authority: KEY(3),

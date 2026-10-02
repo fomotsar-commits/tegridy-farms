@@ -2,7 +2,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { TxFlowView, TxOutcomeCard } from './TxFlowView';
 import { REVIEW_TTL_MS, useTxFlow } from './useTxFlow';
-import { CREATOR, KEY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
+import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
 import type { TxOutcome, TxSigner, TxSummary, WriteRpc } from './ports';
 
 const SOL_1 = 1_000_000_000n;
@@ -189,7 +189,7 @@ describe('review', () => {
     const { result } = flowAt(api);
     const create: TxSummary = {
       kind: 'create', mint: CREATOR, creator: CREATOR, name: 'A', symbol: 'AB', uri: 'https://x', decimals: 6, openingBuy: null,
-      platformReserve: null, treasuryAccountRent: 1_488_440n,
+      platformReserve: null, treasuryAccountRent: 1_488_440n, plant: PLANT_SUMMARY,
     };
     await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(create) })));
     render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
@@ -210,6 +210,7 @@ describe('review', () => {
       kind: 'create', mint: CREATOR, creator: CREATOR, name: 'A', symbol: 'AB', uri: 'https://x', decimals: 6, openingBuy: null,
       platformReserve: { amount: 36_900_000_000_000n, bps: 369n, recipient: PLATFORM_TREASURY_VAULT, treasuryToken },
       treasuryAccountRent: 1_488_440n,
+      plant: PLANT_SUMMARY,
     };
     const p = prepared(create, {
       simulated: {

@@ -27,12 +27,13 @@ export const CREATE_METADATA_V3_TAG = 33;
 export const METADATA_NAME_MAX_BYTES = 32;
 export const METADATA_SYMBOL_MAX_BYTES = 10;
 /**
- * OUR ceiling, not Metaplex's (theirs is 200). 100 keeps the launch transaction
- * well inside the 1,232-byte packet limit with room for a wallet's own guard
- * instructions, and every URI we accept fits (`ipfs://<cid>` is at
- * most ~80 bytes; `https://arweave.net/<43>` is 62).
+ * OUR ceiling, not Metaplex's (theirs is 200). 80 keeps the create transaction, with
+ * its opening buy and the $BAYLA plant, under the 1,232-byte packet limit: 1,210 at
+ * worst (prepare.test.ts), so 22 bytes are left, not the 150 once kept for a wallet's
+ * own guard instructions. Every link the form makes fits: `ipfs://<cid>` is at most 78
+ * bytes, `https://arweave.net/<43>` is 63.
  */
-export const METADATA_URI_MAX_BYTES = 100;
+export const METADATA_URI_MAX_BYTES = 80;
 
 const METADATA_SEED = new TextEncoder().encode('metadata');
 
@@ -82,7 +83,7 @@ export interface CreateMetadataV3Accounts {
  * Token Metadata; it is passed anyway because `create_launch` already carries it,
  * so it costs one byte in the message, and it keeps older program versions happy.
  *
- * Throws on a name over 32 bytes, a symbol over 10, a URI over 100, an empty
+ * Throws on a name over 32 bytes, a symbol over 10, a URI over 80, an empty
  * field, or a NUL byte.
  */
 export function createMetadataV3Ix(a: CreateMetadataV3Accounts): TransactionInstruction {

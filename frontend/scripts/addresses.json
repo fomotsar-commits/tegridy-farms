@@ -465,6 +465,39 @@
         "type": "wallet",
         "funded": true
       }
+    },
+    {
+      "$comment": "The plant (island ruling 2, 2026-10-01): every Solana launch on /curve-launch burns 50,000 $BAYLA and sends 50,000 $BAYLA to the island's Workshop, in its own create transaction (frontend/src/lib/launcher/solana/write/plant.ts). These three addresses are pinned there and in plant.test.ts, which re-derives the Workshop's $BAYLA account. Read on mainnet-beta 2026-10-01 at slots 452,503,566 to 452,505,319. None of them is ours: the island owns the Workshop, and nobody owns the mint."
+    },
+    {
+      "id": "bayla-mint",
+      "address": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "role": "$BAYLA, the island's coin. A Token-2022 mint, 6 decimals, created on pump.fun 2026-08-07 by island-workshop-wallet. Its only extensions are MetadataPointer and TokenMetadata: no transfer fee, no transfer hook, no permanent delegate. The plant burns 50,000 of it (burnChecked) in every Solana launch made here, and the bayla-ladder pools stake it.",
+      "custody": "nobody. Mint authority and freeze authority are both null, so supply can only fall.",
+      "status": "live. Supply 990,221,904.514687 at slot 452,504,423 (2026-10-01).",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "island-workshop-wallet",
+      "address": "G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu",
+      "role": "The island's Workshop: the wallet that created $BAYLA, named 'The Workshop' in the island's own ledger (memetics.wtf/receipts/receipts.json, plates.workshop). Half of every plant goes to its $BAYLA account. A launch from this wallet is refused, because the plant's source and destination would be one account.",
+      "custody": "the island, not this repo. No key for it exists anywhere in our custody.",
+      "status": "live, system-owned, 35.62 SOL at slot 452,503,566 (2026-10-01).",
+      "expect": {
+        "type": "wallet"
+      }
+    },
+    {
+      "id": "island-workshop-bayla-account",
+      "address": "9i7vMCBcTSs3CsEZNcNDmH5Lh8yuH6aqYULNHWfxatwT",
+      "role": "The Workshop's $BAYLA account: ATA($BAYLA, island-workshop-wallet) under TOKEN-2022, bump 255, derived and matched. The plant's transferChecked sends 50,000 $BAYLA here. The legacy-program derivation, G2JTfWMphD9LEy6cw8aTCFyxrVNuVpsC41tUTBBww4BB, does not exist and must never be used.",
+      "custody": "owned by island-workshop-wallet",
+      "status": "live, Token-2022, 170 bytes (ImmutableOwner), 135,491,275.155257 $BAYLA at slot 452,503,577 (2026-10-01).",
+      "expect": {
+        "type": "token-account"
+      }
     }
   ],
   "ethereum": [

@@ -143,10 +143,11 @@ export const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111
 export const DEFAULT_PUBKEY = SYSTEM_PROGRAM_ID;
 
 /**
- * Token-2022 is NOT supported. Every token account in the program is typed
- * `Program<'info, Token>` / `anchor_spl::token::{Mint, TokenAccount}` — the legacy
- * program (lib.rs:1311, 1455, 1498). A Token-2022 mint fails account validation,
- * so a create-launch UI must reject one up front rather than let it revert.
+ * Token-2022 is NOT supported for a LAUNCH mint. Every token account in the program
+ * is the legacy program's (lib.rs:1311, 1455, 1498), so a Token-2022 mint fails
+ * account validation and a create-launch UI must reject one up front. The create
+ * transaction still calls Token-2022 itself, outside the program, for the $BAYLA
+ * plant (write/plant.ts): $BAYLA is a Token-2022 mint.
  */
 export const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 

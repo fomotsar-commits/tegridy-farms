@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { LaunchCreateForm } from './LaunchCreateForm';
-import { CREATOR, KEY, SIG, SOL, fakeApi, openGate, prepared } from './fakeWriteApi.fixture';
+import { CREATOR, KEY, PLANT_SUMMARY, SIG, SOL, fakeApi, openGate, prepared } from './fakeWriteApi.fixture';
 import { readPendingLaunch, savePendingLaunch } from './pendingLaunch';
 import type { CreateLaunchInput, OpenGate, TxOutcome, TxSummary, UploadInput, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
@@ -95,6 +95,7 @@ function createApi(over: Partial<WriteApi> = {}) {
       },
       // Today's mainnet rent for a token account; the real value is read from the cluster.
       treasuryAccountRent: 1_488_440n,
+      plant: PLANT_SUMMARY,
     };
     return { ok: true, prepared: prepared(summary) };
   });

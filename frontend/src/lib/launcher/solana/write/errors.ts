@@ -12,7 +12,7 @@
 import { launchErrorName, type LaunchErrorName } from '../curve/program';
 import type { LaunchQuoteErrorCode } from '../curve/math';
 import { CP_SWAP_ERROR_COPY, cpSwapErrorName } from '../../../solana/cpswap/errors';
-import { TOKEN_PROGRAM_ID } from '../curve/program';
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../curve/program';
 import type { CurveWriteConfig } from './types';
 
 export type FailingProgram = 'launch' | 'cp-swap' | 'other';
@@ -108,6 +108,9 @@ function programOf(id: string, cfg: Pick<CurveWriteConfig, 'programId' | 'cpSwap
 const NOT_ENOUGH_SOL =
   'Your wallet does not have enough SOL for this, including the network fee and any one-time account costs.';
 
+/** True whether it failed in the test run or on chain, so it says nothing about what was sent. */
+const PLANT_SHORT = 'This wallet holds less than 100,000 $BAYLA, so the plant cannot be paid.';
+
 /**
  * Explain a failed simulation or a reverted transaction.
  *
@@ -147,6 +150,10 @@ export function explainFailure(
     const program = programOf(id, cfg);
     if (program === 'other' && id === TOKEN_PROGRAM_ID.toBase58() && code === 1) {
       return { program, code, message: 'You do not hold that many tokens.' };
+    }
+    // Token-2022 runs only the $BAYLA plant, so its "insufficient funds" is the plant's.
+    if (program === 'other' && id === TOKEN_2022_PROGRAM_ID.toBase58() && code === 1) {
+      return { program, code, message: PLANT_SHORT };
     }
     if (/insufficient lamports/i.test(joined)) return { program, code, message: NOT_ENOUGH_SOL };
     if (/exceeded CUs meter|Computational budget exceeded/i.test(rest)) {

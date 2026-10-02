@@ -11,6 +11,7 @@ page keeps the newest thirty days.
 - On /eth-curve, the create form opens only through the Who may plant door, and Create launch reads the wallet's held time again before anything is signed or sent. The launches list and trading stay open to anyone.
 - The launch door reads 80 served degrees in every production build: no setting can switch it off or lower it.
 - A Solana launch is never announced to the island as a birth, even by a hand-made request.
+- Every Solana launch on /curve-launch plants 100,000 $BAYLA in its own create transaction: 50,000 burned and 50,000 to the island's Workshop.
 
 ### 2026-10-01
 

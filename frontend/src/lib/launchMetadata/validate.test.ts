@@ -301,9 +301,25 @@ describe('checkContentUri', () => {
     expect(r.ok ? '' : r.reason).not.toMatch(/ipfs\.io|dweb\.link/);
   });
 
-  it('caps the URI at 100 bytes and every accepted form fits', () => {
-    expect(LIMITS.uriBytes).toBe(100);
-    for (const u of [V0, V1, AR]) expect(new TextEncoder().encode(value(checkContentUri(u))).length).toBeLessThanOrEqual(LIMITS.uriBytes);
+  // Two caps: the link written on chain (80, the launch transaction's budget) and the
+  // longest pasted link read before it is cut down to its content id (100).
+  it('stores at most 80 bytes, and every accepted form fits, the longest CID included', () => {
+    expect(LIMITS.uriBytes).toBe(80);
+    const longest = `b${'a'.repeat(70)}`;
+    for (const u of [V0, V1, AR, `ipfs://${longest}`, `https://${longest}.ipfs.w3s.link/`]) {
+      expect(new TextEncoder().encode(value(checkContentUri(u))).length, u).toBeLessThanOrEqual(LIMITS.uriBytes);
+    }
+  });
+
+  it('a pasted gateway link longer than 80 is still read, up to 100', () => {
+    expect(LIMITS.uriInputBytes).toBe(100);
+    const pinata = V1.replace('ipfs.io', 'gateway.pinata.cloud');
+    expect(new TextEncoder().encode(pinata).length).toBe(93);
+    expect(value(checkContentUri(pinata))).toBe(`ipfs://${CID1}`);
+    // A well-formed gateway link (a 60-character CID is allowed) that is one byte over.
+    const tooLong = `https://${'g'.repeat(24)}.io/ipfs/${CID1}a`;
+    expect(new TextEncoder().encode(tooLong).length).toBe(101);
+    expect(checkContentUri(tooLong)).toMatchObject({ ok: false, reason: 'Too long: at most 100 characters.' });
   });
 
   it('the page is allowed to fetch and show them through every gateway it uses (vercel.json CSP)', () => {

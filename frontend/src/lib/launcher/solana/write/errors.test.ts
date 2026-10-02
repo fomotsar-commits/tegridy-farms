@@ -38,6 +38,15 @@ describe('whose error, in plain English', () => {
     expect(explainFailure({ InstructionError: [2, { Custom: 1 }] }, [failed('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', '1')], cfgLocal).message).toMatch(/do not hold that many tokens/);
   });
 
+  // The plant's burn or transfer runs short: Token-2022's InsufficientFunds is also code 1.
+  it('Token-2022’s "insufficient funds" is the plant: this wallet holds less than 100,000 $BAYLA', () => {
+    const r = explainFailure({ InstructionError: [8, { Custom: 1 }] }, [failed('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', '1')], cfgLocal);
+    expect(r).toMatchObject({ program: 'other', code: 1, message: 'This wallet holds less than 100,000 $BAYLA, so the plant cannot be paid.' });
+    expect(r.message).not.toMatch(/\u2014/);
+    // Another Token-2022 code is not the plant's shortfall.
+    expect(explainFailure({ InstructionError: [8, { Custom: 4 }] }, [failed('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', '4')], cfgLocal).message).toMatch(/error 4/);
+  });
+
   it('no logs: falls back to the error object, and never invents a launch-program reason', () => {
     expect(explainFailure({ InstructionError: [3, { Custom: 6007 }] }, undefined, cfgLocal)).toMatchObject({ program: 'other', code: 6007 });
     expect(explainFailure({ weird: true }, [], cfgLocal).message).toBe('The transaction could not run.');

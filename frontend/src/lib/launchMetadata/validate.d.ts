@@ -9,7 +9,8 @@ export declare const LIMITS: Readonly<{
   descriptionChars: 280;
   linkBytes: 120;
   imageBytes: 1048576;
-  uriBytes: 100;
+  uriBytes: 80;
+  uriInputBytes: 100;
   maxImageSide: 4096;
   targetImageSide: 1024;
   metadataJsonBytes: 65536;
