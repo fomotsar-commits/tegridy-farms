@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-02
 
+- The indexer no longer treats memetic.fun as a name for this venue.
 - memetic.fun can no longer call the venue's API as if it were the venue.
 
 ### 2026-10-01
