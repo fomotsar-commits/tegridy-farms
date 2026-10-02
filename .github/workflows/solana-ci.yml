@@ -666,6 +666,10 @@ jobs:
         env:
           ANCHOR_PROVIDER_URL: http://127.0.0.1:8899
           ANCHOR_WALLET: /home/runner/.config/solana/id.json
+          # Node 24 loads a .ts file itself (type stripping) before ts-node can, and then
+          # `import { BN, Idl } from "@coral-xyz/anchor"` fails: Idl is a type, and the
+          # module is CommonJS. Off, ts-node compiles the tests the way it did on Node 20.
+          NODE_OPTIONS: --no-experimental-strip-types
         run: |
           set -euo pipefail
           solana-test-validator --ledger /tmp/ledger-ladder --reset --quiet &
@@ -801,6 +805,8 @@ jobs:
         env:
           ANCHOR_PROVIDER_URL: http://127.0.0.1:8899
           ANCHOR_WALLET: /home/runner/.config/solana/id.json
+          # See ladder-constraints: Node 24's own .ts loading must not pre-empt ts-node.
+          NODE_OPTIONS: --no-experimental-strip-types
         run: |
           set -euo pipefail
           solana-test-validator --ledger /tmp/ledger --reset --quiet &
@@ -948,6 +954,8 @@ jobs:
         env:
           ANCHOR_PROVIDER_URL: http://127.0.0.1:8899
           ANCHOR_WALLET: /home/runner/.config/solana/id.json
+          # See ladder-constraints: Node 24's own .ts loading must not pre-empt ts-node.
+          NODE_OPTIONS: --no-experimental-strip-types
         run: |
           set -euo pipefail
           solana-test-validator --ledger /tmp/ledger --reset --quiet &
