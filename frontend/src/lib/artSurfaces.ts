@@ -26,7 +26,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   // pops up on interaction, so the live-preview iframe shows the host page).
   onboarding: '/',
   'tx-receipt': '/dashboard',
-  'connect-prompt': '/farm',
+  'connect-prompt': '/earn/toweli',
   'token-select': '/trade',
   'typed-confirm': '/admin',
   // Tradermigos pop-ups — the gallery is the host route for all three.
@@ -59,12 +59,12 @@ export const PAGE_ROUTES: Record<string, string> = {
   'launchpad-wizard': '/nft-finance',
   'launchpad-traits': '/nft-finance',
   dashboard: '/dashboard',
-  farm: '/farm',
-  'farm-stats': '/farm',
-  'boost-schedule': '/farm',
-  'lp-farming': '/farm',
-  'live-pool': '/farm',
-  'staking-card': '/farm',
+  farm: '/earn/toweli',
+  'farm-stats': '/earn/toweli',
+  'boost-schedule': '/earn/toweli',
+  'lp-farming': '/earn/toweli',
+  'live-pool': '/earn/toweli',
+  'staking-card': '/earn/toweli',
   trade: '/swap',
   'liquidity-tab': '/liquidity',
   yield: '/yield',
@@ -101,7 +101,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   developer: '/developers',
   'nav-drawer': '/',
   seasonal: '/',
-  'legacy-exit': '/farm',
+  'legacy-exit': '/earn/toweli',
   wizard: '/nft-finance',
 };
 

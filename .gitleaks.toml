@@ -174,4 +174,18 @@ regexes = [
   '''\bBq8afhG1WzwXAaZk47x9ZhyF8snd4iseR6jXMyGDXKuL\b''',
   # Junglet #186 token account
   '''\b9ZxoqoqDEKSdAhvvSDQe8J6CbogjEFX4ZbjLkbCNo9h1\b''',
+  #
+  # \ BAYLA LADDER VAULTS, added 2026-10-01 \\\\\\\\\\\\\\\\\\\\\\\\@
+  #
+  # The BAYLA ladder pool's two Token-2022 token accounts. getAccountInfo on
+  # mainnet, 2026-10-01: program owner TokenzQd…, parsed type "account", mint
+  # 7hmVkPXm…pump (BAYLA), account owner the pool PDA Bq6jovnQ…. Both were already
+  # public on trunk in solana/tegridy-amm/BAYLA_LADDER_MAINNET_RUNBOOK.md (:577, :578).
+  # Flagged by `generic-api-key` in the recorded pool read
+  # frontend/e2e/fixtures/baylaLadderPool.ts:25 and :37 (commit 7b91718c, PR #683),
+  # where each id sits inside a key of the form "getTokenAccountBalance:<id>".
+  # Stake vault: holds the staked principal.
+  '''\bFLCy81my7vNEaiqeFH7F1tk2aPR4Gcg8XSCFTvxWVps7\b''',
+  # Reward vault: holds the rewards to be paid.
+  '''\b3yFvfhdRS9WNJEwVec7fgB3KRcKAi7Lo4jUyzzDMPAK1\b''',
 ]

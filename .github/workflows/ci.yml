@@ -130,7 +130,9 @@ jobs:
           src/lib/docsReconciliation.test.ts
           src/lib/launcher/solana/spentProgramIds.test.ts
           src/lib/whetstonePetitionTruth.test.ts
+          src/test/botOrigins.test.ts
           src/test/frontDoor.test.ts
+          src/test/mirrorToGitlab.test.ts
 
   lint-typecheck-test:
     name: Lint, Type Check & Test
@@ -349,6 +351,14 @@ jobs:
         working-directory: .
         run: node scripts/oneshot-guard.mjs --self-test
 
+      # The scripts that move every ref between git hosts and back them up. Their value is their
+      # guards (never force, trunk first, prove the host's set, refuse a partial source), so the
+      # tests run on every push. Throwaway repos only: git, bash, sha256sum and ssh-keygen, no network.
+      - name: Git-hosting script tests
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: bash scripts/git-hosting/test/run-all.sh
+
       # THE PULL-REQUEST GATE FOR THE MONITORING RULES.
       #
       # contracts/monitoring/lib/arbLinkage.mjs decides whether the arb-linkage
@@ -397,6 +407,14 @@ jobs:
         working-directory: .
         run: node --test scripts/lib/redact-url.test.mjs
 
+      # scripts/ops/: the weekly pull of GitHub's backups, the heartbeat step in
+      # synthetic-monitor.yml, and the failover runner for this repo's crons. Bare node
+      # plus gpg, tar and bash, which ubuntu-latest has; a missing tool FAILS, never skips.
+      - name: Ops runner unit tests
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: node --test scripts/ops/env-file.test.mjs scripts/ops/supabase-backup.test.mjs scripts/ops/run-job.test.mjs scripts/ops/pull-github-backups.test.mjs scripts/ops/heartbeat.test.mjs
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -431,12 +449,21 @@ jobs:
         run: npm run build
         env:
           VITE_WALLETCONNECT_PROJECT_ID: ${{ secrets.VITE_WALLETCONNECT_PROJECT_ID }}
+          # The BAYLA lock ladder, as production builds it (scripts/addresses.json
+          # bayla-ladder-program / bayla-ladder-pool; public addresses, not secrets).
+          # Without them /earn/bayla has no ladder card, and
+          # em-dash-zero.spec.ts fails rather than walk nothing.
+          VITE_BAYLA_LADDER_PROGRAM: EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ
+          VITE_BAYLA_LADDER_POOL: Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV
 
       - name: Build (no WalletConnect, fork PR)
         if: |
           github.event_name == 'pull_request' &&
           github.event.pull_request.head.repo.full_name != github.repository
         run: npm run build
+        env:
+          VITE_BAYLA_LADDER_PROGRAM: EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ
+          VITE_BAYLA_LADDER_POOL: Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0

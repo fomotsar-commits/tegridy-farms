@@ -2,7 +2,7 @@
  * The venue's own hero. The H1 is title, <br />, line, and a <br> is not text, so the H1
  * test reads textContent: it sees the join exactly, as a screen reader or an unfurl does.
  * The launch floor is read (heatLaunchFloor) and the tier word beside it derived, never
- * typed: at 123 no tier is named, at 150 the sentence says Builder.
+ * typed: at 123 no tier is named, at 300 the sentence says Builder.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { Suspense } from 'react';
@@ -65,10 +65,10 @@ describe('the launch floor sentence (ruling 4)', () => {
   });
 
   it('names the tier the floor sits exactly on, derived and never typed', () => {
-    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '300');
     const { container } = mount();
     expect(
-      screen.getByText('At 150 degrees you reach Builder, the tier that may plant a launch here.'),
+      screen.getByText('At 300 degrees you reach Builder, the tier that may plant a launch here.'),
     ).toBeTruthy();
     expect(container.textContent).not.toContain('reach Resident');
   });
@@ -86,12 +86,18 @@ describe('the explainer is the island paragraph opening', () => {
     const { container } = mount();
     expect(
       screen.getByText(
-        'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it.',
+        'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds a quarter of its own, so breadth amplifies depth and never replaces it.',
       ),
     ).toBeTruthy();
     expect(container.textContent).not.toMatch(
       /added together|read per token|as a share of its supply|a fresh bag starts cold|Degrees are the temperature/,
     );
+  });
+
+  it('says one person, every wallet, under the instrument', () => {
+    const { container } = mount();
+    expect(screen.getByText('One person, every wallet: linked wallets read as a single flame.').tagName).toBe('P');
+    expect(container.textContent).not.toMatch(/measured per wallet|clock at the move/);
   });
 });
 

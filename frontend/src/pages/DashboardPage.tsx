@@ -12,6 +12,7 @@ import { useLpPosition } from '../hooks/useLpPosition';
 import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { useFarmActions } from '../hooks/useFarmActions';
+import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { useNFTBoost } from '../hooks/useNFTBoost';
 import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
 import { useDCA } from '../hooks/useDCA';
@@ -61,6 +62,7 @@ const EvmBungalowDashboardPanel = lazy(() =>
   import('../components/bungalow/EvmBungalowDashboardPanel').then((m) => ({ default: m.EvmBungalowDashboardPanel })),
 );
 import { artImgProps } from '../lib/artSrcSet';
+import { noteReplacement } from '../lib/txErrors';
 
 // AUDIT DASH-UX: tabbed view promised by commit b21fed0 but never shipped.
 // Header + summary stats stay above the tabs so at-a-glance portfolio value
@@ -354,7 +356,7 @@ function ToweliDashboard() {
           </div>
         </div>
 
-        {/* F519: use the shared dark-card ConnectPrompt (same as /farm) so the
+        {/* F519: use the shared dark-card ConnectPrompt (same as /earn/toweli) so the
             wallet-gate stays legible over the busy camo art instead of the bare
             text-center block that dissolved into the camouflage at 820px+. */}
         <div className="relative z-10 flex items-center justify-center px-6 pb-16">
@@ -638,7 +640,7 @@ function ToweliDashboard() {
                     {/* Restaking is DEFERRED to Phase 7 (TEGRIDY_RESTAKING_ADDRESS
                         zeroed). Same dead-CTA fix as StakingCard.tsx. */}
                     {isDeployed(TEGRIDY_RESTAKING_ADDRESS) && (
-                      <Link to="/farm" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
+                      <Link to="/earn/toweli" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
                         Restake for bonus yield &#8594;
                       </Link>
                     )}
@@ -675,7 +677,7 @@ function ToweliDashboard() {
                 </div>
                 <div className="relative z-10 p-8 py-12 text-center">
                   <p className="text-white text-[15px] mb-4">No staking position yet</p>
-                  <Link to="/farm" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
+                  <Link to="/earn/toweli" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
                 </div>
               </m.div>
             )}
@@ -750,7 +752,7 @@ function ToweliDashboard() {
                         <p className="text-amber-200 text-[11px] leading-snug">
                           Your JBAC boost is not applied to this staked LP, so the pending figure is
                           accruing at the unboosted rate. Refresh it on the{' '}
-                          <Link to="/farm" className="underline hover:text-amber-100">Farm page</Link>.
+                          <Link to="/earn/toweli" className="underline hover:text-amber-100">Farm page</Link>.
                         </p>
                       </div>
                     )}
@@ -761,7 +763,7 @@ function ToweliDashboard() {
                           : 'Held in your wallet as the TGLP token · earns a cut of swap fees'}
                       </span>
                       {lpPos.farmingDeployed && lpPos.stakedLp > 0n ? (
-                        <Link to="/farm" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
+                        <Link to="/earn/toweli" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
                           Manage on Farm &#8594;
                         </Link>
                       ) : (
@@ -912,7 +914,7 @@ function ToweliDashboard() {
                   <p className="text-white/60 text-[12px]">
                     {pos.hasPosition
                       ? 'Your staking rewards keep accruing. Check back as they build up.'
-                      : <>Stake TOWELI on the <Link to="/farm" className="underline hover:text-white">Farm</Link> to start earning claimable rewards.</>}
+                      : <>Stake TOWELI on the <Link to="/earn/toweli" className="underline hover:text-white">Farm</Link> to start earning claimable rewards.</>}
                   </p>
                 </div>
               </m.div>
@@ -1094,7 +1096,7 @@ export function POLAccumulatorCard() {
   );
 }
 
-function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
+export function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrongNetwork: boolean }) {
   // R047 M1: pin chainId on the read so a wallet on the wrong chain can't
   // surface stale 0 ETH from a different network. Wrong-chain UI surfaces
   // the page-level "Wrong network detected" banner instead.
@@ -1111,12 +1113,17 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
   });
 
   const { writeContract, data: hash, isPending } = useWriteContract();
-  const { data: claimReceipt, isLoading: isConfirming, isSuccess: isClaimReceiptFetched } = useWaitForTransactionReceipt({ hash });
+  const claimQuery = useWaitForTransactionReceipt({ hash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = claimQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate the
-  // success toast on receipt.status.
-  const isClaimReverted = isClaimReceiptFetched && !!claimReceipt && claimReceipt.status !== 'success';
-  const isClaimSuccess = isClaimReceiptFetched && !isClaimReverted;
+  // was FETCHED. 2026-09-17: and a revert never reaches it — wagmi THROWS on a
+  // reverted receipt, so the revert toast below was dead and a reverted claim
+  // silent. useReceiptOutcome reads the thrown revert.
+  const { isSuccess: isClaimSuccess, isReverted: isClaimReverted } = useReceiptOutcome(claimQuery, {
+    hash,
+    chainId: CHAIN_ID,
+    repeatCost: 'claiming again only claims what has accrued since, or reverts if nothing has.',
+  });
 
   const pending = pendingETH ? Number(formatEther(pendingETH as bigint)) : 0;
 

@@ -13,10 +13,18 @@ had offered. That was our error, and it is corrected here.
 
 ## Reporting a vulnerability
 
-Open a **private security advisory** on this repository
-(Security → Advisories → Report a vulnerability). If you cannot, open a normal issue saying
-only that you have a security report and asking for a contact — do not put details in a public
-issue.
+Email the `Contact:` address in <https://memetics.finance/.well-known/security.txt>
+(today: fomotsar@gmail.com; if the two ever differ, the file wins). That address stays put when
+the code moves between git hosts. Report privately, before any public disclosure or on-chain
+exploitation.
+
+If email fails, open an issue through <https://memetics.finance/source-issues> that says only
+that you have a security report and asks for a contact. That link goes to GitHub today, where
+every issue is public, so never put details in it. If it goes to GitLab, you can mark the
+issue confidential when you create it.
+
+For an exploit in progress, contact SEAL 911 in parallel:
+<https://securityalliance.org/our-work/seal-911>.
 
 We will acknowledge receipt. We cannot promise a payout, and we would rather say so than imply
 one.
@@ -28,7 +36,9 @@ one.
 | `programs/cp-swap/` | Verbatim fork of [raydium-cp-swap](https://github.com/raydium-io/raydium-cp-swap) @ `78f254e` (Apache-2.0); delta = four authority constants, CI-enforced | **Upstream was audited by MadShield. This fork was not.** The audit is evidence about the code we did not change. |
 | `programs/tegridy-launch/` | Novel — written for this repo | **No.** No upstream to compare against. `migrate_to_amm` moves an entire raised balance in one instruction; treat it as the highest-risk surface here. |
 
-Neither program is deployed to Solana mainnet. Neither holds user funds today.
+Both programs have been on Solana mainnet since 2026-09-29: `cp-swap` at
+`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` and `tegridy-launch` at
+`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`.
 
 ## If you are an auditor
 

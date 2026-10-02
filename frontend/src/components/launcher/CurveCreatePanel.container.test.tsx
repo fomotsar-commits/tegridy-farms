@@ -9,39 +9,48 @@
 //      "done" with no token).
 //   4. An identity-publish failure never blocks the launch — it lands the coin,
 //      surfaces the retry, and the retry re-runs ONLY the publish.
+//   5. A receipt we could not READ is not a failure: the create tx may have
+//      mined a coin, so the panel says it cannot tell, does not hand back an
+//      armed form, and "Check again" finishes the launch from the same tx.
+//   6. A reverted create says reverted, never "Launch confirmed".
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 // ── mocks — vi.hoisted so the (hoisted) vi.mock factories can see them ──
-const { uploadFile, uploadJson, writeContractAsync, waitForTransactionReceipt, parseEventLogs, toastSuccess, toastError } =
-  vi.hoisted(() => ({
-    uploadFile: vi.fn(),
-    uploadJson: vi.fn(),
-    writeContractAsync: vi.fn(),
-    waitForTransactionReceipt: vi.fn(),
-    parseEventLogs: vi.fn(),
-    toastSuccess: vi.fn(),
-    toastError: vi.fn(),
-  }));
+const {
+  uploadFile, uploadJson, writeContractAsync, waitForTransactionReceipt, getTransactionReceipt, parseEventLogs,
+  toastSuccess, toastError, toastWarning,
+} = vi.hoisted(() => ({
+  uploadFile: vi.fn(),
+  uploadJson: vi.fn(),
+  writeContractAsync: vi.fn(),
+  waitForTransactionReceipt: vi.fn(),
+  getTransactionReceipt: vi.fn(),
+  parseEventLogs: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastError: vi.fn(),
+  toastWarning: vi.fn(),
+}));
 const order: string[] = []; // records call ordering for invariant #1
 
 vi.mock('framer-motion', () => {
   const pass = new Proxy({}, { get: () => ({ children, ...p }: { children?: React.ReactNode }) => <div {...p}>{children}</div> });
   return { m: { ...pass, div: ({ children, ...p }: { children?: React.ReactNode }) => <div {...p}>{children}</div> }, motion: pass, AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>, LazyMotion: ({ children }: { children?: React.ReactNode }) => <>{children}</>, domAnimation: {} };
 });
-vi.mock('sonner', () => ({ toast: { success: toastSuccess, error: toastError } }));
+vi.mock('sonner', () => ({ toast: { success: toastSuccess, error: toastError, warning: toastWarning } }));
 vi.mock('../../hooks/useIrysUpload', () => ({ useIrysUpload: () => ({ uploadFile, uploadJson }) }));
 vi.mock('wagmi', () => ({
   useWriteContract: () => ({ writeContractAsync, isPending: false }),
-  usePublicClient: () => ({ waitForTransactionReceipt }),
+  usePublicClient: () => ({ waitForTransactionReceipt, getTransactionReceipt }),
   // AUDIT TF-023: the panel now READS the launch terms it displays. Undefined
   // data is the in-flight case, which the view renders as "still reading".
   useReadContract: () => ({ data: undefined }),
 }));
 vi.mock('viem', async (importOriginal) => ({ ...(await importOriginal<typeof import('viem')>()), parseEventLogs }));
 
+import { WaitForTransactionReceiptTimeoutError, TransactionReceiptNotFoundError } from 'viem';
 import { CurveCreatePanel } from './CurveCreatePanel';
 
 const LAUNCHER = ('0x' + '1'.repeat(40)) as `0x${string}`;
@@ -75,10 +84,12 @@ beforeEach(() => {
   uploadFile.mockReset().mockImplementation(async () => { order.push('upload'); return 'imgTx'; });
   uploadJson.mockReset().mockResolvedValue('metaTx');
   writeContractAsync.mockReset().mockImplementation(async () => { order.push('write'); return '0xhash'; });
-  waitForTransactionReceipt.mockReset().mockResolvedValue({ logs: [{ fake: 'log' }] });
+  waitForTransactionReceipt.mockReset().mockResolvedValue({ status: 'success', logs: [{ fake: 'log' }] });
+  getTransactionReceipt.mockReset();
   parseEventLogs.mockReset().mockReturnValue([{ address: LAUNCHER, args: { token: TOKEN } }]);
   toastSuccess.mockReset();
   toastError.mockReset();
+  toastWarning.mockReset();
 });
 
 describe('CurveCreatePanel container — first-creator orchestration', () => {
@@ -129,5 +140,71 @@ describe('CurveCreatePanel container — first-creator orchestration', () => {
     // Retry must NOT re-mine the token — no second create tx.
     expect(writeContractAsync.mock.calls.length).toBe(writesBefore);
     expect(uploadJson).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('CurveCreatePanel container — the create receipt', () => {
+  const unread = () => new WaitForTransactionReceiptTimeoutError({ hash: '0xhash' });
+
+  it('UNREAD: says it cannot tell, is not an error, and does not hand back an armed form', async () => {
+    waitForTransactionReceipt.mockRejectedValue(unread());
+    const { onCreated } = renderPanel();
+    fillAndSubmit();
+    await waitFor(() => expect(toastWarning).toHaveBeenCalledWith("We couldn't confirm this transaction", expect.anything()));
+    expect(toastError).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+    // One click on an armed "Create launch" would mine a SECOND coin with its own opening buy.
+    expect(screen.queryByRole('button', { name: /create launch/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /check again/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /explorer/i })).toHaveAttribute('href', expect.stringContaining('/tx/0xhash'));
+  });
+
+  it('UNREAD, then Check again reads success: finishes the launch from the SAME tx', async () => {
+    waitForTransactionReceipt.mockRejectedValue(unread());
+    const { onCreated } = renderPanel();
+    fillAndSubmit();
+    await screen.findByRole('button', { name: /check again/i });
+
+    getTransactionReceipt.mockResolvedValue({ status: 'success', logs: [{ fake: 'log' }] });
+    fireEvent.click(screen.getByRole('button', { name: /check again/i }));
+    await screen.findByText(TOKEN);
+    expect(getTransactionReceipt).toHaveBeenCalledWith({ hash: '0xhash' });
+    expect(onCreated).toHaveBeenCalledWith(TOKEN);
+    expect(uploadJson).toHaveBeenCalled();
+    expect(writeContractAsync).toHaveBeenCalledTimes(1); // no second create tx
+  });
+
+  it('UNREAD, then Check again still cannot read: stays unconfirmed, still no error', async () => {
+    waitForTransactionReceipt.mockRejectedValue(unread());
+    renderPanel();
+    fillAndSubmit();
+    await screen.findByRole('button', { name: /check again/i });
+
+    getTransactionReceipt.mockRejectedValue(new TransactionReceiptNotFoundError({ hash: '0xhash' }));
+    fireEvent.click(screen.getByRole('button', { name: /check again/i }));
+    await waitFor(() => expect(toastWarning).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('button', { name: /check again/i })).toBeInTheDocument();
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('UNREAD, then Start over: the form comes back only on an explicit choice', async () => {
+    waitForTransactionReceipt.mockRejectedValue(unread());
+    renderPanel();
+    fillAndSubmit();
+    fireEvent.click(await screen.findByRole('button', { name: /start over/i }));
+    expect(screen.getByRole('button', { name: /create launch/i })).toBeInTheDocument();
+  });
+
+  it('REVERTED: says reverted, never "Launch confirmed"', async () => {
+    waitForTransactionReceipt.mockResolvedValue({ status: 'reverted', logs: [] });
+    parseEventLogs.mockReturnValue([]);
+    const { onCreated } = renderPanel();
+    fillAndSubmit();
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    const msg = String(toastError.mock.calls[0]?.[0]);
+    expect(msg).toMatch(/reverted/i);
+    expect(msg).not.toMatch(/confirmed/i);
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(toastWarning).not.toHaveBeenCalled();
   });
 });

@@ -7,6 +7,7 @@ import {
   navigablePath,
   GECKO_EDGE_GLOB,
 } from './fixtures/routes';
+import { BAYLA_LADDER_RECORDING } from './fixtures/baylaLadderPool';
 
 // Element I: zero em dashes in venue-voice prose, and an exact count per route until then.
 // A text node that contains U+2014 and whose trimmed content is not exactly U+2014 is prose
@@ -15,9 +16,9 @@ import {
 // prose beside it. Each count holds both ways: a new dash fails its route, and so does a
 // fixed one until the number comes down.
 
-// A CI measurement under `vite preview`: no /api function, no VITE_INDEXER_URL and no push
-// keys, so production renders branches this table never walks. The chart's own branches are
-// guarded in src/components/chart/chartCopyDashes.test.ts.
+// A CI measurement under `vite preview`: no /api function (a few /api paths proxy live, per
+// vite.config.ts), no VITE_INDEXER_URL and no push keys, so production renders branches this
+// table never walks. The chart's own branches are guarded in src/components/chart/chartCopyDashes.test.ts.
 
 /** Venue-voice routes, counted on the desktop production build. At 0 a route is finished
  *  and fails on its first prose node, naming the copy. */
@@ -31,7 +32,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/admin': 0,
   '/launch/0x0000000000000000000000000000000000000000': 0,
   '/vesting': 0,
-  '/farm': 0,
+  '/earn': 0,
   '/island': 0,
   '/airdrop': 0,
   '/exposure': 0,
@@ -63,7 +64,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/risks': 3,
   '/copy-trading': 11,
   '/tax': 13,
-  '/curve-launch': 14,
+  '/curve-launch': 13,
   '/eth-curve': 15,
   '/alerts': 17,
   // ScoringRules' written paragraphs; the Cup's coverage notice is a data-unread-ledger.
@@ -272,5 +273,148 @@ test.describe('element I: em dashes in the rooms', () => {
       .map(navigablePath);
     expect(doors.length, 'the app routes fourteen doors, thirteen ids plus the towelie alias').toBe(14);
     expect(Object.keys(ROOM_VOICE_DEBT).sort()).toEqual([...doors].sort());
+  });
+});
+
+// Element I on each room's farm, /earn/<id>, keyed by registry id. The reads are
+// sealed (every /api path and every host but localhost aborted), so each pool card renders
+// its unread branch and the count holds from run to run. The BAYLA ladder card's read
+// branch is walked in the next block. toweli's farm is its own room's prose, and nb1, not
+// yet live, goes to the venue's list.
+const ROOM_FARM_DEBT: Record<string, number> = {
+  toweli: 11,
+  bayla: 0,
+  bobo: 0,
+  soy: 0,
+  brainlet: 0,
+  rizz: 0,
+  // The six EVM ladders: the unread card's "The pool could not be read just now" line.
+  pepe: 1,
+  qr: 1,
+  mfer: 1,
+  bnkr: 1,
+  drb: 1,
+  jbm: 1,
+  nb1: 0,
+};
+
+test.describe("element I: em dashes on each room's farm", () => {
+  for (const [id, budget] of Object.entries(ROOM_FARM_DEBT)) {
+    const path = `/earn/${id}`;
+    test(`${path} carries ${budget} prose em dash${budget === 1 ? '' : 'es'}`, async ({ page }) => {
+      test.skip(test.info().project.name !== 'chromium', 'the debt here is a desktop measurement');
+      test.slow();
+      await page.addInitScript(() => {
+        try {
+          localStorage.setItem('tegridy-onboarding-seen', '1');
+          localStorage.setItem('tegridy_telemetry_consent', 'denied');
+          localStorage.setItem('tegridy-bungalow', 'venue');
+        } catch { /* private mode */ }
+      });
+      await page.route('**/api/**', (r) => r.abort());
+      await page.route((url) => url.hostname !== 'localhost', (r) => r.abort());
+      await settle(page, path);
+
+      const hits = await proseDashes(page);
+      const shown = hits.slice(0, 8).map((h) => `  ${h.owner}: ${h.text}`).join('\n');
+
+      if (budget === 0) {
+        expect(hits.length, `${path} is at zero and gained prose em dashes:\n${shown}`).toBe(0);
+        return;
+      }
+      expect(
+        hits.length,
+        hits.length > budget
+          ? `${path} gained prose em dashes (${budget} -> ${hits.length}). First few:\n${shown}`
+          : `${path} is DOWN to ${hits.length} from ${budget}. Good: lower the number in ROOM_FARM_DEBT to ${hits.length}.`,
+      ).toBe(budget);
+    });
+  }
+
+  test('the farm table walks every registry id the doors route, once', () => {
+    const ids = ROUTES
+      .filter((r) => r.owner === 'pages/HomePage.tsx' && r.voice !== 'venue')
+      .map((r) => navigablePath(r).slice(1))
+      .filter((id) => id !== 'towelie');
+    expect(ids.length, 'thirteen registry ids').toBe(13);
+    expect(Object.keys(ROOM_FARM_DEBT).sort()).toEqual([...ids].sort());
+  });
+});
+
+// Element I on the BAYLA lock ladder card once its pool reads (answer fifteen, item 8).
+// Everything is sealed as above except /api/solrpc, which answers. By default it answers
+// from a recording of the live pool (fixtures/baylaLadderPool.ts, written by
+// scripts/record-bayla-ladder-fixture.mjs): the gate stays hermetic, so a rate-limited
+// public RPC cannot turn it red, and the count holds from run to run. With
+// EM_DASH_LIVE_POOL=1 the request goes through the preview's proxy to mainnet, so one run
+// reads the pool as it stands. Either way the card must show figures it read, or the test
+// fails: a card that never read proves nothing. The build has to carry the ladder
+// (VITE_BAYLA_LADDER_PROGRAM and VITE_BAYLA_LADDER_POOL), as production's and CI's do.
+const LIVE_POOL = process.env.EM_DASH_LIVE_POOL === '1';
+
+test.describe('element I: the BAYLA lock ladder card, once its pool reads', () => {
+  const path = '/earn/bayla';
+  test(`${path} reads ${LIVE_POOL ? 'the live pool' : 'the recorded pool'} and carries 0 prose em dashes`, async ({ page }) => {
+    test.skip(test.info().project.name !== 'chromium', 'measured on the desktop project only');
+    test.slow();
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem('tegridy-onboarding-seen', '1');
+        localStorage.setItem('tegridy_telemetry_consent', 'denied');
+        localStorage.setItem('tegridy-bungalow', 'venue');
+      } catch { /* private mode */ }
+    });
+    await page.route('**/api/**', (r) => r.abort());
+    await page.route((url) => url.hostname !== 'localhost', (r) => r.abort());
+    // Registered last, so it runs first. A call the recording does not hold is aborted like
+    // every other read, and named if the card then fails to read.
+    const answers: Record<string, unknown> = BAYLA_LADDER_RECORDING.answers;
+    const unanswered: string[] = [];
+    await page.route('**/api/solrpc', (route) => {
+      if (LIVE_POOL) return route.continue();
+      let body: unknown = null;
+      try { body = route.request().postDataJSON(); } catch { /* not JSON: unanswered */ }
+      const calls = (Array.isArray(body) ? body : [body]) as { id?: unknown; method?: unknown; params?: unknown[] }[];
+      const keys = calls.map((c) => `${String(c?.method)}:${String(c?.params?.[0])}`);
+      if (!keys.every((k) => k in answers)) {
+        unanswered.push(...keys);
+        return route.abort();
+      }
+      const replies = calls.map((c, i) => ({ jsonrpc: '2.0', id: c.id, result: answers[keys[i]!] }));
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(Array.isArray(body) ? replies : replies[0]),
+      });
+    });
+
+    await settle(page, path);
+
+    // A build without the ladder serves the closed Streamflow card here, and no ladder.
+    if ((await page.getByText(/The lock ladder is live for BAYLA/).count()) === 0) {
+      expect(process.env.CI, 'the CI build sets the ladder, as production does, and this build has none').toBeFalsy();
+      test.skip(true, 'this build carries no ladder: build with VITE_BAYLA_LADDER_PROGRAM and VITE_BAYLA_LADDER_POOL set');
+    }
+
+    // The ledger draws only from a pool that read and stakes BAYLA's own mint, and each
+    // figure is a number it read, never the unread mark.
+    const ledger = page.locator('section[data-ledger]');
+    const why = unanswered.length ? ` (unanswered: ${unanswered.join(', ')})` : '';
+    await expect(ledger, `the ladder card did not read its pool${why}`).toHaveCount(1);
+    // ledger.tsx's contract: the label, then the value <p>, whose first child is the figure.
+    const figure = (label: string) => ledger.getByText(label, { exact: true })
+      .evaluate((el) => el.nextElementSibling?.firstElementChild?.textContent ?? '');
+    const locked = await figure('BAYLA locked here');
+    const vault = await figure('Reward vault');
+    expect(locked, 'BAYLA locked here is a figure it read').toMatch(/\d/);
+    expect(vault, 'the reward vault is a figure it read').toMatch(/\d/);
+    test.info().annotations.push({
+      type: 'pool',
+      description: `${LIVE_POOL ? 'live' : `recorded at slot ${BAYLA_LADDER_RECORDING.slot}`}: ${locked} BAYLA locked, reward vault ${vault} BAYLA`,
+    });
+
+    const hits = await proseDashes(page);
+    const shown = hits.slice(0, 20).map((h) => `  ${h.owner}: ${h.text}`).join('\n');
+    expect(hits.length, `${path}, its ladder read, carries prose em dashes:\n${shown}`).toBe(0);
   });
 });

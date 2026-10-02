@@ -15,6 +15,443 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-01 — a PR whose base moved can still merge exactly what its CI tested
+
+**Believed:** once trunk moves under an open PR, its green checks no longer describe what a
+merge would land, so the PR has to be updated and re-tested (about 70 minutes here, most of it
+E2E) before it merges.
+
+**Measured:** `git merge-tree --write-tree origin/mvp-launch origin/<branch>` prints the tree
+the merge would produce, without touching any checkout. When that equals
+`git rev-parse origin/<branch>^{tree}`, the merge lands byte for byte what the PR's CI ran on,
+however far trunk has moved. On 2026-10-01 nine PRs landed in a row with no second CI run:
+seven with equal trees, two by the file check below. Three of them (#680, #683, #681) had
+merged the head of the PR ahead of them before their CI ran, so each was already tested on
+the trunk it was about to become. Where the trees
+differ, `git diff --name-only origin/<branch> <merged tree>` lists exactly what CI did not
+see. For #677 and #678 that was only `.gitleaks.toml`, and `git grep` showed no build or test
+reads its contents (one test checks that it exists, one mentions it in a comment), so their
+green carried over.
+
+**Do:** before merging, compare the merged tree with the PR's tree. Equal: merge, pinned with
+`--match-head-commit`. Different: read the file list. Re-test unless no build or test can read
+those files. To save the cycle, merge the head of the PR ahead into the next PR before its CI
+runs. `mergeStateStatus` cannot tell you any of this: with no branch protection it reads
+`CLEAN` on a stale base.
+
+---
+
+## 2026-10-01 — a recorded RPC read keyed `method:address` trips gitleaks on public data
+
+**Believed:** a fixture that holds only public on-chain data cannot trip the secret scan.
+
+**Measured:** gitleaks 8.30.1's `generic-api-key` rule flagged
+`frontend/e2e/fixtures/baylaLadderPool.ts` lines 25 and 37 in #683. Those are keys of a
+recorded Solana RPC read shaped `"getTokenAccountBalance:<base58 address>"`, and both
+addresses are the BAYLA ladder's public token vaults (Token-2022 accounts owned by the pool
+PDA, read on mainnet). Over #683's range (`5d7c363e..7328eac8`) the scan found 2 leaks with
+the old config and 0 with both addresses listed as exact strings in `.gitleaks.toml` (#684). A
+later commit on the same PR cannot clear the finding: the PR scan walks every commit in its
+range, and the address is still in the commit that added it.
+
+**Do:** key a recorded read by a label (`stakeVaultBalance`), not by `<method>:<address>`.
+Where the address must appear, list it in `.gitleaks.toml` as an exact string, never as a
+base58 shape (that file records why), and do it before or with the fixture, not after.
+
+---
+
+## 2026-10-01 — with `--no-options`, gpg will not create a missing home, and exits 2
+
+**Believed:** gpg creates `~/.gnupg` on first use, so a script that runs it on a fresh
+machine or CI runner just works.
+
+**Measured:** with `--batch --no-options` and no existing home, gpg exits 2 with
+`keyblock resource '<home>/pubring.kbx': No such file or directory`, even though it still
+writes the ciphertext. This held for symmetric encrypt and decrypt alike, on GitHub's
+`ubuntu-latest` (#677's CI), WSL gpg 2.4.4 with a fresh `HOME`, and Git for Windows gpg 2.4.9
+with `GNUPGHOME` pointing at a folder that did not exist. It passed on this PC only because a
+home already existed. `--no-autostart` is not a way around it: symmetric encryption needs
+gpg-agent to choose its key-stretching strength, and without the agent gpg exits 2.
+
+**Do:** give each gpg call its own fresh home: `mkdtemp`, mode 0700, passed with `--homedir`,
+deleted afterwards. Git for Windows gpg (MSYS) reads a `C:\` home as a relative path, so pass
+it the `/c/...` form. `scripts/ops/lib/gpg.mjs` does all of this. Judge success by the exit
+status, never by output existing.
+
+---
+
+## 2026-10-01 — after `await findByRole(...)`, a re-render a promise queued meanwhile may not have committed
+
+**Believed:** once `await screen.findByRole('dialog')` returns, the page is settled, so a
+click on the next line reads the latest state.
+
+**Measured** (React 19.2.8, @testing-library/react 16.3.3, vitest 4.1.11, jsdom): RTL's
+`asyncWrapper` switches act mode off for the whole `findBy*`/`waitFor`, then resolves after
+a `setTimeout(0)`. A promise that settles in that window (here, WalletProvider restoring a
+saved wallet on mount) sets state outside any act scope, so React queues the re-render on
+its Scheduler, which in Node is a `setImmediate`. The event loop decides which runs first.
+On PR #684 (a `.gitleaks.toml`-only diff) the timer won on a CI runner: the row click
+closed over the render that still said `connecting: true`, skipped `connect()`, and
+`waitFor` timed out with `expected +0 to be 1` after ~1044 ms. A probe that forced that
+order (open the dialog, drain microtasks only, click) failed the same way every run, with
+the committed `connecting` still `true`.
+
+**Do:** let async work started at mount finish inside an awaited `act()` before the first
+`findBy*`. React keeps an async act's queue open until a later `setImmediate` finds it
+empty (`recursivelyFlushAsyncActWork`), so a state update from a microtask chain is
+queued and committed before act resolves. Where a click acts synchronously, assert right
+after it: a `waitFor` around a call that never happens only turns a wrong state into a
+one-second timeout.
+
+---
+
+## 2026-09-30 — keeping both sides of a NOTES or TODO conflict can turn a paragraph into a heading
+
+**Believed:** a conflict in `NOTES.md` or `docs/TODO_OPERATOR.md` where two branches each add
+sections at the top is resolved by keeping every section and joining them with the file's `---`
+separator.
+
+**Measured:** merging three branches that each added sections (2026-09-30), a script split each
+side on `\n---\n\n` and joined them the same way. The last section of each side has no blank
+line after it inside the conflict, so the join put `---` straight under a paragraph: 4 places
+in the two files. In Markdown a `---` right under a text line is a setext heading underline, so
+the whole paragraph above renders as a heading. No test reads for it.
+
+**Do:** after resolving, list every `---` line whose previous line is not blank:
+`awk 'NR>1 && $0=="---" && prev!="" {print FILENAME": "NR} {prev=$0}' NOTES.md docs/TODO_OPERATOR.md`.
+The list must be empty.
+
+---
+
+## 2026-09-30 — with two push URLs, a push the first host refuses still reaches the second
+
+**Believed:** an `origin` with two `pushurl`s (GitHub, then GitLab) stops at GitHub when GitHub
+refuses a push, for example because its secret scanning found a key in it.
+
+**Measured:** git pushes to each push URL in turn and goes on after one refuses (git 2.53,
+throwaway repos, 2026-09-30). The "GitHub" repo's pre-receive hook refused `feat/leak`; the same
+`git push` then printed `* [new branch] feat/leak -> feat/leak` for the "GitLab" repo, and
+exited 1. The standby is public, so that push would have published the key.
+
+**Do:** give the clone a pre-push hook. git runs it once per push URL, with that URL as `$2`. For
+every URL after the first, ask the first host (`git ls-remote`) whether it now holds each ref
+exactly as pushed, and refuse otherwise. `scripts/git-hosting/pre-push-standby.sh` does this and
+`set-remotes.sh` installs it; without it, the set-remotes tests go red. A `--dry-run` push then
+reports the second URL as refused, because the first took nothing.
+
+---
+
+## 2026-09-30 — a GitHub schedule that stops running tells someone
+
+**Believed:** if GitHub's scheduled workflows stopped, a failed run, an issue or an email would
+say so.
+
+**Measured:** reported by the lead on 2026-09-30 (not re-read here: this work made no GitHub
+calls). After the account's suspension (2026-09-24) and reinstatement (2026-09-29), no scheduled
+workflow had run for more than five days, and none had resumed when this was written. Nothing
+told anyone. A schedule that does not fire produces no run, so there is nothing to fail, and
+every alarm those jobs had (issues, run emails) lived on GitHub too. One piece was checked
+here: the nine backups downloaded on 2026-09-29, reported as every artifact GitHub held, end at
+2026-09-21 (the folder names), so the Monday 2026-09-28 backup left no artifact. The exact date
+of the last scheduled run needs `gh run list`, which this work did not call.
+
+**Do:** watch a schedule from outside its host, by silence rather than by failure. The last step
+of `synthetic-monitor.yml` pings healthchecks.io every 30 minutes; the check alarms when the
+pings stop (`docs/OPS_SCHEDULER.md`, section 2). Ping on every run, pass or fail: a "fail"
+ping holds the check DOWN, and a check that is already DOWN sends no email when the pings then
+stop. Keep a copy of anything the host stores, too: `scripts/ops/pull-github-backups.mjs`
+copies the weekly backup off GitHub.
+
+---
+
+## 2026-09-30 — a fake tool put first on PATH is the one a Git Bash child runs
+
+**Believed:** a test that spawns Git Bash with a fake `curl` folder at the front of PATH runs
+the fake.
+
+**Measured:** `C:\Program Files\Git\bin\bash.exe` is a launcher that puts `/mingw64/bin` and
+`/usr/bin` ahead of the PATH it was given, so `type -a curl` listed the real curl first. A test
+meant to catch a ping sent real requests to hc-ping.com (a made-up check id, so nothing was
+pinged) and took 8 seconds of retries.
+
+**Do:** set PATH inside the shell (`bash -c 'PATH="$(cd "$FAKE_DIR" && pwd):$PATH"; . "$1"'`),
+assert the fake actually ran, and point test URLs at a host that cannot resolve, such as
+`.invalid` (RFC 2606), so a bypassed fake sends nothing.
+
+---
+
+## 2026-09-30 — a paged read whose row count matches the server's total read every row once
+
+**Believed:** paging a PostgREST table with `Range` and `Prefer: count=exact`, then checking
+that the rows read equal the reported total, proves every row was read.
+
+**Measured:** against a fake PostgREST that pages in heap order, as a query with no `ORDER BY`
+may, and moves one row to the end between page 1 and page 2 (what an UPDATE can do to a heap):
+1,500 rows read, total 1,500, row 1000 missing and row 10 read twice. Sorted by primary key,
+the update was harmless, but a delete before the page boundary plus an insert after it still
+read 1,500 of 1,500 with row 1000 missing and no key repeated, so a duplicate check alone does
+not catch it. Same fake; no real Postgres was run.
+
+**Do:** page in primary-key order, and start each page on the last row of the page before. If
+that row is not where it was, rows shifted: fail and re-run. Then check that no key repeats.
+`scripts/ops/lib/supabase-dump.mjs` does all three.
+
+---
+
+## 2026-09-29 — a gitleaks config read from the base commit stops a change loosening its own scan
+
+**Believed:** run gitleaks with `--config` and `--gitleaks-ignore-path` taken from the commit a
+merge request builds on, and the merge request cannot loosen the scan of its own commits.
+
+**Read in gitleaks v8.30.1's source** (`cmd/root.go`, by this branch's reviewer; not run here,
+there is no gitleaks binary on this PC): gitleaks also loads `.gitleaksignore` from the folder
+it scans, which is the change's own checkout. It also honours `gitleaks:allow` comments unless
+`--ignore-gitleaks-allow` is set. So a change can add a secret and either its fingerprint in
+`.gitleaksignore` or a `# gitleaks:allow` on the same line, and pass.
+
+**Do:** scan a `git clone --no-checkout --shared` of the checkout (the same history, no
+working-tree files), and pass `--ignore-gitleaks-allow`. `scripts/ci/gitleaks-range.sh` does
+both.
+
+---
+
+## 2026-09-29 — a job on our own act runner starts as clean as a job on GitHub's VMs
+
+**Believed:** each act job on a self-hosted runner starts from its image, as a GitHub-hosted
+job does, so one pipeline cannot change what the next one runs.
+
+**Read in act v0.2.89's source** (by this branch's reviewer; act is not installed here): every
+job container gets the named volume `act-toolcache` at `/opt/hostedtoolcache`, and act never
+removes it. Any job can plant a tool there, such as a fake node that `actions/setup-node` then
+picks, for every later run on that Docker daemon. act's actions/cache server matches entries by
+key and version only, with no branch scope. **Reproduced with git:** GitLab's shell executor
+reuses one build folder, and a job that skips submodules sees them at the last job's commit, so
+`git status` shows ` M contracts/lib/<x>`.
+
+**Do:** run one job at a time, drop the volume before each run, give merge requests a
+throwaway copy of the cache store, and leave submodules out of a clean-checkout check.
+`scripts/ci/act-job.sh` does all of these.
+
+---
+
+## 2026-09-29 — copying `refs/stash` copies one stash, not the stash list
+
+**Believed:** fetching or bundling a clone's `refs/stash` saves its stashes, and old stash
+entries expire after 30 or 90 days like any other reflog entry.
+
+**Measured:** only `stash@{0}` is a ref. The rest are the reflog of `refs/stash`, and no fetch,
+push or bundle carries a reflog. Our first vault fetched `refs/stash` from a clone with 12 entries
+and held 1 (git 2.53). They do not expire, though: git exempts `refs/stash` from reflog expiry
+unless a `gc.refs/stash.*` setting exists. Three entries dated six months back survived `git gc`,
+even with `gc.reflogExpire=1.day`; with `gc.refs/stash.reflogExpire=1.day` all three went.
+
+**Do:** fetch each id from `git reflog show --format=%H refs/stash` into its own ref (the source
+side needs `uploadpack.allowAnySHA1InWant`). `scripts/git-hosting/consolidate-refs.sh` does this,
+and a mutant that keeps only the top entry goes red.
+
+---
+
+## 2026-09-29 — a bundle of a clone's branches does not hold the host's newest trunk
+
+**Believed:** `git bundle create <file> --branches --tags` in a working clone backs up the trunk.
+
+**Measured:** after the host merged a request and the clone fetched it, the new trunk was only
+`refs/remotes/origin/mvp-launch`; the clone's own `mvp-launch` stayed at the old commit. The
+bundle held the old one, so a restore from it would have deployed an older site.
+
+**Do:** bundle with `--remotes` too, and when restoring, list every `*/mvp-launch` in every
+bundle, then check that the chosen one contains what production serves
+(`git merge-base --is-ancestor`). `backup-bundles.sh` and `docs/GIT_HOSTING.md` 5C do both.
+
+---
+
+## 2026-09-29 — act fails a workflow when one of its jobs did not run
+
+**Believed:** a GitHub workflow run under act (or under Forgejo's runner, which is built on
+act) exits non-zero when one of its jobs never ran.
+
+**Read in act's source** (`pkg/runner/runner.go` and `pkg/runner/run_context.go` on master,
+2026-09-29; not yet run here, there is no runner): a matrix act cannot expand, such as
+`fromJSON(needs.x.outputs.y)` with an empty output, is logged as `Error while get job's
+matrix` and then runs zero times. A job whose `runs-on` label has no `-P` mapping is skipped
+with one info line and no result. act's exit code counts only jobs whose result is
+`failure`, so both runs exit 0. act also expands a matrix before it checks the job's
+`needs`, so a matrix job whose needs were skipped logs that same error where GitHub just
+skips the job. And act ignores `on.push.paths`.
+
+**Do:** never read act's exit code alone. List the jobs first (`act -l`), require a result
+line for each one (`jobResult` in `--json --verbose` output; skips are logged at debug
+level), and accept a job with no result only when a job it needs was skipped.
+`scripts/ci/act-job.sh` does this and proves it with `--self-test`.
+
+---
+
+## 2026-09-29 — `node --env-file` hands the program each value as written
+
+**Believed:** a `NAME=value` file loaded with `node --env-file` gives the program everything
+after the `=`.
+
+**Measured:** on node 24.13.0, an unquoted `B=has#hash` loads as `has`: a `#` anywhere in an
+unquoted value starts a comment, not only after a space. `E=with=equals==` and CRLF endings load
+intact, and quoted values keep their `#`. For a backup passphrase the cut is silent and
+permanent: every file is encrypted with the shortened passphrase, and the offline copy never
+opens one. `scripts/ops/lib/env-file.mjs` now reads the ops env file itself, and the ops CLIs
+warn when node's own flag was used.
+
+**Do:** never feed a secret through `node --env-file` unquoted. Prove a stored passphrase by
+decrypting with the offline copy typed in, not with the file that did the encrypting.
+
+---
+
+## 2026-09-29 — `bash` spawned from a Windows-native process is Git Bash
+
+**Believed:** a node test that spawns `bash` gets Git Bash on this PC.
+
+**Measured:** from PowerShell, `bash` resolves to
+`%LOCALAPPDATA%\Microsoft\WindowsApps\bash.exe`, the WSL launcher. It does not pass the
+caller's environment through, so a gpg round-trip test there decrypted with an empty passphrase
+and failed. `scripts/lib/redact-url.test.mjs` fails 4 of 18 from PowerShell and passes 18 of 18
+from Git Bash, for the same reason.
+
+**Do:** probe the property the test needs (does the child see an env var you set?) rather than
+trusting the name, and on Windows try `C:\Program Files\Git\bin\bash.exe` first.
+
+---
+
+## 2026-09-29 — a gpg that fails writes nothing to stdout
+
+**Believed:** gpg either produces its output or produces none.
+
+**Measured:** gpg 2.4.9 (Git for Windows). With one byte of a symmetric file flipped,
+`gpg --decrypt` wrote all 262,144 bytes of unauthenticated plaintext to stdout, then printed
+"encrypted message has been manipulated" and exited 2. Separately, the MSYS gpg called from a
+native process read `--homedir C:\...` (and `C:/...`) as a relative path, failed, exited 2, and
+still wrote a full ciphertext to stdout.
+
+**Do:** the exit status is the verdict, never the presence of output. From a native process,
+hand MSYS tools their data on stdin, or `/c/...` paths.
+
+---
+
+## 2026-09-29 — renaming `origin` takes every branch's upstream with it, so a bare `git push` still goes to the old host
+
+**Believed:** after `git remote rename origin github` and `git remote add origin <new host>`, a
+plain `git push` or `git pull` talks to the new origin.
+
+**Measured:** `git remote rename` rewrites `branch.<name>.remote` for every branch that tracked
+the old name (git 2.53, throwaway clone). After the rename and the add,
+`branch.mvp-launch.remote` was `github`, `git push --dry-run -v` printed `Pushing to` the old
+URL, and `git status -sb` showed `mvp-launch...github/mvp-launch`. The old host is the one being
+left, so the day it comes back, a bare push lands there and skips the primary.
+
+**Do:** after a rename, set every `branch.*.remote` that names the old remote to `origin`, and
+give the old remote an unusable `pushurl` so a push to it fails loudly. The rename also carries
+every `pushurl` the remote had, so with two of them a plain `git config remote.<name>.pushurl <x>`
+fails ("cannot overwrite multiple values", git 2.53, 2026-09-29); use `--replace-all`.
+`scripts/git-hosting/set-remotes.sh` does all of this, and a mutant without the re-point goes red.
+
+---
+
+## 2026-09-29 — a GitLab link to a file the repo does not have does not 404
+
+**Believed:** a link check that follows each source link and fails on a 404 catches a link
+to a path the repo does not hold.
+
+**Measured** (curl, 2026-09-29, against the public `gitlab.com/gitlab-org/gitlab`):
+`/-/blob/master/does-not-exist.md` answers `302` to `/-/tree/master`, which answers `200`.
+So a wrong path lands on the repo root and every HTTP check passes. A folder under
+`/-/blob/` also answers `302`, to `/-/tree/`. These answers do not depend on the request
+headers. `/-/issues` does: with `Accept: text/html` it answers `302` to `/-/work_items`;
+without that header it answers `404`, even with a browser's user agent. So a script that
+does not send `Accept: text/html` can see a different answer from a browser.
+
+GitHub, where the links go today, does answer a missing path with `404` (measured 2026-09-30
+on our repo; a folder under `/blob/` answers `301` to `/tree/`). So a status check that passes
+against GitHub says nothing about the day the links fail over to GitLab.
+
+**Do:** check a source link's path against `git ls-files`, never against the host's status
+code. `frontend/src/test/sourceLinks.test.ts` does this for every literal path in the code
+and for every link the pages that link source render.
+
+---
+
+## 2026-09-24 — MetaMask's SDK does not read through your wagmi transports, and `enableAnalytics: false` does not switch its analytics off
+
+**Believed:** once the CSP allows every RPC host in the wagmi transports, a connected wallet
+can read; RainbowKit's MetaMask row disables MetaMask's analytics; and a desktop probe
+with the extension, which shows no SDK socket, clears the CSP for MetaMask everywhere.
+
+**Measured** (RainbowKit 2.2.11, wagmi connectors 8.2.0, @metamask/connect-evm 2.1.1,
+viem 2.56.5; Playwright Pixel 5 and iPhone 15 against a production build with the
+vercel.json CSP injected):
+- On a phone, and on desktop with the extension, the row uses wagmi's `metaMask()`. It
+  hands the SDK `supportedNetworks` = each chain's `rpcUrls.default.http[0]`, and the SDK
+  `fetch`es 33 methods straight there (reads such as eth_call, eth_estimateGas,
+  eth_getTransactionCount and receipts, plus eth_sendRawTransaction), with no fallback to
+  the wallet. viem's mainnet default
+  is `https://ethereum.reth.rs/rpc` (it moves between viem versions). Refused by the CSP,
+  mainnet reads threw `RPCErr52 ... Failed to fetch` while Base (default allowed) answered.
+  WalletConnect differs: wagmi builds its rpcMap from the transports.
+- A phone browser gets the SDK's relay transport: it opens `metamask://connect/mwp?...`,
+  then a websocket to `wss://mm-sdk-relay.api.cx.metamask.io/connection/websocket`.
+  Refused, WebKit drops the session to `disconnected` and throws
+  `null is not an object (evaluating 'this._transport.close')`. Desktop with the extension
+  uses a browser transport and never opens that socket.
+- RainbowKit passes `enableAnalytics: false`, the old `@metamask/sdk` option. connect-evm
+  v2 reads `analytics.enabled`, and wagmi spreads your parameters and then sets
+  `analytics: { integrationType: 'wagmi' }`, so no config reaches it. It POSTs to
+  `mm-sdk-analytics.api.cx.metamask.io`; refused, it retries on a backoff capped at 30s
+  and logs `Sender: Failed to send batch` each time.
+
+**Do:** allowlist what the SDK build contains, not what your config names: read `wss://`
+and RPC URLs out of the shipped package and each chain's `rpcUrls.default`. To test a CSP
+locally, `vite preview` sends no Vercel headers: inject it with Playwright
+`route.fetch()` + `fulfill({ response, headers })` on document requests, with
+`serviceWorkers: 'block'`. `route.abort()` a custom-scheme deep link (a 204 blanks the
+page in WebKit). `globalThis.__METAMASK_CONNECT_MULTICHAIN_SINGLETON__` resolves to the
+SDK core; `invokeMethod({ scope: 'eip155:1', request })` drives its read router with no
+wallet present.
+
+---
+
+## 2026-09-24 — a CORS allowlist in a framework's user routes does not decide who can read
+
+**Believed:** the indexer's `allowedOrigins` in `indexer/src/api/index.ts` is its CORS policy,
+so removing a host there stops that host reading the indexer.
+
+**Measured:** against the live indexer, `OPTIONS /graphql` from four origins (three on the list,
+one invented) all answered `204` with `Access-Control-Allow-Origin: *`, and
+`allow-methods: GET,HEAD,PUT,POST,DELETE,PATCH`. That is Hono's default method list, not the
+`GET, POST, OPTIONS` the file sets, so a different layer answered. Ponder 0.8.33 mounts
+`cors({ origin: "*" })` before user routes (`src/server/index.ts:94` in its source), and
+Hono's cors answers OPTIONS without calling `next`. On `POST`, a listed origin was echoed by
+name and an invented one kept `*`. Every response also carried `allow-credentials: true`,
+which neither layer sets.
+
+**Do:** before trusting a CORS change, send the preflight and compare the answered
+`allow-methods` with the ones you configured. If they differ, your middleware never saw the
+request.
+
+---
+
+## 2026-09-24 — a comment that names a guard is not a guard until the guard reads the file
+
+**Believed:** `bot/src/config.test.js` said the bot's default origins were held to `SITE_URL`
+by `frontend/src/lib/__tests__/canonicalHost.test.ts`, so the bot's documented defaults
+could not drift from the code.
+
+**Measured:** `canonicalHost.test.ts` has never read anything under `bot/`; its only "bot" is
+a Twitterbot user agent. #478 (2026-09-12) moved the defaults in `bot/src/config.js` to
+memetics.finance and wrote that pointer in the same commit, and `bot/.env.example` and
+`bot/DEPLOY.md` went on naming memetic.fun as the default for twelve days. A second pointer,
+in `bot/src/venueClient.js`, credited `venueClient.test.js` with the signing-parity proof
+that the test's own header hands to `api/__tests__/bot-noncustodial.test.js`.
+
+**Do:** when a comment says "X is pinned by Y", grep Y for X before relying on it or
+repeating it. If Y does not read X, write the guard or drop the claim.
+
+---
+
 ## 2026-09-22 — a `toContain('80°')` pin stays green on a page that says 180°
 
 **Believed:** a test that asserts a threshold goes red when the page shows a different

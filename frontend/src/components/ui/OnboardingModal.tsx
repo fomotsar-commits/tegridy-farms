@@ -44,7 +44,7 @@ const venueSteps = [
     title: 'Your First Move',
     // ARRIVAL FLOW 2026-08-31: the venue's first move is the island itself,
     // not the farm. The farm is TOWELI's room; its tour says so instead.
-    body: 'Walk a door in the hall below, or scan any token on either chain. Your heat already exists. It started counting at your first buy.',
+    body: 'Walk a door in the hall below, or scan any token on either chain. Your heat already exists. Your clock on a token starts at your first hold.',
     cta: true,
   },
 ];
@@ -209,7 +209,7 @@ export function OnboardingModal({
                 tour lands the visitor in the hall of doors, on the page,
                 where the island itself is the next click. */}
             {isToweliVoice() ? (
-              <Link to="/farm" onClick={close}
+              <Link to="/earn/toweli" onClick={close}
                 className="px-4 py-2 text-sm font-semibold rounded-lg bg-green-600 hover:bg-green-500 text-white transition-colors text-center min-h-[44px] flex items-center">
                 Start Farming
               </Link>

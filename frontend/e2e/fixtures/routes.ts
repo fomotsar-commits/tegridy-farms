@@ -316,20 +316,38 @@ export const ROUTES: readonly RouteSpec[] = [
     }),
   ),
   {
-    path: '/farm',
+    // 2026-09-30: Earn's landing tab moved from /farm to /earn, and it is ALWAYS
+    // the list of every pool, whatever room is stored (the walletMock stores
+    // toweli, and this still renders the list). One pool is /earn/:poolId.
+    path: '/earn',
     voice: 'venue',
     owner: 'pages/FarmPage.tsx',
-    // 2026-09-05: /farm is the Earn section's landing tab now, so it renders
-    // through EarnPage with a strip above it. FarmPage is still the page in the
-    // panel, which is why `owner` does not move.
-    tabOf: 'EarnPage · farm',
+    tabOf: 'EarnPage · earn',
+    gate: null,
+    knownViolations: [],
+  },
+  {
+    // One pool, its room entered on arrival. Audited at /earn/toweli, the
+    // TOWELI farm, which inherits /farm's two measurements: the disconnected
+    // surface is a wallet gate with no top-level heading (its h1 exists only
+    // in the connected branch), and connecting brings the stake form's label
+    // finding. Both lists are kept because a fix must satisfy both.
+    path: '/earn/:poolId',
+    voice: 'toweli',
+    owner: 'pages/FarmPage.tsx',
+    tabOf: 'EarnPage · earn',
     gate: null,
     knownViolations: ['page-has-heading-one'],
-    // Connecting REMOVES the missing-h1 finding: the disconnected surface is a
-    // wallet gate with no top-level heading, and the page's own h1 only exists
-    // in the connected branch. Both lists are kept because a fix must satisfy
-    // both, and a reader comparing them can see the split.
     connectedViolations: ['form-field-label'],
+  },
+  {
+    path: '/farm',
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why: "Earn's address until 2026-09-30. An old link keeps its meaning: the stored room's pool (the walletMock stores toweli), or the list with no room.",
+    redirectsTo: '/earn/toweli',
+    knownViolations: [],
   },
   {
     path: '/swap',
@@ -517,7 +535,7 @@ export const ROUTES: readonly RouteSpec[] = [
     tabOf: 'EarnPage · competitions',
     gate: null,
     why:
-      'Two halves with two different answers. The Island Cup reads api.geckoterminal.com live and keyless ' +
+      'Two halves with two different answers. The volume board reads api.geckoterminal.com live and keyless ' +
       'and nothing stubs it, so it renders either the ranked board or its coverage notice depending on what ' +
       'the feed answers at run time; both states carry the same landmarks (one h1, a captioned table with ' +
       'scoped headers, a labelled select and input, named buttons) and both are pinned deterministically by ' +
@@ -526,7 +544,7 @@ export const ROUTES: readonly RouteSpec[] = [
       'standings table does not. The season picker and the scoring rules render from lib/competitions and ' +
       'are fully audited either way. ' +
       BOTH_BRANCHES_MEASURED +
-      'Here the ready DOM is a 77-row Cup board of ~9.3k chars and the degraded one has no table at all ' +
+      'Here the ready DOM is a 77-row volume board of ~9.3k chars and the degraded one has no table at all ' +
       '(~3.4k). This route also happens to be the one that proves the concern was worth measuring rather ' +
       'than assuming: a live unstubbed read of its 13 pools rate-limits part-way through on a real run ' +
       '(5 answered, 8 refused), so a THIRD, partial DOM is reachable in CI — 227 rows on the pass that ' +
@@ -658,8 +676,8 @@ export const ROUTES: readonly RouteSpec[] = [
     voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
-    why: 'RestakePage was merged into FarmPage.',
-    redirectsTo: '/farm',
+    why: 'RestakePage was merged into the TOWELI farm, now at /earn/toweli.',
+    redirectsTo: '/earn/toweli',
     knownViolations: [],
   },
   {
@@ -990,6 +1008,8 @@ export const CONNECTED_AUDIT_ROUTES = ROUTES.filter((r) => r.connectedViolations
 export function navigablePath(route: RouteSpec): string {
   if (route.path === '/*') return '/this-path-matches-no-route-a11y-sweep';
   if (route.path === '/launch/:token') return '/launch/0x0000000000000000000000000000000000000000';
+  // TOWELI's pool: the classic farm, and the pool whose measurements /farm carried.
+  if (route.path === '/earn/:poolId') return '/earn/toweli';
   // Any registry id works; in the built app this leg redirects to / anyway.
   if (route.path === '/bungalow-studio/:bungalowId') return '/bungalow-studio/bayla';
   // Zero address: every launcher probe fails -> the page's honest not-found

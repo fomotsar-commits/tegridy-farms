@@ -46,8 +46,8 @@ export function heatExampleLine(floor: number, tier: HeatTier | null): string {
 // The island paragraph's first two sentences: VENUE.heatPlain, and heatParagraph's opening.
 const HEAT_OPENING =
   'Heat counts your warm days: every day you hold, weighted by size and by the coin. ' +
-  'Your deepest room sets your heat; every other room adds half as much as the one ' +
-  'before it, so breadth amplifies depth and never replaces it.';
+  'Your deepest room sets your heat; every other room adds a quarter of its own, ' +
+  'so breadth amplifies depth and never replaces it.';
 
 export const VENUE = {
   /** Brand wordmark halves (nav, footer, loader formation). */
@@ -67,20 +67,24 @@ export const VENUE = {
   heroPlain:
     'Stake meme tokens, swap on Ethereum, Base and Solana, and check any token before you buy.',
   /** Second person, present tense, the viewer's own stake. */
-  heroHook: 'Your heat already exists. It started counting at your first buy.',
-  /** Under the instrument, and in llms.txt: one source, so the two cannot disagree. */
-  heatPerWallet:
-    "Held time is measured per wallet. A bag moved to a new wallet starts that wallet's clock at the move.",
+  heroHook: 'Your heat already exists. Your clock on a token starts at your first hold.',
+  /** The island's sentence, verbatim: under the instrument, in the FAQ and in llms.txt. */
+  heatOnePerson: 'One person, every wallet: linked wallets read as a single flame.',
   /** The island's sentences, verbatim: the hero and llms.txt carry the first two, the
    *  Maths fold the whole paragraph; islandClaims.test.ts pins them. Never a formula. */
   heatPlain: HEAT_OPENING,
   heatParagraph:
     `${HEAT_OPENING} Degrees are the temperature of that count: one real position held ` +
-    'half a year reads 80°, Resident. Each degree after that takes longer than the last. ' +
-    'Size can raise what a day is worth, it cannot buy a day, and price never enters it.',
+    'half a year reads 80°, Resident. Past Resident the number reads like fire: every ' +
+    'degree costs a little more than the last, and the hottest flames stay in range. ' +
+    'Size can raise what a day is worth, it cannot buy a day, and price never enters it. ' +
+    'The rate is one curve for every wallet: nothing under 0.0001% of a supply, a full ' +
+    'day at 0.01%, two at 1%, and never more. From a real position up, ten times the bag ' +
+    'adds half a day. The tier words bind your island heat. Trading speed cannot move it.',
   heatDays: 'Your clock on a token starts at your first hold.',
   heatSize:
-    'A real position earns a full day. The largest holders earn up to two. Dust earns nothing.',
+    'A real position earns a full day. The largest holders earn up to two. Dust earns ' +
+    'nothing. An Ape counts by the piece: one is a full day, ten are two.',
   museLine: 'An island in a sea of rugs.',
   museBy: 'Jungle Bay Island',
   /** Meta description, mirrored by index.html and usePageTitle. Names only what is live,

@@ -22,7 +22,10 @@
  * ran in no pipeline. Same bug in stake/liquidity/lending/claim-rewards: 20
  * tests x 2 projects = the 40 skips. Gate inside the test that needs the gate.
  */
-import { test, expect } from './fixtures/wallet';
+import {
+  test, expect,
+  blindReceiptReads, expectMinedSuccessfully, expectUnconfirmedToast, forkTxCount, recordToasts,
+} from './fixtures/wallet';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 
@@ -112,5 +115,60 @@ test.describe('Swap happy path', () => {
     ).toBeVisible({ timeout: 30_000 });
     // Pin the shape too: a 66-char 0x-prefixed hash, so a placeholder href cannot pass.
     await expect(receiptLink.first()).toHaveAttribute('href', /\/tx\/0x[0-9a-fA-F]{64}/);
+  });
+
+  test('a swap whose receipt cannot be read is not reported as a failure (Anvil only)', async ({ page, walletMock }) => {
+    test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
+    // ⚠ THIS BRANCH HAD NO HANDLER AT ALL. wagmi's `isError` — here, "we could not
+    // READ the receipt" — fed the returned `isTxError` and nothing else, so
+    // a swap whose receipt never came back went completely silent: no toast, no
+    // receipt line, and `isPendingRef` latched true forever, which silently killed
+    // the Swap button for the rest of the session. See useSwap.ts for both.
+    test.setTimeout(180_000);
+
+    const account = await walletMock.useIsolatedForkAccount();
+    await walletMock.connect(account);
+    await page.goto('/swap');
+
+    await page.getByRole('spinbutton', { name: /amount of .* to pay/i }).fill('0.01');
+    const swap = page.getByRole('button', { name: /^swap$/i });
+    await expect(
+      swap,
+      'swap CTA never enabled on a funded fork account — see the happy-path leg above.',
+    ).toBeEnabled({ timeout: 20_000 });
+
+    const blind = await blindReceiptReads(page);
+    const toasts = await recordToasts(page);
+    const sent = forkTxCount(page);
+    await swap.click();
+
+    // FIRST, WHAT HAPPENED ON CHAIN: the swap succeeded. Read off the node, not the DOM.
+    const hash = await expectMinedSuccessfully(page, 'swap', sent);
+    await expect
+      .poll(() => blind.receiptsAskedFor().map((h) => h.toLowerCase()).includes(hash), {
+        timeout: 30_000,
+        message: 'the app never asked for THIS transaction\'s receipt, so nothing was blinded and this leg proves nothing.',
+      })
+      .toBe(true);
+
+    await expectUnconfirmedToast(page, toasts, 'swap with an unreadable receipt');
+
+    // AND THE CTA STILL WORKS. `isPendingRef` is released only by the terminal receipt
+    // effects; without one for this outcome it stayed latched and every later
+    // `executeSwap` returned at its first line. A REF does not re-render, so the button
+    // stays ENABLED while dead — `toBeEnabled` cannot see this. Only a click that
+    // reaches the fork can.
+    const again = forkTxCount(page);
+    await expect(swap, 'the Swap CTA did not come back after the unreadable receipt.')
+      .toBeEnabled({ timeout: 30_000 });
+    await swap.click();
+    await expect
+      .poll(() => forkTxCount(page), {
+        timeout: 30_000,
+        message:
+          'clicking Swap again sent NOTHING. The in-flight latch was never released, so this ' +
+          'wallet cannot swap again without reloading the page.',
+      })
+      .toBeGreaterThan(again);
   });
 });

@@ -84,7 +84,8 @@ function alchemyAuthHeadersFor(key, extra = {}) {
 export const ALLOWED_CONTRACTS = VENUE_CONTRACTS;
 export const SLUG_TO_CONTRACT = VENUE_SLUG_CONTRACTS;
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetic.fun";
+// Echoed to unmatched origins, so a host this venue serves — not memetic.fun. See alchemy.js.
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetics.finance";
 
 // Routes that refuse anonymous callers outright. `scan` is the sold surface: a
 // free degraded answer here would be the product, given away, at lower quality —
@@ -99,8 +100,6 @@ function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_R
 function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.test(id); }
 
 const PROD_ORIGINS = [
-  "https://memetic.fun",
-  "https://www.memetic.fun",
   "https://memetics.finance",
   "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",

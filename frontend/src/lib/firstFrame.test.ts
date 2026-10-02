@@ -1,23 +1,9 @@
 /**
- * WAVE SEVEN, answer ten, ruling 2: THE FIRST FRAME IS THE HERO.
- *
- * Measured by the island on a production build with a phone throttle: `/` painted
- * nothing until 6.7 s, then "Loading..." for a second, then the H1 at 7.8 s. The
- * cause was structural. index.html shipped an empty #root, and nothing React draws
- * can exist before the wallet stack loads, because every eagerly mounted component
- * sits under the wallet provider. So the hero ships in the HTML itself: the H1, the
- * lines, the door art and a read field that works as a plain GET form before any
- * script runs. React's first commit replaces it in place.
- *
- * WHAT THIS FILE PINS. A static copy of the hero is a second copy, and a second copy
- * drifts. Every sentence in index.html's first frame is asserted equal to the VENUE
- * constant React renders, the image is asserted to request exactly the srcset
- * ArtImg requests (or phones download the hero twice), and the form is asserted to
- * land on the one deep link that already reads a wallet: /?heat=<address>.
- *
- * AND WHAT IT MUST NOT BREAK. No inline <script> (the CSP pins every inline script
- * by hash; siteIdentity.test.ts guards that), and the block sits OUTSIDE
- * main#main-content, which the e2e readiness probe treats as "the app has mounted".
+ * THE FIRST FRAME IS THE HERO (answer ten, ruling 2): index.html ships the venue hero
+ * as static markup, because nothing React draws exists before the wallet stack loads.
+ * A static copy drifts, so every sentence is pinned to the VENUE constant React renders,
+ * the image to ArtImg's srcset, and the form to /?heat=. No inline <script> (the CSP
+ * pins them by hash), and the block sits outside main#main-content.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -36,7 +22,7 @@ const frame = doc.getElementById('first-frame');
 const spoken = (el: Element | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 
 describe('the first frame ships in the HTML', () => {
-  it('exists, inside #root, between the markers the door prerender strips', () => {
+  it('exists, inside #root, between the markers a door prerender replaces with its own', () => {
     expect(frame, 'index.html carries no first frame').not.toBeNull();
     expect(frame!.parentElement?.id).toBe('root');
     expect(html).toContain('<!-- first-frame -->');
@@ -62,6 +48,10 @@ describe('the first frame ships in the HTML', () => {
     expect(lines).toContain(VENUE.heroHook);
   });
 
+  it('starts the clock where the island does: at a first hold, never a first buy', () => {
+    expect(VENUE.heroHook).toBe('Your heat already exists. Your clock on a token starts at your first hold.');
+  });
+
   it('reads a wallet with no JavaScript at all: GET / with the address named heat', () => {
     const form = frame!.querySelector('form');
     expect(form?.getAttribute('method')).toBe('get');
@@ -69,7 +59,7 @@ describe('the first frame ships in the HTML', () => {
     const inputs = form!.querySelectorAll('input');
     expect(inputs).toHaveLength(1);
     expect(inputs[0]!.getAttribute('name')).toBe('heat');
-    expect(inputs[0]!.getAttribute('aria-label')).toBe('Wallet address to read Heat for (Ethereum or Solana)');
+    expect(inputs[0]!.getAttribute('aria-label')).toBe('Wallet address to read Heat for (Ethereum, Base, or Solana)');
     expect(form!.querySelector('button[type="submit"]')?.textContent?.trim()).toBe('Read Heat');
   });
 

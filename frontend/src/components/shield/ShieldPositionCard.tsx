@@ -1,6 +1,8 @@
 import { useAccount, useChainId, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
 import { CHAIN_ID } from '../../lib/constants';
+import { getTxUrl } from '../../lib/explorer';
+import { noteReplacement, receiptOutcome } from '../../lib/txErrors';
 import { BAND_LABEL, type ShieldHealthBand } from '../../lib/shield/health';
 import { prepareRepay } from '../../lib/shield/preparedAction';
 import { SHIELD_COPY } from '../../lib/shield/automation';
@@ -34,12 +36,20 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
   const { address } = useAccount();
   const chainId = useChainId();
   const { sendTransaction, data: txHash, isPending, error } = useSendTransaction();
-  const receipt = useWaitForTransactionReceipt({ hash: txHash });
+  const receipt = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Only
-  // receipt.data.status === 'success' is an actual on-chain success.
-  const isReverted = receipt.isSuccess && !!receipt.data && receipt.data.status !== 'success';
-  const isConfirmed = receipt.isSuccess && !isReverted;
+  // was FETCHED. Only receipt.data.status === 'success' is an on-chain success.
+  //
+  // 2026-09-17: and a revert never reached isSuccess — wagmi THROWS on a reverted
+  // receipt, so the "reverted" line below never rendered and a reverted repay
+  // showed nothing at all. receiptOutcome splits `isError` into revert vs "could
+  // not read it", and each gets its own line.
+  //
+  // And a receipt is only proof of its OWN transaction: a repay the wallet
+  // cancelled resolves with the cancel's success receipt, which printed
+  // "Repayment confirmed" over a loan still open (lib/txErrors.ts).
+  const { isSuccess: isConfirmed, isReverted, isReceiptUnreadable, isReplaced, replacement } =
+    receiptOutcome(receipt, txHash);
 
   const prepared = prepareRepay({
     loanId: position.loanId,
@@ -157,6 +167,29 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
           {isReverted && (
             <p className="mt-2 text-[11px] leading-snug" style={{ color: '#FF9C9C' }} role="alert">
               The transaction reverted on-chain. Nothing was repaid and the loan is unchanged.
+            </p>
+          )}
+          {isReceiptUnreadable && txHash && (
+            <p className="mt-2 text-[11px] leading-snug" style={{ color: '#FFD37C' }} role="status">
+              The repayment was sent, but its result could not be read, so we can&apos;t tell whether it went
+              through.{' '}
+              <a href={getTxUrl(CHAIN_ID, txHash)} target="_blank" rel="noopener noreferrer" className="underline">
+                Check it on the explorer
+              </a>{' '}
+              before you send it again: if it landed, a second repay reverts and only costs gas.
+            </p>
+          )}
+          {isReplaced && replacement && (
+            <p className="mt-2 text-[11px] leading-snug" style={{ color: '#FFD37C' }} role="status">
+              {replacement.reason === 'cancelled'
+                ? 'The repayment was cancelled in your wallet, so it did not happen. The loan is unchanged.'
+                : replacement.reason === 'replaced'
+                  ? 'Your wallet replaced the repayment with a different transaction, so it did not happen as sent.'
+                  : 'Another transaction from your wallet confirmed in place of the repayment. If you sped it up, it went through; if you cancelled or changed it, it did not.'}{' '}
+              <a href={getTxUrl(CHAIN_ID, replacement.hash)} target="_blank" rel="noopener noreferrer" className="underline">
+                Check what confirmed
+              </a>{' '}
+              before you send it again.
             </p>
           )}
           {isConfirmed && (

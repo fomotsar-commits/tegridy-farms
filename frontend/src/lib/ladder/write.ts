@@ -53,10 +53,10 @@ export type WriteResult =
  * is more useful than a wrong guess at what a user did.
  */
 export const LADDER_ERRORS: Record<number, { name: string; human?: string }> = {
-  6000: { name: 'Overflow', human: 'The amount overflowed the program’s arithmetic — nothing moved.' },
-  6001: { name: 'ZeroAmount', human: 'That amount resolves to zero at this token’s precision — nothing moved.' },
-  6002: { name: 'LockTooShort', human: 'The shortest lock this program allows is 7 days — nothing moved.' },
-  6003: { name: 'LockTooLong', human: 'The longest lock this program allows is 4 years — nothing moved.' },
+  6000: { name: 'Overflow', human: 'The amount overflowed the program’s arithmetic. Nothing moved.' },
+  6001: { name: 'ZeroAmount', human: 'That amount resolves to zero at this token’s precision. Nothing moved.' },
+  6002: { name: 'LockTooShort', human: 'The shortest lock this program allows is 7 days. Nothing moved.' },
+  6003: { name: 'LockTooLong', human: 'The longest lock this program allows is 4 years. Nothing moved.' },
   // The message is load-bearing: the program measures what ARRIVED in the vault,
   // so a transfer-fee mint can fail this even when the amount you typed clears the
   // minimum. Saying "below the minimum" alone would send someone to re-type the
@@ -65,15 +65,15 @@ export const LADDER_ERRORS: Record<number, { name: string; human?: string }> = {
     name: 'BelowMinStake',
     human: 'This is below the pool’s minimum stake. The program measures what actually ARRIVES in the vault, so a token that charges a transfer fee needs a little more than the minimum. Nothing moved.',
   },
-  6005: { name: 'TooManyPositions', human: 'You already hold the maximum number of open positions on this pool — close one first. Nothing moved.' },
-  6006: { name: 'DepositCapExceeded', human: 'This would take the pool past its deposit cap — nothing moved.' },
+  6005: { name: 'TooManyPositions', human: 'You already hold the maximum number of open positions on this pool, so close one first. Nothing moved.' },
+  6006: { name: 'DepositCapExceeded', human: 'This would take the pool past its deposit cap. Nothing moved.' },
   6007: { name: 'StillLocked', human: `This position is still locked, so the no-penalty exit is refused until the lock ends. Early exit and the emergency hatch are both open, and both cost the same share of principal: the time left on the lock over four years, capped at ${MAX_EARLY_EXIT_PENALTY_BPS / 100}%. Nothing moved.` },
-  6008: { name: 'UseWithdrawMatured', human: 'This position has already matured, so the program refused the penalty door and sent you to the free one. Nothing moved — and nothing was charged.' },
-  6009: { name: 'Unauthorized', human: 'Only the pool’s authority can do that — nothing moved.' },
+  6008: { name: 'UseWithdrawMatured', human: 'This position has already matured, so the program refused the penalty door and sent you to the free one. Nothing moved, and nothing was charged.' },
+  6009: { name: 'Unauthorized', human: 'Only the pool’s authority can do that. Nothing moved.' },
   6010: { name: 'NotDeployAuthority' },
   6011: { name: 'MintHasFreezeAuthority' },
   6012: { name: 'UnsupportedMintExtension' },
-  6013: { name: 'WrongTokenProgram', human: 'The token program named does not own this mint — that is a configuration error, not a network problem. Nothing moved.' },
+  6013: { name: 'WrongTokenProgram', human: 'The token program named does not own this mint. That is a configuration error, not a network problem. Nothing moved.' },
   6014: { name: 'RewardTooHigh' },
   6015: { name: 'CapCanOnlyRaise' },
   6016: { name: 'TimelockNotElapsed' },
@@ -82,7 +82,7 @@ export const LADDER_ERRORS: Record<number, { name: string; human?: string }> = {
   6019: { name: 'AlreadyDegraded' },
   6020: {
     name: 'EmissionExceedsFunding',
-    human: 'The reward vault cannot cover this payout, so the program refused to pay rewards out of staked principal. Nothing moved, and nothing is lost — your rewards keep accruing and this clears once the vault is topped up.',
+    human: 'The reward vault cannot cover this payout, so the program refused to pay rewards out of staked principal. Nothing moved, and nothing is lost: your rewards keep accruing and this clears once the vault is topped up.',
   },
   6021: {
     name: 'PrincipalInvariant',
@@ -99,7 +99,7 @@ export const LADDER_ERRORS: Record<number, { name: string; human?: string }> = {
     name: 'PoolDegraded',
     human: 'This pool has been declared degraded: it takes no new stakes. Existing positions still exit, and while it is degraded they exit penalty-free. Nothing moved.',
   },
-  6027: { name: 'WalletCapExceeded', human: 'This would take you past the per-wallet limit for this pool — nothing moved.' },
+  6027: { name: 'WalletCapExceeded', human: 'This would take you past the per-wallet limit for this pool. Nothing moved.' },
   // Operator-only: `notify_reward` refusing to lower the rate inside a live window.
   6028: { name: 'RewardRateWouldDecrease' },
 };
@@ -140,7 +140,7 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
   // A declined signature never reached the network. This is the one branch that
   // may say "nothing moved" without qualification.
   if (/reject|declin|denied|cancell?ed by user/i.test(msg)) {
-    return { ok: false, reason: 'You declined the signature — nothing moved.' };
+    return { ok: false, reason: 'You declined the signature. Nothing moved.' };
   }
 
   const code = anchorCode(msg);
@@ -151,7 +151,7 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
     // if it landed.
     return {
       ok: false,
-      reason: known.human ?? `The program refused this (${known.name}) — nothing moved.`,
+      reason: known.human ?? `The program refused this (${known.name}). Nothing moved.`,
       ...(signature ? { signature } : {}),
     };
   }
@@ -161,7 +161,7 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
   if (/insufficient (lamports|funds)|Attempt to debit an account but found no record/i.test(msg)) {
     return {
       ok: false,
-      reason: 'Not enough SOL in this wallet to pay the rent and network fee — nothing moved. Opening a position creates two small accounts, so it costs a little more SOL than a claim does.',
+      reason: 'Not enough SOL in this wallet to pay the rent and network fee. Nothing moved. Opening a position creates two small accounts, so it costs a little more SOL than a claim does.',
     };
   }
 
@@ -169,7 +169,7 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
   if (/AccountNotInitialized|could not find account/i.test(msg)) {
     return {
       ok: false,
-      reason: 'An account this transaction needs does not exist — nothing moved. If it persists, that is a configuration problem rather than something a retry fixes.',
+      reason: 'An account this transaction needs does not exist. Nothing moved. If it persists, that is a configuration problem rather than something a retry fixes.',
       ...(signature ? { signature } : {}),
     };
   }
@@ -177,7 +177,7 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
   if (!signature && isPreBroadcast(msg)) {
     return {
       ok: false,
-      reason: `The network refused this transaction before sending it — nothing moved.${msg ? ` (${msg.slice(0, 160)})` : ''}`,
+      reason: `The network refused this transaction before sending it. Nothing moved.${msg ? ` (${msg.slice(0, 160)})` : ''}`,
     };
   }
 
@@ -190,7 +190,7 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
   if (signature) {
     return {
       ok: false,
-      reason: 'Outcome unknown — this was sent and may still land. Check your wallet or Solscan with the signature below before retrying.',
+      reason: 'Outcome unknown: this was sent and may still land. Check your wallet or Solscan with the signature below before retrying.',
       signature,
     };
   }
@@ -293,13 +293,13 @@ export async function submitLadder(
       if (logs && anchorCode(logs) !== null) return classifyWriteError(new Error(logs), signature);
       return {
         ok: false,
-        reason: 'This landed on chain and reverted — nothing moved, apart from the network fee.',
+        reason: 'This landed on chain and reverted. Nothing moved, apart from the network fee.',
         signature,
       };
     }
     return {
       ok: false,
-      reason: 'Sent, but not confirmed within a minute — it may still land. Check the signature below before retrying.',
+      reason: 'Sent, but not confirmed within a minute, so it may still land. Check the signature below before retrying.',
       signature,
     };
   } catch (err) {

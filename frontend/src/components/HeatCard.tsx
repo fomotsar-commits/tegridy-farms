@@ -283,7 +283,7 @@ export function HeatCard({
             autoFocus={focusField}
             spellCheck={false}
             autoComplete="off"
-            aria-label="Wallet address to read Heat for (Ethereum or Solana)"
+            aria-label="Wallet address to read Heat for (Ethereum, Base, or Solana)"
             placeholder="0x… or a Solana address"
             className="flex-1 min-w-0 sm:min-w-[280px] px-3 py-2 rounded-lg font-mono text-[12.5px] text-white outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]"
             style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid var(--color-purple-40)' }}
@@ -292,7 +292,7 @@ export function HeatCard({
             type="submit"
             disabled={!valid || state.kind === 'loading'}
             className="btn-primary px-5 py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed"
-            title={valid ? 'Read this wallet' : 'Enter an Ethereum or Solana address'}
+            title={valid ? 'Read this wallet' : 'Enter an Ethereum, Base, or Solana address'}
           >
             {state.kind === 'loading' ? 'Reading…' : 'Read Heat'}
           </button>
@@ -650,8 +650,7 @@ function Reading({
       {reading.isCold && (
         <div className="mb-4">
           <p className="text-white/70 text-[13px] leading-relaxed">
-            Cold. Nothing measured here yet. Your clock starts at your first buy of an
-            island token and never stops while you hold.
+            Cold. Nothing measured here yet. {VENUE.heatDays}
           </p>
           <Link
             to="/#hall"
@@ -684,7 +683,7 @@ function Reading({
         className="text-[12px] underline underline-offset-2 transition-colors"
         style={{ color: 'var(--color-kyle)' }}
       >
-        {showMath ? 'Hide the maths' : 'How is this calculated?'}
+        {showMath ? 'Hide' : 'How heat is earned'}
       </button>
 
       {showMath && <Maths degrees={reading.degrees} />}
@@ -860,8 +859,8 @@ function Maths({ degrees }: { degrees: number }) {
           <strong className="text-white/85">Weight</strong> is the island&apos;s published
           multiplier.{' '}
           <span className="text-white/50">
-            The Apes carry triple weight, JBM and BAYLA carry their edge, the home team leans warm,
-            and every measured token counts.
+            The island&apos;s own weigh heavier: the Apes, JBM and BAYLA carry the island&apos;s edge,
+            the home team leans warm. An Ape counts by the piece.
           </span>
         </li>
       </ul>

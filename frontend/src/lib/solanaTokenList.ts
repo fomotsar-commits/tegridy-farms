@@ -7,6 +7,7 @@
 // back with each token so the UI can warn without blocking (the founder wants
 // any pair). All calls go through our same-origin hardened proxy.
 import { JUPITER_TOKENS_BASE } from './solana';
+import { liveIpfsUrl } from './ipfsGateways';
 
 // Canonical legacy SPL Token program id — anything else implies Token-2022.
 export const LEGACY_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -241,10 +242,15 @@ export async function fetchTrending(
  * the user's token interest to) arbitrary token-image hosts. Returns '' when no
  * icon; callers fall back to the initials avatar. Only `wsrv.nl` needs to be in
  * the img-src CSP.
+ *
+ * IPFS icons are moved onto a live gateway first: BAYLA's own on-chain metadata
+ * and its Jupiter icon are https://ipfs.io/... URLs, and since that gateway was
+ * retired (2026-09-21) wsrv.nl answers 404 for them. Via ipfs.filebase.io it
+ * answers 200. (Not via Pinata: it rate-limits wsrv.nl's shared IP.)
  */
 export function iconSrc(url?: string): string {
   if (!url) return '';
-  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=64&h=64&fit=cover&output=webp`;
+  return `https://wsrv.nl/?url=${encodeURIComponent(liveIpfsUrl(url))}&w=64&h=64&fit=cover&output=webp`;
 }
 
 // ─── Recents + favorites (localStorage, per-browser convenience) ─────────────

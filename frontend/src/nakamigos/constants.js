@@ -1,4 +1,5 @@
 import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from "../lib/constants";
+import { IPFS_GATEWAYS } from "../lib/ipfsGateways";
 
 // CREDIBILITY GATING (same rule as lib/navConfig.ts): loan-desk CTAs render
 // only once the relaunch TegridyNFTLending address lands in lib/constants.ts.
@@ -107,7 +108,11 @@ export const COLLECTIONS = {
     blurSlug: "junglebay",
     supply: 5555, // On-chain totalSupply (reflects burns); fallback if API unavailable
     mintBlock: 14150000, // Feb 2022 — pre-merge (PoW era)
-    metadataBase: "https://ipfs.io/ipfs/QmaTrk9RrN3yhwyB1EbRFrxBEEtcbBaGs2NppJGn262Bid",
+    // Built on the first live gateway of the site-wide list: this base becomes
+    // every Jungle Bay card's `<id>.png`, and it sat on ipfs.io until that
+    // gateway was retired (2026-09-21), breaking every card. NftImage walks the
+    // rest of the list when this one fails.
+    metadataBase: `${IPFS_GATEWAYS[0]}QmaTrk9RrN3yhwyB1EbRFrxBEEtcbBaGs2NppJGn262Bid`,
     image: "https://nft-cdn.alchemy.com/eth-mainnet/5da8fc69b3357b9bfe42717280e7c102",
     description: "Jungle Bay Ape Club is a collection of unique hand-drawn apes living on the Ethereum blockchain. Each ape is uniquely generated from over 120 traits across 9 categories, creating a vibrant community of digital primates.",
     tags: ["ERC-721", "ETHEREUM", "PFP", "COMMUNITY"],

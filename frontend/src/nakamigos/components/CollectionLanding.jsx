@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { COLLECTIONS, COLLECTION_LORE } from "../constants";
 import { fetchCollectionStats, fetchTokens } from "../api";
 import { formatPrice } from "../lib/formatPrice";
+import { IpfsImg } from "../../components/IpfsImg";
 import { formatMarketAmount } from "../lib/marketAmount";
 import { canTradeOnVenue, VENUE_COLLECTIONS, chainLabel, descriptionSourceTag, supplyLabel } from "../lib/venue";
 import { fetchExternalStats } from "../lib/externalMarket";
@@ -319,7 +320,7 @@ function CrossCollectionSearch() {
                 transition: "background 0.15s ease",
               }}
             >
-              <img
+              <IpfsImg
                 src={r.image}
                 alt=""
                 style={{
@@ -329,7 +330,7 @@ function CrossCollectionSearch() {
                   objectFit: "cover",
                   background: "rgba(255,255,255,0.03)",
                 }}
-                onError={(e) => { e.target.style.display = "none"; }}
+                onExhausted={(img) => { img.style.display = "none"; }}
               />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
@@ -560,7 +561,7 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
         }} />
 
         {displayImage && !imgError ? (
-          <img
+          <IpfsImg
             src={displayImage}
             alt={collection.name}
             loading="lazy"
@@ -576,7 +577,7 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
               position: "relative",
               zIndex: 1,
             }}
-            onError={() => setImgError(true)}
+            onExhausted={() => setImgError(true)}
           />
         ) : (
           <div style={{

@@ -1,4 +1,5 @@
-import { CONTRACT, COLLECTION_SLUG, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, SEAPORT_DOMAIN } from "./constants";
+import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, SEAPORT_DOMAIN } from "./constants";
+import { liveIpfsUrl } from "../lib/ipfsGateways";
 import { venueCollectionByContract, venueRefusalForAll } from "./lib/venue";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
@@ -90,18 +91,10 @@ function openseaPost(path, body, { signal, maxRetries = 2, baseDelay = 1500 } = 
   return withRetry(() => rawOpenseaPost(path, body, { signal }), { maxRetries, baseDelay, signal });
 }
 
-// Convert ipfs:// URLs to an HTTP gateway
-const IPFS_GATEWAYS = [
-  "https://ipfs.io/ipfs/",
-  "https://gateway.pinata.cloud/ipfs/",
-  "https://cloudflare-ipfs.com/ipfs/",
-];
-
-function resolveIpfs(url) {
-  if (!url) return url;
-  if (url.startsWith("ipfs://")) return url.replace("ipfs://", IPFS_GATEWAYS[0]);
-  return url;
-}
+// ipfs:// URIs and URLs on a retired gateway (ipfs.io, dweb.link... dead since
+// 2026-09-21) move onto the first live gateway of the site-wide list; NftImage
+// walks the rest of the list on error. Everything else passes through.
+const resolveIpfs = liveIpfsUrl;
 
 // Does this collection serve a deterministic per-id PNG at `${metadataBase}/<id>.png`?
 // Nakamigos does NOT (its metadataBase is a per-token-JSON IPFS CID, so that URL
@@ -126,7 +119,10 @@ function normalizeToken(nft, metadataBase = METADATA_BASE) {
   const rawMetaImage = resolveIpfs(nft.raw?.metadata?.image || null);
   // Grid thumbnail: prefer Alchemy CDN sizes; only fall to raw 2000px IPFS when
   // no CDN size exists (raw IPFS is slow and re-blackens on re-render — F621).
-  const resolvedImage = nft.image?.thumbnailUrl || nft.image?.cachedUrl || nft.image?.pngUrl || nft.image?.originalUrl || fallbackImage || rawMetaImage;
+  // Alchemy's originalUrl is the collection's own tokenURI image, often an
+  // https://ipfs.io/... URL that no longer loads: rewrite it like the raw one.
+  const originalUrl = resolveIpfs(nft.image?.originalUrl || null);
+  const resolvedImage = nft.image?.thumbnailUrl || nft.image?.cachedUrl || nft.image?.pngUrl || originalUrl || fallbackImage || rawMetaImage;
   return {
     id: nft.tokenId,
     name: nft.name || nft.raw?.metadata?.name || `#${nft.tokenId}`,
@@ -134,7 +130,7 @@ function normalizeToken(nft, metadataBase = METADATA_BASE) {
     // F603: carry the small CDN thumbnail explicitly so NftImage can emit a
     // responsive srcset (thumbnail -> 1x, larger CDN size -> 2x) on retina.
     imageThumb: nft.image?.thumbnailUrl || null,
-    imageLarge: nft.image?.cachedUrl || nft.image?.pngUrl || nft.image?.originalUrl || rawMetaImage || fallbackImage,
+    imageLarge: nft.image?.cachedUrl || nft.image?.pngUrl || originalUrl || rawMetaImage || fallbackImage,
     attributes: attrs
       .filter(a => a.trait_type != null && a.trait_type !== "" && a.value != null && a.value !== ""
         && String(a.trait_type) !== "undefined" && String(a.value) !== "undefined")

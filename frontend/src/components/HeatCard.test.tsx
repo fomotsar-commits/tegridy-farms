@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
   address: undefined as string | undefined,
   fetchHeat: vi.fn(),
   fetchFlames: vi.fn(),
+  supported: true,
 }));
 
 vi.mock('wagmi', () => ({
@@ -55,7 +56,7 @@ vi.mock('framer-motion', () => {
 
 vi.mock('../lib/heat/heatClient', () => ({
   fetchHeat: (...args: unknown[]) => h.fetchHeat(...args),
-  isSupportedHeatAddress: () => true,
+  isSupportedHeatAddress: () => h.supported,
   clearHeatCache: () => {},
   HeatUnavailableError: class HeatUnavailableError extends Error {},
 }));
@@ -90,6 +91,7 @@ beforeEach(() => {
   localStorage.clear();
   vi.spyOn(Date, 'now').mockReturnValue(NOW * 1000);
   h.address = undefined;
+  h.supported = true;
   h.fetchHeat.mockResolvedValue(wireReading());
   // Default: the island's board is off, so the rank line is absent unless a test
   // deliberately turns the board on.
@@ -226,9 +228,11 @@ describe('the cold read — the most important copy on the site', () => {
 
   it('says where the clock STARTS instead of showing a zero', async () => {
     mount();
-    expect(
-      await screen.findByText(/Cold\. Nothing measured here yet\./),
-    ).toBeTruthy();
+    const cold = await screen.findByText(/Cold\. Nothing measured here yet\./);
+    // The island's words: the clock starts at a first HOLD, which a gift or an airdrop is too.
+    expect(cold.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Cold. Nothing measured here yet. Your clock on a token starts at your first hold.',
+    );
   });
 
   // The freshness strip is prose on the venue home, a route held at zero em dashes, and
@@ -425,7 +429,7 @@ describe('a shared link arrives already reading', () => {
   });
 
   it('lets an invalid seeded address read as the field’s own invalid state', async () => {
-    h.fetchHeat.mockRejectedValue(new Error('That is not an Ethereum or Solana address.'));
+    h.fetchHeat.mockRejectedValue(new Error('That is not an Ethereum, Base, or Solana address.'));
     const { container } = mountShared('not-an-address');
     await waitFor(() => expect(h.fetchHeat).toHaveBeenCalled());
     // The bad value is shown back rather than silently swallowed.
@@ -726,7 +730,7 @@ describe('the ladder', () => {
     vi.unstubAllEnvs();
   });
 
-  // 95 degrees: Drifter, Observer and Resident reached, Builder next at 150.
+  // 95 degrees: Drifter, Observer and Resident reached, Builder next at 300.
   const MID = { degrees: 95, tier: 'Resident' as const };
 
   it('climbs all five rungs, lowest first', async () => {
@@ -746,9 +750,9 @@ describe('the ladder', () => {
     expect(rungs[2]).toContain('Resident');
     expect(rungs[2]).toMatch(/(^|[^0-9])80°/);
     expect(rungs[3]).toContain('Builder');
-    expect(rungs[3]).toMatch(/(^|[^0-9])150°/);
+    expect(rungs[3]).toMatch(/(^|[^0-9])300°/);
     expect(rungs[4]).toContain('Elder');
-    expect(rungs[4]).toMatch(/(^|[^0-9])250°/);
+    expect(rungs[4]).toMatch(/(^|[^0-9])800°/);
   });
 
   it('lights the rungs this wallet has reached, and only those', async () => {
@@ -765,9 +769,9 @@ describe('the ladder', () => {
   it('prints the gap to the next rung as arithmetic on two served numbers', async () => {
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
-    // 150 (the rung's floor) minus 95 (the degrees the island served). Not a
+    // 300 (the rung's floor) minus 95 (the degrees the island served). Not a
     // rate, not a date, and nothing the instrument computed for itself.
-    expect(await screen.findByText('55.00° to Builder')).toBeTruthy();
+    expect(await screen.findByText('205.00° to Builder')).toBeTruthy();
   });
 
   // TIER_FLOORS answers "what tier is this number" and heatLaunchFloor() "what number
@@ -786,15 +790,15 @@ describe('the ladder', () => {
     expect(screen.queryByText(/you reach/)).toBeNull();
   });
 
-  it('names the tier a floor sits exactly on, under that rung (150)', async () => {
-    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
+  it('names the tier a floor sits exactly on, under that rung (300)', async () => {
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '300');
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
     const sentence = await screen.findByText(
-      'At 150 degrees you reach Builder, the tier that may plant a launch here.',
+      'At 300 degrees you reach Builder, the tier that may plant a launch here.',
     );
-    expect(sentence.closest('li')?.textContent).toMatch(/^Builder\s*150°/);
-    expect(screen.getByText('the door opens at 150° · Builder')).toBeTruthy();
+    expect(sentence.closest('li')?.textContent).toMatch(/^Builder\s*300°/);
+    expect(screen.getByText('the door opens at 300° · Builder')).toBeTruthy();
     expect(screen.queryByText(/reach Resident|· Resident/)).toBeNull();
   });
 
@@ -874,6 +878,17 @@ describe('the wallet fill', () => {
   });
 });
 
+describe('the field names every chain the reader takes', () => {
+  it('asks for an Ethereum, Base, or Solana address, in its label and its hint', () => {
+    h.supported = false;
+    mountOpen();
+    expect(screen.getByLabelText('Wallet address to read Heat for (Ethereum, Base, or Solana)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Read Heat' }).getAttribute('title')).toBe(
+      'Enter an Ethereum, Base, or Solana address',
+    );
+  });
+});
+
 describe('a reading older than the freshness law allows', () => {
   it('says it is stale without a prose em dash', async () => {
     h.fetchHeat.mockResolvedValue(wireReading({ as_of_unix: NOW - 8 * 86_400, observedAt: NOW - 8 * 86_400 }));
@@ -884,14 +899,15 @@ describe('a reading older than the freshness law allows', () => {
 });
 
 describe('the island dials, on the card', () => {
-  it('lights every rung for the dEaD read (311.25, Elder) and hangs the launch sentence under Resident', async () => {
-    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 311.25, tier: 'Elder' }));
+  it('lights every rung for the island’s lowest served Elder (890.93, 2026-09-29) and hangs the launch sentence under Resident', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 890.93, tier: 'Elder' }));
     mount();
     const rungs = await ladderRows();
     expect(rungs.map((r) => r.match(/^([A-Za-z]+)\s*(\d+)°/)?.slice(1))).toEqual([
-      ['Drifter', '0'], ['Observer', '30'], ['Resident', '80'], ['Builder', '150'], ['Elder', '250'],
+      ['Drifter', '0'], ['Observer', '30'], ['Resident', '80'], ['Builder', '300'], ['Elder', '800'],
     ]);
     expect(rungs.every((r) => r.includes('reached'))).toBe(true);
+    expect(screen.queryByText(/° to /)).toBeNull();
     expect(rungs[2]).toContain('At 80 degrees you reach Resident, the tier that may plant a launch here.');
     expect(screen.getByText('the door opens at 80° · Resident')).toBeTruthy();
   });
@@ -921,17 +937,61 @@ describe('the island dials, on the card', () => {
     expect(rungs[2]).toContain('reached');
     expect(rungs[3]).not.toContain('reached');
   });
+
+  // Real flames on the island's board, 2026-09-30. On the retired 150 / 250 floors the
+  // card lit Builder and Elder beneath a headline that said Resident, and lit Elder
+  // beneath a Builder with no rung left to climb.
+  it('reads a Resident at 285.34 with Builder next and unlit, as the island served it', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 285.34, tier: 'Resident' }));
+    mount();
+    const rungs = await ladderRows();
+    expect(rungs[2]).toContain('reached');
+    expect(rungs[3]).toMatch(/^Builder\s*300°/);
+    expect(rungs[3]).not.toContain('reached');
+    expect(rungs[3]).toContain('14.66° to Builder');
+    expect(rungs[4]).not.toContain('reached');
+  });
+
+  it('reads a Builder at 671.89 with Builder lit and Elder next, as the island served it', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 671.89, tier: 'Builder' }));
+    mount();
+    const rungs = await ladderRows();
+    expect(rungs[3]).toContain('reached');
+    expect(rungs[4]).toMatch(/^Elder\s*800°/);
+    expect(rungs[4]).not.toContain('reached');
+    expect(rungs[4]).toContain('128.11° to Elder');
+  });
+
+  it('tells a 200° wallet it is 100.00° from Builder, never 50.00° from Elder', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 200, tier: 'Resident' }));
+    mount();
+    expect(await screen.findByText('100.00° to Builder')).toBeTruthy();
+    expect(screen.queryByText(/° to Elder/)).toBeNull();
+  });
 });
 
 describe('the maths fold carries the island paragraph, never a formula', () => {
   const PARAGRAPH =
-    'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds half as much as the one before it, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Each degree after that takes longer than the last. Size can raise what a day is worth, it cannot buy a day, and price never enters it.';
+    'Heat counts your warm days: every day you hold, weighted by size and by the coin. Your deepest room sets your heat; every other room adds a quarter of its own, so breadth amplifies depth and never replaces it. Degrees are the temperature of that count: one real position held half a year reads 80°, Resident. Past Resident the number reads like fire: every degree costs a little more than the last, and the hottest flames stay in range. Size can raise what a day is worth, it cannot buy a day, and price never enters it. The rate is one curve for every wallet: nothing under 0.0001% of a supply, a full day at 0.01%, two at 1%, and never more. From a real position up, ten times the bag adds half a day. The tier words bind your island heat. Trading speed cannot move it.';
 
   async function openMaths() {
     const view = mount();
-    fireEvent.click(await screen.findByRole('button', { name: /how is this calculated/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'How heat is earned' }));
     return view;
   }
+
+  it('is opened by "How heat is earned" and closed by "Hide"', async () => {
+    mount();
+    const closed = await screen.findByRole('button', { name: 'How heat is earned' });
+    expect(closed.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(closed);
+    const open = await screen.findByRole('button', { name: 'Hide' });
+    expect(open.textContent).toBe('Hide');
+    expect(open.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByRole('button', { name: /calculat|maths|how heat is earned/i })).toBeNull();
+    fireEvent.click(open);
+    expect((await screen.findByRole('button', { name: 'How heat is earned' })).getAttribute('aria-expanded')).toBe('false');
+  });
 
   it('opens on the paragraph, word for word, then Days, Size and Weight', async () => {
     await openMaths();
@@ -940,9 +1000,10 @@ describe('the maths fold carries the island paragraph, never a formula', () => {
     const items = [...fold.querySelectorAll('ul')[0]!.querySelectorAll(':scope > li')];
     expect(items.map((li) => li.querySelector('strong')?.textContent)).toEqual(['Days', 'Size', 'Weight']);
     expect(items[0]!.textContent).toBe('Days Your clock on a token starts at your first hold.');
-    expect(items[1]!.textContent).toBe('Size A real position earns a full day. The largest holders earn up to two. Dust earns nothing.');
-    expect(items[2]!.textContent).toMatch(
-      /^Weight is the island's published\s+multiplier\.\s+The Apes carry triple weight, JBM and BAYLA carry their edge, the home team leans warm,\s+and every measured token counts\.$/,
+    expect(items[1]!.textContent).toBe('Size A real position earns a full day. The largest holders earn up to two. Dust earns nothing. An Ape counts by the piece: one is a full day, ten are two.');
+    // The island's weight line on /heat, word for word after the fold's own lead-in.
+    expect(items[2]!.textContent?.replace(/\s+/g, ' ')).toBe(
+      "Weight is the island's published multiplier. The island's own weigh heavier: the Apes, JBM and BAYLA carry the island's edge, the home team leans warm. An Ape counts by the piece.",
     );
   });
 
@@ -962,7 +1023,18 @@ describe('the maths fold carries the island paragraph, never a formula', () => {
     expect(screen.queryByText(/on your total/)).toBeNull();
     const list = heading.parentElement!.querySelector('ul')!;
     const rows = [...list.querySelectorAll('li')].map((li) => li.textContent);
-    expect(rows).toEqual(['Elder250°✓ reached', 'Builder150°✓ reached', 'Resident80°✓ reached', 'Observer30°✓ reached']);
+    expect(rows).toEqual(['Elder800°✓ reached', 'Builder300°✓ reached', 'Resident80°✓ reached', 'Observer30°✓ reached']);
+  });
+
+  // The default reading (1785.14) reaches every tier on either set of bands, so on its own
+  // it cannot catch a wrong band. 285.34 is a Resident the island served on 2026-09-30.
+  it('marks only the tiers this heat has reached (285.34: Resident and Observer)', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 285.34, tier: 'Resident' }));
+    await openMaths();
+    const list = screen.getByText('The tiers, on your heat').parentElement!.querySelector('ul')!;
+    expect([...list.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Elder800°', 'Builder300°', 'Resident80°✓ reached', 'Observer30°✓ reached',
+    ]);
   });
 });
 

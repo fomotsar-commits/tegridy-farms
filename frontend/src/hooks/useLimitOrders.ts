@@ -7,6 +7,8 @@ import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, TEGRIDY_ROUTER_ABI, ERC20_A
 import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_ROUTER_ADDRESS, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
 import { resolveLimitFill } from '../lib/limitOrderMath';
+import { surfaceUnconfirmedTx } from '../lib/txErrors';
+import { getTxUrl } from '../lib/explorer';
 
 export interface LimitOrder {
   id: string;
@@ -17,6 +19,12 @@ export interface LimitOrder {
   createdAt: number;
   expiresAt: number;
   status: 'active' | 'expired' | 'filled' | 'executing';
+  /**
+   * The swap sent for this order, recorded when the wallet hands back the hash.
+   * An 'executing' order is never fired again by the poller; while its receipt
+   * cannot be read, the poller re-reads this hash until it settles.
+   */
+  txHash?: `0x${string}`;
 }
 
 interface StoragePayload {
@@ -113,6 +121,7 @@ function isValidOrder(o: unknown): o is LimitOrder {
   if (typeof r.expiresAt !== 'number' || r.expiresAt <= 0) return false;
   if (typeof r.status !== 'string' || !VALID_ORDER_STATUSES.has(r.status as string)) return false;
   if (!isValidTokenObj(r.fromToken) || !isValidTokenObj(r.toToken)) return false;
+  if (r.txHash !== undefined && (typeof r.txHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(r.txHash))) return false;
   return true;
 }
 
@@ -132,11 +141,15 @@ function loadOrders(address: string): LimitOrder[] {
   }
 }
 
-function saveOrders(address: string, orders: LimitOrder[]) {
+/** False when the write did not land (storage full or blocked). */
+function saveOrders(address: string, orders: LimitOrder[]): boolean {
   try {
     const payload: StoragePayload = { version: STORAGE_VERSION, orders };
     localStorage.setItem(getStorageKey(address), JSON.stringify(payload));
-  } catch { /* ignore */ }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function buildPath(fromToken: LimitOrder['fromToken'], toToken: LimitOrder['toToken']): `0x${string}`[] {
@@ -178,6 +191,10 @@ export function useLimitOrders() {
   const [orders, setOrders] = useState<LimitOrder[]>([]);
   const ordersRef = useRef<LimitOrder[]>([]);
   const executingRef = useRef<Map<string, ExecutionRecord>>(new Map());
+  // False while this tab's writes are not landing (storage full or blocked).
+  // The list then lives in this tab only, and keeps working there, so an order
+  // missing from storage says nothing about another tab.
+  const storageHoldsListRef = useRef(true);
   const { writeContract } = useWriteContract();
 
   /** Returns true if a non-stale execution record exists for this orderId. */
@@ -193,19 +210,48 @@ export function useLimitOrders() {
 
   useEffect(() => {
     if (!address) { setOrders([]); ordersRef.current = []; return; }
-    const loaded = loadOrders(address);
-    setOrders(loaded);
-    ordersRef.current = loaded;
+    const reload = () => {
+      const loaded = loadOrders(address);
+      setOrders(loaded);
+      ordersRef.current = loaded;
+    };
+    reload();
     requestNotificationPermission();
+    // Another tab wrote this wallet's orders: take its copy. The browser fires
+    // `storage` in every OTHER tab once the write has landed there, so a reload
+    // here reads it. (key null = storage was cleared.) Not while this tab's own
+    // writes fail: storage lacks its orders then, and a reload would drop them.
+    const key = getStorageKey(address);
+    const onStorage = (e: StorageEvent) => {
+      if (storageHoldsListRef.current && (e.key === key || e.key === null)) reload();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, [address]);
 
   useEffect(() => { ordersRef.current = orders; }, [orders]);
 
-  const persist = useCallback((updated: LimitOrder[]) => {
-    setOrders(updated);
-    ordersRef.current = updated;
-    if (address) saveOrders(address, updated);
+  /**
+   * Every write is a change applied to what storage holds NOW, never this tab's
+   * list saved whole. Another tab keeps its own list, and saving a stale copy
+   * put an order that tab had already filled back to 'active', where the next
+   * poll fired it again, and brought back orders it had cancelled. Storage is
+   * also what a write has to reach: the receipt waiter can outlive the
+   * component (viem waits up to 180s), and a functional setState on an
+   * unmounted component never runs. This tab's list gets the same change rather
+   * than storage's copy, so a receipt that lands after the wallet switched
+   * accounts changes nothing on screen.
+   */
+  const updateOrders = useCallback((change: (list: LimitOrder[]) => LimitOrder[]) => {
+    if (!address) return;
+    storageHoldsListRef.current = saveOrders(address, change(loadOrders(address)));
+    ordersRef.current = change(ordersRef.current);
+    setOrders(change);
   }, [address]);
+
+  const patchOrder = useCallback((id: string, patch: (o: LimitOrder) => LimitOrder) => {
+    updateOrders(list => list.map(o => (o.id === id ? patch(o) : o)));
+  }, [updateOrders]);
 
   const createOrder = useCallback((order: Omit<LimitOrder, 'id' | 'createdAt' | 'status'>) => {
     if (!address) return;
@@ -232,64 +278,92 @@ export function useLimitOrders() {
       createdAt: Date.now(),
       status: 'active',
     };
-    persist([newOrder, ...orders]);
-  }, [address, orders, persist]);
+    updateOrders(list => [newOrder, ...list]);
+  }, [address, orders, updateOrders]);
 
   const cancelOrder = useCallback((id: string) => {
     if (!address) return;
-    persist(orders.filter(o => o.id !== id));
-  }, [address, orders, persist]);
+    updateOrders(list => list.filter(o => o.id !== id));
+  }, [address, updateOrders]);
 
-  const markFilled = useCallback((id: string) => {
+  /**
+   * Settle a sent order from a receipt we READ. Keyed on the hash, so the live
+   * waiter and a later re-read of the same receipt settle it once.
+   */
+  const settleOrder = useCallback((id: string, hash: `0x${string}`, succeeded: boolean) => {
     executingRef.current.delete(id); // terminal — drop tracking
+    // While this tab's writes are not landing, its orders are not in storage.
+    const held = storageHoldsListRef.current && address ? loadOrders(address) : ordersRef.current;
+    const current = held.find(o => o.id === id);
+    if (current?.status === 'executing' && current.txHash === hash) {
+      patchOrder(id, o => (succeeded
+        ? { ...o, status: 'filled' as const }
+        : { ...o, status: 'active' as const, txHash: undefined }));
+      if (succeeded) toast.success('Limit order confirmed on-chain!');
+      else toast.error('Limit order transaction reverted on-chain.');
+    }
     releaseTabLock(id);
-    setOrders(prev => {
-      const updated = prev.map(o => o.id === id ? { ...o, status: 'filled' as const } : o);
-      if (address) saveOrders(address, updated);
-      return updated;
-    });
-    toast.success('Limit order confirmed on-chain!');
-  }, [address]);
+  }, [address, patchOrder]);
 
   const revertOrderStatus = useCallback((orderId: string) => {
     executingRef.current.delete(orderId);
     releaseTabLock(orderId);
-    setOrders(prev => {
-      const updated = prev.map(o => o.id === orderId ? { ...o, status: 'active' as const } : o);
-      if (address) saveOrders(address, updated);
-      return updated;
-    });
-  }, [address]);
+    patchOrder(orderId, o => ({ ...o, status: 'active' as const }));
+  }, [patchOrder]);
 
   const waitForReceipt = useCallback(async (hash: `0x${string}`, orderId: string) => {
     if (!publicClient) return;
+    let receipt;
     try {
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      if (receipt.status === 'success') {
-        markFilled(orderId);
-      } else {
-        revertOrderStatus(orderId);
-        toast.error('Limit order transaction reverted on-chain.');
-      }
+      receipt = await publicClient.waitForTransactionReceipt({ hash });
     } catch (err) {
-      revertOrderStatus(orderId);
-      toast.error('Limit order failed: could not confirm transaction.');
+      // viem RETURNS a reverted receipt, so this catch only means we could not
+      // read one: nothing is known about the swap. It is not a failure, and the
+      // order stays 'executing' with its txHash, which the poller never fires; it
+      // re-reads the hash instead. "Failed" here used to put the order back to
+      // 'active', and the next poll swapped a second time.
+      executingRef.current.delete(orderId);
+      releaseTabLock(orderId);
+      surfaceUnconfirmedTx(toast, {
+        hash,
+        explorerUrl: getTxUrl(CHAIN_ID, hash),
+        repeatCost: 'placing the order again swaps a second time. This order waits until it can read the result.',
+      });
       if (import.meta.env.DEV) console.error('Limit order waitForTransactionReceipt error:', err);
+      return;
     }
-  }, [publicClient, markFilled, revertOrderStatus]);
+    settleOrder(orderId, hash, receipt.status === 'success');
+  }, [publicClient, settleOrder]);
+
+  /** Re-read the receipt of an order sent earlier. Still unreadable: keep waiting. */
+  const recheckSent = useCallback((id: string, hash: `0x${string}`) => {
+    if (!publicClient) return;
+    publicClient.getTransactionReceipt({ hash }).then(
+      receipt => settleOrder(id, hash, receipt.status === 'success'),
+      () => { /* still unreadable; the warning already said so */ },
+    );
+  }, [publicClient, settleOrder]);
 
   const executeOrder = useCallback(async (order: LimitOrder) => {
     if (!address || !writeContract || !publicClient) return;
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (isExecuting(order.id)) return;
+    // This tab's copy can be stale: another tab may have sent, filled or
+    // cancelled the order since, and the lock only covers the moment of sending
+    // (it is released on every outcome, and goes stale after 60s in a wallet
+    // prompt). Storage is the copy every tab writes, so fire only an order it
+    // still holds as active, and otherwise take its copy.
+    const stored = loadOrders(address);
+    if (storageHoldsListRef.current && stored.find(o => o.id === order.id)?.status !== 'active') {
+      ordersRef.current = stored;
+      setOrders(stored);
+      return;
+    }
     if (!claimTabLock(order.id)) return;
     executingRef.current.set(order.id, { txHash: null, submittedAt: Date.now() });
-
-    setOrders(prev => {
-      const updated = prev.map(o => o.id === order.id ? { ...o, status: 'executing' as const } : o);
-      if (address) saveOrders(address, updated);
-      return updated;
-    });
+    // Through storage, not a functional update: the txHash written at submission
+    // and the settle check both read this status back from storage.
+    patchOrder(order.id, o => ({ ...o, status: 'executing' as const }));
 
     const path = buildPath(order.fromToken, order.toToken);
     const parsedAmount = parseUnits(order.amount, order.fromToken.decimals);
@@ -393,6 +467,9 @@ export function useLimitOrders() {
       // R042 HIGH-5: back-fill the txHash on the execution record.
       const rec = executingRef.current.get(order.id);
       if (rec) rec.txHash = hash;
+      // Recorded before anything waits on it, so an unread receipt, a reload or
+      // leaving the page still leaves a hash to settle this order by.
+      patchOrder(order.id, o => ({ ...o, txHash: hash }));
       toast.info('Limit order submitted, waiting for on-chain confirmation...');
       waitForReceipt(hash, order.id);
     };
@@ -441,7 +518,7 @@ export function useLimitOrders() {
     } catch {
       revertOrderStatus(order.id);
     }
-  }, [address, chainId, writeContract, publicClient, markFilled, revertOrderStatus, waitForReceipt]);
+  }, [address, chainId, writeContract, publicClient, patchOrder, revertOrderStatus, waitForReceipt, isExecuting]);
 
   // Price polling: check active orders against on-chain price
   useEffect(() => {
@@ -458,19 +535,18 @@ export function useLimitOrders() {
         const now = Date.now();
 
         // Expire stale orders
-        let hasExpired = false;
-        const updated = currentOrders.map(o => {
-          if (o.status === 'active' && o.expiresAt < now) {
-            hasExpired = true;
-            return { ...o, status: 'expired' as const };
-          }
-          return o;
-        });
-        if (hasExpired) {
-          persist(updated);
+        const isDue = (o: LimitOrder) => o.status === 'active' && o.expiresAt < now;
+        if (currentOrders.some(isDue)) {
+          updateOrders(list => list.map(o => (isDue(o) ? { ...o, status: 'expired' as const } : o)));
         }
 
-        const activeList = (hasExpired ? updated : currentOrders).filter(
+        // An order already sent is never fired again from here. If its live
+        // waiter gave up, re-read its receipt instead.
+        for (const o of currentOrders) {
+          if (o.status === 'executing' && o.txHash && !isExecuting(o.id)) recheckSent(o.id, o.txHash);
+        }
+
+        const activeList = currentOrders.filter(
           o => o.status === 'active' && o.expiresAt > now
         );
         if (activeList.length === 0) return;
@@ -524,7 +600,7 @@ export function useLimitOrders() {
       // same order. Entries are removed only on terminal outcomes
       // (markFilled / revertOrderStatus) or 5-minute TTL expiry.
     };
-  }, [address, publicClient, persist, executeOrder, isExecuting]);
+  }, [address, publicClient, updateOrders, executeOrder, isExecuting, recheckSent]);
 
   const activeOrders = orders.filter(o => o.status === 'active' || o.status === 'executing');
   const pastOrders = orders.filter(o => o.status === 'expired' || o.status === 'filled');

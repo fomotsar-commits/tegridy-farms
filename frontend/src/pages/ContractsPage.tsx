@@ -40,26 +40,21 @@ import {
   JBAC_NFT_ADDRESS,
   JBAY_GOLD_ADDRESS,
   CURVE_LAUNCHER_ADDRESS,
-  GITHUB_BLOB_BASE,
+  SOURCE_URL,
   isDeployed,
 } from '../lib/constants';
 import { getChainConfig } from '../lib/chains/registry';
 
-// Source links come from GITHUB_BLOB_BASE (lib/constants.ts).
-// AUDIT R035: org was previously `tegridyfarms` (404). Source of truth per
-// `git remote -v` is `fomotsar-commits/tegridy-farms`.
-// F452: the base points at the deploy branch `mvp-launch` — the repo ships from
-// it and it is over a thousand commits ahead of `main` — so source links serve
-// current content rather than a stale snapshot.
-// 2026-09-03: that literal used to live HERE, and this was the only page that
-// had the branch right; /security and /risks each carried their own `main`
-// literal, so the app disagreed with itself about which branch is authoritative.
-// One constant now, no per-page branch literals.
+// Source links come from SOURCE_URL (lib/constants.ts), never a git-host URL: the
+// host and the branch live in frontend/vercel.json (src/test/sourceLinks.test.ts).
 
 interface ContractEntry {
   label: string;
   address: string;
-  source: string; // relative path under repo root
+  // A path under the repo root, linked through /source, unless it is 'external (...)' for a
+  // third-party contract or 'not in this repo (...)' for our own live contract whose
+  // deployed source the repo does not hold. ContractsPage.sourceLinks.test.tsx.
+  source: string;
   // AUDIT LAUNCHPAD-SEC: optional status surfaces placeholder/deprecated
   // entries so users aren't presented with a zero address that looks live.
   // 'redeploy' marks live addresses whose source has been patched and is
@@ -70,7 +65,7 @@ interface ContractEntry {
   // zero address collapsed to "awaiting deployment", and /community linked the
   // very same contracts to Etherscan as live — two opposite answers on one site.
   status?: 'pending' | 'deprecated' | 'redeploy' | 'multisig' | 'unwired';
-  note?: string; // shown under the label when status is redeploy/multisig/unwired
+  note?: string; // shown under the label unless the row is pending deploy
   /**
    * 2026-08-28: non-mainnet entries (the L2 curve launchers) link to their own
    * explorer instead of etherscan.io, and are EXCLUDED from the mainnet
@@ -102,7 +97,8 @@ const GROUPS: ContractGroup[] = [
     title: 'Core',
     description: 'TOWELI token and staking primitives.',
     entries: [
-      { label: 'TOWELI Token', address: TOWELI_ADDRESS, source: 'contracts/src/TOWELI.sol' },
+      // The live token came from a token-generator template; the repo's Toweli.sol is not it.
+      { label: 'TOWELI Token', address: TOWELI_ADDRESS, source: 'not in this repo (token-generator template)' },
       { label: 'Tegridy Staking', address: TEGRIDY_STAKING_ADDRESS, source: 'contracts/src/TegridyStaking.sol' },
       { label: 'Tegridy Restaking', address: TEGRIDY_RESTAKING_ADDRESS, source: 'contracts/src/TegridyRestaking.sol' },
       { label: 'Treasury', address: TREASURY_ADDRESS, source: 'external (Safe multisig)' },
@@ -135,9 +131,8 @@ const GROUPS: ContractGroup[] = [
       {
         label: 'Tegridy Fee Hook (V4)',
         address: TEGRIDY_FEE_HOOK_ADDRESS,
-        source: 'contracts/src/TegridyFeeHook.sol',
-        status: 'redeploy',
-        note: 'Owner stranded on Arachnid CREATE2 proxy. Constructor patched to accept _owner — redeploy queued before activation.',
+        source: 'not in this repo (source removed after deploy)',
+        note: 'Owner stranded on Arachnid CREATE2 proxy.',
       },
     ],
   },
@@ -246,7 +241,7 @@ const GROUPS: ContractGroup[] = [
         address: TEGRIDY_NFT_LENDING_ADDRESS,
         source: 'contracts/src/TegridyNFTLending.sol',
       },
-      { label: 'Token URI Reader', address: TEGRIDY_TOKEN_URI_READER_ADDRESS, source: 'contracts/src/TokenURIReader.sol' },
+      { label: 'Token URI Reader', address: TEGRIDY_TOKEN_URI_READER_ADDRESS, source: 'contracts/src/TegridyTokenURIReader.sol' },
       { label: 'JBAC NFT', address: JBAC_NFT_ADDRESS, source: 'external (Jungle Bay Apes)' },
       { label: 'JBAY Gold', address: JBAY_GOLD_ADDRESS, source: 'external (Jungle Bay Gold)' },
     ],
@@ -266,7 +261,9 @@ const GROUPS: ContractGroup[] = [
 
 function ContractRow({ entry, verification }: { entry: ContractEntry; verification: VerificationState }) {
   const isExternal = entry.source.startsWith('external');
-  const sourceHref = isExternal ? undefined : `${GITHUB_BLOB_BASE}/${entry.source}`;
+  const sourceHref = isExternal || entry.source.startsWith('not in this repo (')
+    ? undefined
+    : `${SOURCE_URL}/${entry.source}`;
   // Our own contracts with an unset (zero) address aren't part of the current
   // deployment — route them through the clean "pending deploy" path so we never
   // surface a 0x0 as live or render a stale "redeploy live / awaiting multisig"
@@ -320,7 +317,7 @@ function ContractRow({ entry, verification }: { entry: ContractEntry; verificati
             <VerifiedBadge state={verification} address={entry.address} label={entry.label} />
           )}
         </div>
-        {isExternal ? (
+        {!sourceHref ? (
           <div className="text-white/40 text-[11px] mt-0.5">{entry.source}</div>
         ) : (
           <a
@@ -328,12 +325,12 @@ function ContractRow({ entry, verification }: { entry: ContractEntry; verificati
             target="_blank"
             rel="noopener noreferrer"
             className="text-white/40 text-[11px] mt-0.5 hover:text-white/70 transition-colors inline-flex items-center min-h-[44px] md:min-h-0 py-2 md:py-0"
-            aria-label={`Open ${entry.source} on GitHub (opens in new tab)`}
+            aria-label={`Open ${entry.source} source (opens in new tab)`}
           >
             {entry.source} <span className="text-white/15">↗</span>
           </a>
         )}
-        {entry.note && (isRedeploy || isMultisig || isUnwired || entry.explorer) && (
+        {entry.note && (!isPending || entry.explorer) && (
           <div
             className={`text-[11px] mt-1 leading-relaxed ${isRedeploy ? 'text-orange-200/75' : isUnwired ? 'text-emerald-200/75' : 'text-sky-200/75'}`}
             style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
@@ -433,9 +430,10 @@ export default function ContractsPage() {
           <h1 className="heading-luxury text-3xl md:text-5xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>Contract Index</h1>
           <p className="text-white/75 text-[13px] md:text-[14px] max-w-[720px] leading-relaxed mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
             Canonical, on-chain addresses for every memetics.finance contract, grouped by role. Source
-            for every contract is linked below. Source mirrored from the repo{' '}
+            is linked below wherever this repo holds it. Links open the file as it is today, which
+            can be newer than the code deployed at that address. Source mirrored from the repo{' '}
             <a
-              href={`${GITHUB_BLOB_BASE}/docs/CONTRACTS.md`}
+              href={`${SOURCE_URL}/docs/CONTRACTS.md`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-white underline hover:text-white/70 transition-colors"
@@ -474,12 +472,12 @@ export default function ContractsPage() {
             <p className="text-white/60 text-[11px] mt-3 leading-relaxed">
               Full remaining-task checklist:{' '}
               <a
-                href="https://github.com/fomotsar-commits/tegridy-farms/issues?q=is%3Aissue+is%3Aopen"
+                href={`${SOURCE_URL}/docs/TODO_OPERATOR.md`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white/80 underline hover:text-white transition-colors"
               >
-                tracked issues
+                docs/TODO_OPERATOR.md
               </a>
             </p>
           </div>

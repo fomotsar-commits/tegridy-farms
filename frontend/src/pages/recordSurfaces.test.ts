@@ -50,7 +50,7 @@ describe('records (ruling 1)', () => {
 describe('unread-read ledgers', () => {
   const ledgers = declaring(/data-unread-ledger\s*=/g);
 
-  it('only the Island Cup coverage notice reports a read this way', () => {
+  it("only the volume board's coverage notice reports a read this way", () => {
     expect(ledgers.map((f) => f.file).sort()).toEqual([
       'components/competitions/CupCoverageNotice.tsx',
     ]);

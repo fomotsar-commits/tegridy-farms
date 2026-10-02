@@ -9,62 +9,36 @@ import { config } from './lib/wagmi';
 import { AppLayout } from './components/layout/AppLayout';
 import { PageSkeleton } from './components/PageSkeleton';
 import { FirstFrame } from './components/FirstFrame';
+import { DoorFrame } from './components/DoorFrame';
 import { SwapSkeleton, FarmSkeleton, DashboardSkeleton } from './components/PageSkeletons';
 import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
 import { PwaRuntime } from './components/pwa/PwaRuntime';
-import { BUNGALOWS } from './lib/bungalows';
+import { BUNGALOWS, getActiveBungalow } from './lib/bungalows';
 import { BungalowDoor, VENUE_ID } from './components/bungalow/BungalowDoor';
+import { EARN_PATH, isEarnPoolId, legacyFarmTarget } from './lib/earnRoutes';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
-// ⌫ FarmPage's lazy import lived here. /farm renders EarnPage now (that section's
-//   landing tab), and EarnPage lazy-loads FarmPage itself, so a second handle here
-//   would be a duplicate chunk boundary for a page this file no longer mounts.
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const GalleryPage = lazy(() => import('./pages/GalleryPage'));
-// HistoryPage, LeaderboardPage, PremiumPage, ChangelogPage merged into ActivityPage (tabs)
 const ActivityPage = lazy(() => import('./pages/ActivityPage'));
 const CommunityPage = lazy(() => import('./pages/CommunityPage'));
-// Tokenomics + Lore + Security + FAQ merged into LearnPage (tabs)
 const LearnPage = lazy(() => import('./pages/LearnPage'));
-// RestakePage + LaunchpadPage merged into LendingPage (NFT Finance)
-// LiquidityPage + SwapPage merged into TradePage
-// BribesPage, GrantsPage, BountyPage merged into CommunityPage
 const NakamigosApp = lazy(() => import('./nakamigos/App'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
-// R002: art-studio is a dev-only internal tool. Gate the lazy import behind
-// `import.meta.env.DEV` so Rollup statically tree-shakes the entire chunk out
-// of production builds — prod ships zero studio code, the route below
-// redirects, and the `/__art-studio/save` middleware is dev-only too.
+// R002: the classic art studio is dev-only. The DEV gate lets Rollup drop the chunk
+// from production; the route below redirects there.
 const ArtStudioPage = import.meta.env.DEV
   ? lazy(() => import('./pages/ArtStudioPage'))
   : null;
-// ISLAND ORDER 2026-08-31: the bungalow skin studio SHIPS TO PROD as an
-// unlisted, export-only room (reached by URL only; no nav entry links it).
-// R002's reasoning still holds for the classic /art-studio above — that one
-// stays dev-only — but the island's curator needs to place door art by eye
-// in a real browser. In prod the page has no write path at all: the
-// dev-only `/__bungalow-studio/save` middleware does not exist there, so
-// Save becomes "Export placements", a client-side download of the same
-// module the middleware would have written. Its own lazy chunk, so a
-// visitor who never opens the studio pays nothing for it.
+// The bungalow and door studios ship to prod unlisted and export-only: the save
+// middleware is dev-only, so Save becomes a download. Their own chunks.
 const BungalowArtStudioPage = lazy(() => import('./pages/BungalowArtStudioPage'));
 const DoorArtStudioPage = lazy(() => import('./pages/DoorArtStudioPage'));
-// ⌫ LendingPage's lazy import lived here. /nft-finance renders EarnPage now
-//   (it is a tab of that section), and EarnPage lazy-loads LendingPage itself.
-// Terms, Privacy, Risks, Contracts, Treasury merged into InfoPage (tabs)
 const InfoPage = lazy(() => import('./pages/InfoPage'));
-// ── FOUR TABBED SECTION HOSTS (2026-09-04) ───────────────────────────────────
-// Seventeen lazy page imports used to sit here. They did not disappear: the
-// "More" dropdown's Launch / Earn / Stats / Trust & Safety sections each
-// collapsed into ONE menu row plus a tabbed page, so each host now lazy-imports
-// the pages it hosts — and carries the comment that used to be on that import.
-// Read them there: TrustPage.tsx, EarnPage.tsx, StatsPage.tsx, LaunchHubPage.tsx.
-//
-// Every route below is unchanged. A host is what a route RENDERS, never where
-// it points, so /scan, /tax, /eth-curve and the other fourteen are the same URLs
-// they always were — deep links, footer links and e2e routes all still land.
+// Tabbed section hosts: each lazy-imports the pages it hosts. A host is what a route
+// renders, never where it points, so every URL below still lands.
 const TrustPage = lazy(() => import('./pages/TrustPage'));
 const EarnPage = lazy(() => import('./pages/EarnPage'));
 const StatsPage = lazy(() => import('./pages/StatsPage'));
@@ -74,42 +48,20 @@ const TradeHostPage = lazy(() => import('./pages/TradeHostPage'));
 const PoolsHostPage = lazy(() => import('./pages/PoolsHostPage'));
 // The Island lobby: cards, not tabs. See IslandPage.tsx for why.
 const IslandPage = lazy(() => import('./pages/IslandPage'));
-// Docs for the keyed /api/v1 layer. Renders its tiers, routes and refusal codes
-// from api/_lib/apiTiers.js and its deployment state from /api/v1?route=status,
-// so neither the price list nor the signup can claim what is not configured.
+// Docs for the keyed /api/v1 layer, rendered from api/_lib/apiTiers.js and
+// /api/v1?route=status, so it cannot claim what is not configured.
 const DeveloperPage = lazy(() => import('./pages/DeveloperPage'));
-// TradePage, SolanaSwapPage and PoolsPage are now lazy-imported by
-// TradeHostPage, which owns all four trade routes. They stay lazy for the same
-// reason they always were: @solana/* must load with those chunks and never with
-// the main bundle or the EVM surface. The dist-graph gate pins that.
-// Permanent per-token record at /eth-curve/:token — the shareable page a curve
-// creator hands out and the launches grid links into.
+// The trade pages load inside TradeHostPage: @solana/* must never reach the main
+// bundle (scripts/check-dist-graph.mjs pins it).
 const CurveTokenPage = lazy(() => import('./pages/CurveTokenPage'));
-// Permanent per-token record at /launch/:token — the page cohort rows link into.
-// Read-only; never gated, because a launched token's disclosures must stay reachable
-// even if the create wizard is re-gated.
+// Never gated: a launched token's disclosures stay reachable if the wizard is re-gated.
 const LaunchTokenPage = lazy(() => import('./pages/LaunchTokenPage'));
-// Merkle airdrop campaigns (#65). AirdropFactory is undeployed, so the funding and
-// claim transactions are isDeployed()-gated in-page; the client-side tree builder is
-// not, because a root computed from a CSV needs no chain.
+// AirdropFactory is undeployed: its transactions are isDeployed()-gated in-page.
 const AirdropPage = lazy(() => import('./pages/AirdropPage'));
-// Vesting streams + lock viewer (#28). Each tab gates on its own contract address, so
-// a deployment that ships one rail before the other shows the live one and keeps
-// reporting "no data" for the other.
+// Each vesting tab gates on its own contract address.
 const VestingPage = lazy(() => import('./pages/VestingPage'));
-// Guided first-run flow (#43). Wallet-free and never gated itself — its step list is built
-// from the same gates the destination pages read, so a re-gated surface disappears from it
-// rather than being promised. Lives under components/onboarding/ with the on-ramp panel it
-// mounts, not in pages/, because the flow and that panel are one feature.
+// Wallet-free first-run flow; its steps come from the same gates the pages read.
 const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow'));
-// Zap engine (#67). Client-orchestrated only — no zap contract exists or is planned, per
-// docs/USER_VALUE_ROADMAP.md line 101. Never gated: with no wallet it renders the composer
-// and its refusal states, and each venue reports its own availability from constants.ts.
-// Lives under components/zap/ with the panel it mounts, as OnboardingFlow does.
-// ⌫ ZapPage's lazy import likewise: /zap is a tab on PoolsHostPage now, which
-//   loads it. It was previously routed here and linked from NOWHERE in the app.
-// LaunchpadPage lazy import removed — loaded inside LendingPage
-// NFTAMMPage merged into LendingPage (NFT Finance)
 
 // Error boundary catches render errors in lazy-loaded pages and prevents white-screen crashes
 class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: string }, { hasError: boolean }> {
@@ -121,10 +73,8 @@ class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: str
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Route render error:', error, info.componentStack);
   }
-  // Recover on client-side navigation: once a route crashes, a location change (resetKey)
-  // clears the error so the user isn't stranded on the fallback until a full page reload.
-  // We reset on nav rather than key={pathname} to avoid remounting AnimatedRoutes (which
-  // would break its page transitions).
+  // A location change (resetKey) clears the error; not key={pathname}, which would
+  // remount AnimatedRoutes and break its page transitions.
   componentDidUpdate(prevProps: { resetKey?: string }) {
     if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
       this.setState({ hasError: false });
@@ -164,13 +114,8 @@ const queryClient = new QueryClient({
 });
 
 function NotFoundPage() {
-  // F24: don't canonicalize the bogus path (would create a soft-404 served 200)
-  // and mark it noindex so crawlers drop it.
-  // A COLON, NOT AN EM DASH (element I, 2026-09-20). This title is not only a tab
-  // label: AppLayout.tsx:227 copies document.title into an aria-live region on every
-  // navigation, so the dash was venue-voice prose being READ ALOUD to screen-reader
-  // users. It went uncounted because the 404 catch-all was the one venue route in
-  // neither ratchet table; adding the route to the census is what surfaced it.
+  // No canonical (a soft-404 served 200) and noindex. A colon, not an em dash: AppLayout
+  // reads document.title aloud through an aria-live region on every navigation.
   usePageTitle('404: Page Not Found', undefined, { noCanonical: true, noIndex: true });
   return (
     <div className="min-h-[60vh] flex items-center justify-center px-6">
@@ -191,7 +136,7 @@ function NotFoundPage() {
           <p className="text-white/40 text-[11px] uppercase tracking-wider mb-2">Or jump to</p>
           <div className="flex items-center justify-center gap-2 flex-wrap">
             {[
-              { to: '/farm', label: 'Farm' },
+              { to: '/earn', label: 'Earn' },
               { to: '/swap', label: 'Trade' },
               { to: '/dashboard', label: 'Dashboard' },
             ].map((l) => (
@@ -210,19 +155,14 @@ function NotFoundPage() {
   );
 }
 
-// Scroll to top on route change (no built-in scroll restoration in React Router v7).
-// F18: skip the reset on POP (Back/Forward) so the browser's native scroll
-// restoration can return the user to their previous reading position; PUSH/REPLACE
-// navigations still scroll to top.
+// Scroll to top on PUSH/REPLACE; on POP (Back/Forward) the browser restores the position.
 function ScrollToTop() {
   const { pathname, hash } = useLocation();
   const navType = useNavigationType();
   useEffect(() => {
     if (navType === 'POP') return;
-    // F397: honor #section deep-links instead of always jumping to the top.
-    // The native browser hash-scroll fires before Suspense + entrance
-    // animations mount the target, so it no-ops; re-run it on the next frame
-    // (and a short follow-up) once the content has had a chance to settle.
+    // A #section deep link: the native hash-scroll fires before the target mounts, so
+    // it is re-run on the next frame and once more shortly after.
     if (hash) {
       const id = decodeURIComponent(hash.slice(1));
       let raf2 = 0;
@@ -243,18 +183,9 @@ function ScrollToTop() {
 }
 
 /**
- * `/read/<address>` — the shared read link (wave seven, element M).
- *
- * TWO AUDIENCES, ONE URL. An unfurl bot never reaches this component: middleware.js
- * intercepts it at the edge and answers with the holder's card, which is the entire
- * reason the link exists. A HUMAN who clicks that card lands here and is handed to the
- * instrument with the address already in it.
- *
- * A redirect rather than a second mount of the hero, so `?heat=` stays the ONE
- * hydration path — a shared link and a pasted address cannot drift apart if there is
- * only one way in. Validation is deliberately left to the instrument: an address that
- * is not one belongs in the field's own invalid state, not in a silent bounce to the
- * home page that leaves the reader wondering what happened to the link.
+ * `/read/<address>`, the shared read link. Unfurl bots are answered at the edge by
+ * middleware.js; a human lands here and is redirected to `?heat=`, the one hydration
+ * path. The instrument validates the address, so a bad one shows its invalid state.
  */
 function ReadRedirect() {
   const { address = '' } = useParams();
@@ -262,10 +193,7 @@ function ReadRedirect() {
   return <Navigate to={a ? `/?heat=${encodeURIComponent(a)}` : '/'} replace />;
 }
 
-/**
- * Param leg of the dev studio: validates :bungalowId against the registry so
- * a typo'd or hostile slug renders the public site, never a broken tool.
- */
+/** The studio's :bungalowId must be a registry id; anything else lands home. */
 function BungalowStudioDoor() {
   const { bungalowId = '' } = useParams();
   if (!BUNGALOWS.some((b) => b.id === bungalowId)) return <Navigate to="/" replace />;
@@ -277,19 +205,32 @@ function BungalowStudioDoor() {
 }
 
 /**
- * `/swap`, with an old `?tab=liquidity` link answered BEFORE the swap page loads.
- *
- * The Liquidity tab left the swap page for /liquidity (the Pools section's landing
- * tab), but links shared while it lived here still exist, and TradePage resolves an
- * unknown tab to 'swap' — so unredirected they land on the wrong surface, which reads
- * as the feature having been deleted rather than moved.
- *
- * The redirect used to be an effect inside TradePage, which put the whole swap page in
- * front of a decision the URL had already made: fetch TradeHostPage, fetch TradePage's
- * own ~110 KB chunk, render the swap page, and only then start fetching the page the
- * link was going to — four serial chunk loads where /liquidity has two. Measured
- * 2026-09-10, that queue is what e2e/liquidity.spec.ts's heading assertion was waiting
- * on. The URL is known on the first render, so it is read here, like ReadRedirect.
+ * `/earn/<id>`: one pool, inside its own room. The id is a live registry id
+ * ('toweli' included); anything else goes back to the list. The pool's room is
+ * entered the way its front door enters it (BungalowDoor), so the art, the nav
+ * and the pool all agree — and a link opened in a wallet's own browser, which
+ * shares none of this browser's storage, still lands on the same pool.
+ */
+function EarnPoolRoute() {
+  const { poolId = '' } = useParams();
+  if (!isEarnPoolId(poolId)) return <Navigate to={EARN_PATH} replace />;
+  return (
+    <BungalowDoor key={poolId} id={poolId}>
+      <Suspense fallback={<FarmSkeleton />}><EarnPage /></Suspense>
+    </BungalowDoor>
+  );
+}
+
+/** `/farm`, Earn's address until 2026-09-30: an old link keeps its meaning (legacyFarmTarget). */
+function LegacyFarmRedirect() {
+  const { search, hash } = useLocation();
+  return <Navigate to={legacyFarmTarget(search, hash, getActiveBungalow())} replace />;
+}
+
+/**
+ * `/swap`, with an old `?tab=liquidity` link sent to /liquidity before the swap page
+ * loads: TradePage would read the unknown tab as 'swap', and redirecting from inside
+ * it cost four serial chunk loads. The URL is known on the first render.
  */
 function SwapRoute() {
   const [searchParams] = useSearchParams();
@@ -304,10 +245,8 @@ function AnimatedRoutes() {
     <Routes>
       {/* Nakamigos marketplace — renders outside AppLayout (has its own header/footer/background) */}
       <Route path="nakamigos/*" element={<NakamigosApp />} />
-      {/* Art studio — internal dev tool, renders standalone (no app chrome/background).
-          R002: gated to DEV. In prod, `ArtStudioPage` is `null` (tree-shaken)
-          and we redirect to home so anyone browsing /art-studio on prod lands
-          on the public site rather than seeing an empty Suspense crash. */}
+      {/* Art studio: dev tool, standalone. In prod ArtStudioPage is null, so the
+          route redirects home. */}
       <Route
         path="art-studio"
         element={
@@ -316,104 +255,61 @@ function AnimatedRoutes() {
             : <Navigate to="/" replace />
         }
       />
-      {/* Bayla studio — the same tool aimed at the Bayla bungalow's own art
-          pool. UNLISTED IN PROD (ISLAND ORDER 2026-08-31): reachable by URL
-          only, export-only, no write path off the dev middleware.
-          NOTE: this path must stay OUTSIDE the bungalow-door slugs (a door is
-          /bayla); '/bayla-studio' is not an island slug, so no collision. */}
+      {/* Studios are unlisted in prod, and none of these paths is an island slug,
+          so door routing is untouched. */}
       <Route
         path="bayla-studio"
         element={<Suspense fallback={<PageSkeleton />}><BungalowArtStudioPage bungalowId="bayla" /></Suspense>}
       />
-      {/* Generic per-resident studio (WO-1): /bungalow-studio/<id> aims the
-          SAME tool at any registry bungalow — the page and the override store
-          were parametric all along, only this route pinned 'bayla'. Unlisted in
-          prod alongside /bayla-studio; an unknown id lands home. '/bungalow-studio' is not an island slug,
-          so door routing is untouched. */}
       <Route
         path="bungalow-studio/:bungalowId"
         element={<BungalowStudioDoor />}
       />
-      {/* Door studio (2026-09-13) — the island's FRONT PAGE rather than any one
-          bungalow: the thirteen door tiles in VenueDoors and the rows in
-          BungalowPicker. It draws from every resident's pool at once because a
-          door is a shop window, not a surface owned by the resident behind it.
-          Ships alongside the other studios: unlisted, export-only in prod.
-          '/door-studio' is not an island slug, so door routing is untouched. */}
       <Route
         path="door-studio"
         element={<Suspense fallback={<PageSkeleton />}><DoorArtStudioPage /></Suspense>}
       />
       <Route element={<AppLayout />}>
-        {/* THE VENUE'S OWN DOOR (2026-09-04). `/` is wrapped in the same
-            component as every bungalow door, with id="venue", so arriving at
-            the index clears a stored skin exactly the way walking into /bayla
-            sets one.
-
-            Before this, HomePage read its identity from ambient storage rather
-            than from the route, so `/` rendered whatever bungalow was stored:
-            same hero, same lore, same title, and NO door grid (it is gated on
-            `!bungalowIdentity`). Two URLs, one page. The nav wordmark had a
-            hand-rolled version of this fix in its onClick and was the only way
-            back — the 404 page's "Back to Home" and every other plain
-            <Link to="/"> walked straight into the bungalow.
-
-            Putting it at the destination fixes every link at once, and is why
-            no other route needed to change: the stored skin still dresses
-            /farm, /swap and the rest. */}
+        {/* `/` is the venue's own door: arriving clears a stored skin the way
+            walking into /bayla sets one. The stored skin still dresses /swap
+            and the rest; /earn/<id> enters its own pool's room. */}
         <Route
           index
           element={
             <BungalowDoor id={VENUE_ID}>
-              {/* Answer ten, ruling 2: the venue's first frame, never "Loading...",
-                  while the home page's chunk arrives. Only here: a door renders its
-                  resident's hero, not the venue's. FirstFrame.tsx says why. */}
+              {/* The venue's first frame, never "Loading...", while the home page's
+                  chunk arrives (FirstFrame.tsx). */}
               <Suspense fallback={<FirstFrame />}><HomePage /></Suspense>
             </BungalowDoor>
           }
         />
-        {/* Jungle Bay bungalow doors — the memetics.finance/<bungalow> URL
-            format. One route per island slug (all 13, so every door exists
-            from day one) plus the 'towelie' spelling as an alias for the
-            toweli slug. A door renders home under its bungalow's skin; see
-            BungalowDoor for the enter-on-visit semantics. None of these
-            slugs collides with an app route — the registry test would catch
-            a future clash via the canon id list. */}
+        {/* One door per island slug, plus 'towelie' for toweli: home under that
+            bungalow's skin (BungalowDoor). While the home page's chunk arrives, a
+            door with a hero of its own keeps its heading on screen (DoorFrame). */}
         {[...BUNGALOWS.map((b) => ({ path: b.id, id: b.id })), { path: 'towelie', id: 'toweli' }].map(({ path, id }) => (
           <Route
             key={path}
             path={path}
             element={
               <BungalowDoor id={id}>
-                <Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>
+                <Suspense fallback={<DoorFrame id={id} />}><HomePage /></Suspense>
               </BungalowDoor>
             }
           />
         ))}
-        {/* EARN IS A TABBED HOST 2026-09-05. /farm was a top-bar destination
-            called "Farm"; it is the landing tab of the Earn section now, beside
-            /nft-finance which came off the bar for the same reason. Both still
-            render standalone from a deep link, with the strip above them. */}
-        <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><EarnPage /></Suspense>} />
-        {/* SWAP IS A TABBED HOST. Two routes, one strip: Ethereum / Solana.
-            Every path still renders its own page standalone from a deep link. */}
+        {/* Earn is a tabbed host: /earn, the list of every pool, is its landing
+            tab, and /earn/<id> is one pool under the same tab. */}
+        <Route path="earn" element={<Suspense fallback={<FarmSkeleton />}><EarnPage /></Suspense>} />
+        <Route path="earn/:poolId" element={<EarnPoolRoute />} />
+        <Route path="farm" element={<LegacyFarmRedirect />} />
+        {/* Swap is a tabbed host: Ethereum / Solana. */}
         <Route path="swap" element={<SwapRoute />} />
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
-        {/* POOLS IS ITS OWN SECTION 2026-09-05, and /liquidity is a real page
-            rather than a path alias.
-            Before this, /liquidity rendered TradeHostPage — which had no
-            /liquidity tab — so SectionHost fell through to items[0] and landed
-            the visitor on the Ethereum SWAP surface, where TradePage then opened
-            its own inner `?tab=liquidity`. Providing liquidity was the second of
-            six tabs on the trading page. It is a destination now, and /pools
-            (the venue's Solana AMM) and /zap are its siblings. */}
+        {/* Pools is its own section: /liquidity, /pools and /zap. */}
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
         <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
-        {/* /solana-launch (Meteora DBC) was REMOVED 2026-08-23 — it graduated into a
-            pool this protocol does not own. /curve-launch below is the surviving Solana
-            launch rail. No redirect is added on purpose: the route is gone, so the SPA
-            404s, and a redirect to a rail that ALSO cannot launch (both program ids are
-            spent) would move a dead end rather than close one. */}
+        {/* No /solana-launch and no redirect for it: it 404s, because the rail it
+            would point at cannot launch either. */}
         <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
         <Route path="eth-curve" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
         <Route path="eth-curve/:token" element={<Suspense fallback={<PageSkeleton />}><CurveTokenPage /></Suspense>} />
@@ -430,30 +326,23 @@ function AnimatedRoutes() {
         <Route path="competitions" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
-        {/* The Island lobby — the one section that is cards rather than a tab
-            strip, because three of its doors already own a strip of their own.
-            See IslandPage.tsx. */}
+        {/* The Island lobby is cards, not tabs (IslandPage.tsx). */}
         <Route path="island" element={<Suspense fallback={<PageSkeleton />}><IslandPage /></Suspense>} />
         <Route path="gallery" element={<Suspense fallback={<PageSkeleton />}><GalleryPage /></Suspense>} />
         <Route path="tokenomics" element={<Suspense fallback={<PageSkeleton />}><StatsPage /></Suspense>} />
         <Route path="history" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="lore" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
-        {/* /learn is a legacy alias. It pointed at /tokenomics until 2026-09-04, when
-            Tokenomics moved to the Stats host — it now lands on the first tab LearnPage
-            still owns, rather than bouncing out of the host it names. */}
+        {/* /learn is a legacy alias for the first tab LearnPage owns. */}
         <Route path="learn" element={<Navigate to="/lore" replace />} />
         <Route path="leaderboard" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="community" element={<Suspense fallback={<PageSkeleton />}><CommunityPage /></Suspense>} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
         <Route path="bounties" element={<Navigate to="/community?section=bounties" replace />} />
-        <Route path="restake" element={<Navigate to="/farm" replace />} />
+        <Route path="restake" element={<Navigate to="/earn/toweli" replace />} />
         <Route path="premium" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="bribes" element={<Navigate to="/community?section=bribes" replace />} />
         <Route path="admin" element={<Suspense fallback={<PageSkeleton />}><AdminPage /></Suspense>} />
-        {/* An Earn tab like the rest of that section. It was left rendering
-            LendingPage directly in the first cut of the 2026-09-05 rewrite,
-            which made it the ONE Earn destination where the strip vanished —
-            and made `panels['/nft-finance']` in EarnPage.tsx unreachable. */}
+        {/* An Earn tab, so the section's strip stays above it. */}
         <Route path="nft-finance" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         <Route path="lending" element={<Navigate to="/nft-finance" replace />} />
         <Route path="launchpad" element={<Navigate to="/nft-finance" replace />} />
@@ -514,12 +403,9 @@ function AppInner() {
           <AnimatedRoutes />
         </Suspense>
       </RouteErrorBoundary>
-      {/* #46 — the install offer and the app-shell worker's registration. Mounted
-          here rather than inside AppLayout because /nakamigos is routed OUTSIDE that
-          layout and the worker's scope covers it either way; the banner suppresses
-          itself on that route so the sub-app's own banner is the only one shown.
-          Both halves render nothing at all unless the browser actually offers an
-          install, and neither ever claims the app works offline. */}
+      {/* The install offer and the worker's registration, here rather than in
+          AppLayout because /nakamigos is routed outside it. Renders nothing unless
+          the browser offers an install; never claims the app works offline. */}
       <PwaRuntime />
     </RainbowKitProvider>
   );
@@ -538,16 +424,8 @@ function App() {
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          {/* AUDIT Batch 19: LazyMotion with domAnimation features. Every
-              'motion.X' was refactored to 'm.X' in a scripted pass across 45
-              files. LazyMotion defers the heavy motion engine until after
-              first paint and only ships DOM-animation features (not SVG
-              motion, not layout, not drag) — chosen because the app only
-              uses basic opacity/y/scale/transition. strict mode on the
-              wrapper throws loudly if a bare 'motion.X' slips through. */}
-          {/* reducedMotion="user" makes every m.* animation honor the OS
-              prefers-reduced-motion setting app-wide (transforms/opacity snap
-              instead of animating) without per-component handling. */}
+          {/* LazyMotion ships only DOM-animation features; strict throws on a bare
+              motion.X. reducedMotion="user" honours the OS setting app-wide. */}
           <LazyMotion features={domAnimation} strict>
             <MotionConfig reducedMotion="user">
               <AppInner />

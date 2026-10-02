@@ -47,10 +47,7 @@ import {
   type AttentionSplit,
 } from '../lib/launcher/launchService';
 import {
-  isCreatorFeeShareEnabled,
-  isHeatTierPricingEnabled,
-  readLaunchPricing,
-  standardLaunchPricing,
+  resolveLaunchPricing,
   toPricingDisclosure,
   type ResolvedLaunchPricing,
 } from '../lib/launcher/launchPricing';
@@ -158,9 +155,8 @@ export function parseAttentionSplits(rows: WizardState['attentionSplits']): Atte
  *
  * `pricing` is the SAME resolved object `onLaunch` hands to
  * `wizardConfigToLaunchConfig`, so the split previewed here is the split signed. With
- * both dials off it is `standardLaunchPricing()`, `toPricingDisclosure` returns
- * undefined, and this projection is byte-identical to the one that existed before
- * pricing was threaded — which is what keeps `disclosuresDigest` stable.
+ * the creator revenue share off, `toPricingDisclosure` returns undefined and
+ * `disclosuresDigest` stays stable.
  */
 function projectFactSheet(
   w: WizardState,
@@ -210,8 +206,8 @@ function projectFactSheet(
     teamAllocationVestedBps: w.premineBps, // wizard only offers on-chain-vested premine
     observedAt: nowSeconds,
     // Spread, not `pricing: toPricingDisclosure(...)`: an explicit `undefined` would be a
-    // present key, and gate.ts only forwards the field when it is there. Absent is the
-    // state that means "neither dial is in force", which is today.
+    // present key, and gate.ts only forwards the field when it is there. Absent means the
+    // standard rate, which is today.
     ...(() => {
       const disclosure = toPricingDisclosure(pricing);
       return disclosure ? { pricing: disclosure } : {};
@@ -277,53 +273,11 @@ export default function LaunchPage() {
   // registry when a launch succeeds and only offer the button once the schema is
   // live; otherwise say so plainly. null = still checking / unknown.
   const [schemaReady, setSchemaReady] = useState<boolean | null>(null);
-  // THE LAUNCH'S PRICE. Resolved ONCE per wallet and handed to BOTH the projected Fact
-  // Sheet and the launch config, because the split shown must be the split signed —
-  // `readLaunchPricing`'s own contract, since calling it twice can legitimately return two
-  // different prices.
-  //
-  // TODAY'S RATE IS THE FALLBACK, NOT A LAST RESORT. `standardLaunchPricing()` is the
-  // venue's standard line with both dials off, no tier claimed and no discount; every state
-  // except "a fresh reading came back, for THIS wallet, while a dial was on" resolves to
-  // exactly it. So an oracle outage prices at the standard rate instead of at a guessed
-  // tier, which is the same rule the door itself uses.
-  //
-  // The reading is STORED WITH THE ADDRESS IT WAS TAKEN FOR, and only used while the two
-  // still match. Keying it that way is what stops the other wallet's price from being the
-  // one on screen for the moment between switching accounts and the next read landing —
-  // it falls back to standard, which can only ever be the more expensive answer.
-  const standardPricing = useMemo(() => standardLaunchPricing(), []);
-  const [pricingRead, setPricingRead] = useState<{ address: string; pricing: ResolvedLaunchPricing } | null>(null);
-
-  // The dials are the only consumer of a Heat reading TAKEN FOR PRICING. With both off —
-  // which is the shipped state — this effect makes no request at all: the resolver would
-  // return the standard line from any reading, so a read whose answer cannot change the
-  // price would be quota spent on nothing. Flip either flag and the read starts happening
-  // with no other change. (The door's OWN read, for the launch gate, is unaffected: it
-  // lives in <LaunchGate /> and in launchToken, and still happens either way.)
-  const pricingDialsOn = isHeatTierPricingEnabled() || isCreatorFeeShareEnabled();
-  // Narrowed with an explicit null test rather than an optional chain:
-  // `pricingRead?.address === address` is false when pricingRead is null, so the
-  // guard was correct at runtime, but it does not narrow the later property
-  // access — and with no wallet connected `address` is undefined, so an
-  // undefined === undefined comparison would have reached into a null read.
-  const pricing =
-    pricingDialsOn && pricingRead !== null && address !== undefined && pricingRead.address === address
-      ? pricingRead.pricing
-      : standardPricing;
-
-  useEffect(() => {
-    if (!pricingDialsOn || !address) return;
-    const ac = new AbortController();
-    void (async () => {
-      // `readLaunchPricing` never throws — an unreachable island returns the STALE
-      // decision, which prices at the standard rate through the same path as every other
-      // unreadable state. So there is no catch here by design.
-      const next = await readLaunchPricing(address, { signal: ac.signal });
-      if (!ac.signal.aborted) setPricingRead({ address, pricing: next });
-    })();
-    return () => ac.abort();
-  }, [address, pricingDialsOn]);
+  // THE LAUNCH'S PRICE, resolved once and handed to BOTH the projected Fact Sheet and the
+  // launch config, so the split shown is the split signed. It takes no wallet: the island
+  // rules "Same price for everyone." Heat decides who may launch (<LaunchGate />,
+  // launchToken), never what a launch costs.
+  const pricing = useMemo(() => resolveLaunchPricing(), []);
 
   const sheet = useMemo(() => projectFactSheet(w, now, pricing), [w, now, pricing]);
 
@@ -443,10 +397,7 @@ export default function LaunchPage() {
         numerairePriceUsd,
         numeraire: numeraireAddr,
         attentionSplits: parseAttentionSplits(w.attentionSplits),
-        // The SAME object the Fact Sheet above was projected from. `launchToken` re-checks
-        // it against a live reading before broadcasting and refuses a config claiming a
-        // deeper discount than the island currently supports; with both dials off, live
-        // and deployed are both the standard line, so that check is a no-op today.
+        // The SAME object the Fact Sheet above was projected from.
         pricing,
       });
       const result = await launchToken(walletClient, publicClient, cfg);

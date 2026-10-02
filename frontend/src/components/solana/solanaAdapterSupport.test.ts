@@ -1,7 +1,16 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
-import { TrustWalletAdapter } from '../../lib/solanaWallets';
+import {
+  BackpackWalletAdapter,
+  CoinbaseWalletAdapter,
+  IPadAwarePhantomWalletAdapter,
+  JupiterWalletAdapter,
+  MetaMaskWalletAdapter,
+  SolflareWalletAdapter,
+  TrustWalletAdapter,
+} from '../../lib/solanaWallets';
+import { WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
 import type { Adapter } from '@solana/wallet-adapter-base';
 
 /**
@@ -43,8 +52,14 @@ import type { Adapter } from '@solana/wallet-adapter-base';
  * change — a legacy adapter absent from this list is an unguarded one.
  */
 const LEGACY_ADAPTERS: ReadonlyArray<readonly [name: string, adapter: () => Adapter]> = [
-  ['Phantom', () => new PhantomWalletAdapter() as unknown as Adapter],
+  ['Phantom', () => new IPadAwarePhantomWalletAdapter() as unknown as Adapter],
   ['Trust', () => new TrustWalletAdapter() as unknown as Adapter],
+  ['Jupiter', () => new JupiterWalletAdapter() as unknown as Adapter],
+  ['MetaMask', () => new MetaMaskWalletAdapter() as unknown as Adapter],
+  ['Coinbase Wallet', () => new CoinbaseWalletAdapter() as unknown as Adapter],
+  ['Solflare', () => new SolflareWalletAdapter() as unknown as Adapter],
+  ['Backpack', () => new BackpackWalletAdapter() as unknown as Adapter],
+  ['WalletConnect', () => new WalletConnectWalletAdapter({ projectId: 'test' }) as unknown as Adapter],
 ];
 
 describe('Solana legacy adapters can send what this venue sends', () => {
@@ -77,7 +92,18 @@ describe('Solana legacy adapters can send what this venue sends', () => {
     );
     const mounted = [...source.matchAll(/new\s+(\w+WalletAdapter)\(/g)].map((m) => m[1]);
     expect(mounted.length).toBeGreaterThan(0);
-    expect(new Set(mounted)).toEqual(new Set(['PhantomWalletAdapter', 'TrustWalletAdapter']));
+    expect(new Set(mounted)).toEqual(
+      new Set([
+        'IPadAwarePhantomWalletAdapter',
+        'TrustWalletAdapter',
+        'JupiterWalletAdapter',
+        'MetaMaskWalletAdapter',
+        'CoinbaseWalletAdapter',
+        'SolflareWalletAdapter',
+        'BackpackWalletAdapter',
+        'WalletConnectWalletAdapter',
+      ]),
+    );
     expect(mounted.length).toBe(LEGACY_ADAPTERS.length);
   });
 

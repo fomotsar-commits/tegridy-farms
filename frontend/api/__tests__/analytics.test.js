@@ -23,7 +23,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 function makeReq({ method = "POST", body = {}, headers = {} } = {}) {
-  return { method, body, headers: { origin: "https://memetic.fun", ...headers } };
+  return { method, body, headers: { origin: "https://memetics.finance", ...headers } };
 }
 
 function makeRes() {

@@ -1,22 +1,13 @@
-// ELEMENT D's HONEST POOL LINE, pinned on the SOURCE of the room.
-//
-// §D asks a room for "its pool or its honest state". Before this the room could
-// only get you TO a pool: the hero's button goes to Earn and reads "The
-// lighthouse" instead of "Stake" when there is none, which is honest about the
-// button and silent about the token.
-//
-// Asserted here rather than through a full HomePage render because the room's
-// two branches are decided by one registry field, and the thing worth pinning is
-// WHAT EACH BRANCH CLAIMS — specifically that the pool branch never says a pool
-// is deployed, funded or live. In this repo REGISTERED, DEPLOYED and WIRED are
-// three different facts, and a room that conflates them is the exact bug class
-// the venue keeps writing memos about.
+// ELEMENT D's HONEST POOL LINE, pinned on the SOURCE of the room: what each branch
+// claims. A registry address proves a record, never that a pool is deployed, funded
+// or live. A members-only Streamflow pool (closed, a ladder beside it) is shown only
+// to wallets staked in it, and this page reads no wallet, so its line names the ladder.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { BUNGALOWS } from '../lib/bungalows';
+import { BUNGALOWS, stakePoolMembersOnly } from '../lib/bungalows';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, 'HomePage.tsx'), 'utf8');
@@ -37,10 +28,25 @@ describe("element D — the room states its pool's honest state", () => {
     expect(block).toContain('bungalowIdentity.stakePool');
   });
 
-  it('renders a line for both branches, chosen by the registry field', () => {
+  it('renders a line for every branch, chosen by the registry', () => {
+    expect(block).toContain('stakePoolMembersOnly(bungalowIdentity) ? (');
     expect(block).toContain('bungalowIdentity.stakePool ? (');
     expect(block).toContain('is on record at');
     expect(block).toContain('staking program exists on-chain today');
+  });
+
+  it('⚠️ never names a members-only pool: that branch names the ladder, and is tested first', () => {
+    // That pool still carries a `stakePool`, so a branch tested second would print it.
+    const membersAt = block.indexOf('stakePoolMembersOnly(bungalowIdentity) ? (');
+    const openAt = block.indexOf(') : bungalowIdentity.stakePool ? (');
+    expect(membersAt, 'the members-only branch exists').toBeGreaterThan(-1);
+    expect(openAt, 'and the open-pool branch follows it').toBeGreaterThan(membersAt);
+    const membersBranch = block.slice(membersAt, openAt);
+    expect(membersBranch).toContain('shortenAddress(bungalowIdentity.ladderPool)');
+    // A substring, not a word-boundary regex (see the claim test below).
+    expect(membersBranch).not.toContain('.stakePool');
+    expect(membersBranch).toContain('read live on');
+    expect(membersBranch).toContain('to={`/earn/${bungalowIdentity.id}`}');
   });
 
   it('never claims the pool is deployed, live, funded or earning', () => {
@@ -64,7 +70,7 @@ describe("element D — the room states its pool's honest state", () => {
   });
 
   it('sends the live question to Earn, where the panel that reads it lives', () => {
-    expect(block).toContain('to="/farm"');
+    expect(block).toContain('to={`/earn/${bungalowIdentity.id}`}');
   });
 
   it('borrows the no-pool sentence from the panel, so there is one wording', () => {
@@ -78,5 +84,12 @@ describe("element D — the room states its pool's honest state", () => {
     const withPool = BUNGALOWS.filter((b) => b.stakePool).length;
     expect(withPool).toBeGreaterThan(0);
     expect(withPool).toBeLessThan(BUNGALOWS.length);
+  });
+
+  it('the members-only branch is one env var away, not dead code', () => {
+    // The ladder is env-only (VITE_BAYLA_LADDER_POOL): configuring it flips the line.
+    const closed = BUNGALOWS.filter((b) => b.chain === 'solana' && b.stakePool && b.depositsClosed);
+    expect(closed.length).toBeGreaterThan(0);
+    for (const b of closed) expect(stakePoolMembersOnly({ ...b, ladderPool: 'LADDER' }), b.id).toBe(true);
   });
 });

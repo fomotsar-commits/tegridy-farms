@@ -1,14 +1,13 @@
 import { test, expect, type Page } from '@playwright/test';
 import { coldArrival, ROOM_ROUTES, SAMPLE_MS, summarize, type Arrival } from './fixtures/roomArrival';
+import { gotoRoute } from './fixtures/routes';
+import { DOOR_ROUTES } from './fixtures/doorFrame';
 
-// A ROOM OPENS ONCE, ON ITS HERO. Each arrival is a new browser context, so
-// nothing is stored and the door has to change the skin. One document per
-// arrival, scrollY 0 at 1, 3 and 7 s, and the room's H1 in the viewport at 3
-// and 7 s. The 1 s H1 is logged, not asserted: one-document arrivals paint the
-// hero after about 1.1 s, and the door HTML carries no static first frame.
-// ROOM_ARRIVALS sets the arrivals per route (default 2).
-//
-// Chromium classes only (desktop and Pixel 5): these are the measured classes.
+// A ROOM OPENS ONCE, ON ITS HERO. Each arrival is a new context, so the door has to
+// change the skin. One document per arrival, scrollY 0 at 1, 3 and 7 s, and the H1 in
+// the viewport at 3 and 7 s, and at 1 s for a door with its own HTML (its static
+// frame), which every room route here now is, /toweli included. ROOM_ARRIVALS sets
+// the arrivals per route (default 2). Chromium classes only (desktop and Pixel 5).
 
 const ARRIVALS = Number(process.env.ROOM_ARRIVALS ?? 2);
 
@@ -28,7 +27,7 @@ function expectOnHero(a: Arrival) {
   expect.soft(a.navTypes.filter((t) => t !== 'navigate'), `${a.url}: navigation types other than 'navigate'`).toEqual([]);
   for (const ms of SAMPLE_MS) {
     expect.soft(a.at[ms]?.y, `${a.url}: scrollY at ${ms} ms`).toBe(0);
-    if (ms >= 3000) expect.soft(a.at[ms]?.h1InView, `${a.url}: H1 in the viewport at ${ms} ms`).toBe(true);
+    if (ms >= 3000 || DOOR_ROUTES.includes(a.url)) expect.soft(a.at[ms]?.h1InView, `${a.url}: H1 in the viewport at ${ms} ms`).toBe(true);
   }
 }
 
@@ -84,7 +83,8 @@ test.describe('a door walked inside the app', () => {
 
   test('a Solana room moves the Swap word to the Solana swap in place', async ({ page }, info) => {
     const docs = countDocuments(page);
-    await page.goto('/pepe');
+    // gotoRoute: the door's busy fallback already reads PEPE before the page is there.
+    await gotoRoute(page, '/pepe');
     await expect(page.locator('main#main-content h1').first()).toContainText('PEPE', { timeout: 20_000 });
     const before = docs.n;
     await page.evaluate(() => {
@@ -99,16 +99,22 @@ test.describe('a door walked inside the app', () => {
     expect(docs.n - before).toBe(0);
   });
 
-  test('"Open" on the Earn index enters that room in place', async ({ page }) => {
+  test('"Open" on the Earn list opens that pool at its own address, in place, and Earn leads back', async ({ page }) => {
     const docs = countDocuments(page);
-    await page.goto('/farm');
-    const open = page.getByRole('button', { name: 'Open PEPE' });
+    await page.goto('/earn');
+    const open = page.getByRole('link', { name: 'Open PEPE' });
     await expect(open).toBeVisible({ timeout: 20_000 });
     const before = docs.n;
     await open.click();
-    await expect(page).toHaveURL(/\/farm$/);
-    await expect(page.getByRole('button', { name: 'Open PEPE' })).toHaveCount(0, { timeout: 20_000 });
+    await expect(page).toHaveURL(/\/earn\/pepe$/);
+    await expect(page.getByRole('link', { name: 'Open PEPE' })).toHaveCount(0, { timeout: 20_000 });
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('pepe');
     expect(docs.n - before, 'opening a room loaded a new document').toBe(0);
+    // The owner's report (2026-09-30): from inside a pool there was no way
+    // back to the list. The pool's own link goes back, still in place.
+    await page.getByRole('link', { name: 'Back to Earn' }).click();
+    await expect(page).toHaveURL(/\/earn$/);
+    await expect(page.getByRole('link', { name: 'Open PEPE' })).toBeVisible({ timeout: 20_000 });
+    expect(docs.n - before, 'going back to Earn loaded a new document').toBe(0);
   });
 });

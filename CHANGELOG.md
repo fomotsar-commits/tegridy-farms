@@ -6,6 +6,46 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-02
+
+- When the site cannot read a transaction's result, it says so and points to the explorer, instead of saying the transaction failed.
+- A reverted transaction says it reverted, and the Swap button no longer stays stuck after one.
+- A transaction your wallet cancelled or replaced is no longer shown as a success; a sped-up one still is.
+- A limit order can no longer be sent twice from two open tabs.
+- The security policy no longer puts memetic.fun in scope.
+- The indexer no longer treats memetic.fun as a name for this venue.
+- memetic.fun can no longer call the venue's API as if it were the venue.
+
+### 2026-10-01
+
+- Source and audit links on /contracts, /security, /risks and the trust hub go through memetics.finance/source, which forwards them to wherever the code is hosted.
+- On the six Ethereum and Base rooms' farms, the swap-fee line names the room's own chain, not Solana, and says what that chain's swap fee really is.
+- On /competitions, the board is called the Volume board, and it links to the island's flames board, ranked by heat.
+- The heat ladder, its next-tier hint and the explainer's tier list use the island's current tiers: Builder at 300 degrees and Elder at 800.
+- The hero, the FAQ and llms.txt read the island's current sentence on rooms.
+- The heat explainer reads the island's whole current paragraph, and its current lines on weight and the Apes.
+- The heat words now match the island's /heat page: Builder 300°, Elder 800°, every other room adds a quarter of its own, the island's own weigh heavier, your clock on a token starts at your first hold, and Base is named beside Ethereum and Solana.
+- On /curve-launch, the door says the island reads every linked wallet, where it used to say a Solana-only wallet cannot be measured.
+- The venue counts 12 bungalows, as the island does, and /nb1 is the island's next open lot, linked to its harbor.
+- The BAYLA room links to the island's ledger.
+- No room's farm page lists a pump.fun creator-fee share as a way to fund its pool.
+- The Memetics Curve pitches no longer say a launch takes one signature.
+- The /farm Earn header no longer calls lock length held time.
+- The birth record calls a Token-2022 mint a Token-2022 mint, instead of saying it is not a mint.
+- The Garden lane on /launch no longer says a certified launch runs under the island's covenant instead of the venue's split.
+- A bungalow link opens on its own name and picture from the first second.
+- The hero, the FAQ and llms.txt say linked wallets read as a single flame.
+- The heat explainer's button reads How heat is earned, and Hide once open.
+- Every room's farm page reads without an em dash in its hero, its funding card and its heat card.
+- On a computer or an iPad, the Solana connect window offers WalletConnect, with its QR code inside the window.
+- The Solana connect window has Solflare and Backpack rows: on a phone or an iPad they open this page inside the wallet's own app.
+- Page titles, which a screen reader hears on every page change, carry no em dash.
+- On a phone, connecting MetaMask no longer stalls after the MetaMask app opens, and MetaMask can estimate gas on Ethereum.
+- The Solana wallet list shows every wallet, adds MetaMask and Coinbase Wallet, and a wallet saved on a phone no longer traps Connect.
+- The closed BAYLA lighthouse pool is shown only to wallets still staked in it, as a claim box under the lock ladder.
+- A Solana staking pool or position that could not be read says so and offers Try again, on /farm and the dashboard.
+- Every source link on /contracts opens a file, the TOWELI and fee hook rows say their source is not in the repo, the fee hook row no longer says a redeploy is queued, and the page says a linked file can be newer than the deployed code.
+
 ### 2026-09-24
 
 - The marketplace lists the six Jungle Bay family collections: Gold Cards trade here with the same flat 1% fee, and the other five can be browsed here and trade on OpenSea or Magic Eden.

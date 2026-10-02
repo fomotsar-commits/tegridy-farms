@@ -38,10 +38,24 @@ describe('poolShape names the program, never guesses it', () => {
 
   it('⚠️ a bungalow MID-MIGRATION names both, and drops neither', () => {
     // A pool listed nowhere is a pool a staker cannot find their way back to. During
-    // a migration both are live and both hold real principal.
+    // a migration both are live and both hold real principal. "Mid-migration" means
+    // the Streamflow pool is still OPEN: once it closes, the next test applies.
     const s = poolShape({ chain: 'solana', stakePool: 'POOL', ladderPool: 'LADDER' });
     expect(s).toMatch(/Streamflow/);
     expect(s).toMatch(/ladder/);
+  });
+
+  it('⚠️ a members-only Streamflow pool is not named: the public row states the ladder alone', () => {
+    // Shown only to wallets staked in it, and this table is public. The ladder keeps
+    // the row listed, so its stakers still reach their claim through it.
+    const s = poolShape({ chain: 'solana', stakePool: 'POOL', ladderPool: 'LADDER', depositsClosed: true });
+    expect(s).not.toMatch(/Streamflow/);
+    expect(s).toBe(poolShape({ chain: 'solana', ladderPool: 'LADDER' }));
+  });
+
+  it('a closed pool with NO ladder is still named: hiding it would list no pool at all', () => {
+    // Members-only needs the ladder too. Without one, /farm keeps the full card.
+    expect(poolShape({ chain: 'solana', stakePool: 'POOL', depositsClosed: true })).toBe('Streamflow');
   });
 
   it('never claims a Streamflow pool is locked', () => {

@@ -35,7 +35,7 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, isDeployed } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
-import { bungalowTradeBlurb, getBungalowIdentity } from '../lib/bungalows';
+import { bungalowTradeBlurb, getBungalowIdentity, stakePoolMembersOnly, TOWELI_HERO } from '../lib/bungalows';
 import { arrivalVoice, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
 import { VenueHero } from '../components/VenueHero';
 import { HeatCard } from '../components/HeatCard';
@@ -86,7 +86,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
     step: '2',
     title: 'Lock It Down',
     desc: 'From The Taste Test (7d) to Till Death Do Us Farm (4y). Longer lock + NFT boost = up to 4.5x share.',
-    to: '/farm',
+    to: '/earn/toweli',
   },
   {
     step: '3',
@@ -105,7 +105,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
     step: '2',
     title: 'Lock it down',
     desc: 'Lock from 7 days to 4 years. Longer lock + NFT boost = up to 4.5x share.',
-    to: '/farm',
+    to: '/earn/toweli',
   },
   {
     step: '3',
@@ -139,7 +139,7 @@ export default function HomePage() {
   // TOWELI staking really is Ethereum-only (do not let that rot into "multichain
   // staking"), and the Solana swap really is live and routed through Jupiter.
   usePageTitle(
-    bungalowIdentity ? `${bungalowIdentity.symbol} — ${bungalowIdentity.identity.heroLine}` : 'Home',
+    bungalowIdentity ? `${bungalowIdentity.symbol}. ${bungalowIdentity.identity.heroLine}` : 'Home',
     bungalowIdentity
       ? `${bungalowIdentity.name} bungalow on Jungle Bay Island. ${bungalowIdentity.identity.museLine} ${bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}`
       : isToweliArrival
@@ -284,7 +284,9 @@ export default function HomePage() {
                 launch surface that cannot launch. */}
             <div className="flex flex-wrap items-center gap-2 mb-5">
               <Link
-                to="/farm"
+                // Above the voice branch, so in every room: TOWELI's own room goes to
+                // its farm, and anywhere else to the list, entering no room.
+                to={isToweliArrival && !bungalowIdentity ? '/earn/toweli' : '/earn'}
                 aria-label="Live on Ethereum: farm and stake TOWELI"
                 className="badge badge-primary text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
               >
@@ -345,7 +347,7 @@ export default function HomePage() {
                 per-address badges. So the headline leads with the one differentiator
                 a skeptic can check in a single click. */}
             <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
-              Farm TOWELI.{' '}<br /><span className="text-white">Check our work.</span>
+              {TOWELI_HERO.heroTitle}{' '}<br /><span className="text-white">{TOWELI_HERO.heroLine}</span>
             </h1>
 
             {/* 2026-08-07: added the Solana sentence. It is deliberately a SEPARATE
@@ -371,7 +373,7 @@ export default function HomePage() {
                           Connect Wallet
                         </button>
                       ) : (
-                        <Link to="/farm" className="btn-primary px-7 py-2.5 text-[14px] inline-block text-center">
+                        <Link to="/earn/toweli" className="btn-primary px-7 py-2.5 text-[14px] inline-block text-center">
                           Start Farming
                         </Link>
                       )}
@@ -634,26 +636,25 @@ export default function HomePage() {
                 scopeTo={{ address: bungalowIdentity.address, symbol: bungalowIdentity.symbol }}
               />
 
-              {/* WAVE SEVEN, element D: THE POOL, OR THE HONEST LINE. §D asks a
-                  room for "its pool or its honest state", and this room could
-                  only ever get you to one — the hero's button goes to Earn, and
-                  says "The lighthouse" instead of "Stake" when there is no pool,
-                  which is honest about the BUTTON and silent about the token.
-
-                  A registry entry is not a deployment. REGISTERED, DEPLOYED and
-                  WIRED are three different facts in this repo, so this line
-                  states only the one it actually knows — that an address is on
-                  record — and sends the live question (is it funded, is the
-                  program verified) to the panel on Earn that really reads it.
-                  The no-pool sentence is BungalowFarmPanel's own, so a visitor
-                  meets one wording rather than two. */}
+              {/* WAVE SEVEN, element D: THE POOL, OR THE HONEST LINE. A registry
+                  address proves a record, not a deployment, so the live question
+                  goes to Earn. A members-only pool is tested FIRST and never named:
+                  this page reads no wallet, and that pool still carries a stakePool.
+                  The no-pool sentence is BungalowFarmPanel's own. */}
               <p className="text-white/55 text-[12px] mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                {bungalowIdentity.stakePool ? (
+                {stakePoolMembersOnly(bungalowIdentity) ? (
+                  <>
+                    A {bungalowIdentity.symbol} lock-ladder pool is on record at{' '}
+                    <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.ladderPool)}</span>.
+                    Whether it is funded, and what it pays, is read live on{' '}
+                    <Link to={`/earn/${bungalowIdentity.id}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
+                  </>
+                ) : bungalowIdentity.stakePool ? (
                   <>
                     A {bungalowIdentity.symbol} pool is on record at{' '}
                     <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.stakePool)}</span>.
                     Whether it is funded, and what it pays, is read live on{' '}
-                    <Link to="/farm" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
+                    <Link to={`/earn/${bungalowIdentity.id}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
                   </>
                 ) : (
                   <>No {bungalowIdentity.symbol} staking program exists on-chain today.</>
@@ -866,7 +867,7 @@ export default function HomePage() {
               // so the same object literal rendered "2 pools" in large type over
               // "the LP pool rejoins when…" in small type. Both now derive from
               // periodFinish, and an unread period gets its own third answer.
-              { to: '/farm', title: 'Farm', desc: farmCardDesc(lpPhase), stat: farmCardStat(lpPhase), label: 'Ethereum', art: pageArt('home', 7) },
+              { to: '/earn/toweli', title: 'Farm', desc: farmCardDesc(lpPhase), stat: farmCardStat(lpPhase), label: 'Ethereum', art: pageArt('home', 7) },
               // Spread-gated on the SAME predicate navConfig uses to decide whether
               // /solana appears in the nav at all. Unset fee account => the page is a
               // SOON wall, so the card is simply absent and the grid falls back to
@@ -943,7 +944,7 @@ export default function HomePage() {
                 ? [{
                     to: '/eth-curve',
                     title: 'Memetics Curve',
-                    desc: 'Our own zero-toll bonding curve. Launch in one signature, then graduate into our own pool with the LP burned — no Airlock, no petition, no third-party cut.',
+                    desc: 'Our own zero-toll bonding curve. Launch, then graduate into our own pool with the LP burned — no Airlock, no petition, no third-party cut.',
                     stat: 'Zero-toll',
                     label: 'Live · Ethereum, Base & Robinhood',
                     art: pageArt('home', 17),
@@ -1005,7 +1006,7 @@ export default function HomePage() {
 
         {/* How It Works — the three-step TOWELI farm walkthrough; TOWELI room
             only (ARRIVAL FLOW 2026-08-31: the venue teaches the island, not
-            the farm; a bungalow's farm story lives on its own /farm panel). */}
+            the farm; a bungalow's farm story lives on its own /earn/<id> page). */}
         {!bungalowIdentity && isToweliArrival && (
         <div className="pb-16">
           <m.div initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>

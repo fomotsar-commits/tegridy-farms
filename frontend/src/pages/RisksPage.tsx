@@ -7,7 +7,7 @@ import {
   TEGRIDY_LENDING_ADDRESS,
   TEGRIDY_NFT_LENDING_ADDRESS,
   TEGRIDY_LAUNCHPAD_V2_ADDRESS,
-  GITHUB_BLOB_BASE,
+  SOURCE_URL,
 } from '../lib/constants';
 
 /**
@@ -348,7 +348,7 @@ export default function RisksPage() {
           <p className="text-white/55 text-xs mt-4 leading-relaxed">
             Rolling status is tracked in{' '}
             <a
-              href={`${GITHUB_BLOB_BASE}/docs/archive/FIX_STATUS.md`}
+              href={`${SOURCE_URL}/docs/archive/FIX_STATUS.md`}
               target="_blank"
               rel="noopener noreferrer"
               className="underline text-white/70 hover:text-white"
@@ -357,7 +357,7 @@ export default function RisksPage() {
             </a>{' '}
             and{' '}
             <a
-              href={`${GITHUB_BLOB_BASE}/docs/AUDITS.md`}
+              href={`${SOURCE_URL}/docs/AUDITS.md`}
               target="_blank"
               rel="noopener noreferrer"
               className="underline text-white/70 hover:text-white"

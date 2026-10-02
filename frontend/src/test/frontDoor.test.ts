@@ -49,6 +49,34 @@ describe('CLAUDE.md', () => {
     for (const c of commands) expect(workflows, `no workflow runs \`${c}\``).toContain(c);
   });
 
+  it('gives a build recipe scripts/ci/local-gates.sh runs, so it works with no CI host', () => {
+    const fence = /```\n([\s\S]*?)```/.exec(read('CLAUDE.md'));
+    // Walk the recipe as a shell would: `cd` moves the folder and `a && b` is two commands.
+    // A command chained after a `cd` is shorthand (CI splits `forge test` into slices), so a
+    // gate in that folder may add flags to it. Every other command must match word for word.
+    let dir = '.';
+    const recipe: { dir: string; cmd: string; shorthand: boolean }[] = [];
+    for (const line of fence![1].split('\n')) {
+      const parts = line.replace(/\s+#.*$/, '').replace(/\s+/g, ' ').trim().split(' && ').filter(Boolean);
+      for (const p of parts) {
+        const cd = /^cd (\S+)$/.exec(p);
+        if (cd) dir = posix.normalize(posix.join(dir, cd[1]));
+        else recipe.push({ dir, cmd: p, shorthand: parts.length > 1 });
+      }
+    }
+    const gates = read('scripts', 'ci', 'local-gates.sh')
+      .split('\n')
+      .flatMap((l) => {
+        const m = /^\s*gate \w+ "[^"]*" (\S+) (.+)$/.exec(l);
+        return m ? [{ dir: posix.normalize(m[1]), cmd: m[2].replace(/\s+/g, ' ').trim() }] : [];
+      });
+    expect(gates.length, 'local-gates.sh lists no gate').toBeGreaterThan(0);
+    expect(recipe.filter((r) => r.dir === 'contracts').length, 'the recipe walk lost the contracts line').toBeGreaterThan(0);
+    const covered = (r: (typeof recipe)[number]) =>
+      gates.some((g) => g.dir === r.dir && (g.cmd === r.cmd || (r.shorthand && g.cmd.startsWith(`${r.cmd} `))));
+    expect(recipe.filter((r) => !covered(r)).map((r) => `${r.dir}: ${r.cmd}`)).toEqual([]);
+  });
+
   it('says how to read NOTES.md: headings first', () => {
     expect(read('CLAUDE.md')).toContain("grep -n '^## ' NOTES.md");
   });
@@ -56,12 +84,14 @@ describe('CLAUDE.md', () => {
 
 describe('the root is a front door', () => {
   // Community files stay at the root because GitHub reads them there; NOTICE.md because
-  // LICENSE and the contract sources cite it; slither.config.json is config.
+  // LICENSE and the contract sources cite it; slither.config.json is config; GitLab reads
+  // .gitlab-ci.yml only at the root.
   const ROOT_ALLOWLIST = [
     '.claude',
     '.gitattributes',
     '.github',
     '.gitignore',
+    '.gitlab-ci.yml',
     '.gitleaks.toml',
     '.gitmodules',
     '.nvmrc',
@@ -149,6 +179,13 @@ describe('one to-do list', () => {
 });
 
 describe('the changelog is one line per change', () => {
+  const unreleased = (text: string): string => {
+    expect(text.indexOf('## [Unreleased]')).toBeGreaterThan(-1);
+    const rest = text.slice(text.indexOf('## [Unreleased]') + '## [Unreleased]'.length);
+    const next = rest.search(/^## /m);
+    return next === -1 ? rest : rest.slice(0, next);
+  };
+
   it('stays short and points at the long form in git', () => {
     const text = read('CHANGELOG.md');
     expect(Buffer.byteLength(text, 'utf-8')).toBeLessThan(64 * 1024);
@@ -157,10 +194,7 @@ describe('the changelog is one line per change', () => {
 
   it('holds only date headings and one-line entries under Unreleased, with no em dash', () => {
     const text = read('CHANGELOG.md');
-    expect(text.indexOf('## [Unreleased]')).toBeGreaterThan(-1);
-    const rest = text.slice(text.indexOf('## [Unreleased]') + '## [Unreleased]'.length);
-    const next = rest.search(/^## /m);
-    const body = next === -1 ? rest : rest.slice(0, next);
+    const body = unreleased(text);
     const odd = body
       .split('\n')
       .filter((l) => l.trim() !== '')
@@ -168,5 +202,17 @@ describe('the changelog is one line per change', () => {
     expect(odd, 'every line under Unreleased is a date heading or one entry').toEqual([]);
     expect(body.split('\n').filter((l) => l.startsWith('- ')).length).toBeGreaterThan(10);
     expect(text).not.toContain(EM_DASH);
+  });
+
+  it('lists no entry twice under Unreleased', () => {
+    // Two branches can each file the same line under the day they were written, and a
+    // merge keeps both copies. Seen red on 8f0f15cf: one heat line sat under 2026-09-30
+    // and again under 2026-09-29.
+    const entries = unreleased(read('CHANGELOG.md'))
+      .split('\n')
+      .filter((l) => l.startsWith('- '))
+      .map((l) => l.replace(/\s+/g, ' ').trim());
+    expect(entries.length).toBeGreaterThan(10);
+    expect(entries.filter((l, i) => entries.indexOf(l) !== i), 'these entries appear more than once').toEqual([]);
   });
 });
