@@ -56,7 +56,7 @@ Postgres attached is not a candidate.
 2. Add a service from this repo with **root directory `indexer/`**.
    - Build: `npm ci`
    - Start: `npm run start` (= `ponder start`)
-   - Node: >= 20 (`package.json` engines).
+   - Node: 24 (`package.json` engines says `24.x`, and Railway's builder reads it).
 3. Set the environment variables below.
 
 ### Environment variables

@@ -13,7 +13,7 @@ standby that every push reaches, so no single host is load-bearing (`docs/GIT_HO
 from it. A merge to `mvp-launch` on the primary deploys `frontend/` to production within
 minutes; moving it on any remote counts as a production deploy.
 
-## Build and test (Node 20, `.nvmrc`; what `.github/workflows/ci.yml` runs)
+## Build and test (Node 24, `.nvmrc`; what `.github/workflows/ci.yml` runs)
 
 ```
 cd frontend
