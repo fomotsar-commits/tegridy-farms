@@ -8,6 +8,10 @@ page keeps the newest thirty days.
 
 ### 2026-10-02
 
+- When the site cannot read a transaction's result, it says so and points to the explorer, instead of saying the transaction failed.
+- A reverted transaction says it reverted, and the Swap button no longer stays stuck after one.
+- A transaction your wallet cancelled or replaced is no longer shown as a success; a sped-up one still is.
+- A limit order can no longer be sent twice from two open tabs.
 - The security policy no longer puts memetic.fun in scope.
 - The indexer no longer treats memetic.fun as a name for this venue.
 - memetic.fun can no longer call the venue's API as if it were the venue.
