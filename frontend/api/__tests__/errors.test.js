@@ -8,8 +8,9 @@
 //   3. CONSENT. Only a batch the client marked `consent: "granted"` is stored. A bare
 //      array or any other value is refused whole.
 //   4. SCRUB. Before a row is written: page URLs keep their host and route words only,
-//      query values are masked, tokens are masked, wallet addresses (EVM and Solana) and
-//      long opaque strings are redacted, and every field is cut to its column ceiling
+//      query values are masked, tokens are masked, email addresses, wallet addresses (EVM
+//      and Solana) and long opaque strings are redacted, NULs and half surrogate pairs
+//      cannot reach Postgres, and every field is cut to its column ceiling
 //      AFTER the scrub, so a cut can never leave half an address behind.
 //   5. RATE LIMITS. The per-IP limiter and the aggregate breaker are called with the
 //      signatures ratelimit.js actually exports. errors.ratelimit.test.js runs the real
@@ -375,6 +376,38 @@ describe("errors: scrubbed before storage", () => {
     // 32-character rule to see.
     const row = await storedRow({ message: "x ".repeat(989) + "z" + EVM });
     expect(row.message).not.toMatch(/0x[a-f0-9]{6,}/i);
+  });
+
+  it("an email address is removed, and a versioned package name is not taken for one", async () => {
+    // PrivacyPage §2: "We do not collect or store: email addresses".
+    const row = await storedRow({
+      message: "sign-in failed for alice.smith+tag@example.co.uk (react-dom@18.2.0)",
+      stack: "Error: no profile for bob@mail.example.com\n    at load (index.js:1:2)",
+    });
+    expect(row.message).not.toContain("alice");
+    expect(row.message).not.toContain("example.co.uk");
+    expect(row.message).toContain("react-dom@18.2.0");
+    expect(row.stack).not.toContain("bob@");
+    expect(row.stack).toContain("at load (index.js:1:2)");
+  });
+
+  it("a NUL or half an emoji cannot make Postgres refuse the whole batch", async () => {
+    // Postgres text refuses U+0000 and its JSON parser refuses a lone surrogate. Either
+    // one fails the insert for every entry in the batch, and the client re-sends that
+    // same batch after every backoff for a week. Half an emoji comes from a cut: the
+    // client's at 500 characters, or this route's own at 2000.
+    const smile = "\u{1F600}";
+    const row = await storedRow({
+      message: "revert data \u0000\u0000 decoded",
+      stack: "s".repeat(1999) + smile,
+      componentStack: ("c".repeat(499) + smile).slice(0, 500),
+    });
+    for (const v of [row.message, row.stack, row.component_stack]) {
+      expect(v).not.toContain("\u0000");
+      expect(v.isWellFormed()).toBe(true);
+    }
+    expect(row.message).toContain("decoded");
+    expect(row.stack.length).toBeLessThanOrEqual(2000);
   });
 
   it("long fields are cut to the column ceilings", async () => {

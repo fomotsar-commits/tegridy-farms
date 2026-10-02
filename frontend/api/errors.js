@@ -44,7 +44,7 @@
 //      fragment masked). One exception: a file under /assets/ on our own origin,
 //      which is a public build file, keeps its path so a stack frame still points
 //      at code.
-//   2. wallet addresses and long opaque strings: 0x + 40 or more hex anywhere, any
+//   2. email addresses, wallet addresses and long opaque strings: 0x + 40 or more hex anywhere, any
 //      run of 32+ letters and digits that contains a digit, and any whole run of
 //      32 to 44 base58 characters (a Solana key, mid-trace included).
 //   3. logSafe's patterns: JWTs, bearer tokens, 64-hex, mnemonics, key=value secrets.
@@ -129,7 +129,11 @@ const FUTURE_SLACK_MS = 24 * 60 * 60_000;
 const ADDRESS_REDACTED = "[ADDRESS-REDACTED]";
 const REDACTED = "[REDACTED]";
 
+const EMAIL_REDACTED = "[EMAIL-REDACTED]";
+
 const URL_IN_TEXT = /\b(?:https?|wss?):\/\/[^\s"'<>()[\]{}`]+/gi;
+/** The top-level domain must be letters, so a versioned package (`react-dom@18.2.0`) is not an email. */
+const EMAIL = /[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,24}(?![A-Za-z0-9-])/g;
 const POSITION_SUFFIX = /(?::\d+){1,2}$/;
 const QUERY_VALUE = /([?&][^\s=&?#"'<>]{1,64}=)[^\s&#"'<>]+/g;
 const EVM_HEX = /0x[a-fA-F0-9]{40,}/g;
@@ -157,8 +161,10 @@ function scrubUrlInText(raw, ownOrigins) {
  */
 export function scrubText(value, cap, ownOrigins = buildAllowedOrigins()) {
   if (typeof value !== "string" || value.length === 0) return null;
-  let s = value.slice(0, PRE_CAP);
+  // Postgres text cannot hold U+0000: one in a batch fails the insert for every entry in it.
+  let s = value.slice(0, PRE_CAP).replaceAll("\u0000", "");
   s = s.replace(URL_IN_TEXT, (raw) => scrubUrlInText(raw, ownOrigins));
+  s = s.replace(EMAIL, EMAIL_REDACTED);
   // Addresses and long runs BEFORE logSafe, because logSafe cuts its output at
   // 2000 characters and an address glued to other text escapes its word-bounded
   // HEX_40, so it would be cut in half first and never matched after.
@@ -167,7 +173,10 @@ export function scrubText(value, cap, ownOrigins = buildAllowedOrigins()) {
   s = s.replace(BASE58_RUN, REDACTED);
   s = logSafe(s);
   s = s.replace(QUERY_VALUE, "$1***");
-  s = s.slice(0, cap);
+  // toWellFormed AFTER the cut: a cut through an emoji leaves half a surrogate pair,
+  // which Postgres's JSON parser refuses, failing the whole batch the same way. The
+  // client cuts at 500, so such a half can also arrive from the browser.
+  s = s.slice(0, cap).toWellFormed();
   return containsAddress(s) ? ADDRESS_REDACTED : s;
 }
 
