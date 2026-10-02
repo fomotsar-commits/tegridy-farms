@@ -15,13 +15,57 @@ import { describe, it, expect } from 'vitest';
 import {
   loadVerifiedIdls, goldenMismatches, encodeIdlAccount, buildGenesisAccounts, rentExempt,
   rehearsalGlobalValues, e2eGlobalValues, ammConfigValues, ammConfig1Values, derived, readGolden,
-  LAUNCH_PROGRAM, CP_SWAP_PROGRAM, VAULT, DEPLOYER,
+  baylaMintStandIn, baylaMintAuthority,
+  LAUNCH_PROGRAM, CP_SWAP_PROGRAM, VAULT, DEPLOYER, BAYLA_MINT, TOKEN_2022_PROGRAM,
 } from './genesis-accounts.mjs';
 
 const idls = loadVerifiedIdls();
 if (!idls) console.warn('[genesis-accounts.test] no pinned IDL found: this suite is NOT checked on this machine');
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
+
+// No IDL needed: the stand-in is a mainnet read with one field changed.
+describe('the stand-in $BAYLA mint', () => {
+  const golden = readGolden('bayla-mint.mainnet.json');
+  const g = Buffer.from(golden.account.data[0], 'base64');
+
+  it('is the mainnet $BAYLA mint: its real address, Token-2022, 6 decimals, no mint or freeze authority', () => {
+    expect(golden.pubkey).toBe('7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump');
+    expect(BAYLA_MINT.toBase58()).toBe(golden.pubkey);
+    expect(golden.account.owner).toBe('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+    expect(TOKEN_2022_PROGRAM.toBase58()).toBe(golden.account.owner);
+    expect(g[44]).toBe(6);
+    expect(g.readUInt32LE(0)).toBe(0);
+    expect(g.readUInt32LE(46)).toBe(0);
+  });
+
+  it('differs from mainnet ONLY in its mint authority, which is the harness test key', () => {
+    const s = baylaMintStandIn();
+    const b = Buffer.from(s.account.data[0], 'base64');
+    expect(b.length).toBe(g.length);
+    const differing = [];
+    for (let i = 0; i < b.length; i++) if (b[i] !== g[i]) differing.push(i);
+    expect(differing.length).toBeGreaterThan(0);
+    expect(differing.filter((i) => i >= 36)).toEqual([]);
+    expect(b.readUInt32LE(0)).toBe(1);
+    expect(b.subarray(4, 36).equals(baylaMintAuthority().publicKey.toBuffer())).toBe(true);
+    expect(baylaMintAuthority().publicKey.toBase58()).toBe('7kELDkVhUAeJTi8o4RQZw9CU2EuRyEdQkQ9ruxeCC2Wd');
+    expect(s.pubkey).toBe(golden.pubkey);
+    expect(s.account.owner).toBe(golden.account.owner);
+    expect(s.account.lamports).toBe(golden.account.lamports);
+    expect(s.account.space).toBe(golden.account.space);
+  });
+
+  it('refuses a dump that is not that mint', () => {
+    const withAuthority = clone(golden);
+    const d = Buffer.from(withAuthority.account.data[0], 'base64');
+    d.writeUInt32LE(1, 0);
+    withAuthority.account.data[0] = d.toString('base64');
+    expect(() => baylaMintStandIn(withAuthority)).toThrow(/not the \$BAYLA Token-2022 mint/);
+    expect(() => baylaMintStandIn({ ...golden, account: { ...golden.account, owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' } })).toThrow(/not the \$BAYLA/);
+    expect(() => baylaMintStandIn({ ...golden, pubkey: VAULT.toBase58() })).toThrow(/not the \$BAYLA/);
+  });
+});
 
 describe.skipIf(!idls)('e2e genesis accounts', () => {
   it('reproduces the rehearsal ledger byte for byte (GlobalConfig, AmmConfig, Permission)', () => {
@@ -83,6 +127,8 @@ describe.skipIf(!idls)('e2e genesis accounts', () => {
     // The vault's REAL mainnet balance, which is above the 0-byte rent floor (890,880):
     // a fee leg paid into it must not be refused for leaving it below rent.
     expect(accts['vault.json'].account.lamports).toBeGreaterThanOrEqual(rentExempt(0));
+    // The plant needs $BAYLA on the chain: the stand-in mint is seeded at its real address.
+    expect(accts['bayla-mint.json']).toEqual(baylaMintStandIn());
   });
 it('config 1 (the public tier) is config 0 with ONLY its bump, index and fee fields changed', () => {
     const c0 = encodeIdlAccount(idls.cpIdl, 'AmmConfig', ammConfigValues());

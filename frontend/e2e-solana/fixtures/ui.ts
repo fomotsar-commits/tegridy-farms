@@ -11,11 +11,24 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import { TEST_WALLET_NAME } from './testWallet';
 
+/** The words under the /curve-launch door, written out (venueLaunchCopy.ts holds the source). */
+export const PLANT_LINE = 'A plant is 100,000 $BAYLA, half burned.';
+export const VENUE_LINE = 'This is a venue launch.';
+
 export const ui = {
   gateBanner: (p: Page) => p.getByTestId('write-gate-banner'),
   /** The heat door ("Who may plant"). The create form opens below it only while it is open. */
   door: (p: Page) => p.getByRole('region', { name: 'Who may plant' }),
+  /** The lines under the door: on /curve-launch the plant line, then the venue line. */
+  venueLines: (p: Page) => p.getByTestId('venue-launch-lines'),
+  plantLine: (p: Page) => ui.venueLines(p).getByText(PLANT_LINE, { exact: true }),
+  venueLine: (p: Page) => ui.venueLines(p).getByText(VENUE_LINE, { exact: true }),
   createForm: (p: Page) => p.getByTestId('launch-create-form'),
+  /** The create form's plant rows ("Plant", "Your $BAYLA") and its reason Review is off. */
+  plantTerms: (p: Page) => p.getByTestId('plant-terms'),
+  reviewMissing: (p: Page) => p.getByTestId('review-missing'),
+  /** A launch page's maker block: create-buy, wallet, lock, plant. */
+  makerCreateBuy: (p: Page) => p.getByTestId('maker-create-buy'),
   publicForever: (p: Page) => p.getByTestId('public-forever'),
   review: (p: Page) => p.getByTestId('tx-review'),
   outcome: (p: Page) => p.getByTestId('tx-outcome'),

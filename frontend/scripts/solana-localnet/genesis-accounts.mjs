@@ -22,6 +22,11 @@
 // (the cp-swap binary's create-pool-fee receiver) taken from mainnet by the rehearsal's
 // standin.cjs. They are loaded as they are: the real balance, the real owner.
 //
+// ./golden/bayla-mint.mainnet.json is the same kind of read of the $BAYLA mint 7hmVkPX…pump
+// (Token-2022, 408 B, read 2026-10-02 at slot 452541742). The stand-in seeded from it
+// differs in ONE field: mainnet's mint authority is null, the stand-in's is a test key the
+// harness holds (baylaMintAuthority), so the e2e can give makers $BAYLA for the plant.
+//
 // The e2e GlobalConfig is the 1-SOL book the rehearsal initialised on the same binary
 // (run 3111 step c, and run 230): 1% fee split 50/50, 3.69% platform reserve, target
 // 1 SOL + 0.05 SOL migration reserve. The program itself accepted exactly these values
@@ -39,7 +44,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { PublicKey } from '@solana/web3.js';
+import { Keypair, PublicKey } from '@solana/web3.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const GOLDEN_DIR = path.join(HERE, 'golden');
@@ -56,6 +61,18 @@ export const DEPLOYER = new PublicKey('CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR4
 export const TOKEN_PROGRAM = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 export const SYSTEM_PROGRAM = new PublicKey('11111111111111111111111111111111');
 export const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+export const TOKEN_2022_PROGRAM = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+/** $BAYLA, at its real address. The plant (island ruling 2) burns and moves it. */
+export const BAYLA_MINT = new PublicKey('7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump');
+
+/**
+ * The stand-in $BAYLA mint's authority: a TEST key, derived from a fixed phrase so every
+ * genesis is the same and no key file exists. It can mint only on a local validator: on
+ * mainnet the $BAYLA mint authority is null, so this key controls nothing there.
+ */
+export function baylaMintAuthority() {
+  return Keypair.fromSeed(crypto.createHash('sha256').update('tegridy e2e: local stand-in $BAYLA mint authority').digest());
+}
 
 /** artifacts/SHA256SUMS of the 2026-09-26 release, pinned here so a swapped file cannot pass. */
 export const PINNED_SHA256 = Object.freeze({
@@ -318,6 +335,26 @@ export function goldenMismatches({ launchIdl, cpIdl }) {
   return problems;
 }
 
+/** Where a mint's authority lives: COption<Pubkey> = u32 tag (1 = some) + 32 bytes. */
+export const MINT_AUTHORITY_BYTES = [0, 36];
+
+/**
+ * The stand-in $BAYLA mint: mainnet's bytes, lamports and owner, with ONLY the mint
+ * authority changed from null to baylaMintAuthority(). Refuses a dump that is not the
+ * $BAYLA mint as mainnet holds it (Token-2022, 6 decimals, no mint or freeze authority).
+ */
+export function baylaMintStandIn(golden = readGolden('bayla-mint.mainnet.json')) {
+  const d = Buffer.from(golden.account.data[0], 'base64');
+  if (golden.pubkey !== BAYLA_MINT.toBase58() || golden.account.owner !== TOKEN_2022_PROGRAM.toBase58()
+    || d.length <= 165 || d[165] !== 1 || d[44] !== 6 || d[45] !== 1 || d.readUInt32LE(0) !== 0 || d.readUInt32LE(46) !== 0) {
+    throw new Error('bayla-mint.mainnet.json is not the $BAYLA Token-2022 mint as mainnet holds it');
+  }
+  const out = Buffer.from(d);
+  out.writeUInt32LE(1, 0);
+  baylaMintAuthority().publicKey.toBuffer().copy(out, 4);
+  return { pubkey: golden.pubkey, account: { ...golden.account, data: [out.toString('base64'), 'base64'], rentEpoch: 0 } };
+}
+
 /** Everything the validator is started with, besides the programs. */
 export function buildGenesisAccounts({ launchIdl, cpIdl }) {
   const d = derived();
@@ -338,6 +375,7 @@ export function buildGenesisAccounts({ launchIdl, cpIdl }) {
     { file: 'permission.json', json: accountJson(d.permission, CP_SWAP_PROGRAM, encodeIdlAccount(cpIdl, 'Permission', permissionValues())) },
     { file: 'vault.json', json: { pubkey: vault.pubkey, account: { ...vault.account, rentEpoch: 0 } } },
     { file: 'fee-ata.json', json: { pubkey: feeAta.pubkey, account: { ...feeAta.account, rentEpoch: 0 } } },
+    { file: 'bayla-mint.json', json: baylaMintStandIn() },
   ];
 }
 

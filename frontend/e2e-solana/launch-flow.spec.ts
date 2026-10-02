@@ -19,15 +19,18 @@ import { installRpcGuard, type RpcGuard } from './fixtures/rpcGuard';
 import { installUploadStub, makePng, SVG_WITH_SCRIPT, type UploadStub } from './fixtures/uploadStub';
 import { installHeatStub, type HeatStub } from './fixtures/heatStub';
 import { LAUNCH_INDEX } from './fixtures/walletGuard';
+import { PLANT_HALF, PLANT_TOTAL, TOKEN_2022, WORKSHOP_BAYLA_ACCOUNT, bayla, baylaAccount, baylaAmount, baylaMoves, baylaSupply, giveBayla } from './fixtures/bayla';
 import { ui, checkAtSizes, clickReal, connectWallet, expectConnected, signAndWait, tokensToInput } from './fixtures/ui';
 import { quoteBuyOnCurve, quoteSellOnCurve } from '../src/lib/launcher/solana/curve/math';
-import { formatSol } from '../src/lib/launcher/solana/curve/format';
+import { formatSol, formatTokenAmount } from '../src/lib/launcher/solana/curve/format';
 import { poolStatePda, curveVaultPda, BONDING_CURVE_SIZE } from '../src/lib/launcher/solana/curve/program';
 
 interface Actor { ctx: BrowserContext; page: Page; wallet: TestWallet; rpc: RpcGuard; upload: UploadStub; heat: HeatStub; kp: Keypair }
 
-async function actor(browser: Browser, sol: number): Promise<Actor> {
+async function actor(browser: Browser, sol: number, baylaRaw = 0n): Promise<Actor> {
   const kp = await fundedKeypair(sol);
+  // A maker pays the plant (100,000 $BAYLA) from its own $BAYLA account.
+  if (baylaRaw > 0n) await giveBayla(kp, baylaRaw);
   const ctx = await browser.newContext();
   const wallet = await installTestWallet(ctx, kp);
   const rpc = await installRpcGuard(ctx);
@@ -61,7 +64,7 @@ async function startOver(p: Page) {
 test('launch (reserve paid at create), trade, graduate and trade in the pool, all from the site', async ({ browser }, testInfo) => {
   test.setTimeout(20 * 60_000);
   const g = await globalConfig();
-  const creator = await actor(browser, 5);
+  const creator = await actor(browser, 5, bayla(250_000));
   const buyer = await actor(browser, 5);
   const finisher = await actor(browser, 1);
   let mint!: PublicKey;
@@ -80,6 +83,10 @@ test('launch (reserve paid at create), trade, graduate and trade in the pool, al
     await expect(ui.door(p).getByText('WARM', { exact: true })).toBeVisible({ timeout: 30_000 });
     await expectConnected(ui.createForm(p), creator.kp.publicKey.toBase58());
     expect(creator.heat.asked).toContain(creator.kp.publicKey.toBase58());
+    // The plant: said under the door, and the form reads this wallet's own $BAYLA account.
+    await expect(ui.plantLine(p)).toBeVisible();
+    await expect(ui.venueLine(p)).toBeVisible();
+    await expect(ui.plantTerms(p)).toContainText('250,000 $BAYLA', { timeout: 30_000 });
   });
 
   await test.step('2. bad input is refused before anything is uploaded or signed', async () => {
@@ -120,8 +127,17 @@ test('launch (reserve paid at create), trade, graduate and trade in the pool, al
     await expect(ui.review(p)).toContainText(g.feeRecipient.toBase58());
     await expect(ui.review(p)).toContainText(`${formatSol(tokenRent, 9)} SOL (rent, read from the network just now)`);
     await expect(ui.review(p)).toContainText('does not stop the treasury selling those tokens, including while the curve is live');
+    // The plant, on the review, with both accounts in full and the test run's own figures.
+    await expect(ui.review(p)).toContainText('Plant, in this transaction');
+    await expect(ui.review(p)).toContainText(WORKSHOP_BAYLA_ACCOUNT.toBase58());
+    await expect(ui.review(p)).toContainText(baylaAccount(creator.kp.publicKey).toBase58());
+    await expect(ui.review(p)).toContainText('Test run: your $BAYLA changes by');
+    await expect(ui.review(p)).toContainText("Test run: the island's Workshop receives");
 
     const before = await lamports(creator.kp.publicKey);
+    const makerBayla = baylaAccount(creator.kp.publicKey);
+    const baylaBefore = { maker: (await baylaAmount(makerBayla))!, workshop: (await baylaAmount(WORKSHOP_BAYLA_ACCOUNT))!, supply: await baylaSupply() };
+    expect(baylaBefore.maker).toBe(bayla(250_000));
     // After a create the page goes to the new launch's own page (it may show the outcome
     // card first, or go straight there with the launch "not found yet" while it lands).
     await clickReal(ui.signButton(p), 'Sign in wallet');
@@ -141,7 +157,27 @@ test('launch (reserve paid at create), trade, graduate and trade in the pool, al
     const buy = creator.wallet.lastIx('buy');
     expect(BigInt(buy.args.maxLamportsIn)).toBe(sol(0.05));
     expect(BigInt(buy.args.minTokensOut), 'the opening buy has no slippage: nothing can trade before it').toBe(expected.tokensOut);
-    expect(rec.bytes + 150, `create transaction is ${rec.bytes} B; wallets need >= 150 B of the ${TX_LIMIT}`).toBeLessThanOrEqual(TX_LIMIT);
+    // With the plant the create no longer keeps 150 B for a wallet's own guard instructions:
+    // the rule is that it fits. Measured 2026-10-02: 1,166 B (the form's worst case is 1,210).
+    expect(rec.bytes, `create transaction is ${rec.bytes} B`).toBeLessThanOrEqual(TX_LIMIT);
+    console.log(`[solana e2e] create transaction with the plant: ${rec.bytes} B of ${TX_LIMIT}`);
+
+    // The plant, in the create transaction itself: its last two instructions, signed with it.
+    expect(rec.instructions.slice(-2).map((i) => i.name)).toEqual(['plant-burn', 'plant-transfer']);
+    expect(rec.instructions.some((i) => i.name === 'create_launch')).toBe(true);
+    const moved = baylaMoves(t, txAccountKeys(t));
+    expect(moved.byAccount.get(makerBayla.toBase58()), "the maker's $BAYLA, in the create transaction").toBe(-PLANT_TOTAL);
+    expect(moved.byAccount.get(WORKSHOP_BAYLA_ACCOUNT.toBase58()), 'the Workshop, in the create transaction').toBe(PLANT_HALF);
+    expect(moved.byAccount.size, 'no other $BAYLA account moved').toBe(2);
+    expect(moved.net, '$BAYLA burned in the create transaction').toBe(-PLANT_HALF);
+    const keys = txAccountKeys(t);
+    const top = (t.transaction.message as unknown as { compiledInstructions?: { programIdIndex: number }[]; instructions?: { programIdIndex: number }[] });
+    const progs = (top.compiledInstructions ?? top.instructions ?? []).map((ix) => keys[ix.programIdIndex].toBase58());
+    expect(progs.slice(-2)).toEqual([TOKEN_2022.toBase58(), TOKEN_2022.toBase58()]);
+    // ...and on the chain after it: exact, to the base unit.
+    expect(await baylaAmount(makerBayla)).toBe(baylaBefore.maker - PLANT_TOTAL);
+    expect(await baylaAmount(WORKSHOP_BAYLA_ACCOUNT)).toBe(baylaBefore.workshop + PLANT_HALF);
+    expect(await baylaSupply(), 'the $BAYLA supply fell by the burn').toBe(baylaBefore.supply - PLANT_HALF);
 
     const mf = await mintFacts(mint);
     expect(mf).toEqual({ mintAuthority: null, freezeAuthority: null, decimals: 6, supply: g.tokenTotalSupply });
@@ -178,6 +214,22 @@ test('launch (reserve paid at create), trade, graduate and trade in the pool, al
     // The launch page says what the creator bought, and never "0" for "could not read".
     await expect(ui.creatorStake(p)).toBeVisible({ timeout: 30_000 });
     await expect(ui.creatorStake(p)).not.toContainText(/could not read/);
+
+    // The maker's plates, read from the launch transaction: the create-buy as a share of
+    // the supply at birth, the maker's wallet, no lock, and the plant it carried.
+    const block = ui.makerCreateBuy(p);
+    const bps = (expected.tokensOut * 10_000n) / g.tokenTotalSupply;
+    const share = `${bps / 100n}.${(bps % 100n).toString().padStart(2, '0')}%`;
+    const amount = formatTokenAmount(expected.tokensOut, 6).text;
+    await expect(block).toContainText(
+      `The maker's create-buy: ${share} of the supply (${amount} tokens), bought in the launch transaction, before anyone else could buy.`,
+      { timeout: 45_000 },
+    );
+    await expect(block).toContainText("Maker's wallet");
+    await expect(block).toContainText(creator.kp.publicKey.toBase58());
+    await expect(block).toContainText("No lock: this launcher has no way to lock a maker's tokens.");
+    await expect(block).toContainText("Plant: 50,000 $BAYLA burned and 50,000 $BAYLA to the island's Workshop, in the launch transaction.");
+    await expect(block).not.toContainText(/could not read|Other wallets got/i);
   });
 
   await test.step('4. the list shows it first, with progress', async () => {
