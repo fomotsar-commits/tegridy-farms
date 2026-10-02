@@ -351,9 +351,12 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
           : []),
         // The treasury receives the platform reserve, exactly.
         { account: treasuryToken, mint, minDelta: reserveTokens, maxDelta: reserveTokens },
-        // The plant, exactly: 100,000 $BAYLA leave your account, 50,000 reach the Workshop.
-        { account: plantAccount, mint: BAYLA_MINT, minDelta: -PLANT_TOTAL_RAW, maxDelta: -PLANT_TOTAL_RAW },
-        { account: WORKSHOP_BAYLA_ACCOUNT, mint: BAYLA_MINT, minDelta: PLANT_WORKSHOP_RAW, maxDelta: PLANT_WORKSHOP_RAW },
+        // The plant: at most 100,000 $BAYLA leave your account, at least 50,000 reach the
+        // Workshop. One-sided: anyone can send $BAYLA to either account between the read
+        // and the test run (another launch's plant, dust). The exact amounts are pinned in
+        // the bytes themselves (intent.ts).
+        { account: plantAccount, mint: BAYLA_MINT, minDelta: -PLANT_TOTAL_RAW, maxDelta: 2n ** 64n },
+        { account: WORKSHOP_BAYLA_ACCOUNT, mint: BAYLA_MINT, minDelta: PLANT_WORKSHOP_RAW, maxDelta: 2n ** 64n },
       ],
     }),
     // The token details account is sized by Metaplex, so its rent is only in the simulated total.
