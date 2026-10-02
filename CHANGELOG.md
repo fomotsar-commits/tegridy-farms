@@ -14,6 +14,7 @@ page keeps the newest thirty days.
 - A limit order can no longer be sent twice from two open tabs.
 - Share to X posts your receipt (amount, lock, boost, APR and the transaction link) with @JungleBayAC and your room's hashtag, and always fits X's 280 characters.
 - The receipt card image is drawn before you tap Share, so the share sheet, the image copy and the X window open on your tap instead of after it, where a browser such as iPhone Safari can block them.
+- Copy Image on a receipt copies the card as a picture; it had been copying only the text, because the image could not be drawn.
 - The security policy no longer puts memetic.fun in scope.
 - The indexer no longer treats memetic.fun as a name for this venue.
 - memetic.fun can no longer call the venue's API as if it were the venue.
