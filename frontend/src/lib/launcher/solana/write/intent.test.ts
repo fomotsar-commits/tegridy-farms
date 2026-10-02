@@ -26,7 +26,7 @@ import { createLaunchInstructions } from './launch';
 import { createMetadataV3Ix, metadataPda } from './metaplex';
 import { BAYLA_MINT, WORKSHOP_BAYLA_ACCOUNT, WORKSHOP_WALLET, baylaAccountOf, plantInstructions } from './plant';
 import { AMM_CONFIG, CPSWAP, LAUNCH, VAULT, cfgLocal, globalValue } from './testkit.fixture';
-import type { IntentContext, OpenGate, TxKind } from './types';
+import type { IntentContext, OpenGate } from './types';
 
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
@@ -388,7 +388,7 @@ describe('the plant: exactly two Token-2022 shapes, in a create only', () => {
   });
 
   it('Token-2022 in any kind of transaction but a create', () => {
-    for (const kind of ['buy', 'sell', 'migrate', 'pool-buy', 'pool-sell'] as TxKind[]) {
+    for (const kind of ['buy', 'sell', 'migrate', 'pool-buy', 'pool-sell'] as const) {
       refused([burnIx], /this kind of transaction never uses/, { ...ctx, kind });
       refused([giveIx], /this kind of transaction never uses/, { ...ctx, kind });
     }

@@ -13,7 +13,7 @@ import { PROGRAMS_BY_KIND, decodeIntent } from './intent';
 import { LP_KINDS } from './lpKinds';
 import { plantInstructions } from './plant';
 import { AMM_CONFIG, CPSWAP, cfgLocal } from './testkit.fixture';
-import type { PoolPins } from './types';
+import type { LpKind, PoolPins } from './types';
 
 const ME = Keypair.generate().publicKey;
 

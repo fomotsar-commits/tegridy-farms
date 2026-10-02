@@ -70,6 +70,10 @@ function readers(o: Partial<LpReaders> = {}): LpReaders {
     outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
     positions: vi.fn(async () => ({ kind: 'ok' as const, positions: [], chainNow: 1n, totalShares: 0 })),
     feeTiers: vi.fn(async () => ({ kind: 'ok' as const, openingDeposits: null, tiers: [{ index: 0, address: 'a', config: null, state: 'absent' as const }, { index: 1, address: 'b', config: null, state: 'absent' as const }] })),
+    // Not read by these tests: a test that reaches either one fails loudly, as it did
+    // when they were simply missing, but the helper now satisfies LpReaders.
+    wallet: vi.fn(async () => { throw new Error('readers().wallet is not stubbed in this test'); }),
+    placeShareOnChain: vi.fn(async () => { throw new Error('readers().placeShareOnChain is not stubbed in this test'); }),
     ...o,
   };
 }
