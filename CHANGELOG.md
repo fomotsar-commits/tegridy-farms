@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-02
 
+- The security policy no longer puts memetic.fun in scope.
 - The indexer no longer treats memetic.fun as a name for this venue.
 - memetic.fun can no longer call the venue's API as if it were the venue.
 
