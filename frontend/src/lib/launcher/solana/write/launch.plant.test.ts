@@ -9,7 +9,7 @@ import { Keypair } from '@solana/web3.js';
 import { WSOL_MINT, cpPermissionPda, migrationAuthorityPda } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { CP_CREATE_POOL_FEE_RECEIVER, readWriteGate } from './config';
-import { prepareCreateLaunch } from './launch';
+import { PLANT_FROM_WORKSHOP, plantPreflight, prepareCreateLaunch } from './launch';
 import * as plant from './plant';
 import { CPSWAP, FakeChain, LAUNCH, VAULT, addPlantAccounts, cfgLocal, globalValue, plantMoved, rent } from './testkit.fixture';
 import type { OpenGate, WriteRpc } from './types';
@@ -81,6 +81,52 @@ describe('a create missing part of its plant never reaches review', () => {
       );
       const r = await prepareCreateLaunch(W(chain), gate, { creator: ME, mint, metadata });
       expect(!r.ok && r.outcome).toMatchObject({ stage: 'build', message: 'The launch transaction is missing a step, so it was blocked.' });
+    });
+  }
+});
+
+// The form runs plantPreflight at Review, before the upload request: every plant refusal
+// prepareCreateLaunch makes, and in the same words, so none comes after a signed upload.
+describe('plantPreflight: the plant refusals, before anything is uploaded', () => {
+  const stranger = Keypair.generate().publicKey;
+  const cases: Array<[string, (c: FakeChain) => void]> = [
+    ['no $BAYLA account', (c) => void c.accounts.delete(plant.baylaAccountOf(ME).toBase58())],
+    ['less than 100,000', (c) => void addPlantAccounts(c, ME, 99_999_999_999n)],
+    ['the Workshop account missing', (c) => void c.accounts.delete(plant.WORKSHOP_BAYLA_ACCOUNT.toBase58())],
+    ['the Workshop account owned by another', (c) => void c.token2022Account(plant.WORKSHOP_BAYLA_ACCOUNT, plant.BAYLA_MINT, stranger, 1n)],
+    [
+      'the Workshop account unreadable',
+      (c) => {
+        const real = c.getAccountInfo;
+        c.getAccountInfo = async (a) => {
+          if (a.equals(plant.WORKSHOP_BAYLA_ACCOUNT)) throw new Error('HTTP 429');
+          return real(a);
+        };
+      },
+    ],
+  ];
+
+  it('a wallet that can plant: nothing to refuse', async () => {
+    const { chain } = await setup();
+    expect(await plantPreflight(W(chain), ME)).toBeNull();
+  });
+
+  it("the island's Workshop wallet: refused before anything is read", async () => {
+    const { chain } = await setup();
+    chain.calls = [];
+    expect(await plantPreflight(W(chain), plant.WORKSHOP_WALLET)).toBe(PLANT_FROM_WORKSHOP);
+    expect(chain.calls).toEqual([]);
+  });
+
+  for (const [label, spoil] of cases) {
+    it(`${label}: refused in the same words the launch build uses`, async () => {
+      const { chain, gate, mint } = await setup();
+      spoil(chain);
+      const built = await prepareCreateLaunch(W(chain), gate, { creator: ME, mint, metadata });
+      expect(built.ok, label).toBe(false);
+      const said = await plantPreflight(W(chain), ME);
+      expect(said, label).not.toBeNull();
+      expect(!built.ok && built.outcome.message, label).toBe(said);
     });
   }
 });

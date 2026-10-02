@@ -68,6 +68,10 @@ const PLANT_TOTAL_RAW = 100_000_000_000n;
 const BAYLA_DECIMALS = 6;
 const PLANT_TERMS = "100,000 $BAYLA: 50,000 burned, 50,000 to the island's Workshop";
 const PLANT_UNREADABLE = 'Could not read your $BAYLA balance.';
+/** The island's Workshop (write/plant.ts WORKSHOP_WALLET; the form test signs as it). It cannot plant. */
+const WORKSHOP_WALLET = 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu';
+const PLANT_FROM_WORKSHOP =
+  "This wallet is the island's Workshop: it receives half of every plant, so it cannot plant one. Launch from another wallet.";
 const baylaText = (raw: bigint) => formatTokenAmount(raw, BAYLA_DECIMALS, BAYLA_DECIMALS).text;
 
 /** Why this wallet cannot plant, or null when it can. A read that failed is never 0 and never enough. */
@@ -85,6 +89,16 @@ async function readPlant(api: WriteApi, rpc: WriteRpc, owner: PublicKey): Promis
     return await api.readPlantBalance(rpc, owner);
   } catch (e) {
     return { kind: 'unreadable', detail: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Every other plant refusal the launch build makes (the Workshop's account, its wallet), asked
+ *  before the upload request. A throw refuses: it never passes as "can plant". */
+async function readPlantStop(api: WriteApi, rpc: WriteRpc, maker: PublicKey): Promise<string | null> {
+  try {
+    return await api.readPlantRefusal(rpc, maker);
+  } catch {
+    return 'Could not check that the plant can land just now, so nothing was uploaded or built. Try again.';
   }
 }
 
@@ -359,7 +373,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
     };
   }, [api, rpc, maker, idle, plantCheck]);
   const plant = plantRead && plantRead.maker === maker && plantRead.check === plantCheck ? plantRead.read : null;
-  const plantBlock = plant ? plantShortfall(plant) : null;
+  const plantBlock = maker === WORKSHOP_WALLET ? PLANT_FROM_WORKSHOP : plant ? plantShortfall(plant) : null;
 
   // The mint keypair lives in memory only. A reload or a wallet round trip loses it,
   // and then everything starts again with a new keypair and a new upload. The one
@@ -407,8 +421,12 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
       // venue's check only (the program accepts any signer). The maker is the wallet that
       // signs the create; the island pools linked wallets.
       // The plant's balance is read again beside it, so a wallet emptied since the form
-      // read it never reaches the upload request.
-      const [refusal, plantNow] = await Promise.all([doorRefusal(creator.toBase58()), readPlant(api, rpc, creator)]);
+      // read it never reaches the upload request; so is every other plant refusal.
+      const [refusal, plantNow, plantStop] = await Promise.all([
+        doorRefusal(creator.toBase58()),
+        readPlant(api, rpc, creator),
+        readPlantStop(api, rpc, creator),
+      ]);
       if (refusal) return { ok: false, outcome: refusal };
       if (walletMoved()) {
         const message =
@@ -420,6 +438,8 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
         const message = `${cannotPlant} Nothing was uploaded, built or signed.`;
         return { ok: false, outcome: { status: 'not-sent', stage: 'build', message } };
       }
+      // The launch build's own words, which already say nothing was built.
+      if (plantStop) return { ok: false, outcome: { status: 'not-sent', stage: 'build', message: plantStop } };
       // The wallet opens during this step for the upload request, and the screen must say why.
       setPrepNote(
         mode === 'upload' && !reuse

@@ -224,6 +224,17 @@ export function plantRefusal(from: Read<PlantBalance>, workshop: Read<{ amount: 
   return null;
 }
 
+/**
+ * Every plant refusal prepareCreateLaunch makes, in its words, read now. The form asks
+ * this at Review, before the upload request, so no plant refusal comes after a signed
+ * upload. null = this wallet can plant.
+ */
+export async function plantPreflight(rpc: Pick<WriteRpc, 'getAccountInfo'>, maker: PublicKey): Promise<string | null> {
+  if (maker.equals(WORKSHOP_WALLET)) return PLANT_FROM_WORKSHOP;
+  const [from, workshop] = await Promise.all([readPlantBalance(rpc, maker), readWorkshopAccount(rpc)]);
+  return plantRefusal(from, workshop);
+}
+
 export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: CreateLaunchInput): Promise<Prepared> {
   if (gate.paused) return notSent('build', 'New launches are paused right now.');
   const creator = input.creator;

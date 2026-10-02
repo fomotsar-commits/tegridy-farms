@@ -8,6 +8,7 @@ import type { CreateLaunchInput, OpenGate, TxOutcome, TxSummary, UploadInput, Wr
 import type { CurveSignerState } from './useCurveSigner';
 import { IPFS_STEP_TIMEOUT_MS, ipfsGatewayUrls } from '../../../lib/ipfsGateways';
 import { assertMayLaunch } from '../../../lib/heat/launchGate';
+import { WORKSHOP_WALLET } from '../../../lib/launcher/solana/write/plant';
 
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
 // The heat door at submit is proved against the real gate in LaunchCreateForm.heatGate.test.tsx;
@@ -797,6 +798,47 @@ describe('launch form: the plant', () => {
     await screen.findByTestId('tx-review');
     const reads = vi.mocked(api.readPlantBalance).mock.invocationCallOrder;
     expect(reads.length).toBeGreaterThanOrEqual(2);
-    expect(reads[reads.length - 1]!).toBeLessThan(vi.mocked(api.meta.uploadLaunchMetadata).mock.invocationCallOrder[0]!);
+    const upload = vi.mocked(api.meta.uploadLaunchMetadata).mock.invocationCallOrder[0]!;
+    expect(reads[reads.length - 1]!).toBeLessThan(upload);
+    // And every other plant refusal the launch build makes is asked first, for this wallet.
+    expect(vi.mocked(api.readPlantRefusal).mock.invocationCallOrder[0]!).toBeLessThan(upload);
+    expect(vi.mocked(api.readPlantRefusal).mock.calls[0]![1].toBase58()).toBe(CREATOR.toBase58());
+  });
+
+  it("the island's Workshop wallet cannot review: it is told why, and nothing is uploaded", async () => {
+    const workshop: CurveSignerState = {
+      ...ready,
+      address: WORKSHOP_WALLET.toBase58(),
+      signer: { publicKey: WORKSHOP_WALLET, signTransaction: async (t) => t },
+    };
+    // It holds plenty: the Workshop's own $BAYLA account is the one the plant pays into.
+    const api = createApi({ readPlantBalance: vi.fn(async () => balance(135_491_275_155_257n)) });
+    renderForm(api, workshop);
+    await fillValid();
+    const why = "This wallet is the island's Workshop: it receives half of every plant, so it cannot plant one. Launch from another wallet.";
+    expect(reviewButton()).toBeDisabled();
+    expect(screen.getByTestId('review-missing')).toHaveTextContent(why);
+    await act(async () => {
+      fireEvent.click(reviewButton());
+    });
+    expect(signMessage).not.toHaveBeenCalled();
+    expect(api.meta.uploadLaunchMetadata).not.toHaveBeenCalled();
+    expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
+  });
+
+  it("Review asks whether the plant can land before the upload request: a missing Workshop account is not sent", async () => {
+    const said = "The island's Workshop has no $BAYLA account, so the plant has nowhere to go. Nothing was built.";
+    const api = createApi({ readPlantRefusal: vi.fn(async () => said) });
+    renderForm(api);
+    await fillValid();
+    await act(async () => {
+      fireEvent.click(reviewButton());
+    });
+    const outcome = await screen.findByTestId('tx-outcome');
+    expect(outcome).toHaveAttribute('data-status', 'not-sent');
+    expect(outcome).toHaveTextContent(said);
+    expect(signMessage).not.toHaveBeenCalled();
+    expect(api.meta.uploadLaunchMetadata).not.toHaveBeenCalled();
+    expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
   });
 });
