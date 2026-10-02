@@ -20,12 +20,13 @@ export type RouteVoice = 'venue' | 'toweli' | 'bungalow' | 'record' | 'legal';
  * TOWELI's protocol pages. They describe one resident's protocol, so they open
  * in the TOWELI room: its band, its way back (components/layout/ToweliRoomStrip).
  *
- * The island named fifteen; six are here, and the other nine are not missed:
+ * The island named fifteen; seven are here, and the rest are not missed:
  *   - /restake, /grants, /governance, /bounties and /bribes are redirects (to
- *     /farm and /community). A redirect has no page to put in a room.
- *   - /farm is the venue's Earn landing for a venue visitor (VenueEarn); the
- *     TOWELI farm already opens behind the room's own door. Moving that hub is
- *     the owner's call, not a copy pass.
+ *     /earn/toweli and /community). A redirect has no page to put in a room.
+ *   - /earn is the venue's list of every resident's pool. TOWELI's farm has had
+ *     its own address since 2026-09-30, /earn/toweli, and is in the room; until
+ *     then it shared /farm with the list, and only the stored room told them
+ *     apart (the owner's call: Earn always leads back to the list).
  *   - /vesting, /airdrop and /history render no TOWELI content at all. They are
  *     venue tools, and the census proves it by reading zero TOWELI-voice nodes.
  */
@@ -36,6 +37,7 @@ export const TOWELI_ROOM_PATHS: ReadonlySet<string> = new Set([
   '/lore',
   '/referrals',
   '/zap',
+  '/earn/toweli',
 ]);
 
 /** The venue's records (ruling 1): dated, labeled, exempt from the sweep by structure. */

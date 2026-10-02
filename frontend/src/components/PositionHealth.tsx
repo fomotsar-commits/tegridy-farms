@@ -59,7 +59,7 @@ export function PositionHealth() {
       sev: 'warn',
       title: `Your lock ends in ${daysLeft === 0 ? 'under a day' : `${daysLeft}d`}`,
       detail: `Extend it to keep your ${boostX.toFixed(1)}× boost — once it unlocks you drop to the base rate.`,
-      cta: { label: 'Extend lock', to: '/farm' },
+      cta: { label: 'Extend lock', to: '/earn/toweli' },
     });
   }
 
@@ -70,7 +70,7 @@ export function PositionHealth() {
       sev: 'warn',
       title: 'Your lock has ended',
       detail: 'Re-lock to restore your boosted rewards — an unlocked position earns the base rate.',
-      cta: { label: 'Re-lock', to: '/farm' },
+      cta: { label: 'Re-lock', to: '/earn/toweli' },
     });
   }
 
@@ -81,7 +81,7 @@ export function PositionHealth() {
       sev: 'info',
       title: `${compact(claimable)} TOWELI ready to claim`,
       detail: 'Claim your TOWELI rewards — re-stake on the Farm page to compound.',
-      cta: { label: 'Claim rewards', to: '/farm' },
+      cta: { label: 'Claim rewards', to: '/earn/toweli' },
     });
   }
 

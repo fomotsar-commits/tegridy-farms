@@ -32,6 +32,7 @@ const SolanaLadderPoolLive = lazy(() =>
 const SolanaPoolStack = lazy(() =>
   import('./SolanaPoolStack').then((m) => ({ default: m.SolanaPoolStack })),
 );
+import { BackToEarn } from '../farm/BackToEarn';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
@@ -58,6 +59,17 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
   );
   const explorer = bungalowExplorerUrl(bungalow);
   const chainLabel = bungalow.chain === 'solana' ? 'Solana' : bungalow.chain === 'base' ? 'Base' : 'Ethereum';
+  // Each chain's own swap fee. Solana: the fee account. Ethereum: SwapFeeRouter charges only
+  // on a fill in the venue's own pools, and pays stakers, POL and treasury. Base: the swap
+  // stack does not trade there (chains/registry.ts `ammSwap: false`).
+  const swapFeeLine =
+    bungalow.chain === 'solana'
+      ? isSolanaFeeConfigured()
+        ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
+        : 'the Solana swap surface is live here, but it takes no platform fee today, so there is nothing to share until one is switched on.'
+      : bungalow.chain === 'ethereum'
+        ? `the ${chainLabel} swap surface takes a platform fee only when a trade fills in the venue's own pools, and no share of it routes here today.`
+        : `the venue runs no swap on ${chainLabel}, so there is no swap fee to share.`;
   // Row 2 holds the lighthouse pool and the funding card side by side. With a ladder and
   // no lighthouse card (none, or members-only in the ladder's row), funding spans it.
   const fundingAlone = bungalow.chain === 'solana' && Boolean(bungalow.ladderPool) && (!bungalow.stakePool || membersOnly);
@@ -72,6 +84,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.38)' }} />
       </div>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16">
+      <BackToEarn />
       {/* Header */}
       <div className="mb-8">
         <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">
@@ -95,6 +108,16 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             </>
           )}
         </p>
+        {/* The top bar's Connect is EVM only (RainbowKit), and on this page it is
+            the most visible one. A Trust wallet connected there showed "only the
+            EVM chains" while every card here still asked for Solana, and Jupiter,
+            Solana only, can never be in that list (owner, 2026-09-30). */}
+        {poolIsLive && bungalow.chain === 'solana' && (
+          <p className="text-white/70 text-[13px] max-w-lg leading-relaxed mt-3">
+            This pool is on Solana: connect your wallet on the pool card below. The Connect button
+            at the top of the page does not connect Solana.
+          </p>
+        )}
       </div>
 
       {/* THE LIVE POOL LEADS (2026-09-20): the ladder comes first in the DOM and spans
@@ -178,17 +201,10 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the pool gets funded</p>
             <h2 className="heading-luxury text-xl text-white mb-3">Routes under evaluation</h2>
             <ul className="text-white/85 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
-              {/* pump.fun creator fees only exist for pump-born mints — the
-                  vanity suffix is how those mints identify themselves. */}
-              {bungalow.address?.endsWith('pump') && (
-                <li><strong>Creator-fee share</strong> from the graduated pump.fun pool: trading fees the pool already generates.</li>
-              )}
-              {/* The fee claim follows the same gate as the swap's own fee line. */}
+              {/* No creator-fee route: the venue does not control a pump.fun coin's creator
+                  fee, and BAYLA's goes whole to the island. */}
               <li>
-                <strong>Venue swap fees</strong>:{' '}
-                {isSolanaFeeConfigured()
-                  ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
-                  : 'the Solana swap surface is live here, but it takes no platform fee today, so there is nothing to share until one is switched on.'}
+                <strong>Venue swap fees</strong>: {swapFeeLine}
               </li>
               {/* Names the mechanism, never another resident. */}
               <li><strong>Community top-ups</strong>: direct, visible transfers into the reward pool, the same way every pool here is seeded.</li>

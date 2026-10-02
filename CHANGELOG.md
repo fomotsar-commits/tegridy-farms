@@ -6,8 +6,30 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
-### 2026-09-25
+### 2026-10-01
 
+- On /pools, the Solana section finds a token's pools by its address, checks the token and each pool's fee tier, price and status, and shows a connected wallet's pool shares. It only reads: adding and removing liquidity from the site comes next.
+- On /pools, a token or pool check that could not be read says so, and never shows as safe, healthy or empty.
+- /pools no longer says the Solana swap sends a trade to our own pool when ours pays more. The swap compares the two and still trades through Jupiter.
+- /curve-launch reads the live Solana launch program. Launching and trading from the site are switched off for now, and the Solana Curve tab says Soon.
+- On /curve-launch, the Who may plant door reads a wallet's heat from the island. Once launching is switched on, the create form opens only for a Solana wallet at Resident or better, and Review reads that wallet again before anything is signed.
+- A Solana launch's page says a maker at Resident or better can grow a new token through the memetics.finance gate, and that the program itself accepts any wallet.
+- Towelie says Solana has our own curve at /curve-launch instead of saying Solana is swap-only.
+- Source and audit links on /contracts, /security, /risks and the trust hub go through memetics.finance/source, which forwards them to wherever the code is hosted.
+- On the six Ethereum and Base rooms' farms, the swap-fee line names the room's own chain, not Solana, and says what that chain's swap fee really is.
+- On /competitions, the board is called the Volume board, and it links to the island's flames board, ranked by heat.
+- The heat ladder, its next-tier hint and the explainer's tier list use the island's current tiers: Builder at 300 degrees and Elder at 800.
+- The hero, the FAQ and llms.txt read the island's current sentence on rooms.
+- The heat explainer reads the island's whole current paragraph, and its current lines on weight and the Apes.
+- The heat words now match the island's /heat page: Builder 300°, Elder 800°, every other room adds a quarter of its own, the island's own weigh heavier, your clock on a token starts at your first hold, and Base is named beside Ethereum and Solana.
+- On /curve-launch, the door says the island reads every linked wallet, where it used to say a Solana-only wallet cannot be measured.
+- The venue counts 12 bungalows, as the island does, and /nb1 is the island's next open lot, linked to its harbor.
+- The BAYLA room links to the island's ledger.
+- No room's farm page lists a pump.fun creator-fee share as a way to fund its pool.
+- The Memetics Curve pitches no longer say a launch takes one signature.
+- The /farm Earn header no longer calls lock length held time.
+- The birth record calls a Token-2022 mint a Token-2022 mint, instead of saying it is not a mint.
+- The Garden lane on /launch no longer says a certified launch runs under the island's covenant instead of the venue's split.
 - A bungalow link opens on its own name and picture from the first second.
 - The hero, the FAQ and llms.txt say linked wallets read as a single flame.
 - The heat explainer's button reads How heat is earned, and Hide once open.
@@ -15,15 +37,15 @@ page keeps the newest thirty days.
 - On a computer or an iPad, the Solana connect window offers WalletConnect, with its QR code inside the window.
 - The Solana connect window has Solflare and Backpack rows: on a phone or an iPad they open this page inside the wallet's own app.
 - Page titles, which a screen reader hears on every page change, carry no em dash.
-
-### 2026-09-24
-
 - On a phone, connecting MetaMask no longer stalls after the MetaMask app opens, and MetaMask can estimate gas on Ethereum.
 - The Solana wallet list shows every wallet, adds MetaMask and Coinbase Wallet, and a wallet saved on a phone no longer traps Connect.
 - The closed BAYLA lighthouse pool is shown only to wallets still staked in it, as a claim box under the lock ladder.
 - A Solana staking pool or position that could not be read says so and offers Try again, on /farm and the dashboard.
-- On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
 - Every source link on /contracts opens a file, the TOWELI and fee hook rows say their source is not in the repo, the fee hook row no longer says a redeploy is queued, and the page says a linked file can be newer than the deployed code.
+
+### 2026-09-24
+
+- On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
 
 ### 2026-09-22
 

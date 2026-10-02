@@ -78,7 +78,7 @@ const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 export function verifyReleaseArtifacts(dir = defaultArtifactsDir()) {
   const sums = fs.readFileSync(path.join(dir, 'SHA256SUMS'), 'utf8');
   for (const [file, pin] of Object.entries(PINNED_SHA256)) {
-    const listed = new RegExp(`^${pin}\\s+\\*?${file.replace(/\./g, '\\.')}$`, 'm').test(sums);
+    const listed = new RegExp(`^${pin}\\s+\\*?${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm').test(sums);
     if (!listed) throw new Error(`SHA256SUMS in ${dir} does not list ${file} as ${pin}`);
     const actual = sha256(fs.readFileSync(path.join(dir, file)));
     if (actual !== pin) throw new Error(`${file} hashes to ${actual}, pinned ${pin}: refusing`);

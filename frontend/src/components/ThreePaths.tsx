@@ -16,7 +16,7 @@ export function ThreePaths() {
     {
       to: '/#hall',
       title: 'Hold',
-      line: 'Your clock starts at your first buy. Pick a bungalow.',
+      line: 'Your clock on a token starts at your first hold. Pick a bungalow.',
       accent: 'var(--color-kyle)',
     },
     {

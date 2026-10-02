@@ -27,9 +27,11 @@ import { CurveStateCard } from '../components/solana/curve/CurveStateCard';
 import { WriteGateBanner } from '../components/solana/curve/WriteGateBanner';
 import { LaunchCreateForm } from '../components/solana/curve/LaunchCreateForm';
 import { LaunchList } from '../components/solana/curve/LaunchList';
+import { WalletNeeded } from '../components/solana/curve/WalletNeeded';
 import { browserGateRpc } from '../components/solana/curve/gateRpc';
 import { useWriteGate } from '../components/solana/curve/useWriteGate';
-import { useCurveSigner } from '../components/solana/curve/useCurveSigner';
+import { useCurveSigner, type CurveSignerState } from '../components/solana/curve/useCurveSigner';
+import type { OpenGate, WriteApi, WriteRpc } from '../components/solana/curve/ports';
 import { useLaunchLookup, type LaunchLookupReaders } from '../components/solana/curve/useLaunchLookup';
 import { PublicKey } from '@solana/web3.js';
 import {
@@ -57,12 +59,14 @@ import {
   sellBlockedReason,
   type BondingCurve,
   type CreateLaunchCost,
+  type CurveRpc,
   type CurveWriteClient,
   type Deployment,
   type LaunchPhase,
   type LaunchState,
   type MintFacts,
   type Read,
+  type SolanaRpc,
   type TreasuryDescription,
 } from '../lib/launcher/solana/curve';
 
@@ -224,12 +228,15 @@ export function TradePanel({
   paused,
   writeClient,
   gateNotOpen = false,
+  lookedUp = true,
 }: {
   phase: LaunchPhase;
   curve: BondingCurve | null;
   decimals: number | null;
   paused: boolean | null;
   writeClient: CurveWriteClient | null;
+  /** False: no launch has been looked up, so there is no reason to give for "blocked". */
+  lookedUp?: boolean;
   /**
    * Writes are switched on for this site, but the check above did not open them.
    * The status card above says why; this panel must not claim a different reason.
@@ -286,7 +293,11 @@ export function TradePanel({
         ))}
       </div>
 
-      {blocked && <p className="text-amber-300/90 mb-3">{LAUNCH_ERROR_COPY[blocked]}</p>}
+      {!lookedUp ? (
+        <p className="text-white/50 mb-3">Look up a launch above to see its curve here.</p>
+      ) : (
+        blocked && <p className="text-amber-300/90 mb-3">{LAUNCH_ERROR_COPY[blocked]}</p>
+      )}
 
       <Field
         label={side === 'buy' ? 'Spend (SOL)' : decimals === null ? 'Sell (token base units)' : 'Sell (tokens)'}
@@ -348,7 +359,7 @@ export function TradePanel({
         <p className="text-white/40 text-[10px] leading-relaxed mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           {gateNotOpen
             ? 'Launching and trading are not available right now; see the note above. The quote above is the same arithmetic the program runs.'
-            : 'There is no signing path on this page. Launching and trading here stay switched off until the new program is deployed and this site is pointed at it. The quote above is the same arithmetic the program runs, shown so the terms can be checked before any of this goes live.'}
+            : 'There is no signing path on this page. Launching and trading from this site are switched off for now. The quote above is the same arithmetic the program runs, shown so the terms can be checked.'}
         </p>
       ) : (
         <button type="button" className="btn-primary w-full py-2.5 text-[13px] mt-3 disabled:opacity-60" disabled={disabled || !quote}>
@@ -607,9 +618,9 @@ export interface CurveLaunchViewProps {
   /** The launch-and-trade status card. Absent when writes are off: the page is then unchanged. */
   gateBanner?: ReactNode;
   /**
-   * The launch-and-trade section, present only when the write gate is OPEN. It
-   * replaces the read-only lookup, state, quote, checklist and wallet cards; the
-   * explainer stays.
+   * The launch-and-trade section (CurveWriteSection), present only when the write gate
+   * is OPEN. It replaces the read-only door, lookup, state, quote, checklist and wallet
+   * cards, and carries its own door; the explainer stays.
    */
   write?: ReactNode;
 }
@@ -661,9 +672,9 @@ export function CurveLaunchView({
 
         {write ?? (
           <>
-        {/* THE DOOR on our own curve rail. Same primitive as the other two — one rule,
-            read live, in one place. */}
-        <LaunchGate rail="solana" />
+        {/* THE DOOR on our own curve rail, reading the connected Solana wallet. Same
+            primitive as the other rails: one rule, read live, in one place. */}
+        <LaunchGate rail="solana" wallet={wallet?.address ?? null} />
 
         <Card title="Look up a launch">
           <p>Open a launch by its token address (mint). This view has no list of launches.</p>
@@ -718,6 +729,7 @@ export function CurveLaunchView({
           paused={paused}
           writeClient={writeClient}
           gateNotOpen={gateBanner != null}
+          lookedUp={lookedUp}
         />
 
         <CreateChecklist
@@ -866,6 +878,36 @@ function OpenByMint() {
   );
 }
 
+export interface CurveWriteSectionProps {
+  api: WriteApi;
+  gate: OpenGate;
+  /** The wallet adapter's connection, which the create form signs and sends through. */
+  writeRpc: WriteRpc;
+  rpc: SolanaRpc;
+  curveRpc: CurveRpc;
+  signerState: CurveSignerState;
+  /** The connected Solana wallet: the door reads it, and "Yours" lists its launches. */
+  wallet: PublicKey | null;
+}
+
+/**
+ * Write mode. Opening a launch by address, the list and trading stay open to anyone;
+ * only the create form is behind the door, which reads the connected Solana wallet.
+ * The form re-reads that wallet at every Review whatever the door showed.
+ */
+export function CurveWriteSection({ api, gate, writeRpc, rpc, curveRpc, signerState, wallet }: CurveWriteSectionProps) {
+  const actions = api.writeActions(gate, null);
+  return (
+    <>
+      <LaunchGate rail="solana" wallet={wallet?.toBase58() ?? null} connect={<WalletNeeded state={signerState} />}>
+        <LaunchCreateForm api={api} rpc={writeRpc} gate={gate} actions={actions} signerState={signerState} />
+      </LaunchGate>
+      <OpenByMint />
+      <LaunchList api={api} cfg={gate.cfg} rpc={rpc} curveRpc={curveRpc} wallet={wallet} />
+    </>
+  );
+}
+
 function CurveLaunchInner() {
   const { publicKey, connecting } = useWallet();
   const { connection } = useConnection();
@@ -923,14 +965,16 @@ function CurveLaunchInner() {
 
   let write: ReactNode = undefined;
   if (gateState.status === 'ready' && gateState.gate.kind === 'open') {
-    const { api, gate } = gateState;
-    const actions = api.writeActions(gate, null);
     write = (
-      <>
-        <LaunchCreateForm api={api} rpc={connection} gate={gate} actions={actions} signerState={signerState} />
-        <OpenByMint />
-        <LaunchList api={api} cfg={gate.cfg} rpc={rpc} curveRpc={curveRpc} wallet={publicKey ?? null} />
-      </>
+      <CurveWriteSection
+        api={gateState.api}
+        gate={gateState.gate}
+        writeRpc={connection}
+        rpc={rpc}
+        curveRpc={curveRpc}
+        signerState={signerState}
+        wallet={publicKey ?? null}
+      />
     );
   }
 

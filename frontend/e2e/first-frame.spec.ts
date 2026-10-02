@@ -28,13 +28,14 @@ async function stubHeatRead(page: Page, onRead: () => void) {
     if (url.searchParams.get('resource') !== 'heat') return route.fallback();
     onRead();
     const now = Math.floor(Date.now() / 1000);
+    // A pair the island would serve: 394.66° is Builder on its 30 / 80 / 300 / 800 bands.
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        address: ADDRESS, degrees: 195.54, tier: 'Builder', is_cold: false,
+        address: ADDRESS, degrees: 394.66, tier: 'Builder', is_cold: false,
         held_since_unix: now - 400 * 86_400, as_of_unix: now - 3_600, token_count: 1,
-        breakdown: [{ token_address: '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D', chain: 'ethereum', name: 'Towelie', symbol: 'TOWELI', heat_degrees: 195.54, first_seen_at_unix: now - 400 * 86_400, last_transfer_at_unix: now - 30 * 86_400 }],
+        breakdown: [{ token_address: '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D', chain: 'ethereum', name: 'Towelie', symbol: 'TOWELI', heat_degrees: 394.66, first_seen_at_unix: now - 400 * 86_400, last_transfer_at_unix: now - 30 * 86_400 }],
       }),
     });
   });
@@ -121,15 +122,21 @@ test.describe('the first frame is the hero (ruling 2)', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          address: ADDRESS, degrees: 195.54, tier: 'Builder', is_cold: false,
+          address: ADDRESS, degrees: 394.66, tier: 'Builder', is_cold: false,
           held_since_unix: now - 400 * 86_400, as_of_unix: now - 3_600, token_count: 1,
-          breakdown: [{ token_address: '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D', chain: 'ethereum', name: 'Towelie', symbol: 'TOWELI', heat_degrees: 195.54, first_seen_at_unix: now - 400 * 86_400, last_transfer_at_unix: now - 30 * 86_400 }],
+          breakdown: [{ token_address: '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D', chain: 'ethereum', name: 'Towelie', symbol: 'TOWELI', heat_degrees: 394.66, first_seen_at_unix: now - 400 * 86_400, last_transfer_at_unix: now - 30 * 86_400 }],
         }),
       });
     });
     await page.reload();
-    await expect(page.locator('main#main-content').getByText('Builder').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator('main#main-content').getByText(/195\.5/).first()).toBeVisible();
+    // The served word, beside the served degrees. A bare getByText('Builder') passed on
+    // the ladder's rung label, which every reading prints whatever tier was served.
+    const main = page.locator('main#main-content');
+    const servedTier = main.locator(
+      'xpath=.//*[normalize-space(text())="Builder"][following-sibling::*[contains(normalize-space(.), "394.66")]]',
+    );
+    await expect(servedTier.first()).toBeVisible({ timeout: 30_000 });
+    await expect(main.getByText(/394\.66/).first()).toBeVisible();
   });
 
   // The seconds while the frame is on screen and the app is still arriving: these hold
@@ -183,7 +190,7 @@ test.describe('the first frame is the hero (ruling 2)', () => {
     await expect(fallbackField).toHaveValue(ADDRESS);
 
     releaseHome();
-    const heroField = page.locator('main#main-content form input[aria-label="Wallet address to read Heat for (Ethereum or Solana)"]:not([name])');
+    const heroField = page.locator('main#main-content form input[aria-label="Wallet address to read Heat for (Ethereum, Base, or Solana)"]:not([name])');
     await expect(heroField).toBeVisible({ timeout: 60_000 });
     await expect(heroField, 'the hero dropped the address typed before it arrived').toHaveValue(ADDRESS);
     await expect(heroField, 'focus fell out of the field when the hero arrived').toBeFocused();
@@ -204,19 +211,19 @@ test.describe('the first frame is the hero (ruling 2)', () => {
     await fallbackField.fill(ADDRESS);
 
     // Leave before the home page ever mounts, then come back to it client-side.
-    await clientNavigate(page, '/farm');
+    await clientNavigate(page, '/earn');
     await expect(page.locator('main#main-content [aria-busy="true"] input[name="heat"]')).toHaveCount(0, { timeout: 15_000 });
     releaseHome();
     await clientNavigate(page, '/');
-    const heroField = page.locator('main#main-content form input[aria-label="Wallet address to read Heat for (Ethereum or Solana)"]:not([name])');
+    const heroField = page.locator('main#main-content form input[aria-label="Wallet address to read Heat for (Ethereum, Base, or Solana)"]:not([name])');
     await expect(heroField).toBeVisible({ timeout: 60_000 });
     await expect(heroField, 'an address typed minutes ago came back on a later visit').toHaveValue('');
   });
 
   test('the frame is shut and absent off the venue home', async ({ page }) => {
     await page.route('**/assets/index-*.js', (route) => route.abort());
-    await page.goto('/farm');
+    await page.goto('/earn');
     await page.waitForLoadState('domcontentloaded');
-    expect(await page.locator('#first-frame').count(), 'the venue hero is left in the DOM on /farm').toBe(0);
+    expect(await page.locator('#first-frame').count(), 'the venue hero is left in the DOM on /earn').toBe(0);
   });
 });

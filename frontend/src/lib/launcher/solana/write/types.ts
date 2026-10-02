@@ -534,7 +534,8 @@ export interface WatchList {
 
 export type NotSent = {
   status: 'not-sent';
-  stage: 'build' | 'simulate' | 'sign' | 'send';
+  /** `gate`: the heat door refused the maker at submit (LaunchCreateForm), before any build. */
+  stage: 'gate' | 'build' | 'simulate' | 'sign' | 'send';
   message: string;
   logs?: string[];
 };

@@ -41,6 +41,8 @@ import type { WriteGate } from './types';
 
 const PROD = { DEV: false, MODE: 'production' };
 const DEV = { DEV: true, MODE: 'development' };
+/** The committed ids with the flag on: what switching launching back on commits. */
+const COMMITTED_ON: CommittedWriteIds = { ...COMMITTED_WRITE_IDS, enabled: true };
 const E2E = { DEV: false, MODE: 'solana-e2e' };
 const ENV_IDS = {
   VITE_SOLANA_CURVE_WRITES: '1',
@@ -63,12 +65,13 @@ const OFF: CommittedWriteIds = {
 const MAINNET_REGISTERED = { programId: REGISTERED_PROGRAM_ID, cpSwapProgram: REGISTERED_CP_SWAP_PROGRAM_ID, cluster: 'mainnet' };
 
 describe('gate 1: the configuration', () => {
-  it('what is committed (website release 2) is ON: the registered pair on mainnet, flag true', () => {
-    expect(CURVE_WRITES_ENABLED).toBe(true);
+  it('what is committed (the LP release) is OFF, with the registered pair ready: flipping the flag alone turns it on', () => {
+    expect(CURVE_WRITES_ENABLED).toBe(false);
     expect(COMMITTED_WRITE_IDS.programId.equals(PROGRAM_ID)).toBe(true);
     expect(COMMITTED_WRITE_IDS.programId.equals(REGISTERED_PROGRAM_ID)).toBe(true);
     expect(COMMITTED_WRITE_IDS.cpSwapProgram.equals(REGISTERED_CP_SWAP_PROGRAM_ID)).toBe(true);
-    expect(curveWriteConfig(PROD)).toEqual(MAINNET_REGISTERED);
+    expect(curveWriteConfig(PROD)).toBeNull();
+    expect(curveWriteConfig(PROD, { ...COMMITTED_WRITE_IDS, enabled: true })).toEqual(MAINNET_REGISTERED);
     // Release 1's committed state stays off.
     expect(curveWriteConfig(PROD, OFF)).toBeNull();
   });
@@ -90,15 +93,15 @@ describe('gate 1: the configuration', () => {
   it('production ignores env entirely the other way too: env cannot repoint or re-cluster a flipped build', () => {
     const other = Keypair.generate().publicKey.toBase58();
     const env = { ...PROD, ...ENV_IDS, VITE_SOLANA_CURVE_PROGRAM: other, VITE_SOLANA_CPSWAP_PROGRAM: other, VITE_SOLANA_CLUSTER: 'localnet' };
-    expect(curveWriteConfig(env)).toEqual(MAINNET_REGISTERED);
-    expect(curveWriteConfig({ ...PROD, VITE_SOLANA_CURVE_WRITES: '0' })).toEqual(MAINNET_REGISTERED);
+    expect(curveWriteConfig(env, COMMITTED_ON)).toEqual(MAINNET_REGISTERED);
+    expect(curveWriteConfig({ ...PROD, VITE_SOLANA_CURVE_WRITES: '0' }, COMMITTED_ON)).toEqual(MAINNET_REGISTERED);
   });
 
   it('a custom build mode is production (no env override)', () => {
     expect(curveWriteConfig({ DEV: false, MODE: 'staging', ...ENV_IDS, VITE_SOLANA_CLUSTER: 'localnet' }, OFF)).toBeNull();
     expect(curveWriteConfig({ DEV: false, MODE: 'development', ...ENV_IDS, VITE_SOLANA_CLUSTER: 'localnet' }, OFF)).toBeNull();
     // With the flag committed on, such a build is the mainnet build: the env's localnet is ignored.
-    expect(curveWriteConfig({ DEV: false, MODE: 'staging', ...ENV_IDS, VITE_SOLANA_CLUSTER: 'localnet' })).toEqual(MAINNET_REGISTERED);
+    expect(curveWriteConfig({ DEV: false, MODE: 'staging', ...ENV_IDS, VITE_SOLANA_CLUSTER: 'localnet' }, COMMITTED_ON)).toEqual(MAINNET_REGISTERED);
   });
 
   it('production opens only when the committed flag AND committed ids are the registered ones', () => {
@@ -115,7 +118,7 @@ describe('gate 1: the configuration', () => {
     expect(curveWriteConfig({ ...DEV }, OFF)).toBeNull();
     expect(curveWriteConfig({ ...DEV, ...ENV_IDS, VITE_SOLANA_CURVE_WRITES: '0', VITE_SOLANA_CLUSTER: 'localnet' }, OFF)).toBeNull();
     // Committed on: a dev server with no env talks to the committed mainnet pair.
-    expect(curveWriteConfig({ ...DEV })).toEqual(MAINNET_REGISTERED);
+    expect(curveWriteConfig({ ...DEV }, COMMITTED_ON)).toEqual(MAINNET_REGISTERED);
     const c = curveWriteConfig({ ...E2E, ...ENV_IDS, VITE_SOLANA_CLUSTER: 'localnet' });
     expect(c).toEqual({ programId: LAUNCH, cpSwapProgram: CPSWAP, cluster: 'localnet' });
     expect(curveWriteConfig({ ...DEV, ...ENV_IDS, VITE_SOLANA_CLUSTER: 'devnet' })?.cluster).toBe('devnet');

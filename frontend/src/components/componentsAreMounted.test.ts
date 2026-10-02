@@ -1,12 +1,5 @@
-// GHOST-CODE GUARD, COMPONENT TIER.
-//
-// The sibling guard at src/hooks/hooksAreMounted.test.ts exists because
-// `useAutoRefreshBoost` was written in April, announced in the changelog, and
-// imported by nothing until August. Components had no such guard, and the same
-// thing happened one level up: `FactSheetPricing.tsx` is 89 lines, fully
-// written and fully tested, and the only module that imports it is its own test
-// file. Every test was green the whole time — a component nobody mounts is a
-// component nobody's tests exercise either, except its own.
+// GHOST-CODE GUARD, COMPONENT TIER, the sibling of src/hooks/hooksAreMounted.test.ts.
+// A component nobody mounts is a component nobody's tests exercise, except its own.
 //
 // The rule this pins: a file under src/components is either REACHABLE from the
 // app, or it is listed below with the boundary that stops it. Deleting it is
@@ -45,8 +38,7 @@
 // mistaken for the whole guarantee.
 //
 // A TEST-ONLY IMPORTER DOES NOT COUNT. Test files are excluded from the graph
-// entirely, which is the whole point: FactSheetPricing is imported by exactly
-// one module and that module is `FactSheetPricing.test.tsx`.
+// entirely: a component imported only by its own test file is a ghost.
 
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -71,16 +63,6 @@ const UNMOUNTED_BY_DESIGN: Array<{ pattern: RegExp; because: string }> = [
       'components/positionMarket gates on isDeployed(), and POSITION_MARKET_ADDRESS is the ' +
       'zero address on every network today. Mounting the panel would render an ' +
       'unconditional not-deployed state. Delete this entry the moment an address lands.',
-  },
-  {
-    pattern: /^launcher\/FactSheetPricing\.tsx$/,
-    because:
-      'There is no per-launch fact-sheet DETAIL surface to mount it on. The disclosure it ' +
-      'renders is real and is produced today (lib/launcher/collector.ts builds it, ' +
-      'lib/launcher/attestation.ts:208 attests it), but the only launcher surface that ships is ' +
-      'LaunchExplorer, which renders a LIST from launches/outcomes and never a single sheet. ' +
-      'Mounting this is a feature, not a wire-up. Delete this entry when a sheet surface lands — ' +
-      'the test below fails the moment anything reaches it.',
   },
   {
     pattern: /^solana\/curve\/fakeWriteApi\.fixture\.ts$/,

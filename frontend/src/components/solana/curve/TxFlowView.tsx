@@ -4,7 +4,7 @@ import { ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import { feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, formatSolPrice } from '../../../lib/solana/lp/format';
-import type { FeeSplitView, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
+import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import type { TxFlow } from './useTxFlow';
 
 // What the user sees between pressing a Review button and the chain's answer.
@@ -623,7 +623,8 @@ function unknownLine(kind: TxKind | undefined): string {
 
 const EXPIRED_TEXT ='Did not go through, and it can no longer go through. Nothing was charged. It is safe to try again.';
 
-const NOT_SENT_COPY: Record<'build' | 'simulate' | 'sign' | 'send', string> = {
+const NOT_SENT_COPY: Record<NotSent['stage'], string> = {
+  gate: 'Not sent. The launch door did not open for this wallet, so nothing was uploaded, built or signed.',
   build: 'Not sent. We could not build this transaction.',
   simulate: 'Not sent. A test run of this transaction was refused, so we did not ask your wallet to sign it.',
   sign: 'Not sent. Your wallet did not sign it.',

@@ -59,7 +59,7 @@ async function armArrivalClock(page: Page) {
 const readClock = (page: Page) => page.evaluate(() => window.__arrival ?? {});
 
 test.describe('the venue opens straight to the page (ruling 1)', () => {
-  for (const path of ['/', '/tokenomics', '/bayla', '/farm', '/launch', '/island', '/?heat=0x0000000000000000000000000000000000000000']) {
+  for (const path of ['/', '/tokenomics', '/bayla', '/earn', '/launch', '/island', '/?heat=0x0000000000000000000000000000000000000000']) {
     test(`a cold ${path} mounts no arrival overlay and never paints "Skip intro"`, async ({ page }) => {
       await armArrivalClock(page);
       await page.goto(path);

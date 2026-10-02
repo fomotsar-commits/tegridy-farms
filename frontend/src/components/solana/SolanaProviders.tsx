@@ -6,6 +6,7 @@ import {
   BackpackWalletAdapter,
   CoinbaseWalletAdapter,
   IPadAwarePhantomWalletAdapter,
+  JupiterWalletAdapter,
   MetaMaskWalletAdapter,
   SolflareWalletAdapter,
   TrustWalletAdapter,
@@ -56,6 +57,11 @@ import { SolanaWalletModalProvider } from './SolanaWalletModal';
  * the EVM list, but it is the Solana wallet stakers use most after Phantom and
  * it cannot connect over WalletConnect. See lib/solanaWallets.ts.
  *
+ * Jupiter (2026-09-30) is an "Open app" row too, with jup.ag's own hand-off
+ * into Jupiter Mobile on a phone. On a computer without its extension, its row
+ * — and Trust's — shows the WalletConnect QR below, named for it, since both
+ * phone apps scan it (solanaWalletOrder.ts SCANNABLE_WALLETS).
+ *
  * The modal is ours, not upstream's: upstream folds every wallet that is not
  * installed behind "More options" as soon as one is, which is how a Phantom
  * user came to see no Trust at all. See SolanaWalletModal.tsx.
@@ -77,6 +83,7 @@ export function SolanaProviders({ children }: { children: ReactNode }) {
     () => [
       new IPadAwarePhantomWalletAdapter(),
       new TrustWalletAdapter(),
+      new JupiterWalletAdapter(),
       new MetaMaskWalletAdapter(),
       new CoinbaseWalletAdapter(),
       new SolflareWalletAdapter(),

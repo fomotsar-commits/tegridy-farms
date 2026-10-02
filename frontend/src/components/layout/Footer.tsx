@@ -29,7 +29,7 @@ import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
  */
 const PRODUCT_LINKS: { to: string; label: string }[] = [
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/farm', label: 'Farm' },
+  { to: '/earn', label: 'Earn' },
   { to: '/swap', label: 'Trade' },
   ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'NFT Finance' }] : []),
   // Governance is not duplicated here — it has a dedicated entry in the

@@ -524,7 +524,7 @@ export function quoteExit(
       penaltyRaw: 0n,
       receivesRaw: full,
       refused: locked,
-      reason: locked ? 'still locked — the program refuses this door until the lock ends' : 'free',
+      reason: locked ? 'still locked: the program refuses this door until the lock ends' : 'free',
     },
     {
       door: 'early',
@@ -532,7 +532,7 @@ export function quoteExit(
       receivesRaw: full - earlyPenalty,
       refused: matured,
       reason: matured
-        ? 'already matured — the program sends you to the free door instead'
+        ? 'already matured: the program sends you to the free door instead'
         : earlyPenalty > 0n
           ? `${pct} retained (${schedule}); your accrued rewards are paid out`
           : 'free while the pool is degraded; your accrued rewards are paid out',
@@ -543,7 +543,7 @@ export function quoteExit(
       receivesRaw: full - hatchPenalty,
       refused: false,
       reason: hatchPenalty > 0n
-        ? `${pct} retained (${schedule}) — the hatch is NOT free while locked; rewards are deferred, not lost`
+        ? `${pct} retained (${schedule}). The hatch is NOT free while locked; rewards are deferred, not lost`
         : pool.degraded
           ? 'free while the pool is degraded; rewards are deferred, not lost'
           : 'free after maturity; rewards are deferred, not lost',

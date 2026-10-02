@@ -8,6 +8,7 @@ import { createLaunchDirect, fundedKeypair } from './fixtures/chain';
 import { installTestWallet } from './fixtures/testWallet';
 import { installRpcGuard } from './fixtures/rpcGuard';
 import { installUploadStub } from './fixtures/uploadStub';
+import { installHeatStub } from './fixtures/heatStub';
 import { ui, expectClickable, expectNoSidewaysScroll, connectWallet } from './fixtures/ui';
 
 const SIZES = [
@@ -51,17 +52,21 @@ for (const size of SIZES) {
     await installTestWallet(ctx, kp);
     const rpc = await installRpcGuard(ctx);
     await installUploadStub(ctx);
+    await installHeatStub(ctx);
     const page = await ctx.newPage();
 
     await page.goto('/curve-launch');
+    // The create form opens below the heat door once the connected wallet reads warm.
+    await expect(ui.door(page)).toBeVisible({ timeout: 30_000 });
+    await expectNoSidewaysScroll(page);
+    await expectClickable(ui.connectButton(ui.door(page)), 'Connect Solana Wallet (heat door)');
+    await expectTouchTargets(page, ui.list(page));
+    await connectWallet(page, ui.door(page));
     await expect(ui.createForm(page)).toBeVisible({ timeout: 30_000 });
     await expectNoSidewaysScroll(page);
-    await expectClickable(ui.connectButton(ui.createForm(page)), 'Connect Solana Wallet (launch form)');
     await expectClickable(ui.form.reviewButton(page), 'Review launch');
     // UX3: iOS zooms the page when a field under 16px gets focus (iPhone and iPad).
     await expectFieldsAtLeast16px(page, ui.createForm(page));
-    await expectTouchTargets(page, ui.list(page));
-    await connectWallet(page, ui.createForm(page));
 
     await page.goto(`/curve-launch/${mint.toBase58()}`);
     await expect(ui.tradePanel(page)).toBeVisible({ timeout: 30_000 });

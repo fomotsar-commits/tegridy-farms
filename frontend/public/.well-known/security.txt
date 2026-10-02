@@ -18,7 +18,7 @@ Canonical: https://memetics.finance/.well-known/security.txt
 
 # ── In scope ──────────────────────────────────────────────────────────────
 #   - TOWELI token: 0x420698CFdEDdEa6bc78D59bC17798113ad278F9D (Ethereum mainnet)
-#   - memetics.finance smart contracts (the verified/GitHub source is authoritative)
+#   - memetics.finance smart contracts (the source verified on the block explorer is authoritative)
 #   - The dapp at https://memetics.finance and its serverless API. The memetic.fun
 #     and www.memetic.fun aliases 301 onto it and are in scope through it.
 # Nothing else is in scope. The tegridyfarms.vercel.app deploy alias was listed here

@@ -25,7 +25,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SITE_URL, GITHUB_BRANCH, GITHUB_BLOB_BASE, SOCIAL_LINKS } from '../lib/constants';
+import { SITE_URL, SOURCE_URL, SOCIAL_LINKS } from '../lib/constants';
 import { farmCardStat, farmCardDesc } from '../lib/lpEmissions';
 import { venueFaq, TOWELI_FAQ_DATA } from '../lib/faqData';
 
@@ -74,21 +74,24 @@ describe('the retired brand does not reach the reader', () => {
 
 // ── 3. Evidence links point at the branch the site ships from ───────────────
 describe('audit evidence links', () => {
-  it('no page carries its own repo-branch literal', () => {
-    // Both trust pages had their own `blob/main` literals while /contracts had
-    // `blob/mvp-launch`. One constant, or they drift again.
-    for (const f of ['SecurityPage.tsx', 'RisksPage.tsx', 'ContractsPage.tsx']) {
+  it('no page carries its own git-host URL', () => {
+    // Pages link SOURCE_URL; the host and branch live in one place (vercel.json).
+    for (const f of ['SecurityPage.tsx', 'RisksPage.tsx', 'ContractsPage.tsx', 'TrustHubPage.tsx']) {
       const src = read('src', 'pages', f);
-      expect(src, `${f} still hardcodes a github.com repo URL`).not.toMatch(
-        /https:\/\/github\.com\/[^"'`\s]+\/(blob|tree)\//,
-      );
+      const hosts = [...src.matchAll(/https?:\/\/[^\s"'`)<>]+/g)].map((m) => {
+        try { return new URL(m[0]).hostname; } catch { return ''; }
+      });
+      expect(hosts.filter((h) => /(^|\.)(github\.com|gitlab\.com|bitbucket\.org)$/.test(h)), `${f} hardcodes a git-host URL`).toEqual([]);
     }
   });
 
-  it('the shared base points at the deploy branch, never `main`', () => {
-    expect(GITHUB_BRANCH).toBe('mvp-launch');
-    expect(GITHUB_BLOB_BASE).toContain('/blob/mvp-launch');
-    expect(GITHUB_BLOB_BASE).not.toContain('/blob/main');
+  it('the shared base is ours, and it opens files on the deploy branch, never `main`', () => {
+    expect(SOURCE_URL).toBe(`${SITE_URL}/source`);
+    const redirects: { source: string; destination: string }[] = JSON.parse(read('vercel.json')).redirects;
+    const files = redirects.find((r) => r.source === '/source/:path*');
+    expect(files, 'no /source/:path* redirect in vercel.json').toBeTruthy();
+    expect(files!.destination).toMatch(/\/mvp-launch\/:path\*$/);
+    expect(files!.destination).not.toMatch(/\/main\//);
   });
 });
 

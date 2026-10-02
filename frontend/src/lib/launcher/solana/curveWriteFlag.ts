@@ -18,14 +18,16 @@
 // the test, because `vite build --mode anything` would slip past it.
 
 /**
- * ON from website release 2 (branch ship/solana-launch-on), in the same commit that
- * flips PROGRAM_ID and CP_SWAP_PROGRAM_ID to the registered restart ids. That release
- * is deployed only after both programs exist on mainnet and the vault holds
- * control. Even ON, the write layer still reads the chain before it offers anything
+ * OFF in the LP release (2026-10-01): the owner ships the launch pages read-only until
+ * Jungle Bay Island answers Q2 (may Solana launches open before "born in $BAYLA"?).
+ * The ids stay the registered restart ids, so switching launching on is this one line.
+ *
+ * Website release 2 (branch ship/solana-launch-on) set it ON together with those ids.
+ * Even ON, the write layer still reads the chain before it offers anything
  * (write/config.ts `readWriteGate`), so a build served before the programs exist
  * shows a blocked banner with the reason, never a form that cannot work.
  */
-export const CURVE_WRITES_ENABLED = true;
+export const CURVE_WRITES_ENABLED = false;
 
 /** The one build mode besides a dev server that honours env overrides. */
 export const CURVE_WRITES_E2E_MODE = 'solana-e2e';

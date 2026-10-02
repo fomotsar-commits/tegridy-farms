@@ -21,10 +21,12 @@ import { WalletNeeded } from './WalletNeeded';
 import { clearPendingLaunch, readPendingLaunches, savePendingLaunch, type PendingLaunch } from './pendingLaunch';
 import { useReturnFocus, useTxFlow, type OnSent, type OnSettled } from './useTxFlow';
 import { liveIpfsUrl } from '../../../lib/ipfsGateways';
+import { assertMayLaunch, HeatGateDenied } from '../../../lib/heat/launchGate';
 import { IpfsImg } from '../../IpfsImg';
 import type {
   ActionAvailability,
   LaunchLinks,
+  NotSent,
   OpenGate,
   PreparedImage,
   Prepared,
@@ -37,6 +39,23 @@ import type { CurveSignerState } from './useCurveSigner';
 
 /** Exact types, so iOS converts a HEIC photo to one of these when it is picked. */
 const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif';
+
+/**
+ * The launch door at submit: null when `maker` may launch, else the not-sent outcome.
+ * Fails closed like launchService.ts: a cold wallet, an unreadable island and any other
+ * throw all stop the launch before anything is uploaded, built or signed.
+ */
+async function doorRefusal(maker: string): Promise<NotSent | null> {
+  try {
+    await assertMayLaunch(maker);
+    return null;
+  } catch (e) {
+    const message =
+      e instanceof HeatGateDenied ? e.message : 'The island could not be read, so the door stays shut. Try again in a moment.';
+    return { status: 'not-sent', stage: 'gate', message };
+  }
+}
+
 /** An opening buy above this share of supply gets a plain warning. The program itself sets no limit. */
 const LARGE_OPENING_BUY_BPS = 500n;
 
@@ -155,6 +174,20 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
   }, [imageUrl]);
 
   const signer = signerState.kind === 'ready' ? signerState.signer : null;
+  // A Review runs on after the door read. The wallet's signMessage follows the wallet app,
+  // not one account, so each step after the read checks that the form is still on screen
+  // and that the wallet the door read is still the one connected.
+  const alive = useRef(true);
+  const liveSigner = useRef(signer);
+  useEffect(() => {
+    liveSigner.current = signer;
+  }, [signer]);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const nameC = meta.checkName(name);
   const symbolC = meta.checkSymbol(symbol);
@@ -312,16 +345,28 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
     setPublicCopy(null);
     setJsonMismatch(false);
     setJsonOtherMint(false);
-    // The wallet opens during this step for the upload request, and the screen must say why.
-    setPrepNote(
-      mode === 'upload' && !reuse
-        ? 'Approve the upload request in your wallet. It is a message to sign, not a transaction, and it costs nothing. Then your picture and details are uploaded, and the launch transaction is built and test-run…'
-        : mode === 'paste'
-          ? 'Loading your details link, then building the launch transaction and test-running it…'
-          : undefined,
-    );
+    setPrepNote("Reading this wallet's held time from the island before anything is signed…");
 
+    const walletMoved = () => !alive.current || !liveSigner.current?.publicKey.equals(creator);
     void flow.prepare(async (): Promise<Prepared> => {
+      // THE DOOR, AT SUBMIT: read live at every Review, whatever the door above showed. The
+      // venue's check only (the program accepts any signer). The maker is the wallet that
+      // signs the create; the island pools linked wallets.
+      const refusal = await doorRefusal(creator.toBase58());
+      if (refusal) return { ok: false, outcome: refusal };
+      if (walletMoved()) {
+        const message =
+          'The connected wallet changed while the door was reading it, so nothing was uploaded or signed. Review again with the wallet you mean to launch from.';
+        return { ok: false, outcome: { status: 'not-sent', stage: 'gate', message } };
+      }
+      // The wallet opens during this step for the upload request, and the screen must say why.
+      setPrepNote(
+        mode === 'upload' && !reuse
+          ? 'Approve the upload request in your wallet. It is a message to sign, not a transaction, and it costs nothing. Then your picture and details are uploaded, and the launch transaction is built and test-run…'
+          : mode === 'paste'
+            ? 'Loading your details link, then building the launch transaction and test-running it…'
+            : undefined,
+      );
       let uri: string;
       let copy: PublicCopy;
       if (mode === 'upload' && image) {
@@ -404,6 +449,11 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
       }
       if (my !== attempt.current) {
         return { ok: false, outcome: { status: 'not-sent', stage: 'build', message: 'A newer attempt replaced this one.' } };
+      }
+      if (walletMoved()) {
+        const message =
+          'The connected wallet changed before the launch transaction was built, so it was not built. Review again with the wallet you mean to launch from.';
+        return { ok: false, outcome: { status: 'not-sent', stage: 'build', message } };
       }
       setPublicCopy(copy);
       return api.prepareCreateLaunch(rpc, gate, {

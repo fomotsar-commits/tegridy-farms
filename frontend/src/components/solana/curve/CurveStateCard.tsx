@@ -48,6 +48,8 @@ const PHASE_COPY: Record<LaunchPhase['kind'], { label: string; line: string }> =
   graduated: { label: 'Graduated', line: 'Liquidity has moved to the AMM pool. The curve is closed; trade the pool instead.' },
 };
 
+const NOT_LOOKED_UP = { label: 'Not looked up yet', line: 'Look up a launch by its token address to read its curve.' };
+
 export function CurveStateCard({
   phase,
   curve,
@@ -69,7 +71,10 @@ export function CurveStateCard({
    */
   treasury?: TreasuryDescription;
 }) {
-  const p = PHASE_COPY[phase.kind];
+  // No lookup yet is not a failed read: a program-level phase (closed, not deployed)
+  // still shows, but "unreadable" here only means nothing was asked.
+  const notYet = !lookedUp && phase.kind === 'unreadable';
+  const p = notYet ? NOT_LOOKED_UP : PHASE_COPY[phase.kind];
   return (
     <Card title="Curve state">
       <div className="flex flex-wrap items-center gap-2">
@@ -81,7 +86,7 @@ export function CurveStateCard({
         )}
       </div>
       <p>{p.line}</p>
-      {phase.kind === 'unreadable' && <p className="text-amber-300/90 break-all">{phase.detail}</p>}
+      {phase.kind === 'unreadable' && !notYet && <p className="text-amber-300/90 break-all">{phase.detail}</p>}
 
       {curve ? (
         <CurveNumbers curve={curve} decimals={decimals} treasury={treasury} />

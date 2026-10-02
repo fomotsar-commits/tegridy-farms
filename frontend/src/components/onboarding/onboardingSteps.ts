@@ -63,7 +63,7 @@ export const ONBOARDING_SURFACES: readonly OnboardingSurface[] = [
   },
   {
     id: 'farm',
-    route: '/farm',
+    route: '/earn',
     label: 'Farm',
     // VOICE, and also FACT (2026-09-09). At venue voice /farm is the island
     // INDEX — VenuePoolIndex, a table of every resident's pool — so "Stake and

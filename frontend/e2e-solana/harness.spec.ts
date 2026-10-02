@@ -16,6 +16,7 @@ import { checkTransaction, LAUNCH_INDEX } from './fixtures/walletGuard';
 import { installTestWallet, TEST_WALLET_NAME } from './fixtures/testWallet';
 import { installRpcGuard } from './fixtures/rpcGuard';
 import { createClassicToken, createSolPool, createToken2022MetadataOnly, transferLp } from './fixtures/lp';
+import { installHeatStub } from './fixtures/heatStub';
 import { buyIx, createLaunchIx } from '../src/lib/launcher/solana/curve/ix';
 import { poolStatePda, TOKEN_PROGRAM_ID, cpAmmAuthorityPda, cpAmmConfigPda, cpObservationPda, cpPoolVaultPda } from '../src/lib/launcher/solana/curve/program';
 import { depositIx, initializeIx, withdrawIx, type DepositArgs, type WithdrawArgs } from '../src/lib/solana/cpswap/ix';
@@ -501,6 +502,8 @@ test('the injected wallet appears in the site\'s wallet list and connects; the R
   const ctx = await browser.newContext();
   await installTestWallet(ctx, kp);
   const rpc = await installRpcGuard(ctx);
+  // Warm, so the create form (which shows the connected address) opens below the door.
+  await installHeatStub(ctx);
   const page = await ctx.newPage();
   await page.goto('/curve-launch');
   const connect = page.getByRole('button', { name: 'Connect Solana Wallet' }).first();

@@ -28,7 +28,7 @@ import type { PoolStateView } from '../lib/solana/cpswap/program';
 vi.mock('../components/solana/SolanaConnectButton', () => ({
   SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button>,
 }));
-// The read-only view mounts <LaunchGate>, which reads the EVM wallet.
+// The read-only view's door embeds a HeatCard, which calls wagmi's useAccount.
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: undefined }),
   useSignMessage: () => ({ signMessageAsync: async () => '0x' }),
@@ -101,8 +101,15 @@ describe('the launch page', () => {
 
   it('always carries the not-endorsed line and the full mint', () => {
     renderView();
+    // The island's words for the gate, plus the one on-chain truth: the program
+    // itself accepts any wallet (H1, ruling of 2026-09-28).
+    expect(
+      screen.getByText(
+        "Not endorsed by memetics.finance. A maker at Resident or better can grow a new token through the memetics.finance gate: the gate reads the maker's wallet at create. The program itself accepts any wallet, so check the full token address above before you buy.",
+      ),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/Anyone can launch here/);
     // UX6: the Tegridy name was retired from the app on 2026-08-31 (RisksPage).
-    expect(screen.getByText(/Not endorsed by memetics\.finance\. Anyone can launch here\./)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/Tegridy/);
     expect(screen.getAllByText(MINT.toBase58()).length).toBeGreaterThan(0);
   });
