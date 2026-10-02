@@ -1,110 +1,33 @@
-// Heat — Jungle Bay Island's held-time instrument.
-//
-// WHAT THIS IS. Heat prices HELD TIME. It cannot be bought and it cannot be rushed:
-// price never enters the formula, and a fresh bag starts near zero no matter how big
-// it is. Per (wallet, token):
-//
-//     heat_degrees = 100 · ( 1 − e^(−K · TWAB / totalSupply) ),  K = 60,  range 0–100
-//
-// TWAB is the wallet's time-weighted average balance for that token — continuous
-// (per-event), zero-anchored (time before the wallet first held counts as zero, so
-// new money ramps from 0° regardless of size), and velocity-blind (churn adds no
-// warmth; only balance held across time does).
-//
-// island_heat is the SUM of per-token degrees across every token in the island's
-// measured registry. One token caps at 100°, which is why the upper tiers are
-// unreachable on a single position — Elder is earned across the culture.
-//
-// THE BOUNDARY (spec §"THE BOUNDARY"). The island computes judgement; the venue
-// reads it. Wherever our number and the oracle disagree, THE ORACLE IS THE RULER.
-// `heatDegreesFor` below exists ONLY to explain and preview the curve in the UI. No
-// criteria state may ever be assigned from it. Enforcement reads the oracle.
+// Heat is Jungle Bay Island's held-time reading. The island computes every degree and
+// every tier; this module parses its envelope, holds the island's tier bands and the
+// launch floor, and takes the launch-gate decision on a served reading.
+// Where a venue number and the oracle disagree, the oracle rules. The tier word beside
+// a wallet is always the served `tier`; tierFor() only places a number on the ladder.
+// No curve, formula, averaging window or decay schedule lives here (islandClaims.test.ts).
 
 /** Tier words. Rendered VERBATIM — never restyled, never translated into yield language. */
 export type HeatTier = 'Elder' | 'Builder' | 'Resident' | 'Observer' | 'Drifter';
 
-/** Island dials, published with the standard. Floors are on island_heat (the SUM). */
-export const TIER_FLOORS: readonly { tier: HeatTier; floor: number; meaning: string }[] = [
-  { tier: 'Elder',    floor: 250, meaning: 'deep multi-token held time' },
-  { tier: 'Builder',  floor: 150, meaning: 'sustained standing across tokens' },
-  { tier: 'Resident', floor: 80,  meaning: 'settled' },
-  { tier: 'Observer', floor: 30,  meaning: 'the first threshold that counts' },
-  { tier: 'Drifter',  floor: 0,   meaning: 'the cold state' },
+/** The island's tier bands, highest first: the ladder's rungs, a name and a floor each, as
+ *  the island's ladder prints them (memetics.wtf/heat: ELDER 800°, BUILDER 300°, RESIDENT
+ *  80°, OBSERVER 30°, COLD below). Its /api/heat still serves the word Drifter under 30,
+ *  so the bottom rung keeps the served word. The tier word beside a wallet is the served one. */
+export const TIER_FLOORS: readonly { tier: HeatTier; floor: number }[] = [
+  { tier: 'Elder',    floor: 800 },
+  { tier: 'Builder',  floor: 300 },
+  { tier: 'Resident', floor: 80 },
+  { tier: 'Observer', floor: 30 },
+  { tier: 'Drifter',  floor: 0 },
 ] as const;
 
-/** The steepness constant in the island's formula. */
-export const HEAT_K = 60;
-
-/**
- * THE AVERAGING WINDOW IS NOT PUBLISHED, AND WE DO NOT GET TO GUESS IT.
- *
- * This file used to export `TWAB_WINDOW_DAYS = 180` under the header "CONFIRMED BY THE
- * ISLAND 2026-08-07". It was not confirmed. The island said so directly in Wave 3, and
- * the decay mechanic the venue built on top of it — "the window ROLLS, warmth is not
- * banked, a wallet that sells decays out of the average" — was untrue and was rendered
- * to users on /leaderboard.
- *
- * That is the worst version of this venue's recurring defect: an unknown published as a
- * confident value, and attributed to a third party who never said it. A number nobody
- * can check is not a smaller lie than a wrong one; it is a larger one, because the
- * reader has no way in.
- *
- * WHAT THE ISLAND HAS ACTUALLY CONFIRMED — exactly three properties, no more:
- *   1. continuous            — balance at every moment, not a snapshot
- *   2. zero-anchored         — time before the first hold counts as zero
- *   3. velocity-blind        — churn earns nothing; only balance held across time
- *
- * So the surface shows HELD TIME SINCE FIRST HOLD and nothing else. No calendar, no
- * window length, no decay schedule. Exact window semantics arrive from the island when
- * they are published; until then a reproduction preview is not possible, and saying so
- * is the honest answer.
- *
- * `islandClaims.test.ts` fails if a window length or a decay mechanic reappears in any
- * user-facing source. When the island publishes the window, add the constant back and
- * delete that one guard — the three properties above stay true either way.
- */
-
-/**
- * THE LAUNCH FLOOR, in island_heat degrees. The island has set it: 80 = Resident.
- * "Residents may plant" — the tier word carries the meaning on the door.
- *
- * ## Why this is degrees and NOT a tenure rule (read before "improving" it back)
- *
- * This venue previously gated launching on 180 days of `held_since_unix`. The island's
- * launch-gate spec retires that, in terms it repeats twice: "There is no 180-day rule
- * in your code, for any asset", and "NO token list, NO 180-day check, NO calendar,
- * anywhere in this codebase."
- *
- * The reasoning is that a tenure floor DOUBLE-COUNTS time and reads it worse than the
- * instrument does. Heat is TWAB-based and zero-anchored, so held time is already priced
- * INSIDE the number: a fresh bag reads cold and cannot buy the floor however large it
- * is, while a wallet that held through the year reads warm. A separate day-counter adds
- * no safety the curve does not already provide, and it fails the wallet that has held
- * several measured tokens deeply for five months while passing the wallet that has held
- * dust for six. The instrument IS the time rule.
- *
- * The figure that motivated the old floor is ISLAND-SIDE ENROLLMENT judgment and, per
- * spec, never appears in venue code. The island re-cut that judgment on 2026-08-24: an
- * arriving token now anchors at least NINETY DAYS past launch and then stands a
- * measured ninety days. Its grammar, verbatim: "Arrivals prove ninety days. Births
- * don't." This comment said "half a year" until wave seven's answer one, which made it
- * a false attribution to the island for a fortnight.
- * See docs/HEAT_WAVE_TWO.md for the full record of that reversal (an earlier
- * revision of this comment pointed at docs/HEAT_LAUNCH_GATE.md, which was never
- * written — the wave-two record is where the deviation flag actually lives).
- *
- * Config, never a constant at the call site — pass it in, so the number moves without
- * touching the gate. `heatLaunchFloor()` in heatGateConfig.ts is the operator dial.
- */
+/** The launch floor in degrees: 80, the Resident band. Residents may plant.
+ *  A degrees floor, never a tenure rule. heatLaunchFloor() is the operator override. */
 export const LAUNCH_FLOOR = 80;
 
-/**
- * THE FRESHNESS WINDOW, in days. A reading reckoned longer ago than this may not pass
- * or fail anyone — the door closes and says so. Spec §3, "Freshness law".
- */
+/** The freshness window in days: an older reading may not pass or fail anyone. */
 export const GATE_MAX_AGE_DAYS = 7;
 
-/** A single measured token's contribution to island_heat. */
+/** One measured token's room, as the island serves it. */
 export interface HeatBreakdownRow {
   tokenAddress: string;
   chain: string;
@@ -113,52 +36,35 @@ export interface HeatBreakdownRow {
   degrees: number;
   firstSeenAtUnix: number | null;
   lastTransferAtUnix: number | null;
+  /** The island's flag for a mint it no longer scans; HeatCard greys the row. Absent or
+   *  non-boolean reads false. */
+  retired: boolean;
 }
 
 export interface HeatReading {
   address: string;
-  /** island_heat — the SUM of per-token degrees. Not capped at 100. */
+  /** The wallet's heat as the island serves it, never recomputed from the rows. */
   degrees: number;
   tier: HeatTier;
   /** True only when the wallet has no heat rows at all. */
   isCold: boolean;
   /** min(first_seen_at) across held tokens, or null. */
   heldSinceUnix: number | null;
-  /**
-   * When the ISLAND last recalculated. THE FRESHNESS LAW: a stale ruler certifies
-   * nothing, so every gate must check this and refuse to pass or fail on a stale
-   * reading. Null on cold wallets — see isStale().
-   */
+  /** When the island last reckoned. Every gate checks it (isStale); null on cold wallets. */
   asOfUnix: number | null;
   tokenCount: number;
   breakdown: HeatBreakdownRow[];
   /** When OUR server read the upstream. Distinct from asOfUnix; never a substitute for it. */
   observedAt: number | null;
-  /**
-   * The X handle this flame is named with at the island's door, NORMALISED and stored
-   * WITHOUT its leading @ — see normalizeXHandle. Null means the flame is unnamed (or
-   * the upstream sent something that is not a usable handle).
-   *
-   * Stored bare so the island's "never compare handles with the @ in place" law is
-   * structural: there is only one form in memory, and painting adds the single @.
-   */
+  /** The flame's X handle stored bare (see normalizeXHandle), or null when unnamed. One
+   *  form in memory, so handles are never compared with the @ in place. */
   xHandle: string | null;
 }
 
 const TIER_WORDS = new Set<string>(['Elder', 'Builder', 'Resident', 'Observer', 'Drifter']);
 
-/**
- * Is this payload a real answer, or our own outage wearing a 200?
- *
- * PURE and separately exported so "did the instrument actually speak?" is unit-testable
- * without a network. This exists because the same bug already shipped once here: a
- * throttled explorer key returned a 200 with an error body, and the app rendered it as
- * a factual claim about somebody's wallet (see useDeployerReputation's
- * explorerEnvelopeFailure). The inversion to avoid now is the mirror image — an
- * unreachable oracle must never read as `is_cold` or as a passing score.
- *
- * Returns a human-readable reason, or null when the payload is trustworthy.
- */
+/** A real answer, or an outage wearing a 200? A reason string, or null when trustworthy.
+ *  An unreachable oracle must never read as `is_cold` or as a passing score. */
 export function heatEnvelopeFailure(payload: unknown): string | null {
   if (payload === null || typeof payload !== 'object') return 'The instrument returned no reading.';
   const p = payload as Record<string, unknown>;
@@ -173,9 +79,7 @@ export function heatEnvelopeFailure(payload: unknown): string | null {
   }
   if (!Array.isArray(p.breakdown)) return 'The instrument returned no breakdown.';
 
-  // A wallet with rows must say when it was reckoned. A COLD wallet legitimately has
-  // no as_of (nothing has been measured), so null is only a failure when there is
-  // something to have measured.
+  // A cold wallet has no as_of; a wallet with rows must carry one.
   const cold = p.is_cold === true;
   if (!cold && (typeof p.as_of_unix !== 'number' || !Number.isFinite(p.as_of_unix))) {
     return 'The instrument returned a reading with no reckoning date.';
@@ -183,22 +87,10 @@ export function heatEnvelopeFailure(payload: unknown): string | null {
   return null;
 }
 
-/**
- * THE HANDLE LAW (island §5): strip every leading @, paint exactly one, and never
- * compare handles with the @ in place. Returns the BARE handle, or null.
- *
- * IT ALSO VALIDATES, and that half is a security boundary rather than tidiness. This
- * value comes from a third party and is about to become an `href` to x.com and a
- * public byline on the board, the tape and every launch card. An unvalidated handle
- * is an open redirect and a link-spoofing surface: `//evil.example`, `../../login`, a
- * full `https://…` URL, or an RTL override that makes the rendered name read as
- * somebody else's all survive a naive `replace(/^@+/, '')` and end up in the DOM.
- *
- * So we accept ONLY what X itself can issue — 1-15 of [A-Za-z0-9_] — and treat
- * everything else as unnamed. An unnamed flame is a correct, honest render (the door
- * line); a spoofed one is not. Failing closed here costs a real holder nothing,
- * because a real handle always matches.
- */
+/** The handle law: strip every leading @ and return the bare handle, or null. Also a
+ *  security boundary: the value becomes an x.com href and a public byline, so only what
+ *  X issues (1-15 of [A-Za-z0-9_]) passes. URLs, traversal and RTL overrides fail closed
+ *  to an unnamed flame. */
 export function normalizeXHandle(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const bare = raw.trim().replace(/^@+/, '');
@@ -218,10 +110,8 @@ export function parseHeatReading(payload: unknown): HeatReading {
     asOfUnix: typeof p.as_of_unix === 'number' ? p.as_of_unix : null,
     tokenCount: typeof p.token_count === 'number' ? p.token_count : rows.length,
     observedAt: typeof p.observedAt === 'number' ? p.observedAt : null,
-    // `/api/heat` serves `x_handle`; the BOARD (`/api/flames`) serves the same thing
-    // as `x_username`. Both names are real — read live 2026-09-06 — so neither reader
-    // may assume the other's spelling. A missing handle is an unnamed flame, NOT an
-    // envelope failure: heatEnvelopeFailure deliberately does not require this key.
+    // /api/heat serves `x_handle` (the board serves `x_username`). A missing handle is
+    // an unnamed flame, not an envelope failure.
     xHandle: normalizeXHandle(p.x_handle),
     breakdown: rows.map((b) => ({
       tokenAddress: String(b.token_address ?? ''),
@@ -231,48 +121,29 @@ export function parseHeatReading(payload: unknown): HeatReading {
       degrees: typeof b.heat_degrees === 'number' ? b.heat_degrees : 0,
       firstSeenAtUnix: typeof b.first_seen_at_unix === 'number' ? b.first_seen_at_unix : null,
       lastTransferAtUnix: typeof b.last_transfer_at_unix === 'number' ? b.last_transfer_at_unix : null,
+      retired: b.retired === true,
     })),
   };
 }
 
-/**
- * THE FRESHNESS LAW. A reading older than `maxAgeDays` may not pass or fail anyone.
- *
- * A cold wallet carries `asOfUnix: null` — it has no rows, so there is nothing that
- * could have gone stale. We treat that as NOT stale and let the floor comparison do
- * the work (a cold wallet is 0° and fails any positive floor on its merits, not on a
- * technicality). This reading is an ASSUMPTION pending the island's ruling; if they
- * rule the other way, flip this one branch and every caller inherits it.
- */
+/** The freshness law: a reading older than maxAgeDays may not pass or fail anyone. A cold
+ *  wallet (asOfUnix null) is never stale; it fails a positive floor on its merits. That is
+ *  an assumption pending the island's ruling: flip this one branch if it rules otherwise. */
 export function isStale(reading: HeatReading, nowUnix: number, maxAgeDays = GATE_MAX_AGE_DAYS): boolean {
   if (reading.asOfUnix === null) return false;
   return nowUnix - reading.asOfUnix > maxAgeDays * 86_400;
 }
 
-/**
- * THE THREE STATES OF THE DOOR. Exactly three, and the spec is emphatic that there are
- * exactly three — a fourth would be a verdict the instrument never gave.
- *
- *   WARM   degrees >= floor            the launch lane opens
- *   COLD   below floor                 the wallet sees its own degrees and what warmth is
- *   STALE  old reading or oracle silent honest error + retry. NEVER a fake verdict
- *
- * STALE covers "we could not ask" as well as "the answer is too old", because both are
- * the same fact from the door's side: there is no reading it is allowed to judge on.
- * They are kept apart in `reason` for the audit row, never in the state.
- */
+/** Exactly three door states. WARM: degrees at or above the floor. COLD: below it, and the
+ *  wallet sees its own degrees. STALE: an old reading or a silent oracle, never a verdict;
+ *  `reason` keeps those two apart for the audit row. */
 export type GateState = 'WARM' | 'COLD' | 'STALE';
 
 /** Machine-readable cause, one level finer than the state. Audit-only; UI renders `state`. */
 export type GateReason = 'qualified' | 'below-floor' | 'stale-reading' | 'unreadable';
 
-/**
- * One gate decision, in the shape the audit surface stores it.
- *
- * The spec names the row it wants logged — `{ address, degrees, tier, as_of, floor,
- * verdict }` — so any outcome replays against the instrument. This carries exactly
- * those, plus the state/reason split and the instant it was decided.
- */
+/** One gate decision, the audit row the spec asks for (address, degrees, tier, as_of,
+ *  floor, verdict) plus the state/reason split and the instant it was decided. */
 export interface GateDecision {
   address: string;
   state: GateState;
@@ -291,27 +162,10 @@ export interface GateDecision {
   decidedAt: number;
 }
 
-/**
- * THE GATE PRIMITIVE, pure half. `meetsHeatFloor` in launchGate.ts is the async half
- * that fetches; this is where the rule actually lives, so the rule is auditable in
- * exactly one place and testable without a network.
- *
- * FAIL-CLOSED, in this order — the absence of a positive answer denies, never merely
- * the presence of a negative one:
- *   1. no reading at all              -> STALE (we could not ask; that is not a pass)
- *   2. reading older than maxAgeDays  -> STALE (a stale ruler certifies nothing, so it
- *                                        may not pass ANYONE — including the wallet
- *                                        that would otherwise sail through)
- *   3. degrees below the floor        -> COLD (and the wallet is told its own number)
- *   4. degrees at or above the floor  -> WARM
- *
- * A COLD WALLET IS NOT STALE. A wallet with no measured holdings carries
- * `asOfUnix: null` — nothing has been reckoned, so nothing can have gone out of date.
- * It reads 0°, fails the floor on its merits, and gets the COLD state that explains
- * what warmth is. Routing it to STALE instead would tell a first-time visitor the
- * instrument was broken when it was working perfectly. (This resolves the open
- * question logged against the null `as_of_unix` on 2026-08-07.)
- */
+/** The gate rule, pure; meetsHeatFloor in launchGate.ts is the async half. Fail-closed, in
+ *  order: no reading -> STALE; older than maxAgeDays -> STALE (passes and fails no one);
+ *  below the floor -> COLD, told its own number; at or above -> WARM. A cold wallet
+ *  (asOfUnix null) is COLD, not STALE: the instrument worked. */
 export function gateDecision(
   address: string,
   reading: HeatReading | null,
@@ -330,7 +184,7 @@ export function gateDecision(
       degrees: null,
       tier: null,
       asOfUnix: null,
-      detail: 'The island’s instrument is unreachable, so the door cannot read you. Nothing has been decided — try again in a moment.',
+      detail: 'The island’s instrument is unreachable, so the door cannot read you. Nothing has been decided. Try again in a moment.',
     };
   }
 
@@ -354,7 +208,8 @@ export function gateDecision(
       state: 'WARM',
       reason: 'qualified',
       qualified: true,
-      detail: `${reading.degrees.toFixed(2)}° — ${reading.tier}. The launch lane is open.`,
+      // The wallet's own tier word, never the floor's.
+      detail: `This wallet reads ${reading.degrees.toFixed(2)}° (${reading.tier}). The launch lane is open.`,
     };
   }
 
@@ -364,20 +219,21 @@ export function gateDecision(
     state: 'COLD',
     reason: 'below-floor',
     qualified: false,
-    detail: `${reading.degrees.toFixed(2)}° — ${reading.tier}. The door opens at ${floor}°, and degrees are held time: they accrue by holding tokens the island measures, and they cannot be bought.`,
+    detail: `This wallet reads ${reading.degrees.toFixed(2)}° (${reading.tier}). The door opens at ${floor}°, and degrees are held time: they accrue by holding tokens the island measures, and they cannot be bought.`,
   };
 }
 
-// `heldDays` used to live here. Deleted on purpose: it was ready-made tenure
-// arithmetic sitting next to a gate whose spec forbids tenure rules ("NO
-// 180-day check, NO calendar, anywhere in this codebase"), and it had no
-// callers. Surfaces that want to show history render `heldSinceUnix` directly
-// as a date — a fact, not a day-counter an eager caller could gate on.
-
-/** The tier a given island_heat falls in. Mirrors the island's floors; display only. */
+/** The ladder rung a number sits on. Never the word beside a wallet: that is served. */
 export function tierFor(degrees: number): HeatTier {
   for (const t of TIER_FLOORS) if (degrees >= t.floor) return t.tier;
   return 'Drifter';
+}
+
+/** The tier a floor sits exactly on, or null between rungs: the word named beside the
+ *  launch floor. tierFor(123) is Resident, but no tier opens a door at 123. */
+export function tierAtFloor(degrees: number): HeatTier | null {
+  const tier = tierFor(degrees);
+  return TIER_FLOORS.find((t) => t.tier === tier)?.floor === degrees ? tier : null;
 }
 
 /** The next tier up and the degrees still needed, or null at Elder. */
@@ -387,28 +243,4 @@ export function nextTier(degrees: number): { tier: HeatTier; floor: number; rema
     if (degrees < t.floor) return { tier: t.tier, floor: t.floor, remaining: t.floor - degrees };
   }
   return null;
-}
-
-/**
- * The island's curve, for EXPLAINING and PREVIEWING only.
- *
- * `share` is the wallet's TIME-WEIGHTED average balance as a fraction of total supply
- * (0–1). The spec permits a local re-implementation for previews and candidate
- * screens — and forbids assigning any criteria state from it. Never call this to
- * decide anything.
- */
-export function heatDegreesFor(share: number): number {
-  if (!(share > 0)) return 0;
-  return 100 * (1 - Math.exp(-HEAT_K * share));
-}
-
-/**
- * Inverse of the curve: the time-weighted supply share a wallet needs to reach
- * `degrees` on ONE token. Used to render "what would this take?" in the explainer.
- * Returns null at/above the 100° asymptote, which is unreachable.
- */
-export function shareForDegrees(degrees: number): number | null {
-  if (degrees <= 0) return 0;
-  if (degrees >= 100) return null;
-  return -Math.log(1 - degrees / 100) / HEAT_K;
 }

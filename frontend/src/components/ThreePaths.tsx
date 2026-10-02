@@ -1,31 +1,22 @@
-// The three paths: the whole venue, as three things a stranger can do.
-//
-// WHY THIS EXISTS. The arrival hero used to carry three buttons of near-equal weight
-// (Pick a bungalow / Launch on Heat / Scan any token) directly under four paragraphs.
-// A first-time reader met three choices before meeting one number. Wave seven gives
-// the hero back to the instrument and moves the choosing HERE, under the hall, where
-// a visitor arrives having already seen what the place is.
-//
-// ONE LINE EACH, AND THE REQUIREMENT AT THE POINT OF INTENT. Every card states its
-// own cost of entry in its own sentence, so nobody walks into a door that will turn
-// them away: LP says there is no lock, and LAUNCH says what the floor is before the
-// click rather than after it.
-//
-// THE FLOOR IS READ, NEVER TYPED. `heatLaunchFloor()` is the same value the launch
-// gate enforces with, resolved at render. A typed 80 here would be a promise the gate
-// could silently stop keeping.
+// The three paths: the whole venue as three things a stranger can do, one line each.
+// Every card states its own cost of entry before the click: LP says there is no lock,
+// and LAUNCH says the floor. The floor is heatLaunchFloor(), the value the launch gate
+// enforces, read at render and never typed.
 
 import { Link } from 'react-router-dom';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
+import { tierAtFloor } from '../lib/heat/heatOracle';
 
 export function ThreePaths() {
   const floor = heatLaunchFloor();
+  // Answer ten, ruling 4: name the tier only when the floor sits exactly on its rung.
+  const floorTier = tierAtFloor(floor);
 
   const paths = [
     {
       to: '/#hall',
       title: 'Hold',
-      line: 'Your clock starts at your first buy. Pick a bungalow.',
+      line: 'Your clock on a token starts at your first hold. Pick a bungalow.',
       accent: 'var(--color-kyle)',
     },
     {
@@ -39,7 +30,7 @@ export function ThreePaths() {
     {
       to: '/launch',
       title: 'Launch',
-      line: `Residents may plant. The floor is ${floor}°.`,
+      line: floorTier ? `${floorTier}s may plant. The floor is ${floor}°.` : `The floor is ${floor}°.`,
       accent: '#d4a843',
     },
   ];

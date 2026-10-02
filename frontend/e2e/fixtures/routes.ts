@@ -26,6 +26,7 @@
  * reader would open.)
  */
 
+import type { RouteVoice } from '../../src/lib/routeVoice';
 import type { Page } from '@playwright/test';
 
 /** Why a route cannot be asserted the way the others are. Never left implicit. */
@@ -54,6 +55,14 @@ export interface RouteSpec {
   /** Hub tab this path selects, when the owner is a tabbed host. */
   tabOf?: string;
   gate: RouteGate;
+  /**
+   * WAVE SEVEN, ruling 2 (row Q): whose voice this route speaks. REQUIRED, so a
+   * row cannot land without a verdict. `null` exactly when `gate` is not null:
+   * a redirect or an unaudited route renders no page to judge.
+   * a11yRouteCoverage.test.ts holds every audited verdict equal to the app's
+   * own routeVoice(), and e2e/voice-census.spec.ts walks them.
+   */
+  voice: RouteVoice | null;
   /** Required when `gate` is not null; also used to record what an audited route does NOT reach. */
   why?: string;
   /** Required when `gate === 'redirect'` or `'dev-only'`: the path the router lands on. */
@@ -190,8 +199,25 @@ export async function gotoNakamigos(page: Page): Promise<void> {
 /**
  * THE MEASUREMENT BEHIND THE FOUR GECKOTERMINAL ROWS.
  *
+ * ⚠️ STILL VALID, BUT THE URL MOVED (2026-09-10). These four routes no longer
+ * read api.geckoterminal.com browser-direct: every GeckoTerminal read now goes
+ * to `/api/aggregator?resource=gecko-read` on our own origin, which forwards it
+ * with an `s-maxage` (see api/_lib/gecko-read.js). The three branches below are
+ * unchanged as a record of what was measured — what changes is the PATTERN a
+ * future stub would have to match. `'**api.geckoterminal.com/**'` intercepts
+ * nothing now; the equivalent is `GECKO_EDGE_GLOB` below.
+ *
+ * That note was written and the two specs still holding the old pattern were
+ * not changed, so both went on aborting nothing for two days. It cost a red
+ * trunk: em-dash-zero read /competitions at 16 instead of 17, because an
+ * un-aborted read against `vite preview` gets the SPA fallback's 200 text/html,
+ * fails at the JSON parse instead of at the socket, and the coverage notice
+ * prints the 'schema' sentence (no dash) where it used to print 'network'
+ * ("could not be reached — that is an outage"). Hence the exported constant:
+ * one string, so the next move cannot leave a caller behind.
+ *
  * /terminal, /chart, /copy-trading and /competitions each read
- * api.geckoterminal.com browser-direct and keyless, and nothing stubs it. So
+ * GeckoTerminal keyless, and nothing stubs it. So
  * their audited DOM depends on whether a third party answered — which is
  * exactly the shape that flakes an EQUALITY assertion, if the ready branch and
  * the degraded branch violate different rules. The obvious fix is a route stub;
@@ -235,6 +261,17 @@ export async function gotoNakamigos(page: Page): Promise<void> {
  * adding one back — the reason to add it is a route whose two branches DO
  * differ, not the fact that a network read exists.
  */
+/**
+ * The glob that really intercepts a GeckoTerminal read, for a spec that wants
+ * the degraded branch on purpose.
+ *
+ * It matches the SAME-ORIGIN edge (`/api/aggregator?resource=gecko-read&…`,
+ * src/lib/geckoTerminal/edge.ts), which is where every such read goes since
+ * 2026-09-10. Import this rather than writing a literal: a stub that matches
+ * nothing does not fail, it silently measures whatever the unstubbed page did.
+ */
+export const GECKO_EDGE_GLOB = '**resource=gecko-read**';
+
 const BOTH_BRANCHES_MEASURED =
   'BOTH BRANCHES MEASURED (2026-09-03, all four device projects): with the feed answering, with it ' +
   'aborted at the browser, and with it 429ing, this route violated NOTHING in every case — see the ' +
@@ -254,7 +291,7 @@ export const ROUTES: readonly RouteSpec[] = [
   // correct where the skinned one's was not. Measured both ways: with the venue
   // pinned (no reload) and without it (letting the door's one reload settle),
   // the audit returns no violations at all.
-  { path: '/', owner: 'pages/HomePage.tsx', gate: null, knownViolations: [] },
+  { path: '/', voice: 'venue', owner: 'pages/HomePage.tsx', gate: null, knownViolations: [] },
   // ── Bungalow doors (2026-08-28 audit) ────────────────────────────────────
   // App.tsx builds these routes by MAPPING over lib/bungalows.ts (`path={path}`
   // JSX expressions), which the sync-guard's `path="…"` regex cannot see — so
@@ -267,6 +304,7 @@ export const ROUTES: readonly RouteSpec[] = [
   ...(['toweli', 'bayla', 'pepe', 'qr', 'mfer', 'bnkr', 'drb', 'bobo', 'jbm', 'soy', 'brainlet', 'rizz', 'nb1', 'towelie'] as const).map(
     (slug) => ({
       path: `/${slug}`,
+      voice: slug === 'toweli' || slug === 'towelie' ? ('toweli' as const) : ('bungalow' as const),
       owner: 'pages/HomePage.tsx',
       gate: null,
       // Measured per door class (re-measured 2026-08-30 when settled doors
@@ -278,22 +316,42 @@ export const ROUTES: readonly RouteSpec[] = [
     }),
   ),
   {
-    path: '/farm',
+    // 2026-09-30: Earn's landing tab moved from /farm to /earn, and it is ALWAYS
+    // the list of every pool, whatever room is stored (the walletMock stores
+    // toweli, and this still renders the list). One pool is /earn/:poolId.
+    path: '/earn',
+    voice: 'venue',
     owner: 'pages/FarmPage.tsx',
-    // 2026-09-05: /farm is the Earn section's landing tab now, so it renders
-    // through EarnPage with a strip above it. FarmPage is still the page in the
-    // panel, which is why `owner` does not move.
-    tabOf: 'EarnPage · farm',
+    tabOf: 'EarnPage · earn',
+    gate: null,
+    knownViolations: [],
+  },
+  {
+    // One pool, its room entered on arrival. Audited at /earn/toweli, the
+    // TOWELI farm, which inherits /farm's two measurements: the disconnected
+    // surface is a wallet gate with no top-level heading (its h1 exists only
+    // in the connected branch), and connecting brings the stake form's label
+    // finding. Both lists are kept because a fix must satisfy both.
+    path: '/earn/:poolId',
+    voice: 'toweli',
+    owner: 'pages/FarmPage.tsx',
+    tabOf: 'EarnPage · earn',
     gate: null,
     knownViolations: ['page-has-heading-one'],
-    // Connecting REMOVES the missing-h1 finding: the disconnected surface is a
-    // wallet gate with no top-level heading, and the page's own h1 only exists
-    // in the connected branch. Both lists are kept because a fix must satisfy
-    // both, and a reader comparing them can see the split.
     connectedViolations: ['form-field-label'],
   },
   {
+    path: '/farm',
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why: "Earn's address until 2026-09-30. An old link keeps its meaning: the stored room's pool (the walletMock stores toweli), or the list with no room.",
+    redirectsTo: '/earn/toweli',
+    knownViolations: [],
+  },
+  {
     path: '/swap',
+    voice: 'venue',
     owner: 'pages/TradePage.tsx',
     tabOf: 'TradePage · swap',
     gate: null,
@@ -307,6 +365,7 @@ export const ROUTES: readonly RouteSpec[] = [
     // real page now (the Pools section's landing tab), so the owner is the page
     // rather than a tab of another one.
     path: '/liquidity',
+    voice: 'venue',
     owner: 'pages/LiquidityPage.tsx',
     tabOf: 'PoolsHostPage · liquidity',
     gate: null,
@@ -330,6 +389,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/solana',
+    voice: 'venue',
     owner: 'pages/SolanaSwapPage.tsx',
     gate: null,
     why:
@@ -343,6 +403,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/pools',
+    voice: 'venue',
     owner: 'pages/PoolsPage.tsx',
     // Moved host 2026-09-05: it was a tab of the Trade strip (where a liquidity
     // surface had no business being) and is now a tab of Pools.
@@ -354,15 +415,16 @@ export const ROUTES: readonly RouteSpec[] = [
       'create_amm_config runs, not a placeholder.',
     knownViolations: [],
   },
-  { path: '/curve-launch', owner: 'pages/CurveLaunchPage.tsx',
+  { path: '/curve-launch', voice: 'venue', owner: 'pages/CurveLaunchPage.tsx',
     tabOf: 'LaunchHubPage · curve-launch', gate: null, knownViolations: [] },
-  { path: '/eth-curve', owner: 'pages/EthCurvePage.tsx',
+  { path: '/eth-curve', voice: 'venue', owner: 'pages/EthCurvePage.tsx',
     tabOf: 'LaunchHubPage · eth-curve', gate: null, knownViolations: [] },
-  { path: '/eth-curve/:token', owner: 'pages/CurveTokenPage.tsx', gate: null, knownViolations: [] },
-  { path: '/launch', owner: 'pages/LaunchPage.tsx',
+  { path: '/eth-curve/:token', voice: 'venue', owner: 'pages/CurveTokenPage.tsx', gate: null, knownViolations: [] },
+  { path: '/launch', voice: 'venue', owner: 'pages/LaunchPage.tsx',
     tabOf: 'LaunchHubPage · launch', gate: null, knownViolations: ['form-field-label'] },
   {
     path: '/launch/:token',
+    voice: 'venue',
     owner: 'pages/LaunchTokenPage.tsx',
     gate: null,
     why:
@@ -371,10 +433,11 @@ export const ROUTES: readonly RouteSpec[] = [
       'covering those needs a launched token on the chain the run points at.',
     knownViolations: [],
   },
-  { path: '/launch-simulator', owner: 'pages/LaunchSimulatorPage.tsx',
+  { path: '/launch-simulator', voice: 'venue', owner: 'pages/LaunchSimulatorPage.tsx',
     tabOf: 'LaunchHubPage · launch-simulator', gate: null, knownViolations: [] },
   {
     path: '/airdrop',
+    voice: 'venue',
     owner: 'pages/AirdropPage.tsx',
     gate: null,
     why:
@@ -386,6 +449,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/vesting',
+    voice: 'venue',
     owner: 'pages/VestingPage.tsx',
     gate: null,
     why:
@@ -396,6 +460,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/start',
+    voice: 'venue',
     owner: 'components/onboarding/OnboardingFlow.tsx',
     gate: null,
     why:
@@ -406,6 +471,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/zap',
+    voice: 'toweli',
     owner: 'components/zap/ZapPage.tsx',
     // 2026-09-05: promoted out of orphanhood. It was routed and linked from
     // NOWHERE — no nav entry, no footer row, no page — and is a Pools tab now.
@@ -420,6 +486,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/yield',
+    voice: 'venue',
     owner: 'pages/YieldPage.tsx',
     tabOf: 'EarnPage · yield',
     gate: null,
@@ -437,6 +504,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/copy-trading',
+    voice: 'venue',
     owner: 'pages/CopyTradingPage.tsx',
     tabOf: 'EarnPage · copy-trading',
     gate: null,
@@ -445,8 +513,8 @@ export const ROUTES: readonly RouteSpec[] = [
       'and nothing stubs it, so the tape read-ledger renders whichever answer the feed gives and the leader ' +
       'board is drawn ONLY when that read lands — a refused or rate-limited read leaves every pool unread ' +
       'and draws no board. A rule id pinned here therefore has to hold for both answers. The venue-router ' +
-      'section below is always in its unread state (VITE_INDEXER_URL is unset and the Ponder indexer is ' +
-      'hosted nowhere), so its three "could not be read" notices render and none of them draws a table. The ' +
+      'section below is one line in this build (VITE_INDEXER_URL is unset here, though production has it), ' +
+      'so it draws no notice and no table. The ' +
       'follow form and the pasted-Solana-address field are the only live controls — both write to ' +
       'localStorage and need no chain. The sized mirror plans, their refusals and the realised entry-lag ' +
       'figures need a connected wallet and a live feed this sweep cannot guarantee, and are pinned ' +
@@ -462,11 +530,12 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/competitions',
+    voice: 'venue',
     owner: 'pages/CompetitionsPage.tsx',
     tabOf: 'EarnPage · competitions',
     gate: null,
     why:
-      'Two halves with two different answers. The Island Cup reads api.geckoterminal.com live and keyless ' +
+      'Two halves with two different answers. The volume board reads api.geckoterminal.com live and keyless ' +
       'and nothing stubs it, so it renders either the ranked board or its coverage notice depending on what ' +
       'the feed answers at run time; both states carry the same landmarks (one h1, a captioned table with ' +
       'scoped headers, a labelled select and input, named buttons) and both are pinned deterministically by ' +
@@ -475,7 +544,7 @@ export const ROUTES: readonly RouteSpec[] = [
       'standings table does not. The season picker and the scoring rules render from lib/competitions and ' +
       'are fully audited either way. ' +
       BOTH_BRANCHES_MEASURED +
-      'Here the ready DOM is a 77-row Cup board of ~9.3k chars and the degraded one has no table at all ' +
+      'Here the ready DOM is a 77-row volume board of ~9.3k chars and the degraded one has no table at all ' +
       '(~3.4k). This route also happens to be the one that proves the concern was worth measuring rather ' +
       'than assuming: a live unstubbed read of its 13 pools rate-limits part-way through on a real run ' +
       '(5 answered, 8 refused), so a THIRD, partial DOM is reachable in CI — 227 rows on the pass that ' +
@@ -484,6 +553,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/trade',
+    voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
     why: 'The nav labels this Trade; the natural URL resolves instead of 404ing.',
@@ -492,6 +562,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/dashboard',
+    voice: 'venue',
     owner: 'pages/DashboardPage.tsx',
     gate: null,
     knownViolations: [],
@@ -508,6 +579,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/island',
+    voice: 'venue',
     owner: 'pages/IslandPage.tsx',
     gate: null,
     why:
@@ -519,9 +591,10 @@ export const ROUTES: readonly RouteSpec[] = [
     // a real violation fails loudly instead of hiding behind a pre-declared pin.
     knownViolations: [],
   },
-  { path: '/gallery', owner: 'pages/GalleryPage.tsx', gate: null, knownViolations: [] },
+  { path: '/gallery', voice: 'venue', owner: 'pages/GalleryPage.tsx', gate: null, knownViolations: [] },
   {
     path: '/tokenomics',
+    voice: 'toweli',
     owner: 'pages/TokenomicsPage.tsx',
     tabOf: 'StatsPage · tokenomics',
     gate: null,
@@ -529,14 +602,16 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/history',
+    voice: 'venue',
     owner: 'pages/ActivityPage.tsx',
     tabOf: 'ActivityPage · history',
     gate: null,
     knownViolations: ['page-has-heading-one'],
   },
-  { path: '/lore', owner: 'pages/LearnPage.tsx', tabOf: 'LearnPage · lore', gate: null, knownViolations: [] },
+  { path: '/lore', voice: 'toweli', owner: 'pages/LearnPage.tsx', tabOf: 'LearnPage · lore', gate: null, knownViolations: [] },
   {
     path: '/learn',
+    voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
     // Landed on /tokenomics until 2026-09-04, when Tokenomics moved to the Stats
@@ -548,14 +623,16 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/leaderboard',
+    voice: 'venue',
     owner: 'pages/ActivityPage.tsx',
     tabOf: 'ActivityPage · points',
     gate: null,
     knownViolations: [],
   },
-  { path: '/community', owner: 'pages/CommunityPage.tsx', gate: null, knownViolations: ['aria-valid-attr-value'] },
+  { path: '/community', voice: 'venue', owner: 'pages/CommunityPage.tsx', gate: null, knownViolations: ['aria-valid-attr-value'] },
   {
     path: '/grants',
+    voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
     why: 'GrantsPage was merged into CommunityPage.',
@@ -564,6 +641,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/bounties',
+    voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
     why: 'BountyPage was merged into CommunityPage as a section anchor.',
@@ -577,6 +655,7 @@ export const ROUTES: readonly RouteSpec[] = [
     // lands here and is handed to the instrument with the address already in
     // it, so `?heat=` stays the one hydration path.
     path: '/read/:address',
+    voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
     why: 'The read link hands a human to the instrument, hydrated, at /?heat=<address>.',
@@ -585,6 +664,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/read',
+    voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
     why: 'A read link with no address is not an error page; it is the venue.',
@@ -593,14 +673,16 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/restake',
+    voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
-    why: 'RestakePage was merged into FarmPage.',
-    redirectsTo: '/farm',
+    why: 'RestakePage was merged into the TOWELI farm, now at /earn/toweli.',
+    redirectsTo: '/earn/toweli',
     knownViolations: [],
   },
   {
     path: '/premium',
+    voice: 'toweli',
     owner: 'pages/ActivityPage.tsx',
     tabOf: 'ActivityPage · gold',
     gate: null,
@@ -611,15 +693,17 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/bribes',
+    voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
     why: 'BribesPage was merged into CommunityPage as a section anchor.',
     redirectsTo: '/community',
     knownViolations: [],
   },
-  { path: '/admin', owner: 'pages/AdminPage.tsx', gate: null, knownViolations: [] },
+  { path: '/admin', voice: 'venue', owner: 'pages/AdminPage.tsx', gate: null, knownViolations: [] },
   {
     path: '/nft-finance',
+    voice: 'venue',
     owner: 'pages/LendingPage.tsx',
     gate: null,
     knownViolations: ['aria-valid-attr-value', 'form-field-label', 'heading-order'],
@@ -627,6 +711,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/lending',
+    voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
     why: 'Renamed surface; the sitemap lists the destination, not this.',
@@ -635,6 +720,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/launchpad',
+    voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
     why: 'LaunchpadPage was merged into LendingPage.',
@@ -643,6 +729,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/nft-amm',
+    voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
     why: 'NFTAMMPage was merged into LendingPage.',
@@ -651,19 +738,23 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/governance',
+    voice: null,
     owner: 'App.tsx',
     gate: 'redirect',
     why: 'The governance surfaces live on CommunityPage.',
     redirectsTo: '/community',
     knownViolations: [],
   },
-  { path: '/security', owner: 'pages/LearnPage.tsx', tabOf: 'LearnPage · security', gate: null, knownViolations: [] },
-  { path: '/terms', owner: 'pages/InfoPage.tsx', tabOf: 'InfoPage · terms', gate: null, knownViolations: [] },
-  { path: '/privacy', owner: 'pages/InfoPage.tsx', tabOf: 'InfoPage · privacy', gate: null, knownViolations: [] },
-  { path: '/risks', owner: 'pages/InfoPage.tsx', tabOf: 'InfoPage · risks', gate: null, knownViolations: [] },
-  { path: '/faq', owner: 'pages/LearnPage.tsx', tabOf: 'LearnPage · faq', gate: null, knownViolations: ['aria-valid-attr-value'] },
+  { path: '/security', voice: 'venue', owner: 'pages/LearnPage.tsx', tabOf: 'LearnPage · security', gate: null, knownViolations: [] },
+  { path: '/terms', voice: 'legal', owner: 'pages/InfoPage.tsx', tabOf: 'InfoPage · terms', gate: null, knownViolations: [] },
+  { path: '/privacy', voice: 'venue', owner: 'pages/InfoPage.tsx', tabOf: 'InfoPage · privacy', gate: null, knownViolations: [] },
+  { path: '/risks', voice: 'venue', owner: 'pages/InfoPage.tsx', tabOf: 'InfoPage · risks', gate: null, knownViolations: [] },
+  // aria-valid-attr-value CLEARED by wave seven row Q: the answer panels are
+  // always on the page now, so aria-controls names an id that exists.
+  { path: '/faq', voice: 'venue', owner: 'pages/LearnPage.tsx', tabOf: 'LearnPage · faq', gate: null, knownViolations: [] },
   {
     path: '/changelog',
+    voice: 'record',
     owner: 'pages/ActivityPage.tsx',
     tabOf: 'ActivityPage · changelog',
     gate: null,
@@ -671,28 +762,31 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/contracts',
+    voice: 'record',
     owner: 'pages/InfoPage.tsx',
     tabOf: 'InfoPage · contracts',
     gate: null,
     knownViolations: ['aria-valid-attr-value'],
   },
-  { path: '/treasury', owner: 'pages/TreasuryPage.tsx', tabOf: 'StatsPage · treasury', gate: null, knownViolations: [] },
+  { path: '/treasury', voice: 'toweli', owner: 'pages/TreasuryPage.tsx', tabOf: 'StatsPage · treasury', gate: null, knownViolations: [] },
   {
     path: '/exposure',
+    voice: 'venue',
     owner: 'pages/WalletExposurePage.tsx',
     tabOf: 'TrustPage · exposure',
     gate: null,
     knownViolations: [],
     connectedViolations: [],
   },
-  { path: '/scan', owner: 'pages/ScannerPage.tsx',
+  { path: '/scan', voice: 'venue', owner: 'pages/ScannerPage.tsx',
     tabOf: 'TrustPage · scan', gate: null, knownViolations: [] },
-  { path: '/deployer', owner: 'pages/DeployerPage.tsx',
+  { path: '/deployer', voice: 'venue', owner: 'pages/DeployerPage.tsx',
     tabOf: 'TrustPage · deployer', gate: null, knownViolations: [] },
-  { path: '/trust', owner: 'pages/TrustHubPage.tsx',
+  { path: '/trust', voice: 'venue', owner: 'pages/TrustHubPage.tsx',
     tabOf: 'TrustPage · trust', gate: null, knownViolations: [] },
   {
     path: '/terminal',
+    voice: 'venue',
     owner: 'pages/TerminalPage.tsx',
     tabOf: 'TrustPage · terminal',
     gate: null,
@@ -711,6 +805,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/chart',
+    voice: 'venue',
     owner: 'components/chart/ChartPage.tsx',
     tabOf: 'TrustPage · chart',
     gate: null,
@@ -730,6 +825,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/alerts',
+    voice: 'venue',
     owner: 'pages/AlertsPage.tsx',
     tabOf: 'TrustPage · alerts',
     gate: null,
@@ -744,6 +840,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/referrals',
+    voice: 'toweli',
     owner: 'pages/ReferralsPage.tsx',
     tabOf: 'EarnPage · referrals',
     gate: null,
@@ -758,6 +855,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/checkout',
+    voice: 'venue',
     owner: 'pages/CheckoutPage.tsx',
     tabOf: 'EarnPage · checkout',
     gate: null,
@@ -777,6 +875,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/tax',
+    voice: 'venue',
     owner: 'pages/TaxPage.tsx',
     tabOf: 'StatsPage · tax',
     gate: null,
@@ -790,9 +889,10 @@ export const ROUTES: readonly RouteSpec[] = [
       'matched lots, the per-method totals and the three exports need input this sweep does not supply.',
     knownViolations: [],
   },
-  { path: '/developers', owner: 'pages/DeveloperPage.tsx', gate: null, knownViolations: [] },
+  { path: '/developers', voice: 'venue', owner: 'pages/DeveloperPage.tsx', gate: null, knownViolations: [] },
   {
     path: '/nakamigos',
+    voice: 'venue',
     owner: 'nakamigos/App.jsx',
     gate: null,
     why:
@@ -803,6 +903,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/art-studio',
+    voice: null,
     owner: 'App.tsx',
     gate: 'dev-only',
     why:
@@ -814,6 +915,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/bayla-studio',
+    voice: null,
     owner: 'App.tsx',
     gate: 'unlisted',
     why:
@@ -826,6 +928,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/bungalow-studio/:bungalowId',
+    voice: null,
     owner: 'App.tsx',
     gate: 'unlisted',
     why:
@@ -837,7 +940,24 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/door-studio',
+    // Authoring tool, not a room the island speaks in — same as the other
+    // studios, which all declare a null voice.
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'unlisted',
+    why:
+      'The island’s FRONT-PAGE authoring tool (2026-09-13): the thirteen door tiles in ' +
+      'VenueDoors and the rows in BungalowPicker, which no studio could reach while `thumb` ' +
+      'was hand-written on the registry entry. Draws from every resident’s pool at once, ' +
+      'because a door is a shop window rather than a surface owned by the resident behind it. ' +
+      'Unlisted in production on the same export-only footing as the surface studios; it takes ' +
+      'no params, so there is no unknown-id leg to redirect.',
+    knownViolations: [],
+  },
+  {
     path: '/*',
+    voice: 'venue',
     owner: 'App.tsx · NotFoundPage',
     gate: null,
     why: 'Navigated as a path no route matches.',
@@ -850,8 +970,27 @@ export const ROUTES: readonly RouteSpec[] = [
  * `main`. Audited once, on `/`, with `main` excluded. Without this the footer's
  * heading levels would be reported on all forty routes and each route's own
  * defect would be buried under a duplicate.
+ *
+ * EMPTY SINCE 2026-09-09, AND THE VIOLATION WAS NEVER THE CHROME'S FAULT.
+ *
+ * This carried `heading-order` for as long as the list has existed, filed
+ * against `components/layout/` because that is where the flagged node lives:
+ * the footer's first `<h4>`. The footer was innocent. `heading-order` judges a
+ * heading against the PREVIOUS one in document order, and the previous one was
+ * whatever the arrival's last section left behind — inside `main`, which this
+ * audit excludes from reporting but cannot exclude from the document.
+ *
+ * The arrival used to end on the FAQ teaser's `<h2>`, so the real sequence was
+ * h1 → h2 → h3 × 3 → **h2** → h4: a jump from h2 straight to h4, skipping h3,
+ * and the footer wore it. Wave seven's element C gated that teaser to /toweli,
+ * and the arrival now reads h1 → h2 (the hall) → h3 × 3 (the three paths)
+ * → h4 (the footer). No skip, nothing to declare.
+ *
+ * Measured, not deduced: the heading list above was read off the rendered page
+ * before and after. Kept as an empty list rather than deleted so the next
+ * regression still lands here with this note attached.
  */
-export const CHROME_KNOWN_VIOLATIONS: readonly string[] = ['heading-order'];
+export const CHROME_KNOWN_VIOLATIONS: readonly string[] = [];
 
 /** Routes that render a page and are audited. */
 export const AUDITABLE_ROUTES = ROUTES.filter((r) => r.gate === null);
@@ -869,6 +1008,8 @@ export const CONNECTED_AUDIT_ROUTES = ROUTES.filter((r) => r.connectedViolations
 export function navigablePath(route: RouteSpec): string {
   if (route.path === '/*') return '/this-path-matches-no-route-a11y-sweep';
   if (route.path === '/launch/:token') return '/launch/0x0000000000000000000000000000000000000000';
+  // TOWELI's pool: the classic farm, and the pool whose measurements /farm carried.
+  if (route.path === '/earn/:poolId') return '/earn/toweli';
   // Any registry id works; in the built app this leg redirects to / anyway.
   if (route.path === '/bungalow-studio/:bungalowId') return '/bungalow-studio/bayla';
   // Zero address: every launcher probe fails -> the page's honest not-found

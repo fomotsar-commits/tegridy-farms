@@ -4,6 +4,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { formatTokenAmount, formatNumber } from '../lib/formatting';
 import {
   TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, SWAP_FEE_ROUTER_ADMIN_ADDRESS, PREMIUM_ACCESS_ADDRESS,
@@ -24,6 +25,8 @@ import { TypedConfirmation } from '../components/ui/TypedConfirmation';
 import { IntegratorFeesPanel } from '../components/launcher/IntegratorFeesPanel';
 import { BirthQueuePanel } from '../components/BirthQueuePanel';
 import { LAUNCHER_INTEGRATOR_ADDRESS } from '../lib/launcher/config';
+import { lpEmissionsPhase } from '../lib/lpEmissions';
+import { noteReplacement } from '../lib/txErrors';
 
 // Minimal ABI fragments for owner/admin reads not in the shared ABIs
 const OWNER_ABI = [
@@ -110,12 +113,17 @@ function PauseControls({
   refetchReads: () => Promise<unknown>;
 }) {
   const { writeContract, data: txHash, isPending: isSigning, error: writeError } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate the
-  // success toast on receipt.status.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  // was FETCHED. 2026-09-17: and a revert never reaches it — wagmi THROWS on a
+  // reverted receipt, so the revert toast below was dead and a reverted pause was
+  // silent. useReceiptOutcome splits `isError` into revert vs unreadable.
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = useReceiptOutcome(receiptQuery, {
+    hash: txHash,
+    chainId: CHAIN_ID,
+    repeatCost: 'the contract is already in the state you asked for.',
+  });
 
   // R007 Pattern B — fire the toast exactly once per `txHash` going confirmed,
   // no matter how many re-renders see `isSuccess: true`. Reads the dedup ref
@@ -142,6 +150,13 @@ function PauseControls({
         : 'Pause transaction reverted on-chain — the contract is still active.');
     }
   }, [isReverted, txHash, isPaused]);
+
+  // Unreadable: nothing is known, so re-read the pill rather than leave it
+  // asserting the pre-transaction state beside a "can't tell" warning. The same
+  // for a pause the wallet cancelled or replaced.
+  useEffect(() => {
+    if (isReceiptUnreadable || isReplaced) void refetchReads();
+  }, [isReceiptUnreadable, isReplaced, refetchReads]);
 
   // F384: surface a wallet rejection / gas-estimate failure instead of failing
   // silently (mirrors usePremiumAccess error toasting). Deduped per error.
@@ -277,6 +292,8 @@ export default function AdminPage() {
       // LP Farming
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'rewardRate', chainId: CHAIN_ID },
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'totalRawSupply', chainId: CHAIN_ID },
+      // Appended, never inserted: every entry above is read back by index.
+      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'periodFinish', chainId: CHAIN_ID },
     ],
     query: { enabled: isOwner && onCorrectChain },
   });
@@ -330,9 +347,32 @@ export default function AdminPage() {
 
   const lpRewardRate = safeBigInt(10);
   const totalSupply = safeBigInt(11);
+  const lpPeriodFinish = safeBigInt(12);
+  // `rewardRate` is Synthetix storage: it keeps its last value after `periodFinish`
+  // until the next notifyRewardAmount overwrites it, while earned() stops accruing.
+  // Printed raw, this card reported mainnet's leftover 0.003307/sec as the live rate
+  // on a farm whose period ended 2026-06-15. Gate on periodFinish, as useLPFarming
+  // (F100) and lib/lpEmissions do. An unread period gets no verdict and no rate; a
+  // period that READ as 0 was never funded, which lpEmissionsPhase calls 'unknown'.
+  const lpPhase = lpPeriodFinish != null ? lpEmissionsPhase(Number(lpPeriodFinish)) : undefined;
+  const lpPeriodDate = lpPeriodFinish != null ? new Date(Number(lpPeriodFinish) * 1000).toLocaleDateString() : '';
   const lpFarmItems = [
-    { label: 'Reward Rate', value: lpRewardRate != null ? `${Number(formatEther(lpRewardRate)).toFixed(6)}/sec` : '...' },
+    {
+      label: 'Reward Rate',
+      value: lpPhase === 'running'
+        ? (lpRewardRate != null ? `${Number(formatEther(lpRewardRate)).toFixed(6)}/sec` : '...')
+        : lpPhase === 'ended' ? '0/sec (period ended)'
+        : lpPhase === 'unknown' ? '0/sec (never funded)'
+        : '...',
+    },
     { label: 'Total Staked LP', value: totalSupply != null ? `${formatTokenAmount(Number(formatEther(totalSupply)))}` : '...' },
+    {
+      label: 'Reward Period',
+      value: lpPhase === 'running' ? `Ends ${lpPeriodDate}`
+        : lpPhase === 'ended' ? `Ended ${lpPeriodDate}`
+        : lpPhase === 'unknown' ? 'Never funded'
+        : '...',
+    },
   ];
 
   // Not connected

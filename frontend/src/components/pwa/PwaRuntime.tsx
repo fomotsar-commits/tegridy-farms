@@ -1,13 +1,12 @@
 import { useEffect } from 'react';
 import { registerAppServiceWorker } from '../../lib/pwa/serviceWorker';
-import { InstallPrompt } from './InstallPrompt';
 
 // Everything the installable app needs at runtime, mounted once.
 //
-// Two things live here and nothing else: the app-shell worker's registration
-// (which may honestly decline — see lib/pwa/serviceWorker.ts) and the install
-// banner. Both render or run nothing at all in the common case, so this is safe
-// to mount above the router.
+// ONE thing lives here now: the app-shell worker's registration (which may
+// honestly decline — see lib/pwa/serviceWorker.ts). The install offer used to
+// mount here too, as a fixed banner; wave seven element E moved it into the
+// footer as a row, because nothing opens over the page unasked.
 //
 // The registration result is deliberately NOT surfaced in the UI. Whether an
 // offline notice is installed is not a fact about the protocol, and a badge
@@ -29,7 +28,11 @@ export function PwaRuntime() {
     };
   }, []);
 
-  return <InstallPrompt />;
+  // WAVE SEVEN, element E: the install offer is NOT mounted here any more.
+  // It was a fixed banner that opened itself over the page; it is a row in the
+  // footer now (see Footer.tsx), so the visitor finds it rather than wears it.
+  // The service-worker registration above is all this runtime still owns.
+  return null;
 }
 
 export default PwaRuntime;

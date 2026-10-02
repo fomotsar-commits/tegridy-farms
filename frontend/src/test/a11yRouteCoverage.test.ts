@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { BUNGALOWS } from '../lib/bungalows';
+import { routeVoice } from '../lib/routeVoice';
 import { A11Y_RULES } from '../../e2e/fixtures/a11yAudit';
 import {
   AUDITABLE_ROUTES,
@@ -173,6 +174,32 @@ describe('parameterised paths resolve to something navigable', () => {
       const url = navigablePath(route);
       expect(url, `${route.path} still contains a route pattern after substitution: ${url}`).not.toMatch(/[:*]/);
       expect(url.startsWith('/'), `${route.path} produced a non-absolute URL: ${url}`).toBe(true);
+    }
+  });
+});
+
+// ── WAVE SEVEN, ROW Q: every route carries a voice verdict ─────────────────
+//
+// "Every walkable route carries a voice verdict in the fixture and the census
+// e2e reads it." The type makes the field required; these make it true.
+describe('every route carries a voice verdict (row Q)', () => {
+  it('gives every audited route a verdict, and every other route none', () => {
+    for (const r of ROUTES) {
+      if (r.gate === null) expect(r.voice, `${r.path} is audited but has no voice`).not.toBeNull();
+      else expect(r.voice, `${r.path} renders no page, so it has no voice`).toBeNull();
+    }
+  });
+
+  it("agrees with the app's own routeVoice() on every audited route", () => {
+    // The band on a TOWELI protocol page is drawn from routeVoice(); a census
+    // verdict that disagreed would walk one room and judge another.
+    for (const r of AUDITABLE_ROUTES) expect(r.voice, r.path).toBe(routeVoice(navigablePath(r)));
+  });
+
+  it("gives 'bungalow' only to the registry's own doors", () => {
+    const doors = new Set(BUNGALOWS.map((b) => `/${b.id}`));
+    for (const r of ROUTES.filter((x) => x.voice === 'bungalow')) {
+      expect(doors.has(r.path), `${r.path} is not a registry door`).toBe(true);
     }
   });
 });

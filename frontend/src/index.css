@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* `handheld:` means phones and iPads: narrower than 1024px, or a touch-first
+   device at any width, so an iPad in landscape counts too. */
+@custom-variant handheld (@media (width < 1024px), @media (hover: none) and (pointer: coarse));
+
 @theme {
   /* ─── Luxury Purple Accent ─── */
   --color-primary: #8b5cf6;

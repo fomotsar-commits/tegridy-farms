@@ -1,19 +1,7 @@
 import { pageArt } from '../../lib/artConfig';
-import { loaderIdentity } from '../../lib/arrival';
 
-/**
- * ARRIVAL IDENTITY 2026-08-27: the intro used to hardcode TEGRIDY / FARMS
- * for every visitor. The words, the subliminal set and the gallery now
- * resolve per arrival voice (see lib/arrival.ts): the venue's own name for
- * the default arrival, the classic Tegridy intro inside the TOWELI
- * bungalow. Resolved once at module scope, same synchronous contract as
- * pageArt(): the loader mounts before any React state exists.
- */
-const IDENTITY = loaderIdentity();
-
-/** The words the particle vortex forms (main over sub). */
-export const LOADER_WORDS = { main: IDENTITY.main, sub: IDENTITY.sub } as const;
-
+/** The classic gallery. The words, flash set and gallery the film uses come from
+ *  loaderIdentity() (lib/arrival.ts), read by AppLoader when a film starts. */
 export const ART_COLLECTION: Array<{ src: string; title: string }> = [
   { src: pageArt('loader', 0).src, title: 'All MFers Go to Heaven' },
   { src: pageArt('loader', 1).src, title: 'Mumu the Bull' },
@@ -57,17 +45,7 @@ export const ART_COLLECTION: Array<{ src: string; title: string }> = [
   { src: pageArt('loader', 39).src, title: 'Naka #39' },
 ];
 
-/**
- * The gallery the intro actually shows: the classic collection inside the
- * TOWELI bungalow, the arrival identity's own set (Bayla canon) for the
- * venue default. The last piece shown is the one that shatters into the
- * vortex that forms the venue's name.
- */
-export const LOADER_GALLERY: Array<{ src: string; title: string }> =
-  IDENTITY.gallery ?? ART_COLLECTION;
-
 export const GOLD = '#d4a017';
-export const SUBLIMINAL = IDENTITY.subliminal;
 export const STIFFNESS = 0.07;
 export const DAMPING = 0.87;
 
@@ -84,3 +62,38 @@ export const T_TEXT_END = 14500;
 /* Exit timings */
 export const T_CRACK_DURATION = 500;
 export const T_EXIT_FINALIZE = 2000;
+
+/**
+ * THE FILM'S TIMING (answer ten, ruling 1).
+ *
+ * The timings above are the film: four pieces, the shatter, the vortex, the hold,
+ * ~14.5 s to the wordmark and a crack on the way out. It plays only where somebody
+ * asks for it, "Watch the arrival" on /island. The short arrival CURTAIN that used
+ * to share these legs is gone, and its budget, detach budget and deadline slack
+ * went with it: each was a promise about an overlay no route mounts any more.
+ */
+export interface ArrivalTiming {
+  voidEnd: number;
+  artCount: number;
+  artDuration: number;
+  /**
+   * How long the wordmark takes to form.
+   *
+   * A LEG, not a literal, because leaving it out of the sum is exactly how the
+   * first version of this got the curtain's length wrong. It lived at
+   * phases/textForm.ts:9 as `const textDuration = 2000`, shared by the film and
+   * the since-deleted curtain, which routed STRAIGHT into it — so the two longest
+   * legs of the run were invisible to anything reading this file.
+   */
+  textForm: number;
+}
+
+export const FILM_TIMING: ArrivalTiming = {
+  voidEnd: T_VOID_END,
+  artCount: T_ART_COUNT,
+  artDuration: T_ART_DURATION,
+  textForm: 2000,
+};
+
+/** The dissolve the 'skip' phase spends. Read from here, not typed at the call site. */
+export const SKIP_DISSOLVE_MS = 400;

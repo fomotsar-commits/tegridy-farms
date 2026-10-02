@@ -26,7 +26,6 @@ const LIVE = { asOf: T, isLoading: false, failed: false };
 function snapshot(over: Partial<PortfolioSnapshot> = {}): PortfolioSnapshot {
   return {
     connected: true,
-    onExpectedChain: true,
     price: { toweliUsd: 0.002, ethUsd: 3000, toweliPriceable: true, ethPriceable: true },
     base: { ...LIVE },
     position: { ...LIVE },
@@ -155,13 +154,6 @@ describe('a leg that did not read is unavailable, never empty', () => {
     const total = aggregatePortfolio(buildPortfolioSources(snapshot({ connected: false })));
     expect(total.usd).toBeNull();
     expect(total.completeness).toBe('unavailable');
-  });
-
-  it('refuses to price another network’s balances as if they were this one’s', () => {
-    const reports = buildPortfolioSources(snapshot({ onExpectedChain: false }));
-    const total = aggregatePortfolio(reports);
-    expect(total.usd).toBeNull();
-    expect(reports[0]?.detail).toContain('different network');
   });
 });
 

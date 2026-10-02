@@ -1,4 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
+import { FAQ_INTRO } from '../src/lib/copy';
+import { gotoRoute } from './fixtures/routes';
 
 // ARRIVAL IDENTITY 2026-08-27 — the containment contract, walked end to end.
 //
@@ -26,7 +28,6 @@ import { test, expect, type Page } from '@playwright/test';
 async function seedOverlays(page: Page) {
   await page.addInitScript(() => {
     try {
-      sessionStorage.setItem('tf_loaded', '1');
       localStorage.setItem('tegridy-onboarding-seen', '1');
       localStorage.setItem('tegridy_telemetry_consent', 'denied');
     } catch { /* ignore */ }
@@ -42,11 +43,20 @@ test.describe('arrival voice', () => {
     await page.addInitScript(() => {
       try { localStorage.setItem('tegridy-bungalow', 'venue'); } catch { /* ignore */ }
     });
-    await page.goto('/');
+    // gotoRoute, not goto: `/` now paints the same H1 twice before the real one, as
+    // static HTML and then as React's busy fallback (answer ten, ruling 2). An
+    // assertion that retries until it matches would pass on either of those and never
+    // see VenueHero's own heading, so this waits for the page to be the page.
+    await gotoRoute(page, '/');
 
     await expect(page).toHaveTitle(/MEMETICS/i, { timeout: 20_000 });
-    await expect(page.locator('h1')).toContainText('MEMETICS.FINANCE');
-    await expect(page.locator('h1')).toContainText('Held time counts here.');
+    // EXACT, not a substring (answer ten, ruling 3). toContainText('MEMETICS.FINANCE')
+    // passed with the stray period after FINANCE and would pass without the space at
+    // the <br> joint too, so it could never have caught either. Playwright's text
+    // concatenates text nodes, which is exactly how a reader hears the join.
+    await expect(page.locator('#first-frame')).toHaveCount(0);
+    await expect(page.locator('main#main-content [aria-busy="true"]')).toHaveCount(0);
+    await expect(page.locator('h1')).toHaveText('MEMETICS.FINANCE Held time counts here.');
     // The classic cluster is relocated, not deleted — it must not be here.
     await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(0);
     // Wordmarks follow the voice: nav and footer both speak the venue.
@@ -60,8 +70,9 @@ test.describe('arrival voice', () => {
     await seedOverlays(page);
     await page.goto('/toweli');
 
-    // The door persists + reloads in place; the classic hero is the proof.
-    await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
+    // The door switches the skin in place; the classic hero is the proof. The hero's
+    // own class: the door's static frame and busy fallback read the same words first.
+    await expect(page.locator('h1.heading-luxury:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
     expect(new URL(page.url()).pathname).toBe('/toweli');
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('toweli');
     // The venue hero is the thing that got replaced here.
@@ -76,5 +87,122 @@ test.describe('arrival voice', () => {
     // CHARACTER; only the brand word went.
     await expect(page.getByText('© 2026 memetics.finance')).toBeVisible();
     await expect(page.getByText('Tegridy Farms')).toHaveCount(0);
+  });
+});
+
+// --- WAVE SEVEN, element C: the home, cut to the line ----------------------
+//
+// The venue arrival is hero, hall, three paths, board, footer. Everything else
+// it used to carry is furniture that belongs to a room: /toweli renders it all,
+// whole, and /launch /scan /gallery are their own doors. Nothing is deleted --
+// which is why the second test here is not optional. A gate that cuts three
+// sections and a deletion that removes them look identical from the front door,
+// and only one of them is what the island ruled.
+
+const CUT_FROM_THE_VENUE = ['Launch & Verify', 'Ecosystem', 'The Collection'];
+
+// ANSWER EIGHT, ruling 7: THE TRUST STRIP LEFT THE ARRIVAL AND THE ROOMS.
+//
+// Deliberately NOT folded into CUT_FROM_THE_VENUE: those three are cut from
+// the venue and RESTORED on /toweli, which the pair of loops below is built
+// to say. These four are gone from both. They were inline JSX with no
+// heading, no section and no data hook, which is how two island probes that
+// read headings and sections walked past them for two answers running, and
+// why they are literals here: what a visitor reads is the whole point.
+const TRUST_STRIP_LABELS = ['Contracts Verified', 'Timelocked Admin', 'Responsible Disclosure', 'Open Source'];
+
+// THE FAQ TEASER IS THE FIFTH GATE, AND IT NEEDS ITS OWN PAIR OF STRINGS.
+//
+// The other four are cut and restored under one name each, so a single list
+// serves both sides. This one is not: the teaser spoke venue copy on the
+// arrival and FAQ_INTRO's copy inside /toweli, and only the venue half is
+// leaving. Putting "Questions about the venue" in the list above would assert
+// /toweli contains a sentence it has never rendered, and the /toweli test would
+// red for the wrong reason -- which would look exactly like a broken gate.
+//
+// The two differ by ONE WORD ("venue" vs "farm"), so a looser match would pass
+// on either. Both are pinned exactly, and the /toweli side reads FAQ_INTRO
+// itself so the assertion cannot drift from the copy it is about.
+const FAQ_TEASER_ON_THE_VENUE = 'Questions about the venue';
+
+/** The whole rendered page, after the whileInView sections have mounted. */
+async function readWholePage(page: Page): Promise<string> {
+  for (let i = 0; i < 3; i++) {
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(700);
+  }
+  return page.evaluate(() => document.body.innerText);
+}
+
+test.describe('the home, cut to the line', () => {
+  test('the venue arrival carries the line and nothing after it', async ({ page }) => {
+    test.slow();
+    await seedOverlays(page);
+    await page.addInitScript(() => {
+      try { localStorage.setItem('tegridy-bungalow', 'venue'); } catch { /* ignore */ }
+    });
+    await page.goto('/');
+    await expect(page.locator('h1')).toContainText('MEMETICS.FINANCE', { timeout: 20_000 });
+
+    const text = await readWholePage(page);
+    expect(text.length, 'the venue arrival rendered almost nothing').toBeGreaterThan(400);
+
+    // THE LINE ITSELF, first -- otherwise this is a test that a page is empty.
+    expect(text, 'the hall is missing from the venue arrival').toContain('Jungle Bay');
+    expect(text, 'the footer is missing').toContain('memetics.finance');
+
+    for (const section of CUT_FROM_THE_VENUE) {
+      expect(text, `"${section}" is still on the venue arrival`).not.toContain(section);
+    }
+    for (const label of TRUST_STRIP_LABELS) {
+      expect(text, `the trust strip's "${label}" is still on the venue arrival`).not.toContain(label);
+    }
+    // THE LOAD-BEARING ONE IS FAQ_INTRO, NOT THE RETIRED VENUE LINE.
+    //
+    // The island's break-the-fix was "widen the gate and watch the venue
+    // assertion go red". Widened, it stayed GREEN -- because the venue-voice
+    // copy left with the gate, so "Questions about the venue" is now a string
+    // that exists nowhere in the repo and an assertion about it cannot fail.
+    // That is the vacuous-guard class this wave keeps catching, in a guard
+    // written to prove a fix for it.
+    //
+    // So the teaser is identified by what it ACTUALLY renders. Widen the gate
+    // now and this line reds.
+    expect(text, 'the FAQ teaser is still on the venue arrival').not.toContain(FAQ_INTRO.headline);
+
+    // Kept as well, and deliberately not as the only one: it pins that the
+    // retired venue copy never comes back, which is a different claim from the
+    // teaser being gated and is worth its own line even though it cannot fail
+    // today.
+    expect(text, 'the retired venue-voice FAQ copy is back').not.toContain(FAQ_TEASER_ON_THE_VENUE);
+
+    // AND THE FAQ IS STILL REACHABLE, which is the difference between gating
+    // the teaser and hiding the answers. The teaser was a second door to a page
+    // the footer already opens; cutting it without this assertion would let a
+    // later change take the footer link too and stay green.
+    await expect(
+      page.locator('a[href="/faq"]').first(),
+      'the arrival cut the FAQ teaser AND lost its footer link to /faq',
+    ).toBeAttached();
+  });
+
+  test('and /toweli still renders every one of them', async ({ page }) => {
+    test.slow();
+    // The half that makes the cut a GATE rather than a deletion.
+    await seedOverlays(page);
+    await page.goto('/toweli');
+    await expect(page.locator('h1.heading-luxury:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
+
+    const text = await readWholePage(page);
+    for (const section of CUT_FROM_THE_VENUE) {
+      expect(text, `"${section}" was DELETED, not gated`).toContain(section);
+    }
+    // The strip is the other way round: gone from the room as well.
+    for (const label of TRUST_STRIP_LABELS) {
+      expect(text, `the trust strip's "${label}" is still in the room`).not.toContain(label);
+    }
+    // The teaser under its own headline, which is where it went rather than
+    // where it stopped existing.
+    expect(text, 'the FAQ teaser was DELETED, not gated').toContain(FAQ_INTRO.headline);
   });
 });

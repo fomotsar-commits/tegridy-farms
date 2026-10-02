@@ -1,16 +1,10 @@
-// Heat — Jungle Bay Island's held-time reading for a wallet, and a plain-English
-// account of how it was arrived at.
-//
-// HONESTY RULES BAKED INTO THIS COMPONENT (do not "simplify" them away):
-//  1. Heat is the ISLAND'S measurement, not ours. The panel says so, every time.
-//  2. Tier words render VERBATIM (Elder / Builder / Resident / Observer / Drifter)
-//     and are never translated into yield, APR, rewards or points language. Heat is
-//     held time. It pays nothing.
-//  3. The reckoning date is always on screen. A stale ruler certifies nothing, so a
-//     stale reading is labelled as stale rather than quietly shown as current.
-//  4. "The instrument is unreachable" and "this wallet is cold" are DIFFERENT states
-//     with different copy. An outage must never render as a zero score.
+// Heat: Jungle Bay Island's held-time reading for a wallet, and how it is read.
+// The island measures, and the panel says so. Tier words render verbatim, never as yield
+// or points. The reckoning date is always on screen, and a stale reading says so.
+// "The instrument is unreachable" and "this wallet is cold" are different states with
+// different copy: an outage never renders as a zero.
 
+import { daysHeld } from '../lib/heat/daysHeld';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
@@ -19,16 +13,18 @@ import { fetchHeat, isSupportedHeatAddress, HeatUnavailableError } from '../lib/
 import {
   isStale,
   nextTier,
-  shareForDegrees,
+  tierFor,
+  tierAtFloor,
   gateDecision,
   TIER_FLOORS,
-  HEAT_K,
   type HeatReading,
   type HeatTier,
 } from '../lib/heat/heatOracle';
 import { fetchFlames, insertionRank } from '../lib/heat/flamesClient';
 import { heatLaunchFloor, heatGateMaxAgeDays } from '../lib/heat/heatGateConfig';
 import { shortenAddress } from '../lib/formatting';
+import { heatExampleLine, VENUE } from '../lib/arrival';
+import { hasInjectedWallet, readInjectedAddress } from '../lib/heat/walletFill';
 import { SITE_URL } from '../lib/constants';
 
 const TIER_COLOR: Record<HeatTier, string> = {
@@ -51,22 +47,6 @@ function agoLabel(unix: number, now: number): string {
   return mo < 24 ? `${mo}mo ago` : `${Math.floor(d / 365)}y ago`;
 }
 
-/**
- * The days the ISLAND has measured: held_since_unix to as_of_unix.
- *
- * NOT to our clock. The span between the island's last reckoning and this moment is
- * time the island has not counted yet, and quietly adding it would make the venue
- * state a number the oracle never served — the one thing §5 forbids. It also keeps
- * the figure stable: two people reading the same wallet an hour apart see the same
- * day count, because both are reading the same reckoning.
- *
- * Days are the unit a stranger can compare without being taught anything; degrees are
- * the island's grammar. Both render, and this is the one that leads.
- */
-function daysHeld(heldSinceUnix: number | null, asOfUnix: number | null): number | null {
-  if (heldSinceUnix === null || asOfUnix === null) return null;
-  return Math.max(0, Math.floor((asOfUnix - heldSinceUnix) / DAY));
-}
 
 /** "on the island since <month year>". UTC so the month cannot shift by viewer. */
 function sinceLabel(unix: number): string {
@@ -135,25 +115,22 @@ type State =
   | { kind: 'ready'; reading: HeatReading };
 
 export interface HeatCardProps {
-  /**
-   * Read THIS wallet instead of whatever is connected, and hide the lookup form.
-   *
-   * This is what makes one component serve every surface. The leaderboard wants a
-   * free-text instrument anyone can point at any wallet; the gate's COLD state wants
-   * the connected wallet's own reading and nothing else — "the wallet sees its own
-   * degrees and what warmth is". Same card, same copy, same tier words.
-   */
+  /** Read THIS wallet and hide the lookup form: the gate's COLD state shows the connected
+   *  wallet its own reading, with the same copy and tier words as everywhere else. */
   address?: string;
-  /**
-   * Seed the lookup field and read it on mount, WITHOUT hiding the form.
-   *
-   * This is how a shared link arrives: `/read/<address>` and `/?heat=<address>` both
-   * land here, so the reader sees the number they were shown rather than an empty
-   * field they have to be told about. Distinct from `address` on purpose — `address`
-   * pins the card to one wallet and removes the form, which is right for the gate and
-   * wrong for a share, where the next thing a stranger does is read their own.
-   */
+  /** Seed the lookup field and read it on mount, keeping the form: how a shared link
+   *  (`/read/<address>`, `/?heat=<address>`) arrives already reading, one paste from the
+   *  reader's own. `address` instead pins one wallet and removes the form. */
   initialAddress?: string | null;
+  /**
+   * Put a value in the field WITHOUT reading it: what a visitor typed and did not
+   * submit before this card existed (the venue's first frame, answer ten). It counts
+   * as typed, so it suspends the auto-read exactly as typing does; a draft equal to
+   * `initialAddress` (an untouched ?heat= prefill) does not.
+   */
+  initialDraft?: string | null;
+  /** Take focus on mount: the field this card replaced had it. */
+  focusField?: boolean;
   /**
    * Drop the outer panel chrome and the explainer paragraph, for embedding inside a
    * surface that has already introduced itself (the gate). The READING is unchanged:
@@ -163,13 +140,21 @@ export interface HeatCardProps {
   variant?: 'panel' | 'embedded';
   /** Hide the launch-floor line, for surfaces where launching is not the subject. */
   showEligibility?: boolean;
+  /** Answer one token's question from the same reading: a room shows its own row, then the
+   *  whole flame. Same address, fetch, freshness and failure sentences; the form, loading
+   *  and error arms render as they do on the venue, so an unreadable instrument in a room
+   *  never reads as a zero. */
+  scopeTo?: { address: string; symbol: string };
 }
 
 export function HeatCard({
   address: pinned,
   initialAddress = null,
+  initialDraft = null,
+  focusField = false,
   variant = 'panel',
   showEligibility = true,
+  scopeTo,
 }: HeatCardProps = {}) {
   const { address: connected } = useAccount();
   const embedded = variant === 'embedded';
@@ -179,10 +164,16 @@ export function HeatCard({
   // Seeded from `initialAddress` so a shared link arrives already reading. The field
   // stays EDITABLE (unlike `pinned`) — someone who followed a stranger's number should
   // be one paste away from their own.
-  const [draft, setDraft] = useState<string | null>(initialAddress);
+  const [draft, setDraft] = useState<string | null>(initialDraft ?? initialAddress);
   const subject = pinned ?? initialAddress ?? connected ?? '';
   const input = pinned ?? draft ?? connected ?? '';
   const [state, setState] = useState<State>({ kind: 'idle' });
+  // WALLET FILL (element B). `canFill` is read once per mount rather than on
+  // every render: an extension that injects late is caught by the next mount,
+  // and a button that appears mid-interaction under the visitor's finger is
+  // worse than one that arrives a navigation later.
+  const [canFill] = useState(() => hasInjectedWallet());
+  const [fillFailed, setFillFailed] = useState(false);
   const [showMath, setShowMath] = useState(false);
   // Frozen per lookup so every relative label on screen is measured from one instant.
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -242,6 +233,24 @@ export function HeatCard({
             }
       }
     >
+      {/* THE ROOM'S HEADING, and it has to sit OUTSIDE the ready state.
+          `embedded` deliberately drops the card's own title, which is right in
+          the gate (the gate introduces itself). In a room it left a cold
+          visitor looking at a bare address field and a Read button with
+          nothing saying what it reads — the question only appeared once the
+          answer did. */}
+      {scopeTo && (
+        <div className="mb-3">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-white/55">
+            Your held time in {scopeTo.symbol}
+          </p>
+          <p className="text-white/55 text-[12px] mt-0.5">
+            Read any wallet. Held time is the island's, not this room's: the
+            same number the venue reads, answered for {scopeTo.symbol}.
+          </p>
+        </div>
+      )}
+
       {!embedded && (
         <>
           <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
@@ -251,9 +260,9 @@ export function HeatCard({
             </span>
           </div>
           <p className="text-white/60 text-[12.5px] leading-relaxed mb-4 max-w-2xl">
-            Heat measures <strong className="text-white/85">how much of a token you held, and for how long</strong>.
-            It is not a venue score and it pays nothing — it is the island&apos;s own instrument, read live.
-            Price never enters it, a fresh bag starts near zero however big it is, and trading in and out earns nothing.
+            {VENUE.heatPlain} It is not a venue score and it pays nothing: it is the island&apos;s own
+            instrument, read live. Price never enters it, a fresh bag starts near zero however big it is,
+            and trading in and out earns nothing.
           </p>
         </>
       )}
@@ -271,9 +280,10 @@ export function HeatCard({
           <input
             value={input}
             onChange={(e) => setDraft(e.target.value)}
+            autoFocus={focusField}
             spellCheck={false}
             autoComplete="off"
-            aria-label="Wallet address to read Heat for (Ethereum or Solana)"
+            aria-label="Wallet address to read Heat for (Ethereum, Base, or Solana)"
             placeholder="0x… or a Solana address"
             className="flex-1 min-w-0 sm:min-w-[280px] px-3 py-2 rounded-lg font-mono text-[12.5px] text-white outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]"
             style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid var(--color-purple-40)' }}
@@ -282,10 +292,37 @@ export function HeatCard({
             type="submit"
             disabled={!valid || state.kind === 'loading'}
             className="btn-primary px-5 py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed"
-            title={valid ? 'Read this wallet' : 'Enter an Ethereum or Solana address'}
+            title={valid ? 'Read this wallet' : 'Enter an Ethereum, Base, or Solana address'}
           >
             {state.kind === 'loading' ? 'Reading…' : 'Read Heat'}
           </button>
+          {/* THE WALLET FILL (element B). Shown only when something in the
+              browser can answer, so a visitor without a wallet is never offered
+              a button that cannot work. type="button": it must not submit the
+              form, and it never reads the chain or asks for a signature -
+              lib/heat/walletFill.ts says exactly what it does ask for. */}
+          {canFill && (
+            <button
+              type="button"
+              onClick={() => {
+                setFillFailed(false);
+                void readInjectedAddress().then((addr) => {
+                  if (addr) setDraft(addr);
+                  else setFillFailed(true);
+                });
+              }}
+              className="px-3 py-2 rounded-lg text-[12px] text-white/80 hover:text-white transition-colors"
+              style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid var(--color-purple-25)' }}
+            >
+              Use my wallet
+            </button>
+          )}
+          {/* One sentence, and nothing else: no error code, no retry, no reason.
+              A locked wallet, a declined prompt and an untrusted origin are the
+              same thing to the visitor - the field still takes a paste. */}
+          {fillFailed && (
+            <p className="w-full text-[12px] text-white/60">Paste the address instead.</p>
+          )}
         </form>
       )}
 
@@ -319,13 +356,17 @@ export function HeatCard({
 
         {state.kind === 'ready' && (
           <m.div key={state.reading.address} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <Reading
-              reading={state.reading}
-              now={now}
-              showMath={showMath}
-              onToggleMath={() => setShowMath((v) => !v)}
-              showEligibility={showEligibility}
-            />
+            {scopeTo ? (
+              <ScopedReading reading={state.reading} scopeTo={scopeTo} />
+            ) : (
+              <Reading
+                reading={state.reading}
+                now={now}
+                showMath={showMath}
+                onToggleMath={() => setShowMath((v) => !v)}
+                showEligibility={showEligibility}
+              />
+            )}
           </m.div>
         )}
       </AnimatePresence>
@@ -383,14 +424,9 @@ function Reading({
     rememberRead(reading.address, { degrees: reading.degrees, asOf: reading.asOfUnix });
   }, [reading.address, reading.degrees, reading.asOfUnix, reading.isCold]);
 
-  // WHERE THIS NUMBER WOULD SIT. Only for an UNNAMED flame, because a named one is
-  // already on the board and its real position is the island's to state, not ours to
-  // simulate. This is the line that turns a private number into a public place, and
-  // the place is claimed at the island's door.
-  //
-  // The result is tagged with the address it was computed for, so a rank can never be
-  // painted beside a different wallet's reading while the next board read is in
-  // flight, and nothing has to be synchronously cleared on the way through.
+  // Where this number would sit, for an UNNAMED flame only: a named one is on the board and
+  // its position is the island's to state. Tagged with the address it was computed for, so
+  // a rank is never painted beside another wallet's reading.
   const [rank, setRank] = useState<{ forAddress: string; rank: number; of: number } | null>(null);
   useEffect(() => {
     if (reading.isCold || reading.xHandle) return;
@@ -414,27 +450,25 @@ function Reading({
     };
   }, [reading.address, reading.degrees, reading.isCold, reading.xHandle]);
 
+  // Retired rows sort last, grey, and leave the token count; every row prints the
+  // degrees the island served. The rooms are never added up: the served number rules.
   const rows = useMemo(
-    () => [...reading.breakdown].sort((a, b) => b.degrees - a.degrees),
+    () =>
+      [...reading.breakdown].sort(
+        (a, b) => Number(a.retired) - Number(b.retired) || b.degrees - a.degrees,
+      ),
     [reading.breakdown],
   );
-  const max = rows[0]?.degrees || 1;
-  // The island states island_heat as the SUM of the rows. Recomputing it here is a
-  // display-side CHECK, not a second source of truth — if they disagree we show
-  // theirs and flag it, because the oracle is the ruler.
-  const summed = rows.reduce((a, r) => a + r.degrees, 0);
-  const mismatch = rows.length > 0 && Math.abs(summed - reading.degrees) > 0.05;
+  const liveRows = rows.filter((r) => !r.retired);
+  const retiredCount = rows.length - liveRows.length;
+  const max = liveRows[0]?.degrees || 1;
+  // token_count includes the retired rows, so they come off the count under the number.
+  const countedTokens = Math.max(0, reading.tokenCount - retiredCount);
 
   return (
     <div>
-      {/* THE ISLAND'S ORDER, and it is the design rather than a layout preference:
-          tier, then days, then degrees, then since, then tokens.
-
-          The TIER leads because it is a word a stranger already understands. The DAYS
-          lead the numbers because days are the unit the whole world can compare
-          without being taught anything — degrees are the island's grammar, and they
-          come second so nobody has to learn a new unit to feel the number. Both
-          render; neither is dropped. */}
+      {/* The island's order: tier, days, degrees, since, tokens. The word a stranger knows
+          leads, days are the unit anyone compares, and degrees follow. */}
       <div className="mb-4">
         <div
           className="text-[22px] leading-none tracking-[0.10em] uppercase font-semibold"
@@ -466,7 +500,7 @@ function Reading({
           <div>
             {reading.isCold
               ? 'No measured tokens held'
-              : `${reading.tokenCount} token${reading.tokenCount === 1 ? '' : 's'} counted`}
+              : `${countedTokens} token${countedTokens === 1 ? '' : 's'} counted`}
           </div>
           <div className="font-mono text-white/40 mt-1">{shortenAddress(reading.address, 6)}</div>
         </div>
@@ -493,30 +527,22 @@ function Reading({
       >
         <span>
           {reading.asOfUnix === null
-            ? 'Reckoned: never — this wallet has no measured holdings'
+            ? 'Reckoned: never. This wallet has no measured holdings'
             : `Reckoned ${agoLabel(reading.asOfUnix, now)}`}
         </span>
-        {stale && <span className="font-semibold">Stale — older than 7 days, so it decides nothing</span>}
+        {stale && <span className="font-semibold">Stale: older than 7 days, so it decides nothing</span>}
       </div>
 
       {/* LAUNCH ELIGIBILITY, from the same primitive the launch paths enforce with, so
           what a wallet is told here and what happens at submit cannot drift. */}
       {showEligibility && <Eligibility reading={reading} now={now} />}
 
-      {next && !reading.isCold && (
-        <div className="mb-4">
-          <div className="flex justify-between text-[11px] text-white/50 mb-1">
-            <span>Toward {next.tier}</span>
-            <span>{next.remaining.toFixed(2)}° to go</span>
-          </div>
-          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.10)' }}>
-            <div
-              className="h-full rounded-full transition-[width] duration-700"
-              style={{ width: `${Math.min(100, (reading.degrees / next.floor) * 100)}%`, background: color }}
-            />
-          </div>
-        </div>
-      )}
+      {/* THE LADDER (element B). It replaces the single "Toward <tier>" bar that
+          stood here: the bar showed one rung and the ladder shows all five, and
+          carries the same arithmetic under the next one. Two surfaces for one
+          fact is how they drift. Suppressed on a cold read, with the delta and
+          the share, by the island's own rule: nothing to feel behind. */}
+      {!reading.isCold && <TierLadder degrees={reading.degrees} next={next} />}
 
       {/* THE NAME, OR THE DOOR. A number nobody can see is a private fact; a number
           with a name on it is a place in public. `xHandle` arrives already stripped and
@@ -580,36 +606,39 @@ function Reading({
       {rows.length > 0 && (
         <>
           <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-2">
-            Where the {reading.degrees.toFixed(2)}° comes from
+            Your rooms, deepest first
           </div>
-          <ul className="space-y-1.5 mb-2">
+          <ul className="space-y-1.5 mb-4">
             {rows.map((r) => (
-              <li key={`${r.chain}:${r.tokenAddress}`} className="flex items-center gap-2 text-[12.5px]">
-                <span className="w-[86px] shrink-0 text-white/85 font-medium truncate" title={r.name}>
+              <li
+                key={`${r.chain}:${r.tokenAddress}`}
+                className="flex items-center gap-2 text-[12.5px]"
+                data-retired={r.retired ? 'true' : undefined}
+              >
+                <span
+                  className={`w-[86px] shrink-0 font-medium truncate ${r.retired ? 'text-white/40' : 'text-white/85'}`}
+                  title={r.name}
+                >
                   {r.symbol}
                 </span>
                 <span className="w-[62px] shrink-0 text-white/40 text-[10.5px] uppercase tracking-wider">
                   {r.chain}
                 </span>
-                <span className="flex-1 min-w-[40px] h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
-                  <span className="block h-full rounded-full" style={{ width: `${(r.degrees / max) * 100}%`, background: color, opacity: 0.75 }} />
-                </span>
-                <span className="w-[58px] shrink-0 text-right stat-value text-white/85">
+                {r.retired ? (
+                  <span className="flex-1 min-w-[40px] text-white/40 text-[11px]" title="The island no longer scans this token.">
+                    retired
+                  </span>
+                ) : (
+                  <span className="flex-1 min-w-[40px] h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                    <span className="block h-full rounded-full" style={{ width: `${(r.degrees / max) * 100}%`, background: color, opacity: 0.75 }} />
+                  </span>
+                )}
+                <span className={`w-[58px] shrink-0 text-right stat-value ${r.retired ? 'text-white/40' : 'text-white/85'}`}>
                   {r.degrees.toFixed(2)}°
                 </span>
               </li>
             ))}
           </ul>
-          <div className="flex justify-between text-[12px] pt-2 mb-4" style={{ borderTop: '1px solid var(--color-purple-25)' }}>
-            <span className="text-white/50">Sum across {rows.length} token{rows.length === 1 ? '' : 's'}</span>
-            <span className="stat-value" style={{ color }}>{summed.toFixed(2)}°</span>
-          </div>
-          {mismatch && (
-            <p className="text-[11px] mb-4" style={{ color: '#fbbf24' }}>
-              These rows sum to {summed.toFixed(2)}°, but the island reports {reading.degrees.toFixed(2)}°.
-              The island&apos;s number is the one that counts.
-            </p>
-          )}
         </>
       )}
 
@@ -621,8 +650,7 @@ function Reading({
       {reading.isCold && (
         <div className="mb-4">
           <p className="text-white/70 text-[13px] leading-relaxed">
-            Cold. Nothing measured here yet. Your clock starts at your first buy of an
-            island token and never stops while you hold.
+            Cold. Nothing measured here yet. {VENUE.heatDays}
           </p>
           <Link
             to="/#hall"
@@ -634,13 +662,9 @@ function Reading({
         </div>
       )}
 
-      {/* THE SHARE. One button, under a WARM read only: a cold wallet has nothing to
-          post and asking it to would be the one moment this instrument shames someone.
-          The tier and the days lead the text because they are legible to a stranger who
-          has never heard of a degree; the number rides in the sentence; and the single
-          link is element M's read link, which unfurls as this holder's own card. The
-          holder chose to post their address, so nothing here is published on their
-          behalf — this only opens the composer. */}
+      {/* The share: one button, under a WARM read only, since a cold wallet has nothing to
+          post. It opens the composer with served numbers and the read link; nothing is
+          posted on the holder's behalf. */}
       {!reading.isCold && days !== null && (
         <a
           href={shareIntent}
@@ -659,7 +683,7 @@ function Reading({
         className="text-[12px] underline underline-offset-2 transition-colors"
         style={{ color: 'var(--color-kyle)' }}
       >
-        {showMath ? 'Hide the maths' : 'How is this calculated?'}
+        {showMath ? 'Hide' : 'How heat is earned'}
       </button>
 
       {showMath && <Maths degrees={reading.degrees} />}
@@ -668,14 +692,109 @@ function Reading({
 }
 
 /**
- * The launch floor, on the card.
- *
- * Rendered from `gateDecision` — the SAME primitive the launch paths enforce with — so
- * what a wallet is told here and what happens at submit cannot drift. It reads DEGREES,
- * not tenure: held time is already priced inside the number (see LAUNCH_FLOOR).
+ * A room's own read: this room's row first, then the whole flame as served. Matched by
+ * contract case-insensitively, because the registry keeps Solana mints in base58 with
+ * capitals and the island echoes whatever it holds. A retired row is greyed and labeled,
+ * with its own served degrees.
  */
+function ScopedReading({
+  reading,
+  scopeTo,
+}: {
+  reading: HeatReading;
+  scopeTo: { address: string; symbol: string };
+}) {
+  const want = scopeTo.address.trim().toLowerCase();
+  const row = reading.breakdown.find((r) => r.tokenAddress.trim().toLowerCase() === want) ?? null;
+  const days = row?.firstSeenAtUnix != null ? daysHeld(row.firstSeenAtUnix, reading.asOfUnix) : null;
+  const rowColor = row?.retired ? 'rgba(255,255,255,0.45)' : TIER_COLOR[reading.tier];
+
+  return (
+    <div>
+      {row ? (
+        <div className="mb-3">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="stat-value text-[26px] leading-none" style={{ color: rowColor }}>
+              {row.degrees.toFixed(2)}
+            </span>
+            <span className="text-[15px]" style={{ color: rowColor }}>&deg;</span>
+            {row.retired && (
+              <span className="text-[12px] text-white/45" title="The island no longer scans this token.">
+                retired
+              </span>
+            )}
+          </div>
+          {days !== null && (
+            <p className="text-white/80 text-[13px] mt-1">
+              {days.toLocaleString('en-US')} {days === 1 ? 'day' : 'days'} held
+              {row.firstSeenAtUnix != null && <> &middot; since {sinceLabel(row.firstSeenAtUnix)}</>}
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="text-white/80 text-[13px] mb-3">
+          This wallet holds no measured {scopeTo.symbol} yet.
+        </p>
+      )}
+
+      <p className="text-white/60 text-[12px]">
+        your whole flame reads {reading.degrees.toFixed(2)}&deg; {reading.tier}
+      </p>
+    </div>
+  );
+}
+
+/** The ladder: every rung of TIER_FLOORS, lowest first (Drifter too: a wallet below the
+ *  first threshold stands on it). Reached rungs are lit; the next shows its floor minus the
+ *  served degrees. The launch sentence hangs under tierFor(heatLaunchFloor()) and names a
+ *  tier only when tierAtFloor finds the floor on one. The wallet's tier word is served. */
+function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeof nextTier> }) {
+  const launchFloor = heatLaunchFloor();
+  const launchRung = tierFor(launchFloor);
+  const launchTier = tierAtFloor(launchFloor);
+  // TIER_FLOORS is published high-to-low; a ladder is climbed low-to-high.
+  const rungs = [...TIER_FLOORS].reverse();
+  return (
+    <div className="mb-4" data-element="b-ladder">
+      <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-1.5">The ladder</div>
+      <ul className="space-y-1.5">
+        {rungs.map((rung) => {
+          const reached = degrees >= rung.floor;
+          const isNext = next !== null && next.tier === rung.tier;
+          const dim = reached ? undefined : 'rgba(255,255,255,0.35)';
+          return (
+            <li key={rung.tier}>
+              <div className="flex items-baseline gap-2 text-[12px]">
+                <span className="w-[68px] shrink-0" style={{ color: reached ? TIER_COLOR[rung.tier] : dim }}>
+                  {rung.tier}
+                </span>
+                <span className="w-[46px] shrink-0 stat-value" style={{ color: dim }}>{rung.floor}&deg;</span>
+                {reached && (
+                  <span className="text-[10px]" style={{ color: TIER_COLOR[rung.tier] }}>&#10003; reached</span>
+                )}
+              </div>
+              {isNext && (
+                <p className="text-[11.5px] text-white/65 mt-0.5 ml-[76px]">
+                  {(rung.floor - degrees).toFixed(2)}&deg; to {rung.tier}
+                </p>
+              )}
+              {rung.tier === launchRung && (
+                <p className="text-[11.5px] mt-0.5 ml-[76px]" style={{ color: 'var(--color-kyle)' }}>
+                  {heatExampleLine(launchFloor, launchTier)}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/** The launch floor on the card, from gateDecision: what the launch paths enforce with. */
 function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
   const floor = heatLaunchFloor();
+  const floorTier = tierAtFloor(floor);
   const d = gateDecision(reading.address, reading, now, floor, heatGateMaxAgeDays());
   const warm = d.state === 'WARM';
   const pct = Math.min(100, (reading.degrees / floor) * 100);
@@ -692,9 +811,11 @@ function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
         <span className="text-[12.5px] font-semibold" style={{ color: warm ? 'var(--color-kyle)' : 'rgba(255,255,255,0.75)' }}>
           {warm ? '✓ Can launch a token here' : 'Cannot launch a token yet'}
         </span>
-        {/* Tier word VERBATIM. "Residents may plant" is the door's own sentence. */}
+        {/* The tier is named only when the floor sits exactly on its rung
+            (answer ten, ruling 4). Between rungs the number stands alone,
+            because no tier opens a door at 123. */}
         <span className="text-[11px] text-white/45">
-          the door opens at {floor}° · Resident
+          the door opens at {floor}°{floorTier ? ` · ${floorTier}` : ''}
         </span>
       </div>
 
@@ -722,46 +843,35 @@ function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
 }
 
 function Maths({ degrees }: { degrees: number }) {
-  const examples = [0.001, 0.005, 0.01, 0.02, 0.05];
   return (
     <div className="mt-3 rounded-xl p-4 text-[12.5px] leading-relaxed" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid var(--color-purple-25)' }}>
-      <p className="text-white/75 mb-3">
-        For each measured token you hold, the island works out your{' '}
-        <strong className="text-white">time-weighted average balance</strong> — your balance at every
-        moment, not a snapshot — as a share of that token&apos;s total supply. It puts that share
-        through one curve:
-      </p>
+      {/* The island's sentences, never its formula: the island's law page carries that. */}
+      <p className="text-white/85 mb-3">{VENUE.heatParagraph}</p>
 
-      <div className="rounded-lg px-3 py-2.5 mb-3 font-mono text-[12px] overflow-x-auto" style={{ background: 'rgba(0,0,0,0.55)', color: 'var(--color-kyle)' }}>
-        degrees = 100 × ( 1 − e<sup>−{HEAT_K} × share</sup> )
-      </div>
-
-      <p className="text-white/60 mb-3">
-        Each token gives you between 0 and 100 degrees. Your total — <strong className="text-white/85">island heat</strong> — is
-        those per-token numbers <strong className="text-white/85">added together</strong>, which is why the
-        higher tiers need several tokens: one token alone can never exceed 100.
-      </p>
-
-      <div className="mb-3">
-        <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-1.5">What the curve pays</div>
-        <ul className="space-y-1">
-          {examples.map((s) => (
-            <li key={s} className="flex justify-between text-white/70 max-w-[300px]">
-              <span>{(s * 100).toFixed(s < 0.01 ? 1 : 0)}% of supply, held throughout</span>
-              <span className="stat-value">{(100 * (1 - Math.exp(-HEAT_K * s))).toFixed(1)}°</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <ul className="space-y-1.5 mb-3 text-white/70">
+        <li>
+          <strong className="text-white/85">Days</strong> <span>{VENUE.heatDays}</span>
+        </li>
+        <li>
+          <strong className="text-white/85">Size</strong> <span>{VENUE.heatSize}</span>
+        </li>
+        <li>
+          <strong className="text-white/85">Weight</strong> is the island&apos;s published
+          multiplier.{' '}
+          <span className="text-white/50">
+            The island&apos;s own weigh heavier: the Apes, JBM and BAYLA carry the island&apos;s edge,
+            the home team leans warm. An Ape counts by the piece.
+          </span>
+        </li>
+      </ul>
 
       <div className="mb-3">
-        <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-1.5">The tiers, on your total</div>
+        <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-1.5">The tiers, on your heat</div>
         <ul className="space-y-1">
           {TIER_FLOORS.filter((t) => t.floor > 0).map((t) => (
             <li key={t.tier} className="flex items-baseline gap-2 text-white/70">
               <span className="w-[68px] shrink-0" style={{ color: TIER_COLOR[t.tier] }}>{t.tier}</span>
               <span className="w-[46px] shrink-0 stat-value">{t.floor}°</span>
-              <span className="text-white/45 text-[11.5px]">{t.meaning}</span>
               {degrees >= t.floor && <span className="text-[10px]" style={{ color: TIER_COLOR[t.tier] }}>✓ reached</span>}
             </li>
           ))}
@@ -769,27 +879,16 @@ function Maths({ degrees }: { degrees: number }) {
       </div>
 
       <p className="text-white/50 text-[11.5px] mb-2">
-        To reach {TIER_FLOORS.find((t) => t.tier === 'Observer')!.floor}° on a{' '}
-        <em>single</em> token you would need about{' '}
-        <strong className="text-white/75">{((shareForDegrees(30) ?? 0) * 100).toFixed(2)}% of its whole supply</strong>,
-        held steadily rather than traded. Most wallets get there by holding several
-        measured tokens instead.
-      </p>
-
-      <p className="text-white/50 text-[11.5px] mb-2">
-        The island has published three properties of the instrument and no others: it is{' '}
-        <strong className="text-white/75">continuous</strong> (your balance at every moment, not a
-        snapshot), <strong className="text-white/75">zero-anchored</strong> (time before you first
-        held counts as zero), and <strong className="text-white/75">velocity-blind</strong> (churn
-        earns nothing). The period the average is taken over has not been published, so this page
-        does not state one — and cannot reproduce the curve until it is.
+        The instrument is{' '}
+        <strong className="text-white/75">continuous</strong>,{' '}
+        <strong className="text-white/75">zero-anchored</strong> (time before you first held counts
+        as zero), and <strong className="text-white/75">velocity-blind</strong> (churn earns nothing).
       </p>
 
       <p className="text-white/40 text-[11px]">
         Three properties make it hard to fake: time before you first held counts as zero, so a new
-        bag starts cold however large; churn earns nothing, only balance held across time; and price
-        never enters the formula at all. The venue reads this number — the island computes it, and
-        wherever the two disagree, the island is right.
+        bag starts cold however large; churn earns nothing; and price never enters it. The venue
+        reads this number. The island computes it, and wherever the two disagree, the island is right.
       </p>
     </div>
   );

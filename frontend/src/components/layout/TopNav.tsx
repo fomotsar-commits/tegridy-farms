@@ -9,6 +9,8 @@ import type { NavSection } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
+import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
+import { isToweliRoomPage } from '../../lib/routeVoice';
 import { ArtImg } from '../ArtImg';
 import { VENUE } from '../../lib/arrival';
 import { artImgProps } from '../../lib/artSrcSet';
@@ -41,6 +43,8 @@ export const TopNav = React.memo(function TopNav() {
   const drawerRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
+  // The chip names the room and Swap follows it; both re-read on a skin switch.
+  useActiveBungalowId();
   const { isDark } = useTheme();
   // Dashboard joins the bar only once there is an account for it to describe.
   // `useAccount` is already provided app-wide by WagmiProvider (App.tsx), and
@@ -200,20 +204,24 @@ export const TopNav = React.memo(function TopNav() {
               this row, re-run the sweep rather than a local 360px check: 360
               passed locally on the broken version too. */}
           <div className="flex items-center gap-0.5 min-[400px]:gap-1 min-[480px]:gap-2">
-            {/* F314: the replay easter egg is a distinct 28px button sitting to
-                the LEFT of the home logo link (separate targets, gap-2 apart, so
-                an off-logo click can't trigger a ~15s replay). A hover play-icon
-                overlay makes its purpose legible without altering the art. */}
-            <button
-              onClick={() => {
-                sessionStorage.removeItem('tegridy_loaded');
-                sessionStorage.removeItem('tf_loaded');
-                window.location.href = '/';
-              }}
-              className="group relative w-11 h-11 md:w-7 md:h-7 rounded-md overflow-hidden flex-shrink-0 cursor-pointer hover:scale-110 transition-transform"
-              style={{ border: '1px solid var(--color-purple-25)' }}
-              title="Replay splash screen (full reload)"
-              aria-label="Replay splash screen (full reload)"
+            {/* WAVE SEVEN, element A: the F314 replay easter egg is RETIRED, on the
+                island's ruling — "one door for the film". The arrival now has exactly
+                one way to watch it deliberately: "Watch the arrival" in the Island
+                lobby, which plays the whole four-piece film with its hold, crack and
+                shatter. Two doors to the same room is the thing this wave removes.
+
+                THE LOGO WAS INSIDE THAT BUTTON, and it does not leave with it. The
+                mark is re-homed here, into the way-back Link, before the button was
+                cut — deleting the button as written would have taken the venue's
+                identity off the bar, which is an art removal and never allowed
+                without a home to move to. */}
+            {/* THE WAY BACK: a plain Link to "/". The index route is the venue's own
+                <BungalowDoor id="venue"> (App.tsx), which clears the skin in place,
+                so every link to "/" (404, footer, this mark) walks home the same way. */}
+            <Link
+              to="/"
+              className="flex items-center gap-1.5 min-[480px]:gap-2"
+              title="Back to memetics.finance"
             >
               {/* The nav logo is a 512x512 PNG rendered at 28px (desktop) / 44px
                   (mobile), so it is the single clearest case for a small
@@ -225,41 +233,19 @@ export const TopNav = React.memo(function TopNav() {
 
                   This was lost once already: a nav refactor replaced this
                   element with a bare <img> and nothing failed, because a missing
-                  optimisation is invisible. TopNav.navLogo.test.tsx now pins it. */}
-              <img
-                src={pageArt('nav-logo', 0).src}
-                {...artImgProps(pageArt('nav-logo', 0).src, 'eager', '(min-width: 768px) 28px, 44px')}
-                alt=""
-                className="w-full h-full object-cover"
-              />
+                  optimisation is invisible. TopNav.navLogo.test.tsx pins it, and
+                  now pins it here rather than inside the retired replay button. */}
               <span
-                aria-hidden="true"
-                className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"
-                style={{ background: 'rgba(0,0,0,0.45)' }}
+                className="block w-11 h-11 md:w-7 md:h-7 rounded-md overflow-hidden flex-shrink-0"
+                style={{ border: '1px solid var(--color-purple-25)' }}
               >
-                <span className="text-white text-[11px] leading-none">&#9658;</span>
+                <img
+                  src={pageArt('nav-logo', 0).src}
+                  {...artImgProps(pageArt('nav-logo', 0).src, 'eager', '(min-width: 768px) 28px, 44px')}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
               </span>
-            </button>
-            {/* THE WAY BACK (owner, 2026-08-31), now handled at the destination
-                (2026-09-04). This used to carry a hand-rolled onClick that
-                persisted the 'venue' sentinel and hard-assigned '/', because a
-                plain <Link to="/"> landed back inside the stored bungalow.
-
-                That was true, and it was true of EVERY link to "/" — the 404
-                page's "Back to Home" and the footer among them — so the
-                wordmark being the only one that worked was the actual bug. The
-                index route is now the venue's own <BungalowDoor id="venue">
-                (App.tsx), which clears the skin on arrival with the same
-                verified-persist and one-shot-reload guards every other door
-                uses.
-
-                So this is a plain Link again, deliberately: one mechanism for
-                the rule instead of two that can drift apart. */}
-            <Link
-              to="/"
-              className="flex items-center gap-1"
-              title="Back to memetics.finance"
-            >
               {/* ARRIVAL IDENTITY 2026-08-27: the wordmark follows the arrival
                   voice. The venue speaks as itself by default; the classic
                   TEGRIDY FARMS mark lives inside the TOWELI bungalow. */}
@@ -303,7 +289,12 @@ export const TopNav = React.memo(function TopNav() {
                   emoji keeps the control discoverable; the name returns at lg.
                   Bungalow names vary in length ("Brainlet" > "Bayla"), so hiding
                   the label removes that variability from the row entirely. */}
-              <span className="hidden lg:inline">{getActiveBungalow()?.name ?? 'Bungalows'}</span>
+              <span className="hidden lg:inline">
+                {/* ANSWER EIGHT, ruling 1: the door decides the chrome. In a
+                    TOWELI room the chip stops naming the last resident a
+                    visitor walked through. */}
+                {isToweliRoomPage(location.pathname) ? 'Bungalows' : (getActiveBungalow()?.name ?? 'Bungalows')}
+              </span>
             </button>
           </div>
 

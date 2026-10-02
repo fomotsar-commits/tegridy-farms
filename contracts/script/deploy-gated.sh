@@ -18,6 +18,13 @@
 # is oracle-gated and printed separately (deploy it after BootstrapTWAP).
 # ============================================================================
 set -euo pipefail
+
+# redact_url: print an endpoint without printing the credential in it. Sourced
+# relative to THIS file, not the caller's cwd -- this script is run as
+# ./script/deploy-gated.sh from contracts/.
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/redact-url.sh
+. "$_HERE/lib/redact-url.sh"
 cd "$(dirname "$0")/.."   # -> contracts/
 
 # ── Canonical on-chain addresses (public; override any via env) ─────────────
@@ -75,7 +82,12 @@ fi
 # keystore/Ledger does the signing and its address MUST equal DEPLOYER_ADDR.
 COMMON="--rpc-url $RPC --slow --with-gas-price $GAS_PRICE_WEI --sender $DEPLOYER_ADDR $SIGNER $BROADCAST"
 
-echo "MODE: $([ -n "$BROADCAST" ] && echo "BROADCAST (REAL MAINNET, rpc=$RPC)" || echo 'DRY-RUN (safe)')  |  owner MULTISIG=$MULTISIG  |  treasury=$TREASURY  |  START_AT=$START_AT"
+# $RPC is a foundry [rpc_endpoints] ALIAS by default ("mainnet"), which carries no
+# credential and is printed as-is. It becomes a URL when the operator sets
+# BROADCAST_RPC, and a private-relay URL can be keyed -- so it goes through the same
+# mask. The host is kept: on a REAL MAINNET broadcast, reading back where the
+# transactions are being sent is the last check before they are signed.
+echo "MODE: $([ -n "$BROADCAST" ] && echo "BROADCAST (REAL MAINNET, rpc=$(redact_url "$RPC"))" || echo 'DRY-RUN (safe)')  |  owner MULTISIG=$MULTISIG  |  treasury=$TREASURY  |  START_AT=$START_AT"
 
 # run <index> <title> <script>. Skips indexes < START_AT. On a broadcast, a receipt-poll hiccup
 # (429/504) can abort forge AFTER the tx already landed — so on failure we auto-retry with --resume,

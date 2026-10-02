@@ -87,7 +87,7 @@ test.describe('Connect prompt surfaces', () => {
     // bungalow" were the same branch, so this spec was standing in a room it
     // never named. ConnectPrompt surface="farm" lives in the classic farm; this
     // is where it lives. (arrival.ts reads ?bungalow= ahead of stored choice.)
-    await gotoRoute(page, '/farm?bungalow=toweli');
+    await gotoRoute(page, '/earn/toweli');
     // ConnectPrompt renders an h2 with the farm-specific voice. The word was
     // "tegridy" until the owner's 2026-08-31 retirement (commit 17fe6fcc) took
     // the brand out of every rendered surface — "Real tegridy." became "Held
@@ -115,8 +115,8 @@ test.describe('HomePage yield calculator (wallet-less)', () => {
   test('YieldCalculator renders for disconnected visitors in the TOWELI room', async ({ page }) => {
     // MOVED, not deleted. The calculator computes TOWELI staking yield, so the
     // arrival wave relocated it with the rest of the classic cluster: HomePage
-    // gates it on `!address && !bungalowIdentity && IS_TOWELI_ARRIVAL`
-    // (HomePage.tsx:421). On the venue front door it is correctly absent —
+    // gates it on `!address && !bungalowIdentity && isToweliArrival`
+    // (HomePage.tsx:471). On the venue front door it is correctly absent —
     // asserting it at '/' was asserting the pre-relocation design.
     //
     // The gate reads arrivalVoice() at MODULE SCOPE (HomePage.tsx:58), so the
@@ -127,12 +127,22 @@ test.describe('HomePage yield calculator (wallet-less)', () => {
     await expect(page.locator('body')).toContainText(/See what you'd earn/i);
   });
 
-  test('audit badge links to /security', async ({ page }) => {
-    await gotoRoute(page, '/');
-    // aria-label is now "View security details: internal audit waves, Slither CI,
-    // and the test suite" (HomePage.tsx:264). The link and its href are unchanged.
+  test('the audit badge is on the Check overview, and not on the arrival', async ({ page }) => {
+    // WAVE SEVEN, element C. This walked '/' until the badge moved off the
+    // venue arrival's hero to /trust, the Check overview. It moves in the same
+    // commit as the badge, because a green test for a surface that no longer
+    // exists is worse than a red one.
+    await gotoRoute(page, '/trust');
     const badge = page.getByRole('link', { name: /View security details/i });
     await expect(badge).toBeVisible();
     await expect(badge).toHaveAttribute('href', '/security');
+
+    // AND THE OTHER HALF, which is what makes this a move rather than a copy.
+    // Without it, re-adding the hero badge leaves every assertion green.
+    await gotoRoute(page, '/');
+    await expect(
+      page.getByRole('link', { name: /View security details/i }),
+      'the security badge is back on the venue arrival',
+    ).toHaveCount(0);
   });
 });

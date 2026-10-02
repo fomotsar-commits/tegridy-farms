@@ -8,7 +8,9 @@ import { loaderIdentity, isToweliVoice } from '../lib/arrival';
    Mobile:  single-canvas approach (like the splash screen) for 60fps Safari
    ────────────────────────────────────────────────────────────────────────── */
 
-const ART_IMAGES = [
+// Read per transition: the skin changes in place, so a module-scope list would
+// keep the previous room's art.
+const transitionArt = () => [
   pageArt('transition', 0).src,
   pageArt('transition', 1).src,
   pageArt('transition', 2).src,
@@ -50,9 +52,9 @@ const ART_IMAGES = [
   pageArt('transition', 38).src,
 ];
 
-const SUBLIMINAL_PHRASES = [
-  // ARRIVAL IDENTITY 2026-08-27: the flash set follows the arrival voice
-  // (venue words by default, classic set inside the TOWELI bungalow).
+// The flash set follows the arrival voice: venue words by default, the classic
+// set inside the TOWELI bungalow.
+const subliminalPhrases = () => [
   ...loaderIdentity().subliminal,
   ...(isToweliVoice()
     ? ["DON'T FORGET YOUR TOWEL", 'SEIZE THE MEMES']
@@ -96,16 +98,17 @@ function MobileGlitchTransition({ config }: { config: GlitchConfig }) {
   // runs once at mount (not during every render), keeping React Compiler happy
   // about Math.random() being called outside the render path.
   const [seed] = useState(() => Math.floor(Math.random() * 99999));
-  const [subliminal] = useState(
-    () => SUBLIMINAL_PHRASES[Math.floor(Math.random() * SUBLIMINAL_PHRASES.length)] ?? 'MEMETICS',
-  );
+  const [subliminal] = useState(() => {
+    const phrases = subliminalPhrases();
+    return phrases[Math.floor(Math.random() * phrases.length)] ?? 'MEMETICS';
+  });
   const seedRef = useRef(seed);
   const subliminalWord = useRef(subliminal);
 
   // Preload 3 random art images
   useEffect(() => {
     let cancelled = false;
-    const shuffled = [...ART_IMAGES].sort(() => Math.random() - 0.5);
+    const shuffled = transitionArt().sort(() => Math.random() - 0.5);
     const toLoad = shuffled.slice(0, 3);
     const images: HTMLImageElement[] = [];
     toLoad.forEach((src) => {
@@ -383,7 +386,7 @@ interface SliceData {
 function generateSlices(config: GlitchConfig, rand: () => number): SliceData[] {
   const dirSign = config.direction === 'forward' ? 1 : -1;
   const slices: SliceData[] = [];
-  const shuffled = [...ART_IMAGES].sort(() => rand() - 0.5);
+  const shuffled = transitionArt().sort(() => rand() - 0.5);
   // More slices for desktop, spread across the full duration
   const delaySpread = config.duration * 0.45; // 45% of duration for stagger
   for (let i = 0; i < config.sliceCount; i++) {
@@ -421,8 +424,9 @@ interface SubliminalData {
 }
 
 function generateSubliminal(config: GlitchConfig, rand: () => number): SubliminalData {
+  const phrases = subliminalPhrases();
   return {
-    text: SUBLIMINAL_PHRASES[Math.floor(rand() * SUBLIMINAL_PHRASES.length)] ?? 'MEMETICS',
+    text: phrases[Math.floor(rand() * phrases.length)] ?? 'MEMETICS',
     offsetX: (rand() - 0.5) * 80,
     offsetY: (rand() - 0.5) * 50,
     rotation: (rand() - 0.5) * 8,

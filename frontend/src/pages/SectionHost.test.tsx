@@ -18,8 +18,8 @@
  * highlighted "Launchpad" tab.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import type { NavSection } from '../lib/navConfig';
 import { SectionHost } from './SectionHost';
 
@@ -117,6 +117,37 @@ describe('SectionHost', () => {
     fireEvent.click(tab);
     expect(await screen.findByText('simulator panel')).toBeInTheDocument();
     expect(container.querySelector('[aria-selected="true"]')).toHaveTextContent('Simulator');
+  });
+});
+
+describe('SectionHost — a page under a tab', () => {
+  // /earn/<id> is one pool under the Earn host's first tab, /earn. Before
+  // 2026-09-30 a click on the LIT tab was a no-op, and the lit tab is the only
+  // one a visitor inside a pool would reach for to get back to the list.
+  const EARN: NavSection = {
+    heading: 'Earn',
+    hub: '/earn',
+    items: [
+      { to: '/earn', label: 'Staking' },
+      { to: '/referrals', label: 'Referrals' },
+    ],
+  };
+  function StakingPanel() {
+    const { pathname } = useLocation();
+    return <div>staking panel at {pathname}</div>;
+  }
+  const EARN_PANELS = { '/earn': StakingPanel, '/referrals': panel('referrals') };
+
+  it('lights the tab above it, and a click on that tab goes back up to the tab', async () => {
+    render(
+      <MemoryRouter initialEntries={['/earn/bayla']}>
+        <SectionHost section={EARN} idPrefix="earn" ariaLabel="Earn sections" panels={EARN_PANELS} />
+      </MemoryRouter>,
+    );
+    expect(selected()).toHaveTextContent('Staking');
+    expect(await screen.findByText('staking panel at /earn/bayla')).toBeInTheDocument();
+    fireEvent.click(selected()!);
+    expect(await screen.findByText('staking panel at /earn')).toBeInTheDocument();
   });
 });
 

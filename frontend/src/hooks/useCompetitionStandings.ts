@@ -11,7 +11,8 @@ import { useIndexedQuery, type IndexedStatus } from './useIndexedQuery';
 // is recomputed from the indexed window on each read, which is why an "ended"
 // season is not a settled one — see lib/competitions/season.ts.
 //
-// THE INDEXER IS NOT HOSTED. With VITE_INDEXER_URL unset this parks in
+// WITHOUT AN INDEXER. Production has one configured; with VITE_INDEXER_URL
+// unset (CI, local builds, previews) this parks in
 // `unavailable` and `standings` is null, and the page must say the board could
 // not be read. An empty leaderboard under a season name asserts that nobody
 // entered, and on a competition page that is the most damaging fabricated zero

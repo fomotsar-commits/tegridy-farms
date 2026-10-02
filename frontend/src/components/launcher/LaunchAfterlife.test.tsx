@@ -99,3 +99,20 @@ describe('pure helpers', () => {
     expect(typeof formatAsOf(NOW)).toBe('string');
   });
 });
+
+// ANSWER TEN, RULING 5: THE AFTERLIFE'S SENTENCE COMES OUT OF THE FOLD.
+//
+// The venue's rewrite of "a launch's afterlife" lived only inside "How the rail
+// works", which a stranger never opens. The ledger they DO see, mounted outside the
+// fold, still opened with the old sentence, em dash and all. So the ledger's own
+// opening is now the clocks sentence, verbatim from the ruling.
+describe('LaunchAfterlife: the opening a visitor sees with the fold closed', () => {
+  it("opens on the holders' clocks, verbatim, with no prose dash", () => {
+    const { container } = render(<LaunchAfterlife outcomes={[]} />);
+    const opening = container.querySelector('header p');
+    expect(opening?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      "A launch's afterlife is its holders' clocks. Every launch this rail has powered is recorded here, the ones that failed too.",
+    );
+    expect(opening?.textContent).not.toContain('—');
+  });
+});

@@ -56,7 +56,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Staking ──────────────────────────────────────────────────
   {
     keywords: ['stake', 'staking', 'farm'],
-    answer: "Go to /farm, type how much TOWELI to lock, pick a duration (longer = bigger boost), hit Stake. The island demands it.",
+    answer: "Go to /earn/toweli, type how much TOWELI to lock, pick a duration (longer = bigger boost), hit Stake. The island demands it.",
     priority: 2,
   },
   {
@@ -78,7 +78,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['extend', 'top', 'increase', 'add', 'position'],
-    answer: "You can extend lock or add to your stake from /farm. New deposits inherit your current unlock date.",
+    answer: "You can extend lock or add to your stake from /earn/toweli. New deposits inherit your current unlock date.",
   },
   {
     keywords: ['claim', 'rewards', 'harvest'],
@@ -165,7 +165,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // bump wins keyword ties against older entries.
     priority: 1,
     keywords: ['launch', 'launcher', 'curve', 'tegridy', 'create', 'token', 'memecoin', 'graduate'],
-    answer: "The Memetics Curve is our own bonding-curve launcher, live on Ethereum, Base and Robinhood Chain at /eth-curve. One signature launches a token; trades pay a 1% fee split 40% to the creator, 25% treasury, 35% protocol; hit the raise target and it graduates into our own pool with the LP burned — nobody can pull it. Browse live launches right on the page, or open any token's own page at /eth-curve/<address>.",
+    answer: "The Memetics Curve is our own bonding-curve launcher, live on Ethereum, Base and Robinhood Chain at /eth-curve. Trades pay a 1% fee split 40% to the creator, 25% treasury, 35% protocol; hit the raise target and it graduates into our own pool with the LP burned — nobody can pull it. Browse live launches right on the page, or open any token's own page at /eth-curve/<address>.",
   },
 
   // ── NFTs ─────────────────────────────────────────────────────
@@ -316,7 +316,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // a LIVE per-address badge read from Etherscan, so this is checkable, not a
     // claim. Keep this answer in sync with reality in both directions.
     keywords: ['etherscan', 'verify', 'contract', 'address'],
-    answer: "All 8 core contracts are source-verified on Etherscan — you can read the actual Solidity, not just bytecode. Every address is at /contracts with a live verification badge (checked against Etherscan, not hardcoded), plus the full code on GitHub and public ABIs.",
+    answer: "All 8 core contracts are source-verified on Etherscan: you can read the actual Solidity, not just bytecode. Every address is at /contracts with a live verification badge (checked against Etherscan, not hardcoded), plus links to the source code and public ABIs.",
   },
 
   // ── Premium / referrals / scoring ──────────────────────────

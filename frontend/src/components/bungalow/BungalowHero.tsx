@@ -1,21 +1,15 @@
 import { Link } from 'react-router-dom';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
-import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute } from '../../lib/bungalows';
+import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute, OPEN_BUNGALOW_ABOUT_EVENT } from '../../lib/bungalows';
 import { isSolanaSwapLive } from '../../lib/solana';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 
 /**
- * Token-first hero cluster for a bungalow that speaks for itself (Bayla).
- * Rendered by HomePage IN PLACE OF the TOWELI H1/copy/CTA/quote cluster when
- * `getBungalowIdentity()` is non-null; the chain pills and security badge
- * around it stay shared (they are venue facts, not token copy).
- *
- * Honesty rules carried over from the surface it replaces: no yield claims,
- * no numbers that drift — the copy speaks lore and links to checkable
- * surfaces (trade route, scanner, contract). The Stake CTA routes to /farm,
- * which in bungalow mode renders the self-gating BungalowFarmPanel — it can
- * never advertise a pool that does not exist.
+ * The hero of a room that speaks for itself, rendered by HomePage in place of the TOWELI
+ * cluster when getBungalowIdentity() is non-null. No yield claims and no numbers that
+ * drift: lore, and links to surfaces anyone can check. Stake routes to /earn/<id>, whose
+ * BungalowFarmPanel never advertises a pool that does not exist.
  */
 export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity } }) {
   const id = bungalow.identity;
@@ -27,7 +21,9 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
   return (
     <>
       <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
-        {id.heroTitle}<br /><span className="text-white">{id.heroLine}</span>
+        {/* A real space before the break, as on the venue hero (answer ten, ruling 3):
+            a <br> is not text, so without it the heading read "BAYLA.The muse". */}
+        {id.heroTitle}{' '}<br /><span className="text-white">{id.heroLine}</span>
       </h1>
 
       <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
@@ -51,25 +47,11 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
             {trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`}
           </a>
         ))}
-        {/* ONE FILLED BUTTON, 2026-09-05 — the same rule VenueHero already
-            follows (see its "Launch on Heat" note).
-
-            This row shipped THREE full-weight calls to action: Trade in filled
-            gold, Stake in filled kyle-green (`.btn-primary`), Scan in outlined
-            kyle-green. Two filled buttons side by side is no hierarchy at all,
-            and the green was doing double duty — the TopNav's Connect wears the
-            same hue in the same viewport, so "green" meant both "stake here"
-            and "connect your wallet".
-
-            Trade is the primary: it is the one action every visitor to a
-            resident's room can complete, whoever they are. Stake drops to an
-            outline in the SAME kyle green — same colour, less shout — and Scan
-            moves onto --color-stan, which index.css:48 already documents as the
-            trust/security/audit hue and is exactly what the scanner is. The two
-            secondary actions are now told apart by meaning rather than by
-            reading their labels. Connect leaves green entirely (TopNav.tsx). */}
+        {/* One filled button, the rule VenueHero keeps too: Trade, the action any visitor
+            can complete. Stake is an outline in the same kyle green, and Scan wears
+            --color-stan, the trust hue, so the two secondary actions differ by meaning. */}
         <Link
-          to="/farm"
+          to={`/earn/${bungalow.id}`}
           className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
           style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
         >
@@ -94,9 +76,25 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
           style={{ background: 'rgba(6,12,26,0.55)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
         >
           <span className="text-white/90">&ldquo;{id.museLine}&rdquo;</span>
-          <span className="text-[11px] not-italic" style={{ color: 'var(--color-weed)' }}>&mdash; {id.museBy}</span>
+          {/* A middle dot, as the venue hero uses (answer ten, ruling 6). The dash
+              here sat alone in its own text node, so every count filed it as the
+              unread placeholder while every reader saw a prose dash. */}
+          <span className="text-[11px] not-italic" style={{ color: 'var(--color-weed)' }}>&middot; {id.museBy}</span>
         </span>
       </div>
+
+      {/* WAVE SEVEN, element E: the room's three-step welcome used to open
+          ITSELF over the page on a first visit. It waits here instead. The copy
+          is unchanged and undeleted; it simply arrives when somebody asks, which
+          is the whole rule — a modal exists only behind a tap. */}
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new Event(OPEN_BUNGALOW_ABOUT_EVENT))}
+        className="mt-3 text-[12px] underline underline-offset-4 decoration-white/30 hover:decoration-white transition-colors"
+        style={{ color: 'rgba(255,255,255,0.75)' }}
+      >
+        About this bungalow
+      </button>
 
       {/* Contract chip — copyable mint + explorer link, mirroring the footer card. */}
       {bungalow.address && (

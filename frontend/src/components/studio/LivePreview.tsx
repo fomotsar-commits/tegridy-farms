@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { PAGE_ROUTES } from '../../lib/artSurfaces';
+import { earnPoolPath, TOWELI_EARN_PATH } from '../../lib/earnRoutes';
 
 // Viewport presets for the live preview. The iframe is rendered at these exact
 // pixel dimensions and then CSS-scaled down to fit the studio pane, so the page
@@ -25,7 +26,12 @@ export function LivePreview({ pageId, surfaceKey: key, artSrc, nonce, query }: {
    */
   query?: Record<string, string>;
 }) {
-  const route = PAGE_ROUTES[pageId];
+  // A pool page enters its own room on arrival (/earn/<id>), which would put
+  // TOWELI's skin over the studio's ?bungalow=. In a bungalow's studio the farm
+  // routes go to THAT bungalow's pool, as /farm?bungalow=<id> did until
+  // 2026-09-30.
+  const mapped = PAGE_ROUTES[pageId];
+  const route = mapped === TOWELI_EARN_PATH && query?.bungalow ? earnPoolPath(query.bungalow) : mapped;
   const [deviceId, setDeviceId] = useState('desktop');
   const [located, setLocated] = useState<'pending' | 'exact' | 'byArt' | 'missing'>('pending');
   const [fullPage, setFullPage] = useState(false);

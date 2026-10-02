@@ -12,18 +12,24 @@ import { StandingsTable } from '../components/competitions/StandingsTable';
 import { YourRank } from '../components/competitions/YourRank';
 import { SEASONS } from '../lib/competitions/season';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { isIndexerConfigured } from '../lib/indexer/client';
+
+/** A season boundary as a calendar day, in UTC: the season table's own clock. */
+const utcDay = (unix: number) =>
+  new Date(unix * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 // TRADING COMPETITIONS — two boards, each named by what actually reads it.
 //
-// THE ISLAND CUP is live. It ranks senders by the USD size of the fills
+// THE VOLUME BOARD is live. It ranks senders by the USD size of the fills
 // GeckoTerminal reports on the island's own registered pools — the same feed the
 // bungalow trade tapes already read, browser-direct, no key and no server of
 // ours in the path. Everything it claims is measured: the window comes from the
 // fills' own block timestamps, and every pool that failed or filled its page is
 // named above the table.
 //
-// SEASON 1 is the venue router's own swaps out of a Ponder indexer that is
-// hosted nowhere. Its card says so rather than printing a clock-derived
+// SEASON 1 is the venue router's own swaps out of a Ponder indexer. Production
+// has one configured; where a build does not (CI, local builds, previews), its
+// card says so rather than printing a clock-derived
 // "counting now" about a process that is not running.
 //
 // The page makes four refusals, all of them enforced in lib/competitions rather
@@ -49,7 +55,7 @@ import { PageArtBackdrop } from '../components/PageArtBackdrop';
 export default function CompetitionsPage() {
   usePageTitle(
     'Trading Competitions',
-    "The Island Cup ranks senders by the USD size of the fills GeckoTerminal reports on the island's own pools, with self-reversals struck from both sides and every unread pool named. No prize pool, no settlement, and no profit ranking.",
+    "The volume board ranks senders by the USD size of the fills GeckoTerminal reports on the island's own pools, with self-reversals struck from both sides and every unread pool named. No prize pool, no settlement, and no profit ranking.",
   );
 
   const { address } = useAccount();
@@ -66,7 +72,7 @@ export default function CompetitionsPage() {
         <header>
           <h1 className="text-2xl font-bold text-white">Trading Competitions</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/75">
-            Two boards, each ranking activity and neither ranking profit. The Island Cup is scored
+            Two boards, each ranking activity and neither ranking profit. The volume board is scored
             from the trade feeds of the island's own registered pools, over the widest window every
             pool that answered can speak for. Season 1 is scored from the venue router's swaps,
             whenever something is reading them. Nothing here pays anything, and nothing closes.
@@ -99,6 +105,19 @@ export default function CompetitionsPage() {
 
           <ScoringRules />
 
+          {/* WAVE SEVEN, row Q: THE SOON STATE IS ONE LINE. The router season is
+              declared, and only the venue's indexer reads it. Production has one
+              (VITE_INDEXER_URL); CI, local builds and previews do not.
+              Without one, the season card, its read notice and its table
+              collapse to the sentence that says what opens and when. With one,
+              all three render exactly as before, behind the same gates. */}
+          {!isIndexerConfigured() && season ? (
+            <p className="rounded-xl border border-white/15 bg-white/[0.02] p-4 text-xs leading-relaxed text-white/75">
+              {season.name}, {utcDay(season.startsAt)} to {utcDay(season.endsAt)}: its standings open once
+              this deployment reads the venue&apos;s indexer. Nothing is being counted until then.
+            </p>
+          ) : (
+            <>
           {season ? (
             <SeasonCard
               seasons={SEASONS}
@@ -126,6 +145,8 @@ export default function CompetitionsPage() {
           {standings.standings ? (
             <StandingsTable standings={standings.standings} account={address ?? null} />
           ) : null}
+            </>
+          )}
         </div>
       </div>
     </div>

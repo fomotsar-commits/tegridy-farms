@@ -27,6 +27,15 @@ export interface TegridyScoreResult {
   tier: string;
   tips: string[];
   selfReported: string[];
+  /**
+   * At least one input the score is built from did not land, so `score`, `rank`
+   * and `tier` are UNDERSTATED. They are still returned (the collapse is the
+   * house pattern) — do not render them as this wallet's standing without
+   * checking this first.
+   */
+  scoreUnread: boolean;
+  /** Which of the six components could not be read. Each is 0 either way; this says why. */
+  breakdownUnread: Record<keyof TegridyScoreBreakdown, boolean>;
 }
 
 const WEIGHTS = {
@@ -148,7 +157,10 @@ function getTier(score: number): string {
   return 'Tier: Seedling';
 }
 
-function getTips(breakdown: TegridyScoreBreakdown): string[] {
+function getTips(
+  breakdown: TegridyScoreBreakdown,
+  unread: Record<keyof TegridyScoreBreakdown, boolean>,
+): string[] {
   const tipMap: { key: keyof TegridyScoreBreakdown; tip: string }[] = [
     { key: 'stakingScore', tip: 'Tip: Stake more TOWELI to boost your score' },
     { key: 'lockScore', tip: 'Tip: Lock for longer to increase your Venue Score' },
@@ -161,8 +173,11 @@ function getTips(breakdown: TegridyScoreBreakdown): string[] {
     { key: 'communityScore', tip: 'Tip: Refer friends to grow your community score' },
   ];
 
+  // A tip is advice derived from a number. An unread component's 0 is not a
+  // number, and "Stake more TOWELI" told to someone whose position merely failed
+  // to load is the same false claim as the score itself.
   const lowScoring = tipMap
-    .filter(t => breakdown[t.key] < 50)
+    .filter(t => !unread[t.key] && breakdown[t.key] < 50)
     .sort((a, b) => breakdown[a.key] - breakdown[b.key])
     .slice(0, 2)
     .map(t => t.tip);
@@ -192,19 +207,37 @@ export function useTegridyScore(): TegridyScoreResult {
 
   const proposalCount = grantsData?.[0]?.status === 'success' ? Number(grantsData[0].result as bigint) : 0;
 
+  // OUTAGE-AS-SEEDLING. Every input this score is built from collapses to 0 on a
+  // failed read, and six 0s compose into a score of 0, rank "Seedling" and
+  // "Tier: Seedling" - a confident statement that the wallet has no on-chain
+  // history, made about reads that never landed. Each source carries its own
+  // flag: they fail independently, and each understates only ITS component.
+  //
+  // Scoped to reads actually ISSUED. Both governance rails are 0x0 today, so
+  // these batches are disabled and a dormant rail is not an outage; the flags
+  // are written for the day those addresses are filled in.
+  const grantsUnread = grantsDeployed && !!address && !!grantsData
+    && grantsData[0]?.status !== 'success';
+
   const [votedCount, setVotedCount] = useState(0);
   const [proposedCount, setProposedCount] = useState(0);
+  // The per-proposal reads below swallow their own failures (`.catch` ->
+  // false/null), so a refused RPC silently UNDER-COUNTS votes rather than
+  // failing. That is "could not look", not "did not vote".
+  const [governanceScanUnread, setGovernanceScanUnread] = useState(false);
 
   useEffect(() => {
     if (!address || !grantsDeployed || proposalCount === 0 || !publicClient) {
       setVotedCount(0);
       setProposedCount(0);
+      setGovernanceScanUnread(false);
       return;
     }
     let cancelled = false;
     (async () => {
       let voted = 0;
       let proposed = 0;
+      let failed = false;
       const batchSize = 10;
       const count = Math.min(proposalCount, 50);
       for (let i = 0; i < count; i += batchSize) {
@@ -216,7 +249,7 @@ export function useTegridyScore(): TegridyScoreResult {
               abi: COMMUNITY_GRANTS_ABI,
               functionName: 'hasVotedOnProposal',
               args: [BigInt(id), address],
-            }).catch((err) => { if (import.meta.env.DEV) console.error('Failed to check vote status:', err); return false; })
+            }).catch((err) => { if (import.meta.env.DEV) console.error('Failed to check vote status:', err); failed = true; return false; })
           )
         );
         const proposals = await Promise.all(
@@ -226,7 +259,7 @@ export function useTegridyScore(): TegridyScoreResult {
               abi: COMMUNITY_GRANTS_ABI,
               functionName: 'getProposal',
               args: [BigInt(id)],
-            }).catch((err) => { if (import.meta.env.DEV) console.error('Failed to fetch proposal:', err); return null; })
+            }).catch((err) => { if (import.meta.env.DEV) console.error('Failed to fetch proposal:', err); failed = true; return null; })
           )
         );
         if (cancelled) return;
@@ -238,6 +271,7 @@ export function useTegridyScore(): TegridyScoreResult {
       if (!cancelled) {
         setVotedCount(voted);
         setProposedCount(proposed);
+        setGovernanceScanUnread(failed);
       }
     })();
     return () => { cancelled = true; };
@@ -251,17 +285,24 @@ export function useTegridyScore(): TegridyScoreResult {
   });
 
   const bountyCount = bountyData?.[0]?.status === 'success' ? Number(bountyData[0].result as bigint) : 0;
+  /** Same shape as `grantsUnread`, for the bounty rail. */
+  const bountyUnread = bountyDeployed && !!address && !!bountyData
+    && bountyData[0]?.status !== 'success';
 
   const [bountiesCreated, setBountiesCreated] = useState(0);
+  /** The per-bounty reads below swallow their failures too. */
+  const [bountyScanUnread, setBountyScanUnread] = useState(false);
 
   useEffect(() => {
     if (!address || !bountyDeployed || bountyCount === 0 || !publicClient) {
       setBountiesCreated(0);
+      setBountyScanUnread(false);
       return;
     }
     let cancelled = false;
     (async () => {
       let created = 0;
+      let failed = false;
       const count = Math.min(bountyCount, 50);
       for (let i = 0; i < count; i += 10) {
         const batch = Array.from({ length: Math.min(10, count - i) }, (_, k) => i + k);
@@ -272,7 +313,7 @@ export function useTegridyScore(): TegridyScoreResult {
               abi: MEME_BOUNTY_BOARD_ABI,
               functionName: 'getBounty',
               args: [BigInt(id)],
-            }).catch((err) => { if (import.meta.env.DEV) console.error('Failed to fetch bounty:', err); return null; })
+            }).catch((err) => { if (import.meta.env.DEV) console.error('Failed to fetch bounty:', err); failed = true; return null; })
           )
         );
         if (cancelled) return;
@@ -280,7 +321,10 @@ export function useTegridyScore(): TegridyScoreResult {
           if (r && typeof r === 'object' && Array.isArray(r) && typeof r[0] === 'string' && r[0].toLowerCase() === address.toLowerCase()) created++;
         }
       }
-      if (!cancelled) setBountiesCreated(created);
+      if (!cancelled) {
+        setBountiesCreated(created);
+        setBountyScanUnread(failed);
+      }
     })();
     return () => { cancelled = true; };
   }, [address, bountyDeployed, bountyCount, publicClient]);
@@ -310,19 +354,28 @@ export function useTegridyScore(): TegridyScoreResult {
     } catch { return 0; }
   };
   const [firstInteractionTs, setFirstInteractionTs] = useState<number>(() => readCachedTs(cacheKey));
+  // The getLogs scan below already degrades to 0 on a refused range - and 0 is
+  // also the honest "this wallet has never staked here", which scores 0 loyalty.
+  // Same split as usePoints' swapCountUnread: keep the collapse, carry the refusal.
+  const [loyaltyUnread, setLoyaltyUnread] = useState(false);
 
   useEffect(() => {
     if (!address || !publicClient || !checkDeployed(TEGRIDY_STAKING_ADDRESS)) {
       setFirstInteractionTs(0);
+      setLoyaltyUnread(false);
       return;
     }
     // If we already have a validated cached value for this address, skip the RPC.
     const cached = readCachedTs(cacheKey);
     if (cached > 0) {
       setFirstInteractionTs(cached);
+      setLoyaltyUnread(false);
       return;
     }
     let cancelled = false;
+    // In flight is not unread: clear the previous wallet's refusal so this scan
+    // is judged on its own answer.
+    setLoyaltyUnread(false);
     publicClient.getLogs({
       address: TEGRIDY_STAKING_ADDRESS,
       event: STAKED_EVENT,
@@ -334,6 +387,7 @@ export function useTegridyScore(): TegridyScoreResult {
       toBlock: 'latest',
     }).then(async (logs) => {
       if (cancelled) return;
+      setLoyaltyUnread(false);
       if (logs.length > 0) {
         const block = await publicClient.getBlock({ blockNumber: logs[0]!.blockNumber });
         if (cancelled) return;
@@ -345,7 +399,7 @@ export function useTegridyScore(): TegridyScoreResult {
       // Public RPCs sometimes reject wide eth_getLogs ranges. Stay quiet
       // for users — DEV gets a one-off log so it's still discoverable.
       if (import.meta.env.DEV) console.warn('Venue Score: first-interaction lookup unavailable, falling back to 0', err);
-      if (!cancelled) setFirstInteractionTs(0);
+      if (!cancelled) { setFirstInteractionTs(0); setLoyaltyUnread(true); }
     });
     return () => { cancelled = true; };
   }, [address, publicClient, cacheKey]);
@@ -378,17 +432,39 @@ export function useTegridyScore(): TegridyScoreResult {
 
     const selfReported: string[] = [];
 
+    // Which components rest on a read that did not land. Per component, because
+    // they fail independently: a refused log scan says nothing about the staking
+    // position, and neither says anything about the other four.
+    const breakdownUnread: Record<keyof TegridyScoreBreakdown, boolean> = {
+      // Both are derived from the same position batch, which carries its own flag.
+      stakingScore: pos.positionUnread,
+      lockScore: pos.positionUnread,
+      // Points are understated by a refused swap-log scan. ⚠️ The staking / LP /
+      // referral half of the points total has no signal on trunk yet: #518 adds
+      // `pointsUnread` to usePoints — widen this to it once that merges.
+      activityScore: points.swapCountUnread,
+      governanceScore: grantsUnread || governanceScanUnread,
+      // The referral half rides the same points batch, so it carries the #518 caveat too.
+      communityScore: bountyUnread || bountyScanUnread,
+      loyaltyScore: loyaltyUnread,
+    };
+    const scoreUnread = Object.values(breakdownUnread).some(Boolean);
+
     return {
       score,
       breakdown,
       rank: getRank(score),
       tier: getTier(score),
-      tips: getTips(breakdown),
+      tips: getTips(breakdown, breakdownUnread),
       selfReported,
+      scoreUnread,
+      breakdownUnread,
     };
   }, [
     address, pos.stakedAmount, pos.walletBalance, pos.lockDuration,
     points.data?.onChainPoints, votedCount, proposedCount,
     bountiesCreated, onChainReferralCount, firstInteractionTs,
+    pos.positionUnread, points.swapCountUnread, grantsUnread, governanceScanUnread,
+    bountyUnread, bountyScanUnread, loyaltyUnread,
   ]);
 }

@@ -1,4 +1,5 @@
 import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, SEAPORT_DOMAIN } from "./constants";
+import { liveIpfsUrl } from "../lib/ipfsGateways";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
 // Seaport fulfillment entrypoints that OpenSea's fulfillment_data API
@@ -88,18 +89,10 @@ function openseaPost(path, body, { signal, maxRetries = 2, baseDelay = 1500 } = 
   return withRetry(() => rawOpenseaPost(path, body, { signal }), { maxRetries, baseDelay, signal });
 }
 
-// Convert ipfs:// URLs to an HTTP gateway
-const IPFS_GATEWAYS = [
-  "https://ipfs.io/ipfs/",
-  "https://gateway.pinata.cloud/ipfs/",
-  "https://cloudflare-ipfs.com/ipfs/",
-];
-
-function resolveIpfs(url) {
-  if (!url) return url;
-  if (url.startsWith("ipfs://")) return url.replace("ipfs://", IPFS_GATEWAYS[0]);
-  return url;
-}
+// ipfs:// URIs and URLs on a retired gateway (ipfs.io, dweb.link... dead since
+// 2026-09-21) move onto the first live gateway of the site-wide list; NftImage
+// walks the rest of the list on error. Everything else passes through.
+const resolveIpfs = liveIpfsUrl;
 
 // Does this collection serve a deterministic per-id PNG at `${metadataBase}/<id>.png`?
 // Nakamigos does NOT (its metadataBase is a per-token-JSON IPFS CID, so that URL
@@ -126,7 +119,10 @@ function normalizeToken(nft, metadataBase = METADATA_BASE) {
   const rawMetaImage = resolveIpfs(nft.raw?.metadata?.image || null);
   // Grid thumbnail: prefer Alchemy CDN sizes; only fall to raw 2000px IPFS when
   // no CDN size exists (raw IPFS is slow and re-blackens on re-render — F621).
-  const resolvedImage = nft.image?.thumbnailUrl || nft.image?.cachedUrl || nft.image?.pngUrl || nft.image?.originalUrl || fallbackImage || rawMetaImage;
+  // Alchemy's originalUrl is the collection's own tokenURI image, often an
+  // https://ipfs.io/... URL that no longer loads: rewrite it like the raw one.
+  const originalUrl = resolveIpfs(nft.image?.originalUrl || null);
+  const resolvedImage = nft.image?.thumbnailUrl || nft.image?.cachedUrl || nft.image?.pngUrl || originalUrl || fallbackImage || rawMetaImage;
   return {
     id: nft.tokenId,
     name: nft.name || nft.raw?.metadata?.name || `#${nft.tokenId}`,
@@ -134,7 +130,7 @@ function normalizeToken(nft, metadataBase = METADATA_BASE) {
     // F603: carry the small CDN thumbnail explicitly so NftImage can emit a
     // responsive srcset (thumbnail -> 1x, larger CDN size -> 2x) on retina.
     imageThumb: nft.image?.thumbnailUrl || null,
-    imageLarge: nft.image?.cachedUrl || nft.image?.pngUrl || nft.image?.originalUrl || rawMetaImage || fallbackImage,
+    imageLarge: nft.image?.cachedUrl || nft.image?.pngUrl || originalUrl || rawMetaImage || fallbackImage,
     attributes: attrs
       .filter(a => a.trait_type != null && a.trait_type !== "" && a.value != null && a.value !== ""
         && String(a.trait_type) !== "undefined" && String(a.value) !== "undefined")
@@ -852,35 +848,42 @@ export async function fetchListings(slug = COLLECTION_SLUG, { openseaSlug, contr
   // first paint on all ~5 serial cursor pages. Each source is individually
   // .catch()'d so one failing never blanks the other.
   let osFailed = false;
-  let nativeFailed = false;
   const [osPage1, nativeResult] = await Promise.all([
     fetchOpenSeaListingsPage(osSlug, null).catch(err => {
       console.warn("OpenSea listings unavailable:", err.message);
       osFailed = true;
       return { raw: [], next: null };
     }),
+    // fetchNativeListings never rejects: a failed read RESOLVES as
+    // { orders: [], error }. This .catch only sees the orderbook chunk itself
+    // failing to load, and hands that back in the same shape, so `error` is the
+    // one failure signal.
     contract
-      ? import("./lib/orderbook").then(m => m.fetchNativeListings(contract)).catch(err => {
-          console.warn("Native listings unavailable:", err?.message);
-          nativeFailed = true;
-          return { orders: [] };
-        })
+      ? import("./lib/orderbook").then(m => m.fetchNativeListings(contract)).catch(err => ({
+          orders: [],
+          error: err?.message || "Native orderbook failed to load",
+        }))
       : Promise.resolve({ orders: [] }),
   ]);
-
-  // Read-honesty: when EVERY attempted source failed this is an outage, not an
-  // empty market. Merging two failure-empties yielded source:"opensea", which
-  // the listings surface renders as the healthy "No active listings right now"
-  // copy. Signal it the way fetchWalletNfts does (returned `error` field):
-  // useListings reads data.error into listingsError, and with source null the
-  // UI falls through to its existing "temporarily unavailable" state.
-  if (osFailed && (!contract || nativeFailed)) {
-    return { listings: [], source: null, error: "Listing data temporarily unavailable. Please try again shortly." };
-  }
+  const nativeFailed = Boolean(nativeResult.error);
+  if (nativeFailed) console.warn("Native listings unavailable:", nativeResult.error);
 
   const nativeListings = mapNativeListings(nativeResult);
   const osRaw = [...osPage1.raw];
   const build = () => mergeListings(normalizeOpenSeaListings(osRaw), nativeListings);
+
+  // Read-honesty: an EMPTY result is only publishable when every source this
+  // call tried was actually read. Returned as source:"opensea" it renders as
+  // the healthy "No active listings right now" copy, which is false while
+  // either source is unread: OpenSea down beside an empty native book, or the
+  // native book down beside an empty OpenSea page. Signal it the way
+  // fetchWalletNfts does (returned `error` field): useListings reads data.error
+  // into listingsError, and with source null the UI falls through to its
+  // existing "temporarily unavailable" state. A NON-empty partial result is
+  // kept: those listings were read, and `source` names the venue they came from.
+  if ((osFailed || nativeFailed) && build().listings.length === 0) {
+    return { listings: [], source: null, error: "Listing data temporarily unavailable. Please try again shortly." };
+  }
 
   // Walk the remaining OpenSea cursor pages, appending to osRaw. `emit` (when
   // given) is called after each page so the caller can stream the growing set.

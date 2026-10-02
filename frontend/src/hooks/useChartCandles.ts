@@ -14,7 +14,8 @@ import { useIndexedQuery, type IndexedStatus } from './useIndexedQuery';
 
 // Candles for one TegridyPair, over the F1 indexer.
 //
-// THE INDEXER IS NOT HOSTED. With VITE_INDEXER_URL unset this hook parks in
+// WITHOUT AN INDEXER. Production has one configured; with VITE_INDEXER_URL
+// unset (CI, local builds, previews) this hook parks in
 // `unavailable` and never emits a request, and `series` stays null in that state
 // — not an empty series. The difference is the whole feature: an empty candle
 // series and an unreachable indexer both draw as a blank chart, and only one of

@@ -16,8 +16,22 @@ frontend/build-output.log
 # Test results + playwright artefacts
 frontend/test-results
 frontend/playwright-report
-# Local env files (never upload secrets)
-frontend/.env
-frontend/.env.local
+# Local env files (never upload secrets).
+#
+# A GLOB, NOT A LIST OF FILENAMES. This file opens with `*` and then re-includes all of
+# frontend/ via `!frontend/**`, so last-match-wins means anything NOT named below is
+# uploaded. Naming `.env` and `.env.local` specifically meant `.env.production`,
+# `.env.production.local`, `.env.development.local` and `.env.staging` would each have been
+# uploaded to the build — with their values — the moment one was created. Only `.env` and
+# `.env.example` exist today, so nothing has been uploaded; this closes it before the next
+# env file is added rather than after.
+#
+# Excluding `.env.example` too is deliberate and safe: nothing in the build reads any env
+# FILE (Vercel injects environment variables from the project settings), and the only
+# reference to `.env.example` anywhere in the build tree is a prose comment in
+# frontend/scripts/verify-env.mjs, which the build never runs.
+#
+# Pinned by frontend/src/test/vercelUploadExcludesEnv.test.ts.
+frontend/.env*
 # Existing nested .vercel/ — the project link at repo root is canonical now
 frontend/.vercel

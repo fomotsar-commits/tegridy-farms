@@ -73,7 +73,7 @@ export const ALERT_SOURCES: Record<AlertSourceId, AlertSource> = {
     label: 'GeckoTerminal pool feed',
     attribution: 'GeckoTerminal’s pool quote and recent-trades feed',
     operatorStep:
-      'No operator step — read straight from api.geckoterminal.com, which this site’s connect-src already allows. It is keyless and rate-limited, so this page holds at most 10 rules over at most 5 pools and reads each pool once a minute; a failure is an outage and is reported as one at read time.',
+      'No operator step — read through this site’s own edge-cached resource, which ships with every deployment. The upstream is keyless and rate-limited, so this page holds at most 10 rules over at most 5 pools and reads each pool once a minute; a failure is an outage and is reported as one at read time.',
   },
 };
 
@@ -127,10 +127,12 @@ export function sourceReadiness(): Record<AlertSourceId, SourceReadiness> {
     'heat-oracle': { readable: true, detail: null },
     'launch-radar': { readable: true, detail: null },
     explorer: { readable: true, detail: null },
-    // Third-party, keyless, and reachable from the browser under the CSP this
-    // site already ships (connect-src includes api.geckoterminal.com). There is
-    // nothing an operator could set, so `readable` is unconditional and a
-    // throttle or an outage is reported at read time like the sources above.
+    // Third-party and keyless upstream, reached the same way as the same-origin
+    // resources above — through `?resource=gecko-read` on the aggregator
+    // catchall (2026-09-10; it used to be a browser-direct read, which spent
+    // every visitor's own per-IP budget). There is nothing an operator could
+    // set, so `readable` is unconditional and a throttle or an outage is
+    // reported at read time like the sources above.
     'gecko-pool': { readable: true, detail: null },
   };
 }

@@ -1,5 +1,7 @@
 # The Island Build-Out — master plan, all 13 bungalows, the whole 9 yards
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 **Written 2026-08-30 against trunk `da8f05d4`, by the 5D-architect pass the operator asked for:
 "every single bungalow still needs building with their respective chain and staking pools…
 what we did for TOWELI and are still doing for BAYLA."** Identification ran first (two

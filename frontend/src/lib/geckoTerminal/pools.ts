@@ -27,6 +27,7 @@ import {
 } from '../schemas/geckoTerminal';
 import { ETH_ADDRESS_RE, SOL_ADDRESS_RE } from '../scanner/scanner';
 import { num } from './poolTrades';
+import { geckoEdgeUrl } from './edge';
 
 /**
  * The networks this venue reads, as GeckoTerminal's API slugs.
@@ -236,14 +237,12 @@ export function parseGeckoPoolList(
 
 // ─── URLs ────────────────────────────────────────────────────────────────────
 
-const GECKO_BASE = 'https://api.geckoterminal.com/api/v2';
-
 /** `pools/multi` takes at most 30 addresses per request (GeckoTerminal's cap). */
 export const GECKO_POOLS_MULTI_MAX = 30;
 
 export function geckoPoolsUrl(network: GeckoNetwork, view: 'new' | 'trending'): string {
   const path = view === 'new' ? 'new_pools' : 'trending_pools';
-  return `${GECKO_BASE}/networks/${network}/${path}`;
+  return geckoEdgeUrl(`/networks/${network}/${path}`);
 }
 
 /**
@@ -268,7 +267,7 @@ export function geckoPoolsMultiUrl(network: GeckoNetwork, pools: string[]): stri
     valid.push(encodeURIComponent(id));
     if (valid.length >= GECKO_POOLS_MULTI_MAX) break;
   }
-  return `${GECKO_BASE}/networks/${network}/pools/multi/${valid.join(',')}`;
+  return geckoEdgeUrl(`/networks/${network}/pools/multi/${valid.join(',')}`);
 }
 
 /**

@@ -114,6 +114,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
 import { register } from 'node:module';
 
 // ─── Self-contained loader: make the bundler-targeted TS module run under Node ───
@@ -643,7 +644,7 @@ async function cmdStatus(flags) {
   const globalAddress = globalPdaOf(pid);
 
   console.log('[operator] tegridy-launch status');
-  console.log(`  cluster      : ${connection.rpcEndpoint.replace(/\?.*$/, '')}`);
+  console.log(`  cluster      : ${redactRpcUrl(connection.rpcEndpoint)}`);
   console.log(`  program id   : ${pid}${pid === PLACEHOLDER_PROGRAM_ID ? '  (PLACEHOLDER from lib.rs:101)' : ''}`);
   console.log(`  global PDA   : ${globalAddress}`);
   printDeployment(status.program, pid);

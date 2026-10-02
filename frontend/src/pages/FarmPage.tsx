@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
 import { parseEventLogs, formatEther } from 'viem';
@@ -32,10 +32,11 @@ import { seasonStatus } from '../lib/season';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
-import { getActiveBungalow, DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
-import { isToweliVoice } from '../lib/arrival';
+import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
+import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
 import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
 import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
+import { BackToEarn } from '../components/farm/BackToEarn';
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
 import { IncentivesStrip } from '../components/farm/IncentivesStrip';
 import { RealYieldProof } from '../components/RealYieldProof';
@@ -50,46 +51,27 @@ import { UpcomingPoolCard } from '../components/farm/UpcomingPoolCard';
 import { ArtImg } from '../components/ArtImg';
 
 /**
- * Jungle Bay bungalows: in a non-default bungalow the whole TOWELI farm stack
- * (staking card, LP farming, boosts) is the wrong token and the wrong chain,
- * so the route renders the bungalow's own self-gating farm panel instead.
- * The branch lives in this wrapper — NOT as an early return inside the farm
- * component — so the classic component's hook order is untouched. The active
- * bungalow can only change via persist+reload, so the branch is stable for
- * the lifetime of the document.
- *
- * ⚠️ THE THIRD STATE, ADDED 2026-09-05, AND THE BUG IT CLOSES.
- * This wrapper had TWO branches, and `getActiveBungalow()` returns null when
- * nothing is chosen — so "the venue, speaking as itself" fell into the same
- * branch as "the TOWELI bungalow". A stranger's first visit to /farm was
- * therefore the classic TOWELI stack in full dress: "Stake TOWELI and earn
- * rewards · FAFO", TOWELI price, TOWELI balance, about thirty occurrences of one
- * resident's ticker on a page the VENUE was supposed to be speaking on.
- *
- * `arrival.ts` has had the right three-state gate the whole time —
- * arrivalVoice() is 'venue' | 'toweli' | 'bungalow', and HomePage already uses
- * it correctly. This page (and DashboardPage) branched on the coarser
- * getActiveBungalow(), which collapses the first two. That is the whole defect;
- * `isToweliVoice()` is the fix.
- *
- * NOTHING ABOUT THE CLASSIC FARM CHANGED. ToweliFarm is byte-identical and still
- * mounts StakingCard, LPFarmingSection, IncentivesStrip, BoostScheduleTable,
- * FarmStatsRow, LivePoolCard, LegacyStakingExit and RealYieldProof — it is
- * simply reached by its own voice now instead of by everyone's. Real staking is
- * one door away, and VenuePoolIndex links to it by name.
+ * Earn's Staking tab. `/earn` is the list of every pool (VenueEarn) whatever
+ * room is active, so the top-bar word and the tab always lead back to it.
+ * `/earn/<id>` is one pool, its room already entered (App.tsx EarnPoolRoute):
+ * a room with its own token gets its self-gating farm panel, and the TOWELI
+ * room gets the classic farm. Until 2026-09-30 the ROOM picked the pool on a
+ * single /farm, so a visitor inside one pool had no way back to the list.
+ * The branch lives in this wrapper so ToweliFarm's hook order never changes,
+ * and it re-reads when the skin switches in place.
  */
 export default function FarmPage() {
-  const bungalow = getActiveBungalow();
-  if (bungalow && bungalow.id !== DEFAULT_BUNGALOW_ID) {
-    return <BungalowFarmPanel bungalow={bungalow} />;
-  }
+  useActiveBungalowId();
+  const { poolId } = useParams();
+  const bungalow = poolId ? BUNGALOWS.find((b) => b.id === poolId && b.live) : undefined;
   // The venue speaks for the whole island, not for one resident.
-  if (!isToweliVoice()) return <VenueEarn />;
-  return <ToweliFarm />;
+  if (!bungalow) return <VenueEarn />;
+  if (bungalow.id === DEFAULT_BUNGALOW_ID) return <ToweliFarm />;
+  return <BungalowFarmPanel key={bungalow.id} bungalow={bungalow} />;
 }
 
 /**
- * The venue's own /farm.
+ * The venue's own /earn: every resident's pool.
  *
  * ⚠️ ITS OWN COMPONENT, NOT JSX INLINED IN THE WRAPPER, and the reason is the
  * same one the wrapper's note gives for keeping the bungalow branch out of
@@ -115,8 +97,8 @@ function VenueEarn() {
         <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">Earn</h1>
         <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
           Stake a token to earn a share of its pool, or provide liquidity and take a cut of every
-          swap that routes through it. Held time counts here: the longer you lock, the larger your
-          share of the same rewards.
+          swap that routes through it. The longer you lock, the larger your share of the same
+          rewards.
         </p>
       </header>
       <VenuePoolIndex />
@@ -387,6 +369,7 @@ function ToweliFarm() {
               ConnectPrompt below remains the action-card slot). Additive — the
               jungle art hero and ConnectPrompt are untouched. */}
           <div className="max-w-[1200px] mx-auto px-4 md:px-6 pb-4">
+            <BackToEarn />
             <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
 
             <FarmStatsRow
@@ -460,6 +443,7 @@ function ToweliFarm() {
 
       <ErrorBoundary>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+        <BackToEarn />
         {/* Wrong-chain banner via shared primitive. Replaces the inlined
             switch-CTA block added in Phase 4.3 — behavior identical, just
             centralized so Community/Farm/future pages share one component. */}

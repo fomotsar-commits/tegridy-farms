@@ -4,7 +4,9 @@ import { toast } from 'sonner';
 import { REVENUE_DISTRIBUTOR_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
 import { REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
+import { getTxUrl } from '../lib/explorer';
 
 export function useRevenueStats() {
   const { address } = useAccount();
@@ -17,12 +19,20 @@ export function useRevenueStats() {
   const isPending = isClaimPending;
   const writeError = claimError;
 
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
-  // receipt was FETCHED" — it latches true for on-chain REVERTED txs too. Only
-  // receipt.status === 'success' is a real success; the toasts below key off this.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  // receipt was FETCHED". Only receipt.status === 'success' is a real success.
+  //
+  // 2026-09-17: and wagmi's `isError` is TWO facts. A real revert arrives there
+  // (wagmi THROWS on a reverted receipt, so the revert effect below never fired)
+  // and so does "we could not READ the receipt", which was toasted "Transaction
+  // failed". receiptOutcome splits them by error type; see lib/txErrors.ts.
+  // And a receipt is only proof of its OWN transaction: a claim the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
 
   // F47 (T7): the global lifetime figures (totalDistributed / totalClaimed /
   // epochCount / totalReferralsPaid) are public protocol stats — they back the
@@ -83,6 +93,45 @@ export function useRevenueStats() {
   const referrer = data?.[3]?.status === 'success' ? (data[3].result as string) : null;
   const hasReferrer = !!referrer && referrer !== '0x0000000000000000000000000000000000000000';
 
+  // `isDataError` CANNOT SEE ANY OF THIS. useReadContracts defaults
+  // allowFailure to true, so ONE reverting or unanswered leg comes back
+  // status:'failure' inside a query that RESOLVED -- isGlobalError and
+  // isUserError both stay false, every consumer's error branch is skipped, and
+  // the zeros above print as fact. ProofOfClaims.tsx:50 already documents this
+  // wagmi behaviour; nothing in this hook acted on it.
+  //
+  // The user batch is gated on `!!address`, so a disconnected visitor never
+  // asked and must not be told a read failed.
+  const userBatchRan = !!address;
+  const userUnread = (i: number) => userBatchRan && data?.[i]?.status !== 'success';
+
+  /** Nothing here can be spent as "you have nothing to claim".
+   *
+   *  CLAIMING IS WHAT RESETS THE FORFEITURE CLOCKS, which is why this one is
+   *  not cosmetic. RevenueDistributor.CLAIM_GRACE_PERIOD is 7 days after a lock
+   *  expires before an epoch stops being claimable (:198) and DUST_RECLAIM_GRACE
+   *  is 14 days before the owner may reclaim it (:1573); ReferralSplitter
+   *  sweeps a referrer's pendingETH to treasury after FORFEITURE_PERIOD = 90
+   *  days with no claim (:97). So the one surface whose job is to send a user to
+   *  claim was telling them there was nothing to claim, on the exact days the
+   *  clock runs. Entry [1] is included because it supplies the fallback that
+   *  entry [2] reads when [2] itself fails. */
+  const pendingUnread = userUnread(0) || userUnread(1) || userUnread(2);
+
+  /** `referrerOf` is ONE-TIME AND PERMANENT on-chain, so an unread answer must
+   *  not read as "not yet referred". ReferralAttributionCard's own header says
+   *  it exists so we never "offer a Link button that reverts" -- and its
+   *  `canLink` gate gives exactly that on a failed read (:64), as does the
+   *  one-time guard in setReferrer below. The user signs, pays gas, and
+   *  ReferralSplitter.setReferrer reverts AlreadyReferred. */
+  const referrerUnread = userUnread(3);
+
+  /** Lifetime protocol figures. Ungated -- this batch runs for a disconnected
+   *  visitor too, so it has no `!!address` scope. Display-only: these back the
+   *  "every fee flows on-chain, verifiable" pitch, and a fabricated 0 ETH
+   *  undersells it rather than costing anyone money. */
+  const globalUnread = !!globalData && globalData.some((e) => e?.status !== 'success');
+
   // Actions — no registration needed, just claim
   function claimRevenue() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
@@ -107,6 +156,10 @@ export function useRevenueStats() {
   function setReferrer(referrerAddress: `0x${string}`) {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (hasReferrer) { toast.info('Referrer already set'); return; }
+    // An UNREAD referrer is not an absent one, and this guard is the last thing
+    // between the user and a transaction that reverts AlreadyReferred with their
+    // gas already spent. Refusing costs a retry; proceeding costs a failed tx.
+    if (referrerUnread) { toast.error('Could not check whether you already have a referrer — try again in a moment'); return; }
     writeClaim({
       chainId: CHAIN_ID,
       address: REFERRAL_SPLITTER_ADDRESS,
@@ -124,19 +177,29 @@ export function useRevenueStats() {
       const t = setTimeout(resetClaim, 0);
       return () => clearTimeout(t);
     }
-    if (isTxError || writeError) {
-      // F474: a writeError carries the wallet rejection — classify it (so a
-      // cancel shows "Cancelled", not a scary "Transaction failed"). A bare
-      // on-chain revert (isTxError, no writeError) keeps the generic message.
+    // A cancelled or replaced tx resets here too; its warning is
+    // useReplacedTxNotice's, above.
+    if (isReceiptUnreadable || isReplaced || writeError) {
+      // F474: a writeError carries the wallet rejection — classify it, so a cancel
+      // shows "Cancelled" rather than a scary failure string.
       if (writeError) surfaceTxError(writeError, toast, { component: 'useRevenueStats' });
-      else toast.error('Transaction failed');
+      else if (hash && isReceiptUnreadable) {
+        // The receipt READ failed (the revert case has its own effect below). This
+        // said "Transaction failed" about a CLAIM that may already have paid out.
+        // See surfaceUnconfirmedTx.
+        surfaceUnconfirmedTx(toast, {
+          hash,
+          explorerUrl: getTxUrl(chainId, hash),
+          repeatCost: 'the ETH is already in your wallet and a second claim only costs gas.',
+        });
+      }
       const t = setTimeout(resetClaim, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, writeError, refetch, resetClaim]);
+  }, [isSuccess, isReceiptUnreadable, isReplaced, writeError, refetch, resetClaim, hash, chainId]);
 
-  // On-chain revert: the receipt fetch succeeded (so isTxError stays false) but
-  // the tx failed — honest error instead of "Transaction confirmed!" (see derivation above).
+  // On-chain revert: we read the receipt and the tx failed — honest error instead
+  // of "Transaction confirmed!". Unreachable until 2026-09-17 (see derivation above).
   useEffect(() => {
     if (isReverted) {
       toast.error('Transaction reverted on-chain', {
@@ -151,6 +214,13 @@ export function useRevenueStats() {
     // Revenue Distribution
     totalDistributed: Number(formatWei(totalDistributed, 18, 6)),
     totalClaimed: Number(formatWei(totalClaimed, 18, 6)),
+    /** ⚠ DERIVED FROM TWO INDEPENDENTLY-FAILING READS — totalDistributed minus
+     *  totalClaimed — which is the exact shape of the usePoolData reserve bug:
+     *  if totalClaimed alone fails it collapses to 0n and this becomes the whole
+     *  lifetime distributed figure, a large plausible wrong number that passes
+     *  any `> 0` hedge. It is harmless ONLY because nothing reads it today
+     *  (grep `.unclaimed` across src/ — no consumer). THE FIRST CONSUMER MUST
+     *  GATE ON `globalUnread`. */
     unclaimed: Number(formatWei(totalDistributed > totalClaimed ? totalDistributed - totalClaimed : 0n, 18, 6)),
     epochCount,
     pendingRevenue: Number(formatWei(pendingRevenue, 18, 6)),
@@ -163,6 +233,16 @@ export function useRevenueStats() {
     totalReferralsPaid: Number(formatWei(totalReferralsPaid, 18, 6)),
     referrer,
     hasReferrer,
+    /** `referrerOf` did not land. NOT the same fact as "no referrer" — the
+     *  on-chain value is one-time and permanent, so acting on the collapse
+     *  offers a Link button that reverts AlreadyReferred. */
+    referrerUnread,
+    /** pendingETH / getReferralInfo did not land, so NOTHING here may be spent
+     *  as "nothing to claim". Claiming is what resets the 7d / 14d / 90d
+     *  forfeiture clocks. */
+    pendingUnread,
+    /** The lifetime protocol figures did not fully land. Display-only. */
+    globalUnread,
     // Actions
     claimRevenue,
     claimReferralRewards,

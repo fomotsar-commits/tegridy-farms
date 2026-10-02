@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { VENUE } from '../../lib/arrival';
 import { useLocation } from 'react-router-dom';
 import {
   isRunningInstalled,
   isSubAppRoute,
-  persistInstallDismissed,
   readInstallDismissed,
   shouldOfferInstall,
 } from '../../lib/pwa/install';
@@ -28,7 +26,8 @@ interface BeforeInstallPromptEvent extends Event {
 export function InstallPrompt() {
   const { pathname } = useLocation();
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
-  const [dismissed, setDismissed] = useState(readInstallDismissed);
+  // Still honoured, so anyone who dismissed the old banner is not re-offered.
+  const [dismissed] = useState(readInstallDismissed);
   const [installed, setInstalled] = useState(isRunningInstalled);
 
   useEffect(() => {
@@ -67,11 +66,6 @@ export function InstallPrompt() {
     }
   }, [deferred]);
 
-  const dismiss = useCallback(() => {
-    setDismissed(true);
-    persistInstallDismissed();
-  }, []);
-
   // Read during render (not cached in state) so the offer returns by itself on
   // the next render once the visitor answers the consent banner.
   let consentPending = false;
@@ -87,38 +81,35 @@ export function InstallPrompt() {
 
   if (!offer) return null;
 
+  // WAVE SEVEN, element E: A FOOTER ROW, NEVER A BANNER.
+  //
+  // This was a `position: fixed`, `z-[9500]`, `role="dialog"` panel that put
+  // itself over the page the moment Chromium fired `beforeinstallprompt` —
+  // nobody asked for it, and at `bottom-20` it sat on top of the very buttons a
+  // visitor was reaching for. That is the class element E removes.
+  //
+  // Nothing about the OFFER changes: the decision in lib/pwa/install.ts still
+  // rules, so this appears only when the browser handed us a real, unfired
+  // event and the visitor is not already installed, not on the sub-app route,
+  // and has answered consent. It simply waits in the footer now, and the tap
+  // that spends the deferred prompt is the visitor's.
+  //
+  // The dismiss control went with the banner: a quiet row in the footer does
+  // not nag, so there is nothing to dismiss. Anyone who dismissed the old
+  // banner stays dismissed — `readInstallDismissed` is still honoured above.
+  //
+  // The honesty line goes too, because it belonged to a panel with room for it.
+  // The row promises exactly what it does: add it to your home screen. It never
+  // said, and still must never say, anything about working offline.
   return (
-    <div
-      className="fixed inset-x-3 bottom-20 z-[9500] mx-auto flex max-w-md items-center gap-3 rounded-xl border border-white/20 bg-[#0b1226]/95 px-4 py-3 shadow-2xl backdrop-blur sm:bottom-6"
-      role="dialog"
-      aria-label={`Install ${VENUE.name}`}
+    <button
+      type="button"
+      onClick={install}
+      className="text-[12px] underline underline-offset-4 decoration-white/30 transition-colors hover:decoration-white"
+      style={{ color: 'rgba(255,255,255,0.75)' }}
     >
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-white">Install {VENUE.name}</p>
-        {/* No offline-trading claim here, and none anywhere else in this banner.
-            The installed app is the same app: it reads the chain live and shows
-            nothing when it cannot. Promising an offline experience would be
-            promising cached prices. */}
-        <p className="mt-0.5 text-xs leading-snug text-white/65">
-          Adds it to your home screen. It still needs a connection to read anything on-chain.
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={install}
-        className="shrink-0 rounded-lg border border-white/25 bg-white/15 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/25"
-      >
-        Install
-      </button>
-      <button
-        type="button"
-        onClick={dismiss}
-        aria-label="Dismiss install prompt"
-        className="shrink-0 rounded-md px-1.5 py-1 text-lg leading-none text-white/55 hover:text-white"
-      >
-        {'×'}
-      </button>
-    </div>
+      Add to home screen
+    </button>
   );
 }
 

@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
-import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute } from '../../lib/bungalows';
+import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute, stakePoolMembersOnly } from '../../lib/bungalows';
 import { isSolanaSwapLive, isSolanaFeeConfigured } from '../../lib/solana';
 import { HeatCard } from './HeatCard';
 import { usePageTitle } from '../../hooks/usePageTitle';
@@ -21,43 +21,58 @@ const EvmLighthousePoolLive = lazy(() =>
 const EvmLadderPoolLive = lazy(() =>
   import('./EvmLadderPoolLive').then((m) => ({ default: m.EvmLadderPoolLive })),
 );
+// The venue's OWN Solana staking program (bayla-ladder), which is a different rail
+// from Streamflow rather than a different shape of it. Lazy for the same reason as
+// its siblings: check-dist-graph.mjs fails the build if the @solana chunk becomes
+// statically reachable from the entry, and it has caught that regression twice.
+const SolanaLadderPoolLive = lazy(() =>
+  import('./SolanaLadderPoolLive').then((m) => ({ default: m.SolanaLadderPoolLive })),
+);
+// The ladder with a members-only Streamflow pool's claim strip under it, one wallet context.
+const SolanaPoolStack = lazy(() =>
+  import('./SolanaPoolStack').then((m) => ({ default: m.SolanaPoolStack })),
+);
+import { BackToEarn } from '../farm/BackToEarn';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 
 /**
- * The Farm surface while a non-default bungalow is active (Bayla today).
- *
- * FarmPage's whole TOWELI stack (staking card, LP farming, boost tables,
- * incentives strip) is Ethereum/TOWELI machinery — none of it applies to a
- * Solana bungalow token, so in bungalow mode the route renders this panel
- * INSTEAD, and the classic farm returns untouched the moment the visitor
- * switches back to Toweli.
- *
- * HONESTY CONTRACT (same convention as every gated surface in this repo —
- * CurveLaunchPage, AirdropPage, VestingPage): no staking program for this
- * token exists yet, so this panel states exactly that, asks for nothing,
- * and holds no wallet interaction. It describes how the pool will be funded
- * (the routes under evaluation in docs/BAYLA_BUNGALOW.md) and routes the
- * visitor to the surfaces that ARE live: the trade route, the scanner, and
- * the token's real liquidity pools. When a pool ships, this panel is where
- * its address lands (registry-driven), and the live staking card replaces
- * the status card.
+ * The Farm while a room with its own token is active. The room's pool cards lead, picked
+ * from the registry (stakePool, ladderPool, poolKind); then how the pool gets funded, the
+ * live surfaces and the heat card. With no pool yet it says so and asks for nothing.
  */
 export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
-  // The hero must not keep saying "being built" once the pool exists — the
-  // 2026-08-27 audit caught exactly that stale claim in prod after the BAYLA
-  // lighthouse went live on-chain. Copy branches on the same registry fact
-  // (stakePool) that swaps the dark card for the live section below.
-  const poolIsLive = Boolean(bungalow.stakePool);
+  // Copy branches on the same registry facts as the pool slot below, so the hero never
+  // says "being built" beside a live pool. A members-only Streamflow pool is shown only
+  // to its stakers (owner, 2026-09-21), so the page names the ladder instead, as it does
+  // when the ladder is the only pool.
+  const poolIsLive = Boolean(bungalow.stakePool || bungalow.ladderPool);
+  const membersOnly = stakePoolMembersOnly(bungalow);
+  const namesLadder = membersOnly || (bungalow.chain === 'solana' && !bungalow.stakePool && Boolean(bungalow.ladderPool));
+  const liveName = namesLadder ? 'The lock ladder' : 'The lighthouse pool';
   usePageTitle(
-    `Farm — ${bungalow.symbol}`,
+    `Farm: ${bungalow.symbol}`,
     poolIsLive
-      ? `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain} — the lighthouse pool is live at Jungle Bay Island.`
+      ? `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain}. ${liveName} is live at Jungle Bay Island.`
       : `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain} — arriving at Jungle Bay Island.`,
   );
   const explorer = bungalowExplorerUrl(bungalow);
   const chainLabel = bungalow.chain === 'solana' ? 'Solana' : bungalow.chain === 'base' ? 'Base' : 'Ethereum';
+  // Each chain's own swap fee. Solana: the fee account. Ethereum: SwapFeeRouter charges only
+  // on a fill in the venue's own pools, and pays stakers, POL and treasury. Base: the swap
+  // stack does not trade there (chains/registry.ts `ammSwap: false`).
+  const swapFeeLine =
+    bungalow.chain === 'solana'
+      ? isSolanaFeeConfigured()
+        ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
+        : 'the Solana swap surface is live here, but it takes no platform fee today, so there is nothing to share until one is switched on.'
+      : bungalow.chain === 'ethereum'
+        ? `the ${chainLabel} swap surface takes a platform fee only when a trade fills in the venue's own pools, and no share of it routes here today.`
+        : `the venue runs no swap on ${chainLabel}, so there is no swap fee to share.`;
+  // Row 2 holds the lighthouse pool and the funding card side by side. With a ladder and
+  // no lighthouse card (none, or members-only in the ladder's row), funding spans it.
+  const fundingAlone = bungalow.chain === 'solana' && Boolean(bungalow.ladderPool) && (!bungalow.stakePool || membersOnly);
 
   return (
     <div className="relative min-h-screen">
@@ -65,12 +80,11 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           every established page (fixed, scrimmed, content above). */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="bungalow-farm" idx={2} alt="" loading="lazy" className="w-full h-full object-cover" />
-        {/* ART VISIBILITY 2026-08-31 (owner): 0.55 -> 0.38. The card scrims
-            above it were lightened in the same pass; leaving this heavy would
-            have kept the resident's art muddy anyway. */}
+        {/* A light scrim (0.38), so the resident's art reads through. */}
         <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.38)' }} />
       </div>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16">
+      <BackToEarn />
       {/* Header */}
       <div className="mb-8">
         <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">
@@ -82,35 +96,65 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         <p className="text-white/85 text-[15px] max-w-lg leading-relaxed">
           {poolIsLive ? (
             <>
-              {bungalow.tagline} The lighthouse pool is live for {bungalow.symbol} on{' '}
-              {chainLabel} — created on-chain, readable by anyone. The numbers below
-              are read straight from the pool, and rewards only ever show what the
-              vault actually holds.
+              {bungalow.tagline} {liveName} is live for {bungalow.symbol} on{' '}
+              {chainLabel}, created on-chain and readable by anyone. The numbers below
+              are read straight from the pool.
             </>
           ) : (
             <>
               {bungalow.tagline} The lighthouse pool is being built for {bungalow.symbol} on{' '}
-              {chainLabel} — and until it is deployed and verified, this page makes no
+              {chainLabel}. Until it is deployed and verified, this page makes no
               promises and asks for nothing.
             </>
           )}
         </p>
+        {/* The top bar's Connect is EVM only (RainbowKit), and on this page it is
+            the most visible one. A Trust wallet connected there showed "only the
+            EVM chains" while every card here still asked for Solana, and Jupiter,
+            Solana only, can never be in that list (owner, 2026-09-30). */}
+        {poolIsLive && bungalow.chain === 'solana' && (
+          <p className="text-white/70 text-[13px] max-w-lg leading-relaxed mt-3">
+            This pool is on Solana: connect your wallet on the pool card below. The Connect button
+            at the top of the page does not connect Solana.
+          </p>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Pool slot: the honest dark card until a pool address is configured
-            (VITE_BAYLA_STAKE_POOL), the live Streamflow section after. The
-            live section renders an EMPTY reward vault as a labeled real zero
-            — funding is allowed to come last without the page ever lying. */}
-        {bungalow.stakePool ? (
+      {/* THE LIVE POOL LEADS (2026-09-20): the ladder comes first in the DOM and spans
+          the row. An open lighthouse pool shares row 2 with the funding card; a
+          members-only one stacks under the ladder in its cell. DOM order IS visual
+          order (no CSS `order`), so tab and screen-reader order match the screen. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Pool slot: the dark card until a pool address is configured, the live card
+            after. An empty reward vault reads as a labeled real zero. */}
+        {(bungalow.stakePool || bungalow.ladderPool) ? (
           <Suspense fallback={
-            <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+            <div className={`relative overflow-hidden rounded-2xl glass-card-animated ${bungalow.chain === 'solana' && bungalow.ladderPool ? 'lg:col-span-2' : ''}`} style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.85)' }} />
-              <div className="relative z-10 p-6"><p className="text-white/70 text-[13px]">Loading the lighthouse…</p></div>
+              <div className="relative z-10 p-6"><p className="text-white/70 text-[13px]">{namesLadder ? 'Loading the lock ladder…' : 'Loading the lighthouse…'}</p></div>
             </div>
           }>
-            {bungalow.chain === 'solana' ? (
-              <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+            {membersOnly ? (
+              // The ladder, with the closed pool's members-only claim strip under it,
+              // in ONE full-row cell.
+              <div className="lg:col-span-2 min-w-0">
+                <SolanaPoolStack bungalow={bungalow} />
+              </div>
+            ) : bungalow.chain === 'solana' ? (
+              // BOTH full cards while the Streamflow pool is open, or its full card alone
+              // with no ladder. Each reads its OWN program, never the other's account.
+              <>
+                {bungalow.ladderPool && (
+                  <div className="lg:col-span-2 min-w-0">
+                    <SolanaLadderPoolLive bungalow={bungalow as Bungalow & { ladderPool: string }} />
+                  </div>
+                )}
+                {bungalow.stakePool && (
+                  <div className="min-w-0">
+                    <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+                  </div>
+                )}
+              </>
             ) : bungalow.poolKind === 'ladder' ? (
               <EvmLadderPoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
             ) : (
@@ -128,21 +172,27 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             <h2 className="heading-luxury text-xl text-white mb-3">Not deployed yet</h2>
             <p className="text-white/85 text-[13px] leading-relaxed mb-4">
               No {bungalow.symbol} staking program exists on-chain today. There is no
-              pool address, so nothing on this page can take a deposit — that is the
+              pool address, so nothing on this page can take a deposit. That is the
               point. When the pool ships it appears here with its address, its verified
               program, and the funded reward balance, in that order.
             </p>
             <p className="text-white/85 text-[13px] leading-relaxed">
               The shape it takes: stake {bungalow.symbol}, earn from a reward pool
-              whose vault balance is always shown as it is — an unfunded pool reads
+              whose vault balance is always shown as it is. An unfunded pool reads
               as a real, labeled zero, never as a promise.
             </p>
           </div>
         </div>
         )}
 
-        {/* Funding routes card — where incentives come from. */}
-        <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+        {/* Funding routes card: where incentives come from. Secondary to the
+            live pool, so no glow loop. It spans the row when a ladder has no
+            open lighthouse card beside it: none, or a members-only one stacked
+            in the ladder's cell. */}
+        <div
+          className={`relative overflow-hidden rounded-2xl min-w-0 ${fundingAlone ? 'lg:col-span-2' : ''}`}
+          style={{ border: '1px solid var(--color-purple-25)' }}
+        >
           <div className="absolute inset-0">
             <ArtImg pageId="bungalow-farm" idx={1} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
@@ -151,27 +201,13 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the pool gets funded</p>
             <h2 className="heading-luxury text-xl text-white mb-3">Routes under evaluation</h2>
             <ul className="text-white/85 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
-              {/* pump.fun creator fees only exist for pump-born mints — the
-                  vanity suffix is how those mints identify themselves. */}
-              {bungalow.address?.endsWith('pump') && (
-                <li><strong>Creator-fee share</strong> from the graduated pump.fun pool — trading fees the pool already generates.</li>
-              )}
-              {/* This read "captures a platform fee" while the venue had no fee
-                  recipient configured, i.e. while it captured nothing. The claim
-                  now follows the same gate the swap's own fee line does. */}
+              {/* No creator-fee route: the venue does not control a pump.fun coin's creator
+                  fee, and BAYLA's goes whole to the island. */}
               <li>
-                <strong>Venue swap fees</strong> —{' '}
-                {isSolanaFeeConfigured()
-                  ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
-                  : 'the Solana swap surface is live here, but it takes no platform fee today — there is nothing to share until one is switched on.'}
+                <strong>Venue swap fees</strong>: {swapFeeLine}
               </li>
-              {/* NAMED THE MECHANISM, NOT A NEIGHBOUR, 2026-09-05. This read
-                  "the same way the TOWELI seed was funded" — one resident's
-                  ticker quoted as the reference implementation inside every
-                  OTHER resident's room. The sentence loses nothing by naming
-                  what actually happens, and the venue stops speaking about one
-                  bungalow while standing in another. */}
-              <li><strong>Community top-ups</strong> — direct, visible transfers into the reward pool, the same way every pool here is seeded.</li>
+              {/* Names the mechanism, never another resident. */}
+              <li><strong>Community top-ups</strong>: direct, visible transfers into the reward pool, the same way every pool here is seeded.</li>
             </ul>
           </div>
         </div>

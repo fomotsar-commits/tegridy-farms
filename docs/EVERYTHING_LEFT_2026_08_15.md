@@ -1,5 +1,7 @@
 # Everything left — updated 2026-08-22
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is a record, not a to-do list.
+
 This is the exhaustive remaining-work ledger. First written 2026-08-15 from a twelve-lane
 verified sweep (220 candidates → 211 open → ~151 distinct). **Rewritten 2026-08-22** after a
 five-lane reconciliation of every item against the tree, the chain, and live production —
@@ -10,7 +12,7 @@ document had accumulated in a week.
 layer · the 08-21 backend/env/nakamigos layer that lived only on `claude/sad-almeida-bde63d` ·
 the M.1–M.18 multichain addenda that live only on `claude/jolly-ritchie-0d4dda` ·
 `TODO_OPERATOR.md`'s 08-22 curated queue · and 186 per-item verdicts from today's
-reconciliation. Where this file and `TODO_OPERATOR.md` disagree, **this file is now newer.**
+reconciliation.
 
 **The score since 08-15:** of the original ~151 distinct items, roughly **45 closed**, **14
 parked by your explicit instruction** (the custody chain), the rest still open — and the
@@ -232,7 +234,8 @@ Orderings that cost money if reversed, each verified in source:
 **Fee dials — nothing charges anything today.** `VITE_SWAP_FEE_BPS` + `VITE_SWAP_FEE_RECIPIENT`
 (fails closed; capped 100 bps) · `VITE_LAUNCH_TIER_PRICING=on` + the full five-tier
 `VITE_LAUNCH_TIER_VENUE_BPS` table (partial tables are refused wholesale; tiers can only
-*discount*, never exceed the standard line — verified in the resolver) ·
+*discount*, never exceed the standard line — verified in the resolver) (struck 2026-09-30: the
+island rules "Same price for everyone."; the heat-tier dial and both its env vars are deleted) ·
 `VITE_CREATOR_FEE_SHARE=on` + bps. Plus three dials no list carried until today:
 `VITE_COW_STOP_LOSS_HANDLER` + `VITE_TRIGGER_PRICE_FEEDS` (trigger orders — needs you to
 verify a canonical ComposableCoW handler address first; a wrong one registers orders that never

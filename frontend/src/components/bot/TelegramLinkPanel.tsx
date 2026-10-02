@@ -30,7 +30,7 @@ import {
 //     to opposite conclusions about whether someone else's chat is reading their
 //     wallet.
 //
-// The bot itself runs nowhere yet — it is built and unhosted, like the indexer. The
+// The bot itself runs nowhere yet — it is built and unhosted. The
 // notice below says so rather than letting a user link a chat and wait for a reply
 // that no process exists to send.
 
@@ -249,8 +249,8 @@ export function TelegramLinkPanel({ fetchImpl }: Props) {
             browser tab while the app is open, and the delivery panel above says the same.
           </li>
           <li className="text-white/50 text-[11px] leading-snug">
-            Balances and fills answer only once an indexer is hosted. Until then the bot says so rather than answering
-            zero.
+            Balances and fills come from the venue&apos;s indexer. If the bot cannot read it, the bot says so
+            rather than answering zero.
           </li>
           <li className="text-white/50 text-[11px] leading-snug">
             Unlinking takes effect immediately and can also be done from the chat itself with <code>/unlink</code>.

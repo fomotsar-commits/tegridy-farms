@@ -338,15 +338,27 @@ export function analyzeWashTrading(salesInput, { observedAt } = {}) {
  * feeding sellers as holders whose "balance" is their count of floor listings.
  *
  * @param {object[]} listingsInput  listing rows: { price:number, maker:address }
- * @param {{depth?:number, observedAt?:number}} opts
+ * @param {{depth?:number, observedAt?:number, unread?:boolean}} opts
  */
-export function analyzeFloorConcentration(listingsInput, { depth = 100, observedAt } = {}) {
+export function analyzeFloorConcentration(listingsInput, { depth = 100, observedAt, unread = false } = {}) {
+  // An UNREAD listings feed arrives here as the same empty array a genuinely
+  // empty market does, and only the caller can tell them apart — so it says
+  // which. Without this flag an outage is reported as "No active listings to
+  // measure.", a measurement claim about a book nobody read.
+  if (unread) {
+    return {
+      measured: false,
+      unread: true,
+      reason: "Listing data unavailable — floor concentration not measured.",
+    };
+  }
+
   const list = (Array.isArray(listingsInput) ? listingsInput : [])
     .map((l) => ({ price: normPrice(l && l.price), maker: normAddr(l && l.maker) }))
     .filter((l) => l.price != null);
 
   if (list.length === 0) {
-    return { measured: false, reason: "No active listings to measure." };
+    return { measured: false, unread: false, reason: "No active listings to measure." };
   }
 
   const sorted = list.slice().sort((a, b) => a.price - b.price);
@@ -482,11 +494,16 @@ export function computeMarketIntegrity({
   totalSupply,
   floorDepth = 100,
   observedAt,
+  listingsUnavailable = false,
 } = {}) {
   const ts = observedAt ?? Math.floor(Date.now() / 1000);
   const wash = analyzeWashTrading(sales, { observedAt: ts });
   const clusterOf = wash.measured ? buildTradeClusters(sales.map(normalizeSale).filter(Boolean)).clusterOf : new Map();
-  const floor = analyzeFloorConcentration(listings, { depth: floorDepth, observedAt: ts });
+  const floor = analyzeFloorConcentration(listings, {
+    depth: floorDepth,
+    observedAt: ts,
+    unread: listingsUnavailable,
+  });
   const ownership = analyzeOwnershipConcentration({ owners, totalSupply, clusterOf, observedAt: ts });
 
   // Data-confidence roll-up (separate from any per-section verdict).
@@ -494,7 +511,9 @@ export function computeMarketIntegrity({
   if (!wash.measured) gaps.push("wash-trade signal unavailable");
   else if (wash.comparableSales < 20)
     gaps.push(`only ${wash.comparableSales} comparable sales in window`);
-  if (!floor.measured) gaps.push("floor listings unavailable");
+  // An unread feed and an empty book are both unmeasured, but they are not the
+  // same gap: one is an outage, the other is the market.
+  if (!floor.measured) gaps.push(floor.unread ? "listing data unavailable" : "no active listings to measure");
   if (!ownership.measured) gaps.push("owner set unavailable");
   else if (ownership.analysis.confidence.level !== "high")
     gaps.push(`ownership data-confidence is ${ownership.analysis.confidence.level}`);

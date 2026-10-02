@@ -77,4 +77,7 @@ export interface LoaderState {
   vortexCenterY: number;
   trailParticles: TrailParticle[];
   audioInitialized: boolean;
+  /** The arrival voice's wordmark and flash words, read once per film. */
+  words: { main: string; sub: string };
+  subliminal: string[];
 }

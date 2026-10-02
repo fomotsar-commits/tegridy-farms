@@ -97,8 +97,24 @@ export const C1_UNSAFE_LADDER_POOLS: readonly string[] = [
   //
   // KEEP THIS LIST AND ITS TEST. If a ladder is ever found shipping bytecode its
   // audit has not cleared, put the address here and deposits close again with no
-  // other change — the panel reads it, and the coverage test in
-  // lighthouseLadder.test.ts fails the moment a live ladder is not covered.
+  // other change — the panel reads it.
+  //
+  // WHAT ACTUALLY NOTICES AN UNCOVERED LADDER, and it is not this file's unit
+  // test. An earlier version of this comment claimed "the coverage test in
+  // lighthouseLadder.test.ts fails the moment a live ladder is not covered".
+  // That was true only while the list was populated; with the list empty every
+  // test in that describe block iterates nothing, so the gate can be deleted
+  // outright and all of them stay green. Measured, not assumed.
+  //
+  // The guard that does ask the real question is scripts/verify-ladder-builds.mjs
+  // (repo root, not frontend/), run by .github/workflows/registry-onchain.yml. It
+  // reads every `poolKind: 'ladder'` entry the app ships and asks the CHAIN
+  // whether that address runs the post-fix build — `totalBoosted()` to prove it
+  // is a ladder at all, then `MIN_STAKE()`/`MIN_BOOST()` to prove it is the fixed
+  // one. An unreadable pool fails; only a real read can certify the registry.
+  //
+  // The unit test covers the other half: that the MATCHING MECHANISM here still
+  // works, so an address added to this list actually closes the gate.
 ];
 
 /**

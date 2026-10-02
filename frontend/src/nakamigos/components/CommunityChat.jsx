@@ -12,6 +12,7 @@ import {
 } from "../lib/supabase";
 
 import { useActiveCollection } from "../contexts/CollectionContext";
+import { IpfsImg } from "../../components/IpfsImg";
 import { useSiweAuth } from "../hooks/useSiweAuth";
 import DirectMessages from "./DirectMessages";
 
@@ -347,11 +348,11 @@ function renderMessageText(text, metadataBase, pixelated) {
           padding: "1px 6px", fontSize: 12, color: "var(--gold)",
           verticalAlign: "middle",
         }}>
-          {metadataBase && <img
+          {metadataBase && <IpfsImg
             src={`${metadataBase}/${tokenId}.png`}
             alt={`#${tokenId}`}
             style={{ width: 16, height: 16, borderRadius: 2, imageRendering: pixelated ? "pixelated" : "auto" }}
-            onError={(e) => { e.target.style.display = "none"; }}
+            onExhausted={(img) => { img.style.display = "none"; }}
           />}
           #{tokenId}
         </span>

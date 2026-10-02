@@ -18,6 +18,7 @@ import {
   MAX_LOCK_SECS,
   MIN_LOCK_SECS,
   MIN_STAKE_RAW,
+  PENALTY_BPS,
   type LadderReads,
 } from './lighthouseLadder';
 
@@ -167,6 +168,17 @@ describe('the exit costs', () => {
     expect(penaltyOn(1_000n * E18)).toBe(250n * E18);
   });
 
+  it('is the constant LighthouseLadder.sol declares, not the Solana ladder one', () => {
+    // The Solana bayla-ladder charges veYFI's time-left schedule (up to 75%) since 2026-09-17; this EVM contract is a
+    // separate product and was not changed. Read from the Solidity so a sweep that
+    // "fixes" every 2_500 in the repo fails here instead of misquoting EVM stakers.
+    const here = dirname(fileURLToPath(import.meta.url));
+    const sol = readFileSync(join(here, '..', '..', '..', 'contracts', 'src', 'LighthouseLadder.sol'), 'utf8');
+    const m = /uint256 public constant EARLY_EXIT_PENALTY_BPS = ([\d_]+);/.exec(sol);
+    expect(m, 'EARLY_EXIT_PENALTY_BPS not found in LighthouseLadder.sol — re-anchor this test').not.toBeNull();
+    expect(PENALTY_BPS).toBe(BigInt(m![1]!.replace(/_/g, '')));
+  });
+
   it('counts down a lock and stops at zero rather than going negative', () => {
     expect(lockRemaining(NOW + 100n, NOW)).toBe(100n);
     expect(lockRemaining(NOW - 100n, NOW)).toBe(0n);
@@ -201,6 +213,47 @@ describe('the C1 deposit freeze', () => {
       expect(isC1UnsafeLadder(entry)).toBe(true);
       expect(isC1UnsafeLadder(entry.toUpperCase().replace('0X', '0x'))).toBe(true);
     }
+  });
+
+  // THE MECHANISM ITSELF, exercised while the list is legitimately empty.
+  //
+  // WHY THIS IS HERE. Every other test in this block iterates
+  // C1_UNSAFE_LADDER_POOLS, so with the list empty they collectively survive the
+  // gate being DELETED: replacing the body of isC1UnsafeLadder with `return false`
+  // leaves this file 18/18 green. That was measured, not guessed — which means
+  // the one property the freeze depends on, "an address on the list closes the
+  // gate", had no coverage at all, and would be discovered broken by the first
+  // deposit into a pool someone believed was frozen.
+  //
+  // The freeze is empty because it SHOULD be (the six pre-fix ladders were
+  // redeployed 2026-09-05), so there is no honest address to assert on. Instead
+  // this loads the list the shipped function actually reads, drives the real
+  // exported function through it, and restores it. No literal from the registry is
+  // pinned; what is pinned is the wiring — list membership decides the answer,
+  // and the comparison is case-insensitive.
+  it('closes the gate for an address on the list, in any casing the chain returns', () => {
+    // Checksummed exactly as addresses.json and wagmi would hand it back, and NOT
+    // the casing the list stores — a case-sensitive compare fails OPEN here.
+    const CHECKSUMMED = '0xAbC0000000000000000000000000000000000123';
+    const mutable = C1_UNSAFE_LADDER_POOLS as string[];
+
+    expect(isC1UnsafeLadder(CHECKSUMMED), 'unlisted address must not be frozen').toBe(false);
+
+    mutable.push(CHECKSUMMED.toLowerCase());
+    try {
+      expect(isC1UnsafeLadder(CHECKSUMMED.toLowerCase()), 'listed, lowercase').toBe(true);
+      expect(isC1UnsafeLadder(CHECKSUMMED), 'listed, checksummed — the real call site').toBe(true);
+      expect(isC1UnsafeLadder(CHECKSUMMED.toUpperCase().replace('0X', '0x')), 'listed, upper').toBe(
+        true,
+      );
+      // And it is still a LIST lookup, not "freeze everything once anything is
+      // frozen" — the gate that traps every pool is its own outage.
+      expect(isC1UnsafeLadder('0x000000000000000000000000000000000000dEaD')).toBe(false);
+    } finally {
+      mutable.pop();
+    }
+
+    expect(isC1UnsafeLadder(CHECKSUMMED), 'the list must be left as it was found').toBe(false);
   });
 
   it('never freezes an address that is not listed, and tolerates absent input', () => {

@@ -1,29 +1,11 @@
 import { getActiveBungalow, BAYLA_ART } from './bungalows';
+// Type only, so this eagerly loaded module never pulls the heat oracle into the entry chunk.
+import type { HeatTier } from './heat/heatOracle';
 
-/**
- * ARRIVAL VOICE: the single choke point for WHO the venue speaks as
- * when a visitor lands.
- *
- *  - 'venue'    : nothing chosen. The venue speaks as itself:
- *                 MEMETICS.FINANCE, the venue of Jungle Bay Island.
- *                 This is the new default first impression.
- *  - 'toweli'   : the visitor is in the TOWELI bungalow (stored choice,
- *                 /toweli or /towelie door, or ?bungalow=toweli). The
- *                 classic Tegridy Farms experience lives here, whole and
- *                 untouched: words, art, Towelie personality, all of it.
- *  - 'bungalow' : a non-default bungalow with its own identity (Bayla).
- *                 Token-first surfaces speak that token, as before.
- *
- * Design notes, in the repo's own culture:
- *  - Synchronous, module-scope safe: pathname + localStorage reads only,
- *    exactly like getActiveBungalow(). The loader resolves its words at
- *    mount and cannot wait for React state.
- *  - Path is read FIRST so /toweli shows the Tegridy intro on the very
- *    first visit, before BungalowDoor has persisted the choice. Without
- *    this the first-ever /toweli arrival would flash the venue intro.
- *  - Additive (feedback_preserve_art): nothing Tegridy is deleted. The
- *    classic experience is relocated behind its own door, not edited.
- */
+/** Who the venue speaks as on arrival: 'venue' (nothing chosen), 'toweli' (the TOWELI
+ *  bungalow, the classic Tegridy experience whole and untouched) or 'bungalow' (a room
+ *  with its own identity). Synchronous and module-scope safe: pathname and localStorage
+ *  only. The path is read first so /toweli speaks Tegridy on its very first visit. */
 export type ArrivalVoice = 'venue' | 'toweli' | 'bungalow';
 
 /** Door paths that mean "the TOWELI bungalow", mirroring App.tsx's alias. */
@@ -43,12 +25,7 @@ export function arrivalVoice(): ArrivalVoice {
   return active.identity ? 'bungalow' : 'venue';
 }
 
-/**
- * ARRIVAL FLOW 2026-08-31: the venue welcome is INVITED, never automatic.
- * The hero's tour pill (and anything else that wants to orient a visitor)
- * dispatches this; OnboardingModal listens. Declared here beside the voice
- * so the arrival contract lives in one file.
- */
+/** Dispatched to invite the venue welcome (OnboardingModal listens); it never opens on its own. */
 export const OPEN_VENUE_WELCOME_EVENT = 'open-venue-welcome';
 
 /** True when the classic Tegridy voice should render (inside its bungalow). */
@@ -56,83 +33,69 @@ export function isToweliVoice(): boolean {
   return arrivalVoice() === 'toweli';
 }
 
-/* ------------------------------------------------------------------ */
-/* The venue's own identity: copy pinned here so every surface quotes  */
-/* one source and a rewrite cannot fork the voice.                     */
-/* ------------------------------------------------------------------ */
+// The venue's own identity: copy pinned here so every surface quotes one source.
+
+/** The launch-floor sentence. The caller passes heatLaunchFloor() and tierAtFloor(floor);
+ *  between rungs no tier is named. Arguments, so this module stays free of the oracle. */
+export function heatExampleLine(floor: number, tier: HeatTier | null): string {
+  return tier
+    ? `At ${floor} degrees you reach ${tier}, the tier that may plant a launch here.`
+    : `The launch door opens at ${floor} degrees.`;
+}
+
+// The island paragraph's first two sentences: VENUE.heatPlain, and heatParagraph's opening.
+const HEAT_OPENING =
+  'Heat counts your warm days: every day you hold, weighted by size and by the coin. ' +
+  'Your deepest room sets your heat; every other room adds a quarter of its own, ' +
+  'so breadth amplifies depth and never replaces it.';
 
 export const VENUE = {
   /** Brand wordmark halves (nav, footer, loader formation). */
   markMain: 'MEMETICS',
   markSub: '.FINANCE',
   name: 'MEMETICS.FINANCE',
-  /** One-line world placement. The island authors the standard; the venue
-   *  is a place on the island's map. The island never operates the venue. */
+  /** The island authors the standard; the venue is a place on its map, never run by it. */
   tagline: 'Memetic Finance on Jungle Bay Island',
-  heroTitle: 'MEMETICS.FINANCE.',
+  heroTitle: 'MEMETICS.FINANCE',
   heroLine: 'Held time counts here.',
   heroCopy:
     'The venue of Jungle Bay Island. Bungalows for meme communities, launches ' +
     'that open on Heat instead of hype, staking and swaps with every fee routed ' +
     'onchain where you can read it. Heat is held time, measured by the island’s ' +
     'instrument. It cannot be bought and it cannot be faked.',
-  /**
-   * PLAIN LANGUAGE, before the lore. Additive — the island writing below is
-   * untouched and stays the voice of the page; this only gives a first-time
-   * reader somewhere to stand before it.
-   *
-   * Every clause is checkable: staking is live on the Farm; the swap surfaces
-   * cover the three chains named in `description` (Ethereum, Base and Solana —
-   * isSolanaSwapLive() is true); "check any token" is /scan, the Token Scanner,
-   * which is also the third CTA below.
-   */
+  /** Plain language before the lore; every clause is live (the Farm, three chains, /scan). */
   heroPlain:
     'Stake meme tokens, swap on Ethereum, Base and Solana, and check any token before you buy.',
   /** Second person, present tense, the viewer's own stake. */
-  heroHook: 'Your heat already exists. It started counting at your first buy.',
-  /**
-   * HEAT, MECHANICALLY — the sentence that has to be true.
-   *
-   * Every word here is traceable to lib/heat/heatOracle.ts:
-   *   heat_degrees = 100 · (1 − e^(−60 · TWAB / totalSupply)) per (wallet, token),
-   *   summed across tokens; one token caps at 100°. The launch floor is 80°
-   *   (Resident) per heatGateConfig.heatLaunchFloor().
-   *
-   * WHAT THIS DELIBERATELY DOES NOT SAY, and must never say: any averaging
-   * window, any number of days, any decay schedule. The island has confirmed
-   * exactly three properties — continuous, zero-anchored, velocity-blind — and
-   * the venue previously published a 180-day window it had invented and built a
-   * decay mechanic on. islandClaims.test.ts fails the build if a window length
-   * or decay mechanic reappears in user-facing source, and it is right to.
-   *
-   * It also does not say "days held x the size of your bag". That is wrong three
-   * ways: the input is a SHARE of total supply, not an absolute balance; the
-   * curve SATURATES, so more of both stops helping; and a fresh bag reads cold
-   * however large it is.
-   */
-  heatPlain:
-    'Heat scores how much of a token you have held, and for how long — as a share ' +
-    'of its supply, not a dollar amount. Each token you hold scores 0 to 100 degrees; ' +
-    'your Heat is those scores added together. Price never enters it, so Heat cannot ' +
-    'be bought, and a fresh bag starts cold however large it is.',
-  /** The worked example. 80° is the live launch floor, not a round number chosen for prose. */
-  heatExample:
-    'At 80 degrees you reach Resident, the tier that may plant a launch here.',
+  heroHook: 'Your heat already exists. Your clock on a token starts at your first hold.',
+  /** The island's sentence, verbatim: under the instrument, in the FAQ and in llms.txt. */
+  heatOnePerson: 'One person, every wallet: linked wallets read as a single flame.',
+  /** The island's sentences, verbatim: the hero and llms.txt carry the first two, the
+   *  Maths fold the whole paragraph; islandClaims.test.ts pins them. Never a formula. */
+  heatPlain: HEAT_OPENING,
+  heatParagraph:
+    `${HEAT_OPENING} Degrees are the temperature of that count: one real position held ` +
+    'half a year reads 80°, Resident. Past Resident the number reads like fire: every ' +
+    'degree costs a little more than the last, and the hottest flames stay in range. ' +
+    'Size can raise what a day is worth, it cannot buy a day, and price never enters it. ' +
+    'The rate is one curve for every wallet: nothing under 0.0001% of a supply, a full ' +
+    'day at 0.01%, two at 1%, and never more. From a real position up, ten times the bag ' +
+    'adds half a day. The tier words bind your island heat. Trading speed cannot move it.',
+  heatDays: 'Your clock on a token starts at your first hold.',
+  heatSize:
+    'A real position earns a full day. The largest holders earn up to two. Dust earns ' +
+    'nothing. An Ape counts by the piece: one is a full day, ten are two.',
   museLine: 'An island in a sea of rugs.',
   museBy: 'Jungle Bay Island',
-  /** Meta description: mirrored by index.html and usePageTitle. Names only
-   *  what is live. No certification claim anywhere: the venue is a
-   *  candidate under the island's standard and never says otherwise. */
+  /** Meta description, mirrored by index.html and usePageTitle. Names only what is live,
+   *  and claims no certification: the venue is a candidate under the island's standard. */
   description:
     'memetics.finance is the venue of Jungle Bay Island. Bungalows for meme ' +
     'communities, Heat-gated launches, and verifiable staking and swaps on ' +
     'Ethereum, Base and Solana.',
 } as const;
 
-/* ------------------------------------------------------------------ */
-/* Loader identity: which words the particles form, which words the    */
-/* glitch flashes, which art the gallery shows.                        */
-/* ------------------------------------------------------------------ */
+// Loader identity: which words the particles form, which the glitch flashes, which art shows.
 
 export interface LoaderIdentity {
   main: string;
@@ -146,9 +109,7 @@ const VENUE_LOADER: LoaderIdentity = {
   main: VENUE.markMain,
   sub: VENUE.markSub,
   subliminal: ['MEMETICS', 'HEAT', 'HELD TIME', 'JUNGLE BAY'],
-  // The island's muse leads the venue arrival: Bayla canon pieces
-  // (real art, honest titles, already shipped in /public/art/bayla).
-  // The last piece shatters into the vortex that forms the venue's name.
+  // Bayla canon pieces lead; the last shatters into the vortex that forms the venue's name.
   gallery: BAYLA_ART.map((a) => ({ src: a.src, title: a.title })),
 };
 

@@ -1,7 +1,7 @@
 // COVERAGE IS PER ENABLED SOURCE — the seam this hook exists to get right.
 //
-// Before this change there was one source and it was the F1 indexer, which is
-// hosted nowhere, so EVERY report on every deployment carried one whole-period
+// Before this change there was one source and it was the F1 indexer, which was
+// hosted nowhere then, so EVERY report on every deployment carried one whole-period
 // `indexer-unavailable` gap. That was true, and it was also the thing that made
 // the surface useless: the gap said "nothing could be read" on a deployment
 // where the explorer could read the entire year perfectly.

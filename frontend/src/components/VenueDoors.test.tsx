@@ -26,13 +26,15 @@ function renderHall() {
 /**
  * Is this door's art desaturated?
  *
- * Asks about the RESULT rather than the mechanism. These assertions used to read
- * `toHaveClass('grayscale')`, which pinned Tailwind's utility class specifically
- * — so when the 2026-09-04 luminance pass moved the desaturation into an inline
- * `filter` (it had to combine with a per-image `brightness()`, and a utility class
- * and an inline filter overwrite each other rather than composing), a test whose
- * subject was unchanged went red. "The settled doors are greyed" is the island
- * ruling worth pinning; which CSS expresses it is not.
+ * Asks about the RESULT rather than the mechanism, and it has now survived the
+ * ruling it was written to pin being REVERSED, which is the argument for
+ * writing it this way. It first read `toHaveClass('grayscale')`; the 2026-09-04
+ * luminance pass moved the desaturation into an inline `filter` and reddened a
+ * test whose subject had not changed. Wave seven's element H then took the
+ * greying away entirely — and because this asks "is it grey", not "does it
+ * carry this class", the same helper answers the new question by returning
+ * false. Both CSS mechanisms stay listed on purpose: either one coming back is
+ * the regression.
  */
 function isDesaturated(img: HTMLImageElement | null): boolean {
   if (!img) return false;
@@ -60,26 +62,37 @@ describe('VenueDoors — the hall of doors', () => {
     expect(isDesaturated(toweli.querySelector('img'))).toBe(false);
   });
 
-  it('exactly two doors are LIVE; every other resident door is SETTLED and greyed', () => {
+  it('exactly two doors are LIVE; every other resident door is SETTLED, IN COLOUR, and walkable', () => {
+    // WAVE SEVEN, element H: THE DOORS ARE IN COLOUR.
+    //
+    // This test asserted the opposite until now — that every settled door was
+    // greyed, and that each carried its own measured brightness multiplier so
+    // the greying landed evenly across paintings whose exposures varied 3.1x.
+    // That apparatus was good engineering in service of a bad idea: it made a
+    // resident's own art into a switched-off tile on the venue's front door.
+    //
+    // What a door IS still has to read at a glance, so the assertions below
+    // pin the things that carry that meaning instead — the chip, the walkable
+    // href, and the opacity STEP, which is depth rather than desaturation and
+    // lifts to full on hover. Put `grayscale(` back on a settled door and this
+    // reds.
     renderHall();
     expect(screen.getAllByText('LIVE').length).toBe(2);
     const settled = BUNGALOWS.filter((b) => b.chain !== 'tbd' && !['toweli', 'bayla'].includes(b.id));
     expect(screen.getAllByText('SETTLED').length).toBe(settled.length);
     for (const b of settled) {
       const door = screen.getByLabelText(new RegExp(`${b.name} bungalow \\(${b.symbol}\\), settled`, 'i'));
-      // Greyed but still a walkable door to the plaque landing.
+      // Still a walkable door to the plaque landing.
       expect(door).toHaveAttribute('href', `/${b.id}`);
+      // Depth, not desaturation. It lifts to full on hover and on focus.
       expect(door.className).toContain('opacity-75');
+      expect(door.className).toContain('hover:opacity-100');
       const img = door.querySelector('img');
-      expect(isDesaturated(img), `${b.id} door is not greyed`).toBe(true);
-      // And it carries its OWN measured brightness, so the settled doors land at
-      // one lightness instead of wherever each painting's exposure happened to
-      // put it (measured spread before this: 3.1x). A tile that lost its
-      // multiplier would still be grey and would still look broken.
-      expect(
-        img!.style.filter,
-        `${b.id} door has no per-image brightness — re-run \`npm run prebuild\``,
-      ).toMatch(/brightness\([0-9.]+\)/u);
+      expect(isDesaturated(img), `${b.id} door is still greyed`).toBe(false);
+      // And no leftover of the apparatus that served the greying: a per-image
+      // brightness multiplier with nothing to normalise is a filter that only
+      // darkens a resident's art for no stated reason.
+      expect(img!.style.filter ?? '').not.toMatch(/brightness\(/u);
     }
   });
 

@@ -8,9 +8,12 @@ const RADIUS = (RING_SIZE - STROKE_WIDTH) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 export function TegridyScoreMini() {
-  const { score, rank, tier } = useTegridyScore();
+  const { score, rank, tier, scoreUnread } = useTegridyScore();
   const [displayScore, setDisplayScore] = useState(0);
   const [progress, setProgress] = useState(0);
+  // OUTAGE-AS-SEEDLING — see TegridyScore.tsx. An understated score is withheld,
+  // not drawn; a READ zero still renders as the Seedling it is.
+  const ringScore = scoreUnread ? 0 : score;
 
   const rafRef = useRef<number>(0);
 
@@ -23,8 +26,8 @@ export function TegridyScoreMini() {
       const t = Math.min(elapsed / duration, 1);
       const eased = 1 - Math.pow(1 - t, 3);
 
-      setDisplayScore(Math.round(eased * score));
-      setProgress(eased * score);
+      setDisplayScore(Math.round(eased * ringScore));
+      setProgress(eased * ringScore);
 
       if (t < 1) {
         rafRef.current = requestAnimationFrame(animate);
@@ -33,7 +36,7 @@ export function TegridyScoreMini() {
 
     rafRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [score]);
+  }, [ringScore]);
 
   const dashOffset = CIRCUMFERENCE - (progress / 100) * CIRCUMFERENCE;
 
@@ -75,12 +78,12 @@ export function TegridyScoreMini() {
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{displayScore}</span>
+          <span className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{scoreUnread ? '–' : displayScore}</span>
         </div>
       </div>
       <div>
-        <p className="text-[13px] text-white font-medium">{rank}</p>
-        <p className="text-[11px] text-white">{tier}</p>
+        <p className="text-[13px] text-white font-medium">{scoreUnread ? 'Score unavailable' : rank}</p>
+        {!scoreUnread && <p className="text-[11px] text-white">{tier}</p>}
         {/* ONE instrument, ONE name. This card links to /leaderboard, whose
             own H1 is "Your Venue Score" — so a visitor was shown two names for
             the same number, one of them the brand retired on 2026-08-31. The

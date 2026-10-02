@@ -32,7 +32,7 @@ export default function AirdropPage() {
           <h1 className="text-2xl font-bold text-white">Airdrops</h1>
           <p className="text-white/60 text-sm mt-1 max-w-2xl leading-relaxed">
             Merkle distribution through immutable, ownerless campaign contracts. A creator funds a root; recipients
-            prove a leaf. Nobody — not the factory owner, not a guardian, not us — can re-price, freeze or drain a
+            prove a leaf. Nobody (not the factory owner, not a guardian, not us) can re-price, freeze or drain a
             campaign once it exists.
           </p>
           {!live && (
@@ -68,7 +68,7 @@ export default function AirdropPage() {
           <ul className="text-white/50 text-xs space-y-1.5 leading-relaxed list-disc pl-4 marker:text-white/25">
             <li>
               The claim path is Uniswap's <code className="text-white/70">merkle-distributor</code>, vendored verbatim
-              and extended by inheritance — the leaf encoding here is transcribed from that source, and a fixture pins
+              and extended by inheritance. The leaf encoding here is transcribed from that source, and a fixture pins
               both languages to one root the deployed bytecode accepts.
             </li>
             <li>

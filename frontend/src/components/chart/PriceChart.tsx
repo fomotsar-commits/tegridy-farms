@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, memo, useCallback } from 'react';
 import { createChart, type IChartApi, type ISeriesApi, ColorType, type CandlestickData, type Time, CandlestickSeries } from 'lightweight-charts';
 import {
   TF_CONFIG,
-  TOWELI_MARKET,
   chartEmbedUrl,
   chartPoolUrl,
   readChartCandles,
@@ -36,7 +35,18 @@ function formatPrice(price: number): string {
   return price.toFixed(8);
 }
 
-function PriceChartInner({ market = TOWELI_MARKET }: { market?: ChartMarket }) {
+/**
+ * ⚠️ `market` IS REQUIRED, AND IT DID NOT USED TO BE.
+ *
+ * It defaulted to TOWELI_MARKET, so a chart mounted with no props silently drew
+ * one resident's pool — the venue's charting surface picking a favourite by
+ * omission, with nothing at the call site saying so. The two call sites that
+ * relied on the default live inside the TOWELI branch of /dashboard and now
+ * pass TOWELI_MARKET explicitly, which is both the same behaviour and a
+ * readable one. Anything mounted outside that branch must now say what it is
+ * charting, and a compile error is the right place to find that out.
+ */
+function PriceChartInner({ market }: { market: ChartMarket }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);

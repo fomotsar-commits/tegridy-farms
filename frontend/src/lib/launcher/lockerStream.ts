@@ -17,8 +17,10 @@
 //
 // A revert PROVES ABSENCE here: an auto-generated public-mapping getter returns zeros
 // for a missing key, it never reverts. Same probe also confirmed V1 has
-// `beneficiariesClaims(address,address)`, and does NOT have `currencyBalances` or
-// `airlock()`; `owner()`=0x21E2…7A66, `positionManager()`=0xbD21…ee9e.
+// `beneficiariesClaims(address,address)` and the 1-arg `currencyBalances(address)` (an
+// earlier revision of this note said it had no `currencyBalances` at all — wrong; only the
+// 2-arg form is absent — re-probed 2026-09-17), and does NOT have `airlock()`;
+// `owner()`=0x21E2…7A66, `positionManager()`=0xbD21…ee9e.
 //
 // ⚠ The SDK's exported `streamableFeesLockerAbi` is the **V2** shape. Importing it and
 // pointing it at V1 is exactly how the original bug happened — do not re-introduce it.
@@ -269,6 +271,32 @@ export async function readMigrationStream(
     unlockAt: null,
     beneficiaries: [],
   };
+}
+
+/** What a caller may honestly claim after reading the locker for every allowed pair. */
+export type ReadVerdict =
+  | { kind: 'graduated'; stream: MigrationStream }
+  | { kind: 'unsupported' }
+  | { kind: 'not-graduated' };
+
+/**
+ * Collapse the per-numeraire reads into the one claim the UI is entitled to make.
+ *
+ * "We read the locker and this token is not in it" and "we could not read the locker"
+ * are different statements, and only the first says anything about the token. Conflating
+ * them is exactly what let a permanently broken call render for weeks as an ordinary
+ * "hasn't graduated yet" empty state — so the rule lives here, next to the `unsupported`
+ * flag, instead of being re-derived inline by every caller that happens to remember.
+ */
+export function verdictFromReads(reads: readonly MigrationStream[]): ReadVerdict {
+  const graduated = reads.find((r) => r.graduated);
+  if (graduated) return { kind: 'graduated', stream: graduated };
+  // Unreadable outranks absent: if ANY pair could not be read, the token may have
+  // graduated against precisely that pair, so "not graduated" is unsupportable.
+  if (reads.some((r) => r.unsupported)) return { kind: 'unsupported' };
+  // Nothing was read at all — also not grounds to claim anything about the token.
+  if (reads.length === 0) return { kind: 'unsupported' };
+  return { kind: 'not-graduated' };
 }
 
 /**

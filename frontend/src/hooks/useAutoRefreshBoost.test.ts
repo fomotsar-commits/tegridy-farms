@@ -79,12 +79,35 @@ describe('useAutoRefreshBoost', () => {
     expect(result.current.needsRefresh).toBe(false);
   });
 
-  it('stays quiet on the wrong chain — an L2 read is not evidence about mainnet', () => {
+  it('stays quiet off mainnet — the transaction it asks for cannot be sent there', () => {
+    // Not about the reads: they are pinned to mainnet, and useNFTBoost now
+    // confirms this JBAC from any chain. The gate is kept for the write; the
+    // auto-mode case below is why.
     wagmiMock.setChainId(8453);
     stubJbac(1n);
     stubFarmBalances(100n * 10n ** 18n, 100n * 10n ** 18n);
     const { result } = renderHook(() => useAutoRefreshBoost({}));
     expect(result.current.needsRefresh).toBe(false);
+  });
+
+  it('auto mode does not spend its one shot on a chain where refreshBoost refuses', () => {
+    // refreshBoost toasts and returns off mainnet (useLPFarming.ts), and the
+    // per-(wallet, JBAC count) key is written BEFORE the callback runs. Fired
+    // on Base, the only auto-refresh this wallet gets would be gone before the
+    // wallet reached a chain that could send it.
+    const onRefreshNeeded = vi.fn();
+    stubJbac(1n);
+    stubFarmBalances(100n * 10n ** 18n, 100n * 10n ** 18n);
+    wagmiMock.setChainId(8453);
+    const { rerender } = renderHook(() => useAutoRefreshBoost({ onRefreshNeeded, auto: true }));
+    expect(onRefreshNeeded).not.toHaveBeenCalled();
+    expect(localStorage.getItem(`lpFarmingBoostSync_${WALLET}_1`)).toBeNull();
+
+    // ...and the shot is still there when the wallet arrives on mainnet.
+    wagmiMock.setChainId(CHAIN_ID);
+    rerender();
+    expect(onRefreshNeeded).toHaveBeenCalledTimes(1);
+    expect(onRefreshNeeded).toHaveBeenCalledWith(WALLET);
   });
 
   it('never fires the callback in prompt mode, however many times it re-renders', () => {

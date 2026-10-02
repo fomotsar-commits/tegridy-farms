@@ -47,7 +47,7 @@ export interface ReturnRankingVerdict {
 export const RETURN_RANKING: ReturnRankingVerdict = {
   ranked: false,
   reason:
-    'No wallet on this board is ranked by profit. Indexed swaps record what was spent, never what came back, so no realised return can be computed — and a leader’s return would not be yours in any case: you would enter after them and exit after them.',
+    'No wallet on this board is ranked by profit. Indexed swaps record what was spent, never what came back, so no realised return can be computed. A leader’s return would not be yours in any case: you would enter after them and exit after them.',
   rankedInstead:
     'Ranked by quote-token spent through the venue inside the window below. That is a measure of activity, not of skill and not of outcome.',
 };

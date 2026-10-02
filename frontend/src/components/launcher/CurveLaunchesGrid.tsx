@@ -8,7 +8,9 @@
 // The presentational pieces (CurveLaunchesGridView / CurveGridCardView) are
 // pure and prop-driven so they test without a wallet; containers wire the reads.
 
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { fetchTapeNames, isNamed, type TapeNames, type TapeRow } from '../../lib/heat/tapeNames';
+import { shortenAddress } from '../../lib/formatting';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useReadContract, useReadContracts } from 'wagmi';
@@ -60,18 +62,86 @@ export interface CurveGridCardData {
   marketCapWei: bigint;
   progressBps: number;
   graduated: boolean;
+  /**
+   * WAVE SEVEN, element P: THE PLANTER'S FLAME, FIVE STATES.
+   *
+   * Session nine shipped four, because the tape returned null for anything
+   * without a handle and an unnamed-but-warm planter, a cold one and an
+   * unreachable instrument all arrived as the same absence. Answer nine put
+   * `is_cold` on the row and made an unnamed flame answer WITH a row, so the
+   * five the island ruled are now distinguishable here:
+   *
+   *   named                -> "Planted by @handle - Tier - N days held"
+   *   named, no held_since -> the tier alone
+   *   unnamed and warm     -> "a flame with no name yet", with the door
+   *   cold                 -> "No held time on the island yet", with the address
+   *   no row at all        -> nothing, because a failed read is not a fact
+   */
+  planter: { address: string; row: TapeRow } | null;
 }
 
 export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; chainId: number }) {
   const short = `${card.token.slice(0, 6)}…${card.token.slice(-4)}`;
+  // Element P. Each branch is a different thing the venue knows, and the last
+  // one is the venue knowing nothing: a failed read is not a cold planter.
+  const planterLine = (() => {
+    if (!card.planter) return null;
+    const { address, row } = card.planter;
+    if (isNamed(row)) {
+      return (
+        <p className="text-white/55 text-[11px] truncate" data-element="p-planter">
+          Planted by @{row.xHandle}
+          {row.tier ? ` · ${row.tier}` : ''}
+          {row.days !== null ? ` · ${row.days} days held` : ''}
+        </p>
+      );
+    }
+    if (row.isCold) {
+      return (
+        <p className="text-white/55 text-[11px] truncate" data-element="p-planter">
+          Planted by {shortenAddress(address)}. No held time on the island yet.
+        </p>
+      );
+    }
+    return (
+      <p className="text-white/55 text-[11px] truncate" data-element="p-planter">
+        Planted by a flame with no name yet.{' '}
+        <a
+          href="https://memetics.wtf/register"
+          target="_blank"
+          rel="noopener noreferrer"
+          /* relative z-10: the only thing on this card that sits above the
+             stretched link, so the door is clickable and the rest of the line
+             still opens the curve. */
+          className="relative z-10 underline underline-offset-2 hover:text-white/80"
+        >
+          Put yours on it
+        </a>
+      </p>
+    );
+  })();
   const monogram = (card.symbol ?? card.token.slice(2, 5)).slice(0, 3).toUpperCase();
   return (
-    <Link
-      to={`/eth-curve/${card.token}?c=${chainId}`}
-      className="rounded-2xl p-3 flex gap-3 items-center hover:bg-white/5 transition-colors"
+    // THE CARD IS A CONTAINER WITH A STRETCHED LINK, not a link wrapping the
+    // card, and element P is why. P's unnamed form carries the island's door
+    // ("Put yours on it"), and an <a> inside an <a> is invalid HTML: React
+    // warns, and the HTML parser closes the outer anchor early wherever this
+    // markup is parsed rather than constructed, which is any pre-rendered or
+    // hydrated path. stopPropagation() silenced the click but not the nesting.
+    //
+    // The stretched link is absolutely positioned and FIRST in the DOM, so it
+    // paints over the static text and every click on the card still opens the
+    // curve; only a positioned child with a z-index sits above it, which is
+    // exactly what the planter's door does and nothing else does.
+    <div
+      className="relative rounded-2xl p-3 flex gap-3 items-center hover:bg-white/5 transition-colors focus-within:ring-2 focus-within:ring-[#8b5cf6]"
       style={cardStyle}
-      aria-label={`Open ${card.name ?? short} on the curve`}
     >
+      <Link
+        to={`/eth-curve/${card.token}?c=${chainId}`}
+        className="absolute inset-0 rounded-2xl"
+        aria-label={`Open ${card.name ?? short} on the curve`}
+      />
       {card.imageUrl ? (
         <img
           src={card.imageUrl}
@@ -98,6 +168,12 @@ export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; 
         <p className="text-white/50 text-[11px] font-mono">
           {card.marketCapWei > 0n ? `${fmtEth(card.marketCapWei)} ETH cap` : 'pool-priced'}
         </p>
+        {/* Element P, five states. The middle dot is element N's separator for
+            these same facts, which also keeps this line out of element I's
+            budgets. The cold form names the planter by the venue's own
+            shortener rather than the island's illustration, on answer nine's
+            own principle: house form wins. */}
+        {planterLine}
         {card.graduated ? (
           <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-300/90">GRADUATED 🎓</span>
         ) : (
@@ -116,7 +192,7 @@ export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; 
           </div>
         )}
       </div>
-    </Link>
+    </div>
   );
 }
 
@@ -206,7 +282,20 @@ function toCurveLaunch(raw: unknown): CurveLaunch | null {
   };
 }
 
-function CurveGridCard({ launcher, chainId, token }: { launcher: Address; chainId: number; token: Address }) {
+function CurveGridCard({
+  launcher,
+  chainId,
+  token,
+  onCreator,
+  planterFor,
+}: {
+  launcher: Address;
+  chainId: number;
+  token: Address;
+  /** WAVE SEVEN, element P: the creator is read HERE and named ONCE, above. */
+  onCreator: (token: Address, creator: Address) => void;
+  planterFor: (creator: Address) => CurveGridCardData['planter'];
+}) {
   const { data: launchRaw } = useReadContract({
     address: launcher,
     abi: CURVE_LAUNCHER_ABI,
@@ -217,6 +306,15 @@ function CurveGridCard({ launcher, chainId, token }: { launcher: Address; chainI
   });
   const launch = useMemo(() => toCurveLaunch(launchRaw), [launchRaw]);
   const identity = useCurveIdentity(token, chainId, launch?.creator);
+
+  // Hand the creator up as soon as the chain answers. The naming read is the
+  // grid's, not this card's: twelve cards asking separately would spend the
+  // island's quota twelve times for one page, which is the whole reason the
+  // tape exists as one bounded fan-out.
+  const creator = launch?.creator;
+  useEffect(() => {
+    if (creator) onCreator(token, creator);
+  }, [creator, onCreator, token]);
 
   if (!launch) {
     return (
@@ -235,6 +333,7 @@ function CurveGridCard({ launcher, chainId, token }: { launcher: Address; chainI
     marketCapWei: curveMarketCapWei(launch),
     progressBps: graduationProgressBps(launch.ethReserve, launch.graduationEth),
     graduated: launch.graduated,
+    planter: planterFor(launch.creator),
   };
   return <CurveGridCardView card={card} chainId={chainId} />;
 }
@@ -282,6 +381,33 @@ export function CurveLaunchesGrid({ launcher, chainId, chainName }: CurveLaunche
   // Distinguish "the page has not arrived" from "the page came back empty".
   const pageUnread = pageRaw ? pageRaw[0]?.status !== 'success' : false;
 
+  // WAVE SEVEN, element P: ONE NAMING READ FOR THE PAGE.
+  //
+  // Element N's shape, including the joined key: the effect depends on the SET
+  // of creators, so a card re-rendering (every 30s, on its own refetch) does
+  // not re-spend the island's quota. fetchTapeNames de-dupes and caps at 12,
+  // and it never throws: a naming outage leaves the cards exactly as they were.
+  const [creators, setCreators] = useState<Record<string, string>>({});
+  const [names, setNames] = useState<TapeNames>({});
+  const noteCreator = useCallback((tok: Address, creator: Address) => {
+    setCreators((prev) => (prev[tok] === creator ? prev : { ...prev, [tok]: creator }));
+  }, []);
+  const creatorKey = useMemo(
+    () => [...new Set(Object.values(creators))].sort().join(','),
+    [creators],
+  );
+  useEffect(() => {
+    if (!creatorKey) return;
+    const ac = new AbortController();
+    void fetchTapeNames(creatorKey.split(','), { signal: ac.signal }).then(setNames);
+    return () => ac.abort();
+  }, [creatorKey]);
+  const planterFor = useCallback(
+    (creator: Address): CurveGridCardData['planter'] =>
+      names[creator] ? { address: creator, row: names[creator] } : null,
+    [names],
+  );
+
   // Identity/launch reads live in per-card components so each card carries its
   // own hooks; the grid only fans out the token list.
   return (
@@ -290,7 +416,15 @@ export function CurveLaunchesGrid({ launcher, chainId, chainName }: CurveLaunche
       launchCount={launchCount}
       tokens={tokens}
       tokensUnread={pageUnread}
-      renderCard={(t) => <CurveGridCard launcher={launcher} chainId={chainId} token={t} />}
+      renderCard={(t) => (
+        <CurveGridCard
+          launcher={launcher}
+          chainId={chainId}
+          token={t}
+          onCreator={noteCreator}
+          planterFor={planterFor}
+        />
+      )}
     />
   );
 }

@@ -95,7 +95,7 @@ const DAY = 86_400;
 export const SEASONS: readonly Season[] = [
   {
     id: 'weth-s1',
-    name: 'Season 1 — ETH/WETH volume',
+    name: 'Season 1: ETH/WETH volume',
     // 2026-09-01T00:00:00Z → 2026-09-30T23:59:59Z
     startsAt: 1_788_220_800,
     endsAt: 1_788_220_800 + 30 * DAY - 1,

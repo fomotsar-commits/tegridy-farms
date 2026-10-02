@@ -20,6 +20,7 @@ import { COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, VOTE_INCENTIVES_AD
 import { getAddressUrl } from '../lib/explorer';
 import { COMMUNITY_TAB_INTRO } from '../lib/copy';
 import { useTabListKeys } from '../hooks/useTabListKeys';
+import { ToweliSectionBand } from '../components/layout/ToweliRoomStrip';
 
 /**
  * 🔄 2026-08-12 — CLAIM CORRECTION.
@@ -177,125 +178,150 @@ export default function CommunityPage() {
           message="Community contracts (voting, bribing, claiming) live on the canonical chain. Your wallet is on a different network — writes will revert until you switch."
         />
 
-        {/* Section Toggle — always visible so users can see what's available */}
-        <m.div
-          className="grid grid-cols-3 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
-          style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
-          role="tablist"
-          onKeyDown={tabKeys.onKeyDown}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-        >
-          {SECTIONS.map(({ key, label }) => (
-            <button
-              key={key}
-              role="tab"
-              id={`community-tab-${key}`}
-              aria-selected={section === key}
-              aria-controls={`community-panel-${key}`}
-              tabIndex={tabKeys.tabIndex(key)}
-              ref={tabKeys.ref(key)}
-              /* A11Y-R07: `px-3 py-2 text-xs` is a ~32px tap target. The
-                 structurally identical tab strip on /swap already carries the
-                 repo's 44px floor (TradePage.tsx); these are the same control. */
-              className={`relative px-3 py-2 min-h-[44px] md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
-                section === key ? 'text-white' : 'text-white/60 hover:text-white'
-              }`}
-              onClick={() => handleSectionChange(key)}
-            >
-              {section === key && (
-                <m.div
-                  layoutId="community-tab"
-                  className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
-                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                />
-              )}
-              <span className="relative z-10">{label}</span>
-            </button>
-          ))}
-        </m.div>
+        {/* WAVE SEVEN, answer eight, ruling 3: TOWELI'S PROTOCOL, UNDER ITS OWN
+            NAME, ON A VENUE PAGE. Every tab below is one of TOWELI's own
+            contracts - CommunityGrants, MemeBountyBoard, VoteIncentives, the
+            GaugeController - and their copy is veTOWELI voting power, TOWELI
+            emissions and a TOWELI bond. None of it is the venue's, and until
+            this marker the venue was the one saying it.
 
-        {/* F322 / F356 / F357 (T7): the tabpanel always renders — public contract
-            reads (proposals, bounty list, gauge weights, bribe leaderboard) and
-            the deployment status are no longer hidden behind a generic
-            connect-wall. Each section's write buttons already guard on
-            `address`/chain; for logged-out visitors we add a per-tab one-liner
-            and a single inline Connect CTA below the panel. Logged-in behaviour
-            is unchanged.
-            ⚠ 2026-08-12: this comment used to call the status an "honest
-            pre-deploy 'isn't live yet'" state. It was neither pre-deploy nor
-            honest — all four contracts have been live and unpaused on mainnet
-            since 2026-07-16. The copy below now says deployed-but-not-wired, and
-            the per-tab one-liners in copy.ts no longer promise that connecting
-            is the missing step. */}
-        {!isConnected && (
+            THE SHAPE IS /security'S, NOT A ROOM'S, because the page around
+            these tabs is genuinely the venue's: its header and three venue
+            surfaces under "Live now". So: one declared section, which the voice
+            census and element I read as TOWELI's by structure, and a label of
+            its own (ToweliSectionBand says why it is not the room's band).
+            src/pages/recordSurfaces.test.ts pins which files may declare one.
+
+            NOTHING RENDERS TOWELI'S PROSE HERE TODAY - all four addresses are
+            still zero in constants.ts, so all four tabs show the deployed-not-
+            wired note. The marker is what makes the day they are wired a
+            non-event for the census instead of four new violations. */}
+        <section data-voice="toweli" aria-labelledby="toweli-community-heading">
+          <h2 id="toweli-community-heading" className="sr-only">
+            TOWELI&apos;s protocol: grants, bounties, vote incentives and gauges
+          </h2>
+          <ToweliSectionBand />
+
+          {/* Section Toggle — always visible so users can see what's available */}
           <m.div
-            className="max-w-2xl mx-auto mb-6 text-center"
+            className="grid grid-cols-3 md:flex justify-center gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit"
+            style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}
+            role="tablist"
+            onKeyDown={tabKeys.onKeyDown}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.08 }}
+            transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           >
-            <p className="text-white/75 text-[13px] leading-relaxed">{COMMUNITY_TAB_INTRO[section]}</p>
+            {SECTIONS.map(({ key, label }) => (
+              <button
+                key={key}
+                role="tab"
+                id={`community-tab-${key}`}
+                aria-selected={section === key}
+                aria-controls={`community-panel-${key}`}
+                tabIndex={tabKeys.tabIndex(key)}
+                ref={tabKeys.ref(key)}
+                /* A11Y-R07: `px-3 py-2 text-xs` is a ~32px tap target. The
+                   structurally identical tab strip on /swap already carries the
+                   repo's 44px floor (TradePage.tsx); these are the same control. */
+                className={`relative px-3 py-2 min-h-[44px] md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
+                  section === key ? 'text-white' : 'text-white/60 hover:text-white'
+                }`}
+                onClick={() => handleSectionChange(key)}
+              >
+                {section === key && (
+                  <m.div
+                    layoutId="community-tab"
+                    className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
+                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                  />
+                )}
+                <span className="relative z-10">{label}</span>
+              </button>
+            ))}
           </m.div>
-        )}
 
-        <m.div
-          key={section}
-          role="tabpanel"
-          id={`community-panel-${section}`}
-          aria-labelledby={`community-tab-${section}`}
-          tabIndex={0}
-          className="outline-none"
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-        >
-          <ErrorBoundary>
-            <Suspense fallback={
-              <div className="space-y-4 animate-pulse">
-                <div className="rounded-xl p-6" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
-                  <div className="h-5 rounded w-40 mb-4" style={{ background: 'rgba(255,255,255,0.08)' }} />
-                  <div className="h-20 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }} />
+          {/* F322 / F356 / F357 (T7): the tabpanel always renders — public contract
+              reads (proposals, bounty list, gauge weights, bribe leaderboard) and
+              the deployment status are no longer hidden behind a generic
+              connect-wall. Each section's write buttons already guard on
+              `address`/chain; for logged-out visitors we add a per-tab one-liner
+              and a single inline Connect CTA below the panel. Logged-in behaviour
+              is unchanged.
+              ⚠ 2026-08-12: this comment used to call the status an "honest
+              pre-deploy 'isn't live yet'" state. It was neither pre-deploy nor
+              honest — all four contracts have been live and unpaused on mainnet
+              since 2026-07-16. The copy below now says deployed-but-not-wired, and
+              the per-tab one-liners in copy.ts no longer promise that connecting
+              is the missing step. */}
+          {!isConnected && (
+            <m.div
+              className="max-w-2xl mx-auto mb-6 text-center"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.08 }}
+            >
+              <p className="text-white/75 text-[13px] leading-relaxed">{COMMUNITY_TAB_INTRO[section]}</p>
+            </m.div>
+          )}
+
+          <m.div
+            key={section}
+            role="tabpanel"
+            id={`community-panel-${section}`}
+            aria-labelledby={`community-tab-${section}`}
+            tabIndex={0}
+            className="outline-none"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <ErrorBoundary>
+              <Suspense fallback={
+                <div className="space-y-4 animate-pulse">
+                  <div className="rounded-xl p-6" style={{ background: 'rgba(13,21,48,0.4)', border: '1px solid rgba(255,255,255,0.20)' }}>
+                    <div className="h-5 rounded w-40 mb-4" style={{ background: 'rgba(255,255,255,0.08)' }} />
+                    <div className="h-20 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }} />
+                  </div>
                 </div>
-              </div>
-            }>
-              {/* 🔄 2026-08-12 — the four placeholders below used to read
-                  "isn't live yet … once the contract is deployed for the
-                  relaunch". Every one of those contracts was already deployed
-                  and unpaused on mainnet. Corrected to the true claim: the
-                  contracts exist, this app is not wired to them yet. The
-                  sections themselves are untouched — only the claim changed. */}
-              {section === 'grants' && (isDeployed(COMMUNITY_GRANTS_ADDRESS)
-                ? <GrantsSection />
-                : <>
-                    <FeatureNotDeployed pageId="community" idx={1} title="Community governance is deployed — not yet enabled here" subtitle="The CommunityGrants contract is live on Ethereum mainnet, with no proposals submitted so far. On-chain grants and proposals open in this app once its address is wired into the frontend." />
-                    <DeployedOnChainNote section="grants" />
-                  </>)}
-              {section === 'bounties' && (isDeployed(MEME_BOUNTY_BOARD_ADDRESS)
-                ? <BountiesSection />
-                : <>
-                    <FeatureNotDeployed pageId="community" idx={2} title="The bounty board is deployed — not yet enabled here" subtitle="The MemeBountyBoard contract is live on Ethereum mainnet with zero bounties posted so far. Meme bounties open in this app once its address is wired into the frontend." />
-                    <DeployedOnChainNote section="bounties" />
-                  </>)}
-              {section === 'bribes' && (isDeployed(VOTE_INCENTIVES_ADDRESS)
-                ? <VoteIncentivesSection />
-                : <>
-                    <FeatureNotDeployed pageId="community" idx={3} title="Vote incentives are deployed — not yet enabled here" subtitle="The VoteIncentives contract is live on Ethereum mainnet. Cartman's Market opens in this app once its address is wired into the frontend." />
-                    {/* The gaugeController() caveat is real and load-bearing: bribes are
-                        paid against gauge weights, and VoteIncentives has not been told
-                        which GaugeController to read. Verified on-chain 2026-08-12. */}
-                    <DeployedOnChainNote section="bribes" extra="It is also not yet pointed at a gauge controller on-chain, so bribe accounting has nothing to settle against until an operator calls setGaugeController — a one-shot call." />
-                  </>)}
-              {section === 'gauges' && (isDeployed(GAUGE_CONTROLLER_ADDRESS)
-                ? <GaugeVoting />
-                : <>
-                    <FeatureNotDeployed pageId="community" idx={4} title="Gauge voting is deployed — not yet enabled here" subtitle="The GaugeController contract is live on Ethereum mainnet with no gauges registered so far. Voting on gauge emissions opens in this app once its address is wired into the frontend." />
-                    <DeployedOnChainNote section="gauges" />
-                  </>)}
-            </Suspense>
-          </ErrorBoundary>
-        </m.div>
+              }>
+                {/* 🔄 2026-08-12 — the four placeholders below used to read
+                    "isn't live yet … once the contract is deployed for the
+                    relaunch". Every one of those contracts was already deployed
+                    and unpaused on mainnet. Corrected to the true claim: the
+                    contracts exist, this app is not wired to them yet. The
+                    sections themselves are untouched — only the claim changed. */}
+                {section === 'grants' && (isDeployed(COMMUNITY_GRANTS_ADDRESS)
+                  ? <GrantsSection />
+                  : <>
+                      <FeatureNotDeployed pageId="community" idx={1} title="Community governance is deployed — not yet enabled here" subtitle="The CommunityGrants contract is live on Ethereum mainnet, with no proposals submitted so far. On-chain grants and proposals open in this app once its address is wired into the frontend." />
+                      <DeployedOnChainNote section="grants" />
+                    </>)}
+                {section === 'bounties' && (isDeployed(MEME_BOUNTY_BOARD_ADDRESS)
+                  ? <BountiesSection />
+                  : <>
+                      <FeatureNotDeployed pageId="community" idx={2} title="The bounty board is deployed — not yet enabled here" subtitle="The MemeBountyBoard contract is live on Ethereum mainnet with zero bounties posted so far. Meme bounties open in this app once its address is wired into the frontend." />
+                      <DeployedOnChainNote section="bounties" />
+                    </>)}
+                {section === 'bribes' && (isDeployed(VOTE_INCENTIVES_ADDRESS)
+                  ? <VoteIncentivesSection />
+                  : <>
+                      <FeatureNotDeployed pageId="community" idx={3} title="Vote incentives are deployed — not yet enabled here" subtitle="The VoteIncentives contract is live on Ethereum mainnet. Cartman's Market opens in this app once its address is wired into the frontend." />
+                      {/* The gaugeController() caveat is real and load-bearing: bribes are
+                          paid against gauge weights, and VoteIncentives has not been told
+                          which GaugeController to read. Verified on-chain 2026-08-12. */}
+                      <DeployedOnChainNote section="bribes" extra="It is also not yet pointed at a gauge controller on-chain, so bribe accounting has nothing to settle against until an operator calls setGaugeController — a one-shot call." />
+                    </>)}
+                {section === 'gauges' && (isDeployed(GAUGE_CONTROLLER_ADDRESS)
+                  ? <GaugeVoting />
+                  : <>
+                      <FeatureNotDeployed pageId="community" idx={4} title="Gauge voting is deployed — not yet enabled here" subtitle="The GaugeController contract is live on Ethereum mainnet with no gauges registered so far. Voting on gauge emissions opens in this app once its address is wired into the frontend." />
+                      <DeployedOnChainNote section="gauges" />
+                    </>)}
+              </Suspense>
+            </ErrorBoundary>
+          </m.div>
+        </section>
 
         {!isConnected && (
           <m.div

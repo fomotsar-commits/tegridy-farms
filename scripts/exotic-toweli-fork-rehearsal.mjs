@@ -25,6 +25,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+// Repo-root helper, dependency-free on purpose: this script runs on a bare runner
+// with no frontend install, so it must not reach into frontend/node_modules for this.
+import { redactRpcUrl } from './lib/redact-url.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Resolve viem / doppler-sdk from frontend/node_modules regardless of CWD.
@@ -78,7 +81,10 @@ function findAddress(obj, preferKeys) {
 }
 
 async function main() {
-  console.log(`[rehearsal] spawning anvil fork of ${FORK_URL} on :${PORT}…`);
+  // ANVIL_FORK_URL is meant to be a keyed ARCHIVE endpoint (see USAGE above), so the
+  // host is kept and the credential masked. anvil itself gets the real URL on argv,
+  // which is not echoed: --silent, and argv is not written to stdout.
+  console.log(`[rehearsal] spawning anvil fork of ${redactRpcUrl(FORK_URL)} on :${PORT}…`);
   const anvil = spawn('anvil', ['--fork-url', FORK_URL, '--port', String(PORT), '--silent'], { stdio: 'inherit', shell: false });
   const cleanup = () => { try { anvil.kill('SIGTERM'); } catch { /* noop */ } };
   process.on('exit', cleanup);

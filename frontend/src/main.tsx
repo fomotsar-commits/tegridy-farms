@@ -20,6 +20,7 @@ import './index.css';
 import App from './App';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { installGlobalHandlers } from './lib/errorReporting';
+import { captureStaticFirstFrameDraft } from './lib/firstFrameDraft';
 
 installGlobalHandlers();
 
@@ -31,6 +32,11 @@ import './nakamigos/App.css';
 
 const el = document.getElementById('root');
 if (!el) throw new Error('Missing #root element');
+
+// Answer ten, ruling 2: index.html's static first frame has a working field, and
+// createRoot is about to replace it. Whatever the visitor already typed is handed
+// to the hero (lib/firstFrameDraft.ts) instead of being wiped with the markup.
+captureStaticFirstFrameDraft();
 
 createRoot(el).render(
   <StrictMode>

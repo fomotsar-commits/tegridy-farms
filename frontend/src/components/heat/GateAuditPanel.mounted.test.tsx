@@ -1,11 +1,6 @@
-// IS IT ACTUALLY ON SCREEN?
-//
-// GateAuditPanel's own suite renders the component directly and therefore cannot see
-// the failure that matters most here: a fully-built, fully-tested surface that nothing
-// mounts. `readGateAudit` sat in this repo with zero consumers precisely that way, and
-// CurveChart shipped the same defect (see CurveLaunchPage.test.tsx, "curve chart is
-// mounted"). So these assert the DOOR puts the panel in front of the wallet that was
-// turned away — and keeps it out of the two states where there is no denial to explain.
+// Is the panel on screen? The panel's own suite cannot see a surface nothing mounts, so
+// these assert the door shows it to a turned-away wallet and keeps it out of the two
+// states with no denial to explain.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -98,5 +93,17 @@ describe('the door mounts the audit panel where a denied wallet is standing', ()
     render(<LaunchGate />);
     await screen.findByText(/Connect the Ethereum wallet/i);
     expect(toggle()).not.toBeInTheDocument();
+  });
+});
+
+describe('the COLD door says what size can do, in the island words', () => {
+  it('names the 80 floor and says size cannot buy a day, with no prose em dash', async () => {
+    h.fetchHeat.mockResolvedValue(reading(73.89, 'Observer'));
+    render(<LaunchGate />);
+    await screen.findByText('COLD');
+    expect(screen.getByText(/This wallet reads 73\.89° \(Observer\)\. The door opens at 80°,/)).toBeInTheDocument();
+    const why = screen.getByText(/^Warmth is held time\./);
+    expect(why.textContent).toContain('Size can raise what a day is worth, it cannot buy a day.');
+    expect(why.textContent).not.toMatch(/larger bag|—/);
   });
 });

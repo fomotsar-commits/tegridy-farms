@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
-import type { HTMLAttributes, ReactNode } from 'react';
+import { useState, type HTMLAttributes, type ReactNode } from 'react';
 import { renderWithProviders } from '../../test-utils/render';
 import { OnboardingModal } from './OnboardingModal';
 
@@ -83,6 +83,16 @@ describe('OnboardingModal', () => {
     expect(screen.queryByText('Start Farming')).not.toBeInTheDocument();
   });
 
+  it('starts the clock where the island does, at a first hold (venue voice)', () => {
+    renderWithRouter();
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByText('Next'));
+    expect(
+      screen.getByText(
+        'Walk a door in the hall below, or scan any token on either chain. Your heat already exists. Your clock on a token starts at your first hold.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('Walk the doors sets localStorage and closes modal', () => {
     renderWithRouter();
     fireEvent.click(screen.getByText('Next'));
@@ -133,6 +143,31 @@ describe('OnboardingModal', () => {
     fireEvent.click(backdrop);
     expect(localStorage.getItem('tegridy-onboarding-seen')).toBe('1');
     expect(screen.queryByText('Welcome to memetics.finance')).not.toBeInTheDocument();
+  });
+
+  it('an invited tour reopens at its first step, however far it was walked before it closed', () => {
+    // Answer ten made the TOWELI welcome invited and re-tappable ("Take the tour"),
+    // and this component stays mounted across routes. Closing never reset the step,
+    // so the second tap opened on whatever step the first visit left behind.
+    function InvitedTour() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Take the tour</button>
+          <OnboardingModal invited invitedOpen={open} onInvitedClose={() => setOpen(false)} />
+        </>
+      );
+    }
+    renderWithProviders(<InvitedTour />);
+    fireEvent.click(screen.getByText('Next'));
+    fireEvent.click(screen.getByText('Next'));
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('3');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Take the tour'));
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow'), 'the tour reopened mid-way').toBe('1');
+    expect(screen.getByText('Welcome to memetics.finance')).toBeInTheDocument();
   });
 
   it('ARRIVAL IDENTITY: the classic farm welcome renders inside the TOWELI bungalow', async () => {

@@ -21,10 +21,32 @@ const calcRewards = vi.fn();
 const prepareStakeInstructions = vi.fn();
 const prepareCreateRewardEntryInstructions = vi.fn();
 const execute = vi.fn();
+const getMultipleAccountsInfo = vi.fn();
+// The DYNAMIC reward program's half of searchAllRewardPoolsChecked. Absent from the canned
+// client before 2026-09-21, so that half always failed here, silently.
+// readShareBasis reads through the ...AndContext variant so it can carry the call's slot.
+// It delegates to the bare mock above, so each case sets the accounts one way.
+const ctxSlot = { value: 777 as number | undefined };
+const getMultipleAccountsInfoAndContext = vi.fn(async (...a: unknown[]) => ({
+  context: ctxSlot.value === undefined ? {} : { slot: ctxSlot.value },
+  value: await getMultipleAccountsInfo(...a),
+}));
+const dynamicRewardPoolAll = vi.fn(async () => [] as unknown[]);
+const getRewardProgram = vi.fn(() => ({ account: { rewardPool: { all: dynamicRewardPoolAll } } }));
+// Anchor's coder, faked: an account's `data` names which struct it is, and decoding it
+// as any other struct throws — as a discriminator mismatch does for real.
+const stakePoolProgram = {
+  programId: { toBase58: () => 'StakePoolProgramId' },
+  coder: { accounts: { decode: (name: string, data: { kind: string; fields: unknown }) => {
+    if (data?.kind !== name) throw new Error(`not a ${name}`);
+    return data.fields;
+  } } },
+};
 
 vi.mock('@streamflow/staking', () => ({
   SolanaStakingClient: class {
-    connection = { getTokenAccountBalance, getAccountInfo, getParsedAccountInfo, getParsedTokenAccountsByOwner };
+    connection = { getTokenAccountBalance, getAccountInfo, getParsedAccountInfo, getParsedTokenAccountsByOwner, getMultipleAccountsInfo, getMultipleAccountsInfoAndContext };
+    programs = { stakePoolProgram };
     getStakePool = getStakePool;
     searchRewardPools = searchRewardPools;
     searchStakeEntries = searchStakeEntries;
@@ -36,6 +58,7 @@ vi.mock('@streamflow/staking', () => ({
     prepareCreateRewardEntryInstructions = prepareCreateRewardEntryInstructions;
     execute = execute;
     getCurrentProgramId = vi.fn(() => 'StakePoolProgramId');
+    getRewardProgram = getRewardProgram;
   },
   deriveStakeMintPDA: vi.fn(() => 'StakeMintPda'),
   calcRewards,
@@ -55,10 +78,11 @@ vi.mock('@solana/spl-token', () => ({
 import {
   readPool,
   readEntries,
+  readShareBasis,
   nextVacantNonce,
+  splitAccruedByRisk,
   stake,
   unstakeAndCloseForfeitingRewards,
-  CLASSIC_ACCOUNTED_CEILING,
   WEIGHT_SCALE,
   type PoolView,
   type RewardPoolView,
@@ -126,6 +150,32 @@ describe('readPool', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/outage, not a zero/);
   });
+
+  // ⚠️ A PARTIAL REWARD-POOL LIST IS AN OUTAGE. unstakeAndClaim builds one claim per
+  // listed reward pool and then closes the entry, and a closed entry's rewards can never
+  // be claimed again. A list missing a pool because its search half failed would exit
+  // without claiming it.
+  it.each([
+    ['the fixed half', () => searchRewardPools.mockRejectedValueOnce(new Error('429'))],
+    ['the dynamic half', () => dynamicRewardPoolAll.mockRejectedValueOnce(new Error('429'))],
+  ])('fails the read when %s of the reward-pool search failed', async (_half, fail) => {
+    getStakePool.mockResolvedValue({ mint: 'M', minDuration: bn(1), maxDuration: bn(2), totalStake: bn(0), minWeight: bn('1000000000'), maxWeight: bn('1000000000'), unstakePeriod: bn(0), totalEffectiveStake: bn(0) });
+    searchRewardPools.mockResolvedValue([
+      { publicKey: 'Rp1', account: { mint: 'M', nonce: bn(0), vault: 'V', rewardAmount: bn(1), rewardPeriod: bn(1) } },
+    ]);
+    getTokenAccountBalance.mockResolvedValue({ value: { amount: '5' } });
+    fail();
+    const r = await readPool(POOL);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/outage, not a zero/);
+  });
+
+  it('both halves answering with no reward pool is still a read, not an outage', async () => {
+    getStakePool.mockResolvedValue({ mint: 'M', minDuration: bn(1), maxDuration: bn(2), totalStake: bn(0), minWeight: bn('1000000000'), maxWeight: bn('1000000000'), unstakePeriod: bn(0), totalEffectiveStake: bn(0) });
+    searchRewardPools.mockResolvedValue([]);
+    const r = await readPool(POOL);
+    expect(r.ok && r.pool.rewardPools).toEqual([]);
+  });
 });
 
 describe('readEntries + nextVacantNonce', () => {
@@ -165,13 +215,60 @@ describe('readEntries + nextVacantNonce', () => {
   });
 });
 
+// AN UNPRICED ACCRUAL IS UNKNOWN, NEVER ZERO. readEntries prices at most 8 open entries,
+// and a reward-pool search half can fail silently; an open entry left unpriced used to
+// come back with an empty `pendingRaw`, which every sum reads as zero — a partial total
+// printed as complete. It is now marked `pendingUnread`, and the sum refuses it.
+describe('readEntries — an open entry whose accrual was not priced says so', () => {
+  const open = (n: number) => ({
+    publicKey: `E${n}`,
+    account: { nonce: bn(n), amount: bn('100'), duration: bn(1), createdTs: bn(1_700_000_000 + n), closedTs: bn(0), effectiveAmount: bn('100') },
+  });
+  const closed = { publicKey: 'EC', account: { nonce: bn(50), amount: bn('1'), duration: bn(1), createdTs: bn(1), closedTs: bn(5) } };
+
+  it('⚠️ past the pricing cap, the 9th open entry is pendingUnread, and the header sum is null — not a partial total', async () => {
+    searchStakeEntries.mockResolvedValue(Array.from({ length: 9 }, (_, i) => open(i)));
+    searchRewardPools.mockResolvedValue([{ publicKey: 'Rp1', account: { nonce: bn(0) } }]);
+    searchRewardEntries.mockResolvedValue([{ publicKey: 'Re1', account: {} }]);
+    calcRewards.mockReturnValue(bn('42'));
+    const r = await readEntries(POOL, 'Payer');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.entries.filter((e) => e.pendingUnread)).toHaveLength(1);
+    expect(r.entries.filter((e) => !e.pendingUnread).every((e) => e.pendingRaw[0] === 42n)).toBe(true);
+    expect(splitAccruedByRisk(r.entries, []).claimableRaw).toBeNull();
+  });
+
+  it('⚠️ a reward-pool search half that FAILED leaves every open entry pendingUnread (the closed one is not)', async () => {
+    searchStakeEntries.mockResolvedValue([open(0), closed]);
+    searchRewardPools.mockResolvedValue([]);
+    dynamicRewardPoolAll.mockRejectedValueOnce(new Error('rpc down'));
+    const r = await readEntries(POOL, 'Payer');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.entries.find((e) => e.address === 'E0')!.pendingUnread).toBe(true);
+    expect(r.entries.find((e) => e.address === 'EC')!.pendingUnread).toBeUndefined();
+    expect(splitAccruedByRisk(r.entries, []).claimableRaw).toBeNull();
+  });
+
+  it('both halves answered and no reward pool exists: a real zero, not unread', async () => {
+    searchStakeEntries.mockResolvedValue([open(0)]);
+    searchRewardPools.mockResolvedValue([]);
+    const r = await readEntries(POOL, 'Payer');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.entries[0]!.pendingUnread).toBeUndefined();
+    expect(splitAccruedByRisk(r.entries, []).claimableRaw).toBe(0n);
+  });
+});
+
 describe('stake', () => {
   const pool: PoolView = {
     address: POOL, mint: 'MintAddr', decimals: 6, tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
     minDurationSecs: 86400, maxDurationSecs: 86400 * 30,
     minWeightScaled: WEIGHT_SCALE, maxWeightScaled: WEIGHT_SCALE, unstakePeriodSecs: 0,
     totalStakeRaw: 0n, totalEffectiveStakeRaw: 0n,
-    rewardPools: [{ address: 'Rp1', mint: 'MintAddr', kind: 'fixed' as const, nonce: 3, vault: 'V1', decimals: 6, fundedRaw: 0n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400, fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0 }],
+    rewardPools: [{ address: 'Rp1', mint: 'MintAddr', kind: 'fixed' as const, nonce: 3, vault: 'V1', decimals: 6, fundedRaw: 0n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400, fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0, rateChangedAtTs: 0 }],
   };
 
   const invoker = { publicKey: { toBase58: () => 'StakerPk' } } as never;
@@ -211,7 +308,10 @@ describe('stake', () => {
     getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
     const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe('You declined the signature — nothing moved.');
+    if (!r.ok) {
+      expect(r.reason).toMatch(/declined the signature/);
+      expect(r.reason).toMatch(/nothing moved/i);
+    }
   });
 
   it('NEVER claims "nothing moved" for a post-broadcast confirmation timeout — outcome unknown + signature', async () => {
@@ -230,7 +330,7 @@ describe('stake', () => {
     if (!r.ok) {
       expect(r.reason).toContain('Outcome unknown');
       expect(r.reason).toContain('S1gnatuRE111');
-      expect(r.reason).not.toContain('nothing moved');
+      expect(r.reason).not.toMatch(/nothing moved/i);
     }
   });
 
@@ -245,6 +345,44 @@ describe('stake', () => {
       expect(r.reason).toContain('vault');
       expect(r.reason).toContain('topped up');
     }
+  });
+
+  // The claim strip and the full card print these verbatim, and venue copy has no em dash.
+  it('no failure a write can return carries an em dash', async () => {
+    const lib = await import('./bungalowStaking');
+    prepareStakeInstructions.mockResolvedValue({ ixs: [] });
+    prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [] });
+    getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
+    const errors = [
+      new Error('User rejected the request'),
+      new Error('custom program error 6012'),
+      new Error('Error Code: ArithmeticError. Error Number: 6000.'),
+      new Error('Error Code: RewardPoolDrained. Error Number: 6013.'),
+      Object.assign(new Error('Transaction was not confirmed in 30.00 seconds.'), { signature: 'S1g' }),
+      new Error('something else'),
+    ];
+    const writes = [
+      () => stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] }),
+      () => lib.unstakeAndClaim({ invoker, pool, entryNonce: 0 }),
+      () => lib.claimRewards({ invoker, pool, rewardPool: pool.rewardPools[0]!, entryNonce: 0 }),
+      // Its claim fails first, so this is the rescue's own stop line.
+      () => unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: 0, entry: { createdTs: 1, pendingRaw: { 3: 5n } } }),
+    ];
+    const reasons: string[] = [];
+    for (const err of errors) {
+      for (const sdk of [execute, unstakeAndClaim, claimRewards, unstakeAndClose]) sdk.mockReset().mockRejectedValue(err);
+      for (const w of writes) {
+        const r = await w();
+        if (!r.ok) reasons.push(r.reason);
+      }
+    }
+    // Closing past a permanent claim failure reaches unstakeAndClose's own fallback.
+    claimRewards.mockReset().mockRejectedValue(new Error('Error Number: 6000.'));
+    unstakeAndClose.mockReset().mockRejectedValue(new Error('something else'));
+    const closed = await unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: 0, entry: { createdTs: 1, pendingRaw: { 3: 5n } } });
+    if (!closed.ok) reasons.push(closed.reason);
+    expect(reasons).toHaveLength(errors.length * writes.length + 1);
+    for (const reason of reasons) expect(reason).not.toContain('—');
   });
 });
 
@@ -286,7 +424,7 @@ describe('vaultIsMateriallyEmpty — the exit-safety predicate (built on vaultRu
     address: 'Rp', mint: 'M', kind: 'fixed' as const, nonce: 0, vault: 'V', decimals: 6,
     permissionless: true,
     fundedRaw, rewardAmountRaw: '3000000', rewardPeriodSecs: 86400,
-    fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0,
+    fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0, rateChangedAtTs: 0,
   });
 
   it('dust cannot clear the empty banner, and <1 day of burn is still empty', async () => {
@@ -323,6 +461,12 @@ describe('unstakeAndCloseForfeitingRewards', () => {
     address: `Rp${nonce}`, mint: 'MintAddr', kind, nonce, vault: `V${nonce}`, decimals: 6,
     fundedRaw: 1_000n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400,
     fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0,
+    // LOAD-BEARING. The classic pool's rate moved at ts 2000 and the entry
+    // fixtures below open at ts 1000, so those entries really are ones the
+    // change broke. With this at 0 the predicate never fires and these tests
+    // cannot tell whether a payability filter has crept back in — which is
+    // exactly what mutation testing caught them failing to notice.
+    rateChangedAtTs: kind === 'fixed' ? 2_000 : null,
   });
   const poolWith = (pools: RewardPoolView[]): PoolView => ({
     address: POOL, mint: 'MintAddr', decimals: 6, tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
@@ -331,28 +475,32 @@ describe('unstakeAndCloseForfeitingRewards', () => {
     totalStakeRaw: 0n, totalEffectiveStakeRaw: 0n, rewardPools: pools,
   });
   const invoker = { publicKey: { toBase58: () => 'StakerPk' } } as never;
-  // The classic pool (nonce 0) is past the ceiling and can never pay again; the
-  // dynamic pool (nonce 1) is healthy and holds a real balance. This is exactly
-  // the shape the venue will have once the dynamic rail is attached.
-  const DEAD_CLASSIC_LIVE_DYNAMIC = {
-    accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING + 1n, 1: 5n },
+
+  // The classic pool's rate was changed AFTER this entry opened, so its claim is
+  // expected to revert - and it is STILL attempted. A predicate that is right on
+  // every position measured does not get to skip the attempt; the fee is the
+  // cheap failure and the silent forfeit is not.
+  const BROKEN_CLASSIC_LIVE_DYNAMIC = {
+    createdTs: 1_000,
     pendingRaw: { 0: 4_000n, 1: 9_000n },
   };
 
-  it('claims the still-payable pool FIRST, then closes', async () => {
+  it('attempts EVERY pool holding a balance before it closes — including the one over the constant', async () => {
     claimRewards.mockResolvedValue({ txId: 'CLAIM_SIG' });
     unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
     const r = await unstakeAndCloseForfeitingRewards({
       invoker,
       pool: poolWith([rp(0, 'fixed'), rp(1, 'dynamic')]),
       entryNonce: 7,
-      entry: DEAD_CLASSIC_LIVE_DYNAMIC,
+      entry: BROKEN_CLASSIC_LIVE_DYNAMIC,
     });
     expect(r.ok).toBe(true);
-    // The DYNAMIC pool is claimed. The dead classic one is not — claiming it
-    // would revert 6000, which is the whole reason this door exists.
-    expect(claimRewards).toHaveBeenCalledTimes(1);
-    expect(claimRewards.mock.calls[0]![0].rewardPoolNonce).toBe(1);
+    // BOTH pools are claimed. This assertion read `1` on trunk — the classic
+    // pool was dropped unclaimed because its counter was over the constant, and
+    // that predicate matches a live position holding five figures of claimable
+    // BAYLA. Nothing here may decide a pool cannot pay; the program decides.
+    expect(claimRewards).toHaveBeenCalledTimes(2);
+    expect(claimRewards.mock.calls.map((c) => c[0].rewardPoolNonce)).toEqual([0, 1]);
     expect(claimRewards.mock.calls[0]![0].depositNonce).toBe(7);
     // ORDER IS THE POINT. Closing first destroys the balance the claim saves.
     expect(claimRewards.mock.invocationCallOrder[0]!)
@@ -367,7 +515,7 @@ describe('unstakeAndCloseForfeitingRewards', () => {
       invoker,
       pool: poolWith([rp(0, 'fixed'), rp(1, 'dynamic')]),
       entryNonce: 7,
-      entry: DEAD_CLASSIC_LIVE_DYNAMIC,
+      entry: BROKEN_CLASSIC_LIVE_DYNAMIC,
     });
     expect(r.ok).toBe(false);
     // The close must NOT have happened: burning a claimable balance to save a
@@ -376,16 +524,133 @@ describe('unstakeAndCloseForfeitingRewards', () => {
     if (!r.ok) expect(r.reason).toMatch(/could not be claimed first/);
   });
 
-  it('claims nothing when the only pool is the dead one — todays behaviour, unchanged', async () => {
+  it('when the chain itself says 6000, the rescue accepts that and frees the principal', async () => {
+    // The ONLY evidence that closes a door. Not the counter — the program.
+    claimRewards.mockRejectedValue(new Error('Error Code: ArithmeticError. Error Number: 6000.'));
     unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
     const r = await unstakeAndCloseForfeitingRewards({
       invoker,
       pool: poolWith([rp(0, 'fixed')]),
       entryNonce: 7,
-      entry: { accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING + 1n }, pendingRaw: { 0: 4_000n } },
+      entry: { createdTs: 1_000, pendingRaw: { 0: 4_000n } },
     });
+    // Attempted, refused by the program, then closed — the principal is not
+    // held hostage to rewards that provably cannot be collected.
+    expect(claimRewards).toHaveBeenCalledTimes(1);
     expect(r.ok).toBe(true);
-    expect(claimRewards).not.toHaveBeenCalled();
     expect(unstakeAndClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('⚠️ a wallet switched mid-rescue closes nothing: the claims were chosen for the first account', async () => {
+    // The SDK reads invoker.publicKey on every call, and an adapter swaps it in place
+    // when the extension changes account, so later steps would act on the new one.
+    let key = 'StakerA';
+    const switching = { get publicKey() { return { toBase58: () => key }; } } as never;
+    claimRewards.mockImplementation(async () => { key = 'StakerB'; return { txId: 'CLAIM_SIG' }; });
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker: switching,
+      pool: poolWith([rp(0, 'fixed'), rp(1, 'dynamic')]),
+      entryNonce: 7,
+      entry: BROKEN_CLASSIC_LIVE_DYNAMIC,
+    });
+    expect(r.ok).toBe(false);
+    expect(claimRewards).toHaveBeenCalledTimes(1);
+    expect(unstakeAndClose).not.toHaveBeenCalled();
+    if (!r.ok) expect(r.reason).toMatch(/wallet changed/i);
+  });
+
+  it('⚠️ with ONE pool to claim, the check before the close is what stops it', async () => {
+    // No second claim runs, so no per-claim check can catch the switch.
+    let key = 'StakerA';
+    const switching = { get publicKey() { return { toBase58: () => key }; } } as never;
+    claimRewards.mockImplementation(async () => { key = 'StakerB'; return { txId: 'CLAIM_SIG' }; });
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker: switching,
+      pool: poolWith([rp(0, 'fixed')]),
+      entryNonce: 7,
+      entry: { createdTs: 1_000, pendingRaw: { 0: 4_000n } },
+    });
+    expect(claimRewards).toHaveBeenCalledTimes(1);
+    expect(r.ok).toBe(false);
+    expect(unstakeAndClose).not.toHaveBeenCalled();
+    if (!r.ok) expect(r.reason).toMatch(/wallet changed/i);
+  });
+
+  it('a NON-permanent failure still aborts — a dry vault is not a death certificate', async () => {
+    claimRewards.mockRejectedValue(new Error('Error Code: RewardPoolDrained. Error Number: 6013.'));
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker,
+      pool: poolWith([rp(0, 'fixed')]),
+      entryNonce: 7,
+      entry: { createdTs: 1_000, pendingRaw: { 0: 4_000n } },
+    });
+    expect(r.ok).toBe(false);
+    expect(unstakeAndClose).not.toHaveBeenCalled();
+  });
+});
+
+// THE SAME-SLOT SHARE BASIS. The lighthouse share used to divide the entries read by a
+// separately read pool; these pin that the basis comes from ONE call, drops what closed
+// in between from BOTH sides, and refuses (null) rather than guessing on anything odd.
+describe('readShareBasis — the entries and the pool, from one call', () => {
+  const OWNER_OK = { toBase58: () => 'StakePoolProgramId' };
+  const poolAcc = (totalEffectiveScaled: bigint) => ({
+    owner: OWNER_OK, data: { kind: 'StakePool', fields: { totalEffectiveStake: bn(totalEffectiveScaled.toString()) } },
+  });
+  const entryAcc = (effective: number, closedTs = 0, stakePool = POOL) => ({
+    owner: OWNER_OK,
+    data: { kind: 'StakeEntry', fields: { stakePool: { toBase58: () => stakePool }, closedTs: bn(closedTs), effectiveAmount: bn(effective) } },
+  });
+
+  beforeEach(() => { getMultipleAccountsInfo.mockReset(); ctxSlot.value = 777; });
+
+  it('reads the entries AND the pool in a single getMultipleAccountsInfo call', async () => {
+    getMultipleAccountsInfo.mockResolvedValue([entryAcc(20_000_000), poolAcc(110_000_000n * WEIGHT_SCALE)]);
+    const r = await readShareBasis(POOL, ['E1']);
+    expect(r).toEqual({ mineEffectiveRaw: 20_000_000n, totalEffectiveRaw: 110_000_000n, slot: 777 });
+    expect(getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
+    const keys = getMultipleAccountsInfo.mock.calls[0]![0] as { toBase58(): string }[];
+    expect(keys.map((k) => k.toBase58())).toEqual(['E1', POOL]);
+  });
+
+  it('an entry closed or drained since the entries read is out of both sides', async () => {
+    getMultipleAccountsInfo.mockResolvedValue([entryAcc(20_000_000), entryAcc(30_000_000, 1_700_000_000), null, poolAcc(90_000_000n * WEIGHT_SCALE)]);
+    expect(await readShareBasis(POOL, ['E1', 'E2', 'E3'])).toEqual({ mineEffectiveRaw: 20_000_000n, totalEffectiveRaw: 90_000_000n, slot: 777 });
+  });
+
+  it('refuses on a missing pool, a foreign owner, an entry of another pool, or an undecodable account', async () => {
+    getMultipleAccountsInfo.mockResolvedValueOnce([entryAcc(1), null]);
+    expect(await readShareBasis(POOL, ['E1'])).toBeNull();
+    getMultipleAccountsInfo.mockResolvedValueOnce([{ ...entryAcc(1), owner: { toBase58: () => 'Stranger' } }, poolAcc(10n * WEIGHT_SCALE)]);
+    expect(await readShareBasis(POOL, ['E1'])).toBeNull();
+    getMultipleAccountsInfo.mockResolvedValueOnce([entryAcc(1, 0, 'OtherPool'), poolAcc(10n * WEIGHT_SCALE)]);
+    expect(await readShareBasis(POOL, ['E1'])).toBeNull();
+    getMultipleAccountsInfo.mockResolvedValueOnce([{ owner: OWNER_OK, data: { kind: 'Garbage', fields: {} } }, poolAcc(10n * WEIGHT_SCALE)]);
+    expect(await readShareBasis(POOL, ['E1'])).toBeNull();
+    getMultipleAccountsInfo.mockRejectedValueOnce(new Error('rpc down'));
+    expect(await readShareBasis(POOL, ['E1'])).toBeNull();
+  });
+
+  // THE WRITE-SLOT FENCE needs the basis's own slot: the card compares it with the slot
+  // your write confirmed at. A response that carries none is null — never a guess —
+  // and the card fails closed on it.
+  it('⚠️ carries the one call’s context.slot, and null when the response has none', async () => {
+    getMultipleAccountsInfo.mockResolvedValue([entryAcc(10_000_000), poolAcc(90_000_000n * WEIGHT_SCALE)]);
+    ctxSlot.value = 498;
+    expect((await readShareBasis(POOL, ['E1']))?.slot).toBe(498);
+    ctxSlot.value = undefined;
+    const r = await readShareBasis(POOL, ['E1']);
+    expect(r).not.toBeNull();
+    expect(r!.slot).toBeNull();
+    expect(getMultipleAccountsInfoAndContext).toHaveBeenCalled();
+  });
+
+  it('no entries, or more than one call can carry, is no basis', async () => {
+    expect(await readShareBasis(POOL, [])).toBeNull();
+    expect(await readShareBasis(POOL, Array.from({ length: 100 }, (_, i) => `E${i}`))).toBeNull();
+    expect(getMultipleAccountsInfo).not.toHaveBeenCalled();
   });
 });

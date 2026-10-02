@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 // Static, not `await import('viem')` inside the test: the dynamic form times
 // out against vitest's 5s default whenever the machine is busy, which made
@@ -6,8 +6,10 @@ import { existsSync, readFileSync } from 'node:fs';
 // flakiest test in the suite. A pin that cries wolf gets ignored.
 import { isAddress } from 'viem';
 import { resolve } from 'node:path';
+import { NATIVE_ETH_ADDRESS } from './tokenList';
 import {
   BUNGALOWS,
+  BUNGALOW_COUNT,
   BAYLA_ART,
   BUNGALOW_STORAGE_KEY,
   DEFAULT_BUNGALOW_ID,
@@ -19,12 +21,20 @@ import {
   bungalowTradeRoute,
   bungalowScanRoute,
   residentLabelForPool,
+  bungalowByAddress,
+  poolReadByIsland,
+  ISLAND_READ_POOLS,
+  RETIRED_STAKE_POOLS,
+  stakePoolMembersOnly,
+  subscribeActiveBungalow,
+  announceActiveBungalow,
 } from './bungalows';
 import { pageArt } from './artConfig';
+import { SITE_URL } from './constants';
 
-// Jungle Bay Island (2026-08-24): 13 bungalows, each a community token whose
-// art pool re-skins every pageArt() background surface. These tests pin:
-//  - the registry shape (13 slots, stable ids, the two live bungalows),
+// Jungle Bay Island (2026-08-24): the bungalows, each a community token whose
+// art pool re-skins every pageArt() background surface, and one open lot. These tests pin:
+//  - the registry shape (12 bungalows and one open lot, stable ids, the two live bungalows),
 //  - the Bayla pool's integrity (24 real files on disk — a typo'd src here
 //    renders as a broken fullscreen background on every page at once),
 //  - pageArt()'s swap rules (bungalow pool wins, shared surfaces don't swap,
@@ -37,9 +47,15 @@ afterEach(() => {
 });
 
 describe('bungalow registry', () => {
-  it('has exactly 13 bungalows with unique ids', () => {
+  it('counts 12 bungalows, and the open lot is not one of them', () => {
+    // The island: "12 BUNGALOWS · 3 LOTS OPEN". Its lot is 'nb1', chain 'tbd'.
+    expect(BUNGALOW_COUNT).toBe(12);
+    expect(BUNGALOWS.filter((b) => b.chain === 'tbd').map((b) => b.id)).toEqual(['nb1']);
+    // Its tile line is the island's lot label ("Lot 13, for the next community"), unnumbered.
+    expect(BUNGALOWS.find((b) => b.chain === 'tbd')!.tagline).toBe('For the next community.');
+    // The lot keeps its row, tile and art: 13 rows, unique ids.
     expect(BUNGALOWS).toHaveLength(13);
-    expect(new Set(BUNGALOWS.map((b) => b.id)).size).toBe(13);
+    expect(new Set(BUNGALOWS.map((b) => b.id)).size).toBe(BUNGALOWS.length);
   });
 
   it('keeps Toweli as the live default and Bayla live on Solana with the pump.fun mint', () => {
@@ -67,17 +83,15 @@ describe('bungalow registry', () => {
     for (const b of BUNGALOWS.filter((x) => x.live && x.id !== 'toweli' && x.id !== 'bayla')) {
       expect(b.identity, `${b.id} placeholder skin needs a voice`).toBeTruthy();
       expect(b.identity?.heroTitle).toBe(`${b.symbol}.`);
-      // Its own drop, resolved from the real directory. QR has no folder yet,
-      // so it honestly keeps the classic fallback until one arrives.
-      if (b.id === 'qr') {
-        expect(b.artPool, 'qr has no folder yet — classic fallback is the honest state').toBeUndefined();
-      } else {
-        expect(b.artPool?.length, `${b.id} paints from its own drop`).toBeGreaterThan(0);
-        for (const piece of b.artPool!) {
-          expect(piece.src.startsWith(`/art/${b.id}/`), `${b.id} draws only from its own folder`).toBe(true);
-        }
+      // Its own drop, resolved from the real directory. QR was the one live
+      // resident without a folder and kept the classic fallback honestly until
+      // its drop landed on 2026-09-13 — it now meets the same bar as the rest,
+      // so the exception that used to sit here is gone rather than inverted.
+      expect(b.artPool?.length, `${b.id} paints from its own drop`).toBeGreaterThan(0);
+      for (const piece of b.artPool!) {
+        expect(piece.src.startsWith(`/art/${b.id}/`), `${b.id} draws only from its own folder`).toBe(true);
       }
-      expect(b.identity?.museVoice, `${b.id} bubble speaks as the island, never another resident`).toBe('the island');
+      expect(b.identity?.museVoice, `${b.id} canon voice is the island, never another resident`).toBe('the island');
     }
     for (const b of BUNGALOWS.filter((x) => !x.live)) {
       expect(b.artPool, `${b.id} has no art pool until it goes live`).toBeUndefined();
@@ -411,9 +425,15 @@ describe('resolution order', () => {
     expect(bayla.identity?.lore?.paragraphs.length).toBe(2);
     expect(bayla.identity?.lore?.links.map((l) => l.href)).toEqual([
       'https://memetics.wtf/',
+      'https://memetics.wtf/receipts',
       'https://opensea.io/collection/junglebay',
       'https://x.com/JungleBayAC',
     ]);
+    // Mechanism 9 says "Check it." The island's own label, pointing at its ledger.
+    expect(bayla.identity?.lore?.links).toContainEqual({
+      href: 'https://memetics.wtf/receipts',
+      label: 'Check it on the ledger',
+    });
     expect(bayla.identity?.museLines?.length).toBe(5);
     expect(bayla.identity?.museVoice).toBe('the muse');
   });
@@ -424,9 +444,16 @@ describe('resolution order', () => {
     // the quiet no-address slot and the venue-default door (whose home is /)
     // stay out. A new resident added to the registry without a sitemap entry
     // fails here instead of silently shipping an unindexed door.
+    //
+    // THE HOST IS DERIVED, NOT TYPED. This read `https://memetic.fun/${b.id}`,
+    // which made a test meant to pin COVERAGE ("every settled door is listed")
+    // also pin the ORIGIN — so it enforced the alias host, and re-pointing the
+    // sitemap at SITE_URL on 2026-09-09 turned it red for doing the right thing.
+    // A literal here is a second declaration of which host is canonical, hiding
+    // in a test about something else.
     const xml = readFileSync(resolve(__dirname, '../../public/sitemap.xml'), 'utf-8');
     for (const b of BUNGALOWS) {
-      const inMap = xml.includes(`<loc>https://memetic.fun/${b.id}</loc>`);
+      const inMap = xml.includes(`<loc>${SITE_URL}/${b.id}</loc>`);
       if (b.address && b.id !== DEFAULT_BUNGALOW_ID) {
         expect(inMap, `${b.id} settled door missing from sitemap.xml`).toBe(true);
       } else {
@@ -459,5 +486,191 @@ describe('resolution order', () => {
     // shows its name) but carries no pool — classic art stays in charge.
     expect(getActiveBungalow()?.id).toBe(DEFAULT_BUNGALOW_ID);
     expect(bungalowArtPool('farm')).toBeNull();
+  });
+});
+
+// ── The room a token belongs to (answer eight, ruling 10) ──────────────
+//
+// Element O's line names the room a buy happened in, so a wrong match is a
+// wrong room in a sentence the buyer is invited to post. Every rule here is
+// one the registry already lives by; the finder must not restate any of them
+// differently.
+describe('bungalowByAddress', () => {
+  const PEPE = '0x6982508145454ce325ddbe47a25d4ec3d2311933';
+  const BOBO_MINT = '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump';
+
+  it('finds an EVM room by its own token, however the address is cased', () => {
+    expect(bungalowByAddress('ethereum', PEPE)?.id).toBe('pepe');
+    expect(bungalowByAddress('ethereum', PEPE.toUpperCase().replace('0X', '0x'))?.id).toBe('pepe');
+    expect(bungalowByAddress('ethereum', `  ${PEPE}  `)?.id).toBe('pepe');
+  });
+
+  it('finds a Solana room by its mint, and refuses a folded one', () => {
+    expect(bungalowByAddress('solana', BOBO_MINT)?.id).toBe('bobo');
+    // base58 is case-significant: the lowercased key is a different address
+    // that happens to look valid, which is exactly how a wrong room is named.
+    expect(bungalowByAddress('solana', BOBO_MINT.toLowerCase())).toBeNull();
+  });
+
+  it('will not match a token across chains', () => {
+    expect(bungalowByAddress('solana', PEPE)).toBeNull();
+    expect(bungalowByAddress('base', PEPE)).toBeNull();
+    expect(bungalowByAddress('ethereum', BOBO_MINT)).toBeNull();
+  });
+
+  it('cannot match the native pseudo-address, because no room is ETH', () => {
+    // A plain ETH buy must never be told it happened in someone's room. The
+    // finder needs no special case for that: it falls out of the registry, and
+    // THIS is the line that keeps it true. A refusal inside the finder survived
+    // its own mutation, because nothing could ever reach it.
+    const native = NATIVE_ETH_ADDRESS.trim().toLowerCase();
+    for (const b of BUNGALOWS) {
+      expect(b.address?.trim().toLowerCase(), `${b.id} carries the native pseudo-address`).not.toBe(native);
+    }
+    expect(bungalowByAddress('ethereum', NATIVE_ETH_ADDRESS)).toBeNull();
+  });
+
+  it('answers null for nothing, and for a room with no address on file', () => {
+    expect(bungalowByAddress('ethereum', '')).toBeNull();
+    expect(bungalowByAddress('ethereum', '   ')).toBeNull();
+    // The quiet slot and any 'tbd' row carry no address; none can be matched.
+    for (const b of BUNGALOWS.filter((x) => !x.address)) {
+      expect(bungalowByAddress(b.chain, 'anything')).toBeNull();
+    }
+  });
+});
+
+describe('read by the island, per pool', () => {
+  const LADDER = 'Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV';
+  const LIGHTHOUSE = 'EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f';
+
+  it('reads yes for the lock ladder and the BAYLA lighthouse pool', () => {
+    expect(poolReadByIsland('solana', LADDER)).toBe(true);
+    expect(poolReadByIsland('solana', LIGHTHOUSE)).toBe(true);
+    expect(poolReadByIsland('solana', `  ${LADDER}  `)).toBe(true);
+  });
+
+  it('reads no for every other staking pool the registry carries', () => {
+    const no = ['pepe', 'qr', 'mfer', 'bnkr', 'drb', 'jbm', 'bobo', 'soy', 'brainlet', 'rizz'];
+    for (const id of no) {
+      const b = BUNGALOWS.find((x) => x.id === id)!;
+      expect(b.stakePool, `${id} carries a pool`).toBeTruthy();
+      expect(poolReadByIsland(b.chain, b.stakePool), id).toBe(false);
+    }
+    expect(BUNGALOWS.filter((b) => poolReadByIsland(b.chain, b.stakePool)).map((b) => b.id)).toEqual(['bayla']);
+  });
+
+  it('compares exactly on Solana, case-blind on EVM, and never across chains', () => {
+    expect(poolReadByIsland('solana', LADDER.toLowerCase())).toBe(false);
+    expect(poolReadByIsland('base', LIGHTHOUSE)).toBe(false);
+    const evm = [{ chain: 'base' as const, pool: '0x55B72f09d31f43834bf7Eba42f53a419a716F554' }];
+    expect(poolReadByIsland('base', '0x55b72f09d31f43834bf7eba42f53a419a716f554', evm)).toBe(true);
+    expect(poolReadByIsland('ethereum', '0x55B72f09d31f43834bf7Eba42f53a419a716F554', evm)).toBe(false);
+  });
+
+  it('reads no for a pool that is not there', () => {
+    expect(poolReadByIsland('solana', undefined)).toBe(false);
+    expect(poolReadByIsland('solana', '')).toBe(false);
+    expect(poolReadByIsland('solana', '   ')).toBe(false);
+  });
+
+  it('lists only pools the venue ships (a typo here would read no on a read pool)', () => {
+    const registry = JSON.parse(readFileSync(resolve(__dirname, '../../scripts/addresses.json'), 'utf-8')) as {
+      solana: { id: string; address: string }[];
+    };
+    const shipped = new Set([
+      registry.solana.find((e) => e.id === 'bayla-ladder-pool')!.address,
+      ...BUNGALOWS.filter((b) => b.chain === 'solana' && b.stakePool).map((b) => b.stakePool!),
+    ]);
+    expect(ISLAND_READ_POOLS.length).toBeGreaterThan(0);
+    for (const r of ISLAND_READ_POOLS) expect(shipped.has(r.pool), r.pool).toBe(true);
+  });
+});
+
+// Owner, 2026-09-21: a Streamflow pool closed in favour of the ladder is shown only to
+// the wallets still staked in it. Every UI surface that names the pool asks this one
+// predicate, so they cannot drift into gating it differently.
+describe('stakePoolMembersOnly', () => {
+  const CLOSED = { chain: 'solana', stakePool: 'POOL', ladderPool: 'LADDER', depositsClosed: true as const };
+
+  it('is true for a closed Solana Streamflow pool with a ladder beside it', () => {
+    expect(stakePoolMembersOnly(CLOSED)).toBe(true);
+  });
+
+  it.each([
+    ['still open', { ...CLOSED, depositsClosed: undefined }],
+    ['no ladder: hiding it would leave no pool at all', { ...CLOSED, ladderPool: undefined }],
+    ['an empty ladder env', { ...CLOSED, ladderPool: '' }],
+    ['no Streamflow pool', { ...CLOSED, stakePool: undefined }],
+    ['not Solana', { ...CLOSED, chain: 'base' }],
+  ])('is false when %s', (_label, b) => {
+    expect(stakePoolMembersOnly(b)).toBe(false);
+  });
+
+  it('flips BAYLA alone, and only once the ladder env is set', () => {
+    // vitest loads a developer's .env, so the expectation follows the env as read.
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    const asRead = BUNGALOWS.filter((b) => stakePoolMembersOnly(b)).map((b) => b.id);
+    expect(asRead).toEqual(bayla.ladderPool ? ['bayla'] : []);
+    const flipped = BUNGALOWS.filter((b) => stakePoolMembersOnly({ ...b, ladderPool: 'LADDER' })).map((b) => b.id);
+    expect(flipped).toEqual(['bayla']);
+  });
+
+  it('leaves the machine surfaces alone: the pool is not moved to the retired list', () => {
+    // RETIRED_STAKE_POOLS means "no card reads them"; the claim strip still reads EFWp.
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    expect(RETIRED_STAKE_POOLS.map((r) => r.pool)).not.toContain(bayla.stakePool);
+    expect(ISLAND_READ_POOLS.map((r) => r.pool)).toContain(bayla.stakePool);
+  });
+});
+
+// The skin is state: a write is render-safe and silent, and the announce is
+// what tells subscribers (useActiveBungalowId) to read it again.
+describe('the skin store', () => {
+  it('setActiveBungalow writes without calling subscribers, so a door may write during render', () => {
+    const heard = vi.fn();
+    const off = subscribeActiveBungalow(heard);
+    try {
+      setActiveBungalow('bayla');
+      expect(getActiveBungalow()?.id).toBe('bayla');
+      expect(heard).not.toHaveBeenCalled();
+    } finally {
+      off();
+    }
+  });
+
+  it('announceActiveBungalow calls each subscriber once', () => {
+    const a = vi.fn();
+    const b = vi.fn();
+    const offA = subscribeActiveBungalow(a);
+    const offB = subscribeActiveBungalow(b);
+    try {
+      announceActiveBungalow();
+      expect(a).toHaveBeenCalledTimes(1);
+      expect(b).toHaveBeenCalledTimes(1);
+    } finally {
+      offA();
+      offB();
+    }
+  });
+
+  it('an unsubscribed listener hears nothing more', () => {
+    const heard = vi.fn();
+    const off = subscribeActiveBungalow(heard);
+    off();
+    announceActiveBungalow();
+    expect(heard).not.toHaveBeenCalled();
+  });
+
+  it('a listener that unsubscribes during an announce does not stop the others', () => {
+    const later = vi.fn();
+    const offFirst = subscribeActiveBungalow(() => offFirst());
+    const offLater = subscribeActiveBungalow(later);
+    try {
+      announceActiveBungalow();
+      expect(later).toHaveBeenCalledTimes(1);
+    } finally {
+      offLater();
+    }
   });
 });

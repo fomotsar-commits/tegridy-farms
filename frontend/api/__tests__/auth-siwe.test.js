@@ -314,6 +314,82 @@ describe("auth/siwe — POST hardening (R052)", () => {
     expect(jsonSpy.mock.calls[0][0].error).toMatch(/Origin not allowed/);
   });
 
+  // 2026-09-23: memetic.fun serves the Island Lab from another Vercel project (since
+  // 2026-09-20). The SIWE domain + uri allowlists are derived from the origin set, so while
+  // it sat there a message a wallet signed FOR memetic.fun was a venue login — and Origin is
+  // a header any non-browser client can set. Each leg is pinned on its own.
+  describe("memetic.fun is not this venue — a signature minted there is not a session here", () => {
+    const LAB = ["https://memetic.fun", "https://www.memetic.fun"];
+    const noCookie = (setHeaderSpy) =>
+      expect(setHeaderSpy.mock.calls.filter((c) => c[0] === "Set-Cookie")).toEqual([]);
+
+    it("rejects a POST whose Origin is memetic.fun", async () => {
+      for (const origin of LAB) {
+        nextSiweMessage = buildValidSiweMessageObject({
+          domain: new URL(origin).host,
+          uri: `${origin}/login`,
+        });
+        const { req, res, statusSpy, jsonSpy, setHeaderSpy } = makeReqRes({
+          method: "POST",
+          body: { message: "ok", signature: "0xsig" },
+          headers: { origin },
+        });
+        await handler(req, res);
+        expect(statusSpy, origin).toHaveBeenCalledWith(403);
+        expect(jsonSpy.mock.calls[0][0].error).toMatch(/Origin not allowed/);
+        noCookie(setHeaderSpy);
+      }
+    });
+
+    it("rejects a message whose SIWE domain is memetic.fun, even from a venue Origin", async () => {
+      for (const origin of LAB) {
+        nextSiweMessage = buildValidSiweMessageObject({ domain: new URL(origin).host });
+        const { req, res, statusSpy, jsonSpy, setHeaderSpy } = makeReqRes({
+          method: "POST",
+          body: { message: "ok", signature: "0xsig" },
+          headers: { origin: "https://memetics.finance" },
+        });
+        await handler(req, res);
+        expect(statusSpy, origin).toHaveBeenCalledWith(403);
+        expect(jsonSpy.mock.calls[0][0].error).toMatch(/Domain mismatch/);
+        noCookie(setHeaderSpy);
+      }
+    });
+
+    it("rejects a message whose uri is on memetic.fun", async () => {
+      for (const origin of LAB) {
+        nextSiweMessage = buildValidSiweMessageObject({
+          domain: "memetics.finance",
+          uri: `${origin}/login`,
+        });
+        const { req, res, statusSpy, jsonSpy, setHeaderSpy } = makeReqRes({
+          method: "POST",
+          body: { message: "ok", signature: "0xsig" },
+          headers: { origin: "https://memetics.finance" },
+        });
+        await handler(req, res);
+        expect(statusSpy, origin).toHaveBeenCalledWith(403);
+        expect(jsonSpy.mock.calls[0][0].error).toMatch(/URI host mismatch/);
+        noCookie(setHeaderSpy);
+      }
+    });
+
+    it("the same message on the canonical host still signs in (control)", async () => {
+      nextSiweMessage = buildValidSiweMessageObject({
+        domain: "memetics.finance",
+        uri: "https://memetics.finance/login",
+      });
+      const { req, res, statusSpy, setHeaderSpy } = makeReqRes({
+        method: "POST",
+        body: { message: "ok", signature: "0xsig" },
+        headers: { origin: "https://memetics.finance" },
+      });
+      await handler(req, res);
+      expect(statusSpy).not.toHaveBeenCalledWith(403);
+      expect(setHeaderSpy.mock.calls.some((c) => c[0] === "Set-Cookie")).toBe(true);
+    });
+  });
+
   it("happy path: fully-valid POST issues JWT cookie", async () => {
     const { req, res, statusSpy, jsonSpy, setHeaderSpy } = makeReqRes({
       method: "POST",

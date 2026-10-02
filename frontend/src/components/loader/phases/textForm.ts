@@ -1,12 +1,15 @@
-import { GOLD, STIFFNESS, DAMPING, LOADER_WORDS } from '../constants';
+import { GOLD, STIFFNESS, DAMPING } from '../constants';
 import { easeInOutCubic, coverFit } from '../geometry';
 import type { LoaderState } from '../types';
 
 export function drawTextFormPhase(
   ctx: CanvasRenderingContext2D, W: number, H: number,
   elapsed: number, s: LoaderState,
+  // WAVE SEVEN, element A: a LEG of ArrivalTiming, not a literal. This was
+  // `const textDuration = 2000`, shared by the film and the curtain, and it
+  // was the longest leg missing from the curtain's stated length.
+  textDuration: number,
 ) {
-  const textDuration = 2000;
   const tp = Math.min(elapsed / textDuration, 1);
 
   // Fade in background art as text forms
@@ -78,9 +81,9 @@ export function drawTextFormPhase(
     ctx.fillStyle = '#fff';
     ctx.shadowColor = '#fff';
     ctx.shadowBlur = 20;
-    ctx.fillText(LOADER_WORDS.main, W / 2, H / 2 - subSize * 0.5);
+    ctx.fillText(s.words.main, W / 2, H / 2 - subSize * 0.5);
     ctx.font = `bold ${subSize}px "Inter", "Helvetica Neue", sans-serif`;
-    ctx.fillText(LOADER_WORDS.sub, W / 2, H / 2 + mainSize * 0.45);
+    ctx.fillText(s.words.sub, W / 2, H / 2 + mainSize * 0.45);
     ctx.restore();
   }
 

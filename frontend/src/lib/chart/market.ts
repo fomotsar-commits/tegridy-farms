@@ -1,5 +1,6 @@
 import { TOWELI_WETH_LP_ADDRESS } from '../constants';
 import type { GeckoNetwork } from '../geckoTerminal/pools';
+import { geckoEdgeUrl } from '../geckoTerminal/edge';
 import { readOhlcvBars, type OhlcvBar, type OhlcvUnreadReason } from './ohlcv';
 
 /**
@@ -78,7 +79,11 @@ export function ohlcvCacheKey(market: ChartMarket, tf: Timeframe): string {
  */
 export function ohlcvUrl(market: ChartMarket, tf: Timeframe, currency: 'usd' | 'token' = 'usd'): string {
   const cfg = TF_CONFIG[tf];
-  return `https://api.geckoterminal.com/api/v2/networks/${market.network}/pools/${market.pool}/ohlcv/${cfg.apiTf}?aggregate=${cfg.aggregate}&limit=${cfg.limit}&currency=${currency}`;
+  return geckoEdgeUrl(`/networks/${market.network}/pools/${market.pool}/ohlcv/${cfg.apiTf}`, {
+    aggregate: cfg.aggregate,
+    limit: cfg.limit,
+    currency,
+  });
 }
 
 // ─── The read behind the lightweight-charts price chart ──────────────────────

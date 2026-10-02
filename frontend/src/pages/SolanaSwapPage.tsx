@@ -1,7 +1,7 @@
 // Polyfill MUST load before any @solana/* import (jupiter.ts / providers pull
 // in web3.js) — keep this the very first import in this lazy chunk's entry.
 import '../lib/solanaPolyfill';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { PublicKey, VersionedTransaction, type Connection } from '@solana/web3.js';
@@ -67,6 +67,9 @@ import {
 } from '../lib/jupiter';
 import { TokenDetail } from '../components/solana/TokenDetail';
 import { PairChart } from '../components/solana/PairChart';
+import { ClockLine } from '../components/ClockLine';
+import { bungalowByAddress } from '../lib/bungalows';
+import { setLastBuy } from '../lib/heat/lastBuy';
 import { recordActivity, getActivity, timeAgo } from '../lib/solanaActivity';
 
 const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
@@ -283,6 +286,14 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
   // Escape to close + focus management: focus the search box on open, trap Tab
   // within the dialog, and restore focus to the trigger on close (mirrors the
   // TopNav drawer's a11y pattern).
+  // The parent mounts this with an INLINE arrow, so a bare `[onClose]` dep tore
+  // this setup down and re-ran it on EVERY parent render: the cleanup restored
+  // focus to the opener and the setup re-focused the panel, yanking the caret
+  // away from whoever was typing (and churning the scroll-lock save/restore).
+  // Hold the latest callback in a ref so the setup below is mount-scoped.
+  const onCloseRef = useRef(onClose);
+  useLayoutEffect(() => { onCloseRef.current = onClose; });
+
   useEffect(() => {
     const prevFocus = document.activeElement as HTMLElement | null;
     inputRef.current?.focus();
@@ -293,7 +304,7 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key === 'Escape') { onCloseRef.current(); return; }
       if (e.key !== 'Tab' || !panelRef.current) return;
       const focusables = panelRef.current.querySelectorAll<HTMLElement>(
         'input, button:not([disabled]), [tabindex]:not([tabindex="-1"])',
@@ -314,7 +325,8 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
       document.body.style.overflow = prevOverflow;
       prevFocus?.focus();
     };
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-scoped on purpose; onClose is read through onCloseRef
+  }, []);
 
   // Debounced token search — matches symbol, name, OR a pasted mint address.
   // All setState runs inside the deferred timeout/promise callbacks (never the
@@ -1358,6 +1370,20 @@ function SolanaSwapInner() {
         description: shortSig(sig),
         action: { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') },
       });
+      // WAVE SEVEN, element O: latch a buy that landed in a resident's token.
+      // The five Solana rooms are mints, so the finder takes the chain word;
+      // there is no numeric id for Solana anywhere in this app to pass instead.
+      const room = bungalowByAddress('solana', buyToken.mint);
+      if (room) {
+        setLastBuy({
+          hash: sig,
+          symbol: room.symbol,
+          tokenAddress: buyToken.mint,
+          chain: room.chain,
+          buyer: publicKey.toBase58(),
+          atUnix: Math.floor(Date.now() / 1000),
+        });
+      }
       recordActivity(publicKey.toBase58(), {
         sig,
         ts: Date.now(),
@@ -1377,7 +1403,7 @@ function SolanaSwapInner() {
 
   return (
     <div className="max-w-md mx-auto px-4 py-8">
-      <ChainSwitch active="solana" />
+      <ChainSwitch />
       <m.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1675,6 +1701,13 @@ function SolanaSwapInner() {
               {swapping ? 'Swapping…' : quoteLoading ? 'Fetching quote…' : !baseAmount ? 'Enter an amount' : insufficient ? `Insufficient ${payToken.symbol}` : !quote ? 'No route' : `Buy ${buyToken.symbol}`}
             </button>
           )}
+
+          {/* WAVE SEVEN, element O: the commitment line, latched by the confirm
+              above and rendered whether or not a wallet is attached right now.
+              It stays silent until the venue holds a reading for this buyer - on
+              this rail that is usually not yet, and a sentence the venue cannot
+              support is worse than no sentence at all. */}
+          <ClockLine />
 
           <p className="mt-3 text-center text-white/60 text-[10px]">
             Swaps route through Jupiter on Solana.{' '}

@@ -155,7 +155,13 @@ export default function LaunchTokenPage() {
         {state.phase === 'loading' && (
           <div className="glass-card rounded-xl p-6 text-center">
             <p className="text-[13px] text-text-secondary animate-pulse">
-              Reading this token on-chain — Airlock record, contract template, locker and attestations…
+              {/* A COLON, NOT A DASH, AND THE ROUTE IS WHY (element I, answer eight).
+                  This line is only on screen while the reads are in flight, so it never
+                  showed up in a calm measurement - and then reddened this route under
+                  parallel load, where the RPC is slow enough for the walk to catch it.
+                  A budget that depends on how fast a third party answers is not a
+                  budget; the same reason element I pins the four feed routes. */}
+              Reading this token on-chain: the Airlock record, contract template, locker and attestations…
             </p>
           </div>
         )}

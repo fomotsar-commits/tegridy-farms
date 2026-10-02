@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useReadContracts, useChainId } from 'wagmi';
+import { useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
 import { UNISWAP_V2_PAIR_ABI, ERC20_ABI, SWAP_FEE_ROUTER_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
 import { TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, REFERRAL_SPLITTER_ADDRESS, CHAIN_ID, TEGRIDY_LP_CREATED_AT, isDeployed as checkDeployed } from '../lib/constants';
@@ -35,11 +35,12 @@ export function usePoolTVL() {
   const ethUsd = price.ethUsdForDisplay;
   const hasFeeRouter = checkDeployed(SWAP_FEE_ROUTER_ADDRESS);
   const hasReferralSplitter = checkDeployed(REFERRAL_SPLITTER_ADDRESS);
-  const chainId = useChainId();
-  const onMainnet = chainId === CHAIN_ID;
 
   // R043 H-062-02 + H-062-04: chainId pin on every entry; 60s poll
-  // (was 30s — TVL doesn't move per-block).
+  // (was 30s — TVL doesn't move per-block). NOT gated on useChainId() ===
+  // CHAIN_ID: the pins already read mainnet, and off mainnet that gate left the
+  // pool card and LPFarmingSection's APR unread for any visitor whose wallet was
+  // last on Base or Robinhood — see useLPFarming.ts.
   const { data } = useReadContracts({
     contracts: [
       { address: TEGRIDY_LP_ADDRESS, abi: UNISWAP_V2_PAIR_ABI, functionName: 'getReserves', chainId: CHAIN_ID } as const,
@@ -64,13 +65,20 @@ export function usePoolTVL() {
     // explicit unknown[] cast so TS doesn't try to narrow each tuple slot.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ] as any,
-    query: { enabled: onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
+    query: { refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
 
   return useMemo(() => {
     const reserves = data?.[0]?.status === 'success' ? data[0].result as readonly [bigint, bigint, number] : undefined;
     const token0 = data?.[1]?.status === 'success' ? (data[1].result as string).toLowerCase() : undefined;
     const lpSupply = data?.[2]?.status === 'success' ? data[2].result as bigint : 0n;
+    // OUTAGE-AS-ZERO. `lpSupply` feeds TreasuryPage's POL share, where a 0 turned
+    // into "0.00% of LP supply" and "$0.00" - the treasury holds no LP, said about
+    // a supply nobody read. Read independently of the reserves, so it is also
+    // returned (with this flag) on the no-TVL path below, which used to hardcode 0n.
+    const lpSupplyReadOk = data?.[2]?.status === 'success';
+    // Same shape for the router's fee rate, which turns fees into volume below.
+    const feeBpsReadOk = !hasFeeRouter || data?.[4]?.status === 'success';
 
     // F109: live staker fee-share. Loaded-and-zero is meaningful (governance
     // could route 0% to stakers); undefined means the read hasn't landed, so the
@@ -90,7 +98,7 @@ export function usePoolTVL() {
       : null;
 
     if (!reserves || !token0 || ethUsd <= 0) {
-      return { tvl: 0, tvlFormatted: '–', toweliReserve: 0n, wethReserve: 0n, lpSupply: 0n, apr: '–', aprNum: 0, vol24hFormatted: '–', aprIsEstimated: true, volIsEstimated: true, isLoaded: false, stakerSharePct, stakerShareLoaded, referralFeeBps, feesReadOk: true };
+      return { tvl: 0, tvlFormatted: '–', toweliReserve: 0n, wethReserve: 0n, lpSupply, lpSupplyReadOk, apr: '–', aprNum: 0, vol24hFormatted: '–', aprIsEstimated: true, volIsEstimated: true, isLoaded: false, stakerSharePct, stakerShareLoaded, referralFeeBps, feesReadOk: true, feeBpsReadOk };
     }
 
     const isToken0Toweli = token0 === TOWELI_ADDRESS.toLowerCase();
@@ -138,15 +146,24 @@ export function usePoolTVL() {
       const annualFees = dailyFees * 365;
       aprNum = (annualFees / tvl) * 100;
 
+      // Volume is fees ÷ the rate they were charged at, so it is only as good as
+      // the rate. A failed feeBps read collapsed to 0n and landed in the 0.3%
+      // fallback, printed as an exact figure: a volume computed from a rate
+      // nobody read. Three cases now, not two:
       if (feeBps > 0n) {
+        // The rate was read: the figure is the chain's.
         const feeRate = Number(feeBps) / 10000;
         vol24h = feeRate > 0 ? dailyFees / feeRate : 0;
-      } else {
+        volIsEstimated = false;
+      } else if (feeBpsReadOk) {
+        // A READ 0 (applyFee accepts it): the router charges nothing now, so the
+        // rate those fees were collected at is no longer on-chain. Assume the
+        // historical 0.3% - and keep volIsEstimated, so it prints as "~… (est.)".
         vol24h = dailyFees / 0.003;
       }
+      // Otherwise the rate was never read: vol24h stays 0 and renders '–'.
 
       aprIsEstimated = false;
-      volIsEstimated = false;
     } else if (tvl > 0 && feesReadOk) {
       // F485: with no on-chain fees we do NOT fabricate volume/APR from an
       // assumed turnover ratio — the honesty mandate forbids rendering a number
@@ -188,6 +205,8 @@ export function usePoolTVL() {
       toweliReserve,
       wethReserve,
       lpSupply,
+      /** False when the LP totalSupply read did not land — `lpSupply` is then 0n and not a supply. */
+      lpSupplyReadOk,
       apr,
       aprNum,
       vol24hFormatted,
@@ -199,6 +218,8 @@ export function usePoolTVL() {
       referralFeeBps,
       /** False when the fee read did not land — "no fees yet" is then unknowable. */
       feesReadOk,
+      /** False when the router's fee RATE did not land — volume is then '–', never a figure at an assumed rate. */
+      feeBpsReadOk,
     };
   }, [data, ethUsd, hasFeeRouter, hasReferralSplitter]);
 }

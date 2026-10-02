@@ -1856,14 +1856,39 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @dev    No try/catch on the retry — if it still fails, the whole call reverts,
     ///         the `delete` above is rolled back with it, and the stranded record
     ///         survives for another attempt.
+    /// @dev    THE ESCROW IS NOT A DESTINATION. Widening the destination made
+    ///         `address(this)` a legal one, and it is the single address that
+    ///         silently ACCEPTS the position NFT — `onERC721Received` below takes
+    ///         any transfer whose `msg.sender` is the staking NFT. Such a claim
+    ///         would succeed, delete the record above, and leave the NFT in escrow
+    ///         with nothing pointing at it. Every OTHER protocol address defends
+    ///         itself: neither the staking contract nor the admin sister carries a
+    ///         receiver hook, so `safeTransferFrom` reverts there and the record
+    ///         survives for another attempt — which is why one comparison closes
+    ///         this and no allow-list is needed
+    ///         (`test/RestakingForceReturnStrand.t.sol` pins that reasoning).
+    ///
+    ///         It bites hardest on the `emergencyForceReturn` strand, where the
+    ///         owner's 48h `applyRescueNFT` is already unavailable: that branch
+    ///         preserves `tokenIdToRestaker`, and the rescue refuses while a
+    ///         restaker link stands. Recovery there would cost a REPEAT
+    ///         `emergencyForceReturn` — owner-only, paused, rate-limited — to
+    ///         re-arm the record. Self-inflicted, so a foot-gun rather than an
+    ///         exploit; entitlement still gates WHO. Reuses `BadParam` rather than
+    ///         minting a typed error: a fresh selector is bytecode, and this
+    ///         contract only fits under EIP-170 because it was split in two
+    ///         (`test/Audit_RestakingEIP170Size.t.sol` is the guard). The whole
+    ///         refusal costs 7 bytes — measured 22,195 B to 22,202 B.
     /// @param  tokenId   The stranded staking-position NFT.
     /// @param  recipient Destination. Must be able to receive an ERC-721 and sit under
     ///                   `MAX_POSITIONS_PER_HOLDER`; otherwise the call reverts and the
-    ///                   stranded record is preserved for a further attempt.
+    ///                   stranded record is preserved for a further attempt. May not be
+    ///                   this contract.
     function claimStrandedRestakeNFT(uint256 tokenId, address recipient) external nonReentrant {
         address to = strandedRestakeRecipient[tokenId];
         if (to == address(0) || to != msg.sender) revert NotRestakedToken();
         if (recipient == address(0)) revert ZeroAddress();
+        if (recipient == address(this)) revert BadParam();
         delete strandedRestakeRecipient[tokenId];
         stakingNFT.safeTransferFrom(address(this), recipient, tokenId);
         emit RestakeNFTReclaimed(tokenId, recipient);
