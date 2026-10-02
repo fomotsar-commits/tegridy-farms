@@ -55,8 +55,6 @@ function supabase() {
 // canonical origin is missing OR if a domain the project does not own appears.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://memetic.fun",
-    "https://www.memetic.fun",
     "https://memetics.finance",
     "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",

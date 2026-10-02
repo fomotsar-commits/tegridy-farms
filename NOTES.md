@@ -414,6 +414,44 @@ wallet present.
 
 ---
 
+## 2026-09-24 — a CORS allowlist in a framework's user routes does not decide who can read
+
+**Believed:** the indexer's `allowedOrigins` in `indexer/src/api/index.ts` is its CORS policy,
+so removing a host there stops that host reading the indexer.
+
+**Measured:** against the live indexer, `OPTIONS /graphql` from four origins (three on the list,
+one invented) all answered `204` with `Access-Control-Allow-Origin: *`, and
+`allow-methods: GET,HEAD,PUT,POST,DELETE,PATCH`. That is Hono's default method list, not the
+`GET, POST, OPTIONS` the file sets, so a different layer answered. Ponder 0.8.33 mounts
+`cors({ origin: "*" })` before user routes (`src/server/index.ts:94` in its source), and
+Hono's cors answers OPTIONS without calling `next`. On `POST`, a listed origin was echoed by
+name and an invented one kept `*`. Every response also carried `allow-credentials: true`,
+which neither layer sets.
+
+**Do:** before trusting a CORS change, send the preflight and compare the answered
+`allow-methods` with the ones you configured. If they differ, your middleware never saw the
+request.
+
+---
+
+## 2026-09-24 — a comment that names a guard is not a guard until the guard reads the file
+
+**Believed:** `bot/src/config.test.js` said the bot's default origins were held to `SITE_URL`
+by `frontend/src/lib/__tests__/canonicalHost.test.ts`, so the bot's documented defaults
+could not drift from the code.
+
+**Measured:** `canonicalHost.test.ts` has never read anything under `bot/`; its only "bot" is
+a Twitterbot user agent. #478 (2026-09-12) moved the defaults in `bot/src/config.js` to
+memetics.finance and wrote that pointer in the same commit, and `bot/.env.example` and
+`bot/DEPLOY.md` went on naming memetic.fun as the default for twelve days. A second pointer,
+in `bot/src/venueClient.js`, credited `venueClient.test.js` with the signing-parity proof
+that the test's own header hands to `api/__tests__/bot-noncustodial.test.js`.
+
+**Do:** when a comment says "X is pinned by Y", grep Y for X before relying on it or
+repeating it. If Y does not read X, write the guard or drop the claim.
+
+---
+
 ## 2026-09-22 — a `toContain('80°')` pin stays green on a page that says 180°
 
 **Believed:** a test that asserts a threshold goes red when the page shows a different
