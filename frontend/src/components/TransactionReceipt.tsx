@@ -16,6 +16,7 @@ import { RECEIPT_COPY } from '../lib/copy';
 import { VENUE } from '../lib/arrival';
 import { getActiveBungalow } from '../lib/bungalows';
 import { artImgProps } from '../lib/artSrcSet';
+import { flattenModernColors } from '../lib/flattenModernColors';
 
 // 'unconfirmed': the receipt wait gave up without reading a result. Not 'failed',
 // which claims a revert nobody saw.
@@ -294,10 +295,13 @@ function TransactionReceiptOverlay({
         scale: 2,
         logging: false,
         useCORS: true,
-        // A render can start while the card is still sliding in: draw it at rest.
         onclone: (_doc, el) => {
+          // A render can start while the card is still sliding in: draw it at rest.
           el.style.opacity = '1';
           el.style.transform = 'none';
+          // html2canvas throws on the oklab()/lab() colors Tailwind v4 computes
+          // for the status badge, which failed every render of this card.
+          flattenModernColors(el);
         },
       });
       return await new Promise<Blob | null>((resolve) => {

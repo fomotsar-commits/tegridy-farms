@@ -12,7 +12,7 @@
  * INSIDE the test rather than in describe scope.
  */
 import {
-  test, expect, expectTxReceipt, advancePastApproval,
+  test, expect, expectTxReceipt, advancePastApproval, anvilRpc,
   blindReceiptReads, expectMinedSuccessfully, expectUnconfirmedToast, forkTxCount, recordToasts,
 } from './fixtures/wallet';
 
@@ -174,5 +174,56 @@ test.describe('Stake surface', () => {
       'the stake was mined successfully but the card still offers to open a position — ' +
         'then the transaction under test was not a stake.',
     ).toBeVisible({ timeout: 60_000 });
+  });
+
+  test('a stake receipt shares as the receipt, with its card image on the clipboard (Anvil only)', async ({ page, walletMock, context }) => {
+    test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
+    // The card image is drawn by html2canvas in a REAL browser, which no unit test can
+    // run: jsdom has no canvas and computes no Tailwind CSS. html2canvas 1.4 threw on
+    // the oklab()/lab() colors Tailwind v4 computes for the status badge, so the image
+    // never rendered and Copy Image quietly fell back to text. This leg is the only
+    // place that failure shows.
+    test.setTimeout(150_000);
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    // The X window is answered locally: this leg reads what was sent, not x.com.
+    const intents: string[] = [];
+    await context.route(/twitter\.com\/intent\/tweet/, (route) => {
+      intents.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>x</title>' });
+    });
+
+    const account = await walletMock.useIsolatedForkAccount();
+    await walletMock.connect(account);
+    await page.goto('/earn/toweli');
+    const amount = page.getByRole('textbox', { name: /amount of toweli to stake/i });
+    await amount.fill('100');
+    const stakeCard = amount.locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
+    const cta = stakeCard.getByRole('button', { name: /^(approve|stake)/i }).last();
+    // See the happy-path leg above for why one click is not enough.
+    await advancePastApproval(cta, /^Stake & Lock for /, 'stake');
+    await cta.click();
+    await expectTxReceipt(page, 'stake');
+
+    // The receipt waits for two confirmations; the fork mines only on a transaction.
+    const receipt = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: /share to x/i }) });
+    await anvilRpc('evm_mine');
+    await anvilRpc('evm_mine');
+    await expect(receipt.getByText('Confirmed', { exact: true })).toBeVisible({ timeout: 30_000 });
+
+    await receipt.getByRole('button', { name: /share to x/i }).click();
+    await expect.poll(() => intents.length, { timeout: 15_000, message: 'Share to X opened no X window' }).toBeGreaterThan(0);
+    const text = new URL(intents[0]).searchParams.get('text') ?? '';
+    expect(text).toContain('MEMETICS.FINANCE');
+    expect(text).toMatch(/^Amount: 100\.0000 TOWELI$/m);
+    expect(text).toMatch(/^Tx: https?:\/\/\S+\/tx\/0x[0-9a-f]{64}$/m);
+    // The mention and the room's tag close the post; /earn/toweli is the TOWELI room.
+    expect(text.split('\n').at(-1)).toBe('@JungleBayAC #TOWELI');
+
+    await expect(
+      receipt.getByTestId('receipt-share-hint'),
+      'the card image did not reach the clipboard: the render failed in a real browser',
+    ).toContainText(/Receipt image copied/i, { timeout: 15_000 });
+    const types = await page.evaluate(async () => (await navigator.clipboard.read()).flatMap((i) => i.types));
+    expect(types).toContain('image/png');
   });
 });
