@@ -80,6 +80,12 @@ export interface CurveGridCardData {
   planter: { address: string; row: TapeRow } | null;
 }
 
+/**
+ * Rulings 3 and 4, the list sibling of the token page. The figure is read there, from the
+ * launch receipt: one lookup per card would spend a visitor's per-minute limit on one grid.
+ */
+export const CURVE_GRID_MAKER = "The maker's create-buy is on its launch page.";
+
 export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; chainId: number }) {
   const short = `${card.token.slice(0, 6)}…${card.token.slice(-4)}`;
   // Element P. Each branch is a different thing the venue knows, and the last
@@ -174,6 +180,9 @@ export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; 
             shortener rather than the island's illustration, on answer nine's
             own principle: house form wins. */}
         {planterLine}
+        <p className="text-white/45 text-[11px]" data-element="maker-create-buy">
+          {CURVE_GRID_MAKER}
+        </p>
         {card.graduated ? (
           <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-300/90">GRADUATED 🎓</span>
         ) : (

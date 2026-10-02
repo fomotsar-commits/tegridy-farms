@@ -329,6 +329,18 @@ export default async function handler(req, res) {
     return handleLaunchCohort(req, res);
   }
 
+  // `?resource=curve-birth` and `?resource=doppler-birth` find ONE launch's birth transaction
+  // (keyless Blockscout, or the Robinhood RPC in windows) for the maker's plates. The browser
+  // re-reads that receipt and checks it. Above `const provider`; see _lib/evm-birth.js.
+  if (req.query.resource === "curve-birth") {
+    const { handleCurveBirth } = await import("./_lib/evm-birth.js");
+    return handleCurveBirth(req, res);
+  }
+  if (req.query.resource === "doppler-birth") {
+    const { handleDopplerBirth } = await import("./_lib/evm-birth.js");
+    return handleDopplerBirth(req, res);
+  }
+
   // `?resource=heat` proxies Jungle Bay Island's held-time oracle at memetics.wtf.
   // This one is not an optimisation: the upstream answers with
   // `Access-Control-Allow-Origin: https://junglebayisland.lat`, so a browser fetch

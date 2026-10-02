@@ -368,6 +368,8 @@ test.describe("element I: em dashes on each room's farm", () => {
 // fails: a card that never read proves nothing. The build has to carry the ladder
 // (VITE_BAYLA_LADDER_PROGRAM and VITE_BAYLA_LADDER_POOL), as production's and CI's do.
 const LIVE_POOL = process.env.EM_DASH_LIVE_POOL === '1';
+// Answer sixteen, ruling 6: the real pool's ledger says where its rewards came from.
+const LADDER_FUNDING_LINE = "2,000,000 of this ladder's rewards came from the island's Workshop on 2026-09-24.";
 
 test.describe('element I: the BAYLA lock ladder card, once its pool reads', () => {
   const path = '/earn/bayla';
@@ -429,6 +431,7 @@ test.describe('element I: the BAYLA lock ladder card, once its pool reads', () =
       type: 'pool',
       description: `${LIVE_POOL ? 'live' : `recorded at slot ${BAYLA_LADDER_RECORDING.slot}`}: ${locked} BAYLA locked, reward vault ${vault} BAYLA`,
     });
+    await expect(ledger.getByText(LADDER_FUNDING_LINE, { exact: true }), 'the ladder line is drawn once').toHaveCount(1);
 
     const hits = await proseDashes(page);
     const shown = hits.slice(0, 20).map((h) => `  ${h.owner}: ${h.text}`).join('\n');

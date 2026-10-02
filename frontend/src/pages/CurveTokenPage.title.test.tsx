@@ -36,6 +36,7 @@ vi.mock('wagmi', () => ({
   useReadContracts: () => ({ data: chain.probes, isLoading: false }),
   useWriteContract: () => ({ writeContract: () => {}, isPending: false }),
   useWaitForTransactionReceipt: () => ({ data: undefined, isSuccess: false }),
+  usePublicClient: () => undefined,
 }));
 
 vi.mock('framer-motion', () => {

@@ -46,7 +46,7 @@ describe('curve write flag', () => {
     });
 
     // Vite inlines DEV from NODE_ENV, so `NODE_ENV=development vite build` ships DEV true.
-    // Only code a dev server compiled may honour the flag (src/lib/devServer.ts).
+    // Only code a dev server compiled may honour the flag (the __VITE_DEV_SERVER__ define, src/devServerDefine.d.ts).
     it('a build with DEV true (NODE_ENV=development on the build host) still ignores the env flag', () => {
       for (const v of [false, undefined]) {
         vi.stubGlobal('__VITE_DEV_SERVER__', v);
