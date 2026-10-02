@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-02
+
+- memetic.fun can no longer call the venue's API as if it were the venue.
+
 ### 2026-10-01
 
 - Source and audit links on /contracts, /security, /risks and the trust hub go through memetics.finance/source, which forwards them to wherever the code is hosted.
