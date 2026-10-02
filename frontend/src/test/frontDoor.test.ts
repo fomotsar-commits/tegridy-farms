@@ -231,7 +231,9 @@ describe('the changelog is one line per change', () => {
       .flatMap((l) => l.slice(2).split(/(?<=\.)\s+/))
       .filter((s) => /opens only through the Who may plant door/.test(s))
       .flatMap((s) => s.match(/\/[a-z0-9-]+/g) ?? []);
-  const wrapsChildren = (src: string) => /<LaunchGate\b[^>]*[^/]>/.test(src);
+  // By its closing tag: an opening tag whose props hold JSX (`below={<Lines />}`) has a
+  // `/>` inside it, so reading the opening tag alone takes a wrapping door for a bare one.
+  const wrapsChildren = (src: string) => /<\/LaunchGate>/.test(src);
 
   it('finds every route in a gated-form claim, and tells a wrapping door from a bare one', () => {
     expect(
@@ -239,6 +241,14 @@ describe('the changelog is one line per change', () => {
     ).toEqual(['/a-b', '/c']);
     expect(wrapsChildren('<LaunchGate rail="ethereum">\n<Form />\n</LaunchGate>')).toBe(true);
     expect(wrapsChildren('<LaunchGate rail="ethereum" />')).toBe(false);
+    // A door whose props hold JSX still wraps its form (CurveLaunchPage's write path).
+    const jsxProps = 'connect={<WalletNeeded state={s} />} below={<VenueLaunchLines rail="solana" />}';
+    expect(wrapsChildren(`<LaunchGate rail="solana" ${jsxProps}>\n<Form />\n</LaunchGate>`)).toBe(true);
+    expect(wrapsChildren(`<LaunchGate rail="solana" ${jsxProps} />`)).toBe(false);
+    // And the pages as they are: /launch keeps a bare door, the other two wrap.
+    expect(wrapsChildren(read('frontend', 'src', 'pages', 'CurveLaunchPage.tsx'))).toBe(true);
+    expect(wrapsChildren(read('frontend', 'src', 'pages', 'EthCurvePage.tsx'))).toBe(true);
+    expect(wrapsChildren(read('frontend', 'src', 'pages', 'LaunchPage.tsx'))).toBe(false);
   });
 
   it('says a create form opens only through the door only of pages that put it there', () => {
