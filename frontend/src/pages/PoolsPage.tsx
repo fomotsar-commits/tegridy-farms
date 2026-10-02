@@ -12,8 +12,6 @@ import { browserCurveRpc } from '../lib/launcher/solana/curve/rpc';
 import { readVenue, type VenueStatus } from '../lib/solana/cpswap/read';
 import { SPENT_PROGRAM_ID, hasProgramId } from '../lib/solana/cpswap/program';
 import {
-  RECOMMENDED_AMM_CONFIG,
-  createAmmConfigArgs,
   feeSplit,
   solOf,
 } from '../lib/solana/cpswap/venue';
@@ -26,24 +24,9 @@ const SolanaLpSection = lazy(() => import('../components/solana/lp/SolanaLpSecti
  * The venue's own Solana liquidity pools — what they charge, what an LP keeps,
  * and exactly what state the venue is in.
  *
- * WHY THIS PAGE IS SHAPED LIKE THIS. The operator asked to showcase that we can
- * host liquidity pools on Solana. We cannot, yet: the cp-swap fork was deployed
- * 2026-08-08 and CLOSED 2026-08-13, its program id is permanently spent, and no
- * AmmConfig was ever created. A page that said otherwise would be advertising a
- * venue that does not exist — the failure this repo has a documented history of
- * hunting down (a stale "pool is being built", a fixture rendered as real
- * sales).
- *
- * So this page states the venue's REAL status from a live chain probe, the same
- * way /curve-launch does, and shows the fee sheet as an explicit PROPOSAL until
- * an AmmConfig exists to read. The moment the operator redeploys and runs
- * `create_amm_config`, the probe flips and every number on the page starts
- * coming off the chain — with no code change and no copy edit.
- *
- * THE PROBE, NOT `getAccountInfo`: a closed upgradeable program's stub stays
- * executable-flagged, so the naive check reports a spent id as deployed.
- * `readVenue` goes through `readDeployment`, which follows the stub to its
- * ProgramData account.
+ * Every fee and every capability claim here hangs off `readVenue`, never a constant:
+ * a pending or failed read shows no fee at all. `readVenue` follows a closed program's
+ * stub to its ProgramData, because `getAccountInfo` alone reports a spent id as deployed.
  */
 export default function PoolsPage() {
   usePageTitle(
@@ -66,11 +49,12 @@ export default function PoolsPage() {
   }, [reloadKey]);
 
   const refresh = useCallback(() => setReloadKey((k) => k + 1), []);
+  // After a failed read, show "reading" again so a second failure is visibly a new answer.
+  const retry = useCallback(() => { setStatus(null); setReloadKey((k) => k + 1); }, []);
 
-  // The live config when the chain has one, the proposal otherwise. Same
-  // `feeSplit` over both, so the disclosure cannot drift from the proposal.
+  // Fees come only from a config the chain returned. With none, the sheet shows no number.
   const liveConfig = status?.kind === 'live' ? status.config : null;
-  const split = feeSplit(liveConfig ?? RECOMMENDED_AMM_CONFIG);
+  const split = liveConfig ? feeSplit(liveConfig) : null;
 
   // Every capability claim on this page hangs off the live probe. A spent program
   // id must never be described in the present tense, and "still reading" is not a
@@ -103,10 +87,9 @@ export default function PoolsPage() {
               </>
             ) : (
               <>
-                Our own constant-product AMM on Solana. Everything below is what the venue
-                <strong> will</strong> charge and pay once its program is redeployed — no pool can
-                be opened here yet, and no trade on chain is paying these rates. The card below
-                is a live chain read of which state the venue is actually in.
+                Our own constant-product AMM on Solana. No pool can be opened here yet. This
+                page shows a fee only after reading it from the chain, and the card below says
+                what the latest read found.
               </>
             )}
           </p>
@@ -124,29 +107,27 @@ export default function PoolsPage() {
         <section className="rounded-2xl p-6 mt-6" style={CARD} aria-label="Fee sheet">
           <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
             <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
-              {liveConfig ? 'Fees · read from the chain' : 'Fees · proposed, not yet on chain'}
+              {liveConfig ? 'Fees · read from the chain' : 'Fees · not read'}
             </p>
-            {!liveConfig && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full"
-                style={{ background: 'rgba(227,179,65,0.15)', border: '1px solid rgba(227,179,65,0.4)', color: '#e3b341' }}>
-                PROPOSAL
-              </span>
-            )}
           </div>
           <h2 className="heading-luxury text-xl text-white mb-4">
-            {split.traderPaysPct}% a trade — {split.lpKeepsPct.toFixed(2)}% of it to you
+            {split
+              ? `${split.traderPaysPct}% a trade, ${split.lpKeepsPct.toFixed(2)}% of it to you`
+              : feesNotRead(status).title}
           </h2>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-            <Stat label="Trader pays" value={`${split.traderPaysPct}%`} sub="of each trade" />
-            <Stat label="LPs keep" value={`${split.lpKeepsPct.toFixed(2)}%`} sub="of volume" tone="good" />
-            <Stat label="Venue takes" value={`${split.venueTakesPct.toFixed(2)}%`} sub={`${split.venueShareOfFeePct}% of the fee`} />
-            <Stat
-              label="Open a pool"
-              value={`${solOf(liveConfig?.createPoolFee ?? RECOMMENDED_AMM_CONFIG.createPoolFee)} SOL`}
-              sub="fee; account deposits extra"
-            />
-          </div>
+          {liveConfig && split && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <Stat label="Trader pays" value={`${split.traderPaysPct}%`} sub="of each trade" />
+              <Stat label="LPs keep" value={`${split.lpKeepsPct.toFixed(2)}%`} sub="of volume" tone="good" />
+              <Stat label="Venue takes" value={`${split.venueTakesPct.toFixed(2)}%`} sub={`${split.venueShareOfFeePct}% of the fee`} />
+              <Stat
+                label="Open a pool"
+                value={`${solOf(liveConfig.createPoolFee)} SOL`}
+                sub="fee; account deposits extra"
+              />
+            </div>
+          )}
 
           <p className="text-white/70 text-[13px] leading-relaxed">
             {liveConfig ? (
@@ -156,15 +137,14 @@ export default function PoolsPage() {
                 chain changes this card without a deploy.
               </>
             ) : (
-              <>
-                This matches Raydium&rsquo;s standard CPMM tier, which is the tier LPs and
-                traders compare against — and it is already the config this repo&rsquo;s own
-                migration rehearsal runs. It is a <strong>proposal</strong> until
-                <code className="font-mono text-white/85"> create_amm_config</code> has run; nothing
-                on chain charges it today.
-              </>
+              feesNotRead(status).line
             )}
           </p>
+          {status?.kind === 'unreadable' && (
+            <button type="button" onClick={retry} className="btn-secondary px-4 py-2 text-[12px] mt-3">
+              Try again
+            </button>
+          )}
         </section>
 
         {/* ── How LPs earn ────────────────────────────────────────────────── */}
@@ -172,12 +152,12 @@ export default function PoolsPage() {
           <section className="rounded-2xl p-6" style={CARD}>
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>For liquidity providers</p>
             <h2 className="heading-luxury text-lg text-white mb-3">
-              {venueIsOpen ? 'Deposit a pair, hold the LP token' : 'How it will work: deposit a pair, hold the LP token'}
+              {venueIsOpen ? 'Deposit a pair, hold the LP token' : 'How it works: deposit a pair, hold the LP token'}
             </h2>
             {!venueIsOpen && (
               <p className="text-white/60 text-[12px] leading-relaxed mb-3">
-                This is the mechanism the redeployed program will run. There is no pool to
-                deposit into today — the status card above is the live read.
+                Depositing from this page waits on a live read of the venue. The status card
+                above says what the latest read found.
               </p>
             )}
             <ul className="text-white/80 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
@@ -284,10 +264,10 @@ function VenueStatusCard({ status, onRefresh }: { status: VenueStatus | null; on
     switch (status.kind) {
       case 'no-program-id':
         return {
-          title: 'The AMM is being redeployed',
+          title: 'This page has no program id to read',
           lines: [
-            'The venue’s AMM ran on mainnet from 2026-08-08 until it was closed on 2026-08-13. A closed upgradeable program id is permanently spent — Solana never lets one hold a program again — so the restart is a fresh keypair and a new program id, not a redeploy to the old address.',
-            'Until that id exists there is nothing to point this page at, and it says so rather than rendering an empty market.',
+            'This build of the site was not given the AMM’s program id, so it has no program to read and shows no fees or pools. That says nothing about what is on chain.',
+            'The id the venue ran on until 2026-08-13 is closed and permanently spent, and this page never reads it.',
           ],
           spent: true,
         };
@@ -309,12 +289,11 @@ function VenueStatusCard({ status, onRefresh }: { status: VenueStatus | null; on
         };
       case 'no-config':
         return {
-          title: 'Deployed — one instruction from open',
+          title: 'Deployed, one instruction from open',
           lines: [
-            'The AMM is on chain, but no AmmConfig has been created, so there is no fee tier for a pool to belong to and every pool creation would fail. This is the exact state that made graduation fail AmmNotConfigured (6015) for the whole life of the previous deployment.',
+            'The AMM is on chain, but its fee tier (AmmConfig index 0) has not been created, so there is no tier for a pool to belong to and every pool creation would fail. The missing instruction is create_amm_config, which only the program’s admin can run.',
           ],
           spent: false,
-          showArgs: true,
         };
       case 'unreadable':
         return {
@@ -342,22 +321,10 @@ function VenueStatusCard({ status, onRefresh }: { status: VenueStatus | null; on
         </div>
       )}
 
-      {body.showArgs && (
-        <div className="mt-3 rounded-lg p-3" style={{ background: 'rgba(0,0,0,0.5)' }}>
-          <p className="text-[10px] uppercase tracking-wider mb-1.5 text-white/60">The missing instruction</p>
-          <code className="block font-mono text-[12px] text-white/90 break-all">
-            create_amm_config({createAmmConfigArgs().join(', ')})
-          </code>
-          <p className="text-white/45 text-[11px] mt-1.5">
-            index, trade_fee_rate, protocol_fee_rate, fund_fee_rate, create_pool_fee, creator_fee_rate
-          </p>
-        </div>
-      )}
-
       {!hasProgramId() && (
         <p className="text-white/45 text-[11px] mt-3">
-          The page picks the new id up from <code className="font-mono">VITE_SOLANA_CPSWAP_PROGRAM</code> —
-          no code change, no redeploy of this frontend.
+          This site takes the id from <code className="font-mono">VITE_SOLANA_CPSWAP_PROGRAM</code> when
+          it is built.
         </p>
       )}
     </section>
@@ -372,4 +339,21 @@ function Addr({ label, value }: { label: string; value: string }) {
       <CopyButton text={value} display={`${value.slice(0, 4)}…${value.slice(-4)}`} className="font-mono text-[12px]" style={{ color: 'var(--color-kyle)' }} />
     </span>
   );
+}
+
+/** The fee sheet with no config read: still reading, a failed read, or nothing to read. */
+function feesNotRead(status: VenueStatus | null): { title: string; line: string } {
+  if (status === null) {
+    return { title: 'Reading the fee tiers from the chain…', line: 'No fee is shown until the chain answers.' };
+  }
+  if (status.kind === 'unreadable') {
+    return {
+      title: 'The fee tiers could not be read just now',
+      line: 'The chain did not answer, so this page shows no fee rather than a guess.',
+    };
+  }
+  return {
+    title: 'No fee tier was read',
+    line: 'This page shows a fee only from a tier it read on chain. The card above says why there is none to read.',
+  };
 }

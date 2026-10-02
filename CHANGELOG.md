@@ -27,6 +27,8 @@ page keeps the newest thirty days.
 - The security policy no longer puts memetic.fun in scope.
 - The indexer no longer treats memetic.fun as a name for this venue.
 - memetic.fun can no longer call the venue's API as if it were the venue.
+- On /pools, fees appear only once read from the chain: a failed read says the fee tiers could not be read just now and offers Try again, where it used to show an old fee proposal.
+- On /pools, a site built without the pool program's id says so, where it used to say the AMM was being redeployed.
 
 ### 2026-10-01
 
