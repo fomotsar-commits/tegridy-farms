@@ -87,7 +87,11 @@ const CONTRACT_ARRAY_ENDPOINTS = new Set([
   "getNFTsForOwner",
 ]);
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetic.fun";
+// Echoed to every origin that is NOT allowlisted, so it must be a host this venue
+// serves. It was memetic.fun, which since 2026-09-20 serves the Lab from another
+// Vercel project: an unmatched memetic.fun request got its own name back, the
+// allowlist entry by another road. See auth/siwe.js.
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetics.finance";
 
 // AUDIT R049 H-5: resolve "latest" to a numeric block tip via eth_blockNumber
 // so the same delta cap applies whether the client sends numeric blocks or
@@ -110,8 +114,6 @@ async function resolveChainTip() {
 export default async function handler(req, res) {
   const origin = req.headers.origin || "";
   const ALLOWED_ORIGINS = new Set([
-    "https://memetic.fun",
-    "https://www.memetic.fun",
     "https://memetics.finance",
     "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",

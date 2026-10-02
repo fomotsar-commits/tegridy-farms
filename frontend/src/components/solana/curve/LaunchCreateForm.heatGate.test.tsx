@@ -358,8 +358,8 @@ describe('the Solana create path reads the heat door at submit', () => {
   });
 });
 
-// The island has not said whether a SOL-priced launch is a birth (Q2), so a Solana
-// create sends no birth notice: nothing is queued and nothing reaches the births relay.
+// A Solana launch is a venue launch, so a Solana create sends no birth notice (answer
+// sixteen, ruling 1(c)): nothing is queued and nothing reaches the births relay.
 describe('a Solana create is not announced as a birth', () => {
   it('a confirmed create calls no birth notifier and queues nothing', async () => {
     const heat = stubHeat({ status: 200, body: WARM });

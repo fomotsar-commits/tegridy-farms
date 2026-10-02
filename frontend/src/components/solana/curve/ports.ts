@@ -114,6 +114,8 @@ export interface WriteApi {
   prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: CreateLaunchInput): Promise<Prepared>;
   /** What the maker's own $BAYLA account holds: the plant spends from it. A failed read is never 0. */
   readPlantBalance(rpc: WriteRpc, owner: PublicKey): Promise<Read<PlantBalance>>;
+  /** Every plant refusal the launch build makes, in its words, read now; null = can plant. */
+  readPlantRefusal(rpc: WriteRpc, maker: PublicKey): Promise<string | null>;
   prepareCurveBuy(
     rpc: WriteRpc,
     gate: OpenGate,

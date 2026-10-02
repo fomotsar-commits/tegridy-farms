@@ -144,7 +144,7 @@ async function postBundle(handler, params) {
   const { res, calls } = makeRes();
   await handler({
     method: "POST",
-    headers: { origin: "https://memetic.fun" },
+    headers: { origin: "https://memetics.finance" },
     query: {},
     body: {
       action: "create-bundle",
@@ -307,7 +307,7 @@ describe("orderbook — NFT cannot sit in two live orders", () => {
     const { res, calls } = makeRes();
     await handler({
       method: "POST",
-      headers: { origin: "https://memetic.fun" },
+      headers: { origin: "https://memetics.finance" },
       query: {},
       body: {
         action: "create",
@@ -369,7 +369,7 @@ describe("orderbook create — a refused request must not mutate", () => {
   async function postSingle(params) {
     const { res, calls } = makeRes();
     await handler({
-      method: "POST", headers: { origin: "https://memetic.fun" }, query: {},
+      method: "POST", headers: { origin: "https://memetics.finance" }, query: {},
       body: {
         action: "create",
         order: {
@@ -507,7 +507,7 @@ describe("orderbook — round-3 blockers", () => {
   async function post(action, parameters) {
     const { res, calls } = makeRes();
     await handler({
-      method: "POST", headers: { origin: "https://memetic.fun" }, query: {},
+      method: "POST", headers: { origin: "https://memetics.finance" }, query: {},
       body: {
         action,
         order: {
@@ -540,7 +540,7 @@ describe("orderbook — round-3 blockers", () => {
     // An unsupported protocol address rejects AFTER the overlap check.
     const { res, calls } = makeRes();
     await handler({
-      method: "POST", headers: { origin: "https://memetic.fun" }, query: {},
+      method: "POST", headers: { origin: "https://memetics.finance" }, query: {},
       body: {
         action: "create",
         order: {
@@ -610,14 +610,14 @@ describe("orderbook query — seller's own view is never served from a shared ca
   // a second on-chain cancel that burns gas for nothing.
   it("sets no-store for a maker-scoped query", async () => {
     const { res } = makeRes();
-    await handler({ method: "GET", body: {}, headers: { origin: "https://memetic.fun" },
+    await handler({ method: "GET", body: {}, headers: { origin: "https://memetics.finance" },
       query: { action: "query", contract: NAKAMIGOS, maker: SELLER, status: "active" } }, res);
     expect(res.headers["Cache-Control"]).toBe("no-store");
   });
 
   it("still caches the public listings feed", async () => {
     const { res } = makeRes();
-    await handler({ method: "GET", body: {}, headers: { origin: "https://memetic.fun" },
+    await handler({ method: "GET", body: {}, headers: { origin: "https://memetics.finance" },
       query: { action: "query", contract: NAKAMIGOS, status: "active" } }, res);
     expect(res.headers["Cache-Control"]).toMatch(/s-maxage/);
   });

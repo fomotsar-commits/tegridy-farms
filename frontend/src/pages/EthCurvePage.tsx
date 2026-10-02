@@ -25,9 +25,6 @@ import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
 import { CurveLaunchesGrid } from '../components/launcher/CurveLaunchesGrid';
 
 const PAGE_ID = 'eth-curve';
-// Named, not inline, so the door's opening tag stays one plain tag: frontDoor.test.ts
-// reads it to tell a door that wraps the form from a bare one.
-const venueLines = <VenueLaunchLines rail="ethereum" />;
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
 
 /** Pure, prop-free explainer of the curve's economics — safe to render anywhere. */
@@ -241,7 +238,7 @@ export default function EthCurvePage() {
             <WrongChainBanner requiredChainId={activeChainId} />
             {/* Only the create form sits behind the door; the list and trade below stay
                 open to anyone. The panel reads the wallet again at submit. */}
-            <LaunchGate rail="ethereum" below={venueLines}>
+            <LaunchGate rail="ethereum" below={<VenueLaunchLines rail="ethereum" />}>
               <CurveCreatePanel
                 launcher={availability.address}
                 chainId={activeChainId}

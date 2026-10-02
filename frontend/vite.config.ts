@@ -336,9 +336,12 @@ ${entries}
   });
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
+    // src/devServerDefine.d.ts: only code this dev server compiles may honour the
+    // operator dials. Never import.meta.env.DEV, which NODE_ENV can turn on in a build.
+    define: { __VITE_DEV_SERVER__: JSON.stringify(command === 'serve') },
     plugins: [
       react(),
       tailwindcss(),

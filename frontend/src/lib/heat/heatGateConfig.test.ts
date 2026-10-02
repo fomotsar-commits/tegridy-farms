@@ -13,6 +13,7 @@ const DEV = { DEV: true, PROD: false, MODE: 'development' };
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   clearGateAudit();
 });
 
@@ -36,6 +37,18 @@ describe('in a production build the heat dials are ignored', () => {
       expect(heatEnvOverridesAllowed(env)).toBe(false);
       expect(isHeatGateEnabled({ ...env, VITE_HEAT_GATE: 'off' })).toBe(true);
       expect(heatLaunchFloor({ ...env, VITE_HEAT_LAUNCH_FLOOR: '1' })).toBe(80);
+    }
+  });
+
+  // Vite inlines DEV from NODE_ENV, so `NODE_ENV=development vite build` ships DEV true.
+  // Only code a dev server compiled may honour a dial (src/lib/devServer.ts).
+  it('a build with DEV true (NODE_ENV=development on the build host) still ignores every dial', () => {
+    for (const v of [false, undefined]) {
+      vi.stubGlobal('__VITE_DEV_SERVER__', v);
+      expect(heatEnvOverridesAllowed(DEV), String(v)).toBe(false);
+      expect(isHeatGateEnabled({ ...DEV, VITE_HEAT_GATE: 'off' }), String(v)).toBe(true);
+      expect(heatLaunchFloor({ ...DEV, VITE_HEAT_LAUNCH_FLOOR: '60' }), String(v)).toBe(80);
+      expect(heatGateMaxAgeDays({ ...DEV, VITE_HEAT_MAX_AGE_DAYS: '30' }), String(v)).toBe(7);
     }
   });
 

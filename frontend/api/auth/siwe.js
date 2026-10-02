@@ -61,10 +61,17 @@ const MAX_MESSAGE_TTL_MS = 15 * 60 * 1000;
 // wrongly described as absent. The project does not control that domain, so it
 // has no place in a credentialed origin set. Do NOT re-add it —
 // `canonical-origin.test.js` fails the build if you do.
+//
+// 2026-09-23: `memetic.fun` and `www.memetic.fun` removed, on the same grounds.
+// Since 2026-09-20 they are bound to the `memetic-fun-lab-proxy` Vercel project
+// and serve the Island Lab, content this venue does not control; the venue must
+// not answer there at all (#478, inverted). Left in, this set let a page on that
+// host make credentialed calls here, and because the SIWE `domain` and `uri`
+// allowlists below are derived from it, a message a wallet signed FOR memetic.fun
+// was redeemable here as a venue session. Do NOT re-add either;
+// `canonical-origin.test.js` fails the build if you do.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://memetic.fun",
-    "https://www.memetic.fun",
     "https://memetics.finance",
     "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",

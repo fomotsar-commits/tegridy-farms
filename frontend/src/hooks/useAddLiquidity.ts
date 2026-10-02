@@ -6,7 +6,8 @@ import { TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI, ERC20_ABI, UNISWAP_V2_PAIR_ABI
 import { liquidityVenueOn, type LiquidityVenue } from '../lib/chains/liquidityVenue';
 import { type TokenInfo } from '../lib/tokenList';
 import { getTxUrl } from '../lib/explorer';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 const PLACEHOLDER_ADDR = '0x0000000000000000000000000000000000000001' as const;
@@ -24,12 +25,21 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   const userAddr = address ?? PLACEHOLDER_ADDR;
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash, onReplaced: noteReplacement });
+  const { data: receipt, isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
-  // receipt was FETCHED" — it latches true for on-chain REVERTED txs too. Only
-  // receipt.status === 'success' is a real success; the toasts below key off this.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  // receipt was FETCHED". Only receipt.status === 'success' is a real success.
+  //
+  // 2026-09-17: and wagmi's `isError` is TWO facts. A real revert arrives there
+  // (wagmi throws on a reverted receipt, so the old `isSuccess`-keyed revert
+  // branch never fired), and so does "we could not READ the receipt", which was
+  // toasted "Transaction failed" about adds that had landed. receiptOutcome
+  // splits them by error type — see lib/txErrors.ts for the measurements.
+  // And a receipt is only proof of its OWN transaction: an add the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
   // 2026-07-26: an approval is a prerequisite, not the liquidity op. Track which
   // is in flight (set in every write fn below) so the toast can say "approved —
   // one more step" instead of "Liquidity operation confirmed!" after a mere approval.
@@ -241,16 +251,34 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     }
   }, [isSuccess, hash]);
 
+  // The receipt read failed, which says nothing about the transaction. Do NOT
+  // fold this into the revert branch below: a revert is a receipt we read, this
+  // is one we didn't, and telling someone an add "failed" when it landed is how
+  // they deposit the pair a second time.
+  //
+  // A cancelled or replaced tx resets the same way; its warning is
+  // useReplacedTxNotice's, above.
   useEffect(() => {
-    if (isTxError && hash) {
-      toast.error('Transaction failed', { id: `err-${hash}` });
+    if ((isReceiptUnreadable || isReplaced) && hash) {
+      if (isReceiptUnreadable) {
+        surfaceUnconfirmedTx(toast, {
+          hash,
+          explorerUrl: getTxUrl(chainId, hash),
+          repeatCost: lastActionRef.current === 'approve'
+            ? 'your allowance is already set and a second approval just costs gas.'
+            : 'sending it again adds or removes liquidity a second time.',
+        });
+      }
+      // Re-read the pool anyway: if the add did land, the LP balance moved, and
+      // the position panel is the one surface that can show it without a receipt.
+      refetch();
       const t = setTimeout(() => reset(), 4000);
       return () => clearTimeout(t);
     }
-  }, [isTxError, hash]);
+  }, [isReceiptUnreadable, isReplaced, hash, chainId]);
 
-  // On-chain revert: the receipt fetch succeeded (so isTxError stays false) but
-  // the tx failed — honest error instead of the success toast (see derivation above).
+  // On-chain revert: we read the receipt and it says the tx failed. Honest error
+  // instead of the success toast. Unreachable until 2026-09-17 (see above).
   useEffect(() => {
     if (isReverted && hash) {
       toast.error('Transaction reverted on-chain', {

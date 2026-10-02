@@ -1,13 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CURVE_WRITES_ENABLED, curveWriteEnvOverridesAllowed, isCurveWriteEnabled } from './curveWriteFlag';
 
 // The first gate: may the write code even load? In a production build only the
 // committed constant can say yes; no env variable can, whatever it holds.
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('curve write flag', () => {
   it('ships switched OFF (the LP release), so a production build never loads the write path', () => {
-    // Owner 2026-10-01: launching waits for the island's Q2 answer. No env variable can
-    // turn a production build on; only this constant can.
+    // Owner 2026-10-02: launching stays off until the owner's own one-line PR after #682.
+    // No env variable can turn a production build on; only this constant can.
     expect(CURVE_WRITES_ENABLED).toBe(false);
     expect(isCurveWriteEnabled({ DEV: false, PROD: true, MODE: 'production' })).toBe(false);
     expect(isCurveWriteEnabled({ DEV: false, PROD: true, MODE: 'production', VITE_SOLANA_CURVE_WRITES: '1' })).toBe(false);
@@ -39,6 +43,18 @@ describe('curve write flag', () => {
 
     it('DEV must be the boolean true, not a truthy string an env file could inject', () => {
       expect(isCurveWriteEnabled({ DEV: 'true', MODE: 'production', VITE_SOLANA_CURVE_WRITES: '1' }, false)).toBe(false);
+    });
+
+    // Vite inlines DEV from NODE_ENV, so `NODE_ENV=development vite build` ships DEV true.
+    // Only code a dev server compiled may honour the flag (src/lib/devServer.ts).
+    it('a build with DEV true (NODE_ENV=development on the build host) still ignores the env flag', () => {
+      for (const v of [false, undefined]) {
+        vi.stubGlobal('__VITE_DEV_SERVER__', v);
+        expect(curveWriteEnvOverridesAllowed({ DEV: true, MODE: 'production' }), String(v)).toBe(false);
+        expect(isCurveWriteEnabled({ DEV: true, MODE: 'development', VITE_SOLANA_CURVE_WRITES: '1' }, false), String(v)).toBe(false);
+        // The named local-validator build is its own, explicit exception.
+        expect(isCurveWriteEnabled({ DEV: false, MODE: 'solana-e2e', VITE_SOLANA_CURVE_WRITES: '1' }, false)).toBe(true);
+      }
     });
   });
 

@@ -62,8 +62,6 @@ const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 // local array didn't know it, so the response never carried
 // Access-Control-Allow-Origin and the browser blocked it anyway.
 const ALLOWED_ORIGINS = [
-  "https://memetic.fun",
-  "https://www.memetic.fun",
   "https://memetics.finance",
   "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",

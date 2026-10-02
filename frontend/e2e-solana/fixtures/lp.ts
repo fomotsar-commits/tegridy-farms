@@ -6,6 +6,7 @@
 // cpswap/ix.ts initializeIx (its first real execution against the mainnet binary), on
 // fee tier 1 at the standard address, or at a fresh signing keypair when that address
 // is taken: the same two paths the create flow will use.
+import { randomUUID } from 'node:crypto';
 import {
   Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction,
 } from '@solana/web3.js';
@@ -154,6 +155,10 @@ export async function createSolPool(creator: Keypair, mint: PublicKey, o: { conf
 /**
  * /api/pools answered by the REAL handler (api/_lib/pool-index.js, which production reaches through the vercel.json rewrite to the catchall), in this Node process, against
  * the local validator. `down: true` answers 502 instead (the index-outage case).
+ *
+ * Each call is one actor (one browser context) and gets its own client address: the
+ * real rate limiter keys on `req.ip` (api/_lib/ratelimit.js `extractIp`), so without
+ * one every actor in the run shared a single bucket.
  */
 export async function installPoolIndex(context: BrowserContext, o: { down?: boolean } = {}): Promise<{ calls: string[] }> {
   process.env.SOLANA_RPC_URL = LOCALNET_RPC;
@@ -163,6 +168,7 @@ export async function installPoolIndex(context: BrowserContext, o: { down?: bool
   };
   mod.__resetPoolIndexCache();
   const calls: string[] = [];
+  const ip = `e2e-${randomUUID()}`;
   await context.route('**/api/pools?*', async (route: Route) => {
     const url = new URL(route.request().url());
     calls.push(url.search);
@@ -174,7 +180,7 @@ export async function installPoolIndex(context: BrowserContext, o: { down?: bool
       json(p: unknown) { out.body = JSON.stringify(p); return res; },
       end() { return res; },
     };
-    const req = { method: route.request().method(), query: Object.fromEntries(url.searchParams.entries()), headers: await route.request().allHeaders() };
+    const req = { ip, method: route.request().method(), query: Object.fromEntries(url.searchParams.entries()), headers: await route.request().allHeaders() };
     await mod.handlePoolIndex(req, res);
     return route.fulfill({ status: out.status, contentType: 'application/json', headers: out.headers, body: out.body });
   });
@@ -182,28 +188,65 @@ export async function installPoolIndex(context: BrowserContext, o: { down?: bool
 }
 
 /**
- * Jupiter, stubbed: a quote for a mint in `prices` (SOL per whole token) answers with
- * that price less 0.5% each way (a route fee the page must cancel out); any other mint
- * is "no route" (502, as production's proxy reports it). Records every mint asked about.
+ * The pool every stubbed quote says its price came through: a fixed key with no account
+ * on the validator, so the page's own-pool check reads it as not ours. (A quote with an
+ * empty route is not an outside price at all: outsidePrice.ts reads it as unread.)
  */
-export async function installJupiterStub(context: BrowserContext, prices: Map<string, { solPerToken: number; decimals: number }>): Promise<{ asked: string[] }> {
+export const STUB_ROUTE_POOL = new PublicKey(new Uint8Array(32).fill(0xe2));
+
+export interface JupiterStub {
+  /** Every token mint a quote was asked for, in order. */
+  asked: string[];
+  /** From now on, answer this mint as Jupiter being down (`on`), or as before (`!on`). */
+  setDown(mint: string, on: boolean): void;
+}
+
+/**
+ * Jupiter, stubbed, answering as production's proxy (api/_lib/aggregator-proxy.js) does:
+ * - a mint in `down` is an outage: 502 `{"error":"Upstream service error"}`;
+ * - a mint in `prices` (SOL per whole token) is quoted at that price less 0.5% each way
+ *   (a route fee the page must cancel out), through one pool: `routeThrough` when given
+ *   (one of OUR pools, so the page must not take it as an outside price), otherwise
+ *   STUB_ROUTE_POOL;
+ * - any other mint has no route: 404 `{"error":"No route","code":"NO_ROUTE"}`, the
+ *   proxy's fixed answer to Jupiter's own no-route codes;
+ * - any path but the quote is a 502.
+ */
+export async function installJupiterStub(
+  context: BrowserContext,
+  prices: Map<string, { solPerToken: number; decimals: number }>,
+  o: { routeThrough?: PublicKey; down?: Set<string> } = {},
+): Promise<JupiterStub> {
   const SOL = WSOL.toBase58();
   const asked: string[] = [];
+  const down = new Set(o.down ?? []);
+  const routePool = (o.routeThrough ?? STUB_ROUTE_POOL).toBase58();
+  const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
   await context.route('**/api/jupiter/**', async (route: Route) => {
     const u = new URL(route.request().url());
-    if (!u.pathname.endsWith('/swap/v1/quote')) return route.fulfill({ status: 502, contentType: 'application/json', body: '{"error":"Upstream service error"}' });
+    if (!u.pathname.endsWith('/swap/v1/quote')) return route.fulfill(json(502, { error: 'Upstream service error' }));
     const input = u.searchParams.get('inputMint') ?? '';
     const output = u.searchParams.get('outputMint') ?? '';
     const amount = BigInt(u.searchParams.get('amount') ?? '0');
     const token = input === SOL ? output : input;
     asked.push(token);
+    if (down.has(token)) return route.fulfill(json(502, { error: 'Upstream service error' }));
     const p = prices.get(token);
-    if (!p) return route.fulfill({ status: 502, contentType: 'application/json', body: '{"error":"Upstream service error"}' });
+    if (!p) return route.fulfill(json(404, { error: 'No route', code: 'NO_ROUTE' }));
     const fee = 0.995;
     const out = input === SOL
       ? BigInt(Math.floor((Number(amount) / 1e9 / p.solPerToken) * 10 ** p.decimals * fee))
       : BigInt(Math.floor((Number(amount) / 10 ** p.decimals) * p.solPerToken * 1e9 * fee));
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ inputMint: input, outputMint: output, inAmount: amount.toString(), outAmount: out.toString(), otherAmountThreshold: out.toString(), swapMode: 'ExactIn', slippageBps: 50, priceImpactPct: '0', routePlan: [] }) });
+    return route.fulfill(json(200, {
+      inputMint: input, outputMint: output, inAmount: amount.toString(), outAmount: out.toString(), otherAmountThreshold: out.toString(),
+      swapMode: 'ExactIn', slippageBps: 50, priceImpactPct: '0', routePlan: [{ swapInfo: { ammKey: routePool } }],
+    }));
   });
-  return { asked };
+  return {
+    asked,
+    setDown(mint: string, on: boolean) {
+      if (on) down.add(mint);
+      else down.delete(mint);
+    },
+  };
 }

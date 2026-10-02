@@ -88,6 +88,38 @@ for (const size of SIZES) {
   });
 }
 
+// What a phone reads, top to bottom, once the door lets a warm wallet in: the door, the
+// plant line, the venue line, then the form down to its Review launch button.
+test('phone 390px, warm wallet: the door, the plant line, the venue line, then Review launch', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const kp = await fundedKeypair(0.1);
+  await installTestWallet(ctx, kp);
+  const rpc = await installRpcGuard(ctx);
+  await installUploadStub(ctx);
+  await installHeatStub(ctx);
+  const page = await ctx.newPage();
+  await page.goto('/curve-launch');
+  await connectWallet(page, ui.door(page));
+  await expect(ui.door(page).getByText('WARM', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(ui.createForm(page)).toBeVisible({ timeout: 30_000 });
+  const box = async (loc: Locator, what: string) => {
+    await expect(loc, what).toBeVisible();
+    const b = await loc.boundingBox();
+    if (!b) throw new Error(`${what} has no box`);
+    return { top: b.y, bottom: b.y + b.height };
+  };
+  const door = await box(ui.door(page), 'the door');
+  const plant = await box(ui.plantLine(page), 'the plant line');
+  const venue = await box(ui.venueLine(page), 'the venue line');
+  const review = await box(ui.form.reviewButton(page), 'Review launch');
+  expect(door.bottom, 'the door ends above the plant line').toBeLessThan(plant.top);
+  expect(plant.bottom, 'the plant line ends above the venue line').toBeLessThan(venue.top);
+  expect(venue.bottom, 'the venue line ends above Review launch').toBeLessThan(review.top);
+  await expectNoSidewaysScroll(page);
+  expect(rpc.violations).toEqual([]);
+  await ctx.close();
+});
+
 test('phone with no wallet installed: Connect still opens the wallet list', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await installRpcGuard(ctx);

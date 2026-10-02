@@ -46,7 +46,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 function makeReq(query) {
-  return { method: "GET", body: {}, query, headers: { origin: "https://memetic.fun" } };
+  return { method: "GET", body: {}, query, headers: { origin: "https://memetics.finance" } };
 }
 function makeRes() {
   const statusSpy = vi.fn();

@@ -25,7 +25,7 @@ const VALID = {
   creator: "0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a",
   birth_block: 123456789,
   gate_decision_id: "gd_abc123",
-  record_url: "https://memetic.fun/record/base/0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca.json",
+  record_url: "https://memetics.finance/record/base/0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca.json",
 };
 
 function mockRes() {
@@ -51,7 +51,7 @@ function mockRes() {
   return res;
 }
 
-const reqWith = (body, method = "POST") => ({ method, headers: { origin: "https://memetic.fun" }, query: {}, body });
+const reqWith = (body, method = "POST") => ({ method, headers: { origin: "https://memetics.finance" }, query: {}, body });
 
 beforeEach(() => {
   process.env.MEMETICS_BIRTH_SECRET = SECRET;
@@ -299,6 +299,17 @@ describe("authorization — who is allowed to reach the signer", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("refuses memetic.fun — it serves the Island Lab, not this venue (2026-09-20)", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    for (const origin of ["https://memetic.fun", "https://www.memetic.fun"]) {
+      const res = mockRes();
+      await handleBirths(withOrigin(origin, VALID), res);
+      expect(res.statusCode, origin).toBe(403);
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("does not let an unauthorized caller probe whether the secret is configured", async () => {
     // The 403 must come from ABOVE the secret check, so the reply is identical whether or
     // not MEMETICS_BIRTH_SECRET is set. Otherwise 503-vs-403 is an oracle for "is this
@@ -326,33 +337,46 @@ describe("record_url — the venue signs a pointer at its OWN record, or nothing
   });
 
   it("refuses a lookalike host — substring matching is not host matching", () => {
-    // `https://memetic.fun.evil.tld/...` CONTAINS "memetic.fun". Anything built on
+    // `https://memetics.finance.evil.tld/...` CONTAINS "memetics.finance". Anything built on
     // includes() or an unanchored regex waves this through; hostname equality does not.
     expect(
-      validateBirthBody({ ...VALID, record_url: "https://memetic.fun.evil.tld/record/base/0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca.json" }),
+      validateBirthBody({ ...VALID, record_url: "https://memetics.finance.evil.tld/record/base/0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca.json" }),
     ).toMatchObject({ field: "record_url" });
   });
 
   it("refuses a record_url pointing at a DIFFERENT token than the one being signed", () => {
     expect(
-      validateBirthBody({ ...VALID, record_url: "https://memetic.fun/record/base/0x0000000000000000000000000000000000000dead.json" }),
+      validateBirthBody({ ...VALID, record_url: "https://memetics.finance/record/base/0x0000000000000000000000000000000000000dead.json" }),
     ).toMatchObject({ field: "record_url" });
   });
 
   it("refuses a record_url whose chain segment disagrees with the signed chain", () => {
     expect(
-      validateBirthBody({ ...VALID, record_url: "https://memetic.fun/record/ethereum/0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca.json" }),
+      validateBirthBody({ ...VALID, record_url: "https://memetics.finance/record/ethereum/0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca.json" }),
     ).toMatchObject({ field: "record_url" });
   });
 
   it("accepts the URL our own client actually builds, on every allowed origin", () => {
     // birthRecordUrl(chain, ca, origin) => `${origin}/record/${chain}/${ca}.json`.
     // If this ever fails, the gate is rejecting real births — check it before shipping.
-    for (const origin of ["https://memetic.fun", "https://www.memetic.fun", "https://memetics.finance", "https://tegridyfarms.vercel.app"]) {
+    for (const origin of ["https://memetics.finance", "https://www.memetics.finance", "https://tegridyfarms.vercel.app"]) {
       expect(
         validateBirthBody({ ...VALID, record_url: `${origin}/record/base/${VALID.ca}.json` }),
         `${origin} must be accepted`,
       ).toBeNull();
+    }
+  });
+
+  it("refuses a record_url on memetic.fun — that host serves the Island Lab, not our records", () => {
+    // Until 2026-09-20 memetic.fun served this venue, so /record/ there was ours. It is now
+    // bound to another Vercel project, and the island would fetch whatever that serves under
+    // our signature. RECORD_HOSTS is derived from the origin set, so this holds by
+    // construction; the test pins it.
+    for (const origin of ["https://memetic.fun", "https://www.memetic.fun"]) {
+      expect(
+        validateBirthBody({ ...VALID, record_url: `${origin}/record/base/${VALID.ca}.json` }),
+        `${origin} must be refused`,
+      ).toMatchObject({ field: "record_url" });
     }
   });
 
@@ -371,7 +395,7 @@ describe("record_url — the venue signs a pointer at its OWN record, or nothing
       chain: "solana",
       ca: "So11111111111111111111111111111111111111112",
       creator: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
-      record_url: "https://memetic.fun/record/solana/So11111111111111111111111111111111111111112.json",
+      record_url: "https://memetics.finance/record/solana/So11111111111111111111111111111111111111112.json",
     };
     expect(validateBirthBody(sol)).toMatchObject({ field: "chain" });
     const fetchSpy = vi.fn();

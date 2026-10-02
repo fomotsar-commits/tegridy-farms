@@ -44,8 +44,6 @@ const TOKEN_RE = /^0x[0-9a-fA-F]{40}$/;
 const TX_RE = /^0x[0-9a-fA-F]{64}$/;
 
 const ALLOWED_ORIGINS = [
-  "https://memetic.fun",
-  "https://www.memetic.fun",
   "https://memetics.finance",
   "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",
