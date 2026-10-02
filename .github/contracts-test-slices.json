@@ -69,7 +69,7 @@
     },
     {
       "slice": "audit-deep",
-      "pattern": "test/Audit{Microscope_,R014_}*.t.sol"
+      "pattern": "test/Audit{Medium_,Microscope_,R014_}*.t.sol"
     },
     {
       "slice": "tegridy",
