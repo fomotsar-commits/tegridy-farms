@@ -12,10 +12,13 @@
 // How it switches on:
 //   - production build: ONLY the committed constant below. No env variable can turn
 //     it on, so a dashboard setting cannot open writes ahead of the owner's flip.
-//   - a dev server (`import.meta.env.DEV`) or the named local-validator e2e build
-//     (`--mode solana-e2e`): the env flag VITE_SOLANA_CURVE_WRITES=1 as well.
+//   - code a dev server compiled (src/lib/devServer.ts, never `import.meta.env.DEV`
+//     alone, which NODE_ENV=development turns on in a build) or the named
+//     local-validator e2e build (`--mode solana-e2e`): VITE_SOLANA_CURVE_WRITES=1 too.
 // Any other custom build mode counts as production. `MODE === 'production'` is not
 // the test, because `vite build --mode anything` would slip past it.
+
+import { compiledByDevServer } from '../../devServer';
 
 /**
  * OFF in the LP release (2026-10-01): the owner ships the launch pages read-only until
@@ -38,9 +41,9 @@ function viteEnv(): Env {
   return import.meta.env as unknown as Env;
 }
 
-/** True when env overrides are honoured: a dev server or the named e2e build. */
+/** True when env overrides are honoured: code a dev server compiled, or the named e2e build. */
 export function curveWriteEnvOverridesAllowed(env: Env = viteEnv()): boolean {
-  return env.DEV === true || env.MODE === CURVE_WRITES_E2E_MODE;
+  return (compiledByDevServer() && env.DEV === true) || env.MODE === CURVE_WRITES_E2E_MODE;
 }
 
 /**
