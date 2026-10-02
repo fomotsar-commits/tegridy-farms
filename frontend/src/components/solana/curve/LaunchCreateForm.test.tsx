@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { LaunchCreateForm } from './LaunchCreateForm';
-import { CREATOR, KEY, SIG, SOL, fakeApi, openGate, prepared } from './fakeWriteApi.fixture';
+import { CREATOR, KEY, PLANT_SUMMARY, SIG, SOL, fakeApi, openGate, prepared } from './fakeWriteApi.fixture';
 import { readPendingLaunch, savePendingLaunch } from './pendingLaunch';
 import type { CreateLaunchInput, OpenGate, TxOutcome, TxSummary, UploadInput, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
@@ -95,6 +95,7 @@ function createApi(over: Partial<WriteApi> = {}) {
       },
       // Today's mainnet rent for a token account; the real value is read from the cluster.
       treasuryAccountRent: 1_488_440n,
+      plant: PLANT_SUMMARY,
     };
     return { ok: true, prepared: prepared(summary) };
   });
@@ -254,6 +255,7 @@ describe('launch form: it says what is wrong, and screen readers hear it', () =>
     const api = createApi();
     vi.mocked(api.meta.uploadsAvailable).mockReturnValue(new Promise(() => undefined)); // still checking
     renderForm(api);
+    await act(async () => {}); // the wallet's $BAYLA balance lands (the plant test covers it)
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Farm Fresh' } });
     fireEvent.change(screen.getByLabelText('Symbol'), { target: { value: 'FRESH' } });
     fireEvent.change(screen.getByLabelText('Description (optional)'), { target: { value: 'x'.repeat(2_000) } });
@@ -626,5 +628,175 @@ describe('launch form: the review picture moves past a hung IPFS gateway', () =>
       vi.advanceTimersByTime(IPFS_STEP_TIMEOUT_MS);
     });
     expect(screen.getByAltText('Your token picture')).toHaveAttribute('src', urls[1]);
+  });
+});
+
+// The plant (island ruling 2): every launch pays 100,000 $BAYLA from the maker's own
+// $BAYLA account. The form shows it and the wallet's balance before Review, never offers
+// a Review the wallet cannot plant, and reads the balance again before any upload.
+describe('launch form: the plant', () => {
+  const balance = (amount: bigint, accountExists = true) => ({
+    kind: 'ok' as const,
+    value: { account: KEY(13), amount, accountExists },
+  });
+  const UNREADABLE = { kind: 'unreadable' as const, detail: 'rpc down' };
+  const row = (label: string) => screen.getByText(label).parentElement!;
+  const reviewButton = () => screen.getByRole('button', { name: 'Review launch' });
+  const settle = () => act(async () => {});
+  const plantRead = (impl: WriteApi['readPlantBalance']) => vi.fn<WriteApi['readPlantBalance']>(impl);
+
+  it('shows the plant and the wallet\'s own $BAYLA before Review, read for the signing wallet', async () => {
+    const api = renderForm(createApi());
+    await fillValid();
+    expect(row('Plant')).toHaveTextContent("100,000 $BAYLA: 50,000 burned, 50,000 to the island's Workshop");
+    expect(row('Your $BAYLA')).toHaveTextContent('150,000 $BAYLA');
+    expect(vi.mocked(api.readPlantBalance).mock.calls[0]![1].toBase58()).toBe(CREATOR.toBase58());
+    expect(reviewButton()).not.toBeDisabled();
+  });
+
+  it('a wallet short of 100,000 $BAYLA cannot review, is told why, and nothing is uploaded', async () => {
+    const api = createApi({ readPlantBalance: vi.fn(async () => balance(99_999_999_999n)) });
+    renderForm(api);
+    await fillValid();
+    const why = 'Your wallet holds 99,999.999999 $BAYLA. A launch plants 100,000.';
+    expect(row('Your $BAYLA')).toHaveTextContent('99,999.999999 $BAYLA');
+    expect(reviewButton()).toBeDisabled();
+    expect(screen.getByTestId('review-missing')).toHaveTextContent(why);
+    expect(reviewButton()).toHaveAccessibleDescription(why);
+    await act(async () => {
+      fireEvent.click(reviewButton());
+    });
+    expect(assertMayLaunch).not.toHaveBeenCalled();
+    expect(signMessage).not.toHaveBeenCalled();
+    expect(api.meta.uploadLaunchMetadata).not.toHaveBeenCalled();
+    expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
+  });
+
+  it('a wallet with no $BAYLA account holds 0, and cannot review', async () => {
+    renderForm(createApi({ readPlantBalance: vi.fn(async () => balance(0n, false)) }));
+    await fillValid();
+    expect(reviewButton()).toBeDisabled();
+    expect(screen.getByTestId('review-missing')).toHaveTextContent('Your wallet holds 0 $BAYLA. A launch plants 100,000.');
+  });
+
+  it('exactly 100,000 $BAYLA is enough', async () => {
+    renderForm(createApi({ readPlantBalance: vi.fn(async () => balance(100_000_000_000n)) }));
+    await fillValid();
+    expect(row('Your $BAYLA')).toHaveTextContent('100,000 $BAYLA');
+    expect(reviewButton()).not.toBeDisabled();
+  });
+
+  for (const [name, failure] of [
+    ['unreadable', UNREADABLE],
+    ['not a $BAYLA account', { kind: 'undecodable' as const, reason: 'malformed' as const }],
+    ['a read that throws', 'throws'],
+  ] as const) {
+    it(`a balance that could not be read (${name}) is never 0 and never enough: Review stays off`, async () => {
+      const read = plantRead(async () => {
+        if (failure === 'throws') throw new Error('socket hang up');
+        return failure;
+      });
+      renderForm(createApi({ readPlantBalance: read }));
+      await fillValid();
+      expect(reviewButton()).toBeDisabled();
+      expect(screen.getByTestId('review-missing')).toHaveTextContent('Could not read your $BAYLA balance.');
+      expect(row('Your $BAYLA')).not.toHaveTextContent(/\d/);
+      // Read again: the next read answers, and Review opens.
+      read.mockImplementation(async () => balance(150_000_000_000n));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Read again' }));
+      });
+      expect(row('Your $BAYLA')).toHaveTextContent('150,000 $BAYLA');
+      expect(reviewButton()).not.toBeDisabled();
+    });
+  }
+
+  it("a balance read for one wallet never counts for the wallet that replaced it", async () => {
+    const OTHER = KEY(20);
+    const read = plantRead(async (_rpc, owner) =>
+      owner.toBase58() === CREATOR.toBase58() ? balance(150_000_000_000n) : new Promise<never>(() => {}),
+    );
+    const api = createApi({ readPlantBalance: read });
+    const { view } = renderFormView(api);
+    await fillValid();
+    expect(reviewButton()).not.toBeDisabled();
+    const other: CurveSignerState = { ...ready, address: OTHER.toBase58(), signer: { publicKey: OTHER, signTransaction: async (t) => t } };
+    view.rerender(
+      <MemoryRouter initialEntries={['/curve-launch']}>
+        <Routes>
+          <Route
+            path="/curve-launch"
+            element={
+              <LaunchCreateForm
+                api={api}
+                rpc={{} as WriteRpc}
+                gate={openGate()}
+                actions={{ create: true, buy: false, sell: false, migrate: false, poolSwap: false }}
+                signerState={other}
+              />
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await settle();
+    expect(read.mock.calls.at(-1)![1].toBase58()).toBe(OTHER.toBase58());
+    expect(reviewButton()).toBeDisabled();
+    expect(row('Your $BAYLA')).toHaveTextContent('reading…');
+  });
+
+  it('while the balance is read, Review waits and says what for', async () => {
+    renderForm(createApi({ readPlantBalance: vi.fn(() => new Promise<never>(() => {})) }));
+    await fillValid();
+    expect(reviewButton()).toBeDisabled();
+    expect(screen.getByTestId('review-missing')).toHaveTextContent(
+      'Before you can review your launch: wait for your $BAYLA balance to be read.',
+    );
+  });
+
+  it('Review reads the balance again before the upload request: a wallet emptied since is not sent', async () => {
+    const read = plantRead(async () => balance(150_000_000_000n));
+    const api = createApi({ readPlantBalance: read });
+    renderForm(api);
+    await fillValid();
+    await settle();
+    read.mockImplementation(async () => balance(10_000_000n));
+    await act(async () => {
+      fireEvent.click(reviewButton());
+    });
+    const outcome = await screen.findByTestId('tx-outcome');
+    expect(outcome).toHaveAttribute('data-status', 'not-sent');
+    expect(outcome).toHaveTextContent('Your wallet holds 10 $BAYLA. A launch plants 100,000.');
+    expect(outcome).toHaveTextContent('Nothing was uploaded, built or signed.');
+    expect(signMessage).not.toHaveBeenCalled();
+    expect(api.meta.uploadLaunchMetadata).not.toHaveBeenCalled();
+    expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
+  });
+
+  it('Review: a balance that cannot be read then is not sent either', async () => {
+    const read = plantRead(async () => balance(150_000_000_000n));
+    const api = createApi({ readPlantBalance: read });
+    renderForm(api);
+    await fillValid();
+    read.mockImplementation(async () => UNREADABLE);
+    await act(async () => {
+      fireEvent.click(reviewButton());
+    });
+    const outcome = await screen.findByTestId('tx-outcome');
+    expect(outcome).toHaveTextContent('Could not read your $BAYLA balance.');
+    expect(api.meta.uploadLaunchMetadata).not.toHaveBeenCalled();
+    expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
+  });
+
+  it('a wallet that holds enough: the Review read comes before the upload request', async () => {
+    const api = renderForm(createApi());
+    await fillValid();
+    await act(async () => {
+      fireEvent.click(reviewButton());
+    });
+    await screen.findByTestId('tx-review');
+    const reads = vi.mocked(api.readPlantBalance).mock.invocationCallOrder;
+    expect(reads.length).toBeGreaterThanOrEqual(2);
+    expect(reads[reads.length - 1]!).toBeLessThan(vi.mocked(api.meta.uploadLaunchMetadata).mock.invocationCallOrder[0]!);
   });
 });

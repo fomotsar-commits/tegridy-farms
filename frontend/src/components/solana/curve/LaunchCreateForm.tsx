@@ -2,8 +2,14 @@
 import '../../../lib/solanaPolyfill';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Keypair } from '@solana/web3.js';
-import { describeTreasury, formatSol, formatTokenAmount, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve';
+import { Keypair, PublicKey } from '@solana/web3.js';
+import {
+  describeTreasury,
+  formatSol,
+  formatTokenAmount,
+  parseDecimalToBaseUnits,
+  type Read,
+} from '../../../lib/launcher/solana/curve';
 import { Card, Field, Notice, Row } from './ui';
 import {
   DIVIDER,
@@ -28,6 +34,7 @@ import type {
   LaunchLinks,
   NotSent,
   OpenGate,
+  PlantBalance,
   PreparedImage,
   Prepared,
   TxOutcome,
@@ -53,6 +60,31 @@ async function doorRefusal(maker: string): Promise<NotSent | null> {
     const message =
       e instanceof HeatGateDenied ? e.message : 'The island could not be read, so the door stays shut. Try again in a moment.';
     return { status: 'not-sent', stage: 'gate', message };
+  }
+}
+
+/** The plant every launch pays (island ruling 2): 100,000 $BAYLA, in base units (6 decimals). */
+const PLANT_TOTAL_RAW = 100_000_000_000n;
+const BAYLA_DECIMALS = 6;
+const PLANT_TERMS = "100,000 $BAYLA: 50,000 burned, 50,000 to the island's Workshop";
+const PLANT_UNREADABLE = 'Could not read your $BAYLA balance.';
+const baylaText = (raw: bigint) => formatTokenAmount(raw, BAYLA_DECIMALS, BAYLA_DECIMALS).text;
+
+/** Why this wallet cannot plant, or null when it can. A read that failed is never 0 and never enough. */
+function plantShortfall(read: Read<PlantBalance>): string | null {
+  if (read.kind !== 'ok') return PLANT_UNREADABLE;
+  if (read.value.amount < PLANT_TOTAL_RAW) {
+    return `Your wallet holds ${baylaText(read.value.amount)} $BAYLA. A launch plants 100,000.`;
+  }
+  return null;
+}
+
+/** The maker's $BAYLA, read through the write layer. A throw is unreadable, never 0. */
+async function readPlant(api: WriteApi, rpc: WriteRpc, owner: PublicKey): Promise<Read<PlantBalance>> {
+  try {
+    return await api.readPlantBalance(rpc, owner);
+  } catch (e) {
+    return { kind: 'unreadable', detail: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -310,6 +342,25 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
   }, [idle, api, rpc]);
   const earlierHolds = earlier.some((e) => e.state !== 'landed' && !earlierDismissed.has(e.signature));
 
+  // The wallet's own $BAYLA, which the plant spends from. Read for the signing wallet
+  // whenever the form is (back) on screen; a result counts only for the wallet and the
+  // read it was asked for, so a switched wallet or "Read again" shows as reading.
+  const maker = signer?.publicKey.toBase58() ?? null;
+  const [plantCheck, setPlantCheck] = useState(0);
+  const [plantRead, setPlantRead] = useState<{ maker: string; check: number; read: Read<PlantBalance> } | null>(null);
+  useEffect(() => {
+    if (!maker || !idle) return;
+    let live = true;
+    void readPlant(api, rpc, new PublicKey(maker)).then((read) => {
+      if (live) setPlantRead({ maker, check: plantCheck, read });
+    });
+    return () => {
+      live = false;
+    };
+  }, [api, rpc, maker, idle, plantCheck]);
+  const plant = plantRead && plantRead.maker === maker && plantRead.check === plantCheck ? plantRead.read : null;
+  const plantBlock = plant ? plantShortfall(plant) : null;
+
   // The mint keypair lives in memory only. A reload or a wallet round trip loses it,
   // and then everything starts again with a new keypair and a new upload. The one
   // reuse: pressing Review again with the SAME details, picture and wallet, inside
@@ -330,7 +381,10 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
     !flow.locked &&
     !earlierHolds &&
     (mode === 'upload' ? !!image && !!signMessage : mode === 'paste' ? !!uriC?.ok : false) &&
-    (!buyOn || !!buyQuote?.ok);
+    (!buyOn || !!buyQuote?.ok) &&
+    // The plant: read, and at least 100,000 $BAYLA.
+    plant !== null &&
+    plantBlock === null;
 
   const review = () => {
     if (!ready || !signer || !nameC.ok || !symbolC.ok) return;
@@ -352,12 +406,19 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
       // THE DOOR, AT SUBMIT: read live at every Review, whatever the door above showed. The
       // venue's check only (the program accepts any signer). The maker is the wallet that
       // signs the create; the island pools linked wallets.
-      const refusal = await doorRefusal(creator.toBase58());
+      // The plant's balance is read again beside it, so a wallet emptied since the form
+      // read it never reaches the upload request.
+      const [refusal, plantNow] = await Promise.all([doorRefusal(creator.toBase58()), readPlant(api, rpc, creator)]);
       if (refusal) return { ok: false, outcome: refusal };
       if (walletMoved()) {
         const message =
           'The connected wallet changed while the door was reading it, so nothing was uploaded or signed. Review again with the wallet you mean to launch from.';
         return { ok: false, outcome: { status: 'not-sent', stage: 'gate', message } };
+      }
+      const cannotPlant = plantShortfall(plantNow);
+      if (cannotPlant) {
+        const message = `${cannotPlant} Nothing was uploaded, built or signed.`;
+        return { ok: false, outcome: { status: 'not-sent', stage: 'build', message } };
       }
       // The wallet opens during this step for the upload request, and the screen must say why.
       setPrepNote(
@@ -483,7 +544,12 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
   if (mode !== 'paste' && !descC.ok) missing.push('shorten the description');
   if (mode !== 'paste' && !linksC.ok) missing.push('fix the links');
   if (buyOn && !buyQuote?.ok) missing.push('enter an opening buy that can be filled, or untick it');
+  if (signer && !plant) missing.push('wait for your $BAYLA balance to be read');
   if (!signer) missing.push('connect a wallet');
+  // The plant's reason is its own sentence, after the list.
+  const why = [missing.length > 0 ? `Before you can review your launch: ${missing.join('; ')}.` : null, plantBlock]
+    .filter((s): s is string => s !== null)
+    .join(' ');
   const missingId = useId();
 
   if (flow.state.step !== 'idle') {
@@ -796,10 +862,33 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
         />
       </div>
 
+      {/* The plant is the site's, not the program's: the same for every launch made here. */}
+      <div className="pt-2 space-y-1.5" style={DIVIDER} data-testid="plant-terms">
+        <div className="pt-2">
+          <Row label="Plant" value={PLANT_TERMS} mono={false} />
+        </div>
+        {signer && (
+          <Row
+            label="Your $BAYLA"
+            value={!plant ? 'reading…' : plant.kind === 'ok' ? `${baylaText(plant.value.amount)} $BAYLA` : 'could not read'}
+            mono={false}
+          />
+        )}
+        {plant && plant.kind !== 'ok' && (
+          <button
+            type="button"
+            className="btn-secondary px-4 py-2 text-[12px] min-h-[44px]"
+            onClick={() => setPlantCheck((n) => n + 1)}
+          >
+            Read again
+          </button>
+        )}
+      </div>
+
       <WalletNeeded state={signerState} />
-      {!ready && !flow.locked && actions.create && missing.length > 0 && (
+      {!ready && !flow.locked && actions.create && why !== '' && (
         <p id={missingId} className="text-white/70 text-[11px]" data-testid="review-missing">
-          Before you can review your launch: {missing.join('; ')}.
+          {why}
         </p>
       )}
       <button
@@ -808,7 +897,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
         className="btn-primary w-full py-2.5 text-[13px] disabled:opacity-60"
         disabled={!ready}
         onClick={review}
-        aria-describedby={!ready && missing.length > 0 ? missingId : undefined}
+        aria-describedby={!ready && why !== '' ? missingId : undefined}
       >
         Review launch
       </button>

@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { LaunchCreateForm } from './LaunchCreateForm';
-import { CREATOR, KEY, SIG, fakeApi, openGate, prepared } from './fakeWriteApi.fixture';
+import { CREATOR, KEY, PLANT_SUMMARY, SIG, fakeApi, openGate, prepared } from './fakeWriteApi.fixture';
 import type { CreateLaunchInput, TxSummary, UploadInput, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
 import { clearGateAudit, readGateAudit } from '../../../lib/heat/gateAudit';
@@ -117,6 +117,7 @@ function createApi(over: Partial<WriteApi> = {}) {
       openingBuy: null,
       platformReserve: { amount: 36_900_000_000_000n, bps: 369n, recipient: KEY(4), treasuryToken: KEY(12) },
       treasuryAccountRent: 1_488_440n,
+      plant: PLANT_SUMMARY,
     };
     return { ok: true, prepared: prepared(summary) };
   });

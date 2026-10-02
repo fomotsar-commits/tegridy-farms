@@ -1,12 +1,8 @@
-// The EVM own-curve surface — create a launch on the zero-toll Memetics curve and
-// trade any live curve token. Distinct from /curve-launch (Solana) and /launch
-// (the Doppler auction rail): this is OUR curve, no Airlock, no petition, 100%
-// of the fee kept in-house.
-//
-// Gated on deployment the same way every L2 piece is: until the operator
-// broadcasts DeployCurveLauncher (M.16), curveLauncherOn(CHAIN_ID) answers
-// 'not-deployed' and the page shows the coming-soon state + how-it-works, never
-// a dead button.
+// The EVM own curve: create a launch on the zero-toll Memetics curve and trade any live
+// curve token. Distinct from /curve-launch (Solana) and /launch (the Doppler rail). Only
+// the create form sits behind the heat door; the list and trade are open to anyone. A
+// chain whose launcher is not deployed (curveLauncherOn answers 'not-deployed') shows
+// the coming-soon state and how-it-works, never a dead button.
 
 import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
@@ -22,11 +18,16 @@ import { CHAIN_ID } from '../lib/constants';
 import { getChainConfig } from '../lib/chains/registry';
 import { curveLauncherOn, CURVE_LAUNCHER_ABI } from '../lib/launcher/curve';
 import { deployedCurveChains, curveChainNames } from '../lib/launcher/curveChains';
+import { LaunchGate } from '../components/LaunchGate';
+import { VenueLaunchLines } from '../components/launcher/VenueLaunchLines';
 import { CurveCreatePanel } from '../components/launcher/CurveCreatePanel';
 import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
 import { CurveLaunchesGrid } from '../components/launcher/CurveLaunchesGrid';
 
 const PAGE_ID = 'eth-curve';
+// Named, not inline, so the door's opening tag stays one plain tag: frontDoor.test.ts
+// reads it to tell a door that wraps the form from a bare one.
+const venueLines = <VenueLaunchLines rail="ethereum" />;
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
 
 /** Pure, prop-free explainer of the curve's economics — safe to render anywhere. */
@@ -101,24 +102,10 @@ function TradeByAddress({ launcher, chainId, prefill }: { launcher: Address; cha
 }
 
 /**
- * WHICH CHAIN YOU ARE LAUNCHING ON — and how many launches each one carries.
- *
- * WHY THIS EXISTS. The grid below shows ONE chain, seeded from the wallet and
- * defaulting to mainnet — so a disconnected visitor saw mainnet's launches and
- * had no way to know two other chains carried any. Discovery is the binding
- * constraint for a launchpad and that halved it.
- *
- * 🔧 PROMOTED ABOVE THE CREATE PANEL, 2026-09-04. It used to sit UNDER the
- * create form and read "Launches by chain", which is a stat heading — so the
- * one control that switches the launcher looked like a leaderboard, and the
- * operator's report was the predictable one: the Base and Robinhood launchers
- * are not named anywhere you would look, and the Robinhood one cannot be found
- * at all. It is now the first thing on the page, above the form it retargets,
- * and it says what it does. The counts stayed — they are the reason to pick one.
- *
- * WHY EACH COUNT CARRIES ITS OWN STATE. A `launchCount` that did not return is
- * not zero. Every chain reads independently and an unread one says so, rather
- * than advertising an empty chain we never actually asked about.
+ * The chain picker, with each chain's launch count. It sits above the create form
+ * because it decides which launcher the form writes to, and it names every deployed
+ * chain so none is hidden from a disconnected visitor. Each chain reads on its own,
+ * and a count that did not return says so: it is never shown as zero.
  */
 function ChainLaunchCounts({
   chains,
@@ -199,21 +186,9 @@ export default function EthCurvePage() {
   const walletChainId = useChainId();
   const seededChainId =
     curveLauncherOn(walletChainId).status === 'deployed' ? walletChainId : CHAIN_ID;
-  // The wallet seeds the view; an explicit pick overrides it. Mainnet stays the
-  // default for a disconnected visitor, exactly as before.
-  //
-  // 🔗 THE PICK LIVES IN THE URL (`?c=<chainId>`), not in component state, since
-  // 2026-09-04. It was `useState`, which meant the Base and Robinhood launchers
-  // had no address of their own: nothing could be linked to them, bookmarked,
-  // pasted into chat or landed on from a search — the only way to reach one was
-  // to already be on this page and click. That is most of why the operator could
-  // not find the Robinhood launcher. /eth-curve?c=4663 now IS the Robinhood
-  // launcher, and the tab strip's Memetics Curve entry lands on whichever chain
-  // the visitor last linked.
-  //
-  // Validated, not trusted: `?c=` is visitor-supplied, so a chain we do not serve
-  // (or garbage, which `Number` turns into NaN and `Number('')` into 0) falls
-  // back to the seed rather than driving a read at an undefined launcher.
+  // The wallet seeds the view (mainnet when disconnected); an explicit pick overrides it
+  // and lives in the URL (`?c=<chainId>`), so each launcher is linkable. `?c=` is visitor
+  // input: a chain we do not serve, or garbage (NaN, or 0 from ''), falls back to the seed.
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedChainId = Number(searchParams.get('c'));
   const pickedChainId =
@@ -259,18 +234,20 @@ export default function EthCurvePage() {
 
         {availability.status === 'deployed' ? (
           <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
-            {/* FIRST, not last: this is the control that decides which launcher the
-                form below writes to. It sat under the form until 2026-09-04 — see
-                ChainLaunchCounts' own comment. */}
+            {/* First: it decides which launcher the create form below writes to. */}
             {curveChains.length > 1 && (
               <ChainLaunchCounts chains={curveChains} selected={activeChainId} onSelect={setPickedChainId} />
             )}
             <WrongChainBanner requiredChainId={activeChainId} />
-            <CurveCreatePanel
-              launcher={availability.address}
-              chainId={activeChainId}
-              onTrade={(token) => navigate(`/eth-curve/${token}?c=${activeChainId}`)}
-            />
+            {/* Only the create form sits behind the door; the list and trade below stay
+                open to anyone. The panel reads the wallet again at submit. */}
+            <LaunchGate rail="ethereum" below={venueLines}>
+              <CurveCreatePanel
+                launcher={availability.address}
+                chainId={activeChainId}
+                onTrade={(token) => navigate(`/eth-curve/${token}?c=${activeChainId}`)}
+              />
+            </LaunchGate>
             <CurveLaunchesGrid launcher={availability.address} chainId={activeChainId} chainName={chainName} />
             <TradeByAddress launcher={availability.address} chainId={activeChainId} />
             <CurveHowItWorks />

@@ -38,10 +38,13 @@ export const LIMITS = Object.freeze({
   /** The uploaded picture, after the browser has shrunk it. */
   imageBytes: 1048576,
   /**
-   * The metadata URI. Metaplex allows 200, but the launch transaction sits close to
-   * the 1,232-byte packet limit, and every allowed URI form fits in 80.
+   * The metadata link as written on chain: the same cap as the launch transaction's
+   * (write/metaplex.ts METADATA_URI_MAX_BYTES), which is near the 1,232-byte packet
+   * limit. Every accepted form fits: `ipfs://<cid>` is at most 78, Arweave 63.
    */
-  uriBytes: 100,
+  uriBytes: 80,
+  /** The longest pasted link read at all, before it is cut down to its content id. */
+  uriInputBytes: 100,
   /** Widest or tallest picture accepted. A small file can still decode to a huge bitmap. */
   maxImageSide: 4096,
   /** What the browser shrinks a picture to before upload. */
@@ -498,7 +501,7 @@ const ARWEAVE_URI = /^https:\/\/arweave\.net\/[A-Za-z0-9_-]{43}$/;
 export function checkContentUri(uri) {
   if (typeof uri !== "string") return { ok: false, reason: "No link was given." };
   const s = uri.trim();
-  if (utf8Bytes(s) > LIMITS.uriBytes) return { ok: false, reason: `Too long: at most ${LIMITS.uriBytes} characters.` };
+  if (utf8Bytes(s) > LIMITS.uriInputBytes) return { ok: false, reason: `Too long: at most ${LIMITS.uriInputBytes} characters.` };
   const cid = (IPFS_SCHEME_URI.exec(s) ?? IPFS_GATEWAY_URI.exec(s) ?? IPFS_SUBDOMAIN_URI.exec(s))?.[1];
   if (cid) return { ok: true, value: `ipfs://${cid}` };
   if (ARWEAVE_URI.test(s)) return { ok: true, value: s };

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { SolanaLaunchView, type LaunchData, type SolanaLaunchViewProps } from './CurveLaunchDetailPage';
 import { awaitingOwnLaunch } from '../components/solana/curve/pendingLaunch';
@@ -58,7 +58,8 @@ function data(over: Partial<LaunchData> = {}): LaunchData {
     rentFloor: 2_000_000n,
     metadata: { kind: 'absent' },
     json: null,
-    openingBuy: { kind: 'ok', value: 50_000_000_000_000n },
+    makerBuy: { kind: 'ok', value: { tokens: 50_000_000_000_000n, othersTokens: 0n, others: 0, birthSupply: 1_000_000_000_000_000n } },
+    plant: { kind: 'ok', value: { burned: 50_000_000_000n, toWorkshop: 50_000_000_000n } },
     holding: { kind: 'unreadable', detail: 'HTTP 429' },
     pool: null,
     // Who the launch's own create transaction paid the reserve to.
@@ -114,27 +115,69 @@ describe('the launch page', () => {
     expect(screen.getAllByText(MINT.toBase58()).length).toBeGreaterThan(0);
   });
 
-  it("shows the creator's opening buy as a share of supply, and an unread holding as 'could not read', never 0", () => {
+  it("shows the maker's create-buy as a share of the supply with the wallet, and an unread holding as 'could not read', never 0", () => {
     renderView();
+    expect(screen.getByTestId('maker-create-buy')).toHaveTextContent(
+      "The maker's create-buy: 5.00% of the supply (50,000,000 tokens), bought in the launch transaction, before anyone else could buy.",
+    );
+    expect(screen.getByText("Maker's wallet").parentElement).toHaveTextContent(CREATOR.toBase58());
     const stake = screen.getByTestId('creator-stake');
-    expect(stake.textContent).toMatch(/5\.00% of supply/);
     expect(stake.textContent).toMatch(/Creator's wallet holds now \(its usual account\)could not read/);
-    expect(stake.textContent).not.toMatch(/token account/);
+    expect(stake.textContent).not.toMatch(/token account|any wallet/);
   });
 
   // F15: both reasons printed after both rows, so the opening buy's reason read as
   // explaining the holding.
-  it('each "could not read" reason sits directly under its own row', () => {
+  it('each "could not read" reason sits directly under its own line', () => {
     renderView({
       data: data({
-        openingBuy: { kind: 'unreadable', detail: 'the launch transaction could not be found' },
-        holding: { kind: 'ok', value: 37_200_000_000_000n },
+        makerBuy: { kind: 'unreadable', detail: 'the launch transaction could not be found' },
+        holding: { kind: 'unreadable', detail: 'HTTP 503' },
       }),
     });
-    const stake = screen.getByTestId('creator-stake');
-    expect(stake.textContent).toMatch(
-      /Bought in the launch transaction \(any wallet\)could not readthe launch transaction could not be foundCreator's wallet holds now/,
+    expect(screen.getByTestId('maker-create-buy').textContent).toMatch(
+      /This is our read failing, not a finding about the launch\.the launch transaction could not be found/,
     );
+    expect(screen.getByTestId('creator-stake').textContent).toMatch(/Creator's wallet holds now \(its usual account\)could not readHTTP 503/);
+  });
+
+  // Ruling 3: the maker's plates come first, before anyone can buy.
+  it("the maker's create-buy sits right after the mint row, before the note, the description and any trade form", () => {
+    renderView();
+    const plates = screen.getByTestId('maker-create-buy');
+    const identity = screen.getByTestId('launch-identity');
+    expect(within(identity).getByText('Token address (mint)').parentElement!.nextElementSibling).toBe(plates);
+    expect(plates.compareDocumentPosition(screen.getByTestId('curve-trade-panel')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(plates).toHaveTextContent("No lock: this launcher has no way to lock a maker's tokens.");
+    expect(plates).toHaveTextContent(
+      "Plant: 50,000 $BAYLA burned and 50,000 $BAYLA to the island's Workshop, in the launch transaction.",
+    );
+  });
+
+  it("the share is of the supply at birth, not of today's supply", () => {
+    // Since the launch, burns took today's supply down to 40%. The share is still 5.00%.
+    renderView({
+      data: data({
+        mintFacts: {
+          kind: 'ok',
+          value: { supply: 400_000_000_000_000n, decimals: 6, mintAuthority: null, freezeAuthority: null, isLegacySplToken: true },
+        },
+      }),
+    });
+    expect(screen.getByTestId('maker-create-buy')).toHaveTextContent(/create-buy: 5\.00% of the supply/);
+    expect(screen.getByTestId('maker-create-buy').textContent).not.toMatch(/12\.50%/);
+  });
+
+  it('a launch transaction that could not be read: says our read failed, never 0 or 0%', () => {
+    renderView({ data: data({ makerBuy: { kind: 'unreadable', detail: 'HTTP 429' }, plant: { kind: 'unreadable', detail: 'HTTP 429' } }) });
+    const plates = screen.getByTestId('maker-create-buy');
+    expect(plates).toHaveTextContent(
+      "Could not read the maker's create-buy right now. This is our read failing, not a finding about the launch.",
+    );
+    expect(plates).toHaveTextContent('Could not read whether this launch carried a plant.');
+    expect(plates.textContent).not.toMatch(/\b0(\.00)?%|\b0 tokens|bought nothing|No plant/);
+    // The wallet is still the launch account's own creator.
+    expect(screen.getByText("Maker's wallet").parentElement).toHaveTextContent(CREATOR.toBase58());
   });
 
   // F10: an unreadable name said "No name", a fact the page did not have.
@@ -204,9 +247,32 @@ describe('the launch page', () => {
       launch: { phase: { kind: 'unreadable', detail: 'HTTP 429' }, paused: null, ammConfigured: null, global: null, curve: null },
       mintFacts: { kind: 'unreadable', detail: 'HTTP 429' },
       metadata: { kind: 'unreadable', detail: 'HTTP 429' },
-      openingBuy: null,
+      makerBuy: null,
+      plant: null,
       holding: null,
     });
+
+  it("the launch's account could not be read: the plates are still there, and say they could not be read", () => {
+    renderView({ data: unreadable() });
+    const plates = screen.getByTestId('maker-create-buy');
+    expect(plates).toHaveTextContent(
+      "Could not read the maker's create-buy right now. This is our read failing, not a finding about the launch.",
+    );
+    expect(plates).toHaveTextContent('HTTP 429');
+    expect(plates).toHaveTextContent('Could not read whether this launch carried a plant.');
+    expect(plates.textContent).not.toMatch(/\b0(\.00)?%|\b0 tokens|bought nothing|No plant/);
+    expect(screen.queryByText("Maker's wallet")).not.toBeInTheDocument();
+  });
+
+  it('no launch at this address: no plates, since there is no maker to read', () => {
+    renderView({ data: data({ launch: launchState(null), makerBuy: null, plant: null }) });
+    expect(screen.queryByTestId('maker-create-buy')).not.toBeInTheDocument();
+  });
+
+  it('while the first read is in flight: no plates yet, and no figure', () => {
+    renderView({ data: null });
+    expect(screen.queryByTestId('maker-create-buy')).not.toBeInTheDocument();
+  });
 
   it('a launch just sent whose read then FAILED still says "may still be landing, do not launch again"', () => {
     const p = renderView({ data: unreadable(), pending: { signature: SIG, sentAt: Date.now(), lastValidBlockHeight: 99 } });

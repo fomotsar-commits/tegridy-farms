@@ -11,7 +11,8 @@
 //
 // And each KIND of transaction may call only its own programs (PROGRAMS_BY_KIND):
 // a launch never reaches the pool program, a pool swap never reaches Token
-// Metadata or the launch program.
+// Metadata or the launch program, and only a launch reaches Token-2022, for the
+// two exact instructions of its $BAYLA plant.
 //
 // Adding and removing liquidity (`PoolIntent`) are judged against `PoolPins`, the
 // pool as it was read and checked while preparing: every account of the pool's
@@ -69,6 +70,16 @@ import {
   metadataPda,
 } from './metaplex';
 import { isLpKind } from './lpKinds';
+import {
+  BAYLA_DECIMALS,
+  BAYLA_MINT,
+  PLANT_BURN_RAW,
+  PLANT_WORKSHOP_RAW,
+  TOKEN_IX_BURN_CHECKED,
+  TOKEN_IX_TRANSFER_CHECKED,
+  WORKSHOP_BAYLA_ACCOUNT,
+  baylaAccountOf,
+} from './plant';
 import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, TxKind } from './types';
 
 /** Phantom's Lighthouse guard program: assertion-only instructions a wallet may append. */
@@ -261,6 +272,37 @@ function poolAta(
   if (!a.sys.equals(SYSTEM_PROGRAM_ID) || !a.tok.equals(program)) refuse('creates a token account under the wrong programs');
   if (!a.address.equals(associatedTokenAddress(a.mint, a.owner, program))) refuse('creates a token account at the wrong address');
   return { kind: 'create-token-account', owner: a.owner, mint: a.mint, address: a.address };
+}
+
+/**
+ * Token-2022: the plant, and nothing else. Burn 50,000 $BAYLA from the signer's own
+ * $BAYLA account, and send 50,000 from it to the island's Workshop; every account and
+ * number pinned, the source derived from the signer. Any other Token-2022 instruction
+ * (transfer, approve, authority change, mint, close, ...) is refused. Takes a
+ * `CurveIntent`: no liquidity kind may reach Token-2022 (PROGRAMS_BY_KIND), and the
+ * type says so too.
+ */
+function t22(ix: TransactionInstruction, ctx: CurveIntent): IntentStep {
+  const d = ix.data;
+  const tag = d[0];
+  if (tag !== TOKEN_IX_BURN_CHECKED && tag !== TOKEN_IX_TRANSFER_CHECKED) {
+    return refuse('a Token-2022 instruction this page never builds (such as a transfer or an approval)');
+  }
+  if (d.length !== 1 + 8 + 1) refuse('a Token-2022 instruction of the wrong size');
+  const burn = tag === TOKEN_IX_BURN_CHECKED;
+  expectKeyCount(ix, burn ? 3 : 4, burn ? 'the $BAYLA burn' : 'the $BAYLA transfer');
+  const from = baylaAccountOf(ctx.signer);
+  if (!key(ix, 0).equals(from)) refuse('the plant spends from an account that is not your $BAYLA account');
+  if (!key(ix, 1).equals(BAYLA_MINT)) refuse('the plant moves a token other than $BAYLA');
+  if (!burn && !key(ix, 2).equals(WORKSHOP_BAYLA_ACCOUNT)) refuse("the plant sends $BAYLA somewhere other than the island's Workshop");
+  if (!key(ix, burn ? 2 : 3).equals(ctx.signer)) refuse('the plant is signed by someone other than you');
+  const amount = u64(d, 1);
+  if (burn && amount !== PLANT_BURN_RAW) refuse('the plant burns a different amount than 50,000 $BAYLA');
+  if (!burn && amount !== PLANT_WORKSHOP_RAW) refuse("the plant sends a different amount than 50,000 $BAYLA to the island's Workshop");
+  if (d[9] !== BAYLA_DECIMALS) refuse('the plant names the wrong decimals for $BAYLA');
+  return burn
+    ? { kind: 'plant-burn', account: from, mint: BAYLA_MINT, amount }
+    : { kind: 'plant-transfer', from, to: WORKSHOP_BAYLA_ACCOUNT, mint: BAYLA_MINT, amount };
 }
 
 function metaplex(ix: TransactionInstruction, ctx: CurveIntent): IntentStep {
@@ -527,15 +569,16 @@ function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep
 
 // ── the whole transaction ────────────────────────────────────────────────────
 
-type ProgramFamily = 'compute' | 'system' | 'token' | 'ata' | 'metadata' | 'launch' | 'pool';
+type ProgramFamily = 'compute' | 'system' | 'token' | 't22' | 'ata' | 'metadata' | 'launch' | 'pool';
 
 /**
  * The programs each kind of transaction may call at the top level, and nothing else.
  * Inner calls are the called program's business: create_launch itself calls the
- * Associated Token program to open the treasury's token account.
+ * Associated Token program to open the treasury's token account. Token-2022 (`t22`)
+ * is the $BAYLA plant, so only a create may call it.
  */
 export const PROGRAMS_BY_KIND: Readonly<Record<TxKind, ReadonlySet<ProgramFamily>>> = {
-  create: new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'metadata', 'launch']),
+  create: new Set<ProgramFamily>(['compute', 'system', 'token', 't22', 'ata', 'metadata', 'launch']),
   buy: new Set<ProgramFamily>(['compute', 'ata', 'launch']),
   sell: new Set<ProgramFamily>(['compute', 'ata', 'launch']),
   migrate: new Set<ProgramFamily>(['compute', 'launch']),
@@ -564,6 +607,10 @@ function familyOf(p: PublicKey, ctx: IntentContext): ProgramFamily | null {
   if (p.equals(ComputeBudgetProgram.programId)) return 'compute';
   if (p.equals(SYSTEM_PROGRAM_ID)) return 'system';
   if (p.equals(TOKEN_PROGRAM_ID)) return 'token';
+  // Token-2022 is a family only for the launch-program kinds (it is the create's plant,
+  // and PROGRAMS_BY_KIND refuses it in every other curve kind). A liquidity transaction
+  // never calls it at the top level, so to one it is a program this page never uses.
+  if (p.equals(TOKEN_2022_PROGRAM_ID)) return isPoolIntent(ctx) ? null : 't22';
   if (p.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) return 'ata';
   if (p.equals(METAPLEX_TOKEN_METADATA_ID)) return 'metadata';
   if (p.equals(ctx.cfg.programId)) return 'launch';
@@ -604,6 +651,7 @@ export function decodeIntent(
       if (family === 'compute') steps.push(computeBudget(ix));
       else if (family === 'system') steps.push(system(ix, ctx));
       else if (family === 'token') steps.push(token(ix, ctx));
+      else if (family === 't22') steps.push(t22(ix, asCurve(ctx)));
       else if (family === 'ata') steps.push(ata(ix, ctx));
       else if (family === 'metadata') steps.push(metaplex(ix, asCurve(ctx)));
       else if (family === 'launch') steps.push(launch(ix, asCurve(ctx)));
@@ -618,6 +666,11 @@ export function decodeIntent(
     const limits = steps.filter((s) => s.kind === 'compute-limit');
     const prices = steps.filter((s) => s.kind === 'compute-price');
     if (limits.length > 1 || prices.length > 1) refuse('it sets the network fee more than once');
+    // Here, not only in the review's summary: a wallet's returned version is re-decoded
+    // with this function, and never summarized again.
+    const burns = steps.filter((s) => s.kind === 'plant-burn');
+    const gives = steps.filter((s) => s.kind === 'plant-transfer');
+    if (burns.length > 1 || gives.length > 1) refuse('it plants more than once');
     const limit = computeUnitLimit(instructions, steps);
     const price = prices[0]?.kind === 'compute-price' ? prices[0].microLamports : 0n;
     if (priorityLamports(price, limit) > ctx.maxPriorityLamports) refuse('its priority fee is above this page’s limit');

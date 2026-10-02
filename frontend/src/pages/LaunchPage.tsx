@@ -76,6 +76,7 @@ import { useLpEmissionsPhase } from '../hooks/useLpEmissionsPhase';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { LaunchGate } from '../components/LaunchGate';
+import { VenueLaunchLines } from '../components/launcher/VenueLaunchLines';
 import { notifyBirth } from '../lib/launcher/notifyBirth';
 
 const DAY = 86_400;
@@ -530,7 +531,7 @@ export default function LaunchPage() {
           The wizard stays usable either way — the gate is read again, live, inside
           launchToken(), which is the only place it decides anything. */}
       <div className="mt-4 mb-2">
-        <LaunchGate rail="ethereum" />
+        <LaunchGate rail="ethereum" below={<VenueLaunchLines rail="ethereum" />} />
       </div>
 
       <Stepper step={step} />

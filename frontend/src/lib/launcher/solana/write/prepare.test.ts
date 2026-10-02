@@ -7,7 +7,7 @@
 // priority fee, and that the summary equals what the bytes encode.
 import { describe, it, expect } from 'vitest';
 import { Keypair, type PublicKey } from '@solana/web3.js';
-import { ASSOCIATED_TOKEN_PROGRAM_ID, WSOL_MINT, globalPda, poolStatePda } from '../curve/program';
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, WSOL_MINT, globalPda, poolStatePda } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { quoteBuyOnCurve, quoteSellOnCurve } from '../curve/math';
 import { readCurve, type CurveAccount } from '../curve/read';
@@ -16,7 +16,8 @@ import type { LaunchPool } from '../discover/pool';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, launchIndexAddress, readWriteGate } from './config';
 import { prepareMigrate } from './graduate';
-import { LAUNCH_TERMS_CHANGED, prepareCreateLaunch, quoteOpeningBuy } from './launch';
+import { LAUNCH_TERMS_CHANGED, METADATA_URI_MAX_BYTES, prepareCreateLaunch, quoteOpeningBuy } from './launch';
+import { BAYLA_MINT, WORKSHOP_BAYLA_ACCOUNT, WORKSHOP_WALLET, baylaAccountOf } from './plant';
 import { preparePoolSwap } from './poolSwap';
 import { TX_SIZE_LIMIT, checkEffect } from './prepare';
 import { prepareCurveBuy, prepareCurveSell, priceImpactBps } from './trade';
@@ -27,10 +28,12 @@ import {
   LAUNCH,
   VAULT,
   addLaunchPool,
+  addPlantAccounts,
   encodeGlobal,
   cfgLocal,
   freshCurve,
   globalValue,
+  plantMoved,
   rent,
   setClock,
 } from './testkit.fixture';
@@ -52,6 +55,8 @@ async function setup(opts: { paused?: boolean; curve?: ReturnType<typeof freshCu
   chain.set(cpPermissionPda(migrationAuthorityPda(LAUNCH), CPSWAP), { lamports: 1, owner: CPSWAP, data: new Uint8Array(8) });
   chain.tokenAccount(CP_CREATE_POOL_FEE_RECEIVER, WSOL_MINT, VAULT, 0n);
   chain.fund(ME, 10 * SOL);
+  // ME holds 250,000 $BAYLA, and the Workshop's account is there: a launch can plant.
+  addPlantAccounts(chain, ME);
   chain.addCurve(opts.curve ?? freshCurve(MINT, CREATOR), opts.curveLamports);
   const gate = (await readWriteGate(chain, cfgLocal)) as OpenGate;
   expect(gate.kind).toBe('open');
@@ -314,7 +319,8 @@ describe('curve sell', () => {
 });
 
 describe('create', () => {
-  const worst = { name: 'N'.repeat(32), symbol: 'S'.repeat(10), uri: `https://ipfs.io/ipfs/${'b'.repeat(79)}` };
+  // The largest details the encoder allows: name 32, symbol 10, link 80 bytes.
+  const worst = { name: 'N'.repeat(32), symbol: 'S'.repeat(10), uri: `ipfs://${'b'.repeat(73)}` };
   /** The platform reserve create_launch pays at 369 bps of the fixture supply. */
   const reserveOf = (g = globalValue()) => (g.tokenTotalSupply * g.platformReserveBps) / 10_000n;
   /** What the program does to the treasury's token account: it receives the reserve, exactly. */
@@ -335,6 +341,7 @@ describe('create', () => {
       [ME.toBase58()]: { lamportsDelta: -(createRent() + Number(lamportsIn) + TOKEN_RENT) },
       [creatorAta.toBase58()]: { tokenAmount: q.value.tokensOut, mint: mintKp.publicKey, owner: ME },
       ...treasuryGets(mintKp.publicKey),
+      ...plantMoved(ME),
     }, 120_000);
     const p = ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst, openingBuy: { lamportsIn } }));
     expect(p.extraSigners).toEqual([mintKp]);
@@ -354,7 +361,7 @@ describe('create', () => {
   it('the review carries the reserve, its receiver READ FROM CHAIN, and the treasury account rent read from the cluster', async () => {
     const { chain, gate } = await setup();
     const mintKp = Keypair.generate();
-    simulating(chain, { [ME.toBase58()]: { lamportsDelta: -createRent() }, ...treasuryGets(mintKp.publicKey) });
+    simulating(chain, { [ME.toBase58()]: { lamportsDelta: -createRent() }, ...treasuryGets(mintKp.publicKey), ...plantMoved(ME) });
     const p = ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst }));
     if (p.summary.kind !== 'create') throw new Error('kind');
     const treasuryToken = associatedTokenAddress(mintKp.publicKey, VAULT);
@@ -374,6 +381,7 @@ describe('create', () => {
       simulating(chain, {
         [ME.toBase58()]: { lamportsDelta: -createRent() },
         ...(amount > 0n ? treasuryGets(mintKp.publicKey, amount) : {}),
+        ...plantMoved(ME),
       });
       const r = await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst });
       expect(!r.ok && r.outcome.message).toMatch(/different token amount/);
@@ -384,7 +392,7 @@ describe('create', () => {
     const { chain, gate } = await setup();
     const mintKp = Keypair.generate();
     chain.tokenAccount(associatedTokenAddress(mintKp.publicKey, VAULT), mintKp.publicKey, VAULT, 0n);
-    simulating(chain, { [ME.toBase58()]: { lamportsDelta: -(createRent() - TOKEN_RENT) }, ...treasuryGets(mintKp.publicKey) });
+    simulating(chain, { [ME.toBase58()]: { lamportsDelta: -(createRent() - TOKEN_RENT) }, ...treasuryGets(mintKp.publicKey), ...plantMoved(ME) });
     const p = ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst }));
     if (p.summary.kind !== 'create') throw new Error('kind');
     expect(p.summary.treasuryAccountRent).toBe(0n);
@@ -397,6 +405,7 @@ describe('create', () => {
   it('the treasury wallet: an opening buy is refused before anything is simulated; no buy builds', async () => {
     const { chain, gate } = await setup();
     chain.fund(VAULT, 10 * SOL);
+    addPlantAccounts(chain, VAULT);
     const mintKp = Keypair.generate();
     const q = quoteOpeningBuy(gate.global, 50_000_000n);
     if (!q.ok) throw new Error('quote');
@@ -413,7 +422,7 @@ describe('create', () => {
     });
     expect(chain.simulateCalls).toHaveLength(0);
     const plain = Keypair.generate();
-    simulating(chain, { [VAULT.toBase58()]: { lamportsDelta: -createRent() }, ...treasuryGets(plain.publicKey) });
+    simulating(chain, { [VAULT.toBase58()]: { lamportsDelta: -createRent() }, ...treasuryGets(plain.publicKey), ...plantMoved(VAULT) });
     ok(await prepareCreateLaunch(W(chain), gate, { creator: VAULT, mint: plain, metadata: worst }));
   });
 
@@ -427,7 +436,13 @@ describe('create', () => {
     expect(chain.simulateCalls).toHaveLength(0);
   });
 
-  it('worst-case inputs leave at least 150 bytes for a wallet’s own guard instructions', async () => {
+  // Measured 2026-10-01: 1,210 of 1,232 bytes (1,069 before the plant's 4 keys and 2
+  // instructions; the link cap went 100 -> 80). The create NO LONGER keeps 150 bytes for
+  // a wallet's own guard instructions: 22 are left. Whether a wallet then skips its
+  // guards or refuses is unmeasured, and only a real wallet can say.
+  it('the true worst case (name 32, symbol 10, link 80, opening buy, plant) is 1,210 bytes, under the 1,232 limit', async () => {
+    expect(new TextEncoder().encode(worst.uri).length).toBe(METADATA_URI_MAX_BYTES);
+    expect(METADATA_URI_MAX_BYTES).toBe(80);
     const { chain, gate } = await setup();
     const mintKp = Keypair.generate();
     const q = quoteOpeningBuy(gate.global, 50_000_000n);
@@ -436,11 +451,147 @@ describe('create', () => {
       [ME.toBase58()]: { lamportsDelta: -(createRent() + TOKEN_RENT + 50_000_000) },
       [associatedTokenAddress(mintKp.publicKey, ME).toBase58()]: { tokenAmount: q.value.tokensOut, mint: mintKp.publicKey, owner: ME },
       ...treasuryGets(mintKp.publicKey),
+      ...plantMoved(ME),
     });
     const p = ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst, openingBuy: { lamportsIn: 50_000_000n } }));
-    // Recorded for the report: the measured worst case.
-    process.stdout.write(`[size] worst-case create with opening buy: ${p.sizeBytes} of ${TX_SIZE_LIMIT} bytes\n`);
-    expect(TX_SIZE_LIMIT - p.sizeBytes).toBeGreaterThanOrEqual(150);
+    expect(p.steps.map((s) => s.kind).slice(-4)).toEqual(['create-token-account', 'curve-buy', 'plant-burn', 'plant-transfer']);
+    process.stdout.write(`[size] worst-case create with opening buy and plant: ${p.sizeBytes} of ${TX_SIZE_LIMIT} bytes\n`);
+    expect(p.sizeBytes).toBeLessThanOrEqual(TX_SIZE_LIMIT);
+    expect(p.sizeBytes).toBe(1_210);
+  });
+
+  // The plant (island ruling 2): 100,000 $BAYLA from the maker's own $BAYLA account, in
+  // the create transaction itself: 50,000 burned, 50,000 to the island's Workshop.
+  describe('the plant', () => {
+    const T22 = TOKEN_2022_PROGRAM_ID.toBase58();
+    const MINE = baylaAccountOf(ME);
+    const build = async (chain: FakeChain, gate: OpenGate, creator: PublicKey = ME) =>
+      prepareCreateLaunch(W(chain), gate, { creator, mint: Keypair.generate(), metadata: worst });
+
+    it('rides in the create transaction; the review is read back out of the bytes; the test run proves both halves', async () => {
+      const { chain, gate } = await setup();
+      const mintKp = Keypair.generate();
+      simulating(chain, { [ME.toBase58()]: { lamportsDelta: -createRent() }, ...treasuryGets(mintKp.publicKey), ...plantMoved(ME) });
+      const p = ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst }));
+      expect(p.tx.instructions.slice(-2).map((i) => i.programId.toBase58())).toEqual([T22, T22]);
+      if (p.summary.kind !== 'create') throw new Error('kind');
+      expect(p.summary.plant).toEqual({
+        total: 100_000_000_000n,
+        burned: 50_000_000_000n,
+        toWorkshop: 50_000_000_000n,
+        from: MINE,
+        workshopAccount: WORKSHOP_BAYLA_ACCOUNT,
+        mint: BAYLA_MINT,
+        decimals: 6,
+      });
+      expect(p.simulated.tokenDeltas).toContainEqual({ mint: BAYLA_MINT, account: MINE, delta: -100_000_000_000n });
+      expect(p.simulated.tokenDeltas).toContainEqual({ mint: BAYLA_MINT, account: WORKSHOP_BAYLA_ACCOUNT, delta: 50_000_000_000n, role: 'workshop' });
+      // The mint is never watched as a token account: its bytes at offset 64 are not an amount.
+      expect(p.check.watch.tokenAccounts.some((t) => t.account.equals(BAYLA_MINT))).toBe(false);
+      // It moves no SOL and creates no account: rent and the SOL bound are what they were.
+      expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(82) + rent(179) + 2 * TOKEN_RENT));
+    });
+
+    it('BLOCKS a test run in which the Workshop receives anything but 50,000 $BAYLA', async () => {
+      for (const toWorkshop of [49_999_999_999n, 50_000_000_001n, 0n]) {
+        const { chain, gate } = await setup();
+        const mintKp = Keypair.generate();
+        // Your side still loses exactly 100,000: only the Workshop's half is off.
+        simulating(chain, {
+          [ME.toBase58()]: { lamportsDelta: -createRent() },
+          ...treasuryGets(mintKp.publicKey),
+          ...plantMoved(ME, { burned: 100_000_000_000n - toWorkshop, toWorkshop }),
+        });
+        const r = await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst });
+        expect(!r.ok && r.outcome.message, String(toWorkshop)).toMatch(/different token amount/);
+      }
+    });
+
+    it('BLOCKS a test run in which your $BAYLA changes by anything but -100,000', async () => {
+      for (const burned of [49_999_999_999n, 50_000_000_001n, 0n]) {
+        const { chain, gate } = await setup();
+        const mintKp = Keypair.generate();
+        simulating(chain, {
+          [ME.toBase58()]: { lamportsDelta: -createRent() },
+          ...treasuryGets(mintKp.publicKey),
+          ...plantMoved(ME, { burned }),
+        });
+        const r = await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst });
+        expect(!r.ok && r.outcome.message, String(burned)).toMatch(/different token amount/);
+      }
+    });
+
+    it('the Workshop’s own wallet cannot launch: refused before anything is read', async () => {
+      const { chain, gate } = await setup();
+      chain.fund(WORKSHOP_WALLET, 10 * SOL);
+      addPlantAccounts(chain, WORKSHOP_WALLET);
+      chain.calls = [];
+      const r = await build(chain, gate, WORKSHOP_WALLET);
+      expect(!r.ok && r.outcome).toMatchObject({ stage: 'build', message: expect.stringMatching(/is the island's Workshop/) });
+      expect(chain.calls).toEqual([]);
+    });
+
+    it('no $BAYLA account, or less than 100,000 in it: refused before anything is simulated; exactly 100,000 builds', async () => {
+      const none = await setup();
+      none.chain.accounts.delete(MINE.toBase58());
+      let r = await build(none.chain, none.gate);
+      expect(!r.ok && r.outcome).toMatchObject({ stage: 'build', message: 'Your wallet holds no $BAYLA. A launch plants 100,000 $BAYLA, so nothing was built.' });
+      expect(none.chain.simulateCalls).toHaveLength(0);
+
+      const short = await setup();
+      addPlantAccounts(short.chain, ME, 99_999_999_999n);
+      r = await build(short.chain, short.gate);
+      expect(!r.ok && r.outcome).toMatchObject({
+        stage: 'build',
+        message: 'Your $BAYLA account holds 99,999.999999 $BAYLA. A launch plants 100,000 $BAYLA from it, so nothing was built.',
+      });
+      expect(short.chain.simulateCalls).toHaveLength(0);
+
+      const exact = await setup();
+      addPlantAccounts(exact.chain, ME, 100_000_000_000n);
+      const mintKp = Keypair.generate();
+      simulating(exact.chain, {
+        [ME.toBase58()]: { lamportsDelta: -createRent() },
+        ...treasuryGets(mintKp.publicKey),
+        ...plantMoved(ME, { makerAmount: 100_000_000_000n }),
+      });
+      ok(await prepareCreateLaunch(W(exact.chain), exact.gate, { creator: ME, mint: mintKp, metadata: worst }));
+    });
+
+    it('the Workshop account missing, or not the Workshop’s Token-2022 $BAYLA account: refused before anything is simulated', async () => {
+      const stranger = Keypair.generate().publicKey;
+      const cases: Array<[string, (c: FakeChain) => void]> = [
+        ['missing', (c) => void c.accounts.delete(WORKSHOP_BAYLA_ACCOUNT.toBase58())],
+        ['another owner', (c) => void c.token2022Account(WORKSHOP_BAYLA_ACCOUNT, BAYLA_MINT, stranger, 1n)],
+        ['another mint', (c) => void c.token2022Account(WORKSHOP_BAYLA_ACCOUNT, Keypair.generate().publicKey, WORKSHOP_WALLET, 1n)],
+        ['the legacy token program', (c) => void c.tokenAccount(WORKSHOP_BAYLA_ACCOUNT, BAYLA_MINT, WORKSHOP_WALLET, 1n)],
+      ];
+      for (const [label, spoil] of cases) {
+        const { chain, gate } = await setup();
+        spoil(chain);
+        const r = await build(chain, gate);
+        expect(!r.ok && r.outcome.stage, label).toBe('build');
+        expect(!r.ok && r.outcome.message, label).toMatch(label === 'missing' ? /Workshop has no \$BAYLA account/ : /Workshop account is not the \$BAYLA account/);
+        expect(chain.simulateCalls, label).toHaveLength(0);
+      }
+    });
+
+    it('a $BAYLA read that fails refuses; it never passes as "enough"', async () => {
+      for (const [target, why] of [
+        [MINE, /Could not read your \$BAYLA balance/],
+        [WORKSHOP_BAYLA_ACCOUNT, /Could not read the island's Workshop account/],
+      ] as const) {
+        const { chain, gate } = await setup();
+        const real = chain.getAccountInfo;
+        chain.getAccountInfo = async (a: PublicKey) => {
+          if (a.equals(target)) throw new Error('HTTP 429');
+          return real(a);
+        };
+        const r = await build(chain, gate);
+        expect(!r.ok && r.outcome).toMatchObject({ stage: 'build', message: expect.stringMatching(why) });
+        expect(chain.simulateCalls).toHaveLength(0);
+      }
+    });
   });
 
   it('refused while paused, and a name the details instruction cannot hold is refused before any network call', async () => {
@@ -493,7 +644,7 @@ describe('create', () => {
   it('the same terms as the page showed: builds as before', async () => {
     const { chain, gate } = await setup();
     const mintKp = Keypair.generate();
-    simulating(chain, { [ME.toBase58()]: { lamportsDelta: -createRent() }, ...treasuryGets(mintKp.publicKey) });
+    simulating(chain, { [ME.toBase58()]: { lamportsDelta: -createRent() }, ...treasuryGets(mintKp.publicKey), ...plantMoved(ME) });
     ok(await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst }));
   });
 });

@@ -18,7 +18,7 @@ import { LIGHTHOUSE_PROGRAM_ID } from './intent';
 import { prepareCreateLaunch, quoteOpeningBuy } from './launch';
 import { recheckOutcome, submitPrepared } from './submit';
 import { prepareCurveBuy } from './trade';
-import { CPSWAP, FakeChain, LAUNCH, VAULT, cfgLocal, freshCurve, globalValue, rent } from './testkit.fixture';
+import { CPSWAP, FakeChain, LAUNCH, VAULT, addPlantAccounts, cfgLocal, freshCurve, globalValue, plantMoved, rent } from './testkit.fixture';
 import type { OpenGate, PreparedTx, TxOutcome, TxSigner, WriteRpc } from './types';
 
 /** The fake answers every call the write path makes; Connection’s overloads are not worth re-typing. */
@@ -341,6 +341,7 @@ describe('extra signers', () => {
   it('create: the wallet signs first, the mint key after, and every signature verifies', async () => {
     const chain = FakeChain.healthy(globalValue());
     chain.fund(ME, 10_000_000_000);
+    addPlantAccounts(chain, ME);
     const gate = (await readWriteGate(chain, cfgLocal)) as OpenGate;
     const mintKp = Keypair.generate();
     const q = quoteOpeningBuy(gate.global, 10_000_000n);
@@ -359,6 +360,8 @@ describe('extra signers', () => {
               mint: mintKp.publicKey,
               owner: VAULT,
             },
+            // The plant: 100,000 $BAYLA leaves, 50,000 reaches the Workshop.
+            ...plantMoved(ME),
           }) }
         : {}),
     });

@@ -38,6 +38,22 @@ describe('whose error, in plain English', () => {
     expect(explainFailure({ InstructionError: [2, { Custom: 1 }] }, [failed('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', '1')], cfgLocal).message).toMatch(/do not hold that many tokens/);
   });
 
+  // The plant's burn or transfer runs short: Token-2022's InsufficientFunds is also code 1.
+  it('Token-2022’s "insufficient funds" is the plant: this wallet holds less than 100,000 $BAYLA', () => {
+    // Merge with LP stage 2: only a create runs the plant, so the create's kind is passed
+    // (every production caller passes it); a liquidity kind's Token-2022 shortfall is its
+    // pool token's, and keeps the general words.
+    const r = explainFailure({ InstructionError: [8, { Custom: 1 }] }, [failed('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', '1')], cfgLocal, 'create');
+    expect(r).toMatchObject({ program: 'other', code: 1, message: 'This wallet holds less than 100,000 $BAYLA, so the plant cannot be paid.' });
+    expect(r.message).not.toMatch(/\u2014/);
+    // Another Token-2022 code is not the plant's shortfall.
+    expect(explainFailure({ InstructionError: [8, { Custom: 4 }] }, [failed('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', '4')], cfgLocal, 'create').message).toMatch(/error 4/);
+    // Nor is a liquidity transaction's: its pool token can be a Token-2022 token.
+    for (const kind of ['lp-deposit', 'lp-withdraw', 'lp-create'] as const) {
+      expect(explainFailure({ InstructionError: [8, { Custom: 1 }] }, [failed('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', '1')], cfgLocal, kind).message).toBe('You do not hold that many tokens.');
+    }
+  });
+
   it('no logs: falls back to the error object, and never invents a launch-program reason', () => {
     expect(explainFailure({ InstructionError: [3, { Custom: 6007 }] }, undefined, cfgLocal)).toMatchObject({ program: 'other', code: 6007 });
     expect(explainFailure({ weird: true }, [], cfgLocal).message).toBe('The transaction could not run.');

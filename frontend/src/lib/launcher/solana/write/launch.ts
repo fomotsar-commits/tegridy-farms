@@ -19,7 +19,10 @@
 //      (`launchIndexAddress`) lets the site find launches later;
 //   5. optionally, the creator's own opening buy, clearly labelled. Its minimum
 //      is the quote EXACTLY: nothing can trade between step 4 and step 5 inside one
-//      transaction, so there is no price movement to allow for.
+//      transaction, so there is no price movement to allow for;
+//   6. the plant (island ruling 2), always last: 100,000 $BAYLA from the creator's
+//      own $BAYLA account, 50,000 burned and 50,000 to the island's Workshop. $BAYLA
+//      is a Token-2022 mint, so these are two Token-2022 instructions (plant.ts).
 //
 // The fresh mint keypair signs as well, after the wallet. It lives in memory only.
 
@@ -30,6 +33,7 @@ import {
 } from '@solana/spl-token';
 import { TOKEN_PROGRAM_ID, type GlobalConfig } from '../curve/program';
 import { associatedTokenAddress, buyIx, createLaunchIx } from '../curve/ix';
+import { formatTokenAmount } from '../curve/format';
 import { curveSupply, quoteBuyOnCurve, type CurveTerms } from '../curve/math';
 import { clipDetail, readCreateLaunchCost, readGlobal, type CreateLaunchCost, type Read } from '../curve/read';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
@@ -43,6 +47,19 @@ import {
   METADATA_SYMBOL_MAX_BYTES,
   METADATA_URI_MAX_BYTES,
 } from './metaplex';
+import {
+  BAYLA_DECIMALS,
+  BAYLA_MINT,
+  PLANT_TOTAL_RAW,
+  PLANT_WORKSHOP_RAW,
+  WORKSHOP_BAYLA_ACCOUNT,
+  WORKSHOP_WALLET,
+  baylaAccountOf,
+  plantInstructions,
+  readPlantBalance,
+  readWorkshopAccount,
+  type PlantBalance,
+} from './plant';
 import { bodySteps, buildAndSimulate, confirmedReads, notSent } from './prepare';
 import type { IntentStep, OpenGate, Prepared, TxSummary, WriteRpc } from './types';
 
@@ -150,6 +167,8 @@ export function createLaunchInstructions(
       ),
     );
   }
+  // Appended last, so every index above stays where it was.
+  ixs.push(...plantInstructions(creator));
   return ixs;
 }
 
@@ -180,11 +199,38 @@ function findStep<K extends IntentStep['kind']>(steps: IntentStep[], kind: K): E
   return steps.find((s) => s.kind === kind) as Extract<IntentStep, { kind: K }> | undefined;
 }
 
+function allSteps<K extends IntentStep['kind']>(steps: IntentStep[], kind: K): Array<Extract<IntentStep, { kind: K }>> {
+  return steps.filter((s) => s.kind === kind) as Array<Extract<IntentStep, { kind: K }>>;
+}
+
+export const PLANT_FROM_WORKSHOP =
+  "This wallet is the island's Workshop: it receives half of every plant, so it cannot plant one. Launch from another wallet. Nothing was built.";
+
+/**
+ * Why this launch cannot plant, before anything is simulated, or null when it can.
+ * A read that failed refuses: it never passes as "enough". "100,000" is written out.
+ */
+export function plantRefusal(from: Read<PlantBalance>, workshop: Read<{ amount: bigint }>): string | null {
+  if (from.kind === 'unreadable') return 'Could not read your $BAYLA balance just now, so nothing was built. Try again.';
+  if (from.kind !== 'ok') return 'Your $BAYLA account could not be read as a $BAYLA account, so nothing was built.';
+  if (!from.value.accountExists) return 'Your wallet holds no $BAYLA. A launch plants 100,000 $BAYLA, so nothing was built.';
+  if (from.value.amount < PLANT_TOTAL_RAW) {
+    const held = formatTokenAmount(from.value.amount, BAYLA_DECIMALS, BAYLA_DECIMALS).text;
+    return `Your $BAYLA account holds ${held} $BAYLA. A launch plants 100,000 $BAYLA from it, so nothing was built.`;
+  }
+  if (workshop.kind === 'unreadable') return "Could not read the island's Workshop account just now, so nothing was built. Try again.";
+  if (workshop.kind === 'absent') return "The island's Workshop has no $BAYLA account, so the plant has nowhere to go. Nothing was built.";
+  if (workshop.kind !== 'ok') return "The island's Workshop account is not the $BAYLA account this page expects, so nothing was built.";
+  return null;
+}
+
 export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: CreateLaunchInput): Promise<Prepared> {
   if (gate.paused) return notSent('build', 'New launches are paused right now.');
   const creator = input.creator;
   const mint = input.mint.publicKey;
   if (mint.equals(creator)) return notSent('build', 'The new token address must be a fresh key.');
+  // The plant's source and its Workshop half would be one account: refused, unread.
+  if (creator.equals(WORKSHOP_WALLET)) return notSent('build', PLANT_FROM_WORKSHOP);
 
   // `create_launch` copies the launch terms from the program's settings AS THEY ARE
   // when it runs. The page showed `gate.global`, read when it loaded; the operator can
@@ -232,19 +278,29 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
 
   // Rent, read from the cluster: the mint, and what create_launch charges the
   // creator (the curve, its vault and, when missing, the treasury's token account).
+  // And the plant's two accounts, read again here whatever the form showed.
   let mintRent: number;
   let cost: CreateLaunchCost;
+  let plantFrom: Read<PlantBalance>;
+  let workshop: Read<{ amount: bigint }>;
   try {
-    const [m, c] = await Promise.all([
+    const [m, c, f, w] = await Promise.all([
       rpc.getMinimumBalanceForRentExemption(MINT_SIZE),
       readCreateLaunchCost(confirmedReads(rpc), mint, feeRecipient),
+      readPlantBalance(rpc, creator),
+      readWorkshopAccount(rpc),
     ]);
     if (!Number.isSafeInteger(m) || m < 0 || c.kind !== 'ok') throw new Error('rent');
     mintRent = m;
     cost = c.value;
+    plantFrom = f;
+    workshop = w;
   } catch {
     return notSent('build', 'Could not read the network to prepare this launch.');
   }
+  const cannotPlant = plantRefusal(plantFrom, workshop);
+  if (cannotPlant) return notSent('build', cannotPlant);
+  const plantAccount = baylaAccountOf(creator);
 
   let body: TransactionInstruction[];
   try {
@@ -274,6 +330,10 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
         ...(openingBuy ? [{ account: creatorAta, mint }] : []),
         // Not yours: watched so the test run proves the reserve lands where the review says.
         { account: treasuryToken, mint, role: 'treasury' as const },
+        // The plant: your own $BAYLA, and the Workshop's. The $BAYLA mint is never
+        // watched: it is not a token account, and its byte 64 is not an amount.
+        { account: plantAccount, mint: BAYLA_MINT },
+        { account: WORKSHOP_BAYLA_ACCOUNT, mint: BAYLA_MINT, role: 'workshop' as const },
       ],
     },
     expect: (_pre, rents) => ({
@@ -291,6 +351,9 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
           : []),
         // The treasury receives the platform reserve, exactly.
         { account: treasuryToken, mint, minDelta: reserveTokens, maxDelta: reserveTokens },
+        // The plant, exactly: 100,000 $BAYLA leave your account, 50,000 reach the Workshop.
+        { account: plantAccount, mint: BAYLA_MINT, minDelta: -PLANT_TOTAL_RAW, maxDelta: -PLANT_TOTAL_RAW },
+        { account: WORKSHOP_BAYLA_ACCOUNT, mint: BAYLA_MINT, minDelta: PLANT_WORKSHOP_RAW, maxDelta: PLANT_WORKSHOP_RAW },
       ],
     }),
     // The token details account is sized by Metaplex, so its rent is only in the simulated total.
@@ -300,7 +363,12 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
       const meta = findStep(s, 'create-metadata');
       const init = findStep(s, 'init-mint');
       const launch = findStep(s, 'create-launch');
-      if (!meta || !init || !launch) return 'The launch transaction is missing a step, so it was blocked.';
+      const burns = allSteps(s, 'plant-burn');
+      const gives = allSteps(s, 'plant-transfer');
+      if (!meta || !init || !launch || burns.length !== 1 || gives.length !== 1) {
+        return 'The launch transaction is missing a step, so it was blocked.';
+      }
+      const [burn, give] = [burns[0]!, gives[0]!];
       if (!launch.feeRecipient.equals(feeRecipient) || !launch.treasuryToken.equals(treasuryToken)) {
         return 'The platform reserve in the transaction goes somewhere other than the treasury, so it was blocked.';
       }
@@ -327,6 +395,15 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
             ? { amount: reserveTokens, bps: reserveBps, recipient: feeRecipient, treasuryToken }
             : null,
         treasuryAccountRent: cost.treasuryToken,
+        plant: {
+          total: burn.amount + give.amount,
+          burned: burn.amount,
+          toWorkshop: give.amount,
+          from: burn.account,
+          workshopAccount: give.to,
+          mint: burn.mint,
+          decimals: BAYLA_DECIMALS,
+        },
       };
     },
   });

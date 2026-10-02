@@ -134,9 +134,10 @@ export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-
 /**
  * What a watched token account is, so the review can name it and print it in its
  * own mint's decimals. `treasury` is the platform treasury's account (create: the
- * reserve arriving); the rest are the signer's own. No role = the signer's token.
+ * reserve arriving); `workshop` is the island Workshop's $BAYLA account (create: the
+ * plant's half); the rest are the signer's own. No role = the signer's token.
  */
-export type TokenRole = 'treasury' | 'lp' | 'wsol' | 'token';
+export type TokenRole = 'treasury' | 'workshop' | 'lp' | 'wsol' | 'token';
 
 /**
  * One instruction of the FINAL transaction, decoded back out of its bytes.
@@ -189,6 +190,10 @@ export type IntentStep =
       minimumAmountOut: bigint;
     }
   | { kind: 'close-wsol' }
+  /** The plant, half 1: $BAYLA burned from the signer's own $BAYLA account (create only). */
+  | { kind: 'plant-burn'; account: PublicKey; mint: PublicKey; amount: bigint }
+  /** The plant, half 2: $BAYLA sent from that account to the island's Workshop (create only). */
+  | { kind: 'plant-transfer'; from: PublicKey; to: PublicKey; mint: PublicKey; amount: bigint }
   /** cp-swap `deposit`: exactly `lpAmount` pool shares, at most `max0` / `max1` of each side. */
   | { kind: 'pool-deposit'; pool: PublicKey; lpAmount: bigint; max0: bigint; max1: bigint }
   /** cp-swap `withdraw`: `lpAmount` pool shares out of `lpAccount`, at least `min0` / `min1` back. */
@@ -232,6 +237,20 @@ export type TxSummary =
        * the cluster (never a constant). `0n` when that account already exists.
        */
       treasuryAccountRent: bigint;
+      /**
+       * The plant this same transaction pays (island ruling 2), read back out of its
+       * bytes: `burned` is destroyed and `toWorkshop` reaches `workshopAccount`, both
+       * from `from`, the creator's own $BAYLA account. Amounts in $BAYLA base units.
+       */
+      plant: {
+        total: bigint;
+        burned: bigint;
+        toWorkshop: bigint;
+        from: PublicKey;
+        workshopAccount: PublicKey;
+        mint: PublicKey;
+        decimals: 6;
+      };
     }
   | {
       kind: 'buy';
@@ -393,7 +412,8 @@ export interface SimulatedEffect {
   /**
    * Change in each watched token account, with the watch entry's `role` and
    * `decimals` copied across. Without `role` it is the signer's own token;
-   * `role: 'treasury'` is the platform treasury's (create: the reserve arriving).
+   * `role: 'treasury'` is the platform treasury's (create: the reserve arriving), and
+   * `role: 'workshop'` the island Workshop's $BAYLA account (create: the plant's half).
    */
   tokenDeltas: Array<{ mint: PublicKey; account: PublicKey; delta: bigint; role?: TokenRole; decimals?: number }>;
 }
@@ -525,9 +545,9 @@ export interface Expectation {
 export interface WatchList {
   signer: PublicKey;
   /**
-   * The signer's own token accounts, plus (create only) the treasury's, marked
-   * `role: 'treasury'`. `decimals` is that mint's, when the builder knows it; the
-   * review falls back to the page's token decimals without it.
+   * The signer's own token accounts, plus (create only) the treasury's and the
+   * Workshop's, marked by `role`. `decimals` is that mint's, when the builder knows
+   * it; the review falls back to the page's token decimals without it.
    */
   tokenAccounts: Array<{ account: PublicKey; mint: PublicKey; role?: TokenRole; decimals?: number }>;
 }

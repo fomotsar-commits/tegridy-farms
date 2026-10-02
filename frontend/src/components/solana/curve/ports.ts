@@ -35,6 +35,7 @@ import type { GateRpc } from '../../../lib/launcher/solana/write/config';
 import type { CreateLaunchInput } from '../../../lib/launcher/solana/write/launch';
 import type { LpDepositArgs, LpPrepareReads, LpWithdrawArgs } from '../../../lib/launcher/solana/write/liquidity';
 import type { LpCreateArgs } from '../../../lib/launcher/solana/write/createPool';
+import type { PlantBalance } from '../../../lib/launcher/solana/write/plant';
 import type { LaunchPool, LaunchPoolRead } from '../../../lib/launcher/solana/discover/pool';
 import type { TokenMetadata } from '../../../lib/launcher/solana/discover/metadata';
 import type { LaunchListItem, LaunchListPage, LaunchOrigin } from '../../../lib/launcher/solana/discover/list';
@@ -85,7 +86,7 @@ export type {
   WriteGate,
   WriteRpc,
 } from '../../../lib/launcher/solana/write/types';
-export type { GateRpc, CreateLaunchInput, LaunchPool, LaunchPoolRead, TokenMetadata, LaunchListItem, LaunchListPage, LaunchOrigin };
+export type { GateRpc, CreateLaunchInput, PlantBalance, LaunchPool, LaunchPoolRead, TokenMetadata, LaunchListItem, LaunchListPage, LaunchOrigin };
 export type { LpCreateArgs, LpDepositArgs, LpPrepareReads, LpWithdrawArgs };
 export type { Checked, ImageMime, LaunchLinks, LaunchMetadataJson, ReadLaunchMetadata } from '../../../lib/launchMetadata/validate.js';
 export type { MetadataRead, PreparedImage, PreparedImageResult, UploadInput, UploadResult } from '../../../lib/launchMetadata/upload';
@@ -126,6 +127,8 @@ export interface WriteApi {
   priceImpactBps(c: CurveTerms, side: 'buy' | 'sell', amountIn: bigint, amountOut: bigint): bigint | null;
 
   prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: CreateLaunchInput): Promise<Prepared>;
+  /** What the maker's own $BAYLA account holds: the plant spends from it. A failed read is never 0. */
+  readPlantBalance(rpc: WriteRpc, owner: PublicKey): Promise<Read<PlantBalance>>;
   prepareCurveBuy(
     rpc: WriteRpc,
     gate: OpenGate,

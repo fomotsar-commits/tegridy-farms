@@ -26,9 +26,10 @@ export function loadWriteApi(): Promise<WriteApi> {
 }
 
 async function build(): Promise<WriteApi> {
-  const [config, launch, trade, graduate, poolSwap, submit, metadata, list, pool, validate, upload] = await Promise.all([
+  const [config, launch, plant, trade, graduate, poolSwap, submit, metadata, list, pool, validate, upload] = await Promise.all([
     import('../../../lib/launcher/solana/write/config'),
     import('../../../lib/launcher/solana/write/launch'),
+    import('../../../lib/launcher/solana/write/plant'),
     import('../../../lib/launcher/solana/write/trade'),
     import('../../../lib/launcher/solana/write/graduate'),
     import('../../../lib/launcher/solana/write/poolSwap'),
@@ -50,6 +51,7 @@ async function build(): Promise<WriteApi> {
     priceImpactBps: trade.priceImpactBps,
 
     prepareCreateLaunch: launch.prepareCreateLaunch,
+    readPlantBalance: plant.readPlantBalance,
     prepareCurveBuy: trade.prepareCurveBuy,
     prepareCurveSell: trade.prepareCurveSell,
     prepareMigrate: graduate.prepareMigrate,

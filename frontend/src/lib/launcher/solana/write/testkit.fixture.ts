@@ -41,6 +41,14 @@ import {
 import { isqrt } from '../../../solana/lp/liquidityMath';
 import { associatedTokenAddress } from '../curve/ix';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
+import {
+  BAYLA_MINT,
+  PLANT_BURN_RAW,
+  PLANT_WORKSHOP_RAW,
+  WORKSHOP_BAYLA_ACCOUNT,
+  WORKSHOP_WALLET,
+  baylaAccountOf,
+} from './plant';
 
 export const LAUNCH = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
 export const CPSWAP = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
@@ -260,8 +268,9 @@ export const EXT = { ImmutableOwner: 7, MemoTransfer: 8, CpiGuard: 11, TransferF
 
 /**
  * A Token-2022 token account as the associated-token program creates it: the base
- * layout, the account-type byte (2), then ImmutableOwner, so 170 bytes. CPI Guard and
- * required memos add their own one-byte extensions after it.
+ * layout, the account-type byte (2), then ImmutableOwner, so 170 bytes (the size of the
+ * Workshop's $BAYLA account on mainnet; the plant's fixtures use it with no options).
+ * CPI Guard and required memos add their own one-byte extensions after it.
  */
 export function encodeToken2022Account(
   mint: PublicKey,
@@ -331,6 +340,30 @@ export function encodeMint2022(extensions: Array<[number, number]>, o: MintOptio
     at += 4 + l;
   }
   return d;
+}
+
+/** 250,000 $BAYLA: what the test maker holds unless a test says otherwise. */
+export const MAKER_BAYLA = 250_000_000_000n;
+/** The Workshop's $BAYLA balance as read on mainnet, 2026-10-01. */
+export const WORKSHOP_BAYLA = 135_491_275_155_257n;
+
+/** The plant's two accounts: `maker`'s own $BAYLA account holding `makerAmount`, and the Workshop's. */
+export function addPlantAccounts(chain: FakeChain, maker: PublicKey, makerAmount: bigint = MAKER_BAYLA): FakeChain {
+  chain.token2022Account(baylaAccountOf(maker), BAYLA_MINT, maker, makerAmount);
+  return chain.token2022Account(WORKSHOP_BAYLA_ACCOUNT, BAYLA_MINT, WORKSHOP_WALLET, WORKSHOP_BAYLA);
+}
+
+/** Simulated post-state for the plant: `burned + toWorkshop` leaves the maker, `toWorkshop` reaches the Workshop. */
+export function plantMoved(
+  maker: PublicKey,
+  o: { burned?: bigint; toWorkshop?: bigint; makerAmount?: bigint } = {},
+): Record<string, { tokenAmount: bigint; mint: PublicKey; owner: PublicKey }> {
+  const burned = o.burned ?? PLANT_BURN_RAW;
+  const toWorkshop = o.toWorkshop ?? PLANT_WORKSHOP_RAW;
+  return {
+    [baylaAccountOf(maker).toBase58()]: { tokenAmount: (o.makerAmount ?? MAKER_BAYLA) - burned - toWorkshop, mint: BAYLA_MINT, owner: maker },
+    [WORKSHOP_BAYLA_ACCOUNT.toBase58()]: { tokenAmount: WORKSHOP_BAYLA + toWorkshop, mint: BAYLA_MINT, owner: WORKSHOP_WALLET },
+  };
 }
 
 /**

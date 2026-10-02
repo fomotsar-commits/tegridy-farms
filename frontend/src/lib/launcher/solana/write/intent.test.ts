@@ -9,8 +9,10 @@ import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, TransactionIns
 import {
   createApproveInstruction,
   createAssociatedTokenAccountIdempotentInstruction,
+  createBurnCheckedInstruction,
   createCloseAccountInstruction,
   createSetAuthorityInstruction,
+  createTransferCheckedInstruction,
   createTransferInstruction,
   AuthorityType,
   createInitializeMint2Instruction,
@@ -22,8 +24,9 @@ import { TOKEN_2022_PROGRAM_ID, depositIx, swapBaseInputIx, withdrawIx } from '.
 import { computeUnitLimit, decodeIntent, LIGHTHOUSE_PROGRAM_ID, priorityLamports } from './intent';
 import { createLaunchInstructions } from './launch';
 import { createMetadataV3Ix, metadataPda } from './metaplex';
+import { BAYLA_MINT, WORKSHOP_BAYLA_ACCOUNT, WORKSHOP_WALLET, baylaAccountOf, plantInstructions } from './plant';
 import { AMM_CONFIG, CPSWAP, LAUNCH, VAULT, cfgLocal, globalValue } from './testkit.fixture';
-import type { IntentContext, OpenGate } from './types';
+import type { IntentContext, OpenGate, TxKind } from './types';
 
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
@@ -94,7 +97,13 @@ describe('what this site builds decodes into readable steps', () => {
     if (!r.ok) return;
     expect(r.steps.map((s) => s.kind)).toEqual([
       'create-mint-account', 'init-mint', 'create-metadata', 'create-launch', 'create-token-account', 'curve-buy',
+      'plant-burn', 'plant-transfer',
     ]);
+    // The plant, read back out of the bytes: from your own $BAYLA account, exact amounts.
+    expect(r.steps[6]).toEqual({ kind: 'plant-burn', account: baylaAccountOf(ME), mint: BAYLA_MINT, amount: 50_000_000_000n });
+    expect(r.steps[7]).toEqual({
+      kind: 'plant-transfer', from: baylaAccountOf(ME), to: WORKSHOP_BAYLA_ACCOUNT, mint: BAYLA_MINT, amount: 50_000_000_000n,
+    });
     const meta = r.steps[2];
     expect(meta).toMatchObject({ kind: 'create-metadata', name: 'Tegridy', symbol: 'TGD', uri: 'https://ipfs.io/ipfs/x' });
     expect(r.steps[5]).toMatchObject({ kind: 'curve-buy', maxLamportsIn: 7n, minTokensOut: 6n });
@@ -291,6 +300,98 @@ describe('refused: a program this KIND of transaction never calls', () => {
   it('a graduation is the launch program alone', () => {
     refused([buy()], /no creator|this kind|wrong/, { ...ctx, kind: 'migrate', creator: undefined });
     refused([swap()], /this kind of transaction never uses/, { ...ctx, kind: 'migrate' });
+  });
+});
+
+// The plant (island ruling 2): Token-2022 is allowed for a create ONLY, and only as
+// these two shapes: burn 50,000 $BAYLA from your own $BAYLA account, and send 50,000
+// to the island's Workshop. Every other Token-2022 instruction is refused.
+describe('the plant: exactly two Token-2022 shapes, in a create only', () => {
+  const T22 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+  const MINE = baylaAccountOf(ME);
+  const [burnIx, giveIx] = plantInstructions(ME);
+  const burnOf = (o: Partial<{ from: PublicKey; mint: PublicKey; owner: PublicKey; amount: bigint; decimals: number; signers: PublicKey[]; program: PublicKey }> = {}) =>
+    createBurnCheckedInstruction(o.from ?? MINE, o.mint ?? BAYLA_MINT, o.owner ?? ME, o.amount ?? 50_000_000_000n, o.decimals ?? 6, o.signers ?? [], o.program ?? T22);
+  const giveOf = (o: Partial<{ from: PublicKey; mint: PublicKey; to: PublicKey; owner: PublicKey; amount: bigint; decimals: number; signers: PublicKey[]; program: PublicKey }> = {}) =>
+    createTransferCheckedInstruction(o.from ?? MINE, o.mint ?? BAYLA_MINT, o.to ?? WORKSHOP_BAYLA_ACCOUNT, o.owner ?? ME, o.amount ?? 50_000_000_000n, o.decimals ?? 6, o.signers ?? [], o.program ?? T22);
+
+  it('the builders here are the plant’s own bytes, and they decode', () => {
+    expect(burnOf().data.equals(burnIx.data)).toBe(true);
+    expect(giveOf().data.equals(giveIx.data)).toBe(true);
+    const r = decodeIntent([burnOf(), giveOf()], ctx);
+    expect(r.ok && r.steps.map((s) => s.kind)).toEqual(['plant-burn', 'plant-transfer']);
+  });
+
+  it('a third Token-2022 instruction', () => {
+    refused([burnIx, giveIx, createTransferInstruction(MINE, WORKSHOP_BAYLA_ACCOUNT, ME, 1n, [], T22)], /Token-2022 instruction this page never builds/);
+    refused([burnIx, giveIx, createApproveInstruction(MINE, STRANGER, ME, 1n, [], T22)], /Token-2022 instruction this page never builds/);
+  });
+
+  it('a second burn, or a second transfer', () => {
+    refused([burnIx, burnIx, giveIx], /plants more than once/);
+    refused([burnIx, giveIx, giveIx], /plants more than once/);
+  });
+
+  it('the Workshop’s half sent to any other account', () => {
+    for (const to of [
+      associatedTokenAddress(BAYLA_MINT, WORKSHOP_WALLET), // the legacy-program derivation (G2JTfW…)
+      WORKSHOP_WALLET,
+      baylaAccountOf(STRANGER),
+      MINE,
+    ]) {
+      refused([burnIx, giveOf({ to })], /somewhere other than the island's Workshop/);
+    }
+  });
+
+  it('a different amount, either half', () => {
+    for (const amount of [49_999_999_999n, 50_000_000_001n, 100_000_000_000n, 0n]) {
+      refused([burnOf({ amount }), giveIx], /burns a different amount/);
+      refused([burnIx, giveOf({ amount })], /sends a different amount/);
+    }
+  });
+
+  it('wrong decimals', () => {
+    refused([burnOf({ decimals: 9 }), giveIx], /decimals/);
+    refused([burnIx, giveOf({ decimals: 0 })], /decimals/);
+  });
+
+  it('a mint other than $BAYLA', () => {
+    const other = Keypair.generate().publicKey;
+    refused([burnOf({ mint: other }), giveIx], /other than \$BAYLA/);
+    refused([burnIx, giveOf({ mint: other })], /other than \$BAYLA/);
+  });
+
+  it('from an account that is not your own $BAYLA account', () => {
+    refused([burnOf({ from: baylaAccountOf(STRANGER) }), giveIx], /not your \$BAYLA account/);
+    refused([burnIx, giveOf({ from: baylaAccountOf(STRANGER) })], /not your \$BAYLA account/);
+  });
+
+  it('a different authority', () => {
+    refused([burnOf({ owner: STRANGER }), giveIx], /someone other than you/);
+    refused([burnIx, giveOf({ owner: STRANGER })], /someone other than you/);
+  });
+
+  it('a multisig signer tail', () => {
+    const signer = Keypair.generate().publicKey;
+    refused([burnOf({ signers: [signer] }), giveIx], /accounts, expected 3/);
+    refused([burnIx, giveOf({ signers: [signer] })], /accounts, expected 4/);
+  });
+
+  it('a stray byte on either instruction', () => {
+    const pad = (ix: TransactionInstruction) => new TransactionInstruction({ programId: ix.programId, keys: ix.keys, data: Buffer.concat([ix.data, Buffer.from([0])]) });
+    refused([pad(burnIx), giveIx], /wrong size/);
+    refused([burnIx, pad(giveIx)], /wrong size/);
+  });
+
+  it('the same shapes under the legacy token program are not the plant', () => {
+    refused([burnOf({ program: TOKEN_PROGRAM_ID }), giveIx], /token instruction this page never builds/);
+  });
+
+  it('Token-2022 in any kind of transaction but a create', () => {
+    for (const kind of ['buy', 'sell', 'migrate', 'pool-buy', 'pool-sell'] as TxKind[]) {
+      refused([burnIx], /this kind of transaction never uses/, { ...ctx, kind });
+      refused([giveIx], /this kind of transaction never uses/, { ...ctx, kind });
+    }
   });
 });
 

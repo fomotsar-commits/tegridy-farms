@@ -6,6 +6,17 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-02
+
+- On /eth-curve, the create form opens only through the Who may plant door, and Create launch reads the wallet's held time again before anything is signed or sent. The launches list and trading stay open to anyone.
+- The launch door reads 80 served degrees in every production build: no setting can switch it off or lower it.
+- A Solana launch is never announced to the island as a birth, even by a hand-made request.
+- Every Solana launch on /curve-launch plants 100,000 $BAYLA in its own create transaction: 50,000 burned and 50,000 to the island's Workshop.
+- Every launch page says under its door that it is a venue launch; on /curve-launch it also says a plant is 100,000 $BAYLA, half burned.
+- The Solana launch form shows the plant and your $BAYLA before Review, and will not review a launch your wallet cannot plant.
+- The Solana launch review lists the plant: 100,000 $BAYLA, 50,000 burned and 50,000 to the island's Workshop, from your own $BAYLA account.
+- A Solana launch's page shows the maker's create-buy as a share of the supply with the maker's wallet, says it has no lock, and shows whether its launch transaction carried the plant. The launches list shows the same maker figure.
+
 ### 2026-10-01
 
 - On /pools, a connected Solana wallet can add liquidity to one of our Solana pools whose checks pass, and take its share back out. Each transaction is read again, checked and test-run on the network before the wallet is asked to sign.

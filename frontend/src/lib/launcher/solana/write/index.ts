@@ -7,7 +7,9 @@
 //   config.ts    gate 1 (committed ids in production) and gate 2 (the chain), and
 //                which actions may be offered
 //   launch.ts    create a launch in one signature (mint, locked details, launch,
-//                optional opening buy)
+//                optional opening buy, then the $BAYLA plant)
+//   plant.ts     the plant: 100,000 $BAYLA, half burned, half to the island's
+//                Workshop (two Token-2022 instructions), and its balance reads
 //   trade.ts     curve buy / sell
 //   graduate.ts  finish graduation
 //   poolSwap.ts  buy / sell in the graduated launch's own pool
@@ -28,6 +30,7 @@
 export * from './types';
 export * from './config';
 export * from './launch';
+export * from './plant';
 export * from './trade';
 export * from './graduate';
 export * from './poolSwap';

@@ -165,7 +165,7 @@ describe('create transaction: every launch-program instruction matches the IDL',
     VAULT,
   );
 
-  it('is create account, init mint, metadata, create_launch, ATA, buy, in that order', () => {
+  it('is create account, init mint, metadata, create_launch, ATA, buy, then the plant (burn, Workshop), in that order', () => {
     expect(ixs.map((i) => i.programId.toBase58())).toEqual([
       SYSTEM_PROGRAM_ID.toBase58(),
       TOKEN_PROGRAM_ID.toBase58(),
@@ -173,7 +173,22 @@ describe('create transaction: every launch-program instruction matches the IDL',
       LAUNCH.toBase58(),
       ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
       LAUNCH.toBase58(),
+      TOKEN_2022_PROGRAM_ID.toBase58(),
+      TOKEN_2022_PROGRAM_ID.toBase58(),
     ]);
+    // The plant is appended LAST, so every launch-program index above stays where it was.
+    expect(ixs.slice(6).map((i) => i.data[0])).toEqual([15, 12]);
+  });
+
+  it('without an opening buy the plant follows create_launch directly', () => {
+    const plain = createLaunchInstructions(
+      gate,
+      { creator: CREATOR, mint: MINT_KP, metadata: { name: 'Test', symbol: 'TST', uri: 'https://ipfs.io/ipfs/bafy' } },
+      1_461_600,
+      null,
+      VAULT,
+    );
+    expect(plain.map((i) => i.programId.toBase58()).slice(3)).toEqual([LAUNCH.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58()]);
   });
 
   it('create_launch: 11 IDL accounts (the platform reserve paid to the treasury), then the launch index', () => {

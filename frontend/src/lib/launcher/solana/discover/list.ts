@@ -17,20 +17,29 @@
 // "none in the latest N", never "no launches". `HIDDEN_MINTS` lists mints never shown.
 
 // Every row also carries what was bought in the launch transaction itself, by ANY
-// wallet: a creator can buy most of the curve at the opening price in the same
-// transaction (directly, through another program, or from a second wallet) and sell
-// into later buyers. It is read from the transaction's token balances, never from which
+// wallet and per wallet, the supply at birth, and the $BAYLA plant: a creator can buy
+// most of the curve at the opening price in the same transaction and sell into later
+// buyers. All of it is read from the transaction's token balances, never from which
 // instructions we recognise. "Could not read" is kept apart from 0.
 
 import { Buffer } from 'buffer';
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
-import { IX_DISCRIMINATOR, TOKEN_PROGRAM_ID, curvePda, curveVaultPda, decodeBondingCurve, type BondingCurve } from '../curve/program';
+import {
+  IX_DISCRIMINATOR,
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  curvePda,
+  curveVaultPda,
+  decodeBondingCurve,
+  type BondingCurve,
+} from '../curve/program';
 import { effectiveReserves } from '../curve/math';
 import { clipDetail, type CurveAccount, type CurveRpc, type Read } from '../curve/read';
 import type { SolanaRpc } from '../curve/rpc';
 import { associatedTokenAddress } from '../curve/ix';
 import { launchIndexAddress } from '../write/config';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../write/metaplex';
+import { BAYLA_MINT, WORKSHOP_BAYLA_ACCOUNT } from '../write/plant';
 import { decodeTokenMetadata, type TokenMetadata } from './metadata';
 import type { CurveWriteConfig } from '../write/types';
 
@@ -55,6 +64,24 @@ export interface LaunchOrigin {
    */
   openingBuyTokens: bigint | null;
   /**
+   * The same tokens, per OWNER wallet (accounts with nothing new are left out), so the
+   * maker's own create-buy can be told from other wallets'. `null` = could not read:
+   * the balances are missing or do not add up, or one of them names no owner.
+   */
+  boughtByOwner: ReadonlyArray<{ owner: PublicKey; tokens: bigint }> | null;
+  /**
+   * The whole supply at birth: the sum of the mint's balances after this transaction,
+   * the curve vault included (create_launch mints the supply in it). A share of today's
+   * supply would grow with every later burn. `null` = could not read.
+   */
+  birthSupply: bigint | null;
+  /**
+   * The $BAYLA this transaction burned (before minus after, over every $BAYLA balance in
+   * it) and sent to the island's Workshop account. `null` = could not read, including a
+   * $BAYLA balance not under Token-2022 or more $BAYLA after than before.
+   */
+  plant: { burned: bigint; toWorkshop: bigint } | null;
+  /**
    * Who received the platform reserve: the fee recipient named in this launch's own
    * `create_launch` (account 8, which the program pins to `global.fee_recipient` as it
    * was then). The config can be changed later, so this, not today's config, is who
@@ -69,6 +96,8 @@ export interface LaunchListItem {
   signature: string;
   blockTime: number | null;
   openingBuyTokens: bigint | null;
+  boughtByOwner: LaunchOrigin['boughtByOwner'];
+  birthSupply: bigint | null;
   curve: Read<CurveAccount>;
   metadata: Read<TokenMetadata>;
 }
@@ -105,6 +134,8 @@ interface TokenBalance {
   accountIndex: number;
   mint: string;
   owner?: string;
+  /** The token program that owns the account. */
+  programId?: string;
   uiTokenAmount?: { amount?: string };
 }
 
@@ -200,13 +231,16 @@ export function parseLaunchTransaction(
 
   const vault = curveVaultPda(mint, programId);
   const reserve = treasuryToken ? reservePaid(t.meta, keys, createIndex, vault, treasuryToken) : 0n;
-  const openingBuyTokens = boughtInLaunch(t.meta, keys, mint, vault, treasuryToken, reserve);
+  const gains = gainedInLaunch(t.meta, keys, mint, vault, treasuryToken, reserve);
   return {
     signature,
     blockTime: typeof t.blockTime === 'number' ? t.blockTime : null,
     creator,
     mint,
-    openingBuyTokens,
+    openingBuyTokens: gains ? gains.reduce((sum, g) => sum + g.gained, 0n) : null,
+    boughtByOwner: byOwner(gains),
+    birthSupply: supplyAtBirth(t.meta, keys, mint, vault),
+    plant: plantMoved(t.meta, keys),
     reserveRecipient,
   };
 }
@@ -267,32 +301,34 @@ function reservePaid(
   return paid;
 }
 
-/** Tokens of `mint` that reached any account but the curve's own vault in this transaction:
- *  every other account's increase, less the platform reserve (`reserve`, paid inside
- *  create_launch, not a buy) on the treasury's token account, which also holds a buy when
- *  the treasury's own wallet launches and buys. `null` when the balances are missing, when
- *  the curve vault is not among them (create_launch always fills it, so the record is
- *  incomplete), when an amount does not parse, or when the reserve could not be read. */
-function boughtInLaunch(
+/** A balance's amount in base units; throws on anything but a plain integer. */
+function rawAmount(b: TokenBalance): bigint {
+  const a = b.uiTokenAmount?.amount;
+  if (typeof a !== 'string' || !/^\d+$/.test(a)) throw new Error('amount');
+  return BigInt(a);
+}
+
+/** What each account of `mint` but the curve's own vault gained in this transaction, less
+ *  the platform reserve (`reserve`, paid inside create_launch, not a buy) on the treasury's
+ *  token account, which also holds a buy when the treasury's own wallet launches and buys.
+ *  `null` when the balances are missing, when the curve vault is not among them
+ *  (create_launch always fills it, so the record is incomplete), when an amount does not
+ *  parse, or when the reserve could not be read. */
+function gainedInLaunch(
   meta: NonNullable<RawTx['meta']>,
   keys: PublicKey[],
   mint: PublicKey,
   vault: PublicKey,
   treasuryToken: PublicKey | null,
   reserve: bigint | null,
-): bigint | null {
+): Array<{ owner: string | undefined; gained: bigint }> | null {
   const post = meta.postTokenBalances;
   const pre = meta.preTokenBalances;
   if (!Array.isArray(post) || !Array.isArray(pre)) return null;
   const m58 = mint.toBase58();
-  const amount = (b: TokenBalance): bigint => {
-    const a = b.uiTokenAmount?.amount;
-    if (typeof a !== 'string' || !/^\d+$/.test(a)) throw new Error('amount');
-    return BigInt(a);
-  };
   try {
     let sawVault = false;
-    let total = 0n;
+    const out: Array<{ owner: string | undefined; gained: bigint }> = [];
     for (const b of post) {
       if (!b || b.mint !== m58) continue;
       const k = keys[b.accountIndex];
@@ -302,16 +338,89 @@ function boughtInLaunch(
         continue;
       }
       const before = pre.find((x) => x && x.mint === m58 && x.accountIndex === b.accountIndex);
-      let delta = amount(b) - (before ? amount(before) : 0n);
+      let delta = rawAmount(b) - (before ? rawAmount(before) : 0n);
       if (treasuryToken && k.equals(treasuryToken)) {
         if (reserve === null) return null;
         delta -= reserve;
         // Less than the reserve arrived: the record does not add up.
         if (delta < 0n) return null;
       }
-      if (delta > 0n) total += delta;
+      out.push({ owner: b.owner, gained: delta > 0n ? delta : 0n });
     }
-    return sawVault ? total : null;
+    return sawVault ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The gains grouped by the wallet that owns each account. A balance with no owner, or an
+ *  owner that is not an address, makes the whole read `null`: never a guess at whose it was. */
+function byOwner(gains: Array<{ owner: string | undefined; gained: bigint }> | null): LaunchOrigin['boughtByOwner'] {
+  if (!gains) return null;
+  const totals = new Map<string, bigint>();
+  for (const g of gains) {
+    if (typeof g.owner !== 'string') return null;
+    if (g.gained > 0n) totals.set(g.owner, (totals.get(g.owner) ?? 0n) + g.gained);
+  }
+  try {
+    return [...totals].map(([owner, tokens]) => ({ owner: new PublicKey(owner), tokens }));
+  } catch {
+    return null;
+  }
+}
+
+/** The sum of `mint`'s balances after this transaction, the curve vault included. `null`
+ *  when the balances are missing, the vault is not among them, or an amount does not parse. */
+function supplyAtBirth(meta: NonNullable<RawTx['meta']>, keys: PublicKey[], mint: PublicKey, vault: PublicKey): bigint | null {
+  const post = meta.postTokenBalances;
+  if (!Array.isArray(post)) return null;
+  const m58 = mint.toBase58();
+  try {
+    let sawVault = false;
+    let total = 0n;
+    for (const b of post) {
+      if (!b || b.mint !== m58) continue;
+      const k = keys[b.accountIndex];
+      if (!k) return null;
+      if (k.equals(vault)) sawVault = true;
+      total += rawAmount(b);
+    }
+    return sawVault && total > 0n ? total : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The plant, read from the balances. $BAYLA has no transfer fee, so it leaves a
+ *  transaction's accounts only by a burn: burned = before minus after over every $BAYLA
+ *  balance. The Workshop's account is the constant Token-2022 one, never a legacy-Token
+ *  derivation. A $BAYLA balance not under Token-2022, or less before than after, is `null`. */
+function plantMoved(meta: NonNullable<RawTx['meta']>, keys: PublicKey[]): LaunchOrigin['plant'] {
+  const post = meta.postTokenBalances;
+  const pre = meta.preTokenBalances;
+  if (!Array.isArray(post) || !Array.isArray(pre)) return null;
+  const bayla = BAYLA_MINT.toBase58();
+  const token2022 = TOKEN_2022_PROGRAM_ID.toBase58();
+  const sum = (list: TokenBalance[]) => {
+    let total = 0n;
+    let workshop = 0n;
+    for (const b of list) {
+      if (!b || b.mint !== bayla) continue;
+      if (b.programId !== token2022) throw new Error('not a Token-2022 balance');
+      const k = keys[b.accountIndex];
+      if (!k) throw new Error('account');
+      const a = rawAmount(b);
+      total += a;
+      if (k.equals(WORKSHOP_BAYLA_ACCOUNT)) workshop += a;
+    }
+    return { total, workshop };
+  };
+  try {
+    const before = sum(pre);
+    const after = sum(post);
+    const burned = before.total - after.total;
+    if (burned < 0n) return null;
+    return { burned, toWorkshop: after.workshop - before.workshop };
   } catch {
     return null;
   }
@@ -401,6 +510,8 @@ async function enrich(rpc: SolanaRpc, cfg: CurveWriteConfig, origins: LaunchOrig
       signature: o.signature,
       blockTime: o.blockTime,
       openingBuyTokens: o.openingBuyTokens,
+      boughtByOwner: o.boughtByOwner,
+      birthSupply: o.birthSupply,
       curve,
       metadata,
     };
@@ -499,7 +610,8 @@ export function listLaunchesByCreator(
 /** The transaction that created a launch, found from the chain: first through the token
  *  details account, which only the launch transaction normally touches; then through the
  *  curve account's oldest signature (only when its whole history fits in one page, so
- *  "oldest" is really oldest). */
+ *  "oldest" is really oldest). Anyone can mention the details account cheaply, so too much
+ *  history there moves on to the curve; only when both fail is it "could not read". */
 export async function readLaunchOrigin(rpc: SolanaRpc, cfg: CurveWriteConfig, mint: PublicKey): Promise<Read<LaunchOrigin>> {
   const tryAddress = async (address: PublicKey, limit: number): Promise<Read<LaunchOrigin> | null> => {
     const sigs = asSigInfos(await rpc('getSignaturesForAddress', [address.toBase58(), { limit, commitment: 'confirmed' }]));
@@ -516,10 +628,10 @@ export async function readLaunchOrigin(rpc: SolanaRpc, cfg: CurveWriteConfig, mi
   };
   try {
     const viaMeta = await tryAddress(metadataPda(mint), 20);
-    if (viaMeta) return viaMeta;
+    if (viaMeta?.kind === 'ok') return viaMeta;
     const viaCurve = await tryAddress(curvePda(mint, cfg.programId), 1000);
     if (viaCurve) return viaCurve;
-    return { kind: 'absent' };
+    return viaMeta ?? { kind: 'absent' };
   } catch (e) {
     return { kind: 'unreadable', detail: clipDetail(e) };
   }

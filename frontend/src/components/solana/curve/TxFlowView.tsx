@@ -25,6 +25,9 @@ function tokenText(v: bigint, d: number | null, maxFractionDigits?: number): str
   const f = formatTokenAmount(v, d, maxFractionDigits);
   return f.isBaseUnits ? `${f.text} (base units)` : f.text;
 }
+/** $BAYLA always has 6 decimals, whatever the launch token's are. */
+const BAYLA_DECIMALS = 6;
+const baylaText = (v: bigint) => formatTokenAmount(v, BAYLA_DECIMALS, BAYLA_DECIMALS).text;
 
 /** The amount a fee is measured against, in lamports, when the trade has one. */
 function tradeLamports(s: TxSummary): bigint | null {
@@ -106,6 +109,7 @@ export function SummaryRows({
             <Row label="Opening buy" value="none" mono={false} />
           )}
           <CreateReserveRows summary={summary} />
+          <CreatePlantRows plant={summary.plant} />
         </>
       );
     case 'buy':
@@ -448,6 +452,39 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
 }
 
 /**
+ * The plant this create pays (island ruling 2), read back out of the transaction itself:
+ * half burned, half to the island's Workshop, both from the creator's own $BAYLA account.
+ */
+function CreatePlantRows({ plant }: { plant: Extract<TxSummary, { kind: 'create' }>['plant'] }) {
+  const bayla = (v: bigint) => `${baylaText(v)} $BAYLA`;
+  return (
+    <>
+      <Row label="Plant, in this transaction" value={bayla(plant.total)} mono={false} />
+      <Row label="Burned" value={bayla(plant.burned)} mono={false} />
+      <Row label="To the island's Workshop" value={bayla(plant.toWorkshop)} mono={false} />
+      <Row label="Into its $BAYLA account" value={plant.workshopAccount.toBase58()} />
+      <Row label="From your $BAYLA account" value={plant.from.toBase58()} />
+    </>
+  );
+}
+
+/**
+ * One test-run token change, in words for whose it is and for what this kind of
+ * transaction does with it. The plant's are always in $BAYLA; every other account is
+ * in its own mint's decimals when the builder knew them.
+ */
+function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: PreparedTx, decimals: number | null) {
+  const summary = prepared.summary;
+  const sign = t.delta < 0n ? '-' : '+';
+  const amount = t.delta < 0n ? -t.delta : t.delta;
+  if (t.role === 'workshop') return { label: TEST_RUN_LABEL.workshop, value: `${sign}${baylaText(amount)} $BAYLA` };
+  if (summary.kind === 'create' && t.role !== 'treasury' && t.mint.equals(summary.plant.mint)) {
+    return { label: 'Test run: your $BAYLA changes by', value: `${sign}${baylaText(amount)}` };
+  }
+  return { label: testRunLabel(prepared.kind, t.role ?? 'token'), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
+}
+
+/**
  * The pool creator's cut, when the pool charges one. cp-swap takes it on top of the
  * trade fee: from what you pay, or from what you receive, depending on the pool.
  */
@@ -478,6 +515,7 @@ export function PoolCreatorFeeRow({
 /** What each watched account's test-run line is called. No role = the signer's token. */
 const TEST_RUN_LABEL: Record<TokenRole, string> = {
   treasury: 'Test run: the platform treasury receives',
+  workshop: "Test run: the island's Workshop receives",
   token: 'Test run: your tokens change by',
   wsol: 'Test run: your wrapped SOL changes by',
   lp: 'Test run: your pool shares change by',
@@ -537,12 +575,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
       {prepared.simulated.tokenDeltas
         .filter((t) => t.delta !== 0n)
         .map((t) => (
-          <Row
-            key={t.account.toBase58()}
-            label={testRunLabel(prepared.kind, t.role ?? 'token')}
-            // Each account in its own mint's decimals when the builder knew them.
-            value={`${t.delta < 0n ? '-' : '+'}${tokenText(t.delta < 0n ? -t.delta : t.delta, t.decimals ?? decimals)}`}
-          />
+          <Row key={t.account.toBase58()} {...deltaRow(t, prepared, decimals)} />
         ))}
     </>
   );

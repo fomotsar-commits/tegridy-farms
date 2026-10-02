@@ -170,6 +170,85 @@ describe('the door on the Solana rail', () => {
   });
 });
 
+// What a page hands the door as `below` (the venue lines) sits directly under the door in
+// every state, outside it, and before the lane. On both rails the lane follows the door,
+// so at phone width the order is door, lines, form.
+describe('the slot under the door, on both rails, in every state', () => {
+  const UNDER = 'the lines under the door';
+  const under = <p data-testid="under">{UNDER}</p>;
+  const tree = (rail: 'solana' | 'ethereum', wallet: string | null) => (
+    <MemoryRouter>
+      {rail === 'solana' ? (
+        <LaunchGate rail="solana" wallet={wallet} below={under}>
+          <p>{LANE}</p>
+        </LaunchGate>
+      ) : (
+        <LaunchGate rail="ethereum" below={under}>
+          <p>{LANE}</p>
+        </LaunchGate>
+      )}
+    </MemoryRouter>
+  );
+  const expectUnderTheDoor = () => {
+    const door = screen.getByRole('region', { name: 'Who may plant' });
+    const slot = screen.getByTestId('under');
+    expect(door.contains(slot), 'the slot is not part of the door').toBe(false);
+    expect(door.nextElementSibling, 'the slot is the very next thing after the door').toBe(slot);
+    return slot;
+  };
+
+  for (const rail of ['solana', 'ethereum'] as const) {
+    const wallet = rail === 'solana' ? SOL_A : EVM;
+    const connect = (w: string | null) => {
+      if (rail === 'ethereum') h.evmAddress = w ?? undefined;
+      return render(tree(rail, rail === 'solana' ? w : null));
+    };
+
+    it(`${rail}: with no wallet`, () => {
+      connect(null);
+      expectUnderTheDoor();
+      expect(lane()).not.toBeInTheDocument();
+    });
+
+    it(`${rail}: while the door reads`, async () => {
+      h.fetchHeat.mockReturnValue(new Promise(() => {}));
+      connect(wallet);
+      await screen.findByText(/against the island.s instrument/);
+      expectUnderTheDoor();
+    });
+
+    it(`${rail}: COLD`, async () => {
+      h.fetchHeat.mockResolvedValue(reading(wallet, 12, 'Observer'));
+      connect(wallet);
+      await screen.findByText('COLD');
+      expectUnderTheDoor();
+      expect(lane()).not.toBeInTheDocument();
+    });
+
+    it(`${rail}: STALE`, async () => {
+      h.fetchHeat.mockRejectedValue(new Error('unreachable'));
+      connect(wallet);
+      await screen.findByText('STALE');
+      expectUnderTheDoor();
+      expect(lane()).not.toBeInTheDocument();
+    });
+
+    it(`${rail}: WARM, and the open lane comes after the slot, outside the door`, async () => {
+      h.fetchHeat.mockResolvedValue(reading(wallet, 95, 'Resident'));
+      connect(wallet);
+      await screen.findByText('WARM');
+      if (rail === 'ethereum') {
+        expectUnderTheDoor();
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: 'Prove this wallet is yours' }));
+        });
+      }
+      const slot = expectUnderTheDoor();
+      expect(slot.nextElementSibling).toBe(screen.getByText(LANE));
+    });
+  }
+});
+
 describe('the door on the Ethereum rail', () => {
   it('with no wallet, keeps its own connect line and no Solana sentence', () => {
     render(

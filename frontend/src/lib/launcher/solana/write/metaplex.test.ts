@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
+import { LIMITS, checkContentUri } from '../../../launchMetadata/validate.js';
 import {
+  METADATA_URI_MAX_BYTES,
   METAPLEX_TOKEN_METADATA_ID,
   createMetadataV3Ix,
   decodeCreateMetadataV3,
@@ -55,7 +57,7 @@ describe('CreateMetadataAccountV3, byte for byte', () => {
     expect(metadataPda(MINT).equals(want)).toBe(true);
   });
 
-  it('refuses a name over 32 bytes, a symbol over 10, a URI over 100, empties and NULs', () => {
+  it('refuses a name over 32 bytes, a symbol over 10, a URI over 80, empties and NULs', () => {
     const mk = (o: Partial<{ name: string; symbol: string; uri: string }>) => () =>
       createMetadataV3Ix({ ...base, name: 'ok', symbol: 'OK', uri: 'https://x', ...o });
     expect(mk({ name: 'x'.repeat(32) })).not.toThrow();
@@ -65,10 +67,25 @@ describe('CreateMetadataAccountV3, byte for byte', () => {
     expect(mk({ name: '\u{1F33F}'.repeat(9) })).toThrow(/36 bytes/);
     expect(mk({ symbol: 'X'.repeat(10) })).not.toThrow();
     expect(mk({ symbol: 'X'.repeat(11) })).toThrow();
-    expect(mk({ uri: 'h'.repeat(100) })).not.toThrow();
-    expect(mk({ uri: 'h'.repeat(101) })).toThrow();
+    expect(mk({ uri: 'h'.repeat(80) })).not.toThrow();
+    expect(mk({ uri: 'h'.repeat(81) })).toThrow(/81 bytes/);
     expect(mk({ name: '' })).toThrow(/empty/);
     expect(mk({ name: 'a\u0000b' })).toThrow(/NUL/);
+  });
+
+  // The cap is sized to the links the form can produce, so the create transaction
+  // still fits with the plant in it (prepare.test.ts measures it).
+  it('the link cap is 80, the same as the form’s, and the longest link the form makes fits it', () => {
+    expect(METADATA_URI_MAX_BYTES).toBe(80);
+    expect(LIMITS.uriBytes).toBe(METADATA_URI_MAX_BYTES);
+    const longestCid = `b${'a'.repeat(70)}`;
+    for (const pasted of [`ipfs://${longestCid}`, `https://${longestCid}.ipfs.w3s.link/`, `https://arweave.net/${'A'.repeat(43)}`]) {
+      const c = checkContentUri(pasted);
+      expect(c.ok, pasted).toBe(true);
+      const uri = c.ok ? c.value : '';
+      expect(new TextEncoder().encode(uri).length, uri).toBeLessThanOrEqual(METADATA_URI_MAX_BYTES);
+      expect(() => createMetadataV3Ix({ ...base, name: 'A', symbol: 'AB', uri })).not.toThrow();
+    }
   });
 });
 

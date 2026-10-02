@@ -246,6 +246,9 @@ const TOKEN_PROGRAMS = new Set([TOKEN_PROGRAM_ID.toBase58(), TOKEN_2022_PROGRAM_
 const NOT_ENOUGH_SOL =
   'Your wallet does not have enough SOL for this, including the network fee and any one-time account costs.';
 
+/** True whether it failed in the test run or on chain, so it says nothing about what was sent. */
+const PLANT_SHORT = 'This wallet holds less than 100,000 $BAYLA, so the plant cannot be paid.';
+
 /**
  * Explain a failed simulation or a reverted transaction.
  *
@@ -287,6 +290,12 @@ export function explainFailure(
     const program = programOf(id, cfg);
     const lp = lpFailure(kind, program, id, code);
     if (lp !== null) return { program, code, message: lp };
+    // In a create, Token-2022 runs only the $BAYLA plant, so its "insufficient funds"
+    // is the plant's. Only in a create: a liquidity transaction's pool token can be a
+    // Token-2022 token, and its shortfall is the general one below.
+    if (kind === 'create' && program === 'other' && id === TOKEN_2022_PROGRAM_ID.toBase58() && code === 1) {
+      return { program, code, message: PLANT_SHORT };
+    }
     // Both token programs number "insufficient funds" 1.
     if (program === 'other' && TOKEN_PROGRAMS.has(id) && code === 1) {
       return { program, code, message: 'You do not hold that many tokens.' };

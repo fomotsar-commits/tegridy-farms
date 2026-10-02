@@ -16,6 +16,23 @@ export const KEY = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 export const MINT = KEY(1);
 export const CREATOR = KEY(2);
 
+/**
+ * The $BAYLA plant every create summary carries. `from` is a stand-in: deriving the
+ * creator's real $BAYLA account needs PDA maths, which fails under jsdom.
+ */
+export const PLANT_SUMMARY: Extract<TxSummary, { kind: 'create' }>['plant'] = {
+  total: 100_000_000_000n,
+  burned: 50_000_000_000n,
+  toWorkshop: 50_000_000_000n,
+  from: KEY(13),
+  workshopAccount: new PublicKey('9i7vMCBcTSs3CsEZNcNDmH5Lh8yuH6aqYULNHWfxatwT'),
+  mint: new PublicKey('7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump'),
+  decimals: 6,
+};
+
+/** A maker with enough $BAYLA to plant: 150,000 in their own $BAYLA account (a stand-in address). */
+export const PLANT_BALANCE_ENOUGH = { account: KEY(13), amount: 150_000_000_000n, accountExists: true };
+
 export function globalCfg(over: Partial<GlobalConfig> = {}): GlobalConfig {
   return {
     authority: KEY(3),
@@ -152,6 +169,7 @@ export function fakeApi(over: Partial<WriteApi> = {}): WriteApi {
     })),
     priceImpactBps: vi.fn(() => 25n),
     prepareCreateLaunch: vi.fn(),
+    readPlantBalance: vi.fn(async () => ({ kind: 'ok' as const, value: PLANT_BALANCE_ENOUGH })),
     prepareCurveBuy: vi.fn(),
     prepareCurveSell: vi.fn(),
     prepareMigrate: vi.fn(),
