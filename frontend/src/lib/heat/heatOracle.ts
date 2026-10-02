@@ -21,7 +21,7 @@ export const TIER_FLOORS: readonly { tier: HeatTier; floor: number }[] = [
 ] as const;
 
 /** The launch floor in degrees: 80, the Resident band. Residents may plant.
- *  A degrees floor, never a tenure rule. heatLaunchFloor() is the operator override. */
+ *  A degrees floor, never a tenure rule. heatLaunchFloor() reads it; only a dev server may override. */
 export const LAUNCH_FLOOR = 80;
 
 /** The freshness window in days: an older reading may not pass or fail anyone. */
