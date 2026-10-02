@@ -464,7 +464,20 @@ export interface PreparedCheck {
 /** What was on chain before the transaction, for the accounts the check watches. */
 export interface PreState {
   signerLamports: bigint;
-  tokens: Map<string, { exists: boolean; amount: bigint }>;
+  tokens: Map<string, PreToken>;
+}
+
+/**
+ * One watched token account before the transaction. `lamports` and `nativeReserve`
+ * matter only for wrapped SOL: a sync turns every lamport above the reserve and the
+ * balance into balance, so the check needs both to know what a sync may add
+ * (`syncCredit` in wsol.ts). `nativeReserve` is null for an account that is not native.
+ */
+export interface PreToken {
+  exists: boolean;
+  amount: bigint;
+  lamports: bigint;
+  nativeReserve: bigint | null;
 }
 
 /**

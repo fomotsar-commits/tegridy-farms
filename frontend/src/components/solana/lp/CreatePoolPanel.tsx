@@ -513,7 +513,7 @@ function CreateInner({
           </div>
           <p className="text-white/40 text-[10px]">
             {wsolKept && facts?.kind === 'ok'
-              ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. It is left exactly as it is.`
+              ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. None of it is spent.`
               : 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'}
           </p>
         </>

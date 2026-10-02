@@ -36,7 +36,7 @@ import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import { slippageProblem } from './trade';
 import type { OpenGate, Prepared, TxSummary, WriteRpc } from './types';
-import { closeWsolIxs, openWsolIx, wrapIxs, wsolPlanFrom, type WsolPlan } from './wsol';
+import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom, type WsolPlan } from './wsol';
 
 export async function preparePoolSwap(
   rpc: WriteRpc,
@@ -155,12 +155,14 @@ export async function preparePoolSwap(
       // A WSOL account we create and do not close keeps its rent.
       const wsolRent = !wsolExists && !unwrapsWsol ? rents.tokenAccount : 0n;
       if (a.side === 'buy') {
+        const kept = unwrapsWsol ? 0n : syncCredit(pre.tokens.get(wsolAta.toBase58()), rents.tokenAccount);
         return {
           maxSolOut: a.amountIn + (tokenExists ? 0n : rents.tokenAccount) + wsolRent,
           tokens: [
             { account: tokenAta, mint: a.mint, minDelta: minimumAmountOut, maxDelta: 2n ** 64n },
-            // Whatever was wrapped in is swapped out: the WSOL balance ends where it began.
-            { account: wsolAta, mint: WSOL_MINT, minDelta: 0n, maxDelta: 0n },
+            // Whatever was wrapped in is swapped out: the WSOL balance ends where it began
+            // (kept: plus exactly what the wrap's sync credits from lamports it already held).
+            { account: wsolAta, mint: WSOL_MINT, minDelta: kept, maxDelta: kept },
           ],
         };
       }

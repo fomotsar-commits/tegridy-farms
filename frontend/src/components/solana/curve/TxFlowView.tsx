@@ -328,7 +328,7 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
       <Notice>
         {s.unwrapsWsol
           ? 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'
-          : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. It is left exactly as it is. Up to ${solExact(unused)} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`}
+          : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent. Up to ${solExact(unused)} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`}
       </Notice>
     </>
   );
@@ -439,7 +439,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       <Notice>
         {s.unwrapsWsol
           ? 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'
-          : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. It is left exactly as it is.`}
+          : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent.`}
       </Notice>
       {s.origin === 'other' && (
         <Notice tone="warn">
@@ -524,7 +524,7 @@ const TEST_RUN_LABEL: Record<TokenRole, string> = {
 /** The test-run line for an account, said for what this kind of transaction does with it. */
 function testRunLabel(kind: TxKind, role: TokenRole): string {
   // An opening's `treasury` account is the pool program's fee account, owned by the team's vault.
-  if (kind === 'lp-create' && role === 'treasury') return "Test run: the fee to open arrives at the team's vault (SOL)";
+  if (kind === 'lp-create' && role === 'treasury') return "Test run: the team's vault account gains, in SOL (the fee, plus any SOL that account was already holding)";
   return TEST_RUN_LABEL[role];
 }
 

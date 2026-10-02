@@ -10,7 +10,8 @@ import { Keypair } from '@solana/web3.js';
 import { WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { encodeTokenAccountWith } from './testkit.fixture';
-import { wsolPlanFrom } from './wsol';
+import { syncCredit, wsolPlanFrom } from './wsol';
+import { nativeReserve } from './prepare';
 
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
@@ -49,5 +50,54 @@ describe('wsolPlanFrom', () => {
 
   it('an account too short to be a token account is unreadable, never planned', () => {
     expect(wsolPlanFrom(ME, { data: new Uint8Array(72) })).toBe('Your wrapped-SOL account could not be read.');
+  });
+});
+
+// Mainnet, 2026-10-02: the pool program's fee account was set up when 165 bytes of rent
+// cost 2,039,280 lamports; today they cost 1,488,440, and mainnet's token program
+// re-prices a native account's reserve when it syncs. Its first sync credited the
+// 550,840 difference as balance, and an exact balance row blocked every opening.
+describe('syncCredit: exactly what one sync adds on top of what the transaction moves', () => {
+  const OLD = 2_039_280n;
+  const NOW = 1_488_440n;
+  const native = (o: { amount: bigint; reserve: bigint; extra?: bigint }) => ({
+    exists: true,
+    amount: o.amount,
+    lamports: o.reserve + o.amount + (o.extra ?? 0n),
+    nativeReserve: o.reserve,
+  });
+
+  it('set up under the old rent: the old reserve’s surplus, re-priced to today’s rent as mainnet does', () => {
+    expect(syncCredit(native({ amount: 0n, reserve: OLD }), NOW)).toBe(550_840n);
+    expect(syncCredit(native({ amount: 7n, reserve: OLD }), NOW)).toBe(550_840n);
+  });
+
+  it('lamports sent to it and never synced are credited too, and only those', () => {
+    expect(syncCredit(native({ amount: 0n, reserve: NOW, extra: 1_000n }), NOW)).toBe(1_000n);
+    expect(syncCredit(native({ amount: 0n, reserve: OLD, extra: 1_000n }), NOW)).toBe(551_840n);
+  });
+
+  it('nothing for an account in step, missing or not native', () => {
+    expect(syncCredit(native({ amount: 9n, reserve: NOW }), NOW)).toBe(0n);
+    expect(syncCredit(undefined, NOW)).toBe(0n);
+    expect(syncCredit({ exists: false, amount: 0n, lamports: 0n, nativeReserve: null }, NOW)).toBe(0n);
+    expect(syncCredit({ exists: true, amount: 5n, lamports: OLD + 5n, nativeReserve: null }, NOW)).toBe(0n);
+  });
+
+  it('a rent RISE is not modelled: no credit, so a sync that lowers the balance lands off the row and is refused', () => {
+    expect(syncCredit(native({ amount: 0n, reserve: NOW }), OLD)).toBe(0n);
+  });
+
+  it('never negative, even for an account holding less than its reserve and balance', () => {
+    expect(syncCredit({ exists: true, amount: 10n, lamports: NOW, nativeReserve: NOW }, NOW)).toBe(0n);
+  });
+});
+
+describe('nativeReserve: the reserve a wrapped-SOL account stores', () => {
+  it('reads is_native at bytes 109-120; not native or too short is null', () => {
+    expect(nativeReserve(encodeTokenAccountWith(WSOL_MINT, ME, 0n, { native: { reserve: 2_039_280n } }))).toBe(2_039_280n);
+    expect(nativeReserve(encodeTokenAccountWith(WSOL_MINT, ME, 0n))).toBeNull();
+    expect(nativeReserve(new Uint8Array(120))).toBeNull();
+    expect(nativeReserve(null)).toBeNull();
   });
 });

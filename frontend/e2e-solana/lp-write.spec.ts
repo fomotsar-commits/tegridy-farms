@@ -525,7 +525,7 @@ test.describe('group B (chromium only)', () => {
     await connect(p);
     const { panel } = await addAndReview(a, B.a1.address, '0.2');
     const { rows, plan } = await reviewDeposit(a, panel, B.a1.address, 'sol', sol(0.2));
-    await expect(ui.review(p)).toContainText(`You already hold ${formatSol(held0, 9)} wrapped SOL. It is left exactly as it is.`);
+    await expect(ui.review(p)).toContainText(`You already hold ${formatSol(held0, 9)} wrapped SOL. None of it is spent.`);
     const depositLine = rows['Test run: your wrapped SOL changes by'];
     await signConfirmed(a);
     const held1 = (await tokenAmount(wsolAcc))!;
