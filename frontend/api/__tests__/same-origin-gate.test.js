@@ -128,6 +128,7 @@ describe("no api/ file gates requests on the bare Origin-header shape", () => {
       "_lib/launch-radar.js",
       "_lib/launcher-outcomes.js",
       "_lib/launch-cohort.js",
+      "_lib/evm-birth.js",
       "_lib/alerts.js",
       "_lib/referrals.js",
       "_lib/commerce.js",

@@ -31,6 +31,7 @@ const ORIGIN_GATED = [
   "api/supabase-proxy.js",
   "api/v1/index.js",
   "api/_lib/aggregator-proxy.js",
+  "api/_lib/evm-birth.js",
   "api/_lib/launch-cohort.js",
   "api/_lib/launch-radar.js",
   "api/_lib/launcher-outcomes.js",

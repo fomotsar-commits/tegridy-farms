@@ -20,6 +20,7 @@ import {
   type AttestationLookup,
 } from '../lib/launcher/attestation';
 import { CHAIN_ID } from '../lib/constants';
+import { MakerPlatesCard } from '../components/launcher/EvmMakerPlates';
 import {
   clipMessage as clip,
   parseTokenParam,
@@ -151,6 +152,8 @@ export default function LaunchTokenPage() {
       <PageArtBackdrop pageId="launch-token" />
       <div className="relative z-10 max-w-[880px] mx-auto px-4 md:px-6 pt-8 pb-28 md:pb-16">
         <TokenHeader address={parsed.address} sheet={state.phase === 'ready' ? state.data.sheet : null} />
+        {/* The maker's allocation and its lock (rulings 3 and 4), loaded on its own like the attestation. */}
+        <MakerPlatesCard client={publicClient} token={parsed.address} />
 
         {state.phase === 'loading' && (
           <div className="glass-card rounded-xl p-6 text-center">

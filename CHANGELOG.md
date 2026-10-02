@@ -8,6 +8,8 @@ page keeps the newest thirty days.
 
 ### 2026-10-02
 
+- An Ethereum launch's page (/launch) shows the maker's allocation, its wallet and its vesting lock, read from the launch's own transaction.
+- A Memetics Curve launch's page shows the maker's create-buy and its wallet, read from the launch transaction, and says the curve has no lock.
 - /nb1, the island's open lot, opens on its own heading and picture from the first second, and its link preview carries no em dash.
 - The BAYLA lock ladder card says 2,000,000 of its rewards came from the island's Workshop on 2026-09-24.
 - On /eth-curve, the create form opens only through the Who may plant door, and Create launch reads the wallet's held time again before anything is signed or sent. The launches list and trading stay open to anyone.

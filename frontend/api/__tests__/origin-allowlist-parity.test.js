@@ -46,6 +46,7 @@ const MIRRORS = [
   join("auth", "siwe.js"),
   join("v1", "index.js"),
   join("_lib", "aggregator-proxy.js"),
+  join("_lib", "evm-birth.js"),
   join("_lib", "launch-cohort.js"),
   join("_lib", "launch-radar.js"),
   join("_lib", "pool-market.js"),
