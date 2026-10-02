@@ -218,17 +218,17 @@ describe('receipt share: the composed post', () => {
     expect(sharedText().split('\n').at(-1)).toBe('@JungleBayAC #MemeticFinance');
   });
 
-  it("stays within X's 280, counted the way X counts it", async () => {
-    // Long enough to need trimming. The box-drawing rule counts DOUBLE on X and
-    // the venue name is linked (23), so a budget measured in JS string length
-    // lets a post through that X then refuses to send.
+  // The box-drawing rule counts DOUBLE on X and the venue name is linked (23),
+  // so a budget measured in JS string length lets a post through that X then
+  // refuses to send. The first fixture needs trimming; the second fits by JS
+  // length with the rule still in, and is over on X's count.
+  it.each([
+    ['a receipt long enough to need trimming', { token: 'T'.repeat(40), lockDuration: 'L'.repeat(60) }],
+    ['a receipt that fits by string length but not by X', { token: 'T'.repeat(40), lockDuration: 'L'.repeat(25) }],
+    ['an ordinary stake receipt', {}],
+  ])("stays within X's 280, counted the way X counts it: %s", async (_name, extra) => {
     localStorage.setItem(BUNGALOW_STORAGE_KEY, 'bayla');
-    tap(shareButton(openReceipt({
-      ...STAKE,
-      token: 'T'.repeat(40),
-      lockDuration: 'L'.repeat(60),
-      txHash: HASH,
-    })));
+    tap(shareButton(openReceipt({ ...STAKE, ...extra, txHash: HASH })));
     await waitFor(() => expect(popups.length).toBe(1));
     const text = sharedText();
     expect(xWeight(text), text).toBeLessThanOrEqual(280);
