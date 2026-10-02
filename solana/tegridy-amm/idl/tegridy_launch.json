@@ -1,0 +1,1910 @@
+{
+  "address": "64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2",
+  "metadata": {
+    "name": "tegridy_launch",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Tegridy launch bonding curve — graduates into Tegridy CP-AMM"
+  },
+  "instructions": [
+    {
+      "name": "buy",
+      "docs": [
+        "Spend lamports for tokens.",
+        "",
+        "`max_lamports_in` is an upper bound, not an exact amount: if the trade",
+        "would carry the curve past its graduation target it is capped there and",
+        "the remainder is simply never taken. `min_tokens_out` is the usual",
+        "slippage floor."
+      ],
+      "discriminator": [
+        102,
+        6,
+        61,
+        18,
+        1,
+        218,
+        235,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "trader",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "global",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_recipient",
+          "writable": true
+        },
+        {
+          "name": "mint",
+          "relations": [
+            "curve"
+          ]
+        },
+        {
+          "name": "curve",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  117,
+                  114,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator",
+          "docs": [
+            "receives the creator's share of the trade fee, instantly and",
+            "non-custodially, on every buy and sell. Pinned to the curve's snapshot so",
+            "neither the trader nor the protocol can redirect a creator's income.",
+            "Declared AFTER `curve` — Anchor evaluates constraints in field order, so",
+            "the reference must point backwards."
+          ],
+          "writable": true
+        },
+        {
+          "name": "curve_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "trader_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "max_lamports_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_tokens_out",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_launch",
+      "docs": [
+        "Open a launch: mint the whole supply onto a fresh curve, pay the platform",
+        "reserve to the treasury, and permanently revoke the mint authority.",
+        "",
+        "Takes no curve parameters. Every economic term — fee, creator share, virtual",
+        "reserves, supply, target, reserve, platform reserve — is copied from",
+        "[`GlobalConfig`], which has already passed [`check_launch_economics`]. A",
+        "creator chooses WHETHER to launch, never on what shape, so no launch can",
+        "exist whose economics were not gated.",
+        "",
+        "The creator pays rent for the treasury's token account if it does not exist",
+        "yet (design note 8). The recipient is the CURRENT `global.fee_recipient`,",
+        "pinned by the accounts, so a creator can neither redirect nor skip it."
+      ],
+      "discriminator": [
+        239,
+        223,
+        255,
+        134,
+        39,
+        121,
+        127,
+        62
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "docs": [
+            "Pays every rent here, including the treasury's token account when it does",
+            "not exist yet."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "global",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "docs": [
+            "The launch token. Must still be mint-authority-held by the creator; this",
+            "instruction mints the supply and then revokes that authority forever.",
+            "",
+            "## The freeze-authority constraint is load-bearing — do not remove it",
+            "",
+            "Revoking the MINT authority alone does NOT make a launch rug-proof. A mint",
+            "may also carry a **freeze authority**, and SPL Token lets its holder freeze",
+            "any token account of that mint. A creator who kept one could:",
+            "- freeze `curve_vault` (a deterministic PDA at [VAULT_SEED, mint], so its",
+            "address is public from creation). The vault is the SOURCE of every buy",
+            "transfer and the DESTINATION of every sell transfer, so freezing it",
+            "bricks both at once and locks 100% of raised SOL forever — there is no",
+            "admin withdrawal and `graduate` moves no funds; or",
+            "- freeze holders' token accounts selectively, leaving their own liquid,",
+            "then sell into a curve nobody else can exit.",
+            "",
+            "Rejecting a mint that has one is the complete fix: SPL Token can never",
+            "re-add a freeze authority once it is `None`, so a mint that passes here can",
+            "never acquire one later. Revoking it instead would be strictly weaker — it",
+            "only works when the creator IS the freeze authority, and silently fails to",
+            "protect against a mint whose freeze authority is a third party."
+          ],
+          "writable": true
+        },
+        {
+          "name": "curve",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  117,
+                  114,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "curve_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        },
+        {
+          "name": "fee_recipient",
+          "docs": [
+            "Pinned to the config so a creator cannot name themselves or anyone else.",
+            "Declared AFTER `global` because Anchor evaluates constraints in field order",
+            "— the same ordering requirement `Trade::creator` documents. Not `mut`: only",
+            "its key is used."
+          ]
+        },
+        {
+          "name": "treasury_token",
+          "docs": [
+            "The treasury's associated token account for this mint; receives the",
+            "platform reserve in this instruction.",
+            "",
+            "`init_if_needed`, paid by the creator. The mint is brand new, but its",
+            "address is known before this transaction lands, so a stranger could create",
+            "this account first; that changes nothing, because the Associated Token",
+            "Program fixes its owner and mint and Anchor re-checks both (and that the",
+            "address IS the associated one) when it already exists. The mint has no",
+            "freeze authority (see `mint` above), so the reserve can never be frozen here.",
+            "`Account<TokenAccount>` with `token_program: Program<Token>` pins the",
+            "classic SPL Token program."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "fee_recipient"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_global",
+      "docs": [
+        "One-time protocol configuration.",
+        "",
+        "`migration_reserve_lamports` is raised on top of the graduation target and",
+        "kept back to pay migration costs — cp-swap's `initialize` charges",
+        "`create_pool_fee` as a native SOL transfer from the creator and rent-funds",
+        "five accounts, and the creator is the curve PDA. See MIGRATE_DESIGN.md.",
+        "",
+        "`cp_swap_program` / `amm_config` may both be zero here: the AmmConfig is",
+        "created by a cp-swap admin action AFTER this program is deployed. They are",
+        "configured rather than hardcoded, and `migrate_to_amm` must refuse to run",
+        "while either is zero.",
+        "",
+        "`platform_reserve_bps` is the share of each launch's supply held back for",
+        "the protocol (design note 8). Trailing, so every earlier argument keeps its",
+        "position. Scale `initial_virtual_token` by the same `(1 - bps)` to keep the",
+        "continuity target — this is the only instruction that can set it."
+      ],
+      "discriminator": [
+        47,
+        225,
+        15,
+        112,
+        86,
+        51,
+        190,
+        231
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "Must be the hardcoded [`deployer`] key — see that module for why an",
+            "unconstrained signer here is a protocol-capture hole."
+          ],
+          "writable": true,
+          "signer": true,
+          "address": "CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg"
+        },
+        {
+          "name": "fee_recipient",
+          "docs": [
+            "this is the treasury's Squads vault.",
+            "",
+            "The default pubkey is rejected here because `update_global` rejects it there",
+            "(lib.rs, `new_fee_recipient`), and one path validating a field the other does",
+            "not is how this crate got `check_launch_economics`. `Pubkey::default()` is the",
+            "System Program: rent-exempt, executable, and unsignable, so every protocol fee",
+            "would burn until an `update_global` noticed."
+          ]
+        },
+        {
+          "name": "global",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "trade_fee_bps",
+          "type": "u64"
+        },
+        {
+          "name": "creator_fee_share_bps",
+          "type": "u64"
+        },
+        {
+          "name": "initial_virtual_sol",
+          "type": "u64"
+        },
+        {
+          "name": "initial_virtual_token",
+          "type": "u64"
+        },
+        {
+          "name": "token_total_supply",
+          "type": "u64"
+        },
+        {
+          "name": "graduation_target_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "migration_reserve_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "cp_swap_program",
+          "type": "pubkey"
+        },
+        {
+          "name": "amm_config",
+          "type": "pubkey"
+        },
+        {
+          "name": "platform_reserve_bps",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "migrate_to_amm",
+      "docs": [
+        "Graduate the curve into a Tegridy CP-AMM pool and BURN the LP.",
+        "",
+        "This is the single most dangerous instruction in the program: it moves the",
+        "entire raised balance and closes the curve. Everything about it is designed",
+        "so that either it all happens or none of it does.",
+        "",
+        "## Why LP is burned",
+        "",
+        "Operator decision, 2026-07-29. Burning is the only option that makes a",
+        "\"liquidity permanently locked\" claim unconditionally TRUE: holding the LP",
+        "in the curve PDA leaves it reachable by a future program upgrade, and",
+        "handing it to the creator is a rug vector. Burned LP survives even an",
+        "upgrade-authority compromise. It also forecloses ever reclaiming that",
+        "capital — that is the accepted cost, not an oversight.",
+        "",
+        "## Why `complete` is set HERE and nowhere else",
+        "",
+        "`buy` and `sell` both require `!complete`, and `sell` is the only exit for",
+        "SOL. A removed `graduate` instruction set the flag on its own and stranded",
+        "every lamport of any launch that called it. A flag that closes the only",
+        "exit must be written by the instruction that opens the new one — so this",
+        "one, atomically with the pool being seeded.",
+        "",
+        "## Permissionless, deliberately",
+        "",
+        "Takes no caller-chosen parameters, pays the caller nothing, and has exactly",
+        "one legal outcome once the target is met. The `payer` funds account rent",
+        "and is the only thing a caller contributes. Unlike the removed `graduate`,",
+        "the outcome here is the DESIRED one, so anyone pushing a qualifying curve",
+        "over the line is doing the protocol a favour."
+      ],
+      "discriminator": [
+        207,
+        82,
+        192,
+        145,
+        254,
+        207,
+        145,
+        223
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Funds rent for the accounts created along the way. Any caller may pay.",
+            "",
+            "It buys them the rent back and nothing more. That used to be untrue: the",
+            "residual sweep below sent the ENTIRE unspent migration reserve here, and since",
+            "the reserve is raised from buyers on top of the graduation target",
+            "(`state.rs` / lib.rs:245), a bot watching for funded curves could call this and",
+            "take ~0.06 SOL of traders' money per graduation for a ~5,000-lamport fee. The",
+            "comment that used to sit here — \"it buys them nothing\" — is why nobody caught",
+            "it, and MAINNET_RUNBOOK then advised over-provisioning the reserve BECAUSE the",
+            "surplus came back to the caller, which made the leak bigger. The surplus now",
+            "goes to `fee_recipient`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "global",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_recipient",
+          "docs": [
+            "caller cannot name themselves. Declared AFTER `global` because Anchor",
+            "evaluates constraints in field order and this one reads back into it — the",
+            "same ordering requirement `Trade::creator` documents."
+          ],
+          "writable": true
+        },
+        {
+          "name": "launch_mint"
+        },
+        {
+          "name": "curve",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  117,
+                  114,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "launch_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "curve_vault",
+          "docs": [
+            "The curve's token vault — drained into `auth_token`, which becomes cp-swap's",
+            "`payer_token_*` for the launch-token leg."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "launch_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "wsol_mint",
+          "docs": [
+            "Native mint. Address-checked so a fake \"WSOL\" cannot be substituted."
+          ],
+          "address": "So11111111111111111111111111111111111111112"
+        },
+        {
+          "name": "creator",
+          "docs": [
+            "that will ever be able to call `collect_creator_fee` on the resulting pool.",
+            "",
+            "Pinned to the curve's own snapshot, so neither the caller nor the protocol can",
+            "redirect a creator's post-graduation income — the same reasoning, and the same",
+            "field-ordering requirement, as `Trade::creator`. Declared AFTER `curve`.",
+            "",
+            "Not `mut`: cp-swap only reads its key. Not a `Signer` either — under",
+            "`initialize_with_permission` the pool creator does not sign, which is exactly",
+            "what lets a permissionless migration name someone other than itself."
+          ]
+        },
+        {
+          "name": "migration_authority",
+          "docs": [
+            "stay both.",
+            "",
+            "It exists because cp-swap's pool-creating instruction needs one account to be",
+            "both the signing `payer` AND the rent source for five `init` accounts. Rent is",
+            "funded through the System program's `CreateAccount`, which requires a",
+            "System-owned payer — and the curve PDA holds `BondingCurve` data, so it is",
+            "owned by this program and can never serve.",
+            "",
+            "A data-less PDA satisfies both: System-owned so it can pay, derived from",
+            "this program so it can sign via seeds. Allocating any data to it would break",
+            "the payer half AND the reconciliation barrier in `migrate_to_amm`, which",
+            "System-transfers FROM this account; the handler asserts `data_is_empty()` so",
+            "that change fails loudly rather than silently bricking graduation.",
+            "",
+            "Seeded WITHOUT the mint — see [`MIGRATION_AUTH_SEED`] for why cp-swap's",
+            "permission derivation forces that, and what it costs.",
+            "",
+            "The alternative — making the arbitrary `payer` signer cp-swap's payer — would",
+            "have an untrusted caller briefly holding the launch's entire liquidity in",
+            "their own token accounts, and would need a permission account per caller."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  105,
+                  103,
+                  97,
+                  117,
+                  116,
+                  104
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "auth_wsol",
+          "docs": [
+            "The SOL leg, wrapped and held by the migration authority so cp-swap sees a",
+            "`payer_token_*` its payer actually owns."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "migration_authority"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wsol_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "auth_token",
+          "docs": [
+            "The launch-token leg, moved out of the curve vault for the same reason."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "migration_authority"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "launch_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "auth_lp",
+          "docs": [
+            "",
+            "UncheckedAccount, and NOT `init_if_needed`, for two reasons — both of which",
+            "made an earlier version fail at runtime with the Associated Token Program",
+            "reporting `IncorrectProgramId`:",
+            "",
+            "1. Anchor runs `init_if_needed` during ACCOUNT VALIDATION, before the",
+            "instruction body. At that point `lp_mint` does not exist — cp-swap",
+            "creates it inside the CPI — so deriving an ATA for it asks the Token",
+            "program for the data size of a System-owned account.",
+            "2. cp-swap `init`s `payer_lp_token` itself, so creating it here would",
+            "collide anyway.",
+            "",
+            "It is therefore created BY the CPI and read afterwards for the burn. Owned",
+            "by the migration authority, since that is cp-swap's creator."
+          ],
+          "writable": true
+        },
+        {
+          "name": "cp_swap_program"
+        },
+        {
+          "name": "amm_config"
+        },
+        {
+          "name": "cp_swap_permission",
+          "docs": [
+            "created once by a cp-swap admin. cp-swap re-derives and validates it; the",
+            "handler only checks that it EXISTS, so the failure mode is a named error",
+            "rather than an `AccountNotInitialized` from inside the CPI.",
+            "",
+            "Deliberately no `seeds =` constraint. Anchor's generated `try_accounts`",
+            "evaluates seeds on the STACK, and this struct has already overflowed SBF's",
+            "4 KB frame once from exactly that (see `pool_state`, and solana-ci.yml's",
+            "\"exceeded max offset\" gate). The derivation this program relies on is",
+            "[`CP_SWAP_PERMISSION_SEED`], pinned in a test."
+          ]
+        },
+        {
+          "name": "amm_authority"
+        },
+        {
+          "name": "pool_state",
+          "docs": [
+            "",
+            "Deliberately NOT cp-swap's canonical",
+            "[POOL_SEED, amm_config, token_0_mint, token_1_mint] derivation. That address",
+            "is reachable by anyone — cp-swap's pool creation is permissionless and",
+            "`create_pool` refuses a `pool_state` that is already owned by cp-swap",
+            "(initialize.rs:372-374), so occupying it bricks a launch's graduation",
+            "permanently. cp-swap's own second branch accepts a non-canonical",
+            "`pool_state` that signs (initialize.rs:386-388), and only this program can",
+            "sign for this PDA. See [`LAUNCH_POOL_SEED`].",
+            "",
+            "Constrained here rather than left free so the CALLER cannot choose where a",
+            "launch's liquidity lands either."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  117,
+                  110,
+                  99,
+                  104,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "launch_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "lp_mint",
+          "writable": true
+        },
+        {
+          "name": "token_0_vault",
+          "writable": true
+        },
+        {
+          "name": "token_1_vault",
+          "writable": true
+        },
+        {
+          "name": "create_pool_fee",
+          "docs": [
+            "so we cannot redirect the fee even if we wanted to."
+          ],
+          "writable": true
+        },
+        {
+          "name": "observation_state",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "sell",
+      "docs": [
+        "Sell tokens back to the curve.",
+        "",
+        "Deliberately NOT gated on `global.paused` — see design note 2. A pause",
+        "stops new money entering; it must never strand holders."
+      ],
+      "discriminator": [
+        51,
+        230,
+        133,
+        164,
+        1,
+        127,
+        131,
+        173
+      ],
+      "accounts": [
+        {
+          "name": "trader",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "global",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_recipient",
+          "writable": true
+        },
+        {
+          "name": "mint",
+          "relations": [
+            "curve"
+          ]
+        },
+        {
+          "name": "curve",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  117,
+                  114,
+                  118,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator",
+          "docs": [
+            "receives the creator's share of the trade fee, instantly and",
+            "non-custodially, on every buy and sell. Pinned to the curve's snapshot so",
+            "neither the trader nor the protocol can redirect a creator's income.",
+            "Declared AFTER `curve` — Anchor evaluates constraints in field order, so",
+            "the reference must point backwards."
+          ],
+          "writable": true
+        },
+        {
+          "name": "curve_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "trader_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "tokens_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_lamports_out",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_global",
+      "docs": [
+        "Update mutable protocol parameters. Never affects a live curve — each",
+        "launch snapshots its own terms at creation.",
+        "`new_authority` / `new_fee_recipient` exist so neither is a one-shot",
+        "decision baked in at initialization. Without them a fat-fingered",
+        "`fee_recipient` would send every trade fee to the wrong address forever,",
+        "and authority could never be rotated onto a rebuilt multisig."
+      ],
+      "discriminator": [
+        90,
+        152,
+        240,
+        21,
+        199,
+        38,
+        72,
+        20
+      ],
+      "accounts": [
+        {
+          "name": "global",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  108,
+                  111,
+                  98,
+                  97,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "global"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "trade_fee_bps",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "graduation_target_lamports",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "paused",
+          "type": {
+            "option": "bool"
+          }
+        },
+        {
+          "name": "new_authority",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "new_fee_recipient",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "migration_reserve_lamports",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "new_cp_swap_program",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "new_amm_config",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "new_initial_virtual_sol",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "new_creator_fee_share_bps",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "new_platform_reserve_bps",
+          "type": {
+            "option": "u64"
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "BondingCurve",
+      "discriminator": [
+        23,
+        183,
+        248,
+        55,
+        96,
+        216,
+        172,
+        96
+      ]
+    },
+    {
+      "name": "GlobalConfig",
+      "discriminator": [
+        149,
+        8,
+        156,
+        202,
+        160,
+        252,
+        176,
+        217
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "Graduated",
+      "discriminator": [
+        51,
+        241,
+        66,
+        50,
+        140,
+        245,
+        156,
+        192
+      ]
+    },
+    {
+      "name": "LaunchCreated",
+      "discriminator": [
+        59,
+        38,
+        190,
+        230,
+        33,
+        34,
+        89,
+        20
+      ]
+    },
+    {
+      "name": "Traded",
+      "discriminator": [
+        225,
+        202,
+        73,
+        175,
+        147,
+        43,
+        160,
+        150
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6001,
+      "name": "InsufficientLiquidity",
+      "msg": "Curve has insufficient liquidity for this trade"
+    },
+    {
+      "code": 6002,
+      "name": "ZeroAmount",
+      "msg": "Trade amount resolves to zero"
+    },
+    {
+      "code": 6003,
+      "name": "FeeTooHigh",
+      "msg": "Fee exceeds the hard ceiling"
+    },
+    {
+      "code": 6004,
+      "name": "Paused",
+      "msg": "Trading is paused"
+    },
+    {
+      "code": 6005,
+      "name": "AlreadyComplete",
+      "msg": "This curve has already graduated; trade on the AMM pool instead"
+    },
+    {
+      "code": 6006,
+      "name": "NotReadyToGraduate",
+      "msg": "This curve has not reached its graduation target yet"
+    },
+    {
+      "code": 6007,
+      "name": "SlippageExceeded",
+      "msg": "Output below the caller's minimum — slippage"
+    },
+    {
+      "code": 6008,
+      "name": "Unauthorized",
+      "msg": "Only the configured authority may do this"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidParameter",
+      "msg": "Configured value is outside its permitted range"
+    },
+    {
+      "code": 6010,
+      "name": "InsufficientRentExemptBalance",
+      "msg": "Curve would drop below rent exemption"
+    },
+    {
+      "code": 6011,
+      "name": "MintHasFreezeAuthority",
+      "msg": "Mint carries a freeze authority — it could freeze the vault or holders"
+    },
+    {
+      "code": 6012,
+      "name": "NotDeployAuthority",
+      "msg": "Program not initialized by the designated deployer"
+    },
+    {
+      "code": 6013,
+      "name": "GraduationTargetUnreachable",
+      "msg": "Graduation target exceeds the most SOL this curve could ever hold"
+    },
+    {
+      "code": 6014,
+      "name": "GraduationPriceGap",
+      "msg": "Launch would list at a price far from its final curve price — retune virtual SOL or the target"
+    },
+    {
+      "code": 6015,
+      "name": "AmmNotConfigured",
+      "msg": "cp-swap program or AmmConfig is not configured yet"
+    },
+    {
+      "code": 6016,
+      "name": "AmmMismatch",
+      "msg": "Supplied cp-swap program or AmmConfig does not match the configured one"
+    },
+    {
+      "code": 6017,
+      "name": "MigrationReserveTooLow",
+      "msg": "Curve holds too few lamports to fund migration"
+    },
+    {
+      "code": 6018,
+      "name": "LpNotBurned",
+      "msg": "LP tokens were not fully burned — liquidity would not be permanently locked"
+    },
+    {
+      "code": 6019,
+      "name": "AwaitingMigration",
+      "msg": "Curve is fully funded and awaiting migration — it has NOT graduated yet"
+    },
+    {
+      "code": 6020,
+      "name": "CreatorMismatch",
+      "msg": "Creator account does not match the creator recorded on this curve"
+    },
+    {
+      "code": 6021,
+      "name": "MigrationPermissionMissing",
+      "msg": "cp-swap permission account for the migration authority does not exist — a cp-swap admin must create it before any launch can graduate"
+    },
+    {
+      "code": 6022,
+      "name": "PlatformReserveLocked",
+      "msg": "Retired: the platform reserve is paid when the launch is created"
+    },
+    {
+      "code": 6023,
+      "name": "PlatformReserveAlreadyReleased",
+      "msg": "Retired: the platform reserve is paid when the launch is created"
+    },
+    {
+      "code": 6024,
+      "name": "CpSwapProgramNotPinned",
+      "msg": "cp-swap program is not the one compiled into this build; the graduation venue cannot be repointed"
+    }
+  ],
+  "types": [
+    {
+      "name": "BondingCurve",
+      "docs": [
+        "One bonding curve per launched token. PDA at [`CURVE_SEED`, mint]."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "virtual_sol_reserves",
+            "docs": [
+              "Effective reserves are `virtual + real`; the virtual part is what gives a",
+              "launch a sane opening price with no seeded capital. See `curve.rs`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "virtual_token_reserves",
+            "type": "u64"
+          },
+          {
+            "name": "real_sol_reserves",
+            "type": "u64"
+          },
+          {
+            "name": "real_token_reserves",
+            "type": "u64"
+          },
+          {
+            "name": "trade_fee_bps",
+            "docs": [
+              "Fee snapshotted at creation, so a later governance change cannot alter the",
+              "terms of a launch that is already trading."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "creator_fee_share_bps",
+            "docs": [
+              "Creator's share of the fee, snapshotted for the same reason — a creator's",
+              "income stream must not be governance-mutable after people bought in."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "graduation_target_lamports",
+            "docs": [
+              "Graduation target, snapshotted for the same reason."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "migration_reserve_lamports",
+            "docs": [
+              "Migration reserve, snapshotted for the same reason.",
+              "",
+              "Buys are capped at `target + reserve`, NOT at the target alone. An earlier",
+              "version capped at the target and then rejected further buys, which made the",
+              "reserve unraisable — so migration could never afford its own costs, the",
+              "exact failure the reserve exists to prevent. Found by the CI rehearsal."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "complete",
+            "docs": [
+              "Set once the curve graduates. Terminal: buys and sells both stop, and the",
+              "reserves are handed to the AMM pool. Never unset.",
+              "",
+              "⚠️ ONLY `migrate_to_amm` may write this, in the SAME instruction that moves",
+              "the liquidity. A removed `graduate` instruction set it on its own and",
+              "permanently locked every lamport raised, because `buy` and `sell` both",
+              "require `!complete` and `sell` was the only exit. A flag that closes the",
+              "only exit must be written by the instruction that opens the new one."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "pool",
+            "docs": [
+              "The cp-swap pool this curve graduated into. Zero until migration.",
+              "",
+              "Not cosmetic: without it nothing off-chain can find where a launch went, so",
+              "the Fact Sheet cannot link the pool and the frontend cannot route to it."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "platform_reserve_tokens",
+            "docs": [
+              "The protocol's platform reserve for this launch, in tokens. Fixed at",
+              "`create_launch` and never changed afterwards.",
+              "",
+              "`create_launch` pays these tokens to the treasury (the associated token",
+              "account of `GlobalConfig::fee_recipient`) in the same instruction that opens",
+              "the curve. They are never in `real_token_reserves` or `curve_vault`, so the",
+              "curve never sells them and `migrate_to_amm` never deposits them. A launch",
+              "that never graduates has still paid them.",
+              "",
+              "Readers: tokens sold = total supply - this - `real_token_reserves`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "platform_reserve_released",
+            "docs": [
+              "Always true: the reserve is paid at `create_launch`, which sets this.",
+              "Kept (rather than removed) so the account stays 179 bytes and no field",
+              "moves; it dates from a design that paid the reserve after graduation."
+            ],
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GlobalConfig",
+      "docs": [
+        "Protocol-wide configuration. One per program, PDA at [`GLOBAL_SEED`].",
+        "",
+        "Everything a launch needs is snapshotted onto the curve at creation time, so",
+        "changing this config never retroactively alters a live launch's economics.",
+        "That is deliberate: a launch's terms must not be mutable by governance after",
+        "people have bought into it.",
+        "",
+        "## ONE pricing curve, deliberately",
+        "",
+        "This program used to carry a second \"segmented\" (Meteora-shaped) mode: a 16-entry",
+        "`(sqrt_price, liquidity)` table published by the operator, priced by a vendored",
+        "copy of Raydium's concentrated-liquidity math. It was REMOVED before it ever",
+        "priced a lamport. Two independent findings showed the mode had no economic gate of",
+        "any kind — a well-formed table could list a launch at 35% or 122% of its final",
+        "curve price, and a different well-formed table permanently bricked every launch",
+        "under it, one variant on the first buy — and the only thing standing between the",
+        "venue and both was `segment_count == 0`, one authority signature away.",
+        "",
+        "Closing those two holes needs a config-time simulation of the table's realised end",
+        "state whose rounding must agree, lamport for lamport, with what the trade loop",
+        "actually realises. That is bespoke core math on the money path, for a shape the",
+        "operator publishes globally (creators picked a mode, never a curve), which no",
+        "launch had ever used, which taxed every constant-product launch ~0.0036 SOL of",
+        "rent for a table it left zeroed, and which set the worst-case compute of `buy`.",
+        "Deleting it is the honest trade. Do not reintroduce it without an adversarial",
+        "audit wave of its own."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Admin. Mainnet: the Squads VAULT PDA of a multisig with threshold >= 2,",
+              "never the multisig account itself. The multisig account holds Squads' own",
+              "data and can never sign, so an authority set to it is lost for good; only",
+              "the vault PDA signs, when the multisig executes a transaction."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_recipient",
+            "docs": [
+              "Where the PROTOCOL's share of trade fees accrues (the creator's share",
+              "goes straight to `BondingCurve.creator`). Mainnet: the treasury's Squads",
+              "vault."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "trade_fee_bps",
+            "docs": [
+              "Trade fee in basis points, bounded by `curve::MAX_FEE_BPS`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "creator_fee_share_bps",
+            "docs": [
+              "The creator's share OF THE TRADE FEE, in bps of the fee (5_000 = half the",
+              "fee), paid instantly and non-custodially to `BondingCurve.creator` on",
+              "every buy and sell. This is the launcher's volume magnet: every surviving",
+              "launchpad pays creators a streaming cut, and one that pays zero loses its",
+              "launches to the rails that do. The protocol keeps the remainder."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "initial_virtual_sol",
+            "docs": [
+              "Virtual reserves every new curve opens with — these set the opening price."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "initial_virtual_token",
+            "type": "u64"
+          },
+          {
+            "name": "token_total_supply",
+            "docs": [
+              "Token supply minted onto each curve."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "graduation_target_lamports",
+            "docs": [
+              "Real lamports a curve must accumulate before it may graduate. This is the",
+              "amount DEPOSITED as pool liquidity — it excludes the migration reserve."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "migration_reserve_lamports",
+            "docs": [
+              "Lamports raised ON TOP of the target, kept back to pay for migration.",
+              "",
+              "Migrating is not free: cp-swap's `initialize` charges `create_pool_fee` as a",
+              "NATIVE SOL transfer from the creator (initialize.rs:318-325) and rent-funds",
+              "five new accounts (pool_state, both vaults, lp_mint, observation_state) —",
+              "and the creator is the curve PDA. A curve that raised exactly the target and",
+              "deposited all of it could not afford to migrate, stranding the launch at the",
+              "finish line.",
+              "",
+              "Raised by traders and fixed before anyone buys, so the Fact Sheet can state",
+              "it. See MIGRATE_DESIGN.md decision 1."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "cp_swap_program",
+            "docs": [
+              "The cp-swap program this launch graduates into, and the AmmConfig it uses.",
+              "",
+              "Neither is derivable, and neither may be hardcoded: the AmmConfig is created",
+              "by a cp-swap admin action AFTER deploy. `migrate_to_amm` must check the",
+              "accounts it is handed against these, or a caller substitutes a hostile AMM",
+              "and the launch graduates into someone else's pool."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amm_config",
+            "type": "pubkey"
+          },
+          {
+            "name": "paused",
+            "docs": [
+              "Global halt. Blocks buys and graduation; **sells stay open** so a pause can",
+              "never trap holders in a position they cannot exit."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "platform_reserve_bps",
+            "docs": [
+              "Share of every launch's supply held back from the curve for the protocol,",
+              "in bps of `token_total_supply`, capped at `curve::MAX_PLATFORM_RESERVE_BPS`.",
+              "Paid to `fee_recipient`'s token account at `create_launch`.",
+              "",
+              "Snapshotted onto each curve as an AMOUNT at `create_launch`, so changing it",
+              "never alters a live launch. Appended after `bump` so every older field keeps",
+              "its byte offset.",
+              "",
+              "Part of the launch economics, not a free parameter: the curve sells only",
+              "`total - reserve`, so the price-continuity check runs on that. The clean",
+              "retune is to scale `initial_virtual_token` by the same `(1 - bps)`, which",
+              "leaves the SOL raise unchanged. `update_global` cannot change virtual",
+              "tokens, so that retune is only available at `initialize_global`; a later",
+              "change here has to be absorbed by virtual SOL, the target or the reserve."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Graduated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "sol_reserves",
+            "docs": [
+              "Lamports handed to the AMM pool seeding."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "token_reserves",
+            "docs": [
+              "Tokens handed to the AMM pool seeding."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pool_creator",
+            "docs": [
+              "The wallet recorded as the cp-swap pool's `pool_creator` — the ONLY key that",
+              "can ever call `collect_creator_fee` on this pool. Emitted because it is not",
+              "derivable from anything else in the event and a wrong value here is",
+              "unfixable: `pool_creator` is written once, at pool creation."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LaunchCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "virtual_sol_reserves",
+            "type": "u64"
+          },
+          {
+            "name": "virtual_token_reserves",
+            "type": "u64"
+          },
+          {
+            "name": "token_total_supply",
+            "type": "u64"
+          },
+          {
+            "name": "platform_reserve_tokens",
+            "docs": [
+              "Carved from the curve's share and paid to the treasury in this same",
+              "instruction; see `BondingCurve::platform_reserve_tokens`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "platform_reserve_recipient",
+            "docs": [
+              "The OWNER of the token account that received the reserve: the config's",
+              "`fee_recipient` at the moment of creation. Appended last, so every older",
+              "field keeps its position in the event."
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Traded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "trader",
+            "type": "pubkey"
+          },
+          {
+            "name": "is_buy",
+            "docs": [
+              "true = buy (SOL in, tokens out); false = sell."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "sol_amount",
+            "type": "u64"
+          },
+          {
+            "name": "token_amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee_lamports",
+            "docs": [
+              "Fee actually COLLECTED on this trade (creator + protocol), which is not",
+              "always what the fee schedule implies: a creator credit that would strand its",
+              "recipient in the rent-paying band folds into the protocol leg, and a protocol",
+              "credit that would do the same is waived entirely. Emitting the scheduled",
+              "figure instead would report a fee outage to indexers as revenue."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "creator_fee_lamports",
+            "docs": [
+              "The slice of `fee_lamports` paid to the launch creator. The protocol's",
+              "slice is the difference — emitted so indexers and the Fact Sheet can",
+              "report both without re-deriving the split."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "real_sol_reserves",
+            "type": "u64"
+          },
+          {
+            "name": "real_token_reserves",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

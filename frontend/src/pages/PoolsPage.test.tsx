@@ -12,6 +12,8 @@ const readVenue = vi.fn();
 vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
 vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}) }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
+// The LP section has its own tests (components/solana/lp); here only WHEN it mounts matters.
+vi.mock('../components/solana/lp/SolanaLpSection', () => ({ default: () => <div data-testid="lp-section" /> }));
 
 const PROGRAM = '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y';
 
@@ -119,6 +121,11 @@ describe('when the venue is live', () => {
     expect(screen.queryByText(/How it works:/i)).not.toBeInTheDocument();
   });
 
+  it('mounts the LP finder', async () => {
+    await mount();
+    expect(await screen.findByTestId('lp-section')).toBeInTheDocument();
+  });
+
   it('drops the PROPOSAL badge and reads the fees from the chain', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
@@ -188,15 +195,25 @@ describe('while the first read is in flight', () => {
 describe('always', () => {
   beforeEach(() => { readVenue.mockResolvedValue({ kind: 'no-program-id' }); });
 
-  it('states the routing rule and that the AMM is unmodified Raydium', async () => {
+  // Review 2026-09-30: this card said the swap "takes" our pool when it pays more, but
+  // every Solana swap executes through Jupiter (SolanaRouteLine says so on the swap).
+  it('says the swap compares our pools but still trades through Jupiter, and that the AMM is unmodified Raydium', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByText(/unless elsewhere is better/i)).toBeInTheDocument());
-    expect(screen.getByText(/There is no tolerance band/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/side by side with Jupiter/i)).toBeInTheDocument());
+    expect(screen.getByText(/still goes through\s+Jupiter/i)).toBeInTheDocument();
+    expect(screen.queryByText(/takes the one that pays/i)).toBeNull();
     expect(screen.getByText(/verbatim fork/i)).toBeInTheDocument();
   });
 
-  it('admits pools cannot be enumerated from a browser', async () => {
+  it('says the browser cannot list pools itself, and how the server index fills that gap', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByText(/curated one, looked up pair by pair/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/A browser cannot list pools itself/i)).toBeInTheDocument());
+    expect(screen.getByText(/returns addresses only/i)).toBeInTheDocument();
+  });
+
+  it('mounts the LP finder only when the venue reads as live', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/has no program id to read/i)).toBeInTheDocument());
+    expect(screen.queryByTestId('lp-section')).not.toBeInTheDocument();
   });
 });

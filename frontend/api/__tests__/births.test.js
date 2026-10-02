@@ -82,8 +82,14 @@ describe("fact 1 — six keys, strict", () => {
     expect(validateBirthBody({ ...VALID, chain: "polygon" })).toMatchObject({ field: "chain" });
   });
 
-  it("rejects a hex address on the solana rail, and base58 on an EVM rail", () => {
-    expect(validateBirthBody({ ...VALID, chain: "solana" })).toMatchObject({ field: "ca" });
+  it("refuses the solana rail outright: a SOL launch is a venue launch, never a birth", () => {
+    // Answer sixteen, ruling 1(c): Solana births do not reach the island's socket.
+    const v = validateBirthBody({ ...VALID, chain: "solana" });
+    expect(v).toMatchObject({ field: "chain" });
+    expect(v.error).not.toMatch(/solana/i);
+  });
+
+  it("rejects base58 on an EVM rail", () => {
     expect(
       validateBirthBody({ ...VALID, ca: "So11111111111111111111111111111111111111112" }),
     ).toMatchObject({ field: "ca" });
@@ -374,12 +380,16 @@ describe("record_url — the venue signs a pointer at its OWN record, or nothing
     }
   });
 
-  it("accepts a checksummed EVM ca against a lowercased path, but is case-SENSITIVE on solana", () => {
-    // normaliseCa lowercases EVM and preserves solana. Folding both would let two
-    // distinct base58 mints match.
+  it("accepts a checksummed EVM ca against a lowercased path", () => {
+    // normaliseCa lowercases EVM: hex arrives checksummed or lowercased interchangeably.
     expect(
       validateBirthBody({ ...VALID, ca: VALID.ca.toUpperCase().replace("0X", "0x") }),
     ).toBeNull();
+  });
+
+  it("refuses a well-formed Solana birth sent by hand with our Origin, before signing or sending", async () => {
+    // curl can set our Origin, so the Origin gate alone does not stop this; the chain
+    // check does. Nothing is signed and the island is never called.
     const sol = {
       ...VALID,
       chain: "solana",
@@ -387,10 +397,14 @@ describe("record_url — the venue signs a pointer at its OWN record, or nothing
       creator: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
       record_url: "https://memetics.finance/record/solana/So11111111111111111111111111111111111111112.json",
     };
-    expect(validateBirthBody(sol)).toBeNull();
-    expect(
-      validateBirthBody({ ...sol, record_url: sol.record_url.replace("So1111", "so1111") }),
-    ).toMatchObject({ field: "record_url" });
+    expect(validateBirthBody(sol)).toMatchObject({ field: "chain" });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const res = mockRes();
+    await handleBirths(reqWith(sol), res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body.field).toBe("chain");
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

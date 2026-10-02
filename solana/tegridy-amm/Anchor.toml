@@ -12,22 +12,32 @@ members = ["programs/cp-swap", "programs/tegridy-launch", "programs/bayla-ladder
 seeds = false
 skip-lint = false
 
-# TEGRIDY FORK: fork program id (matches declare_id / keys/tegridy-amm-program.json).
+# TEGRIDY FORK: program ids = the NON-devnet declare_id of each program (mainnet
+# restart ids, owner ruling 2026-09-25 — REGISTERED, NOT yet deployed). The 2026-08
+# ids 3ZvZXEBr… (cp-swap) and CpFnacr… (tegridy-launch) were closed 2026-08-13 and
+# are SPENT forever; they must never come back here.
+# CI's validator jobs rewrite the `raydium_cp_swap =` / `tegridy_launch =` lines
+# (every section) to freshly generated ids before `anchor build`.
 # NOTE for whoever adapts the test suite: the create_pool_fee_reveiver is now a WSOL
 # token account (27AC7Yww… under --features devnet), NOT the upstream DNXge… clone
 # below — the create-pool tests must set up a WSOL account at that address instead.
 [programs.Localnet]
-raydium_cp_swap = "3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y"
-# Our own bonding curve. Placeholder id — replaced with a dedicated keypair
-# before any real deploy, same as the cp-swap fork's.
-tegridy_launch = "CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED"
+raydium_cp_swap = "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT"
+# Our own bonding curve, which graduates into the cp-swap fork above.
+tegridy_launch = "64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2"
 # Lock-ladder staking with veYFI's early-exit penalty (time left / 4 years, up to 75%) — the
 # Solana port of LighthouseLadder.sol (which charges a flat 25%; the divergence is deliberate,
 # see bayla-ladder/src/lib.rs).
-# Placeholder id, same convention as the two above; a dedicated keypair replaces it
-# before any real deploy.
+# Placeholder id (the two above are real ids now; this one is not). Its live mainnet
+# deploy was built with the id patched in by solana-deploy-artifact.yml.
 bayla_ladder = "GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4"
 
+# Mainnet ids of the own-venue pair (REGISTERED, NOT deployed as of 2026-09-26).
+# bayla-ladder's live mainnet id is recorded in frontend/scripts/addresses.json, not
+# here: its committed declare_id is still the placeholder above.
+[programs.mainnet]
+raydium_cp_swap = "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT"
+tegridy_launch = "64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2"
 
 [registry]
 url = "https://github.com/fomotsar-commits/tegridy-farms"

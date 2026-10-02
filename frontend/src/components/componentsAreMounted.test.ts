@@ -64,6 +64,13 @@ const UNMOUNTED_BY_DESIGN: Array<{ pattern: RegExp; because: string }> = [
       'zero address on every network today. Mounting the panel would render an ' +
       'unconditional not-deployed state. Delete this entry the moment an address lands.',
   },
+  {
+    pattern: /^solana\/curve\/fakeWriteApi\.fixture\.ts$/,
+    because:
+      'Test-only by construction: it imports `vi` from vitest, so it cannot ship. It is the ' +
+      'shared fake WriteApi for the /curve-launch UI suites (curve/*.test.tsx and ' +
+      'pages/CurveLaunchDetailPage.test.tsx), which is the only place it is imported.',
+  },
 ];
 
 const isTest = (p: string) => /\.(test|spec)\.[tj]sx?$/.test(p);

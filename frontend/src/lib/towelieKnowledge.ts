@@ -1,13 +1,8 @@
-/**
- * Towelie's Q&A bank. Plain keyword-overlap matching — no LLM, no API.
- * If your question doesn't hit a keyword set, you get the fallback.
- *
- * Entry shape:
- *   keywords: tokens that, when present in the user's question, count
- *             toward this entry's score. Lowercase, no punctuation.
- *   answer:   what Towelie says back. Keep in voice (slacker towel).
- *   priority: optional tiebreaker bump for ambiguous questions.
- */
+/** Towelie's Q&A bank: plain keyword overlap, no LLM, no API; a miss gets the fallback.
+ *  keywords: lowercase, no punctuation. Each one found in the question scores, and a
+ *            keyword of several words counts when all its words are in the question.
+ *  answer:   what Towelie says back, in voice (slacker towel).
+ *  priority: optional tiebreaker bump for ambiguous questions. */
 
 export interface KnowledgeEntry {
   keywords: string[];
@@ -210,13 +205,9 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
 
   // ── Governance ──────────────────────────────────────────────
-  // HONESTY PASS 2026-08-28: the 06-11 framing ("not deployed, zeroed
-  // addresses") became half-false — all four governance contracts ARE deployed
-  // on mainnet (the 2026-07-16 batch, unpaused) but their addresses are still
-  // zeroed in THIS app, so the pages stay gated. /risks says exactly that;
-  // the towel was the fourth surface still telling the 06-11 story (the
-  // 08-13 three-surfaces fix, 428abc5f, missed it). Deployed-but-not-wired
-  // is the true state — say that.
+  // The four governance contracts are deployed on mainnet (the 2026-07-16 batch,
+  // unpaused), but this app still has their addresses zeroed, so the pages stay gated.
+  // Answers say deployed but not wired, as /risks does.
   {
     keywords: ['vote', 'voting', 'governance', 'gauge'],
     answer: "Gauge voting's deployed on mainnet but not wired into this app yet — the addresses here are still zeroed, so /community stays gated while the wiring and checks finish. The design: your locked TOWELI × boost directs emissions to pools. Meanwhile, stake and watch /changelog.",
@@ -251,41 +242,34 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     keywords: ['hardware', 'ledger', 'trezor'],
     answer: "Hardware wallets work via MetaMask or Rainbow's hardware-wallet integration. Plug in, connect, sign on the device.",
   },
-  // 2026-08-07: the assistant is the surface a confused user asks "what chain is
-  // this?" on — and it answered, flatly, Ethereum-only, with no Solana entry anywhere
-  // in this file. Asking about Solana, SOL or Jupiter fell through to a generic reply
-  // on a site that has a live Solana swap. Fixed here, plus the three new entries
-  // below so the keywords actually match what someone would type.
+  // Solana has the Jupiter swap (/solana) and our own curve (/curve-launch), where anyone
+  // trades and a maker at Resident or better launches through the heat door. These
+  // coins are priced in SOL: never call them island coins or "born in $BAYLA".
   {
-    // HONESTY PASS 2026-08-28: "two chains" and "its own launch rail" were both
-    // false — the Memetics Curve is live on Ethereum, Base AND Robinhood since
-    // 08-25, and the Solana launch rail was retired 08-23 with nothing
-    // launchable there. Four chains total, one of them swap-only.
     keywords: ['network', 'chain', 'switch', 'mainnet', 'chains'],
-    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. Solana is swap-only: /solana routes SPL trades through Jupiter (no Solana launches right now). The token scanner reads EVM and Solana both.",
+    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. On Solana, /solana routes SPL trades through Jupiter, and /curve-launch is our own Solana curve: anyone can trade there, and a maker at Resident or better can launch through the memetics.finance gate. The token scanner reads EVM and Solana both.",
   },
   {
-    keywords: ['solana', 'sol', 'phantom', 'spl'],
-    answer: "Solana's partly live. /solana swaps SPL tokens through Jupiter with limit orders and SOL liquid-staking — that works today. The Solana LAUNCH rail does not: we retired the third-party bonding curve we used to run on, and our own curve isn't deployed yet, so you can't launch a Solana token here right now. TOWELI itself is never deployed on Solana — that's deliberate, Solana is a separate rail, not a second home for the token.",
+    // The bump wins "launch a token on solana" from the EVM launch entry; the phrases win
+    // a curve, memecoin or graduation question that names Solana.
+    priority: 1,
+    keywords: ['solana', 'sol', 'phantom', 'spl', 'solana launch', 'solana token', 'solana curve', 'solana bonding', 'solana memecoin', 'solana graduate'],
+    answer: "Solana's live here two ways. /solana swaps SPL tokens through Jupiter, with limit orders and SOL liquid-staking. /curve-launch is our own Solana bonding curve, priced in SOL: anyone can buy and sell a launch there, and a maker at Resident or better (80° of held time on Jungle Bay Island) can launch a new token through the memetics.finance gate, which reads the maker's wallet at create. The program itself accepts any wallet, so check the full token address before you buy. TOWELI itself is never deployed on Solana: that's deliberate, Solana is a separate rail, not a second home for the token.",
   },
   {
     keywords: ['jupiter', 'jup', 'swap solana', 'solana swap'],
     answer: "Jupiter is the router behind /solana — it shops your trade across Solana's DEXes for the best price. Our platform fee is shown before you sign, every time.",
   },
   {
-    keywords: ['meteora', 'dbc', 'bonding curve', 'solana launch'],
-    // RETIRED 2026-08-23. This used to say the rail "runs on Meteora's Dynamic Bonding
-    // Curve — their audited program, not ours". True at the time, and live to users.
-    // The keywords stay so anyone who asks about Meteora gets the retirement rather
-    // than silence, which would read as the old answer still being right.
-    answer: "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it — we only want launchers that graduate into our own venue. The replacement exists and is LIVE on the EVM side: the Memetics Curve at /eth-curve launches on Ethereum, Base and Robinhood, graduates into our own AMM and burns the LP outright. The SOLANA version is not live — those programs were closed and need fresh addresses — so nothing can be launched on Solana here for now.",
+    // The Meteora rail was retired 2026-08-23; anyone asking about it gets that answer.
+    keywords: ['meteora', 'dbc', 'bonding curve'],
+    answer: "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it: we only want launchers that graduate into our own venue. Our own curve replaced it, and it graduates into our own AMM and burns the LP outright. The Memetics Curve launches on Ethereum, Base and Robinhood at /eth-curve, and on Solana at /curve-launch, where a maker at Resident or better launches through the memetics.finance gate.",
   },
   {
-    // HONESTY PASS 2026-08-28: "No L2 yet" went false on 2026-08-25 — the
-    // Memetics Curve launcher is live on Base (OP-stack L2) and Robinhood Chain
-    // (Arbitrum Orbit L2). Keep this in sync with lib/chains/registry.ts.
+    // Keep in sync with lib/chains/registry.ts: Base is an OP-stack L2, Robinhood
+    // Chain an Arbitrum Orbit L2.
     keywords: ['l2', 'layer', 'rollup', 'arbitrum', 'optimism', 'base', 'robinhood'],
-    answer: "Two L2s, live: the Memetics Curve launches tokens on Base and on Robinhood Chain — /eth-curve follows whichever chain your wallet's on. The core protocol (staking, farming, swap) stays on Ethereum mainnet, and Solana handles swap-only.",
+    answer: "Two L2s, live: the Memetics Curve launches tokens on Base and on Robinhood Chain — /eth-curve follows whichever chain your wallet's on. The core protocol (staking, farming, swap) stays on Ethereum mainnet, and Solana has its own swap at /solana and its own curve at /curve-launch.",
   },
   {
     keywords: ['gas', 'expensive', 'cost'],
@@ -308,13 +292,10 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Pull your /history page or use Etherscan to export tx data. I'm a towel — talk to a tax pro for the rest.",
   },
   {
-    // UPDATED 2026-07-19: source-verification is now COMPLETE for all 8 core
-    // contracts (TOWELI, Staking, Factory, Router, RevenueDistributor,
-    // SwapFeeRouter, POLAccumulator, ReferralSplitter). The old "rolling out
-    // contract by contract" hedge was accurate on 2026-06-11 and is now false —
-    // it understated us on exactly the question a skeptic asks. /contracts shows
-    // a LIVE per-address badge read from Etherscan, so this is checkable, not a
-    // claim. Keep this answer in sync with reality in both directions.
+    // All 8 core contracts are source-verified (TOWELI, Staking, Factory, Router,
+    // RevenueDistributor, SwapFeeRouter, POLAccumulator, ReferralSplitter), and /contracts
+    // shows a live per-address badge read from Etherscan. Keep this answer in sync with
+    // that, in both directions.
     keywords: ['etherscan', 'verify', 'contract', 'address'],
     answer: "All 8 core contracts are source-verified on Etherscan: you can read the actual Solidity, not just bytecode. Every address is at /contracts with a live verification badge (checked against Etherscan, not hardcoded), plus links to the source code and public ABIs.",
   },
@@ -331,14 +312,10 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Smart-contract risk, market risk, IL risk for LPs. /risks has the honest version. Read it.",
   },
   {
-    // HONESTY PASS 2026-07-24: PremiumAccess went live 2026-07-21. Fee is in
-    // TOWELI (read from the contract — never hardcode it here, it is timelock-
-    // mutable), and there is no points multiplier or fee discount.
-    // HONESTY PASS 2026-08-28: "holders earn ETH from swap fees" was the exact
-    // unconditioned history-claim the #199/#215/#258 passes banned — the
-    // distributor has paid 0 ETH to date (premiumBenefits.ts conditions the
-    // same sentence on a live read). A static answer can't read the chain, so
-    // it states the DESIGN and the current honest status.
+    // PremiumAccess is live. The fee is in TOWELI, read from the contract (never hardcode
+    // it: it is timelock-mutable), and there is no points multiplier or fee discount. A
+    // static answer cannot read the chain, so it states the design and that no ETH has been
+    // distributed yet, never "holders earn ETH" (premiumBenefits.ts reads it live).
     keywords: ['premium', 'gold', 'card', 'subscription'],
     answer: "Randy's Gold Card is live at /premium. You pay in TOWELI — the monthly fee is read straight off the contract and shown on the page. Holders are in line for ETH from protocol swap fees like every staker; none has been distributed yet (the page shows the live number). JBAC holders get it free for life. Internally reviewed, no third-party audit yet.",
   },
@@ -444,24 +421,27 @@ function tokenize(input: string): string[] {
     .filter((t) => t.length > 1 && !STOPWORDS.has(t));
 }
 
-/**
- * Find the best-matching answer for a free-text question. Returns null if
- * no entry scores above the minimum threshold (caller should use a fallback).
- *
- * Scoring: each entry's score = count of question tokens that appear in its
- * keyword set, plus the entry's optional priority bump. Threshold is 1 hit.
- */
+/** The best-matching answer for a free-text question, or a random fallback when nothing
+ *  scores. An entry scores one point per question token in its keywords, plus one point
+ *  per word of each several-word keyword whose words are all in the question, plus its
+ *  priority. Threshold is 1 hit, and a tie goes to the entry listed first. */
 export function answerQuestion(question: string): string {
   const tokens = tokenize(question);
   if (tokens.length === 0) {
     return "Ask me something specific — staking, swap, NFTs, gas, whatever.";
   }
+  const asked = new Set(tokens);
   let bestScore = 0;
   let best: KnowledgeEntry | null = null;
   for (const entry of KNOWLEDGE_BASE) {
     const set = new Set(entry.keywords);
     let score = 0;
     for (const tok of tokens) if (set.has(tok)) score++;
+    // A question token never holds a space, so a phrase is matched word by word.
+    for (const k of entry.keywords) {
+      const words = k.split(' ');
+      if (words.length > 1 && words.every((w) => asked.has(w))) score += words.length;
+    }
     if (score === 0) continue;
     score += entry.priority ?? 0;
     if (score > bestScore) {

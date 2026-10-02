@@ -26,9 +26,12 @@
 import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, BN, Idl, Program } from "@coral-xyz/anchor";
 import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  createAccount,
   createAssociatedTokenAccount,
   createInitializeMintInstruction,
   createMint,
+  getAssociatedTokenAddressSync,
   getMinimumBalanceForRentExemptMint,
   MINT_SIZE,
   TOKEN_PROGRAM_ID,
@@ -60,8 +63,19 @@ const VAULT_SEED = Buffer.from("vault");
 /** Curve parameters used across the suite. Chosen so the graduation target is
  *  comfortably reachable: max real SOL = V_s * S / V_t (see curve.rs). */
 const V_SOL = new BN(30).mul(new BN(LAMPORTS_PER_SOL));
-const V_TOK = new BN("1073000000000000");
 const SUPPLY = new BN("1000000000000000");
+/** The platform reserve: 3.69% of every launch's supply, carved from the curve's
+ *  share and paid to the treasury when the launch is created. See design note 8 in
+ *  lib.rs. */
+const PLATFORM_RESERVE_BPS = new BN(369);
+/** 369 bps of SUPPLY, rounded down — what each launch carves. */
+const CARVE = SUPPLY.mul(PLATFORM_RESERVE_BPS).div(new BN(10_000));
+/** What the curve may actually sell. */
+const CURVE_SUPPLY = SUPPLY.sub(CARVE);
+/** 1.073e15 scaled by the same (1 - 3.69%) as the supply — the operator retune.
+ *  Scaling both keeps every continuity target below unchanged (curve.rs,
+ *  `scaling_virtual_tokens_with_the_carve_keeps_the_continuity_target`). */
+const V_TOK = new BN("1033406300000000");
 const TRADE_FEE_BPS = new BN(100);
 /** Creator's share OF THE FEE, in bps of the fee. 4,800 = EXACT PARITY with the
  *  live Meteora partner config's 48 bps, per CREATOR_FEE_SPEC.md §1 — so the
@@ -101,6 +115,12 @@ function vaultPda(programId: PublicKey, mint: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([VAULT_SEED, mint.toBuffer()], programId)[0];
 }
 
+/** The treasury's associated token account for a launch: where `create_launch`
+ *  pays the platform reserve (design note 8 in lib.rs). */
+function treasuryAta(mint: PublicKey, recipient: PublicKey): PublicKey {
+  return getAssociatedTokenAddressSync(mint, recipient, true);
+}
+
 /**
  * Create an SPL mint with the caller as mint authority and, optionally, a freeze
  * authority. The freeze-authority variant is the whole point of the critical
@@ -127,19 +147,31 @@ async function fund(provider: AnchorProvider, to: PublicKey, sol: number): Promi
   await provider.connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
 }
 
-/** Assert a promise rejects, and that the error names the expected Anchor error. */
+/**
+ * Assert a promise rejects, and that the error names the expected Anchor error.
+ *
+ * The success check sits OUTSIDE the try. It used to be an `assert.fail` inside it,
+ * whose own AssertionError was caught by the `catch` below — and its message names
+ * `code`, so the `include` passed. Every reject test in this file therefore passed
+ * even when the transaction SUCCEEDED; the mutation check for the reserve-only
+ * re-check in `update_global` is what exposed it.
+ */
 async function expectAnchorError(p: Promise<unknown>, code: string): Promise<void> {
+  let rejected: unknown = undefined;
   try {
     await p;
-    assert.fail(`expected the transaction to be rejected with ${code}, but it succeeded`);
   } catch (e) {
-    const msg = String(e);
-    assert.include(
-      msg,
-      code,
-      `rejected, but not with ${code} — the constraint under test may not be what fired. Got: ${msg}`
-    );
+    rejected = e ?? new Error("rejected with no error value");
   }
+  if (rejected === undefined) {
+    assert.fail(`expected the transaction to be rejected with ${code}, but it succeeded`);
+  }
+  const msg = String(rejected);
+  assert.include(
+    msg,
+    code,
+    `rejected, but not with ${code} — the constraint under test may not be what fired. Got: ${msg}`
+  );
 }
 
 describe("tegridy-launch security constraints", () => {
@@ -148,6 +180,23 @@ describe("tegridy-launch security constraints", () => {
   const program = loadProgram(provider);
   const deployer = anchor.Wallet.local().payer;
   const feeRecipient = Keypair.generate().publicKey;
+
+  /** Every CreateLaunch account. The last three pay the platform reserve at launch:
+   *  the config's fee_recipient and its ATA for this mint. The reserve tests below
+   *  override them to probe the recipient constraints. */
+  const launchAccounts = (creator: PublicKey, mint: PublicKey) => ({
+    creator,
+    global: globalPda(program.programId),
+    mint,
+    curve: curvePda(program.programId, mint),
+    curveVault: vaultPda(program.programId, mint),
+    tokenProgram: TOKEN_PROGRAM_ID,
+    systemProgram: SystemProgram.programId,
+    rent: SYSVAR_RENT_PUBKEY,
+    feeRecipient,
+    treasuryToken: treasuryAta(mint, feeRecipient),
+    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+  });
 
   // ─── initialize_global: ORDER MATTERS, deliberately ───────────────────────
   //
@@ -167,7 +216,7 @@ describe("tegridy-launch security constraints", () => {
 
     await expectAnchorError(
       program.methods
-        .initializeGlobal(TRADE_FEE_BPS, CREATOR_FEE_SHARE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
+        .initializeGlobal(TRADE_FEE_BPS, CREATOR_FEE_SHARE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK, PLATFORM_RESERVE_BPS)
         .accountsPartial({
           authority: impostor.publicKey,
           feeRecipient,
@@ -180,12 +229,30 @@ describe("tegridy-launch security constraints", () => {
     );
   });
 
+  it("initialize_global rejects a platform reserve above the 10% cap", async () => {
+    // The designated deployer this time, so ONLY the cap can reject it. Runs before
+    // the successful init below for the same singleton reason as the test above.
+    // 1,000 bps is the cap (inclusive, as on the EVM); 1,001 must fail.
+    await expectAnchorError(
+      program.methods
+        .initializeGlobal(TRADE_FEE_BPS, CREATOR_FEE_SHARE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK, new BN(1_001))
+        .accountsPartial({
+          authority: deployer.publicKey,
+          feeRecipient,
+          global: globalPda(program.programId),
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc(),
+      "InvalidParameter"
+    );
+  });
+
   it("initialize_global succeeds for the designated deployer", async () => {
     // POSITIVE CONTROL for the above, and setup for everything below. The program
     // is built with --features devnet, whose `deployer` key is the local wallet; a
     // default build embeds a fail-closed sentinel and cannot be initialized at all.
     await program.methods
-      .initializeGlobal(TRADE_FEE_BPS, CREATOR_FEE_SHARE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK)
+      .initializeGlobal(TRADE_FEE_BPS, CREATOR_FEE_SHARE_BPS, V_SOL, V_TOK, SUPPLY, GRAD_TARGET, MIGRATION_RESERVE, ZERO_PK, ZERO_PK, PLATFORM_RESERVE_BPS)
       .accountsPartial({
         authority: deployer.publicKey,
         feeRecipient,
@@ -196,6 +263,8 @@ describe("tegridy-launch security constraints", () => {
 
     const g: any = await (program.account as any).globalConfig.fetch(globalPda(program.programId));
     assert.equal(g.authority.toBase58(), deployer.publicKey.toBase58());
+    // POSITIVE CONTROL for the cap test above: the intended 369 is accepted and stored.
+    assert.equal(g.platformReserveBps.toString(), PLATFORM_RESERVE_BPS.toString());
   });
 
   // ─── CRITICAL: freeze authority ────────────────────────────────────────────
@@ -216,16 +285,7 @@ describe("tegridy-launch security constraints", () => {
       await expectAnchorError(
         program.methods
           .createLaunch()
-          .accountsPartial({
-            creator: creator.publicKey,
-            global: globalPda(program.programId),
-            mint,
-            curve: curvePda(program.programId, mint),
-            curveVault: vaultPda(program.programId, mint),
-            tokenProgram: TOKEN_PROGRAM_ID,
-            systemProgram: SystemProgram.programId,
-            rent: SYSVAR_RENT_PUBKEY,
-          })
+          .accountsPartial(launchAccounts(creator.publicKey, mint))
           .signers([creator])
           .rpc(),
         "MintHasFreezeAuthority"
@@ -241,16 +301,7 @@ describe("tegridy-launch security constraints", () => {
 
       await program.methods
         .createLaunch()
-        .accountsPartial({
-          creator: creator.publicKey,
-          global: globalPda(program.programId),
-          mint,
-          curve: curvePda(program.programId, mint),
-          curveVault: vaultPda(program.programId, mint),
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          rent: SYSVAR_RENT_PUBKEY,
-        })
+        .accountsPartial(launchAccounts(creator.publicKey, mint))
         .signers([creator])
         .rpc();
 
@@ -260,8 +311,8 @@ describe("tegridy-launch security constraints", () => {
       assert.isFalse(curve.complete, "a fresh curve must not be complete");
       assert.equal(
         curve.realTokenReserves.toString(),
-        SUPPLY.toString(),
-        "the whole supply should be on the curve"
+        CURVE_SUPPLY.toString(),
+        "the curve may sell the supply minus the platform reserve"
       );
     });
 
@@ -274,16 +325,7 @@ describe("tegridy-launch security constraints", () => {
 
       await program.methods
         .createLaunch()
-        .accountsPartial({
-          creator: creator.publicKey,
-          global: globalPda(program.programId),
-          mint,
-          curve: curvePda(program.programId, mint),
-          curveVault: vaultPda(program.programId, mint),
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          rent: SYSVAR_RENT_PUBKEY,
-        })
+        .accountsPartial(launchAccounts(creator.publicKey, mint))
         .signers([creator])
         .rpc();
 
@@ -308,7 +350,7 @@ describe("tegridy-launch security constraints", () => {
       const unreachable = new BN(1000).mul(new BN(LAMPORTS_PER_SOL));
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, unreachable, null, null, null, null, null, null, null, null)
+          .updateGlobal(null, unreachable, null, null, null, null, null, null, null, null, null)
           .accountsPartial({
             global: globalPda(program.programId),
             authority: deployer.publicKey,
@@ -318,11 +360,36 @@ describe("tegridy-launch security constraints", () => {
       );
     });
 
+    /**
+     * The ceiling is on the CURVE supply (supply minus the platform reserve), not
+     * the whole supply: the carve is never sold, so it can never raise SOL. Every
+     * other case in this file asks for far more than either ceiling, so pricing on
+     * the whole supply would pass them all. This one lands BETWEEN the two ceilings
+     * (~27.96 SOL on the curve supply, ~29.03 SOL on the whole supply), where only
+     * the right ceiling says "unreachable". On the whole-supply version it fails
+     * later, as InsufficientLiquidity, which is the wrong reason.
+     */
+    it("measures the ceiling on the curve supply, not the whole supply", async () => {
+      const onCurve = V_SOL.mul(CURVE_SUPPLY).div(V_TOK);
+      const onTotal = V_SOL.mul(SUPPLY).div(V_TOK);
+      const reserve = new BN(17).mul(new BN(LAMPORTS_PER_SOL));
+      const required = GRAD_TARGET.add(reserve);
+      assert.isTrue(onCurve.lte(required), "precondition: over the curve-supply ceiling");
+      assert.isTrue(required.lt(onTotal), "precondition: under the whole-supply ceiling");
+      await expectAnchorError(
+        program.methods
+          .updateGlobal(null, null, null, null, null, reserve, null, null, null, null, null)
+          .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+          .rpc(),
+        "GraduationTargetUnreachable"
+      );
+    });
+
     /** POSITIVE CONTROL — a target under the ceiling is accepted. */
     it("accepts a target below the ceiling", async () => {
       const reachable = GRAD_TARGET; // under the ceiling AND price-continuous
       await program.methods
-        .updateGlobal(null, reachable, null, null, null, null, null, null, null, null)
+        .updateGlobal(null, reachable, null, null, null, null, null, null, null, null, null)
         .accountsPartial({
           global: globalPda(program.programId),
           authority: deployer.publicKey,
@@ -334,7 +401,7 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore for any later test.
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, null, null, null, null, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, null, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
@@ -359,7 +426,7 @@ describe("tegridy-launch security constraints", () => {
       const cpProgram = Keypair.generate().publicKey;
       const cfg = Keypair.generate().publicKey;
       await program.methods
-        .updateGlobal(null, null, null, null, null, null, cpProgram, cfg, null, null)
+        .updateGlobal(null, null, null, null, null, null, cpProgram, cfg, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -372,7 +439,7 @@ describe("tegridy-launch security constraints", () => {
     it("refuses to ZERO them — that reads as misconfiguration; `paused` is the switch", async () => {
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, null, null, null, null, null, ZERO_PK, null, null, null)
+          .updateGlobal(null, null, null, null, null, null, ZERO_PK, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "InvalidParameter"
@@ -396,7 +463,7 @@ describe("tegridy-launch security constraints", () => {
       const reserve = new BN(10).mul(new BN(LAMPORTS_PER_SOL)); // sum 30: over
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, target, null, null, null, reserve, null, null, null, null)
+          .updateGlobal(null, target, null, null, null, reserve, null, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "GraduationTargetUnreachable"
@@ -407,7 +474,7 @@ describe("tegridy-launch security constraints", () => {
       const reserve = new BN(25).mul(new BN(LAMPORTS_PER_SOL));
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, null, null, null, null, reserve, null, null, null, null)
+          .updateGlobal(null, null, null, null, null, reserve, null, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "GraduationTargetUnreachable"
@@ -424,7 +491,7 @@ describe("tegridy-launch security constraints", () => {
     it("rejects a migration reserve below cp-swap's rent floor", async () => {
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, GRAD_TARGET, null, null, null, new BN(1_000), null, null, null, null)
+          .updateGlobal(null, GRAD_TARGET, null, null, null, new BN(1_000), null, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "MigrationReserveTooLow"
@@ -438,7 +505,7 @@ describe("tegridy-launch security constraints", () => {
       const target = new BN(10_039_591_158);
       const reserve = new BN(5).mul(new BN(LAMPORTS_PER_SOL));
       await program.methods
-        .updateGlobal(null, target, null, null, null, reserve, null, null, null, null)
+        .updateGlobal(null, target, null, null, null, reserve, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -449,7 +516,7 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore for the tests that follow.
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
@@ -474,7 +541,7 @@ describe("tegridy-launch security constraints", () => {
       const gapping = new BN(10).mul(new BN(LAMPORTS_PER_SOL));
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, gapping, null, null, null, null, null, null, null, null)
+          .updateGlobal(null, gapping, null, null, null, null, null, null, null, null, null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "GraduationPriceGap"
@@ -484,7 +551,7 @@ describe("tegridy-launch security constraints", () => {
     /** POSITIVE CONTROL — the continuity target for these reserves is accepted. */
     it("accepts the continuity target", async () => {
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -504,7 +571,7 @@ describe("tegridy-launch security constraints", () => {
       const target = new BN(6).mul(new BN(LAMPORTS_PER_SOL));
       const vsol = new BN(15_784_562_498); // continuity partner for 6 SOL + 0.5 reserve
       await program.methods
-        .updateGlobal(null, target, null, null, null, MIGRATION_RESERVE, null, null, vsol, null)
+        .updateGlobal(null, target, null, null, null, MIGRATION_RESERVE, null, null, vsol, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
@@ -515,7 +582,7 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore the suite's baseline for anything that follows.
       await program.methods
-        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, V_SOL, null)
+        .updateGlobal(null, GRAD_TARGET, null, null, null, MIGRATION_RESERVE, null, null, V_SOL, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
     });
@@ -532,7 +599,7 @@ describe("tegridy-launch security constraints", () => {
     it("blocks create_launch while paused, and allows it again when unpaused", async () => {
       const globalKey = globalPda(program.programId);
       await program.methods
-        .updateGlobal(null, null, true, null, null, null, null, null, null, null)
+        .updateGlobal(null, null, true, null, null, null, null, null, null, null, null)
         .accountsPartial({ global: globalKey, authority: deployer.publicKey })
         .rpc();
 
@@ -543,39 +610,28 @@ describe("tegridy-launch security constraints", () => {
       await expectAnchorError(
         program.methods
           .createLaunch()
-          .accountsPartial({
-            creator: creator.publicKey,
-            global: globalKey,
-            mint,
-            curve: curvePda(program.programId, mint),
-            curveVault: vaultPda(program.programId, mint),
-            tokenProgram: TOKEN_PROGRAM_ID,
-            systemProgram: SystemProgram.programId,
-            rent: SYSVAR_RENT_PUBKEY,
-          })
+          .accountsPartial(launchAccounts(creator.publicKey, mint))
           .signers([creator])
           .rpc(),
         "Paused"
       );
+      // `Paused` fires in the handler, AFTER Anchor has created the curve, the vault
+      // and the treasury ATA. The whole transaction rolls back, so none may remain.
+      assert.isNull(
+        await provider.connection.getAccountInfo(treasuryAta(mint, feeRecipient)),
+        "a refused create must not leave the treasury ATA behind"
+      );
+      assert.isNull(await provider.connection.getAccountInfo(curvePda(program.programId, mint)));
 
       // POSITIVE CONTROL: unpause and the identical call goes through.
       await program.methods
-        .updateGlobal(null, null, false, null, null, null, null, null, null, null)
+        .updateGlobal(null, null, false, null, null, null, null, null, null, null, null)
         .accountsPartial({ global: globalKey, authority: deployer.publicKey })
         .rpc();
 
       await program.methods
         .createLaunch()
-        .accountsPartial({
-          creator: creator.publicKey,
-          global: globalKey,
-          mint,
-          curve: curvePda(program.programId, mint),
-          curveVault: vaultPda(program.programId, mint),
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          rent: SYSVAR_RENT_PUBKEY,
-        })
+        .accountsPartial(launchAccounts(creator.publicKey, mint))
         .signers([creator])
         .rpc();
     });
@@ -617,16 +673,7 @@ describe("tegridy-launch security constraints", () => {
       mint = await makeMint(provider, creator, null);
       await program.methods
         .createLaunch()
-        .accountsPartial({
-          creator: creator.publicKey,
-          global: globalPda(program.programId),
-          mint,
-          curve: curvePda(program.programId, mint),
-          curveVault: vaultPda(program.programId, mint),
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          rent: SYSVAR_RENT_PUBKEY,
-        })
+        .accountsPartial(launchAccounts(creator.publicKey, mint))
         .signers([creator])
         .rpc();
       traderAta = await createAssociatedTokenAccount(
@@ -745,16 +792,7 @@ describe("tegridy-launch security constraints", () => {
       mint = await makeMint(provider, creator, null);
       await program.methods
         .createLaunch()
-        .accountsPartial({
-          creator: creator.publicKey,
-          global: globalPda(program.programId),
-          mint,
-          curve: curvePda(program.programId, mint),
-          curveVault: vaultPda(program.programId, mint),
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          rent: SYSVAR_RENT_PUBKEY,
-        })
+        .accountsPartial(launchAccounts(creator.publicKey, mint))
         .signers([creator])
         .rpc();
       traderAta = await createAssociatedTokenAccount(
@@ -852,7 +890,7 @@ describe("tegridy-launch security constraints", () => {
     it("rejects a share above 100% of the fee", async () => {
       await expectAnchorError(
         program.methods
-          .updateGlobal(null, null, null, null, null, null, null, null, null, new BN(10_001))
+          .updateGlobal(null, null, null, null, null, null, null, null, null, new BN(10_001), null)
           .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
           .rpc(),
         "InvalidParameter"
@@ -861,7 +899,7 @@ describe("tegridy-launch security constraints", () => {
 
     it("stores a legal share, and it lands in the 10th slot not the 9th", async () => {
       await program.methods
-        .updateGlobal(null, null, null, null, null, null, null, null, null, new BN(3_000))
+        .updateGlobal(null, null, null, null, null, null, null, null, null, new BN(3_000), null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
 
@@ -875,9 +913,278 @@ describe("tegridy-launch security constraints", () => {
 
       // Restore the suite default for anything ordered after this.
       await program.methods
-        .updateGlobal(null, null, null, null, null, null, null, null, null, CREATOR_FEE_SHARE_BPS)
+        .updateGlobal(null, null, null, null, null, null, null, null, null, CREATOR_FEE_SHARE_BPS, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
+    });
+  });
+
+  // ─── The platform reserve: carved AND paid at launch ──────────────────────
+
+  describe("the platform reserve is paid to the treasury when the launch is created", () => {
+    /**
+     * 3.69% of every launch's supply goes to the platform treasury — the ATA of the
+     * config's fee_recipient — INSIDE create_launch (owner decision 2026-09-26, the
+     * same on every chain). It is never in `real_token_reserves`, so the curve can
+     * never sell it, and a launch that never graduates has still paid it.
+     *
+     * Mutation check: the escrow design this replaced (reserve held in the vault
+     * until a separate release after graduation) fails the first test — after
+     * create the treasury ATA does not exist and the vault holds the whole supply.
+     */
+    const creator = Keypair.generate();
+    let mint: PublicKey;
+
+    const lamports = async (k: PublicKey) =>
+      (await provider.connection.getAccountInfo(k))?.lamports ?? 0;
+    const fetchCurve = async (m: PublicKey): Promise<any> =>
+      (program.account as any).bondingCurve.fetch(curvePda(program.programId, m));
+    const tokenBalance = async (account: PublicKey): Promise<string> =>
+      (await provider.connection.getTokenAccountBalance(account)).value.amount;
+    const vaultBalance = (m: PublicKey) => tokenBalance(vaultPda(program.programId, m));
+    /** Rent-exempt minimum on THIS validator. Never hard-code it: a default local
+     *  validator charges more per byte than mainnet or devnet. */
+    const rent = (bytes: number) => provider.connection.getMinimumBalanceForRentExemption(bytes);
+    const launchFor = async (who: Keypair, m: PublicKey, overrides: Record<string, PublicKey> = {}) =>
+      program.methods
+        .createLaunch()
+        .accountsPartial({ ...launchAccounts(who.publicKey, m), ...overrides })
+        .signers([who])
+        .rpc();
+    const freshCreator = async (): Promise<[Keypair, PublicKey]> => {
+      const who = Keypair.generate();
+      await fund(provider, who.publicKey, 5);
+      return [who, await makeMint(provider, who, null)];
+    };
+    const setReserveBps = (bps: BN) =>
+      program.methods
+        .updateGlobal(null, null, null, null, null, null, null, null, null, null, bps)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+    const setFeeRecipient = (k: PublicKey) =>
+      program.methods
+        .updateGlobal(null, null, null, null, k, null, null, null, null, null, null)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+
+    it("pays exactly the reserve to the treasury ATA at create, and the creator pays its rent", async () => {
+      await fund(provider, creator.publicKey, 5);
+      mint = await makeMint(provider, creator, null);
+      const treasury = treasuryAta(mint, feeRecipient);
+      assert.isNull(
+        await provider.connection.getAccountInfo(treasury),
+        "precondition: the treasury has no token account for this mint yet"
+      );
+      const creatorBefore = await lamports(creator.publicKey);
+
+      await launchFor(creator, mint);
+
+      assert.equal(
+        await tokenBalance(treasury),
+        CARVE.toString(),
+        "the treasury must hold exactly the reserve right after create"
+      );
+      assert.equal(
+        await vaultBalance(mint),
+        CURVE_SUPPLY.toString(),
+        "the vault must hold only what the curve may sell"
+      );
+      const c = await fetchCurve(mint);
+      assert.equal(c.realTokenReserves.toString(), CURVE_SUPPLY.toString());
+      assert.equal(c.platformReserveTokens.toString(), CARVE.toString(), "the carve is 3.69%");
+      assert.isTrue(c.platformReserveReleased, "paid at create, so the flag is set from creation");
+
+      // The account is the treasury's, for this mint.
+      const ata = ((await provider.connection.getParsedAccountInfo(treasury)).value?.data as any)
+        ?.parsed?.info;
+      assert.equal(ata?.owner, feeRecipient.toBase58(), "the reserve account belongs to the treasury");
+      assert.equal(ata?.mint, mint.toBase58());
+      // Every token minted, and no way to mint more.
+      const m = ((await provider.connection.getParsedAccountInfo(mint)).value?.data as any)?.parsed
+        ?.info;
+      assert.equal(m?.supply, SUPPLY.toString(), "the whole supply is minted, and only once");
+      assert.isNull(m?.mintAuthority, "mint authority must be revoked");
+
+      // The creator paid the rent of all three accounts create_launch opens — the
+      // curve (179 bytes), its vault and the treasury ATA (165 each) — and nothing
+      // else: the provider wallet pays the transaction fee here.
+      const expected = (await rent(179)) + 2 * (await rent(165));
+      assert.equal(
+        creatorBefore - (await lamports(creator.publicKey)),
+        expected,
+        "the creator pays the treasury ATA's rent along with the curve's and the vault's"
+      );
+      assert.equal(await lamports(treasury), await rent(165), "the treasury ATA holds exactly its rent");
+    });
+
+    it("keeps the vault equal to the sellable reserves on trades, and never touches the treasury's tokens", async () => {
+      const traderAta = await createAssociatedTokenAccount(
+        provider.connection,
+        deployer,
+        mint,
+        deployer.publicKey
+      );
+      const trade = {
+        trader: deployer.publicKey,
+        global: globalPda(program.programId),
+        feeRecipient,
+        creator: creator.publicKey,
+        mint,
+        curve: curvePda(program.programId, mint),
+        curveVault: vaultPda(program.programId, mint),
+        traderTokenAccount: traderAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      };
+      await program.methods.buy(new BN(LAMPORTS_PER_SOL), new BN(0)).accountsPartial(trade).rpc();
+      const held = BigInt(
+        (await provider.connection.getTokenAccountBalance(traderAta)).value.amount
+      );
+      await program.methods
+        .sell(new BN((held / 3n).toString()), new BN(0))
+        .accountsPartial(trade)
+        .rpc();
+
+      const c = await fetchCurve(mint);
+      assert.isTrue(c.realTokenReserves.lt(CURVE_SUPPLY), "precondition: tokens were sold");
+      assert.equal(
+        await vaultBalance(mint),
+        c.realTokenReserves.toString(),
+        "the vault must hold exactly the sellable reserves"
+      );
+      assert.equal(
+        await tokenBalance(treasuryAta(mint, feeRecipient)),
+        CARVE.toString(),
+        "trades must never move the treasury's reserve"
+      );
+    });
+
+    it("refuses a fee_recipient that is not the config's, and creates nothing", async () => {
+      const [who, m] = await freshCreator();
+      const stranger = Keypair.generate().publicKey;
+      await expectAnchorError(
+        launchFor(who, m, { feeRecipient: stranger, treasuryToken: treasuryAta(m, stranger) }),
+        "Unauthorized"
+      );
+      for (const k of [curvePda(program.programId, m), treasuryAta(m, stranger), treasuryAta(m, feeRecipient)]) {
+        assert.isNull(await provider.connection.getAccountInfo(k), "a refused create must leave nothing behind");
+      }
+
+      // POSITIVE CONTROL: the same creator and mint, with the config's recipient.
+      await launchFor(who, m);
+      assert.equal(await tokenBalance(treasuryAta(m, feeRecipient)), CARVE.toString());
+    });
+
+    it("refuses a treasury token account that is not the treasury's ATA", async () => {
+      const [who, m] = await freshCreator();
+
+      // The creator's own token account: right mint, wrong owner.
+      const own = await createAssociatedTokenAccount(provider.connection, who, m, who.publicKey);
+      await expectAnchorError(launchFor(who, m, { treasuryToken: own }), "ConstraintTokenOwner");
+
+      // Subtler: a token account the treasury DOES own, for this mint, at an address
+      // that is not its ATA. Only the associated-address check stops it.
+      const stray = await createAccount(provider.connection, who, m, feeRecipient, Keypair.generate());
+      await expectAnchorError(
+        launchFor(who, m, { treasuryToken: stray }),
+        "AccountNotAssociatedTokenAccount"
+      );
+      assert.isNull(await provider.connection.getAccountInfo(curvePda(program.programId, m)));
+
+      // POSITIVE CONTROL: the real ATA succeeds, and neither decoy receives anything.
+      await launchFor(who, m);
+      assert.equal(await tokenBalance(treasuryAta(m, feeRecipient)), CARVE.toString());
+      assert.equal(await tokenBalance(own), "0");
+      assert.equal(await tokenBalance(stray), "0");
+    });
+
+    it("is not blocked by a treasury ATA a stranger created first", async () => {
+      // DENIAL-OF-SERVICE NEGATIVE CONTROL: the mint exists before create_launch, so
+      // the treasury ATA's address is public and anyone can create it first. That
+      // must neither block the launch nor change where the reserve goes.
+      const [who, m] = await freshCreator();
+      const stranger = Keypair.generate();
+      await fund(provider, stranger.publicKey, 1);
+      await createAssociatedTokenAccount(provider.connection, stranger, m, feeRecipient);
+      const treasury = treasuryAta(m, feeRecipient);
+      assert.equal(await tokenBalance(treasury), "0", "precondition: pre-created and empty");
+
+      const before = await lamports(who.publicKey);
+      await launchFor(who, m);
+      assert.equal(await tokenBalance(treasury), CARVE.toString());
+      assert.equal(
+        before - (await lamports(who.publicKey)),
+        (await rent(179)) + (await rent(165)),
+        "with the ATA already there, the creator pays only the curve and the vault"
+      );
+    });
+
+    it("re-runs the economics check when ONLY the reserve changes", async () => {
+      // 1,000 bps is within the cap, and nothing else changes, so only the
+      // continuity re-check can reject it: virtual tokens are tuned for 369, and at
+      // 1,000 the curve supply shrinks enough to list the pool ~9.4% above the
+      // curve's final price (10,943 bps). Skipping the re-check on a reserve-only
+      // update would store it silently.
+      await expectAnchorError(setReserveBps(new BN(1_000)), "GraduationPriceGap");
+      const g: any = await (program.account as any).globalConfig.fetch(globalPda(program.programId));
+      assert.equal(g.platformReserveBps.toString(), PLATFORM_RESERVE_BPS.toString());
+    });
+
+    it("rejects a reserve above the 10% cap on update too", async () => {
+      await expectAnchorError(setReserveBps(new BN(1_001)), "InvalidParameter");
+    });
+
+    it("applies a reserve change to future launches only", async () => {
+      // POSITIVE CONTROL for the gap test: 400 bps lists at ~10,041, inside the band.
+      await setReserveBps(new BN(400));
+      const g: any = await (program.account as any).globalConfig.fetch(globalPda(program.programId));
+      assert.equal(g.platformReserveBps.toString(), "400");
+
+      // The launch made at 369 keeps its snapshot, and the treasury keeps what it was paid...
+      assert.equal(
+        (await fetchCurve(mint)).platformReserveTokens.toString(),
+        CARVE.toString(),
+        "a live launch's reserve must never move"
+      );
+      assert.equal(await tokenBalance(treasuryAta(mint, feeRecipient)), CARVE.toString());
+      // ...and a new one carves, and pays, at 400.
+      const [later, laterMint] = await freshCreator();
+      await launchFor(later, laterMint);
+      const carve400 = SUPPLY.muln(400).divn(10_000);
+      const c = await fetchCurve(laterMint);
+      assert.equal(c.platformReserveTokens.toString(), carve400.toString());
+      assert.equal(c.realTokenReserves.toString(), SUPPLY.sub(carve400).toString());
+      assert.equal(await tokenBalance(treasuryAta(laterMint, feeRecipient)), carve400.toString());
+      assert.equal(await vaultBalance(laterMint), SUPPLY.sub(carve400).toString());
+
+      // Restore the suite default.
+      await setReserveBps(PLATFORM_RESERVE_BPS);
+    });
+
+    it("pays a ROTATED fee_recipient on later launches, and refuses the old one", async () => {
+      // The recipient is read at create time: rotating it changes where FUTURE
+      // launches pay, and nothing already paid moves.
+      const rotated = Keypair.generate().publicKey;
+      await setFeeRecipient(rotated);
+      try {
+        const [who, m] = await freshCreator();
+        // The old recipient is no longer the config's, so a creator cannot name it.
+        await expectAnchorError(launchFor(who, m), "Unauthorized");
+        await launchFor(who, m, { feeRecipient: rotated, treasuryToken: treasuryAta(m, rotated) });
+        assert.equal(
+          await tokenBalance(treasuryAta(m, rotated)),
+          CARVE.toString(),
+          "create must open the rotated treasury's ATA and pay the reserve into it"
+        );
+        assert.isNull(await provider.connection.getAccountInfo(treasuryAta(m, feeRecipient)));
+        assert.equal(
+          await tokenBalance(treasuryAta(mint, feeRecipient)),
+          CARVE.toString(),
+          "an earlier launch's reserve stays where it was paid"
+        );
+      } finally {
+        await setFeeRecipient(feeRecipient);
+      }
     });
   });
 });

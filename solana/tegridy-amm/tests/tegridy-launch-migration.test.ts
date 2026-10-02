@@ -31,6 +31,10 @@
  *                                                     partial burn makes it false)
  *   - migrating twice fails                          (replay safety)
  *   - buy and sell both fail afterwards              (curve really is closed)
+ *   - the 3.69% platform reserve is in the treasury's (the pool gets only the
+ *     ATA from create, migration never touches it,    sellable tokens; the reserve
+ *     and supply is conserved end to end              is paid when the launch is
+ *                                                     created, on every chain)
  */
 import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, BN, Idl, Program } from "@coral-xyz/anchor";
@@ -99,8 +103,15 @@ const AUTH_SEED = Buffer.from("vault_and_lp_mint_auth_seed");
 // curve::continuity_target. 30 SOL here with a 2 SOL target opened the pool at
 // 14% of the curve price, a ~7x listing gap, and is now rejected at config time.
 const V_SOL = new BN(5_329_495_216);
-const V_TOK = new BN("1073000000000000");
 const SUPPLY = new BN("1000000000000000");
+/** The platform reserve: 3.69% of each launch's supply, carved from the curve's
+ *  share and paid to the treasury's ATA inside `create_launch`. */
+const PLATFORM_RESERVE_BPS = new BN(369);
+/** 369 bps of SUPPLY, rounded down. */
+const CARVE = SUPPLY.mul(PLATFORM_RESERVE_BPS).div(new BN(10_000));
+/** 1.073e15 scaled by the same (1 - 3.69%) as the supply, which keeps the 2 SOL
+ *  target at the curve's final price (9999 bps) — the operator retune. */
+const V_TOK = new BN("1033406300000000");
 const TRADE_FEE_BPS = new BN(100);
 /** Creator's share OF THE FEE (bps of the fee, not the trade). 4,800 = exact
  *  parity with the live Meteora partner config's 48 bps (CREATOR_FEE_SPEC.md §1).
@@ -147,6 +158,24 @@ describe("tegridy-launch full migration rehearsal", () => {
   let launchMint: PublicKey;
   let curve: PublicKey;
   let curveVault: PublicKey;
+
+  /** Every `create_launch` account. The last three pay the platform reserve into
+   *  `recipient`'s ATA, which must be the config's current fee_recipient. */
+  const launchAccounts = (mint: PublicKey, recipient: PublicKey) => ({
+    creator: wallet.publicKey,
+    global: pda([GLOBAL_SEED], launch.programId),
+    mint,
+    curve: pda([CURVE_SEED, mint.toBuffer()], launch.programId),
+    curveVault: pda([VAULT_SEED, mint.toBuffer()], launch.programId),
+    tokenProgram: TOKEN_PROGRAM_ID,
+    systemProgram: SystemProgram.programId,
+    rent: SYSVAR_RENT_PUBKEY,
+    feeRecipient: recipient,
+    treasuryToken: getAssociatedTokenAddressSync(mint, recipient, true),
+    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+  });
+  const tokenBalance = async (account: PublicKey): Promise<bigint> =>
+    BigInt((await provider.connection.getTokenAccountBalance(account)).value.amount);
 
   before(async () => {
     launch = loadIdlProgram(provider, "tegridy_launch");
@@ -213,7 +242,8 @@ describe("tegridy-launch full migration rehearsal", () => {
         GRAD_TARGET,
         MIGRATION_RESERVE,
         cpSwap.programId,
-        ammConfig
+        ammConfig,
+        PLATFORM_RESERVE_BPS
       )
       .accountsPartial({
         authority: wallet.publicKey,
@@ -230,27 +260,36 @@ describe("tegridy-launch full migration rehearsal", () => {
     curve = pda([CURVE_SEED, launchMint.toBuffer()], launch.programId);
     curveVault = pda([VAULT_SEED, launchMint.toBuffer()], launch.programId);
 
-    await launch.methods
-      .createLaunch()
-      .accountsPartial({
-        creator: wallet.publicKey,
-        global: pda([GLOBAL_SEED], launch.programId),
-        mint: launchMint,
-        curve,
-        curveVault,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .rpc();
+    // The config's fee_recipient is read BEFORE create: create_launch pays the
+    // platform reserve to its ATA and refuses any other recipient.
+    const globalKey = pda([GLOBAL_SEED], launch.programId);
+    const g: any = await (launch.account as any).globalConfig.fetch(globalKey);
+    cfgFeeRecipient = g.feeRecipient;
+
+    await launch.methods.createLaunch().accountsPartial(launchAccounts(launchMint, cfgFeeRecipient)).rpc();
+
+    // The platform reserve is carved AND paid here: the treasury's ATA holds it,
+    // and the vault holds only what the curve may sell.
+    {
+      const c: any = await (launch.account as any).bondingCurve.fetch(curve);
+      assert.equal(
+        (await provider.connection.getTokenAccountBalance(curveVault)).value.amount,
+        SUPPLY.sub(CARVE).toString(),
+        "the vault must hold exactly the curve's share"
+      );
+      assert.equal(
+        (await tokenBalance(getAssociatedTokenAddressSync(launchMint, cfgFeeRecipient, true))).toString(),
+        CARVE.toString(),
+        "the treasury must hold exactly the reserve from create"
+      );
+      assert.equal(c.realTokenReserves.toString(), SUPPLY.sub(CARVE).toString());
+      assert.equal(c.platformReserveTokens.toString(), CARVE.toString());
+      assert.isTrue(c.platformReserveReleased, "paid at create");
+    }
 
     // ── buy past the target, so the reserve is funded too ─────────────────────
     const buyerAta = getAssociatedTokenAddressSync(launchMint, wallet.publicKey);
     await createAssociatedTokenAccount(provider.connection, wallet, launchMint, wallet.publicKey);
-
-    const globalKey = pda([GLOBAL_SEED], launch.programId);
-    const g: any = await (launch.account as any).globalConfig.fetch(globalKey);
-    cfgFeeRecipient = g.feeRecipient;
 
     // ── exercise `sell` once, while the curve is still open ──────────────────
     // `sell` is the holders' ONLY exit, and it carries the same direct
@@ -530,7 +569,26 @@ describe("tegridy-launch full migration rehearsal", () => {
     const post: any = await (launch.account as any).bondingCurve.fetch(curve);
     assert.isTrue(post.complete, "curve must be closed by migration");
     assert.equal(post.pool.toBase58(), poolState.toBase58(), "curve must record its pool");
-    assert.equal(post.realTokenReserves.toString(), "0", "all tokens should have moved to the pool");
+    assert.equal(post.realTokenReserves.toString(), "0", "all sellable tokens should have moved to the pool");
+
+    // The pool got EXACTLY the curve's sellable reserves. The platform reserve left
+    // the vault at create, so it cannot be in the pool.
+    assert.equal(
+      (
+        await provider.connection.getTokenAccountBalance(
+          pda([POOL_VAULT_SEED, poolState.toBuffer(), launchMint.toBuffer()], cpSwap.programId)
+        )
+      ).value.amount,
+      preMigrate.realTokenReserves.toString(),
+      "the pool must receive exactly the pre-migrate real_token_reserves"
+    );
+    assert.equal(post.platformReserveTokens.toString(), CARVE.toString(), "the snapshot never moves");
+    assert.isTrue(post.platformReserveReleased, "paid at create, and migration never unsets it");
+    assert.equal(
+      (await tokenBalance(getAssociatedTokenAddressSync(launchMint, cfgFeeRecipient, true))).toString(),
+      CARVE.toString(),
+      "migration must never touch the treasury's reserve"
+    );
 
     const poolAccount = await provider.connection.getAccountInfo(poolState);
     assert.isNotNull(poolAccount, "the pool must exist on-chain");
@@ -687,11 +745,12 @@ describe("tegridy-launch full migration rehearsal", () => {
     // The donated dust was drained rather than left to block the close. Asserting
     // where it LANDED, not merely that migration survived: a close made conditional
     // instead of draining would also pass the checks above while silently stranding
-    // the rent, so pin the actual destination.
+    // the rent, so pin the actual destination. The platform reserve is not here:
+    // it went to the treasury at create, so the dust unit is all the vault holds.
     assert.equal(
       (await provider.connection.getTokenAccountBalance(curveVault)).value.amount,
       "1",
-      "the donated token unit must be swept into the curve vault before the close"
+      "the vault must hold exactly the swept dust unit"
     );
 
     // THE ASSERTION THIS FILE EXISTS FOR. Operator decision: burn the LP so
@@ -814,5 +873,43 @@ describe("tegridy-launch full migration rehearsal", () => {
       if (!sellFailed) throw new Error(`sell failed for the WRONG reason: ${e}`);
     }
     assert.isTrue(sellFailed, "sell must be refused with AlreadyComplete");
+  });
+
+  // ─── the platform reserve, after graduation ─────────────────────────────────
+  //
+  // The reserve is paid at create (the create-time negatives — wrong recipient,
+  // wrong token account, a stranger's pre-created ATA, a rotated recipient — live in
+  // tegridy-launch-constraints.test.ts, since none of them needs a graduation).
+  // What only a graduated launch can show is that the whole supply is accounted
+  // for after migration.
+
+  it("conserves supply end to end, with the reserve still in the treasury's ATA", async () => {
+    const c: any = await (launch.account as any).bondingCurve.fetch(curve);
+    assert.isTrue(c.complete, "precondition: the launch graduated");
+    const treasuryAta = getAssociatedTokenAddressSync(launchMint, cfgFeeRecipient, true);
+    assert.equal((await tokenBalance(treasuryAta)).toString(), CARVE.toString());
+
+    // Every token minted is in exactly one of the places this launch can have put
+    // it. The squatter's pool holds the 1,000,000 units the adversarial
+    // precondition seeded it with; the curve vault holds the swept dust unit.
+    const [mint0, mint1] =
+      NATIVE_MINT.toBuffer() < launchMint.toBuffer()
+        ? [NATIVE_MINT, launchMint]
+        : [launchMint, NATIVE_MINT];
+    const squattedPool = pda(
+      [POOL_SEED, ammConfig.toBuffer(), mint0.toBuffer(), mint1.toBuffer()],
+      cpSwap.programId
+    );
+    const vaultOf = (pool: PublicKey) =>
+      pda([POOL_VAULT_SEED, pool.toBuffer(), launchMint.toBuffer()], cpSwap.programId);
+    const held =
+      (await tokenBalance(curveVault)) +
+      (await tokenBalance(vaultOf(c.pool))) +
+      (await tokenBalance(vaultOf(squattedPool))) +
+      (await tokenBalance(getAssociatedTokenAddressSync(launchMint, wallet.publicKey))) +
+      (await tokenBalance(treasuryAta));
+    const supply = (await getMint(provider.connection, launchMint)).supply;
+    assert.equal(held.toString(), supply.toString(), "supply must be conserved");
+    assert.equal(supply.toString(), SUPPLY.toString());
   });
 });

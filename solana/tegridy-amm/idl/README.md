@@ -123,3 +123,29 @@ cp idl/bayla_ladder.json solana/tegridy-amm/idl/bayla_ladder.json
 
 Then update the table above — the run id and source commit are the provenance, and a
 hash with no run behind it is decoration.
+
+---
+
+## `tegridy_launch.json` and `raydium_cp_swap.json`
+
+The IDLs emitted with the **exact mainnet binaries** of the 2026-09-26 Solana launcher
+restart (`tegridy_launch.mainnet.so` sha256 `a3c41afa…`, the reserve-at-create build;
+`cp_swap.mainnet.so`), copied byte for byte from that release's `artifacts/` folder. The
+earlier `tegridy_launch.json` (`d987fafe…`, from the reserve-held `9b78be02…` build) is
+superseded: that program had `release_platform_reserve` and an 8-account `create_launch`. Their `address` fields are the registered restart ids
+(`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`, `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`).
+Neither program id holds a program on mainnet yet, and no IDL has been written on chain.
+
+| file | sha256 (the release's `artifacts/SHA256SUMS`) |
+| --- | --- |
+| `tegridy_launch.json` | `cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31` |
+| `raydium_cp_swap.json` | `939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262` |
+
+**What keeps them honest:** `frontend/src/lib/launcher/solana/write/idl.test.ts` pins both
+hashes, then holds every instruction the /curve-launch write path can send
+(`create_launch`, 11 accounts including the treasury's token account that receives the
+platform reserve, + its trailing launch-index key, `buy`, `sell`, `migrate_to_amm`, cp-swap
+`swap_base_input`) against them, position by position:
+account name → address, signer and writable flags, discriminator, argument order. It also
+requires the frontend's error tables to equal the IDLs' code for code. A changed program
+means a new IDL here, a new hash in that test, and whatever the parity check then says.

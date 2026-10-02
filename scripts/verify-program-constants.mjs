@@ -20,11 +20,12 @@
  *     the source it was built from. A wrong constant is still faithfully reproduced,
  *     and still hashes correctly. Reproducibility answers "is this the source?", never
  *     "is the source right?".
- *   • THE SOURCE ON TRUNK IS NOT THE SOURCE THAT WAS BUILT. MAINNET_RUNBOOK §2 has the
- *     operator hand-edit the four mainnet authority constants immediately before the
- *     verifiable build; those edits are deliberately never committed (the committed
- *     non-devnet arms are fail-closed sentinels and placeholders). So reading lib.rs
- *     tells you what a DEVELOPER build would contain, not what is live.
+ *   • THE SOURCE ON TRUNK IS NOT NECESSARILY THE SOURCE THAT WAS BUILT. Until
+ *     2026-09-26 the operator hand-edited the mainnet constants just before the build
+ *     and never committed them. Since then the non-devnet arms carry the real mainnet
+ *     identities (owner rulings 2026-09-25), but a build can still be made from any
+ *     commit or a patched tree, so reading lib.rs tells you what a build of THAT
+ *     commit contains, not what is live.
  *   • Reading the diff, or the runbook, or the session notes is reading a claim.
  *
  * The one check that works is mechanical: a 32-byte pubkey constant is stored
@@ -73,7 +74,7 @@
  *
  *   # AFTER the fact — audit what is actually live. Needs SOLANA_RPC_URL.
  *   SOLANA_RPC_URL=https://your-keyed-rpc \
- *     node scripts/verify-program-constants.mjs --deployed 3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y
+ *     node scripts/verify-program-constants.mjs --deployed EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT
  *
  *   # CI — prove the matcher can still both pass and fail.
  *   node scripts/verify-program-constants.mjs --self-test
@@ -142,116 +143,176 @@ function isUnsearchable(bytes) {
 
 // ── the rosters ──────────────────────────────────────────────────────────────
 //
-// These are the INTENDED MAINNET values, not what trunk's source says. They cannot be
-// derived from the source: the committed non-devnet arms are placeholders and
-// sentinels, replaced by hand at build time per MAINNET_RUNBOOK §2. Writing them down
-// here is the point — this file is the only place the intended values and the shipped
-// bytes can be compared.
+// These are the INTENDED MAINNET values (owner rulings 2026-09-25), written down
+// independently of the source on purpose: since 2026-09-26 the committed non-devnet
+// arms carry the same values, and this file is where the intended values and the
+// shipped BYTES are compared. Neither program is deployed yet — both ids are
+// REGISTERED, not deployed (frontend/scripts/addresses.json).
+//
+// Per program, REQUIRED = the new identities; FORBIDDEN = both SPENT 2026-08 program
+// ids, the old cp-swap admin Dcjink4…, the old tegridy-launch placeholder 8YVjjc…,
+// and that program's devnet material.
 //
 // Every address below is also carried in frontend/scripts/addresses.json with its role
 // and custody; `--self-test` cross-checks the two so they cannot drift apart.
 
 const ROSTERS = {
   'cp-swap': {
-    programId: '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y',
+    programId: 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT',
     artifact: 'raydium_cp_swap.so',
     source: 'solana/tegridy-amm/programs/cp-swap/src/lib.rs',
     keys: [
       {
         id: 'declare_id',
-        address: '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y',
+        address: 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT',
         expect: 'required',
-        why: 'declare_id! (lib.rs:44). Anchor compares every instruction against it; a binary built for a different id cannot execute at this address.',
+        why: 'declare_id! (non-devnet arm), the restart id. Anchor compares every instruction against it; a binary built for a different id cannot execute at this address.',
       },
       {
+        // ONE entry for two constants on purpose: they hold the same key, rustc folds
+        // them into one rodata entry, and two roster rows with one address would make
+        // "drop admin::ID" in the self-test unfalsifiable.
         id: 'admin::ID',
-        address: 'Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7',
+        address: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd',
         expect: 'required',
         why:
-          'lib.rs:75. THE DECISIVE CHECK. create_config/update_config/update_pool_status are gated on it AND `payer = owner`, so it must be system-owned and fundable. ' +
-          'The 2026-08-08 binary has the Squads MULTISIG here, which is neither — that is what made create_amm_config uncallable and graduation impossible. ' +
-          'Because the multisig is legitimately present for another constant (see create_support_mint_associated_owner below), its presence proves nothing; ' +
-          'the ABSENCE of this key is what proves the fix has not shipped.',
+          'lib.rs `mod admin` AND create_support_mint_associated.rs `mod create_support_mint_associated_owner` (non-devnet arms): the Squads v4 VAULT PDA. ' +
+          'THE DECISIVE CHECK. create_config/update_config/update_pool_status are gated on it AND `payer = owner`, so it must be system-owned and fundable — the vault is both, ' +
+          'and signs through a Squads vault transaction. The 2026-08-08 binary had the MULTISIG account here instead, which can do neither.',
       },
       {
         id: 'create_pool_fee_reveiver::ID',
         address: '2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa',
         expect: 'required',
-        why: 'lib.rs:88. Consumed as a WSOL TOKEN ACCOUNT (InterfaceAccount<TokenAccount> + sync_native), not a wallet. The Squads vault’s WSOL ATA.',
+        why: 'lib.rs `mod create_pool_fee_reveiver`. Consumed as a WSOL TOKEN ACCOUNT (InterfaceAccount<TokenAccount> + sync_native), not a wallet. The Squads vault’s WSOL ATA.',
       },
       {
-        id: 'create_support_mint_associated_owner::ID',
+        id: 'squads multisig ACCOUNT',
         address: 'EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK',
-        expect: 'required',
+        expect: 'forbidden',
         why:
-          'instructions/admin/create_support_mint_associated.rs:29. This one IS the Squads multisig, deliberately and documented as such — it is a pure OR-fallback ' +
-          'that grants nobody anything, and repointing it would widen the fork diff for no capability. Listed REQUIRED so its disappearance is noticed, ' +
-          'and so nobody reads a multisig hit here as evidence about admin::ID.',
+          'It can never sign (Squads v4 signs as the VAULT) and the System Program cannot debit it. It bricked create_amm_config on 2026-08-08 as admin::ID, and it was the ' +
+          'support-mint owner until 2026-09-26 (a dead fallback). Neither constant may hold it now.',
+      },
+      {
+        id: 'spent cp-swap id (closed 2026-08-13)',
+        address: '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y',
+        expect: 'forbidden',
+        why: 'The 2026-08 cp-swap id. Its ProgramData was closed 2026-08-13, so it can never hold a program again; any hit means a pre-restart source or a stale constant.',
+      },
+      {
+        id: 'spent tegridy-launch id (closed 2026-08-13)',
+        address: 'CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED',
+        expect: 'forbidden',
+        why: 'The 2026-08 tegridy-launch id, closed the same day. Same rule: spent forever, must appear in no new binary.',
+      },
+      {
+        id: 'old cp-swap admin / old deploy authority',
+        address: 'Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7',
+        expect: 'forbidden',
+        why: 'The single operator-held key that was cp-swap admin::ID in source until 2026-09-26. The restart moved every authority off it; a hit means an old constant shipped.',
+      },
+      {
+        id: 'old tegridy-launch placeholder id',
+        address: '8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8',
+        expect: 'forbidden',
+        why: 'The throwaway tegridy-launch compiled against until 2026-09-26. Nobody holds its key; declare_id! is not fail-closed, so shipping it deploys to an address a stranger may hold.',
       },
       {
         id: 'devnet declare_id',
         address: 'BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL',
         expect: 'forbidden',
-        why: 'lib.rs:42, the `--features devnet` arm. Present => this is a DEVNET build. The CI SBF artifact is one; deploying it to mainnet is the mistake §3 of the runbook warns about.',
+        why: 'The `--features devnet` arm. Present => this is a DEVNET build. The CI SBF artifact is one; deploying it to mainnet is the mistake §3 of the runbook warns about.',
       },
       {
         id: 'devnet admin',
         address: 'GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a',
         expect: 'forbidden',
-        why: 'lib.rs:73. A single operator-held devnet throwaway. Present in a mainnet binary => AMM admin is a throwaway key.',
+        why: 'The devnet arm of admin::ID and of the support-mint owner. A single operator-held devnet throwaway. Present in a mainnet binary => AMM admin is a throwaway key.',
       },
       {
         id: 'devnet fee receiver',
         address: '27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9',
         expect: 'forbidden',
-        why: 'lib.rs:86. The devnet WSOL ATA. Every pool-creation fee would be paid to a devnet account that does not exist on mainnet.',
+        why: 'The devnet WSOL ATA. Every pool-creation fee would be paid to a devnet account that does not exist on mainnet.',
       },
       {
-        id: 'squads vault (upgrade authority)',
-        address: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd',
+        id: 'upgrade authority at first deploy (the deployer)',
+        address: 'CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg',
         expect: 'informational',
         why:
-          'NOT forbidden — a vault PDA is a perfectly legal admin::ID (runbook §5 costs it out). Tracked because it is the program’s UPGRADE AUTHORITY, which lives in the ' +
-          'ProgramData header at bytes 13..45. If this ever reports PRESENT under --deployed, the header skip has regressed and every other answer on this page is suspect.',
+          'NOT a cp-swap constant. Tracked because it pays for the deploy and is the INITIAL UPGRADE AUTHORITY, which lives in the ProgramData header at bytes 13..45. ' +
+          'If this ever reports PRESENT under --deployed, the header skip has regressed and every other answer on this page is suspect.',
       },
     ],
   },
 
   'tegridy-launch': {
-    programId: 'CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED',
+    programId: '64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2',
     artifact: 'tegridy_launch.so',
     source: 'solana/tegridy-amm/programs/tegridy-launch/src/lib.rs',
     keys: [
       {
         id: 'declare_id',
-        address: 'CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED',
+        address: '64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2',
         expect: 'required',
-        why: 'declare_id! — the mainnet id. Trunk still carries the placeholder (lib.rs:114); the real id is patched in at build time per runbook §5b.',
+        why: 'declare_id! — the restart id, committed since 2026-09-26 (the crate has ONE, no cfg arms). A binary built for a different id cannot execute at this address.',
       },
       {
         id: 'deployer::ID',
-        address: 'Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7',
+        address: 'CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg',
         expect: 'required',
         why:
-          'lib.rs:142 (non-devnet arm). The ONLY key that can call initialize_global — without it that instruction is an unprotected initializer and whoever calls it first ' +
-          'owns the protocol and every trade fee. Trunk ships the all-zero System sentinel here, which nobody can sign for; this REQUIRED check is how the sentinel is ' +
-          'detected, because the sentinel itself is unsearchable (see below).',
+          'lib.rs `mod deployer` (non-devnet arm). The ONLY key that can call initialize_global — without it that instruction is an unprotected initializer and whoever calls ' +
+          'it first owns the protocol and every trade fee. Until 2026-09-26 this arm was the all-zero System sentinel, which is unsearchable (see below); this REQUIRED check ' +
+          'is how a sentinel build is detected.',
       },
       {
-        id: 'System sentinel (deployer fail-closed default)',
+        id: 'cp_swap::ID (compile-time graduation venue)',
+        address: 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT',
+        expect: 'required',
+        why:
+          'lib.rs `mod cp_swap`. initialize_global and update_global refuse any global.cp_swap_program but this one on a non-devnet build, so a stolen authority key cannot ' +
+          'repoint graduation. ABSENT => a devnet build (the check is compiled out) or a build from before the pin.',
+      },
+      {
+        id: 'System sentinel (old deployer fail-closed default)',
         address: '11111111111111111111111111111111',
         expect: 'forbidden',
         why:
-          'lib.rs:142 as committed. A mainnet build that keeps it can never be initialized. UNSEARCHABLE — it is 32 zero bytes, which occur as padding in every ELF, ' +
-          'so neither presence nor absence can be established by a byte search. The substitute check is deployer::ID above: if the sentinel shipped, the real key is absent.',
+          'What the non-devnet deployer arm held until 2026-09-26. A mainnet build that keeps it can never be initialized. UNSEARCHABLE — it is 32 zero bytes, which occur as ' +
+          'padding in every ELF, so neither presence nor absence can be established by a byte search. The substitute check is deployer::ID above: if the sentinel shipped, ' +
+          'the real key is absent.',
       },
       {
-        id: 'placeholder declare_id / devnet deployer',
+        id: 'spent cp-swap id (closed 2026-08-13)',
+        address: '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y',
+        expect: 'forbidden',
+        why: 'The 2026-08 cp-swap id. Its ProgramData was closed 2026-08-13, so it can never hold a program again; any hit means a pre-restart source or a stale constant.',
+      },
+      {
+        id: 'spent tegridy-launch id (closed 2026-08-13)',
+        address: 'CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED',
+        expect: 'forbidden',
+        why: 'The 2026-08 tegridy-launch id, closed the same day. Same rule: spent forever, must appear in no new binary.',
+      },
+      {
+        id: 'old cp-swap admin / old deploy authority',
+        address: 'Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7',
+        expect: 'forbidden',
+        why: 'The single operator-held key that was cp-swap admin::ID in source until 2026-09-26. The restart moved every authority off it; a hit means an old constant shipped.',
+      },
+      {
+        id: 'old tegridy-launch placeholder id',
         address: '8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8',
         expect: 'forbidden',
-        why:
-          'lib.rs:114 and lib.rs:140. A throwaway keypair nobody holds, used only so the crate compiles. It is BOTH the placeholder program id and the devnet deployer, ' +
-          'so a single hit means either a devnet build or an unpatched id — and declare_id! is not fail-closed: ship it and you deploy to an address a stranger may hold.',
+        why: 'The throwaway tegridy-launch compiled against until 2026-09-26. Nobody holds its key; declare_id! is not fail-closed, so shipping it deploys to an address a stranger may hold.',
+      },
+      {
+        id: 'devnet deployer',
+        address: 'EMQVYMPe2UffGAVNYK6ZveCFM2tHjc5DBiXGKYFE6DXA',
+        expect: 'forbidden',
+        why: 'The `--features devnet` arm of deployer::ID, a placeholder. Present => a devnet build, whose initialize_global only this throwaway could call.',
       },
       {
         id: 'devnet admin (cp-swap)',
@@ -266,12 +327,6 @@ const ROSTERS = {
         why:
           'Tripwire for a repeat of the cp-swap mistake. tegridy-launch has NO compile-time multisig constant — its admin is `global.authority`, runtime state that ' +
           'update_global can move. A baked multisig here would be an unsignable gate with no upgrade-free fix.',
-      },
-      {
-        id: 'cp-swap program',
-        address: '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y',
-        expect: 'informational',
-        why: 'The graduation venue is `global.cp_swap_program`, runtime state, so this is not expected to be baked in. Reported either way rather than asserted.',
       },
     ],
   },
@@ -441,7 +496,9 @@ function selfTest() {
   //    read as ABSENT. This is the check that stops the UPGRADE AUTHORITY being
   //    reported as a baked-in constant — the failure mode that would have made this
   //    whole tool confidently wrong about the one question it exists to answer.
-  const vault = cps.keys.find((k) => k.id.startsWith('squads vault'));
+  // The row must be one the body does NOT contain — the cp-swap vault is admin::ID now,
+  // so the initial upgrade authority (the deployer) is the header-only key.
+  const vault = cps.keys.find((k) => k.id.startsWith('upgrade authority'));
   const trap = build(req.map((k) => k.address), { headerOnly: [vault.address] });
   const full = Buffer.concat([trap.head, trap.body]);
   check(
@@ -489,9 +546,42 @@ function selfTest() {
 
   // 9. base58Encode round-trips — fromChain uses it to name the ProgramData account,
   //    and a wrong address there sends the operator to look at the wrong thing.
-  for (const a of ['3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y', '11111111111111111111111111111111']) {
+  for (const a of ['EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT', '11111111111111111111111111111111']) {
     check(`base58 round-trips ${a.slice(0, 8)}...`, base58Encode(pubkeyBytes(a, a)), a);
   }
+
+  // 9b. THE RESTART RULES, per program. Each program requires its new ids and forbids
+  //     both spent ids, the old cp-swap admin and the old placeholder. A binary built
+  //     with the pre-restart constants must FAIL on the rows that name them.
+  for (const [name, r] of Object.entries(ROSTERS)) {
+    const forbidden = new Set(r.keys.filter((k) => k.expect === 'forbidden').map((k) => k.address));
+    for (const a of [
+      '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y',
+      'CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED',
+      'Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7',
+      '8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8',
+    ]) {
+      check(`${name} forbids ${a.slice(0, 8)}...`, forbidden.has(a), true);
+    }
+    check(`${name} programId is its REQUIRED declare_id`, r.keys.some((k) => k.id === 'declare_id' && k.expect === 'required' && k.address === r.programId), true);
+    const good = build(r.keys.filter((k) => k.expect === 'required').map((k) => k.address)).body;
+    check(`${name}: a binary with exactly the new required ids passes`, evaluate(r, good).ok, true);
+    const oldBin = build([...r.keys.filter((k) => k.expect === 'required').map((k) => k.address), 'Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7']).body;
+    check(`${name}: ...and the same binary carrying the old admin Dcjink4 FAILS`, evaluate(r, oldBin).ok, false);
+  }
+  // The pre-restart cp-swap (spent id + Dcjink4 admin + multisig support owner) fails
+  // on every one of those rows, and is missing both new required keys.
+  const preRestart = build([
+    '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y',
+    'Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7',
+    '2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa',
+    'EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK',
+  ]).body;
+  check(
+    'the pre-restart cp-swap constant set fails, naming every stale key',
+    evaluate(cps, preRestart).failures.map((f) => f.id).sort(),
+    ['admin::ID', 'declare_id', 'old cp-swap admin / old deploy authority', 'spent cp-swap id (closed 2026-08-13)', 'squads multisig ACCOUNT'].sort(),
+  );
 
   // 10. DRIFT: every roster address must also be in the canonical registry, so this
   //     file and frontend/scripts/addresses.json cannot disagree about what a key is.

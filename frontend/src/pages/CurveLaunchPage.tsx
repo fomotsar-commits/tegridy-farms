@@ -1,29 +1,51 @@
 // Polyfill MUST load before any @solana/* import — keep this the very first
-// import in this lazy chunk's entry (mirrors SolanaLaunchPage / SolanaSwapPage).
+// import in this lazy chunk's entry (mirrors SolanaSwapPage).
 import '../lib/solanaPolyfill';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { m } from 'framer-motion';
-import { Link } from 'react-router-dom';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useSolanaConnect } from '../components/solana/useSolanaConnect';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { LaunchGate } from '../components/LaunchGate';
+import { VenueLaunchLines } from '../components/launcher/VenueLaunchLines';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
-import { CurveChart } from '../components/launcher/CurveChart';
+import { Card, Field, Row } from '../components/solana/curve/ui';
+import {
+  CARD,
+  CARD_STYLE,
+  SHADOW,
+  TOGGLE_CLS,
+  bpsPercent,
+  feeSplitLabel,
+  inputCls,
+  inputStyle,
+} from '../components/solana/curve/uiFormat';
+import { CurveStateCard } from '../components/solana/curve/CurveStateCard';
+import { WriteGateBanner } from '../components/solana/curve/WriteGateBanner';
+import { LaunchCreateForm } from '../components/solana/curve/LaunchCreateForm';
+import { LaunchList } from '../components/solana/curve/LaunchList';
+import { WalletNeeded } from '../components/solana/curve/WalletNeeded';
+import { browserGateRpc } from '../components/solana/curve/gateRpc';
+import { useWriteGate } from '../components/solana/curve/useWriteGate';
+import { useCurveSigner, type CurveSignerState } from '../components/solana/curve/useCurveSigner';
+import type { OpenGate, WriteApi, WriteRpc } from '../components/solana/curve/ports';
+import { useLaunchLookup, type LaunchLookupReaders } from '../components/solana/curve/useLaunchLookup';
 import { PublicKey } from '@solana/web3.js';
 import {
   LAUNCH_ERROR_COPY,
+  PLATFORM_TREASURY_VAULT,
   PROGRAM_ID,
   applySlippage,
   browserCurveRpc,
   browserRpc,
   buyBlockedReason,
   classifyLaunch,
-  clipDetail,
-  curveProgress,
+  describeReserveRecipient,
+  describeTreasury,
   formatSol,
   formatTokenAmount,
   isAmmConfigured,
@@ -31,88 +53,52 @@ import {
   parseDecimalToBaseUnits,
   quoteBuyOnCurve,
   quoteSellOnCurve,
-  raiseCeiling,
+  readCreateLaunchCost,
   readDeployment,
   readLaunch,
   readMint,
   sellBlockedReason,
-  spotPriceLabel,
   type BondingCurve,
+  type CreateLaunchCost,
+  type CurveRpc,
   type CurveWriteClient,
   type Deployment,
   type LaunchPhase,
   type LaunchState,
   type MintFacts,
   type Read,
+  type SolanaRpc,
+  type TreasuryDescription,
 } from '../lib/launcher/solana/curve';
 
-// /curve-launch — the surface for OUR OWN bonding curve
+// /curve-launch: the surface for OUR OWN bonding curve
 // (solana/tegridy-amm/programs/tegridy-launch), which graduates into our cp-swap
-// fork. Sibling to SolanaLaunchPage (the Meteora DBC fee-capture rail); this one
-// is our own program rather than someone else's.
+// fork.
 //
-// 🔴 THE PROGRAM IS NOT DEPLOYED — not mainnet, not devnet. Its id is a
-// documented placeholder (lib.rs:97-101) that returns null on mainnet-beta. Two
-// consequences shape everything below:
+// TWO MODES, and the first one is the default everywhere a build has not opted in:
 //
-//   1. The page CHECKS rather than asserts. The badge, the panels and every
-//      number come from `probeProgram()` reading the chain. If someone deploys
-//      the program tomorrow this page starts working without an edit; if the RPC
-//      is down it says the read failed, and does NOT say "not deployed".
-//   2. There is NO write path, deliberately. Not a disabled submit that would
-//      otherwise fire — no transaction is ever built. Encoding an instruction
-//      against a placeholder id that is guaranteed to change before deploy would
-//      be a button that cannot work, and this repo has shipped worse (a "+10% NFT
-//      boost" banner no contract paid). The write seam is `CurveWriteClient` in
-//      curveClient.ts; when it lands, `writeClient` below turns the quote into a
-//      signable action and nothing else here changes.
+//   1. READ-ONLY (writes off). What this page always was: the badge, the panels and
+//      every number come from reading the chain at PROGRAM_ID, and there is no
+//      signing path at all. The page says what it reads. From website release 2
+//      `PROGRAM_ID` is the restart id and writes are on, so this mode is what a
+//      build shows while the write gate is still loading or has been refused.
+//   2. LAUNCH AND TRADE (writes on). Only when lib/launcher/solana/curveWriteFlag.ts
+//      lets the write code load (a committed constant in production), AND the write
+//      layer's own config accepts the program pair, AND the chain answers that both
+//      programs are there and the protocol settings exist and point at our pool
+//      program. Then this page offers the create form, the recent-launch list and a
+//      lookup that opens /curve-launch/:mint, where trading happens. Every read on
+//      the page then uses the configured program id, never a different one.
+//
+// The write code is behind a dynamic import (components/solana/curve/writeApi.ts),
+// so mode 1 never fetches it.
 //
 // Everything the page renders about a launch is either read from chain or
 // labelled unknown. No price feed, no volume, no holder count, no market cap, no
-// USD figure — none of them exist in program state and there is no indexer.
+// USD figure: none of them exist in program state and there is no indexer.
 
-const CARD = 'rounded-2xl p-5 relative overflow-hidden';
-const CARD_STYLE = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
-const SHADOW = { textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)' } as const;
-const inputCls = 'w-full px-3 py-2 rounded-lg bg-black/55 text-white text-[13px] outline-none';
-const inputStyle = { border: '1px solid rgba(255,255,255,0.18)' } as const;
-
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className={CARD} style={CARD_STYLE}>
-      <h2 className="text-white font-semibold text-[13px] mb-2.5" style={SHADOW}>
-        {title}
-      </h2>
-      <div className="text-white/60 text-[11px] leading-relaxed space-y-2">{children}</div>
-    </section>
-  );
-}
-
-/**
- * Label/value row. Both sides wrap rather than truncate: the cards are
- * `overflow-hidden`, so a clipped value would silently disappear, and a
- * truncated base58 address reads like a different address.
- */
-function Row({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75">
-      <span className="break-words">{label}</span>
-      <span className={`text-right break-all min-w-0 ${mono ? 'font-mono' : ''}`}>{value}</span>
-    </div>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <label className="block mb-3">
-      <span className="text-white text-[11px] block mb-1.5" style={SHADOW}>
-        {label}
-      </span>
-      {children}
-      {hint && <span className="text-white/40 text-[10px] block mt-1">{hint}</span>}
-    </label>
-  );
-}
+/** "the platform treasury..." becomes "The platform treasury...", for the start of a sentence. */
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 // ---------------------------------------------------------------------------
 // Deployment banner — the gate everything else hangs off
@@ -149,7 +135,7 @@ const PROBE_COPY: Record<
   unreadable: {
     badge: 'READ FAILED',
     tone: 'bg-rose-500/20 text-rose-200 border-rose-500/30',
-    line: 'We could not reach the chain to check. This says nothing about whether the program is live — it only means the lookup failed.',
+    line: 'We could not reach the chain to check. This says nothing about whether the program is live. It only means the lookup failed.',
   },
   deployed: {
     badge: 'DEPLOYED',
@@ -158,7 +144,14 @@ const PROBE_COPY: Record<
   },
 };
 
-export function DeploymentBanner({ probe }: { probe: Deployment | null }) {
+export function DeploymentBanner({
+  probe,
+  programId = PROGRAM_ID,
+}: {
+  probe: Deployment | null;
+  /** The id that was probed. Defaults to PROGRAM_ID; the write mode passes its configured id. */
+  programId?: PublicKey;
+}) {
   const key = probe === null ? 'checking' : probe.kind;
   const c = PROBE_COPY[key];
   return (
@@ -188,7 +181,7 @@ export function DeploymentBanner({ probe }: { probe: Deployment | null }) {
             bytecode account {probe.programDataAddress} no longer exists
           </p>
         )}
-        <p className="text-white/35 text-[10px] mt-2 break-all font-mono">{PROGRAM_ID.toBase58()}</p>
+        <p className="text-white/35 text-[10px] mt-2 break-all font-mono">{programId.toBase58()}</p>
         {/*
           This read "That id is a placeholder generated so the program compiles… expected
           to return nothing today", which stopped being true at the 2026-08-08 deploy and
@@ -221,152 +214,6 @@ export function DeploymentBanner({ probe }: { probe: Deployment | null }) {
 // Curve state
 // ---------------------------------------------------------------------------
 
-const PHASE_COPY: Record<LaunchPhase['kind'], { label: string; line: string }> = {
-  'not-deployed': { label: 'Not deployed', line: 'The program does not exist on chain.' },
-  'not-a-program': {
-    label: 'Not a program',
-    line: 'Something occupies the program address but is not executable. Nothing has been deployed, so there is nothing to look up.',
-  },
-  closed: {
-    label: 'Program closed',
-    line: 'The program that ran at this address has been closed and its bytecode deleted. Any launch it held is unreachable — not empty, unreachable.',
-  },
-  unreadable: { label: "Couldn't read", line: 'A read failed. This is not a statement about the launch.' },
-  'protocol-not-initialized': {
-    label: 'Protocol not initialised',
-    line: 'The program exists but its global config has never been created. Not a problem with this mint.',
-  },
-  'pre-launch': {
-    label: 'No curve for this mint',
-    line: 'Nothing has been launched on this mint. That is different from a launch that has raised nothing.',
-  },
-  trading: { label: 'Bonding', line: 'Buys and sells both run against the curve.' },
-  'at-target': {
-    label: 'At target, still raising the migration reserve',
-    line: 'The graduation target is met but the reserve that pays for migration is not yet full. Buys and sells both still work.',
-  },
-  'awaiting-migration': {
-    label: 'Fully funded — awaiting migration',
-    line: 'Buys are finished. Selling still works, and anyone may call migration. It has NOT graduated yet.',
-  },
-  graduated: { label: 'Graduated', line: 'Liquidity has moved to the AMM pool. The curve is closed; trade the pool instead.' },
-};
-
-export function CurveStateCard({
-  phase,
-  curve,
-  decimals,
-  paused,
-  lookedUp,
-}: {
-  phase: LaunchPhase;
-  /** `null` whenever no `BondingCurve` was established — see `phase` for why. */
-  curve: BondingCurve | null;
-  decimals: number | null;
-  paused: boolean | null;
-  /** False means no lookup has been attempted — which is NOT a failed read. */
-  lookedUp: boolean;
-}) {
-  const p = PHASE_COPY[phase.kind];
-  return (
-    <Card title="Curve state">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-white/90 text-[12px] font-medium">{p.label}</span>
-        {paused === true && (
-          <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            BUYS PAUSED · SELLS OPEN
-          </span>
-        )}
-      </div>
-      <p>{p.line}</p>
-      {phase.kind === 'unreadable' && <p className="text-amber-300/90 break-all">{phase.detail}</p>}
-
-      {curve ? (
-        <CurveNumbers curve={curve} decimals={decimals} />
-      ) : (
-        <p className="text-white/40">
-          {!lookedUp
-            ? // Nothing has been looked up. Saying "the read failed" here would be
-              // a claim about a call that was never made.
-              'No launch has been looked up yet.'
-            : phase.kind === 'pre-launch'
-              ? 'No curve account, so there are no reserves to show. Deliberately blank rather than zeroed.'
-              : 'Curve reserves are unavailable because the read failed.'}
-        </p>
-      )}
-    </Card>
-  );
-}
-
-function CurveNumbers({ curve, decimals }: { curve: BondingCurve; decimals: number | null }) {
-  const ceiling = raiseCeiling(curve);
-  // One derivation of progress and spot, from the core. `null` here means the
-  // curve's own terms overflow a u64 — an arithmetic refusal, not a zero.
-  const p = curveProgress(curve);
-  const sold = formatTokenAmount(curve.realTokenReserves, decimals);
-  // Spot is an exact numerator/denominator pair so nothing is rounded on the way
-  // out. `spotPriceLabel` decides the UNIT, and refuses to assume 9 decimals.
-  const spot =
-    p?.spot == null
-      ? null
-      : spotPriceLabel(Number(p.spot.numerator) / Number(p.spot.denominator), decimals);
-  const progress = p?.progressBps == null ? null : p.progressBps / 10_000;
-
-  return (
-    <div className="space-y-2 pt-1">
-      {/* The curve is a function of the state we just decoded, so it is shown only here —
-          where a real `curve` account is in hand. `source: 'chain'` is a claim the chart
-          cannot verify for itself, so it must never be passed for a synthesised snapshot. */}
-      <CurveChart
-        state={{ status: 'ready', curve, source: { kind: 'chain' } }}
-        tokenDecimals={decimals ?? undefined}
-        className="mb-3"
-      />
-      <div>
-        <div className="flex items-baseline justify-between gap-2 mb-1">
-          <span className="text-white/60">Raised toward graduation</span>
-          <span className="font-mono text-white/80">
-            {progress === null ? '—' : `${(progress * 100).toFixed(2)}%`}
-          </span>
-        </div>
-        {progress === null ? (
-          <p className="text-amber-300/90 text-[10px]">
-            Progress could not be computed from this curve&apos;s own terms, so none is shown. That is a refusal, not
-            0%.
-          </p>
-        ) : (
-          <>
-            <div
-              className="h-1.5 rounded-full overflow-hidden bg-white/10"
-              role="progressbar"
-              aria-valuenow={Math.round(progress * 100)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            >
-              <div className="h-full bg-[var(--color-stan)]" style={{ width: `${Math.min(100, progress * 100)}%` }} />
-            </div>
-            <p className="text-white/40 text-[10px] mt-1">
-              {formatSol(curve.realSolReserves)} of {ceiling.ok ? formatSol(ceiling.value) : '—'} SOL. The denominator
-              is the graduation target plus the migration reserve — the line buys are actually capped at.
-            </p>
-          </>
-        )}
-      </div>
-
-      <Row label="SOL raised (curve reserves)" value={`${formatSol(curve.realSolReserves)} SOL`} />
-      <Row label="Graduation target" value={`${formatSol(curve.graduationTargetLamports)} SOL`} />
-      <Row label="Migration reserve" value={`${formatSol(curve.migrationReserveLamports)} SOL`} />
-      <Row label="Trade fee (this launch)" value={`${(Number(curve.tradeFeeBps) / 100).toFixed(2)}%`} />
-      <Row label={`Tokens still on the curve${sold.isBaseUnits ? ' (base units)' : ''}`} value={sold.text} />
-      <Row label="Spot price" value={spot === null ? '—' : `${spot.value} ${spot.unit}`} />
-      <p className="text-white/35 text-[10px] leading-relaxed">
-        Spot is a display ratio off the curve&apos;s virtual + real reserves. Any real trade moves it, so it is not an
-        executable price. There is no market cap, volume or holder count here — none of them exist in program state.
-      </p>
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Trade
 // ---------------------------------------------------------------------------
@@ -381,12 +228,21 @@ export function TradePanel({
   decimals,
   paused,
   writeClient,
+  gateNotOpen = false,
+  lookedUp = true,
 }: {
   phase: LaunchPhase;
   curve: BondingCurve | null;
   decimals: number | null;
   paused: boolean | null;
   writeClient: CurveWriteClient | null;
+  /** False: no launch has been looked up, so there is no reason to give for "blocked". */
+  lookedUp?: boolean;
+  /**
+   * Writes are switched on for this site, but the check above did not open them.
+   * The status card above says why; this panel must not claim a different reason.
+   */
+  gateNotOpen?: boolean;
 }) {
   const [side, setSide] = useState<Side>('buy');
   const [amount, setAmount] = useState('');
@@ -420,14 +276,14 @@ export function TradePanel({
 
   return (
     <Card title="Trade the curve">
-      <div className="flex gap-1.5 mb-3">
+      <div className="flex gap-1.5 mb-3" role="group" aria-label="Buy or sell">
         {(['buy', 'sell'] as const).map((s) => (
           <button
             key={s}
             type="button"
             onClick={() => setSide(s)}
             aria-pressed={side === s}
-            className="flex-1 py-1.5 rounded-lg text-[12px] font-medium text-white capitalize transition-colors"
+            className={`${TOGGLE_CLS} font-medium capitalize`}
             style={{
               background: side === s ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
               border: side === s ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
@@ -438,7 +294,11 @@ export function TradePanel({
         ))}
       </div>
 
-      {blocked && <p className="text-amber-300/90 mb-3">{LAUNCH_ERROR_COPY[blocked]}</p>}
+      {!lookedUp ? (
+        <p className="text-white/50 mb-3">Look up a launch above to see its curve here.</p>
+      ) : (
+        blocked && <p className="text-amber-300/90 mb-3">{LAUNCH_ERROR_COPY[blocked]}</p>
+      )}
 
       <Field
         label={side === 'buy' ? 'Spend (SOL)' : decimals === null ? 'Sell (token base units)' : 'Sell (tokens)'}
@@ -450,20 +310,27 @@ export function TradePanel({
               : undefined
         }
       >
-        <input
-          className={`${inputCls} disabled:opacity-50`}
-          style={inputStyle}
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="0.0"
-          inputMode="decimal"
-          spellCheck={false}
-          disabled={disabled}
-          aria-label={side === 'buy' ? 'Amount of SOL to spend' : 'Amount of tokens to sell'}
-        />
+        {(a11y) => (
+          <input
+            className={`${inputCls} disabled:opacity-50`}
+            style={inputStyle}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.0"
+            inputMode="decimal"
+            spellCheck={false}
+            disabled={disabled}
+            {...a11y}
+          />
+        )}
       </Field>
 
-      <Field label="Slippage tolerance">
+      {/* A fieldset, not a <label>: a label wrapping buttons forwards a tap on its text
+          to the first button, which would silently set 0.5%. */}
+      <fieldset className="block mb-3 min-w-0">
+        <legend className="text-white text-[11px] block mb-1.5" style={SHADOW}>
+          Slippage tolerance
+        </legend>
         <div className="flex gap-1.5">
           {SLIPPAGE_OPTIONS.map((bps) => (
             <button
@@ -472,7 +339,7 @@ export function TradePanel({
               onClick={() => setSlippageBps(bps)}
               aria-pressed={slippageBps === bps}
               disabled={disabled}
-              className="flex-1 py-1.5 rounded-lg text-[12px] text-white transition-colors disabled:opacity-50"
+              className={`${TOGGLE_CLS} disabled:opacity-50`}
               style={{
                 background: slippageBps === bps ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
                 border: slippageBps === bps ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
@@ -482,7 +349,7 @@ export function TradePanel({
             </button>
           ))}
         </div>
-      </Field>
+      </fieldset>
 
       {quote?.side === 'error' && <p className="text-amber-300/90">{LAUNCH_ERROR_COPY[quote.code]}</p>}
       {quote?.side === 'buy' && <BuyQuoteRows quote={quote} decimals={decimals} slippageBps={slippageBps} />}
@@ -491,9 +358,9 @@ export function TradePanel({
       {/* The write seam. No transaction is built here — see the file header. */}
       {writeClient === null ? (
         <p className="text-white/40 text-[10px] leading-relaxed mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          There is no signing path on this page. The program is not deployed and its on-chain address is still a
-          placeholder, so no transaction can be built that would target the real program. The quote above is the same
-          arithmetic the program runs — it is shown so the terms are inspectable before any of this goes live.
+          {gateNotOpen
+            ? 'Launching and trading are not available right now; see the note above. The quote above is the same arithmetic the program runs.'
+            : 'There is no signing path on this page. Launching and trading from this site are switched off for now. The quote above is the same arithmetic the program runs, shown so the terms can be checked.'}
         </p>
       ) : (
         <button type="button" className="btn-primary w-full py-2.5 text-[13px] mt-3 disabled:opacity-60" disabled={disabled || !quote}>
@@ -550,7 +417,7 @@ function SellQuoteRows({
   return (
     <div className="space-y-1.5 pt-1">
       <Row label="You receive" value={`${formatSol(quote.lamportsOut)} SOL`} />
-      <Row label="…after fee" value={`${formatSol(quote.feeLamports)} SOL`} />
+      <Row label="Fee" value={`${formatSol(quote.feeLamports)} SOL`} />
       <Row
         label="Minimum received"
         value={floor === null ? 'not computable at that tolerance' : `${formatSol(floor)} SOL`}
@@ -581,6 +448,41 @@ function Check({ ok, children }: { ok: boolean | null; children: React.ReactNode
 }
 
 /**
+ * What the creator pays in rent to open a launch, read from the cluster.
+ *
+ * Since 2026-09-26 that includes the treasury's token account, which receives the
+ * platform reserve inside `create_launch` and is created at the creator's expense
+ * when it does not exist yet. Shown to the lamport (9 digits), because these amounts
+ * are a few thousandths of a SOL.
+ */
+function CreateCostRows({ cost }: { cost: Read<CreateLaunchCost> | null }) {
+  if (cost === null) return null;
+  if (cost.kind !== 'ok') {
+    return (
+      <p className="text-amber-300/90">
+        Could not read the rent, so what you would pay is not shown.
+        {cost.kind === 'unreadable' ? ` ${cost.detail}` : ''}
+      </p>
+    );
+  }
+  const c = cost.value;
+  const sol = (l: bigint) => `${formatSol(l, 9)} SOL`;
+  return (
+    <>
+      <Row label="You pay (account rent)" value={sol(c.total)} />
+      <p className="text-white/55 text-[10px]">
+        The curve account {sol(c.curve)}, its token vault {sol(c.vault)}, and{' '}
+        {c.treasuryTokenExists
+          ? "the treasury's token account already exists, so you pay nothing for it."
+          : `the treasury's token account ${sol(c.treasuryToken)} (it does not exist yet, so you create it; the platform reserve is paid into it).`}{' '}
+        These are read from the cluster&apos;s current rent rate. Network fees, and the rent for your mint, which you
+        create first, are extra.
+      </p>
+    </>
+  );
+}
+
+/**
  * Create-launch readiness.
  *
  * Deliberately NOT a "choose your curve" form: `create_launch` takes **no
@@ -594,20 +496,27 @@ export function CreateChecklist({
   mint,
   global,
   globalPhase,
+  createCost = null,
 }: {
   /** `null` = nothing looked up yet, which is not a failed read. */
   mint: Read<MintFacts> | null;
   global: LaunchState['global'];
   /** Why `global` is null, when it is. Drives the copy — never a blank or a zero. */
   globalPhase: LaunchPhase | null;
+  /** The rent `create_launch` would charge, read from the cluster. `null` = not read. */
+  createCost?: Read<CreateLaunchCost> | null;
 }) {
   const f = mint?.kind === 'ok' ? mint.value : null;
   const g = global;
+  const treasury = describeTreasury(g?.feeRecipient ?? null);
   return (
     <Card title="Open a launch">
       <p>
-        Launching mints the entire supply onto a fresh curve and permanently revokes the mint authority in the same
-        instruction, so no further supply can ever exist. The curve&apos;s terms are not chosen per launch — they are
+        Launching mints the entire supply, sends the platform reserve listed below to {treasury.name}, puts the rest
+        into a fresh curve&apos;s vault and permanently revokes the mint authority, all in the
+        same instruction, so no further supply can ever exist. The curve can sell everything in its vault; whatever it
+        has not sold when it graduates goes into the pool. The curve&apos;s terms
+        are not chosen per launch — they are
         copied from the protocol config at creation and frozen, so nothing can rewrite a live launch&apos;s economics
         afterwards.
       </p>
@@ -646,11 +555,26 @@ export function CreateChecklist({
         {g ? (
           <>
             <Row label="Trade fee" value={`${(Number(g.tradeFeeBps) / 100).toFixed(2)}%`} />
+            <Row label="Fee split" value={feeSplitLabel(g.creatorFeeShareBps) ?? '—'} mono={false} />
             <Row label="Graduation target" value={`${formatSol(g.graduationTargetLamports)} SOL`} />
             <Row label="Migration reserve" value={`${formatSol(g.migrationReserveLamports)} SOL`} />
             <Row label="Total supply (base units)" value={g.tokenTotalSupply.toString()} />
+            <Row
+              label="Platform reserve"
+              value={g.platformReserveBps === 0n ? 'none' : `${bpsPercent(g.platformReserveBps)} of supply`}
+            />
+            {g.platformReserveBps > 0n && (
+              <p className="text-white/55 text-[10px]">
+                Platform reserve: the platform receives {bpsPercent(g.platformReserveBps)} of supply when the token is
+                created.{' '}
+                {treasury.multisig
+                  ? 'It goes to the platform treasury, which is a multisig.'
+                  : `It goes to ${treasury.name}. This page cannot confirm that account is a multisig: it is not the platform's known Squads vault.`}
+              </p>
+            )}
             <Row label="Graduation venue" value={isAmmConfigured(g) ? 'configured' : 'not configured yet'} />
             {g.paused && <p className="text-amber-300/90">New launches are paused.</p>}
+            <CreateCostRows cost={createCost} />
           </>
         ) : (
           <p className="text-white/40">
@@ -687,7 +611,19 @@ export interface CurveLaunchViewProps {
   loading: boolean;
   /** Null until a write client exists. See curve/rpc.ts's CurveWriteClient. */
   writeClient?: CurveWriteClient | null;
+  /** The rent `create_launch` would charge the creator. `null` = not read. */
+  createCost?: Read<CreateLaunchCost> | null;
   wallet?: { address: string | null; connecting: boolean; onConnect: () => void };
+  /** The program id the probe read. Defaults to PROGRAM_ID. */
+  programId?: PublicKey;
+  /** The launch-and-trade status card. Absent when writes are off: the page is then unchanged. */
+  gateBanner?: ReactNode;
+  /**
+   * The launch-and-trade section (CurveWriteSection), present only when the write gate
+   * is OPEN. It replaces the read-only door, lookup, state, quote, checklist and wallet
+   * cards, and carries its own door; the explainer stays.
+   */
+  write?: ReactNode;
 }
 
 /**
@@ -704,6 +640,10 @@ export function CurveLaunchView({
   loading,
   writeClient = null,
   wallet,
+  programId = PROGRAM_ID,
+  gateBanner,
+  write,
+  createCost = null,
 }: CurveLaunchViewProps) {
   // `snapshot === null` = no lookup attempted. Kept distinct from a failed read
   // all the way down: the classifier has to call it unreadable (it genuinely
@@ -716,6 +656,7 @@ export function CurveLaunchView({
     classifyLaunch(probe ?? { kind: 'unreadable', detail: 'still checking' }, notLookedUp, notLookedUp).phase;
   const paused = snapshot?.paused ?? null;
   const decimals = mint?.kind === 'ok' ? mint.value.decimals : null;
+  const treasury = describeTreasury(snapshot?.global?.feeRecipient ?? null);
 
   // A lookup is only meaningful once we know a program is actually there.
   // Offering it beforehand would invite deriving PDAs under a program that does
@@ -726,18 +667,18 @@ export function CurveLaunchView({
     <>
       <PageArtBackdrop pageId="curve-launch" />
       <div className="relative z-10 max-w-xl mx-auto px-4 py-8 space-y-4">
-        <DeploymentBanner probe={probe} />
+        <DeploymentBanner probe={probe} programId={programId} />
 
-        {/* THE DOOR on our own curve rail. Same primitive as the other two — one rule,
-            read live, in one place. */}
-        <LaunchGate rail="solana" />
+        {gateBanner}
+
+        {write ?? (
+          <>
+        {/* THE DOOR on our own curve rail, reading the connected Solana wallet. Same
+            primitive as the other rails: one rule, read live, in one place. */}
+        <LaunchGate rail="solana" wallet={wallet?.address ?? null} below={<VenueLaunchLines rail="solana" />} />
 
         <Card title="Look up a launch">
-          <p>
-            Launches are found by mint address. They cannot be listed: enumerating them needs an RPC scan our proxy
-            deliberately does not allow, so there is no &quot;all launches&quot; view to show — and inventing one would
-            mean showing a list we cannot claim is complete.
-          </p>
+          <p>Open a launch by its token address (mint). This view has no list of launches.</p>
           <Field label="Token mint address">
             <input
               className={`${inputCls} disabled:opacity-50`}
@@ -777,6 +718,9 @@ export function CurveLaunchView({
           decimals={decimals}
           paused={paused}
           lookedUp={lookedUp}
+          // No treasury here: who received a past reserve is in the launch’s own create
+          // transaction, which this read-only view does not read. Today’s config can have
+          // changed since, so the card names no address and makes no multisig claim.
         />
 
         <TradePanel
@@ -785,9 +729,16 @@ export function CurveLaunchView({
           decimals={decimals}
           paused={paused}
           writeClient={writeClient}
+          gateNotOpen={gateBanner != null}
+          lookedUp={lookedUp}
         />
 
-        <CreateChecklist mint={mint} global={snapshot?.global ?? null} globalPhase={lookedUp ? phase : null} />
+        <CreateChecklist
+          mint={mint}
+          global={snapshot?.global ?? null}
+          globalPhase={lookedUp ? phase : null}
+          createCost={createCost}
+        />
 
         {wallet && (
           <Card title="Wallet">
@@ -804,19 +755,21 @@ export function CurveLaunchView({
               </button>
             )}
             <p className="text-white/40">
-              Connecting only fills in your address. Nothing on this page asks for a signature, because there is no
-              deployed program to send a transaction to.
+              Connecting only fills in your address. Nothing on this page asks for a signature while launching and
+              trading here are switched off.
             </p>
           </Card>
         )}
+          </>
+        )}
 
-        <CurveExplainer />
+        <CurveExplainer treasury={treasury} />
       </div>
     </>
   );
 }
 
-function CurveExplainer() {
+function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
   return (
     <div className="space-y-4">
       <Card title="What this is">
@@ -825,9 +778,18 @@ function CurveExplainer() {
           ran on Meteora&apos;s curve and migrated into Meteora&apos;s pool.
         </p>
         <p>
-          A launch raises SOL along a constant-product curve priced on virtual plus real reserves. When it has raised its
-          target and the cost of migrating, one instruction opens the AMM pool, deposits everything, burns the LP tokens
-          and closes the curve — all or nothing, so there is no half-migrated state to get stuck in.
+          A launch raises SOL along a curve: each buy raises the price a little, each sell lowers it. When it has raised
+          its target and the cost of opening a pool, one step opens the pool, burns the pool&apos;s LP tokens and closes
+          the curve. It all happens or none of it does, so a launch can never get stuck half moved.
+        </p>
+        <p>
+          What goes into the pool: the graduation target in SOL, and every token the curve did not sell. The migration
+          reserve pays the pool&apos;s setup costs, and whatever it does not use goes to the treasury. The platform
+          reserve does not go into the pool: {treasury.name} receives it when the token is created.
+        </p>
+        <p>
+          The platform treasury is meant to be a Squads multisig vault ({PLATFORM_TREASURY_VAULT.toBase58()}). This page
+          calls it a multisig only after reading the live config and finding that vault there.
         </p>
         <p className="text-white/40">
           The Meteora rail was retired on 2026-08-23 — this curve is now the only Solana launch surface here.
@@ -846,8 +808,13 @@ function CurveExplainer() {
             whose listing price sits more than 5% from the curve&apos;s, and that band is the whole promise.
           </li>
           <li>
-            Migration is permissionless and pays its caller nothing. It can also fail temporarily — a sell landing first
-            can leave the curve a lamport short — in which case it is retried, not broken.
+            Anyone can finish a graduation, and it pays them nothing. It can fail for a moment (a sell that lands first
+            can leave the curve a tiny amount short of its target); then it is simply tried again, nothing is broken.
+          </li>
+          <li>
+            Graduation does not touch the platform reserve. {capitalize(describeReserveRecipient(null).name)} received
+            it when the token was created, whether or not the launch ever graduates. It holds those tokens like any other holder,
+            and the program does not limit what it does with them, including selling them while the curve is live.
           </li>
         </ul>
       </Card>
@@ -871,55 +838,151 @@ function CurveExplainer() {
 // Page
 // ---------------------------------------------------------------------------
 
+/** Opens a launch's own page by its token address. Write mode only. */
+function OpenByMint() {
+  const navigate = useNavigate();
+  const [v, setV] = useState('');
+  const addr = v.trim();
+  let valid = false;
+  if (looksLikePubkey(addr)) {
+    try {
+      new PublicKey(addr);
+      valid = true;
+    } catch {
+      valid = false;
+    }
+  }
+  return (
+    <Card title="Open a launch by its address">
+      <p>Paste the full token address (mint). Compare every character with the one you were given.</p>
+      <Field label="Token mint address">
+        <input
+          className={inputCls}
+          style={inputStyle}
+          value={v}
+          onChange={(e) => setV(e.target.value)}
+          placeholder="Base58 mint address"
+          spellCheck={false}
+          aria-label="Token mint address"
+        />
+      </Field>
+      <button
+        type="button"
+        className="btn-primary w-full py-2.5 text-[13px] disabled:opacity-60"
+        disabled={!valid}
+        onClick={() => navigate(`/curve-launch/${addr}`)}
+      >
+        Open
+      </button>
+      {addr !== '' && !valid && <p className="text-amber-300/90">That does not look like a Solana address.</p>}
+    </Card>
+  );
+}
+
+export interface CurveWriteSectionProps {
+  api: WriteApi;
+  gate: OpenGate;
+  /** The wallet adapter's connection, which the create form signs and sends through. */
+  writeRpc: WriteRpc;
+  rpc: SolanaRpc;
+  curveRpc: CurveRpc;
+  signerState: CurveSignerState;
+  /** The connected Solana wallet: the door reads it, and "Yours" lists its launches. */
+  wallet: PublicKey | null;
+}
+
+/**
+ * Write mode. Opening a launch by address, the list and trading stay open to anyone;
+ * only the create form is behind the door, which reads the connected Solana wallet.
+ * The form re-reads that wallet at every Review whatever the door showed.
+ */
+export function CurveWriteSection({ api, gate, writeRpc, rpc, curveRpc, signerState, wallet }: CurveWriteSectionProps) {
+  const actions = api.writeActions(gate, null);
+  return (
+    <>
+      <LaunchGate
+        rail="solana"
+        wallet={wallet?.toBase58() ?? null}
+        connect={<WalletNeeded state={signerState} />}
+        below={<VenueLaunchLines rail="solana" />}
+      >
+        <LaunchCreateForm api={api} rpc={writeRpc} gate={gate} actions={actions} signerState={signerState} />
+      </LaunchGate>
+      <OpenByMint />
+      <LaunchList api={api} cfg={gate.cfg} rpc={rpc} curveRpc={curveRpc} wallet={wallet} />
+    </>
+  );
+}
+
 function CurveLaunchInner() {
   const { publicKey, connecting } = useWallet();
-  // Connect-intent goes through useSolanaConnect, not bare setVisible — a
+  const { connection } = useConnection();
+  // Connect-intent goes through useSolanaConnect, not bare setVisible: a
   // selected-but-uninstalled wallet needs connect() to reach the install page
   // / iOS deep link (re-picking the same wallet in the modal is a no-op).
   const openConnect = useSolanaConnect();
+  const signerState = useCurveSigner();
 
   // One transport, two views of it: the raw JSON-RPC callable for `readMint`, and
   // the `CurveRpc` adapter every reader in `curve/read.ts` is written against.
   const rpc = useMemo(() => browserRpc(), []);
   const curveRpc = useMemo(() => browserCurveRpc(rpc), [rpc]);
+  const gateRpc = useMemo(() => browserGateRpc(rpc, curveRpc), [rpc, curveRpc]);
+  const gateState = useWriteGate(gateRpc);
+  // With writes on, every read on this page uses the program the write layer is
+  // configured for. Until the gate has answered, nothing is probed, so the badge
+  // never describes one program while the actions target another.
+  const writesDecided = gateState.status !== 'loading';
+  const cfg = gateState.status === 'ready' ? gateState.cfg : null;
+  const programId = cfg?.programId ?? PROGRAM_ID;
+
   const [probe, setProbe] = useState<Deployment | null>(null);
   const [mintInput, setMintInput] = useState('');
-  const [snapshot, setSnapshot] = useState<LaunchState | null>(null);
-  const [mint, setMint] = useState<Read<MintFacts> | null>(null);
-  const [loading, setLoading] = useState(false);
+  const readers = useMemo<LaunchLookupReaders>(
+    () => ({
+      launch: (key) => readLaunch(curveRpc, key, programId),
+      mint: (addr) => readMint(rpc, addr),
+      cost: (key, feeRecipient) => readCreateLaunchCost(curveRpc, key, feeRecipient),
+    }),
+    [rpc, curveRpc, programId],
+  );
+  const { snapshot, mint, createCost, loading, lookUp } = useLaunchLookup(readers);
 
   // The first read any surface performs. `not-deployed` → we stop there rather
   // than deriving PDAs and rendering their absence as data. A malformed or failed
   // response is `unreadable`, which is not that answer.
   useEffect(() => {
+    if (!writesDecided) return;
+    // Runs once in practice: the gate decides the id before the first probe.
     let live = true;
-    readDeployment(curveRpc).then((r) => {
+    readDeployment(curveRpc, programId).then((r) => {
       if (live) setProbe(r);
     });
     return () => {
       live = false;
     };
-  }, [curveRpc]);
+  }, [curveRpc, programId, writesDecided]);
 
   const onLookup = useCallback(async () => {
     const addr = mintInput.trim();
     if (probe?.kind !== 'deployed' || !looksLikePubkey(addr)) return;
-    setLoading(true);
-    try {
-      const key = new PublicKey(addr);
-      const [snap, facts] = await Promise.all([readLaunch(curveRpc, key), readMint(rpc, addr)]);
-      setSnapshot(snap);
-      setMint(facts);
-    } catch (e) {
-      // A throw here is a client fault (a malformed address reaching PDA
-      // derivation), not a finding — surface it as unreadable, not as absent.
-      const detail = clipDetail(e);
-      setSnapshot(null);
-      setMint({ kind: 'unreadable', detail });
-    } finally {
-      setLoading(false);
-    }
-  }, [mintInput, probe, rpc, curveRpc]);
+    await lookUp(addr);
+  }, [mintInput, probe, lookUp]);
+
+  let write: ReactNode = undefined;
+  if (gateState.status === 'ready' && gateState.gate.kind === 'open') {
+    write = (
+      <CurveWriteSection
+        api={gateState.api}
+        gate={gateState.gate}
+        writeRpc={connection}
+        rpc={rpc}
+        curveRpc={curveRpc}
+        signerState={signerState}
+        wallet={publicKey ?? null}
+      />
+    );
+  }
 
   return (
     <CurveLaunchView
@@ -931,13 +994,17 @@ function CurveLaunchInner() {
       onLookup={onLookup}
       loading={loading}
       writeClient={null}
+      createCost={createCost}
       wallet={{ address: publicKey?.toBase58() ?? null, connecting, onConnect: openConnect }}
+      programId={programId}
+      gateBanner={gateState.status === 'disabled' ? undefined : <WriteGateBanner state={gateState} />}
+      write={write}
     />
   );
 }
 
 export default function CurveLaunchPage() {
-  usePageTitle('Memetics Curve', 'Our own Solana bonding curve — not deployed yet, and this page says so from a live read.');
+  usePageTitle('Memetics Curve', 'Our own Solana bonding curve. Every state on this page is read live from the chain.');
   useEffect(() => {
     trackPageView('curve-launch');
   }, []);

@@ -48,6 +48,14 @@ pub const MAX_FEE_BPS: u64 = 1_000;
 /// rounding by hand.
 pub const PRICE_CONTINUITY_BAND_BPS: u64 = 500;
 
+/// Hard ceiling on the platform reserve: the share of each launch's supply held
+/// back from the curve for the protocol, in bps of total supply.
+///
+/// 10%, the same cap the EVM launcher enforces (`MAX_RESERVE_BPS`). The intended
+/// value is 369 (3.69%); this is a backstop against a fat-fingered config, not a
+/// target.
+pub const MAX_PLATFORM_RESERVE_BPS: u64 = 1_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurveError {
     /// Arithmetic overflowed. Never expected — u128 intermediates make this
@@ -62,6 +70,8 @@ pub enum CurveError {
     FeeTooHigh,
     /// Creator fee share configured above 100%.
     ShareTooHigh,
+    /// Platform reserve configured above `MAX_PLATFORM_RESERVE_BPS`.
+    ReserveTooHigh,
 }
 
 /// The result of quoting a buy.
@@ -315,6 +325,37 @@ pub fn lamports_until_target(
         .div_ceil(denom);
 
     Ok(Some(u64::try_from(gross).map_err(|_| CurveError::Overflow)?))
+}
+
+/// Split a launch's total supply into what the curve may sell and what is held
+/// back for the protocol. Returns `(curve_supply, reserve)`, which always sum to
+/// `total_supply` exactly.
+///
+/// The reserve rounds DOWN, exactly as the EVM launcher's
+/// `TOTAL_SUPPLY * reserveBps / BPS` does, so the curve keeps any rounding dust.
+///
+/// ## Why every economic check takes the CURVE supply, not the total
+///
+/// The reserve is paid to the treasury at `create_launch` and is never in
+/// `real_token_reserves`: the curve never sells it and migration never deposits
+/// it. So as far as pricing,
+/// reachability and the listing price are concerned, the launch has
+/// `curve_supply` tokens, and checking against the total would pass configs that
+/// list above the curve's final price. At 369 bps an unretuned config reads
+/// 10,488 bps against a 10,500 ceiling — inside the band, so nothing would warn.
+///
+/// Scaling `initial_virtual_token` by the same `(1 - bps)` leaves the continuity
+/// target, and so the SOL raised, unchanged; see the tests below.
+#[inline]
+pub fn curve_supply(total_supply: u64, reserve_bps: u64) -> Result<(u64, u64), CurveError> {
+    if reserve_bps > MAX_PLATFORM_RESERVE_BPS {
+        return Err(CurveError::ReserveTooHigh);
+    }
+    // total * bps fits u128 trivially, and the quotient is at most total / 10, so
+    // it fits u64 and the subtraction cannot underflow.
+    let reserve =
+        ((total_supply as u128) * (reserve_bps as u128) / (BPS_DENOMINATOR as u128)) as u64;
+    Ok((total_supply - reserve, reserve))
 }
 
 /// The most real SOL a curve can EVER accumulate, given its opening parameters.
@@ -1069,5 +1110,141 @@ mod tests {
             "a funded curve must reach target + reserve exactly, or the migration gate \
              is unsatisfiable and no launch can ever graduate"
         );
+    }
+
+    // ── the platform reserve ─────────────────────────────────────────────────
+
+    /// The intended carve: 3.69% of supply, matching the EVM launcher.
+    const RESERVE_BPS: u64 = 369;
+    /// 369 bps of 1e15.
+    const CARVE: u64 = 36_900_000_000_000;
+    /// The operator example's migration reserve: exactly cp-swap's rent floor.
+    const RENT_FLOOR_RESERVE: u64 = 42_156_720;
+
+    #[test]
+    fn curve_supply_carves_369_bps_of_a_billion_tokens() {
+        assert_eq!(
+            curve_supply(SUPPLY, RESERVE_BPS),
+            Ok((963_100_000_000_000, CARVE))
+        );
+    }
+
+    /// Rounds DOWN, like the EVM launcher, and never loses or mints a unit.
+    #[test]
+    fn curve_supply_rounds_the_reserve_down_and_conserves_supply() {
+        // 10_001 * 369 / 10_000 = 369.04 -> 369. Rounding up would give 370.
+        assert_eq!(curve_supply(10_001, RESERVE_BPS), Ok((9_632, 369)));
+        for total in [0u64, 1, 9_999, 10_001, SUPPLY, u64::MAX] {
+            for bps in [0u64, 1, RESERVE_BPS, 999, MAX_PLATFORM_RESERVE_BPS] {
+                let (curve, reserve) = curve_supply(total, bps).unwrap();
+                assert_eq!(
+                    curve as u128 + reserve as u128,
+                    total as u128,
+                    "split lost or minted supply at total={total} bps={bps}"
+                );
+            }
+        }
+    }
+
+    /// Zero bps is the pre-reserve behaviour: the whole supply goes on the curve.
+    #[test]
+    fn a_zero_reserve_leaves_the_whole_supply_on_the_curve() {
+        assert_eq!(curve_supply(SUPPLY, 0), Ok((SUPPLY, 0)));
+    }
+
+    /// The cap is inclusive, as on the EVM (`reserveBps > MAX_RESERVE_BPS` reverts).
+    #[test]
+    fn the_reserve_cap_is_ten_percent_inclusive() {
+        assert_eq!(
+            curve_supply(SUPPLY, MAX_PLATFORM_RESERVE_BPS),
+            Ok((900_000_000_000_000, 100_000_000_000_000))
+        );
+        assert_eq!(
+            curve_supply(SUPPLY, MAX_PLATFORM_RESERVE_BPS + 1),
+            Err(CurveError::ReserveTooHigh)
+        );
+    }
+
+    /// THE RETUNE RECIPE. Scale virtual tokens by the same `(1 - bps)` as the supply
+    /// and the continuity target does not move by a single lamport, so the SOL a
+    /// launch raises is unchanged by the carve. This is what the operator runbook
+    /// tells an operator to do; pinned so the recipe stays true.
+    #[test]
+    fn scaling_virtual_tokens_with_the_carve_keeps_the_continuity_target() {
+        let (curve_s, _) = curve_supply(SUPPLY, RESERVE_BPS).unwrap();
+        let vt_scaled = V_TOK / BPS_DENOMINATOR * (BPS_DENOMINATOR - RESERVE_BPS);
+        assert_eq!(vt_scaled, 1_033_406_300_000_000, "fixture drifted");
+
+        let before = continuity_target(V_SOL, V_TOK, SUPPLY, RENT_FLOOR_RESERVE).unwrap();
+        let after = continuity_target(V_SOL, vt_scaled, curve_s, RENT_FLOOR_RESERVE).unwrap();
+        assert_eq!(before, 11_685_689_681);
+        assert_eq!(after, before, "the retune must leave the SOL raise unchanged");
+
+        let ratio =
+            graduation_price_ratio_bps(V_SOL, vt_scaled, curve_s, after, RENT_FLOOR_RESERVE)
+                .unwrap();
+        assert!(
+            (9_990..=10_010).contains(&ratio),
+            "a retuned config must list at the curve's final price, got {ratio} bps"
+        );
+    }
+
+    /// Why the economics check must be fed the CURVE supply. Carving 3.69% without
+    /// retuning lists the pool 4.9% ABOVE the curve's final price — and 10,488 still
+    /// sits inside the ±5% band, so the program accepts it; only the operator tool's
+    /// listing gate refuses it. Measured against the total supply instead, the same
+    /// config reads as a perfect listing.
+    #[test]
+    fn an_unretuned_carve_lists_high_and_only_the_curve_supply_shows_it() {
+        let (curve_s, _) = curve_supply(SUPPLY, RESERVE_BPS).unwrap();
+        let t = 11_685_689_681;
+        assert_eq!(
+            graduation_price_ratio_bps(V_SOL, V_TOK, curve_s, t, RENT_FLOOR_RESERVE).unwrap(),
+            10_488
+        );
+        let blind = graduation_price_ratio_bps(V_SOL, V_TOK, SUPPLY, t, RENT_FLOOR_RESERVE)
+            .unwrap();
+        assert!(
+            (9_990..=10_010).contains(&blind),
+            "against the total supply the gap is invisible, got {blind} bps"
+        );
+    }
+
+    /// Replays the program's buy loop on a retuned 3.69% config and checks the carve
+    /// is never reached: `real_token_reserves` starts at the curve supply, the raise
+    /// completes at exactly target + reserve, and real tokens are still left for the
+    /// pool. The carve is not in any number the loop can touch.
+    #[test]
+    fn a_full_raise_never_reaches_the_carve() {
+        const FEE_BPS: u64 = 100;
+        let (curve_s, carve) = curve_supply(SUPPLY, RESERVE_BPS).unwrap();
+        let vt_scaled = V_TOK / BPS_DENOMINATOR * (BPS_DENOMINATOR - RESERVE_BPS);
+        let target = continuity_target(V_SOL, vt_scaled, curve_s, RENT_FLOOR_RESERVE).unwrap();
+        let ceiling = target + RENT_FLOOR_RESERVE;
+
+        let mut eff_sol = V_SOL;
+        let mut eff_tok = vt_scaled + curve_s;
+        let mut real_sol = 0u64;
+        let mut real_tok = curve_s;
+        for _ in 0..10_000 {
+            let limit = match lamports_until_target(real_sol, ceiling, FEE_BPS).unwrap() {
+                Some(l) => l,
+                None => break,
+            };
+            let q = quote_buy(eff_sol, eff_tok, core::cmp::min(2 * SOL, limit), FEE_BPS).unwrap();
+            assert!(q.tokens_out <= real_tok, "the real-token guard would reject this");
+            eff_sol += q.lamports_to_curve;
+            real_sol += q.lamports_to_curve;
+            eff_tok -= q.tokens_out;
+            real_tok -= q.tokens_out;
+        }
+        assert_eq!(real_sol, ceiling, "the raise must complete");
+
+        // The vault holds the whole supply; what left it is `curve_s - real_tok`.
+        let vault = SUPPLY - (curve_s - real_tok);
+        assert_eq!(vault - real_tok, carve, "the carve must be untouched at graduation");
+        // Sold ~56.1%, pool ~40.2%, carve 3.69% of supply.
+        let lp_bps = real_tok as u128 * 10_000 / SUPPLY as u128;
+        assert!((4_000..=4_040).contains(&lp_bps), "pool share moved: {lp_bps} bps");
     }
 }

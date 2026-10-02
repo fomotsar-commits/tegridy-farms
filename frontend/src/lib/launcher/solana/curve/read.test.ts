@@ -42,11 +42,11 @@ const POOL = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 const SOL = 1_000_000_000n;
 const TARGET = 85n * SOL;
 const RESERVE = SOL / 4n;
-// (128 + 170) × 6960, the cluster's rent formula over the post-removal account
-// size. Getting this wrong in the PERMISSIVE direction is the half that does not
-// fail closed: a max-sell computed against too small a floor is too generous and
-// reverts on chain.
-const RENT_EXEMPT_CURVE = 2_074_080n;
+// (128 + 179) × 6960, the cluster's rent formula over the account size once the
+// platform-reserve fields were appended. Getting this wrong in the PERMISSIVE
+// direction is the half that does not fail closed: a max-sell computed against too
+// small a floor is too generous and reverts on chain.
+const RENT_EXEMPT_CURVE = 2_136_720n;
 
 // ── encoders (fields concatenated in declaration order) ─────────────────────
 
@@ -83,6 +83,7 @@ function globalBytes(o: { paused?: boolean; ammConfigured?: boolean } = {}): Uin
     (o.ammConfigured === false ? DEFAULT_PUBKEY : CREATOR).toBytes(),
     byte(o.paused ? 1 : 0),
     byte(254),
+    u64le(369n), // platform_reserve_bps, appended after bump
   );
 }
 
@@ -102,6 +103,8 @@ function curveBytes(o: { realSol?: bigint; complete?: boolean; pool?: PublicKey 
     byte(o.complete ? 1 : 0),
     (o.pool ?? DEFAULT_PUBKEY).toBytes(),
     byte(253),
+    u64le(36_900_000_000_000n), // platform_reserve_tokens, appended after bump
+    byte(0), // platform_reserve_released
   );
 }
 
@@ -644,14 +647,32 @@ describe('curveProgress', () => {
   });
 
   it('tokensSold needs the global supply and is null without it', () => {
-    expect(curveProgress(TERMS)!.tokensSold).toBeNull();
+    const noReserve = { ...TERMS, platformReserveTokens: 0n };
+    expect(curveProgress(noReserve)!.tokensSold).toBeNull();
     const sold = curveProgress(
-      { ...TERMS, realTokenReserves: 900_000_000_000_000n },
+      { ...noReserve, realTokenReserves: 900_000_000_000_000n },
       1_000_000_000_000_000n,
     );
     expect(sold!.tokensSold).toBe(100_000_000_000_000n);
     // An impossible pairing yields null rather than a negative count.
-    expect(curveProgress(TERMS, 1n)!.tokensSold).toBeNull();
+    expect(curveProgress(noReserve, 1n)!.tokensSold).toBeNull();
+  });
+
+  it('tokensSold leaves the platform reserve out — it is held, never sold', () => {
+    // A fresh launch with 3.69% carved: the curve holds the rest, nobody has bought.
+    const SUPPLY = 1_000_000_000_000_000n;
+    const RESERVE_TOKENS = 36_900_000_000_000n;
+    const fresh = {
+      ...TERMS,
+      realTokenReserves: SUPPLY - RESERVE_TOKENS,
+      platformReserveTokens: RESERVE_TOKENS,
+    };
+    expect(curveProgress(fresh, SUPPLY)!.tokensSold).toBe(0n);
+    const after = curveProgress({ ...fresh, realTokenReserves: 900_000_000_000_000n }, SUPPLY);
+    expect(after!.tokensSold).toBe(SUPPLY - RESERVE_TOKENS - 900_000_000_000_000n);
+    // Without the curve's reserve there is no honest count, so none is given.
+    const unknownReserve = { ...TERMS, realTokenReserves: 900_000_000_000_000n };
+    expect(curveProgress(unknownReserve, SUPPLY)!.tokensSold).toBeNull();
   });
 
   it('spot is an exact fraction, not a rounded number', () => {
@@ -748,8 +769,8 @@ describe('the account sizes the rent reads use', () => {
     // The post-removal sizes. These are what the rent reads ASK the cluster for, so
     // a stale value here does not fail loudly — it returns a rent floor for an
     // account of the wrong size and every budget check built on it is quietly off.
-    expect(GLOBAL_CONFIG_SIZE).toBe(194);
-    expect(BONDING_CURVE_SIZE).toBe(170);
+    expect(GLOBAL_CONFIG_SIZE).toBe(202);
+    expect(BONDING_CURVE_SIZE).toBe(179);
     // The rent floor a sell and a migration budget are measured against. Wrong in
     // the permissive direction is the one that does not fail closed.
     expect(RENT_EXEMPT_CURVE).toBe(BigInt((128 + BONDING_CURVE_SIZE) * 6960));

@@ -54,6 +54,9 @@ const DeveloperPage = lazy(() => import('./pages/DeveloperPage'));
 // The trade pages load inside TradeHostPage: @solana/* must never reach the main
 // bundle (scripts/check-dist-graph.mjs pins it).
 const CurveTokenPage = lazy(() => import('./pages/CurveTokenPage'));
+// One launch on our own Solana curve. A bare route like /eth-curve/:token: a launch's
+// page is a shareable record and does not arrive inside the Launch tabs.
+const CurveLaunchDetailPage = lazy(() => import('./pages/CurveLaunchDetailPage'));
 // Never gated: a launched token's disclosures stay reachable if the wizard is re-gated.
 const LaunchTokenPage = lazy(() => import('./pages/LaunchTokenPage'));
 // AirdropFactory is undeployed: its transactions are isDeployed()-gated in-page.
@@ -311,6 +314,7 @@ function AnimatedRoutes() {
         {/* No /solana-launch and no redirect for it: it 404s, because the rail it
             would point at cannot launch either. */}
         <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
+        <Route path="curve-launch/:mint" element={<Suspense fallback={<PageSkeleton />}><CurveLaunchDetailPage /></Suspense>} />
         <Route path="eth-curve" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
         <Route path="eth-curve/:token" element={<Suspense fallback={<PageSkeleton />}><CurveTokenPage /></Suspense>} />
         <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />

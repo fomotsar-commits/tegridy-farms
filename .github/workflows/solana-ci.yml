@@ -10,8 +10,9 @@ name: solana-ci
 #      SCOPED TO cp-swap ONLY — tegridy-launch is our own code with no upstream
 #      to diff against, so it is deliberately NOT covered by this job.
 #   2. build       — compiles the SBF program (validates our diff compiles).
-#   3. launch-curve — host-tests tegridy-launch's dependency-free curve math and
-#      SBF-builds the program. This is the ONLY compile gate for that program:
+#   3. launch-curve — host-tests tegridy-launch's dependency-free curve math,
+#      SBF-builds the program, and runs its layout and error-code pins under both
+#      feature configs. This is the ONLY compile gate for that program:
 #      it cannot be built on the Windows dev box (platform-tools install needs
 #      the symlink privilege, os error 1314; cargo build scripts are blocked by
 #      Application Control, os error 4551 — both hit the existing cp-swap too).
@@ -164,7 +165,17 @@ jobs:
           # (and claiming sentinel values that are live keys) were deleted. Verified
           # from the guard's own printed delta: every changed line vs the previous
           # pin is a `//` comment; the functional delta is untouched.
-          EXPECTED_DELTA_SHA256=7b2adbad06b89eb9613388cce5aa8b333fe9718febd7551ce2e95e534a778b0e
+          # RE-PINNED 2026-09-26: the fresh mainnet identities (owner rulings
+          # 2026-09-25). Diffing the old delta against the new one shows exactly three
+          # changed `pubkey!`/`declare_id!` lines, all on the NON-devnet arms:
+          #   declare_id!                               3ZvZXEBr… (spent) -> EKS4C6x…
+          #   admin::ID                                 Dcjink4…         -> GRMtSxgs… (Squads vault PDA)
+          #   create_support_mint_associated_owner::ID  EVGSnRZ… (multisig, unsignable) -> GRMtSxgs…
+          # Every other changed line is a `//` comment or a diff hunk header. Every
+          # devnet arm and create_pool_fee_reveiver are unchanged. Reproduced locally
+          # with this exact recipe: the unmodified base (b500db57) yields the previous
+          # pin 7b2adbad…, which is the positive control for this value.
+          EXPECTED_DELTA_SHA256=5c737ac733c35f6507f6f3a16ecee4a2b3cb9ea3c134891242a8bef4ff30afc0
 
           # 1. NO file outside the two allowed source files may differ at all.
           #    Paths are anchored to their full relative path — the old pattern matched
@@ -244,8 +255,9 @@ jobs:
         run: solana --version
       - name: Build SBF program (validates the fork compiles; devnet feature = functional keys)
         # `--features devnet` selects the real devnet authorities. A default (non-devnet)
-        # build compiles too but embeds fail-closed System-Program sentinels, so we do
-        # NOT publish that as a deployable artifact.
+        # build compiles too and embeds the MAINNET identities (EKS4C6x… / the Squads
+        # vault); a mainnet binary is built by the operator from a tagged commit, never
+        # published from CI, so we do NOT publish that as an artifact here.
         #
         # THIS BUILD PRODUCES A PUBLISHED ARTIFACT, so it carries the same two
         # guards the tegridy-launch build carries — it had NEITHER:
@@ -427,7 +439,7 @@ jobs:
       # validator. That is the only way to test the ACCOUNT CONSTRAINTS at
       # runtime — `cargo check` proves they compile and are wired into the right
       # contexts, not that they actually reject. Devnet feature, because the
-      # default build embeds fail-closed sentinels that cannot initialize.
+      # default build embeds the MAINNET deployer (CqcVva…), which no CI runner holds.
       - name: Build SBF program (devnet authorities, for the deployable artifact)
         # THIS is the build whose output gets published, and it was the only
         # unguarded one in the job — the guards above protect the DEFAULT build,
@@ -437,10 +449,10 @@ jobs:
         # builds write the SAME path. If this one exits 0 without compiling
         # (toolchain-install path), the default build's .so is still sitting
         # there — so `if-no-files-found: error` is satisfied and CI publishes
-        # the DEFAULT binary under the devnet name. That build embeds
-        # fail-closed System-Program sentinels: it deploys, and then cannot
-        # initialize. Deleting first turns that silent substitution into a
-        # failed step.
+        # the DEFAULT binary under the devnet name. That build embeds the
+        # MAINNET program id and deployer: it deploys, and then nobody but the
+        # mainnet deployer can initialize it. Deleting first turns that silent
+        # substitution into a failed step.
         run: |
           set -euo pipefail
           SO=../../target/deploy/tegridy_launch.so
@@ -451,7 +463,7 @@ jobs:
             cargo build-sbf --features devnet 2>&1 | tee -a /tmp/sbf-build-devnet.log
           fi
           if [ ! -f "$SO" ]; then
-            echo "::error::devnet cargo build-sbf exited 0 but produced no $SO — refusing to publish the previous (fail-closed sentinel) build under the devnet artifact name"
+            echo "::error::devnet cargo build-sbf exited 0 but produced no $SO — refusing to publish the previous (default, mainnet-identity) build under the devnet artifact name"
             exit 1
           fi
           # Same 4KB-frame check as the default build. The devnet feature swaps
@@ -463,6 +475,19 @@ jobs:
             exit 1
           fi
           ls -l "$SO"
+      # The host-side layout and error-code pins (lib.rs `mod layout_tests`), the
+      # same two steps as bayla-ladder. They need the Anchor dependency graph, so
+      # they cannot run under the bare rustc above. They are the only check on the
+      # BYTE OFFSETS the frontend decoders read (program.ts): the validator suites
+      # decode through the IDL, so a reordered field with an unchanged size passes
+      # them and the client misreads it.
+      #
+      # Both feature configs: `deployer::ID` is cfg-gated, so one run only ever
+      # compiles one arm.
+      - name: Layout and error-code pins (default features)
+        run: cargo test --lib -- layout_tests
+      - name: Layout and error-code pins (--features devnet)
+        run: cargo test --lib --features devnet -- layout_tests
       - name: Publish compiled .so (DEVNET — never a mainnet artifact)
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
         with:

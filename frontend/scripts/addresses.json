@@ -69,7 +69,7 @@
     {
       "id": "deploy-authority",
       "address": "Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7",
-      "role": "Program deploy authority for the own-venue mainnet deploy of 2026-08-08. Both programs it deployed were closed on 2026-08-13, so it currently authorises nothing; it is kept registered because it is still the key a restart would deploy from, and because losing it is how this registry started.",
+      "role": "Program deploy authority for the own-venue mainnet deploy of 2026-08-08. Both programs it deployed were closed on 2026-08-13, so it currently authorises nothing; it is kept registered because losing it is how this registry started. It is NOT the restart's deploy key (that is tegridy-launch-deployer, 2026-09-25), and it was cp-swap admin::ID in source until 2026-09-26; verify-program-constants forbids it in both restart binaries.",
       "custody": "single key, operator-held. No seed phrase — generated --no-bip39-passphrase --silent, so the keyfile IS the backup.",
       "status": "🔴 EMPTY. getAccountInfo returns value:null on mainnet-beta (checked twice, slot 438,844,123/4 — 2026-08-12). The account does not exist: 0 lamports. The previous text here said '3.53 SOL left. Keep it funded' and was stale; the text after that called the empty balance a graduation BLOCKER, which stopped being true on 2026-08-13 when both programs were closed — there is no initialize_global left to call and no cp-swap upgrade left to ship. What remains true: it deployed both programs 2026-08-08 (8.41 SOL of rent, not recovered to any address this registry knows), and NO SEED PHRASE EXISTS — the keyfile is the only backup. The `expect` block below used to say {wallet, funded:true} — asserting the exact opposite of this paragraph — and nothing caught it, because the chain read never ran in CI. It is now `absent`, which is both what is true and the useful tripwire: this is the key a restart deploys from, so the account going non-empty again should force a deliberate registry edit rather than pass silently.",
       "expect": {
@@ -117,6 +117,94 @@
       }
     },
     {
+      "id": "cp-swap-program-restart",
+      "address": "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT",
+      "role": "The restart's cp-swap fork program id (owner ruling 2026-09-25): the fork's committed non-devnet declare_id! and tegridy-launch's compile-time cp_swap::ID graduation venue since 2026-09-26. Replaces cp-swap-program (3ZvZXEBr…), which is spent. frontend: curve/program.ts CP_SWAP_PROGRAM_ID (the default of every cp-swap PDA helper and builder) and REGISTERED_CP_SWAP_PROGRAM_ID, and cpswap/program.ts REGISTERED_PROGRAM_ID (the default of LIVE_PROGRAM_ID). Executable, owned by BPFLoaderUpgradeab1e11111111111111111111111; its ProgramData is cp-swap-programdata-restart.",
+      "custody": "the program keypair claimed the address at first deploy and authorises nothing afterwards. What can change this program is the UPGRADE AUTHORITY on its ProgramData account: squads-vault after the §8 handover (tegridy-launch-deployer before it).",
+      "status": "DEPLOYED (post-deploy truth for website release 2): expected bytecode sha256 88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882, 691,640 bytes (artifacts/cp_swap.mainnet.so). Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point. `expect.type: executable` is not on its own evidence the program can run (a closed program keeps the flag); cp-swap-programdata-restart holds the liveness claim.",
+      "expect": {
+        "type": "executable"
+      }
+    },
+    {
+      "id": "tegridy-launch-program-restart",
+      "address": "64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2",
+      "role": "The restart's tegridy-launch program id (owner ruling 2026-09-25): the crate's single committed declare_id! since 2026-09-26. Replaces tegridy-launch-program (CpFnacr…), which is spent, and the throwaway tegridy-launch-placeholder-id. frontend: curve/program.ts PROGRAM_ID (the id every page, reader and builder defaults to) and REGISTERED_PROGRAM_ID. Executable, owned by BPFLoaderUpgradeab1e11111111111111111111111; its ProgramData is tegridy-launch-programdata-restart.",
+      "custody": "the program keypair claimed the address at first deploy and authorises nothing afterwards. What can change this program is the UPGRADE AUTHORITY on its ProgramData account: squads-vault after the §8 handover (tegridy-launch-deployer before it).",
+      "status": "DEPLOYED (post-deploy truth for website release 2): expected bytecode sha256 a3c41afaf9dce3ee5dd5d30061c09d8dfb0bf581ba8f39e1d24524dbb43d3f4d, 470,728 bytes (artifacts/tegridy_launch.mainnet.so, the reserve-at-create build). Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point. `expect.type: executable` is not on its own evidence the program can run; tegridy-launch-programdata-restart holds the liveness claim.",
+      "expect": {
+        "type": "executable"
+      }
+    },
+    {
+      "id": "tegridy-launch-deployer",
+      "address": "CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg",
+      "role": "tegridy-launch deployer::ID on the non-devnet arm since 2026-09-26 (owner ruling 2026-09-25): the ONLY key that can call initialize_global. Paid for both restart deploys and was their initial upgrade authority and the first global.authority. Replaces the System-program sentinel that arm held, and deploy-authority (Dcjink4…) as the key a restart deploys from.",
+      "custody": "single key, operator-held, outside the repo and outside cloud-synced folders. After the MAINNET_GO_LIVE.md §8 handover it holds NO authority: not the upgrade authority of either program and not global.authority (website-release-2/precheck.mjs asserts all three).",
+      "status": "USED (post-deploy truth for website release 2): funded, deployed both restart programs, ran initialize_global and update_global, then handed every authority to squads-vault. Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point. `onchain: false` because its balance is the owner's choice after the handover (§8 says to sweep it, which empties the account); what matters about it, that it can no longer change anything, is checked by precheck.mjs on the ProgramData accounts and on global, not here.",
+      "onchain": false
+    },
+    {
+      "id": "tegridy-launch-programdata-restart",
+      "address": "EQ8GJTuNRuwcpMuAPSkWU2osMfLaMjJqyspFXjwe1LD4",
+      "role": "ProgramData account for tegridy-launch-program-restart: PDA of BPFLoaderUpgradeab1e11111111111111111111111, seeds [64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2]. Holds the bytecode and the upgrade authority. THIS is the account that answers 'is the launcher live', because `solana program close` deletes it and leaves the program stub executable-flagged. Pinned against the code's own derivation by src/lib/launcher/solana/restartRegistry.test.ts.",
+      "custody": "upgrade authority = squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd after the §8 handover (never the multisig account EVGSnRZ…, which cannot sign).",
+      "status": "LIVE (post-deploy truth for website release 2). Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "cp-swap-programdata-restart",
+      "address": "F475omgJMd5mnDXJFyjHTkg9zs7WSb6ek9dFoUmUvi5V",
+      "role": "ProgramData account for cp-swap-program-restart: PDA of BPFLoaderUpgradeab1e11111111111111111111111, seeds [EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT]. Same liveness role as the entry above. Pinned by restartRegistry.test.ts.",
+      "custody": "upgrade authority = squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd after the §8 handover.",
+      "status": "LIVE (post-deploy truth for website release 2). Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "tegridy-launch-global-restart",
+      "address": "7ZvLJKpE5u9Y86RCjnPVXLQhx3LfxFMMZvtkZK9hQfs2",
+      "role": "The restart's tegridy-launch `global` singleton PDA, seeds [\"global\"] under 64WBTe…. Holds the book every NEW launch is created from (MAINNET_GO_LIVE.md §7: 1% fee split 50/50, 3.69% platform reserve paid at create, graduation target 25 SOL with virtual SOL 64,149,589,128, migration reserve 0.05 SOL), fee_recipient = squads-vault, cp_swap_program = EKS4C6x…, amm_config = cp-swap-amm-config-restart. Not the stranded 2026-08 tegridy-launch-global (7hrjMjYx…). Pinned by restartRegistry.test.ts.",
+      "custody": "program-derived, no key. Its `authority` FIELD is the admin: squads-vault after the §8 handover.",
+      "status": "INITIALIZED (post-deploy truth for website release 2). Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "cp-swap-amm-config-restart",
+      "address": "BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW",
+      "role": "cp-swap AmmConfig index 0 under EKS4C6x…, seeds [\"amm_config\", 0u16 big-endian]: the graduated pools' fee sheet, create_amm_config(0, 2500, 120000, 0, 0, 0) = 0.25% per swap, 12% of it to the protocol, no create-pool fee. Created by Squads proposal 1 (MAINNET_GO_LIVE.md §4). Pinned by restartRegistry.test.ts.",
+      "custody": "program-derived, no key. Only cp-swap's compiled admin (squads-vault) can change it.",
+      "status": "CREATED (post-deploy truth for website release 2). Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "cp-swap-permission-restart",
+      "address": "5H38YELHgJRGuJajSG22iBj859AE7Bhn7YSckaMNTnaD",
+      "role": "cp-swap Permission PDA under EKS4C6x…, seeds [\"permission\", tegridy-launch-migauth-restart]: lets tegridy-launch's migration authority create graduation pools. Without it every graduation fails 6021. Created by Squads proposal 2 (MAINNET_GO_LIVE.md §4). Pinned by restartRegistry.test.ts.",
+      "custody": "program-derived, no key. Created and closable only by cp-swap's admin (squads-vault).",
+      "status": "CREATED (post-deploy truth for website release 2). Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "tegridy-launch-migauth-restart",
+      "address": "BS8oMxW2p6Fdt7kRnxPa6s9SG9Q5ab2td4Xo4bfg5cq2",
+      "role": "tegridy-launch's migration authority, seeds [\"migauth\"] under 64WBTe…: the data-less PDA that signs the cp-swap pool creation inside `migrate`. It is the authority cp-swap-permission-restart names. Pinned by restartRegistry.test.ts.",
+      "custody": "program-derived, no key.",
+      "status": "IN USE (post-deploy truth for website release 2), and ABSENT at rest by design: `migrate` seeds it to the rent floor, pays cp-swap's rent from it, then sweeps its whole residual to the fee recipient (tegridy-launch lib.rs:1625-1636), so outside a migrate transaction no account exists here. `expect: absent` is therefore the correct assertion, not a leftover tripwire: an account here at rest means lamports are sitting in it: either stranded by a migrate, or sent by anyone (a plain transfer can create it), and the next migrate sweeps them to the fee recipient either way.",
+      "expect": {
+        "type": "absent"
+      }
+    },
+    {
       "id": "tegridy-launch-global",
       "address": "7hrjMjYxoMKxrBvNkHYfyfJfFPxHi2ovXNLhownm1B6e",
       "role": "The tegridy-launch `global` singleton PDA, seeds [\"global\"]. Holds the parameters every FUTURE launch is created from: 1% trade fee, creator 48% / protocol 52%, 30 SOL virtual reserve, graduation target 11.621942308 SOL (the continuity target — it lists at 9999 bps of the final curve price), 0.25 SOL migration reserve. fee_recipient is squads-vault.",
@@ -139,7 +227,7 @@
     {
       "id": "squads-vault",
       "address": "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd",
-      "role": "Squads vault PDA, index 0. Held upgrade authority for both own-venue programs until they were closed on 2026-08-13, and is tegridy-launch's `global.fee_recipient` on a global PDA that is now stranded. It is NOT cp-swap's admin::ID and never was — see the correction below. Re-derive it from the multisig rather than trusting this literal; System-ownership alone proves nothing.",
+      "role": "Squads vault PDA, index 0. Held upgrade authority for both own-venue programs until they were closed on 2026-08-13, and is tegridy-launch's `global.fee_recipient` on a global PDA that is now stranded. It was NOT the admin::ID of any deployed cp-swap binary — see the correction below. Since 2026-09-26 it IS the committed non-devnet admin::ID and create_support_mint_associated_owner::ID of the restart source (owner ruling 2026-09-25), NOT yet deployed. Re-derive it from the multisig rather than trusting this literal; System-ownership alone proves nothing.",
       "custody": "PDA of the Squads multisig — no private key exists",
       "status": "live",
       "correction": "This entry used to read 'Squads vault PDA index 0 = cp-swap admin::ID and create_support_mint_associated_owner::ID'. Both halves were wrong, and it is the exact confusion that bricked graduation. (a) The cp-swap binary that WAS deployed baked the MULTISIG account EVGSnRZ… as admin::ID — a 495-byte Squads-program-owned account that can neither sign (v4 signs CPIs as the vault) nor be debited by the System Program, and `CreateAmmConfig` has `payer = owner`. create_amm_config was therefore uncallable and migrate_to_amm never got past AmmNotConfigured (6015). (b) The SOURCE fix (#281) repoints admin::ID at deploy-authority Dcjink4RG…, a plain system-owned wallet — still not this vault. (c) create_support_mint_associated_owner::ID is deliberately the multisig, left as-is because it is a pure OR-fallback. This correction is now history rather than a live hazard: both program ids were closed on 2026-08-13, `verify-program-constants.mjs --deployed` has no bytecode left to search, and the question it settled must be re-answered against whatever binary a restart actually deploys.",
@@ -150,7 +238,7 @@
     {
       "id": "system-program",
       "address": "11111111111111111111111111111111",
-      "role": "The System Program. Registered because it is also tegridy-launch's FAIL-CLOSED deployer::ID sentinel on the committed non-devnet arm (lib.rs:142) — a mainnet binary built without patching that constant can never be initialized, because nobody can sign for this address. Also pins the base58 decoder: 32 leading zero bytes is the one input that used to decode to 33 bytes and be rejected as a fabrication.",
+      "role": "The System Program. Registered because it WAS tegridy-launch's FAIL-CLOSED deployer::ID sentinel on the non-devnet arm until 2026-09-26 (now tegridy-launch-deployer) — a binary still carrying it can never be initialized, because nobody can sign for this address. Also pins the base58 decoder: 32 leading zero bytes is the one input that used to decode to 33 bytes and be rejected as a fabrication.",
       "custody": "native program, nobody",
       "status": "live (native)",
       "expect": {
@@ -168,9 +256,16 @@
       }
     },
     {
+      "id": "devnet-tegridy-launch-deployer",
+      "address": "EMQVYMPe2UffGAVNYK6ZveCFM2tHjc5DBiXGKYFE6DXA",
+      "role": "tegridy-launch deployer::ID on the `--features devnet` arm — a placeholder (CI patches its own wallet in). Registered so verify-program-constants can carry it as a FORBIDDEN key: in a mainnet binary it would mean a devnet build.",
+      "custody": "throwaway",
+      "status": "devnet only — must be absent from any mainnet binary"
+    },
+    {
       "id": "tegridy-launch-placeholder-id",
       "address": "8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8",
-      "role": "The throwaway in tegridy-launch's declare_id! (lib.rs:114) AND in deployer::ID's devnet arm (lib.rs:140). Still what trunk compiles against; the mainnet id CpFnacrAC… is patched in at build time per MAINNET_RUNBOOK §5b and never committed. One key, two constants — which is why a byte search of the binary can report it present but cannot say which of the two it came from.",
+      "role": "The throwaway tegridy-launch's declare_id! carried until 2026-09-26, when the committed id became tegridy-launch-program-restart. Corresponds to no key anybody holds. Still referenced by curve/program.ts PLACEHOLDER_PROGRAM_ID so the operator can name it if it is passed.",
       "custody": "throwaway — corresponds to no key anybody holds",
       "status": "must be absent from any mainnet binary",
       "expect": {
@@ -250,7 +345,7 @@
     {
       "id": "devnet-throwaway-program",
       "address": "BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL",
-      "role": "The placeholder in declare_id! on both cfg arms. declare_id! is NOT fail-closed — ship without replacing it and you deploy to an address someone else may hold.",
+      "role": "The placeholder in cp-swap's declare_id! on the `--features devnet` arm (the non-devnet arm is cp-swap-program-restart since 2026-09-26). declare_id! is NOT fail-closed — ship without replacing it and you deploy to an address someone else may hold.",
       "custody": "throwaway",
       "status": "must be replaced before any mainnet deploy",
       "expect": {
@@ -369,6 +464,39 @@
       "expect": {
         "type": "wallet",
         "funded": true
+      }
+    },
+    {
+      "$comment": "The plant (island ruling 2, 2026-10-01): every Solana launch on /curve-launch burns 50,000 $BAYLA and sends 50,000 $BAYLA to the island's Workshop, in its own create transaction (frontend/src/lib/launcher/solana/write/plant.ts). These three addresses are pinned there and in plant.test.ts, which re-derives the Workshop's $BAYLA account. Read on mainnet-beta 2026-10-01 at slots 452,503,566 to 452,505,319. None of them is ours: the island owns the Workshop, and nobody owns the mint."
+    },
+    {
+      "id": "bayla-mint",
+      "address": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
+      "role": "$BAYLA, the island's coin. A Token-2022 mint, 6 decimals, created on pump.fun 2026-08-07 by island-workshop-wallet. Its only extensions are MetadataPointer and TokenMetadata: no transfer fee, no transfer hook, no permanent delegate. The plant burns 50,000 of it (burnChecked) in every Solana launch made here, and the bayla-ladder pools stake it.",
+      "custody": "nobody. Mint authority and freeze authority are both null, so supply can only fall.",
+      "status": "live. Supply 990,221,904.514687 at slot 452,504,423 (2026-10-01).",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "island-workshop-wallet",
+      "address": "G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu",
+      "role": "The island's Workshop: the wallet that created $BAYLA, named 'The Workshop' in the island's own ledger (memetics.wtf/receipts/receipts.json, plates.workshop). Half of every plant goes to its $BAYLA account. A launch from this wallet is refused, because the plant's source and destination would be one account.",
+      "custody": "the island, not this repo. No key for it exists anywhere in our custody.",
+      "status": "live, system-owned, 35.62 SOL at slot 452,503,566 (2026-10-01).",
+      "expect": {
+        "type": "wallet"
+      }
+    },
+    {
+      "id": "island-workshop-bayla-account",
+      "address": "9i7vMCBcTSs3CsEZNcNDmH5Lh8yuH6aqYULNHWfxatwT",
+      "role": "The Workshop's $BAYLA account: ATA($BAYLA, island-workshop-wallet) under TOKEN-2022, bump 255, derived and matched. The plant's transferChecked sends 50,000 $BAYLA here. The legacy-program derivation, G2JTfWMphD9LEy6cw8aTCFyxrVNuVpsC41tUTBBww4BB, does not exist and must never be used.",
+      "custody": "owned by island-workshop-wallet",
+      "status": "live, Token-2022, 170 bytes (ImmutableOwner), 135,491,275.155257 $BAYLA at slot 452,503,577 (2026-10-01).",
+      "expect": {
+        "type": "token-account"
       }
     }
   ],

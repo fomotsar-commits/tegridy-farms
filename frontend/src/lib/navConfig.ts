@@ -15,6 +15,8 @@ import { getActiveBungalow } from './bungalows';
 import { hasRoutableYieldVenue } from './yield/venues';
 import { isLauncherEnabled } from './launcher/config';
 import { curveChainNames, isCurveLive } from './launcher/curveChains';
+// Web3-free on purpose: this module is in the main bundle.
+import { isCurveWriteEnabled } from './launcher/solana/curveWriteFlag';
 // No entry is keyed to the unhosted indexer (isIndexerConfigured). Each pill
 // below reads a rail this build already carries, so it is a computed fact.
 import { hasChartableMarket } from './chart/markets';
@@ -145,8 +147,10 @@ export const NAV_SECTIONS: NavSection[] = [
     hub: '/launch',
     items: [
       { to: '/launch',      label: 'Launch', tabLabel: 'Launchpad', soon: !isLauncherEnabled() },
-      // The venue's own Solana curve: deployed on no cluster, so "Soon" until a deploy changes it.
-      { to: '/curve-launch', label: 'Memetics Curve (Solana)', tabLabel: 'Solana Curve', soon: true },
+      // The venue's own Solana curve. "Soon" whenever launching and trading cannot load:
+      // in a production build that is ONLY the committed CURVE_WRITES_ENABLED, which
+      // website release 2 turns on together with the program ids (curveWriteFlag.ts).
+      { to: '/curve-launch', label: 'Memetics Curve (Solana)', tabLabel: 'Solana Curve', soon: !isCurveWriteEnabled() },
       // The EVM curve on every chain it is deployed to: the label names them and the pill reads them all.
       {
         to: '/eth-curve',

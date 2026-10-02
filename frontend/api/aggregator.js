@@ -162,6 +162,10 @@ const CONFIGS = {
   jupiter: {
     identifier: "jupiter",
     upstreamBase: "https://lite-api.jup.ag",
+    // Jupiter's HTTP 400 codes for "no market", seen live 2026-09-30 (an untradable
+    // mint, and an amount no route fills). The proxy answers these as 404 NO_ROUTE
+    // instead of 502, so the LP price check can tell "no market" from "Jupiter down".
+    noRouteErrorCodes: ["TOKEN_NOT_TRADABLE", "NO_ROUTES_FOUND", "COULD_NOT_FIND_ANY_ROUTE"],
     // swap/v1/{quote,swap} (trade) + tokens/v2/search (any-pair token search +
     // paste-a-mint resolve). Exact segment matches only — keep the surface narrow.
     matchPath: (segments) => {
@@ -274,6 +278,13 @@ export default async function handler(req, res) {
   // MARKET-WIDE Launch Radar. Deliberately separate from launcher-outcomes: that one
   // enriches the Tegridy cohort, this one is the whole market and must never be fed
   // into the cohort ledger (see _lib/launch-radar.js header).
+  // `?resource=pools` (rewritten from /api/pools): the Solana pool index. One filtered
+  // getProgramAccounts per question, addresses only, so the browser RPC proxy never has
+  // to allow a program scan. See _lib/pool-index.js.
+  if (req.query.resource === "pools") {
+    const { handlePoolIndex } = await import("./_lib/pool-index.js");
+    return handlePoolIndex(req, res);
+  }
   if (req.query.resource === "launch-radar") {
     const { handleLaunchRadar } = await import("./_lib/launch-radar.js");
     return handleLaunchRadar(req, res);

@@ -11,8 +11,49 @@
 // and every "we could not read it" path returns an explicit marker rather than a
 // default.
 
-import type { LaunchErrorName } from './program';
+import type { PublicKey } from '@solana/web3.js';
+import { PLATFORM_TREASURY_VAULT, type LaunchErrorName } from './program';
 import type { LaunchPhase } from './read';
+
+/** How a page names the account the platform reserve is paid to. */
+export interface TreasuryDescription {
+  /** True only when the recipient is the known Squads vault. */
+  multisig: boolean;
+  /** A noun phrase for prose: "the platform treasury (a multisig)", etc. */
+  name: string;
+}
+
+/**
+ * Name the platform-reserve recipient (`global.fee_recipient`) without claiming more
+ * than we know.
+ *
+ * The program pays the reserve to whatever key the config holds and never checks
+ * that it is a multisig. So "a multisig" is said only for {@link PLATFORM_TREASURY_VAULT};
+ * any other key is named by its address with no claim about it, and an unread
+ * config (`null`) is named with no claim at all.
+ */
+export function describeTreasury(feeRecipient: PublicKey | null | undefined): TreasuryDescription {
+  if (!feeRecipient) return { multisig: false, name: 'the platform treasury' };
+  if (feeRecipient.equals(PLATFORM_TREASURY_VAULT)) {
+    return { multisig: true, name: 'the platform treasury (a multisig)' };
+  }
+  return { multisig: false, name: `the platform treasury (${feeRecipient.toBase58()})` };
+}
+
+/**
+ * Name the account that received an EXISTING launch's platform reserve.
+ *
+ * `create_launch` pays whoever `global.fee_recipient` was at that moment, and
+ * `update_global` can change it afterwards, so today's config says nothing about a
+ * past payment. `recorded` is the fee recipient in the launch's own create
+ * transaction (account 8 of `create_launch`, see `readLaunchOrigin`). When it was
+ * not read (`null`) the account is named with no address and no multisig claim.
+ * Use {@link describeTreasury} only for a launch that has not happened yet.
+ */
+export function describeReserveRecipient(recorded: PublicKey | null | undefined): TreasuryDescription {
+  if (!recorded) return { multisig: false, name: 'the platform treasury at the time' };
+  return describeTreasury(recorded);
+}
 
 /**
  * Solana protocol constant. SOL is always 9 decimals; the LAUNCH MINT is not, and
@@ -146,7 +187,13 @@ export function spotPriceLabel(price: number, tokenDecimals?: number | null): { 
 
 function formatRatio(v: number): string {
   if (v === 0) return '0';
-  if (v < 0.000001 || v >= 1e9) return v.toExponential(3);
+  // Never scientific notation: a launch's price is about 0.0000000015 SOL a token,
+  // and "1.502e-9" means nothing to most buyers. Four significant digits, written out.
+  if (v >= 1e9) return Math.round(v).toString();
+  if (v < 0.000001) {
+    const digits = Math.min(100, 3 - Math.floor(Math.log10(v)));
+    return v.toFixed(digits).replace(/0+$/, '');
+  }
   const s = v.toPrecision(4);
   // Only strip trailing zeros from a FRACTION. Applying it to "1000" leaves "1",
   // i.e. a price understated by 1000x — the exact silent-wrong-number bug this
@@ -191,6 +238,15 @@ export const LAUNCH_ERROR_COPY: Record<LaunchErrorName, string> = {
   MigrationReserveTooLow: 'The curve cannot yet afford migration. Retryable — it is a stall, not a break.',
   LpNotBurned: 'Migration aborted rather than leave a false "liquidity locked" claim.',
   AwaitingMigration: 'Fully funded and waiting on migration. It has NOT graduated yet — sells still work.',
+  CreatorMismatch: 'The creator account does not match the creator recorded on this launch.',
+  MigrationPermissionMissing:
+    'The graduation venue has not granted this program permission to create pools yet. Not a problem with this launch.',
+  // Retired codes (6022, 6023): the program no longer returns them. Worded so a
+  // stray one still reads truthfully.
+  PlatformReserveLocked: 'No longer used: the platform reserve is paid when the launch is created.',
+  PlatformReserveAlreadyReleased: 'No longer used: the platform reserve is paid when the launch is created.',
+  CpSwapProgramNotPinned:
+    'Operator configuration: that cp-swap program is not the graduation venue compiled into this program.',
 };
 
 // ── what a phase permits ─────────────────────────────────────────────────────

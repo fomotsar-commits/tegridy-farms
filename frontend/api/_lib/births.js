@@ -48,7 +48,9 @@ const UPSTREAM_TIMEOUT_MS = 6000;
 /** The six keys, in the order the card lists them. Nothing else is ever sent. */
 const BODY_KEYS = ["ca", "chain", "creator", "birth_block", "gate_decision_id", "record_url"];
 
-const CHAINS = new Set(["base", "ethereum", "solana"]);
+// No "solana": a Solana launch is a venue launch, and its birth never reaches the island's
+// socket (answer sixteen, ruling 1(c)), not even from a hand-made request.
+const CHAINS = new Set(["base", "ethereum"]);
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
@@ -154,7 +156,7 @@ export function validateBirthBody(body) {
   for (const k of BODY_KEYS) {
     if (!(k in body)) return { error: `Missing field: ${k}`, field: k };
   }
-  if (!CHAINS.has(body.chain)) return { error: "chain must be base, ethereum or solana", field: "chain" };
+  if (!CHAINS.has(body.chain)) return { error: "chain must be base or ethereum", field: "chain" };
   if (!validAddress(body.ca, body.chain)) return { error: "ca is not a valid address for this chain", field: "ca" };
   if (!validAddress(body.creator, body.chain)) {
     return { error: "creator is not a valid address for this chain", field: "creator" };

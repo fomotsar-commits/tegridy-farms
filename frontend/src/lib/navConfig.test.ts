@@ -218,12 +218,42 @@ describe('navConfig', () => {
     ).toBeUndefined();
   });
 
-  // /curve-launch is the OWN-curve page and stays pilled unconditionally: its program
-  // is not deployed on any cluster, so no flag or config can make it launchable.
-  it('keeps /curve-launch pilled — its program is not deployed anywhere', () => {
-    const entry = ALL_NAV.find((n) => n.to === '/curve-launch');
-    expect(entry, '/curve-launch missing from nav').toBeTruthy();
-    expect(entry?.soon).toBe(true);
+  // /curve-launch is the OWN-curve page. It is pilled whenever launching and trading
+  // cannot load (curveWriteFlag.ts). In production ONLY the committed constant decides,
+  // and it stays OFF by the owner's decision (2026-10-02) until its own one-line PR, so
+  // a production build pills the entry; a dev server with the env flag does not.
+  it('pills /curve-launch Soon in a production build while launching is off', async () => {
+    expect(ALL_NAV.find((n) => n.to === '/curve-launch'), '/curve-launch missing from nav').toBeTruthy();
+
+    // A production build: DEV is false. Fresh module load, because NAV_SECTIONS is built at import.
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('MODE', 'production');
+    vi.stubEnv('VITE_SOLANA_CURVE_WRITES', '1');
+    vi.resetModules();
+    const prod = await import('./navConfig');
+    expect(prod.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon).toBe(true);
+
+    vi.stubEnv('DEV', true);
+    vi.stubEnv('MODE', 'development');
+    vi.resetModules();
+    const dev = await import('./navConfig');
+    expect(dev.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon).toBe(false);
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('pills /curve-launch again the moment the write path cannot load', async () => {
+    // The other direction: the pill follows the flag, never a hard-coded value. Proven
+    // by making the flag answer "no" and reloading the nav.
+    vi.resetModules();
+    vi.doMock('./launcher/solana/curveWriteFlag', () => ({ isCurveWriteEnabled: () => false }));
+    try {
+      const off = await import('./navConfig');
+      expect(off.ALL_NAV.find((n) => n.to === '/curve-launch')?.soon).toBe(true);
+    } finally {
+      vi.doUnmock('./launcher/solana/curveWriteFlag');
+      vi.resetModules();
+    }
   });
 
   // Alerts sits with the detection tools because its rule kinds watch exactly what those

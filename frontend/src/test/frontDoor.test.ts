@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, posix } from 'node:path';
+import { CURVE_WRITES_ENABLED } from '../lib/launcher/solana/curveWriteFlag';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const read = (...p: string[]) => readFileSync(join(REPO_ROOT, ...p), 'utf-8');
@@ -214,5 +215,60 @@ describe('the changelog is one line per change', () => {
       .map((l) => l.replace(/\s+/g, ' ').trim());
     expect(entries.length).toBeGreaterThan(10);
     expect(entries.filter((l, i) => entries.indexOf(l) !== i), 'these entries appear more than once').toEqual([]);
+  });
+
+  // A line may say a page's create form opens only through the door when that page mounts
+  // the form inside <LaunchGate>, not beside it: /launch keeps its wizard usable and reads
+  // the wallet again only at submit.
+  const PAGE_OF: Record<string, string> = {
+    '/eth-curve': 'EthCurvePage.tsx',
+    '/launch': 'LaunchPage.tsx',
+    '/curve-launch': 'CurveLaunchPage.tsx',
+  };
+  const routesClaimedGated = (changelog: string): string[] =>
+    changelog
+      .split('\n')
+      .filter((l) => l.startsWith('- '))
+      .flatMap((l) => l.slice(2).split(/(?<=\.)\s+/))
+      .filter((s) => /opens only through the Who may plant door/.test(s))
+      .flatMap((s) => s.match(/\/[a-z0-9-]+/g) ?? []);
+  // By its closing tag: an opening tag whose props hold JSX (`below={<Lines />}`) has a
+  // `/>` inside it, so reading the opening tag alone takes a wrapping door for a bare one.
+  const wrapsChildren = (src: string) => /<\/LaunchGate>/.test(src);
+
+  it('finds every route in a gated-form claim, and tells a wrapping door from a bare one', () => {
+    expect(
+      routesClaimedGated('- On /a-b, the create form opens only through the Who may plant door, as on /c. Trade at /d.'),
+    ).toEqual(['/a-b', '/c']);
+    expect(wrapsChildren('<LaunchGate rail="ethereum">\n<Form />\n</LaunchGate>')).toBe(true);
+    expect(wrapsChildren('<LaunchGate rail="ethereum" />')).toBe(false);
+    // A door whose props hold JSX still wraps its form (CurveLaunchPage's write path).
+    const jsxProps = 'connect={<WalletNeeded state={s} />} below={<VenueLaunchLines rail="solana" />}';
+    expect(wrapsChildren(`<LaunchGate rail="solana" ${jsxProps}>\n<Form />\n</LaunchGate>`)).toBe(true);
+    expect(wrapsChildren(`<LaunchGate rail="solana" ${jsxProps} />`)).toBe(false);
+    // And the pages as they are: /launch keeps a bare door, the other two wrap.
+    expect(wrapsChildren(read('frontend', 'src', 'pages', 'CurveLaunchPage.tsx'))).toBe(true);
+    expect(wrapsChildren(read('frontend', 'src', 'pages', 'EthCurvePage.tsx'))).toBe(true);
+    expect(wrapsChildren(read('frontend', 'src', 'pages', 'LaunchPage.tsx'))).toBe(false);
+  });
+
+  // While launching is off (curveWriteFlag.ts), no visitor reaches a Solana launch's form,
+  // review or page, so a line about them says when they arrive, as the 2026-10-01 door
+  // line does. Once the owner switches launching on, the qualifier stays true.
+  it.skipIf(CURVE_WRITES_ENABLED)('while launching is off, a line about the Solana launch form, review, plant or page says when it arrives', () => {
+    const WRITE_ONLY = /Solana launch (form|review)|Solana launch's page|Solana launch on \/curve-launch plants/i;
+    const claims = unreleased(read('CHANGELOG.md'))
+      .split('\n')
+      .filter((l) => l.startsWith('- ') && WRITE_ONLY.test(l));
+    expect(claims.length, 'the pattern finds the lines it guards').toBeGreaterThanOrEqual(5);
+    const unqualified = claims.filter((l) => !l.startsWith('- Once launching is switched on, '));
+    expect(unqualified, 'these lines describe what no visitor can reach while launching is off').toEqual([]);
+  });
+
+  it('says a create form opens only through the door only of pages that put it there', () => {
+    const routes = routesClaimedGated(read('CHANGELOG.md'));
+    expect(routes.filter((r) => !PAGE_OF[r]), 'a claimed route with no page here: add it to PAGE_OF').toEqual([]);
+    const ungated = routes.filter((r) => !wrapsChildren(read('frontend', 'src', 'pages', PAGE_OF[r])));
+    expect(ungated, 'the changelog says these pages gate their create form, and they do not').toEqual([]);
   });
 });

@@ -39,7 +39,7 @@ solana_security_txt::security_txt! {
 #[cfg(feature = "devnet")]
 declare_id!("BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL");
 #[cfg(not(feature = "devnet"))]
-declare_id!("3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y");
+declare_id!("EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT");
 
 pub mod admin {
     use super::{pubkey, Pubkey};
@@ -61,16 +61,18 @@ pub mod admin {
     // And `CreateAmmConfig` has `payer = owner`, so even a signature would not be
     // enough: the System Program can only debit an account it owns with no data.
     //
-    // So whatever goes here must be system-owned and fundable. Currently the deploy
-    // authority, a single operator-held key — chosen deliberately to unblock
-    // graduation and prove migration end-to-end before locking AMM admin behind a
-    // 2-of-N ceremony. Moving `protocol_owner`/`fund_owner` to the vault later is a
-    // plain `update_config` (params 3 and 4); moving THIS constant needs another
-    // program upgrade, because it is resolved at compile time.
+    // So whatever goes here must be system-owned and fundable. Mainnet = the Squads
+    // v4 VAULT PDA GRMtSxgs… (vault index 0 of multisig EVGSnRZ…, 2-of-2), by owner
+    // ruling 2026-09-25. It replaces the single operator-held key the closed
+    // 2026-08 binary carried. The vault is system-owned with no data, signs through
+    // a Squads vault transaction, and pays `CreateAmmConfig`'s rent from its own
+    // lamports — so fund it before `create_amm_config`. Every admin action is now a
+    // 2-of-2 proposal. Moving THIS constant again needs a program upgrade, because
+    // it is resolved at compile time.
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7");
+    pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
 }
 
 pub mod create_pool_fee_reveiver {

@@ -8,7 +8,7 @@
 // chain settles a different one. So this is not "close enough" arithmetic — it is
 // a transcription, and it is proven to be one:
 //
-//   • `curveVectors.fixture.ts` holds 3,815 input/output rows produced by
+//   • `curveVectors.fixture.ts` holds 4,071 input/output rows produced by
 //     COMPILING AND RUNNING the real `curve.rs` on the host (see that file's
 //     header for the exact recipe). `math.test.ts` replays every row through the
 //     functions below and asserts an exact match, error variants included.
@@ -48,6 +48,13 @@ export const MAX_FEE_BPS = 1_000n;
 /** How far a launch may list from its final curve price, in bps (±5%). curve.rs:49. */
 export const PRICE_CONTINUITY_BAND_BPS = 500n;
 
+/**
+ * Most of a launch's supply the protocol may hold back as its platform reserve
+ * (10%). `MAX_PLATFORM_RESERVE_BPS` in curve.rs, the same cap the EVM launcher
+ * uses (`MAX_RESERVE_BPS`).
+ */
+export const MAX_PLATFORM_RESERVE_BPS = 1_000n;
+
 /** Largest value the program can hold in a `u64` field. */
 export const U64_MAX = 2n ** 64n - 1n;
 
@@ -68,7 +75,15 @@ export const U64_MAX = 2n ** 64n - 1n;
  */
 export const U128_MAX = 2n ** 128n - 1n;
 
-/** The four failures `curve.rs` can return, by name. `CurveError`, curve.rs:51-63. */
+/**
+ * The failures `curve.rs`'s pricing functions can return, by name. `CurveError`,
+ * curve.rs:51-63.
+ *
+ * Two variants are left out on purpose. `ShareTooHigh` has no port here, and
+ * `ReserveTooHigh` comes only from {@link curveSupply}, a config-time function with
+ * its own result type. Keeping it out of this union keeps it out of every trade
+ * quote, which can never return it.
+ */
 export type CurveErrorCode = 'Overflow' | 'InsufficientLiquidity' | 'ZeroAmount' | 'FeeTooHigh';
 
 /**
@@ -211,12 +226,11 @@ export interface SellQuote {
 }
 
 /**
- * Quote a sell: tokens in, lamports out. `quote_sell`, curve.rs:164-204.
+ * Quote a sell: tokens in, lamports out. `quote_sell`, curve.rs:231-282.
  *
- * Note the check order differs from {@link quoteBuy}: here the fee is charged
- * AFTER the liquidity checks, so an over-large sell on a curve with an illegal
- * fee reports `InsufficientLiquidity`, not `FeeTooHigh`. That asymmetry is real
- * and the fixture pins it.
+ * The fee is charged AFTER the liquidity checks, unlike {@link quoteBuy}, so an
+ * over-large sell on a curve with an illegal fee reports `InsufficientLiquidity`,
+ * not `FeeTooHigh`. The fixture pins that order.
  */
 export function quoteSell(
   solReserves: bigint,
@@ -240,12 +254,12 @@ export function quoteSell(
 
   const fee = feeUp(gross.value, feeBps);
   if (!fee.ok) return err(fee.error);
+  const lamportsOut = gross.value - fee.value;
+  // A sell the fee eats whole would pay nothing and still take the tokens. The
+  // program refuses it, as quoteBuy refuses its mirror (curve.rs:273-275).
+  if (lamportsOut === 0n) return err('ZeroAmount');
 
-  return ok({
-    grossLamports: gross.value,
-    feeLamports: fee.value,
-    lamportsOut: gross.value - fee.value,
-  });
+  return ok({ grossLamports: gross.value, feeLamports: fee.value, lamportsOut });
 }
 
 /**
@@ -284,11 +298,13 @@ export function lamportsUntilTarget(
 
 /**
  * The most real SOL a curve can EVER accumulate, given its opening parameters.
- * `max_reachable_real_sol`, curve.rs:266-281.
+ * `max_reachable_real_sol` in curve.rs.
  *
- * An EXCLUSIVE upper bound: `quoteBuy` refuses to hand out the entire token
- * reserve, so the last fraction is unreachable (curve.rs:253-255). A graduation
- * target above this produces a launch that can never graduate.
+ * A conservative estimate, NOT a bound: every buy rounds tokens out down, so a run
+ * of small buys can carry real SOL past it by rounding dust (curve.rs's doc comment
+ * has a worked case). Use it only on the strict side of `required < ceiling`, never
+ * as a display cap or a solvency bound. A graduation target above it produces a
+ * launch that can never graduate.
  */
 export function maxReachableRealSol(
   virtualSol: bigint,
@@ -406,6 +422,30 @@ export function continuityTarget(
   const afterVs = x - virtualSol;
   if (afterVs < migrationReserve) return err('InsufficientLiquidity');
   return toU64(afterVs - migrationReserve);
+}
+
+/**
+ * Split a launch's supply into the part the curve sells and the platform reserve.
+ * `curve_supply`, curve.rs.
+ *
+ * The reserve rounds DOWN, exactly as the EVM launcher's carve does, so the curve
+ * never gets fewer tokens than the exact share would leave it.
+ *
+ * Every config-time check must be run against `curveTokens`, not the whole supply:
+ * the reserve is paid to the platform treasury when the launch is created, is never
+ * sold on the curve and never goes into the pool, so to the pricing math it does not
+ * exist.
+ */
+export function curveSupply(
+  totalSupply: bigint,
+  reserveBps: bigint,
+):
+  | { ok: true; value: { curveTokens: bigint; reserveTokens: bigint } }
+  | { ok: false; error: 'Overflow' | 'ReserveTooHigh' } {
+  if (!isU64(totalSupply) || !isU64(reserveBps)) return { ok: false, error: 'Overflow' };
+  if (reserveBps > MAX_PLATFORM_RESERVE_BPS) return { ok: false, error: 'ReserveTooHigh' };
+  const reserveTokens = (totalSupply * reserveBps) / BPS_DENOMINATOR;
+  return { ok: true, value: { curveTokens: totalSupply - reserveTokens, reserveTokens } };
 }
 
 // ── the parts of `buy` / `sell` that live in lib.rs, not curve.rs ────────────

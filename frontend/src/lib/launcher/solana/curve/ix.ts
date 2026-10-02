@@ -278,6 +278,20 @@ export function sellIx(
 
 // ── create_launch (the `CreateLaunch` context struct in lib.rs) ──────────────
 
+export interface CreateLaunchAccounts {
+  /** Signs, holds the mint authority, and pays every rent (including the
+   *  treasury's token account when it is new). */
+  creator: PublicKey;
+  mint: PublicKey;
+  /**
+   * MUST equal `global.fee_recipient` — read it off the decoded global, never
+   * derived and never defaulted. The program pins it (`address =
+   * global.fee_recipient`), so a wrong or stale value (a rotation between reading
+   * `global` and sending) fails with `Unauthorized` (6008) and creates nothing.
+   */
+  feeRecipient: PublicKey;
+}
+
 /**
  * `create_launch()` — no args. Supply, virtual reserves, fee, target and reserve
  * are all read from `global` and SNAPSHOTTED onto the curve (lib.rs:426-432).
@@ -300,23 +314,38 @@ export function sellIx(
  * `mode: u8` selecting constant-product or the segmented curve; segmented mode is
  * gone and so is the byte, and a 9-byte payload against the reworked handler fails
  * to deserialize just as an 8-byte one did against the old.
+ *
+ * ## The platform reserve is paid HERE
+ *
+ * In the same instruction, the program sends `platform_reserve_bps` of the supply
+ * (3.69%) to the platform treasury: the associated token account of
+ * `global.fee_recipient` for this mint, on the classic token program. The creator
+ * pays that account's rent if it does not exist yet. So the list below ends with
+ * three reserve accounts after `rent`: the fee recipient, its token account, and the
+ * Associated Token program.
  */
 export function createLaunchIx(
-  accounts: { creator: PublicKey; mint: PublicKey },
+  accounts: CreateLaunchAccounts,
   ids: ProgramIds = {},
 ): TransactionInstruction {
   const programId = ids.programId ?? PROGRAM_ID;
+  const { mint, feeRecipient } = accounts;
   return new TransactionInstruction({
     programId,
     keys: [
       acc(accounts.creator, true, true),
       acc(globalPda(programId), false, false),
-      acc(accounts.mint, false, true),
-      acc(curvePda(accounts.mint, programId), false, true),
-      acc(curveVaultPda(accounts.mint, programId), false, true),
+      acc(mint, false, true),
+      acc(curvePda(mint, programId), false, true),
+      acc(curveVaultPda(mint, programId), false, true),
       acc(TOKEN_PROGRAM_ID, false, false),
       acc(SYSTEM_PROGRAM_ID, false, false),
       acc(SYSVAR_RENT_PUBKEY, false, false),
+      // The platform reserve's destination, appended so the first eight keep their
+      // slots. Read-only: only the key is used.
+      acc(feeRecipient, false, false),
+      acc(associatedTokenAddress(mint, feeRecipient), false, true),
+      acc(ASSOCIATED_TOKEN_PROGRAM_ID, false, false),
     ],
     data: new Writer().disc(IX_DISCRIMINATOR.createLaunch).finish(),
   });
@@ -354,7 +383,9 @@ export interface MigrateAccounts {
   createPoolFee: PublicKey;
   /**
    * cp-swap's `permission` PDA, defaulting to
-   * `cpPermissionPda(migrationAuthorityPda(launchMint))`.
+   * `cpPermissionPda(migrationAuthorityPda())`. The migration authority is one per
+   * program, so this is the SAME account for every launch: a cp-swap admin creates
+   * it once and every graduation after that can use it.
    *
    * The override exists because the default is an INFERENCE — see
    * `POST_REMOVAL_PROGRAM.UNVERIFIED`. `initialize_with_permission` seeds the
@@ -408,7 +439,8 @@ export function migrateToAmmIx(
   const cpSwapProgram = ids.cpSwapProgram ?? CP_SWAP_PROGRAM_ID;
   const { launchMint } = accounts;
 
-  const migrationAuthority = migrationAuthorityPda(launchMint, programId);
+  // Program-wide: ONE authority for every launch, so no mint here.
+  const migrationAuthority = migrationAuthorityPda(programId);
   // OURS, not cp-swap's canonical derivation — see LAUNCH_POOL_SEED.
   const poolState = poolStatePda(launchMint, programId);
   const lpMint = cpLpMintPda(poolState, cpSwapProgram);
@@ -487,6 +519,12 @@ export function initializeGlobalIx(
     migrationReserveLamports: bigint;
     cpSwapProgram: PublicKey;
     ammConfig: PublicKey;
+    /**
+     * Share of each launch's supply held back for the protocol, in bps (369 =
+     * 3.69%, cap 1000). The LAST argument, after the two pubkeys. Required: the
+     * program has no default, and neither does this.
+     */
+    platformReserveBps: bigint;
   },
   ids: ProgramIds = {},
 ): TransactionInstruction {
@@ -510,6 +548,7 @@ export function initializeGlobalIx(
       .u64(args.migrationReserveLamports, 'migrationReserveLamports')
       .pubkey(args.cpSwapProgram)
       .pubkey(args.ammConfig)
+      .u64(args.platformReserveBps, 'platformReserveBps')
       .finish(),
   });
 }
@@ -534,7 +573,7 @@ export interface UpdateGlobalArgs {
   newAmmConfig?: PublicKey | null;
   newInitialVirtualSol?: bigint | null;
   /**
-   * The TENTH and last `Option` (lib.rs:476). Omitting it did not produce a
+   * The TENTH `Option` (lib.rs:476). Omitting it did not produce a
    * mis-shifted argument the way a missing REQUIRED field does — a trailing
    * `Option` that is never written simply leaves the buffer one byte short of the
    * minimum, so Borsh cannot deserialize and the program rejects the instruction
@@ -542,6 +581,13 @@ export interface UpdateGlobalArgs {
    * not be set and authority could not be handed over.
    */
   newCreatorFeeShareBps?: bigint | null;
+  /**
+   * The ELEVENTH and last `Option`: the platform reserve for launches created from
+   * now on. A live launch keeps the amount it was created with. Changing it moves
+   * the listing price, so the program re-runs its economics check, and so does
+   * `checkUpdateGlobal`.
+   */
+  newPlatformReserveBps?: bigint | null;
 }
 
 export function updateGlobalIx(
@@ -565,6 +611,7 @@ export function updateGlobalIx(
       .optPubkey(args.newAmmConfig)
       .optU64(args.newInitialVirtualSol, 'newInitialVirtualSol')
       .optU64(args.newCreatorFeeShareBps, 'newCreatorFeeShareBps')
+      .optU64(args.newPlatformReserveBps, 'newPlatformReserveBps')
       .finish(),
   });
 }

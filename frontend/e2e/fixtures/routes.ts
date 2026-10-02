@@ -417,6 +417,9 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   { path: '/curve-launch', voice: 'venue', owner: 'pages/CurveLaunchPage.tsx',
     tabOf: 'LaunchHubPage · curve-launch', gate: null, knownViolations: [] },
+  // One launch on the Solana curve. With writes off (every build but the owner's flip and
+  // the local-validator e2e) it renders its h1 and the "not switched on here yet" card.
+  { path: '/curve-launch/:mint', voice: 'venue', owner: 'pages/CurveLaunchDetailPage.tsx', gate: null, knownViolations: [] },
   { path: '/eth-curve', voice: 'venue', owner: 'pages/EthCurvePage.tsx',
     tabOf: 'LaunchHubPage · eth-curve', gate: null, knownViolations: [] },
   { path: '/eth-curve/:token', voice: 'venue', owner: 'pages/CurveTokenPage.tsx', gate: null, knownViolations: [] },
@@ -1018,5 +1021,7 @@ export function navigablePath(route: RouteSpec): string {
   // Any well-formed address works: this leg only redirects to /?heat=<address>,
   // and the instrument's own invalid-address state is covered by HeatCard's suite.
   if (route.path === '/read/:address') return '/read/0x0000000000000000000000000000000000000000';
+  // Any well-formed base58 key: with writes off the page never reads the chain for it.
+  if (route.path === '/curve-launch/:mint') return '/curve-launch/So11111111111111111111111111111111111111112';
   return route.path;
 }

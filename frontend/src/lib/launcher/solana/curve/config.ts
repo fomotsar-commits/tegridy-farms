@@ -20,9 +20,11 @@
 import {
   BPS_DENOMINATOR,
   MAX_FEE_BPS,
+  MAX_PLATFORM_RESERVE_BPS,
   PRICE_CONTINUITY_BAND_BPS,
   U64_MAX,
   continuityTarget,
+  curveSupply,
   graduationPriceRatioBps,
   maxReachableRealSol,
   type CurveResult,
@@ -43,6 +45,11 @@ export interface LaunchEconomicsParams {
   tokenTotalSupply: bigint;
   graduationTargetLamports: bigint;
   migrationReserveLamports: bigint;
+  /**
+   * Share of each launch's supply held back for the protocol, in bps (cap 1000).
+   * Required, with no default: it changes the listing price, so it has to be chosen.
+   */
+  platformReserveBps: bigint;
 }
 
 /**
@@ -55,6 +62,13 @@ export interface LaunchEconomicsParams {
  */
 export interface LaunchEconomicsReport {
   problems: string[];
+  /**
+   * The part of the supply the curve sells: `tokenTotalSupply` minus the platform
+   * reserve. Every number below is computed against THIS, not the whole supply.
+   */
+  curveTokenSupply: bigint | null;
+  /** Tokens each launch pays to the platform treasury inside create_launch; never sold, never pooled. */
+  platformReserveTokens: bigint | null;
   maxReachableRealSol: bigint | null;
   graduationPriceRatioBps: bigint | null;
   /** The target that would list at exactly the curve price, for the same book. */
@@ -67,10 +81,17 @@ const orNull = (r: CurveResult<bigint>): bigint | null => (r.ok ? r.value : null
 /**
  * Pre-flight a config against every guard the program applies.
  *
- * Mirrors, in order: the fee ceiling (lib.rs:199), the non-zero parameter checks
- * (lib.rs:203-206), the reachability check against target PLUS reserve
- * (lib.rs:219-228), then `check_launch_economics` — the migration-reserve floor
- * (lib.rs:151-154) and the ±5% listing-price band (lib.rs:156-169).
+ * Mirrors, in order: the fee ceiling, the non-zero parameter checks, then
+ * `check_launch_economics` — the platform-reserve cap, the reachability check
+ * against target PLUS reserve, the migration-reserve floor and the ±5%
+ * listing-price band.
+ *
+ * ⚠ Reachability, the listing ratio and the continuity target are all taken
+ * against the CURVE supply (total minus the platform reserve). The reserve goes to
+ * the platform treasury when the launch is created, never trades on the curve and
+ * never goes into the pool, so checking against the whole
+ * supply passes a config that lists ~4.9% above the curve at a 3.69% reserve —
+ * inside the band, so nothing would warn.
  */
 export function checkLaunchEconomics(p: LaunchEconomicsParams): LaunchEconomicsReport {
   const problems: string[] = [];
@@ -85,12 +106,28 @@ export function checkLaunchEconomics(p: LaunchEconomicsParams): LaunchEconomicsR
     problems.push('InvalidParameter: graduation_target_lamports must be > 0');
   }
 
-  const maxReachable = orNull(
-    maxReachableRealSol(p.initialVirtualSol, p.initialVirtualToken, p.tokenTotalSupply),
-  );
+  // The program maps curve.rs's `ReserveTooHigh` to InvalidParameter.
+  const split = curveSupply(p.tokenTotalSupply, p.platformReserveBps);
+  if (!split.ok) {
+    problems.push(
+      split.error === 'ReserveTooHigh'
+        ? `InvalidParameter: platform_reserve_bps ${p.platformReserveBps} exceeds MAX_PLATFORM_RESERVE_BPS ${MAX_PLATFORM_RESERVE_BPS}`
+        : `${split.error}: the platform reserve could not be carved from token_total_supply`,
+    );
+  }
+  // `null` when there is no curve supply to check against. The reason is already in
+  // `problems`, so the checks below stay quiet rather than pile on.
+  const curveTokens = split.ok ? split.value.curveTokens : null;
+
+  const maxReachable =
+    curveTokens === null
+      ? null
+      : orNull(maxReachableRealSol(p.initialVirtualSol, p.initialVirtualToken, curveTokens));
   const required = p.graduationTargetLamports + p.migrationReserveLamports;
   if (required > U64_MAX) {
     problems.push('Overflow: graduation_target + migration_reserve exceeds u64');
+  } else if (curveTokens === null) {
+    // reported above
   } else if (maxReachable === null) {
     problems.push('GraduationTargetUnreachable: the curve ceiling could not be computed for this book');
   } else if (required >= maxReachable) {
@@ -105,18 +142,23 @@ export function checkLaunchEconomics(p: LaunchEconomicsParams): LaunchEconomicsR
     );
   }
 
-  const ratio = orNull(
-    graduationPriceRatioBps(
-      p.initialVirtualSol,
-      p.initialVirtualToken,
-      p.tokenTotalSupply,
-      p.graduationTargetLamports,
-      p.migrationReserveLamports,
-    ),
-  );
+  const ratio =
+    curveTokens === null
+      ? null
+      : orNull(
+          graduationPriceRatioBps(
+            p.initialVirtualSol,
+            p.initialVirtualToken,
+            curveTokens,
+            p.graduationTargetLamports,
+            p.migrationReserveLamports,
+          ),
+        );
   const lo = BPS_DENOMINATOR - PRICE_CONTINUITY_BAND_BPS;
   const hi = BPS_DENOMINATOR + PRICE_CONTINUITY_BAND_BPS;
-  if (ratio === null) {
+  if (curveTokens === null) {
+    // reported above
+  } else if (ratio === null) {
     problems.push('GraduationPriceGap: the listing/curve price ratio could not be computed');
   } else if (ratio < lo || ratio > hi) {
     problems.push(
@@ -126,16 +168,21 @@ export function checkLaunchEconomics(p: LaunchEconomicsParams): LaunchEconomicsR
 
   return {
     problems,
+    curveTokenSupply: curveTokens,
+    platformReserveTokens: split.ok ? split.value.reserveTokens : null,
     maxReachableRealSol: maxReachable,
     graduationPriceRatioBps: ratio,
-    continuityTarget: orNull(
-      continuityTarget(
-        p.initialVirtualSol,
-        p.initialVirtualToken,
-        p.tokenTotalSupply,
-        p.migrationReserveLamports,
-      ),
-    ),
+    continuityTarget:
+      curveTokens === null
+        ? null
+        : orNull(
+            continuityTarget(
+              p.initialVirtualSol,
+              p.initialVirtualToken,
+              curveTokens,
+              p.migrationReserveLamports,
+            ),
+          ),
   };
 }
 
@@ -150,10 +197,11 @@ export interface UpdateGlobalEconomics {
   graduationTargetLamports?: bigint;
   migrationReserveLamports?: bigint;
   newInitialVirtualSol?: bigint;
+  newPlatformReserveBps?: bigint;
 }
 
 /**
- * The on-chain values an update is resolved against — the same six fields
+ * The on-chain values an update is resolved against — the same seven fields
  * `initialize_global` validates, read back off `GlobalConfig`.
  *
  * A distinct name rather than a reuse of {@link LaunchEconomicsParams} at the call
@@ -167,9 +215,9 @@ export interface UpdateGlobalCheck {
   problems: string[];
   /**
    * The post-update economics report, or `null` when the update does not touch
-   * target / reserve / virtual-SOL — because the program does not run
-   * `check_launch_economics` in that case either, and running it anyway could
-   * refuse an update the program would have accepted.
+   * target / reserve / virtual-SOL / platform reserve — because the program does
+   * not run `check_launch_economics` in that case either, and running it anyway
+   * could refuse an update the program would have accepted.
    */
   economics: LaunchEconomicsReport | null;
 }
@@ -198,12 +246,17 @@ export function checkUpdateGlobal(
     problems.push(`FeeTooHigh: trade_fee_bps ${args.tradeFeeBps} exceeds MAX_FEE_BPS ${MAX_FEE_BPS}`);
   }
 
-  // Branch 2 — lib.rs:308-345. Target, reserve and virtual-SOL are validated
+  // Branch 2. Target, reserve, virtual-SOL and the platform reserve are validated
   // TOGETHER against the POST-update values, and only when one of them moves.
+  //
+  // The platform reserve belongs here even on its own: it changes the curve supply,
+  // and the curve supply moves the listing price. A reserve-only update that skipped
+  // this would let every later launch list outside the band.
   const touchesEconomics =
     args.graduationTargetLamports !== undefined ||
     args.migrationReserveLamports !== undefined ||
-    args.newInitialVirtualSol !== undefined;
+    args.newInitialVirtualSol !== undefined ||
+    args.newPlatformReserveBps !== undefined;
   if (!touchesEconomics) return { problems, economics: null };
 
   const resolved: LaunchEconomicsParams = {
@@ -215,6 +268,7 @@ export function checkUpdateGlobal(
     tokenTotalSupply: current.tokenTotalSupply,
     graduationTargetLamports: args.graduationTargetLamports ?? current.graduationTargetLamports,
     migrationReserveLamports: args.migrationReserveLamports ?? current.migrationReserveLamports,
+    platformReserveBps: args.newPlatformReserveBps ?? current.platformReserveBps,
   };
   const economics = checkLaunchEconomics(resolved);
   // De-duplicate: `checkLaunchEconomics` reports the fee ceiling too, and branch 1

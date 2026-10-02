@@ -226,3 +226,50 @@ describe('every third-party action is pinned to a commit SHA', () => {
     ).toEqual([]);
   });
 });
+
+// Every Solana program's host-side layout and error-code pins actually run in CI.
+//
+// `mod layout_tests` pins account sizes, field offsets and error codes, and it is
+// the only check on the byte offsets the frontend decoders read: the validator
+// suites decode through the IDL, so a reordered field with an unchanged size
+// passes them. For a while only bayla-ladder's ran; tegridy-launch's were run by
+// hand or not at all. Both feature configs, because `deployer::ID` is cfg-gated.
+//
+// Self-extending: a new program with a `mod layout_tests` is covered the day it lands.
+describe('solana-ci.yml runs every program\'s layout pins', () => {
+  const PROGRAMS = join(REPO_ROOT, 'solana', 'tegridy-amm', 'programs');
+  const withPins = (): string[] =>
+    readdirSync(PROGRAMS).filter((p) => {
+      try {
+        return /\bmod layout_tests\b/.test(readFileSync(join(PROGRAMS, p, 'src', 'lib.rs'), 'utf-8'));
+      } catch {
+        return false;
+      }
+    });
+
+  /** The run lines of the job whose working directory is this program. */
+  const jobRuns = (program: string): string[] => {
+    const src = readFileSync(join(WORKFLOW_DIR, 'solana-ci.yml'), 'utf-8');
+    const jobs = src.split(/\r?\n(?= {2}[a-z0-9-]+:\s*$)/m);
+    return jobs
+      .filter((j) => new RegExp(`working-directory:\\s*solana/tegridy-amm/programs/${program}\\s*$`, 'm').test(j))
+      .flatMap((j) => j.split(/\r?\n/).filter((l) => !/^\s*#/.test(l)))
+      .map((l) => l.trim());
+  };
+
+  it('finds the programs that carry pins (guards the guard)', () => {
+    expect(withPins()).toEqual(expect.arrayContaining(['bayla-ladder', 'tegridy-launch']));
+  });
+
+  it('runs them under default features and under --features devnet', () => {
+    for (const p of withPins()) {
+      const runs = jobRuns(p);
+      expect(runs, `${p}: no job runs \`cargo test --lib -- layout_tests\``).toContain(
+        'run: cargo test --lib -- layout_tests',
+      );
+      expect(runs, `${p}: no job runs \`cargo test --lib --features devnet -- layout_tests\``).toContain(
+        'run: cargo test --lib --features devnet -- layout_tests',
+      );
+    }
+  });
+});
