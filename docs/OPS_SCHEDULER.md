@@ -253,7 +253,7 @@ The backup needs both files: add `--env-file C:\Users\jimbo\tegridy-ops-env\back
 no alarm will hear the result.
 
 **If the failover lasts more than a week or two, move it off this PC.** The runner needs only
-Node 20 or newer, gpg, and a checkout.
+Node 24 (the version in `.nvmrc`), gpg, and a checkout.
 
 - **A small always-on Linux machine** (a $5 a month server, or a free cloud VM). Clone the repo,
   run `npm ci --ignore-scripts` in `frontend/`, put both env files outside the clone

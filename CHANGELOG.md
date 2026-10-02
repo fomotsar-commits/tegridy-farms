@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-02
 
+- The indexer moves from Node 20, which stopped getting security fixes in April, to Node 24 at its next deploy; the site already ran on 24 and is now held there.
 - When the site cannot read a transaction's result, it says so and points to the explorer, instead of saying the transaction failed.
 - A reverted transaction says it reverted, and the Swap button no longer stays stuck after one.
 - A transaction your wallet cancelled or replaced is no longer shown as a success; a sped-up one still is.

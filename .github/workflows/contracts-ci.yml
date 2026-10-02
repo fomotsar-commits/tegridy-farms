@@ -417,7 +417,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 24
 
       - name: ABI supplement drift guard
         working-directory: .
@@ -481,7 +481,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Every test file is sliced or explicitly excluded
         run: node scripts/check-test-slice-coverage.mjs
@@ -565,7 +565,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 24
 
       # ─────────────────────────────────────────────────────────────────
       # Non-zero-test guard, plus a fidelity check on the coverage guard.
@@ -824,7 +824,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 24
 
       - name: V2 divergence set matches the pinned snapshots
         run: node scripts/check-v2-provenance.mjs

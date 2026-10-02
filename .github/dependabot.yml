@@ -22,6 +22,12 @@ updates:
       # patch TS updates still flow normally — only the major is held.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # @types/node follows the Node the code RUNS on (.nvmrc, 24), never the newest
+      # Node. Types for a newer major describe APIs that type-check here and then throw
+      # in production. #654 offered 26, which is why this line exists. Raise it in the
+      # same PR that moves .nvmrc; frontend/src/test/nodeRuntime.test.ts reds until you do.
+      - dependency-name: "@types/node"
+        versions: [">=25"]
     groups:
       # ── Groups are deliberately restricted to minor+patch ──────────────
       # A group with no `update-types` sweeps MAJORS in too, and a group is
@@ -82,6 +88,10 @@ updates:
     labels:
       - "dependencies"
       - "indexer"
+    ignore:
+      # Same rule as /frontend: types never ahead of the Node in .nvmrc (24).
+      - dependency-name: "@types/node"
+        versions: [">=25"]
 
   # Root (if any lockfile lives at root)
   - package-ecosystem: npm

@@ -1,6 +1,6 @@
 # Deploying the Tegridy Telegram bot
 
-Node 20 service, zero npm dependencies, complete and deployed nowhere. Everything
+Node 24 service, zero npm dependencies, complete and deployed nowhere. Everything
 on the venue side is already built and waiting: `frontend/api/_lib/botLink.js` is
 dispatched from the aggregator catchall, and
 `frontend/src/components/bot/TelegramLinkPanel.tsx` is mounted on `/alerts`. Two
@@ -50,7 +50,7 @@ for it; it is gated on an audit wave that has not happened.
 3. **It is where the neighbours are.** The indexer (F1) is already recommended
    there, and this service reads from it.
 
-Fly.io, a small VPS, or a home server all work. The requirements are Node ≥ 20 and
+Fly.io, a small VPS, or a home server all work. The requirements are Node 24 and
 outbound HTTPS. Nothing else.
 
 ### Provision
@@ -58,7 +58,7 @@ outbound HTTPS. Nothing else.
 1. Add a service from this repo with **root directory `bot/`**.
    - Build: *(none — `npm ci` installs nothing; the package has no dependencies)*
    - Start: `npm run start` (= `node src/index.js`)
-   - Node: ≥ 20 (`package.json` engines)
+   - Node: 24 (`package.json` engines says `24.x`, and Railway's builder reads it)
 2. Set the environment variables in §2.
 3. There is **no health endpoint** and deliberately no port. Point the platform's
    restart policy at process exit, not at an HTTP check. `npm run preflight`
