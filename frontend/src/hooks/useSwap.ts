@@ -10,6 +10,7 @@ import { type TokenInfo, DEFAULT_TOKENS } from '../lib/tokenList';
 import { decodeRevertReason } from '../lib/revertDecoder';
 import { trackSwap } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
+import { surfaceUnconfirmedTx, receiptOutcome } from '../lib/txErrors';
 import { useSwapQuote, QUOTE_MAX_AGE_MS as _QUOTE_MAX_AGE_MS } from './useSwapQuote';
 import { useSwapAllowance } from './useSwapAllowance';
 
@@ -246,23 +247,21 @@ export function useSwap() {
     query: { enabled: !!address && !!toToken && !toToken.isNative, refetchInterval: 30_000 },
   });
 
-  const {
-    data: receipt,
-    isLoading: isConfirming,
-    isSuccess: isReceiptFetched,
-    isError: isReceiptError,
-  } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
-  // FETCHED". A swap that REVERTED on-chain still produces a receipt, so this
-  // latched true and we fired "WAGMI! Swap confirmed" + trackSwap for a trade
-  // that never executed (and, on the approve leg, told the user the token was
-  // approved when the allowance was unchanged). `receipt.status === 'success'`
-  // is the only real success. The `!!receipt` guard is defensive: at runtime
-  // wagmi always has the receipt once isSuccess is true, so it can never mask
-  // a genuine revert.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
-  const isTxError = isReceiptError || isReverted;
+  // FETCHED", so on its own it fired "WAGMI! Swap confirmed" + trackSwap for
+  // trades that never executed. `receipt.status === 'success'` is the only
+  // real success.
+  //
+  // 2026-09-17: and `isError` is TWO facts. wagmi THROWS on a reverted receipt,
+  // so a real revert lands in `isError` and the revert effect below, keyed off
+  // `isSuccess`, never fired; and "we could not READ the receipt" lands there
+  // too. Neither had a handler, which is what left the latch stuck below.
+  // receiptOutcome splits them by error type; see lib/txErrors.ts.
+  const { isSuccess, isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
+  /** Not a confirmed success. Covers both "it reverted" and "we never found out". */
+  const isTxError = isReceiptUnreadable || isReverted;
 
   const [fotRetryAttempted, setFotRetryAttempted] = useState(false);
 
@@ -367,6 +366,49 @@ export function useSwap() {
       duration: 10_000,
     });
   }, [isReverted, hash, allowance, refetchFromBalance, chainId]);
+
+  // THE RECEIPT WE COULD NOT READ — until 2026-09-17, a terminal state with no
+  // handler at all (and, through wagmi's throw, so was every real revert). Two
+  // things went wrong on it:
+  //
+  //   1. Silence. wagmi's `isError` fed the returned `isTxError` and nothing
+  //      else, so a swap whose receipt never came back simply stopped, with no
+  //      toast and no receipt line — see surfaceUnconfirmedTx in lib/txErrors.ts
+  //      for the fault-injection measurement.
+  //   2. A DEAD SWAP BUTTON. `isPendingRef` is only released by the success and
+  //      revert effects, so it stayed latched true forever, and every later
+  //      `executeSwap` / `approveAndTag` returned at its first line for the rest
+  //      of the session. Silent, and only a reload cleared it.
+  //
+  // Shares `lastHandledHashRef` with the other two so exactly one of the three
+  // ever claims a given hash.
+  useEffect(() => {
+    if (!isReceiptUnreadable || !hash) return;
+    if (lastHandledHashRef.current === hash) return;
+    lastHandledHashRef.current = hash;
+    const wasApprove = lastActionRef.current === 'approve';
+    // Release the in-flight latch — see (2). The tx is out of our hands either
+    // way, and a stuck CTA is worse than a retryable one now that the toast
+    // below tells the user to look before they use it.
+    lastActionRef.current = null;
+    isPendingRef.current = false;
+    // Drop the submit-time snapshots: we cannot attribute this swap, so it must
+    // not be attributed to whatever tx confirms next.
+    submittedInputAmountRef.current = '';
+    submittedRouteRef.current = '';
+    if (wasApprove) allowance.resetMultiStepApprove?.();
+    // The state may well have moved — re-read rather than leave the CTA offering
+    // a next step computed from before the transaction.
+    allowance.refetchAllowance();
+    refetchFromBalance();
+    surfaceUnconfirmedTx(toast, {
+      hash,
+      explorerUrl: getTxUrl(chainId, hash),
+      repeatCost: wasApprove
+        ? 'your allowance is already set and a second approval just costs gas.'
+        : 'a second swap trades your tokens all over again.',
+    });
+  }, [isReceiptUnreadable, hash, allowance, refetchFromBalance, chainId]);
 
   useEffect(() => {
     if (!writeError) return;

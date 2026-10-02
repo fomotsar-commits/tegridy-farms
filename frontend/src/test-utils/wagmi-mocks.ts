@@ -67,6 +67,13 @@ interface WriteStatus {
   receiptStatus?: 'success' | 'reverted';
   blockNumber?: bigint;
   errorName?: string;
+  /**
+   * The RECEIPT wait failed with exactly this error, and the write did not. wagmi
+   * throws a viem CallExecutionError for a reverted receipt and a viem read error
+   * (TransactionReceiptNotFoundError, HttpRequestError…) when the receipt could not
+   * be read; `isTxError` above cannot say which, and also fails the write.
+   */
+  receiptError?: unknown;
 }
 
 interface WagmiMockState {
@@ -243,8 +250,10 @@ vi.mock('wagmi', () => {
       : undefined,
     isLoading: state.writeStatus.isConfirming,
     isSuccess: state.writeStatus.isSuccess,
-    isError: state.writeStatus.isTxError,
-    error: state.writeStatus.isTxError
+    isError: state.writeStatus.isTxError || state.writeStatus.receiptError !== undefined,
+    error: state.writeStatus.receiptError !== undefined
+      ? state.writeStatus.receiptError
+      : state.writeStatus.isTxError
       ? Object.assign(new Error(state.writeStatus.errorName ?? 'receipt error'), {
           name: state.writeStatus.errorName ?? 'Error',
         })

@@ -11,7 +11,10 @@
  * full state-changing flow. See swap.spec.ts for why the anvil gate lives
  * INSIDE the test rather than in describe scope.
  */
-import { test, expect, expectTxReceipt, advancePastApproval } from './fixtures/wallet';
+import {
+  test, expect, expectTxReceipt, advancePastApproval,
+  blindReceiptReads, expectMinedSuccessfully, expectUnconfirmedToast, forkTxCount, recordToasts,
+} from './fixtures/wallet';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 
@@ -126,5 +129,50 @@ test.describe('Stake surface', () => {
     // 3. Unstake — cooldown gate may block (see TF-02). Confirm the CTA wires
     // a tx (or surfaces the cooldown copy).
     await expect(page.getByRole('button', { name: /unstake|withdraw|exit/i }).first()).toBeVisible();
+  });
+
+  test('a stake whose receipt cannot be read is not reported as a failure (Anvil only)', async ({ page, walletMock }) => {
+    test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
+    // Same defect as the liquidity leg, same shape: `useFarmActions` said "Transaction
+    // failed" with no description for an unreadable receipt. Telling someone their stake
+    // failed when it landed invites a second stake.
+    test.setTimeout(180_000);
+
+    const account = await walletMock.useIsolatedForkAccount();
+    await walletMock.connect(account);
+    await page.goto('/farm');
+
+    const amount = page.getByRole('textbox', { name: /amount of toweli to stake/i });
+    await amount.fill('100');
+    const stakeCard = amount.locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
+    const cta = stakeCard.getByRole('button', { name: /^(approve|stake)/i }).last();
+
+    // Let the approval cascade finish while receipts still work — this leg is about
+    // the STAKE's receipt. See the happy-path leg above for why one click is not enough.
+    await advancePastApproval(cta, /^Stake & Lock for /, 'stake');
+
+    const blind = await blindReceiptReads(page);
+    const toasts = await recordToasts(page);
+    const sent = forkTxCount(page);
+    await cta.click();
+
+    // FIRST, WHAT HAPPENED ON CHAIN: the stake succeeded. Read off the node, not the DOM.
+    const hash = await expectMinedSuccessfully(page, 'stake', sent);
+    await expect
+      .poll(() => blind.receiptsAskedFor().map((h) => h.toLowerCase()).includes(hash), {
+        timeout: 30_000,
+        message: 'the app never asked for THIS transaction\'s receipt, so nothing was blinded and this leg proves nothing.',
+      })
+      .toBe(true);
+
+    await expectUnconfirmedToast(page, toasts, 'stake with an unreadable receipt');
+
+    // And the stake really did land — the same on-chain state assertion the happy
+    // path makes, reached through reads that were never blinded.
+    await expect(
+      page.getByRole('heading', { name: /^Your Position$/i }),
+      'the stake was mined successfully but the card still offers to open a position — ' +
+        'then the transaction under test was not a stake.',
+    ).toBeVisible({ timeout: 60_000 });
   });
 });
