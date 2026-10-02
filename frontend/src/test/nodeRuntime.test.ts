@@ -118,7 +118,7 @@ describe('the Node runtime', () => {
     // One block per `- package-ecosystem:` entry, keyed by its directory.
     const blocks = dependabot.split(/\n(?=\s*- package-ecosystem:)/);
     const blockFor = (dir: string) =>
-      blocks.find((b) => new RegExp(`directory:\\s*["']?${dir.replace(/[/]/g, '\\/')}["']?\\s*\\n`).test(b));
+      blocks.find((b) => new RegExp(`directory:\\s*["']?${dir.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}["']?\\s*\\n`).test(b));
 
     const problems: string[] = [];
     for (const f of deployableManifests()) {
