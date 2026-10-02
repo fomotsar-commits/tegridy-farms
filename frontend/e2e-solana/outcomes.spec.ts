@@ -7,6 +7,7 @@
 import { test, expect, type Browser } from '@playwright/test';
 import type { Keypair, PublicKey } from '@solana/web3.js';
 import { ata, buyDirect, createLaunchDirect, fundedKeypair, lamports, landedTx, sol, tokenAmount } from './fixtures/chain';
+import { bayla, giveBayla } from './fixtures/bayla';
 import { installTestWallet } from './fixtures/testWallet';
 import { installRpcGuard } from './fixtures/rpcGuard';
 import { installUploadStub, makePng } from './fixtures/uploadStub';
@@ -166,6 +167,8 @@ test('a reload WHILE the trade is still in the air: leaving asks first, and the 
 test('a reload WHILE a launch is in the air: the form comes back holding Review until the creator decides', async ({ browser }) => {
   test.setTimeout(8 * 60_000);
   const kp = await fundedKeypair(3);
+  // Enough $BAYLA for two plants: the launch in the air, and the next one Review offers.
+  await giveBayla(kp, bayla(250_000));
   const t = await trader(browser, kp);
   t.page.on('dialog', (d) => void d.accept());
   await t.page.goto('/curve-launch');

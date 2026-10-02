@@ -25,7 +25,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { isRequestOriginAllowed } from "../_lib/aggregator-proxy.js";
+import { isOriginAllowed, isRequestOriginAllowed } from "../_lib/aggregator-proxy.js";
 
 const req = (method, headers = {}) => ({ method, headers });
 
@@ -68,8 +68,18 @@ describe("isRequestOriginAllowed under prod-like env", () => {
 
   it("allows a GET with the canonical prod Origin", () => {
     expect(
-      isRequestOriginAllowed(req("GET", { origin: "https://memetic.fun" })),
+      isRequestOriginAllowed(req("GET", { origin: "https://memetics.finance" })),
     ).toBe(true);
+  });
+
+  it("rejects memetic.fun on every method — it serves the Island Lab, not this venue", () => {
+    // isOriginAllowed is the credentialed set for airdrop, alerts, botLink, commerce and
+    // referrals. memetic.fun was the canonical probe origin above until 2026-09-20.
+    for (const origin of ["https://memetic.fun", "https://www.memetic.fun"]) {
+      expect(isOriginAllowed(origin), origin).toBe(false);
+      expect(isRequestOriginAllowed(req("GET", { origin })), `GET ${origin}`).toBe(false);
+      expect(isRequestOriginAllowed(req("POST", { origin })), `POST ${origin}`).toBe(false);
+    }
   });
 
   it("keeps POST exactly as strict as before: absent Origin is rejected even with Sec-Fetch-Site", () => {
@@ -81,7 +91,7 @@ describe("isRequestOriginAllowed under prod-like env", () => {
       isRequestOriginAllowed(req("POST", { origin: "https://evil.example" })),
     ).toBe(false);
     expect(
-      isRequestOriginAllowed(req("POST", { origin: "https://memetic.fun" })),
+      isRequestOriginAllowed(req("POST", { origin: "https://memetics.finance" })),
     ).toBe(true);
   });
 });

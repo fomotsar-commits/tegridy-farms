@@ -322,9 +322,12 @@ describe('the plant: exactly two Token-2022 shapes, in a create only', () => {
     expect(r.ok && r.steps.map((s) => s.kind)).toEqual(['plant-burn', 'plant-transfer']);
   });
 
+  // This page builds a Token-2022 transfer itself (the Workshop's half), so the refusal
+  // names what is refused, never "a transfer this page never builds".
   it('a third Token-2022 instruction', () => {
-    refused([burnIx, giveIx, createTransferInstruction(MINE, WORKSHOP_BAYLA_ACCOUNT, ME, 1n, [], T22)], /Token-2022 instruction this page never builds/);
-    refused([burnIx, giveIx, createApproveInstruction(MINE, STRANGER, ME, 1n, [], T22)], /Token-2022 instruction this page never builds/);
+    const why = /a Token-2022 instruction other than the plant's own burn and transfer \(such as an approval or another transfer\)/;
+    refused([burnIx, giveIx, createTransferInstruction(MINE, WORKSHOP_BAYLA_ACCOUNT, ME, 1n, [], T22)], why);
+    refused([burnIx, giveIx, createApproveInstruction(MINE, STRANGER, ME, 1n, [], T22)], why);
   });
 
   it('a second burn, or a second transfer', () => {

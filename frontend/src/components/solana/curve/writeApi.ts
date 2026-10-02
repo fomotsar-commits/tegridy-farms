@@ -52,6 +52,7 @@ async function build(): Promise<WriteApi> {
 
     prepareCreateLaunch: launch.prepareCreateLaunch,
     readPlantBalance: plant.readPlantBalance,
+    readPlantRefusal: launch.plantPreflight,
     prepareCurveBuy: trade.prepareCurveBuy,
     prepareCurveSell: trade.prepareCurveSell,
     prepareMigrate: graduate.prepareMigrate,

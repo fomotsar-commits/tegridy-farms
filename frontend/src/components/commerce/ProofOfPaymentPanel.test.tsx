@@ -4,7 +4,16 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { encodeAbiParameters, encodeEventTopics, erc20Abi, pad, type Log } from 'viem';
+import {
+  CallExecutionError,
+  ExecutionRevertedError,
+  TransactionReceiptNotFoundError,
+  encodeAbiParameters,
+  encodeEventTopics,
+  erc20Abi,
+  pad,
+  type Log,
+} from 'viem';
 
 const MERCHANT = '0x1111111111111111111111111111111111111111' as const;
 const BUYER = '0x2222222222222222222222222222222222222222' as const;
@@ -16,6 +25,8 @@ interface Harness {
   block: { timestamp: bigint } | undefined;
   isError: boolean;
   errorName: string;
+  /** The exact error the receipt wait failed with, when a test needs the real viem type. */
+  error?: unknown;
 }
 
 const h: Harness = { receipt: undefined, block: undefined, isError: false, errorName: '' };
@@ -26,7 +37,7 @@ vi.mock('wagmi', () => ({
     isLoading: false,
     isSuccess: h.receipt !== undefined,
     isError: h.isError,
-    error: h.isError ? Object.assign(new Error(h.errorName), { name: h.errorName }) : null,
+    error: h.isError ? (h.error ?? Object.assign(new Error(h.errorName), { name: h.errorName })) : null,
   }),
   useBlock: () => ({ data: h.block }),
 }));
@@ -69,7 +80,36 @@ beforeEach(() => {
   h.block = undefined;
   h.isError = false;
   h.errorName = '';
+  h.error = undefined;
   localStorage.clear();
+});
+
+describe('a revert is found, and it is a refutation', () => {
+  // wagmi never hands a reverted receipt back: waitForTransactionReceipt THROWS on
+  // one (a CallExecutionError from replaying it). Until 2026-09-17 the tracker
+  // folded that into 'dropped', so this panel told a merchant a REVERTED payment
+  // "was not found (not mined yet, dropped, or the RPC did not answer)" — the
+  // hash was found, and the answer is that nothing moved.
+  it('says the payment reverted and the merchant was not paid, not that the hash was missing', () => {
+    h.isError = true;
+    h.error = new CallExecutionError(new ExecutionRevertedError({ message: 'execution reverted' }), {});
+    render(<ProofOfPaymentPanel invoice={invoice} txHash={HASH} />);
+
+    expect(screen.getByText(/reverted on chain, so no USDC moved and the merchant was not paid/i)).toBeInTheDocument();
+    expect(screen.getByText(/does NOT contain the transfer to you/i)).toBeInTheDocument();
+    const text = document.body.textContent ?? '';
+    expect(text).not.toMatch(/No transaction with this hash was found/i);
+    expect(text).not.toMatch(/Reading the receipt/i);
+  });
+
+  it('keeps an UNREADABLE receipt off the refutation (a read error proves nothing)', () => {
+    h.isError = true;
+    h.error = new TransactionReceiptNotFoundError({ hash: HASH });
+    render(<ProofOfPaymentPanel invoice={invoice} txHash={HASH} />);
+
+    expect(screen.getByText(/it is not a refutation of one/i)).toBeInTheDocument();
+    expect(document.body.textContent ?? '').not.toMatch(/does NOT contain the transfer to you/i);
+  });
 });
 
 describe('a hash nobody found is not a refutation', () => {

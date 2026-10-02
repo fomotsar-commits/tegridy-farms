@@ -25,6 +25,8 @@ import { maxUint256, type Address, type Hex } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
+import { getTxUrl } from '../lib/explorer';
+import { surfaceUnconfirmedTx } from '../lib/txErrors';
 import { COW_VAULT_RELAYER_ADDRESS } from '../lib/cowProtocol';
 import {
   COMPOSABLE_COW_ADDRESS,
@@ -163,7 +165,23 @@ export function useCowTwap() {
           functionName: 'create',
           args: [{ handler: TWAP_HANDLER_ADDRESS, salt, staticInput }, true],
         });
-        const createReceipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+        let createReceipt;
+        try {
+          createReceipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+        } catch {
+          // viem RETURNS a reverted receipt (checked below), so this catch only
+          // means the receipt could not be read: a timeout, a node that has not
+          // indexed it, or a Safe that returned a queue hash not mined yet. The
+          // TWAP may be registered, so this is never "failed": the generic catch
+          // below used to say it in red with the form still armed, and one more
+          // click registered a second one.
+          surfaceUnconfirmedTx(toast, {
+            hash: txHash,
+            explorerUrl: getTxUrl(CHAIN_ID, txHash),
+            repeatCost: 'registering again sets up a second TWAP that sells the same total again. From a Safe, check its transaction queue too.',
+          });
+          return null;
+        }
         if (createReceipt.status !== 'success') {
           throw new Error('Registration reverted on-chain — the TWAP is NOT active.');
         }

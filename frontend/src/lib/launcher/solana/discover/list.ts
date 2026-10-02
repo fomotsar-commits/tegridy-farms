@@ -232,6 +232,7 @@ export function parseLaunchTransaction(
   const vault = curveVaultPda(mint, programId);
   const reserve = treasuryToken ? reservePaid(t.meta, keys, createIndex, vault, treasuryToken) : 0n;
   const gains = gainedInLaunch(t.meta, keys, mint, vault, treasuryToken, reserve);
+  const birthSupply = supplyAtBirth(t.meta, keys, mint, vault);
   return {
     signature,
     blockTime: typeof t.blockTime === 'number' ? t.blockTime : null,
@@ -239,8 +240,10 @@ export function parseLaunchTransaction(
     mint,
     openingBuyTokens: gains ? gains.reduce((sum, g) => sum + g.gained, 0n) : null,
     boughtByOwner: byOwner(gains),
-    birthSupply: supplyAtBirth(t.meta, keys, mint, vault),
-    plant: plantMoved(t.meta, keys),
+    birthSupply,
+    // The birth supply needs the curve vault's balance, which every create reports: no
+    // supply means an incomplete record, and the plant is not read from one either.
+    plant: birthSupply === null ? null : plantMoved(t.meta, keys),
     reserveRecipient,
   };
 }

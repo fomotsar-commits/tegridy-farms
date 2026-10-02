@@ -11,11 +11,18 @@ page keeps the newest thirty days.
 - On /eth-curve, the create form opens only through the Who may plant door, and Create launch reads the wallet's held time again before anything is signed or sent. The launches list and trading stay open to anyone.
 - The launch door reads 80 served degrees in every production build: no setting can switch it off or lower it.
 - A Solana launch is never announced to the island as a birth, even by a hand-made request.
-- Every Solana launch on /curve-launch plants 100,000 $BAYLA in its own create transaction: 50,000 burned and 50,000 to the island's Workshop.
+- Once launching is switched on, every Solana launch on /curve-launch plants 100,000 $BAYLA in its own create transaction: 50,000 burned and 50,000 to the island's Workshop.
 - Every launch page says under its door that it is a venue launch; on /curve-launch it also says a plant is 100,000 $BAYLA, half burned.
-- The Solana launch form shows the plant and your $BAYLA before Review, and will not review a launch your wallet cannot plant.
-- The Solana launch review lists the plant: 100,000 $BAYLA, 50,000 burned and 50,000 to the island's Workshop, from your own $BAYLA account.
-- A Solana launch's page shows the maker's create-buy as a share of the supply with the maker's wallet, says it has no lock, and shows whether its launch transaction carried the plant. The launches list shows the same maker figure.
+- Once launching is switched on, the Solana launch form shows the plant and your $BAYLA before Review, and will not review a launch your wallet cannot plant.
+- Once launching is switched on, the Solana launch review lists the plant: 100,000 $BAYLA, 50,000 burned and 50,000 to the island's Workshop, from your own $BAYLA account.
+- Once launching is switched on, a Solana launch's page shows the maker's create-buy as a share of the supply with the maker's wallet, says it has no lock, and shows whether its launch transaction carried the plant. The launches list shows the same maker figure.
+- When the site cannot read a transaction's result, it says so and points to the explorer, instead of saying the transaction failed.
+- A reverted transaction says it reverted, and the Swap button no longer stays stuck after one.
+- A transaction your wallet cancelled or replaced is no longer shown as a success; a sped-up one still is.
+- A limit order can no longer be sent twice from two open tabs.
+- The security policy no longer puts memetic.fun in scope.
+- The indexer no longer treats memetic.fun as a name for this venue.
+- memetic.fun can no longer call the venue's API as if it were the venue.
 
 ### 2026-10-01
 
@@ -28,7 +35,7 @@ page keeps the newest thirty days.
 - /pools no longer says the Solana swap sends a trade to our own pool when ours pays more. The swap compares the two and still trades through Jupiter.
 - /curve-launch reads the live Solana launch program. Launching and trading from the site are switched off for now, and the Solana Curve tab says Soon.
 - On /curve-launch, the Who may plant door reads a wallet's heat from the island. Once launching is switched on, the create form opens only for a Solana wallet at Resident or better, and Review reads that wallet again before anything is signed.
-- A Solana launch's page says a maker at Resident or better can grow a new token through the memetics.finance gate, and that the program itself accepts any wallet.
+- Once launching is switched on, a Solana launch's page says a maker at Resident or better can grow a new token through the memetics.finance gate, and that the program itself accepts any wallet.
 - Towelie says Solana has our own curve at /curve-launch instead of saying Solana is swap-only.
 - Source and audit links on /contracts, /security, /risks and the trust hub go through memetics.finance/source, which forwards them to wherever the code is hosted.
 - On the six Ethereum and Base rooms' farms, the swap-fee line names the room's own chain, not Solana, and says what that chain's swap fee really is.

@@ -1,13 +1,11 @@
 # Deploying the Tegridy indexer
 
-Ponder 0.8 app, mainnet only, complete and deployed nowhere. Everything on the
-client side is already built and waiting: `frontend/src/lib/indexer/client.ts`
-plus the `useIndexed*` hooks read `VITE_INDEXER_URL` and self-gate to an
-explicit "indexer unavailable" state while it is unset. Setting that one
-variable to the URL produced by this runbook is what turns them on.
-
-**The hosting choice is the operator's** — it costs money and creates an
-account this repo cannot create. Everything up to that decision is done.
+Ponder 0.8 app, mainnet only. Production runs it on Railway behind an nginx
+service, and production's `VITE_INDEXER_URL` is that proxy's origin, so
+`frontend/src/lib/indexer/client.ts` and the `useIndexed*` hooks read it there.
+Wherever the variable is unset (CI's `vite preview`, for one) they self-gate to
+an explicit "indexer unavailable" state. This runbook stands up an instance; the
+hosting account is the operator's, and this repo cannot create it.
 
 ---
 
@@ -26,9 +24,9 @@ batch). Historical sync from there is the long pole on first boot.
 
 ---
 
-## 1. Hosting — recommendation, and why
+## 1. Hosting: Railway, and why
 
-**Recommended: Railway.** Reasons, in the order they matter here:
+**Production runs on Railway.** Reasons, in the order they matter here:
 
 1. **Managed Postgres in the same project.** Ponder needs a real Postgres to
    survive a restart; on PGlite (the no-`DATABASE_URL` fallback) every redeploy
@@ -73,7 +71,7 @@ the full annotations; this table is the deploy-time checklist.
 | `DATABASE_URL` / `DATABASE_PRIVATE_URL` | ponder | **Yes** | Postgres. Private wins when both are set. Without either, Ponder uses PGlite and loses state on restart. |
 | `DATABASE_SCHEMA` | ponder | No | Defaults to `public`. Must stay stable across deploys of the same instance. |
 | `PORT` | ponder | Host-set | GraphQL + health server. Defaults to 42069. Keep it private (§3). |
-| `ALLOWED_ORIGINS` | `src/api/index.ts` | No | Comma-separated EXTRA browser origins for the `/graphql` CORS allowlist, on top of the three baked-in production origins. Add the preview domain here. |
+| `ALLOWED_ORIGINS` | `src/api/index.ts` | No | Comma-separated extra browser origins for the `/graphql` CORS allowlist, on top of the venue hosts baked into that file. A listed origin is echoed by name; an unlisted one still reads, with `*` (§3). |
 | `TEGRIDY_STAKING_ADMIN_ADDRESS` | `ponder.config.ts` | No | Overrides the baked relaunch StakingAdmin address. Only for a different deployment. |
 | `SWAP_FEE_ROUTER_ADMIN_ADDRESS` | `ponder.config.ts` | No | Same, for SwapFeeRouterAdmin. |
 | `PONDER_LOG_LEVEL` | ponder | No | `error｜warn｜info｜debug｜trace`. |
@@ -104,10 +102,16 @@ because it is the one step that cannot be done in indexer code:
 
 What is already done in code, and is *defence in depth only*: `src/api/index.ts`
 re-mounts the GraphQL middleware with `maxOperationDepth: 12`,
-`maxOperationAliases: 20`, `maxOperationTokens: 1000`, and replaces Hono's
-default `origin: "*"` CORS with an explicit allowlist. Those cap the cost of a
-single query. They do not cap the *number* of queries — that is the proxy's job,
+`maxOperationAliases: 20`, `maxOperationTokens: 1000`. Those cap the cost of a
+single query. They do not cap the *number* of queries: that is the proxy's job,
 and nothing in this repo can do it.
+
+The CORS allowlist in that file is **not an access control**. Ponder 0.8.33
+mounts `cors({ origin: "*" })` ahead of user routes (`src/server/index.ts:94` in
+its source), so every preflight is answered with `*` and Hono's default method
+list, and on a GET or POST an unlisted origin keeps `*` while a listed one is
+echoed by name. Any web origin can read this indexer. If that must change, the
+proxy has to do it.
 
 ### Endpoints, and what each one actually means
 
@@ -155,10 +159,9 @@ Set `VITE_INDEXER_URL` in the Vercel project to the **public proxy origin**
 (no path — the client appends `/graphql` and `/health` itself), then redeploy
 the frontend.
 
-Until it is set, `isIndexerConfigured()` is false and every hook reports
-`unavailable` with the reason "not configured". That is the intended resting
-state, and it is why nothing needed to be feature-flagged separately: the
-absence of the URL *is* the flag.
+While it is unset, `isIndexerConfigured()` is false and every hook reports
+`unavailable` with the reason "not configured". Nothing else is feature-flagged:
+the absence of the URL *is* the flag.
 
 Verify the reverse of it too — unset the variable, redeploy, and confirm the
 surface reads "unavailable" rather than rendering zeros or a stale cache.

@@ -1,8 +1,8 @@
 // Operator dials for the launch gate, read at call time so no caller captures a stale value.
-// heatOracle.ts holds the island's values. A production build has no exception: it ignores
-// VITE_HEAT_GATE and VITE_HEAT_LAUNCH_FLOOR (only a dev server honours them, as
-// curveWriteFlag.ts does for writes), and VITE_HEAT_MAX_AGE_DAYS may only shrink the 7-day
-// window. A non-numeric, zero or negative override is ignored, never obeyed.
+// heatOracle.ts holds the island's values. A build has no exception, whatever its NODE_ENV:
+// it ignores VITE_HEAT_GATE and VITE_HEAT_LAUNCH_FLOOR (only code a dev server compiled
+// honours them, src/devServerDefine.d.ts), and VITE_HEAT_MAX_AGE_DAYS may only shrink the
+// 7-day window. A non-numeric, zero or negative override is ignored, never obeyed.
 
 import { LAUNCH_FLOOR, GATE_MAX_AGE_DAYS } from './heatOracle';
 
@@ -20,9 +20,15 @@ function positiveNumberEnv(raw: unknown, fallback: number): number {
   return n;
 }
 
-/** True only on a dev server (vitest counts as one). Every build mode is production. */
+/** Read here, not from a shared module, so every build folds it to false in place (no extra chunk). */
+function compiledByDevServer(): boolean {
+  return typeof __VITE_DEV_SERVER__ !== 'undefined' && __VITE_DEV_SERVER__ === true;
+}
+
+/** True only for code a dev server compiled (vitest counts as one). Every build is production,
+ *  even one whose NODE_ENV made import.meta.env.DEV true. */
 export function heatEnvOverridesAllowed(env: Env = viteEnv()): boolean {
-  return env.DEV === true;
+  return compiledByDevServer() && env.DEV === true;
 }
 
 /** Denial is on; only a dev server with VITE_HEAT_GATE=off turns it off (still reads, logs). */

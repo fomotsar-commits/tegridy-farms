@@ -8,6 +8,7 @@ import type { CreateLaunchInput, OpenGate, TxOutcome, TxSummary, UploadInput, Wr
 import type { CurveSignerState } from './useCurveSigner';
 import { IPFS_STEP_TIMEOUT_MS, ipfsGatewayUrls } from '../../../lib/ipfsGateways';
 import { assertMayLaunch } from '../../../lib/heat/launchGate';
+import { WORKSHOP_WALLET } from '../../../lib/launcher/solana/write/plant';
 
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
 // The heat door at submit is proved against the real gate in LaunchCreateForm.heatGate.test.tsx;
@@ -711,6 +712,40 @@ describe('launch form: the plant', () => {
     });
   }
 
+  // A button switched off or removed under the keyboard drops focus to the page body.
+  it('Read again stays put while it reads, so keyboard focus stays on it, and the answer is announced', async () => {
+    type PlantRead = Awaited<ReturnType<WriteApi['readPlantBalance']>>;
+    let answer: (r: PlantRead) => void = () => {};
+    const read = plantRead(async () => UNREADABLE);
+    renderForm(createApi({ readPlantBalance: read }));
+    await fillValid();
+    expect(row('Your $BAYLA').closest('[role="status"]')).not.toBeNull();
+    const again = screen.getByRole('button', { name: 'Read again' });
+    again.focus();
+    read.mockImplementation(() => new Promise<PlantRead>((r) => (answer = r)));
+    await act(async () => {
+      fireEvent.click(again);
+    });
+    // While it reads: the same button, still focused, saying so, and a second press does nothing.
+    expect(again.isConnected).toBe(true);
+    expect(document.activeElement).toBe(again);
+    expect(again).toHaveAttribute('aria-disabled', 'true');
+    expect(again).toHaveTextContent('Reading…');
+    const calls = read.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(again);
+    });
+    expect(read.mock.calls.length).toBe(calls);
+    // It fails again: the same button offers to read again, and focus never moved.
+    await act(async () => {
+      answer(UNREADABLE);
+    });
+    expect(again.isConnected).toBe(true);
+    expect(document.activeElement).toBe(again);
+    expect(again).toHaveTextContent('Read again');
+    expect(again).not.toHaveAttribute('aria-disabled');
+  });
+
   it("a balance read for one wallet never counts for the wallet that replaced it", async () => {
     const OTHER = KEY(20);
     const read = plantRead(async (_rpc, owner) =>
@@ -773,6 +808,29 @@ describe('launch form: the plant', () => {
     expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
   });
 
+  // The form must not come back showing the balance from before the refusal, with
+  // Review on and focused, only to switch it off under the keyboard a moment later.
+  it('after Review refuses a wallet emptied since, Start over shows the balance the refusal named, and Review stays off', async () => {
+    const read = plantRead(async () => balance(150_000_000_000n));
+    renderForm(createApi({ readPlantBalance: read }));
+    await fillValid();
+    await settle();
+    expect(reviewButton()).not.toBeDisabled();
+    read.mockImplementation(async () => balance(0n));
+    await act(async () => {
+      fireEvent.click(reviewButton());
+    });
+    expect(await screen.findByTestId('tx-outcome')).toHaveTextContent('Your wallet holds 0 $BAYLA. A launch plants 100,000.');
+    // Any read after this never answers: what the form shows on return is what it already knew.
+    read.mockImplementation(() => new Promise<never>(() => {}));
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Start over' }));
+    });
+    expect(row('Your $BAYLA').lastElementChild).toHaveTextContent(/^0 \$BAYLA$/);
+    expect(reviewButton()).toBeDisabled();
+    expect(screen.getByTestId('review-missing')).toHaveTextContent('Your wallet holds 0 $BAYLA. A launch plants 100,000.');
+  });
+
   it('Review: a balance that cannot be read then is not sent either', async () => {
     const read = plantRead(async () => balance(150_000_000_000n));
     const api = createApi({ readPlantBalance: read });
@@ -797,6 +855,47 @@ describe('launch form: the plant', () => {
     await screen.findByTestId('tx-review');
     const reads = vi.mocked(api.readPlantBalance).mock.invocationCallOrder;
     expect(reads.length).toBeGreaterThanOrEqual(2);
-    expect(reads[reads.length - 1]!).toBeLessThan(vi.mocked(api.meta.uploadLaunchMetadata).mock.invocationCallOrder[0]!);
+    const upload = vi.mocked(api.meta.uploadLaunchMetadata).mock.invocationCallOrder[0]!;
+    expect(reads[reads.length - 1]!).toBeLessThan(upload);
+    // And every other plant refusal the launch build makes is asked first, for this wallet.
+    expect(vi.mocked(api.readPlantRefusal).mock.invocationCallOrder[0]!).toBeLessThan(upload);
+    expect(vi.mocked(api.readPlantRefusal).mock.calls[0]![1].toBase58()).toBe(CREATOR.toBase58());
+  });
+
+  it("the island's Workshop wallet cannot review: it is told why, and nothing is uploaded", async () => {
+    const workshop: CurveSignerState = {
+      ...ready,
+      address: WORKSHOP_WALLET.toBase58(),
+      signer: { publicKey: WORKSHOP_WALLET, signTransaction: async (t) => t },
+    };
+    // It holds plenty: the Workshop's own $BAYLA account is the one the plant pays into.
+    const api = createApi({ readPlantBalance: vi.fn(async () => balance(135_491_275_155_257n)) });
+    renderForm(api, workshop);
+    await fillValid();
+    const why = "This wallet is the island's Workshop: it receives half of every plant, so it cannot plant one. Launch from another wallet.";
+    expect(reviewButton()).toBeDisabled();
+    expect(screen.getByTestId('review-missing')).toHaveTextContent(why);
+    await act(async () => {
+      fireEvent.click(reviewButton());
+    });
+    expect(signMessage).not.toHaveBeenCalled();
+    expect(api.meta.uploadLaunchMetadata).not.toHaveBeenCalled();
+    expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
+  });
+
+  it("Review asks whether the plant can land before the upload request: a missing Workshop account is not sent", async () => {
+    const said = "The island's Workshop has no $BAYLA account, so the plant has nowhere to go. Nothing was built.";
+    const api = createApi({ readPlantRefusal: vi.fn(async () => said) });
+    renderForm(api);
+    await fillValid();
+    await act(async () => {
+      fireEvent.click(reviewButton());
+    });
+    const outcome = await screen.findByTestId('tx-outcome');
+    expect(outcome).toHaveAttribute('data-status', 'not-sent');
+    expect(outcome).toHaveTextContent(said);
+    expect(signMessage).not.toHaveBeenCalled();
+    expect(api.meta.uploadLaunchMetadata).not.toHaveBeenCalled();
+    expect(api.prepareCreateLaunch).not.toHaveBeenCalled();
   });
 });

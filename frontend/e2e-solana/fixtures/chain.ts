@@ -273,7 +273,7 @@ export const sol = (n: number) => BigInt(Math.round(n * LAMPORTS_PER_SOL));
 // made directly with the frontend's own curve/ix.ts, with NO metadata, the way a launch
 // made outside this site looks. The page must cope with that too.
 
-async function sendFromNode(ixs: TransactionInstruction[], signers: Keypair[], settle: 'confirmed' | 'finalized' = 'finalized'): Promise<string> {
+export async function sendFromNode(ixs: TransactionInstruction[], signers: Keypair[], settle: 'confirmed' | 'finalized' = 'finalized'): Promise<string> {
   await assertLocalCluster();
   const tx = new Transaction().add(...ixs);
   tx.feePayer = signers[0].publicKey;

@@ -224,6 +224,17 @@ export function plantRefusal(from: Read<PlantBalance>, workshop: Read<{ amount: 
   return null;
 }
 
+/**
+ * Every plant refusal prepareCreateLaunch makes, in its words, read now. The form asks
+ * this at Review, before the upload request, so no plant refusal comes after a signed
+ * upload. null = this wallet can plant.
+ */
+export async function plantPreflight(rpc: Pick<WriteRpc, 'getAccountInfo'>, maker: PublicKey): Promise<string | null> {
+  if (maker.equals(WORKSHOP_WALLET)) return PLANT_FROM_WORKSHOP;
+  const [from, workshop] = await Promise.all([readPlantBalance(rpc, maker), readWorkshopAccount(rpc)]);
+  return plantRefusal(from, workshop);
+}
+
 export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: CreateLaunchInput): Promise<Prepared> {
   if (gate.paused) return notSent('build', 'New launches are paused right now.');
   const creator = input.creator;
@@ -351,9 +362,12 @@ export async function prepareCreateLaunch(rpc: WriteRpc, gate: OpenGate, input: 
           : []),
         // The treasury receives the platform reserve, exactly.
         { account: treasuryToken, mint, minDelta: reserveTokens, maxDelta: reserveTokens },
-        // The plant, exactly: 100,000 $BAYLA leave your account, 50,000 reach the Workshop.
-        { account: plantAccount, mint: BAYLA_MINT, minDelta: -PLANT_TOTAL_RAW, maxDelta: -PLANT_TOTAL_RAW },
-        { account: WORKSHOP_BAYLA_ACCOUNT, mint: BAYLA_MINT, minDelta: PLANT_WORKSHOP_RAW, maxDelta: PLANT_WORKSHOP_RAW },
+        // The plant: at most 100,000 $BAYLA leave your account, at least 50,000 reach the
+        // Workshop. One-sided: anyone can send $BAYLA to either account between the read
+        // and the test run (another launch's plant, dust). The exact amounts are pinned in
+        // the bytes themselves (intent.ts).
+        { account: plantAccount, mint: BAYLA_MINT, minDelta: -PLANT_TOTAL_RAW, maxDelta: 2n ** 64n },
+        { account: WORKSHOP_BAYLA_ACCOUNT, mint: BAYLA_MINT, minDelta: PLANT_WORKSHOP_RAW, maxDelta: 2n ** 64n },
       ],
     }),
     // The token details account is sized by Metaplex, so its rent is only in the simulated total.

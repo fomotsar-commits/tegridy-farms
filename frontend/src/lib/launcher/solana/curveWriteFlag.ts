@@ -12,15 +12,16 @@
 // How it switches on:
 //   - production build: ONLY the committed constant below. No env variable can turn
 //     it on, so a dashboard setting cannot open writes ahead of the owner's flip.
-//   - a dev server (`import.meta.env.DEV`) or the named local-validator e2e build
-//     (`--mode solana-e2e`): the env flag VITE_SOLANA_CURVE_WRITES=1 as well.
+//   - code a dev server compiled (src/devServerDefine.d.ts, never `import.meta.env.DEV`
+//     alone, which NODE_ENV=development turns on in a build) or the named
+//     local-validator e2e build (`--mode solana-e2e`): VITE_SOLANA_CURVE_WRITES=1 too.
 // Any other custom build mode counts as production. `MODE === 'production'` is not
 // the test, because `vite build --mode anything` would slip past it.
 
 /**
- * OFF in the LP release (2026-10-01): the owner ships the launch pages read-only until
- * Jungle Bay Island answers Q2 (may Solana launches open before "born in $BAYLA"?).
- * The ids stay the registered restart ids, so switching launching on is this one line.
+ * OFF by the owner's decision (2026-10-02): the island has ruled the SOL lane open
+ * (answer sixteen, ruling 1), and the owner switches launching on in its own one-line
+ * PR after #682 ships. The ids stay the registered restart ids, so that PR is this line.
  *
  * Website release 2 (branch ship/solana-launch-on) set it ON together with those ids.
  * Even ON, the write layer still reads the chain before it offers anything
@@ -38,9 +39,14 @@ function viteEnv(): Env {
   return import.meta.env as unknown as Env;
 }
 
-/** True when env overrides are honoured: a dev server or the named e2e build. */
+/** Read here, not from a shared module: this file is in the main bundle, and a build folds it to false. */
+function compiledByDevServer(): boolean {
+  return typeof __VITE_DEV_SERVER__ !== 'undefined' && __VITE_DEV_SERVER__ === true;
+}
+
+/** True when env overrides are honoured: code a dev server compiled, or the named e2e build. */
 export function curveWriteEnvOverridesAllowed(env: Env = viteEnv()): boolean {
-  return env.DEV === true || env.MODE === CURVE_WRITES_E2E_MODE;
+  return (compiledByDevServer() && env.DEV === true) || env.MODE === CURVE_WRITES_E2E_MODE;
 }
 
 /**

@@ -4,7 +4,8 @@
 // independent opinion on what set T builds. It reads every instruction of the exact
 // bytes it was handed and refuses anything that could move the signer's money somewhere
 // the screen did not say: an unknown program, a System or Token transfer / approve /
-// set-authority, a token account that is not the signer's own, a zero slippage floor,
+// set-authority (Token-2022 only as the exact $BAYLA plant of a launch), a token account
+// that is not the signer's own, a zero slippage floor,
 // a creator or fee recipient that is not the one the chain records (including where
 // create_launch pays the platform reserve), a swap whose output
 // goes to someone else (cp-swap does not check that owner itself: swap_base_input.rs
@@ -14,7 +15,8 @@
 // RECORDS IT, read here in Node; a token account is accepted under Token-2022 only when
 // the mint itself is owned by Token-2022 on chain; a WSOL account that already held
 // wrapped SOL before the transaction is never closed (that would unwrap the person's own
-// money); and no Token-2022 instruction is ever sent at the top level.
+// money); and no Token-2022 instruction is ever sent at the top level, except a launch's
+// exact $BAYLA plant (refused outright in a liquidity transaction, which launches nothing).
 // Opening a pool (create): only on fee tier 1 (tier 0 refused by name), at the standard
 // address or a co-signing fresh key, open at once, every account derived here, and the
 // only account the transaction may open itself is the wallet's wrapped-SOL account.
@@ -26,6 +28,7 @@ import { PublicKey, VersionedTransaction, type MessageCompiledInstruction } from
 import { loadVerifiedIdls } from '../../scripts/solana-localnet/genesis-accounts.mjs';
 import { chain, LAUNCH_PROGRAM, CP_SWAP_PROGRAM, METAPLEX, WSOL, ata, curve, globalConfig, tokenAmount } from './chain';
 import { poolStatePda, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID } from '../../src/lib/launcher/solana/curve/program';
+import { BAYLA_DECIMALS, BAYLA_MINT, PLANT_HALF, TOKEN_2022, WORKSHOP_BAYLA_ACCOUNT, baylaAccount } from './bayla';
 
 export const COMPUTE_BUDGET = new PublicKey('ComputeBudget111111111111111111111111111111');
 /** Critic A6: our own transactions pay at most 0.001 SOL of priority fee. */
@@ -154,6 +157,7 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
   let cuPrice = 0n;
   const createdMints: PublicKey[] = [];
   const launchedMints: PublicKey[] = [];
+  const plant = { burns: 0, gives: 0 };
   let g: Awaited<ReturnType<typeof globalConfig>> | null = null;
   const getGlobal = async () => (g ??= await globalConfig());
   /** The program that owns a mint, read from the chain once per check (null: no such account). */
@@ -230,10 +234,34 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
       refuse(`token instruction ${tag} (transfer / approve / set-authority / …) is never sent by this site`);
     }
 
-    if (program.equals(TOKEN_2022_PROGRAM_ID)) {
-      // Token-2022 accounts are only ever opened through the associated-token program, and
-      // moved by the pool program inside its own instruction.
-      refuse(`a top-level Token-2022 instruction (${d[0]}) is never sent by this site`);
+    // Token-2022 is the $BAYLA plant and nothing else: burnChecked 50,000 from your own
+    // $BAYLA account, and transferChecked 50,000 from it to the Workshop's $BAYLA account.
+    // Exact size, accounts, amount and decimals; at most one of each; a launch only.
+    // Any other top-level Token-2022 instruction is refused: Token-2022 accounts are only
+    // ever opened through the associated-token program, and moved by the pool program
+    // inside its own instruction.
+    if (program.equals(TOKEN_2022)) {
+      const tag = d[0];
+      if (tag !== 15 && tag !== 12) refuse(`top-level Token-2022 instruction ${tag} is not the plant's burn or transfer, and this site sends no other`);
+      const burn = tag === 15;
+      if (d.length !== 10) refuse(`a Token-2022 instruction of ${d.length} bytes is not the plant`);
+      if (acc.length !== (burn ? 3 : 4)) refuse(`the plant's ${burn ? 'burn' : 'transfer'} names ${acc.length} accounts`);
+      const from = baylaAccount(wallet);
+      if (!acc[0].equals(from)) refuse('the plant spends from an account that is not your own $BAYLA account');
+      if (!acc[1].equals(BAYLA_MINT)) refuse('the plant moves a token other than $BAYLA');
+      if (!burn && !acc[2].equals(WORKSHOP_BAYLA_ACCOUNT)) refuse("the plant sends $BAYLA somewhere other than the island's Workshop account");
+      if (!acc[burn ? 2 : 3].equals(wallet)) refuse('the plant is authorised by someone other than you');
+      const amount = u64(d, 1);
+      if (amount !== PLANT_HALF) refuse(`the plant ${burn ? 'burns' : 'sends'} ${amount} base units, not 50,000 $BAYLA`);
+      if (d[9] !== BAYLA_DECIMALS) refuse(`the plant names ${d[9]} decimals for $BAYLA`);
+      if (burn ? plant.burns++ : plant.gives++) refuse('the transaction plants more than once');
+      out.push({
+        program: 'token-2022',
+        name: burn ? 'plant-burn' : 'plant-transfer',
+        args: { amount: String(amount), decimals: String(d[9]) },
+        accounts: burn ? { from: from.toBase58(), mint: acc[1].toBase58() } : { from: from.toBase58(), mint: acc[1].toBase58(), to: acc[2].toBase58() },
+      });
+      continue;
     }
 
     if (program.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) {
@@ -352,6 +380,12 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
     }
 
     refuse(`program ${program.toBase58()} is not one this site calls`);
+  }
+
+  // The plant rides only in a launch, and whole: its burn and its transfer together.
+  if (plant.burns + plant.gives > 0) {
+    if (!launchedMints.length) refuse('a $BAYLA plant in a transaction that launches nothing');
+    if (plant.burns !== 1 || plant.gives !== 1) refuse('half a plant: the burn and the transfer go together');
   }
 
   if (cuPrice > 0n) {

@@ -7,6 +7,8 @@ import { InfoTooltip } from '../ui/InfoTooltip';
 import { DcaYieldPanel } from '../yield/DcaYieldPanel';
 import { dcaIdleTotal } from '../../lib/yield/dcaYield';
 import { formatTokenAmount } from '../../lib/formatting';
+import { getTxUrl } from '../../lib/explorer';
+import { CHAIN_ID } from '../../lib/constants';
 
 
 const INTERVALS = [
@@ -303,6 +305,15 @@ export function DCATab() {
                 <span className="text-success text-[10px]">{s.completedSwaps}/{s.totalSwaps}</span>
                 {dueSchedules.some(d => d.id === s.id) && (
                   <span className="badge badge-warning text-[9px]">Due</span>
+                )}
+                {/* Its last swap has no result we could read yet. The schedule
+                    will not swap again until it has one, so say so and link it. */}
+                {s.pendingTx && (
+                  <a href={getTxUrl(CHAIN_ID, s.pendingTx)} target="_blank" rel="noopener noreferrer"
+                    title="The last swap has no confirmed result yet. This schedule will not swap again until it has one."
+                    className="badge badge-primary text-[9px]">
+                    Confirming
+                  </a>
                 )}
                 {s.status === 'active' ? (
                   <button onClick={() => pauseSchedule(s.id)}

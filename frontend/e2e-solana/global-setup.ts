@@ -7,6 +7,7 @@ import { checkLaunchEconomics } from '../src/lib/launcher/solana/curve/config';
 import { globalPda } from '../src/lib/launcher/solana/curve/program';
 import { deriveAmmConfig } from '../src/lib/solana/cpswap/program';
 import { LOCALNET_RPC, LAUNCH_PROGRAM, CP_SWAP_PROGRAM, assertLocalCluster, chain, deployment, globalConfig } from './fixtures/chain';
+import { BAYLA_MINT, TOKEN_2022 } from './fixtures/bayla';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -51,6 +52,16 @@ export default async function globalSetup(): Promise<void> {
     if (!got || !Buffer.from(got).equals(want)) throw new Error(`the validator's AmmConfig index ${index} is not the seeded one: restart start-validator.sh after genesis-accounts.mjs`);
     if (!Buffer.from(got).equals(mainnet)) throw new Error(`the validator's AmmConfig index ${index} is not mainnet's bytes (golden/${goldenFile})`);
   }
+  // The stand-in $BAYLA mint (the plant burns and moves it): the seeded bytes, apart from the
+  // supply, which the specs change by minting to makers and by every plant's burn.
+  const seededMint = path.join(HERE, '..', 'scripts', 'solana-localnet', '.accounts', 'bayla-mint.json');
+  if (!fs.existsSync(seededMint)) throw new Error(`${seededMint} is missing: run node scripts/solana-localnet/genesis-accounts.mjs`);
+  const wantMint = Buffer.from(JSON.parse(fs.readFileSync(seededMint, 'utf8')).account.data[0], 'base64');
+  const mintInfo = await chain().getAccountInfo(BAYLA_MINT, 'confirmed');
+  const noSupply = (b: Buffer) => Buffer.concat([b.subarray(0, 36), b.subarray(44)]);
+  if (!mintInfo || !mintInfo.owner.equals(TOKEN_2022) || !noSupply(Buffer.from(mintInfo.data)).equals(noSupply(wantMint))) {
+    throw new Error('the validator\'s $BAYLA mint is not the seeded stand-in: restart start-validator.sh after genesis-accounts.mjs');
+  }
   const g = await globalConfig();
   const report = checkLaunchEconomics({
     tradeFeeBps: g.tradeFeeBps,
@@ -67,5 +78,5 @@ export default async function globalSetup(): Promise<void> {
   const proxy = (await import(new URL('../api/solrpc.js', import.meta.url).href)) as { isAllowedRpcCall?: unknown };
   if (typeof proxy.isAllowedRpcCall !== 'function') throw new Error('api/solrpc.js does not export isAllowedRpcCall');
 
-  console.log(`[solana e2e] ${LOCALNET_RPC} healthy · genesis ${genesis} (private) · both programs deployed · global = seeded bytes · fee tiers 0 and 1 = mainnet's bytes · economics ok`);
+  console.log(`[solana e2e] ${LOCALNET_RPC} healthy · genesis ${genesis} (private) · both programs deployed · global = seeded bytes · fee tiers 0 and 1 = mainnet's bytes · $BAYLA stand-in = seeded bytes · economics ok`);
 }

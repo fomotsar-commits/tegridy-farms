@@ -68,6 +68,10 @@ const PLANT_TOTAL_RAW = 100_000_000_000n;
 const BAYLA_DECIMALS = 6;
 const PLANT_TERMS = "100,000 $BAYLA: 50,000 burned, 50,000 to the island's Workshop";
 const PLANT_UNREADABLE = 'Could not read your $BAYLA balance.';
+/** The island's Workshop (write/plant.ts WORKSHOP_WALLET; the form test signs as it). It cannot plant. */
+const WORKSHOP_WALLET = 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu';
+const PLANT_FROM_WORKSHOP =
+  "This wallet is the island's Workshop: it receives half of every plant, so it cannot plant one. Launch from another wallet.";
 const baylaText = (raw: bigint) => formatTokenAmount(raw, BAYLA_DECIMALS, BAYLA_DECIMALS).text;
 
 /** Why this wallet cannot plant, or null when it can. A read that failed is never 0 and never enough. */
@@ -85,6 +89,16 @@ async function readPlant(api: WriteApi, rpc: WriteRpc, owner: PublicKey): Promis
     return await api.readPlantBalance(rpc, owner);
   } catch (e) {
     return { kind: 'unreadable', detail: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Every other plant refusal the launch build makes (the Workshop's account, its wallet), asked
+ *  before the upload request. A throw refuses: it never passes as "can plant". */
+async function readPlantStop(api: WriteApi, rpc: WriteRpc, maker: PublicKey): Promise<string | null> {
+  try {
+    return await api.readPlantRefusal(rpc, maker);
+  } catch {
+    return 'Could not check that the plant can land just now, so nothing was uploaded or built. Try again.';
   }
 }
 
@@ -359,7 +373,11 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
     };
   }, [api, rpc, maker, idle, plantCheck]);
   const plant = plantRead && plantRead.maker === maker && plantRead.check === plantCheck ? plantRead.read : null;
-  const plantBlock = plant ? plantShortfall(plant) : null;
+  const plantBlock = maker === WORKSHOP_WALLET ? PLANT_FROM_WORKSHOP : plant ? plantShortfall(plant) : null;
+  // This wallet's last read, kept while a newer one runs: a failed read's "Read again"
+  // stays on screen (and under the keyboard) until the next answer.
+  const lastPlant = plantRead && plantRead.maker === maker ? plantRead.read : null;
+  const plantRereading = lastPlant !== null && plant === null;
 
   // The mint keypair lives in memory only. A reload or a wallet round trip loses it,
   // and then everything starts again with a new keypair and a new upload. The one
@@ -402,13 +420,21 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
     setPrepNote("Reading this wallet's held time from the island before anything is signed…");
 
     const walletMoved = () => !alive.current || !liveSigner.current?.publicKey.equals(creator);
+    const checkAtReview = plantCheck;
     void flow.prepare(async (): Promise<Prepared> => {
       // THE DOOR, AT SUBMIT: read live at every Review, whatever the door above showed. The
       // venue's check only (the program accepts any signer). The maker is the wallet that
       // signs the create; the island pools linked wallets.
       // The plant's balance is read again beside it, so a wallet emptied since the form
-      // read it never reaches the upload request.
-      const [refusal, plantNow] = await Promise.all([doorRefusal(creator.toBase58()), readPlant(api, rpc, creator)]);
+      // read it never reaches the upload request; so is every other plant refusal.
+      const [refusal, plantNow, plantStop] = await Promise.all([
+        doorRefusal(creator.toBase58()),
+        readPlant(api, rpc, creator),
+        readPlantStop(api, rpc, creator),
+      ]);
+      // The form shows this read when the flow comes back, never the older one: a refusal
+      // and the balance under it must agree, and Review must not light up on a stale read.
+      setPlantRead({ maker: creator.toBase58(), check: checkAtReview, read: plantNow });
       if (refusal) return { ok: false, outcome: refusal };
       if (walletMoved()) {
         const message =
@@ -420,6 +446,8 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
         const message = `${cannotPlant} Nothing was uploaded, built or signed.`;
         return { ok: false, outcome: { status: 'not-sent', stage: 'build', message } };
       }
+      // The launch build's own words, which already say nothing was built.
+      if (plantStop) return { ok: false, outcome: { status: 'not-sent', stage: 'build', message: plantStop } };
       // The wallet opens during this step for the upload request, and the screen must say why.
       setPrepNote(
         mode === 'upload' && !reuse
@@ -868,19 +896,27 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
           <Row label="Plant" value={PLANT_TERMS} mono={false} />
         </div>
         {signer && (
-          <Row
-            label="Your $BAYLA"
-            value={!plant ? 'reading…' : plant.kind === 'ok' ? `${baylaText(plant.value.amount)} $BAYLA` : 'could not read'}
-            mono={false}
-          />
+          // A live region, so the answer to a read (and a Read again) is read out.
+          <div role="status">
+            <Row
+              label="Your $BAYLA"
+              value={!plant ? 'reading…' : plant.kind === 'ok' ? `${baylaText(plant.value.amount)} $BAYLA` : 'could not read'}
+              mono={false}
+            />
+          </div>
         )}
-        {plant && plant.kind !== 'ok' && (
+        {lastPlant && lastPlant.kind !== 'ok' && (
           <button
             type="button"
-            className="btn-secondary px-4 py-2 text-[12px] min-h-[44px]"
-            onClick={() => setPlantCheck((n) => n + 1)}
+            className={`btn-secondary px-4 py-2 text-[12px] min-h-[44px] ${plantRereading ? 'opacity-60' : ''}`}
+            // Not `disabled`, as TxFlowView's Check again: a button switched off under the
+            // keyboard drops focus to the page. It does nothing while the read runs.
+            aria-disabled={plantRereading || undefined}
+            onClick={() => {
+              if (!plantRereading) setPlantCheck((n) => n + 1);
+            }}
           >
-            Read again
+            {plantRereading ? 'Reading…' : 'Read again'}
           </button>
         )}
       </div>

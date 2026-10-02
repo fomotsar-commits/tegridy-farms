@@ -492,11 +492,11 @@ describe('create', () => {
       expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(82) + rent(179) + 2 * TOKEN_RENT));
     });
 
-    it('BLOCKS a test run in which the Workshop receives anything but 50,000 $BAYLA', async () => {
-      for (const toWorkshop of [49_999_999_999n, 50_000_000_001n, 0n]) {
+    it('BLOCKS a test run in which less than 50,000 $BAYLA reaches the Workshop', async () => {
+      for (const toWorkshop of [49_999_999_999n, 0n]) {
         const { chain, gate } = await setup();
         const mintKp = Keypair.generate();
-        // Your side still loses exactly 100,000: only the Workshop's half is off.
+        // Your side still loses exactly 100,000: only the Workshop's half is short.
         simulating(chain, {
           [ME.toBase58()]: { lamportsDelta: -createRent() },
           ...treasuryGets(mintKp.publicKey),
@@ -507,17 +507,39 @@ describe('create', () => {
       }
     });
 
-    it('BLOCKS a test run in which your $BAYLA changes by anything but -100,000', async () => {
-      for (const burned of [49_999_999_999n, 50_000_000_001n, 0n]) {
+    it('BLOCKS a test run in which more than 100,000 $BAYLA leaves your account', async () => {
+      for (const o of [{ burned: 50_000_000_001n }, { toWorkshop: 50_000_000_001n }, { burned: 100_000_000_000n }]) {
         const { chain, gate } = await setup();
         const mintKp = Keypair.generate();
         simulating(chain, {
           [ME.toBase58()]: { lamportsDelta: -createRent() },
           ...treasuryGets(mintKp.publicKey),
-          ...plantMoved(ME, { burned }),
+          ...plantMoved(ME, o),
         });
         const r = await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst });
-        expect(!r.ok && r.outcome.message, String(burned)).toMatch(/different token amount/);
+        expect(!r.ok && r.outcome.message, JSON.stringify(o, (_k, v) => (typeof v === 'bigint' ? `${v}` : v))).toMatch(
+          /different token amount/,
+        );
+      }
+    });
+
+    // Anyone can send $BAYLA to the Workshop or to your account without your signature:
+    // another launch's plant, or dust. The balances are read before the test run, so a
+    // credit landing in between must not read as a different plant.
+    it("a stranger's $BAYLA landing on the Workshop or on your account during the test run does not block it", async () => {
+      const cases: Array<[string, PublicKey, bigint]> = [
+        ['another launch plants into the Workshop', WORKSHOP_BAYLA_ACCOUNT, 50_000_000_000n],
+        ['dust to the Workshop', WORKSHOP_BAYLA_ACCOUNT, 1n],
+        ['dust to your $BAYLA account', MINE, 1n],
+      ];
+      for (const [label, account, credit] of cases) {
+        const { chain, gate } = await setup();
+        const mintKp = Keypair.generate();
+        const moved = plantMoved(ME);
+        moved[account.toBase58()]!.tokenAmount += credit;
+        simulating(chain, { [ME.toBase58()]: { lamportsDelta: -createRent() }, ...treasuryGets(mintKp.publicKey), ...moved });
+        const r = await prepareCreateLaunch(W(chain), gate, { creator: ME, mint: mintKp, metadata: worst });
+        expect(r.ok ? 'built' : r.outcome.message, label).toBe('built');
       }
     });
 

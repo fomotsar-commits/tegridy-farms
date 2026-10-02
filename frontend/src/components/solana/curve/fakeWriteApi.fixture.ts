@@ -170,6 +170,7 @@ export function fakeApi(over: Partial<WriteApi> = {}): WriteApi {
     priceImpactBps: vi.fn(() => 25n),
     prepareCreateLaunch: vi.fn(),
     readPlantBalance: vi.fn(async () => ({ kind: 'ok' as const, value: PLANT_BALANCE_ENOUGH })),
+    readPlantRefusal: vi.fn(async () => null),
     prepareCurveBuy: vi.fn(),
     prepareCurveSell: vi.fn(),
     prepareMigrate: vi.fn(),

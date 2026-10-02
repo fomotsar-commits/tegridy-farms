@@ -220,8 +220,8 @@ describe('navConfig', () => {
 
   // /curve-launch is the OWN-curve page. It is pilled whenever launching and trading
   // cannot load (curveWriteFlag.ts). In production ONLY the committed constant decides,
-  // and the LP release (2026-10-01) commits it OFF until the island answers Q2, so a
-  // production build pills the entry; a dev server with the env flag does not.
+  // and it stays OFF by the owner's decision (2026-10-02) until its own one-line PR, so
+  // a production build pills the entry; a dev server with the env flag does not.
   it('pills /curve-launch Soon in a production build while launching is off', async () => {
     expect(ALL_NAV.find((n) => n.to === '/curve-launch'), '/curve-launch missing from nav').toBeTruthy();
 
