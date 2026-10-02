@@ -1,10 +1,9 @@
 // Operator dials for the launch gate, read at call time so no caller captures a stale value.
 // heatOracle.ts holds the island's values. A build has no exception, whatever its NODE_ENV:
 // it ignores VITE_HEAT_GATE and VITE_HEAT_LAUNCH_FLOOR (only code a dev server compiled
-// honours them, see devServer.ts), and VITE_HEAT_MAX_AGE_DAYS may only shrink the 7-day
-// window. A non-numeric, zero or negative override is ignored, never obeyed.
+// honours them, src/devServerDefine.d.ts), and VITE_HEAT_MAX_AGE_DAYS may only shrink the
+// 7-day window. A non-numeric, zero or negative override is ignored, never obeyed.
 
-import { compiledByDevServer } from '../devServer';
 import { LAUNCH_FLOOR, GATE_MAX_AGE_DAYS } from './heatOracle';
 
 type Env = Record<string, unknown>;
@@ -19,6 +18,11 @@ function positiveNumberEnv(raw: unknown, fallback: number): number {
   const n = Number(t);
   if (!Number.isFinite(n) || n <= 0) return fallback;
   return n;
+}
+
+/** Read here, not from a shared module, so every build folds it to false in place (no extra chunk). */
+function compiledByDevServer(): boolean {
+  return typeof __VITE_DEV_SERVER__ !== 'undefined' && __VITE_DEV_SERVER__ === true;
 }
 
 /** True only for code a dev server compiled (vitest counts as one). Every build is production,

@@ -12,13 +12,11 @@
 // How it switches on:
 //   - production build: ONLY the committed constant below. No env variable can turn
 //     it on, so a dashboard setting cannot open writes ahead of the owner's flip.
-//   - code a dev server compiled (src/lib/devServer.ts, never `import.meta.env.DEV`
+//   - code a dev server compiled (src/devServerDefine.d.ts, never `import.meta.env.DEV`
 //     alone, which NODE_ENV=development turns on in a build) or the named
 //     local-validator e2e build (`--mode solana-e2e`): VITE_SOLANA_CURVE_WRITES=1 too.
 // Any other custom build mode counts as production. `MODE === 'production'` is not
 // the test, because `vite build --mode anything` would slip past it.
-
-import { compiledByDevServer } from '../../devServer';
 
 /**
  * OFF by the owner's decision (2026-10-02): the island has ruled the SOL lane open
@@ -39,6 +37,11 @@ type Env = Record<string, unknown>;
 
 function viteEnv(): Env {
   return import.meta.env as unknown as Env;
+}
+
+/** Read here, not from a shared module: this file is in the main bundle, and a build folds it to false. */
+function compiledByDevServer(): boolean {
+  return typeof __VITE_DEV_SERVER__ !== 'undefined' && __VITE_DEV_SERVER__ === true;
 }
 
 /** True when env overrides are honoured: code a dev server compiled, or the named e2e build. */

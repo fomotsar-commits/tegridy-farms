@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   // The test runner counts as a dev server, as vite.config.ts says for `vite`
-  // (src/lib/devServer.ts). A test stubs it with vi.stubGlobal to play a build.
+  // (src/devServerDefine.d.ts). A test stubs it with vi.stubGlobal to play a build.
   define: { __VITE_DEV_SERVER__: 'true' },
   test: {
     environment: 'jsdom',
