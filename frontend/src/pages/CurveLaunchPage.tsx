@@ -11,6 +11,7 @@ import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { LaunchGate } from '../components/LaunchGate';
+import { VenueLaunchLines } from '../components/launcher/VenueLaunchLines';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { Card, Field, Row } from '../components/solana/curve/ui';
 import {
@@ -674,7 +675,7 @@ export function CurveLaunchView({
           <>
         {/* THE DOOR on our own curve rail, reading the connected Solana wallet. Same
             primitive as the other rails: one rule, read live, in one place. */}
-        <LaunchGate rail="solana" wallet={wallet?.address ?? null} />
+        <LaunchGate rail="solana" wallet={wallet?.address ?? null} below={<VenueLaunchLines rail="solana" />} />
 
         <Card title="Look up a launch">
           <p>Open a launch by its token address (mint). This view has no list of launches.</p>
@@ -899,7 +900,12 @@ export function CurveWriteSection({ api, gate, writeRpc, rpc, curveRpc, signerSt
   const actions = api.writeActions(gate, null);
   return (
     <>
-      <LaunchGate rail="solana" wallet={wallet?.toBase58() ?? null} connect={<WalletNeeded state={signerState} />}>
+      <LaunchGate
+        rail="solana"
+        wallet={wallet?.toBase58() ?? null}
+        connect={<WalletNeeded state={signerState} />}
+        below={<VenueLaunchLines rail="solana" />}
+      >
         <LaunchCreateForm api={api} rpc={writeRpc} gate={gate} actions={actions} signerState={signerState} />
       </LaunchGate>
       <OpenByMint />

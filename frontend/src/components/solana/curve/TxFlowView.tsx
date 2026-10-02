@@ -23,6 +23,9 @@ function tokenText(v: bigint, d: number | null): string {
   const f = formatTokenAmount(v, d);
   return f.isBaseUnits ? `${f.text} (base units)` : f.text;
 }
+/** $BAYLA always has 6 decimals, whatever the launch token's are. */
+const BAYLA_DECIMALS = 6;
+const baylaText = (v: bigint) => formatTokenAmount(v, BAYLA_DECIMALS, BAYLA_DECIMALS).text;
 
 /** The amount a fee is measured against, in lamports, when the trade has one. */
 function tradeLamports(s: TxSummary): bigint | null {
@@ -94,6 +97,7 @@ export function SummaryRows({
             <Row label="Opening buy" value="none" mono={false} />
           )}
           <CreateReserveRows summary={summary} />
+          <CreatePlantRows plant={summary.plant} />
         </>
       );
     case 'buy':
@@ -208,6 +212,35 @@ function CreateReserveRows({ summary }: { summary: Extract<TxSummary, { kind: 'c
 }
 
 /**
+ * The plant this create pays (island ruling 2), read back out of the transaction itself:
+ * half burned, half to the island's Workshop, both from the creator's own $BAYLA account.
+ */
+function CreatePlantRows({ plant }: { plant: Extract<TxSummary, { kind: 'create' }>['plant'] }) {
+  const bayla = (v: bigint) => `${baylaText(v)} $BAYLA`;
+  return (
+    <>
+      <Row label="Plant, in this transaction" value={bayla(plant.total)} mono={false} />
+      <Row label="Burned" value={bayla(plant.burned)} mono={false} />
+      <Row label="To the island's Workshop" value={bayla(plant.toWorkshop)} mono={false} />
+      <Row label="Into its $BAYLA account" value={plant.workshopAccount.toBase58()} />
+      <Row label="From your $BAYLA account" value={plant.from.toBase58()} />
+    </>
+  );
+}
+
+/** One test-run token change, in words for whose it is. The plant's are always in $BAYLA. */
+function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], summary: TxSummary, decimals: number | null) {
+  const sign = t.delta < 0n ? '-' : '+';
+  const amount = t.delta < 0n ? -t.delta : t.delta;
+  if (t.role === 'treasury') return { label: 'Test run: the platform treasury receives', value: `${sign}${tokenText(amount, decimals)}` };
+  if (t.role === 'workshop') return { label: "Test run: the island's Workshop receives", value: `${sign}${baylaText(amount)} $BAYLA` };
+  if (summary.kind === 'create' && t.mint.equals(summary.plant.mint)) {
+    return { label: 'Test run: your $BAYLA changes by', value: `${sign}${baylaText(amount)}` };
+  }
+  return { label: 'Test run: your tokens change by', value: `${sign}${tokenText(amount, decimals)}` };
+}
+
+/**
  * The pool creator's cut, when the pool charges one. cp-swap takes it on top of the
  * trade fee: from what you pay, or from what you receive, depending on the pool.
  */
@@ -275,11 +308,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
       {prepared.simulated.tokenDeltas
         .filter((t) => t.delta !== 0n)
         .map((t) => (
-          <Row
-            key={t.account.toBase58()}
-            label={t.role === 'treasury' ? 'Test run: the platform treasury receives' : 'Test run: your tokens change by'}
-            value={`${t.delta < 0n ? '-' : '+'}${tokenText(t.delta < 0n ? -t.delta : t.delta, decimals)}`}
-          />
+          <Row key={t.account.toBase58()} {...deltaRow(t, prepared.summary, decimals)} />
         ))}
     </>
   );

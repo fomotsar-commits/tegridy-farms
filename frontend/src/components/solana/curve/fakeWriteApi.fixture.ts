@@ -30,6 +30,9 @@ export const PLANT_SUMMARY: Extract<TxSummary, { kind: 'create' }>['plant'] = {
   decimals: 6,
 };
 
+/** A maker with enough $BAYLA to plant: 150,000 in their own $BAYLA account (a stand-in address). */
+export const PLANT_BALANCE_ENOUGH = { account: KEY(13), amount: 150_000_000_000n, accountExists: true };
+
 export function globalCfg(over: Partial<GlobalConfig> = {}): GlobalConfig {
   return {
     authority: KEY(3),
@@ -166,6 +169,7 @@ export function fakeApi(over: Partial<WriteApi> = {}): WriteApi {
     })),
     priceImpactBps: vi.fn(() => 25n),
     prepareCreateLaunch: vi.fn(),
+    readPlantBalance: vi.fn(async () => ({ kind: 'ok' as const, value: PLANT_BALANCE_ENOUGH })),
     prepareCurveBuy: vi.fn(),
     prepareCurveSell: vi.fn(),
     prepareMigrate: vi.fn(),

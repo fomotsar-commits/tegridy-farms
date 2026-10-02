@@ -43,6 +43,8 @@ export type LaunchGateProps =
       /** Called with the audit row once the wagmi wallet cleared the door AND signed the
        *  ownership proof. `row.id` is the `gate_decision_id` a birth notify carries. */
       onOpen?: (row: GateAuditRow | null) => void;
+      /** Shown directly under the door in every state, before anything the door lets through. */
+      below?: React.ReactNode;
       children?: React.ReactNode;
     }
   | {
@@ -52,6 +54,8 @@ export type LaunchGateProps =
       wallet: string | null;
       /** The page's connect control, shown while no Solana wallet is connected. */
       connect?: React.ReactNode;
+      /** Shown directly under the door in every state, before anything the door lets through. */
+      below?: React.ReactNode;
       children?: React.ReactNode;
     };
 
@@ -59,20 +63,32 @@ export type LaunchGateProps =
 export function LaunchGate(props: LaunchGateProps) {
   if (props.rail === 'solana') {
     return (
-      <Door rail="solana" address={props.wallet ?? undefined} connect={props.connect}>
+      <Door rail="solana" address={props.wallet ?? undefined} connect={props.connect} below={props.below}>
         {props.children}
       </Door>
     );
   }
-  return <EthereumDoor onOpen={props.onOpen}>{props.children}</EthereumDoor>;
+  return (
+    <EthereumDoor onOpen={props.onOpen} below={props.below}>
+      {props.children}
+    </EthereumDoor>
+  );
 }
 
-function EthereumDoor({ onOpen, children }: { onOpen?: (row: GateAuditRow | null) => void; children?: React.ReactNode }) {
+function EthereumDoor({
+  onOpen,
+  below,
+  children,
+}: {
+  onOpen?: (row: GateAuditRow | null) => void;
+  below?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
   const { address } = useAccount();
   const { signMessageAsync } = useSignMessage();
   const signProof = useCallback((message: string) => signMessageAsync({ message }), [signMessageAsync]);
   return (
-    <Door rail="ethereum" address={address} signProof={signProof} onOpen={onOpen}>
+    <Door rail="ethereum" address={address} signProof={signProof} onOpen={onOpen} below={below}>
       {children}
     </Door>
   );
@@ -86,10 +102,11 @@ interface DoorProps {
   signProof?: (message: string) => Promise<unknown>;
   onOpen?: (row: GateAuditRow | null) => void;
   connect?: React.ReactNode;
+  below?: React.ReactNode;
   children?: React.ReactNode;
 }
 
-function Door({ rail, address, signProof, onOpen, connect, children }: DoorProps) {
+function Door({ rail, address, signProof, onOpen, connect, below, children }: DoorProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'no-wallet' });
   const [proving, setProving] = useState(false);
   const [proveError, setProveError] = useState<string | null>(null);
@@ -140,44 +157,50 @@ function Door({ rail, address, signProof, onOpen, connect, children }: DoorProps
 
   if (phase.kind === 'no-wallet') {
     return (
-      <Frame>
-        <Title>Who may plant</Title>
-        <p className="text-[13px] text-white/60 leading-relaxed">
-          The lane reads your <strong className="text-white/85">held time</strong> live from Jungle Bay
-          Island.{' '}
-          {rail === 'solana' ? (
-            <>
-              Connect the Solana wallet that will sign the launch, or read any address below. One person, every
-              wallet. Link Ethereum and Base, link Solana, and the island reads you whole.
-            </>
-          ) : (
-            'Connect the Ethereum wallet that carries it, or read any address below.'
-          )}
-        </p>
-        {connect && <div className="mt-3">{connect}</div>}
-
-        {/* The card reads a pasted address, as VenueHero mounts it. It reads; it does not
-            open: the lane opens for the connected wallet, and the launch call re-reads
-            that wallet at submit. On Solana an empty draft keeps it from filling in the
-            Ethereum wallet, which this door never reads. */}
-        <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          <HeatCard variant="embedded" showEligibility initialDraft={rail === 'solana' ? '' : null} />
-          <p className="text-[12px] text-white/45 mt-3">
-            {rail === 'solana'
-              ? 'A reading is not a key. The lane opens for the connected wallet, and the launch reads it again before anything is signed.'
-              : 'A reading is not a key. The lane opens for a wallet that signs.'}
+      <>
+        <Frame>
+          <Title>Who may plant</Title>
+          <p className="text-[13px] text-white/60 leading-relaxed">
+            The lane reads your <strong className="text-white/85">held time</strong> live from Jungle Bay
+            Island.{' '}
+            {rail === 'solana' ? (
+              <>
+                Connect the Solana wallet that will sign the launch, or read any address below. One person, every
+                wallet. Link Ethereum and Base, link Solana, and the island reads you whole.
+              </>
+            ) : (
+              'Connect the Ethereum wallet that carries it, or read any address below.'
+            )}
           </p>
-        </div>
-      </Frame>
+          {connect && <div className="mt-3">{connect}</div>}
+
+          {/* The card reads a pasted address, as VenueHero mounts it. It reads; it does not
+              open: the lane opens for the connected wallet, and the launch call re-reads
+              that wallet at submit. On Solana an empty draft keeps it from filling in the
+              Ethereum wallet, which this door never reads. */}
+          <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <HeatCard variant="embedded" showEligibility initialDraft={rail === 'solana' ? '' : null} />
+            <p className="text-[12px] text-white/45 mt-3">
+              {rail === 'solana'
+                ? 'A reading is not a key. The lane opens for the connected wallet, and the launch reads it again before anything is signed.'
+                : 'A reading is not a key. The lane opens for a wallet that signs.'}
+            </p>
+          </div>
+        </Frame>
+        {below}
+      </>
     );
   }
 
   if (phase.kind === 'reading') {
     return (
-      <Frame>
-        <Title>Who may plant</Title>
-        <p className="text-[13px] text-white/55 animate-pulse">Reading {shortenAddress(address ?? '', 6)} against the island&apos;s instrument…</p>
-      </Frame>
+      <>
+        <Frame>
+          <Title>Who may plant</Title>
+          <p className="text-[13px] text-white/55 animate-pulse">Reading {shortenAddress(address ?? '', 6)} against the island&apos;s instrument…</p>
+        </Frame>
+        {below}
+      </>
     );
   }
 
@@ -267,15 +290,14 @@ function Door({ rail, address, signProof, onOpen, connect, children }: DoorProps
           stays open either way.
         </p>
       )}
-
-      {rail === 'ethereum' && open && children}
     </Frame>
   );
-  if (rail === 'ethereum') return door;
-  // Solana: the lane sits below the door as its own card, full width on a phone.
+  // Both rails: the lane sits below the door and its lines as its own card, full width
+  // on a phone, so the order there is door, lines, form.
   return (
     <>
       {door}
+      {below}
       {open && children}
     </>
   );

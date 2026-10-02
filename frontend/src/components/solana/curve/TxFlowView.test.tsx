@@ -1,11 +1,12 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
-import { TxFlowView, TxOutcomeCard } from './TxFlowView';
+import { FeeRows, TxFlowView, TxOutcomeCard } from './TxFlowView';
 import { REVIEW_TTL_MS, useTxFlow } from './useTxFlow';
 import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
 import type { TxOutcome, TxSigner, TxSummary, WriteRpc } from './ports';
 
 const SOL_1 = 1_000_000_000n;
+const MINT_X = KEY(15);
 
 const rpc = {} as WriteRpc;
 const signer: TxSigner = { publicKey: CREATOR, signTransaction: async (t) => t };
@@ -231,6 +232,74 @@ describe('review', () => {
     // Not yours: never "your tokens change by".
     expect(row('Test run: the platform treasury receives')).toHaveTextContent('+36,900,000');
     expect(screen.queryByText('Test run: your tokens change by')).not.toBeInTheDocument();
+  });
+
+  // The plant (island ruling 2), from the prepared transaction: what it pays, where each
+  // half goes, the account it spends from, and what the test run saw move. In $BAYLA's
+  // own 6 decimals, whatever the launch token's decimals are.
+  it('create: the plant paid in this transaction, after the reserve, and its test run', async () => {
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    const treasuryToken = KEY(12);
+    const create: TxSummary = {
+      kind: 'create', mint: CREATOR, creator: CREATOR, name: 'A', symbol: 'AB', uri: 'https://x', decimals: 6, openingBuy: null,
+      platformReserve: { amount: 36_900_000_000_000n, bps: 369n, recipient: KEY(4), treasuryToken },
+      treasuryAccountRent: 1_488_440n,
+      plant: PLANT_SUMMARY,
+    };
+    const p = prepared(create, {
+      simulated: {
+        signerLamportsDelta: -5_000_000n,
+        tokenDeltas: [
+          { mint: CREATOR, account: treasuryToken, delta: 36_900_000_000_000n, role: 'treasury' },
+          { mint: PLANT_SUMMARY.mint, account: PLANT_SUMMARY.from, delta: -100_000_000_000n },
+          { mint: PLANT_SUMMARY.mint, account: PLANT_SUMMARY.workshopAccount, delta: 50_000_000_000n, role: 'workshop' },
+        ],
+      },
+    });
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: p })));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={9} signer={signer} />);
+    const row = (label: string) => screen.getByText(label).parentElement!;
+    const text = (label: string) => row(label).textContent?.replace(/\s+/g, ' ').trim();
+    expect(text('Plant, in this transaction')).toBe('Plant, in this transaction100,000 $BAYLA');
+    expect(text('Burned')).toBe('Burned50,000 $BAYLA');
+    expect(text("To the island's Workshop")).toBe("To the island's Workshop50,000 $BAYLA");
+    expect(row('Into its $BAYLA account')).toHaveTextContent(PLANT_SUMMARY.workshopAccount.toBase58());
+    expect(row('From your $BAYLA account')).toHaveTextContent(PLANT_SUMMARY.from.toBase58());
+    // The addresses are whole, in mono, and wrap on a phone.
+    const workshop = screen.getByText(PLANT_SUMMARY.workshopAccount.toBase58());
+    expect(workshop).toHaveClass('font-mono', 'break-all');
+    // Right after the reserve rows: the reserve's last row comes before the plant's first.
+    const reserveRow = row('You pay for that token account');
+    expect(reserveRow.compareDocumentPosition(row('Plant, in this transaction')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The test run, in plain words for each role.
+    expect(text('Test run: your $BAYLA changes by')).toBe('Test run: your $BAYLA changes by-100,000');
+    expect(text("Test run: the island's Workshop receives")).toBe("Test run: the island's Workshop receives+50,000 $BAYLA");
+    expect(row('Test run: the platform treasury receives')).toHaveTextContent('+36,900,000');
+    expect(screen.queryByText('Test run: your tokens change by')).not.toBeInTheDocument();
+    const review = document.body.textContent ?? '';
+    expect(review).not.toMatch(/island coin|born in \$?BAYLA/i);
+    expect(review).not.toContain(String.fromCharCode(0x2014));
+  });
+
+  it("create: the launch token's own change keeps its label, and $BAYLA is always read in 6 decimals", () => {
+    const create: TxSummary = {
+      kind: 'create', mint: MINT_X, creator: CREATOR, name: 'A', symbol: 'AB', uri: 'https://x', decimals: 6, openingBuy: null,
+      platformReserve: null, treasuryAccountRent: 0n, plant: PLANT_SUMMARY,
+    };
+    const p = prepared(create, {
+      simulated: {
+        signerLamportsDelta: -5_000_000n,
+        tokenDeltas: [
+          { mint: MINT_X, account: KEY(14), delta: 3_500_000_000n },
+          { mint: PLANT_SUMMARY.mint, account: PLANT_SUMMARY.from, delta: -100_000_000_000n },
+        ],
+      },
+    });
+    // The launch token's decimals unread: its own change shows in base units, $BAYLA's never does.
+    render(<FeeRows prepared={p} decimals={null} />);
+    expect(screen.getByText('Test run: your tokens change by').parentElement).toHaveTextContent('+3500000000 (base units)');
+    expect(screen.getByText('Test run: your $BAYLA changes by').parentElement).toHaveTextContent(/^Test run: your \$BAYLA changes by-100,000$/);
   });
 
   // F3: graduation's rent is paid back inside the same instruction.
