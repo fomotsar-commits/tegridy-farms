@@ -13,6 +13,11 @@
  * Safari refuses those calls once the click handler has awaited something, so the
  * card is rendered ahead of time instead of on the click. The tests model that
  * browser: each of those calls is refused unless it arrives during the tap.
+ *
+ * Only a phone or tablet gets the share sheet (the owner's call, 2026-10-02):
+ * desktop browsers also accept files there, but X is rarely in a desktop sheet,
+ * so a desktop gets the X window and the card on the clipboard. Closing the
+ * sheet on a phone still leaves a link to X.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
@@ -90,16 +95,41 @@ class FakeClipboardItem {
   getType(t: string) { return Promise.resolve(this.items[t]); }
 }
 
-/** A clipboard that, like a real one, refuses outside the gesture and fails when an item's data never arrives. */
-function installClipboard() {
+/**
+ * A clipboard that, like Safari's or Firefox's, refuses outside the gesture and
+ * fails when an item's data never arrives. `images: false` refuses every picture
+ * (a denied permission); `lateText: true` takes text after the tap, as Chrome does.
+ */
+function installClipboard({ images = true, lateText = false } = {}) {
   const write = vi.fn((items: FakeClipboardItem[]) => {
     calls.push('clipboard.write');
-    if (!inGesture) return Promise.reject(notAllowed());
+    if (!inGesture || !images) return Promise.reject(notAllowed());
     return Promise.all(items.flatMap((i) => i.types.map((t) => i.getType(t)))).then(() => undefined);
   });
-  const writeText = vi.fn(async (_t: string) => undefined);
+  const writeText = vi.fn((_t: string) => {
+    calls.push(inGesture ? 'clipboard.writeText' : 'clipboard.writeText (after the tap)');
+    return inGesture || lateText ? Promise.resolve() : Promise.reject(notAllowed());
+  });
   vi.stubGlobal('ClipboardItem', FakeClipboardItem);
   return { write, writeText };
+}
+
+/**
+ * What the device's main pointer is: a finger on a phone or tablet ('coarse'),
+ * or a mouse or trackpad ('fine'). jsdom has no matchMedia at all, which the
+ * receipt must read as a desktop.
+ */
+function stubPointer(kind: 'coarse' | 'fine') {
+  vi.stubGlobal('matchMedia', (media: string) => ({
+    media,
+    matches: media === '(pointer: coarse)' ? kind === 'coarse' : media === '(pointer: fine)' && kind === 'fine',
+    onchange: null,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    dispatchEvent: () => false,
+  }));
 }
 
 /** A share sheet that takes files, refuses outside the gesture, or fails as told. */
@@ -124,11 +154,11 @@ function sharedText(): string {
   return url.searchParams.get('text') ?? '';
 }
 
-/** Wait until the card has been rendered to a PNG ahead of any tap. */
+/** Wait until the card's render ahead of any tap has finished: a PNG, or a failure. */
 async function cardRendered() {
   await waitFor(() => expect(html2canvasMock).toHaveBeenCalled(), { timeout: 3000 });
   await act(async () => {
-    await html2canvasMock.mock.results.at(-1)!.value;
+    await Promise.resolve(html2canvasMock.mock.results.at(-1)!.value).catch(() => undefined);
     await new Promise((r) => setTimeout(r, 0));
   });
 }
@@ -264,6 +294,20 @@ describe('receipt share: the composed post', () => {
     expect(text).toContain(`Tx: https://etherscan.io/tx/${HASH}`);
     expect(text).toContain('MEMETICS.FINANCE');
   });
+
+  // An emoji is TWO UTF-16 units. The card caps each field at 120, and a cap
+  // counted in units cut this one in half: encodeURIComponent then threw a
+  // URIError on the lone half, and Share to X did nothing at all.
+  it.each([
+    ['an emoji that ends exactly at the cap', `${'A'.repeat(119)}\u{1F600}`, `${'A'.repeat(119)}\u{1F600}`],
+    ['an emoji just past the cap', `${'A'.repeat(120)}\u{1F600}`, 'A'.repeat(120)],
+    ['half an emoji already in the name', 'AB\u{D83D}CD', 'ABCD'],
+  ])('a token name with %s still shares, and never as half a character', async (_name, token, shown) => {
+    tap(shareButton(openReceipt({ ...STAKE, token, txHash: HASH })));
+    await waitFor(() => expect(popups.length).toBe(1));
+    expect(popups[0].inGesture).toBe(true);
+    expect(sharedText().split('\n')).toContain(`Amount: 50000.0000 ${shown}`);
+  });
 });
 
 describe('receipt share: every gesture-bound call happens inside the tap', () => {
@@ -288,6 +332,7 @@ describe('receipt share: every gesture-bound call happens inside the tap', () =>
 
   it('hands the share sheet the card inside the tap (phones)', async () => {
     canvasState.works = true;
+    stubPointer('coarse');
     const sheet = installShareSheet('ok');
     stubNavigator(sheet);
     const dialog = openReceipt({ ...STAKE, txHash: HASH });
@@ -305,8 +350,12 @@ describe('receipt share: every gesture-bound call happens inside the tap', () =>
     expect(screen.queryByTestId('receipt-share-hint')).toBeNull();
   });
 
-  it('a cancelled share sheet is a decision, not a failure', async () => {
+  // A closed sheet was read as "they changed their mind" and left nothing behind.
+  // But the usual reason to close it is that X is not in it, and then the poster
+  // had no way to X at all. Closing it still opens nothing by itself.
+  it('a cancelled share sheet opens nothing, and still leaves a link to X (phones)', async () => {
     canvasState.works = true;
+    stubPointer('coarse');
     stubNavigator(installShareSheet('abort'));
     const dialog = openReceipt();
     await cardRendered();
@@ -314,11 +363,40 @@ describe('receipt share: every gesture-bound call happens inside the tap', () =>
     await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
     // Backing out of the sheet must not then shove a popup at the user.
     expect(popups).toEqual([]);
-    expect(screen.queryByTestId('receipt-share-hint')).toBeNull();
+    const hint = await screen.findByTestId('receipt-share-hint');
+    const link = within(hint).getByRole('link', { name: /post it on x/i });
+    const text = new URL(link.getAttribute('href')!).searchParams.get('text') ?? '';
+    expect(text).toContain('MEMETICS.FINANCE');
+    expect(text).toContain('@JungleBayAC');
+    // Not the wording for a window that could not open: nothing failed.
+    expect(hint.textContent).not.toMatch(/could not open/i);
+  });
+
+  // Desktop Chrome and Edge on Windows, and Safari on macOS, all say yes to
+  // canShare({ files }), but X is rarely in their share sheet. A desktop gets
+  // the X window and the card on the clipboard, as if there were no sheet.
+  it('on a desktop, Share to X opens X inside the tap even where the browser could share files', async () => {
+    canvasState.works = true;
+    stubPointer('fine');
+    const sheet = installShareSheet('ok');
+    const clipboard = installClipboard();
+    stubNavigator({ ...sheet, clipboard });
+    const dialog = openReceipt({ ...STAKE, txHash: HASH });
+    await cardRendered();
+
+    tap(shareButton(dialog));
+    expect(sheet.share, 'a desktop was handed the share sheet, where X is usually missing').not.toHaveBeenCalled();
+    expect(popups).toHaveLength(1);
+    expect(popups[0].inGesture).toBe(true);
+    expect(popups[0].url).toMatch(/^https:\/\/twitter\.com\/intent\/tweet\?text=/);
+    expect(calls.slice(0, 2)).toEqual(['clipboard.write', 'open']);
+    const hint = await screen.findByTestId('receipt-share-hint');
+    await waitFor(() => expect(hint.textContent).toMatch(/Receipt image copied/i));
   });
 
   it('a share sheet that fails offers a link to X, never a popup after the tap has ended', async () => {
     canvasState.works = true;
+    stubPointer('coarse');
     stubNavigator(installShareSheet('error'));
     const dialog = openReceipt();
     await cardRendered();
@@ -335,6 +413,7 @@ describe('receipt share: every gesture-bound call happens inside the tap', () =>
 
   it('does not claim files are supported when canShare is absent', async () => {
     canvasState.works = true;
+    stubPointer('coarse');
     const share = vi.fn(async (_data: unknown) => undefined);
     // `share` exists but `canShare` does not: the browsers that silently drop
     // attachments. Probing only for `share` would post text and lie about it.
@@ -367,5 +446,48 @@ describe('receipt share: every gesture-bound call happens inside the tap', () =>
     await act(async () => { await clipboard.write.mock.results[0].value; });
     // The image landed, so no text fallback replaced it.
     expect(clipboard.writeText).not.toHaveBeenCalled();
+  });
+
+  // The text fallback ran only after awaiting the image write, by which time
+  // Safari and Firefox no longer count the tap and refuse it. When the picture
+  // is already known to be missing, the text goes in during the tap.
+  it('when the card could not be drawn, Copy Image copies the text inside the tap, and says it is text', async () => {
+    const clipboard = installClipboard();
+    stubNavigator({ clipboard });
+    const dialog = openReceipt({ ...STAKE, txHash: HASH });
+    await cardRendered(); // the render fails: html2canvas has no canvas here
+
+    tap(within(dialog).getByRole('button', { name: /copy image/i }));
+    expect(clipboard.writeText, 'the text was not copied during the tap').toHaveBeenCalledTimes(1);
+    expect(calls).toContain('clipboard.writeText');
+    expect(clipboard.writeText.mock.calls[0][0]).toContain('MEMETICS.FINANCE');
+    const hint = await screen.findByTestId('receipt-share-hint');
+    await waitFor(() => expect(hint.textContent).toMatch(/copied as text/i));
+  });
+
+  it('Copy Image says so when the browser refuses every copy', async () => {
+    canvasState.works = true;
+    const clipboard = installClipboard({ images: false });
+    stubNavigator({ clipboard });
+    const dialog = openReceipt();
+    await cardRendered();
+
+    tap(within(dialog).getByRole('button', { name: /copy image/i }));
+    const hint = await screen.findByTestId('receipt-share-hint');
+    await waitFor(() => expect(hint.textContent).toMatch(/could not copy the receipt/i));
+    expect(hint.textContent).not.toMatch(/copied/i);
+  });
+
+  it('Copy Image falls back to text after the tap where the browser still takes it, and says it is text', async () => {
+    canvasState.works = true;
+    const clipboard = installClipboard({ images: false, lateText: true });
+    stubNavigator({ clipboard });
+    const dialog = openReceipt();
+    await cardRendered();
+
+    tap(within(dialog).getByRole('button', { name: /copy image/i }));
+    const hint = await screen.findByTestId('receipt-share-hint');
+    await waitFor(() => expect(hint.textContent).toMatch(/copied as text/i));
+    expect(clipboard.writeText).toHaveBeenCalledTimes(1);
   });
 });
