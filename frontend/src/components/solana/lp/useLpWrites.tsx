@@ -83,7 +83,7 @@ export type PanelKind = 'add' | 'remove' | 'create';
 
 const LpWritesContext = createContext<LpWrites | null>(null);
 
-/** The panels' hook: null without a provider, which is the shipped 'off' build. */
+/** The panels' hook: null without a provider, which is a build with LP switched 'off'. */
 // eslint-disable-next-line react-refresh/only-export-components
 export function useLpWrites(): LpWrites | null {
   return useContext(LpWritesContext);

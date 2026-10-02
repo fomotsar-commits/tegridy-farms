@@ -74,8 +74,10 @@ function readers(o: Partial<LpReaders> = {}): LpReaders {
   };
 }
 
+// The reads-only section: LP's mode 'off', set here rather than taken from the committed
+// switch (now 'on'), so these tests keep proving what 'off' shows whatever ships.
 function mount(r: LpReaders, path = `/pools?mint=${M}`) {
-  return render(<MemoryRouter initialEntries={[path]}><LpInner readers={r} /></MemoryRouter>);
+  return render(<MemoryRouter initialEntries={[path]}><LpInner readers={r} writes={{ mode: 'off' }} /></MemoryRouter>);
 }
 
 beforeEach(() => { wallet.publicKey = null; });

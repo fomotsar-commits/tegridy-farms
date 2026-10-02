@@ -10,9 +10,13 @@ const E2E = { DEV: false, MODE: 'solana-e2e' };
 const DEV = { DEV: true, MODE: 'development' };
 
 describe('LP write mode', () => {
-  it('ships off: a production build offers nothing', () => {
-    expect(LP_WRITES).toBe('off');
-    expect(lpWriteMode(PROD)).toBe('off');
+  it('ships ON (the LP release): a production build offers adding, removing and opening a pool', () => {
+    // Owner rulings: 2026-09-29 "public LP opens before the fork review, with a disclosure";
+    // 2026-10-01 "finish it all". Deliberately pinned: switching back is its own commit.
+    expect(LP_WRITES).toBe('on');
+    expect(lpWriteMode(PROD)).toBe('on');
+    // No env variable closes it in production either.
+    expect(lpWriteMode({ ...PROD, VITE_SOLANA_CURVE_WRITES: '0' })).toBe('on');
   });
 
   it('production ignores env, both ways', () => {

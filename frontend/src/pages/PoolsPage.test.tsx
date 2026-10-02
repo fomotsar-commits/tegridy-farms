@@ -20,7 +20,8 @@ vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 // The LP section has its own tests (components/solana/lp); here only WHEN it mounts matters.
 vi.mock('../components/solana/lp/SolanaLpSection', () => ({ default: () => <div data-testid="lp-section" /> }));
 // LP's own switch, steerable per test (spec addendum D24): the page's words about what this
-// site can do with the pools follow it. Every other test sees the shipped 'off'.
+// site can do with the pools follow it. Every other test sees 'off' (the reads-only page),
+// whatever is committed; the committed value is pinned in lpWriteFlag.test.ts.
 const lp = vi.hoisted(() => ({ mode: 'off' as 'off' | 'on' | 'withdraw-only' }));
 vi.mock('../lib/launcher/solana/lpWriteFlag', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/launcher/solana/lpWriteFlag')>()),

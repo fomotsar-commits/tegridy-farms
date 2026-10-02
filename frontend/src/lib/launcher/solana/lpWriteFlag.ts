@@ -1,8 +1,8 @@
 // Whether /pools may offer adding and removing liquidity. Web3-free on purpose, like
 // curveWriteFlag.ts: the pools page reads it before any write code is fetched.
 //
-// LP has its OWN switch, never the curve's (CURVE_WRITES_ENABLED is already true, so
-// following it would open liquidity at merge with no owner step). Three states:
+// LP has its OWN switch, never the curve's: the two open and close on separate owner
+// rulings (in the LP release launching is off while liquidity is on). Three states:
 //   - 'off': nothing is offered and no write code loads. Only for a defect in our own
 //     withdraw builder; the pools page then shows how to leave without this site.
 //   - 'withdraw-only': the emergency state. Adding is hidden; removing still works.
@@ -21,8 +21,12 @@ import { curveWriteEnvOverridesAllowed } from './curveWriteFlag';
 
 export type LpWriteMode = 'off' | 'withdraw-only' | 'on';
 
-/** Ships 'off'. The owner flips it in its own one-line commit. 'withdraw-only' is the emergency state. */
-export const LP_WRITES: LpWriteMode = 'off';
+/**
+ * 'on' from the LP release. Owner rulings: 2026-09-29 "public LP opens before the fork
+ * review, with a disclosure"; 2026-10-01 "finish it all" for this release. Flipped in its
+ * own commit. 'withdraw-only' is the emergency state; 'off' only for a withdraw-builder defect.
+ */
+export const LP_WRITES: LpWriteMode = 'on';
 
 type Env = Record<string, unknown>;
 
