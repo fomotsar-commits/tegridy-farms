@@ -125,10 +125,10 @@ export const COLLECTIONS = {
 
   // ─── The Jungle Bay family (memetics.wtf/heat: "the family collections") ───
   // Every value below was READ: an eth_call on Ethereum or Base, a Solana
-  // metadata read, the collection's own OpenSea page or the Magic Eden API
-  // (registry.test.js holds each one to __fixtures__/jungleBayFamily.js).
-  // No lore, loading lines or fun facts exist for them, by design. Only Gold
-  // Cards trades here; the other five open read only on their home market.
+  // metadata read, or the collection's own OpenSea page (registry.test.js
+  // holds each one to __fixtures__/jungleBayFamily.js). No lore, loading
+  // lines or fun facts exist for them, by design. Only Gold Cards trades
+  // here; the other five open read only, and link out to OpenSea only.
   junglebaygoldcards: {
     name: "Jungle Bay Gold Cards",
     contract: "0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3", // src/lib/constants.ts JBAY_GOLD_ADDRESS
@@ -244,7 +244,6 @@ export const COLLECTIONS = {
     contract: null,
     slug: "junglets",
     openseaSlug: null, // OpenSea has no Junglets page
-    magicEdenSymbol: "junglet",
     solana: {
       collectionMint: "5csQYUGtJzUveFCKGRrnVCNZrPpkSAEZCZEsu9nBHuuK",
       updateAuthority: "3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw",
@@ -268,11 +267,9 @@ export const COLLECTIONS = {
     tags: ["METAPLEX PNFT", "SOLANA", "JUNGLE BAY"],
     pixelated: false,
     highlights: [],
-    market: {
-      name: "Magic Eden",
-      collectionUrl: "https://magiceden.us/marketplace/junglet",
-      itemUrlTemplate: null, // no item page pattern was verified
-    },
+    // Every market link is OpenSea (owner ruling, 2026-10-02), and OpenSea
+    // has no Junglets page: no market link, and no market is read for it.
+    market: null,
     explorer: { name: "Solana Explorer", addressUrl: "https://explorer.solana.com/address/5csQYUGtJzUveFCKGRrnVCNZrPpkSAEZCZEsu9nBHuuK" },
     blurSlug: null,
   },

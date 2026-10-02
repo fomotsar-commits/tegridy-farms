@@ -34,7 +34,10 @@ export const TAB_LABELS = {
 };
 
 export function explainerLine(collection) {
-  return `${collection.name} lives on ${chainLabel(collection)}. Browse it here; it trades on ${collection.market.name}.`;
+  const where = `${collection.name} lives on ${chainLabel(collection)}.`;
+  return collection.market?.name
+    ? `${where} Browse it here; it trades on ${collection.market.name}.`
+    : `${where} This venue shows its facts, but reads no market for it.`;
 }
 
 /** "an ERC-721", "a Metaplex pNFT". */
@@ -57,8 +60,4 @@ export function unavailableCopy(tab, collection) {
 /** The item's own name, or the collection's name and number when it has none. */
 export function itemName(collection, item) {
   return item.name || (item.id != null ? `${collection.name} #${item.id}` : collection.name);
-}
-
-export function itemKey(item) {
-  return item.mint || item.id;
 }

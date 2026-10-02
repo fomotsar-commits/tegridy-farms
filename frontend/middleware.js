@@ -131,7 +131,7 @@ export const OG_COLLECTIONS = {
     image: "https://wsrv.nl/?url=https%3A%2F%2Fna-assets.pinit.io%2F3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw%2Fb69c398c-8a8f-4b56-8f82-fdb0b1d3a16e%2F0&w=400&output=webp",
     viewOnly: true,
     chain: "Solana",
-    market: "Magic Eden",
+    market: null, // OpenSea has no Junglets page, and no other market is linked
   },
   bojungles: {
     name: "Bojungles",
@@ -394,7 +394,7 @@ export default async function middleware(req) {
   if (collection.viewOnly) {
     return respond(ogHtml({
       title: `${collection.name} | Tradermigos`,
-      description: `${collection.supply ? `${collection.supply} items · ` : ""}On ${collection.chain}. Browse it on Tradermigos; it trades on ${collection.market}.`,
+      description: `${collection.supply ? `${collection.supply} items · ` : ""}On ${collection.chain}. ${collection.market ? `Browse it on Tradermigos; it trades on ${collection.market}.` : "See it on Tradermigos."}`,
       image: absImage(collection.image),
       url: pageUrl,
     }));

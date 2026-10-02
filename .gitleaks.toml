@@ -148,12 +148,14 @@ regexes = [
   #
   # \ JUNGLETS, added 2026-09-24 \\\\\\\\\\\\\\\\\\\\\\\\@
   #
-  # Ten public Solana ids from Magic Eden's Junglets listings answer, restated in
-  # e2e/fixtures/jungle-bay-family/me-listings.junglet.json and externalMarket.test.js,
-  # where the tokenMint and tokenAddress keys trip `generic-api-key`. Read on mainnet
-  # with getMultipleAccounts on 2026-09-24: five SPL mints (supply 1, decimals 0) and
-  # the five token accounts holding them. The item panel links each mint to the
-  # Solana explorer. EXACT strings, per the SOLANA section above.
+  # Ten public Solana ids from a Junglets listings answer that earlier commits of
+  # PR #672 restated in an e2e fixture and in externalMarket.test.js, where the
+  # tokenMint and tokenAddress keys trip `generic-api-key`. Read on mainnet with
+  # getMultipleAccounts on 2026-09-24: five SPL mints (supply 1, decimals 0) and
+  # the five token accounts holding them. EXACT strings, per the SOLANA section
+  # above. The fixture and those tests were removed by the owner ruling of
+  # 2026-10-02, so no file holds these ids now; the entries stay because the PR
+  # scan reads every commit in the PR, and can be DELETED once #672 has merged.
   # Junglet #64 mint
   '''\bDGzxMHMKVdy1SsSRfR1wLXxA1eB5TeNMp22NADsKYPK3\b''',
   # Junglet #64 token account

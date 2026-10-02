@@ -18,11 +18,12 @@ import { EXTERNAL_TABS, TAB_LABELS } from "./externalCopy";
 
 const WalletModal = lazy(() => import("../WalletModal"));
 
-// A collection that is browsed here and trades on its own market (OpenSea or
-// Magic Eden). It has a gallery and an About page, both read from that market,
-// and a button to it. None of the Ethereum trading app mounts here: no cart,
-// no order book, no Alchemy reads, no wallet-gated tabs. Any other tab renders
-// an explicit unavailable state.
+// A collection that is browsed here and trades on OpenSea. It has a gallery
+// and an About page, both read from OpenSea, and a button to it. A collection
+// OpenSea does not list (Junglets) has neither the reads nor the button, and
+// says so. None of the Ethereum trading app mounts here: no cart, no order
+// book, no Alchemy reads, no wallet-gated tabs. Any other tab renders an
+// explicit unavailable state.
 export default function ExternalCollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycleTheme, wallet, walletName, disconnect }) {
   const collection = useActiveCollection();
   const location = useLocation();
@@ -80,7 +81,7 @@ export default function ExternalCollectionView({ tab, deepLinkTokenId, collectio
 
   const notFoundNotice = useMemo(() => (deepLinkNotFound ? (
     <div className="ext-notice" role="status">
-      {`${collection.name} #${deepLinkId} was not found in this collection's ${collection.market.name} items.`}
+      {`${collection.name} #${deepLinkId} was not found in this collection's ${collection.market?.name} items.`}
     </div>
   ) : null), [deepLinkNotFound, deepLinkId, collection]);
 
@@ -92,7 +93,6 @@ export default function ExternalCollectionView({ tab, deepLinkTokenId, collectio
           <ExternalGallery
             collection={collection}
             items={items}
-            listedCount={stats.status === "ready" ? stats.data.listedCount : null}
             onRetry={retry}
             onPick={setSelected}
             notice={notFoundNotice}
@@ -155,7 +155,9 @@ export default function ExternalCollectionView({ tab, deepLinkTokenId, collectio
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
               <div className="ext-footer-name">{collection.name.toUpperCase()}</div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>Browsed here, traded on {collection.market.name}</div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)" }}>
+                {collection.market ? `Browsed here, traded on ${collection.market.name}` : "Facts only; no market read here"}
+              </div>
             </div>
           </div>
           <div className="footer-links">

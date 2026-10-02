@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-02
 
+- The marketplace lists the six Jungle Bay family collections: Gold Cards trade here with the same flat 1% fee, four more can be browsed here and link out to OpenSea, and Junglets shows its facts only.
 - When the site cannot read a transaction's result, it says so and points to the explorer, instead of saying the transaction failed.
 - A reverted transaction says it reverted, and the Swap button no longer stays stuck after one.
 - A transaction your wallet cancelled or replaced is no longer shown as a success; a sped-up one still is.
@@ -48,7 +49,6 @@ page keeps the newest thirty days.
 
 ### 2026-09-24
 
-- The marketplace lists the six Jungle Bay family collections: Gold Cards trade here with the same flat 1% fee, and the other five can be browsed here and trade on OpenSea or Magic Eden.
 - On phones and iPads the Copy Trading tab reads CT, and no tab runs into the next one.
 
 ### 2026-09-22

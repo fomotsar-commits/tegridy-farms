@@ -4687,7 +4687,6 @@
   display: flex; justify-content: space-between; gap: 8px; margin-top: 4px;
   font-family: var(--mono); font-size: 10px; color: var(--text-muted);
 }
-.nakamigos-app .ext-card-price { color: var(--gold); font-weight: 600; }
 .nakamigos-app .ext-image-missing {
   width: 100%; height: 100%; display: grid; place-items: center;
   font-family: var(--mono); font-size: 10px; color: var(--text-muted); background: var(--bg);
@@ -4697,7 +4696,6 @@
 .nakamigos-app .ext-panel-collection { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 0.04em; overflow-wrap: anywhere; }
 .nakamigos-app .ext-panel-title { font-family: var(--display); font-size: 18px; color: var(--text); margin: 4px 0; overflow-wrap: anywhere; }
 .nakamigos-app .ext-panel-id { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
-.nakamigos-app .ext-panel-price { font-family: var(--mono); font-size: 13px; color: var(--gold); }
 .nakamigos-app .ext-panel-note { font-family: var(--mono); font-size: 10px; color: var(--text-muted); line-height: 1.6; margin: 8px 0 0; }
 .nakamigos-app .ext-panel-actions .ext-market-btn { width: 100%; }
 .nakamigos-app .ext-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }

@@ -381,7 +381,8 @@ function RugToRichesTimeline() {
 // registry read them, and where it trades.
 function FamilyEntry({ collection }) {
   const supply = supplyLabel(collection);
-  const trades = canTradeOnVenue(collection) ? "Trades here" : `Trades on ${collection.market?.name}`;
+  const trades = canTradeOnVenue(collection) ? "Trades here"
+    : collection.market?.name ? `Trades on ${collection.market.name}` : "Not traded here";
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>

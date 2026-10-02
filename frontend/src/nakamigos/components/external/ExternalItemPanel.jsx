@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { chainLabel, standardLabel, marketItemUrl, explorerAddressUrl } from "../../lib/venue";
-import { formatMarketAmount } from "../../lib/marketAmount";
 import MarketButton from "./MarketButton";
 import { itemName } from "./externalCopy";
 
@@ -18,9 +17,9 @@ function Fact({ label, children }) {
 }
 
 // One item of a view-only collection: what was read about it, and a link to
-// its page on the market where it trades (per item where an item page was
-// verified, the collection page otherwise). No action is offered here, and a
-// token held by the burn address gets no market link at all.
+// its page on OpenSea (per item where an item page was verified, the
+// collection page otherwise). No action is offered here, and a token held by
+// the burn address gets no market link at all.
 export default function ExternalItemPanel({ collection, item, onClose }) {
   const closeRef = useRef(null);
   const [broken, setBroken] = useState(false);
@@ -28,7 +27,7 @@ export default function ExternalItemPanel({ collection, item, onClose }) {
   const burned = item.id != null && (collection.burnedIds || []).some((b) => String(b) === String(item.id));
   const itemUrl = item.id != null ? marketItemUrl(collection, item.id) : null;
   const explorer = explorerAddressUrl(collection);
-  const price = item.priceSol != null ? formatMarketAmount(item.priceSol, "SOL", collection) : null;
+  const market = collection.market?.name;
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -59,43 +58,31 @@ export default function ExternalItemPanel({ collection, item, onClose }) {
             <button ref={closeRef} type="button" className="modal-close" onClick={onClose} aria-label="Close">{"\u2715"}</button>
           </div>
 
-          {price && (
-            <div className="ext-panel-price">Listed at {price} on {collection.market.name}</div>
-          )}
-
           <div className="ext-facts">
             <Fact label="Chain">{chainLabel(collection)}</Fact>
             <Fact label="Standard">{standardLabel(collection)}</Fact>
-            {collection.contract ? (
+            {collection.contract && (
               <Fact label="Contract">
                 {explorer ? <a href={explorer} target="_blank" rel="noopener noreferrer">{short(collection.contract)} {"\u2197"}</a> : short(collection.contract)}
               </Fact>
-            ) : item.mint ? (
-              <Fact label="Mint">
-                <a href={`https://explorer.solana.com/address/${item.mint}`} target="_blank" rel="noopener noreferrer">{short(item.mint)} {"\u2197"}</a>
-              </Fact>
-            ) : null}
+            )}
           </div>
-
-          {item.attributes?.length > 0 && (
-            <div className="ext-facts">
-              {item.attributes.map((a) => <Fact key={`${a.key}:${a.value}`} label={a.key}>{a.value}</Fact>)}
-            </div>
-          )}
 
           {burned ? (
             <p className="ext-panel-note">
-              This token is held by the burn address, so it cannot be bought on {collection.market.name} or anywhere else.
+              This token is held by the burn address, so it cannot be bought on {market || "any market"} or anywhere else.
             </p>
-          ) : (
+          ) : market ? (
             <div className="ext-panel-actions">
               <MarketButton collection={collection} href={itemUrl || undefined} />
               <p className="ext-panel-note">
                 {itemUrl
-                  ? `Opens this item's page on ${collection.market.name}. ${collection.name} does not trade on this venue.`
-                  : `Opens the collection's page on ${collection.market.name}. ${collection.name} does not trade on this venue.`}
+                  ? `Opens this item's page on ${market}. ${collection.name} does not trade on this venue.`
+                  : `Opens the collection's page on ${market}. ${collection.name} does not trade on this venue.`}
               </p>
             </div>
+          ) : (
+            <p className="ext-panel-note">{collection.name} does not trade on this venue.</p>
           )}
         </div>
       </div>

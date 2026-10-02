@@ -393,34 +393,32 @@ function CrossCollectionSearch() {
 }
 
 /* ─── A view-only card's numbers, read from its home market ───
-   Each in its own unit (SOL, ETH on Base), a floor read as none listed says
-   so, and a figure the market read does not produce is the unread dash. */
+   Each in its own unit (ETH on Base), a floor read as none listed says so,
+   and a figure the read does not produce is the unread dash. A collection
+   with no market read (Junglets) says that, never a zero. */
 function ViewOnlyStats({ collection, stats, loading, error }) {
   const dash = "\u2014";
-  const unread = error || !stats;
-  const fromMagicEden = stats?.source === "Magic Eden";
+  const unread = !!error || !stats;
   const floorRead = unread ? null
     : stats.floor != null ? formatMarketAmount(stats.floor, stats.floorSymbol, collection)
       : stats.noneListed ? "None listed" : null;
+  const unavailableLine = error === "no-market-read"
+    ? `Stats unavailable: this venue reads no market for ${collection.name}`
+    : `Stats unavailable: ${collection.market?.name} could not be read`;
   return (
     <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 14 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 16px" }}>
         <Stat label="Floor" loading={loading} shimmerWidth="55%" wrap value={floorRead ?? dash}
           note={!unread && floorRead == null ? "not read" : null} />
-        {fromMagicEden ? (
-          <Stat label="Listed" loading={loading} shimmerWidth="40%" wrap
-            value={stats.listedCount != null ? stats.listedCount.toLocaleString("en-US") : dash} />
-        ) : (
-          <Stat label="Volume" loading={loading} shimmerWidth="70%" wrap
-            value={unread ? dash : (formatMarketAmount(stats.volume, "ETH", collection) ?? dash)} />
-        )}
+        <Stat label="Volume" loading={loading} shimmerWidth="70%" wrap
+          value={unread ? dash : (formatMarketAmount(stats.volume, "ETH", collection) ?? dash)} />
         <Stat label="Owners" loading={loading} shimmerWidth="50%" wrap
           value={unread || stats.owners == null ? dash : stats.owners.toLocaleString("en-US")} />
         <Stat label="Supply" loading={false} wrap value={supplyLabel(collection) ?? dash} />
       </div>
       {!loading && (
         <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--text-muted)", marginTop: 10, letterSpacing: "0.04em" }}>
-          {unread ? `Stats unavailable: ${collection.market.name} could not be read` : `Stats from ${stats.source}`}
+          {unread ? unavailableLine : `Stats from ${stats.source}`}
         </div>
       )}
     </div>
@@ -479,7 +477,8 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
   };
 
   const isLoading = statsLoading;
-  const isError = statsError && !stats;
+  // The error's reason ("no-market-read") or true; false once stats are read.
+  const isError = !stats && statsError ? statsError : false;
   const dash = "\u2014";
 
   return (
@@ -772,12 +771,13 @@ export default function CollectionLanding() {
   useEffect(() => {
     let cancelled = false;
     const promises = COLLECTION_LIST.map((col) => {
-      // View-only collections read their home market; never the venue's
-      // Ethereum readers, which would answer for the wrong chain or standard.
+      // View-only collections read OpenSea; never the venue's Ethereum
+      // readers, which would answer for the wrong chain or standard. The
+      // error keeps its reason, so "no market read" is not called a failure.
       if (!canTradeOnVenue(col)) {
         return fetchExternalStats(col).then((s) => {
           if (cancelled) return;
-          if (!s || s.unavailable) setStatsErrors((prev) => ({ ...prev, [col.slug]: true }));
+          if (!s || s.unavailable) setStatsErrors((prev) => ({ ...prev, [col.slug]: s?.reason || true }));
           else setStatsMap((prev) => ({ ...prev, [col.slug]: s }));
         });
       }

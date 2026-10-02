@@ -1,19 +1,15 @@
-// Stats and items for a view-only collection, read from its home market.
-// The four EVM family collections read OpenSea by slug (/api/opensea, two
-// read-only routes); Junglets read Magic Eden (/api/aggregator?resource=
-// me-read). Every row is validated; a page carries how many rows it
-// dropped, and a page whose rows all fail is `{ unavailable, reason }`, as
-// is every failed read: never an empty success. Numbers keep full
-// precision, and a field the read did not produce is null, never 0.
+// Stats and items for a view-only collection, read from OpenSea by slug
+// (/api/opensea, two read-only routes). OpenSea is the only market this venue
+// reads or links to (owner ruling, 2026-10-02), so a collection it does not
+// list (Junglets) makes no read at all and answers `{ unavailable, reason:
+// "no-market-read" }`. Every row is validated; a page carries how many rows
+// it dropped, and a page whose rows all fail is `{ unavailable, reason }`, as
+// is every failed read: never an empty success. Numbers keep full precision,
+// and a field the read did not produce is null, never 0.
 
 const CACHE_MS = 60_000;
 const OPENSEA_ITEMS_PAGE = 200;
-const ME_PAGE = 100;
-const ME_OFFSETS = new Set([0, 100, 200]);
-const WSOL_MINT = "So11111111111111111111111111111111111111112";
 const TOKEN_ID_RE = /^\d{1,10}$/;
-const LAMPORTS_RE = /^\d{1,30}$/;
-const SOLANA_MINT_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 // Successful reads are kept for a minute; identical reads in flight share one
 // request. A failure is never cached, so the next read asks again.
@@ -90,71 +86,39 @@ function httpsOnHost(url, isAllowedHost) {
 // OpenSea's own CDN, which the CSP admits as https://*.seadn.io.
 const seadnImage = (url) => httpsOnHost(url, (h) => h.endsWith(".seadn.io"));
 
-// Junglets' images, served through the image proxy the CSP already admits.
-function jungletImage(url) {
-  const src = httpsOnHost(url, (h) => h === "na-assets.pinit.io");
-  return src ? `https://wsrv.nl/?url=${encodeURIComponent(src)}&w=400&output=webp` : null;
-}
-
 function openseaUrl(path, params = {}) {
   const q = new URLSearchParams({ path, ...params });
   return `/api/opensea?${q.toString()}`;
 }
 
-function meUrl(path, params = {}) {
-  const q = new URLSearchParams({ resource: "me-read", path, ...params });
-  return `/api/aggregator?${q.toString()}`;
-}
-
-function readsMagicEden(collection) {
-  return collection?.chain === "solana" && typeof collection?.magicEdenSymbol === "string";
-}
-
-function readsOpenSea(collection) {
+/** Whether this venue reads a market for the collection: OpenSea, for an EVM collection it lists. */
+export function readsMarket(collection) {
   return (collection?.chain === "ethereum" || collection?.chain === "base") && typeof collection?.openseaSlug === "string";
 }
 
+const noMarketRead = () => Promise.resolve(unavailable("no-market-read"));
+
 /**
  * The collection's market stats: `{ floor, floorSymbol, noneListed, volume,
- * owners, listedCount, source }`, or `{ unavailable, reason, retryAfter? }`.
+ * owners, source }`, or `{ unavailable, reason, retryAfter? }`.
  * `floor` is a price above zero or null; `noneListed` says the read carried
  * no floor because nothing is listed, as opposed to not carrying one.
  */
 export function fetchExternalStats(collection) {
-  if (readsMagicEden(collection)) {
-    const symbol = collection.magicEdenSymbol;
-    return cachedRead(meUrl(`/collections/${symbol}/stats`), (data) => {
-      if (!isPlainObject(data) || (data.symbol != null && data.symbol !== symbol)) return unavailable("shape");
-      const floor = readFloor(data, "floorPrice");
-      return {
-        floor: floor.value != null ? floor.value / 1e9 : null,
-        floorSymbol: floor.value != null ? "SOL" : null,
-        noneListed: floor.noneListed,
-        // Magic Eden's stats route reads neither of these.
-        volume: null,
-        owners: null,
-        listedCount: finiteOrNull(data.listedCount),
-        source: "Magic Eden",
-      };
-    });
-  }
-  if (readsOpenSea(collection)) {
-    return cachedRead(openseaUrl(`collections/${collection.openseaSlug}/stats`), (data) => {
-      if (!isPlainObject(data) || !isPlainObject(data.total)) return unavailable("shape");
-      const t = data.total;
-      const floor = readFloor(t, "floor_price");
-      return {
-        floor: floor.value,
-        floorSymbol: floor.value != null ? stringOrNull(t.floor_price_symbol) : null,
-        noneListed: floor.noneListed,
-        volume: finiteOrNull(t.volume),
-        owners: finiteOrNull(t.num_owners),
-        listedCount: null,
-        source: "OpenSea",
-      };
-    });
-  }
-  return Promise.resolve(unavailable("no-market-read"));
+  if (!readsMarket(collection)) return noMarketRead();
+  return cachedRead(openseaUrl(`collections/${collection.openseaSlug}/stats`), (data) => {
+    if (!isPlainObject(data) || !isPlainObject(data.total)) return unavailable("shape");
+    const t = data.total;
+    const floor = readFloor(t, "floor_price");
+    return {
+      floor: floor.value,
+      floorSymbol: floor.value != null ? stringOrNull(t.floor_price_symbol) : null,
+      noneListed: floor.noneListed,
+      volume: finiteOrNull(t.volume),
+      owners: finiteOrNull(t.num_owners),
+      source: "OpenSea",
+    };
+  });
 }
 
 function normalizeOpenSeaItems(collection, data) {
@@ -172,56 +136,14 @@ function normalizeOpenSeaItems(collection, data) {
   return { items, next: stringOrNull(data.next), source: "OpenSea", dropped: data.nfts.length - items.length };
 }
 
-function normalizeMagicEdenListings(collection, data, offset) {
-  if (!Array.isArray(data)) return unavailable("shape");
-  const items = [];
-  for (const l of data) {
-    const price = l?.priceInfo?.solPrice;
-    const token = l?.token;
-    if (token?.collection !== collection.magicEdenSymbol) continue;
-    if (price?.address !== WSOL_MINT || price?.decimals !== 9 || !LAMPORTS_RE.test(String(price?.rawAmount ?? ""))) continue;
-    const mint = l.tokenMint;
-    if (typeof mint !== "string" || !SOLANA_MINT_RE.test(mint)) continue;
-    const attributes = Array.isArray(token.attributes)
-      ? token.attributes
-        .filter((a) => typeof a?.trait_type === "string" && (typeof a?.value === "string" || typeof a?.value === "number"))
-        .map((a) => ({ key: a.trait_type, value: String(a.value) }))
-      : [];
-    items.push({
-      mint,
-      name: stringOrNull(token.name),
-      image: jungletImage(token.image),
-      priceSol: Number(price.rawAmount) / 1e9,
-      attributes,
-    });
-  }
-  if (data.length > 0 && items.length === 0) return unavailable("shape");
-  const nextOffset = offset + ME_PAGE;
-  return {
-    items,
-    next: data.length === ME_PAGE && ME_OFFSETS.has(nextOffset) ? String(nextOffset) : null,
-    source: "Magic Eden",
-    dropped: data.length - items.length,
-  };
-}
-
 /**
- * One page of items: `{ items, next, source, dropped }`, or `{ unavailable,
- * reason }`. `dropped` counts the rows that failed validation.
- * OpenSea items are `{ id, name, image }`; Magic Eden listings are
- * `{ mint, name, image, priceSol, attributes }`. Pass `next` back as `cursor`.
+ * One page of items, `{ id, name, image }` each: `{ items, next, source,
+ * dropped }`, or `{ unavailable, reason }`. `dropped` counts the rows that
+ * failed validation. Pass `next` back as `cursor`.
  */
 export function fetchExternalItems(collection, cursor = null) {
-  if (readsMagicEden(collection)) {
-    const offset = cursor == null ? 0 : Number(cursor);
-    if (!ME_OFFSETS.has(offset)) return Promise.resolve(unavailable("bad-cursor"));
-    const url = meUrl(`/collections/${collection.magicEdenSymbol}/listings`, { limit: String(ME_PAGE), offset: String(offset) });
-    return cachedRead(url, (data) => normalizeMagicEdenListings(collection, data, offset));
-  }
-  if (readsOpenSea(collection)) {
-    const params = { limit: String(OPENSEA_ITEMS_PAGE) };
-    if (cursor) params.next = String(cursor);
-    return cachedRead(openseaUrl(`collection/${collection.openseaSlug}/nfts`, params), (data) => normalizeOpenSeaItems(collection, data));
-  }
-  return Promise.resolve(unavailable("no-market-read"));
+  if (!readsMarket(collection)) return noMarketRead();
+  const params = { limit: String(OPENSEA_ITEMS_PAGE) };
+  if (cursor) params.next = String(cursor);
+  return cachedRead(openseaUrl(`collection/${collection.openseaSlug}/nfts`, params), (data) => normalizeOpenSeaItems(collection, data));
 }

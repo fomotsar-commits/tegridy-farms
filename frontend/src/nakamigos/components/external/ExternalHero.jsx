@@ -27,9 +27,10 @@ function StatSkeleton({ label }) {
 
 // The market's numbers, each in its own unit. A value the read did not
 // produce is the unread dash, never a zero, and a read that failed says so.
+// A collection with no market read says that instead.
 function StatsRow({ collection, stats }) {
   const supply = supplyLabel(collection) ?? DASH;
-  const market = collection.market.name;
+  const market = collection.market?.name;
 
   if (stats.status === "loading") {
     return (
@@ -52,33 +53,23 @@ function StatsRow({ collection, stats }) {
           <StatCard label="OWNERS" value={DASH} />
           <StatCard label="SUPPLY" value={supply} />
         </div>
-        <div className="ext-stats-source" role="status">Stats unavailable: {market} could not be read right now.</div>
+        <div className="ext-stats-source" role="status">
+          {stats.reason === "no-market-read"
+            ? `Stats unavailable: this venue reads no market for ${collection.name}.`
+            : `Stats unavailable: ${market} could not be read right now.`}
+        </div>
       </>
     );
   }
 
   const s = stats.data;
   const floor = s.floor != null ? formatMarketAmount(s.floor, s.floorSymbol, collection) : s.noneListed ? "None listed" : null;
-  const readsVolume = s.source !== "Magic Eden";
   return (
     <>
       <div className="stats-row">
         <StatCard label="FLOOR" value={floor ?? DASH} note={floor == null ? "not read" : null} color="var(--gold)" />
-        {!readsVolume && (
-          <StatCard label="LISTED" value={s.listedCount != null ? `${s.listedCount.toLocaleString("en-US")} listed` : DASH} color="var(--naka-blue)" />
-        )}
-        <StatCard
-          label="VOLUME"
-          value={formatMarketAmount(s.volume, "ETH", collection) ?? DASH}
-          note={readsVolume ? null : "not read here"}
-          color="var(--naka-blue)"
-        />
-        <StatCard
-          label="OWNERS"
-          value={s.owners != null ? s.owners.toLocaleString("en-US") : DASH}
-          note={readsVolume ? null : "not read here"}
-          color="var(--green)"
-        />
+        <StatCard label="VOLUME" value={formatMarketAmount(s.volume, "ETH", collection) ?? DASH} color="var(--naka-blue)" />
+        <StatCard label="OWNERS" value={s.owners != null ? s.owners.toLocaleString("en-US") : DASH} color="var(--green)" />
         <StatCard label="SUPPLY" value={supply} />
       </div>
       <div className="ext-stats-source">Stats from {s.source}</div>

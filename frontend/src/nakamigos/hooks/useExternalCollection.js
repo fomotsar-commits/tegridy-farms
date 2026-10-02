@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchExternalItems, fetchExternalStats } from "../lib/externalMarket";
+import { fetchExternalItems, fetchExternalStats, readsMarket } from "../lib/externalMarket";
 
 // Stats and items for a view-only collection, as two small state machines:
 //   stats: loading | ready | unavailable
@@ -8,8 +8,12 @@ import { fetchExternalItems, fetchExternalStats } from "../lib/externalMarket";
 // "partial" means some pages read and a later one failed, so the count is a
 // lower bound. `dropped` counts rows the market returned that failed
 // validation. A retry never asks sooner than the market's own Retry-After.
+// A collection with no market read (Junglets) is "unavailable", reason
+// "no-market-read", from the first render, and nothing is asked.
 
 const MAX_PAGES = 10;
+const NO_READ_STATS = Object.freeze({ status: "unavailable", reason: "no-market-read" });
+const NO_READ_ITEMS = Object.freeze({ status: "unavailable", reason: "no-market-read", list: [], dropped: 0, source: null, retryAt: null });
 
 function retryAtFrom(result) {
   const secs = Number(result?.retryAfter);
@@ -21,8 +25,10 @@ export default function useExternalCollection(collection) {
   const [items, setItems] = useState({ status: "loading", list: [] });
   const [attempt, setAttempt] = useState(0);
   const retryAtRef = useRef(null);
+  const reads = readsMarket(collection);
 
   useEffect(() => {
+    if (!reads) return undefined;
     let cancelled = false;
     setStats({ status: "loading" });
     fetchExternalStats(collection).then((result) => {
@@ -32,9 +38,10 @@ export default function useExternalCollection(collection) {
         : { status: "ready", data: result });
     });
     return () => { cancelled = true; };
-  }, [collection]);
+  }, [collection, reads]);
 
   useEffect(() => {
+    if (!reads) return undefined;
     let cancelled = false;
     setItems({ status: "loading", list: [] });
     (async () => {
@@ -72,12 +79,13 @@ export default function useExternalCollection(collection) {
       setItems({ status: list.length > 0 ? "ready" : "empty", list, dropped, source });
     })();
     return () => { cancelled = true; };
-  }, [collection, attempt]);
+  }, [collection, attempt, reads]);
 
   const retry = useCallback(() => {
     if (retryAtRef.current && Date.now() < retryAtRef.current) return;
     setAttempt((n) => n + 1);
   }, []);
 
+  if (!reads) return { stats: NO_READ_STATS, items: NO_READ_ITEMS, retry };
   return { stats, items, retry };
 }

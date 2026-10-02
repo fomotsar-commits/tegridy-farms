@@ -131,13 +131,6 @@ export function isRequestOriginAllowed(req) {
   return isOriginAllowed(origin);
 }
 
-// The allowlist membership itself, in every environment. For a branch whose
-// upstream is a shared keyless budget (me-read), a cross-site page is refused
-// in dev and CI too, not only on a prod-like deploy.
-export function isOriginListed(origin) {
-  return buildAllowedOrigins().has(origin);
-}
-
 function setCors(req, res) {
   const origin = req.headers?.origin || "";
   const allowed = buildAllowedOrigins();
