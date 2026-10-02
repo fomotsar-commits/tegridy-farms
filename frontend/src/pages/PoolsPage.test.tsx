@@ -117,7 +117,7 @@ describe('when the venue is live', () => {
     expect(screen.queryByText(/How it works:/i)).not.toBeInTheDocument();
   });
 
-  it('reads the fees from the chain, with no badge', async () => {
+  it('drops the PROPOSAL badge and reads the fees from the chain', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     expect(screen.queryByText('PROPOSAL')).not.toBeInTheDocument();

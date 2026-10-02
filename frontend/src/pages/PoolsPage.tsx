@@ -202,23 +202,6 @@ export default function PoolsPage() {
 
 const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-purple-25)' } as const;
 
-/** The fee sheet with no config read: still reading, a failed read, or nothing to read. */
-function feesNotRead(status: VenueStatus | null): { title: string; line: string } {
-  if (status === null) {
-    return { title: 'Reading the fee tiers from the chain…', line: 'No fee is shown until the chain answers.' };
-  }
-  if (status.kind === 'unreadable') {
-    return {
-      title: 'The fee tiers could not be read just now',
-      line: 'The chain did not answer, so this page shows no fee rather than a guess.',
-    };
-  }
-  return {
-    title: 'No fee tier was read',
-    line: 'This page shows a fee only from a tier it read on chain. The card above says why there is none to read.',
-  };
-}
-
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'good' }) {
   return (
     <div className="rounded-lg px-3 py-2" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -345,4 +328,21 @@ function Addr({ label, value }: { label: string; value: string }) {
       <CopyButton text={value} display={`${value.slice(0, 4)}…${value.slice(-4)}`} className="font-mono text-[12px]" style={{ color: 'var(--color-kyle)' }} />
     </span>
   );
+}
+
+/** The fee sheet with no config read: still reading, a failed read, or nothing to read. */
+function feesNotRead(status: VenueStatus | null): { title: string; line: string } {
+  if (status === null) {
+    return { title: 'Reading the fee tiers from the chain…', line: 'No fee is shown until the chain answers.' };
+  }
+  if (status.kind === 'unreadable') {
+    return {
+      title: 'The fee tiers could not be read just now',
+      line: 'The chain did not answer, so this page shows no fee rather than a guess.',
+    };
+  }
+  return {
+    title: 'No fee tier was read',
+    line: 'This page shows a fee only from a tier it read on chain. The card above says why there is none to read.',
+  };
 }
