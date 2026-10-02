@@ -32,10 +32,13 @@ fails the deploy with:
 The *build* succeeds (vite/tsc compile fine); only the *deploy* step trips the cap. So a code-clean
 PR can still show a Vercel `Error` purely from function count.
 
-## Current state (counted in the tree, 2026-09-02): 11 functions — 1 of headroom
+## Current state (counted in the tree, 2026-10-02): 13 functions
 
 Vercel counts each top-level handler under `frontend/api/` (NOT `_lib/`, `__tests__/`, or
-`_`-prefixed files). The 11:
+`_`-prefixed files). There is no cap any more (see the banner). This list is kept so that a new
+route is a decision someone wrote down: `commerce-surface-parity` and `alerts-surface-parity`
+fail when the tree has a function this list does not name. Add a new route here in the same
+change. The 13:
 
 1. `api/alchemy.js`
 2. `api/etherscan.js`
@@ -48,6 +51,8 @@ Vercel counts each top-level handler under `frontend/api/` (NOT `_lib/`, `__test
 9. `api/auth/siwe.js`
 10. `api/v1/index.js`
 11. `api/aggregator.js`  ← **the catchall**
+12. `api/launch-upload.js` (the Solana launch picture and details pin, daa77d3a)
+13. `api/errors.js` (the client error-report sink, #466; stores nothing before 2026-10-16)
 
 ## The catchall is load-bearing — do not split it
 
@@ -58,6 +63,10 @@ through the single `api/aggregator.js` function via `vercel.json` rewrites
 per-provider functions would be 11 → 18 and break the deploy. **Keep it consolidated.**
 
 ## Before adding ANY new `api/*.js` route
+
+> **STRUCK 2026-10-02.** The cap below was lifted on 2026-09-04 (see the banner). Today the
+> rule is only: add the route to the current-state list above in the same change. The rule as
+> it stood:
 
 Count stays ≤ 12. At 11 today, you have room for exactly 1 more standalone route. Past that, either:
 - consolidate (route multiple paths through one `[...catchall].js` handler + a `vercel.json` rewrite), or
