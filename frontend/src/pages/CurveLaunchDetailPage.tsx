@@ -29,6 +29,7 @@ import { Card, Notice, Row } from '../components/solana/curve/ui';
 import { CurveStateCard } from '../components/solana/curve/CurveStateCard';
 import { WriteGateBanner } from '../components/solana/curve/WriteGateBanner';
 import { CreatorStakeFacts, LaunchIdentity } from '../components/solana/curve/LaunchIdentity';
+import { MakerCreateBuy } from '../components/solana/curve/MakerCreateBuy';
 import { CurveTradePanel } from '../components/solana/curve/CurveTradePanel';
 import { GraduationPanel } from '../components/solana/curve/GraduationPanel';
 import { PoolSwapPanel } from '../components/solana/curve/PoolSwapPanel';
@@ -42,16 +43,23 @@ import {
   readPendingLaunch,
   type PendingLaunch,
 } from '../components/solana/curve/pendingLaunch';
-import { holdingFact, openingBuyFromOrigin, type Fact } from '../components/solana/curve/facts';
+import {
+  holdingFact,
+  makerBuyFromOrigin,
+  plantFromOrigin,
+  type Fact,
+  type MakerBuy,
+  type PlantMoved,
+} from '../components/solana/curve/facts';
 import { usePendingTrades, type PendingTradesState } from '../components/solana/curve/usePendingTrades';
 import { BeforeYouTrade } from '../components/solana/curve/BeforeYouTrade';
 import { reserveDisclosure, sharePercent } from '../components/solana/curve/uiFormat';
 import type { OnSettled } from '../components/solana/curve/useTxFlow';
 import type { LaunchOrigin, LaunchPoolRead, MetadataRead, TokenMetadata, WriteRpc } from '../components/solana/curve/ports';
 
-// /curve-launch/:mint: one launch on our own Solana curve. Identity, the creator's
-// stake, the curve's state, and, only while the write gate is open, the trade,
-// graduation and pool panels.
+// /curve-launch/:mint: one launch on our own Solana curve. Identity, the maker's
+// create-buy and the plant, the creator's stake, the curve's state, and, only while
+// the write gate is open, the trade, graduation and pool panels.
 //
 // Everything is read from the program the write layer is configured for. A launch
 // that does not exist says so; one that was just sent and has not landed says "not
@@ -64,7 +72,9 @@ export interface LaunchData {
   rentFloor: bigint | null;
   metadata: Read<TokenMetadata>;
   json: MetadataRead | null;
-  openingBuy: Fact<bigint> | null;
+  /** The maker's create-buy and the plant, from the launch transaction. `null` = not read (no curve was read). */
+  makerBuy: Fact<MakerBuy> | null;
+  plant: Fact<PlantMoved> | null;
   holding: Fact<bigint> | null;
   /** `null` when not graduated, or not read yet. */
   pool: LaunchPoolRead | null;
@@ -254,22 +264,38 @@ export function SolanaLaunchView({
         ? reserveDisclosure(reserveShare, treasury, 'was')
         : `This launch's account does not record its platform reserve (${reserveShare}) as paid, so this page does not say where it is.`;
 
+  // The maker's plates, once the page has read: a launch account that could not be read
+  // still gets them, saying they could not be read. Only an account READ as missing (no
+  // launch here, nothing to plate) goes without. `notRead` stands in for an unread figure.
+  const lp = launch?.phase;
+  const notRead: Fact<never> | null =
+    lp?.kind === 'unreadable'
+      ? { kind: 'unreadable', detail: lp.detail }
+      : curve
+        ? { kind: 'unreadable', detail: 'the launch transaction was not read' }
+        : null;
+  const plates =
+    data && notRead ? (
+      <MakerCreateBuy
+        maker={curve?.curve.creator ?? null}
+        buy={data.makerBuy ?? notRead}
+        plant={data.plant ?? notRead}
+        decimals={decimals}
+      />
+    ) : null;
+
   return (
     <>
       {banner}
       <Card title="Launch" testId="launch-identity-card">
-        <LaunchIdentity meta={api.meta} mint={mint} metadata={data?.metadata ?? null} json={data?.json ?? null} />
-        {curve && (
-          <>
-            <Row label="Creator" value={curve.curve.creator.toBase58()} />
-            <CreatorStakeFacts
-              openingBuy={data?.openingBuy ?? null}
-              holding={data?.holding ?? null}
-              supply={supply}
-              decimals={decimals}
-            />
-          </>
-        )}
+        <LaunchIdentity
+          meta={api.meta}
+          mint={mint}
+          metadata={data?.metadata ?? null}
+          json={data?.json ?? null}
+          plates={plates}
+        />
+        {curve && <CreatorStakeFacts holding={data?.holding ?? null} supply={supply} decimals={decimals} />}
       </Card>
 
       {data === null && <Notice>Reading this launch from the network…</Notice>}
@@ -418,7 +444,7 @@ async function loadLaunchData(
           .readLaunchMetadataJson(metadata.value.uri, mintStr)
           .catch((e: unknown): MetadataRead => ({ kind: 'unreadable', detail: clipDetail(e) }))
       : Promise.resolve(null),
-    // One read of the launch transaction: what was bought in it, and who received the reserve.
+    // One read of the launch transaction: the maker's create-buy, the plant, and who received the reserve.
     curve
       ? api
           .readLaunchOrigin(rpc, cfg, mint)
@@ -436,9 +462,10 @@ async function loadLaunchData(
           .catch((e: unknown): LaunchPoolRead => ({ kind: 'unreadable', detail: clipDetail(e) }))
       : Promise.resolve(null),
   ]);
-  const openingBuy = origin ? openingBuyFromOrigin(origin) : null;
+  const makerBuy = origin && curve ? makerBuyFromOrigin(origin, curve.curve.creator) : null;
+  const plant = origin ? plantFromOrigin(origin) : null;
   const reserveRecipient = origin?.kind === 'ok' ? origin.value.reserveRecipient : null;
-  return { launch, mintFacts, rentFloor: rent ? rent.curve : null, metadata, json, openingBuy, holding, pool, reserveRecipient };
+  return { launch, mintFacts, rentFloor: rent ? rent.curve : null, metadata, json, makerBuy, plant, holding, pool, reserveRecipient };
 }
 
 /** How often a page waiting for its own just-sent launch looks again. */
@@ -482,7 +509,8 @@ function SolanaLaunchInner({ mint }: { mint: PublicKey }) {
           rentFloor: null,
           metadata: { kind: 'unreadable', detail },
           json: null,
-          openingBuy: null,
+          makerBuy: null,
+          plant: null,
           holding: null,
           pool: null,
         });

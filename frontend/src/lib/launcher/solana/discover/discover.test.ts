@@ -12,6 +12,7 @@ import { Buffer } from 'buffer';
 import { Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import {
   IX_DISCRIMINATOR,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   WSOL_MINT,
   curvePda,
@@ -33,12 +34,15 @@ import {
 import { launchIndexAddress } from '../write/config';
 import { createLaunchInstructions } from '../write/launch';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../write/metaplex';
+import { BAYLA_MINT, WORKSHOP_BAYLA_ACCOUNT, WORKSHOP_WALLET, baylaAccountOf } from '../write/plant';
 import {
   AMM_CONFIG,
   BLOCKHASH,
   CPSWAP,
   FakeChain,
   LAUNCH,
+  MAKER_BAYLA,
+  WORKSHOP_BAYLA,
   cfgLocal,
   encodeCurve,
   freshCurve,
@@ -46,6 +50,7 @@ import {
   rent,
   u64le,
 } from '../write/testkit.fixture';
+import { makerBuyFromOrigin } from '../../../../components/solana/curve/facts';
 import type { OpenGate } from '../write/types';
 import { decodeTokenMetadata, readTokenMetadata } from './metadata';
 import {
@@ -126,6 +131,14 @@ interface Launch {
   buyTokens?: bigint | 'unreadable';
   /** Tokens another account received in the same transaction (a second wallet, or a buy through another program). */
   otherBought?: bigint;
+  /** The wallet that owns the account `otherBought` lands in. Defaults to a fresh one. */
+  otherOwner?: PublicKey;
+  /** $BAYLA balances the RPC reports for this transaction (null = not in that list). */
+  bayla?: BaylaEntry[];
+  /** The record came back without its "before" balances. */
+  noPre?: boolean;
+  /** The RPC left the owner off the launch token's balances. */
+  noOwner?: boolean;
   programId?: PublicKey;
   failed?: boolean;
   /** Who the config named as fee recipient when this launch was created. Defaults to the fixture's. */
@@ -134,8 +147,31 @@ interface Launch {
   innerCalls?: 'reported' | 'missing';
 }
 
+interface BaylaEntry {
+  account: PublicKey;
+  owner: PublicKey;
+  pre: bigint | null;
+  post: bigint | null;
+  /** The token program the RPC names for the account. Defaults to Token-2022, as on chain; null = left off. */
+  programId?: PublicKey | null;
+  amount?: string;
+}
+
 /** The platform reserve every fixture launch pays: 3.69% of the 1e15 supply. */
 const RESERVE = 36_900_000_000_000n;
+/** What the fixture's curve vault holds after the launch. */
+const VAULT_AFTER = 900_000_000_000_000n;
+
+/** Whole $BAYLA in base units (6 decimals). */
+const B = (n: bigint) => n * 1_000_000n;
+
+/** The plant as this site builds it: 50,000 burned from the maker's account and 50,000 to the Workshop's. */
+function plantBalances(maker: PublicKey, burned = B(50_000n), toWorkshop = B(50_000n)): BaylaEntry[] {
+  return [
+    { account: baylaAccountOf(maker), owner: maker, pre: MAKER_BAYLA, post: MAKER_BAYLA - burned - toWorkshop },
+    { account: WORKSHOP_BAYLA_ACCOUNT, owner: WORKSHOP_WALLET, pre: WORKSHOP_BAYLA, post: WORKSHOP_BAYLA + toWorkshop },
+  ];
+}
 
 /** Bytes to base58, as the RPC encodes an inner instruction's data. */
 function toBase58(bytes: Uint8Array): string {
@@ -171,14 +207,34 @@ function launchTx(l: Launch): unknown {
   const m58 = l.mint.publicKey.toBase58();
   const program = l.programId ?? LAUNCH;
   const at = (k: PublicKey) => keys.findIndex((x) => x.equals(k));
-  const entry = (accountIndex: number, owner: PublicKey, amount: bigint) => ({ accountIndex, mint: m58, owner: owner.toBase58(), uiTokenAmount: { amount: amount.toString() } });
+  const entry = (accountIndex: number, owner: PublicKey, amount: bigint) => ({
+    accountIndex,
+    mint: m58,
+    ...(l.noOwner ? {} : { owner: owner.toBase58() }),
+    uiTokenAmount: { amount: amount.toString() },
+  });
   const post: unknown[] = [];
+  const pre: unknown[] = [];
   const writable: string[] = [];
   const vault = curveVaultPda(l.mint.publicKey, program);
   const treasuryToken = associatedTokenAddress(l.mint.publicKey, fee);
   const creatorAta = associatedTokenAddress(l.mint.publicKey, l.creator.publicKey);
+  // $BAYLA is a Token-2022 mint: the RPC names that program on each of its balances.
+  for (const b of l.bayla ?? []) {
+    const index = at(b.account);
+    if (index < 0) throw new Error('fixture: that $BAYLA account is not in the transaction');
+    const e = (amount: bigint) => ({
+      accountIndex: index,
+      mint: BAYLA_MINT.toBase58(),
+      owner: b.owner.toBase58(),
+      ...(b.programId === null ? {} : { programId: (b.programId ?? TOKEN_2022_PROGRAM_ID).toBase58() }),
+      uiTokenAmount: { amount: b.amount ?? amount.toString() },
+    });
+    if (b.pre !== null) pre.push(e(b.pre));
+    if (b.post !== null) post.push(e(b.post));
+  }
   if (l.buyTokens !== 'unreadable') {
-    post.push(entry(at(vault), curvePda(l.mint.publicKey, program), 900_000_000_000_000n));
+    post.push(entry(at(vault), curvePda(l.mint.publicKey, program), VAULT_AFTER));
     // create_launch pays the platform reserve to the treasury's token account in the same
     // instruction. When the treasury's own wallet launches and buys, its buy lands there too.
     const sameAccount = creatorAta.equals(treasuryToken);
@@ -188,7 +244,7 @@ function launchTx(l: Launch): unknown {
       post.push(entry(at(creatorAta), l.creator.publicKey, l.buyTokens));
     }
     if (l.otherBought !== undefined) {
-      const other = Keypair.generate().publicKey;
+      const other = l.otherOwner ?? Keypair.generate().publicKey;
       writable.push(associatedTokenAddress(l.mint.publicKey, other).toBase58());
       post.push(entry(keys.length, other, l.otherBought));
     }
@@ -219,7 +275,7 @@ function launchTx(l: Launch): unknown {
     blockTime: 1_700_000_000,
     meta: {
       err: l.failed ? { InstructionError: [0, 'Custom'] } : null,
-      preTokenBalances: [],
+      preTokenBalances: l.noPre ? null : pre,
       postTokenBalances: post,
       loadedAddresses: { writable, readonly: [] },
       innerInstructions,
@@ -354,6 +410,95 @@ describe('parseLaunchTransaction', () => {
     expect(parseLaunchTransaction(launchTx({ ...base, programId: Keypair.generate().publicKey }), base.sig, LAUNCH)).toBeNull();
     expect(parseLaunchTransaction(noiseTx(base.creator), base.sig, LAUNCH)).toBeNull();
     expect(parseLaunchTransaction(null, base.sig, LAUNCH)).toBeNull();
+  });
+});
+
+// Ruling 3 (2026-10-01): every launch page shows the maker's create-buy as a share of
+// the supply, with the wallet, and whether its launch transaction carried the plant.
+// All of it is read from the launch transaction's own token balances.
+describe("the maker's plates, read from the launch transaction", () => {
+  const byOwner = (o: ReturnType<typeof parseLaunchTransaction>) =>
+    o?.boughtByOwner ? Object.fromEntries(o.boughtByOwner.map((b) => [b.owner.toBase58(), b.tokens])) : null;
+
+  it('two wallets got tokens in the launch transaction: each is kept apart, and the maker figure counts only the maker', () => {
+    const other = Keypair.generate().publicKey;
+    const l: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate(), buyTokens: 12_345n, otherBought: 500n, otherOwner: other };
+    const o = parseLaunchTransaction(launchTx(l), l.sig, LAUNCH);
+    expect(byOwner(o)).toEqual({ [l.creator.publicKey.toBase58()]: 12_345n, [other.toBase58()]: 500n });
+    // The any-wallet total is unchanged.
+    expect(o?.openingBuyTokens).toBe(12_845n);
+    const maker = makerBuyFromOrigin({ kind: 'ok', value: o! }, l.creator.publicKey);
+    expect(maker).toEqual({
+      kind: 'ok',
+      value: { tokens: 12_345n, othersTokens: 500n, others: 1, birthSupply: VAULT_AFTER + RESERVE + 12_845n },
+    });
+  });
+
+  it("a maker's buy split over two of its own accounts is still the maker's", () => {
+    const l: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate(), buyTokens: 12_345n, otherBought: 500n };
+    l.otherOwner = l.creator.publicKey;
+    const o = parseLaunchTransaction(launchTx(l), l.sig, LAUNCH);
+    expect(byOwner(o)).toEqual({ [l.creator.publicKey.toBase58()]: 12_845n });
+    const maker = makerBuyFromOrigin({ kind: 'ok', value: o! }, l.creator.publicKey);
+    expect(maker.kind === 'ok' && maker.value).toMatchObject({ tokens: 12_845n, othersTokens: 0n, others: 0 });
+  });
+
+  it("the platform reserve is nobody's buy: the treasury wallet launching with a buy is its buy only", () => {
+    const treasury = Keypair.generate();
+    const l: Launch = { sig: sig(1), creator: treasury, mint: Keypair.generate(), feeRecipient: treasury.publicKey, buyTokens: 12_345n };
+    expect(byOwner(parseLaunchTransaction(launchTx(l), l.sig, LAUNCH))).toEqual({ [treasury.publicKey.toBase58()]: 12_345n });
+    const none: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate() };
+    expect(byOwner(parseLaunchTransaction(launchTx(none), none.sig, LAUNCH))).toEqual({});
+  });
+
+  it('a balance with no owner, or balances that cannot be read: the per-wallet figure is "could not read", never 0', () => {
+    const l: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate(), buyTokens: 12_345n, noOwner: true };
+    const o = parseLaunchTransaction(launchTx(l), l.sig, LAUNCH);
+    expect(o?.boughtByOwner).toBeNull();
+    expect(makerBuyFromOrigin({ kind: 'ok', value: o! }, l.creator.publicKey).kind).toBe('unreadable');
+    const gone: Launch = { ...l, noOwner: false, buyTokens: 'unreadable' };
+    expect(parseLaunchTransaction(launchTx(gone), gone.sig, LAUNCH)?.boughtByOwner).toBeNull();
+    const noReserve: Launch = { ...l, noOwner: false, innerCalls: 'missing' };
+    expect(parseLaunchTransaction(launchTx(noReserve), noReserve.sig, LAUNCH)?.boughtByOwner).toBeNull();
+  });
+
+  it("the supply at birth is the sum of the mint's balances after the launch transaction, vault included", () => {
+    const l: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate(), buyTokens: 12_345n, otherBought: 500n };
+    expect(parseLaunchTransaction(launchTx(l), l.sig, LAUNCH)?.birthSupply).toBe(VAULT_AFTER + RESERVE + 12_845n);
+    const gone: Launch = { ...l, buyTokens: 'unreadable', otherBought: undefined };
+    expect(parseLaunchTransaction(launchTx(gone), gone.sig, LAUNCH)?.birthSupply).toBeNull();
+    const t = launchTx(l) as { meta: { postTokenBalances: Array<{ uiTokenAmount: { amount: string } }> } };
+    t.meta.postTokenBalances[0]!.uiTokenAmount.amount = '1e9';
+    expect(parseLaunchTransaction(t, l.sig, LAUNCH)?.birthSupply).toBeNull();
+  });
+
+  it("the plant, carried: exactly 50,000 $BAYLA burned and 50,000 to the Workshop's Token-2022 account", () => {
+    const creator = Keypair.generate();
+    const l: Launch = { sig: sig(1), creator, mint: Keypair.generate(), bayla: plantBalances(creator.publicKey) };
+    expect(parseLaunchTransaction(launchTx(l), l.sig, LAUNCH)?.plant).toEqual({ burned: B(50_000n), toWorkshop: B(50_000n) });
+  });
+
+  it('no plant: a launch transaction that moved no $BAYLA reads 0 and 0, a real finding', () => {
+    const l: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate(), buyTokens: 5n };
+    expect(parseLaunchTransaction(launchTx(l), l.sig, LAUNCH)?.plant).toEqual({ burned: 0n, toWorkshop: 0n });
+  });
+
+  it('other amounts are read as they are', () => {
+    const creator = Keypair.generate();
+    const l: Launch = { sig: sig(1), creator, mint: Keypair.generate(), bayla: plantBalances(creator.publicKey, B(25_000n), B(10_000n)) };
+    expect(parseLaunchTransaction(launchTx(l), l.sig, LAUNCH)?.plant).toEqual({ burned: B(25_000n), toWorkshop: B(10_000n) });
+  });
+
+  it('the plant read is "could not read", never 0: missing balances, a bad amount, a $BAYLA balance not under Token-2022, more after than before', () => {
+    const creator = Keypair.generate();
+    const base: Launch = { sig: sig(1), creator, mint: Keypair.generate(), bayla: plantBalances(creator.publicKey) };
+    const plant = (l: Launch) => parseLaunchTransaction(launchTx(l), l.sig, LAUNCH)?.plant;
+    expect(plant({ ...base, noPre: true })).toBeNull();
+    const [maker, workshop] = plantBalances(creator.publicKey);
+    expect(plant({ ...base, bayla: [{ ...maker!, amount: '12.5' }, workshop!] })).toBeNull();
+    expect(plant({ ...base, bayla: [{ ...maker!, programId: TOKEN_PROGRAM_ID }, workshop!] })).toBeNull();
+    expect(plant({ ...base, bayla: [maker!, { ...workshop!, programId: null }] })).toBeNull();
+    expect(plant({ ...base, bayla: [{ ...maker!, pre: null, post: B(10n) }] })).toBeNull();
   });
 });
 
@@ -506,6 +651,27 @@ describe('the launch transaction behind a mint page', () => {
     const r = await readLaunchOrigin(f.rpc, cfgLocal, l.mint.publicKey);
     expect(r.kind === 'ok' && r.value.openingBuyTokens).toBe(77n);
     expect(r.kind === 'ok' && r.value.signature).toBe(l.sig);
+  });
+  // Anyone can mention the token details account for a few lamports. Twenty such
+  // mentions used to end the lookup at "too much history" without trying the curve.
+  it('a token details account with too much history falls through to the curve account', async () => {
+    const f = new FakeJsonRpc();
+    const spam = Keypair.generate();
+    const l: Launch = { sig: sig(1), creator: Keypair.generate(), mint: Keypair.generate(), buyTokens: 77n };
+    f.index(metadataPda(l.mint.publicKey), Array.from({ length: 20 }, (_, i) => ({ sig: sig(500 + i), tx: null })));
+    f.index(curvePda(l.mint.publicKey, LAUNCH), [{ sig: sig(7), tx: noiseTx(spam) }, { sig: l.sig, tx: launchTx(l) }]);
+    const r = await readLaunchOrigin(f.rpc, cfgLocal, l.mint.publicKey);
+    expect(r.kind === 'ok' && r.value.signature).toBe(l.sig);
+    expect(r.kind === 'ok' && r.value.openingBuyTokens).toBe(77n);
+  });
+  it('too much history on both, or on the token details with nothing on the curve: could not read, never absent', async () => {
+    const f = new FakeJsonRpc();
+    const mint = Keypair.generate().publicKey;
+    f.index(metadataPda(mint), Array.from({ length: 20 }, (_, i) => ({ sig: sig(500 + i), tx: null })));
+    const r = await readLaunchOrigin(f.rpc, cfgLocal, mint);
+    expect(r).toEqual({ kind: 'unreadable', detail: 'this launch has too much history to find its first transaction' });
+    f.index(curvePda(mint, LAUNCH), Array.from({ length: 1000 }, (_, i) => ({ sig: sig(2_000 + i), tx: null })));
+    expect((await readLaunchOrigin(f.rpc, cfgLocal, mint)).kind).toBe('unreadable');
   });
   it('absent when nothing is found; unreadable when the read fails', async () => {
     const f = new FakeJsonRpc();

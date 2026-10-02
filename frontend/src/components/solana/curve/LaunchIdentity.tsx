@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { PublicKey } from '@solana/web3.js';
 import { formatTokenAmount, type Read } from '../../../lib/launcher/solana/curve';
 import { Notice, Row } from './ui';
@@ -51,12 +51,15 @@ export function LaunchIdentity({
   mint,
   metadata,
   json,
+  plates,
 }: {
   meta: MetadataApi;
   mint: PublicKey;
   /** `null` while loading. */
   metadata: Read<TokenMetadata> | null;
   json: MetadataRead | null;
+  /** The maker's plates, shown right under the token address, before the note and the description. */
+  plates?: ReactNode;
 }) {
   const md = metadata?.kind === 'ok' ? metadata.value : null;
   const name = md ? meta.displaySafe(md.name, 32) : null;
@@ -87,6 +90,7 @@ export function LaunchIdentity({
         </div>
       </div>
       <Row label="Token address (mint)" value={mint.toBase58()} />
+      {plates}
       <p className="text-amber-200/90 text-[11px]">
         Not endorsed by memetics.finance. A maker at Resident or better can grow a new token through the
         memetics.finance gate: the gate reads the maker&apos;s wallet at create. The program itself accepts any
@@ -123,15 +127,13 @@ export function LaunchIdentity({
   );
 }
 
-/** What any wallet bought in the launch transaction, and what the creator holds now, as shares of the supply. Unread is said, never 0. */
+/** What the creator holds NOW, as a share of today's supply. Unread is said, never 0. What was bought at launch is MakerCreateBuy's. */
 export function CreatorStakeFacts({
-  openingBuy,
   holding,
   supply,
   decimals,
 }: {
   /** `null` while loading. */
-  openingBuy: Fact<bigint> | null;
   holding: Fact<bigint> | null;
   supply: bigint | null;
   decimals: number | null;
@@ -145,9 +147,6 @@ export function CreatorStakeFacts({
   };
   return (
     <div className="space-y-1" data-testid="creator-stake">
-      {/* Each reason sits under its own row, so it cannot read as explaining the other. */}
-      <Row label="Bought in the launch transaction (any wallet)" value={fmt(openingBuy)} mono={false} />
-      {openingBuy?.kind === 'unreadable' && <p className="text-white/40 text-[10px]">{openingBuy.detail}</p>}
       <Row label="Creator's wallet holds now (its usual account)" value={fmt(holding)} mono={false} />
       {holding?.kind === 'unreadable' && <p className="text-white/40 text-[10px]">{holding.detail}</p>}
     </div>

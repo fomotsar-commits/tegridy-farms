@@ -22,6 +22,8 @@ function item(over: Partial<LaunchListItem> = {}): LaunchListItem {
     signature: SIG,
     blockTime: 1,
     openingBuyTokens: 0n,
+    boughtByOwner: [],
+    birthSupply: 1_000_000_000_000_000n,
     curve: { kind: 'ok', value: curveAccount(bondingCurve()) },
     metadata: { kind: 'ok', value: md() },
     ...over,
@@ -96,16 +98,49 @@ describe('launch list', () => {
     expect(rows[0]!.textContent).toContain(MINT.toBase58());
   });
 
-  it("the creator's opening buy: unreadable reads 'could not read', never 0", async () => {
+  it("the maker's create-buy: unreadable reads 'could not read', never 0", async () => {
     const api = fakeApi({
       listRecentLaunches: vi.fn(async () => ({
         kind: 'ok' as const,
-        value: { items: [item({ openingBuyTokens: null })], before: null, scanned: 20, hidden: 0 },
+        value: { items: [item({ openingBuyTokens: null, boughtByOwner: null })], before: null, scanned: 20, hidden: 0 },
       })),
     });
     renderList(api);
     const row = await screen.findByTestId('launch-row');
-    await waitFor(() => expect(row.textContent).toMatch(/Bought in the launch transaction \(any wallet\)\s*could not read/));
+    expect(row).toHaveTextContent(
+      "Could not read the maker's create-buy right now. This is our read failing, not a finding about the launch.",
+    );
+    expect(row.textContent).not.toMatch(/create-buy: 0|bought nothing|any wallet/);
+  });
+
+  // Parity with the launch page (ruling 3): the same maker figure, first, as a share of the supply at birth.
+  it("each row shows the maker's create-buy, the same figure as the launch page, before what the creator holds now", async () => {
+    const api = fakeApi({
+      listRecentLaunches: vi.fn(async () => ({
+        kind: 'ok' as const,
+        value: {
+          items: [
+            item({
+              openingBuyTokens: 55_000_000_000_000n,
+              boughtByOwner: [
+                { owner: CREATOR, tokens: 50_000_000_000_000n },
+                { owner: KEY(9), tokens: 5_000_000_000_000n },
+              ],
+            }),
+          ],
+          before: null,
+          scanned: 20,
+          hidden: 0,
+        },
+      })),
+    });
+    renderList(api);
+    const row = await screen.findByTestId('launch-row');
+    const text = row.textContent ?? '';
+    expect(text).toMatch(/The maker's create-buy: 5\.00% of the supply \(50000000000000 base units\), bought in the launch transaction/);
+    expect(text).toContain('Other wallets got 0.50% of the supply in the same transaction (1 wallet).');
+    expect(text.indexOf("The maker's create-buy")).toBeLessThan(text.indexOf("Creator's wallet holds now"));
+    expect(text).not.toMatch(/any wallet/);
   });
 
   it('"Yours" reads the wallet\'s own history, and is off without a wallet', async () => {
