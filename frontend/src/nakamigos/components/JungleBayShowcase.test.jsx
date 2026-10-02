@@ -56,6 +56,17 @@ describe("the ecosystem map", () => {
     expect(text()).toMatch(/22 designs, 975 editions/);
     expect(text()).toMatch(/61 designs, 3,529 editions/);
   });
+
+  // Every market link is OpenSea (owner ruling, 2026-10-02). A collection
+  // OpenSea does not list names no market, rather than "Trades on undefined".
+  it.each(FAMILY_SLUGS)("says where %s trades: here, on OpenSea, or not traded here", async (slug) => {
+    await renderShowcase();
+    const link = screen.queryAllByRole("link").find((a) => a.getAttribute("href") === `/nakamigos/${slug}`);
+    const block = (link.closest("div")?.parentElement ?? link).textContent;
+    expect(block).toMatch(/Trades here|Trades on OpenSea|Not traded here/);
+    expect(block).not.toMatch(/undefined|null/);
+    if (!EXPECTED_FAMILY[slug].market) expect(block).toMatch(/Not traded here/);
+  });
 });
 
 describe("nothing the reads contradict", () => {
