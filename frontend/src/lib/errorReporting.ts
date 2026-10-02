@@ -7,6 +7,26 @@ const DEDUP_MAX_ENTRIES = 500;
 const BATCH_INTERVAL_MS = 5_000;
 
 /**
+ * DELIVERY WHEN THE SINK IS NOT READY (2026-10-02).
+ *
+ * /api/errors answers 503 until the operator has applied migration 026 and set
+ * Upstash, and 429 when one visitor sends too much. Either way the batch goes
+ * back into the localStorage buffer and nothing is sent again until a wait has
+ * passed: one minute, doubling on each refusal up to an hour, or longer if the
+ * server's Retry-After asks for it. The wait lives in localStorage because a
+ * crash loop reloads the page, and a wait held only in memory would restart at
+ * zero on every reload. The buffer is sent when the wait is over, on the next
+ * error or the next page load, at most MAX_BUFFER entries a request, and
+ * entries older than a week are not sent at all.
+ */
+const BACKOFF_KEY = 'tegridy_error_backoff';
+const BACKOFF_BASE_MS = 60_000;
+const BACKOFF_MAX_MS = 60 * 60_000;
+const MAX_REPLAY_AGE_MS = 7 * 24 * 60 * 60_000;
+/** Fired by consent.ts's setConsent(). */
+const CONSENT_EVENT = 'tegridy:consent-changed';
+
+/**
  * Patterns that indicate sensitive *values* which must never be reported.
  * AUDIT R046 M-2 / R057: extended with 40-hex EVM wallet addresses.
  *  - 64-hex private keys
@@ -92,14 +112,90 @@ function isDuplicate(entry: ErrorEntry): boolean {
   return false;
 }
 
-function persistToLocalStorage(entries: ErrorEntry[]) {
+function readBuffer(): ErrorEntry[] {
   try {
-    const existing: ErrorEntry[] = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-    const merged = [...existing, ...entries].slice(-MAX_BUFFER);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? (parsed as ErrorEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeBuffer(entries: ErrorEntry[]) {
+  try {
+    if (entries.length === 0) localStorage.removeItem(STORAGE_KEY);
+    else localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(-MAX_BUFFER)));
   } catch {
     // localStorage full or unavailable
   }
+}
+
+function persistToLocalStorage(entries: ErrorEntry[]) {
+  if (entries.length === 0) return;
+  writeBuffer([...readBuffer(), ...entries]);
+}
+
+/** Consent withdrawn: nothing captured under it is kept for sending. */
+function discardAll() {
+  batch.length = 0;
+  writeBuffer([]);
+}
+
+interface Backoff {
+  until: number;
+  failures: number;
+}
+
+/** Mirrors the stored wait, so a browser that refuses localStorage still waits. */
+let memoryBackoff: Backoff = { until: 0, failures: 0 };
+
+function readBackoff(): Backoff {
+  try {
+    const v = JSON.parse(localStorage.getItem(BACKOFF_KEY) || 'null') as Partial<Backoff> | null;
+    if (v && Number.isFinite(v.until) && Number.isFinite(v.failures) && (v.until as number) > memoryBackoff.until) {
+      return { until: v.until as number, failures: v.failures as number };
+    }
+  } catch {
+    // unreadable: fall back to the in-memory copy
+  }
+  return memoryBackoff;
+}
+
+/** Retry-After as milliseconds: delta-seconds or an HTTP date. 0 when absent or unreadable. */
+function retryAfterMs(header: string | null | undefined): number {
+  if (!header) return 0;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const at = Date.parse(header);
+  return Number.isFinite(at) ? Math.max(0, at - Date.now()) : 0;
+}
+
+function noteFailure(serverAskedMs = 0) {
+  const failures = readBackoff().failures + 1;
+  const doubling = BACKOFF_BASE_MS * 2 ** Math.min(failures - 1, 10);
+  const wait = Math.min(BACKOFF_MAX_MS, Math.max(doubling, serverAskedMs));
+  memoryBackoff = { until: Date.now() + wait, failures };
+  try {
+    localStorage.setItem(BACKOFF_KEY, JSON.stringify(memoryBackoff));
+  } catch {
+    // memoryBackoff still holds it for this page
+  }
+}
+
+function noteSuccess() {
+  memoryBackoff = { until: 0, failures: 0 };
+  try {
+    localStorage.removeItem(BACKOFF_KEY);
+  } catch {
+    // nothing stored to clear
+  }
+}
+
+/** A stored entry worth sending: the right shape (it came from localStorage) and under a week old. */
+function isReplayable(e: unknown, now: number): e is ErrorEntry {
+  if (!e || typeof e !== 'object') return false;
+  const { message, timestamp } = e as Partial<ErrorEntry>;
+  return typeof message === 'string' && typeof timestamp === 'number' && now - timestamp <= MAX_REPLAY_AGE_MS;
 }
 
 /** Validate the error endpoint to prevent exfiltration to unexpected origins. */
@@ -145,25 +241,60 @@ function isAllowedEndpoint(url: string): boolean {
   }
 }
 
-function flush() {
-  if (batch.length === 0) return;
-  const toSend = batch.splice(0);
-  const endpoint = import.meta.env.VITE_ERROR_ENDPOINT;
+let inFlight = false;
 
-  if (endpoint && isAllowedEndpoint(endpoint)) {
+function flush() {
+  // Consent is read again at SEND time. reportError() checked it at capture, but
+  // the visitor can withdraw it in the five seconds a batch waits, or between the
+  // visit that buffered an entry and the one that would send it.
+  if (!hasConsent()) {
+    discardAll();
+    return;
+  }
+
+  const endpoint = import.meta.env.VITE_ERROR_ENDPOINT;
+  const now = Date.now();
+  if (!endpoint || !isAllowedEndpoint(endpoint) || inFlight || now < readBackoff().until) {
+    persistToLocalStorage(batch.splice(0));
+    return;
+  }
+
+  // Take the buffer with the new batch, newest MAX_BUFFER only. It is cleared
+  // now and put back if the send fails, so two flushes cannot send it twice.
+  const toSend = [...readBuffer(), ...batch.splice(0)]
+    .filter((e) => isReplayable(e, now))
+    .slice(-MAX_BUFFER);
+  writeBuffer([]);
+  if (toSend.length === 0) return;
+
+  const putBack = (serverAskedMs = 0) => {
+    if (hasConsent()) writeBuffer([...toSend, ...readBuffer()]);
+    noteFailure(serverAskedMs);
+  };
+
+  inFlight = true;
+  try {
     fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(toSend),
+      body: JSON.stringify({ consent: 'granted', errors: toSend }),
+      // No cookie and no Referer: the sign-in cookie would tie a record to a
+      // wallet session, and the Referer would carry the query string that
+      // sanitizeUrl() strips from the record itself.
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer',
     }).then((r) => {
       // fetch only rejects on network error; a 4xx/5xx resolves with ok=false.
-      // Persist the batch on any non-2xx so it isn't silently lost.
-      if (!r.ok) persistToLocalStorage(toSend);
+      if (r.ok) noteSuccess();
+      else putBack(retryAfterMs(r.headers.get('Retry-After')));
     }).catch(() => {
-      persistToLocalStorage(toSend);
+      putBack();
+    }).finally(() => {
+      inFlight = false;
     });
-  } else {
-    persistToLocalStorage(toSend);
+  } catch {
+    inFlight = false;
+    putBack();
   }
 }
 
@@ -200,7 +331,22 @@ export function reportError(
   scheduleFlush();
 }
 
+let installed = false;
+
 export function installGlobalHandlers() {
+  if (installed) return;
+  installed = true;
+
+  // Withdrawn consent empties the buffer at once, not at the next flush.
+  window.addEventListener(CONSENT_EVENT, (event) => {
+    if ((event as CustomEvent).detail !== 'granted') discardAll();
+  });
+
+  // Whatever an earlier visit buffered: dropped without consent, otherwise sent
+  // once any backoff has passed. flush() does both checks.
+  if (!hasConsent()) discardAll();
+  else if (readBuffer().length > 0) scheduleFlush();
+
   window.addEventListener('error', (event) => {
     try {
       reportError(event.error ?? event.message);

@@ -15,6 +15,7 @@ page keeps the newest thirty days.
 - The security policy no longer puts memetic.fun in scope.
 - The indexer no longer treats memetic.fun as a name for this venue.
 - memetic.fun can no longer call the venue's API as if it were the venue.
+- The privacy policy says exactly what an error report holds: one is sent only with your consent and without cookies, wallet addresses and tokens are removed before it is stored, and withdrawing consent deletes any report still waiting in your browser.
 
 ### 2026-10-01
 

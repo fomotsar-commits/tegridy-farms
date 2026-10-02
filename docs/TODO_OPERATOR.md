@@ -29,6 +29,38 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-02: turn on error reports (PR #466), in this order
+
+Approved by the owner on 2026-10-02. Merging PR #466 changes nothing a visitor sees: reports
+stay off until step 4. Until every step is done, `/api/errors` answers 503 and stores nothing,
+and browsers keep their reports and wait, so a step done late costs a delay, never a flood.
+**026 does not depend on 024 or 025.** It creates and grants only its own table, so it can run
+before them, after them or alone; 024 and 025 keep their own runbook further down.
+
+1. **First: merge PR #466 and let it deploy.** Do not set step 4's variable before this is live.
+2. **Apply the migration.** Supabase dashboard, SQL Editor: paste
+   `frontend/supabase/migrations/026_error_events.sql` and run it. Never `supabase db push`.
+   **You should see** one row from
+   `select filename, applied_at from public.schema_migrations where filename = '026_error_events.sql';`
+3. **Check four server variables in Vercel** (Settings, Environment Variables, Production):
+   `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`.
+   The two Supabase ones should already be there (the analytics sink uses them). If the Upstash
+   pair is missing, create a free Upstash Redis database and add both. Note: that also moves every
+   other `/api` route from per-instance to shared rate limits, which is the intended mode.
+4. **Last: set `VITE_ERROR_ENDPOINT` to `/api/errors`** (Production) and redeploy. It is read at
+   build time, so it does nothing until the next deploy.
+5. **Check it works**, in PowerShell:
+   ```
+   Invoke-RestMethod -Method Post -Uri https://memetics.finance/api/errors -Headers @{ Origin = 'https://memetics.finance' } -ContentType 'application/json' -Body '{"consent":"granted","errors":[{"message":"operator check 2026-10-02","timestamp":"2026-10-02T12:00:00Z","url":"https://memetics.finance/"}]}'
+   ```
+   **You should see** `accepted : 1`. `Error sink unavailable` means step 2 or 3 is not done (the
+   Vercel function log names which). Then remove the check row in the SQL Editor:
+   `delete from error_events where message = 'operator check 2026-10-02';`
+
+The outside health probe in the same PR (step 6 of Synthetic Monitor) needs nothing from you.
+
+---
+
 ## 🔴 2026-09-30: an alarm for GitHub's schedules, and a second home for the backups
 
 GitHub is the primary host again, and its Actions run the scheduled jobs. When it went quiet in
@@ -1690,7 +1722,8 @@ including mine. Compare character-for-character against the registry before any 
 >
 > **What IS still owed on this surface:** migrations **024, 025 and 026** (026 needs PR #466
 > merged first), applied by hand in that order, in one session, after a frontend deploy. See the
-> RLS section below.
+> RLS section below. (2026-10-02: 026 does not depend on 024 or 025 and may go alone; its steps
+> are the 2026-10-02 section at the top.)
 
 The original text, for the record: login had never worked in production because `siwe_nonces` did
 not exist, so every sign-in 500'd — and until it worked, profiles, DMs, watchlists, votes, push

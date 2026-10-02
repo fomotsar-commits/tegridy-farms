@@ -24,13 +24,21 @@
 --     neither — the record is strictly LESS linkable than §3 currently
 --     describes ("with the same session identifier"), and that sentence is
 --     corrected in the same change rather than left to overstate what we hold.
---   * the API redacts address-shaped values BEFORE insert. The likeliest
---     carrier is `url`: the client's sanitizeUrl() clears query and hash but
---     never scrubs the PATH, and App.tsx routes include `read/:address`.
+--   * the API scrubs every field BEFORE insert (api/errors.js header): URLs keep
+--     their host and route words only, tokens and query values are masked, and
+--     wallet addresses (EVM and Solana) and long opaque strings are redacted. The
+--     likeliest carrier is `url`: the client's sanitizeUrl() clears query and
+--     hash but never the PATH, and App.tsx routes include `read/:address`.
+--   * only a batch the client marked `consent: "granted"` is written.
 --   * the CHECK below is the fail-closed backstop for anything reaching
 --     PostgREST by another path.
 --
--- Run in the Supabase SQL editor AFTER 025_user_tables_anon_write_lockdown.sql.
+-- ORDER (docs/TODO_OPERATOR.md, 2026-10-02). Run in the Supabase SQL editor,
+-- never `supabase db push`. This file does NOT depend on 024 or 025: it creates
+-- and grants only its own table and sequence and touches nothing they touch, so
+-- it can go before them, after them or alone. It must run BEFORE
+-- VITE_ERROR_ENDPOINT is set; until it does, api/errors.js answers 503 and the
+-- client keeps its buffer. Idempotent: re-running it is safe.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS error_events (
@@ -43,16 +51,17 @@ CREATE TABLE IF NOT EXISTS error_events (
   received_at     timestamptz NOT NULL DEFAULT now()
 );
 
--- Bound the obvious abuse shapes. The API truncates to these same ceilings
--- before inserting; this is the backstop, not the primary control.
+-- Bound the obvious abuse shapes. The API cuts to these same ceilings
+-- (MAX_MESSAGE, MAX_STACK, MAX_URL) before inserting; this is the backstop, not
+-- the primary control. The client already cuts every field to 500.
 ALTER TABLE error_events
   DROP CONSTRAINT IF EXISTS error_events_shape;
 ALTER TABLE error_events
   ADD CONSTRAINT error_events_shape
   CHECK (
     length(message) BETWEEN 1 AND 2000
-    AND (stack IS NULL OR length(stack) <= 8000)
-    AND (component_stack IS NULL OR length(component_stack) <= 8000)
+    AND (stack IS NULL OR length(stack) <= 2000)
+    AND (component_stack IS NULL OR length(component_stack) <= 2000)
     AND (url IS NULL OR length(url) <= 500)
   );
 
@@ -70,10 +79,10 @@ ALTER TABLE error_events
 -- symbol names, content hashes, source-map ids), so the false-positive rate
 -- here would be far worse than it is on analytics properties.
 --
--- STATED LIMIT, not an oversight: a Solana pubkey embedded mid-stack-trace is
--- caught by neither side. The client's scrub has no base58 rule, and
--- containsAddress's SOLANA_PUBKEY is anchored ^...$ so it only fires on a
--- whole value. Closing it needs a whole-token scan in the API, not a regex here.
+-- A Solana pubkey embedded mid-stack-trace is caught in the API instead, by a
+-- whole-token scan (a run of 32 to 44 base58 characters bounded by anything
+-- that is not base58), which a CHECK constraint cannot express without the
+-- substring problem above.
 ALTER TABLE error_events
   DROP CONSTRAINT IF EXISTS error_events_no_addresses;
 ALTER TABLE error_events
@@ -117,3 +126,23 @@ GRANT USAGE, SELECT ON SEQUENCE error_events_id_seq TO service_role;
 -- first-hand; supabase-restore.test.mjs fails any table-creating migration
 -- that neither does this nor is named in RESTORE.md.
 NOTIFY pgrst, 'reload schema';
+
+-- Record this file in the ledger (000 section 0), as 016 to 025 do, so
+-- "was 026 applied?" is a query and not a guess.
+INSERT INTO public.schema_migrations (filename, note)
+VALUES (
+  '026_error_events.sql',
+  'error_events created for api/errors.js: RLS on, no policies, anon/authenticated revoked, service_role INSERT/SELECT only.'
+)
+ON CONFLICT (filename) DO NOTHING;
+
+-- VERIFICATION, read-only:
+--
+-- select filename, applied_at from public.schema_migrations
+--  where filename = '026_error_events.sql';                    -- one row
+--
+-- select relrowsecurity from pg_class where relname = 'error_events';  -- true
+--
+-- select grantee, privilege_type from information_schema.role_table_grants
+--  where table_name = 'error_events' and grantee in ('anon','authenticated');
+--                                                               -- zero rows
