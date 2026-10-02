@@ -52,7 +52,7 @@ describe("every family entry equals what was read", () => {
         });
       }
 
-      for (const field of ["editions", "magicEdenSymbol", "solana", "tokenIds", "burnedIds", "chip", "descriptionExcerpt"]) {
+      for (const field of ["editions", "solana", "tokenIds", "burnedIds", "chip", "descriptionExcerpt"]) {
         if (!(field in want)) continue;
         it(`${field} equals the read`, () => {
           expect(entry(slug)?.[field]).toEqual(want[field]);
@@ -105,15 +105,35 @@ describe("every family entry equals what was read", () => {
 });
 
 describe("the capability rule has one shape", () => {
-  it("every entry names its chain, standard, home market and explorer", () => {
+  it("every entry names its chain, standard and explorer", () => {
     for (const [slug, c] of Object.entries(COLLECTIONS)) {
       expect(["ethereum", "base", "solana"], `${slug}.chain`).toContain(c.chain);
       expect(["erc721", "erc1155", "spl"], `${slug}.standard`).toContain(c.standard);
       expect(typeof c.venueTrade, `${slug}.venueTrade`).toBe("boolean");
-      expect(typeof c.market?.name, `${slug}.market.name`).toBe("string");
-      expect(c.market?.collectionUrl, `${slug}.market.collectionUrl`).toMatch(/^https:\/\//);
       expect(c.explorer?.addressUrl, `${slug}.explorer.addressUrl`).toMatch(/^https:\/\//);
     }
+  });
+
+  // Owner ruling, 2026-10-02: every market link goes to OpenSea and nowhere
+  // else. A collection OpenSea does not list (Junglets) has no link at all,
+  // rather than a link to a page that does not exist.
+  it("every market link is the collection's own OpenSea page, or there is none", () => {
+    for (const [slug, c] of Object.entries(COLLECTIONS)) {
+      expect("market" in c, `${slug} leaves market out instead of null`).toBe(true);
+      if (c.market === null) {
+        expect(c.openseaSlug, `${slug} has an OpenSea page but no link to it`).toBeNull();
+        continue;
+      }
+      expect(c.market.name, slug).toBe("OpenSea");
+      expect(c.market.collectionUrl, slug).toBe(`https://opensea.io/collection/${c.openseaSlug}`);
+      if (c.market.itemUrlTemplate != null) {
+        expect(new URL(c.market.itemUrlTemplate.replace("{id}", "1")).hostname, slug).toBe("opensea.io");
+      }
+    }
+  });
+
+  it("Junglets has no market link: OpenSea has no Junglets page", () => {
+    expect(entry("junglets")?.market).toBeNull();
   });
 
   it("venueTrade is true exactly for the Ethereum ERC-721 entries", () => {

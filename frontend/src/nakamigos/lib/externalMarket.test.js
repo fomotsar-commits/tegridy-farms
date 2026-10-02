@@ -1,13 +1,14 @@
 // lib/externalMarket.js reads a view-only collection's stats and items from
 // its home market, and says "unavailable" rather than guess.
 //
-// The four EVM family collections read OpenSea by slug through /api/opensea;
-// Junglets reads Magic Eden through /api/aggregator?resource=me-read. Both
-// answers are validated row by row: an item that is not this collection's
-// contract, an id that is not digits, an image that is not on the market's
-// own CDN, a listing priced in anything but SOL at 9 decimals, is dropped or
-// nulled rather than shown. Any answer that is not the expected JSON (vite
-// preview answers /api with HTML) is `unavailable`, never an empty success.
+// The four EVM family collections read OpenSea by slug through /api/opensea,
+// and the answer is validated row by row: an item that is not this
+// collection's contract, an id that is not digits, or an image that is not on
+// OpenSea's own CDN is dropped or nulled rather than shown. Any answer that is
+// not the expected JSON (vite preview answers /api with HTML) is
+// `unavailable`, never an empty success. Junglets is not on OpenSea, and the
+// venue reads no other market (owner ruling, 2026-10-02), so it makes no read
+// at all and every answer for it is `unavailable`, reason "no-market-read".
 //
 // Numbers keep their precision. Seeds has traded 0.052768 ETH in total and
 // Rare Towelie Cards 0.06 ETH; api.js rounds collection volume to an integer
@@ -15,7 +16,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { COLLECTIONS } from "../constants";
-import { ADDR, WSOL_MINT } from "../__fixtures__/jungleBayFamily";
+import { ADDR } from "../__fixtures__/jungleBayFamily";
 
 const load = () => import(/* @vite-ignore */ "./externalMarket" + "");
 
@@ -233,130 +234,38 @@ describe("OpenSea items for an EVM family collection", () => {
   });
 });
 
-describe("Magic Eden for Junglets", () => {
-  const listing = (over = {}) => ({
-    tokenMint: "DGzxMHMKVdy1SsSRfR1wLXxA1eB5TeNMp22NADsKYPK3",
-    price: 0.695,
-    priceInfo: { solPrice: { rawAmount: "695000000", address: WSOL_MINT, decimals: 9 } },
-    token: {
-      mintAddress: "DGzxMHMKVdy1SsSRfR1wLXxA1eB5TeNMp22NADsKYPK3",
-      collection: "junglet",
-      collectionName: "Junglets",
-      name: "Junglet #64",
-      image: "https://na-assets.pinit.io/3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw/b69c398c-8a8f-4b56-8f82-fdb0b1d3a16e/61",
-      attributes: [{ trait_type: "Artist", value: "FilthyTrikksEth" }],
-    },
-    ...over,
-  });
-
-  it("reads stats through me-read, and converts lamports to SOL", async () => {
-    answer = () => json({ symbol: "junglet", floorPrice: 695000000, listedCount: 55 });
+describe("Junglets: no market is read", () => {
+  // OpenSea has no Junglets page, and the venue reads no other market. So
+  // there is nothing to ask: no request goes out, and the answer says why.
+  it("its stats are unavailable, reason no-market-read, and nothing is fetched", async () => {
     const { fetchExternalStats } = await load();
     const s = await fetchExternalStats(COLLECTIONS.junglets);
-    const url = urlOf(fetchMock.mock.calls[0]);
-    expect(url.pathname).toBe("/api/aggregator");
-    expect(url.searchParams.get("resource")).toBe("me-read");
-    expect(url.searchParams.get("path")).toBe("/collections/junglet/stats");
-    expect(s.floor).toBeCloseTo(0.695, 9);
-    expect(s.floorSymbol).toBe("SOL");
-    expect(s.listedCount).toBe(55);
-    // Magic Eden's stats route reads neither; they are not invented.
-    expect(s.volume).toBeNull();
-    expect(s.owners).toBeNull();
-    expect(s.source).toBe("Magic Eden");
+    expect(s).toEqual({ unavailable: true, reason: "no-market-read" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("a floorPrice of 0 or null is none listed; a missing floorPrice is unread", async () => {
-    const { fetchExternalStats } = await load();
-    answer = () => json({ symbol: "junglet", floorPrice: 0, listedCount: 0 });
-    let s = await fetchExternalStats(COLLECTIONS.junglets);
-    expect(s.floor).toBeNull();
-    expect(s.noneListed).toBe(true);
-
-    vi.resetModules();
-    answer = () => json({ symbol: "junglet", floorPrice: null, listedCount: 0 });
-    s = await (await load()).fetchExternalStats(COLLECTIONS.junglets);
-    expect(s.floor).toBeNull();
-    expect(s.noneListed).toBe(true);
-
-    vi.resetModules();
-    answer = () => json({ symbol: "junglet", listedCount: 55 });
-    s = await (await load()).fetchExternalStats(COLLECTIONS.junglets);
-    expect(s.floor).toBeNull();
-    expect(s.noneListed).toBe(false);
-  });
-
-  it("reads listings a page of 100 at a time", async () => {
-    answer = () => json([listing()]);
+  it("its items are unavailable, reason no-market-read, and nothing is fetched", async () => {
     const { fetchExternalItems } = await load();
-    await fetchExternalItems(COLLECTIONS.junglets);
-    const url = urlOf(fetchMock.mock.calls[0]);
-    expect(url.searchParams.get("path")).toBe("/collections/junglet/listings");
-    expect(url.searchParams.get("limit")).toBe("100");
-    expect(url.searchParams.get("offset")).toBe("0");
+    const r = await fetchExternalItems(COLLECTIONS.junglets);
+    expect(r).toEqual({ unavailable: true, reason: "no-market-read" });
+    expect(r.items).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("keeps a valid SOL listing, priced from rawAmount, image through wsrv", async () => {
-    answer = () => json([listing()]);
-    const { fetchExternalItems } = await load();
-    const { items } = await fetchExternalItems(COLLECTIONS.junglets);
-    expect(items).toHaveLength(1);
-    expect(items[0].mint).toBe("DGzxMHMKVdy1SsSRfR1wLXxA1eB5TeNMp22NADsKYPK3");
-    expect(items[0].name).toBe("Junglet #64");
-    expect(items[0].priceSol).toBeCloseTo(0.695, 9);
-    const img = new URL(items[0].image);
-    expect(img.origin).toBe("https://wsrv.nl");
-    expect(img.searchParams.get("url")).toBe(listing().token.image);
-  });
-
-  it.each([
-    ["another collection", (l) => ({ ...l, token: { ...l.token, collection: "degods" } })],
-    ["a price in another mint", (l) => ({ ...l, priceInfo: { solPrice: { ...l.priceInfo.solPrice, address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" } } })],
-    ["the wrong decimals", (l) => ({ ...l, priceInfo: { solPrice: { ...l.priceInfo.solPrice, decimals: 6 } } })],
-    ["a rawAmount that is not digits", (l) => ({ ...l, priceInfo: { solPrice: { ...l.priceInfo.solPrice, rawAmount: "6.95e8" } } })],
-    ["no price info at all", (l) => ({ ...l, priceInfo: undefined })],
-  ])("drops a listing with %s, and counts it", async (_label, mutate) => {
-    const valid = listing({ tokenMint: "5kL2Jz7q3sQnUe7Fq9yL2B8pA1s3d4f5g6h7j8k9m1n2", token: { ...listing().token, name: "Junglet #65" } });
-    answer = () => json([valid, mutate(listing())]);
-    const { fetchExternalItems } = await load();
-    const { items, dropped } = await fetchExternalItems(COLLECTIONS.junglets);
-    expect(items.map((i) => i.name)).toEqual(["Junglet #65"]);
-    expect(dropped).toBe(1);
-  });
-
-  it("a page of listings that all fail validation is unavailable, never an empty success", async () => {
-    answer = () => json([
-      listing({ priceInfo: undefined }),
-      listing({ tokenMint: "5kL2Jz7q3sQnUe7Fq9yL2B8pA1s3d4f5g6h7j8k9m1n2", priceInfo: undefined }),
-    ]);
-    const { fetchExternalItems } = await load();
-    const res = await fetchExternalItems(COLLECTIONS.junglets);
-    expect(res.unavailable).toBe(true);
-    expect(res.reason).toBe("shape");
-  });
-
-  it("no listings at all is an empty success", async () => {
-    answer = () => json([]);
-    const { fetchExternalItems } = await load();
-    const res = await fetchExternalItems(COLLECTIONS.junglets);
-    expect(res.unavailable).toBeFalsy();
-    expect(res.items).toEqual([]);
-    expect(res.dropped).toBe(0);
-  });
-
-  it("nulls an image that is not on na-assets.pinit.io, rather than proxying it", async () => {
-    answer = () => json([listing({ token: { ...listing().token, image: "https://evil.example/x.png" } })]);
-    const { fetchExternalItems } = await load();
-    const { items } = await fetchExternalItems(COLLECTIONS.junglets);
-    expect(items[0].image).toBeNull();
+  it("readsMarket says which collections have a market read", async () => {
+    const { readsMarket } = await load();
+    expect(readsMarket(COLLECTIONS.junglets)).toBe(false);
+    for (const slug of ["junglebaymemes", "memeticseeds", "bojungles", "raretowelie"]) {
+      expect(readsMarket(COLLECTIONS[slug]), slug).toBe(true);
+    }
   });
 });
 
 describe("failures are unavailable, with a reason", () => {
   it("a 429 is rate-limited, with the wait the market asked for", async () => {
-    answer = () => json("You have exceeded the requests in 1 min limit!", { status: 429, headers: { "retry-after": "60" } });
+    answer = () => json({ error: "upstream-rate-limited" }, { status: 429, headers: { "retry-after": "60" } });
     const { fetchExternalStats } = await load();
-    const s = await fetchExternalStats(COLLECTIONS.junglets);
+    const s = await fetchExternalStats(COLLECTIONS.bojungles);
     expect(s.unavailable).toBe(true);
     expect(s.reason).toBe("rate-limited");
     expect(s.retryAfter).toBe(60);
@@ -414,9 +323,11 @@ describe("the budget", () => {
     expect(second.volume).toBe(1.42308);
   });
 
-  it("never asks OpenSea about a collection it does not list", async () => {
-    const { fetchExternalStats } = await load();
+  it("never asks anything about a collection OpenSea does not list", async () => {
+    const { fetchExternalStats, fetchExternalItems } = await load();
     await fetchExternalStats(COLLECTIONS.junglets);
-    for (const call of fetchMock.mock.calls) expect(urlOf(call).pathname).not.toBe("/api/opensea");
+    await fetchExternalItems(COLLECTIONS.junglets);
+    await fetchExternalItems(COLLECTIONS.junglets, "100");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

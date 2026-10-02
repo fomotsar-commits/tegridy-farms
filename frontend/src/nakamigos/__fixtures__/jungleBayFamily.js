@@ -3,9 +3,12 @@
 // Every value here came from a read made for this change: an eth_call on
 // Ethereum or Base (name, symbol, totalSupply, ownerOf, supportsInterface,
 // eth_getCode for the deploy block), a Solana RPC read of the Metaplex
-// metadata accounts, a saved OpenSea collection page, or the Magic Eden v2
-// API. Tests compare the registry against this file, so a registry value that
-// drifts from what the chain said goes red here first.
+// metadata accounts, or a saved OpenSea collection page. Tests compare the
+// registry against this file, so a registry value that drifts from what the
+// chain said goes red here first.
+//
+// Every market link is OpenSea (owner ruling, 2026-10-02). Junglets has no
+// OpenSea page, so it has no market link and no market read at all.
 //
 // The OpenSea descriptions are VERBATIM, em dashes included (spelled as
 // \u2014 escapes so this file adds no U+2014 of its own). The registry stores
@@ -35,8 +38,6 @@ export const JUNGLETS_SOLANA = Object.freeze({
   updateAuthority: "3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw",
   firstCreator: "HqV6jua4x3V527W1JgsNQJ8G8nWPtF1igVm7ReY3avap",
 });
-
-export const WSOL_MINT = "So11111111111111111111111111111111111111112";
 
 export const GOLD_DESCRIPTION_OPENSEA_VERBATIM =
   "Gold Cards began as representation of those who invested in JungleBay when the project first emerged from the ashes of a rug. They are now held by the people who believe in the ethos of JungleBay and want to participate to the development of JungleBay island, as well as the governance of its ecosystem.\n\n"
@@ -167,7 +168,6 @@ export const EXPECTED_FAMILY = Object.freeze({
     contract: null,
     slug: "junglets",
     openseaSlug: null,
-    magicEdenSymbol: "junglet",
     solana: JUNGLETS_SOLANA,
     chain: "solana",
     standard: "spl",
@@ -180,11 +180,8 @@ export const EXPECTED_FAMILY = Object.freeze({
     description: JUNGLETS_DESCRIPTION_METADATA,
     descriptionSource: "metadata",
     tags: ["METAPLEX PNFT", "SOLANA", "JUNGLE BAY"],
-    market: {
-      name: "Magic Eden",
-      collectionUrl: "https://magiceden.us/marketplace/junglet",
-      itemUrlTemplate: null,
-    },
+    // OpenSea has no Junglets page, so there is no market to link to.
+    market: null,
     explorer: { name: "Solana Explorer", addressUrl: "https://explorer.solana.com/address/5csQYUGtJzUveFCKGRrnVCNZrPpkSAEZCZEsu9nBHuuK" },
     blurSlug: null,
     supplyNoteMentions: ["208"],

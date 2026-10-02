@@ -149,7 +149,10 @@ describe("labels a surface prints", () => {
 
   it("marketCollectionUrl and explorerAddressUrl read the registry", async () => {
     const { marketCollectionUrl, explorerAddressUrl } = await venue();
-    expect(marketCollectionUrl(COLLECTIONS.junglets)).toBe("https://magiceden.us/marketplace/junglet");
+    expect(marketCollectionUrl(COLLECTIONS.bojungles)).toBe("https://opensea.io/collection/bojungless");
+    // OpenSea has no Junglets page, so there is no market link at all.
+    expect(marketCollectionUrl(COLLECTIONS.junglets)).toBeNull();
+    expect(explorerAddressUrl(COLLECTIONS.junglets)).toBe("https://explorer.solana.com/address/5csQYUGtJzUveFCKGRrnVCNZrPpkSAEZCZEsu9nBHuuK");
     expect(explorerAddressUrl(COLLECTIONS.memeticseeds)).toBe("https://basescan.org/address/0xb34bB1d81A4e5F9DcA7360C3043ad50db2ea87F3");
   });
 });

@@ -3,9 +3,10 @@
 //
 // Nothing covered CollectionLanding before this. The card hardcoded ETH and
 // "? items", which is harmless while every collection is an Ethereum ERC-721
-// and a misstatement the moment one is not: Junglets' 0.695 SOL floor printed
-// as 0.695 ETH is wrong by roughly fifty times, and an ERC-1155's supply is a
-// count of designs and a count of editions, not one number.
+// and a misstatement the moment one is not: a Base price is not mainnet ETH,
+// and an ERC-1155's supply is a count of designs and a count of editions, not
+// one number. Junglets is not on OpenSea and the venue reads no other market
+// (owner ruling, 2026-10-02), so its card says its stats are unavailable.
 //
 // Only the network is faked: api.js's two readers are spies, and the family
 // collections' reads are answered from their captured responses.
@@ -19,7 +20,6 @@ import bojStats from "../../../e2e/fixtures/jungle-bay-family/opensea-stats.boju
 import seedsStats from "../../../e2e/fixtures/jungle-bay-family/opensea-stats.seeds-from-the-memetic-garden.json";
 import memesStats from "../../../e2e/fixtures/jungle-bay-family/opensea-stats.the-memes-by-junglebay-x-mfers-artists.json";
 import towStats from "../../../e2e/fixtures/jungle-bay-family/opensea-stats.rare-towelie-cards.json";
-import meStats from "../../../e2e/fixtures/jungle-bay-family/me-stats.junglet.json";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -37,7 +37,6 @@ const FIX = {
   "collections/seeds-from-the-memetic-garden/stats": seedsStats.response,
   "collections/the-memes-by-junglebay-x-mfers-artists/stats": memesStats.response,
   "collections/rare-towelie-cards/stats": towStats.response,
-  "/collections/junglet/stats": meStats.response,
 };
 
 let fetchMock;
@@ -125,19 +124,34 @@ describe("each card reads from the right place", () => {
     }
   });
 
-  it("the view-only collections read their home market's stats instead", async () => {
+  it("the view-only collections OpenSea lists read its stats instead, and nothing else is asked", async () => {
     await renderLanding();
-    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(5));
-    const paths = fetchMock.mock.calls.map((c) => new URL(String(c[0]), "https://memetics.finance").searchParams.get("path"));
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(4));
+    await settle();
+    const urls = fetchMock.mock.calls.map((c) => new URL(String(c[0]), "https://memetics.finance"));
+    const paths = urls.map((u) => u.searchParams.get("path"));
     for (const p of Object.keys(FIX)) expect(paths).toContain(p);
+    // Junglets is not on OpenSea and no other market is read for it.
+    for (const u of urls) expect(u.pathname, u.href).toBe("/api/opensea");
+    expect(urls).toHaveLength(Object.keys(FIX).length);
   });
 });
 
+const MARKET_SLUGS = VIEW_ONLY_SLUGS.filter((s) => EXPECTED_FAMILY[s].market);
+
 describe("a view-only card says where it trades, and is still one control", () => {
-  it.each(VIEW_ONLY_SLUGS)("%s carries a Trades on badge and nests no link or button", async (slug) => {
+  it.each(MARKET_SLUGS)("%s carries a Trades on OpenSea badge and nests no link or button", async (slug) => {
     await renderLanding();
     const c = card(slug);
-    expect(text(c)).toMatch(new RegExp(`Trades on ${EXPECTED_FAMILY[slug].market.name}`));
+    expect(text(c)).toMatch(/Trades on OpenSea/);
+    expect(c.querySelector("a, button")).toBeNull();
+  });
+
+  it("Junglets claims no market: no Trades on badge, and nests no link or button", async () => {
+    expect(MARKET_SLUGS).not.toContain("junglets");
+    await renderLanding();
+    const c = card("junglets");
+    expect(text(c)).not.toMatch(/Trades on/);
     expect(c.querySelector("a, button")).toBeNull();
   });
 
@@ -169,11 +183,18 @@ describe("numbers in their own unit", () => {
     }
   });
 
-  it("Junglets counts its items and prices in SOL, with no ETH anywhere on its card", async () => {
+  it("Junglets counts its items and says its stats are unavailable, never a zero or a price", async () => {
     await renderLanding();
-    await waitFor(() => expect(text(card("junglets"))).toMatch(/0\.695 SOL/));
-    expect(text(card("junglets"))).toMatch(/208 items/);
-    expect(text(card("junglets"))).not.toMatch(/\bETH\b/);
+    await settle();
+    await waitFor(() => expect(text(card("junglets"))).toMatch(/Stats unavailable: this venue reads no market for Junglets/));
+    const c = card("junglets");
+    expect(text(c)).toMatch(/208 items/);
+    for (const label of ["Floor", "Owners"]) {
+      const stat = within(c).getByText(new RegExp(`^${label}$`)).parentElement;
+      expect(text(stat), label).toMatch(/\u2014/);
+    }
+    expect(text(c)).not.toMatch(/\bETH\b|\bSOL\b|None listed|Stats from/);
+    expect(text(c)).not.toMatch(/(^|\s)0(\.0+)?(\s|$)/);
   });
 
   it("the Base collections say ETH on Base, at full precision", async () => {

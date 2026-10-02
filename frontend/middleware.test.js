@@ -208,9 +208,20 @@ describe('the marketplace collection cards', () => {
     expect(d).toBe('On Ethereum. Browse it on Tradermigos; it trades on OpenSea.');
   });
 
-  it('Junglets says Magic Eden', async () => {
+  // Every market link is OpenSea (owner ruling, 2026-10-02), and OpenSea has
+  // no Junglets page, so its card names no market at all.
+  it('Junglets names no market', async () => {
     const d = decode(meta(await card('/nakamigos/junglets'), 'og:description'));
-    expect(d).toBe('208 items · On Solana. Browse it on Tradermigos; it trades on Magic Eden.');
+    expect(d).toBe('208 items · On Solana. See it on Tradermigos.');
+    expect(d).not.toMatch(/trades on/i);
+  });
+
+  it('every view-only card that names a market names OpenSea', async () => {
+    const { OG_COLLECTIONS } = await load();
+    for (const [slug, c] of Object.entries(OG_COLLECTIONS)) {
+      if (!c.viewOnly) continue;
+      expect([null, 'OpenSea'], slug).toContain(c.market);
+    }
   });
 
   it('a token link on a view-only collection falls back to the collection card, with no fetch', async () => {

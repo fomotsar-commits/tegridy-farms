@@ -6,16 +6,18 @@ import { fileURLToPath } from 'node:url';
 //
 // The marketplace lists the six collections memetics.wtf/heat calls the
 // island's "family collections". Gold Cards trades here like the three before
-// it; the other five are browsed here and trade on OpenSea or Magic Eden. This
-// spec opens each one's page, and a trade tab of a view-only one by deep link,
-// on the production build.
+// it; four of the other five are browsed here and link out to OpenSea. Junglets
+// is not on OpenSea, and every market link is OpenSea (owner ruling,
+// 2026-10-02), so its page has no market button and says its stats and items
+// are unavailable. This spec opens each one's page, and a trade tab of a
+// view-only one by deep link, on the production build.
 //
 // `vite preview` serves no /api function, so the collections' own answers are
 // stubbed at the route level from e2e/fixtures/jungle-bay-family/: OpenSea's
-// stats and item list reshaped from each collection's saved OpenSea page, and
-// Magic Eden's two reads exactly as its API answered them. Each fixture file
-// names its source in `_provenance`. An /api call nothing here stubs falls to
-// the SPA fallback (HTML), which the app must report as unread, not as zero.
+// stats and item list reshaped from each collection's saved OpenSea page. Each
+// fixture file names its source in `_provenance`. An /api call nothing here
+// stubs falls to the SPA fallback (HTML), which the app must report as unread,
+// not as zero.
 //
 // Across the device matrix this also holds green's phone and iPad concern: no
 // page here scrolls sideways, whatever the length of the collection's name.
@@ -27,9 +29,9 @@ const fixture = (name: string): unknown =>
 interface ViewOnly {
   slug: string;
   name: string;
-  market: 'OpenSea' | 'Magic Eden';
-  marketUrl: string;
-  /** The gallery's own count line, for the items the fixture carries. */
+  /** Where its market button goes; null when OpenSea does not list it. */
+  marketUrl: string | null;
+  /** The gallery's own line: its count, or why nothing is shown. */
   gallery: RegExp;
 }
 
@@ -37,36 +39,30 @@ const VIEW_ONLY: ViewOnly[] = [
   {
     slug: 'junglebaymemes',
     name: 'the memes by jungle bay x mfers artists',
-    market: 'OpenSea',
     marketUrl: 'https://opensea.io/collection/the-memes-by-junglebay-x-mfers-artists',
     gallery: /Showing 22 items read from OpenSea/,
   },
   {
     slug: 'memeticseeds',
     name: 'Seeds from the Memetic Garden',
-    market: 'OpenSea',
     marketUrl: 'https://opensea.io/collection/seeds-from-the-memetic-garden',
     gallery: /Showing 50 items read from OpenSea/,
   },
   {
     slug: 'junglets',
     name: 'Junglets',
-    market: 'Magic Eden',
-    marketUrl: 'https://magiceden.us/marketplace/junglet',
-    // The captured stats say 55 are listed; the captured listings page holds 5.
-    gallery: /Showing 5 of the 55 Junglets listed on Magic Eden, of 208 in all\./,
+    marketUrl: null,
+    gallery: /Items unavailable: this venue reads no market for Junglets, so none are shown here\./,
   },
   {
     slug: 'bojungles',
     name: 'Bojungles',
-    market: 'OpenSea',
     marketUrl: 'https://opensea.io/collection/bojungless',
     gallery: /Showing 50 items read from OpenSea/,
   },
   {
     slug: 'raretowelie',
     name: 'RARE TOWELIE CARDS',
-    market: 'OpenSea',
     marketUrl: 'https://opensea.io/collection/rare-towelie-cards',
     gallery: /Showing 50 items read from OpenSea/,
   },
@@ -84,11 +80,6 @@ const OPENSEA: Record<string, string> = {
   'collections/junglebaygoldcards/stats': 'opensea-stats.junglebaygoldcards.json',
 };
 
-const MAGIC_EDEN: Record<string, string> = {
-  '/collections/junglet/stats': 'me-stats.junglet.json',
-  '/collections/junglet/listings': 'me-listings.junglet.json',
-};
-
 const GOLD = '0x6aa03f42c5366e2664c887eb2e90844ca00b92f3';
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -104,12 +95,8 @@ async function stubFamilyReads(page: Page): Promise<string[]> {
     return file ? json(route, fixture(file)) : json(route, { error: 'upstream-rejected', status: 404 }, 404);
   });
   await page.route((url) => url.pathname === '/api/aggregator', async (route) => {
-    const url = new URL(route.request().url());
-    if (url.searchParams.get('resource') !== 'me-read') return route.fallback();
-    const path = url.searchParams.get('path') ?? '';
-    asked.push(`me-read ${path}`);
-    const file = MAGIC_EDEN[path];
-    return file ? json(route, fixture(file)) : json(route, { error: 'Unsupported path' }, 400);
+    asked.push(`aggregator ${new URL(route.request().url()).searchParams.get('resource') ?? ''}`);
+    return route.fallback();
   });
   await page.route((url) => url.pathname === '/api/alchemy', async (route) => {
     const url = new URL(route.request().url());
@@ -149,20 +136,37 @@ async function expectNoSidewaysScroll(page: Page) {
 const marketButton = (page: Page, market: string) =>
   page.getByRole('link', { name: new RegExp(`^Trade on ${market}`) }).first();
 
+// Where a view-only page may link out to: OpenSea and the chain explorers.
+const LINK_OUT_HOSTS = ['opensea.io', 'etherscan.io', 'basescan.org', 'explorer.solana.com'];
+const linkOutHosts = (page: Page) =>
+  page.evaluate(() => [...document.querySelectorAll('a[href]')]
+    .map((a) => new URL(a.getAttribute('href') ?? '', location.href))
+    .filter((u) => u.origin !== location.origin)
+    .map((u) => u.hostname));
+
 test.describe('the Jungle Bay family on the marketplace', () => {
   for (const c of VIEW_ONLY) {
-    test(`/nakamigos/${c.slug} opens read-only, with a button to ${c.market}`, async ({ page }) => {
+    test(`/nakamigos/${c.slug} opens read-only, ${c.marketUrl ? 'with a button to OpenSea' : 'with no market button'}`, async ({ page }) => {
       const asked = await openCollection(page, `/nakamigos/${c.slug}`);
 
       await expect(page.getByRole('heading', { level: 1, name: new RegExp(c.name, 'i') })).toBeVisible({ timeout: 20_000 });
-      const button = marketButton(page, c.market);
-      await expect(button).toBeVisible();
-      await expect(button).toHaveAttribute('href', c.marketUrl);
-      await expect(button).toHaveAttribute('target', '_blank');
-      // Dark label on light blue: the page's dark text shadow would smear it.
-      await expect(button).toHaveCSS('text-shadow', 'none');
+      if (c.marketUrl) {
+        const button = marketButton(page, 'OpenSea');
+        await expect(button).toBeVisible();
+        await expect(button).toHaveAttribute('href', c.marketUrl);
+        await expect(button).toHaveAttribute('target', '_blank');
+        // Dark label on light blue: the page's dark text shadow would smear it.
+        await expect(button).toHaveCSS('text-shadow', 'none');
+      }
 
       await expect(page.getByText(c.gallery)).toBeVisible({ timeout: 20_000 });
+      // Every link out goes to OpenSea or the chain's explorer, and a collection
+      // OpenSea does not list has no market button and asks nothing.
+      for (const host of await linkOutHosts(page)) expect(LINK_OUT_HOSTS, `a link goes to ${host}`).toContain(host);
+      if (!c.marketUrl) {
+        await expect(page.getByRole('link', { name: /^Trade on/ })).toHaveCount(0);
+        expect(asked, 'a collection with no market read asks nothing').toEqual([]);
+      }
       await expect(page.getByRole('button', { name: 'Shopping cart' })).toHaveCount(0);
       await expect(page.getByRole('button', { name: /Make an offer|Buy this NFT/i })).toHaveCount(0);
 
@@ -253,8 +257,8 @@ const PANELS: PanelCase[] = [
   // A token held by the burn address: no picture, the "Image unavailable" tile.
   { label: 'Seeds #88', path: '/nakamigos/memeticseeds/nft/88' },
   {
-    label: 'the first listed Junglet',
-    path: '/nakamigos/junglets',
+    label: 'the first Bojungles card',
+    path: '/nakamigos/bojungles',
     open: async (page) => { await page.locator('.ext-card').first().click({ timeout: 20_000 }); },
   },
 ];

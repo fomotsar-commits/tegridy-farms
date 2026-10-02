@@ -1,6 +1,8 @@
 // The five view-only family collections open in their own view: a gallery and
-// an About page, a button to the market where they really trade, and none of
-// the Ethereum trading app.
+// an About page, a button to OpenSea where they trade, and none of the
+// Ethereum trading app. Every market link is OpenSea (owner ruling,
+// 2026-10-02). Junglets is not on OpenSea, so it has no market button and no
+// market read: its stats and items say they are unavailable, and why.
 //
 // Rendered through the real App at real routes. Only the network is faked,
 // with the collections' own captured answers (e2e/fixtures/jungle-bay-family),
@@ -33,8 +35,6 @@ import memesStats from "../../e2e/fixtures/jungle-bay-family/opensea-stats.the-m
 import memesNfts from "../../e2e/fixtures/jungle-bay-family/opensea-nfts.the-memes-by-junglebay-x-mfers-artists.json";
 import towStats from "../../e2e/fixtures/jungle-bay-family/opensea-stats.rare-towelie-cards.json";
 import towNfts from "../../e2e/fixtures/jungle-bay-family/opensea-nfts.rare-towelie-cards.json";
-import meStats from "../../e2e/fixtures/jungle-bay-family/me-stats.junglet.json";
-import meListings from "../../e2e/fixtures/jungle-bay-family/me-listings.junglet.json";
 
 vi.mock("./contexts/WalletContext", () => {
   const state = { address: null, isConnected: false, walletName: null, isWrongNetwork: false };
@@ -78,8 +78,6 @@ const FIX = {
   "collection/the-memes-by-junglebay-x-mfers-artists/nfts": memesNfts.response,
   "collections/rare-towelie-cards/stats": towStats.response,
   "collection/rare-towelie-cards/nfts": towNfts.response,
-  "/collections/junglet/stats": meStats.response,
-  "/collections/junglet/listings": meListings.response,
 };
 
 let fetchMock;
@@ -101,7 +99,7 @@ function route(input) {
     const r = override(url);
     if (r) return r;
   }
-  if (url.pathname === "/api/opensea" || (url.pathname === "/api/aggregator" && url.searchParams.get("resource") === "me-read")) {
+  if (url.pathname === "/api/opensea") {
     const body = FIX[url.searchParams.get("path")];
     return body ? reply(body) : reply({ error: "upstream-rejected" }, 400);
   }
@@ -161,10 +159,19 @@ const isBlurLink = (href) => {
   return hostname === "blur.io" || hostname.endsWith(".blur.io");
 };
 
-const marketName = (slug) => EXPECTED_FAMILY[slug].market.name;
+const marketName = (slug) => EXPECTED_FAMILY[slug].market?.name ?? null;
 const marketLinks = (slug, root = document.body) =>
-  within(root).queryAllByRole("link", { name: new RegExp(`^Trade on ${marketName(slug)}`) });
+  within(root).queryAllByRole("link", { name: new RegExp(`^Trade on ${marketName(slug) ?? "OpenSea"}`) });
+const anyMarketLinks = (root = document.body) => within(root).queryAllByRole("link", { name: /^Trade on/ });
 const waitForMarketButton = (slug) => waitFor(() => expect(marketLinks(slug).length).toBeGreaterThan(0));
+// The view is up once its heading is; a collection with no market has no button to wait for.
+const waitForView = (slug) => screen.findByRole("heading", { level: 1, name: new RegExp(escapeRe(EXPECTED_FAMILY[slug].name), "i") });
+// Where a view-only page may link out to: OpenSea and the chain explorers.
+const LINK_OUT_HOSTS = new Set(["opensea.io", "etherscan.io", "basescan.org", "explorer.solana.com"]);
+const linkOutHosts = () => [...document.querySelectorAll("a[href]")]
+  .map((a) => new URL(a.getAttribute("href"), "https://venue.invalid/"))
+  .filter((u) => u.hostname !== "venue.invalid")
+  .map((u) => u.hostname);
 
 const MONEY_TABS = ["listings", "deals", "sniper", "trade", "trades", "bids", "my-listings", "collection"];
 const READ_TABS = VALID_TABS.filter((t) => t !== "gallery" && t !== "about" && !MONEY_TABS.includes(t));
@@ -172,29 +179,48 @@ const READ_TABS = VALID_TABS.filter((t) => t !== "gallery" && t !== "about" && !
 describe("a view-only collection opens its own view", () => {
   for (const slug of VIEW_ONLY_SLUGS) {
     describe(slug, () => {
-      it("shows the collection, with the market button in its header", async () => {
-        await renderAt(`/nakamigos/${slug}`);
-        expect(await screen.findByRole("heading", { level: 1, name: new RegExp(escapeRe(EXPECTED_FAMILY[slug].name), "i") })).toBeInTheDocument();
-        await waitForMarketButton(slug);
-        const hero = marketLinks(slug)[0];
-        expect(hero).toHaveAttribute("href", EXPECTED_FAMILY[slug].market.collectionUrl);
-        expect(hero).toHaveAttribute("target", "_blank");
-        expect(hero.getAttribute("rel")).toMatch(/noopener/);
-        expect(hero.getAttribute("rel")).toMatch(/noreferrer/);
-        expect(hero.textContent).toMatch(/opens in a new tab/i);
-      });
+      if (EXPECTED_FAMILY[slug].market) {
+        it("shows the collection, with the OpenSea button in its header", async () => {
+          await renderAt(`/nakamigos/${slug}`);
+          expect(await waitForView(slug)).toBeInTheDocument();
+          await waitForMarketButton(slug);
+          const hero = marketLinks(slug)[0];
+          expect(marketName(slug)).toBe("OpenSea");
+          expect(hero).toHaveAttribute("href", EXPECTED_FAMILY[slug].market.collectionUrl);
+          expect(hero).toHaveAttribute("target", "_blank");
+          expect(hero.getAttribute("rel")).toMatch(/noopener/);
+          expect(hero.getAttribute("rel")).toMatch(/noreferrer/);
+          expect(hero.textContent).toMatch(/opens in a new tab/i);
+        });
 
-      it("says where it lives and where it trades, in one plain line", async () => {
-        await renderAt(`/nakamigos/${slug}`);
-        const chain = { ethereum: "Ethereum", base: "Base", solana: "Solana" }[EXPECTED_FAMILY[slug].chain];
-        await findInBody(new RegExp(escapeRe(
-          `${EXPECTED_FAMILY[slug].name} lives on ${chain}. Browse it here; it trades on ${marketName(slug)}.`,
-        )));
-      });
+        it("says where it lives and where it trades, in one plain line", async () => {
+          await renderAt(`/nakamigos/${slug}`);
+          const chain = { ethereum: "Ethereum", base: "Base", solana: "Solana" }[EXPECTED_FAMILY[slug].chain];
+          await findInBody(new RegExp(escapeRe(
+            `${EXPECTED_FAMILY[slug].name} lives on ${chain}. Browse it here; it trades on OpenSea.`,
+          )));
+        });
+      } else {
+        it("shows the collection, with no market button at all", async () => {
+          await renderAt(`/nakamigos/${slug}`);
+          expect(await waitForView(slug)).toBeInTheDocument();
+          await new Promise((r) => setTimeout(r, 50));
+          expect(anyMarketLinks()).toEqual([]);
+        });
+
+        it("says where it lives, and that this venue reads no market for it", async () => {
+          await renderAt(`/nakamigos/${slug}`);
+          const chain = { ethereum: "Ethereum", base: "Base", solana: "Solana" }[EXPECTED_FAMILY[slug].chain];
+          await findInBody(new RegExp(escapeRe(
+            `${EXPECTED_FAMILY[slug].name} lives on ${chain}. This venue shows its facts, but reads no market for it.`,
+          )));
+          notInBody(/trades on/i);
+        });
+      }
 
       it("offers exactly Gallery and About, on desktop and mobile", async () => {
         await renderAt(`/nakamigos/${slug}`);
-        await waitForMarketButton(slug);
+        await waitForView(slug);
         const desktop = screen.getByRole("navigation", { name: "Main navigation" });
         const labels = within(desktop).getAllByRole("button").map((b) => b.textContent.trim());
         expect(labels).toEqual(["Gallery", "About"]);
@@ -209,7 +235,8 @@ describe("a view-only collection opens its own view", () => {
 
       it("offers no money control of any kind", async () => {
         await renderAt(`/nakamigos/${slug}`);
-        await waitForMarketButton(slug);
+        await waitForView(slug);
+        await new Promise((r) => setTimeout(r, 50));
         expect(screen.queryByRole("button", { name: "Shopping cart", hidden: true })).toBeNull();
         const MONEY = /\b(buy|make (an )?offer|add(ed)? to cart|offer a trade|list (it|for sale)|accept|sweep|bid)\b/i;
         const controls = [...screen.queryAllByRole("button", { hidden: true }), ...screen.queryAllByRole("link", { hidden: true })];
@@ -221,7 +248,7 @@ describe("a view-only collection opens its own view", () => {
 
       it("never runs an Ethereum reader or touches the Alchemy proxy or the order book", async () => {
         await renderAt(`/nakamigos/${slug}`);
-        await waitForMarketButton(slug);
+        await waitForView(slug);
         await new Promise((r) => setTimeout(r, 50));
         const api = await import("./api");
         for (const fn of ["fetchTokens", "fetchCollectionStats", "fetchListings", "fetchActivity", "fetchWalletNfts", "fetchTopHolders", "fetchTokensByIds"]) {
@@ -237,22 +264,46 @@ describe("a view-only collection opens its own view", () => {
         }
       });
 
+      it("reads only its own OpenSea routes, or nothing at all when OpenSea does not list it", async () => {
+        await renderAt(`/nakamigos/${slug}`);
+        await waitForView(slug);
+        await new Promise((r) => setTimeout(r, 50));
+        const reads = requested().map((u) => `${u.pathname} ${u.searchParams.get("path") ?? ""}`);
+        if (EXPECTED_FAMILY[slug].market) {
+          const own = new RegExp(`^/api/opensea collections?/${escapeRe(EXPECTED_FAMILY[slug].openseaSlug)}/(stats|nfts)$`);
+          expect(reads.length).toBeGreaterThan(0);
+          for (const r of reads) expect(r).toMatch(own);
+        } else {
+          expect(reads).toEqual([]);
+        }
+      });
+
       it("names itself in the tab title", async () => {
         await renderAt(`/nakamigos/${slug}`);
         await waitFor(() => expect(document.title).toBe(`${EXPECTED_FAMILY[slug].name} | Tradermigos`));
       });
 
-      it("keeps a footer of its own: the market, the explorer, and no Seaport trust strip", async () => {
+      it("keeps a footer of its own: OpenSea where it is listed, the explorer, and no Seaport trust strip", async () => {
         await renderAt(`/nakamigos/${slug}`);
-        await waitForMarketButton(slug);
+        await waitForView(slug);
         const footer = document.querySelector("footer");
         expect(footer).toBeTruthy();
         const hrefs = [...footer.querySelectorAll("a")].map((a) => a.getAttribute("href"));
-        expect(hrefs).toContain(EXPECTED_FAMILY[slug].market.collectionUrl);
+        if (EXPECTED_FAMILY[slug].market) expect(hrefs).toContain(EXPECTED_FAMILY[slug].market.collectionUrl);
         expect(hrefs).toContain(EXPECTED_FAMILY[slug].explorer.addressUrl);
         expect(hrefs.some(isBlurLink)).toBe(false);
         expect(footer.textContent).not.toMatch(/Seaport/);
         expect(footer.textContent).not.toMatch(/platform fee/i);
+      });
+
+      it.each(["gallery", "about", "listings"])("links out only to OpenSea and the chain explorer (%s)", async (tab) => {
+        await renderAt(`/nakamigos/${slug}/${tab}`);
+        await findInBody(new RegExp(escapeRe(EXPECTED_FAMILY[slug].name), "i"));
+        await new Promise((r) => setTimeout(r, 50));
+        const hosts = linkOutHosts();
+        expect(hosts.length).toBeGreaterThan(0);
+        for (const h of hosts) expect(LINK_OUT_HOSTS.has(h), `a link goes to ${h}`).toBe(true);
+        if (!EXPECTED_FAMILY[slug].market) expect(hosts).not.toContain("opensea.io");
       });
     });
   }
@@ -338,13 +389,17 @@ describe("stats say what they read, and say so when they could not", () => {
     notInBody(/(^|\s)0(\.0+)? ETH/);
   });
 
-  it("Junglets reads Magic Eden: a floor in SOL, the listed count, and no volume it did not read", async () => {
+  it("Junglets: no market is read, so its stats say so with the unread dash, never a zero, a price or a Retry", async () => {
     await renderAt("/nakamigos/junglets");
-    await findInBody(/Stats from Magic Eden/);
-    await findInBody(/0\.695 SOL/);
-    await findInBody(/55 listed/);
-    await findInBody(/not read here/);
-    notInBody(/\bETH\b/);
+    await findInBody(/Stats unavailable: this venue reads no market for Junglets\./);
+    for (const label of ["FLOOR", "VOLUME", "OWNERS"]) {
+      const stat = screen.getByText(label).closest(".stat-card");
+      expect(stat.querySelector(".stat-value").textContent, label).toBe("\u2014");
+    }
+    expect(screen.getByText("SUPPLY").closest(".stat-card").textContent).toMatch(/208 items/);
+    notInBody(/\bETH\b|\bSOL\b|None listed|Stats from|could not be read right now|Reading stats/);
+    expect(screen.queryByRole("button", { name: /Retry/ })).toBeNull();
+    expect(requested()).toEqual([]);
   });
 });
 
@@ -355,29 +410,15 @@ describe("the gallery says what it shows", () => {
     expect(screen.getAllByRole("button", { name: /Bojungles #248/ }).length).toBeGreaterThan(0);
   });
 
-  it("Junglets shows only what is listed, and says so", async () => {
-    const all = { ...meStats.response, listedCount: 5 };
-    override = (u) => (u.searchParams.get("path") === "/collections/junglet/stats" ? reply(all) : null);
+  // Nothing was read, so nothing is shown and nothing is claimed: not "No
+  // items" (that needs a read that answered empty), and no Retry (there is no
+  // read to try again).
+  it("Junglets says its items are unavailable and why, never No items, and offers no Retry", async () => {
     await renderAt("/nakamigos/junglets");
-    await findInBody(/Showing the 5 Junglets listed on Magic Eden, of 208\./);
-  });
-
-  // The stats read and the listings read are separate. The captured answers
-  // say 55 are listed and the listings read returned 5, so the gallery must
-  // not call the 5 "the" listed ones: one screen would state two listed counts.
-  it("Junglets fewer than the stats' listed count: N of the M listed, never the N listed", async () => {
-    expect(meStats.response.listedCount).toBe(55);
-    await renderAt("/nakamigos/junglets");
-    await findInBody(/Showing 5 of the 55 Junglets listed on Magic Eden, of 208 in all\./);
-    await findInBody(/55 listed/);
-    notInBody(/Showing the 5 Junglets listed/);
-  });
-
-  it("Junglets with no listed count read: N listed, never the N listed", async () => {
-    override = (u) => (u.searchParams.get("path") === "/collections/junglet/stats" ? reply({ error: "upstream-rate-limited" }, 429, { "retry-after": "60" }) : null);
-    await renderAt("/nakamigos/junglets");
-    await findInBody(/Showing 5 Junglets listed on Magic Eden, of 208\./);
-    notInBody(/Showing the 5 Junglets listed/);
+    await findInBody(/Items unavailable: this venue reads no market for Junglets, so none are shown here\./);
+    notInBody(/No items|Showing \d|could not be read right now|Reading items/);
+    expect(screen.queryByRole("button", { name: /Retry/ })).toBeNull();
+    expect(document.querySelectorAll(".ext-card")).toHaveLength(0);
   });
 
   it("a failed item read offers Retry, and never claims No items", async () => {
@@ -489,20 +530,11 @@ describe("the item panel and its market button", () => {
     notInBody(/not found in this collection's OpenSea items/i);
   });
 
-  it("a Junglets item opens with the price it is listed at and the collection-level button only", async () => {
-    await renderAt("/nakamigos/junglets");
-    const card = (await screen.findAllByRole("button", { name: /Junglet #64/ }))[0];
-    card.click();
-    const panel = await screen.findByRole("dialog");
-    expect(panel.textContent).toMatch(/0\.695 SOL/);
-    const links = within(panel).getAllByRole("link", { name: /^Trade on Magic Eden/ });
-    for (const l of links) expect(l).toHaveAttribute("href", "https://magiceden.us/marketplace/junglet");
-  });
-
   it("a numeric Junglets deep link opens nothing: Junglets are addressed by mint, not number", async () => {
     await renderAt("/nakamigos/junglets/nft/64");
-    await findInBody(/Junglets listed on Magic Eden/);
+    await findInBody(/Items unavailable: this venue reads no market for Junglets/);
     expect(screen.queryByRole("dialog")).toBeNull();
+    notInBody(/not found in this collection/i);
   });
 });
 
@@ -523,6 +555,9 @@ describe("About states the collection's own facts, with their sources", () => {
     await findInBody(/Description from the collection NFT's metadata \(IPFS, linked on chain\)/);
     notInBody(/on-chain metadata/i);
     await findInBody(/5csQ/);
+    // It names no market it trades on: OpenSea has no Junglets page.
+    notInBody(/TRADES ON/i);
+    expect(anyMarketLinks()).toEqual([]);
   });
 
   it("Rare Towelie Cards: no description, and nothing written in its place", async () => {
@@ -557,7 +592,8 @@ describe("the view's own copy", () => {
     for (const tab of ["gallery", "about", "listings", "activity"]) {
       it(`${slug}/${tab} carries no prose em dash and no protocol voice`, async () => {
         await renderAt(`/nakamigos/${slug}/${tab}`);
-        await waitForMarketButton(slug);
+        if (EXPECTED_FAMILY[slug].market) await waitForMarketButton(slug);
+        else await findInBody(new RegExp(escapeRe(EXPECTED_FAMILY[slug].name), "i"));
         await new Promise((r) => setTimeout(r, 50));
         expect(walk()).toEqual([]);
       });
