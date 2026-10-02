@@ -410,9 +410,9 @@ export const ROUTES: readonly RouteSpec[] = [
     tabOf: 'PoolsHostPage · pools',
     gate: null,
     why:
-      'The venue AMM is not deployed (its program id was closed 2026-08-13), so this audits the ' +
-      'live-probe status card and the proposed fee sheet — which is what the page actually shows until ' +
-      'create_amm_config runs, not a placeholder.',
+      'A build without VITE_SOLANA_CPSWAP_PROGRAM has no program to read, so this audits the ' +
+      'live-probe status card and the "Fees · not read" sheet, which is what the page actually shows ' +
+      'until its chain read returns a config, not a placeholder.',
     knownViolations: [],
   },
   { path: '/curve-launch', voice: 'venue', owner: 'pages/CurveLaunchPage.tsx',

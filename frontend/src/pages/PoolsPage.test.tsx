@@ -1,16 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 /**
- * `/pools` is the surface that answers "can this venue host liquidity pools?".
- * The whole point of it is that the answer comes from a LIVE CHAIN PROBE rather
- * than from copy, so these tests are about the four states being told apart —
- * especially the two that a lazier page would collapse into "coming soon":
- *
- *   • the AmmConfig has never been created (one instruction, not a wait), and
- *   • the chain could not be read (an outage on OUR side, not a fact about the
- *     venue).
+ * `/pools` answers "can this venue host liquidity pools?" from a LIVE CHAIN PROBE, never
+ * from copy. These tests keep its states apart, and hold that a fee is shown only when
+ * the chain returned it: a failed or pending read shows no number at all.
  */
 
 const readVenue = vi.fn();
@@ -30,47 +25,77 @@ vi.mock('../lib/launcher/solana/lpWriteFlag', async (importOriginal) => ({
 
 const PROGRAM = '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y';
 
+const LIVE = {
+  kind: 'live',
+  programId: PROGRAM,
+  config: {
+    address: 'CfG1111111111111111111111111111111111111111',
+    index: 0, disableCreatePool: false,
+    // Deliberately not any tier this repo has ever written down: the page must
+    // read these off chain, with nothing of its own to fall back to.
+    tradeFeeRate: 3000n, protocolFeeRate: 250_000n, fundFeeRate: 0n,
+    createPoolFee: 300_000_000n, creatorFeeRate: 0n,
+    protocolOwner: 'Own1', fundOwner: 'Own2',
+  },
+} as const;
+
 async function mount() {
   vi.resetModules();
   const { default: PoolsPage } = await import('./PoolsPage');
   return render(<MemoryRouter><PoolsPage /></MemoryRouter>);
 }
 
+/** The first read has answered: the status card is past its loading line. */
+async function settled() {
+  await waitFor(() => expect(readVenue).toHaveBeenCalled());
+  await waitFor(() => expect(screen.queryByText(/Reading the venue/i)).not.toBeInTheDocument());
+}
+
+/** No fee figure of any kind on the page: no percentage stat, no SOL price, no badge. */
+function expectNoFeeNumbers() {
+  // The whole page's text, so a figure inside a sentence counts too, not only a stat.
+  expect(document.body.textContent).not.toMatch(/\d\s*%|\d\s*SOL\b/);
+  expect(screen.queryByText(/^\d+(\.\d+)?%$/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/\d SOL$/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/% a trade/)).not.toBeInTheDocument();
+  expect(screen.queryByText('PROPOSAL')).not.toBeInTheDocument();
+  expect(screen.queryByText(/proposed/i)).not.toBeInTheDocument();
+}
+
 beforeEach(() => { vi.clearAllMocks(); });
 
-describe('when nothing is deployed', () => {
+describe('when this build has no program id', () => {
   beforeEach(() => { readVenue.mockResolvedValue({ kind: 'no-program-id' }); });
 
-  it('says the AMM is being redeployed and names the SPENT id', async () => {
+  it('says the page has no id to read, and names the SPENT id it never reads', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByText(/being redeployed/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/has no program id to read/i)).toBeInTheDocument());
     expect(screen.getByText(/permanently spent/i)).toBeInTheDocument();
     expect(screen.getByText('Spent id')).toBeInTheDocument();
   });
 
-  it('marks the fee sheet a PROPOSAL rather than implying it is charged', async () => {
+  it('does not say the AMM is being redeployed: that is a claim about the chain it never read', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByText('PROPOSAL')).toBeInTheDocument());
-    expect(screen.getByText(/nothing on chain charges it today/i)).toBeInTheDocument();
+    await settled();
+    expect(screen.queryByText(/being redeployed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/once its program is redeployed/i)).not.toBeInTheDocument();
+  });
+
+  it('shows no fee numbers, because none were read', async () => {
+    await mount();
+    await settled();
+    expectNoFeeNumbers();
+    expect(screen.getByText(/no fee tier was read/i)).toBeInTheDocument();
   });
 
   it('never claims in the present tense that a pool can be opened', async () => {
     // The regression this pins: the hero asserted "anyone can open a pool" above
-    // a status card that says the program id is permanently spent, so a reader
-    // met the capability claim before the correction.
+    // a status card that said the venue was not there, so a reader met the
+    // capability claim before the correction.
     await mount();
-    await waitFor(() => expect(screen.getByText(/being redeployed/i)).toBeInTheDocument());
+    await settled();
     expect(screen.queryByText(/anyone can open a pool/i)).not.toBeInTheDocument();
     expect(screen.getByText(/no pool can be opened here yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/no pool to\s+deposit into today/i)).toBeInTheDocument();
-  });
-
-  it('shows the competitive split — 0.25% paid, 0.21% to LPs, 0.04% to the venue', async () => {
-    await mount();
-    await waitFor(() => expect(screen.getByText('0.25%')).toBeInTheDocument());
-    expect(screen.getByText('0.21%')).toBeInTheDocument();
-    expect(screen.getByText('0.04%')).toBeInTheDocument();
-    expect(screen.getByText('0.15 SOL')).toBeInTheDocument();
   });
 });
 
@@ -82,33 +107,18 @@ describe('when the program is live but has no AmmConfig', () => {
     await waitFor(() => expect(screen.getByText(/one instruction from open/i)).toBeInTheDocument());
   });
 
-  it('prints the exact missing instruction with its arguments', async () => {
-    // This is the state that made graduation fail AmmNotConfigured for the whole
-    // life of the previous deployment. Nobody should have to reconstruct the
-    // call from a doc.
+  it('names the missing instruction without proposing rates for it', async () => {
     await mount();
-    await waitFor(() =>
-      expect(screen.getByText(/create_amm_config\(0, 2500, 120000, 40000, 150000000, 0\)/))
-        .toBeInTheDocument());
+    await settled();
+    expect(screen.queryByText(/create_amm_config\(/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/120000|40000|150000000/)).not.toBeInTheDocument();
+    expectNoFeeNumbers();
+    expect(screen.getByText(/create_amm_config/)).toBeInTheDocument();
   });
 });
 
 describe('when the venue is live', () => {
-  beforeEach(() => {
-    readVenue.mockResolvedValue({
-      kind: 'live',
-      programId: PROGRAM,
-      config: {
-        address: 'CfG1111111111111111111111111111111111111111',
-        index: 0, disableCreatePool: false,
-        // Deliberately NOT the proposed rates — the page must read these off
-        // chain, not fall back to its own constants.
-        tradeFeeRate: 3000n, protocolFeeRate: 250_000n, fundFeeRate: 0n,
-        createPoolFee: 300_000_000n, creatorFeeRate: 0n,
-        protocolOwner: 'Own1', fundOwner: 'Own2',
-      },
-    });
-  });
+  beforeEach(() => { readVenue.mockResolvedValue(LIVE); });
 
   it('restores the present-tense capability claim only when the probe says live', async () => {
     await mount();
@@ -116,7 +126,7 @@ describe('when the venue is live', () => {
     // Twice: once in the hero, once in the live status card.
     expect(screen.getAllByText(/anyone can open a pool/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/no pool can be opened here yet/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/How it will work/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/How it works:/i)).not.toBeInTheDocument();
   });
 
   it('mounts the LP finder', async () => {
@@ -154,13 +164,51 @@ describe('when the venue is live', () => {
 describe('when the chain cannot be read', () => {
   beforeEach(() => { readVenue.mockResolvedValue({ kind: 'unreadable', detail: 'proxy timed out' }); });
 
-  it('blames our own connection, not the venue', async () => {
-    // The failure this branch exists to prevent: rendering an outage as
-    // "not deployed", which is a claim about the venue we did not verify.
+  it('says plainly that the fee tiers could not be read just now', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByText(/could not be read/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/fee tiers could not be read just now/i)).toBeInTheDocument());
     expect(screen.getByText(/outage on our side/i)).toBeInTheDocument();
+  });
+
+  it('shows no fee numbers, and no guess at them', async () => {
+    // The bug this pins: a failed read fell back to an old proposal and printed
+    // its rates as what the venue "will" charge, while mainnet charged others.
+    await mount();
+    await settled();
+    expectNoFeeNumbers();
+  });
+
+  it('says nothing about the venue that the failed read did not return', async () => {
+    await mount();
+    await settled();
     expect(screen.queryByText(/being redeployed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/once its program is redeployed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no trade on chain is paying/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no pool to\s+deposit into today/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/redeployed program will run/i)).not.toBeInTheDocument();
+  });
+
+  it('reads again on "Try again", and shows the fees once the chain answers', async () => {
+    readVenue
+      .mockResolvedValueOnce({ kind: 'unreadable', detail: 'proxy timed out' })
+      .mockResolvedValueOnce(LIVE);
+    await mount();
+    const retry = await screen.findByRole('button', { name: /try again/i });
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.getByText('0.3%')).toBeInTheDocument());
+    expect(readVenue).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/could not be read just now/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('while the first read is in flight', () => {
+  beforeEach(() => { readVenue.mockReturnValue(new Promise(() => {})); });
+
+  it('shows no fee numbers until the chain answers', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Reading the venue/i)).toBeInTheDocument());
+    expectNoFeeNumbers();
   });
 });
 
@@ -185,7 +233,7 @@ describe('always', () => {
 
   it('mounts the LP finder only when the venue reads as live', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByText(/being redeployed/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/has no program id to read/i)).toBeInTheDocument());
     expect(screen.queryByTestId('lp-section')).not.toBeInTheDocument();
   });
 });

@@ -15,6 +15,112 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-02: `import.meta.env.DEV` is true in a `vite build` run with NODE_ENV=development
+
+**Believed:** a dial honoured only when `import.meta.env.DEV` is true can count on a dev server
+and never in a shipped bundle.
+
+**Measured:** Vite inlines DEV from NODE_ENV even in `vite build`. A real build with
+NODE_ENV=development and `VITE_HEAT_GATE=off` (a dashboard variable or a `.env` line is enough)
+produced a bundle whose heat door opened to any wallet (920b8fc0, on #682 and #691; the
+real-build test is now `frontend/src/lib/devServerDefine.test.ts`). The first fix read the flag
+from a shared module, and the build split that into a 37-byte chunk `index.html` then
+modulepreloaded (22 preloads, was 21; 8a83d9bc).
+
+**Do:** decide from the command that compiled the code. `frontend/vite.config.ts` defines
+`__VITE_DEV_SERVER__` as `command === 'serve'`; each gate reads it in place, beside DEV
+(`src/lib/heat/heatGateConfig.ts`, `src/lib/launcher/solana/curveWriteFlag.ts`), so every build
+folds the check to false inside its own file.
+
+---
+
+## 2026-10-02: a Doppler vesting's `releasedAmount` is what the maker claimed, not what has vested
+
+**Believed:** `vestingOf(beneficiary, scheduleId).releasedAmount` on a DopplerERC20V1 token is how
+much of the allocation has unlocked, so 0 means still locked.
+
+**Measured:** it counts only what was taken through `release()`. Vested but unclaimed tokens
+sit in `computeAvailableVestedAmount(beneficiary, scheduleId)` (both are in the Doppler SDK's
+`dopplerERC20V1Abi`). The /launch maker card read a real launch with a one-day vesting as
+"locked ... 0 tokens released so far" five months after all of it had unlocked (1435b4cd, #691).
+
+**Do:** say "claimed so far". Before saying "locked", compare the schedule's dates with the time
+of the read: ended is claimable now, before the cliff is locked, between is partly claimable, and
+unreadable dates are not a lock (`lockText` in
+`frontend/src/components/launcher/makerPlatesCopy.ts`).
+
+---
+
+## 2026-10-02: a Doppler vesting event proves nothing unless the Airlock created that token
+
+**Believed:** a `VestingScheduleCreated` or `VestingAllocated` log at a token's address, in the
+transaction that made it, is that token's maker allocation and lock.
+
+**Found:** any contract can emit those events at its own address; they are ordinary logs. Before
+982ccf28 (#691) the /launch maker card printed a lock for any token whose transaction carried
+them, and called the transaction's sender the maker even when the call went through a smart
+wallet or another contract.
+
+**Do:** read an allocation only for a token the Airlock created: its own `Create` log for this
+asset in the birth receipt (exactly one), or the Airlock's `getAssetData`
+(`readAirlockAssetData` in `frontend/src/lib/launcher/tokenDossier.ts`). Name a maker only when
+the birth transaction's `to` is the Airlock (`dopplerBirthFromReceipt` in
+`frontend/src/lib/launcher/birthPlates.ts`); otherwise say it could not be named.
+
+---
+
+## 2026-10-02: an exact balance check on an account strangers can pay into lets anyone block the transaction
+
+**Believed:** a pre-sign simulation should hold every token account to the exact change its
+instructions make, since the instructions move exact amounts.
+
+**Measured:** the curve launch's create held the maker's $BAYLA account to exactly -100,000 and
+the island Workshop account to exactly +50,000, each against a balance read a moment earlier.
+Anyone can send $BAYLA to either account in between (another launch's plant, or 1 base unit), and
+every launch's plant pays the same Workshop account, so blocking every launch was cheap. 757b5cb8
+(#682, #691) made both bounds one-sided; its new `prepare.test.ts` case is red on the exact bounds.
+
+**Do:** on an account others can pay into, bound one way: the payer loses at most X, the
+destination gains at least Y (`prepareCreateLaunch` in
+`frontend/src/lib/launcher/solana/write/launch.ts`). Keep the exact amount, destination, mint and
+decimals pinned in the instruction bytes the intent decoder checks (`write/intent.ts`).
+
+---
+
+## 2026-10-02: a local stand-in for a mainnet mint can be mainnet's own bytes with one field changed
+
+**Believed:** a local validator gets either a copy of the real Token-2022 mint, whose null mint
+authority means no test wallet can be given any, or a look-alike mint that is not mainnet's.
+
+**Measured:** af62d286 (#682, #691) seeds $BAYLA at its real address from a read-only
+`getAccountInfo` dump (`frontend/scripts/solana-localnet/golden/bayla-mint.mainnet.json`, slot
+452541742) with only the mint authority (bytes 0-35) set to a test key from a fixed phrase.
+`baylaMintStandIn` in `genesis-accounts.mjs` refuses a dump that is not that mint, a test pins
+that the stand-in differs only in bytes 0-35, and `frontend/e2e-solana/global-setup.ts` refuses a
+validator whose mint differs from the seeded bytes anywhere but the supply.
+
+**Do:** copy mainnet's bytes, change the one field the test needs, pin that nothing else
+changed, and have global setup refuse any other validator state.
+
+---
+
+## 2026-10-02: `tsc -b` does not type-check `frontend/e2e-solana`, because no project includes it
+
+**Believed:** the type gate (`npx tsc -b --noEmit`, or `--force` locally) checks every
+TypeScript file under `frontend/`.
+
+**Measured:** `frontend/tsconfig.json` references three projects: app (`src`), node
+(`vite.config.ts`, `playwright.config.ts`) and test (`src` tests). `tsc --showConfig` (5.9.3) on
+each, at #691's head, lists none of the 17 `.ts` files in `frontend/e2e-solana`, nor
+`playwright.solana.config.ts`. Playwright strips types without checking them, so a type error
+there passes the gate and the run.
+
+**Do:** until a project reference covers it, check it with a scratch config,
+`{ "extends": "./tsconfig.node.json", "include": ["e2e-solana", "playwright.solana.config.ts"] }`,
+run with `tsc -p`. Before calling a folder type-checked, find it in an `include` list.
+
+---
+
 ## 2026-10-01 — a PR whose base moved can still merge exactly what its CI tested
 
 **Believed:** once trunk moves under an open PR, its green checks no longer describe what a
