@@ -31,6 +31,7 @@ import {
 } from '../lib/launcher/curve';
 import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
 import { EvmCurveChart } from '../components/launcher/EvmCurveChart';
+import { CurveMakerCreateBuy } from '../components/launcher/EvmMakerPlates';
 import { CopyButton } from '../components/ui/CopyButton';
 import { getTokenUrl } from '../lib/explorer';
 import { ERC20_ABI } from '../lib/contracts';
@@ -329,6 +330,8 @@ export default function CurveTokenPage() {
         ) : (
           <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
             <WrongChainBanner requiredChainId={resolved.chainId} />
+            {/* The maker's create-buy (rulings 3 and 4), above every number and the trade panel. */}
+            <CurveMakerCreateBuy chainId={resolved.chainId} launcher={resolved.launcher} token={token} creator={resolved.creator} />
             {!resolved.launch.graduated && (
               <>
                 <div className="rounded-2xl p-4 grid grid-cols-2 gap-3" style={cardStyle}>

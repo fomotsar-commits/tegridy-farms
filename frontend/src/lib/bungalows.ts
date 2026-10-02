@@ -131,6 +131,14 @@ export const ISLAND_READ_POOLS: readonly { chain: Bungalow['chain']; pool: strin
   { chain: 'solana', pool: 'EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f' }, // BAYLA lighthouse
 ];
 
+/** A ladder card's one line on where its rewards came from (answer sixteen, ruling 6). Keyed
+ *  by pool address like ISLAND_READ_POOLS, so a repointed or devnet pool draws none. The
+ *  2,000,000 left the Workshop, passed two wallets and entered the reward vault by NotifyReward
+ *  57FJHePC99Cm1Heox2U2gUTEtVqzCDENrmx399PL3yh9Zcv8WeDcK8Dtgw1sSgVZ64tcMLtkepD4dfcg1M5MUJWP. */
+export const LADDER_FUNDING_LINES: ReadonlyMap<string, string> = new Map([
+  ['Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV', "2,000,000 of this ladder's rewards came from the island's Workshop on 2026-09-24."],
+]);
+
 /** Read by the island: yes or no. Exact on Solana (base58), case-blind on EVM. */
 export function poolReadByIsland(
   chain: Bungalow['chain'],
@@ -280,6 +288,17 @@ export const BUNGALOWS: Bungalow[] = [
 /** How many bungalows the island has: every row but an open lot (chain 'tbd'). The island
  *  numbers its lots after its bungalows, so the open lot here is BUNGALOW_COUNT + 1. */
 export const BUNGALOW_COUNT = BUNGALOWS.filter((b) => b.chain !== 'tbd').length;
+
+/** The open lot's heading and picture (answer sixteen, ruling 9). Its landing
+ *  (BungalowDoorLanding) and its busy fallback (LotFrame) read these; its static frame
+ *  (scripts/render-bungalow-doors.mjs) is pinned to them by bungalowDoors.test.ts. The
+ *  picture is the owner's pick (naka31, 2026-10-02), fixed: no stored skin changes it. */
+export const OPEN_LOT_HERO = {
+  heroTitle: 'Unmarked.',
+  heroLine: `Lot ${BUNGALOW_COUNT + 1}, for the next community.`,
+  heroArt: '/splash/new/7.jpg',
+  heroPosition: '50% 28%',
+} as const;
 
 /** Storage key. Survives quota eviction only because storage.ts lists it in EVICTION_PROTECTED_KEYS. */
 export const BUNGALOW_STORAGE_KEY = 'tegridy-bungalow';

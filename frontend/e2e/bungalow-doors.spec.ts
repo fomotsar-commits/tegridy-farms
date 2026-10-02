@@ -199,11 +199,13 @@ test.describe('bungalow doors', () => {
   test('the open lot renders its landing without switching, and points at the harbor', async ({ page }) => {
     await seedOverlays(page);
     await page.goto('/nb1');
-    await expect(page.locator('h1').first()).toContainText('Unmarked', { timeout: 20_000 });
-    expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBeNull();
-    // The island's harbor heading, linked to its harbor.
+    // The served page already carries the lot's heading (its first frame), so the heading
+    // proves nothing about React. The harbor link is the landing's alone: wait for it
+    // first, so the storage read below comes after the door's first render, not before it.
     await expect(page.getByRole('link', { name: /How a community gets a bungalow here\./ }))
-      .toHaveAttribute('href', 'https://memetics.wtf/#p-harbor');
+      .toHaveAttribute('href', 'https://memetics.wtf/#p-harbor', { timeout: 20_000 });
+    await expect(page.locator('h1').first()).toContainText('Unmarked');
+    expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBeNull();
   });
 
   test('a crafted ?bungalow= param on a door URL cannot reload-loop the tab', async ({ page }) => {

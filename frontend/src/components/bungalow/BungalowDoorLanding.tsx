@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import {
-  BUNGALOW_COUNT,
   OPEN_BUNGALOWS_EVENT,
+  OPEN_LOT_HERO,
   bungalowExplorerUrl,
   bungalowScanRoute,
   bungalowTradeRoute,
@@ -11,6 +11,7 @@ import { isSolanaSwapLive } from '../../lib/solana';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
+import { artImgProps } from '../../lib/artSrcSet';
 import { ArtImg } from '../ArtImg';
 import { HeatCard } from './HeatCard';
 import { BungalowMarket } from './BungalowMarket';
@@ -47,7 +48,7 @@ const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
 export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
   const hasToken = Boolean(bungalow.address);
   // The island's own lot label; it numbers its lots after its bungalows.
-  const lot = `Lot ${BUNGALOW_COUNT + 1}, for the next community.`;
+  const lot = OPEN_LOT_HERO.heroLine;
   usePageTitle(
     hasToken ? `${bungalow.symbol} on Jungle Bay Island` : 'Jungle Bay Island',
     hasToken
@@ -64,9 +65,27 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
       {/* Classic art backdrop — the bungalow's OWN art arrives with its drop;
           until then the island's classic pieces hold the wall. */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        <ArtImg pageId="bungalow-door" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
+        {hasToken ? (
+          <ArtImg pageId="bungalow-door" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
+        ) : (
+          // The open lot's own picture, whatever skin is stored, fetched first: its static
+          // frame and its fallback (LotFrame) paint the same one, so the swap changes nothing.
+          <img
+            src={OPEN_LOT_HERO.heroArt}
+            {...artImgProps(OPEN_LOT_HERO.heroArt, 'eager')}
+            alt=""
+            width={1200}
+            height={800}
+            fetchPriority="high"
+            decoding="async"
+            className="w-full h-full object-cover"
+            style={{ objectPosition: OPEN_LOT_HERO.heroPosition }}
+          />
+        )}
         <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.62)' }} />
       </div>
+      {/* The plaque's place (6rem down, the whole column, the eyebrow above the heading)
+          is what the lot's frame holds: LOT_FRAME in scripts/render-bungalow-doors.mjs. */}
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-10 pb-16">
         {/* The plaque */}
         <div className="mb-8">
@@ -74,7 +93,7 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
             Jungle Bay Island · {bungalow.status}
           </p>
           <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-3">
-            {hasToken ? `${bungalow.symbol}.` : 'Unmarked.'}{' '}
+            {hasToken ? `${bungalow.symbol}.` : OPEN_LOT_HERO.heroTitle}{' '}
             <br />
             <span className="text-white">{hasToken ? 'This bungalow is settled.' : lot}</span>
           </h1>

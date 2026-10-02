@@ -5,6 +5,7 @@ import {
   getActiveBungalow,
   setActiveBungalow,
 } from '../../lib/bungalows';
+import { LotFrame } from '../DoorFrame';
 
 // Lazy so the entry chunk, which imports this door, does not carry the landing.
 const BungalowDoorLanding = lazy(() =>
@@ -49,8 +50,10 @@ export function BungalowDoor({ id, children }: { id: string; children: ReactNode
 
   const bungalow = BUNGALOWS.find((b) => b.id === id);
   if (bungalow && !bungalow.live) {
+    // The open lot (no address: the landing heads it with the lot's words) holds its
+    // static frame while the landing's chunk arrives, so its heading never leaves.
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={bungalow.address ? null : <LotFrame />}>
         <BungalowDoorLanding bungalow={bungalow} />
       </Suspense>
     );

@@ -9,9 +9,9 @@ the site and `api/`), `contracts/` (Foundry), `solana/` (Anchor), `indexer/`,
 
 `mvp-launch` is the default branch and the trunk. GitHub is the primary host and GitLab a live
 standby that every push reaches, so no single host is load-bearing (`docs/GIT_HOSTING.md`).
-`main` is a diverged fork (on GitLab, `archive/main`), never branch from it. A merge to
-`mvp-launch` on the primary deploys `frontend/` to production within minutes; moving it on any
-remote counts as a production deploy.
+`main`, a diverged fork, is now `archive/main-2026-07-23` (GitLab `archive/main`): never branch
+from it. A merge to `mvp-launch` on the primary deploys `frontend/` to production within
+minutes; moving it on any remote counts as a production deploy.
 
 ## Build and test (Node 20, `.nvmrc`; what `.github/workflows/ci.yml` runs)
 
@@ -49,12 +49,14 @@ unchanged: `docs/CI_ON_GITLAB.md`.
 7. Every fix is seen red first: its test fails on the pre-fix code before it passes.
 8. A search that could not run is not a negative result. Say it did not complete.
 9. A comment states the present constraint in six lines or fewer. The story goes in the commit body. Recut a file when you touch it, never as a sweep.
-10. A note rides the PR of the work that taught it, or one `docs/notes-<date>` PR per session. Merged branches are deleted: keep GitHub's "Automatically delete head branches" setting on (to-do O-0925-1 switches it on).
+10. A note rides the PR of the work that taught it, or one `docs/notes-<date>` PR per session. Merged branches are deleted: keep GitHub's "Automatically delete head branches" setting on.
 11. Docs do not run the money paths: a PR touching only `**/*.md` and `docs/**` skips the build; the Doc guards job still runs.
 12. The root is a front door (`src/test/frontDoor.test.ts` pins the list). Live docs live in `docs/`, audits in `docs/audits/`, old plans and reports in `docs/archive/`.
 13. `CHANGELOG.md` is one plain line per user-facing change, newest thirty days; the long form lives in git.
 14. Clone outside OneDrive or any synced folder: a placeholder file reads as a symlink and scanners skip it.
 15. Read `docs/GIT_HOSTING.md` before any remote operation. Moving `mvp-launch` anywhere, or a Vercel or Railway deploy or promote, needs the owner's go each time.
+16. A launch on any rail is a venue launch unless it is born in $BAYLA.
+17. Every launch page shows the maker's create-buy and its lock before anyone else can buy.
 
 ## NOTES.md: headings first
 

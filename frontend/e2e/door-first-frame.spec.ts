@@ -127,10 +127,11 @@ async function crawl(page: Page, html: string) {
   }, html);
 }
 
-test('a crawler reads each door by its own heading, /toweli and its alias included', async ({ page, request }) => {
+test('a crawler reads each door by its own heading, /toweli, its alias and the open lot included', async ({ page, request }) => {
   // Answer fifteen, item 5: "The done-means was every door." The TOWELI room is the
-  // door that was left on the stock shell; its alias opens the same room.
-  expect(DOOR_ROUTES).toEqual(expect.arrayContaining(['/toweli', '/towelie']));
+  // door that was left on the stock shell; its alias opens the same room. Answer sixteen,
+  // ruling 9: "Every door means every door", the open lot too.
+  expect(DOOR_ROUTES).toEqual(expect.arrayContaining(['/toweli', '/towelie', '/nb1']));
   await page.goto('about:blank');
   const stock = await (await request.get('/index.html')).text();
   for (const route of DOOR_ROUTES) {
@@ -195,7 +196,7 @@ test('with the app script blocked, every door shows its own heading, and a page 
 
 test.describe('with JavaScript off', () => {
   test.use({ javaScriptEnabled: false });
-  for (const [route, room] of [['/bayla', 'BAYLA'], ['/toweli', 'TOWELI']] as const) {
+  for (const [route, room] of [['/bayla', 'BAYLA'], ['/toweli', 'TOWELI'], ['/nb1', 'the open lot']] as const) {
     test(`${route} reads as ${room}: its heading on screen, the notice a paragraph`, async ({ page }) => {
       await page.goto(route);
       await expect(page.locator('#first-frame h1')).toBeVisible();
@@ -205,7 +206,8 @@ test.describe('with JavaScript off', () => {
   }
 });
 
-for (const route of ['/bayla', '/pepe', '/toweli']) {
+// /nb1 too (answer sixteen, ruling 9): the open lot's page is its landing, not a hero.
+for (const route of ['/bayla', '/pepe', '/toweli', '/nb1']) {
   test(`on the phone throttle, ${route} paints its heading under 1 s and never loses it`, async ({ page }) => {
     test.slow();
     await page.addInitScript(watchHeading, doorHeading(route));
@@ -227,13 +229,18 @@ for (const route of ['/bayla', '/pepe', '/toweli']) {
 
 // /toweli too: its hero is HomePage's classic cluster, not BungalowHero, so it is the
 // one door whose hero is a different component from the one the frame was placed for.
-for (const route of ['/bayla', '/toweli']) {
-  test(`the handoff keeps ${route}'s heading where it was, from HTML to fallback to hero`, async ({ page }) => {
+// /nb1: the open lot's page is its landing (BungalowDoorLanding), so that chunk is held.
+for (const [route, chunk] of [
+  ['/bayla', 'HomePage'],
+  ['/toweli', 'HomePage'],
+  ['/nb1', 'BungalowDoorLanding'],
+] as const) {
+  test(`the handoff keeps ${route}'s heading where it was, from HTML to fallback to page`, async ({ page }) => {
     test.slow();
     const heading = doorHeading(route);
     await page.addInitScript(watchHeading, heading);
     const releaseEntry = await hold(page, '**/assets/index-*.js');
-    const releaseHome = await hold(page, '**/assets/HomePage-*.js');
+    const releaseHome = await hold(page, `**/assets/${chunk}-*.js`);
     await page.goto(route, { waitUntil: 'commit' });
     // The box, and the words' own run: a change of letter-spacing moves the second only.
     const rect = (sel: string) => page.locator(sel).first().evaluate((el) => {

@@ -167,6 +167,16 @@ const BUNGALOW = {
   address: MINT, ladderPool: POOL_ADDR, decimals: 6,
 } as unknown as Bungalow & { ladderPool: string };
 
+// The real lock ladder, the one pool lib/bungalows.ts LADDER_FUNDING_LINES gives a line
+// (answer sixteen, ruling 6). POOL_ADDR above stands in for a devnet or repointed pool.
+const LADDER_POOL = 'Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV';
+const FUNDING_LINE = "2,000,000 of this ladder's rewards came from the island's Workshop on 2026-09-24.";
+const REWARD_WINDOWS: [string, Record<string, unknown>][] = [
+  ['a live reward window', { rewardRate: 1_000_000n }],
+  ['an ended reward window', { rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }],
+  ['a reward window never scheduled', {}],
+];
+
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(NOW * 1000);
@@ -184,6 +194,7 @@ afterEach(() => {
 });
 
 const draw = () => render(<SolanaLadderPoolLive bungalow={BUNGALOW} />);
+const drawRealPool = () => render(<SolanaLadderPoolLive bungalow={{ ...BUNGALOW, ladderPool: LADDER_POOL }} />);
 
 /* ────────── 1. the hatch, which is the whole reason for this file ────────── */
 
@@ -1301,6 +1312,13 @@ describe("the card's own words carry no em dash, in every branch it draws", () =
     noDash();
   });
 
+  it.each(REWARD_WINDOWS)('the real ladder pool, whose ledger says where its rewards came from, over %s', async (_label, o) => {
+    reads.pool = { ok: true, value: poolView(o) };
+    drawRealPool();
+    await waitFor(() => expect(document.body.textContent).toContain(FUNDING_LINE));
+    noDash();
+  });
+
   it('a confirmed stake, before its re-read lands', async () => {
     const read = await import('../../lib/ladder/read');
     reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false, shareBasis: null } };
@@ -1319,5 +1337,28 @@ describe("the card's own words carry no em dash, in every branch it draws", () =
     } finally {
       vi.mocked(read.readLadderWallet).mockImplementation(async () => reads.wallet as never);
     }
+  });
+});
+
+/* ────────── 16. where the real ladder's rewards came from ────────── */
+
+// Answer sixteen, ruling 6: one true line, the last footnote of the ledger, keyed by the
+// pool address so a repointed or devnet pool draws none. The bungalow id stays 'bayla' in
+// both cases below, so a line keyed by the room instead would show on the fixture pool too.
+describe("the ladder line: the real pool's ledger says where its rewards came from", () => {
+  it.each(REWARD_WINDOWS)('the real pool draws it once, as the last footnote, over %s', async (_label, o) => {
+    reads.pool = { ok: true, value: poolView(o) };
+    drawRealPool();
+    const ledger = await statGrid();
+    expect(ledger.querySelector('ul')!.lastElementChild!.textContent).toBe(FUNDING_LINE);
+    expect((document.body.textContent ?? '').split(FUNDING_LINE).length - 1).toBe(1);
+  });
+
+  it('the fixture pool, standing in for a devnet or repointed pool, draws no such line', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
+    draw();
+    const ledger = await statGrid();
+    await waitFor(() => expect(ledger.textContent).toMatch(/Minimum stake/));
+    expect(document.body.textContent).not.toMatch(/Workshop|of this ladder's rewards/);
   });
 });

@@ -38,6 +38,7 @@ const ORIGIN_GATED = [
   "api/v1/index.js",
   "api/_lib/aggregator-proxy.js",
   "api/_lib/births.js",
+  "api/_lib/evm-birth.js",
   "api/_lib/gecko-read.js",
   "api/_lib/heat.js",
   "api/_lib/launch-cohort.js",

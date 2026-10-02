@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import {
+  CURVE_GRID_MAKER,
   CurveGridCardView,
   CurveLaunchesGridView,
   newestFirstSlice,
@@ -80,6 +81,22 @@ describe('CurveGridCardView', () => {
     const link = screen.getByRole('link', { name: /open towelie jr/i });
     expect(link).toHaveAttribute('href', `/eth-curve/${TOKEN}?c=8453`);
     expect(screen.getByText(/0\.2105 ETH cap/)).toBeInTheDocument();
+  });
+
+  // Rulings 3 and 4, the list sibling: each card says where the maker's create-buy is, and
+  // the whole card opens that page. Its figure is read there, from the launch receipt; one
+  // read per card would spend the lookup's per-visitor limit on a single grid page.
+  it("says where the maker's create-buy is, on a card that opens that page", () => {
+    render(
+      <MemoryRouter>
+        <CurveGridCardView card={card()} chainId={8453} />
+      </MemoryRouter>,
+    );
+    const line = screen.getByText(CURVE_GRID_MAKER);
+    expect(CURVE_GRID_MAKER).toBe("The maker's create-buy is on its launch page.");
+    const link = screen.getByRole('link', { name: /Open Towelie Jr on the curve/ });
+    expect(link).toHaveAttribute('href', `/eth-curve/${TOKEN}?c=8453`);
+    expect(link.parentElement).toContainElement(line);
   });
 
   it('graduated card shows the badge instead of a progress bar', () => {
