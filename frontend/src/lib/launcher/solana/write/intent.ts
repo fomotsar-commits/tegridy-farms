@@ -213,7 +213,7 @@ function t22(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   const d = ix.data;
   const tag = d[0];
   if (tag !== TOKEN_IX_BURN_CHECKED && tag !== TOKEN_IX_TRANSFER_CHECKED) {
-    return refuse('a Token-2022 instruction this page never builds (such as a transfer or an approval)');
+    return refuse("a Token-2022 instruction other than the plant's own burn and transfer (such as an approval or another transfer)");
   }
   if (d.length !== 1 + 8 + 1) refuse('a Token-2022 instruction of the wrong size');
   const burn = tag === TOKEN_IX_BURN_CHECKED;
