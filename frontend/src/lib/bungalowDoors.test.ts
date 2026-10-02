@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { BUNGALOWS, BUNGALOW_COUNT, DEFAULT_BUNGALOW_ID, OPEN_LOT_HERO, TOWELI_HERO, type Bungalow } from './bungalows';
 import { ART, pageArt } from './artConfig';
+import { doorArt } from './doorArt';
 import { derivedUrl, naturalWidthOf, widthsFor } from './artSrcSet';
 import { DOORS, transform } from '../../scripts/render-bungalow-doors.mjs';
 import { pageHashes, pinnedHashes } from '../../scripts/lib/csp-hashes.mjs';
@@ -162,6 +163,16 @@ describe("a door's first frame is the hero its own page renders", () => {
     // The owner's pick, 2026-10-02: naka31 at 50% 28%, its door card's crop.
     expect([OPEN_LOT_HERO.heroArt, OPEN_LOT_HERO.heroPosition]).toEqual([ART.naka31.src, '50% 28%']);
     expect(lot!.image, 'its link preview shows the same picture').toBe(OPEN_LOT_HERO.heroArt);
+  });
+
+  // The owner tied the lot's art to its door card. /door-studio rewrites that card's pick,
+  // so a re-pick must go red here and move the landing, the first frame and the preview too.
+  it("paints the lot's own door card, as the island's front page draws it", () => {
+    const room = BUNGALOWS.find((b) => b.id === LOT_PATH)!;
+    expect(doorArt(room), 'the door card and the lot it opens show different pictures').toEqual({
+      src: OPEN_LOT_HERO.heroArt,
+      objectPosition: OPEN_LOT_HERO.heroPosition,
+    });
   });
 
   it('numbers the lot after the bungalows wherever the script types its number', () => {
