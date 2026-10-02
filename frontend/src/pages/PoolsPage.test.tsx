@@ -43,6 +43,8 @@ async function settled() {
 
 /** No fee figure of any kind on the page: no percentage stat, no SOL price, no badge. */
 function expectNoFeeNumbers() {
+  // The whole page's text, so a figure inside a sentence counts too, not only a stat.
+  expect(document.body.textContent).not.toMatch(/\d\s*%|\d\s*SOL\b/);
   expect(screen.queryByText(/^\d+(\.\d+)?%$/)).not.toBeInTheDocument();
   expect(screen.queryByText(/\d SOL$/)).not.toBeInTheDocument();
   expect(screen.queryByText(/% a trade/)).not.toBeInTheDocument();
