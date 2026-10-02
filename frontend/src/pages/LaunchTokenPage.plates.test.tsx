@@ -90,8 +90,9 @@ const renderPage = () =>
 describe("/launch/:token: the maker's allocation", () => {
   it('sits right after the header, before the dossier, and does not wait for it', async () => {
     renderPage();
+    // Its one-day vesting ended on 2026-05-07, so the card says so (today is after that).
     const line = await screen.findByText(
-      `The maker's allocation: 80.00% of the supply (800,000,000 tokens) to ${MAKER}, locked by the token's own vesting: nothing before 2026-05-06 22:11 UTC, all released by 2026-05-07 22:11 UTC; 800,000,000 tokens released so far.`,
+      `The maker's allocation: 80.00% of the supply (800,000,000 tokens) to ${MAKER}, not locked any more: its vesting ended on 2026-05-07 22:11 UTC, so all of it can be claimed now; 800,000,000 tokens claimed so far.`,
     );
     const card = screen.getByTestId('maker-plates');
     expect(card).toContainElement(line);

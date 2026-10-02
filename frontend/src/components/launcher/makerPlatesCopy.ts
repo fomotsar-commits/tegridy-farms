@@ -15,7 +15,9 @@ export const ALLOCATION_UNREADABLE =
   "Could not read the maker's allocation right now. This is our read failing, not a finding about the launch.";
 export const NOT_DOPPLER = "This address was not launched through Doppler's Airlock, so there is no maker's allocation to show.";
 export const NO_ALLOCATION = 'No allocation at birth.';
-export const BOUGHT_NONE = 'Bought in the launch transaction: none. On this rail the auction opens after creation.';
+export const BOUGHT_NONE = 'Bought in the launch transaction: none.';
+/** Said only of our own dynamic auction (DopplerPlates.ourAuction): its start is after creation. */
+export const AUCTION_AFTER = 'On this rail the auction opens after creation.';
 export const MAKER_IS_SENDER = 'The maker is the wallet that sent the launch transaction.';
 export const MAKER_UNNAMED =
   "Its launch transaction went through another contract, not straight to Doppler's Airlock, so the maker could not be named.";
@@ -75,16 +77,10 @@ export function dopplerPlatesLines(
   } else if (b.makerAmount === 0n) {
     allocation = `Nothing was allocated at birth to the maker's wallet, ${b.maker}.`;
   } else {
-    const window = vestingStart === null ? null : lockWindow(vestingStart, b.makerSchedules);
-    const lock =
-      vestingStart === null || window === null
-        ? "locked by the token's own vesting (its dates could not be read)"
-        : window.endAt <= vestingStart
-          ? "not locked: the token's own vesting released it all at birth"
-          : `locked by the token's own vesting: nothing before ${utcTime(window.cliffAt)}, all released by ${utcTime(window.endAt)}`;
+    // "Claimed" is the token's releasedAmount: what the maker took, not what it may take.
     const soFar =
-      released === null ? 'how much is released so far could not be read' : `${tokenAmountText(released)} tokens released so far`;
-    allocation = `The maker's allocation: ${pct(b.makerAmount, b.birthSupply)} of the supply (${tokenAmountText(b.makerAmount)} tokens) to ${b.maker}, ${lock}; ${soFar}.`;
+      released === null ? 'how much the maker has claimed so far could not be read' : `${tokenAmountText(released)} tokens claimed so far`;
+    allocation = `The maker's allocation: ${pct(b.makerAmount, b.birthSupply)} of the supply (${tokenAmountText(b.makerAmount)} tokens) to ${b.maker}, ${lockText(vestingStart, b.makerSchedules, p.readAt)}; ${soFar}.`;
   }
   const others =
     b.others > 0
@@ -94,7 +90,26 @@ export function dopplerPlatesLines(
     b.toMaker === null
       ? null
       : b.toMaker === 0n
-        ? BOUGHT_NONE
+        ? p.ourAuction
+          ? `${BOUGHT_NONE} ${AUCTION_AFTER}`
+          : BOUGHT_NONE
         : `Received in the launch transaction: ${pct(b.toMaker, b.birthSupply)} of the supply (${tokenAmountText(b.toMaker)} tokens) reached the maker's wallet outside the vesting.`;
   return { allocation, others, bought };
+}
+
+/**
+ * The maker's lock as it stood when it was read (`now`): a vesting that has ended is not a
+ * lock, and a cliff of 0 adds no "nothing before" the birth itself. Nothing unlocks on its
+ * own: "can be claimed" is what the token's release() would pay out.
+ */
+function lockText(vestingStart: bigint | null, plates: Parameters<typeof lockWindow>[1], now: bigint): string {
+  const window = vestingStart === null ? null : lockWindow(vestingStart, plates);
+  if (vestingStart === null || window === null) return "under the token's own vesting (its dates could not be read)";
+  const end = utcTime(window.endAt);
+  if (window.endAt <= vestingStart) return "not locked: the token's own vesting made all of it claimable at birth";
+  if (now >= window.endAt) return `not locked any more: its vesting ended on ${end}, so all of it can be claimed now`;
+  if (now < window.cliffAt) {
+    return `locked by the token's own vesting: none of it can be claimed before ${utcTime(window.cliffAt)}, and all of it can be claimed by ${end}`;
+  }
+  return `unlocking under the token's own vesting: part of it can be claimed now, and all of it by ${end}`;
 }
