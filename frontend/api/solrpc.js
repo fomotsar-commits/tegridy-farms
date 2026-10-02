@@ -128,8 +128,6 @@ function isProdLikeEnv() {
 
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://memetic.fun",
-    "https://www.memetic.fun",
     "https://memetics.finance",
     "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",

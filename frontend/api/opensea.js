@@ -183,13 +183,12 @@ function isAllowedPath(path) {
   return false;
 }
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetic.fun";
+// Echoed to unmatched origins, so a host this venue serves — not memetic.fun. See alchemy.js.
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetics.finance";
 
 export default async function handler(req, res) {
   const origin = req.headers.origin || "";
   const ALLOWED_ORIGINS = new Set([
-    "https://memetic.fun",
-    "https://www.memetic.fun",
     "https://memetics.finance",
     "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",

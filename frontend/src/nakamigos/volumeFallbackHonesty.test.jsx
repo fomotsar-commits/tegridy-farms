@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { CollectionProvider } from "./contexts/CollectionContext";
+// Hero and About are imported statically ON PURPOSE -- do not make these lazy.
+// As `await import(...)` inside a test body, the cold fetch+transform of Hero's
+// module graph (NftImage -> Usd -> useEthUsd -> PriceContext) measured 2573ms of
+// an otherwise 3388ms test, against vitest's 5000ms body timeout. That is green
+// when this file runs alone and intermittently `Test timed out in 5000ms.` under
+// full-suite load, which reads as a flaky assertion but is not one: the render is
+// 160ms and the query 13ms. Collection is unbounded, so importing at the top
+// moves the cost off the clock without touching what any test asserts.
+import Hero from "./components/Hero.jsx";
+import About from "./components/About.jsx";
 
 // The OpenSea collection-stats call 400s intermittently in production, and
 // `fetchCollectionStats` covers the gap with a stored historical total so the
@@ -84,8 +94,7 @@ describe("the surfaces tag the stand-in tile", () => {
   const cachedStats = { floor: 0.2, volume: 52200, owners: 4321, supply: 20000, volumeFallback: true };
   const liveStats = { floor: 0.2, volume: 999, owners: 4321, supply: 20000, volumeFallback: false };
 
-  it("Hero tags all-time volume and nothing else", async () => {
-    const { default: Hero } = await import("./components/Hero.jsx");
+  it("Hero tags all-time volume and nothing else", () => {
     render(
       <CollectionProvider slug="nakamigos">
         <Hero stats={cachedStats} tokens={[]} onPick={() => {}} />
@@ -96,8 +105,7 @@ describe("the surfaces tag the stand-in tile", () => {
     expect(tags[0].closest(".stat-label")).toHaveTextContent(/all-time vol/i);
   });
 
-  it("Hero leaves a live volume untagged", async () => {
-    const { default: Hero } = await import("./components/Hero.jsx");
+  it("Hero leaves a live volume untagged", () => {
     render(
       <CollectionProvider slug="nakamigos">
         <Hero stats={liveStats} tokens={[]} onPick={() => {}} />
@@ -106,8 +114,7 @@ describe("the surfaces tag the stand-in tile", () => {
     expect(screen.queryAllByTitle(/cached estimate/i)).toHaveLength(0);
   });
 
-  it("About tags total volume only when the number is the stand-in", async () => {
-    const { default: About } = await import("./components/About.jsx");
+  it("About tags total volume only when the number is the stand-in", () => {
     const { rerender } = render(
       <CollectionProvider slug="nakamigos">
         <About stats={cachedStats} onNavigateGallery={() => {}} onFilterGallery={() => {}} />

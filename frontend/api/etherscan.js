@@ -44,8 +44,6 @@ function authHeaders(extra = {}) {
 //         removed — the project does not control that domain. See auth/siwe.js.
 //         Do NOT re-add it.
 const ALLOWED_ORIGINS = [
-  "https://memetic.fun",
-  "https://www.memetic.fun",
   "https://memetics.finance",
   "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",

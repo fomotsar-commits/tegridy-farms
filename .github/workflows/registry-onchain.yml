@@ -162,6 +162,10 @@ jobs:
         env:
           SOLANA_RPC: ${{ vars.SOLANA_RPC || 'https://api.mainnet-beta.solana.com' }}
           ETH_RPC: ${{ vars.ETH_RPC || 'https://ethereum-rpc.publicnode.com' }}
+          # Empty falls through to the script's own public default (mainnet.base.org,
+          # rpc.mainnet.chain.robinhood.com). The base and robinhood rows are read here too.
+          BASE_RPC: ${{ vars.BASE_RPC || '' }}
+          RH_RPC: ${{ vars.RH_RPC || '' }}
         run: |
           set -euo pipefail
           node scripts/verify-addresses.mjs --onchain | tee /tmp/onchain.txt
@@ -228,7 +232,7 @@ jobs:
             exit 1
           fi
           if [ "$considered" -gt 0 ] && [ "$skipped" -ge "$considered" ]; then
-            echo "::error title=Nothing was actually checked::all $considered addresses were skipped because the RPC did not answer. This run verified NOTHING; it is not evidence the registry is correct. Re-run, or set the SOLANA_RPC / ETH_RPC repo variables to keyed endpoints."
+            echo "::error title=Nothing was actually checked::all $considered addresses were skipped because the RPC did not answer. This run verified NOTHING; it is not evidence the registry is correct. Re-run, or set the SOLANA_RPC / ETH_RPC / BASE_RPC / RH_RPC repo variables to keyed endpoints."
             exit 1
           fi
           if [ "$skipped" -gt 0 ]; then

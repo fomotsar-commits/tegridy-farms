@@ -17,7 +17,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 const TOKEN = "0x95ad61b0a150d79219dcf64e1e6cc01f0b64c4ce"; // SHIB — any ERC-20, not the NFT allowlist
 
 function makeReq(query = {}) {
-  return { method: "GET", query: { route: "erc20scan", contract: TOKEN, ...query }, headers: { origin: "https://memetic.fun" } };
+  return { method: "GET", query: { route: "erc20scan", contract: TOKEN, ...query }, headers: { origin: "https://memetics.finance" } };
 }
 
 function makeRes() {
