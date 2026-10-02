@@ -131,6 +131,14 @@ export const ISLAND_READ_POOLS: readonly { chain: Bungalow['chain']; pool: strin
   { chain: 'solana', pool: 'EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f' }, // BAYLA lighthouse
 ];
 
+/** A ladder card's one line on where its rewards came from (answer sixteen, ruling 6). Keyed
+ *  by pool address like ISLAND_READ_POOLS, so a repointed or devnet pool draws none. The
+ *  2,000,000 left the Workshop, passed two wallets and entered the reward vault by NotifyReward
+ *  57FJHePC99Cm1Heox2U2gUTEtVqzCDENrmx399PL3yh9Zcv8WeDcK8Dtgw1sSgVZ64tcMLtkepD4dfcg1M5MUJWP. */
+export const LADDER_FUNDING_LINES: ReadonlyMap<string, string> = new Map([
+  ['Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV', "2,000,000 of this ladder's rewards came from the island's Workshop on 2026-09-24."],
+]);
+
 /** Read by the island: yes or no. Exact on Solana (base58), case-blind on EVM. */
 export function poolReadByIsland(
   chain: Bungalow['chain'],

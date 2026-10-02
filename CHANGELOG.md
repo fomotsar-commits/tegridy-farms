@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-02
 
+- The BAYLA lock ladder card says 2,000,000 of its rewards came from the island's Workshop on 2026-09-24.
 - On /eth-curve, the create form opens only through the Who may plant door, and Create launch reads the wallet's held time again before anything is signed or sent. The launches list and trading stay open to anyone.
 - The launch door reads 80 served degrees in every production build: no setting can switch it off or lower it.
 - A Solana launch is never announced to the island as a birth, even by a hand-made request.

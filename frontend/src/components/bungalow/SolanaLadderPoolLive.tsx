@@ -7,7 +7,7 @@ import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { PublicKey } from '@solana/web3.js';
 import { SolanaProviders } from '../solana/SolanaProviders';
 import { useSolanaConnect } from '../solana/useSolanaConnect';
-import type { Bungalow } from '../../lib/bungalows';
+import { LADDER_FUNDING_LINES, type Bungalow } from '../../lib/bungalows';
 import {
   isLadderConfigured, ladderProgramId,
   boostBpsForLock, weightForStake, quoteExit, checkDeposit, earnedNow, rewardRunwaySecs,
@@ -121,6 +121,8 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
   const fid = useId();
 
   const config = useMemo(() => resolveConfig(bungalow.ladderPool), [bungalow.ladderPool]);
+  // Where this pool's rewards came from, by its address: a repointed pool has no line.
+  const fundingLine = LADDER_FUNDING_LINES.get(bungalow.ladderPool);
 
   const [poolRead, setPoolRead] = useState<ReadResult<LadderPoolView> | null>(null);
   const [vaults, setVaults] = useState<{ stakeRaw: bigint | null; rewardRaw: bigint | null } | null>(null);
@@ -965,6 +967,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                   <strong className="font-semibold" style={{ color: '#fff' }}>Minimum stake:</strong>{' '}
                   the deployed program has no setter for it.
                 </li>
+                {fundingLine && <li>{fundingLine}</li>}
               </ul>
             </section>
 
