@@ -186,8 +186,9 @@ test.describe('Stake surface', () => {
     test.setTimeout(150_000);
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     // The X window is answered locally: this leg reads what was sent, not x.com.
+    // Anchored to the exact intent the receipt opens (CodeQL js/regex/missing-regexp-anchor).
     const intents: string[] = [];
-    await context.route(/twitter\.com\/intent\/tweet/, (route) => {
+    await context.route(/^https:\/\/twitter\.com\/intent\/tweet\?/, (route) => {
       intents.push(route.request().url());
       return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>x</title>' });
     });
