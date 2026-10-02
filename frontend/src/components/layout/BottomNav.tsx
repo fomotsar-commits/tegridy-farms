@@ -23,7 +23,7 @@ const TABS = [
       <path d="M12 3c3.5 4.2 5.5 7 5.5 9.5a5.5 5.5 0 0 1-11 0C6.5 10 8.5 7.2 12 3z" />
     </svg>
   )},
-  { to: '/farm', label: 'Earn', icon: (
+  { to: '/earn', label: 'Earn', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M12 22V8M12 8c-2-3-6-4-8-2M12 8c2-3 6-4 8-2M5 18h14" />
     </svg>

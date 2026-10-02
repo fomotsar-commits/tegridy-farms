@@ -343,7 +343,7 @@ export default function CurveTokenPage() {
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Link to="/swap" className="btn-primary px-4 py-2 text-[12px]">Trade it on the venue swap</Link>
-                  <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px]">The farm (real ETH yield)</Link>
+                  <Link to="/earn" className="btn-secondary px-4 py-2 text-[12px]">The farm (real ETH yield)</Link>
                 </div>
               </div>
             )}

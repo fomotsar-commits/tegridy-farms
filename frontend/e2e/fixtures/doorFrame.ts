@@ -1,12 +1,15 @@
 import type { Page } from '@playwright/test';
 import { DOORS } from '../../scripts/render-bungalow-doors.mjs';
 
-/** Every door the build writes its own HTML for, as a route: '/bayla', '/pepe', ... */
-export const DOOR_ROUTES: readonly string[] = DOORS.map((d: { path: string }) => `/${d.path}`);
+type Door = (typeof DOORS)[number];
+const routesOf = (d: Door): string[] => [d.path, ...(d.aliases ?? [])].map((p) => `/${p}`);
+
+/** Every door the build writes its own HTML for, as a route, aliases included: '/bayla', '/toweli', '/towelie', ... */
+export const DOOR_ROUTES: readonly string[] = DOORS.flatMap(routesOf);
 
 /** The heading a door's static frame, its React fallback and its hero all read. */
 export function doorHeading(route: string): string {
-  const door = DOORS.find((d: { path: string }) => `/${d.path}` === route);
+  const door = DOORS.find((d: Door) => routesOf(d).includes(route));
   if (!door) throw new Error(`${route} is not a door with its own HTML`);
   return `${door.heroTitle} ${door.heroLine}`;
 }

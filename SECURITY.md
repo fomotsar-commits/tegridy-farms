@@ -32,7 +32,7 @@ one person — nothing measures or enforces it. **The honest statement is that r
 and answered as quickly as one maintainer can**, and that an in-progress exploit should go to
 SEAL 911 in parallel rather than waiting on a reply here.
 
-Please do **not** open public GitHub issues for vulnerabilities.
+Please do **not** open public issues for vulnerabilities, on any git host.
 
 ## Scope
 
@@ -54,13 +54,20 @@ Frontend code paths that directly handle user funds, signatures, or private keys
 scope, as is the serverless API under `frontend/api/`.
 
 **Not currently in scope because they no longer exist on-chain:** the two own-venue Solana
-programs were deployed 2026-08-08 and **closed 2026-08-13**; their program ids are spent.
+programs deployed 2026-08-08 were **closed 2026-08-13**; those program ids are spent.
 The Meteora DBC rail was deleted 2026-08-23. Reports against either are welcome as *code*
-findings but there is nothing live to exploit.
+findings but there is nothing live to exploit at those ids.
+
+**Two new Solana programs went live on 2026-09-29:** cp-swap at
+`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` and tegridy-launch at
+`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`. Their policy is
+[`solana/tegridy-amm/SECURITY.md`](./solana/tegridy-amm/SECURITY.md), which takes reports at the
+same address as this file. Whether they join the in-scope list above is an owner decision that
+has not been made yet (`docs/TODO_OPERATOR.md`, O-0929-12).
 
 ## Out of Scope
 
-- **UI / UX bugs** — please open a regular [GitHub issue](https://github.com/fomotsar-commits/tegridy-farms/issues) instead
+- **UI / UX bugs** — please open a regular [issue](https://memetics.finance/source-issues) instead
 - **Known issues** — previously disclosed findings documented in [AUDIT_FINDINGS.md](./docs/archive/AUDIT_FINDINGS.md) are not eligible
 - **Third-party dependencies** — vulnerabilities in Uniswap V3, Chainlink oracles, OpenZeppelin libraries, or other external protocols should be reported upstream to the respective maintainers
 - **Test, mock, deprecated, or testnet contracts** — anything not explicitly listed as mainnet in CONTRACTS.md

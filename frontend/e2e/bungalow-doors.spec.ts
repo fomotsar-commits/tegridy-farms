@@ -50,7 +50,8 @@ test.describe('bungalow doors', () => {
       } catch { /* ignore */ }
     });
     await page.goto('/towelie');
-    await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
+    // The hero's own class: the door's static frame and busy fallback read the same words first.
+    await expect(page.locator('h1.heading-luxury:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
     expect(new URL(page.url()).pathname).toBe('/towelie');
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('toweli');
   });

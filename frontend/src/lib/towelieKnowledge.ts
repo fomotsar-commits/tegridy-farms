@@ -51,7 +51,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Staking ──────────────────────────────────────────────────
   {
     keywords: ['stake', 'staking', 'farm'],
-    answer: "Go to /farm, type how much TOWELI to lock, pick a duration (longer = bigger boost), hit Stake. The island demands it.",
+    answer: "Go to /earn/toweli, type how much TOWELI to lock, pick a duration (longer = bigger boost), hit Stake. The island demands it.",
     priority: 2,
   },
   {
@@ -73,7 +73,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['extend', 'top', 'increase', 'add', 'position'],
-    answer: "You can extend lock or add to your stake from /farm. New deposits inherit your current unlock date.",
+    answer: "You can extend lock or add to your stake from /earn/toweli. New deposits inherit your current unlock date.",
   },
   {
     keywords: ['claim', 'rewards', 'harvest'],
@@ -297,7 +297,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // shows a live per-address badge read from Etherscan. Keep this answer in sync with
     // that, in both directions.
     keywords: ['etherscan', 'verify', 'contract', 'address'],
-    answer: "All 8 core contracts are source-verified on Etherscan — you can read the actual Solidity, not just bytecode. Every address is at /contracts with a live verification badge (checked against Etherscan, not hardcoded), plus the full code on GitHub and public ABIs.",
+    answer: "All 8 core contracts are source-verified on Etherscan: you can read the actual Solidity, not just bytecode. Every address is at /contracts with a live verification badge (checked against Etherscan, not hardcoded), plus links to the source code and public ABIs.",
   },
 
   // ── Premium / referrals / scoring ──────────────────────────

@@ -3,7 +3,7 @@ import { routeVoice, isToweliRoomPage, TOWELI_ROOM_PATHS } from './routeVoice';
 
 describe('routeVoice (wave seven, row Q)', () => {
   it('puts TOWELI protocol pages and TOWELI doors in the TOWELI room', () => {
-    for (const p of ['/tokenomics', '/treasury', '/premium', '/lore', '/referrals', '/zap', '/toweli', '/towelie']) {
+    for (const p of ['/tokenomics', '/treasury', '/premium', '/lore', '/referrals', '/zap', '/earn/toweli', '/toweli', '/towelie']) {
       expect(routeVoice(p), p).toBe('toweli');
     }
   });
@@ -17,7 +17,7 @@ describe('routeVoice (wave seven, row Q)', () => {
   });
 
   it('leaves every other route with the venue, the venue tools included', () => {
-    for (const p of ['/', '/faq', '/security', '/farm', '/vesting', '/airdrop', '/history', '/launch/0xabc']) {
+    for (const p of ['/', '/faq', '/security', '/earn', '/farm', '/vesting', '/airdrop', '/history', '/launch/0xabc']) {
       expect(routeVoice(p), p).toBe('venue');
     }
   });
@@ -26,6 +26,6 @@ describe('routeVoice (wave seven, row Q)', () => {
     expect(routeVoice('/tokenomics/')).toBe('toweli');
     expect(isToweliRoomPage('/tokenomics/')).toBe(true);
     expect(isToweliRoomPage('/toweli')).toBe(false);
-    expect(TOWELI_ROOM_PATHS.size).toBe(6);
+    expect(TOWELI_ROOM_PATHS.size).toBe(7);
   });
 });

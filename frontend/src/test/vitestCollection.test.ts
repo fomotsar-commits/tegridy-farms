@@ -90,6 +90,11 @@ const OTHER_RUNNERS: { prefix: string; runner: string }[] = [
   //   node --test scripts/lib/redact-url.test.mjs
   // ci.yml runs exactly that in the "Endpoint redaction unit tests" step.
   { prefix: 'scripts/lib/', runner: "node --test (ci.yml 'Endpoint redaction unit tests')" },
+  // The ops scripts: the backup pull, the heartbeat pin, the failover runner and the
+  // Supabase backup. Operational code for a bare runner (node, gpg, tar, bash), so
+  // `node --test`, not this project.
+  // ci.yml runs them in the "Ops runner unit tests" step.
+  { prefix: 'scripts/ops/', runner: "node --test (ci.yml 'Ops runner unit tests')" },
   // Vendored dependency trees. Not ours, not our runner's problem.
   { prefix: 'contracts/lib/', runner: 'upstream vendored dependency (not executed here)' },
 ];

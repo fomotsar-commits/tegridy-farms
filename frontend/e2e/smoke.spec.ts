@@ -34,7 +34,7 @@ test.describe('Smoke Tests', () => {
   });
 
   test('earn page loads', async ({ page }) => {
-    await gotoRoute(page, '/farm');
+    await gotoRoute(page, '/earn');
     // Title (set via usePageTitle) is the authoritative source for "did this
     // route mount": the classic FarmPage renders its heading as a heading-luxury
     // h2 inside ConnectPrompt / StakePanel rather than an h1.

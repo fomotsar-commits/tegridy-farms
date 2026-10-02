@@ -354,7 +354,7 @@ function ToweliDashboard() {
           </div>
         </div>
 
-        {/* F519: use the shared dark-card ConnectPrompt (same as /farm) so the
+        {/* F519: use the shared dark-card ConnectPrompt (same as /earn/toweli) so the
             wallet-gate stays legible over the busy camo art instead of the bare
             text-center block that dissolved into the camouflage at 820px+. */}
         <div className="relative z-10 flex items-center justify-center px-6 pb-16">
@@ -638,7 +638,7 @@ function ToweliDashboard() {
                     {/* Restaking is DEFERRED to Phase 7 (TEGRIDY_RESTAKING_ADDRESS
                         zeroed). Same dead-CTA fix as StakingCard.tsx. */}
                     {isDeployed(TEGRIDY_RESTAKING_ADDRESS) && (
-                      <Link to="/farm" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
+                      <Link to="/earn/toweli" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
                         Restake for bonus yield &#8594;
                       </Link>
                     )}
@@ -675,7 +675,7 @@ function ToweliDashboard() {
                 </div>
                 <div className="relative z-10 p-8 py-12 text-center">
                   <p className="text-white text-[15px] mb-4">No staking position yet</p>
-                  <Link to="/farm" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
+                  <Link to="/earn/toweli" className="btn-primary px-8 py-3 text-[14px]">Start Staking &#8594;</Link>
                 </div>
               </m.div>
             )}
@@ -750,7 +750,7 @@ function ToweliDashboard() {
                         <p className="text-amber-200 text-[11px] leading-snug">
                           Your JBAC boost is not applied to this staked LP, so the pending figure is
                           accruing at the unboosted rate. Refresh it on the{' '}
-                          <Link to="/farm" className="underline hover:text-amber-100">Farm page</Link>.
+                          <Link to="/earn/toweli" className="underline hover:text-amber-100">Farm page</Link>.
                         </p>
                       </div>
                     )}
@@ -761,7 +761,7 @@ function ToweliDashboard() {
                           : 'Held in your wallet as the TGLP token · earns a cut of swap fees'}
                       </span>
                       {lpPos.farmingDeployed && lpPos.stakedLp > 0n ? (
-                        <Link to="/farm" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
+                        <Link to="/earn/toweli" className="text-[11px] text-white/70 hover:text-white transition-colors ml-auto">
                           Manage on Farm &#8594;
                         </Link>
                       ) : (
@@ -912,7 +912,7 @@ function ToweliDashboard() {
                   <p className="text-white/60 text-[12px]">
                     {pos.hasPosition
                       ? 'Your staking rewards keep accruing. Check back as they build up.'
-                      : <>Stake TOWELI on the <Link to="/farm" className="underline hover:text-white">Farm</Link> to start earning claimable rewards.</>}
+                      : <>Stake TOWELI on the <Link to="/earn/toweli" className="underline hover:text-white">Farm</Link> to start earning claimable rewards.</>}
                   </p>
                 </div>
               </m.div>

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Stand-in for the GitHub CLI inside act job containers on GitLab CI.
+# It answers one call, the one every `scope` job makes:
+#   gh api --paginate repos/<owner>/<repo>/pulls/<n>/files --jq <filter>
+# with the pull request's changed paths, from git, one per line (old and new name for a
+# rename). Any doubt prints nothing and exits 0: every scope job reads that as "run it all".
+set -uo pipefail
+
+if [ "${1:-}" != "api" ]; then
+  echo "gh (stand-in): off GitHub only 'gh api repos/<o>/<r>/pulls/<n>/files' is answered" >&2
+  exit 1
+fi
+asked=""
+for arg in "$@"; do
+  case "$arg" in repos/*/pulls/*/files) asked=$arg ;; esac
+done
+if [ -z "$asked" ]; then
+  echo "gh (stand-in): unsupported call: gh $*" >&2
+  exit 1
+fi
+
+event=${GITHUB_EVENT_PATH:-}
+base=$(jq -r '.pull_request.base.sha // empty' "$event" 2>/dev/null) || base=""
+head=$(jq -r '.pull_request.head.sha // empty' "$event" 2>/dev/null) || head=""
+if ! [[ $base =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ && $head =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
+  echo "gh (stand-in): no base/head sha in the event; answering with no files (runs everything)" >&2
+  exit 0
+fi
+# core.quotepath=off: a non-ASCII path must print as itself, or no pattern would match it.
+if files=$(git -c core.quotepath=off diff --name-only --no-renames "$base" "$head" 2>/dev/null); then
+  printf '%s\n' "$files"
+else
+  echo "gh (stand-in): git diff $base $head failed; answering with no files (runs everything)" >&2
+fi
+exit 0

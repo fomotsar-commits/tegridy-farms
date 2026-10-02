@@ -35,9 +35,14 @@ migrations, 42501 role-grant gaps, anon-key rotation). An anon-key RLS bypass = 
 Supabase dashboard → **Advisors → Security**. Then run an adversarial anon-key probe before any go-live.
 <https://supabase.com/docs/guides/database/database-advisors>
 
-### 3. security.txt email + GitHub private vuln reporting — **FREE, minutes** 🧩
-The file is committed. Verify it resolves post-deploy. If the repo is public, enable **Settings →
-Code security → Private vulnerability reporting** and add that URL as a second `Contact:` line.
+### 3. security.txt email — **FREE, minutes** 🧩
+The file is committed. Verify it resolves post-deploy. The email in it is the first reporting
+channel, and it does not depend on any git host. A second channel is welcome, as long as it
+does not depend on one git host either: link it through our own domain (for example an
+issue via `https://memetics.finance/source-issues` that asks for a contact), never a host's
+own URL. GitHub's private advisories went dark with the account from 2026-09-24 until it came
+back on 2026-09-29, and any host can go the same way. The on-chain security.txt lists the email
+first and this file second (TODO_OPERATOR O-0929-10).
 Save the **SEAL 911** break-glass contact NOW (before you need it): <https://securityalliance.org/our-work/seal-911>
 
 ### 4. Free CI trio — **FREE** (add the YAML below)

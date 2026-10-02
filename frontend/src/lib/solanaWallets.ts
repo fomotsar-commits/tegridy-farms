@@ -30,7 +30,7 @@ import {
   type VersionedTransaction,
 } from '@solana/web3.js';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
-import { BACKPACK_ICON, METAMASK_ICON, SOLFLARE_ICON, TRUST_ICON } from './walletIcons';
+import { BACKPACK_ICON, JUPITER_ICON, METAMASK_ICON, SOLFLARE_ICON, TRUST_ICON } from './walletIcons';
 
 /**
  * The Solana sibling of rainbowkitWallets.ts: wallets this venue adds to the
@@ -897,6 +897,13 @@ abstract class OpenInAppWalletAdapter extends BaseMessageSignerWalletAdapter {
   protected abstract browseLink(): string;
   /** Any trace of the wallet's own provider: the page is already inside it. */
   protected abstract insideApp(): boolean;
+  /**
+   * Can this browser hand the page to the wallet's app at all? Read once, by
+   * the constructor, so it may use no field of a subclass.
+   */
+  protected handsOff(): boolean {
+    return isMobileAndRedirectable();
+  }
 
   private _readyState: WalletReadyState =
     typeof window === 'undefined' || typeof document === 'undefined'
@@ -906,7 +913,7 @@ abstract class OpenInAppWalletAdapter extends BaseMessageSignerWalletAdapter {
   constructor() {
     super();
     if (this._readyState === WalletReadyState.Unsupported) return;
-    if (!this.insideApp() && isMobileAndRedirectable()) {
+    if (!this.insideApp() && this.handsOff()) {
       this._readyState = WalletReadyState.Loadable;
       this.emit('readyStateChange', this._readyState);
     }
@@ -1035,5 +1042,93 @@ export class BackpackWalletAdapter extends OpenInAppWalletAdapter {
   protected insideApp(): boolean {
     if (typeof window === 'undefined') return false;
     return 'backpack' in window || '_backpack_injected_provider' in window;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Jupiter — an "Open app" row with jup.ag's own hand-off
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * MUST be exactly "Jupiter": the name the Jupiter Wallet extension registers
+ * its Wallet Standard wallet under (the shipped extension's injected.js,
+ * v1.19.1, `get name(){return "Jupiter"}`), and the name jup.ag's own site
+ * looks the extension up by (its production bundle, 2026-09-30).
+ */
+export const JupiterWalletName = 'Jupiter' as WalletName<'Jupiter'>;
+
+/**
+ * jup.ag's own constants and hand-off into Jupiter Mobile, from its production
+ * bundle (2026-09-30, function RR): `jupjupjup://browse/<page>` with the page
+ * NOT encoded, then — if this page still has focus a second later, so no app
+ * took over — the app's store page for the platform. Jupiter documents no link
+ * of its own for opening a page in its app; this is the one its site uses.
+ */
+const JUPITER_SCHEME = 'jupjupjup://';
+const JUPITER_APP_STORE = 'https://apps.apple.com/us/app/jupiter-mobile-solana-wallet/id6484069059';
+const JUPITER_PLAY_STORE = 'https://play.google.com/store/apps/details?id=ag.jup.jupiter.android';
+const JUPITER_MOBILE_PAGE = 'https://jup.ag/mobile';
+/** jup.ag's answer on a computer without the extension: it opens /wallet. */
+const JUPITER_EXTENSION_PAGE = 'https://jup.ag/wallet';
+/** jup.ag's own test for "this page is inside Jupiter Mobile". */
+const JUPITER_BROWSER_UA = /JupiterBrowser\//i;
+
+/**
+ * A phone, where Jupiter Mobile runs: an iPhone, an iPod or Android. NOT an
+ * iPad (desktop-class or not): an iPad has the WalletConnect QR, and Jupiter
+ * Mobile on the visitor's phone scans it whether or not the app is on the iPad.
+ */
+function onJupiterPhone(): boolean {
+  return typeof navigator !== 'undefined' && /iphone|ipod|android/i.test(navigator.userAgent);
+}
+
+/** How long jup.ag waits before deciding no app took the link. */
+const JUPITER_FALLBACK_MS = 1000;
+
+/**
+ * Jupiter — Solana only: the Jupiter Wallet extension, and Jupiter Mobile.
+ * The owner's "jupiter wallet not supported" (2026-09-30): without the
+ * extension in this browser there was no Jupiter row at all.
+ *
+ *  - a computer or an iPad with the extension: its own Standard wallet
+ *    "Jupiter" takes this row, as Solflare's and Backpack's do theirs;
+ *  - a computer or an iPad without it: NotDetected. The modal shows the
+ *    WalletConnect QR for it, which Jupiter Mobile scans (solanaWalletOrder.ts
+ *    SCANNABLE_WALLETS), and links `url` for the extension;
+ *  - a phone browser: Loadable, and connect() opens this page inside Jupiter
+ *    Mobile, where its own wallet registers;
+ *  - inside Jupiter Mobile, or a phone browser that cannot hand off (another
+ *    wallet's webview): NotDetected, never a hop into the app from inside it.
+ */
+export class JupiterWalletAdapter extends OpenInAppWalletAdapter {
+  name = JupiterWalletName;
+  url = onJupiterPhone() ? JUPITER_MOBILE_PAGE : JUPITER_EXTENSION_PAGE;
+  icon = JUPITER_ICON;
+
+  protected browseLink(): string {
+    return `${JUPITER_SCHEME}browse/${window.location.href}`;
+  }
+
+  protected insideApp(): boolean {
+    return typeof navigator !== 'undefined' && JUPITER_BROWSER_UA.test(navigator.userAgent);
+  }
+
+  protected override handsOff(): boolean {
+    return onJupiterPhone() && super.handsOff();
+  }
+
+  override async connect(): Promise<void> {
+    const handingOff = this.readyState === WalletReadyState.Loadable && !this.insideApp();
+    await super.connect();
+    if (!handingOff) return;
+    // jup.ag's fallback: a custom scheme with no app behind it fails silently.
+    // One addition: a timer that fires LATE ran in a page the phone had put in
+    // the background, so the app did take over, and the visitor coming back
+    // must not be sent to the store.
+    const store = /android/i.test(navigator.userAgent) ? JUPITER_PLAY_STORE : JUPITER_APP_STORE;
+    const started = Date.now();
+    setTimeout(() => {
+      if (Date.now() - started < JUPITER_FALLBACK_MS * 2 && document.hasFocus()) window.location.href = store;
+    }, JUPITER_FALLBACK_MS);
   }
 }
