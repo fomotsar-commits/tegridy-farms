@@ -500,6 +500,30 @@ describe("the maker's plates, read from the launch transaction", () => {
     expect(plant({ ...base, bayla: [maker!, { ...workshop!, programId: null }] })).toBeNull();
     expect(plant({ ...base, bayla: [{ ...maker!, pre: null, post: B(10n) }] })).toBeNull();
   });
+
+  // A real create always reports the curve vault after it; a record without it is
+  // incomplete, as the create-buy and birth-supply reads already say.
+  it('the plant read is "could not read" when the balance record is empty or one-sided, never a finding', () => {
+    const creator = Keypair.generate();
+    const l: Launch = { sig: sig(1), creator, mint: Keypair.generate(), buyTokens: 5n, bayla: plantBalances(creator.publicKey) };
+    const read = (pre: 'keep' | [], post: 'keep' | []) => {
+      const t = launchTx(l) as { meta: { preTokenBalances: unknown[]; postTokenBalances: unknown[] } };
+      if (pre !== 'keep') t.meta.preTokenBalances = pre;
+      if (post !== 'keep') t.meta.postTokenBalances = post;
+      return parseLaunchTransaction(t, l.sig, LAUNCH);
+    };
+    expect(read('keep', 'keep')?.plant).toEqual({ burned: B(50_000n), toWorkshop: B(50_000n) });
+    for (const [label, o] of [
+      ['both lists empty', read([], [])],
+      ['the after list empty', read('keep', [])],
+    ] as const) {
+      expect(o?.birthSupply, label).toBeNull();
+      expect(o?.plant, label).toBeNull();
+    }
+    // $BAYLA balances there, but the curve vault missing: still an incomplete record.
+    const noVault: Launch = { ...l, buyTokens: 'unreadable' };
+    expect(parseLaunchTransaction(launchTx(noVault), noVault.sig, LAUNCH)?.plant).toBeNull();
+  });
 });
 
 describe('listRecentLaunches', () => {
