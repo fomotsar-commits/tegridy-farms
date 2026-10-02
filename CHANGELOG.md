@@ -21,6 +21,7 @@ page keeps the newest thirty days.
 - Once launching is switched on, the Solana launch review lists the plant: 100,000 $BAYLA, 50,000 burned and 50,000 to the island's Workshop, from your own $BAYLA account.
 - Once launching is switched on, a Solana launch's page shows the maker's create-buy as a share of the supply with the maker's wallet, says it has no lock, and shows whether its launch transaction carried the plant. The launches list shows the same maker figure.
 - The indexer moves from Node 20, which stopped getting security fixes in April, to Node 24 at its next deploy; the site already ran on 24 and is now held there.
+- The marketplace lists the six Jungle Bay family collections: Gold Cards trade here with the same flat 1% fee, four more can be browsed here and link out to OpenSea, and Junglets shows its facts only.
 - When the site cannot read a transaction's result, it says so and points to the explorer, instead of saying the transaction failed.
 - A reverted transaction says it reverted, and the Swap button no longer stays stuck after one.
 - A transaction your wallet cancelled or replaced is no longer shown as a success; a sped-up one still is.

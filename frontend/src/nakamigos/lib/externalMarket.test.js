@@ -1,0 +1,333 @@
+// lib/externalMarket.js reads a view-only collection's stats and items from
+// its home market, and says "unavailable" rather than guess.
+//
+// The four EVM family collections read OpenSea by slug through /api/opensea,
+// and the answer is validated row by row: an item that is not this
+// collection's contract, an id that is not digits, or an image that is not on
+// OpenSea's own CDN is dropped or nulled rather than shown. Any answer that is
+// not the expected JSON (vite preview answers /api with HTML) is
+// `unavailable`, never an empty success. Junglets is not on OpenSea, and the
+// venue reads no other market (owner ruling, 2026-10-02), so it makes no read
+// at all and every answer for it is `unavailable`, reason "no-market-read".
+//
+// Numbers keep their precision. Seeds has traded 0.052768 ETH in total and
+// Rare Towelie Cards 0.06 ETH; api.js rounds collection volume to an integer
+// and maps a real 0 to null, which would print both as zero-or-unread.
+
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { COLLECTIONS } from "../constants";
+import { ADDR } from "../__fixtures__/jungleBayFamily";
+
+const load = () => import(/* @vite-ignore */ "./externalMarket" + "");
+
+let fetchMock;
+let answer;
+
+function json(body, { status = 200, headers = {} } = {}) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (k) => headers[String(k).toLowerCase()] ?? null },
+    text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
+    json: async () => (typeof body === "string" ? JSON.parse(body) : body),
+  };
+}
+
+const urlOf = (call) => new URL(String(call[0]), "https://memetics.finance");
+
+beforeEach(() => {
+  vi.resetModules();
+  answer = () => json({});
+  fetchMock = vi.fn(async (...a) => answer(...a));
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+const osStats = (total) => ({ total, intervals: [] });
+const osItem = (over = {}) => ({
+  identifier: "0",
+  collection: "bojungless",
+  contract: ADDR.bojungles.toLowerCase(),
+  token_standard: "erc721",
+  name: "Bojungles #0",
+  image_url: "https://i2c.seadn.io/base/0x36afee4fadc3b77ff5f1f9a040e264150afb979a/aa/bb.png",
+  display_image_url: "https://i2c.seadn.io/base/0x36afee4fadc3b77ff5f1f9a040e264150afb979a/cc/dd.png",
+  ...over,
+});
+
+describe("OpenSea stats for an EVM family collection", () => {
+  it("asks /api/opensea for the collection's stats by its OpenSea slug", async () => {
+    answer = () => json(osStats({ floor_price: null, floor_price_symbol: "", volume: 1.42308, num_owners: 100 }));
+    const { fetchExternalStats } = await load();
+    await fetchExternalStats(COLLECTIONS.bojungles);
+    const url = urlOf(fetchMock.mock.calls[0]);
+    expect(url.pathname).toBe("/api/opensea");
+    expect(url.searchParams.get("path")).toBe("collections/bojungless/stats");
+  });
+
+  it("keeps full precision, and a real zero stays zero", async () => {
+    const { fetchExternalStats } = await load();
+    answer = () => json(osStats({ floor_price: 0.11, floor_price_symbol: "ETH", volume: 0.052768, num_owners: 89 }));
+    const seeds = await fetchExternalStats(COLLECTIONS.memeticseeds);
+    expect(seeds.unavailable).toBeFalsy();
+    expect(seeds.volume).toBe(0.052768);
+    expect(seeds.floor).toBe(0.11);
+    expect(seeds.floorSymbol).toBe("ETH");
+    expect(seeds.owners).toBe(89);
+    expect(seeds.source).toBe("OpenSea");
+
+    answer = () => json(osStats({ floor_price: null, volume: 0, num_owners: 0 }));
+    const zero = await fetchExternalStats(COLLECTIONS.raretowelie);
+    expect(zero.volume).toBe(0);
+    expect(zero.owners).toBe(0);
+  });
+
+  // A floor is a price only when it is a number above zero. A floor the read
+  // carried as 0 or null is none listed. A floor the read did not carry at
+  // all is unread: neither a price nor a claim that nothing is listed.
+  it("a successful read with a null floor means none listed: no price, never 0", async () => {
+    answer = () => json(osStats({ floor_price: null, volume: 0.06, num_owners: 480 }));
+    const { fetchExternalStats } = await load();
+    const s = await fetchExternalStats(COLLECTIONS.raretowelie);
+    expect(s.unavailable).toBeFalsy();
+    expect(s.floor).toBeNull();
+    expect(s.noneListed).toBe(true);
+    expect(s.volume).toBe(0.06);
+  });
+
+  it("a floor of 0 means none listed, never a price of 0", async () => {
+    answer = () => json(osStats({ floor_price: 0, floor_price_symbol: "", volume: 1.42308, num_owners: 100 }));
+    const { fetchExternalStats } = await load();
+    const s = await fetchExternalStats(COLLECTIONS.bojungles);
+    expect(s.floor).toBeNull();
+    expect(s.floorSymbol).toBeNull();
+    expect(s.noneListed).toBe(true);
+  });
+
+  it("a floor that is not a number is unread, not none listed", async () => {
+    answer = () => json(osStats({ floor_price: "0.1", volume: 1, num_owners: 1 }));
+    const { fetchExternalStats } = await load();
+    const s = await fetchExternalStats(COLLECTIONS.bojungles);
+    expect(s.floor).toBeNull();
+    expect(s.noneListed).toBe(false);
+  });
+
+  it("a missing field is null, not a number the read did not produce, and a missing floor is not none listed", async () => {
+    answer = () => json(osStats({}));
+    const { fetchExternalStats } = await load();
+    const s = await fetchExternalStats(COLLECTIONS.junglebaymemes);
+    expect(s.floor).toBeNull();
+    expect(s.noneListed).toBe(false);
+    expect(s.volume).toBeNull();
+    expect(s.owners).toBeNull();
+  });
+
+  it("a floor above zero is a price, in the symbol the read named", async () => {
+    answer = () => json(osStats({ floor_price: 0.1, floor_price_symbol: "ETH", volume: 5, num_owners: 50 }));
+    const { fetchExternalStats } = await load();
+    const s = await fetchExternalStats(COLLECTIONS.junglebaymemes);
+    expect(s.floor).toBe(0.1);
+    expect(s.floorSymbol).toBe("ETH");
+    expect(s.noneListed).toBe(false);
+  });
+
+  it("a shape mismatch is unavailable, not an empty success", async () => {
+    answer = () => json({ nope: true });
+    const { fetchExternalStats } = await load();
+    expect((await fetchExternalStats(COLLECTIONS.bojungles)).unavailable).toBe(true);
+  });
+});
+
+describe("OpenSea items for an EVM family collection", () => {
+  it("asks for 200 items by OpenSea slug and follows the cursor it is handed", async () => {
+    answer = () => json({ nfts: [osItem()], next: "cursor-2" });
+    const { fetchExternalItems } = await load();
+    const first = await fetchExternalItems(COLLECTIONS.bojungles);
+    let url = urlOf(fetchMock.mock.calls[0]);
+    expect(url.searchParams.get("path")).toBe("collection/bojungless/nfts");
+    expect(url.searchParams.get("limit")).toBe("200");
+    expect(url.searchParams.has("next")).toBe(false);
+    expect(first.next).toBe("cursor-2");
+
+    await fetchExternalItems(COLLECTIONS.bojungles, "cursor-2");
+    url = urlOf(fetchMock.mock.calls[1]);
+    expect(url.searchParams.get("next")).toBe("cursor-2");
+  });
+
+  it("prefers the display image, on OpenSea's own CDN", async () => {
+    answer = () => json({ nfts: [osItem()], next: null });
+    const { fetchExternalItems } = await load();
+    const { items } = await fetchExternalItems(COLLECTIONS.bojungles);
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe("0");
+    expect(items[0].name).toBe("Bojungles #0");
+    expect(items[0].image).toMatch(/^https:\/\/i2c\.seadn\.io\/.*\/dd\.png$/);
+  });
+
+  it("falls back to image_url when there is no display image", async () => {
+    answer = () => json({ nfts: [osItem({ display_image_url: null })], next: null });
+    const { fetchExternalItems } = await load();
+    const { items } = await fetchExternalItems(COLLECTIONS.bojungles);
+    expect(items[0].image).toMatch(/\/bb\.png$/);
+  });
+
+  it("drops a row from another contract and a row whose id is not digits", async () => {
+    answer = () => json({
+      nfts: [
+        osItem({ identifier: "1" }),
+        osItem({ identifier: "2", contract: ADDR.memeticseeds.toLowerCase() }),
+        osItem({ identifier: "12abc" }),
+        osItem({ identifier: "" }),
+      ],
+      next: null,
+    });
+    const { fetchExternalItems } = await load();
+    const { items, dropped } = await fetchExternalItems(COLLECTIONS.bojungles);
+    expect(items.map((i) => i.id)).toEqual(["1"]);
+    expect(dropped).toBe(3);
+  });
+
+  it("a page whose rows all fail validation is unavailable, never an empty success", async () => {
+    // A field renamed upstream: every row misses `contract`.
+    answer = () => json({ nfts: [{ identifier: "5", contract_address: ADDR.bojungles.toLowerCase() }, { identifier: "6", contract_address: ADDR.bojungles.toLowerCase() }], next: null });
+    const { fetchExternalItems } = await load();
+    const res = await fetchExternalItems(COLLECTIONS.bojungles);
+    expect(res.unavailable).toBe(true);
+    expect(res.reason).toBe("shape");
+    expect(res.items).toBeUndefined();
+  });
+
+  it("a page with no rows at all is an empty success, with nothing dropped", async () => {
+    answer = () => json({ nfts: [], next: null });
+    const { fetchExternalItems } = await load();
+    const res = await fetchExternalItems(COLLECTIONS.bojungles);
+    expect(res.unavailable).toBeFalsy();
+    expect(res.items).toEqual([]);
+    expect(res.dropped).toBe(0);
+  });
+
+  it("a page that drops nothing says so", async () => {
+    answer = () => json({ nfts: [osItem({ identifier: "1" }), osItem({ identifier: "2" })], next: null });
+    const { fetchExternalItems } = await load();
+    const res = await fetchExternalItems(COLLECTIONS.bojungles);
+    expect(res.items).toHaveLength(2);
+    expect(res.dropped).toBe(0);
+  });
+
+  it("nulls an image that is not https on *.seadn.io", async () => {
+    answer = () => json({
+      nfts: [
+        osItem({ identifier: "1", display_image_url: "http://i2c.seadn.io/x.png", image_url: null }),
+        osItem({ identifier: "2", display_image_url: "https://evil.example/x.png", image_url: null }),
+        osItem({ identifier: "3", display_image_url: "https://seadn.io.evil.example/x.png", image_url: null }),
+        osItem({ identifier: "4", display_image_url: "ipfs://Qm/x.png", image_url: null }),
+      ],
+      next: null,
+    });
+    const { fetchExternalItems } = await load();
+    const { items } = await fetchExternalItems(COLLECTIONS.bojungles);
+    expect(items).toHaveLength(4);
+    for (const i of items) expect(i.image, i.id).toBeNull();
+  });
+});
+
+describe("Junglets: no market is read", () => {
+  // OpenSea has no Junglets page, and the venue reads no other market. So
+  // there is nothing to ask: no request goes out, and the answer says why.
+  it("its stats are unavailable, reason no-market-read, and nothing is fetched", async () => {
+    const { fetchExternalStats } = await load();
+    const s = await fetchExternalStats(COLLECTIONS.junglets);
+    expect(s).toEqual({ unavailable: true, reason: "no-market-read" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("its items are unavailable, reason no-market-read, and nothing is fetched", async () => {
+    const { fetchExternalItems } = await load();
+    const r = await fetchExternalItems(COLLECTIONS.junglets);
+    expect(r).toEqual({ unavailable: true, reason: "no-market-read" });
+    expect(r.items).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("readsMarket says which collections have a market read", async () => {
+    const { readsMarket } = await load();
+    expect(readsMarket(COLLECTIONS.junglets)).toBe(false);
+    for (const slug of ["junglebaymemes", "memeticseeds", "bojungles", "raretowelie"]) {
+      expect(readsMarket(COLLECTIONS[slug]), slug).toBe(true);
+    }
+  });
+});
+
+describe("failures are unavailable, with a reason", () => {
+  it("a 429 is rate-limited, with the wait the market asked for", async () => {
+    answer = () => json({ error: "upstream-rate-limited" }, { status: 429, headers: { "retry-after": "60" } });
+    const { fetchExternalStats } = await load();
+    const s = await fetchExternalStats(COLLECTIONS.bojungles);
+    expect(s.unavailable).toBe(true);
+    expect(s.reason).toBe("rate-limited");
+    expect(s.retryAfter).toBe(60);
+  });
+
+  it("an HTML answer (vite preview has no /api) is unavailable, not an empty gallery", async () => {
+    answer = () => json("<!doctype html><html></html>", { status: 200, headers: { "content-type": "text/html" } });
+    const { fetchExternalItems } = await load();
+    const r = await fetchExternalItems(COLLECTIONS.bojungles);
+    expect(r.unavailable).toBe(true);
+    expect(r.items).toBeUndefined();
+  });
+
+  it("an HTML 404 is unavailable", async () => {
+    answer = () => json("<html>404</html>", { status: 404 });
+    const { fetchExternalStats } = await load();
+    expect((await fetchExternalStats(COLLECTIONS.memeticseeds)).unavailable).toBe(true);
+  });
+
+  it("a network error is unavailable", async () => {
+    answer = () => { throw new TypeError("Failed to fetch"); };
+    const { fetchExternalStats } = await load();
+    expect((await fetchExternalStats(COLLECTIONS.memeticseeds)).unavailable).toBe(true);
+  });
+});
+
+describe("the budget", () => {
+  it("merges identical reads in flight into one request", async () => {
+    answer = () => json(osStats({ floor_price: null, volume: 1, num_owners: 1 }));
+    const { fetchExternalStats } = await load();
+    await Promise.all([
+      fetchExternalStats(COLLECTIONS.bojungles),
+      fetchExternalStats(COLLECTIONS.bojungles),
+      fetchExternalStats(COLLECTIONS.bojungles),
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("serves a repeat read from memory for a minute", async () => {
+    answer = () => json(osStats({ floor_price: null, volume: 1, num_owners: 1 }));
+    const { fetchExternalStats } = await load();
+    await fetchExternalStats(COLLECTIONS.bojungles);
+    await fetchExternalStats(COLLECTIONS.bojungles);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("never caches a failure: the next read asks again", async () => {
+    answer = () => json("busy", { status: 429, headers: { "retry-after": "1" } });
+    const { fetchExternalStats } = await load();
+    const first = await fetchExternalStats(COLLECTIONS.bojungles);
+    expect(first.unavailable).toBe(true);
+    answer = () => json(osStats({ floor_price: null, volume: 1.42308, num_owners: 100 }));
+    const second = await fetchExternalStats(COLLECTIONS.bojungles);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(second.volume).toBe(1.42308);
+  });
+
+  it("never asks anything about a collection OpenSea does not list", async () => {
+    const { fetchExternalStats, fetchExternalItems } = await load();
+    await fetchExternalStats(COLLECTIONS.junglets);
+    await fetchExternalItems(COLLECTIONS.junglets);
+    await fetchExternalItems(COLLECTIONS.junglets, "100");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

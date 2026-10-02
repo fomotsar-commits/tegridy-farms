@@ -6,7 +6,7 @@ import MakeOfferModal from "./MakeOfferModal";
 import ErrorBoundary from "./ErrorBoundary";
 import TransactionProgress, { useTransactionProgress } from "./TransactionProgress";
 import { Link } from "react-router-dom";
-import { OPENSEA_ITEM, ETHERSCAN_TOKEN, CHARACTER_TYPES, GNSS_SPECIES, JB_LEGENDARIES, NFT_LOAN_DESK_LIVE, rankTier, PLATFORM_FEE_BPS } from "../constants";
+import { OPENSEA_ITEM, ETHERSCAN_TOKEN, CHARACTER_TYPES, GNSS_SPECIES, JB_LEGENDARIES, loanDeskAccepts, rankTier, PLATFORM_FEE_BPS } from "../constants";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useTradingMode } from "../contexts/TradingModeContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
@@ -55,22 +55,34 @@ function FairValueBadge({ nft, floorPrice, supply }) {
 }
 
 function PriceHistoryChart({ tokenId, contract }) {
-  const [sales, setSales] = useState(null);
+  // Each read's answer is kept with the token it was for. A failed read is its
+  // own state: "no sales" is said only after a read that answered.
+  const readKey = `${contract}:${tokenId}`;
+  const [result, setResult] = useState({ key: null, sales: null, failed: false });
 
   useEffect(() => {
     let cancelled = false;
     fetchTokenSalesHistory(tokenId, contract).then((data) => {
       // F709: drop self-sales (same wallet buying from itself) so the price
       // history, average, and min/max can't be skewed by wash trades.
-      if (!cancelled) setSales(excludeSelfSales(data));
+      if (!cancelled) setResult({ key: readKey, sales: excludeSelfSales(data), failed: false });
     }).catch((err) => {
       if (!cancelled) {
-        console.error("Failed to fetch sales history:", err);
-        setSales([]);
+        console.warn("Sales history unavailable:", err?.message || err);
+        setResult({ key: readKey, sales: null, failed: true });
       }
     });
     return () => { cancelled = true; };
-  }, [tokenId, contract]);
+  }, [tokenId, contract, readKey]);
+
+  const current = result.key === readKey;
+  const sales = current ? result.sales : null;
+
+  if (current && result.failed) return (
+    <div role="status" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-muted)", marginTop: 8 }}>
+      Sales history for this token is unavailable right now
+    </div>
+  );
 
   // Reserve space while loading instead of returning null, so the price box
   // and content below don't shift when the chart pops in (F804).
@@ -528,8 +540,10 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
                 {buying ? "Confirming..." : !wallet ? "Connect Wallet to Buy" : `Buy for ${formatPrice(Number(nft.price ?? 0))} ETH`}
               </button>
             ) : (
-              <button className="btn-primary" style={{ flex: 1 }} aria-label="Buy this NFT" onClick={() => window.open(openSeaUrl, "_blank", "noopener,noreferrer")}>
-                Buy on OpenSea
+              // No listing for this token is known here, so there is nothing to
+              // buy: the button opens its OpenSea page, and says only that.
+              <button className="btn-primary" style={{ flex: 1 }} aria-label="View this NFT on OpenSea" onClick={() => window.open(openSeaUrl, "_blank", "noopener,noreferrer")}>
+                View on OpenSea
               </button>
             )}
             <button
@@ -576,9 +590,9 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
             </button>
           )}
 
-          {/* NFT Finance funnel — owner-only, and credibility-gated until the
-              relaunch TegridyNFTLending address lands in lib/constants.ts */}
-          {NFT_LOAN_DESK_LIVE && wallet && nft?.owner && wallet.toLowerCase() === nft.owner.toLowerCase() && (
+          {/* NFT Finance funnel: owner-only, and only for a collection the
+              deployed TegridyNFTLending accepts (loanDeskAccepts). */}
+          {loanDeskAccepts(collection) && wallet && nft?.owner && wallet.toLowerCase() === nft.owner.toLowerCase() && (
             <Link
               to="/nft-finance"
               aria-label="Borrow ETH against this NFT in NFT Finance"
@@ -619,9 +633,11 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
             const typeAttr = attrs.find(a => a.key === "Type")?.value;
             const specieAttr = attrs.find(a => a.key === "Specie")?.value;
             const legendaryAttr = attrs.find(a => a.key === "Legendary Name")?.value;
-            const charType = typeAttr && CHARACTER_TYPES.find(t => typeAttr === t.name || typeAttr.endsWith(t.name) || typeAttr.startsWith(t.name));
-            const species = specieAttr && GNSS_SPECIES.find(s => s.name === specieAttr);
-            const legendary = legendaryAttr && JB_LEGENDARIES.find(l => l.name === legendaryAttr);
+            // Each lore table belongs to one collection; an attribute of the same
+            // name on another collection's token is not that lore.
+            const charType = collection.slug === "nakamigos" && typeAttr && CHARACTER_TYPES.find(t => typeAttr === t.name || typeAttr.endsWith(t.name) || typeAttr.startsWith(t.name));
+            const species = collection.slug === "gnssart" && specieAttr && GNSS_SPECIES.find(s => s.name === specieAttr);
+            const legendary = collection.slug === "junglebay" && legendaryAttr && JB_LEGENDARIES.find(l => l.name === legendaryAttr);
             const loreItem = charType || species || legendary;
             if (!loreItem) return null;
             const isUltra = charType ? charType.count <= 36 : species ? species.rarityTier === "legendary" : !!legendary;

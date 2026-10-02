@@ -1,5 +1,7 @@
-import { CONTRACT, COLLECTION_SLUG, COLLECTIONS, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, SEAPORT_DOMAIN } from "./constants";
+import { CONTRACT, COLLECTION_SLUG, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS, FALLBACK_ACTIVITY, SEAPORT_DOMAIN } from "./constants";
 import { liveIpfsUrl } from "../lib/ipfsGateways";
+import { venueCollectionByContract, venueRefusalForAll } from "./lib/venue";
+import { seaportCallNftTokens } from "./lib/seaportCalldata";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
 // Seaport fulfillment entrypoints that OpenSea's fulfillment_data API
@@ -99,9 +101,7 @@ const resolveIpfs = liveIpfsUrl;
 // 404s); gnss/junglebay do. Default to true when unknown so we don't regress
 // collections that rely on the fallback.
 function hasDeterministicImage(contract) {
-  const entry = Object.values(COLLECTIONS).find(
-    c => contract && c.contract.toLowerCase() === String(contract).toLowerCase()
-  );
+  const entry = venueCollectionByContract(contract);
   return entry ? entry.deterministicImage !== false : true;
 }
 
@@ -168,12 +168,9 @@ export async function fetchTokens({ contract = CONTRACT, metadataBase = METADATA
 }
 
 // ═══ COLLECTION STATS (Alchemy primary, OpenSea secondary) ═══
-// Look up the known supply from COLLECTIONS config so we always have a reliable fallback
+// The registry supply of a venue collection, the fallback when no live read answers.
 function configSupplyFor(contract) {
-  const entry = Object.values(COLLECTIONS).find(
-    c => c.contract.toLowerCase() === contract.toLowerCase()
-  );
-  return entry?.supply ?? null;
+  return venueCollectionByContract(contract)?.supply ?? null;
 }
 
 // F516: in-flight de-dupe for collection stats. Several components mount at
@@ -336,18 +333,13 @@ async function getCurrentBlock() {
 // ═══ ACTIVITY (OpenSea events primary, Alchemy getNFTSales fallback) ═══
 // Look up the configured slug for a contract (for OpenSea events API)
 function slugFor(contract) {
-  const entry = Object.values(COLLECTIONS).find(
-    c => c.contract.toLowerCase() === contract.toLowerCase()
-  );
+  const entry = venueCollectionByContract(contract);
   return entry?.openseaSlug ?? entry?.slug ?? null;
 }
 
 // Look up the configured mintBlock for a contract (used as fromBlock lower bound)
 function mintBlockFor(contract) {
-  const entry = Object.values(COLLECTIONS).find(
-    c => c.contract.toLowerCase() === contract.toLowerCase()
-  );
-  return entry?.mintBlock ?? null;
+  return venueCollectionByContract(contract)?.mintBlock ?? null;
 }
 
 // Helper: parse OpenSea event objects into normalized activity objects
@@ -580,34 +572,30 @@ export async function fetchActivity({ contract = CONTRACT, limit = 50, daysBack 
 }
 
 // ═══ TOKEN SALES HISTORY (per-NFT price chart) ═══
+// Throws when the read fails: [] means the token has no sales, and an outage
+// must not read as that (PriceHistoryChart says "unavailable" instead).
 export async function fetchTokenSalesHistory(tokenId, contract = CONTRACT) {
-  try {
-    const data = await alchemyGet("getNFTSales", {
-      contractAddress: contract,
-      tokenId: String(tokenId),
-      order: "asc",
-      limit: "50",
-    });
-
-    const sales = data.nftSales || [];
-    return sales.map(sale => {
-      const sellerAmt = BigInt(sale.sellerFee?.amount || "0");
-      const protocolAmt = BigInt(sale.protocolFee?.amount || "0");
-      const royaltyAmt = BigInt(sale.royaltyFee?.amount || "0");
-      const totalWei = sellerAmt + protocolAmt + royaltyAmt;
-      return {
-        price: totalWei > 0n ? Number(totalWei * 10000n / BigInt(1e18)) / 10000 : null,
-        time: blockToTimestamp(sale.blockNumber),
-        from: sale.sellerAddress,
-        to: sale.buyerAddress,
-        hash: sale.transactionHash,
-        marketplace: sale.marketplace || null,
-      };
-    }).filter(s => s.price != null);
-  } catch (err) {
-    console.warn("Token sales history unavailable:", err.message);
-    return [];
-  }
+  const data = await alchemyGet("getNFTSales", {
+    contractAddress: contract,
+    tokenId: String(tokenId),
+    order: "asc",
+    limit: "50",
+  });
+  if (!Array.isArray(data?.nftSales)) throw new Error("Token sales history: unexpected answer");
+  return data.nftSales.map(sale => {
+    const sellerAmt = BigInt(sale.sellerFee?.amount || "0");
+    const protocolAmt = BigInt(sale.protocolFee?.amount || "0");
+    const royaltyAmt = BigInt(sale.royaltyFee?.amount || "0");
+    const totalWei = sellerAmt + protocolAmt + royaltyAmt;
+    return {
+      price: totalWei > 0n ? Number(totalWei * 10000n / BigInt(1e18)) / 10000 : null,
+      time: blockToTimestamp(sale.blockNumber),
+      from: sale.sellerAddress,
+      to: sale.buyerAddress,
+      hash: sale.transactionHash,
+      marketplace: sale.marketplace || null,
+    };
+  }).filter(s => s.price != null);
 }
 
 // ═══ TOP HOLDERS ═══
@@ -1258,6 +1246,37 @@ export function shortenAddress(addr) {
 
 // ═══ DIRECT PURCHASE VIA OPENSEA FULFILLMENT API ═══
 
+// The NFT contracts a listing names: its signed order's NFT items, and the
+// contract the card carries. A buy is refused unless every one trades here,
+// and a listing that names none is refused rather than assumed to be Nakamigos.
+function listingNftTokens(listing) {
+  const offer = listing?.orderData?.parameters?.offer;
+  const tokens = Array.isArray(offer)
+    ? offer.filter((i) => Number(i?.itemType) >= 2 && Number(i?.itemType) <= 5).map((i) => i.token)
+    : [];
+  if (listing?.contract) tokens.push(listing.contract);
+  return tokens;
+}
+
+function listingRefusal(listing) {
+  return venueRefusalForAll(listingNftTokens(listing));
+}
+
+// Checks the NFTs the ENCODED call moves: at least one, each a venue contract,
+// and each one the listing (or offer) itself named.
+export function fulfillCallRefusal(nftTokens, expectedTokens) {
+  if (!nftTokens.length) {
+    return { error: "no-nft-token", message: "The fill names no NFT this venue can check. Nothing was sent." };
+  }
+  const refusal = venueRefusalForAll(nftTokens);
+  if (refusal) return refusal;
+  const expected = new Set(expectedTokens.map((t) => String(t).toLowerCase()));
+  if (nftTokens.some((t) => !expected.has(t.toLowerCase()))) {
+    return { error: "nft-mismatch", message: "The fill would move a different NFT than the one listed. Nothing was sent." };
+  }
+  return null;
+}
+
 // Build the Seaport fulfillment CALL ({ to, value, data }) for a listing WITHOUT
 // sending it — shared by the single buy and the EIP-5792 cart batch. Every
 // safety validation (value bounds, Seaport-address allowlist, fulfillment-
@@ -1336,6 +1355,10 @@ async function buildSeaportFulfillCall(listing, { ethers, buyerAddress }) {
   }
   const encoded = iface.encodeFunctionData(fnName, inputValues);
 
+  // What gets signed is `encoded`, so the NFT it moves is read back from it.
+  const nftRefusal = fulfillCallRefusal(seaportCallNftTokens(iface, fnName, encoded), listingNftTokens(listing));
+  if (nftRefusal) return nftRefusal;
+
   return { to: txData.to, value: txValue, data: encoded };
 }
 
@@ -1345,6 +1368,11 @@ async function buildSeaportFulfillCall(listing, { ethers, buyerAddress }) {
 // (in parallel) with the same validated builder as the single buy; one build
 // failure aborts the batch and the caller falls back to per-item buys.
 export async function fulfillSeaportOrdersBatch(listings, opts = {}) {
+  // One listing the venue cannot settle refuses the whole cart, before any wallet call.
+  for (const l of Array.isArray(listings) ? listings : []) {
+    const refusal = listingRefusal(l);
+    if (refusal) return refusal;
+  }
   const { provider: ethProvider, address: connectedAddress } = await getActiveWalletProvider();
   if (!ethProvider) return { error: "no-metamask", message: "No wallet connected" };
   if (!Array.isArray(listings) || listings.length === 0) {
@@ -1376,6 +1404,7 @@ export async function fulfillSeaportOrdersBatch(listings, opts = {}) {
     );
     const calls = [];
     for (const c of built) {
+      if (c.error === "not-venue-tradeable") return c;
       if (c.error) return { error: "build-failed", message: c.message };
       calls.push({ to: c.to, value: "0x" + c.value.toString(16), data: c.data });
     }
@@ -1394,6 +1423,8 @@ export async function fulfillSeaportOrdersBatch(listings, opts = {}) {
 }
 
 export async function fulfillSeaportOrder(listing, opts = {}) {
+  const refusal = listingRefusal(listing);
+  if (refusal) return refusal;
   const { provider: ethProvider, address: connectedAddress } = await getActiveWalletProvider();
   if (!ethProvider) {
     return { error: "no-metamask", message: "No wallet connected" };

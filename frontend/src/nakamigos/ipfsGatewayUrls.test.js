@@ -28,7 +28,11 @@ const onDeadHost = (url) => {
 
 describe("Nakamigos-market IPFS URLs", () => {
   it("builds every collection's metadataBase off a retired gateway", () => {
-    for (const [slug, c] of Object.entries(COLLECTIONS)) {
+    // The Jungle Bay family entries have metadataBase null on purpose (no
+    // per-id image exists); null names no host, so it is on no gateway.
+    const withBase = Object.entries(COLLECTIONS).filter(([, c]) => c.metadataBase !== null);
+    expect(withBase.map(([slug]) => slug)).toEqual(expect.arrayContaining(["nakamigos", "gnssart", "junglebay"]));
+    for (const [slug, c] of withBase) {
       expect(onDeadHost(c.metadataBase), `${slug}: ${c.metadataBase}`).toBe(false);
     }
     expect(COLLECTIONS.junglebay.metadataBase).toBe(

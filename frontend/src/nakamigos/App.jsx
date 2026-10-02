@@ -11,6 +11,7 @@ import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { FavoritesProvider, useFavorites } from "./contexts/FavoritesContext";
 import { CartProvider, useCart } from "./contexts/CartContext";
 import { COLLECTIONS, DEFAULT_COLLECTION, VALID_TABS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
+import { canTradeOnVenue } from "./lib/venue";
 import Background from "./components/Background";
 import Header from "./components/Header";
 import Hero from "./components/Hero";
@@ -25,6 +26,10 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import NotFound from "./components/NotFound";
 import MobileNav from "./components/MobileNav";
 import InstallPrompt from "./components/InstallPrompt";
+// A collection that trades on its own market opens in its own view (see AppInner).
+// Loaded with the marketplace, like CollectionView, so its first render never
+// waits on a second chunk.
+import ExternalCollectionView from "./components/external/ExternalCollectionView";
 
 // Lazy-loaded: only rendered conditionally (modal open, cart open, landing route)
 const Modal = lazy(() => import("./components/Modal"));
@@ -246,6 +251,27 @@ function AppInner() {
     );
   }
 
+  // A collection this venue cannot settle (not an Ethereum ERC-721 flagged
+  // venueTrade) opens browse-only: none of the trading app below mounts, so no
+  // cart, order book, Alchemy read or wallet-gated tab runs for it.
+  if (!canTradeOnVenue(COLLECTIONS[collectionSlug])) {
+    return (
+      <CollectionProvider slug={collectionSlug}>
+        <ExternalCollectionView
+          key={collectionSlug}
+          tab={tab}
+          deepLinkTokenId={deepLinkTokenId}
+          collectionSlug={collectionSlug}
+          themeName={themeName}
+          cycleTheme={cycleTheme}
+          wallet={wallet}
+          walletName={walletName}
+          disconnect={disconnect}
+        />
+      </CollectionProvider>
+    );
+  }
+
   // Wrap the collection view in CollectionProvider
   return (
     <CollectionProvider slug={collectionSlug}>
@@ -443,8 +469,28 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
 
   // ═══ Deep link: /:collection/nft/:id — auto-open modal ═══
   const deepLinkFetchedRef = useRef(null);
+  // An id below the collection's first id, or absent once a live read has
+  // loaded every token, does not exist: it gets a notice, never a placeholder
+  // Modal whose Make Offer would wrap and approve for a token nobody owns.
+  const missingToken = useMemo(() => {
+    if (!deepLinkTokenId) return null;
+    if (nfts.allTokens.some((t) => String(t.id) === deepLinkTokenId)) return null;
+    const firstId = collection.tokenIds?.first;
+    const knownSupply = stats?.supply ?? collection.supply;
+    const belowRange = Number.isFinite(firstId) && Number(deepLinkTokenId) < firstId;
+    const everyTokenRead = nfts.allTokens.length > 0 && nfts.isLive && !nfts.hasMore && !nfts.loading && !nfts.error
+      && (!Number.isFinite(knownSupply) || nfts.allTokens.length >= knownSupply);
+    if (!belowRange && !everyTokenRead) return null;
+    const ids = everyTokenRead ? nfts.allTokens.map((t) => Number(t.id)).filter(Number.isFinite) : [];
+    return {
+      id: deepLinkTokenId,
+      read: ids.length ? { count: ids.length, min: Math.min(...ids), max: Math.max(...ids) } : null,
+      firstId: Number.isFinite(firstId) ? firstId : null,
+    };
+  }, [deepLinkTokenId, nfts.allTokens, nfts.isLive, nfts.hasMore, nfts.loading, nfts.error, collection.tokenIds, collection.supply, stats?.supply]);
+
   useEffect(() => {
-    if (!deepLinkTokenId) return;
+    if (!deepLinkTokenId || missingToken) return;
     const token = nfts.allTokens.find((t) => String(t.id) === deepLinkTokenId);
     if (token) {
       setSelected(token);
@@ -459,7 +505,7 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
         .then((arr) => { if (arr?.[0]) setSelected(arr[0]); })
         .catch(() => { /* bad/burned id — deep link is best-effort */ });
     }
-  }, [deepLinkTokenId, nfts.allTokens, collection.contract, collection.metadataBase]);
+  }, [deepLinkTokenId, missingToken, nfts.allTokens, collection.contract, collection.metadataBase]);
 
   // Update page title on tab change
   useEffect(() => {
@@ -885,6 +931,20 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
           </button>
         </div>
       )}
+      {/* A deep link to a token that does not exist says so (see missingToken). */}
+      {missingToken && tab === "gallery" && (
+        <div className="ext-notice" role="status">
+          <span>
+            {`Token #${missingToken.id} is not in this collection.`}
+            {missingToken.read
+              ? ` The ${missingToken.read.count.toLocaleString("en-US")} tokens read here run from #${missingToken.read.min} to #${missingToken.read.max}.`
+              : missingToken.firstId != null ? ` Its token ids start at #${missingToken.firstId}.` : ""}
+          </span>
+          <button type="button" className="ext-secondary-btn" onClick={() => navigate(`/nakamigos/${collectionSlug}/gallery`, { replace: true })}>
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* key={tab}: a crashed tab must not stay latched across navigation —
           without it one tab error bricks every subsequent tab (prod 2026-06-11) */}
       {/* No onReset navigation: Try Again should retry THIS tab (the boundary
@@ -1072,7 +1132,8 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
           <div className="footer-links">
             {[
               ["OpenSea", `https://opensea.io/collection/${collection.openseaSlug || collection.slug}`],
-              ["Blur", `https://blur.io/eth/collection/${collection.slug}`],
+              // A Blur page only where one was verified (the registry's blurSlug).
+              collection.blurSlug ? ["Blur", `https://blur.io/eth/collection/${collection.blurSlug}`] : null,
               ["Etherscan", `https://etherscan.io/address/${collection.contract}`],
               collection.twitter ? ["X / Twitter", `https://x.com/${collection.twitter}`] : null,
               collection.discord ? ["Discord", collection.discord] : null,

@@ -1,0 +1,758 @@
+{
+  "_provenance": "Captured 2026-09-23: token ids and names from https://opensea.io/collection/junglebaygoldcards (collectionItems page 1), image from the tokens' own metadata (tokenURI on Ethereum names junglebay.s3.us-east-2.amazonaws.com/<id>.json, whose image is Thumbnail.JPG for every id), reshaped into the Alchemy getNFTsForContract body /api/alchemy returns. The tokens carry no traits.",
+  "response": {
+    "nfts": [
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "1",
+        "name": "JungleBay Gold Card #1",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "6",
+        "name": "JungleBay Gold Card #6",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "9",
+        "name": "JungleBay Gold Card #9",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "10",
+        "name": "JungleBay Gold Card #10",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "11",
+        "name": "JungleBay Gold Card #11",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "12",
+        "name": "JungleBay Gold Card #12",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "13",
+        "name": "JungleBay Gold Card #13",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "14",
+        "name": "JungleBay Gold Card #14",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "16",
+        "name": "JungleBay Gold Card #16",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "18",
+        "name": "JungleBay Gold Card #18",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "20",
+        "name": "JungleBay Gold Card #20",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "24",
+        "name": "JungleBay Gold Card #24",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "31",
+        "name": "JungleBay Gold Card #31",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "32",
+        "name": "JungleBay Gold Card #32",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "33",
+        "name": "JungleBay Gold Card #33",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "34",
+        "name": "JungleBay Gold Card #34",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "36",
+        "name": "JungleBay Gold Card #36",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "39",
+        "name": "JungleBay Gold Card #39",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "40",
+        "name": "JungleBay Gold Card #40",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "42",
+        "name": "JungleBay Gold Card #42",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "43",
+        "name": "JungleBay Gold Card #43",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "47",
+        "name": "JungleBay Gold Card #47",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "50",
+        "name": "JungleBay Gold Card #50",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "51",
+        "name": "JungleBay Gold Card #51",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "53",
+        "name": "JungleBay Gold Card #53",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "54",
+        "name": "JungleBay Gold Card #54",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "57",
+        "name": "JungleBay Gold Card #57",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "60",
+        "name": "JungleBay Gold Card #60",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "63",
+        "name": "JungleBay Gold Card #63",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "66",
+        "name": "JungleBay Gold Card #66",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "69",
+        "name": "JungleBay Gold Card #69",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "70",
+        "name": "JungleBay Gold Card #70",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "73",
+        "name": "JungleBay Gold Card #73",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "75",
+        "name": "JungleBay Gold Card #75",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "88",
+        "name": "JungleBay Gold Card #88",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "89",
+        "name": "JungleBay Gold Card #89",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "90",
+        "name": "JungleBay Gold Card #90",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "91",
+        "name": "JungleBay Gold Card #91",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "92",
+        "name": "JungleBay Gold Card #92",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "93",
+        "name": "JungleBay Gold Card #93",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "94",
+        "name": "JungleBay Gold Card #94",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "96",
+        "name": "JungleBay Gold Card #96",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "106",
+        "name": "JungleBay Gold Card #106",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "114",
+        "name": "JungleBay Gold Card #114",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "116",
+        "name": "JungleBay Gold Card #116",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "118",
+        "name": "JungleBay Gold Card #118",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "119",
+        "name": "JungleBay Gold Card #119",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "120",
+        "name": "JungleBay Gold Card #120",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "122",
+        "name": "JungleBay Gold Card #122",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      },
+      {
+        "contract": {
+          "address": "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3"
+        },
+        "tokenId": "123",
+        "name": "JungleBay Gold Card #123",
+        "image": {
+          "originalUrl": "https://junglebay.s3.us-east-2.amazonaws.com/Thumbnail.JPG"
+        },
+        "raw": {
+          "metadata": {
+            "attributes": []
+          }
+        }
+      }
+    ],
+    "pageKey": null
+  }
+}

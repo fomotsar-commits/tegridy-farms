@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
-import { NFT_LOAN_DESK_LIVE } from "../constants";
+import { loanDeskAccepts } from "../constants";
 import { fetchWalletNfts, shortenAddress } from "../api";
 import { fetchMyListings, cancelOrder } from "../api-offers";
 import { formatPrice } from "../lib/formatPrice";
@@ -361,9 +361,9 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
         </div>
       )}
 
-      {/* NFT Finance funnel — credibility-gated until the relaunch
-          TegridyNFTLending address lands in lib/constants.ts */}
-      {NFT_LOAN_DESK_LIVE && !loading && tokens.length > 0 && (
+      {/* NFT Finance funnel: only for a collection the deployed
+          TegridyNFTLending accepts (loanDeskAccepts). */}
+      {loanDeskAccepts(collection) && !loading && tokens.length > 0 && (
         <Link
           to="/nft-finance"
           aria-label="Borrow ETH against your NFTs in NFT Finance"

@@ -1,9 +1,11 @@
 import { parseEther, formatEther } from "viem";
 import { CONTRACT, COLLECTION_SLUG, WETH, SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, OPENSEA_FEE_RECIPIENT, OPENSEA_FEE_BPS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
-import { getActiveWalletProvider, assertSameWallet, SEAPORT_FULFILLMENT_FUNCTIONS } from "./api";
+import { getActiveWalletProvider, assertSameWallet, SEAPORT_FULFILLMENT_FUNCTIONS, fulfillCallRefusal } from "./api";
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 import { cancelSeaportOrder } from "./lib/seaportCancel";
+import { cancelRefusal, venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError, venueSlugRefusal } from "./lib/venue";
+import { seaportCallNftTokens } from "./lib/seaportCalldata";
 
 // AUDIT FIX M-8 (frontend chain guard): assertOnExpectedChain blocks any
 // on-chain action when the wallet is connected to a chain != SEAPORT_DOMAIN.chainId.
@@ -101,10 +103,15 @@ const GAS_BUFFER_WEI = parseEther("0.005");
 //
 // TO RESTORE THE LADDER: it needs an order source we control (the indexer), or an
 // OpenSea route that filters by token. Do not restore it by paging the collection.
-async function fetchTokenOffersOrThrow(tokenId, _contract = CONTRACT, { slug = COLLECTION_SLUG, openseaSlug } = {}) {
+//
+// The route is the CONTRACT's own collection: a contract the venue does not trade
+// is refused, never read as Nakamigos.
+async function fetchTokenOffersOrThrow(tokenId, contract = CONTRACT) {
+  const collection = venueCollectionByContract(contract);
+  if (!collection) throw venueRefusalError(venueRefusal(contract));
   // The one token-scoped read OpenSea still serves. It answers BOTH questions the
   // panel needs: whether any offer exists at all, and what the top one is.
-  const best = await fetchBestOfferOrThrow(tokenId, slug, { openseaSlug });
+  const best = await fetchBestOfferOrThrow(tokenId, collection.openseaSlug);
   return best ? [best] : [];
 }
 
@@ -154,30 +161,22 @@ export async function fetchBestOffer(tokenId, slug = COLLECTION_SLUG, { openseaS
 }
 
 /**
- * Both offer lookups for one token, with the outage kept distinguishable from
- * an empty book.
- *
- * The swallowing wrappers above turn a 429/502 from the OpenSea proxy into `[]`
- * and `null` — indistinguishable from a token nobody has bid on. A surface that
- * paints "No Offers Yet" off that is telling the user a fact it does not have,
- * and the venue's own proxy rate-limits under normal browsing, so this is the
- * common case rather than the rare one. `unavailable` is true when either leg
- * failed; a caller with nothing to show must say so instead of claiming zero.
- * Partial success still returns its data — a failed best-offer highlight is no
- * reason to hide offers that did load.
+ * The offer book for one token, with the outage kept distinguishable from an
+ * empty book: `unavailable` is true when the read failed, so a caller with
+ * nothing to show says so instead of claiming zero offers. ONE request answers
+ * both questions (is there any offer, and which is best), on the collection the
+ * contract names. A contract outside the venue is not read at all: unavailable.
  */
-export async function fetchTokenOfferBook(tokenId, { contract = CONTRACT, slug = COLLECTION_SLUG, openseaSlug } = {}) {
-  const [offersRes, bestRes] = await Promise.allSettled([
-    fetchTokenOffersOrThrow(tokenId, contract),
-    fetchBestOfferOrThrow(tokenId, slug, { openseaSlug }),
-  ]);
-  if (offersRes.status === "rejected") console.warn("Fetch token offers failed:", offersRes.reason?.message);
-  if (bestRes.status === "rejected") console.warn("Fetch best offer failed:", bestRes.reason?.message);
-  return {
-    offers: offersRes.status === "fulfilled" ? offersRes.value : [],
-    bestOffer: bestRes.status === "fulfilled" ? bestRes.value : null,
-    unavailable: offersRes.status === "rejected" || bestRes.status === "rejected",
-  };
+export async function fetchTokenOfferBook(tokenId, { contract = CONTRACT } = {}) {
+  const collection = venueCollectionByContract(contract);
+  if (!collection) return { offers: [], bestOffer: null, unavailable: true };
+  try {
+    const best = await fetchBestOfferOrThrow(tokenId, collection.openseaSlug);
+    return { offers: best ? [best] : [], bestOffer: best, unavailable: false };
+  } catch (err) {
+    console.warn("Fetch token offer book failed:", err?.message);
+    return { offers: [], bestOffer: null, unavailable: true };
+  }
 }
 
 // Seaport item types that can carry the NFT leg of a criteria offer:
@@ -372,7 +371,26 @@ function withCriteriaPlatformFee(consideration, priceWei) {
   ];
 }
 
+// A bid names one token. ownerOf reverts for an id that does not exist, and a
+// bid on one would wrap and approve for an order nobody can ever fill, so it
+// is asked first. An unanswered read refuses too: nothing is funded unconfirmed.
+async function tokenExistenceRefusal(ethers, contract, tokenId) {
+  try {
+    const { getReadProvider } = await import("./lib/rpcProvider");
+    const nft = new ethers.Contract(contract, ["function ownerOf(uint256) view returns (address)"], await getReadProvider());
+    await nft.ownerOf(String(tokenId));
+    return null;
+  } catch (err) {
+    if (err?.code === "CALL_EXCEPTION") {
+      return { error: "no-such-token", message: `Token #${tokenId} does not exist in this collection, so there is nothing to bid on.` };
+    }
+    return { error: "token-unverified", message: `Could not confirm that token #${tokenId} exists right now. Nothing was funded; try again.` };
+  }
+}
+
 export async function createItemOffer({ tokenId, priceEth, expirationHours = 168, contract = CONTRACT }) {
+  const refusal = venueRefusal(contract);
+  if (refusal) return refusal;
   // AUDIT FIX 2026-08-06 [wallet-provider]: resolve the provider from the ACTIVE
   // wagmi connector, not the fixed rdns priority walk — see getActiveWalletProvider().
   const { provider, address: connectedAddress } = await getActiveWalletProvider();
@@ -392,6 +410,9 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
     // before any of that if the signing wallet is not the connected account.
     const _walletErr = assertSameWallet(buyerAddress, connectedAddress);
     if (_walletErr) return _walletErr;
+
+    const _tokenErr = await tokenExistenceRefusal(ethers, contract, tokenId);
+    if (_tokenErr) return _tokenErr;
 
     const priceWei = parseEther(String(priceEth));
 
@@ -521,7 +542,23 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
 
 // ═══ CREATE COLLECTION OFFER ═══
 
+// The NFT leg of a collection or trait bid is OpenSea's offers/build answer,
+// not ours. Every NFT item in it must be a criteria item (itemType 4) on the
+// venue collection's contract, or nothing is funded or signed.
+function criteriaBuildRefusal(consideration, collection) {
+  const want = collection.contract.toLowerCase();
+  const nfts = consideration.filter((c) => NFT_ITEM_TYPES.has(Number(c?.itemType)));
+  const pinned = nfts.length > 0
+    && nfts.every((c) => Number(c.itemType) === 4 && String(c.token || "").toLowerCase() === want);
+  return pinned ? null : {
+    error: "nft-mismatch",
+    message: `OpenSea built this bid for something other than ${collection.name}, so nothing was funded or signed.`,
+  };
+}
+
 export async function createCollectionOffer({ priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug }) {
+  const refusal = venueSlugRefusal(openseaSlug || slug, slug);
+  if (refusal) return refusal;
   const osSlug = openseaSlug || slug;
   // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
   const { provider, address: connectedAddress } = await getActiveWalletProvider();
@@ -541,23 +578,8 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
     if (_walletErr) return _walletErr;
     const priceWei = parseEther(String(priceEth));
 
-    // Step 1: WETH balance & approval (reserve gas buffer)
-    const wethBal = await getWethBalance(buyerAddress);
-    if (wethBal < priceWei) {
-      const ethBal = await browserProvider.getBalance(buyerAddress);
-      const needed = priceWei - wethBal;
-      if (ethBal < needed + GAS_BUFFER_WEI) {
-        return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
-      }
-      await wrapEth(needed);
-    }
-
-    const allowance = await getWethAllowance(buyerAddress);
-    if (allowance < priceWei) {
-      await approveWeth(priceWei);
-    }
-
-    // Step 2: Build offer via OpenSea (collection-wide, no trait) — via proxy
+    // Step 1: Build offer via OpenSea (collection-wide, no trait) — via proxy.
+    // Asked before any wrap or approve, so a failed or foreign build costs no gas.
     let buildData;
     try {
       buildData = await openseaPost("offers/build", {
@@ -574,6 +596,24 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
     const partial = buildData.partialParameters;
     if (!partial || !partial.consideration) {
       return { error: "build-failed", message: "OpenSea returned incomplete offer parameters" };
+    }
+    const _nftErr = criteriaBuildRefusal(partial.consideration, venueCollectionBySlug(osSlug));
+    if (_nftErr) return _nftErr;
+
+    // Step 2: WETH balance & approval (reserve gas buffer)
+    const wethBal = await getWethBalance(buyerAddress);
+    if (wethBal < priceWei) {
+      const ethBal = await browserProvider.getBalance(buyerAddress);
+      const needed = priceWei - wethBal;
+      if (ethBal < needed + GAS_BUFFER_WEI) {
+        return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
+      }
+      await wrapEth(needed);
+    }
+
+    const allowance = await getWethAllowance(buyerAddress);
+    if (allowance < priceWei) {
+      await approveWeth(priceWei);
     }
 
     // Step 3: Build order parameters
@@ -642,6 +682,8 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
 // ═══ CREATE TRAIT OFFER ═══
 
 export async function createTraitOffer({ traitType, traitValue, priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug }) {
+  const refusal = venueSlugRefusal(openseaSlug || slug, slug);
+  if (refusal) return refusal;
   const osSlug = openseaSlug || slug;
   // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
   const { provider, address: connectedAddress } = await getActiveWalletProvider();
@@ -661,23 +703,8 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
     if (_walletErr) return _walletErr;
     const priceWei = parseEther(String(priceEth));
 
-    // Step 1: WETH balance & approval (reserve gas buffer)
-    const wethBal = await getWethBalance(buyerAddress);
-    if (wethBal < priceWei) {
-      const ethBal = await browserProvider.getBalance(buyerAddress);
-      const needed = priceWei - wethBal;
-      if (ethBal < needed + GAS_BUFFER_WEI) {
-        return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
-      }
-      await wrapEth(needed);
-    }
-
-    const allowance = await getWethAllowance(buyerAddress);
-    if (allowance < priceWei) {
-      await approveWeth(priceWei);
-    }
-
-    // Step 2: Call OpenSea's build_offer endpoint via proxy
+    // Step 1: Call OpenSea's build_offer endpoint via proxy. Asked before any
+    // wrap or approve, so a failed or foreign build costs no gas.
     let buildData;
     try {
       buildData = await openseaPost("offers/build", {
@@ -695,6 +722,24 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
     const partial = buildData.partialParameters;
     if (!partial || !partial.consideration) {
       return { error: "build-failed", message: "OpenSea returned incomplete offer parameters" };
+    }
+    const _nftErr = criteriaBuildRefusal(partial.consideration, venueCollectionBySlug(osSlug));
+    if (_nftErr) return _nftErr;
+
+    // Step 2: WETH balance & approval (reserve gas buffer)
+    const wethBal = await getWethBalance(buyerAddress);
+    if (wethBal < priceWei) {
+      const ethBal = await browserProvider.getBalance(buyerAddress);
+      const needed = priceWei - wethBal;
+      if (ethBal < needed + GAS_BUFFER_WEI) {
+        return { error: "insufficient", message: `Need ${formatEther(needed + GAS_BUFFER_WEI)} more ETH (includes gas buffer)` };
+      }
+      await wrapEth(needed);
+    }
+
+    const allowance = await getWethAllowance(buyerAddress);
+    if (allowance < priceWei) {
+      await approveWeth(priceWei);
     }
 
     // Step 3: Merge partial params with our offer
@@ -823,9 +868,13 @@ function isLiveOrder(order, nowSecs) {
 // Paginates through all pages using cursor to avoid truncation at 20 results.
 const MAX_MY_PAGES = 10; // Safety cap: 10 pages * 50 = up to 500 orders
 
-export async function fetchMyOffers(wallet, _contract = CONTRACT, { slug = COLLECTION_SLUG } = {}) {
+// Read on the CONTRACT's own collection. A contract the venue does not trade is
+// refused (thrown), not answered with an empty list the read never produced.
+export async function fetchMyOffers(wallet, contract = CONTRACT) {
+  const collection = venueCollectionByContract(contract);
+  if (!collection) throw venueRefusalError(venueRefusal(contract));
   try {
-    const allOrders = await fetchPagesByMaker(`offers/collection/${slug}/all`, wallet);
+    const allOrders = await fetchPagesByMaker(`offers/collection/${collection.openseaSlug}/all`, wallet);
     const now = Math.floor(Date.now() / 1000);
     return allOrders
       .filter(o => isLiveOrder(o, now))
@@ -849,9 +898,12 @@ export async function fetchMyOffers(wallet, _contract = CONTRACT, { slug = COLLE
 //
 // `fallback: true` means WE COULD NOT ASK. `listings: []` with `fallback: false`
 // means genuinely nothing listed. Callers must branch on the two separately.
-export async function fetchMyListings(wallet, _contract = CONTRACT, { slug = COLLECTION_SLUG } = {}) {
+// Read on the CONTRACT's own collection; one the venue does not trade is not asked.
+export async function fetchMyListings(wallet, contract = CONTRACT) {
+  const collection = venueCollectionByContract(contract);
+  if (!collection) return { listings: [], fallback: true };
   try {
-    const allOrders = await fetchPagesByMaker(`listings/collection/${slug}/all`, wallet);
+    const allOrders = await fetchPagesByMaker(`listings/collection/${collection.openseaSlug}/all`, wallet);
     const now = Math.floor(Date.now() / 1000);
     const listings = allOrders
       .filter(o => isLiveOrder(o, now))
@@ -883,6 +935,10 @@ export async function fetchMyListings(wallet, _contract = CONTRACT, { slug = COL
 // ═══ CANCEL ORDER (listings or bids) ═══
 
 export async function cancelOrder(order) {
+  const params = order?.rawOrder?.protocol_data?.parameters || order?.protocol_data?.parameters;
+  // An order on another chain cannot be cancelled on Ethereum (lib/venue.js).
+  const refusal = cancelRefusal(params);
+  if (refusal) return refusal;
   // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
   const { provider, address: connectedAddress } = await getActiveWalletProvider();
   if (!provider) return { error: "no-wallet", message: "No wallet connected" };
@@ -899,7 +955,6 @@ export async function cancelOrder(order) {
     const _walletErr = assertSameWallet(await signer.getAddress(), connectedAddress);
     if (_walletErr) return _walletErr;
 
-    const params = order.rawOrder?.protocol_data?.parameters || order.protocol_data?.parameters;
     if (!params) return { error: "failed", message: "Missing order parameters" };
 
     // F630: cancel via the shared helper — reads the offerer's live counter and
@@ -937,6 +992,10 @@ export async function cancelOrder(order) {
 // ═══ ACCEPT OFFER (for token owners) ═══
 
 export async function acceptOffer(offer) {
+  // The NFT a seller hands over is the offer's own contract. One that does not
+  // trade here, or no contract at all, is refused before any wallet call.
+  const refusal = venueRefusal(offer?.tokenContract);
+  if (refusal) return refusal;
   // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
   const { provider, address: connectedAddress } = await getActiveWalletProvider();
   if (!provider) return { error: "no-wallet", message: "No wallet connected" };
@@ -983,7 +1042,7 @@ export async function acceptOffer(offer) {
     // "needs a real fill to verify — it cannot be confirmed read-only". It can:
     // `offers/fulfillment_data` only BUILDS calldata, it signs and sends nothing,
     // so the whole matrix above cost nothing and settled it.
-    const nftContract = offer.tokenContract || CONTRACT;
+    const nftContract = offer.tokenContract;
     // Sent whenever the token is known, not only for criteria orders. The bottom
     // two rows of that matrix are why: on an exact-token offer the field merely
     // restates what the order already pins and is accepted just the same. So this
@@ -1048,16 +1107,6 @@ export async function acceptOffer(offer) {
     //
     // Everything above this line is a read or a validation. Nothing above it
     // can cost the seller gas.
-    const erc721ABI = [
-      "function isApprovedForAll(address,address) view returns (bool)",
-      "function setApprovalForAll(address,bool)",
-    ];
-    const nft = new ethers.Contract(nftContract, erc721ABI, signer);
-    const isApproved = await nft.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
-    if (!isApproved) {
-      const approveTx = await nft.setApprovalForAll(CONDUIT_ADDRESS, true);
-      await approveTx.wait();
-    }
 
     // Encode calldata using ABI parameter names to avoid
     // depending on Object.values() insertion order from the API.
@@ -1079,6 +1128,23 @@ export async function acceptOffer(offer) {
       inputValues = Object.values(txData.input_data).map(toPositional);
     }
     const encoded = iface.encodeFunctionData(fnName, inputValues);
+
+    // The NFT handed over is read back from the calldata that will be signed.
+    // It must trade here and be the offer's own contract. Encoding is free, so
+    // this runs before the approval below.
+    const nftRefusal = fulfillCallRefusal(seaportCallNftTokens(iface, fnName, encoded), [nftContract]);
+    if (nftRefusal) return nftRefusal;
+
+    const erc721ABI = [
+      "function isApprovedForAll(address,address) view returns (bool)",
+      "function setApprovalForAll(address,bool)",
+    ];
+    const nft = new ethers.Contract(nftContract, erc721ABI, signer);
+    const isApproved = await nft.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
+    if (!isApproved) {
+      const approveTx = await nft.setApprovalForAll(CONDUIT_ADDRESS, true);
+      await approveTx.wait();
+    }
 
     const tx = await signer.sendTransaction({
       to: txData.to,

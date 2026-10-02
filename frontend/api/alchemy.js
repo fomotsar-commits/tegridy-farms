@@ -3,6 +3,7 @@ import { checkRateLimit, checkGlobalLimit } from "./_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { logSafe } from "./_lib/logSafe.js";
 import { alchemyKeyChain, fetchAlchemyWithFailover } from "./_lib/alchemy-failover.js";
+import { VENUE_CONTRACTS } from "./_lib/venue-registry.js";
 
 // AUDIT R048: the key travels in an Authorization: Bearer header and never in
 // the URL path, so it cannot appear in Vercel access logs, observability
@@ -65,12 +66,10 @@ const ALLOWED_ENDPOINTS = new Set([
   "getNFTMetadataBatch",
 ]);
 
-// Whitelist allowed contract addresses (lowercase) to prevent open-proxy abuse
-const ALLOWED_CONTRACTS = new Set([
-  "0xd774557b647330c91bf44cfeab205095f7e6c367", // Nakamigos
-  "0xa1de9f93c56c290c48849b1393b09eb616d55dbb", // GNSS Art
-  "0xd37264c71e9af940e49795f0d3a8336afaafdda9", // Jungle Bay
-]);
+// The venue's collections (lowercase) to prevent open-proxy abuse. The family
+// collections the venue only shows are not here: two are ERC-1155s these
+// Ethereum ERC-721 reads do not serve, and two live on Base.
+export const ALLOWED_CONTRACTS = VENUE_CONTRACTS;
 
 // Endpoints that require a contractAddress query param (must be in ALLOWED_CONTRACTS)
 const CONTRACT_REQUIRED_ENDPOINTS = new Set([

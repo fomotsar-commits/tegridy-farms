@@ -406,3 +406,106 @@ describe("listings sub-path allowlist", () => {
     }
   });
 });
+
+// OpenSea builds a fill from an order hash, so what the fill moves is only
+// known from its answer. Every NFT item (itemType 2 to 5) in the answer's
+// orders must be a venue contract, and an accepted offer must hand over the
+// contract its request named. Anything else is refused before it is returned.
+describe("opensea: a fill answer moves only venue NFTs", () => {
+  const GOLD = "0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3";
+  const RARE_TOWELIE = "0x2BCAaD3cD618D0C0f87E153b3928e02bab757705";
+  const SEAPORT = "0x0000000000000068f116a894984e2db1123eb395";
+  const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+  const ZERO = "0x" + "0".repeat(40);
+  const MAKER = "0x" + "c".repeat(40);
+  const FULFILLER = { address: "0x" + "a".repeat(40) };
+  let handler;
+  let upstream;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.OPENSEA_API_KEY = "test-key";
+    process.env.NODE_ENV = "test";
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => JSON.stringify(upstream),
+    }));
+    handler = (await import("../opensea.js")).default;
+  });
+
+  const item = (itemType, token, amount = "1") => ({
+    itemType, token, identifierOrCriteria: itemType >= 2 ? "1" : "0", startAmount: amount, endAmount: amount, recipient: MAKER,
+  });
+  const answer = (...orders) => ({
+    protocol: "seaport1.6",
+    fulfillment_data: {
+      transaction: { to: SEAPORT, value: "0", function: "fulfillOrder", input_data: {} },
+      orders: orders.map((parameters) => ({ parameters: { offerer: MAKER, ...parameters }, signature: "0x" })),
+    },
+  });
+  // A listing offers the NFT for ETH; an offer pays WETH and asks for the NFT.
+  const listing = (nftItem) => ({ offer: [nftItem], consideration: [item(0, ZERO, "1000")] });
+  const bid = (nftItem) => ({ offer: [item(1, WETH, "1000")], consideration: [nftItem] });
+
+  const buy = () => makeReq({
+    query: { path: "listings/fulfillment_data" },
+    body: { listing: { hash: "0xlisting", chain: "ethereum", protocol_address: SEAPORT }, fulfiller: FULFILLER },
+  });
+  const accept = (named) => makeReq({
+    query: { path: "offers/fulfillment_data" },
+    body: {
+      offer: { hash: "0xoffer", chain: "ethereum", protocol_address: SEAPORT },
+      fulfiller: FULFILLER,
+      consideration: { asset_contract_address: named, token_id: "1" },
+    },
+  });
+  async function send(req) {
+    const { res, statusSpy, jsonSpy } = makeRes();
+    await handler(req, res);
+    return { status: statusSpy.mock.calls.at(-1)?.[0], body: jsonSpy.mock.calls.at(-1)?.[0] };
+  }
+
+  it("refuses a buy whose answer moves a Rare Towelie ERC-1155", async () => {
+    upstream = answer(listing(item(3, RARE_TOWELIE)));
+    const out = await send(buy());
+    expect(out.status).toBe(403);
+    expect(out.body).toEqual({ error: "Contract not supported" });
+  });
+
+  it("refuses a buy when a second order's consideration asks for a Rare Towelie ERC-1155", async () => {
+    upstream = answer(listing(item(2, GOLD)), { offer: [item(2, GOLD)], consideration: [item(0, ZERO, "1000"), item(3, RARE_TOWELIE)] });
+    const out = await send(buy());
+    expect(out.status).toBe(403);
+    expect(out.body).toEqual({ error: "Contract not supported" });
+  });
+
+  it("refuses an accept named for Gold whose answer hands over a Rare Towelie ERC-1155", async () => {
+    upstream = answer(bid(item(3, RARE_TOWELIE)));
+    const out = await send(accept(GOLD));
+    expect(out.status).toBe(403);
+    expect(out.body).toEqual({ error: "Contract not supported" });
+  });
+
+  it("refuses an accept named for Gold whose answer hands over another venue collection", async () => {
+    upstream = answer(bid(item(2, NAKAMIGOS)));
+    const out = await send(accept(GOLD));
+    expect(out.status).toBe(403);
+    expect(out.body).toEqual({ error: "Contract not supported" });
+  });
+
+  it("passes a Gold buy through with its answer intact", async () => {
+    upstream = answer(listing(item(2, GOLD)));
+    const out = await send(buy());
+    expect(out.status).toBe(200);
+    expect(out.body.fulfillment_data.orders[0].parameters.offer[0].token).toBe(GOLD);
+  });
+
+  it("passes a Gold accept, a collection bid's criteria item (itemType 4) included", async () => {
+    upstream = answer(bid(item(4, GOLD.toLowerCase())));
+    const out = await send(accept(GOLD));
+    expect(out.status).toBe(200);
+    expect(out.body.fulfillment_data.orders[0].parameters.consideration[0].itemType).toBe(4);
+  });
+});

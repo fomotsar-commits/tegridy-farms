@@ -51,7 +51,7 @@ export const config = {
  * THE HOST THIS VENUE CLAIMS AS ITS OWN — never `new URL(req.url).origin`.
  *
  * KEEP IN SYNC with SITE_URL in src/lib/constants.ts. Inlined for the same reason
- * COLLECTIONS below is: this middleware bundles standalone at the edge and cannot
+ * OG_COLLECTIONS below is: this middleware bundles standalone at the edge and cannot
  * reach into the app's TS sources. Drift is not left to memory — the two are
  * asserted equal by src/lib/__tests__/canonicalHost.test.ts.
  *
@@ -73,26 +73,81 @@ const CANONICAL_ORIGIN = "https://memetics.finance";
 // Social unfurlers only — all fetch previews without executing JS.
 const UNFURL_BOTS = /twitterbot|discordbot|telegrambot|facebookexternalhit|linkedinbot|slackbot|slack-imgproxy|slack-linkexpanding|whatsapp|embedly|pinterest(bot)?|redditbot|skypeuripreview|vkshare|tumblr/i;
 
-// Inline copy of the supported collections — middleware bundles standalone.
-// KEEP IN SYNC with src/nakamigos/constants.js COLLECTIONS.
-const COLLECTIONS = {
+// Inline copy of the marketplace collections: middleware bundles standalone.
+// KEEP IN SYNC with src/nakamigos/constants.js COLLECTIONS (middleware.test.js
+// pins keys and names). A venue collection's card names what the page offers;
+// a view-only one says where it trades and fetches nothing (its reads live on
+// Base, Solana or an ERC-1155 an Ethereum ERC-721 reader cannot answer).
+const TRADING_FEATURES = "Live listings, rarity, P2P trades & wallet DMs";
+export const OG_COLLECTIONS = {
   nakamigos: {
     name: "Nakamigos",
     contract: "0xd774557b647330C91Bf44cfEAB205095f7E6c367",
     supply: "20,000",
     image: "/splash/skeleton.jpg",
+    features: TRADING_FEATURES,
   },
   gnssart: {
     name: "GNSS Art",
     contract: "0xa1De9f93C56C290C48849B1393b09EB616D55dbb",
     supply: "9,696",
     image: "/collections/gnssart.jpg",
+    features: TRADING_FEATURES,
   },
   junglebay: {
     name: "Jungle Bay Ape Club",
     contract: "0xd37264c71e9AF940E49795f0D3A8336aFAaFdda9",
     supply: "5,555",
     image: "https://nft-cdn.alchemy.com/eth-mainnet/5da8fc69b3357b9bfe42717280e7c102",
+    features: TRADING_FEATURES,
+  },
+  junglebaygoldcards: {
+    name: "Jungle Bay Gold Cards",
+    contract: "0x6Aa03F42c5366E2664c887eb2e90844CA00B92F3",
+    supply: "123",
+    image: "https://i2c.seadn.io/ethereum/a83577bfb307408682cd44520d1c00d4/899e287b319c9faf45c57e2626c8a1/21899e287b319c9faf45c57e2626c8a1.png",
+    // One shared image and no traits: there is no rarity to advertise.
+    features: "Live listings, P2P trades & wallet DMs",
+  },
+  junglebaymemes: {
+    name: "the memes by jungle bay x mfers artists",
+    supply: null, // an ERC-1155: no single supply
+    image: "https://i2c.seadn.io/ethereum/c2b8bd39b58546c7b9b4cd57ec000427/e70a60faad9893ac590a8a93ee9d20/1ae70a60faad9893ac590a8a93ee9d20.png",
+    viewOnly: true,
+    chain: "Ethereum",
+    market: "OpenSea",
+  },
+  memeticseeds: {
+    name: "Seeds from the Memetic Garden",
+    supply: "369",
+    image: "https://i2c.seadn.io/base/5e9fe098b5ce43d4bc0693febb0106f6/d270b900f8b40fc5bbc31834b38934/9dd270b900f8b40fc5bbc31834b38934.png",
+    viewOnly: true,
+    chain: "Base",
+    market: "OpenSea",
+  },
+  junglets: {
+    name: "Junglets",
+    supply: "208",
+    image: "https://wsrv.nl/?url=https%3A%2F%2Fna-assets.pinit.io%2F3zoVsecguqdcLcTBaSjNQyAyYLLLt1tn93agbKBJ9vSw%2Fb69c398c-8a8f-4b56-8f82-fdb0b1d3a16e%2F0&w=400&output=webp",
+    viewOnly: true,
+    chain: "Solana",
+    market: null, // OpenSea has no Junglets page, and no other market is linked
+  },
+  bojungles: {
+    name: "Bojungles",
+    supply: "250",
+    image: "https://i2c.seadn.io/collection/bojungless/image/8adbd4b81493e3f7de25ca395e66a1/b18adbd4b81493e3f7de25ca395e66a1.png",
+    viewOnly: true,
+    chain: "Base",
+    market: "OpenSea",
+  },
+  raretowelie: {
+    name: "RARE TOWELIE CARDS",
+    supply: null, // an ERC-1155: no single supply
+    image: "https://i2c.seadn.io/ethereum/0x2bcaad3cd618d0c0f87e153b3928e02bab757705/5580374b3cae2de37b5938be860eee5b.jpeg",
+    viewOnly: true,
+    chain: "Ethereum",
+    market: "OpenSea",
   },
 };
 
@@ -320,7 +375,7 @@ export default async function middleware(req) {
 
   const segments = url.pathname.split("/").filter(Boolean); // ["nakamigos", slug?, tab?]
   const slug = segments[1] || "";
-  const collection = COLLECTIONS[slug];
+  const collection = OG_COLLECTIONS[slug];
   const pageUrl = CANONICAL_ORIGIN + url.pathname + url.search;
 
   // /nakamigos landing (or unknown slug): site-level card
@@ -334,6 +389,17 @@ export default async function middleware(req) {
   }
 
   const absImage = (img) => (img.startsWith("http") ? img : CANONICAL_ORIGIN + img);
+
+  // A view-only collection: where it trades, and no read (a ?token= link too).
+  if (collection.viewOnly) {
+    return respond(ogHtml({
+      title: `${collection.name} | Tradermigos`,
+      description: `${collection.supply ? `${collection.supply} items · ` : ""}On ${collection.chain}. ${collection.market ? `Browse it on Tradermigos; it trades on ${collection.market}.` : "See it on Tradermigos."}`,
+      image: absImage(collection.image),
+      url: pageUrl,
+    }));
+  }
+
   const floorData = await fetchJson(
     `${selfOrigin}/api/alchemy?endpoint=getFloorPrice&contractAddress=${collection.contract}`
   );
@@ -355,7 +421,7 @@ export default async function middleware(req) {
     const name = nft?.name || `${collection.name} #${tokenId}`;
     const img = nft?.image?.cachedUrl || nft?.image?.thumbnailUrl || nft?.image?.pngUrl || absImage(collection.image);
     return respond(ogHtml({
-      title: `${name} — Tradermigos`,
+      title: `${name} | Tradermigos`,
       description: `${floorTxt}${collection.name} · Buy, bid, or send a P2P trade offer on Tradermigos.`,
       image: img,
       url: pageUrl,
@@ -364,8 +430,8 @@ export default async function middleware(req) {
 
   // Collection card
   return respond(ogHtml({
-    title: `${collection.name} — Tradermigos`,
-    description: `${floorTxt}${collection.supply} items · Live listings, rarity, P2P trades & wallet DMs on Tradermigos.`,
+    title: `${collection.name} | Tradermigos`,
+    description: `${floorTxt}${collection.supply} items · ${collection.features} on Tradermigos.`,
     image: absImage(collection.image),
     url: pageUrl,
   }));

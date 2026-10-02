@@ -1,0 +1,11 @@
+{
+  "_provenance": "Captured 2026-09-23 from https://opensea.io/collection/rare-towelie-cards (the page's own GraphQL cache: collectionBySlug and collectionItems page 1), reshaped into the OpenSea v2 REST body /api/opensea returns. Every value is as the page carried it; a field the page did not carry is absent, not filled. floor_price is the page's floorPrice: null where the page carried null (nothing listed), with no floor_price_symbol, which the page did not carry.",
+  "response": {
+    "total": {
+      "volume": 0.06,
+      "num_owners": 480,
+      "floor_price": null
+    },
+    "intervals": []
+  }
+}
