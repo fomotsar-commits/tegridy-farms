@@ -140,7 +140,7 @@ test.describe('Stake surface', () => {
 
     const account = await walletMock.useIsolatedForkAccount();
     await walletMock.connect(account);
-    await page.goto('/farm');
+    await page.goto('/earn/toweli');
 
     const amount = page.getByRole('textbox', { name: /amount of toweli to stake/i });
     await amount.fill('100');

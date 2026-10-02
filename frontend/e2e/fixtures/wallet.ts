@@ -848,7 +848,7 @@ export async function expectUnconfirmedToast(
   // THE INVERTED CLAIM MUST NEVER HAVE BEEN MADE. This is the assertion that fails on
   // pre-fix code, where the branch fired a bare `toast.error('Transaction failed')`.
   expect(
-    seen.filter((t) => /^Transaction failed|reverted/i.test(t)),
+    seen.filter((t) => /^Transaction failed/i.test(t) || /reverted/i.test(t)),
     `${what}: the app called a transaction that was mined SUCCESSFULLY a failure. That ` +
       `is an instruction to resend, and a resend pays twice. Toasts seen: ${transcript}`,
   ).toEqual([]);
