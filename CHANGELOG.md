@@ -8,6 +8,8 @@ page keeps the newest thirty days.
 
 ### 2026-10-01
 
+- On /pools, fees appear only once read from the chain: a failed read says the fee tiers could not be read just now and offers Try again, where it used to show an old fee proposal.
+- On /pools, a site built without the pool program's id says so, where it used to say the AMM was being redeployed.
 - Source and audit links on /contracts, /security, /risks and the trust hub go through memetics.finance/source, which forwards them to wherever the code is hosted.
 - On the six Ethereum and Base rooms' farms, the swap-fee line names the room's own chain, not Solana, and says what that chain's swap fee really is.
 - On /competitions, the board is called the Volume board, and it links to the island's flames board, ranked by heat.
