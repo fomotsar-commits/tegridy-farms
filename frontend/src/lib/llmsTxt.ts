@@ -20,8 +20,7 @@ import {
 } from './constants';
 import * as ladder from './lighthouseLadder';
 import * as baylaLadder from './ladder/program';
-import { heatLaunchFloor } from './heat/heatGateConfig';
-import { tierAtFloor } from './heat/heatOracle';
+import { LAUNCH_FLOOR, tierAtFloor } from './heat/heatOracle';
 import { OPEN_DOOR_IDS } from '../components/VenueDoors';
 
 /** The shape of frontend/scripts/addresses.json this module reads. */
@@ -124,7 +123,9 @@ export function isLiveInLedger(ledger: AddressLedger, chain: string, address: st
 }
 
 export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfig): LlmsFacts {
-  const floor = heatLaunchFloor();
+  // The production floor, never a dial: llms.txt ships beside the production bundle,
+  // and the door there ignores VITE_HEAT_LAUNCH_FLOOR (heat/heatGateConfig.ts).
+  const floor = LAUNCH_FLOOR;
   const doors: DoorFact[] = BUNGALOWS.filter((b) => b.chain !== 'tbd' && b.address).map((b) => ({
     id: b.id,
     name: b.name,
