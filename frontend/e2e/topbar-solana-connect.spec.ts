@@ -129,6 +129,12 @@ test.describe('connected from the top bar', () => {
     // another's: Consolas here is 0.55em a character, Liberation Mono (CI) and
     // Android's 0.60em, the iPhone's SF Mono 0.618em. So it is swept twice: as
     // this machine draws it, and at 0.62em, wider than any of them.
+    //
+    // The 0.62em pass sets the address's WIDTH, not a font. Swapping the font and
+    // adding letter-spacing was tried first, and it measured differently from one
+    // CI run to the next on the same code (0.60em, then over 0.615em): which font
+    // a name resolves to, and whether a quarter-pixel of spacing survives glyph
+    // rounding, are the runner's business. A width is the same everywhere.
     if (testInfo.project.name === 'chromium') {
       const viewport = page.viewportSize()!;
       await page.evaluate(() => document.fonts.ready);
@@ -152,15 +158,16 @@ test.describe('connected from the top bar', () => {
         expect(failures, `connected header failures (${label}):\n  ${failures.join('\n  ')}`).toEqual([]);
       };
       await sweep("this machine's monospace font");
+      // Nine characters at 0.62em each. `flex: none` so the chip cannot squeeze it.
       await page.addStyleTag({
-        content: 'header button[aria-label^="Solana wallet"] { font-family: "Courier New", "Liberation Mono", monospace !important; letter-spacing: 0.02em !important; }',
+        content: 'header button[aria-label^="Solana wallet"] span.truncate { display: block !important; flex: none !important; box-sizing: content-box !important; width: 5.58em !important; }',
       });
       const advance = await chip.evaluate((el) => {
         const text = el.querySelector('span.truncate')!;
         return text.getBoundingClientRect().width / (text.textContent!.length * parseFloat(getComputedStyle(text).fontSize));
       });
-      expect(advance, 'the widest-font pass really is 0.62em a character').toBeGreaterThan(0.615);
-      await sweep('a 0.62em monospace font, wider than any phone draws');
+      expect(advance, 'the widest pass really is 0.62em a character').toBeCloseTo(0.62, 2);
+      await sweep('the address as wide as 0.62em a character, wider than any device draws it');
       await page.setViewportSize(viewport);
     }
 
