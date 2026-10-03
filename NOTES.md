@@ -15,6 +15,59 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-03: a local WebKit red that survives a solo re-run can still be trunk's: `e2e/arrival.spec.ts:79` is, on Windows
+
+**Believed:** a spec that fails in a full run and again alone with one worker was broken
+by the branch under test.
+
+**Measured:** `arrival.spec.ts:79` ("Escape did not clear the film") failed on iphone-safari
+and ipad-safari in a full run at `--workers=2` and alone at `--workers=1` (Playwright
+1.62.1, WebKit build 2336, Windows 11). Trunk's own tree, built in a second folder
+(`git archive af44844e frontend | tar -x -C <dir>`, a `node_modules` junction, `vite build`)
+and served from this checkout with `vite preview --outDir <dir>/frontend/dist --port 4392
+--strictPort`, failed the same test the same way on both projects. Trunk's CI run
+37143678391 on that commit was green. The page under test, /island, has no tab strip, so
+the branch's change was not active on it. Three `trade-page.spec.ts` reds from the same
+full run passed alone.
+
+**Do:** before reading a local WebKit red as yours, run the same spec against trunk's build
+from a second folder and port. It took three minutes and needs no second worktree.
+
+## 2026-10-03: WebKit lines a focused text field up by its text, so a `scroll-padding` sized to a bar's edge leaves the field's top under the bar
+
+**Believed:** `scroll-padding-top` set to a fixed bar's lower edge plus a few pixels keeps
+every focused control clear of the bar in every browser.
+
+**Measured:** Playwright 1.62.1 (WebKit build 2336), 390x664, a tab strip fixed from 68 to
+122px, `scroll-padding-top: 130px`. Each field on 16 tabbed pages was placed under the
+strip and given `focus()`. Selects, checkboxes and radios landed with their top at 130px.
+Text inputs landed at 115 to 129px: a 44px input with an 18.75px line at 115, a 109px
+textarea at 124, a 24px input with no padding at 129. The line of text is what reaches the
+padding; the box starts above it by its padding and half its spare height, 15px at most
+here, so up to 7px of the field sat under the strip. Chromium (build 1234) left no control
+overlapping the strip at 130 on the five pages it was run on, two of them with a text
+input. `scrollIntoView({ block: 'start' })` put the box itself at the padding in both.
+
+**Do:** add the largest text inset to a top scroll-padding (15px here, so 140px under a bar
+that ends at 122), and measure a focused text field in WebKit, not only a button or a link.
+
+## 2026-10-03: focusing a control that starts off screen does not show whether a fixed bar covers it
+
+**Believed:** to reproduce "the focused control lands behind the sticky bar", scroll the
+control off screen and focus it.
+
+**Measured:** /solana-lp at 390x664, Chromium build 1234 and WebKit build 2336,
+`scroll-padding-top: 64px`, a tab strip fixed from 68 to 122px. A button wholly above or
+wholly below the screen, then `focus()`: both engines put it in mid-screen (top at 301 to
+316px), except WebKit from just below the screen, which moved it the least it could (539).
+None ended behind the strip. The same button with its top at 28px, half under the 56px top
+bar, then `focus()`: top at 64px, behind the strip, in three of four runs. With its top at
+72px, inside the padding and under the strip, `focus()` moved nothing in either engine.
+`scrollIntoView({ block: 'start' })` put it at 64px every time.
+
+**Do:** to test a bar, start the control under the bar, focus it, and separately scroll it
+to the start. A control that begins fully off screen is centred, and passes on broken code.
+
 ## 2026-10-03: a button disabled "while connecting" is a dead end when the wallet never answers
 
 **Believed:** the site could not see Phantom ("it wont even recognize my phantom wallet", the

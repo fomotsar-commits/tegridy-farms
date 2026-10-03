@@ -197,8 +197,8 @@ export function PoolFinder({
         </form>
       </Card>
 
-      {/* Where a lookup the visitor asked for scrolls to: clear of the fixed bar and tabs. */}
-      <div ref={answerRef} className="scroll-mt-32" />
+      {/* Where a lookup the visitor asked for scrolls to, with air above the answer. */}
+      <div ref={answerRef} className="scroll-mt-13" />
 
       <p role="status" aria-live="polite" className="sr-only" data-testid="lp-status">
         {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? announce(state) : ''}

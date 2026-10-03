@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-03
 
+- On every page with a row of section tabs under the top bar (Pools, Earn, Launch, Stats, Trust & Safety and the rest), a button or field you move to with the keyboard, and a section a link jumps to, now stops below the tabs. It used to stop behind them, where it could not be seen or pressed.
 - Solana LP: in a Solana room (BAYLA, BOBO, SOY, Brainlet, RIZZ) one button looks up that room's token, so a phone does not have to paste its address. After a lookup the page moves to the answer, and a token with no pool yet says that opening the pool is how the first liquidity goes in.
 - Pools has a Solana LP tab that opens on the pool finder: find a pool, add or remove liquidity, or open a pool on the venue's own Solana AMM.
 - Solana pools: a wallet that cannot open a pool or add liquidity yet is told so in plain words, with how much SOL that needs before anything goes into the pool, how much the wallet has, and whether it holds the token. The form used to only grey out Review.
