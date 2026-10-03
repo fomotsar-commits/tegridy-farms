@@ -3,15 +3,20 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  SOLANA_HANDOFF_PARAM,
   cancelSolanaOpenRequest,
   getSolanaSurfaceState,
+  markSolanaHandoff,
   noteOwnSolanaFailed,
+  noteSolanaHandoffArrival,
   requestSolanaOpen,
   resetSolanaSurfaceForTests,
   setSolanaSurface,
+  solanaHandoffPending,
   solanaWasConnectedHere,
   shortSolanaAddress,
   subscribeSolanaSurface,
+  takeSolanaHandoff,
   takeSolanaOpenRequest,
   wantOwnSolana,
   type SolanaSurface,
@@ -256,5 +261,159 @@ describe('solanaSurface', () => {
       return [...source.matchAll(/import\(\s*['"]([^'"]+)['"]\s*\)/g)].map((match) => `${file} -> ${match[1]}`);
     });
     expect(dynamic).toEqual(['components/layout/TopBarSolana.tsx -> ../solana/SolanaProviders']);
+  });
+});
+
+// In a phone browser a wallet's row reopens the page inside that wallet's app.
+// The page that opened there looked like the start again, and Connect, Solana
+// and the wallet had to be pressed a second time (four testers, 2026-10-03).
+// The press now leaves a marker in the address the wallet is handed.
+//
+// MUTATION CHECKS
+//  - markSolanaHandoff: drop the `searchParams.set`. The first test must fail.
+//  - noteSolanaHandoffArrival: drop the `isPhoneOrTablet()` guard. "on a
+//    computer" must fail. Drop the replaceState: both arrival tests must fail.
+//  - solanaHandoffPending: drop the freshness bound. "lapses" must fail.
+describe('solanaSurface: a hand-off into a wallet app carries on there', () => {
+  const ANDROID =
+    'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
+  const onAPhone = () => vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(ANDROID);
+  const address = () => `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+  afterEach(() => {
+    sessionStorage.clear();
+    window.history.replaceState(null, '', '/');
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('puts the marker in the address the wallet is handed, keeps the rest of it, and takes it out again', () => {
+    vi.useFakeTimers();
+    window.history.replaceState({ idx: 3 }, '', '/earn/bayla?ref=abc#ladder');
+    markSolanaHandoff();
+    // The query, because MetaMask's link drops a fragment. The router's own
+    // history state is left as it was.
+    expect(address()).toBe(`/earn/bayla?ref=abc&${SOLANA_HANDOFF_PARAM}=1#ladder`);
+    expect(window.history.state).toEqual({ idx: 3 });
+    // A second press while it is there adds nothing.
+    markSolanaHandoff();
+    expect(address()).toBe(`/earn/bayla?ref=abc&${SOLANA_HANDOFF_PARAM}=1#ladder`);
+    // The page left behind does not keep it: a copied or reloaded address is clean.
+    vi.advanceTimersByTime(3_000);
+    expect(address()).toBe('/earn/bayla?ref=abc#ladder');
+  });
+
+  it('on a phone, the page that opens reads the marker once, cleans its address, and remembers for the tab', () => {
+    onAPhone();
+    window.history.replaceState(null, '', `/?${SOLANA_HANDOFF_PARAM}=1&ref=abc`);
+    noteSolanaHandoffArrival();
+    expect(address()).toBe('/?ref=abc');
+    expect(solanaHandoffPending()).toBe(true);
+    // The home page reloads once on a first visit: the reloaded page has no
+    // marker and still knows.
+    noteSolanaHandoffArrival();
+    expect(solanaHandoffPending()).toBe(true);
+    expect(takeSolanaHandoff()).toBe(true);
+    expect(solanaHandoffPending()).toBe(false);
+    expect(takeSolanaHandoff()).toBe(false);
+  });
+
+  // The hand-off exists on phones and tablets only. A link carrying the marker,
+  // opened on a computer, must not make a wallet extension prompt by itself.
+  it('on a computer the marker is removed and nothing follows', () => {
+    window.history.replaceState(null, '', `/pools?${SOLANA_HANDOFF_PARAM}=1`);
+    noteSolanaHandoffArrival();
+    expect(address()).toBe('/pools');
+    expect(solanaHandoffPending()).toBe(false);
+  });
+
+  it('is a flag: whatever value a link gives it, nothing is read out of it', () => {
+    onAPhone();
+    window.history.replaceState(null, '', `/?${SOLANA_HANDOFF_PARAM}=https%3A%2F%2Fevil.example%2F`);
+    noteSolanaHandoffArrival();
+    expect(address()).toBe('/');
+    expect(sessionStorage.length).toBe(1);
+    expect(Number(sessionStorage.getItem('tegridy-solana-handoff'))).toBeGreaterThan(0);
+  });
+
+  it('a hand-off that nothing answered lapses', () => {
+    vi.useFakeTimers();
+    onAPhone();
+    window.history.replaceState(null, '', `/?${SOLANA_HANDOFF_PARAM}=1`);
+    noteSolanaHandoffArrival();
+    vi.advanceTimersByTime(119_000);
+    expect(solanaHandoffPending()).toBe(true);
+    vi.advanceTimersByTime(2_000);
+    expect(solanaHandoffPending()).toBe(false);
+    expect(takeSolanaHandoff()).toBe(false);
+  });
+
+  // The marker sits in the address of the page that was LEFT until it is taken
+  // out. A tab that went to the wallet's link page, or that the phone threw away,
+  // loads that address again in the same browser: Back, or a restore. That
+  // browser is not the wallet's, and with a wallet of its own it asked THAT
+  // wallet to connect (review, 2026-10-03).
+  // MUTATION CHECK: drop the HANDOFF_SENT_KEY check in noteSolanaHandoffArrival;
+  // this must fail.
+  it('the tab that made the hand-off, loading its own marked address again, is not treated as the wallet app', () => {
+    onAPhone();
+    window.history.replaceState(null, '', '/pools');
+    markSolanaHandoff();
+    expect(address()).toBe(`/pools?${SOLANA_HANDOFF_PARAM}=1`);
+    // Back from the wallet's link page: the same tab, the marked address.
+    noteSolanaHandoffArrival();
+    expect(address()).toBe('/pools');
+    expect(solanaHandoffPending()).toBe(false);
+    // And again: a second press, a second reload. The note lasts as long as the
+    // tab. Used up by the first load, the second was taken for a real arrival
+    // and the wallet list opened by itself.
+    // MUTATION CHECK: put the removeItem(HANDOFF_SENT_KEY) back; this must fail.
+    window.history.replaceState(null, '', `/pools?${SOLANA_HANDOFF_PARAM}=1`);
+    noteSolanaHandoffArrival();
+    expect(address()).toBe('/pools');
+    expect(solanaHandoffPending()).toBe(false);
+  });
+
+  // A link pressed inside the three seconds leaves the marked address in the
+  // tab's history, and the timer only ever cleans the address the tab is on.
+  // MUTATION CHECK: drop the popstate listener; this must fail.
+  it('Back onto an address still carrying the marker takes it out, and arms nothing', () => {
+    onAPhone();
+    window.history.replaceState(null, '', `/?${SOLANA_HANDOFF_PARAM}=1`);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(address()).toBe('/');
+    expect(solanaHandoffPending()).toBe(false);
+  });
+
+  // Tab storage blocked or full: the note cannot be kept, so the marker is not
+  // written, and the caller is told, because its notice must not promise the
+  // carry-on. MUTATION CHECK: return true from the catch; this must fail.
+  it('says so when the marker could not be written', () => {
+    window.history.replaceState(null, '', '/earn');
+    expect(markSolanaHandoff()).toBe(true);
+    window.history.replaceState(null, '', '/earn');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    });
+    expect(markSolanaHandoff()).toBe(false);
+    expect(address()).toBe('/earn');
+  });
+
+  // MUTATION CHECK: drop the pagehide listener in markSolanaHandoff; this must fail.
+  it('a tab that leaves for the wallet link takes the marker out of its own address on the way', () => {
+    window.history.replaceState(null, '', '/earn?ref=abc');
+    markSolanaHandoff();
+    expect(address()).toBe(`/earn?ref=abc&${SOLANA_HANDOFF_PARAM}=1`);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(address()).toBe('/earn?ref=abc');
+  });
+
+  it('an ordinary visit remembers nothing', () => {
+    onAPhone();
+    window.history.replaceState(null, '', '/earn?ref=abc');
+    noteSolanaHandoffArrival();
+    expect(address()).toBe('/earn?ref=abc');
+    expect(solanaHandoffPending()).toBe(false);
+    expect(sessionStorage.length).toBe(0);
   });
 });

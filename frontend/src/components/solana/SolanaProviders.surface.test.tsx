@@ -19,9 +19,12 @@ import { SolanaProviders, SolanaSurfaceBridge, TopBarSolanaProviders } from './S
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import {
   SOLANA_CONNECT_WAIT_NOTICE_MS,
+  SOLANA_HANDOFF_PARAM,
   getSolanaSurfaceState,
+  noteSolanaHandoffArrival,
   requestSolanaOpen,
   resetSolanaSurfaceForTests,
+  solanaHandoffPending,
   subscribeSolanaSurface,
 } from '../../lib/solanaSurface';
 
@@ -39,11 +42,22 @@ class FakeWallet extends BaseMessageSignerWalletAdapter {
    * 'restore-hangs': the saved wallet's restore never answers (a locked wallet).
    */
   private readonly _mode: 'plain' | 'restores' | 'hangs' | 'restore-hangs';
+  private _ready: WalletReadyState;
 
-  constructor(name: string, mode: 'plain' | 'restores' | 'hangs' | 'restore-hangs' = 'plain') {
+  constructor(
+    name: string,
+    mode: 'plain' | 'restores' | 'hangs' | 'restore-hangs' = 'plain',
+    ready: WalletReadyState = WalletReadyState.Installed,
+  ) {
     super();
     this.name = name as WalletName;
     this._mode = mode;
+    this._ready = ready;
+  }
+  /** The wallet's provider shows up after the page loaded (Trust, on some Android builds). */
+  detect() {
+    this._ready = WalletReadyState.Installed;
+    this.emit('readyStateChange', this._ready);
   }
   get publicKey() {
     return this._publicKey;
@@ -52,7 +66,7 @@ class FakeWallet extends BaseMessageSignerWalletAdapter {
     return false;
   }
   get readyState() {
-    return WalletReadyState.Installed;
+    return this._ready;
   }
   override async autoConnect() {
     if (this._mode === 'restore-hangs') await new Promise<void>(() => {});
@@ -94,10 +108,10 @@ function PickAndConnect() {
   );
 }
 
-function withFake(wallet: FakeWallet) {
+function withFake(...wallets: FakeWallet[]) {
   return render(
     <ConnectionProvider endpoint="http://127.0.0.1:8899">
-      <WalletProvider wallets={[wallet]} autoConnect>
+      <WalletProvider wallets={wallets} autoConnect>
         <SolanaWalletModalProvider>
           <SolanaSurfaceBridge />
           <PickAndConnect />
@@ -111,6 +125,9 @@ afterEach(() => {
   cleanup();
   act(() => resetSolanaSurfaceForTests());
   localStorage.clear();
+  sessionStorage.clear();
+  window.history.replaceState(null, '', '/');
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
 
@@ -341,5 +358,204 @@ describe('SolanaProviders reports to the top bar', () => {
     off();
     expect(seen[0]).toBe('none/connecting');
     expect(seen[seen.length - 1]).toBe('none/idle');
+  });
+});
+
+// A phone browser's "Open app" row reopens the page inside the wallet's own
+// app (lib/solanaSurface.ts). That page used to look like the start again:
+// Connect, Solana and the wallet had to be pressed a second time, with nothing
+// saying so (four testers walking it as a Trust user, 2026-10-03).
+//
+// MUTATION CHECK: delete the hand-off effect in SolanaSurfaceBridge. The first,
+// third and fourth tests must fail (nothing connects, no list opens).
+describe('a page opened by a hand-off carries on by itself', () => {
+  const ANDROID_IN_APP =
+    'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.0.0 Mobile Safari/537.36';
+  /** The wallet's app opens the address the press handed it. */
+  const arriveByHandoff = () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(ANDROID_IN_APP);
+    window.history.replaceState(null, '', `/?${SOLANA_HANDOFF_PARAM}=1`);
+    noteSolanaHandoffArrival();
+  };
+
+  it('asks the one wallet it detects to connect: no press, no list', async () => {
+    arriveByHandoff();
+    const trust = new FakeWallet('Trust');
+    withFake(trust);
+    await act(async () => {});
+    expect(trust.connectCalls).toBe(1);
+    expect(getSolanaSurfaceState().surface!.address).toBe(WSOL);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(solanaHandoffPending()).toBe(false);
+  });
+
+  // The control: the same page, opened the ordinary way, asks no wallet for anything.
+  it('does nothing of the kind on an ordinary visit', async () => {
+    const trust = new FakeWallet('Trust');
+    withFake(trust);
+    await act(async () => {});
+    expect(trust.connectCalls).toBe(0);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // Which wallet is the visitor's to say when there is more than one.
+  it('opens the list instead of choosing when two wallets are detected', async () => {
+    arriveByHandoff();
+    const trust = new FakeWallet('Trust');
+    const phantom = new FakeWallet('Phantom');
+    withFake(trust, phantom);
+    expect(await screen.findByRole('dialog')).toHaveTextContent('on Solana to continue');
+    expect(trust.connectCalls + phantom.connectCalls).toBe(0);
+    expect(solanaHandoffPending()).toBe(false);
+  });
+
+  // Trust's in-app browser injects its provider late on some Android builds.
+  it('waits for a wallet that is detected late, then asks it', async () => {
+    arriveByHandoff();
+    const trust = new FakeWallet('Trust', 'plain', WalletReadyState.NotDetected);
+    withFake(trust);
+    await act(async () => {});
+    expect(trust.connectCalls).toBe(0);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(solanaHandoffPending()).toBe(true);
+    await act(async () => trust.detect());
+    await act(async () => {});
+    expect(trust.connectCalls).toBe(1);
+    expect(getSolanaSurfaceState().surface!.address).toBe(WSOL);
+  });
+
+  // A returning visitor inside the wallet's app: the saved wallet reconnects by
+  // itself, and the hand-off must not ask it a second time.
+  it('lets a saved wallet that restored answer it: one connection, no second ask', async () => {
+    localStorage.setItem('walletName', JSON.stringify('Trust'));
+    arriveByHandoff();
+    const trust = new FakeWallet('Trust', 'restores');
+    withFake(trust);
+    await act(async () => {});
+    expect(trust.connectCalls).toBe(0);
+    expect(getSolanaSurfaceState().surface!.address).toBe(WSOL);
+    expect(solanaHandoffPending()).toBe(false);
+    // Remove the `if (connected)` branch and the list opens over the connected wallet.
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // Anyone can write the marker into a link. An ordinary phone browser that
+  // carries one wallet of its own (Brave's, a Safari extension) is told from a
+  // wallet's own browser by its "Open app" rows. There the wallet is NOT asked:
+  // a link must not make it prompt, or reconnect in silence, with no press.
+  // MUTATION CHECK: drop `&& !ordinaryBrowser`; this must fail (Phantom is asked).
+  it('in an ordinary phone browser the one detected wallet is not asked: the list opens', async () => {
+    arriveByHandoff();
+    const phantom = new FakeWallet('Phantom');
+    const trust = new FakeWallet('Trust', 'plain', WalletReadyState.Loadable);
+    withFake(phantom, trust);
+    expect(await screen.findByRole('dialog')).toHaveTextContent('on Solana to continue');
+    await act(async () => {});
+    expect(phantom.connectCalls + trust.connectCalls).toBe(0);
+    expect(getSolanaSurfaceState().surface!.address).toBeNull();
+    expect(solanaHandoffPending()).toBe(false);
+  });
+
+  // The same browser, with that wallet saved from an earlier visit and its
+  // silent restore refused: the list, never a prompt nobody pressed for.
+  it('nor is a saved wallet asked there', async () => {
+    localStorage.setItem('walletName', JSON.stringify('Phantom'));
+    arriveByHandoff();
+    const phantom = new FakeWallet('Phantom');
+    withFake(phantom, new FakeWallet('Trust', 'plain', WalletReadyState.Loadable));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('on Solana to continue');
+    await act(async () => {});
+    expect(phantom.connectCalls).toBe(0);
+  });
+});
+
+// THE REAL top-bar connection, with the real adapters, over a wallet planted on
+// the page the way Trust plants its own (window.trustwallet.solana). The fakes
+// above cannot see this: their autoConnect does nothing, and the real Trust
+// adapter's restore is a FULL connect, the wallet's own prompt.
+//
+// A link can start a hand-off, and a hand-off mounts the top bar's connection.
+// WalletProvider's plain autoConnect then restored whatever wallet name was
+// saved: in an ordinary phone browser a link made a wallet the visitor had
+// disconnected reconnect, or prompt, with no press (skeptic, 2026-10-03).
+//
+// MUTATION CHECK: SolanaProviders.tsx, give the top bar's own connection plain
+// `autoConnect` again. The first two tests must fail (the wallet is asked).
+describe("a hand-off never switches on the restore of a wallet that did not connect here", () => {
+  const ANDROID_CHROME =
+    'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
+  const ANDROID_IN_APP =
+    'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.0.0 Mobile Safari/537.36';
+  type Planted = { trustwallet?: unknown };
+  let asked = 0;
+
+  const plantTrust = () => {
+    asked = 0;
+    (window as unknown as Planted).trustwallet = {
+      solana: {
+        isTrust: true,
+        isConnected: false,
+        publicKey: null,
+        async connect() {
+          asked += 1;
+          return { publicKey: WSOL };
+        },
+        async disconnect() {},
+        on() {},
+        off() {},
+      },
+    };
+  };
+  const arrive = (userAgent: string) => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(userAgent);
+    window.history.replaceState(null, '', `/?${SOLANA_HANDOFF_PARAM}=1`);
+    noteSolanaHandoffArrival();
+  };
+
+  afterEach(() => {
+    delete (window as unknown as Planted).trustwallet;
+  });
+
+  it.each([
+    ['the visitor disconnected it', '0'],
+    ['it never connected in this browser', null],
+  ])('in an ordinary phone browser a saved wallet is not asked where %s: the list opens', async (_label, restore) => {
+    vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', '');
+    plantTrust();
+    localStorage.setItem('walletName', JSON.stringify('Trust'));
+    if (restore !== null) localStorage.setItem('tegridy-solana-restore', restore);
+    arrive(ANDROID_CHROME);
+    render(<TopBarSolanaProviders />);
+    expect(await screen.findByRole('dialog')).toHaveTextContent('on Solana to continue');
+    await act(async () => {});
+    expect(asked).toBe(0);
+    expect(getSolanaSurfaceState().surface!.address).toBeNull();
+  });
+
+  // The control: what really connected here before is still restored.
+  it('still restores a wallet that really connected in this browser', async () => {
+    vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', '');
+    plantTrust();
+    localStorage.setItem('walletName', JSON.stringify('Trust'));
+    localStorage.setItem('tegridy-solana-restore', '1');
+    render(<TopBarSolanaProviders />);
+    await act(async () => {});
+    await act(async () => {});
+    expect(asked).toBe(1);
+    expect(getSolanaSurfaceState().surface!.address).toBe(WSOL);
+  });
+
+  // And inside the wallet's own browser the hand-off still asks it, once.
+  it("inside the wallet's own browser the saved wallet is asked once, by the hand-off", async () => {
+    vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', '');
+    plantTrust();
+    localStorage.setItem('walletName', JSON.stringify('Trust'));
+    arrive(ANDROID_IN_APP);
+    render(<TopBarSolanaProviders />);
+    await act(async () => {});
+    await act(async () => {});
+    expect(asked).toBe(1);
+    expect(getSolanaSurfaceState().surface!.address).toBe(WSOL);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

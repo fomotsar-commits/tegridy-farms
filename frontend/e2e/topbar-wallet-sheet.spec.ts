@@ -189,3 +189,129 @@ test('a Solana wallet connected from the Earn list follows the visitor into a So
   await page.reload();
   await expect(walletsChip(page)).toHaveText(SHORT, { timeout: 30_000 });
 });
+
+// A PHONE BROWSER'S "OPEN APP" ROW CARRIES ON INSIDE THE WALLET'S APP. The
+// row reopens the page inside Trust's own browser, where its Solana provider
+// is. That page used to look like the start again: Connect, Solana and Trust
+// had to be pressed a second time, with nothing saying so (four testers
+// walking it as a Trust user, 2026-10-03). The press now leaves a marker in
+// the address it hands the wallet, and the page that finds it, inside a
+// wallet's own browser, asks the one wallet it detects to connect
+// (src/lib/solanaSurface.ts).
+//
+// MUTATION CHECKS
+//  - SolanaWalletModal.tsx: delete the change-8 block in handleWalletClick. The
+//    first test must fail (no marker in the address Trust is handed, no notice).
+//  - SolanaProviders.tsx: delete the hand-off effect in SolanaSurfaceBridge. The
+//    "inside the wallet app" test must fail (the top bar still says Connect).
+test.describe('the hand-off into a wallet app', () => {
+  // A phone on every project: the "Open app" rows exist only there.
+  test.use({
+    userAgent:
+      'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+  });
+
+  test('the Trust row hands Trust this page with the marker, and the page left behind says where the connect went', async ({ page }) => {
+    const handed: string[] = [];
+    // 204: the phone opens the Trust app and the browser stays on this page.
+    await page.route('https://link.trustwallet.com/**', (route) => {
+      handed.push(route.request().url());
+      return route.fulfill({ status: 204 });
+    });
+    await page.goto('/');
+    await expect(topBarConnect(page)).toBeVisible({ timeout: 30_000 });
+    await topBarConnect(page).click();
+    await solanaRow(page).click();
+    const trustRow = solanaList(page).getByRole('button', { name: /Trust Wallet/ });
+    await expect(trustRow).toContainText('Open app', { timeout: 30_000 });
+    await trustRow.click();
+
+    await expect.poll(() => handed.length, { timeout: 15_000 }).toBe(1);
+    const link = new URL(handed[0]!);
+    expect(link.searchParams.get('coin_id')).toBe('501');
+    const target = new URL(link.searchParams.get('url')!);
+    expect(target.pathname).toBe('/');
+    expect(target.searchParams.get('solana-connect')).toBe('1');
+
+    await expect(
+      page.getByText('Opening Trust Wallet. This site opens again inside the Trust Wallet app, and connects there.'),
+    ).toBeVisible();
+    // The page left behind does not keep the marker in its own address.
+    await expect.poll(() => new URL(page.url()).searchParams.has('solana-connect'), { timeout: 10_000 }).toBe(false);
+  });
+
+  // Inside the wallet's own browser: an Android WebView ("; wv"), where no row
+  // says "Open app" because there is nowhere to hop to, and one wallet is detected.
+  test.describe('inside the wallet app', () => {
+    test.use({
+      userAgent:
+        'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A.240205.002; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.0.0 Mobile Safari/537.36',
+    });
+
+    test('the page Trust opens connects by itself: no second Connect, Solana, Trust', async ({ page, context }) => {
+      await installConnectOnlySolanaWallet(context);
+      await page.goto('/?solana-connect=1');
+      await expect(walletsChip(page)).toHaveText(SHORT, { timeout: 30_000 });
+      await expect(topBarConnect(page)).toHaveCount(0);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      expect(new URL(page.url()).searchParams.has('solana-connect')).toBe(false);
+    });
+  });
+
+  // Anyone can write the marker into a link. An ordinary phone browser that
+  // carries a wallet of its own (Brave's, a Safari extension) must not have
+  // that wallet asked by a link: the list opens, and asking is a press.
+  // MUTATION CHECK: SolanaProviders.tsx, drop `&& !ordinaryBrowser`. This must
+  // fail (the wallet connects with no press).
+  test('in an ordinary phone browser a link carrying the marker opens the list and asks the wallet nothing', async ({ page, context }) => {
+    await installConnectOnlySolanaWallet(context);
+    await page.goto('/?solana-connect=1');
+    await expect(solanaList(page)).toBeVisible({ timeout: 30_000 });
+    await expect(solanaList(page).getByRole('button', { name: new RegExp(CONNECT_ONLY_WALLET_NAME) })).toContainText('Detected');
+    await expect(topBarConnect(page)).toBeVisible();
+    await expect(walletsChip(page)).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.has('solana-connect')).toBe(false);
+  });
+
+  // The same browser, with that wallet's name saved and the visitor having
+  // disconnected it. A hand-off mounts the top bar's connection, and its plain
+  // restore reconnected the saved wallet in silence: a link undid a Disconnect.
+  // MUTATION CHECK: SolanaProviders.tsx, plain `autoConnect` on the top bar's
+  // own connection. This must fail (the address shows with no press).
+  test('nor does such a link restore a saved wallet the visitor disconnected', async ({ page, context }) => {
+    await installConnectOnlySolanaWallet(context);
+    await page.addInitScript((name) => {
+      try {
+        localStorage.setItem('walletName', JSON.stringify(name));
+        localStorage.setItem('tegridy-solana-restore', '0');
+      } catch { /* private mode */ }
+    }, CONNECT_ONLY_WALLET_NAME);
+    await page.goto('/?solana-connect=1');
+    await expect(solanaList(page)).toBeVisible({ timeout: 30_000 });
+    await expect(walletsChip(page)).toHaveCount(0);
+    await expect(topBarConnect(page)).toBeVisible();
+  });
+
+  test('with no wallet in the browser the same address asks for nothing and opens nothing', async ({ page }) => {
+    await page.goto('/?solana-connect=1');
+    await expect(topBarConnect(page)).toBeVisible({ timeout: 30_000 });
+    await expect.poll(() => new URL(page.url()).searchParams.has('solana-connect')).toBe(false);
+    // Long enough for the Solana code to load and find no wallet.
+    await page.waitForTimeout(4_000);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(topBarConnect(page)).toBeVisible();
+  });
+});
+
+// The marker is honoured on a phone or tablet only. A link that carries it,
+// opened on a computer, must not make a wallet extension prompt by itself.
+test('on a computer, an address carrying the hand-off marker connects nothing', async ({ page, context, isMobile }) => {
+  test.skip(isMobile, 'a computer only: the phone projects are the describe above');
+  await installConnectOnlySolanaWallet(context);
+  await page.goto('/?solana-connect=1');
+  await expect(topBarConnect(page)).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => new URL(page.url()).searchParams.has('solana-connect')).toBe(false);
+  await page.waitForTimeout(4_000);
+  await expect(topBarConnect(page)).toBeVisible();
+  await expect(walletsChip(page)).toHaveCount(0);
+});

@@ -1,6 +1,7 @@
 // Polyfill MUST load before any @solana/* import — keep this first.
 import '../../lib/solanaPolyfill';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { WalletReadyState } from '@solana/wallet-adapter-base';
 import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import {
@@ -19,11 +20,15 @@ import { WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
 // See the header in the vendored file before touching this.
 import '../../styles/wallet-adapter-ui.css';
 import { solanaRpcEndpoint } from '../../lib/solana';
+import { opensInWalletApp } from '../../lib/solanaWalletOrder';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import { useSolanaConnect } from './useSolanaConnect';
 import {
   SOLANA_CONNECT_WAIT_NOTICE_MS,
   setSolanaSurface,
+  solanaHandoffPending,
+  solanaWasConnectedHere,
+  takeSolanaHandoff,
   takeSolanaOpenRequest,
   useSolanaSurface,
 } from '../../lib/solanaSurface';
@@ -112,7 +117,7 @@ import {
  * is used up: it does not open the list again after they have closed it.
  */
 export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
-  const { publicKey, connecting } = useWallet();
+  const { publicKey, connecting, connected, wallets, wallet, select } = useWallet();
   const open = useSolanaConnect();
   const address = publicKey ? publicKey.toBase58() : null;
   const [owner] = useState(() => ({}));
@@ -138,7 +143,7 @@ export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
     if (takeSolanaOpenRequest() && !address && !document.querySelector('[aria-modal="true"]')) open();
   }, [surface, openPending, connecting, address, open]);
   // A restore that does not end stops holding the tap (see the header).
-  const { visible } = useWalletModal();
+  const { visible, setVisible } = useWalletModal();
   useEffect(() => {
     if (surface?.open !== open || !openPending || !connecting) return;
     if (visible) {
@@ -150,9 +155,56 @@ export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
     }, SOLANA_CONNECT_WAIT_NOTICE_MS);
     return () => window.clearTimeout(timer);
   }, [surface, openPending, connecting, open, visible]);
+  // This page was opened by an "Open app" press in another browser (see
+  // lib/solanaSurface.ts): it carries on from that press. Inside a wallet's
+  // own browser one wallet is detected, and it is asked to connect, which is
+  // what the visitor pressed for. Anything else is their choice to make: the
+  // list opens. With no wallet detected nothing happens, and the hand-off
+  // lapses: a detection that comes late (Trust on some Android builds) changes
+  // `wallets` and runs this again. `settled` and `connecting`: as for the
+  // early tap above.
+  //
+  // ONLY A WALLET'S OWN BROWSER ASKS BY ITSELF. Anyone can write the marker
+  // into a link. In an ordinary phone browser that carries one wallet of its
+  // own (Brave's, a Safari extension) such a link made that wallet prompt with
+  // no press, or reconnect in silence after a Disconnect (review, 2026-10-03).
+  // An ordinary phone browser is told by its "Open app" rows: a wallet's own
+  // browser has none (the adapters offer that hop only where they can leave).
+  // There the list is opened and nothing is asked: asking is a press.
+  useEffect(() => {
+    if (!settled || connecting || !solanaHandoffPending()) return;
+    if (connected) {
+      takeSolanaHandoff();
+      return;
+    }
+    const detected = wallets.filter((w) => w.readyState === WalletReadyState.Installed);
+    if (detected.length === 0 || !takeSolanaHandoff()) return;
+    const ordinaryBrowser = wallets.some((w) => opensInWalletApp(w.readyState, w.adapter.name));
+    const only = detected.length === 1 && !ordinaryBrowser ? detected[0]!.adapter.name : null;
+    if (only) {
+      // Saved already (an earlier visit inside this wallet's app): open() connects it.
+      if (wallet?.adapter.name === only) open();
+      else select(only);
+    } else if (!document.querySelector('[aria-modal="true"]')) setVisible(true);
+  }, [settled, connecting, connected, wallets, wallet, select, open, setVisible]);
   useEffect(() => () => setSolanaSurface(owner, null), [owner]);
   return null;
 }
+
+/**
+ * Mounted for a hand-off, the top bar's own connection restores a saved wallet
+ * only where one really connected in this browser and was not disconnected
+ * since: the rule TopBarSolana uses to decide whether to mount it at all on a
+ * later visit. A hand-off is started by a marker in the address, which anyone
+ * can write into a link, and WalletProvider's plain `autoConnect` restores
+ * whatever name is saved. In an ordinary phone browser such a link reconnected
+ * a wallet the visitor had never connected here, and made a wallet whose
+ * restore is a full connect (Trust's injected provider) prompt with no press
+ * (skeptic, 2026-10-03). Mounted by the visitor's own press on the Solana row,
+ * it restores as before. A page's own connection keeps the plain rule: it is
+ * mounted by the page, never by a link.
+ */
+const restoreOwn = async () => !solanaHandoffPending() || solanaWasConnectedHere();
 
 /**
  * `own` marks the top bar's own connection (TopBarSolanaProviders below), the
@@ -181,7 +233,7 @@ export function SolanaProviders({ children, own = false }: { children: ReactNode
   );
   return (
     <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
-      <WalletProvider wallets={wallets} autoConnect>
+      <WalletProvider wallets={wallets} autoConnect={own ? restoreOwn : true}>
         <SolanaWalletModalProvider>
           <SolanaSurfaceBridge own={own} />
           {children}

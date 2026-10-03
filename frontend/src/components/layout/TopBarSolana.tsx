@@ -1,7 +1,13 @@
 import { useEffect, useState, type ComponentType } from 'react';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { safeGetItem } from '../../lib/storage';
-import { noteOwnSolanaFailed, solanaWasConnectedHere, useSolanaSurface, wantOwnSolana } from '../../lib/solanaSurface';
+import {
+  noteOwnSolanaFailed,
+  solanaHandoffPending,
+  solanaWasConnectedHere,
+  useSolanaSurface,
+  wantOwnSolana,
+} from '../../lib/solanaSurface';
 
 /**
  * The top bar's own Solana connection, on pages with no Solana section.
@@ -78,6 +84,12 @@ export function TopBarSolana({ solanaPage }: { solanaPage: boolean }) {
   // A wallet connected on an earlier visit: restore it here too, so the address
   // is in the top bar on every page and not only on the Solana ones.
   useEffect(() => {
+    // Opened by an "Open app" press in another browser: that visitor is waiting
+    // on the connect, so it loads now, not after the page has settled.
+    if (solanaHandoffPending()) {
+      wantOwnSolana();
+      return;
+    }
     const saved = safeGetItem(SAVED_WALLET_KEY);
     if (!solanaWasConnectedHere() || !saved || saved === 'null') return;
     const timer = setTimeout(wantOwnSolana, RESTORE_DELAY_MS);
