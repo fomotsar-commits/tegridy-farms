@@ -930,6 +930,44 @@ describe('the wallet fill', () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  /** Both networks, with an Ethereum prompt that stays open until `approve` is called. */
+  function insideTrustWithAnOpenEthereumPrompt() {
+    let approve: (accounts: string[]) => void = () => {};
+    const request = vi.fn(({ method }: { method: string }) =>
+      method === 'eth_requestAccounts'
+        ? new Promise<string[]>((resolve) => {
+            approve = resolve;
+          })
+        : Promise.resolve([] as string[]),
+    );
+    const connect = vi.fn(async () => ({ publicKey: { toString: () => SOL } }));
+    (window as unknown as Record<string, unknown>).ethereum = { isTrust: true, request };
+    (window as unknown as Record<string, unknown>).trustwallet = { solana: { isTrust: true, publicKey: null, connect } };
+    return { request, approve: (accounts: string[]) => approve(accounts) };
+  }
+
+  // MUTATION CHECK: drop the `fillSeq` comparison from the button's press. Both fail.
+  it('a wallet that answers late does not overwrite the address a later press filled', async () => {
+    const { request, approve } = insideTrustWithAnOpenEthereumPrompt();
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Ethereum address' }));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Solana address' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    await act(async () => approve([INJECTED]));
+    expect(field().value).toBe(SOL);
+  });
+
+  it('a wallet that answers late does not overwrite what the visitor typed meanwhile', async () => {
+    const { request, approve } = insideTrustWithAnOpenEthereumPrompt();
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Ethereum address' }));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    fireEvent.change(field(), { target: { value: SOL } });
+    await act(async () => approve([INJECTED]));
+    expect(field().value).toBe(SOL);
+  });
+
   it('offers nothing when the browser has no wallet to offer', () => {
     mountOpen();
     expect(screen.queryByRole('button', { name: 'Use my wallet' })).toBeNull();

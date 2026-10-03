@@ -196,6 +196,9 @@ export function HeatCard({
       : ['ethereum', 'solana'];
   const fillOffers = fillAsked.filter((network) => canFill[network]);
   const [fillFailed, setFillFailed] = useState(false);
+  // A wallet can answer long after it was asked (its prompt stays open). Only the latest
+  // press may write the field, and typing counts as later than any press.
+  const fillSeq = useRef(0);
   const [showMath, setShowMath] = useState(false);
   // Frozen per lookup so every relative label on screen is measured from one instant.
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -301,7 +304,10 @@ export function HeatCard({
         >
           <input
             value={input}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              fillSeq.current += 1;
+              setDraft(e.target.value);
+            }}
             autoFocus={focusField}
             spellCheck={false}
             autoComplete="off"
@@ -329,12 +335,14 @@ export function HeatCard({
                   key={network}
                   type="button"
                   onClick={() => {
+                    const seq = ++fillSeq.current;
                     setFillFailed(false);
                     if (network === 'solana' && solanaConnected) {
                       setDraft(solanaConnected);
                       return;
                     }
                     void readInjectedAddress(network).then((addr) => {
+                      if (seq !== fillSeq.current) return;
                       if (addr) setDraft(addr);
                       else setFillFailed(true);
                     });
