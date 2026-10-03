@@ -15,6 +15,55 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-03: a guard that names one spelling of a call covers one spelling
+
+**Believed:** after #603/#609/#622 every receipt wait passed `onReplaced` and checked the hash,
+because `receiptConsumers.guard.test.ts` failed any file that did not. And a status poller that
+throws when its time runs out is fine, because the caller's `catch` can say what happened.
+
+**Measured** (PR #696, trunk `ab739ff3`):
+
+- The guard matched `useWaitForTransactionReceipt(`, the wagmi hook. `git grep
+  waitForTransactionReceipt` found 11 direct `publicClient.waitForTransactionReceipt` calls and
+  4 `getTransactionReceipt` re-reads it never saw. A real viem 2.56.8 public client driven
+  through a scripted node (`frontend/src/lib/txErrors.direct.test.ts`) resolves a cancel, a
+  speed-up and any other same-nonce transaction with the replacement's success receipt, the
+  same as through the hook. On the pre-fix hooks, in vitest: a cancelled DCA swap was counted, a
+  cancelled limit-order swap marked the order filled, a cancelled registration toasted "TWAP
+  registered", and a zap recorded a cancelled approval as confirmed and sent the next step.
+- A third spelling is inside `node_modules`: `@whetstone-research/doppler-sdk` 1.0.39
+  `createDynamicAuction` waits with no `onReplaced` and returns `transactionHash: hash`, the
+  submitted hash, so after a speed-up the caller holds a hash that never mined (read in
+  `dist/evm/index.js`, not run).
+- A re-read by hash cannot find a replacement. `getTransactionReceipt(sent)` answers only for
+  `sent`, and viem's live wait finds a replacement from the pending transaction's sender and
+  nonce, which it can no longer read once the original is dropped. So a transaction replaced
+  after the live wait gave up stays unread for good.
+- The Solana swap page's own poller threw `Could not confirm in time` after 60s and let a
+  `getSignatureStatuses` rejection escape. With the real page under vitest and a scripted
+  connection, a watch that ran out toasted `Swap failed`, and one rejected status read toasted
+  `Swap failed` for a swap whose next read said confirmed.
+- ethers is the other way round. Read in the installed ethers 6.17.0 source
+  (`lib.esm/providers/provider.js`, `TransactionResponse.wait`; not run): a revert throws
+  `CALL_EXCEPTION`, so `receipt.status === 0` after `await tx.wait()` is dead code, and every
+  replacement throws `TRANSACTION_REPLACED`, a speed-up included (`reason: 'repriced'`,
+  `cancelled: false`, with `receipt`). An ethers `catch` is three facts: reverted, replaced but
+  ran, and unread.
+
+**Do:**
+
+- Pin a rule on the library call, not on the wrapper you fixed first. Grep every spelling
+  (hook, client method, bare action import, SDK internals) and make the guard forbid the raw
+  call outside one helper, with any exception named beside its reason.
+- A wait that can outlive its transaction needs the sender and nonce if a later re-read must
+  learn it was replaced. A hash alone cannot.
+- A confirm poller returns an outcome (`confirmed`, `reverted`, `unknown`). It never throws
+  for "time ran out" or for one failed read: a caller's `catch` will call both a failure.
+- With ethers, `TRANSACTION_REPLACED` with `cancelled === false` is a success: take
+  `error.receipt`.
+
+---
+
 ## 2026-10-02: `import.meta.env.DEV` is true in a `vite build` run with NODE_ENV=development
 
 **Believed:** a dial honoured only when `import.meta.env.DEV` is true can count on a dev server
