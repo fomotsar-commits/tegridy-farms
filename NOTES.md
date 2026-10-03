@@ -15,6 +15,49 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-03: a bare warming import runs a file's mock factories before its own consts exist
+
+**Believed** (the 2026-09-10 entry "a slow vitest "test" is often a slow *hook*"): any test file
+that re-imports a module under `vi.resetModules()` can take a bare `import "../thing.js";` at the
+top, and that import is what gives the resets teeth.
+
+**Measured** (vitest 4.1.11, trunk `288a7948`, the six `api/__tests__/orderbook*.test.js` files
+with no warming import): five took it. `orderbook-r053.test.js` did not. Its factories read
+top-level consts when they run (`vi.mock("viem", () => ({ recoverMessageAddress: recoverMock }))`).
+From a hook that is long after the consts exist. A static import is hoisted above them, so the
+file failed at collection, `Cannot access 'recoverMock' before initialization`, with 0 tests run.
+An `await import("../orderbook.js")` below the last mock warms the same graph: first hook 137 to
+373ms before, 1.5 to 2.4ms after. It also runs after that file's top-level
+`process.env.SUPABASE_URL = ...`, so the warmed instance has a live client and the reset pins
+nothing: deleting it failed 0 of 11 before and 0 of 11 after. In the five that took the bare
+import the same deletion went from 0 to 6 of 6, 12 of 22, 5 of 5, 3 of 4 and 10 of 10.
+
+**Do:** before adding a warming import, read each `vi.mock` factory for a name it reads when it
+runs, as opposed to inside a function it returns. If there is one, warm with `await import()`
+below the last mock. Then delete the reset on both sides of the change: where the warm load sits
+relative to the file's env writes decides whether the reset pins anything.
+
+---
+
+## 2026-10-03: Windows' `% Processor Utility` reads 100% on a machine that is half idle
+
+**Believed:** a Windows counter is the reference to check an `os.cpus()` idle-time meter against,
+so a run recorded at "Windows 100%" ran on a saturated machine.
+
+**Measured** (18 logical CPUs, typeperf at 1s): `\Processor Information(_Total)\% Processor
+Utility` read 164 to 253% across six seconds in which `\Processor(_Total)\% Processor Time` read
+48 to 71%, and an `os.cpus()` meter read 64% over the next five. Capped at 100, Utility said 100%
+beside every one of 16 single-file vitest runs that the `os.cpus()` meter put at 39 to 60%, with
+no other vitest process at either end of them. Microsoft describes Utility as scaled by clock
+speed (read, not measured), which fits. The `os.cpus()` meter has a ceiling of its own: with 17
+to 20 other vitest processes it read 89% in 76 of 80 runs and never more, and 89% is 16 of 18.
+
+**Do:** record `% Processor Time` or the `os.cpus()` figure, and beside it the count of other
+test runners (`Get-CimInstance Win32_Process`, matched on the command line). Treat 89% on this
+machine as full.
+
+---
+
 ## 2026-10-03: "above the fold at 390x844" measures the phone's screen, not the page its browser gets
 
 **Believed:** a field that is whole inside 390x844 in a first-screen test is on an iPhone's
