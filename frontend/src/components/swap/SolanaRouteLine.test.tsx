@@ -3,14 +3,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 /**
- * The routing disclosure is a best-execution claim rendered to a trader, so the
- * cases that matter are the ones where OUR POOL LOSES or does not exist. A
- * disclosure that only appears when the house wins is an advertisement.
+ * The route line compares quotes and says where the swap is sent. The page submits only
+ * the aggregator's transaction, so no state may read as a trade reaching our own pool.
  *
- * The component caches the venue probe in MODULE SCOPE (the AMM's deployment
- * state cannot change between two keystrokes), so each case re-imports the
- * module after `vi.resetModules()` rather than reaching into that cache through
- * an exported test seam.
+ * The component caches the venue probe in module scope, so each case re-imports the
+ * module after `vi.resetModules()` rather than reaching into that cache.
  */
 
 const readVenue = vi.fn();
@@ -89,7 +86,7 @@ describe('when the venue AMM is not deployed', () => {
 
   it('never claims we compared anything we could not', async () => {
     await mount({});
-    await waitFor(() => expect(screen.getByText(/Routed to Jupiter/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/every swap on this page is sent through Jupiter/)).toBeInTheDocument());
     expect(screen.queryByText(/more output than/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Checked 2 venues/)).not.toBeInTheDocument();
     // With no program id there is nothing to read a pool from.
@@ -105,13 +102,15 @@ describe('when the venue AMM is not deployed', () => {
 describe('when the venue AMM is live', () => {
   beforeEach(() => { readVenue.mockResolvedValue(LIVE_VENUE); });
 
-  it('routes AWAY when the aggregator pays more, and says so', async () => {
+  it('says so when the aggregator quotes more, and never that the trade went there because of it', async () => {
     readPoolForPair.mockResolvedValue({ kind: 'ok', value: { pool: { address: 'PooL1' } } });
     quoteOwnPool.mockReturnValue({ outAmount: 999_000n, poolAddress: 'PooL1', priceImpact: 0.01 });
 
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/so the trade went there/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Jupiter quotes [\d.,]+% more output than our own pool/)).toBeInTheDocument());
     expect(screen.getByText(/Checked 2 venues/)).toBeInTheDocument();
+    // The swap would go through Jupiter whichever quote won, so the win is not the cause.
+    expect(screen.queryByText(/so the trade went there/)).not.toBeInTheDocument();
   });
 
   it('renders an own-pool win as a COMPARISON, never as execution — the page only submits the Jupiter tx', async () => {
@@ -159,7 +158,7 @@ describe('when the venue AMM is live', () => {
     // fabricated finding from a degraded read. (Wait on the SETTLED copy: the
     // in-flight state also says "Routed to Jupiter".)
     await waitFor(() => expect(screen.getByText(/could not be quoted this time/i)).toBeInTheDocument());
-    expect(screen.getByText(/Routed to Jupiter/)).toBeInTheDocument();
+    expect(screen.getByText(/every swap on this page is sent through Jupiter/)).toBeInTheDocument();
     expect(screen.queryByText(/no pool for this pair/i)).not.toBeInTheDocument();
   });
 
@@ -190,8 +189,36 @@ describe('when the venue AMM is live', () => {
     await waitFor(() => expect(screen.getByText(/could not be checked/i)).toBeInTheDocument());
     first.unmount();
     render(el);
-    await waitFor(() => expect(screen.getByText(/our own pools and Jupiter, whichever pays more/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/We compare quotes from our own pools and Jupiter\./)).toBeInTheDocument());
     expect(readVenue).toHaveBeenCalledTimes(2);
+  });
+
+  // The open-a-pool form says this site's swap goes through Jupiter (lp/LpDisclosures.tsx).
+  // Every state of this line has to agree: it names where the swap is sent, and never
+  // gives a quote, a missing pool or a failed read as the reason the swap went to Jupiter.
+  const OWN = { kind: 'ok', value: { pool: { address: 'PooL1' } } };
+  const AGG = { outAmount: '1000000' };
+  it.each([
+    { state: 'before an amount is typed', amountInRaw: null, settled: /our own pools and Jupiter/ },
+    { state: 'the aggregator quotes more', own: 999_000n, aggregatorQuote: AGG, settled: /Checked 2 venues/ },
+    { state: 'our own pool quotes more', own: 1_010_000n, aggregatorQuote: AGG, settled: /more output than Jupiter/ },
+    { state: 'only our own pool quotes', own: 1_010_000n, aggregatorQuote: null, settled: /Only our own pool quoted/ },
+    { state: 'no pool for the pair', aggregatorQuote: AGG, settled: /no pool for this pair/ },
+    { state: 'the own-pool read failed', failed: true, aggregatorQuote: AGG, settled: /could not be quoted this time/ },
+    { state: 'the own-pool read is in flight', inFlight: true, aggregatorQuote: AGG, settled: /Checking our own pool/ },
+  ])('says the swap goes through Jupiter: $state', async ({ settled, own, failed, inFlight, ...props }) => {
+    if (own !== undefined) {
+      readPoolForPair.mockResolvedValue(OWN);
+      quoteOwnPool.mockReturnValue({ outAmount: own, poolAddress: 'PooL1' });
+    }
+    if (failed) readPoolForPair.mockRejectedValue(new Error('rpc down'));
+    if (inFlight) readPoolForPair.mockReturnValue(new Promise(() => {}));
+
+    await mount(props);
+    await waitFor(() => expect(screen.getByText(settled)).toBeInTheDocument());
+    const line = screen.getByText('Route').closest('p')?.textContent ?? '';
+    expect(line).toMatch(/sent through Jupiter|executes via Jupiter/);
+    expect(line).not.toMatch(/whichever pays more|Routed to|went there/);
   });
 });
 
@@ -201,6 +228,6 @@ describe('while the aggregator has not answered', () => {
   it('renders the standing line rather than a decision it has not made', async () => {
     await mount({ aggregatorQuote: null });
     await waitFor(() => expect(screen.getByText(/Quoting Jupiter/)).toBeInTheDocument());
-    expect(screen.queryByText(/Routed to/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no pool for this pair|sent through/)).not.toBeInTheDocument();
   });
 });
