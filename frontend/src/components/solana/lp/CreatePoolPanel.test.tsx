@@ -532,7 +532,8 @@ describe('the review and a confirmed opening', () => {
     const listed: PoolView = { ...created, address: pool.toBase58() };
     (r.findPools as ReturnType<typeof vi.fn>).mockResolvedValue(search([listed]));
     fireEvent.click(within(screen.getByTestId('lp-finder')).getByRole('button', { name: 'Read again' }));
-    await waitFor(() => expect(screen.getByTestId('lp-create')).toHaveAttribute('data-create', 'opened-here'));
+    await waitFor(() => expect(screen.getByTestId('lp-create')).toHaveAttribute('data-advice', 'opened-here'));
+    expect(screen.getByTestId('lp-create')).toHaveAttribute('data-create', 'offer');
     expect(screen.getByTestId('lp-create-panel')).toBe(panel);
     expect(outcome.isConnected).toBe(true);
     expect(within(screen.getByTestId('lp-pool')).getByTestId('lp-opened-here')).toBeInTheDocument();
