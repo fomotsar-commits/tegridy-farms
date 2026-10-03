@@ -130,7 +130,7 @@ describe('minLpForBothSides: the program’s 6006 boundary, both directions', ()
 });
 
 describe('planDeposit', () => {
-  const base = { solIsToken0: true, bps: 100n, availableSol: null, availableToken: null } as const;
+  const base = { quoteIsToken0: true, bps: 100n, availableSol: null, availableToken: null } as const;
 
   it('refuses a deposit with a zero side (r1: S=1000, R0=5 and one share costs {0, 5})', () => {
     const s = snap(1_000n, 5n, 5_000n);
@@ -333,7 +333,7 @@ describe('openingProblem: the site’s share rule for a new pool', () => {
 });
 
 describe('planCreate: an opening of exactly what was typed', () => {
-  const base = { solIsToken0: true, sol: 1_000_000_000n, token: 5_000_000n, availableSol: 2_000_000_000n, availableToken: 9_000_000n };
+  const base = { quoteIsToken0: true, sol: 1_000_000_000n, token: 5_000_000n, availableSol: 2_000_000_000n, availableToken: 9_000_000n };
 
   it('puts SOL on the SOL side, the shares are isqrt, the opener gets supply − 100, and the locked part floors', () => {
     const p = planCreate(base);
@@ -351,7 +351,7 @@ describe('planCreate: an opening of exactly what was typed', () => {
   });
 
   it('with SOL as token1 the sides swap, and only then', () => {
-    const p = planCreate({ ...base, solIsToken0: false });
+    const p = planCreate({ ...base, quoteIsToken0: false });
     if ('problem' in p) throw new Error(p.problem);
     expect([p.init0, p.init1]).toEqual([5_000_000n, 1_000_000_000n]);
   });

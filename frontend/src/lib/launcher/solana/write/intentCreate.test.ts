@@ -144,7 +144,7 @@ describe("the site's own opening decodes into one pool-create", () => {
   it('a Token-2022 token: its creator account and program slot are the Token-2022 ones', () => {
     const p = pinsFor({ tokenProgram: TOKEN_2022_PROGRAM_ID });
     ok(siteOpening(p), ctxFor(p));
-    const tokenSlot = p.solIsToken0 ? 8 : 7;
+    const tokenSlot = p.quoteIsToken0 ? 8 : 7;
     refused(siteOpening(p, withKey(opening(p), tokenSlot, mine(p.tokenMint, TOKEN_PROGRAM_ID))), /spends from an account that is not yours/, ctxFor(p));
   });
 

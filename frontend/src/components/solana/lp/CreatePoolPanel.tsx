@@ -146,7 +146,7 @@ function CreateInner({
   const config = readyConfig ?? shownConfig;
 
   const tokenProgram = safety.kind === 'read' && safety.facts?.program === 'token-2022' ? TOKEN_2022_PROGRAM : TOKEN_PROGRAM;
-  const solIsToken0 = useMemo(() => sortMints(new PublicKey(WSOL_MINT), new PublicKey(mint)).token0.toBase58() === WSOL_MINT, [mint]);
+  const quoteIsToken0 = useMemo(() => sortMints(new PublicKey(WSOL_MINT), new PublicKey(mint)).token0.toBase58() === WSOL_MINT, [mint]);
   const signer = writes.signerState.kind === 'ready' ? writes.signerState.signer : null;
   const [factsNonce, setFactsNonce] = useState(0);
   const facts = useWalletFacts(writes, signer?.publicKey ?? null, { tokenMint: mint, tokenProgram, lpMint: null, opening: true }, factsNonce);
@@ -220,9 +220,9 @@ function CreateInner({
   const market = outside?.kind === 'ok' ? outside.solPerToken : null;
 
   const both = solRaw !== null && tokRaw !== null && solRaw > 0n && tokRaw > 0n;
-  const free = both ? planCreate({ solIsToken0, sol: solRaw, token: tokRaw, availableSol: null, availableToken: null }) : null;
+  const free = both ? planCreate({ quoteIsToken0, sol: solRaw, token: tokRaw, availableSol: null, availableToken: null }) : null;
   const preview: CreatePlan | null = free && !('problem' in free) ? free : null;
-  const planned = both ? planCreate({ solIsToken0, sol: solRaw, token: tokRaw, availableSol, availableToken }) : null;
+  const planned = both ? planCreate({ quoteIsToken0, sol: solRaw, token: tokRaw, availableSol, availableToken }) : null;
   const problem: CreateProblem | null = planned && 'problem' in planned ? planned : null;
   const check = assessOpening({ tokenMint: mint, sol: solRaw ?? 0n, token: tokRaw ?? 0n, tokenDecimals: decimals, outside, safety });
   const opening = both && decimals !== null ? openingSolPerToken(solRaw, tokRaw, decimals) : null;

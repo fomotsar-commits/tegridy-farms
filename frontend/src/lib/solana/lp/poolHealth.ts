@@ -115,8 +115,8 @@ function ownPriceOf(view: PoolView, tokenDecimals: number, chainNow: bigint | nu
   if (chainNow === null) return { kind: 'unread', detail: 'the network clock was not read' };
   return ownAveragePrice({
     obs: view.history.obs,
-    tokenIsToken0: !view.solIsToken0,
-    solReserve: view.solReserve,
+    tokenIsToken0: !view.quoteIsToken0,
+    solReserve: view.quoteReserve,
     tokenReserve: view.tokenReserve,
     tokenDecimals,
     now: chainNow,

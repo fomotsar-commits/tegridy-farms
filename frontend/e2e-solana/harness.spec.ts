@@ -226,7 +226,7 @@ const withMutation = (ix: TransactionInstruction, o: LpTxOpts) => { o.mutate?.(i
 /** A deposit of about 0.01 SOL's worth, as W/liquidity.ts builds it (1% slippage, SOL typed). */
 async function depositTx(owner: PublicKey, f: PoolFacts, o: LpTxOpts = {}): Promise<{ bytes: Uint8Array; lp: bigint }> {
   const s = sides(f);
-  const plan = planDeposit(f.snapshot, { solIsToken0: s.solIs0, driving: 'sol', maxIn: sol(0.01), bps: 100n, availableSol: null, availableToken: null });
+  const plan = planDeposit(f.snapshot, { quoteIsToken0: s.solIs0, driving: 'sol', maxIn: sol(0.01), bps: 100n, availableSol: null, availableToken: null });
   if (isPlanProblem(plan)) throw new Error(`deposit plan: ${plan.problem}`);
   const lpAta = ata(s.lpMint, owner);
   const args: DepositArgs = {

@@ -100,8 +100,8 @@ export function PoolCard({
   const split = cfg ? feeSplit(cfg) : null;
   // cp-swap adjust_creator_fee_rate: the tier's rate, only when this pool's own switch is on.
   const creatorRate = cfg ? chargedCreatorFeeRate(cfg, pool.enableCreatorFee) : 0n;
-  const solFees = view.solIsToken0 ? [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0] : [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1];
-  const tokFees = view.solIsToken0 ? [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1] : [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0];
+  const solFees = view.quoteIsToken0 ? [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0] : [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1];
+  const tokFees = view.quoteIsToken0 ? [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1] : [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0];
   const price = health.price;
 
   return (
@@ -145,7 +145,7 @@ export function PoolCard({
           {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} />}
         </div>
 
-        <Row label="In the pool" value={`${solText(view.solReserve)} and ${tokenText(view.tokenReserve, tokenDecimals)}`} mono={false} />
+        <Row label="In the pool" value={`${solText(view.quoteReserve)} and ${tokenText(view.tokenReserve, tokenDecimals)}`} mono={false} />
         <PriceRows price={price} />
 
         {cfg && split ? (

@@ -9,6 +9,7 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import { isCreatedPool, rememberCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
@@ -42,22 +43,23 @@ const SIG = '4'.repeat(88);
 
 /** A TOKEN/SOL pool for MINT. `tier1` puts it on the public tier; otherwise its tier is a stranger key (index 0). */
 function view(o: { tier1?: boolean; openTime?: bigint; address?: PublicKey } = {}): PoolView {
-  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, solReserve: 10n * 10n ** 9n, tokenReserve: 1_000n * 10n ** 6n, openTime: o.openTime ?? 1n });
+  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, quoteReserve: 10n * 10n ** 9n, tokenReserve: 1_000n * 10n ** 6n, openTime: o.openTime ?? 1n });
   const raw = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const pool = { ...raw, ammConfig: o.tier1 ? TIER1_ADDRESS.toBase58() : raw.ammConfig };
   const decoded = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data)!;
   const config = { ...decoded, index: o.tier1 ? 1 : 0 };
-  const solIsToken0 = pool.token0Mint.startsWith('So111');
+  const quoteIsToken0 = pool.token0Mint.startsWith('So111');
   const s = 10n * 10n ** 9n;
   const t = 1_000n * 10n ** 6n;
   return {
     address: b.address.toBase58(),
     origin: 'other',
-    snapshot: { pool, vault0Amount: solIsToken0 ? s : t, vault1Amount: solIsToken0 ? t : s, reserve0: solIsToken0 ? s : t, reserve1: solIsToken0 ? t : s },
+    snapshot: { pool, vault0Amount: quoteIsToken0 ? s : t, vault1Amount: quoteIsToken0 ? t : s, reserve0: quoteIsToken0 ? s : t, reserve1: quoteIsToken0 ? t : s },
     config,
     tokenMint: M,
-    solIsToken0,
-    solReserve: s,
+    quote: SOL_QUOTE,
+    quoteIsToken0,
+    quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: false,
     history: { kind: 'not-read' },
@@ -75,7 +77,7 @@ function search(views: PoolView[], extra: Partial<Extract<PoolSearchRead, { kind
     kind: 'ok',
     search: {
       mint: M,
-      known: { launchPool: key().toBase58(), standard: [{ index: 1, config: TIER1_ADDRESS.toBase58(), address: STANDARD_1 }] },
+      known: { launchPool: key().toBase58(), standard: [{ index: 1, config: TIER1_ADDRESS.toBase58(), address: STANDARD_1, quote: SOL_QUOTE.mint }] },
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
@@ -201,7 +203,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
 
   it('several passing pools: the one holding the most SOL is the one named', async () => {
     const small = view({ tier1: true });
-    const big: PoolView = { ...view({ tier1: true, address: key() }), solReserve: 250n * 10n ** 9n };
+    const big: PoolView = { ...view({ tier1: true, address: key() }), quoteReserve: 250n * 10n ** 9n };
     // Listed smallest first, so the answer does not lean on the list's order.
     mount(readers({ findPools: vi.fn(async () => search([small, big])) }));
     const c = await settled('offer');

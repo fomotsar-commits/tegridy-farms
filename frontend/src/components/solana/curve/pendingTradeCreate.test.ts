@@ -24,7 +24,7 @@ const createSummary = (): TxSummary => ({
   },
   tokenMint: KEY(41),
   tokenDecimals: 6,
-  solIsToken0: true,
+  quoteIsToken0: true,
   put: { sol: 1_000_000_000n, token: 5_000_000n },
   supply: 70_710_678n,
   lpAmount: 70_710_578n,

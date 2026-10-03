@@ -17,6 +17,7 @@ import type { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import { key } from '../../../lib/solana/lp/testkit.fixture';
 import { BUNGALOWS, BUNGALOW_STORAGE_KEY } from '../../../lib/bungalows';
@@ -44,7 +45,7 @@ const noPools = (mint: string): PoolSearchRead => ({
   kind: 'ok',
   search: {
     mint,
-    known: { launchPool: key().toBase58(), standard: [{ index: 1, config: TIER1_ADDRESS.toBase58(), address: key().toBase58() }] },
+    known: { launchPool: key().toBase58(), standard: [{ index: 1, config: TIER1_ADDRESS.toBase58(), address: key().toBase58(), quote: SOL_QUOTE.mint }] },
     index: { kind: 'ok', pools: [], truncated: false },
     pools: [],
     otherPairs: 0,

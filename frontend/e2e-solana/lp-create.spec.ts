@@ -96,7 +96,7 @@ const standardOf = (mint: PublicKey) => {
 /** The opening the review should show, from the typed amounts and fresh reads. */
 async function expectedOpening(mint: PublicKey, solIn: bigint, tokenIn: bigint, decimals = DEC) {
   const { token0 } = sortMints(WSOL, mint);
-  const plan = planCreate({ solIsToken0: token0.equals(WSOL), sol: solIn, token: tokenIn, availableSol: null, availableToken: null });
+  const plan = planCreate({ quoteIsToken0: token0.equals(WSOL), sol: solIn, token: tokenIn, availableSol: null, availableToken: null });
   if ('problem' in plan) throw new Error(`opening plan: ${plan.problem}`);
   expect(plan.supply).toBe(isqrt(solIn * tokenIn));
   expect(plan.lp).toBe(plan.supply - 100n);

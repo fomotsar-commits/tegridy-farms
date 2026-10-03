@@ -17,17 +17,17 @@ describe('poolViewFrom', () => {
   it('gives the same entry readPools gives, for every kind of answer', async () => {
     const mint = key();
     // A pool at its own address, with fees owed in its SOL vault.
-    const plain = buildPool({ mint, configIndex: 1, address: key(), solReserve: 5_000_000_000n, tokenReserve: 1_000_000_000n, protocolFeesSol: 7n });
+    const plain = buildPool({ mint, configIndex: 1, address: key(), quoteReserve: 5_000_000_000n, tokenReserve: 1_000_000_000n, protocolFeesSol: 7n });
     // The standard address, with a frozen vault.
-    const standard = buildPool({ mint, configIndex: 1, solReserve: 10n ** 9n, tokenReserve: 10n ** 12n, frozenVault: true });
+    const standard = buildPool({ mint, configIndex: 1, quoteReserve: 10n ** 9n, tokenReserve: 10n ** 12n, frozenVault: true });
     // The launch pool, with its price record.
-    const launch = buildPool({ mint, configIndex: 0, address: poolStatePda(mint, LAUNCH), solReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
+    const launch = buildPool({ mint, configIndex: 0, address: poolStatePda(mint, LAUNCH), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
     // A pool whose vault is not a working token account.
-    const badVault = buildPool({ mint: key(), configIndex: 1, address: key(), solReserve: 10n, tokenReserve: 10n });
+    const badVault = buildPool({ mint: key(), configIndex: 1, address: key(), quoteReserve: 10n, tokenReserve: 10n });
     const vaultAddr = Object.keys(badVault.accounts).find((a) => a !== badVault.address.toBase58() && badVault.accounts[a]!.data.length === 165)!;
     badVault.accounts[vaultAddr] = { owner: TOKEN_PROGRAM, data: tokenAccountBytes(mint, key(), 5n, 0) };
     // A pool whose fee settings are owned by someone else.
-    const strangeConfig = buildPool({ mint, configIndex: 0, address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 9n });
+    const strangeConfig = buildPool({ mint, configIndex: 0, address: key(), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 9n });
     strangeConfig.accounts[strangeConfig.config.toBase58()] = { ...strangeConfig.accounts[strangeConfig.config.toBase58()]!, owner: key().toBase58() };
     const strangerAddr = key().toBase58();
     const absentAddr = key().toBase58();
@@ -68,8 +68,8 @@ describe('poolViewFrom', () => {
 
   it('reads a launch pool’s price record, and ignores one handed in for any other pool', () => {
     const mint = key();
-    const launch = buildPool({ mint, configIndex: 0, address: poolStatePda(mint, LAUNCH), solReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
-    const other = buildPool({ mint, configIndex: 1, solReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
+    const launch = buildPool({ mint, configIndex: 0, address: poolStatePda(mint, LAUNCH), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
+    const other = buildPool({ mint, configIndex: 1, quoteReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
     const acc = (b: typeof launch, a: string) => {
       const x = b.accounts[a]!;
       return { address: a, owner: x.owner, data: x.data, lamports: 1 };

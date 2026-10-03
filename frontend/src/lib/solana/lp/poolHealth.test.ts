@@ -14,7 +14,7 @@ const TOK = 1_000n * 10n ** 6n;
 
 /** 10 SOL against 1,000 tokens (6 decimals): 0.01 SOL per token. */
 function view(o: { openTime?: bigint; status?: number; sol?: bigint; tok?: bigint; origin?: PoolView['origin']; frozen?: boolean; history?: PoolView['history']; config?: PoolView['config'] | 'decoded' } = {}): PoolView {
-  const b = buildPool({ mint, solReserve: o.sol ?? SOL, tokenReserve: o.tok ?? TOK, openTime: o.openTime ?? 100n, status: o.status ?? 0 });
+  const b = buildPool({ mint, quoteReserve: o.sol ?? SOL, tokenReserve: o.tok ?? TOK, openTime: o.openTime ?? 100n, status: o.status ?? 0 });
   return viewOf(b, { sol: o.sol ?? SOL, tok: o.tok ?? TOK, origin: o.origin, frozen: o.frozen, history: o.history, config: o.config });
 }
 
@@ -111,8 +111,8 @@ describe('assessPool', () => {
 // F5: a launch pool usually has no outside price, and anyone can trade it after
 // graduation, so its price now is checked against its own half-hour average.
 describe('assessPool: a launch pool is checked against its own recent average', () => {
-  const b = buildPool({ mint, solReserve: SOL, tokenReserve: TOK, openTime: 100n });
-  const tokenIs0 = viewOf(b, { sol: SOL, tok: TOK }).solIsToken0 === false;
+  const b = buildPool({ mint, quoteReserve: SOL, tokenReserve: TOK, openTime: 100n });
+  const tokenIs0 = viewOf(b, { sol: SOL, tok: TOK }).quoteIsToken0 === false;
   const Q32 = 1n << 32n;
   /** A record: one slot at t=1000, the latest at t=4600, the price before that `solPerBase` (SOL base units per token base unit). */
   function history(solPerBaseX32: bigint, o: { firstAt?: bigint; initialized?: boolean } = {}): PoolView['history'] {

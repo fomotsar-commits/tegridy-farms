@@ -213,7 +213,7 @@ function answerKey(
 ): string {
   return [
     offer,
-    advice.kind === 'none' ? '' : `${advice.kind}:${advice.pool.address}:${advice.pool.solReserve}`,
+    advice.kind === 'none' ? '' : `${advice.kind}:${advice.pool.address}:${advice.pool.quoteReserve}`,
     outside?.kind === 'unread' ? outside.detail : '',
     facts?.tier.kind === 'unread' ? facts.tier.detail : '',
     facts?.feeAccount.kind === 'unread' ? facts.feeAccount.detail : '',
@@ -322,7 +322,7 @@ function OfferLines({
             {cutLine}
             <p data-testid="lp-create-refer">
               This token already has a pool on the public fee tier that passes the checks (above). The biggest is{' '}
-              <span className="font-mono break-all">{advice.pool.address}</span>, holding {solAbout(advice.pool.solReserve)}. We suggest adding to
+              <span className="font-mono break-all">{advice.pool.address}</span>, holding {solAbout(advice.pool.quoteReserve)}. We suggest adding to
               it: liquidity in one place gives traders a better price.
             </p>
             <p data-testid="lp-create-still">

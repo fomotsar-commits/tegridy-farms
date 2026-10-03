@@ -49,7 +49,7 @@ export function sidesOf(f: PoolFacts): Sides {
 /** A deposit plan the page should build: the pool's own answer, with no balance rule (every actor here holds plenty). */
 export function depositPlan(f: PoolFacts, driving: 'sol' | 'token', maxIn: bigint, bps = 100n): DepositPlan & { costSol: bigint; costTok: bigint; maxSol: bigint; maxTok: bigint } {
   const s = sidesOf(f);
-  const plan = planDeposit(f.snapshot, { solIsToken0: s.solIs0, driving, maxIn, bps, availableSol: null, availableToken: null });
+  const plan = planDeposit(f.snapshot, { quoteIsToken0: s.solIs0, driving, maxIn, bps, availableSol: null, availableToken: null });
   if (isPlanProblem(plan)) throw new Error(`deposit plan: ${plan.problem}`);
   return {
     ...plan,

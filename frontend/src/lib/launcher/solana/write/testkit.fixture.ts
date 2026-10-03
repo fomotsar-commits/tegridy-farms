@@ -432,7 +432,7 @@ export interface PoolFixture {
   vault1: PublicKey;
   lpMint: PublicKey;
   observation: PublicKey;
-  solIsToken0: boolean;
+  quoteIsToken0: boolean;
   /** The token side's vault. */
   tokenVault: PublicKey;
   solVault: PublicKey;
@@ -469,7 +469,7 @@ export function addPool(
 ): PoolFixture {
   const { token0, token1 } = sortMints(WSOL_MINT, mint);
   const address = o.address ?? (o.launch ? poolStatePda(mint, LAUNCH) : derivePool(CPSWAP, AMM_CONFIG, token0, token1));
-  const solIsToken0 = token0.equals(WSOL_MINT);
+  const quoteIsToken0 = token0.equals(WSOL_MINT);
   const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
   const vault0 = deriveVault(CPSWAP, address, token0);
   const vault1 = deriveVault(CPSWAP, address, token1);
@@ -487,26 +487,26 @@ export function addPool(
     [off.lpMint, r.lpMint ?? lpMint],
     [off.token0Mint, token0],
     [off.token1Mint, token1],
-    [off.token0Program, r.token0Program ?? (solIsToken0 ? TOKEN_PROGRAM_ID : tokenProgram)],
-    [off.token1Program, r.token1Program ?? (solIsToken0 ? tokenProgram : TOKEN_PROGRAM_ID)],
+    [off.token0Program, r.token0Program ?? (quoteIsToken0 ? TOKEN_PROGRAM_ID : tokenProgram)],
+    [off.token1Program, r.token1Program ?? (quoteIsToken0 ? tokenProgram : TOKEN_PROGRAM_ID)],
     [off.observationKey, r.observationKey ?? observation],
   ];
   for (const [at, k] of keys) d.set(k.toBytes(), at);
   d[off.status] = o.status ?? 0;
   d[off.lpMintDecimals] = 9;
   const dec = o.tokenDecimals ?? 6;
-  d[off.mint0Decimals] = solIsToken0 ? 9 : dec;
-  d[off.mint1Decimals] = solIsToken0 ? dec : 9;
+  d[off.mint0Decimals] = quoteIsToken0 ? 9 : dec;
+  d[off.mint1Decimals] = quoteIsToken0 ? dec : 9;
   d.set(u64le(o.lpSupply ?? 1_000_000_000n), off.lpSupply);
   d.set(u64le(o.openTime ?? 0n), off.openTime);
   if (o.enableCreatorFee) {
-    d[off.creatorFeeOn] = solIsToken0 ? CREATOR_FEE_ON_TOKEN_0 : CREATOR_FEE_ON_TOKEN_1;
+    d[off.creatorFeeOn] = quoteIsToken0 ? CREATOR_FEE_ON_TOKEN_0 : CREATOR_FEE_ON_TOKEN_1;
     d[off.enableCreatorFee] = 1;
   }
   chain.set(address, { lamports: rent(POOL_STATE_LEN), owner: CPSWAP, data: d });
   const authority = deriveAuthority(CPSWAP);
-  const solVault = solIsToken0 ? vault0 : vault1;
-  const tokenVault = solIsToken0 ? vault1 : vault0;
+  const solVault = quoteIsToken0 ? vault0 : vault1;
+  const tokenVault = quoteIsToken0 ? vault1 : vault0;
   chain.tokenAccount(solVault, WSOL_MINT, authority, o.sol);
   const vaultOpts = { state: o.frozenTokenVault ? (2 as const) : (1 as const) };
   if (tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) chain.token2022Account(tokenVault, mint, authority, o.tokens, vaultOpts);
@@ -519,7 +519,7 @@ export function addPool(
     obs.set(address.toBytes(), 11);
     chain.set(observation, { lamports: rent(4075), owner: CPSWAP, data: obs });
   }
-  return { address, token0, token1, vault0, vault1, lpMint, observation, solIsToken0, tokenVault, solVault };
+  return { address, token0, token1, vault0, vault1, lpMint, observation, quoteIsToken0, tokenVault, solVault };
 }
 
 const CLOCK_SYSVAR = new PublicKey('SysvarC1ock11111111111111111111111111111111');

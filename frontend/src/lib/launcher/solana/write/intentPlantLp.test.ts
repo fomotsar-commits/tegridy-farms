@@ -36,7 +36,7 @@ function pins(): PoolPins {
     observation: deriveObservation(CPSWAP, address),
     tokenMint,
     tokenProgram: TOKEN_PROGRAM_ID,
-    solIsToken0: token0.equals(WSOL_MINT),
+    quoteIsToken0: token0.equals(WSOL_MINT),
     lpAccount: associatedTokenAddress(lpMint, ME, TOKEN_PROGRAM_ID),
   };
 }

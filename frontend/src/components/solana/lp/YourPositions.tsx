@@ -305,7 +305,7 @@ function PositionRow({
               <Row
                 label="Worth if withdrawn now"
                 value={
-                  view.solIsToken0
+                  view.quoteIsToken0
                     ? `${solText(p.value.token0)} and ${tokenText(p.value.token1, decimals)}`
                     : `${solText(p.value.token1)} and ${tokenText(p.value.token0, decimals)}`
                 }

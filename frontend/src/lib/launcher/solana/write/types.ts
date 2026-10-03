@@ -311,7 +311,7 @@ export interface LpDepositSummary {
   enableCreatorFee: boolean;
   tokenMint: PublicKey;
   tokenDecimals: number;
-  solIsToken0: boolean;
+  quoteIsToken0: boolean;
   lpAmount: bigint;
   lpDecimals: number;
   /** The ceiling cost from the fresh snapshot. */
@@ -339,7 +339,7 @@ export interface LpWithdrawSummary {
   config: AmmConfigView | null;
   tokenMint: PublicKey;
   tokenDecimals: number;
-  solIsToken0: boolean;
+  quoteIsToken0: boolean;
   lpAccount: PublicKey;
   lpAmount: bigint;
   lpDecimals: number;
@@ -371,7 +371,7 @@ export interface LpCreateSummary {
   config: AmmConfigView;
   tokenMint: PublicKey;
   tokenDecimals: number;
-  solIsToken0: boolean;
+  quoteIsToken0: boolean;
   /** Decoded from the bytes: exactly what goes in. */
   put: { sol: bigint; token: bigint };
   /** isqrt(sol·token), the pool's whole share count; `lpAmount` = supply − 100. */
@@ -535,7 +535,7 @@ export interface PoolPins {
   /** The side that is not SOL. */
   tokenMint: PublicKey;
   tokenProgram: PublicKey;
-  solIsToken0: boolean;
+  quoteIsToken0: boolean;
   /** Deposit: ATA(lpMint, signer, Tokenkeg). Withdraw: the pool-share account verified at prepare. */
   lpAccount: PublicKey;
 }

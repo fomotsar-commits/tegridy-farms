@@ -37,7 +37,7 @@ function pinsFor(): PoolPins {
     token0Mint: token0, token1Mint: token1, token0Program: TOKEN_PROGRAM_ID, token1Program: TOKEN_PROGRAM_ID,
     vault0: deriveVault(CPSWAP, address, token0), vault1: deriveVault(CPSWAP, address, token1),
     lpMint, observation: deriveObservation(CPSWAP, address),
-    tokenMint, tokenProgram: TOKEN_PROGRAM_ID, solIsToken0: token0.equals(WSOL_MINT),
+    tokenMint, tokenProgram: TOKEN_PROGRAM_ID, quoteIsToken0: token0.equals(WSOL_MINT),
     lpAccount: associatedTokenAddress(lpMint, ME),
   };
 }
@@ -77,7 +77,7 @@ async function preparedWithdraw(o: { failWith?: number; finalOnly?: boolean } = 
       steps.some((s) => s.kind === 'pool-withdraw')
         ? {
             kind: 'lp-withdraw', pool: pins.address, origin: 'standard', config: null, tokenMint: pins.tokenMint,
-            tokenDecimals: 6, solIsToken0: pins.solIsToken0, lpAccount: pins.lpAccount, lpAmount: 1_000n, lpDecimals: 9,
+            tokenDecimals: 6, quoteIsToken0: pins.quoteIsToken0, lpAccount: pins.lpAccount, lpAmount: 1_000n, lpDecimals: 9,
             heldBefore: 1_000n, all: true, keep: 0n, quoted: { sol: 10n, token: 10n }, min: { sol: 5n, token: 7n },
             tokenAccount: associatedTokenAddress(pins.tokenMint, ME), tokenAccountRent: 0n, unwrapsWsol: true, notices: [],
           }

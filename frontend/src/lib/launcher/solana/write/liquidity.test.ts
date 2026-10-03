@@ -322,8 +322,8 @@ describe('poolPins', () => {
 
   it('refuses SOL under the Token-2022 program, the wrong token, and a token under an unknown program', async () => {
     const { w, view: v } = await view();
-    const solSide = v.solIsToken0 ? 'token0Program' : 'token1Program';
-    const tokSide = v.solIsToken0 ? 'token1Program' : 'token0Program';
+    const solSide = v.quoteIsToken0 ? 'token0Program' : 'token1Program';
+    const tokSide = v.quoteIsToken0 ? 'token1Program' : 'token0Program';
     const withPool = (over: Partial<typeof v.snapshot.pool>) => ({ ...v, snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, ...over } } });
     expect(poolPins(cfgLocal, withPool({ [solSide]: TOKEN_2022_PROGRAM_ID.toBase58() }), { tokenMint: w.mint, lpAccount: w.lpAta })).toMatch(/SOL side/);
     expect(poolPins(cfgLocal, v, { tokenMint: Keypair.generate().publicKey, lpAccount: w.lpAta })).toBe(LP_COPY.notThisPair);

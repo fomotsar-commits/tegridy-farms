@@ -11,6 +11,7 @@ import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import { solAbout } from './panelKit';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
@@ -50,18 +51,19 @@ const SIG = '5'.repeat(88);
 function view(o: { address?: PublicKey; sol?: bigint; tok?: bigint; openTime?: bigint; origin?: PoolView['origin']; status?: number } = {}): PoolView {
   const s = o.sol ?? 10n * 10n ** 9n;
   const t = o.tok ?? 1_000n * 10n ** 6n;
-  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, solReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n, status: o.status });
+  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, quoteReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n, status: o.status });
   const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const config = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data);
-  const solIsToken0 = pool.token0Mint.startsWith('So111');
+  const quoteIsToken0 = pool.token0Mint.startsWith('So111');
   return {
     address: b.address.toBase58(),
     origin: o.origin ?? 'other',
-    snapshot: { pool, vault0Amount: solIsToken0 ? s : t, vault1Amount: solIsToken0 ? t : s, reserve0: solIsToken0 ? s : t, reserve1: solIsToken0 ? t : s },
+    snapshot: { pool, vault0Amount: quoteIsToken0 ? s : t, vault1Amount: quoteIsToken0 ? t : s, reserve0: quoteIsToken0 ? s : t, reserve1: quoteIsToken0 ? t : s },
     config,
     tokenMint: M,
-    solIsToken0,
-    solReserve: s,
+    quote: SOL_QUOTE,
+    quoteIsToken0,
+    quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: false,
     history: { kind: 'not-read' },
@@ -78,7 +80,7 @@ function search(views: PoolView[], extra: Partial<Extract<PoolSearchRead, { kind
     kind: 'ok',
     search: {
       mint: M,
-      known: { launchPool: key().toBase58(), standard: [{ index: 1, config: key().toBase58(), address: key().toBase58() }] },
+      known: { launchPool: key().toBase58(), standard: [{ index: 1, config: key().toBase58(), address: key().toBase58(), quote: SOL_QUOTE.mint }] },
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
@@ -589,7 +591,7 @@ describe('where the tokens of a withdrawal arrive', () => {
 
   it('a missing Token-2022 account is never priced at the classic 165 bytes (D20): the review says the amount', async () => {
     const base = view();
-    const pool = base.solIsToken0 ? { ...base.snapshot.pool, token1Program: TOKEN_2022 } : { ...base.snapshot.pool, token0Program: TOKEN_2022 };
+    const pool = base.quoteIsToken0 ? { ...base.snapshot.pool, token1Program: TOKEN_2022 } : { ...base.snapshot.pool, token0Program: TOKEN_2022 };
     const v: PoolView = { ...base, snapshot: { ...base.snapshot, pool } };
     mount({ ...missingToken(), positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [position(v)] })) }, { path: '/pools' });
     fireEvent.click(await within(await screen.findByTestId('lp-position')).findByRole('button', { name: 'Remove liquidity' }));
@@ -712,7 +714,7 @@ describe('the review', () => {
 describe('adding to a launch pool that charges the creator fee', () => {
   const launchPool = (): PoolView => {
     const v = view({ origin: 'launch-pool' });
-    return { ...v, config: recordedTier(0), snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, enableCreatorFee: true, creatorFeeOn: v.solIsToken0 ? 1 : 2 } } };
+    return { ...v, config: recordedTier(0), snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, enableCreatorFee: true, creatorFeeOn: v.quoteIsToken0 ? 1 : 2 } } };
   };
 
   it("the panel says what LPs keep, and that traders also pay the pool's creator on top", async () => {

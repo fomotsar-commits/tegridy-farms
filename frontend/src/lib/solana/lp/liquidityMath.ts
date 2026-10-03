@@ -91,7 +91,7 @@ export interface DepositPlan {
  */
 export function planDeposit(
   s: PoolSnapshot,
-  a: { solIsToken0: boolean; driving: 'sol' | 'token'; maxIn: bigint; bps: bigint; availableSol: bigint | null; availableToken: bigint | null },
+  a: { quoteIsToken0: boolean; driving: 'sol' | 'token'; maxIn: bigint; bps: bigint; availableSol: bigint | null; availableToken: bigint | null },
 ): DepositPlan | PlanProblem {
   const S = s.pool.lpSupply;
   const R0 = s.reserve0;
@@ -99,7 +99,7 @@ export function planDeposit(
   // 1. No price on either side.
   if (S <= 0n || R0 <= 0n || R1 <= 0n) return { problem: 'no-price' };
 
-  const drivingIs0 = (a.driving === 'sol') === a.solIsToken0;
+  const drivingIs0 = (a.driving === 'sol') === a.quoteIsToken0;
   const rDriving = drivingIs0 ? R0 : R1;
   const rOther = drivingIs0 ? R1 : R0;
   const availDriving = a.driving === 'sol' ? a.availableSol : a.availableToken;
@@ -268,7 +268,7 @@ export interface CreatePlan {
  * no rule and is never treated as 0.
  */
 export function planCreate(a: {
-  solIsToken0: boolean;
+  quoteIsToken0: boolean;
   sol: bigint;
   token: bigint;
   availableSol: bigint | null;
@@ -282,8 +282,8 @@ export function planCreate(a: {
   }
   const supply = isqrt(a.sol * a.token);
   return {
-    init0: a.solIsToken0 ? a.sol : a.token,
-    init1: a.solIsToken0 ? a.token : a.sol,
+    init0: a.quoteIsToken0 ? a.sol : a.token,
+    init1: a.quoteIsToken0 ? a.token : a.sol,
     supply,
     lp: supply - LOCKED_LP,
     locked: { sol: (LOCKED_LP * a.sol) / supply, token: (LOCKED_LP * a.token) / supply },

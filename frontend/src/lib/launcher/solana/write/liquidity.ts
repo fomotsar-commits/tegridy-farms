@@ -311,7 +311,7 @@ export function poolPins(cfg: CurveWriteConfig, view: PoolView, a: { tokenMint: 
   const p = view.snapshot.pool;
   const problem = poolProblem(cfg.cpSwapProgram, address, p, a.tokenMint);
   if (problem) return problem;
-  const solIsToken0 = p.token0Mint === WSOL_MINT.toBase58();
+  const quoteIsToken0 = p.token0Mint === WSOL_MINT.toBase58();
   return {
     address,
     ammConfig: new PublicKey(p.ammConfig),
@@ -325,8 +325,8 @@ export function poolPins(cfg: CurveWriteConfig, view: PoolView, a: { tokenMint: 
     lpMint: new PublicKey(p.lpMint),
     observation: new PublicKey(p.observationKey),
     tokenMint: a.tokenMint,
-    tokenProgram: new PublicKey(solIsToken0 ? p.token1Program : p.token0Program),
-    solIsToken0,
+    tokenProgram: new PublicKey(quoteIsToken0 ? p.token1Program : p.token0Program),
+    quoteIsToken0,
     lpAccount: a.lpAccount,
   };
 }
@@ -449,7 +449,7 @@ function depositProblemCopy(p: PlanProblem, ctx: { driving: 'sol' | 'token'; dec
     case 'too-small': {
       if (p.minLp === null) return LP_COPY.tooSmallDeposit(null);
       const S = ctx.s.snapshot.pool.lpSupply;
-      const R = ctx.driving === 'sol' ? ctx.s.solReserve : ctx.s.tokenReserve;
+      const R = ctx.driving === 'sol' ? ctx.s.quoteReserve : ctx.s.tokenReserve;
       // The least typed amount whose shares reach the minimum: lpForMaxIn(x) ≥ minLp.
       const num = p.minLp * R * (10_000n + ctx.bps);
       const den = S * 10_000n;
@@ -482,8 +482,8 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   if (typeof snap === 'string') return notSent('build', snap);
   const { view } = snap;
   const p = view.snapshot.pool;
-  const solIsToken0 = view.solIsToken0;
-  const tokenProgram = new PublicKey(solIsToken0 ? p.token1Program : p.token0Program);
+  const quoteIsToken0 = view.quoteIsToken0;
+  const tokenProgram = new PublicKey(quoteIsToken0 ? p.token1Program : p.token0Program);
 
   // 5. The token, read again.
   const safety = classifyToken(a.tokenMint.toBase58(), snap.mint, snap.metaplex);
@@ -493,7 +493,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   if (!facts) return notSent('build', LP_COPY.tokenUnread);
   if (snap.mint.owner !== tokenProgram.toBase58()) return notSent('build', LP_COPY.poolChanged("the token's program"));
   const decimals = facts.decimals;
-  if (decimals !== (solIsToken0 ? p.mint1Decimals : p.mint0Decimals)) return notSent('build', LP_COPY.poolChanged("the token's decimals"));
+  if (decimals !== (quoteIsToken0 ? p.mint1Decimals : p.mint0Decimals)) return notSent('build', LP_COPY.poolChanged("the token's decimals"));
   // Repeats the verdict on purpose: a future loosening of classifyToken cannot loosen deposits.
   const outsideSet = facts.extensions.find((e) => !SITE_ALLOWED_EXTENSIONS.has(e));
   if (outsideSet !== undefined) return notSent('build', LP_COPY.tokenBlocked(`It uses ${extensionPlain(outsideSet)}.`));
@@ -536,10 +536,10 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   });
 
   // 11. The plan.
-  const planned = planDeposit(view.snapshot, { solIsToken0, driving: a.driving, maxIn: a.maxIn, bps: a.slippageBps, availableSol, availableToken });
+  const planned = planDeposit(view.snapshot, { quoteIsToken0, driving: a.driving, maxIn: a.maxIn, bps: a.slippageBps, availableSol, availableToken });
   if (isPlanProblem(planned)) return notSent('build', depositProblemCopy(planned, { driving: a.driving, decimals, s: view, bps: a.slippageBps }));
-  const maxSol = solIsToken0 ? planned.max0 : planned.max1;
-  const maxTok = solIsToken0 ? planned.max1 : planned.max0;
+  const maxSol = quoteIsToken0 ? planned.max0 : planned.max1;
+  const maxTok = quoteIsToken0 ? planned.max1 : planned.max0;
 
   // 12. Moved since shown.
   const otherMax = a.driving === 'sol' ? maxTok : maxSol;
@@ -627,11 +627,11 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
         enableCreatorFee: p.enableCreatorFee,
         tokenMint: a.tokenMint,
         tokenDecimals: decimals,
-        solIsToken0,
+        quoteIsToken0,
         lpAmount: d.lpAmount,
         lpDecimals: p.lpMintDecimals,
-        quoted: { sol: solIsToken0 ? planned.cost0 : planned.cost1, token: solIsToken0 ? planned.cost1 : planned.cost0 },
-        max: { sol: solIsToken0 ? d.max0 : d.max1, token: solIsToken0 ? d.max1 : d.max0 },
+        quoted: { sol: quoteIsToken0 ? planned.cost0 : planned.cost1, token: quoteIsToken0 ? planned.cost1 : planned.cost0 },
+        max: { sol: quoteIsToken0 ? d.max0 : d.max1, token: quoteIsToken0 ? d.max1 : d.max0 },
         limitedByBalance: planned.limitedByBalance,
         sharePct: { before: pct(lpHeldBefore, S), after: pct(lpHeldBefore + d.lpAmount, S + d.lpAmount) },
         price: health.price,
@@ -700,9 +700,9 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
   if (typeof snap === 'string') return notSent('build', snap);
   const { view } = snap;
   const p = view.snapshot.pool;
-  const solIsToken0 = view.solIsToken0;
-  const tokenProgram = new PublicKey(solIsToken0 ? p.token1Program : p.token0Program);
-  const decimals = solIsToken0 ? p.mint1Decimals : p.mint0Decimals;
+  const quoteIsToken0 = view.quoteIsToken0;
+  const tokenProgram = new PublicKey(quoteIsToken0 ? p.token1Program : p.token0Program);
+  const decimals = quoteIsToken0 ? p.mint1Decimals : p.mint0Decimals;
 
   // 5. The pool program's own rules, and only those.
   if (!withdrawEnabled(p)) return notSent('build', LP_COPY.withdrawBit);
@@ -787,8 +787,8 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
     withdraw,
     ...closeWsolIxs(plan, a.owner),
   ];
-  const minSol = solIsToken0 ? planned.min0 : planned.min1;
-  const minTok = solIsToken0 ? planned.min1 : planned.min0;
+  const minSol = quoteIsToken0 ? planned.min0 : planned.min1;
+  const minTok = quoteIsToken0 ? planned.min1 : planned.min0;
   const rentIfOpened = (exists: boolean) => (exists ? 0n : (tokRent ?? 0n));
 
   // 13. Simulate twice and compare. No upper bound on what arrives: a donation to the
@@ -835,15 +835,15 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
         config: view.config,
         tokenMint: a.tokenMint,
         tokenDecimals: decimals,
-        solIsToken0,
+        quoteIsToken0,
         lpAccount: a.lpAccount,
         lpAmount: w.lpAmount,
         lpDecimals: p.lpMintDecimals,
         heldBefore: held,
         all: planned.all,
         keep: planned.keep,
-        quoted: { sol: solIsToken0 ? planned.out0 : planned.out1, token: solIsToken0 ? planned.out1 : planned.out0 },
-        min: { sol: solIsToken0 ? w.min0 : w.min1, token: solIsToken0 ? w.min1 : w.min0 },
+        quoted: { sol: quoteIsToken0 ? planned.out0 : planned.out1, token: quoteIsToken0 ? planned.out1 : planned.out0 },
+        min: { sol: quoteIsToken0 ? w.min0 : w.min1, token: quoteIsToken0 ? w.min1 : w.min0 },
         tokenAccount: tokenAta,
         tokenAccountRent: rentIfOpened(snap.tokenAccount.account !== null),
         unwrapsWsol: bodySteps(steps).some((s) => s.kind === 'close-wsol'),

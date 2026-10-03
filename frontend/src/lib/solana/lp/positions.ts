@@ -113,7 +113,7 @@ const toBase58 = (b: Uint8Array) => new PublicKey(b).toBase58();
 /** The SOL side of what a position pays out now, for ordering; -1 when it has no value read. */
 export function positionSolValue(p: Position): bigint {
   if (!p.value || p.pool?.kind !== 'pool') return -1n;
-  return p.pool.view.solIsToken0 ? p.value.token0 : p.value.token1;
+  return p.pool.view.quoteIsToken0 ? p.value.token0 : p.value.token1;
 }
 
 export async function readPositions(

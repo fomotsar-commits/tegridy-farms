@@ -21,6 +21,7 @@ import {
 } from '../cpswap/program';
 import { TOKEN_PROGRAM, WSOL_MINT } from './tokenSafety';
 import type { PoolView } from './poolFinder';
+import { SOL_QUOTE, readPair, type QuoteCoin } from './quotes';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 
 export const PROGRAM = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
@@ -68,10 +69,14 @@ export interface PoolSpec {
   configIndex?: number;
   /** Where the pool sits; default the standard address for its config. */
   address?: PublicKey;
-  solReserve: bigint;
+  /** The coin the token is paired with; default SOL. */
+  quote?: QuoteCoin;
+  /** The quote side's reserve, in the quote coin's base units. */
+  quoteReserve: bigint;
   tokenReserve: bigint;
   openTime?: bigint;
   status?: number;
+  /** Protocol fees owed on the quote side (named for the default, SOL). */
   protocolFeesSol?: bigint;
   lpSupply?: bigint;
   tokenDecimals?: number;
@@ -88,13 +93,15 @@ export interface BuiltPool { address: PublicKey; lpMint: PublicKey; config: Publ
 
 export function buildPool(s: PoolSpec): BuiltPool {
   const config = s.plain ? key() : deriveAmmConfig(PROGRAM, s.configIndex ?? 1);
-  const { token0, token1 } = sortMints(WSOL, s.mint);
+  const quote = s.quote ?? SOL_QUOTE;
+  const quoteMint = new PublicKey(quote.mint);
+  const { token0, token1 } = sortMints(quoteMint, s.mint);
   const address = s.address ?? (s.plain ? key() : derivePool(PROGRAM, config, token0, token1));
   const v0 = s.plain ? key() : deriveVault(PROGRAM, address, token0);
   const v1 = s.plain ? key() : deriveVault(PROGRAM, address, token1);
   const lpMint = s.plain ? key() : deriveLpMint(PROGRAM, address);
   const observation = s.plain ? key() : deriveObservation(PROGRAM, address);
-  const solIs0 = token0.equals(WSOL);
+  const solIs0 = token0.equals(quoteMint);
   const d = new Uint8Array(POOL_STATE_LEN);
   d.set(ACCOUNT_POOL_STATE, 0);
   const o = POOL_STATE_OFFSETS;
@@ -106,13 +113,13 @@ export function buildPool(s: PoolSpec): BuiltPool {
   d.set(lpMint.toBytes(), o.lpMint);
   d.set(token0.toBytes(), o.token0Mint);
   d.set(token1.toBytes(), o.token1Mint);
-  d.set(new PublicKey(TOKEN_PROGRAM).toBytes(), o.token0Program);
-  d.set(new PublicKey(TOKEN_PROGRAM).toBytes(), o.token1Program);
+  d.set(new PublicKey(solIs0 ? quote.program : TOKEN_PROGRAM).toBytes(), o.token0Program);
+  d.set(new PublicKey(solIs0 ? TOKEN_PROGRAM : quote.program).toBytes(), o.token1Program);
   d.set(observation.toBytes(), o.observationKey);
   d[o.status] = s.status ?? 0;
   d[o.lpMintDecimals] = 9;
-  d[o.mint0Decimals] = solIs0 ? 9 : (s.tokenDecimals ?? 6);
-  d[o.mint1Decimals] = solIs0 ? (s.tokenDecimals ?? 6) : 9;
+  d[o.mint0Decimals] = solIs0 ? quote.decimals : (s.tokenDecimals ?? 6);
+  d[o.mint1Decimals] = solIs0 ? (s.tokenDecimals ?? 6) : quote.decimals;
   v.setBigUint64(o.lpSupply, s.lpSupply ?? 1_000_000n, true);
   const fees = s.protocolFeesSol ?? 0n;
   v.setBigUint64(solIs0 ? o.protocolFeesToken0 : o.protocolFeesToken1, fees, true);
@@ -127,7 +134,7 @@ export function buildPool(s: PoolSpec): BuiltPool {
     observation,
     accounts: {
       [address.toBase58()]: { owner: PROGRAM.toBase58(), data: d },
-      [solVault.toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(WSOL, authority, s.solReserve + fees) },
+      [solVault.toBase58()]: { owner: quote.program, data: tokenAccountBytes(quoteMint, authority, s.quoteReserve + fees) },
       [tokVault.toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(s.mint, authority, s.tokenReserve, s.frozenVault ? 2 : 1) },
       [config.toBase58()]: { owner: PROGRAM.toBase58(), data: configBytes(s.configIndex ?? 1) },
       [lpMint.toBase58()]: { owner: TOKEN_PROGRAM, data: mintBytes(authority, 9) },
@@ -199,16 +206,19 @@ export function observationBytes(o: { pool: PublicKey; initialized?: boolean; in
 /** A PoolView over a built pool, with the reserves it was built with. */
 export function viewOf(b: BuiltPool, s: { sol: bigint; tok: bigint; origin?: PoolView['origin']; frozen?: boolean; history?: PoolView['history']; config?: PoolView['config'] | 'decoded' }): PoolView {
   const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
-  const solIs0 = pool.token0Mint === WSOL_MINT;
-  const tokenMint = solIs0 ? pool.token1Mint : pool.token0Mint;
+  // The pool's one reading (quotes.ts); `s.sol` is the quote side's reserve, whichever coin that is.
+  const pair = readPair(pool.token0Mint, pool.token1Mint)!;
+  const solIs0 = pair.quoteIsToken0;
+  const tokenMint = pair.tokenMint;
   return {
     address: b.address.toBase58(),
     origin: s.origin ?? 'other',
     snapshot: { pool, vault0Amount: solIs0 ? s.sol : s.tok, vault1Amount: solIs0 ? s.tok : s.sol, reserve0: solIs0 ? s.sol : s.tok, reserve1: solIs0 ? s.tok : s.sol },
     config: s.config === undefined || s.config === 'decoded' ? decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data) : s.config,
     tokenMint,
-    solIsToken0: solIs0,
-    solReserve: s.sol,
+    quote: pair.quote,
+    quoteIsToken0: solIs0,
+    quoteReserve: s.sol,
     tokenReserve: s.tok,
     vaultsFrozen: s.frozen ?? false,
     history: s.history ?? { kind: 'not-read' },

@@ -70,8 +70,8 @@ function RemoveInner({
   gate: LpOpenGate;
 }) {
   const pool = view.snapshot.pool;
-  const decimals = tokenDecimals ?? (view.solIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
-  const tokenProgram = view.solIsToken0 ? pool.token1Program : pool.token0Program;
+  const decimals = tokenDecimals ?? (view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
+  const tokenProgram = view.quoteIsToken0 ? pool.token1Program : pool.token0Program;
   const signer = writes.signerState.kind === 'ready' ? writes.signerState.signer : null;
   const [factsNonce, setFactsNonce] = useState(0);
   const facts = useWalletFacts(writes, signer?.publicKey ?? null, { tokenMint: view.tokenMint, tokenProgram, lpMint: null }, factsNonce);
@@ -92,8 +92,8 @@ function RemoveInner({
   );
   const plan: WithdrawPlan | null = result && !isPlanProblem(result) ? result : null;
   const problem: PlanProblem | null = result && isPlanProblem(result) ? result : null;
-  const solOut = (pl: WithdrawPlan) => ({ out: view.solIsToken0 ? pl.out0 : pl.out1, min: view.solIsToken0 ? pl.min0 : pl.min1 });
-  const tokOut = (pl: WithdrawPlan) => ({ out: view.solIsToken0 ? pl.out1 : pl.out0, min: view.solIsToken0 ? pl.min1 : pl.min0 });
+  const solOut = (pl: WithdrawPlan) => ({ out: view.quoteIsToken0 ? pl.out0 : pl.out1, min: view.quoteIsToken0 ? pl.min0 : pl.min1 });
+  const tokOut = (pl: WithdrawPlan) => ({ out: view.quoteIsToken0 ? pl.out1 : pl.out0, min: view.quoteIsToken0 ? pl.min1 : pl.min0 });
   const shares = (v: bigint) => unitsExact(v, pool.lpMintDecimals);
   const tok = (v: bigint) => tokensAbout(v, decimals);
 
@@ -151,7 +151,7 @@ function RemoveInner({
 
   const value = position.value;
   const holdText = value
-    ? `${shares(held)} pool shares, ${value.sharePct.toFixed(4)}% of the pool, worth about ${solAbout(view.solIsToken0 ? value.token0 : value.token1)} and ${tok(view.solIsToken0 ? value.token1 : value.token0)} now`
+    ? `${shares(held)} pool shares, ${value.sharePct.toFixed(4)}% of the pool, worth about ${solAbout(view.quoteIsToken0 ? value.token0 : value.token1)} and ${tok(view.quoteIsToken0 ? value.token1 : value.token0)} now`
     : `${shares(held)} pool shares`;
 
   const status = useDebounced(

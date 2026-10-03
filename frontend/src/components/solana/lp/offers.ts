@@ -231,7 +231,7 @@ export function createAdvice(a: {
   if (!a.gate || a.gate.kind !== 'open' || a.search.kind !== 'ok') return { kind: 'none' };
   const views = a.search.search.pools.flatMap((e) => (e.kind === 'pool' ? [e.view] : []));
   const biggest = (list: PoolView[]): PoolView | null =>
-    list.reduce<PoolView | null>((best, v) => (best === null || v.solReserve > best.solReserve ? v : best), null);
+    list.reduce<PoolView | null>((best, v) => (best === null || v.quoteReserve > best.quoteReserve ? v : best), null);
   const mine = biggest(views.filter((v) => a.openedHere(v.address)));
   if (mine) return { kind: 'opened-here', pool: mine };
   const tier1 = publicTierConfig(a.gate.cfg.cpSwapProgram).toBase58();

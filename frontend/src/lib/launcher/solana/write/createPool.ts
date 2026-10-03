@@ -130,7 +130,7 @@ export function createPins(
   const cp = cfg.cpSwapProgram;
   const ammConfig = publicTierConfig(cp);
   const { token0, token1 } = sortMints(WSOL_MINT, a.tokenMint);
-  const solIsToken0 = token0.equals(WSOL_MINT);
+  const quoteIsToken0 = token0.equals(WSOL_MINT);
   const programOf = (m: PublicKey): PublicKey => (m.equals(WSOL_MINT) ? TOKEN_PROGRAM_ID : a.tokenProgram);
   const lpMint = deriveLpMint(cp, a.address);
   return {
@@ -147,7 +147,7 @@ export function createPins(
     observation: deriveObservation(cp, a.address),
     tokenMint: a.tokenMint,
     tokenProgram: a.tokenProgram,
-    solIsToken0,
+    quoteIsToken0,
     lpAccount: associatedTokenAddress(lpMint, a.signer, TOKEN_PROGRAM_ID),
   };
 }
@@ -486,7 +486,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   // 12. The plan, inside the rent band (3.4). Two signatures' worth of fees whichever
   // path it takes.
   const { token0, token1 } = sortMints(WSOL_MINT, a.tokenMint);
-  const solIsToken0 = token0.equals(WSOL_MINT);
+  const quoteIsToken0 = token0.equals(WSOL_MINT);
   const availableSol = spendableSol({
     lamports: snap.signerLamports,
     walletFloor: r0,
@@ -495,7 +495,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
     wsolCreateRent: snap.wsol.account ? 0n : r165,
     alsoPaid: createFee + neverRefunded,
   });
-  const planned = planCreate({ solIsToken0, sol: a.sol, token: a.token, availableSol, availableToken });
+  const planned = planCreate({ quoteIsToken0, sol: a.sol, token: a.token, availableSol, availableToken });
   if ('problem' in planned) return notSent('build', createProblemCopy(planned, decimals));
 
   // 13. Pins.
@@ -588,7 +588,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
       if (problem) return problem;
       const c = bodySteps(steps).find((s) => s.kind === 'pool-create');
       if (!c || c.kind !== 'pool-create') return 'The opening is missing from the transaction.';
-      const put = { sol: solIsToken0 ? c.init0 : c.init1, token: solIsToken0 ? c.init1 : c.init0 };
+      const put = { sol: quoteIsToken0 ? c.init0 : c.init1, token: quoteIsToken0 ? c.init1 : c.init0 };
       const supply = isqrt(c.init0 * c.init1);
       const summary: LpCreateSummary = {
         kind: 'lp-create',
@@ -597,7 +597,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
         config,
         tokenMint: a.tokenMint,
         tokenDecimals: decimals,
-        solIsToken0,
+        quoteIsToken0,
         put,
         supply,
         lpAmount: supply - LOCKED_LP,

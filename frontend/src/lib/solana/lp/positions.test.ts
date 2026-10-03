@@ -13,7 +13,7 @@ describe('readPositions', () => {
   it('finds the wallet’s pool share, places it through the index and values it', async () => {
     const wallet = key();
     const mint = key();
-    const p = buildPool({ mint, address: key(), solReserve: 10n * 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000_000n });
+    const p = buildPool({ mint, address: key(), quoteReserve: 10n * 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000_000n });
     const lpAcc = key().toBase58();
     const otherToken = key();
     const accounts: Record<string, FakeAccount> = {
@@ -38,8 +38,8 @@ describe('readPositions', () => {
 
   it('refuses an index answer that does not derive to the share, and keeps the share listed', async () => {
     const wallet = key();
-    const p = buildPool({ mint: key(), address: key(), solReserve: 10n, tokenReserve: 10n });
-    const decoy = buildPool({ mint: key(), address: key(), solReserve: 10n, tokenReserve: 10n });
+    const p = buildPool({ mint: key(), address: key(), quoteReserve: 10n, tokenReserve: 10n });
+    const decoy = buildPool({ mint: key(), address: key(), quoteReserve: 10n, tokenReserve: 10n });
     const accounts: Record<string, FakeAccount> = { ...p.accounts, ...decoy.accounts, [CLOCK]: clockAccount(5n), [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 7n) } };
     const r = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({ [`lpMint:${p.lpMint.toBase58()}`]: [decoy.address.toBase58()] })));
     expect(r.kind === 'ok' && r.positions.map((x) => [x.placement, x.pool, x.value])).toEqual([['not-found', null, null]]);
@@ -47,7 +47,7 @@ describe('readPositions', () => {
 
   it('an index outage keeps the share, marked unplaced; a wallet read failure is unread', async () => {
     const wallet = key();
-    const p = buildPool({ mint: key(), address: key(), solReserve: 10n, tokenReserve: 10n });
+    const p = buildPool({ mint: key(), address: key(), quoteReserve: 10n, tokenReserve: 10n });
     const accounts = { ...p.accounts, [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 7n) } };
     const r = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({}, { status: 502 })));
     expect(r.kind === 'ok' && r.positions.map((x) => [x.placement, x.placementDetail])).toEqual([['index-unread', 'the pool index answered HTTP 502']]);
@@ -63,7 +63,7 @@ describe('readPositions', () => {
     const table: Record<string, string[]> = {};
     const n = MAX_POSITIONS + 5;
     for (let i = 0; i < n; i++) {
-      const p = buildPool({ mint: key(), address: key(), solReserve: BigInt(i + 1) * 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
+      const p = buildPool({ mint: key(), address: key(), quoteReserve: BigInt(i + 1) * 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
       Object.assign(accounts, p.accounts);
       accounts[key().toBase58()] = { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 100n) };
       table[`lpMint:${p.lpMint.toBase58()}`] = [p.address.toBase58()];
@@ -72,7 +72,7 @@ describe('readPositions', () => {
     const first = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex(table, { calls })));
     expect(first.kind === 'ok' && [first.positions.length, first.totalShares]).toEqual([MAX_POSITIONS, n]);
     expect(calls).toHaveLength(MAX_POSITIONS);
-    const sol = (first.kind === 'ok' ? first.positions : []).map((p) => (p.value && p.pool?.kind === 'pool' ? (p.pool.view.solIsToken0 ? p.value.token0 : p.value.token1) : -1n));
+    const sol = (first.kind === 'ok' ? first.positions : []).map((p) => (p.value && p.pool?.kind === 'pool' ? (p.pool.view.quoteIsToken0 ? p.value.token0 : p.value.token1) : -1n));
     expect(sol).toEqual([...sol].sort((a, b) => (a > b ? -1 : a < b ? 1 : 0)));
     // "Look up more" spends lookups only on shares not placed yet (review 2026-09-30:
     // it used to re-place every share and ran into the index's per-IP limit).
@@ -85,7 +85,7 @@ describe('readPositions', () => {
 
   it('two accounts holding the same share cost one lookup', async () => {
     const wallet = key();
-    const p = buildPool({ mint: key(), address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
+    const p = buildPool({ mint: key(), address: key(), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
     const accounts: Record<string, FakeAccount> = {
       ...p.accounts,
       [CLOCK]: clockAccount(5n),
@@ -161,7 +161,7 @@ describe('readPositions: junk "shares" sent to the wallet', () => {
   it('a miss is asked again after the minute, so a pool the index had not caught up with is placed', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const wallet = key();
-    const p = buildPool({ mint: key(), address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
+    const p = buildPool({ mint: key(), address: key(), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
     const accounts: Record<string, FakeAccount> = { ...p.accounts, [CLOCK]: clockAccount(5n), [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 100n) } };
     const caughtUp = { [`lpMint:${p.lpMint.toBase58()}`]: [p.address.toBase58()] };
     const placement = async (table: Record<string, string[]>, calls: string[]) => {
@@ -216,7 +216,7 @@ describe('readPositions: junk "shares" sent to the wallet', () => {
 
   it('a proven share is listed before junk whose mints sort ahead of it, and costs no lookup', async () => {
     const wallet = key();
-    const pool = () => buildPool({ mint: key(), address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
+    const pool = () => buildPool({ mint: key(), address: key(), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
     let p = pool();
     // A share mint that does not sort near the very front, so junk ahead of it is quick to make.
     while (p.lpMint.toBase58() < '9') p = pool();
@@ -250,7 +250,7 @@ describe('readPositions: a share too small to take out', () => {
   it('a dust share is tooSmall, never a payout with a zero side', async () => {
     const wallet = key();
     // 10 lamports against 10^9 tokens over 10^6 shares: 7 shares are worth 0 SOL.
-    const p = buildPool({ mint: key(), address: key(), solReserve: 10n, tokenReserve: 10n ** 9n, lpSupply: 1_000_000n });
+    const p = buildPool({ mint: key(), address: key(), quoteReserve: 10n, tokenReserve: 10n ** 9n, lpSupply: 1_000_000n });
     const accounts: Record<string, FakeAccount> = { ...p.accounts, [CLOCK]: clockAccount(5n), [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 7n) } };
     const r = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({ [`lpMint:${p.lpMint.toBase58()}`]: [p.address.toBase58()] })));
     const pos = r.kind === 'ok' ? r.positions[0] : undefined;
@@ -261,7 +261,7 @@ describe('readPositions: a share too small to take out', () => {
 
   it('a share that pays on both sides is not tooSmall', async () => {
     const wallet = key();
-    const p = buildPool({ mint: key(), address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000_000n });
+    const p = buildPool({ mint: key(), address: key(), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000_000n });
     const accounts: Record<string, FakeAccount> = { ...p.accounts, [CLOCK]: clockAccount(5n), [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 7n) } };
     const r = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({ [`lpMint:${p.lpMint.toBase58()}`]: [p.address.toBase58()] })));
     const pos = r.kind === 'ok' ? r.positions[0] : undefined;
@@ -276,7 +276,7 @@ describe('readPositions: a share too small to take out', () => {
 describe('readPositions: the share of a pool this page opened', () => {
   it('after rememberCreatedShare, an index that answers unread is never asked, and the share is placed "chain" and valued', async () => {
     const wallet = key();
-    const p = buildPool({ mint: key(), address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000_000n });
+    const p = buildPool({ mint: key(), address: key(), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000_000n });
     const accounts: Record<string, FakeAccount> = { ...p.accounts, [CLOCK]: clockAccount(5n), [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 999_900n) } };
     const asked: string[] = [];
     const before = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({}, { status: 502, calls: asked })));

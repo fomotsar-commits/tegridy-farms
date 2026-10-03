@@ -35,7 +35,7 @@ const warnedToken = { ...okToken, verdict: 'warn', warnings: [{ code: 'mint-auth
 const outside = (p: number) => ({ kind: 'ok' as const, solPerToken: p, source: 'Jupiter' as const });
 
 function view(o: { status?: number; openTime?: bigint; frozen?: boolean; sol?: bigint; tok?: bigint; lpSupply?: bigint; config?: null } = {}): PoolView {
-  const b = buildPool({ mint, solReserve: o.sol ?? SOL, tokenReserve: o.tok ?? TOK, status: o.status ?? 0, openTime: o.openTime ?? 100n, lpSupply: o.lpSupply });
+  const b = buildPool({ mint, quoteReserve: o.sol ?? SOL, tokenReserve: o.tok ?? TOK, status: o.status ?? 0, openTime: o.openTime ?? 100n, lpSupply: o.lpSupply });
   return viewOf(b, { sol: o.sol ?? SOL, tok: o.tok ?? TOK, frozen: o.frozen, ...(o.config === null ? { config: null } : {}) });
 }
 
@@ -249,7 +249,7 @@ describe('createOffer', () => {
   });
   /** A TOKEN/SOL pool for `mint` on fee tier `tier` (its standard address), or at a one-off address. */
   const poolOn = (tier: number, address?: PublicKey, sol: bigint = SOL) =>
-    ({ kind: 'pool' as const, view: viewOf(buildPool({ mint, solReserve: sol, tokenReserve: TOK, configIndex: tier, address }), { sol, tok: TOK }) });
+    ({ kind: 'pool' as const, view: viewOf(buildPool({ mint, quoteReserve: sol, tokenReserve: TOK, configIndex: tier, address }), { sol, tok: TOK }) });
   type Entry = PoolSearch['pools'][number];
   const searchOf = (pools: Entry[], index: PoolSearch['index'] = { kind: 'ok', pools: [], truncated: false }): PoolSearchRead => ({
     kind: 'ok',

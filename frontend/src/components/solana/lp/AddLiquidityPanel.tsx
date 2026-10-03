@@ -57,8 +57,8 @@ function AddInner({
   const pool = view.snapshot.pool;
   // The pool records its token's decimals; the token read must agree before Review
   // builds anything, so the record is a safe fallback for the preview.
-  const decimals = tokenDecimals ?? (view.solIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
-  const tokenProgram = view.solIsToken0 ? pool.token1Program : pool.token0Program;
+  const decimals = tokenDecimals ?? (view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
+  const tokenProgram = view.quoteIsToken0 ? pool.token1Program : pool.token0Program;
   const signer = writes.signerState.kind === 'ready' ? writes.signerState.signer : null;
   const [factsNonce, setFactsNonce] = useState(0);
   const facts = useWalletFacts(writes, signer?.publicKey ?? null, { tokenMint: view.tokenMint, tokenProgram, lpMint: pool.lpMint }, factsNonce);
@@ -99,7 +99,7 @@ function AddInner({
 
   const plans = useMemo(() => {
     if (!typed || maxIn === null || maxIn === 0n) return null;
-    const base = { solIsToken0: view.solIsToken0, driving: typed.side, maxIn, bps: slippageBps ?? DEFAULT_SLIPPAGE_BPS };
+    const base = { quoteIsToken0: view.quoteIsToken0, driving: typed.side, maxIn, bps: slippageBps ?? DEFAULT_SLIPPAGE_BPS };
     return {
       // The pool's own answer, with no balance rule: what the other box shows.
       free: planDeposit(view.snapshot, { ...base, availableSol: null, availableToken: null }),
@@ -110,8 +110,8 @@ function AddInner({
   const plan: DepositPlan | null = plans && !isPlanProblem(plans.plan) ? plans.plan : null;
   const problem: PlanProblem | null = plans && isPlanProblem(plans.plan) ? plans.plan : null;
 
-  const solOf = (pl: DepositPlan) => ({ cost: view.solIsToken0 ? pl.cost0 : pl.cost1, max: view.solIsToken0 ? pl.max0 : pl.max1 });
-  const tokOf = (pl: DepositPlan) => ({ cost: view.solIsToken0 ? pl.cost1 : pl.cost0, max: view.solIsToken0 ? pl.max1 : pl.max0 });
+  const solOf = (pl: DepositPlan) => ({ cost: view.quoteIsToken0 ? pl.cost0 : pl.cost1, max: view.quoteIsToken0 ? pl.max0 : pl.max1 });
+  const tokOf = (pl: DepositPlan) => ({ cost: view.quoteIsToken0 ? pl.cost1 : pl.cost0, max: view.quoteIsToken0 ? pl.max1 : pl.max0 });
   const other: LpSide | null = typed ? (typed.side === 'sol' ? 'token' : 'sol') : null;
   const otherText = free && other ? baseUnitsToInput(other === 'sol' ? solOf(free).cost : tokOf(free).cost, sideDecimals(other)) : '';
   const boxes = { sol: typed?.side === 'sol' ? typed.text : otherText, token: typed?.side === 'token' ? typed.text : otherText };
