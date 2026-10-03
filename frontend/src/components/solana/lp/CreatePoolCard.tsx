@@ -252,7 +252,13 @@ function OfferLines({
       // A cut list (see poolListCut) is never "no pool yet", and a new pool never "the first".
       const cut = poolListCut(search);
       if (pools.length === 0 && !cut) {
-        return <p>No pool for this token yet. You can open the first one on the public fee tier: {terms} (read just now).</p>;
+        return (
+          <>
+            {/* With no pool anywhere there is nothing to press "Add liquidity" on: say that this is the way in. */}
+            <p>There is no pool to add liquidity to yet. Opening one is how the first liquidity goes in.</p>
+            <p>No pool for this token yet. You can open the first one on the public fee tier: {terms} (read just now).</p>
+          </>
+        );
       }
       const tier1 = tier.address.toBase58();
       const otherTiers = [
