@@ -150,6 +150,7 @@ function world(o: {
   status?: number;
   openTime?: bigint;
   launch?: boolean;
+  enableCreatorFee?: boolean;
   frozenTokenVault?: boolean;
   wallet?: bigint;
   heldTokens?: bigint | null;
@@ -171,6 +172,7 @@ function world(o: {
     status: o.status,
     openTime: o.openTime,
     launch: o.launch,
+    enableCreatorFee: o.enableCreatorFee,
     tokenProgram,
     frozenTokenVault: o.frozenTokenVault,
     record: o.record,
@@ -432,6 +434,15 @@ describe('prepareLpDeposit', () => {
     // Moved, but within the tolerance of what was shown: it prepares.
     ok(await deposit(w, { shownOtherMax: shown }));
     ok(await deposit(w, { shownOtherMax: shown - shown / 200n }));
+  });
+
+  // The review's "traders pay" is the pool's own cost: the trade fee, plus the tier's
+  // creator fee when the POOL's switch is on. The switch comes from the same fresh read.
+  it("carries the pool's own creator-fee switch into the summary, read fresh", async () => {
+    const launch = ok(await deposit(world({ launch: true, enableCreatorFee: true }), {}, answering({ kind: 'no-route', detail: 'Jupiter has no route for this token' })));
+    expect((launch.summary as LpDepositSummary).enableCreatorFee).toBe(true);
+    const plain = ok(await deposit(world()));
+    expect((plain.summary as LpDepositSummary).enableCreatorFee).toBe(false);
   });
 
   it('a never-traded launch pool prepares when Jupiter answers no route, and is refused when Jupiter is down', async () => {

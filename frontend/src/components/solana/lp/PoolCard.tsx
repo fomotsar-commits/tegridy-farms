@@ -1,7 +1,8 @@
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { formatWhen, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
-import { feeRateText, formatSolPrice, solText, tokenText } from '../../../lib/solana/lp/format';
-import { feeSplit } from '../../../lib/solana/cpswap/venue';
+import { feeRateText, formatSolPrice, solText, tokenText, tradeCostText } from '../../../lib/solana/lp/format';
+import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
+import { ratePercent } from '../../../lib/solana/cpswap/math';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
@@ -97,6 +98,8 @@ export function PoolCard({
   const swaps = swapsText(health);
   const cfg = view.config;
   const split = cfg ? feeSplit(cfg) : null;
+  // cp-swap adjust_creator_fee_rate: the tier's rate, only when this pool's own switch is on.
+  const creatorRate = cfg ? chargedCreatorFeeRate(cfg, pool.enableCreatorFee) : 0n;
   const solFees = view.solIsToken0 ? [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0] : [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1];
   const tokFees = view.solIsToken0 ? [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1] : [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0];
   const price = health.price;
@@ -147,10 +150,19 @@ export function PoolCard({
 
         {cfg && split ? (
           <>
-            <Row label={`Fee tier ${cfg.index}`} value={`Traders pay ${feeRateText(cfg.tradeFeeRate)} a trade`} mono={false} />
-            <Row label="Of that fee" value={`LPs keep ${split.lpKeepsPct.toFixed(3)}% of each trade, the venue ${split.venueTakesPct.toFixed(3)}%`} mono={false} />
-            {pool.enableCreatorFee && cfg.creatorFeeRate > 0n && (
-              <Row label="Creator fee" value={`${feeRateText(cfg.creatorFeeRate)} a trade, on top`} mono={false} />
+            {/* What a trade on THIS pool costs: its tier's trade fee, plus the creator fee when the pool's own switch is on. */}
+            <Row label={`Fee tier ${cfg.index}`} value={`Traders pay ${tradeCostText(cfg, pool.enableCreatorFee)}`} mono={false} />
+            <Row
+              label="Of that fee"
+              value={`LPs keep ${split.lpKeepsPct.toFixed(3)}% of each trade, the venue ${split.venueTakesPct.toFixed(3)}%${creatorRate > 0n ? `, the pool's creator ${ratePercent(creatorRate).toFixed(3)}%` : ''}`}
+              mono={false}
+            />
+            {creatorRate > 0n && (
+              <Row
+                label="Creator fee"
+                value={`${feeRateText(creatorRate)} a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, below), not to LPs`}
+                mono={false}
+              />
             )}
           </>
         ) : (

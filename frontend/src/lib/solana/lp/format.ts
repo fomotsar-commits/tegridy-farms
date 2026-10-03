@@ -1,5 +1,6 @@
 import { formatSol, formatTokenAmount } from '../../launcher/solana/curve/format';
 import { ratePercent } from '../cpswap/math';
+import { chargedCreatorFeeRate, tradeCost } from '../cpswap/venue';
 
 /** Display helpers for the LP pages. Numbers that ride a transaction never pass through here. */
 
@@ -19,6 +20,22 @@ export function formatSolPrice(v: number): string {
 /** A fee rate (hundredths of a bip) as a percentage: 2500 → "0.25%". */
 export function feeRateText(rate: bigint): string {
   return `${Number(ratePercent(rate).toFixed(4))}%`;
+}
+
+/**
+ * What a trade on a pool costs, in the one form every surface uses: the pool's tier and
+ * the pool's own creator-fee switch (`enable_creator_fee`, or `CREATOR_FEE_SWITCH` for a
+ * kind of pool).
+ *   - It charges a creator fee: "0.3% a trade (0.25% trade fee, 0.05% creator fee)".
+ *   - The tier has a creator rate this pool does not charge: "0.25% a trade (no creator fee)".
+ *   - The tier has none: "1% a trade".
+ */
+export function tradeCostText(config: { tradeFeeRate: bigint; creatorFeeRate: bigint }, enableCreatorFee: boolean): string {
+  const cost = tradeCost(config, chargedCreatorFeeRate(config, enableCreatorFee));
+  if (cost.creatorFeeRate > 0n) {
+    return `${feeRateText(cost.totalRate)} a trade (${feeRateText(cost.tradeFeeRate)} trade fee, ${feeRateText(cost.creatorFeeRate)} creator fee)`;
+  }
+  return config.creatorFeeRate > 0n ? `${feeRateText(cost.totalRate)} a trade (no creator fee)` : `${feeRateText(cost.totalRate)} a trade`;
 }
 
 export function solText(lamports: bigint): string {

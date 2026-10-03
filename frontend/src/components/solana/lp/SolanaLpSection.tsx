@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { SolanaProviders } from '../SolanaProviders';
-import { feeSplit, solOf } from '../../../lib/solana/cpswap/venue';
-import { feeRateText, solText } from '../../../lib/solana/lp/format';
+import { CREATOR_FEE_SWITCH, chargedCreatorFeeRate, feeSplit, solOf, tradeCost } from '../../../lib/solana/cpswap/venue';
+import type { AmmConfigView } from '../../../lib/solana/cpswap/program';
+import { feeRateText, solText, tradeCostText } from '../../../lib/solana/lp/format';
 import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
 import { lpWriteMode, type LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
@@ -182,6 +183,17 @@ function openingCost(fee: bigint, deposits: bigint | null): string {
     : `${feeText}, plus about ${solText(deposits)} of account deposits that are never refunded`;
 }
 
+/**
+ * What a trade on a tier costs. A tier with a creator rate charges it only in the pools
+ * whose own switch is on, which are the launch program's (CREATOR_FEE_SWITCH): a launch
+ * pool costs both fees, a pool anyone opens costs the trade fee alone. Both are said.
+ */
+function tierCostText(config: AmmConfigView): string {
+  if (config.creatorFeeRate === 0n) return tradeCostText(config, CREATOR_FEE_SWITCH.publicOpen);
+  const launch = tradeCost(config, chargedCreatorFeeRate(config, CREATOR_FEE_SWITCH.launchPool));
+  return `${feeRateText(launch.totalRate)} a trade in launch pools (${feeRateText(launch.tradeFeeRate)} trade fee, ${feeRateText(launch.creatorFeeRate)} creator fee); ${feeRateText(config.tradeFeeRate)} in a pool anyone opens`;
+}
+
 function FeeTiers({ readers }: { readers: LpReaders }) {
   const [read, setRead] = useState<FeeTierRead | null>(null);
   useEffect(() => {
@@ -213,14 +225,21 @@ function FeeTiers({ readers }: { readers: LpReaders }) {
                   <>
                     <Row
                       label={`Tier ${t.index}${t.index === 0 ? ' (graduated launches)' : t.index === 1 ? ' (public pools)' : ''}`}
-                      value={`${feeRateText(t.config.tradeFeeRate)} a trade`}
+                      value={tierCostText(t.config)}
                       mono={false}
                     />
                     <Row
                       label="Split"
-                      value={`LPs ${feeSplit(t.config).lpKeepsPct.toFixed(3)}%, venue ${feeSplit(t.config).venueTakesPct.toFixed(3)}% of each trade${t.config.creatorFeeRate > 0n ? `, creator ${feeRateText(t.config.creatorFeeRate)} on top in launch pools` : ''}`}
+                      value={`LPs ${feeSplit(t.config).lpKeepsPct.toFixed(3)}%, venue ${feeSplit(t.config).venueTakesPct.toFixed(3)}% of each trade`}
                       mono={false}
                     />
+                    {t.config.creatorFeeRate > 0n && (
+                      <Row
+                        label="Creator fee"
+                        value={`${feeRateText(t.config.creatorFeeRate)} a trade on top of the trade fee, in launch pools only; it goes to the token's creator, not to LPs`}
+                        mono={false}
+                      />
+                    )}
                     <Row
                       label="To open a pool"
                       value={t.config.disableCreatePool ? 'switched off' : openingCost(t.config.createPoolFee, read.openingDeposits)}

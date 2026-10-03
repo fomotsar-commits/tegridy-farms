@@ -20,6 +20,7 @@ import { prepared } from '../curve/fakeWriteApi.fixture';
 import type { LpWriteApi, Prepared } from '../curve/ports';
 import { fakeLpApi, lpCfg, lpDepositSummary, lpOpenGate, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { parsePercentBps } from './PercentPicker';
+import { recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
 
 const OWNER = key();
 const wallet = vi.hoisted(() => ({
@@ -676,6 +677,55 @@ describe('the review', () => {
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
     expect(disclosure).toHaveTextContent(/change its fee rates at once/);
+  });
+});
+
+// A launch pool on tier 0 exactly as mainnet holds it (scripts/record-pools-venue-fixture.mjs):
+// the launch program opens it with its creator fee switched on, so a trade costs the 0.25%
+// trade fee plus the tier's 0.05% creator fee. What LPs keep is unchanged; the creator's part
+// is on top and is not theirs, and the panel and its review must say both.
+describe('adding to a launch pool that charges the creator fee', () => {
+  const launchPool = (): PoolView => {
+    const v = view({ origin: 'launch-pool' });
+    return { ...v, config: recordedTier(0), snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, enableCreatorFee: true, creatorFeeOn: v.solIsToken0 ? 1 : 2 } } };
+  };
+
+  it("the panel says what LPs keep, and that traders also pay the pool's creator on top", async () => {
+    mount(readers({ findPools: vi.fn(async () => search([launchPool()])) }));
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const before = await screen.findByTestId('lp-before-you-add');
+    expect(before).toHaveTextContent(
+      "Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. Traders also pay this pool's creator 0.05% of each trade on top; that part is not yours.",
+    );
+  });
+
+  it('a pool that charges no creator fee says nothing about one', async () => {
+    const v = launchPool();
+    const off: PoolView = { ...v, origin: 'other', snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, enableCreatorFee: false } } };
+    mount(readers({ findPools: vi.fn(async () => search([off])) }));
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const before = await screen.findByTestId('lp-before-you-add');
+    expect(before).toHaveTextContent("Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. The vault can change");
+    // ("creator" alone also names the token's creator, in the freeze-account risk line.)
+    expect(before).not.toHaveTextContent(/pool's creator|creator fee/i);
+  });
+
+  it('the review says traders pay 0.3% a trade, the creator fee within it', async () => {
+    const v = launchPool();
+    const summary = lpDepositSummary(new PublicKey(v.address), MINT, { origin: 'launch-pool', config: recordedTier(0), enableCreatorFee: true });
+    const api = fakeLpApi({ prepareLpDeposit: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })) });
+    mount(readers({ findPools: vi.fn(async () => search([v])) }), { api });
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '0.1' } });
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: add liquidity' }));
+    });
+    await within(panel).findByRole('heading', { name: 'Review: add liquidity' });
+    expect(within(panel).getByText('Fee tier', { exact: true }).nextElementSibling?.textContent).toBe(
+      '0: traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee); LPs keep 0.200% of each trade',
+    );
   });
 });
 

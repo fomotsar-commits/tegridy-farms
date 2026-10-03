@@ -2,8 +2,8 @@ import { useEffect, useRef, type ReactNode, type Ref } from 'react';
 import { describeTreasury, formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
 import { ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
-import { feeSplit } from '../../../lib/solana/cpswap/venue';
-import { feeRateText, formatSolPrice } from '../../../lib/solana/lp/format';
+import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
+import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import type { TxFlow } from './useTxFlow';
 
@@ -255,9 +255,13 @@ function poolKindText(s: LpSummary): string {
   }
 }
 
-function feeTierText(config: LpSummary['config']): string {
+/**
+ * The pool's tier and what a trade on the pool costs: the trade fee, plus the creator fee
+ * when the pool's own switch is on (`enableCreatorFee`, read with the pool while preparing).
+ */
+function feeTierText(config: LpSummary['config'], enableCreatorFee: boolean): string {
   if (!config) return 'not read';
-  return `${config.index}: traders pay ${feeRateText(config.tradeFeeRate)} a trade; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade`;
+  return `${config.index}: traders pay ${tradeCostText(config, enableCreatorFee)}; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade`;
 }
 
 /** A share of the pool, said as a percentage; a real share that rounds to nothing says so. */
@@ -303,7 +307,7 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
   return (
     <>
       <LpPoolRows summary={s} />
-      <Row label="Fee tier" value={feeTierText(s.config)} mono={false} />
+      <Row label="Fee tier" value={feeTierText(s.config, s.enableCreatorFee)} mono={false} />
       <Row label="You put in about" value={`${SOL(s.quoted.sol)} and ${tok(s.quoted.token)} tokens`} />
       <Row label="At most" value={`${solExact(s.max.sol)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} />
       <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} />
@@ -397,7 +401,8 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
         mono={false}
       />
       <Row label="Token (mint)" value={s.tokenMint.toBase58()} />
-      <Row label="Fee tier" value={feeTierText(s.config)} mono={false} />
+      {/* Opened with cp-swap's `initialize`, which switches the new pool's creator fee off. */}
+      <Row label="Fee tier" value={feeTierText(s.config, CREATOR_FEE_SWITCH.publicOpen)} mono={false} />
       {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
       <Row label="You put in" value={`${solExact(s.put.sol)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
       <Row label="Opening price" value={openingPriceText(s.price)} mono={false} />

@@ -618,6 +618,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
         pool: pins.address,
         origin: pins.origin,
         config: view.config,
+        enableCreatorFee: p.enableCreatorFee,
         tokenMint: a.tokenMint,
         tokenDecimals: decimals,
         solIsToken0,

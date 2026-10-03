@@ -3,13 +3,13 @@ import { PublicKey } from '@solana/web3.js';
 import { formatSol, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { sortMints, type AmmConfigView } from '../../../lib/solana/cpswap/program';
-import { feeSplit } from '../../../lib/solana/cpswap/venue';
+import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { LOCKED_LP, feeReserveFor, planCreate, spendableSol, type CreatePlan, type CreateProblem } from '../../../lib/solana/lp/liquidityMath';
 import { arbitrageLoss, assessOpening, matchMarket, mostBothAtMarket, openingSolPerToken } from '../../../lib/solana/lp/opening';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { PRICE_TOLERANCE } from '../../../lib/solana/lp/poolHealth';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { feeRateText, formatSolPrice } from '../../../lib/solana/lp/format';
+import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
 import { baseUnitsToInput } from '../curve/uiFormat';
 import { TxFlowView } from '../curve/TxFlowView';
@@ -337,9 +337,10 @@ function CreateInner({
             <p className="text-white/55">Check this is the token you mean: compare the address with the one its project publishes. Names can be copied.</p>
           </>
         )}
+        {/* Opened with cp-swap's `initialize`, so the new pool never charges the tier's creator fee. */}
         <Row
           label="Fee tier"
-          value={config ? `1: traders pay ${feeRateText(config.tradeFeeRate)} a trade; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade` : 'not read'}
+          value={config ? `1: traders pay ${tradeCostText(config, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade` : 'not read'}
           mono={false}
         />
         <Row label="Fee to open" value={fee === null ? 'not read' : `${formatSol(fee, 9)} SOL, paid to the team's vault (read just now)`} mono={false} />

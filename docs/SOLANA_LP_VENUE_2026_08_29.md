@@ -114,6 +114,8 @@ no config / live — and shows the fee sheet with a `PROPOSAL` badge until an
 `AmmConfig` exists to read. In the `no-config` state it prints the exact missing
 instruction with its arguments.
 
+**Superseded 2026-10-03:** since #688 the page has no `PROPOSAL` badge and shows no fee it did not read (the `no-config` state names `create_amm_config` with no arguments), and mainnet's tiers 0 and 1 now exist, so it shows their live rates, creator fee included.
+
 The probe goes through `readDeployment`, **not** `getAccountInfo`: a closed
 upgradeable program's stub stays executable-flagged, so the naive check reports
 a spent id as deployed.

@@ -304,6 +304,11 @@ export interface LpDepositSummary {
   origin: PoolPins['origin'];
   /** The pool's fee tier as read while preparing; `null` = not read (display only). */
   config: AmmConfigView | null;
+  /**
+   * The pool's own creator-fee switch (cp-swap `enable_creator_fee`), from the same fresh
+   * read: whether a trade on it pays the tier's creator fee on top of the trade fee.
+   */
+  enableCreatorFee: boolean;
   tokenMint: PublicKey;
   tokenDecimals: number;
   solIsToken0: boolean;
