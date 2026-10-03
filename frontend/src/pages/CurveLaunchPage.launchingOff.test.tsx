@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { CurveLaunchView, CurveWriteSection } from './CurveLaunchPage';
+import { CurveLaunchView, CurveWriteSection, type CurveLaunchViewProps } from './CurveLaunchPage';
 import { CREATOR, fakeApi, openGate } from '../components/solana/curve/fakeWriteApi.fixture';
 import type { WriteRpc } from '../components/solana/curve/ports';
 import type { CurveSignerState } from '../components/solana/curve/useCurveSigner';
@@ -78,13 +78,13 @@ function writeSection(connected: boolean) {
 }
 
 /** The read-only view. `gateBanner` set = writes are on for the site but their gate is not open. */
-function readOnlyView(connected: boolean, gateBanner?: React.ReactNode) {
+function readOnlyView(connected: boolean, gateBanner?: React.ReactNode, mint: CurveLaunchViewProps['mint'] = null) {
   return (
     <MemoryRouter>
       <CurveLaunchView
         probe={{ kind: 'deployed', executable: true }}
         snapshot={null}
-        mint={null}
+        mint={mint}
         mintInput=""
         onMintInput={vi.fn()}
         onLookup={vi.fn()}
@@ -103,6 +103,8 @@ const SAYS_A_LAUNCH_CAN_BE_MADE =
 const SAYS_LAUNCHING_IS_OFF = /Launching here is not switched on yet\.|Launching is not open right now\./;
 
 const door = () => screen.getByRole('region', { name: 'Who may plant' });
+/** The "Open a launch" card. Only this view shows it. */
+const checklist = () => screen.getByText('Open a launch').closest('section') as HTMLElement;
 const pageText = () => (document.body.textContent ?? '').replace(/\s+/g, ' ');
 
 type Phase = 'no wallet' | 'reading' | 'COLD' | 'STALE' | 'WARM';
@@ -151,6 +153,18 @@ describe('/curve-launch, launching off (the read-only view): the door reads, and
     expect(pageText()).not.toMatch(SAYS_A_LAUNCH_CAN_BE_MADE);
     expect(door()).toHaveTextContent('Launching is not open right now. The note above says why.');
     expect(door()).not.toHaveTextContent('not switched on yet');
+    expect(checklist()).toHaveTextContent('Launching is not open right now. The note above says why.');
+    expect(checklist()).not.toHaveTextContent('not switched on yet');
+  });
+
+  // The finding named this card as well: under the title "Open a launch" it ticks a looked-up
+  // mint green, and it did not say that launching is off.
+  it('the "Open a launch" card says launching is off, even with every mint check ticked', async () => {
+    const ready = { kind: 'ok', value: { supply: 0n, decimals: 9, mintAuthority: 'creator', freezeAuthority: null, isLegacySplToken: true } } as const;
+    await enter('no wallet', (c) => readOnlyView(c, undefined, ready));
+    const marks = Array.from(checklist().querySelectorAll('li > span[aria-hidden="true"]'), (s) => s.textContent);
+    expect(marks, 'the fixture mint should pass every check').toEqual(['✓', '✓', '✓', '✓']);
+    expect(checklist()).toHaveTextContent('Launching here is not switched on yet.');
   });
 });
 

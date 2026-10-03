@@ -188,6 +188,8 @@ describe('the Solana door on a page where launching is off', () => {
     render(offDoor(SOL_A));
     await screen.findByText('WARM');
     expect(lane()).not.toBeInTheDocument();
+    // The reading is kept; only the verdict is withheld.
+    expect(door()).toHaveTextContent('This wallet reads 95.00° (Resident).');
     expect(door()).toHaveTextContent(OFF);
     expect(door()).not.toHaveTextContent(/lane is open/i);
   });
@@ -218,6 +220,7 @@ describe('the Solana door on a page where launching is off', () => {
     on.unmount();
 
     render(offDoor(null));
+    expect(door()).toHaveTextContent('Connect a Solana wallet to see its reading, or read any address below.');
     expect(door()).toHaveTextContent(`A reading is not a key. ${OFF}`);
     expect(door()).not.toHaveTextContent(/will sign the launch|lane opens/i);
     await paste();
