@@ -53,7 +53,8 @@ export function useBungalowBurn(bungalow: Bungalow): BungalowBurnResult {
       { address: token, abi: ERC20_ABI, chainId, functionName: 'decimals' },
       { address: token, abi: ERC20_ABI, chainId, functionName: 'balanceOf', args: [EVM_BURN_ADDRESS] },
     ],
-    query: { enabled: evmEnabled, refetchOnWindowFocus: false, refetchOnReconnect: false },
+    // staleTime 0: every mount reads, even when another mount of this token left a figure cached.
+    query: { enabled: evmEnabled, staleTime: 0, refetchOnWindowFocus: false, refetchOnReconnect: false },
   });
 
   // Solana: one getTokenSupply. `reading: null` is a failed read, kept apart from "not yet".
@@ -92,7 +93,9 @@ export function useBungalowBurn(bungalow: Bungalow): BungalowBurnResult {
   if (!fact) return { burn: { status: 'idle' }, isReading: false, refresh };
 
   if (evmEnabled) {
-    if (!data) return { burn: { status: isError ? 'unread' : 'loading' }, isReading: isFetching, refresh };
+    // A read that failed as a whole is unread even if an older answer is still held.
+    if (isError) return { burn: { status: 'unread' }, isReading: isFetching, refresh };
+    if (!data) return { burn: { status: 'loading' }, isReading: isFetching, refresh };
     // Per-entry status is the signal: a dead RPC comes back as three failures, not as isError.
     const supply = data[0]?.status === 'success' ? data[0].result : null;
     const decimals = data[1]?.status === 'success' ? data[1].result : null;

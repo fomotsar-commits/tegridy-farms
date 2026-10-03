@@ -12,6 +12,7 @@ import {
   burnProofUrl,
   formatBurnPercent,
   formatCompactTokens,
+  formatNotBurnt,
   formatWholeTokens,
   homeBurnRoom,
   mintedRawOf,
@@ -61,7 +62,28 @@ describe('the burn record covers the registry', () => {
     expect(notCounted.sort()).toEqual(['drb', 'jbm', 'qr']);
   });
 
+  // Facts about past transactions: they never change, so they are pinned as literals. A shape
+  // check alone would pass a minted figure with one zero too many (SOY would read 90% burnt).
+  it('pins what each token minted', () => {
+    expect(Object.fromEntries(Object.entries(BUNGALOW_BURN_FACTS).map(([id, f]) => [id, f.minted]))).toEqual({
+      toweli: '1000000000',
+      bayla: '1000000000',
+      pepe: '420690000000000',
+      qr: '100000000000',
+      mfer: '1000000000',
+      bnkr: '100000000000',
+      drb: '100000000000',
+      bobo: '1000000000',
+      jbm: '100000000000',
+      soy: '1000000000',
+      brainlet: '1000000000',
+      rizz: '1000000000',
+    });
+  });
+
   it('reads the same burn address the scanner excludes from holders', () => {
+    // The literal, not only set membership: the zero address is in that set too, and it holds 0.
+    expect(EVM_BURN_ADDRESS).toBe('0x000000000000000000000000000000000000dEaD');
     expect(isAddress(EVM_BURN_ADDRESS, { strict: true })).toBe(true);
     expect(BURN_ADDRESSES.has(EVM_BURN_ADDRESS.toLowerCase())).toBe(true);
   });
@@ -86,7 +108,7 @@ describe('tallyBurn', () => {
     const t = okTally(tallyBurn(fact('pepe'), { supplyRaw, decimals: 18, atBurnAddressRaw }));
     expect(t.destroyedRaw).toBe(100_354_928_304212435574318921n);
     expect(t.burntRaw).toBe(atBurnAddressRaw + 100_354_928_304212435574318921n);
-    expect(t.burntRaw + t.notBurntRaw).toBe(t.mintedRaw);
+    expect(t.burntRaw + t.notBurntRaw!).toBe(t.mintedRaw);
     expect(t.burntPpm).toBe(16_443);
   });
 
@@ -99,6 +121,24 @@ describe('tallyBurn', () => {
     }));
     expect(t.destroyedRaw).toBeUndefined();
     expect(t.burntRaw).toBe(6_669_949_934n * E18);
+    // The fall is reported beside the burn, and "not burnt" is withheld: the card cannot
+    // tell a burn() from a bridge-out, so it cannot say how much is left.
+    expect(t.uncountedFallRaw).toBe(5_000_000_000n * E18);
+    expect(t.notBurntRaw).toBeUndefined();
+    expect(formatNotBurnt(t)).toBeNull();
+  });
+
+  it('QR at full supply: no fall, so what is not burnt is known', () => {
+    const minted = 100_000_000_000n * E18;
+    const t = okTally(tallyBurn(fact('qr'), { supplyRaw: minted, decimals: 18, atBurnAddressRaw: 6_669_949_934n * E18 }));
+    expect(t.uncountedFallRaw).toBe(0n);
+    expect(t.notBurntRaw).toBe(minted - 6_669_949_934n * E18);
+    expect(formatNotBurnt(t)).toBe('93,330,050,066');
+  });
+
+  it('a token whose fall IS counted reports no uncounted fall', () => {
+    const t = okTally(tallyBurn(fact('rizz'), { supplyRaw: 773_739_826_938731n, decimals: 6 }));
+    expect(t.uncountedFallRaw).toBeUndefined();
   });
 
   it('Solana: no burn address is read, so the burn is minted minus supply', () => {
@@ -140,8 +180,27 @@ describe('tallyBurn', () => {
 describe('the figures as printed', () => {
   it('prints whole tokens with commas, rounded down', () => {
     expect(formatWholeTokens(6_917_544_537_127_740524900319904797n, 18)).toBe('6,917,544,537,127');
-    expect(formatWholeTokens(999_999n, 6)).toBe('0');
     expect(formatWholeTokens(7_165_822529n, 6)).toBe('7,165');
+  });
+
+  it('a real amount under one token is never printed as 0', () => {
+    expect(formatWholeTokens(999_999n, 6)).toBe('under 1');
+    expect(formatWholeTokens(1n, 18)).toBe('under 1');
+    expect(formatCompactTokens(999_999n, 6)).toBe('under 1');
+    // A read zero is still a zero.
+    expect(formatWholeTokens(0n, 6)).toBe('0');
+    expect(formatCompactTokens(0n, 18)).toBe('0');
+  });
+
+  it('Not burnt is whole Ever minted minus whole Burnt, so the two rows add up to the third', () => {
+    const t = okTally(tallyBurn(fact('pepe'), {
+      supplyRaw: 420_689_899_645_071_695787564425681079n,
+      decimals: 18,
+      atBurnAddressRaw: 6_917_544_537_127_740524900319904797n,
+    }));
+    const n = (s: string) => BigInt(s.replaceAll(',', ''));
+    expect(formatNotBurnt(t)).toBe('413,772,355,107,944');
+    expect(n(formatWholeTokens(t.burntRaw, 18)) + n(formatNotBurnt(t)!)).toBe(n(formatWholeTokens(t.mintedRaw, 18)));
   });
 
   it('shortens a headline figure and never rounds it up', () => {
@@ -171,6 +230,9 @@ describe('the figures as printed', () => {
     expect(pct('bobo', 999_992_834n)).toBe('0.0007%');
     expect(pct('bnkr', 100_000_000_000n, 500_000_000n)).toBe('0.5%');
     expect(pct('toweli', 0n, 0n)).toBe('100.00%');
+    // The two sides of the 1% line, where the format changes.
+    expect(pct('bnkr', 100_000_000_000n, 1_000_000_000n)).toBe('1.00%');
+    expect(pct('bnkr', 100_000_000_000n, 999_900_000n)).toBe('0.9999%');
   });
 
   it('a burn too small for four decimals is never printed as 0%', () => {

@@ -72,10 +72,13 @@ export type BurnTally =
       mintedRaw: bigint;
       /** Minted minus today's supply. Absent when a supply fall is not counted for this token. */
       destroyedRaw?: bigint;
+      /** The same fall, for a token where it is NOT counted. Shown beside the burn, never in it. */
+      uncountedFallRaw?: bigint;
       /** Held at the burn address. Absent on a chain where none is read. */
       atBurnAddressRaw?: bigint;
       burntRaw: bigint;
-      notBurntRaw: bigint;
+      /** Absent while an uncounted fall is above zero: it may be a burn or a bridge-out. */
+      notBurntRaw?: bigint;
       /** Burnt per million minted, rounded down. */
       burntPpm: number;
     }
@@ -94,7 +97,9 @@ export function tallyBurn(fact: BurnFact, reading: BurnReading): BurnTally {
   if (atBurnAddressRaw !== undefined && atBurnAddressRaw > reading.supplyRaw) {
     return { ok: false, reason: 'burn-address-above-supply' };
   }
-  const destroyedRaw = fact.countsSupplyDrop ? mintedRaw - reading.supplyRaw : undefined;
+  const fallRaw = mintedRaw - reading.supplyRaw;
+  const destroyedRaw = fact.countsSupplyDrop ? fallRaw : undefined;
+  const uncountedFallRaw = fact.countsSupplyDrop ? undefined : fallRaw;
   let burntRaw = 0n;
   if (destroyedRaw !== undefined) burntRaw += destroyedRaw;
   if (atBurnAddressRaw !== undefined) burntRaw += atBurnAddressRaw;
@@ -103,9 +108,10 @@ export function tallyBurn(fact: BurnFact, reading: BurnReading): BurnTally {
     decimals: fact.decimals,
     mintedRaw,
     destroyedRaw,
+    uncountedFallRaw,
     atBurnAddressRaw,
     burntRaw,
-    notBurntRaw: mintedRaw - burntRaw,
+    notBurntRaw: uncountedFallRaw !== undefined && uncountedFallRaw > 0n ? undefined : mintedRaw - burntRaw,
     burntPpm: Number((burntRaw * 1_000_000n) / mintedRaw),
   };
 }
@@ -114,9 +120,20 @@ function group(digits: string): string {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-/** Whole tokens, rounded down, with thousands commas. The same string in every locale. */
+/** Whole tokens, rounded down, with thousands commas. The same string in every locale.
+ *  A real amount below one token says so: 0 is printed only for a read zero. */
 export function formatWholeTokens(raw: bigint, decimals: number): string {
-  return group((raw / 10n ** BigInt(decimals)).toString());
+  const whole = raw / 10n ** BigInt(decimals);
+  if (whole === 0n && raw > 0n) return 'under 1';
+  return group(whole.toString());
+}
+
+/** What is left, as whole Ever minted minus whole Burnt, so those two rows add up to the third.
+ *  Null when the tally cannot say what is not burnt. */
+export function formatNotBurnt(tally: Extract<BurnTally, { ok: true }>): string | null {
+  if (tally.notBurntRaw === undefined) return null;
+  const unit = 10n ** BigInt(tally.decimals);
+  return group((tally.mintedRaw / unit - tally.burntRaw / unit).toString());
 }
 
 const COMPACT_STEPS: readonly { floor: bigint; suffix: string }[] = [
@@ -128,6 +145,7 @@ const COMPACT_STEPS: readonly { floor: bigint; suffix: string }[] = [
 /** A short figure for a headline: 6.91T, 257.62M, 7,165. Rounded DOWN, so it never overstates. */
 export function formatCompactTokens(raw: bigint, decimals: number): string {
   const whole = raw / 10n ** BigInt(decimals);
+  if (whole === 0n && raw > 0n) return 'under 1';
   for (const { floor, suffix } of COMPACT_STEPS) {
     if (whole < floor) continue;
     const hundredths = (whole * 100n) / floor;

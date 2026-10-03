@@ -35,6 +35,11 @@ function read(id: string, reading: { supplyRaw: bigint; atBurnAddressRaw?: bigin
   return { status: 'read', tally };
 }
 
+/** The headline percent, exactly: "contains 0%" would also pass on "100.00%". */
+const headline = (card: HTMLElement) => card.querySelector('p > span')?.textContent ?? null;
+/** The bar's fill. It is a picture of the percent, so it must not be drawn larger than the percent. */
+const meterFill = (card: HTMLElement) => card.querySelector<HTMLElement>('[aria-hidden="true"] > div')!;
+
 /** The value printed beside a ledger label. */
 function row(label: string): string {
   const dt = screen.getByText(label, { selector: 'dt' });
@@ -53,14 +58,19 @@ describe('BungalowBurn, a full read', () => {
 
     const card = screen.getByRole('region', { name: 'PEPE burn' });
     expect(within(card).getByRole('heading', { level: 2, name: 'PEPE burnt' })).toBeTruthy();
-    expect(card.textContent).toContain('1.64%');
+    expect(headline(card)).toBe('1.64%');
+    expect(meterFill(card).style.width).toBe('1.6443%');
+    expect(meterFill(card).style.minWidth).toBe('4px');
     expect(card.textContent).toContain('6.91T of the 420.69T PEPE ever minted');
+    expect(card.textContent).toContain('Burnt counts PEPE sent to the burn address and PEPE destroyed outright');
     expect(row('Burnt')).toBe('6,917,644,892,056 PEPE');
     expect(row('Sent to the burn address')).toBe('6,917,544,537,127 PEPE');
     expect(row('Destroyed outright')).toBe('100,354,928 PEPE');
     expect(row('Ever minted')).toBe('420,690,000,000,000 PEPE');
-    expect(row('Not burnt')).toBe('413,772,355,107,943 PEPE');
-    expect(card.textContent).toContain('Read from Ethereum when this card loaded');
+    // Whole Ever minted minus whole Burnt: the two rows add up to the third.
+    expect(row('Not burnt')).toBe('413,772,355,107,944 PEPE');
+    expect(card.textContent).toContain('Read from Ethereum. The burn is rounded down to whole tokens.');
+    expect(card.textContent).not.toContain('when this card loaded');
   });
 
   it('QR: counts the burn address only, and says why a fall in supply is left out', () => {
@@ -69,25 +79,50 @@ describe('BungalowBurn, a full read', () => {
     expect(row('Burnt')).toBe('6,669,949,934 QR');
     expect(screen.queryByText('Destroyed outright')).toBeNull();
     expect(screen.queryByText('Sent to the burn address')).toBeNull();
-    expect(screen.getByRole('region').textContent).toContain('a fall in supply is not counted');
+    expect(row('Not burnt')).toBe('93,330,050,066 QR');
+    expect(screen.queryByText('Supply fall, not counted')).toBeNull();
+    expect(screen.getByRole('region').textContent).toContain('a fall in supply is not counted as burnt');
+    expect(screen.getByRole('region').textContent).toContain('Read from Base.');
+    expect(headline(screen.getByRole('region'))).toBe('6.66%');
+  });
+
+  it('DRB after someone burns 5B outright: the fall is shown, not counted, and "Not burnt" is withheld', () => {
+    // burn() is open to anyone on these three. The card cannot tell it from a bridge-out, so it
+    // must not print more DRB as "not burnt" than exists.
+    set(read('drb', { supplyRaw: 95_000_000_000n * E18, atBurnAddressRaw: 1_315_291_862n * E18 }));
+    render(<BungalowBurn bungalow={room('drb')} />);
+    expect(row('Burnt')).toBe('1,315,291,862 DRB');
+    expect(row('Supply fall, not counted')).toBe('5,000,000,000 DRB');
+    expect(screen.queryByText('Not burnt')).toBeNull();
   });
 
   it('BAYLA: on Solana the burn is the supply that was destroyed', () => {
     set(read('bayla', { supplyRaw: 989_301_008_790751n }));
     render(<BungalowBurn bungalow={room('bayla')} />);
     const card = screen.getByRole('region', { name: 'BAYLA burn' });
-    expect(card.textContent).toContain('1.06%');
+    expect(headline(card)).toBe('1.06%');
     expect(row('Burnt')).toBe('10,698,991 BAYLA');
-    expect(row('Not burnt')).toBe('989,301,008 BAYLA');
+    expect(row('Not burnt')).toBe('989,301,009 BAYLA');
     expect(screen.queryByText('Sent to the burn address')).toBeNull();
-    expect(card.textContent).toContain('Read from Solana when this card loaded');
+    expect(card.textContent).toContain('Read from Solana. The burn is rounded down to whole tokens.');
   });
 
   it('a read zero prints as zero', () => {
     set(read('bnkr', { supplyRaw: 100_000_000_000n * E18, atBurnAddressRaw: 0n }));
     render(<BungalowBurn bungalow={room('bnkr')} />);
-    expect(screen.getByRole('region').textContent).toContain('0%');
+    expect(headline(screen.getByRole('region'))).toBe('0%');
     expect(row('Burnt')).toBe('0 BNKR');
+    expect(meterFill(screen.getByRole('region')).style.width).toBe('0%');
+    expect(meterFill(screen.getByRole('region')).style.minWidth).toBe('0px');
+  });
+
+  it('a burn too small to draw still shows a sliver, and never a wider bar than its percent', () => {
+    set(read('brainlet', { supplyRaw: 999_998_668_613490n }));
+    render(<BungalowBurn bungalow={room('brainlet')} />);
+    const card = screen.getByRole('region', { name: 'BRAINLET burn' });
+    expect(headline(card)).toBe('0.0001%');
+    expect(meterFill(card).style.width).toBe('0.0001%');
+    expect(meterFill(card).style.minWidth).toBe('4px');
   });
 
   it.each([
@@ -147,6 +182,8 @@ describe('BungalowBurn, the frame', () => {
     render(<BungalowBurn bungalow={room('brainlet')} />);
     const button = screen.getByRole('button', { name: 'Refresh' });
     expect(button.className).toContain('min-h-[44px]');
+    // At the right even when the header wraps onto a second line on a phone.
+    expect(button.className).toContain('ml-auto');
     fireEvent.click(button);
     expect(hook.refresh).toHaveBeenCalledTimes(1);
   });

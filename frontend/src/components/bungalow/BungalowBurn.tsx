@@ -4,6 +4,7 @@ import {
   burnProofUrl,
   formatBurnPercent,
   formatCompactTokens,
+  formatNotBurnt,
   formatWholeTokens,
   type BurnTally,
 } from '../../lib/bungalowBurn';
@@ -40,12 +41,12 @@ export function BungalowBurn({ bungalow }: { bungalow: Bungalow }) {
         </p>
         <h2 className="heading-luxury text-xl text-white">{symbol} burnt</h2>
         <span className="text-[11px] text-white/45">{CHAIN_LABEL[bungalow.chain]}</span>
-        <div className="flex-1" />
+        {/* ml-auto, not a spacer: when the row wraps on a phone the button still sits at the right. */}
         <button
           type="button"
           onClick={refresh}
           disabled={isReading}
-          className="min-h-[44px] text-[11px] px-3 rounded border border-white/10 bg-white/5 text-white/70 hover:text-white disabled:opacity-50"
+          className="ml-auto min-h-[44px] text-[11px] px-3 rounded border border-white/10 bg-white/5 text-white/70 hover:text-white disabled:opacity-50"
         >
           {isReading ? 'Reading…' : 'Refresh'}
         </button>
@@ -70,9 +71,10 @@ export function BungalowBurn({ bungalow }: { bungalow: Bungalow }) {
 
 function BurnLedger({ bungalow, tally }: { bungalow: Bungalow; tally: Extract<BurnTally, { ok: true }> }) {
   const { symbol } = bungalow;
-  const { decimals, destroyedRaw, atBurnAddressRaw } = tally;
+  const { decimals, destroyedRaw, atBurnAddressRaw, uncountedFallRaw } = tally;
   const whole = (raw: bigint) => formatWholeTokens(raw, decimals);
   const twoWays = destroyedRaw !== undefined && atBurnAddressRaw !== undefined;
+  const notBurnt = formatNotBurnt(tally);
   const proofUrl = burnProofUrl(bungalow);
   const proofLabel = EXPLORER_LABEL[bungalow.chain];
   // The bar is a picture of the percent beside it; a real burn too small to draw still shows a sliver.
@@ -111,23 +113,26 @@ function BurnLedger({ bungalow, tally }: { bungalow: Bungalow; tally: Extract<Bu
           {twoWays && <Row label="Sent to the burn address" value={whole(atBurnAddressRaw)} unit={symbol} />}
           {twoWays && <Row label="Destroyed outright" value={whole(destroyedRaw)} unit={symbol} />}
           <Row label="Ever minted" value={whole(tally.mintedRaw)} unit={symbol} />
-          <Row label="Not burnt" value={whole(tally.notBurntRaw)} unit={symbol} />
+          {uncountedFallRaw !== undefined && uncountedFallRaw > 0n && (
+            <Row label="Supply fall, not counted" value={whole(uncountedFallRaw)} unit={symbol} />
+          )}
+          {notBurnt !== null && <Row label="Not burnt" value={notBurnt} unit={symbol} />}
         </dl>
       </div>
 
-      <p className="text-[10px] text-white/40 mt-3">
+      <p className="text-[11px] text-white/60 mt-3">
         {twoWays ? (
           <>Burnt counts {symbol} sent to the burn address and {symbol} destroyed outright, which lowers the supply. </>
         ) : atBurnAddressRaw !== undefined ? (
           <>
-            Burnt counts {symbol} sent to the burn address. This token&apos;s supply can also move through a bridge,
-            so a fall in supply is not counted.{' '}
+            Burnt counts {symbol} sent to the burn address. This token has a bridge path that could lower its supply
+            without a burn, so a fall in supply is not counted as burnt.{' '}
           </>
         ) : (
           <>Burnt is the {symbol} destroyed outright: everything ever minted, less the supply on chain now. </>
         )}
-        Read from {CHAIN_LABEL[bungalow.chain]} when this card loaded, in whole tokens rounded down. Nothing here
-        refreshes on its own.
+        Read from {CHAIN_LABEL[bungalow.chain]}. The burn is rounded down to whole tokens. Nothing here refreshes on
+        its own.
         {proofUrl && proofLabel && (
           <>
             {' '}
@@ -136,7 +141,7 @@ function BurnLedger({ bungalow, tally }: { bungalow: Bungalow; tally: Extract<Bu
               target="_blank"
               rel="noopener noreferrer"
               aria-label={`${proofLabel} (opens in new tab)`}
-              className="underline underline-offset-2 text-white/60 hover:text-white"
+              className="underline underline-offset-2 text-white/80 hover:text-white"
             >
               {proofLabel} ↗
             </a>
