@@ -45,6 +45,8 @@ import { FlamesBoard } from '../components/FlamesBoard';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
+import { BungalowBurn } from '../components/bungalow/BungalowBurn';
+import { homeBurnRoom } from '../lib/bungalowBurn';
 
 // F92: persist a valid ?ref= address so attribution survives navigation and
 // the connect-ordering (referred visitor clicks Buy → connects on /swap). Uses
@@ -131,6 +133,7 @@ export default function HomePage() {
   // moment it hydrates. The door above has already written this room's skin.
   const bungalowIdentity = getBungalowIdentity();
   const isToweliArrival = arrivalVoice() === 'toweli';
+  const burnRoom = homeBurnRoom(bungalowIdentity, isToweliArrival);
   const coreLoop = coreLoopSteps(isToweliArrival);
   const howItWorks = howItWorksSteps(isToweliArrival);
   // 2026-08-07: the meta description said "Stake TOWELI on Ethereum" and stopped there,
@@ -610,6 +613,15 @@ export default function HomePage() {
         {bungalowIdentity?.market && (
           <div className="pb-8">
             <BungalowMarket bungalow={bungalowIdentity} />
+          </div>
+        )}
+
+        {/* The burn: how much of this token's supply is gone, read from its chain. Every
+            token bungalow shows it once, TOWELI included, which has no identity and so
+            reaches this slot through its own arrival. */}
+        {burnRoom && (
+          <div className={bungalowIdentity ? 'pb-8' : 'pb-16'}>
+            <BungalowBurn bungalow={burnRoom} />
           </div>
         )}
 
