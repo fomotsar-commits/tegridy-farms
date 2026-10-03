@@ -3,7 +3,7 @@
 // the lane only while it is open. On Ethereum it keeps its words and its proof step.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { clearGateAudit } from '../lib/heat/gateAudit';
 import { parseHeatReading } from '../lib/heat/heatOracle';
@@ -107,6 +107,29 @@ describe('the door on the Solana rail', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Read Heat' }));
     });
     expect(h.fetchHeat).toHaveBeenCalledWith(SOL_A, expect.anything());
+  });
+
+  // MUTATION CHECK: drop `fillFrom` from the door's card in LaunchGate.tsx. This fails:
+  // the card then offers the Ethereum address too.
+  it('with no Solana wallet, the wallet fill asks the Solana provider and never the Ethereum one', async () => {
+    const w = window as unknown as Record<string, unknown>;
+    const request = vi.fn(async ({ method }: { method: string }) => (method === 'eth_requestAccounts' ? [EVM] : []));
+    const connect = vi.fn(async () => ({ publicKey: { toString: () => SOL_A } }));
+    // Trust Wallet's own browser: Ethereum at window.ethereum, Solana at window.trustwallet.solana.
+    w.ethereum = { isTrust: true, request };
+    w.trustwallet = { solana: { isTrust: true, publicKey: null, connect } };
+    try {
+      render(solanaDoor(null));
+      expect(screen.queryByRole('button', { name: /Ethereum address/ })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+      const field = screen.getByRole('textbox', { name: /Wallet address to read Heat for/ });
+      await waitFor(() => expect(field).toHaveValue(SOL_A));
+      expect(connect.mock.calls).toEqual([[{ onlyIfTrusted: true }]]);
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      delete w.ethereum;
+      delete w.trustwallet;
+    }
   });
 
   it('WARM opens the lane for the connected Solana wallet, with no sign-message', async () => {

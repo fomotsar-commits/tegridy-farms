@@ -4,9 +4,10 @@
 // Date.now is mocked to one instant, so no fixture ages past the 7-day freshness law.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { parseHeatReading } from '../lib/heat/heatOracle';
+import { setSolanaSurface } from '../lib/solanaSurface';
 import { VENUE } from '../lib/arrival';
 
 const ADDR = '0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca';
@@ -813,14 +814,121 @@ describe('the ladder', () => {
 describe('the wallet fill', () => {
   const INJECTED = '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a';
 
+  const SOL = '4wBqpZM9xaSheZzJSMawUKKwhdpChKbZ5eu5ky4Vigw';
+  const surfaceOwner = {};
+
   afterEach(() => {
     delete (window as unknown as Record<string, unknown>).ethereum;
     delete (window as unknown as Record<string, unknown>).solana;
+    delete (window as unknown as Record<string, unknown>).trustwallet;
+    setSolanaSurface(surfaceOwner, null);
   });
 
   function field() {
     return screen.getByLabelText(/Wallet address to read Heat for/) as HTMLInputElement;
   }
+
+  /** Trust Wallet's own browser: Ethereum at window.ethereum, Solana at window.trustwallet.solana. */
+  function insideTrust({ solanaTrusted = true }: { solanaTrusted?: boolean } = {}) {
+    const request = vi.fn(async ({ method }: { method: string }) =>
+      method === 'eth_requestAccounts' ? [INJECTED] : [],
+    );
+    const connect = vi.fn(async (options?: { onlyIfTrusted?: boolean }) => {
+      if (options?.onlyIfTrusted && !solanaTrusted) throw new Error('This site has not been connected.');
+      return { publicKey: { toString: () => SOL } };
+    });
+    (window as unknown as Record<string, unknown>).ethereum = { isTrust: true, request };
+    (window as unknown as Record<string, unknown>).trustwallet = { solana: { isTrust: true, publicKey: null, connect } };
+    return { request, connect };
+  }
+
+  /** A Solana wallet connected to the site, as the top bar reports it. */
+  function solanaConnectedToTheSite() {
+    act(() => setSolanaSurface(surfaceOwner, { open: () => {}, address: SOL, connecting: false }));
+  }
+
+  // MUTATION CHECKS (each of the next six was seen red on the code before this change)
+  //  - HeatCard.tsx: make `fillAsked` ['ethereum'] whenever both can answer. Tests 1 and 2 fail.
+  //  - HeatCard.tsx: drop the `solanaConnected` shortcut from the button's press. Test 4 fails.
+  //  - HeatCard.tsx: ignore `fillFrom`. Test 6 fails.
+  it('inside a wallet browser that carries both networks, offers one button each and picks neither', () => {
+    insideTrust();
+    mountOpen();
+    expect(screen.getByRole('button', { name: 'Use my Ethereum address' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Use my Solana address' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Use my wallet' })).toBeNull();
+  });
+
+  it('the Solana button fills the Solana address and asks the Ethereum wallet nothing', async () => {
+    const { request, connect } = insideTrust();
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Solana address' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    expect(request).not.toHaveBeenCalled();
+    expect(connect.mock.calls).toEqual([[{ onlyIfTrusted: true }]]);
+  });
+
+  it('the Ethereum button fills the Ethereum address and asks the Solana wallet nothing', async () => {
+    const { connect } = insideTrust();
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Ethereum address' }));
+    await waitFor(() => expect(field().value).toBe(INJECTED));
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('with a Solana wallet connected to the site and no Ethereum account, fills that address and asks no provider', async () => {
+    const { request, connect } = insideTrust();
+    mountOpen();
+    solanaConnectedToTheSite();
+    expect(screen.queryByRole('button', { name: 'Use my Ethereum address' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    expect(request).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('with both a Solana wallet and an Ethereum account connected, offers both and still asks Solana nothing', async () => {
+    h.address = ADDR;
+    const { connect } = insideTrust();
+    mountOpen();
+    solanaConnectedToTheSite();
+    expect(screen.getByRole('button', { name: 'Use my Ethereum address' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Solana address' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('on a page about Solana, offers the Solana wallet only and never asks Ethereum', async () => {
+    const { request } = insideTrust();
+    render(
+      <MemoryRouter>
+        <HeatCard variant="embedded" fillFrom="solana" />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('button', { name: /Ethereum/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('on a page about Solana, a browser with only an Ethereum wallet is offered nothing', () => {
+    (window as unknown as Record<string, unknown>).ethereum = { request: vi.fn(async () => []) };
+    render(
+      <MemoryRouter>
+        <HeatCard variant="embedded" fillFrom="solana" />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('button', { name: /^Use my/ })).toBeNull();
+  });
+
+  it('says the one sentence when the Solana wallet has not trusted this site, and asks Ethereum nothing', async () => {
+    const { request } = insideTrust({ solanaTrusted: false });
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Solana address' }));
+    expect(await screen.findByText('Paste the address instead.')).toBeTruthy();
+    expect(field().value).toBe('');
+    expect(request).not.toHaveBeenCalled();
+  });
 
   it('offers nothing when the browser has no wallet to offer', () => {
     mountOpen();

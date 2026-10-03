@@ -24,7 +24,8 @@ import { fetchFlames, insertionRank } from '../lib/heat/flamesClient';
 import { heatLaunchFloor, heatGateMaxAgeDays } from '../lib/heat/heatGateConfig';
 import { shortenAddress } from '../lib/formatting';
 import { heatExampleLine, VENUE } from '../lib/arrival';
-import { hasInjectedWallet, readInjectedAddress } from '../lib/heat/walletFill';
+import { injectedNetworks, readInjectedAddress, type FillNetwork } from '../lib/heat/walletFill';
+import { useSolanaSurface } from '../lib/solanaSurface';
 import { SITE_URL } from '../lib/constants';
 
 const TIER_COLOR: Record<HeatTier, string> = {
@@ -145,7 +146,15 @@ export interface HeatCardProps {
    *  and error arms render as they do on the venue, so an unreadable instrument in a room
    *  never reads as a zero. */
   scopeTo?: { address: string; symbol: string };
+  /** The one network the wallet fill may read, for a page that is about one network
+   *  (the Solana launch door). Without it the card offers every network it can read. */
+  fillFrom?: FillNetwork;
 }
+
+const FILL_LABEL: Record<FillNetwork, string> = {
+  ethereum: 'Use my Ethereum address',
+  solana: 'Use my Solana address',
+};
 
 export function HeatCard({
   address: pinned,
@@ -155,8 +164,10 @@ export function HeatCard({
   variant = 'panel',
   showEligibility = true,
   scopeTo,
+  fillFrom,
 }: HeatCardProps = {}) {
   const { address: connected } = useAccount();
+  const solanaConnected = useSolanaSurface().surface?.address ?? null;
   const embedded = variant === 'embedded';
   // `draft` is null until the user types. The field's value is DERIVED from that plus
   // the connected wallet, rather than mirrored into state by an effect — so connecting,
@@ -168,11 +179,22 @@ export function HeatCard({
   const subject = pinned ?? initialAddress ?? connected ?? '';
   const input = pinned ?? draft ?? connected ?? '';
   const [state, setState] = useState<State>({ kind: 'idle' });
-  // WALLET FILL (element B). `canFill` is read once per mount rather than on
-  // every render: an extension that injects late is caught by the next mount,
-  // and a button that appears mid-interaction under the visitor's finger is
-  // worse than one that arrives a navigation later.
-  const [canFill] = useState(() => hasInjectedWallet());
+  // WALLET FILL. The providers are read once per mount: a button that appears under the
+  // visitor's finger is worse than one that arrives a navigation later. A Solana wallet
+  // connected to the site, with no Ethereum account connected, is the visitor's wallet.
+  // Otherwise each network a provider can answer for gets its own button: the card never
+  // picks Ethereum for a visitor who also carries Solana.
+  const [injected] = useState(() => injectedNetworks());
+  const canFill: Record<FillNetwork, boolean> = {
+    ethereum: injected.ethereum,
+    solana: injected.solana || solanaConnected !== null,
+  };
+  const fillAsked: FillNetwork[] = fillFrom
+    ? [fillFrom]
+    : solanaConnected !== null && !connected
+      ? ['solana']
+      : ['ethereum', 'solana'];
+  const fillOffers = fillAsked.filter((network) => canFill[network]);
   const [fillFailed, setFillFailed] = useState(false);
   const [showMath, setShowMath] = useState(false);
   // Frozen per lookup so every relative label on screen is measured from one instant.
@@ -296,26 +318,34 @@ export function HeatCard({
           >
             {state.kind === 'loading' ? 'Reading…' : 'Read Heat'}
           </button>
-          {/* THE WALLET FILL (element B). Shown only when something in the
-              browser can answer, so a visitor without a wallet is never offered
-              a button that cannot work. type="button": it must not submit the
-              form, and it never reads the chain or asks for a signature -
-              lib/heat/walletFill.ts says exactly what it does ask for. */}
-          {canFill && (
-            <button
-              type="button"
-              onClick={() => {
-                setFillFailed(false);
-                void readInjectedAddress().then((addr) => {
-                  if (addr) setDraft(addr);
-                  else setFillFailed(true);
-                });
-              }}
-              className="px-3 py-2 rounded-lg text-[12px] text-white/80 hover:text-white transition-colors"
-              style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid var(--color-purple-25)' }}
-            >
-              Use my wallet
-            </button>
+          {/* THE WALLET FILL. Shown only when something can answer. type="button": it must
+              not submit the form. A Solana address the site already holds is filled with
+              no provider asked; lib/heat/walletFill.ts says what is asked otherwise. On a
+              phone the buttons take their own row, so the field keeps its whole hint. */}
+          {fillOffers.length > 0 && (
+            <div className="w-full sm:w-auto flex flex-wrap gap-2">
+              {fillOffers.map((network) => (
+                <button
+                  key={network}
+                  type="button"
+                  onClick={() => {
+                    setFillFailed(false);
+                    if (network === 'solana' && solanaConnected) {
+                      setDraft(solanaConnected);
+                      return;
+                    }
+                    void readInjectedAddress(network).then((addr) => {
+                      if (addr) setDraft(addr);
+                      else setFillFailed(true);
+                    });
+                  }}
+                  className="px-3 py-2 rounded-lg text-[12px] text-white/80 hover:text-white transition-colors"
+                  style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid var(--color-purple-25)' }}
+                >
+                  {fillOffers.length > 1 ? FILL_LABEL[network] : 'Use my wallet'}
+                </button>
+              ))}
+            </div>
           )}
           {/* One sentence, and nothing else: no error code, no retry, no reason.
               A locked wallet, a declined prompt and an untrusted origin are the
