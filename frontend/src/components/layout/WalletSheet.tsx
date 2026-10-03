@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Modal } from '../ui/Modal';
 import { shortSolanaAddress, useSolanaSurface, wantOwnSolana } from '../../lib/solanaSurface';
 
@@ -38,10 +38,8 @@ import { shortSolanaAddress, useSolanaSurface, wantOwnSolana } from '../../lib/s
 export interface EvmWallet {
   /** The account's display name, or null when none is connected. */
   readonly label: string | null;
-  readonly wrongNetwork: boolean;
   readonly connect: (() => void) | undefined;
   readonly account: (() => void) | undefined;
-  readonly network: (() => void) | undefined;
 }
 
 interface WalletSheetProps {
@@ -86,10 +84,9 @@ export function WalletSheet({ open, onClose, evm }: WalletSheetProps) {
   const anyConnected = solanaAddress !== null || evm.label !== null;
   // The Solana row was tapped with no Solana connection mounted yet.
   const [waiting, setWaiting] = useState(false);
-  // What this sheet was waiting for has been done, once.
-  const settled = useRef(false);
   // However the sheet closes, it stops waiting (state from the previous
-  // render, compared in render: no effect, no extra pass).
+  // render, compared in render: no effect, no extra pass). That is also what
+  // makes the effect below act once, and never after the visitor closed it.
   const [wasOpen, setWasOpen] = useState(open);
   if (wasOpen !== open) {
     setWasOpen(open);
@@ -103,29 +100,23 @@ export function WalletSheet({ open, onClose, evm }: WalletSheetProps) {
 
   // The top bar's own connection has loaded and its restore is over.
   useEffect(() => {
-    if (!open || !waiting || settled.current || !surface || surface.connecting) return;
-    settled.current = true;
+    if (!waiting || !surface || surface.connecting) return;
     onClose();
     // A saved wallet that reconnected answers the tap; otherwise the list opens.
     const openList = surface.open;
     if (!surface.address) requestAnimationFrame(() => openList());
-  }, [open, waiting, surface, onClose]);
+  }, [waiting, surface, onClose]);
 
   const onSolana = () => {
     if (surface) {
       closeThen(surface.open);
       return;
     }
-    settled.current = false;
     setWaiting(true);
     wantOwnSolana();
   };
 
-  const onEthereum = () => {
-    if (evm.wrongNetwork) closeThen(evm.network);
-    else if (evm.label) closeThen(evm.account);
-    else closeThen(evm.connect);
-  };
+  const onEthereum = () => closeThen(evm.label ? evm.account : evm.connect);
 
   const loading = waiting && !surface && !ownFailed;
   const solanaDetail = solanaAddress
@@ -137,11 +128,7 @@ export function WalletSheet({ open, onClose, evm }: WalletSheetProps) {
         : surface?.connecting
           ? 'Connecting…'
           : 'Phantom, Trust, Jupiter, Solflare and more';
-  const ethereumDetail = evm.wrongNetwork
-    ? 'Wrong network: tap to switch'
-    : evm.label
-      ? 'Account and disconnect'
-      : 'MetaMask, Trust, Rainbow and more';
+  const ethereumDetail = evm.label ? 'Account and disconnect' : 'MetaMask, Trust, Rainbow and more';
 
   return (
     <Modal open={open} onClose={onClose} title={anyConnected ? 'Your wallets' : 'Connect a wallet'} maxWidth="max-w-sm">

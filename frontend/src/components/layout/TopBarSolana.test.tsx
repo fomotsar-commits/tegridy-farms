@@ -97,14 +97,18 @@ describe("TopBarSolana: the top bar's own Solana connection", () => {
     expect(getSolanaSurfaceState().ownWanted).toBe(true);
   });
 
-  it('does not restore where no wallet is saved, or where the adapter saved "none"', () => {
+  it.each([
+    ['no wallet is saved', null],
+    ['the adapter saved "none"', 'null'],
+  ])('does not restore where %s, however long the page stays open', (_label, saved) => {
     vi.useFakeTimers();
-    localStorage.setItem('walletName', 'null');
+    if (saved !== null) localStorage.setItem('walletName', saved);
     render(<TopBarSolana solanaPage={false} />);
     act(() => {
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(60_000);
     });
     expect(getSolanaSurfaceState().ownWanted).toBe(false);
+    expect(screen.queryByTestId('own-solana')).toBeNull();
   });
 
   it('reports a load that failed instead of taking the top bar down, and a retry loads it', async () => {
@@ -118,14 +122,14 @@ describe("TopBarSolana: the top bar's own Solana connection", () => {
     );
     act(() => wantOwnSolana());
     await settle();
-    expect(getSolanaSurfaceState()).toMatchObject({ ownFailed: true, ownAttempt: 0 });
+    expect(getSolanaSurfaceState()).toMatchObject({ ownFailed: true });
     expect(screen.getByText('the top bar')).toBeTruthy();
     expect(screen.queryByTestId('own-solana')).toBeNull();
     // The wallet sheet's Solana row asks again.
     fake.throwOnRender = false;
     act(() => wantOwnSolana());
     await settle();
-    expect(getSolanaSurfaceState()).toMatchObject({ ownFailed: false, ownAttempt: 1 });
+    expect(getSolanaSurfaceState()).toMatchObject({ ownFailed: false });
     expect(await screen.findByTestId('own-solana')).toBeTruthy();
   });
 });

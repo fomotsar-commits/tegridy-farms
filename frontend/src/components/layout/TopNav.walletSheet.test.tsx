@@ -237,7 +237,7 @@ describe("TopNav: the Solana row loads the top bar's own connection on first use
     );
     expect(solanaRow()).not.toHaveAttribute('aria-busy');
     fireEvent.click(solanaRow());
-    expect(getSolanaSurfaceState()).toMatchObject({ ownWanted: true, ownFailed: false, ownAttempt: 1 });
+    expect(getSolanaSurfaceState()).toMatchObject({ ownWanted: true, ownFailed: false });
     expect(solanaRow()).toHaveTextContent('Loading Solana wallets…');
   });
 });

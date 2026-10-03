@@ -43,7 +43,6 @@ describe('solanaSurface: who answers', () => {
       page: false,
       ownWanted: false,
       ownFailed: false,
-      ownAttempt: 0,
     });
   });
 
@@ -129,16 +128,17 @@ describe("solanaSurface: the top bar's own connection", () => {
     const ownOwner = owner();
     const pageSurface = surface();
     const ownSurface = surface();
-    setSolanaSurface(ownOwner, ownSurface, true);
-    expect(getSolanaSurfaceState()).toMatchObject({ surface: ownSurface, page: false });
+    // The page's mounts FIRST and the top bar's own LAST: "last mounted" would pick the own one.
     setSolanaSurface(pageOwner, pageSurface);
-    expect(getSolanaSurfaceState()).toMatchObject({ surface: pageSurface, page: true });
-    // The own one reports again (so it is now the later entry): the page still answers.
-    const ownAgain = surface({ connecting: true });
-    setSolanaSurface(ownOwner, ownAgain, true);
+    setSolanaSurface(ownOwner, ownSurface, true);
     expect(getSolanaSurfaceState()).toMatchObject({ surface: pageSurface, page: true });
     setSolanaSurface(pageOwner, null);
-    expect(getSolanaSurfaceState()).toMatchObject({ surface: ownAgain, page: false });
+    expect(getSolanaSurfaceState()).toMatchObject({ surface: ownSurface, page: false });
+    // And the other way round: the own one first, then a page's.
+    const laterPage = owner();
+    const laterSurface = surface();
+    setSolanaSurface(laterPage, laterSurface);
+    expect(getSolanaSurfaceState()).toMatchObject({ surface: laterSurface, page: true });
   });
 
   it('is not wanted on a first visit, and is once the visitor asks for Solana', () => {
@@ -158,12 +158,12 @@ describe("solanaSurface: the top bar's own connection", () => {
     expect(getSolanaSurfaceState().ownWanted).toBe(true);
   });
 
-  it('says when its code did not load, and counts each new try', () => {
+  it('says when its code did not load, until it is asked for again', () => {
     wantOwnSolana();
     noteOwnSolanaFailed();
-    expect(getSolanaSurfaceState()).toMatchObject({ ownWanted: true, ownFailed: true, ownAttempt: 0 });
+    expect(getSolanaSurfaceState()).toMatchObject({ ownWanted: true, ownFailed: true });
     wantOwnSolana();
-    expect(getSolanaSurfaceState()).toMatchObject({ ownWanted: true, ownFailed: false, ownAttempt: 1 });
+    expect(getSolanaSurfaceState()).toMatchObject({ ownWanted: true, ownFailed: false });
   });
 
   it('tells no one when it is asked for twice', () => {

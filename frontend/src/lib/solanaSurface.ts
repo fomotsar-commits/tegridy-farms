@@ -51,10 +51,8 @@ export interface SolanaSurfaceState {
    * downloads its code.
    */
   readonly ownWanted: boolean;
-  /** Its code did not load (offline, or a deploy rotated the chunk). */
+  /** Its code did not load (offline, or a deploy rotated the chunk). Asking again clears it. */
   readonly ownFailed: boolean;
-  /** Counts retries after a failed load: a failed lazy import is never retried by itself. */
-  readonly ownAttempt: number;
 }
 
 const EMPTY: SolanaSurfaceState = {
@@ -63,7 +61,6 @@ const EMPTY: SolanaSurfaceState = {
   page: false,
   ownWanted: false,
   ownFailed: false,
-  ownAttempt: 0,
 };
 
 const surfaces = new Map<object, { readonly surface: SolanaSurface; readonly own: boolean }>();
@@ -71,14 +68,13 @@ const listeners = new Set<() => void>();
 let pending = false;
 let ownWanted = false;
 let ownFailed = false;
-let ownAttempt = 0;
 let state: SolanaSurfaceState = EMPTY;
 
 function announce(): void {
   const all = [...surfaces.values()];
   const pages = all.filter((entry) => !entry.own);
   const surface = (pages[pages.length - 1] ?? all[all.length - 1])?.surface ?? null;
-  state = { surface, openPending: pending, page: pages.length > 0, ownWanted, ownFailed, ownAttempt };
+  state = { surface, openPending: pending, page: pages.length > 0, ownWanted, ownFailed };
   for (const listener of [...listeners]) listener();
 }
 
@@ -99,7 +95,6 @@ export function setSolanaSurface(owner: object, surface: SolanaSurface | null, o
 /** The visitor asked for Solana where the page has no Solana section, or tries again after a failed load. */
 export function wantOwnSolana(): void {
   if (ownWanted && !ownFailed) return;
-  if (ownFailed) ownAttempt += 1;
   ownWanted = true;
   ownFailed = false;
   announce();
@@ -159,7 +154,6 @@ export function resetSolanaSurfaceForTests(): void {
   pending = false;
   ownWanted = false;
   ownFailed = false;
-  ownAttempt = 0;
   announce();
 }
 

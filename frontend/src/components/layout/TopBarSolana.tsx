@@ -28,8 +28,9 @@ import { noteOwnSolanaFailed, useSolanaSurface, wantOwnSolana } from '../../lib/
  *     wallet as it mounts, and reconnects without a prompt.
  *  3. A FAILED LOAD IS SAID, NOT SPUN. Offline, or a deploy that rotated the
  *     chunk's name: the store is told, the wallet sheet says so and offers
- *     another try, and each try runs the import() again. A crash inside the
- *     provider is caught here too, so it can never take the top bar down.
+ *     another try. While it is failed nothing is mounted here, so a new try
+ *     mounts afresh and runs the import() again. A crash inside the provider
+ *     is caught here too, so it can never take the top bar down.
  */
 
 /** The wallet adapter's own key (WalletProvider `localStorageKey`): set while a Solana wallet is chosen. */
@@ -44,7 +45,7 @@ function ReportFailed() {
   return null;
 }
 
-/** Loads the provider's chunk, then renders it. Mounted once per attempt (the key below). */
+/** Loads the provider's chunk, then renders it. */
 function OwnSolanaProviders() {
   const [Providers, setProviders] = useState<ComponentType | null>(null);
   useEffect(() => {
@@ -65,7 +66,7 @@ function OwnSolanaProviders() {
 }
 
 export function TopBarSolana({ solanaPage }: { solanaPage: boolean }) {
-  const { page, ownWanted, ownFailed, ownAttempt } = useSolanaSurface();
+  const { page, ownWanted, ownFailed } = useSolanaSurface();
 
   // A wallet saved on an earlier visit: restore it here too, so the address is
   // in the top bar on every page and not only on the Solana ones.
@@ -78,8 +79,8 @@ export function TopBarSolana({ solanaPage }: { solanaPage: boolean }) {
 
   if (!ownWanted || ownFailed || solanaPage || page) return null;
   return (
-    <ErrorBoundary key={ownAttempt} fallback={<ReportFailed />}>
-      <OwnSolanaProviders key={ownAttempt} />
+    <ErrorBoundary fallback={<ReportFailed />}>
+      <OwnSolanaProviders />
     </ErrorBoundary>
   );
 }

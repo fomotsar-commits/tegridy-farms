@@ -557,11 +557,9 @@ export const TopNav = React.memo(function TopNav() {
                         open={walletSheetOpen}
                         onClose={closeWalletSheet}
                         evm={{
-                          label: connected && !wrongNetwork ? (account.displayName ?? null) : null,
-                          wrongNetwork,
+                          label: connected ? (account.displayName ?? null) : null,
                           connect: openConnectModal,
                           account: openAccountModal,
-                          network: openChainModal,
                         }}
                       />,
                       document.body,
