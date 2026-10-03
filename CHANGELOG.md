@@ -28,6 +28,8 @@ page keeps the newest thirty days.
 - Solana Connect no longer goes dead while a wallet is being waited on. If Phantom or another wallet is locked, or its approval window opened where you did not see it, the Connect buttons still open the wallet list, the page says which wallet it is waiting for and what to do, and you can pick another wallet without reloading.
 - On a Solana page (/pools, /solana, /curve-launch, a Solana pool, or the dashboard in a Solana room) the Connect button at the top opens the Solana wallet list, and shows your Solana address once connected. Before, it connected only Ethereum and Base wallets there.
 - Tapping your Solana address at the top opens the wallet list, which now names the wallet in use and has a Disconnect.
+- On every other page the Connect button at the top now asks which network first, Solana or Ethereum, so a Solana wallet can be connected from the home page, the Earn list and the doors. Once a wallet is connected the button lists both networks.
+- A Solana wallet you connected stays connected as you move between pages, and comes back on your next visit. With an Ethereum wallet connected too, the button at the top names the Ethereum account off the Solana pages and lists both wallets when tapped.
 - The indexer's upload parser moves to a release that fixes two published denial-of-service flaws; it takes effect at the indexer's next deploy.
 - A DCA or limit-order swap your wallet cancelled no longer counts as done: the schedule does not count it and the order goes back to waiting. A sped-up swap still counts.
 - A TWAP or stop-loss whose registration your wallet cancelled no longer says it was registered, and no CoW order is signed on top of a token approval your wallet cancelled.

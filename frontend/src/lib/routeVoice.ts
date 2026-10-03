@@ -85,7 +85,11 @@ const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/curve-
  */
 export function isSolanaPage(pathname: string, room: Pick<Bungalow, 'chain'> | null = null): boolean {
   const path = normalize(pathname);
-  if (SOLANA_PATHS.has(path) || path.startsWith('/curve-launch/')) return true;
+  if (SOLANA_PATHS.has(path)) return true;
+  // One launch's page mounts its Solana section for a real mint address only;
+  // a mistyped one draws "Not a token address", with no wallet section at all.
+  const mint = /^\/curve-launch\/([^/]+)$/.exec(path)?.[1];
+  if (mint !== undefined) return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint);
   if (path === '/dashboard') return room?.chain === 'solana';
   const id = /^\/earn\/([^/]+)$/.exec(path)?.[1];
   return (

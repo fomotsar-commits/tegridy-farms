@@ -1,15 +1,19 @@
-// The page's Solana connection as the top bar sees it (lib/solanaSurface.ts).
+// The Solana connection the top bar shows and opens (lib/solanaSurface.ts).
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   cancelSolanaOpenRequest,
   getSolanaSurfaceState,
+  noteOwnSolanaFailed,
   requestSolanaOpen,
+  resetSolanaSurfaceForTests,
   setSolanaSurface,
+  solanaWasConnectedHere,
   shortSolanaAddress,
   subscribeSolanaSurface,
   takeSolanaOpenRequest,
+  wantOwnSolana,
   type SolanaSurface,
 } from './solanaSurface';
 
@@ -29,12 +33,19 @@ const owner = () => {
 
 afterEach(() => {
   for (const o of owners.splice(0)) setSolanaSurface(o, null);
-  cancelSolanaOpenRequest();
+  resetSolanaSurfaceForTests();
+  localStorage.clear();
 });
 
 describe('solanaSurface: who answers', () => {
   it('is empty with no Solana section on the page', () => {
-    expect(getSolanaSurfaceState()).toEqual({ surface: null, openPending: false });
+    expect(getSolanaSurfaceState()).toEqual({
+      surface: null,
+      openPending: false,
+      page: false,
+      ownWanted: false,
+      ownFailed: false,
+    });
   });
 
   it('answers with the provider mounted last, and falls back as each one leaves', () => {
@@ -126,6 +137,92 @@ describe('solanaSurface: a top-bar tap', () => {
   });
 });
 
+// ONE LIVE CONNECTION PER PAGE: where the page has a Solana section the top bar
+// borrows it; its own is for pages with none (components/layout/TopBarSolana.tsx).
+describe("solanaSurface: the top bar's own connection", () => {
+  it("lets a page's connection answer over the top bar's own, whichever mounted last", () => {
+    const pageOwner = owner();
+    const ownOwner = owner();
+    const pageSurface = surface();
+    const ownSurface = surface();
+    // The page's mounts FIRST and the top bar's own LAST: "last mounted" would pick the own one.
+    setSolanaSurface(pageOwner, pageSurface);
+    setSolanaSurface(ownOwner, ownSurface, true);
+    expect(getSolanaSurfaceState()).toMatchObject({ surface: pageSurface, page: true });
+    setSolanaSurface(pageOwner, null);
+    expect(getSolanaSurfaceState()).toMatchObject({ surface: ownSurface, page: false });
+    // And the other way round: the own one first, then a page's.
+    const laterPage = owner();
+    const laterSurface = surface();
+    setSolanaSurface(laterPage, laterSurface);
+    expect(getSolanaSurfaceState()).toMatchObject({ surface: laterSurface, page: true });
+  });
+
+  it('is not wanted on a first visit, and is once the visitor asks for Solana', () => {
+    expect(getSolanaSurfaceState().ownWanted).toBe(false);
+    wantOwnSolana();
+    expect(getSolanaSurfaceState().ownWanted).toBe(true);
+  });
+
+  it('is wanted for the rest of the tab once any Solana wallet has connected', () => {
+    const pageOwner = owner();
+    setSolanaSurface(pageOwner, surface());
+    expect(getSolanaSurfaceState().ownWanted).toBe(false);
+    setSolanaSurface(pageOwner, surface({ address: 'X' }));
+    expect(getSolanaSurfaceState().ownWanted).toBe(true);
+    // The visitor leaves the Solana page: the address should follow them.
+    setSolanaSurface(pageOwner, null);
+    expect(getSolanaSurfaceState().ownWanted).toBe(true);
+  });
+
+  // In the same tab only a reload can fetch a failed chunk again, so asking
+  // again changes nothing; a Solana page that mounts its section proves the
+  // code loads after all.
+  it('says when its code did not load, until a Solana connection does mount', () => {
+    wantOwnSolana();
+    noteOwnSolanaFailed();
+    expect(getSolanaSurfaceState()).toMatchObject({ ownWanted: true, ownFailed: true });
+    wantOwnSolana();
+    expect(getSolanaSurfaceState().ownFailed).toBe(true);
+    setSolanaSurface(owner(), surface());
+    expect(getSolanaSurfaceState()).toMatchObject({ ownWanted: true, ownFailed: false });
+  });
+
+  // What a later visit restores on. The wallet adapter saves a wallet's NAME
+  // the moment its row is tapped, connected or not, so the name alone would
+  // download the Solana code on every page for a phone visitor who only ever
+  // tapped "Open app".
+  it('remembers that a Solana wallet really connected here, until that connection disconnects', () => {
+    const pageOwner = owner();
+    expect(solanaWasConnectedHere()).toBe(false);
+    setSolanaSurface(pageOwner, surface());
+    setSolanaSurface(pageOwner, surface({ connecting: true }));
+    expect(solanaWasConnectedHere()).toBe(false);
+    setSolanaSurface(pageOwner, surface({ address: 'X' }));
+    expect(solanaWasConnectedHere()).toBe(true);
+    // Leaving the page is not a disconnect.
+    setSolanaSurface(pageOwner, null);
+    expect(solanaWasConnectedHere()).toBe(true);
+    // Another connection that never had an address says nothing either.
+    setSolanaSurface(owner(), surface());
+    expect(solanaWasConnectedHere()).toBe(true);
+    // A connection that had an address and now has none was disconnected.
+    const again = owner();
+    setSolanaSurface(again, surface({ address: 'X' }));
+    setSolanaSurface(again, surface());
+    expect(solanaWasConnectedHere()).toBe(false);
+  });
+
+  it('tells no one when it is asked for twice', () => {
+    wantOwnSolana();
+    const listener = vi.fn();
+    const off = subscribeSolanaSurface(listener);
+    wantOwnSolana();
+    expect(listener).not.toHaveBeenCalled();
+    off();
+  });
+});
+
 describe('solanaSurface', () => {
   it('shortens a Solana address the house way', () => {
     expect(shortSolanaAddress('Bq6jovnQfVTFjmxL4dPt9xNNNnDBgvdhaXy3D4YqXTXV')).toBe('Bq6j…XTXV');
@@ -133,15 +230,31 @@ describe('solanaSurface', () => {
 
   // TopNav is in the entry chunk; check-dist-graph.mjs B fails the BUILD if any
   // of these pulls the Solana stack in. This says so in the unit run, sooner.
-  it.each(['lib/solanaSurface.ts', 'lib/routeVoice.ts', 'components/layout/TopNav.tsx'])(
-    '%s, which the top bar loads up front, imports no Solana code',
-    (file) => {
+  const SOLANA_CODE = /@solana\/|solanaPolyfill|solanaWallet|components\/solana\/|\.\.\/solana\//;
+  const EAGER = [
+    'lib/solanaSurface.ts',
+    'lib/routeVoice.ts',
+    'components/layout/TopNav.tsx',
+    'components/layout/WalletSheet.tsx',
+    'components/layout/TopBarSolana.tsx',
+  ];
+  it.each(EAGER)('%s, which the top bar loads up front, imports no Solana code', (file) => {
+    const source = readFileSync(resolve(__dirname, '..', file), 'utf8');
+    const imports = source.match(/^\s*import[\s\S]*?from\s+['"][^'"]+['"]|^\s*import\s+['"][^'"]+['"]/gm) ?? [];
+    expect(imports.length).toBeGreaterThan(0);
+    for (const statement of imports) {
+      expect(statement, `${file}: ${statement}`).not.toMatch(SOLANA_CODE);
+    }
+  });
+
+  // The one way in: TopBarSolana's import() of the provider, which the bundler
+  // splits into its own chunk. Nothing else up front may reach Solana code,
+  // not even lazily, without being added here on purpose.
+  it('reaches Solana code through exactly one import(), in TopBarSolana.tsx', () => {
+    const dynamic = EAGER.flatMap((file) => {
       const source = readFileSync(resolve(__dirname, '..', file), 'utf8');
-      const imports = source.match(/^\s*import[\s\S]*?from\s+['"][^'"]+['"]|^\s*import\s+['"][^'"]+['"]|import\(\s*['"][^'"]+['"]\s*\)/gm) ?? [];
-      expect(imports.length).toBeGreaterThan(0);
-      for (const statement of imports) {
-        expect(statement, `${file}: ${statement}`).not.toMatch(/@solana\/|solanaPolyfill|solanaWallet|components\/solana\/|\.\.\/solana\//);
-      }
-    },
-  );
+      return [...source.matchAll(/import\(\s*['"]([^'"]+)['"]\s*\)/g)].map((match) => `${file} -> ${match[1]}`);
+    });
+    expect(dynamic).toEqual(['components/layout/TopBarSolana.tsx -> ../solana/SolanaProviders']);
+  });
 });
