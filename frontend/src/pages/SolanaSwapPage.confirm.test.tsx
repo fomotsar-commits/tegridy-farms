@@ -77,6 +77,12 @@ vi.mock('../lib/jupiter', async (importOriginal) => ({
 
 import SolanaSwapPage from './SolanaSwapPage';
 
+// The first test here pays for the page's first render: 1.3 s alone, 2.1 s to 3.9 s in six
+// full runs, and 5.2 s in a seventh on a busy machine. The 5 s default timed it out there,
+// and its timers, still running, then broke the test after it. The limit says "the first
+// render is slow under load"; it does not loosen what any test asserts.
+vi.setConfig({ testTimeout: 30_000 });
+
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
@@ -187,7 +193,9 @@ describe('Instant swap: after the swap is sent', () => {
   it('the swap is watched for 90 seconds, not 60, before the page says it cannot tell', async () => {
     connection.getSignatureStatuses.mockResolvedValue(notYet);
     await swap();
-    await act(async () => { await vi.advanceTimersByTimeAsync(75_000); });
+    // 65 s: past a 60 s watch, and 25 s short of the real one, because the fake clock
+    // also moves with real time here (shouldAdvanceTime) and a loaded machine is slow.
+    await act(async () => { await vi.advanceTimersByTimeAsync(65_000); });
     expect(toast.warning).not.toHaveBeenCalled();
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     await waitFor(() => expect(toast.warning).toHaveBeenCalledWith("We couldn't confirm this transaction", expect.anything()));

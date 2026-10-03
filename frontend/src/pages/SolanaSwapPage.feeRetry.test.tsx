@@ -110,6 +110,11 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 
+// The first test here pays for the page's first render: 1.6 s to 3.3 s in seven full runs.
+// Its sibling file (SolanaSwapPage.confirm.test.tsx) crossed the 5 s default once under
+// load, so both get the same room. Nothing asserted changes.
+vi.setConfig({ testTimeout: 30_000 });
+
 const OK: SwapSimulation = { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
 const JUP_6014: SwapSimulation = { ok: false, reason: 'custom program error: 0x177e', jupiterIncorrectTokenProgram: true };
 const OTHER: SwapSimulation = { ok: false, reason: 'custom program error: 0x1771', jupiterIncorrectTokenProgram: false };
