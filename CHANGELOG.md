@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-03
+
+- The site's own tests now run on Vitest 5 and jsdom 30; nothing a visitor sees changes.
+
 ### 2026-10-02
 
 - An Ethereum launch's page (/launch) shows the maker's wallet, its allocation and whether its vesting still locks it, read from the launch transaction Doppler's Airlock made.
