@@ -21,8 +21,12 @@ import '../../styles/wallet-adapter-ui.css';
 import { solanaRpcEndpoint } from '../../lib/solana';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import { useSolanaConnect } from './useSolanaConnect';
-import { SOLANA_CONNECT_WAIT_NOTICE_MS } from './SolanaConnectButton';
-import { setSolanaSurface, takeSolanaOpenRequest, useSolanaSurface } from '../../lib/solanaSurface';
+import {
+  SOLANA_CONNECT_WAIT_NOTICE_MS,
+  setSolanaSurface,
+  takeSolanaOpenRequest,
+  useSolanaSurface,
+} from '../../lib/solanaSurface';
 
 /**
  * Solana wallet context — mounted once per Solana section, always lazily, so

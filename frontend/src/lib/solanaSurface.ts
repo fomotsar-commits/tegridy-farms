@@ -118,6 +118,14 @@ export function solanaWasConnectedHere(): boolean {
   return safeGetItem(RESTORE_KEY) === '1';
 }
 
+/**
+ * How long a Solana connect may run before the page stops waiting on it: the
+ * card names the wallet, and a held top-bar tap or the wallet sheet opens the
+ * list, which names it too. It is here, not beside the card, because the wallet
+ * sheet is in the entry chunk and reads it.
+ */
+export const SOLANA_CONNECT_WAIT_NOTICE_MS = 4_000;
+
 /** The visitor asked for Solana where the page has no Solana section. */
 export function wantOwnSolana(): void {
   if (ownWanted) return;

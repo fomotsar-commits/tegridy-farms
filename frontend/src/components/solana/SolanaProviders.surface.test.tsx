@@ -14,11 +14,11 @@ import {
 } from '@solana/wallet-adapter-base';
 import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { SOLANA_CONNECT_WAIT_NOTICE_MS } from './SolanaConnectButton';
 import { PublicKey } from '@solana/web3.js';
 import { SolanaProviders, SolanaSurfaceBridge, TopBarSolanaProviders } from './SolanaProviders';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import {
+  SOLANA_CONNECT_WAIT_NOTICE_MS,
   getSolanaSurfaceState,
   requestSolanaOpen,
   resetSolanaSurfaceForTests,
