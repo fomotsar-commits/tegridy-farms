@@ -14,7 +14,7 @@ import { PROGRAM, buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.
 import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { CurveWriteConfig, LpGate } from '../curve/ports';
-import { createHeld, createOffer, depositOffer, lpHeld, poolListCut, withdrawOffer, type CreateOffer } from './offers';
+import { createAdvice, createHeld, createOffer, depositOffer, lpHeld, poolListCut, withdrawOffer, type CreateOffer } from './offers';
 
 const mint = key();
 const SOL = 10n * 10n ** 9n;
@@ -248,8 +248,8 @@ describe('createOffer', () => {
     swaps: { state: 'open' }, withdrawals: 'open', price: { state: 'empty-pool' }, deposits: { verdict, reasons: [] },
   });
   /** A TOKEN/SOL pool for `mint` on fee tier `tier` (its standard address), or at a one-off address. */
-  const poolOn = (tier: number, address?: PublicKey) =>
-    ({ kind: 'pool' as const, view: viewOf(buildPool({ mint, solReserve: SOL, tokenReserve: TOK, configIndex: tier, address }), { sol: SOL, tok: TOK }) });
+  const poolOn = (tier: number, address?: PublicKey, sol: bigint = SOL) =>
+    ({ kind: 'pool' as const, view: viewOf(buildPool({ mint, solReserve: sol, tokenReserve: TOK, configIndex: tier, address }), { sol, tok: TOK }) });
   type Entry = PoolSearch['pools'][number];
   const searchOf = (pools: Entry[], index: PoolSearch['index'] = { kind: 'ok', pools: [], truncated: false }): PoolSearchRead => ({
     kind: 'ok',
@@ -258,8 +258,11 @@ describe('createOffer', () => {
   type In = Parameters<typeof createOffer>[0];
   const base = (): In => ({
     mode: 'on', gate: GATE, facts: READY, notes: [], safety: okToken, outside: outside(0.01),
-    search: searchOf([]), healths: new Map(), openedHere: () => false,
+    search: searchOf([]), healths: new Map(),
   });
+  /** The advice for the same reads, with the pools this tab opened (none by default). */
+  const adviceOf = (a: In, openedHere: (pool: string) => boolean = () => false) =>
+    createAdvice({ gate: a.gate, search: a.search, healths: a.healths, openedHere });
   const withPool = (a: In, e: Entry, verdict?: PoolHealth['deposits']['verdict']): In => {
     if (a.search.kind !== 'ok') return a;
     const healths = new Map(a.healths);
@@ -291,15 +294,16 @@ describe('createOffer', () => {
     ['price-unread', (a) => ({ ...a, outside: { kind: 'unread', detail: 'HTTP 502' } })],
     ['no-route', (a) => ({ ...a, outside: { kind: 'no-route', detail: 'no route' } })],
     ['pools-unread', (a) => withPool(a, { kind: 'unread', address: key().toBase58(), detail: 'x' })],
-    ['opened-here', (a) => {
-      const e = poolOn(1, key());
-      return { ...withPool(a, e, 'refused'), openedHere: (p: string) => p === e.view.address };
-    }],
-    ['exists', (a) => withPool(a, poolOn(1), 'allowed')],
   ];
 
   it.each(triggers.map(([state], i) => [state, i] as const))('%s, on its own', (state, i) => {
     expect(createOffer(triggers[i]![1](base()))).toBe(state);
+  });
+
+  // Owner ruling 2026-10-03: a pool that already exists is advice, never a stop. Every
+  // stop above still stops with one there: an existing pool turns none of them into an offer.
+  it.each(triggers.map(([state], i) => [state, i] as const))('%s still stops with a passing public-tier pool there', (state, i) => {
+    expect(createOffer(triggers[i]![1](withPool(base(), poolOn(1), 'allowed')))).toBe(state);
   });
 
   it.each(triggers.slice(0, -1).map(([state], i) => [state, triggers[i + 1]![0], i] as const))('%s beats %s', (first, second, i) => {
@@ -341,10 +345,14 @@ describe('createOffer', () => {
       expect(createOffer(withPool(cut(), poolOn(0), 'allowed'))).toBe('offer');
     });
 
-    it('still answers from the pools read: a passing pool on the public tier, or one this tab opened', () => {
-      expect(createOffer(withPool(cut(), poolOn(1), 'allowed'))).toBe('exists');
+    it('still points to the pools read: a passing pool on the public tier, or one this tab opened', () => {
+      const passing = withPool(cut(), poolOn(1), 'allowed');
+      expect(createOffer(passing)).toBe('offer');
+      expect(adviceOf(passing).kind).toBe('exists');
       const mine = poolOn(1, key());
-      expect(createOffer({ ...withPool(cut(), mine, 'refused'), openedHere: (p: string) => p === mine.view.address })).toBe('opened-here');
+      const opened = withPool(cut(), mine, 'refused');
+      expect(createOffer(opened)).toBe('offer');
+      expect(adviceOf(opened, (p) => p === mine.view.address)).toEqual({ kind: 'opened-here', pool: mine.view });
     });
 
     it('what is truly unread still stops it: a pool not read, not checked, or the index itself', () => {
@@ -362,19 +370,57 @@ describe('createOffer', () => {
     });
   });
 
-  it('a passing pool blocks only when it is on the public tier: a passing tier-0 pool still gives offer', () => {
-    expect(createOffer(withPool(base(), poolOn(1), 'allowed'))).toBe('exists');
-    expect(createOffer(withPool(base(), poolOn(0), 'allowed'))).toBe('offer');
-    // A refused tier-1 pool (a squatter's) does not block either.
-    expect(createOffer(withPool(base(), poolOn(1), 'refused'))).toBe('offer');
-  });
+  // Owner ruling 2026-10-03: a token may have as many pools as people open. The card
+  // points to the pool to add to first; it never takes the opening away.
+  describe('a pool that already exists is advice, never a stop', () => {
+    it('a passing pool on the public tier: still offer, and it is the pool pointed to', () => {
+      const theirs = poolOn(1);
+      const a = withPool(base(), theirs, 'allowed');
+      expect(createOffer(a)).toBe('offer');
+      expect(adviceOf(a)).toEqual({ kind: 'exists', pool: theirs.view });
+    });
 
-  it('a pool this tab opened beats a passing one, whatever its own health', () => {
-    const mine = poolOn(1);
-    const a = { ...withPool(base(), mine, 'allowed'), openedHere: (p: string) => p === mine.view.address };
-    expect(createOffer(a)).toBe('opened-here');
-    const notOpenYet = { ...withPool(base(), mine, 'refused'), openedHere: (p: string) => p === mine.view.address };
-    expect(createOffer(notOpenYet)).toBe('opened-here');
+    it('only a passing pool on the PUBLIC tier is pointed to: not tier 0, not a refused one', () => {
+      for (const a of [withPool(base(), poolOn(0), 'allowed'), withPool(base(), poolOn(1), 'refused'), base()]) {
+        expect(createOffer(a)).toBe('offer');
+        expect(adviceOf(a)).toEqual({ kind: 'none' });
+      }
+    });
+
+    it('of several passing pools, the one holding the most SOL, wherever it sits in the list', () => {
+      const small = poolOn(1, key(), SOL);
+      const big = poolOn(1, key(), 3n * SOL);
+      const refusedBigger = poolOn(1, key(), 9n * SOL);
+      for (const order of [[small, big, refusedBigger], [refusedBigger, big, small]]) {
+        let a = base();
+        for (const e of order) a = withPool(a, e, e === refusedBigger ? 'refused' : 'allowed');
+        expect(adviceOf(a)).toEqual({ kind: 'exists', pool: big.view });
+      }
+    });
+
+    it('a pool this tab opened is pointed to first, whatever its own health, and still does not stop', () => {
+      const mine = poolOn(1, key());
+      const theirs = poolOn(1, key(), 5n * SOL);
+      for (const verdict of ['allowed', 'refused'] as const) {
+        const a = withPool(withPool(base(), theirs, 'allowed'), mine, verdict);
+        expect(createOffer(a)).toBe('offer');
+        expect(adviceOf(a, (p) => p === mine.view.address)).toEqual({ kind: 'opened-here', pool: mine.view });
+      }
+    });
+
+    it('names nothing while the gate is not open or the search is unread', () => {
+      const a = withPool(base(), poolOn(1), 'allowed');
+      expect(createAdvice({ gate: null, search: a.search, healths: a.healths, openedHere: () => true })).toEqual({ kind: 'none' });
+      expect(createAdvice({ gate: { kind: 'off' }, search: a.search, healths: a.healths, openedHere: () => true })).toEqual({ kind: 'none' });
+      const unread: PoolSearchRead = { kind: 'unread', detail: 'x', index: { kind: 'unread', detail: 'x' } };
+      expect(createAdvice({ gate: GATE, search: unread, healths: a.healths, openedHere: () => true })).toEqual({ kind: 'none' });
+    });
+
+    it('by type: an existing pool cannot be a stop', () => {
+      expectTypeOf<'exists'>().not.toMatchTypeOf<CreateOffer>();
+      expectTypeOf<'opened-here'>().not.toMatchTypeOf<CreateOffer>();
+      expectTypeOf<Parameters<typeof createOffer>[0]>().not.toHaveProperty('openedHere');
+    });
   });
 
   it('SOL under the newer token program is refused', () => {

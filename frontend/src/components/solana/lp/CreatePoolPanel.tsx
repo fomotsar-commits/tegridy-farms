@@ -21,7 +21,7 @@ import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
 import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, reviewOffWhy, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
-import { createHeld, type CreateOffer } from './offers';
+import { createHeld, type CreateAdvice, type CreateOffer } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const SOL_DECIMALS = 9;
@@ -46,12 +46,23 @@ function offerOffLine(offer: CreateOffer): string | null {
     case 'offer':
     case 'held':
       return null;
-    case 'opened-here':
-      return 'You opened a pool for this token just now. Add to it instead of opening another, so Review is off here.';
-    case 'exists':
-      return 'This token already has a pool on the public fee tier that passes the checks. Add to it instead, so Review is off here.';
     default:
       return 'Opening a pool is off right now (the card above says why), so Review is off here.';
+  }
+}
+
+/**
+ * What an opening here adds to, said next to Review while the card offers one. A pool
+ * that already exists never switches Review off: the opener is told, and chooses.
+ */
+function adviceLine(advice: CreateAdvice['kind']): string | null {
+  switch (advice) {
+    case 'none':
+      return null;
+    case 'opened-here':
+      return 'You opened a pool for this token just now. Opening again makes a second, separate pool and pays the fee to open again.';
+    case 'exists':
+      return 'This token already has a pool that passes the checks (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.';
   }
 }
 const rentBand = (most: string) =>
@@ -92,11 +103,13 @@ export function CreatePoolPanel(p: {
   tier: TierState | null;
   /** Whether the search found anything at the standard tier-1 address. Prepare decides for good. */
   standard: 'empty' | 'taken';
-  /**
-   * The card's answer now. An open panel obeys it: Review only while it is `offer`, so a
-   * panel left open after its own opening, or after someone else's, never opens a second.
-   */
+  /** The card's answer now. An open panel obeys it: Review only while it is `offer`. */
   offer: CreateOffer;
+  /**
+   * The pool the card points to first, if any. It never switches Review off: a panel left
+   * open after its own opening, or after someone else's, says so next to Review instead.
+   */
+  advice: CreateAdvice['kind'];
   /** The card's inputs are being read again: Review waits for the new answer. */
   reading: boolean;
   onClose: () => void;
@@ -117,6 +130,7 @@ function CreateInner({
   tier,
   standard,
   offer,
+  advice,
   reading,
   onClose,
   onReread,
@@ -366,6 +380,11 @@ function CreateInner({
         <Notice tone="warn">The public fee tier is not ready to open pools right now (see the card above), so Review is off.</Notice>
       )}
       {readyConfig !== null && flow.state.step === 'idle' && offerOffLine(offer) && <Notice tone="warn">{offerOffLine(offer)}</Notice>}
+      {readyConfig !== null && flow.state.step === 'idle' && offer === 'offer' && adviceLine(advice) && (
+        <div data-testid="lp-create-advice">
+          <Notice tone="warn">{adviceLine(advice)}</Notice>
+        </div>
+      )}
       {confirmedPool && (
         <Notice>
           Your pool is open at <span className="font-mono break-all">{confirmedPool}</span>. Swaps can start one second after it landed.

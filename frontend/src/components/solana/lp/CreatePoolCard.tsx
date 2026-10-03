@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { formatSol } from '../../../lib/launcher/solana/curve/format';
 import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import { isCreatedPool, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
@@ -6,14 +6,14 @@ import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { tradeCostText } from '../../../lib/solana/lp/format';
 import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
-import { publicTierConfig } from '../../../lib/solana/cpswap/program';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { Notice } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import type { CreateFacts, TierState } from '../curve/ports';
 import { CreatePoolPanel } from './CreatePoolPanel';
 import { MONEY_NOTE } from './LpDisclosures';
-import { createOffer, depositOffer, lpHeld, poolListCut, type CreateOffer } from './offers';
+import { createAdvice, createOffer, depositOffer, lpHeld, poolListCut, type CreateAdvice, type CreateOffer } from './offers';
+import { solAbout } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const NATIVE_2022_LINE = 'This is SOL under the newer token program. Pools here pair a token with SOL.';
@@ -31,6 +31,10 @@ const solFee = (lamports: bigint) => formatSol(lamports, 9);
  * checks (`healths`, the same the pool cards show), Jupiter's price, and the public fee
  * tier and the fee account (`createFacts`). Unread is never "no": each unread input has
  * its own line, and most have a **Read again**.
+ *
+ * A pool that already exists never takes the button away. The card names the pool to add
+ * to first (`createAdvice`: one this tab opened, else the biggest passing pool on the
+ * public tier) and says a new pool is separate; the choice is the opener's.
  */
 export function CreatePoolCard(p: {
   mint: string;
@@ -87,9 +91,11 @@ function CreateCard({
     outside,
     search,
     healths,
-    openedHere: isCreatedPool,
   });
-  const answer = answerKey(offer, facts, outside, search, healths);
+  // Said beside an offer only: a stopped card has its own line, and names no pool to add to.
+  const advice: CreateAdvice =
+    offer === 'offer' ? createAdvice({ gate: writes.gate, search, healths, openedHere: isCreatedPool }) : { kind: 'none' };
+  const answer = answerKey(offer, advice, facts, outside, search, healths);
   // A pressed Read again: what the card said before, until the new answer is in.
   const [asked, setAsked] = useState<string | null>(null);
   const [said, setSaid] = useState<'same' | 'changed' | null>(null);
@@ -111,36 +117,34 @@ function CreateCard({
   const acted = useRef(0);
   const settled = offer !== 'checking' && !reading;
   const { open: openPanel, busy } = writes;
+  const pointsTo = advice.kind;
   useEffect(() => {
     if (!openNow || acted.current === openNow || !settled) return;
     acted.current = openNow;
     // Not offered, already open, or another form is mid-flow: the card comes onto the
     // screen, so the press shows its reason (or its open form) instead of doing nothing.
     // An open form's own heading, when there is one: the card's top would leave it below the screen.
-    if (offer !== 'offer' || open || busy) (sectionRef.current?.querySelector('h4') ?? sectionRef.current)?.scrollIntoView?.({ block: 'start' });
+    // A token that already has a pool to add to is not taken straight into the open-a-pool
+    // form either: the card comes onto the screen with both choices (add to that pool, or
+    // open another), so the pool it points to is seen before a second one is opened.
+    if (offer !== 'offer' || pointsTo !== 'none' || open || busy) (sectionRef.current?.querySelector('h4') ?? sectionRef.current)?.scrollIntoView?.({ block: 'start' });
     else openPanel('create', key, openButton.current, headingRef.current);
     onActed?.(openNow);
-  }, [openNow, settled, offer, open, busy, openPanel, key, onActed]);
-  // "Add to it instead" used to be only words: asked to create a pool for a token that has
-  // one, a phone ended on a card with nothing to press (phone walk of the build,
-  // 2026-10-03, the day the first BAYLA pool was opened). The pool the card means, when it
-  // takes deposits right now by the same rule its own Add button follows.
+  }, [openNow, settled, offer, pointsTo, open, busy, openPanel, key, onActed]);
+  // The pool the card points to (createAdvice) gets a button, not only words: asked to
+  // create a pool for a token that has one, a phone ended on a card with nothing to press
+  // for it (phone walk of the build, 2026-10-03, the day the first BAYLA pool was
+  // opened). Offered when that pool takes deposits right now, by the same rule its own
+  // Add button follows. It sits beside Open a pool, which stays: a token may have as
+  // many pools as people open (owner ruling 2026-10-03).
   const { mode, gate } = writes;
   const notes = writes.pending.notes;
-  const addInstead = useMemo(() => {
-    if ((offer !== 'exists' && offer !== 'opened-here') || search.kind !== 'ok' || gate?.kind !== 'open') return null;
-    // Only reached once createOffer itself has worked the public tier's address out.
-    const tier1 = offer === 'exists' ? publicTierConfig(gate.cfg.cpSwapProgram).toBase58() : null;
-    for (const e of search.search.pools) {
-      if (e.kind !== 'pool') continue;
-      const health = healths.get(e.view.address);
-      if (!health) continue;
-      const meant = offer === 'opened-here' ? isCreatedPool(e.view.address) : e.view.snapshot.pool.ammConfig === tier1 && health.deposits.verdict === 'allowed';
-      if (!meant) continue;
-      return depositOffer({ mode, gate, health, held: lpHeld(notes, e.view.address, 'add') }) === 'offer' ? e.view.address : null;
-    }
-    return null;
-  }, [offer, search, healths, mode, gate, notes]);
+  const pointedTo = advice.kind === 'none' ? null : advice.pool.address;
+  const pointedHealth = pointedTo ? healths.get(pointedTo) : undefined;
+  const addInstead =
+    pointedTo && pointedHealth && gate?.kind === 'open' && depositOffer({ mode, gate, health: pointedHealth, held: lpHeld(notes, pointedTo, 'add') }) === 'offer'
+      ? pointedTo
+      : null;
   if (offer === 'off') return null;
 
   // Another panel's flow is running: this one cannot open over it.
@@ -160,6 +164,7 @@ function CreateCard({
       style={CARD_STYLE}
       data-testid="lp-create"
       data-create={offer}
+      data-advice={advice.kind}
       aria-labelledby={headingId}
       aria-busy={reading}
     >
@@ -171,6 +176,7 @@ function CreateCard({
         <div aria-live="polite" className="space-y-2">
           <OfferLines
             offer={offer}
+            advice={advice}
             facts={facts}
             safety={safety}
             outside={outside}
@@ -202,7 +208,8 @@ function CreateCard({
             <button
               ref={openButton}
               type="button"
-              className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+              // Beside "Add liquidity to that pool" this is the second choice, and looks it.
+              className={`${addInstead ? 'btn-secondary' : 'btn-primary'} w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60`}
               disabled={blockedByOther}
               aria-expanded={open}
               onClick={(e) => writes.open('create', key, e.currentTarget, headingRef.current)}
@@ -224,6 +231,7 @@ function CreateCard({
             tier={tier}
             standard={standard}
             offer={offer}
+            advice={advice.kind}
             reading={reading}
             onClose={writes.close}
             onReread={onReread}
@@ -252,9 +260,17 @@ function poolsUnreadDetail(search: PoolSearchRead, healths: ReadonlyMap<string, 
  * What the card's answer rests on, as one string: the answer and every detail its line
  * shows. Two reads that give the same string said the same thing.
  */
-function answerKey(offer: CreateOffer, facts: CreateFacts | null, outside: OutsidePrice | null, search: PoolSearchRead, healths: ReadonlyMap<string, PoolHealth>): string {
+function answerKey(
+  offer: CreateOffer,
+  advice: CreateAdvice,
+  facts: CreateFacts | null,
+  outside: OutsidePrice | null,
+  search: PoolSearchRead,
+  healths: ReadonlyMap<string, PoolHealth>,
+): string {
   return [
     offer,
+    advice.kind === 'none' ? '' : `${advice.kind}:${advice.pool.address}:${advice.pool.solReserve}`,
     outside?.kind === 'unread' ? outside.detail : '',
     facts?.tier.kind === 'unread' ? facts.tier.detail : '',
     facts?.feeAccount.kind === 'unread' ? facts.feeAccount.detail : '',
@@ -280,6 +296,7 @@ function ReadAgain({ onClick, busy = false }: { onClick: () => void; busy?: bool
 
 function OfferLines({
   offer,
+  advice,
   facts,
   safety,
   outside,
@@ -290,6 +307,8 @@ function OfferLines({
   onRereadFacts,
 }: {
   offer: CreateOffer;
+  /** The pool to add to first, said beside an offer. Never a stop. */
+  advice: CreateAdvice;
   facts: CreateFacts | null;
   safety: TokenSafety;
   outside: OutsidePrice | null;
@@ -327,38 +346,60 @@ function OfferLines({
             .map((v) => String(v.config?.index ?? '?')),
         ),
       ];
+      const cutLine = cut && (
+        <p>
+          This token has more pools than our pool index lists. The index lists the ones holding the most SOL, so the ones left out hold no
+          more SOL than those. They were not read or checked here.
+        </p>
+      );
+      const otherTierLine = otherTiers.length > 0 && (
+        <p>
+          This token also has a pool on fee tier {otherTiers.join(' and ')} that passes the checks. A new pool will not share its liquidity or
+          fees.
+        </p>
+      );
+      // A pool to add to first. The opener may still open another: it is their choice.
+      if (advice.kind === 'opened-here') {
+        return (
+          <>
+            {cutLine}
+            <p>
+              You opened a pool for this token just now (<span className="font-mono break-all">{advice.pool.address}</span>). Your share is under
+              &apos;Your positions&apos;. Adding to it keeps your liquidity in one place.
+            </p>
+            <p data-testid="lp-create-still">
+              You can still open another on the public fee tier ({terms}). It will be a separate pool, and the fee to open is paid again.
+            </p>
+          </>
+        );
+      }
+      if (advice.kind === 'exists') {
+        return (
+          <>
+            {cutLine}
+            <p data-testid="lp-create-refer">
+              This token already has a pool on the public fee tier that passes the checks (above). The biggest is{' '}
+              <span className="font-mono break-all">{advice.pool.address}</span>, holding {solAbout(advice.pool.solReserve)}. We suggest adding to
+              it: liquidity in one place gives traders a better price.
+            </p>
+            <p data-testid="lp-create-still">
+              You can still open your own on the public fee tier ({terms}). It will be a separate pool: it does not share the other pool&apos;s
+              liquidity or fees.
+            </p>
+            {otherTierLine}
+          </>
+        );
+      }
       return (
         <>
-          {cut && (
-            <p>
-              This token has more pools than our pool index lists. The index lists the ones holding the most SOL, so the ones left out hold no
-              more SOL than those. They were not read or checked here.
-            </p>
-          )}
+          {cutLine}
           <p>
             {cut ? 'None of the pools read for this token' : "None of this token's pools"}
             {otherTiers.length > 0 ? ' on the public fee tier' : ''} passes the checks above.{' '}
             You can open a new one on the public fee tier ({terms}). It will be a separate pool: it does not fix or join the others.
           </p>
-          {otherTiers.length > 0 && (
-            <p>
-              This token also has a pool on fee tier {otherTiers.join(' and ')} that passes the checks. A new pool will not share its liquidity or
-              fees.
-            </p>
-          )}
+          {otherTierLine}
         </>
-      );
-    }
-    case 'exists':
-      return <p>This token already has a pool on the public fee tier that passes the checks (above). Add to it instead, so the liquidity stays in one place.</p>;
-    case 'opened-here': {
-      const mine = search.kind === 'ok' ? search.search.pools.find((e) => e.kind === 'pool' && isCreatedPool(e.view.address)) : undefined;
-      const address = mine?.kind === 'pool' ? mine.view.address : '';
-      return (
-        <p>
-          You opened a pool for this token just now (<span className="font-mono break-all">{address}</span>). Add to it instead of opening another.
-          Your share is under &apos;Your positions&apos;.
-        </p>
       );
     }
     case 'pools-unread':

@@ -279,9 +279,15 @@ describe('a lookup asked for with a button ends in a form', () => {
     fireEvent.click(await task('Create a pool'));
     fireEvent.click(await chip('BAYLA'));
     const card = await screen.findByTestId('lp-create');
-    await waitFor(() => expect(card).toHaveAttribute('data-create', 'exists'));
-    expect(card).toHaveTextContent('This token already has a pool on the public fee tier that passes the checks (above). Add to it instead');
-    // No second pool is opened, and nothing was opened for them: the card is what they see.
+    // The card points to that pool (owner ruling 2026-10-03: an existing pool is advice,
+    // never a block), with both choices to press: add to it, or open another.
+    await waitFor(() => expect(card).toHaveAttribute('data-advice', 'exists'));
+    expect(card).toHaveAttribute('data-create', 'offer');
+    expect(card).toHaveTextContent(`This token already has a pool on the public fee tier that passes the checks (above). The biggest is ${v.address}`);
+    expect(card).toHaveTextContent('We suggest adding to it');
+    expect(within(card).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
+    // Nothing was opened for them, not even the open-a-pool form they asked for: the
+    // card, with the pool it points to, is what they see first.
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
     expect(screen.queryByTestId('lp-add-panel')).toBeNull();
     await waitFor(() => expect(scrolledTo()).toContain(card));
