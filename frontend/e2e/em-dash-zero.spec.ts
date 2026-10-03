@@ -452,9 +452,10 @@ test.describe('element I: the BAYLA lock ladder card, once its pool reads', () =
 // read unanswered, some card would be on its unread branch and the count would be of a
 // mixed page. The count holds both ways, like every budget here, and the page must show
 // the figures it read, or the test fails: a sheet that never read proves nothing.
-// The three it carries are the same three the sealed branch does, in the sections below
-// the sheet that do not depend on the read.
-const POOLS_LIVE_DEBT: number = 3;
+// The one it carries is the same one the sealed branch does (VENUE_VOICE_DEBT['/pools']), in the
+// sections below the sheet that do not depend on the read. It was three until the Solana
+// LP section moved to its own tab (/solana-lp) and took two with it.
+const POOLS_LIVE_DEBT: number = 1;
 
 test.describe('element I: /pools, once its venue reads', () => {
   const path = '/pools';
