@@ -215,10 +215,14 @@ async function checkOpenedPool(o: {
  * moves SOL. Not the review's own test-run line: that comes from the same simulation the
  * page shows, so a change that took more SOL would show on both sides.
  */
-async function checkOpenerSol(t: Awaited<ReturnType<typeof landedTx>>, owner: PublicKey, solIn: bigint): Promise<void> {
+async function checkOpenerSol(t: Awaited<ReturnType<typeof landedTx>>, owner: PublicKey, solIn: bigint, emptyWsolClosed = 0n): Promise<void> {
   const [tier, rents] = await Promise.all([tierView(1), liveRents()]);
   const networkFee = BigInt(t.meta!.fee);
-  expect(lamportDelta(t, owner), "the opener's SOL change, worked out in Node").toBe(-(solIn + tier.createPoolFee + rents.neverRefunded + rents.r165 + networkFee));
+  // `emptyWsolClosed`: the lamports of a wrapped-SOL account the opener already had,
+  // empty, before the opening. The opening closes it (wsol.ts) and those come back.
+  expect(lamportDelta(t, owner), "the opener's SOL change, worked out in Node").toBe(
+    -(solIn + tier.createPoolFee + rents.neverRefunded + rents.r165 + networkFee) + emptyWsolClosed,
+  );
 }
 
 /** What the wallet signed for an opening: one initialize, open_time 0, the fee account and tier 1 in their slots. */
@@ -1059,10 +1063,16 @@ test.describe('group B (chromium only)', () => {
     expect(pool.toBase58(), 'a different pool from the first').not.toBe(B.p16.address.toBase58());
     const feeBefore = (await tokenAmount(CREATE_POOL_FEE_RECEIVER))!;
     const tokenBefore = (await tokenAmount(ata(B.t16, B.c16.publicKey)))!;
+    // The first pool was opened from Node (createSolPool), which leaves the opener's
+    // wrapped-SOL account open and empty. This opening closes it, and its deposit comes back.
+    const wsolAcc = ata(WSOL, B.c16.publicKey);
+    expect(await tokenAmount(wsolAcc), 'an empty wrapped-SOL account before').toBe(0n);
+    const wsolLamports = await lamports(wsolAcc);
     const { signature, t } = await signConfirmed(a);
     checkSignedOpening(a, pool, 'co-signer');
     await checkOpenedPool({ pool, mint: B.t16, owner: B.c16.publicKey, sol: solIn, token, signature, feeBefore, tokenBefore, fee: (await tierView(1)).createPoolFee });
-    await checkOpenerSol(t, B.c16.publicKey, solIn);
+    await checkOpenerSol(t, B.c16.publicKey, solIn, wsolLamports);
+    expect(await accountOwner(wsolAcc), 'no wrapped-SOL account left').toBeNull();
     expect(Buffer.from((await chain().getAccountInfo(B.p16.address, 'confirmed'))!.data).equals(Buffer.from(firstBytes)), "the first pool's bytes are unchanged").toBe(true);
 
     // Both pools are listed, each with its own card.
