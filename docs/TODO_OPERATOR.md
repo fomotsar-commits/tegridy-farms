@@ -29,7 +29,7 @@ stop and say so — a surprise is information.
 
 ---
 
-## 🔴 2026-10-03: analytics events kept 90 days, then deleted automatically
+## 🔴 2026-10-03: analytics events kept 90 days, then deleted automatically (PR #695)
 
 Your decision of 2026-10-03: an analytics event (the `analytics_events` table, migration 013,
 written by `/api/analytics`) is **kept for 90 days and then deleted automatically**, and the
@@ -59,7 +59,7 @@ the 90 days there. A test fails if that table is ever added to its list.
    `select filename, applied_at from public.schema_migrations where filename = '027_analytics_events_retention.sql';`
    Doing this before step 3 matters: without it the delete may be refused, and every hourly run
    is red until it is done.
-3. **Merge the PR and let it deploy.** The first run deletes, for good, every analytics event
+3. **Merge PR #695 and let it deploy.** The first run deletes, for good, every analytics event
    already more than 90 days old. That is the decision; if you want old totals kept, write the
    counts down first.
 4. **Check the delete.** GitHub, Actions, Data Retention, Run workflow. **You should see** a
