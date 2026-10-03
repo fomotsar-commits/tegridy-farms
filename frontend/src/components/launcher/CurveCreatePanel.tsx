@@ -26,7 +26,7 @@ import { assertMayLaunch } from '../../lib/heat/launchGate';
 import { getTxUrl } from '../../lib/explorer';
 import {
   readReceiptOutcome,
-  surfaceReceiptNotice,
+  surfaceReplacedTx,
   surfaceUnconfirmedTx,
   waitForReceiptOutcome,
   type DirectReceiptOutcome,
@@ -529,7 +529,11 @@ export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: Curv
     if (outcome.kind === 'replaced') {
       setUnconfirmed(null);
       setStage('idle');
-      surfaceReceiptNotice(toast, outcome, { hash, chainId, repeatCost: '' });
+      surfaceReplacedTx(toast, {
+        hash,
+        replacement: outcome.replacement,
+        explorerUrl: getTxUrl(chainId, outcome.replacement.hash),
+      });
       return;
     }
     if (outcome.kind === 'reverted') {

@@ -298,7 +298,7 @@ export function useLimitOrders() {
   const settleOrder = useCallback((
     id: string,
     hash: `0x${string}`,
-    outcome: Exclude<DirectReceiptOutcome<{ transactionHash?: string }>, { kind: 'unreadable' }>,
+    outcome: Exclude<DirectReceiptOutcome<unknown>, { kind: 'unreadable' }>,
   ) => {
     executingRef.current.delete(id); // terminal — drop tracking
     // While this tab's writes are not landing, its orders are not in storage.
