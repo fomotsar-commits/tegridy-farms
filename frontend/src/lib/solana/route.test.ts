@@ -67,6 +67,19 @@ describe('chooseRoute', () => {
     expect(onlyOwn.reason).toMatch(/only venue that quoted/);
   });
 
+  // Pinned for SPEC_S3 (P-03). chooseRoute ranks what it is given and nothing else:
+  // handed our pool ALONE it picks our pool, however bad its price, because there is
+  // nothing to lose to. So "Jupiter could not be read" must never reach this function
+  // as a one-candidate list: the caller (lib/solana/swap/ownRoute.ts decideRoute) has
+  // to answer "no route" itself.
+  it('a lone own-pool candidate wins against nothing: it is never a comparison', () => {
+    const d = chooseRoute([own(1n)]);
+    expect(d.chosen?.venue).toBe('own-pool');
+    expect(d.runnerUp).toBe(null);
+    expect(d.edge).toBe(null);
+    expect(d.candidates).toHaveLength(1);
+  });
+
   it('treats a zero quote as no quote, never as a candidate', () => {
     const d = chooseRoute([own(0n), agg(1_000n)]);
     expect(d.candidates).toHaveLength(1);
