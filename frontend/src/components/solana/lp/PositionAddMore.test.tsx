@@ -35,7 +35,7 @@ import type { Position } from '../../../lib/solana/lp/positions';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { LP_PENDING_SCOPE, savePendingTrade } from '../curve/pendingTrade';
-import type { LpWriteApi, Prepared } from '../curve/ports';
+import type { LpGate, LpWriteApi, Prepared } from '../curve/ports';
 import { fakeLpApi, lpOpenGate, LP_PROGRAM, readyFacts, unusedGateRpc } from './fakeLpWriteApi.fixture';
 
 const OWNER = key();
@@ -294,9 +294,10 @@ describe('the press is the finder’s own lookup, and it ends in that pool’s A
     const finder = screen.getByTestId('lp-finder');
     expect(within(finder).getByLabelText('Token mint address')).toHaveValue(M);
     // First the answer, then the form: its heading is what the page ends on, with focus.
+    // (The form's own effect runs a moment after it is on the page, so this waits for it.)
     expect(scrolledTo()[0]).toBe(screen.getByTestId('lp-answer'));
     const heading = within(panel).getByRole('heading', { name: 'Add liquidity to this pool' });
-    expect(scrolledTo()[scrolledTo().length - 1]).toBe(heading);
+    await waitFor(() => expect(scrolledTo()[scrolledTo().length - 1]).toBe(heading));
     expect(heading).toHaveFocus();
     // Nobody opened a pool.
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
@@ -387,11 +388,12 @@ describe('it goes to that pool or to nowhere', () => {
     expect(its).toHaveTextContent(c.says);
     // A keyboard and a screen reader land on the card too.
     expect(within(its).getByRole('heading', { level: 3 })).toHaveFocus();
-    // The pool beside it would have taken the deposit. It was not asked.
+    // The pool beside it would have taken the deposit. It was not asked, and not shown.
     expect(card(deep.address)).toHaveAttribute('data-add', 'offer');
     await act(async () => {});
     noFormOpen();
     neverWentToOpenCard();
+    expect(scrolledTo()).not.toContain(card(deep.address));
     expect(scrolledTo()[scrolledTo().length - 1]).toBe(its);
     expect(screen.queryByTestId('lp-wish-unfound')).toBeNull();
   });
@@ -515,6 +517,27 @@ describe('it goes to that pool or to nowhere', () => {
   });
 });
 
+// Every wish, with a pool named or not, is acted on only once the network check has
+// answered: until then no pool can say whether it takes deposits. A position's button
+// exists only after that answer, so the rule is shown here with the first card's button.
+describe('a wish waits for the network check', () => {
+  it('Add liquidity pressed before the check has answered opens nothing and goes nowhere; once it answers, the form it asked for opens', async () => {
+    const mine = view();
+    let answer!: (g: LpGate) => void;
+    const api = openApi({ readLpGate: vi.fn(() => new Promise<LpGate>((res) => (answer = res))) });
+    mount(readers({ findPools: vi.fn(async () => search([mine])) }), { api, path: `/pools?mint=${M}` });
+    const its = await screen.findByTestId('lp-pool');
+    expect(its).toHaveAttribute('data-add', 'gate');
+    fireEvent.click(within(screen.getByTestId('lp-tasks')).getByRole('button', { name: 'Add liquidity' }));
+    await act(async () => {});
+    noFormOpen();
+    expect(scrolled).not.toHaveBeenCalled();
+    await act(async () => answer(lpOpenGate()));
+    expect(its).toContainElement(await screen.findByTestId('lp-add-panel'));
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+  });
+});
+
 describe('when the button is not there, and when it is off', () => {
   const paused: { name: string; mode: LpWritesOverrides['mode']; api: () => LpWriteApi; remove: string }[] = [
     { name: 'adding is paused in this build', mode: 'withdraw-only', api: () => fakeLpApi({ gate: lpOpenGate({ mode: 'withdraw-only' }) }), remove: 'offer' },
@@ -590,8 +613,12 @@ describe('when the button is not there, and when it is off', () => {
       fireEvent.click(within(panel).getByRole('button', { name: 'Review: remove liquidity' }));
     });
     expect(add).toBeDisabled();
+    // The greyed button says why, here too: Remove itself is not blocked, its own form is the one running.
+    expect(within(r).getByRole('button', { name: 'Remove liquidity' })).toBeEnabled();
+    expect(r).toHaveTextContent('Finish or close the open liquidity panel first.');
     await act(async () => release());
     await waitFor(() => expect(add).toBeEnabled());
+    expect(r).not.toHaveTextContent('Finish or close the open liquidity panel first.');
   });
 });
 
