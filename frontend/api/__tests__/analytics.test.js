@@ -4,7 +4,8 @@
 // every visitor that event records "do NOT include your wallet address"; these
 // pin that as behaviour rather than intention.
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { analyticsRetentionCutoff } from "../_lib/errorPolicy.js";
 
 vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true) }));
 
@@ -52,7 +53,27 @@ async function load() {
   return import("../analytics.js");
 }
 
-beforeEach(() => { inserted.length = 0; insertError = null; });
+/** The backstop purge talks to PostgREST with fetch. Each call is recorded here, and no
+ *  test in this file reaches the network. */
+let purgeCalls = [];
+let purgeReply = () => new Response(null, { status: 204, headers: { "Content-Range": "*/0" } });
+
+beforeEach(() => {
+  inserted.length = 0;
+  insertError = null;
+  purgeCalls = [];
+  purgeReply = () => new Response(null, { status: 204, headers: { "Content-Range": "*/0" } });
+  vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+    purgeCalls.push({ url: String(url), init });
+    return purgeReply();
+  }));
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("privacy — no wallet address may be stored", () => {
   it("rejects an EVM address anywhere in properties", async () => {
@@ -219,5 +240,95 @@ describe("validation + storage", () => {
     const { res, out } = makeRes();
     await handler(makeReq({ body: { events: [EVENT()] } }), res);
     expect(out.status).toBe(503);
+  });
+});
+
+// Kept 90 days, then deleted automatically (owner, 2026-10-03). The hourly retention
+// workflow is the main purge; this one, after a stored batch and at most once an hour per
+// instance, keeps the promise when GitHub's scheduler is late or down.
+describe("the backstop purge after a stored batch", () => {
+  const NOW = Date.UTC(2027, 0, 20, 12);
+  const HOUR = 60 * 60 * 1000;
+  const post = async (handler, body = { events: [EVENT()] }) => {
+    const { res, out } = makeRes();
+    await handler(makeReq({ body }), res);
+    return out;
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+
+  it("deletes events received more than 90 days ago, with the service key, on the configured project", async () => {
+    const { default: handler } = await load();
+    const out = await post(handler);
+    expect(out.status).toBe(200);
+    expect(purgeCalls).toHaveLength(1);
+    const u = new URL(purgeCalls[0].url);
+    expect(u.origin).toBe("https://example.supabase.co");
+    expect(u.pathname).toBe("/rest/v1/analytics_events");
+    expect([...u.searchParams.keys()]).toEqual(["received_at"]);
+    expect(u.searchParams.get("received_at")).toBe(`lt.${analyticsRetentionCutoff(NOW)}`);
+    expect(purgeCalls[0].init.method).toBe("DELETE");
+    expect(purgeCalls[0].init.headers).toMatchObject({ apikey: "service-key", Authorization: "Bearer service-key" });
+  });
+
+  it("runs at most once an hour per instance", async () => {
+    const { default: handler } = await load();
+    await post(handler);
+    await post(handler);
+    vi.setSystemTime(NOW + HOUR - 1);
+    await post(handler);
+    expect(purgeCalls).toHaveLength(1);
+    vi.setSystemTime(NOW + HOUR);
+    await post(handler);
+    expect(purgeCalls).toHaveLength(2);
+    expect(new URL(purgeCalls[1].url).searchParams.get("received_at")).toBe(`lt.${analyticsRetentionCutoff(NOW + HOUR)}`);
+  });
+
+  it("a purge that is refused does not touch the answer to the browser, and logs no key", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    purgeReply = () => new Response(JSON.stringify({ code: "42501" }), { status: 403 });
+    const { default: handler } = await load();
+    const out = await post(handler);
+    expect(out.status).toBe(200);
+    expect(out.payload.accepted).toBe(1);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(log.mock.calls)).not.toContain("service-key");
+  });
+
+  it("a purge that throws does not either", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    purgeReply = () => { throw new TypeError("fetch failed"); };
+    const { default: handler } = await load();
+    const out = await post(handler);
+    expect(out.status).toBe(200);
+    expect(out.payload.accepted).toBe(1);
+  });
+
+  it("even a purge function that breaks its never-throw contract leaves the stored batch at 200", async () => {
+    vi.doMock("../_lib/errorPurge.js", () => ({
+      purgeExpiredAnalyticsEvents: async () => { throw new Error("contract broken"); },
+    }));
+    try {
+      const { default: handler } = await load();
+      const out = await post(handler);
+      expect(out.status).toBe(200);
+      expect(out.payload.accepted).toBe(1);
+    } finally {
+      vi.doUnmock("../_lib/errorPurge.js");
+    }
+  });
+
+  it("does not run after a failed insert, or when nothing was stored", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { default: handler } = await load();
+    insertError = { code: "PGRST205", message: "no table" };
+    expect((await post(handler)).status).toBe(503);
+    insertError = null;
+    expect((await post(handler, { events: [EVENT({ event: "" })] })).payload.accepted).toBe(0);
+    expect((await post(handler, { events: [] })).payload.accepted).toBe(0);
+    expect(purgeCalls).toEqual([]);
   });
 });

@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-03
+
+- Analytics events are kept for 90 days and then deleted automatically, every hour, and the Privacy page now says so. Before, nothing deleted them.
+
 ### 2026-10-02
 
 - An Ethereum launch's page (/launch) shows the maker's wallet, its allocation and whether its vesting still locks it, read from the launch transaction Doppler's Airlock made.
