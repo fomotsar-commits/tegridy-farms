@@ -1,16 +1,16 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../lib/solanaPolyfill';
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { m } from 'framer-motion';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useVenueStatus } from '../hooks/useVenueStatus';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
-import { CopyButton } from '../components/ui/CopyButton';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
-import { browserCurveRpc } from '../lib/launcher/solana/curve/rpc';
-import { readVenue, type VenueStatus } from '../lib/solana/cpswap/read';
-import { SPENT_PROGRAM_ID, hasProgramId } from '../lib/solana/cpswap/program';
+import { VenueStatusCard } from '../components/solana/VenueStatusCard';
+import { VenueProgramCard } from '../components/solana/VenueProgramCard';
+import type { VenueStatus } from '../lib/solana/cpswap/read';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 import {
   CREATOR_FEE_SWITCH,
@@ -19,6 +19,7 @@ import {
   solOf,
   tradeCost,
 } from '../lib/solana/cpswap/venue';
+import { withMint } from '../lib/solana/lp/mintLink';
 import { feeRateText } from '../lib/solana/lp/format';
 
 // The LP finder, positions and fee tiers. Lazy: it brings the Solana wallet stack, which
@@ -40,22 +41,8 @@ export default function PoolsPage() {
   );
   useEffect(() => { trackPageView('pools'); }, []);
 
-  const [status, setStatus] = useState<VenueStatus | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    readVenue(browserCurveRpc())
-      .then((s) => { if (!cancelled) setStatus(s); })
-      .catch(() => {
-        if (!cancelled) setStatus({ kind: 'unreadable', detail: 'the RPC proxy did not answer' });
-      });
-    return () => { cancelled = true; };
-  }, [reloadKey]);
-
-  const refresh = useCallback(() => setReloadKey((k) => k + 1), []);
-  // After a failed read, show "reading" again so a second failure is visibly a new answer.
-  const retry = useCallback(() => { setStatus(null); setReloadKey((k) => k + 1); }, []);
+  // The same live read as /solana-lp; "Try again" uses `retry`, the card's Refresh `refresh`.
+  const { status, refresh, retry } = useVenueStatus();
 
   // Fees come only from a config the chain returned. With none, the sheet shows no number.
   const liveConfig = status?.kind === 'live' ? status.config : null;
@@ -76,6 +63,8 @@ export default function PoolsPage() {
   const tierTakesPools = liveConfig !== null && !liveConfig.disableCreatePool;
   // Fixed for the life of a build: a production build reads only the committed constant.
   const lpMode = lpWriteMode();
+  // The token being looked at (?mint=) follows the reader to the Solana LP tab.
+  const [params] = useSearchParams();
 
   return (
     <div className="relative min-h-screen">
@@ -109,6 +98,11 @@ export default function PoolsPage() {
                 what the latest read found.
               </>
             )}
+          </p>
+          <p className="text-[13px] mt-2">
+            <Link to={withMint('/solana-lp', params)} className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
+              {venueIsOpen ? SOLANA_LP_LINK[lpMode] : SOLANA_LP_LINK_NOT_OPEN}
+            </Link>
           </p>
         </m.div>
 
@@ -220,25 +214,7 @@ export default function PoolsPage() {
           </section>
         </div>
 
-        {/* ── The program ─────────────────────────────────────────────────── */}
-        <section className="rounded-2xl p-6 mt-6" style={CARD}>
-          <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The program</p>
-          <h2 className="heading-luxury text-lg text-white mb-3">Raydium&rsquo;s CPMM, unmodified</h2>
-          <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-            The AMM is a verbatim fork of <strong>raydium-cp-swap</strong>. CI clones the pinned
-            upstream commit, refuses any differing file outside two, and sha256-hashes the
-            remaining delta against a pinned value — currently 86 lines across three files,
-            all of it authority constants and comments. The curve, the swap, the deposit and
-            withdraw paths and the fee maths are Raydium&rsquo;s, not ours, and the quotes on
-            the swap page run that same maths client-side.
-          </p>
-          <p className="text-white/50 text-[12px] leading-relaxed">
-            A browser cannot list pools itself — <code className="font-mono">getProgramAccounts</code> stays
-            off our RPC proxy&rsquo;s allowlist as an unbounded scan. Our server runs that one scan,
-            filtered to pools holding the token you look up, and returns addresses only; this page
-            then reads and checks every one of those pools on chain itself.
-          </p>
-        </section>
+        <VenueProgramCard />
       </div>
     </div>
   );
@@ -255,11 +231,14 @@ const HERO_LP_LINE: Record<LpWriteMode, string> = {
   on: 'This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier (the pools section says whether that can be done right now).',
   'withdraw-only': 'This site reads pools and shares. Adding liquidity and opening pools from here are paused; taking yours out still works.',
 };
-const VENUE_LP_LINE: Record<LpWriteMode, string> = {
-  off: 'This site only reads pools so far.',
-  on: 'This site can add and remove liquidity, and open new pools on the public fee tier (the pools section below says whether it can right now).',
-  'withdraw-only': 'This site can take liquidity out; adding liquidity and opening pools are paused.',
+// The hero's door to the Solana LP tab says what that tab can do, by the same switch,
+// and only once the venue reads live: until then the door claims nothing.
+const SOLANA_LP_LINK: Record<LpWriteMode, string> = {
+  off: 'Find a pool on the Solana LP tab',
+  on: 'Add or remove liquidity on the Solana LP tab',
+  'withdraw-only': 'Take your liquidity out on the Solana LP tab',
 };
+const SOLANA_LP_LINK_NOT_OPEN = 'Go to the Solana LP tab';
 
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'good' }) {
   return (
@@ -268,126 +247,6 @@ function Stat({ label, value, sub, tone }: { label: string; value: string; sub?:
       <p className="stat-value text-xl leading-tight" style={{ color: tone === 'good' ? '#4ade80' : '#ffffff' }}>{value}</p>
       {sub && <p className="text-[10px] text-white/50">{sub}</p>}
     </div>
-  );
-}
-
-/**
- * The venue's real state, from a live probe. Every branch names precisely what
- * is missing — "come back later" and "one instruction has not run" are
- * different facts and a reader deserves to know which one they are looking at.
- */
-function VenueStatusCard({ status, onRefresh, lpMode }: { status: VenueStatus | null; onRefresh: () => void; lpMode: LpWriteMode }) {
-  const amber = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' };
-  const green = { background: 'rgba(6,24,14,0.92)', border: '1px solid rgba(34,197,94,0.45)' };
-
-  if (status === null) {
-    return (
-      <section className="rounded-2xl p-6" style={CARD}>
-        <p className="text-white/70 text-[13px]">Reading the venue&rsquo;s status from the chain…</p>
-      </section>
-    );
-  }
-
-  if (status.kind === 'live') {
-    return (
-      <section className="rounded-2xl p-6" style={green} aria-label="Venue status">
-        <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
-          <p className="text-[10px] uppercase tracking-wider" style={{ color: '#4ade80' }}>Venue · LIVE</p>
-          <button type="button" onClick={onRefresh} className="text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
-        </div>
-        <h2 className="heading-luxury text-xl text-white mb-2">Pools are open</h2>
-        <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-          {status.config.disableCreatePool
-            ? `The AMM is deployed and its config exists, but opening new pools on fee tier ${status.config.index} is switched off by the pool program’s admin, so on chain anyone can only provide liquidity to pools that already exist.`
-            : 'The AMM is deployed and its config exists, so anyone can open a pool and provide liquidity on chain.'}{' '}
-          {VENUE_LP_LINE[lpMode]} Fees below are read from that config.
-        </p>
-        <div className="flex flex-wrap gap-3 text-[12px]">
-          <Addr label="Program" value={status.programId} />
-          <Addr label="Config" value={status.config.address} />
-        </div>
-      </section>
-    );
-  }
-
-  const body = (() => {
-    switch (status.kind) {
-      case 'no-program-id':
-        return {
-          title: 'This page has no program id to read',
-          lines: [
-            'This build of the site was not given the AMM’s program id, so it has no program to read and shows no fees or pools. That says nothing about what is on chain.',
-            'The id the venue ran on until 2026-08-13 is closed and permanently spent, and this page never reads it.',
-          ],
-          spent: true,
-        };
-      case 'program':
-        return {
-          title: status.deployment.kind === 'closed'
-            ? 'That program id is closed'
-            : status.deployment.kind === 'not-a-program'
-              ? 'Something is at that address, but it is not a program'
-              : 'No program at the configured id',
-          lines: [
-            status.deployment.kind === 'closed'
-              ? 'Its bytecode account is gone, so nothing can run there and the id can never be reused. A configured id that reads as closed means the env var is pointing at a spent address.'
-              : status.deployment.kind === 'not-a-program'
-                ? `The account is owned by ${status.deployment.owner} and is not executable. A program id is a public address and anyone can send lamports to it.`
-                : 'The configured program id has no account at all.',
-          ],
-          spent: false,
-        };
-      case 'no-config':
-        return {
-          title: 'Deployed, one instruction from open',
-          lines: [
-            'The AMM is on chain, but its fee tier (AmmConfig index 0) has not been created, so there is no tier for a pool to belong to and every pool creation would fail. The missing instruction is create_amm_config, which only the program’s admin can run.',
-          ],
-          spent: false,
-        };
-      case 'unreadable':
-        return {
-          title: 'The chain could not be read',
-          lines: [`That is an outage on our side, not a statement about the venue: ${status.detail}`],
-          spent: false,
-        };
-    }
-  })();
-
-  return (
-    <section className="rounded-2xl p-6" style={amber} aria-label="Venue status">
-      <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
-        <p className="text-[10px] uppercase tracking-wider" style={{ color: '#e3b341' }}>Venue status · live chain read</p>
-        <button type="button" onClick={onRefresh} className="text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
-      </div>
-      <h2 className="heading-luxury text-xl text-white mb-2">{body.title}</h2>
-      {body.lines.map((l) => (
-        <p key={l.slice(0, 24)} className="text-white/80 text-[13px] leading-relaxed mb-2">{l}</p>
-      ))}
-
-      {body.spent && (
-        <div className="mt-3 text-[12px]">
-          <Addr label="Spent id" value={SPENT_PROGRAM_ID.toBase58()} />
-        </div>
-      )}
-
-      {!hasProgramId() && (
-        <p className="text-white/45 text-[11px] mt-3">
-          This site takes the id from <code className="font-mono">VITE_SOLANA_CPSWAP_PROGRAM</code> when
-          it is built.
-        </p>
-      )}
-    </section>
-  );
-}
-
-function Addr({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5"
-      style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-kyle-40)' }}>
-      <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>{label}</span>
-      <CopyButton text={value} display={`${value.slice(0, 4)}…${value.slice(-4)}`} className="font-mono text-[12px]" style={{ color: 'var(--color-kyle)' }} />
-    </span>
   );
 }
 
