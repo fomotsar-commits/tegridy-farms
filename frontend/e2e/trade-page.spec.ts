@@ -52,7 +52,7 @@ test.describe('TradePage', () => {
 
     // Switch to DCA (page heading: "Recurring Swap") — the Swap-tab-only copy "Connect your wallet
     // to swap" should no longer be in the DOM. Use an exact match to avoid
-    // colliding with the Recurring Swap tab's own "Connect Wallet" CTA.
+    // colliding with the Recurring Swap tab's own "Connect Ethereum wallet" CTA.
     await dcaTab.click();
     await expect(page.getByText('Connect your wallet to swap', { exact: true })).toHaveCount(0);
 

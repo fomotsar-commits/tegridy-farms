@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { toast } from 'sonner';
 import { useLimitOrders, type LimitOrder } from '../../hooks/useLimitOrders';
 import { useCowLimitOrder, type CowLimitRecord } from '../../hooks/useCowLimitOrder';
@@ -183,7 +184,7 @@ export function LimitOrderTab() {
         <ConnectButton.Custom>
           {({ openConnectModal, mounted }) => (
             <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
-              <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">Connect Wallet</button>
+              <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">{CONNECT_ETHEREUM_WALLET}</button>
             </div>
           )}
         </ConnectButton.Custom>

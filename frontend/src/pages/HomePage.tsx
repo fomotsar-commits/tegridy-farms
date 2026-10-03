@@ -24,7 +24,7 @@ import { ReferralWidget } from '../components/ReferralWidget';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { YieldCalculator } from '../components/ui/YieldCalculator';
-import { TOWELIE_QUOTES, FAQ_INTRO, HOME_SWAP_CARD } from '../lib/copy';
+import { TOWELIE_QUOTES, FAQ_INTRO, HOME_SWAP_CARD, CONNECT_ETHEREUM_WALLET } from '../lib/copy';
 import { TOWELI_FAQ_DATA } from '../lib/faqData';
 import { ArtImg } from '../components/ArtImg';
 import { ProtocolStats } from '../components/ProtocolStats';
@@ -45,6 +45,8 @@ import { FlamesBoard } from '../components/FlamesBoard';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
+import { BungalowBurn } from '../components/bungalow/BungalowBurn';
+import { homeBurnRoom } from '../lib/bungalowBurn';
 
 // F92: persist a valid ?ref= address so attribution survives navigation and
 // the connect-ordering (referred visitor clicks Buy → connects on /swap). Uses
@@ -131,6 +133,7 @@ export default function HomePage() {
   // moment it hydrates. The door above has already written this room's skin.
   const bungalowIdentity = getBungalowIdentity();
   const isToweliArrival = arrivalVoice() === 'toweli';
+  const burnRoom = homeBurnRoom(bungalowIdentity, isToweliArrival);
   const coreLoop = coreLoopSteps(isToweliArrival);
   const howItWorks = howItWorksSteps(isToweliArrival);
   // 2026-08-07: the meta description said "Stake TOWELI on Ethereum" and stopped there,
@@ -370,7 +373,7 @@ export default function HomePage() {
                     <div {...(!mounted && { 'aria-hidden': true, style: { opacity: 0, pointerEvents: 'none' } })}>
                       {!connected ? (
                         <button onClick={openConnectModal} className="btn-primary px-7 py-2.5 text-[14px]">
-                          Connect Wallet
+                          {CONNECT_ETHEREUM_WALLET}
                         </button>
                       ) : (
                         <Link to="/earn/toweli" className="btn-primary px-7 py-2.5 text-[14px] inline-block text-center">
@@ -610,6 +613,15 @@ export default function HomePage() {
         {bungalowIdentity?.market && (
           <div className="pb-8">
             <BungalowMarket bungalow={bungalowIdentity} />
+          </div>
+        )}
+
+        {/* The burn: how much of this token's supply is gone, read from its chain. Every
+            token bungalow shows it once, TOWELI included, which has no identity and so
+            reaches this slot through its own arrival. */}
+        {burnRoom && (
+          <div className={bungalowIdentity ? 'pb-8' : 'pb-16'}>
+            <BungalowBurn bungalow={burnRoom} />
           </div>
         )}
 

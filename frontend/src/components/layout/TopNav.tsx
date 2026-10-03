@@ -1,7 +1,8 @@
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -22,6 +23,8 @@ import {
 import { ArtImg } from '../ArtImg';
 import { VENUE } from '../../lib/arrival';
 import { artImgProps } from '../../lib/artSrcSet';
+import { WalletSheet } from './WalletSheet';
+import { TopBarSolana } from './TopBarSolana';
 
 /**
  * Is any of this section's destinations the page we are on?
@@ -124,11 +127,16 @@ export const TopNav = React.memo(function TopNav() {
   // `useAccount` is already provided app-wide by WagmiProvider (App.tsx), and
   // this component is inside it — the same hook StakingCard and the rest use.
   const { isConnected } = useAccount();
-  // On a page with a Solana section the wallet slot connects Solana. The path
-  // answers while that section loads; its mounted provider answers after, and
-  // covers any page the path misses (lib/solanaSurface.ts).
-  const { surface: solana, openPending: solanaOpenPending } = useSolanaSurface();
-  const solanaPage = solana !== null || isSolanaPage(location.pathname, getBungalowIdentity());
+  // On a page with a Solana section the wallet slot connects Solana, through
+  // that section's own connection. The path answers while the section loads;
+  // its mounted provider answers after, and covers any page the path misses
+  // (lib/solanaSurface.ts).
+  const { surface: solana, openPending: solanaOpenPending, page: solanaHere } = useSolanaSurface();
+  const solanaPage = solanaHere || isSolanaPage(location.pathname, getBungalowIdentity());
+  // Everywhere else the slot opens the wallet sheet: Solana, or Ethereum (WalletSheet.tsx).
+  const [walletSheetOpen, setWalletSheetOpen] = useState(false);
+  const openWalletSheet = useCallback(() => setWalletSheetOpen(true), []);
+  const closeWalletSheet = useCallback(() => setWalletSheetOpen(false), []);
   // A tap waiting for this page's Solana section belongs to this page.
   useEffect(() => () => cancelSolanaOpenRequest(), [location.pathname]);
   // And it does not wait for ever: a section that never loads (its read failed)
@@ -172,6 +180,7 @@ export const TopNav = React.memo(function TopNav() {
   if (lastPathname !== location.pathname) {
     setLastPathname(location.pathname);
     if (kebabOpen) setKebabOpen(false);
+    if (walletSheetOpen) setWalletSheetOpen(false);
   }
 
   // Audit H-F10: close on Escape + trap focus inside the drawer while open.
@@ -483,9 +492,30 @@ export const TopNav = React.memo(function TopNav() {
             <ConnectButton.Custom>
               {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
                 const connected = mounted && account && chain;
+                const wrongNetwork = Boolean(connected && chain.unsupported);
+                // The top bar's own Solana connection (TopBarSolana.tsx): this
+                // page has no Solana section, so `solana` can only be that one.
+                const solanaAddress = solana?.address ?? null;
                 return (
                   <div className="min-w-0" {...(!mounted && { 'aria-hidden': true, style: { opacity: 0, pointerEvents: 'none', userSelect: 'none' } })}>
-                    {!connected ? (
+                    {wrongNetwork ? (
+                      <button onClick={openChainModal} aria-label="Switch to correct network" className="btn-secondary text-[11.5px] md:text-[13px] px-2.5 md:px-3 py-1 md:py-1.5 text-danger border-danger/30">
+                        Wrong Network
+                      </button>
+                    ) : connected || solanaAddress ? (
+                      /* ONE chip, and it opens the sheet that lists both networks.
+                         It used to open RainbowKit's account dialog directly, which
+                         left a visitor with an Ethereum wallet connected no way to
+                         Solana from here at all. It names the Ethereum account where
+                         there is one, because off the Solana pages that is the wallet
+                         the page uses; else the Solana address. */
+                      <button onClick={openWalletSheet} aria-label="Your wallets"
+                        className={ACCOUNT_CHIP_CLASS}
+                        style={ACCOUNT_CHIP_STYLE}>
+                        <span className={ACCOUNT_DOT_CLASS} />
+                        <span className="truncate">{connected ? account.displayName : shortSolanaAddress(solanaAddress!)}</span>
+                      </button>
+                    ) : (
                       /* AE1(c)+(d), 2026-09-03.
                          (c) This was `.btn-primary` — byte-identical to the hero's
                          "Pick a bungalow" gradient, so two unrelated actions wore the
@@ -511,30 +541,35 @@ export const TopNav = React.memo(function TopNav() {
                          of the chrome it lives in rather than as a page action. Green
                          goes back to meaning exactly one thing: stake. */
                       <button
-                        onClick={openConnectModal}
+                        onClick={openWalletSheet}
                         aria-label="Connect wallet"
                         className={CONNECT_BUTTON_CLASS}
                         style={CONNECT_BUTTON_STYLE}
                       >
                         Connect
                       </button>
-                    ) : chain.unsupported ? (
-                      <button onClick={openChainModal} aria-label="Switch to correct network" className="btn-secondary text-[11.5px] md:text-[13px] px-2.5 md:px-3 py-1 md:py-1.5 text-danger border-danger/30">
-                        Wrong Network
-                      </button>
-                    ) : (
-                      <button onClick={openAccountModal} aria-label="Account details"
-                        className={ACCOUNT_CHIP_CLASS}
-                        style={ACCOUNT_CHIP_STYLE}>
-                        <span className={ACCOUNT_DOT_CLASS} />
-                        <span className="truncate">{account.displayName}</span>
-                      </button>
+                    )}
+                    {/* In <body>, not here: the header's backdrop-filter makes it
+                        the containing block of any fixed child, so a dialog drawn
+                        inside it would be laid out in the header's 64px. */}
+                    {typeof document !== 'undefined' && createPortal(
+                      <WalletSheet
+                        open={walletSheetOpen}
+                        onClose={closeWalletSheet}
+                        evm={{
+                          label: connected ? (account.displayName ?? null) : null,
+                          connect: openConnectModal,
+                          account: openAccountModal,
+                        }}
+                      />,
+                      document.body,
                     )}
                   </div>
                 );
               }}
             </ConnectButton.Custom>
             )}
+            <TopBarSolana solanaPage={solanaPage} />
 
             {/* The theme toggle lived here until 2026-08-23. Light mode was removed
                 (operator decision — it carried an app-wide ~1.5:1 contrast defect), so a

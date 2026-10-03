@@ -66,6 +66,91 @@ row of its own the field had 212px and 170px.
 breakpoint, or give the field a real minimum. Pin it by measuring the hint's drawn width
 (canvas `measureText` with the field's computed font) against the field's content width.
 
+## 2026-10-03: a flag carried through a wallet's "Open app" link is an input anyone can write
+
+**Believed:** after a phone visitor presses a wallet's "Open app" row and the page reopens
+inside that wallet's own browser, the job is done, or at least the next step is obvious. And
+once a marker in the address was added to make that page connect by itself: that only our
+own press could ever put it there.
+
+**Measured:** four testers who had not seen the code walked the built site as a Trust user.
+Inside the wallet's browser the page asked the wallet for nothing and looked exactly like the
+start; the same three presses had to be repeated, and one tester called it "the spot most
+likely to produce: there was no way to connect". With a marker in the query the page
+connected with zero presses, 1.6 s after arrival (3.4 s with a provider injected 2.5 s late).
+Then three reviewers and three skeptics, each running real code, broke the first versions
+nine ways. The ones that transfer:
+
+- `WalletProvider autoConnect` (wallet-adapter-react 0.15.39) restores WHATEVER wallet name is
+  saved. For a Wallet Standard wallet that is `connect({ silent: true })`; for a legacy
+  injected adapter (`autoConnect() { await this.connect() }`) it is a full connect, the
+  wallet's own prompt. So mounting a provider because of a link made a wallet prompt, or
+  reconnect after the visitor had disconnected, with no press. `autoConnect` also takes a
+  function `(adapter) => Promise<boolean>`: gate the restore there.
+- The tab that WROTE the marker loads its own marked address again: Back from the wallet's
+  link page, a reload, a tab the phone discarded. A 3 second timer does not cover it (a tab
+  that has navigated away never runs it, and Playwright's WebKit recorded no `pagehide` at
+  all), and a link pressed inside the 3 seconds leaves the marked entry in history, where
+  the timer never looks. What held: a `sessionStorage` note in the origin tab that lasts as
+  long as the tab (the wallet's browser has its own storage and never sees it), plus
+  stripping the marker on `popstate`. Used up on first read, the note failed on the second
+  marked load.
+- Every wallet's app link is built from `window.location.href` inside `connect()`, upstream
+  Phantom's included, so one `history.replaceState` just before the press covers them all.
+  Put the flag in the QUERY: MetaMask's link is rebuilt from host, path and query and drops a
+  fragment.
+- With tab storage blocked the marker was not written, and the notice still promised the
+  page would connect by itself. A helper that can fail must say so to the caller that words
+  the notice.
+
+**Do:** treat a URL flag that triggers behaviour as hostile input from the first line. Read
+nothing out of it. Decide separately what a crafted link may cause in each kind of browser
+(a computer, an ordinary phone browser with a wallet of its own, a wallet's own browser),
+and write one test per kind against the REAL provider and adapters: fakes whose
+`autoConnect` is a no-op passed while the real ones prompted. Not settled here: the rule
+that tells a wallet's own browser from an ordinary one (no adapter offers "Open app" there)
+rests on user agents nobody has read off a real device.
+
+## 2026-10-03: React Router matches a path whatever its case; a hand-written path test does not
+
+**Believed:** `isSolanaPage(pathname)` and the router agree about which page is on screen,
+because both are given the same pathname.
+
+**Measured:** `/Earn/bobo`, `/earn/%62obo`, `/Dashboard` and `/Curve-Launch/<mint>` all render
+their route (React Router ignores case and decodes params), while a predicate comparing the
+raw string said "not a Solana page". Two wallet providers were then mounted for one page and
+the wallet was asked twice, 80 to 330 ms apart; with a wallet that refuses a second request
+the approval landed nowhere. The same shape, without the case trick: a route (`/solana-lp`)
+added to the router and not to the predicate.
+
+**Do:** a predicate that mirrors the router has to match the way the router does:
+`decodeURI`, and the `i` flag on the static part of the pattern (keep ids and addresses as
+written), or mark the routes `caseSensitive`. And when a route is added, grep for every
+hand-kept list of paths.
+
+## 2026-10-03: three things a Playwright walk and a wording guard got wrong before they were right
+
+**Believed:** `context.on('page')` is how to catch a popup; `route.abort()` on a navigation
+models "the phone opened an app instead"; and a test that greps for `>Connect Wallet<`
+proves the bare words are gone.
+
+**Measured:**
+
+- `context.on('page', ...)` registered before `context.newPage()` fires for that page too. A
+  handler that closes "the popup" closed the page under test: `page.goto: net::ERR_ABORTED;
+  maybe frame was detached`. Register it after creating the page, or skip `popup === page`.
+- Aborting a main-frame navigation leaves Chromium on a blank error page, while WebKit stays
+  where it was. A real phone that hands a link to an app leaves the browser ON the page. To
+  model that in both engines, answer the link with `route.fulfill({ status: 204 })`.
+- The guard caught `>Connect Wallet<` and a stock `<ConnectButton />`, and passed
+  `{'Connect Wallet'}`, a ternary, a variable, and `Connect wallet` with a small w (each
+  tried by mutation). After stripping comments, refuse the phrase anywhere in code, case
+  ignored, and count uses of the replacement constant rather than its presence: the import
+  line alone satisfied "contains".
+
+**Do:** when a test guards WORDS, mutate the ways the words can be spelled, not only the
+one spelling that existed.
+
 ## 2026-10-03: a button disabled "while connecting" is a dead end when the wallet never answers
 
 **Believed:** the site could not see Phantom ("it wont even recognize my phantom wallet", the
