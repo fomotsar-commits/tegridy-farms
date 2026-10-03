@@ -225,4 +225,28 @@ describe('prepareJupiterSwap: the re-quote must be the same trade, fee-free, and
     // floor = 22,000,000,000 * 0.995 = 21,890,000,000 > the re-quote's 21,759,829,670.
     expect(r.status).toBe('moved');
   });
+
+  it('...and from the FRESH quote when that is the better one: a re-quote between the two floors is not sent', async () => {
+    // The trader clicked 21,000,000,000 (floor 20,895,000,000); the fresh
+    // fee-bearing quote is 21,651,030,522 (floor 21,542,775,370). A no-fee
+    // re-quote of 21,200,000,000 clears the clicked floor but pays less than
+    // the fee-bearing trade it is replacing: the market moved.
+    const shown = quote({ outAmount: '21000000000' });
+    const between = { ...NO_FEE_QUOTE, outAmount: '21200000000' };
+    const d = deps({ getQuote: vi.fn(async () => between) });
+    const r = await prepareJupiterSwap(d, { ...ARGS, shown });
+    expect(r).toEqual({ status: 'moved', quote: between });
+    expect(d.buildSwapTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  // The re-quote echoes the slippage it was asked for, so the "same trade"
+  // check passes and the RANGE guard is the line under test. Without it: -1
+  // raises the floor (a false 'moved'), 10001 makes it negative (anything is
+  // sent), and 0.5 throws out of BigInt().
+  it.each([-1, 10_001, 0.5])('a slippage of %s is not a tolerance: blocked, nothing rebuilt', async (slippageBps) => {
+    const d = deps({ getQuote: vi.fn(async () => ({ ...NO_FEE_QUOTE, slippageBps })) });
+    const r = await prepareJupiterSwap(d, { ...ARGS, slippageBps });
+    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: true });
+    expect(d.buildSwapTransaction).toHaveBeenCalledTimes(1);
+  });
 });
