@@ -1,5 +1,6 @@
 import type { AmmConfigView } from '../../../lib/solana/cpswap/program';
-import { feeSplit } from '../../../lib/solana/cpswap/venue';
+import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
+import { feeRateText } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
 import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 
@@ -37,13 +38,19 @@ const MONEY_LINE =
 
 const NOT_THE_POOL_LINE = "Anyone can open other pools for this token, at any price. Yours will not be 'the' pool.";
 
-/** The liquidity providers' share of each trade, read from the pool's own fee tier just now. */
-function lpShareLine(config: AmmConfigView | null): string {
+/**
+ * The liquidity providers' share of each trade, read from the pool's own fee tier just
+ * now, and the creator fee traders pay on top when this pool's own switch is on: that
+ * part goes to the pool's creator, so it is not part of what LPs keep.
+ */
+function lpShareLine(config: AmmConfigView | null, enableCreatorFee: boolean): string {
   if (!config) return "This pool's fee settings could not be read, so what liquidity providers keep of each trade is not shown.";
-  return `Of each trade, liquidity providers keep ${feeSplit(config).lpKeepsPct.toFixed(3)}%, read from this pool's fee tier just now. The vault can change that tier's rates at once, and a change applies to what you put in too.`;
+  const creator = chargedCreatorFeeRate(config, enableCreatorFee);
+  const creatorLine = creator > 0n ? ` Traders also pay this pool's creator ${feeRateText(creator)} of each trade on top; that part is not yours.` : '';
+  return `Of each trade, liquidity providers keep ${feeSplit(config).lpKeepsPct.toFixed(3)}%, read from this pool's fee tier just now.${creatorLine} The vault can change that tier's rates at once, and a change applies to what you put in too.`;
 }
 
-export function LpBeforeYouAdd({ launchPool, config }: { launchPool: boolean; config: AmmConfigView | null }) {
+export function LpBeforeYouAdd({ launchPool, config, enableCreatorFee }: { launchPool: boolean; config: AmmConfigView | null; enableCreatorFee: boolean }) {
   return (
     <div className="space-y-2" data-testid="lp-before-you-add">
       <ul className="list-disc pl-4 space-y-1 text-white/75">
@@ -51,7 +58,7 @@ export function LpBeforeYouAdd({ launchPool, config }: { launchPool: boolean; co
         <li>{VAULT_LINE}</li>
         <li>{PRICE_MOVES_LINE}</li>
         <li>{ROUTING_LINE}</li>
-        <li>{lpShareLine(config)}</li>
+        <li>{lpShareLine(config, enableCreatorFee)}</li>
         {launchPool && <li>{LAUNCH_POOL_LINE}</li>}
       </ul>
       <LpRisksDetails />

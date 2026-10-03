@@ -34,7 +34,7 @@ import { poolStatePda } from '../src/lib/launcher/solana/curve/program';
 import { withdrawIx } from '../src/lib/solana/cpswap/ix';
 import { deriveAmmConfig, derivePool, sortMints } from '../src/lib/solana/cpswap/program';
 import { feeSplit } from '../src/lib/solana/cpswap/venue';
-import { feeRateText } from '../src/lib/solana/lp/format';
+import { tradeCostText } from '../src/lib/solana/lp/format';
 import { feeReserveFor, minLpForBothSides, spendableSol } from '../src/lib/solana/lp/liquidityMath';
 
 const DEC = 6;
@@ -844,7 +844,8 @@ test.describe('group B (chromium only)', () => {
     expect(page).not.toContain('adding and removing liquidity from here is not switched on yet');
 
     const tierText = (f: PoolFacts) =>
-      `${f.ammConfig.index}: traders pay ${feeRateText(f.ammConfig.tradeFeeRate)} a trade; LPs keep ${feeSplit(f.ammConfig).lpKeepsPct.toFixed(3)}% of each trade`;
+      // The pool's own creator-fee switch decides whether the tier's creator fee is in the cost.
+      `${f.ammConfig.index}: traders pay ${tradeCostText(f.ammConfig, f.pool.enableCreatorFee)}; LPs keep ${feeSplit(f.ammConfig).lpKeepsPct.toFixed(3)}% of each trade`;
     const seen: string[] = [];
     for (const pool of [B.a1, B.b1]) {
       const { panel } = await addAndReview(a, pool.address, '0.05');

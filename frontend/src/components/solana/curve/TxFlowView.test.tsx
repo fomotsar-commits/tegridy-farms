@@ -756,7 +756,7 @@ describe('liquidity reviews', () => {
     fundFeeRate: 0n, createPoolFee: 0n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
   };
   const deposit = (over: Partial<Extract<TxSummary, { kind: 'lp-deposit' }>> = {}): TxSummary => ({
-    kind: 'lp-deposit', pool: KEY(30), origin: 'standard', config, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
+    kind: 'lp-deposit', pool: KEY(30), origin: 'standard', config, enableCreatorFee: false, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
     lpAmount: 123_456_789_012n, lpDecimals: 9,
     quoted: { sol: 2_000_000_000n, token: 5_000_000n }, max: { sol: 2_020_000_001n, token: 5_050_001n },
     limitedByBalance: 'none', sharePct: { before: 0, after: 12.5 },

@@ -6,7 +6,13 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
-### 2026-10-02
+### 2026-10-03
+
+- On /pools, the fee sheet's trader-pays figure for launch pools adds the creator fee that every launch pool charges on top of its trade fee, and shows that fee on its own line, paid to the token's creator. It had shown the trade fee alone, so a trade there read cheaper than it is.
+- On /pools, the fee tiers, each pool's card, the add-liquidity panel and its review say what a trade on that pool costs, creator fee included when the pool charges one, and say so when a pool charges none.
+- On /pools, a pool you open is shown at its tier's trade fee alone, because a pool opened from this site never charges a creator fee.
+- On /pools, the venue card says anyone can open a pool only while the fee tier it read takes new pools.
+- The /pools fee sheet's note about where its rates come from no longer has an em dash.
 
 - An Ethereum launch's page (/launch) shows the maker's wallet, its allocation and whether its vesting still locks it, read from the launch transaction Doppler's Airlock made.
 - A Memetics Curve launch's page shows the maker's create-buy and its wallet, read from the launch transaction, and says the curve has no lock. Each card in its launches list says the figure is on that page.

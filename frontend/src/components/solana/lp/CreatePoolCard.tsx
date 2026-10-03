@@ -4,7 +4,8 @@ import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth
 import { isCreatedPool, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { feeRateText } from '../../../lib/solana/lp/format';
+import { tradeCostText } from '../../../lib/solana/lp/format';
+import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { Notice } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
@@ -246,7 +247,8 @@ function OfferLines({
   switch (offer) {
     case 'offer': {
       if (tier?.kind !== 'ready') return null;
-      const terms = `${feeRateText(tier.config.tradeFeeRate)} a trade, ${solFee(tier.config.createPoolFee)} SOL to open`;
+      // Opened with cp-swap's `initialize`, so the new pool never charges the tier's creator fee.
+      const terms = `${tradeCostText(tier.config, CREATOR_FEE_SWITCH.publicOpen)}, ${solFee(tier.config.createPoolFee)} SOL to open`;
       const pools = search.kind === 'ok' ? search.search.pools.flatMap((e) => (e.kind === 'pool' ? [e.view] : [])) : [];
       if (pools.length === 0) {
         return <p>No pool for this token yet. You can open the first one on the public fee tier: {terms} (read just now).</p>;
