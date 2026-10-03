@@ -141,17 +141,83 @@ for (const path of ['/', '/liquidity', '/earn', '/island', '/swap', '/trust']) {
  */
 const A_MINT = '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R';
 
+/**
+ * /solana-lp on the played venue, settled: the LP section is up and both fee tiers read.
+ * `gateOpen`: the venue also answers the LP gate, so the page is as production shows it,
+ * with no "could not check the network" banner above the finder.
+ */
+async function settledSolanaLp(page: Page, path: string, { gateOpen = false } = {}): Promise<void> {
+  const venue = await playLiveVenue(page, { gateOpen });
+  await gotoRoute(page, path);
+
+  await expect(page.getByTestId('lp-finder'), 'the LP section did not mount on the played venue').toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('[data-testid="fee-tier"][data-state="live"]'), 'both played fee tiers read').toHaveCount(2);
+  if (path.includes('?mint=')) await expect(page.getByLabel(/Token mint address/)).toHaveValue(A_MINT);
+  if (gateOpen) await expect.poll(() => venue.answered, 'the LP gate asked which network this is').toContain('getGenesisHash');
+  await waitForQuiescence(page, { quietMs: 600, timeout: 12_000 });
+  expect(venue.answered, 'the page asked the played venue').toContain('getMultipleAccounts');
+}
+
 for (const path of ['/solana-lp', `/solana-lp?mint=${A_MINT}`]) {
   test(`${path} with its LP section mounted does not scroll horizontally at 390px`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(IPHONE_390);
-    const venue = await playLiveVenue(page);
-    await gotoRoute(page, path);
+    await settledSolanaLp(page, path);
+    await expectNoSidewaysScroll(page);
+  });
+}
 
-    await expect(page.getByTestId('lp-finder'), 'the LP section did not mount on the played venue').toBeVisible({ timeout: 20_000 });
-    await expect(page.locator('[data-testid="fee-tier"][data-state="live"]'), 'both played fee tiers read').toHaveCount(2);
-    if (path.includes('?mint=')) await expect(page.getByLabel(/Token mint address/)).toHaveValue(A_MINT);
-    await waitForQuiescence(page, { quietMs: 600, timeout: 12_000 });
-    expect(venue.answered, 'the page asked the played venue').toContain('getMultipleAccounts');
+/**
+ * /solana-lp opens on the pool finder: the field a visitor types a token address into is
+ * whole inside the first screen, above the phone's bottom bar where there is one. It was
+ * 1,506px down a phone and 1,049px down a desktop, under the status card, the risk card
+ * and the fee tiers. Measured unscrolled, once the fonts have loaded.
+ */
+const FIRST_SCREENS = [
+  { name: '390x844 phone', size: IPHONE_390, bottomBar: true },
+  { name: '1280x900 desktop', size: { width: 1280, height: 900 }, bottomBar: false },
+];
+
+/** How tall the bar pinned to the foot of the screen is (the phone's BottomNav), or 0 with none. */
+async function bottomBarHeight(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    for (const nav of document.querySelectorAll('nav[aria-label="Main navigation"]')) {
+      const box = nav.getBoundingClientRect();
+      if (getComputedStyle(nav).position === 'fixed' && box.height > 0 && box.bottom >= window.innerHeight - 1) return box.height;
+    }
+    return 0;
+  });
+}
+
+for (const vp of FIRST_SCREENS) {
+  test(`/solana-lp shows the finder's token address field in the first screen at ${vp.name}`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize(vp.size);
+    await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
+    await expect(page.getByTestId('lp-gate-banner'), 'the played LP gate did not open').toHaveCount(0);
+    await page.evaluate(() => document.fonts.ready);
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    const barHeight = await bottomBarHeight(page);
+    expect(barHeight > 0, `the bottom bar is ${barHeight}px tall at ${vp.name}`).toBe(vp.bottomBar);
+
+    const field = page.getByTestId('lp-finder').getByLabel(/Token mint address/);
+    const box = (await field.boundingBox())!;
+    const fieldEnds = Math.round(box.y + box.height);
+    const screenEnds = vp.size.height - barHeight;
+    expect(
+      fieldEnds,
+      `the field ends ${fieldEnds}px down; the first screen ends at ${screenEnds}px ` +
+        `(${vp.size.height}px tall, ${barHeight}px of bottom bar)`,
+    ).toBeLessThanOrEqual(screenEnds);
+    // In the first screen and not under anything: the point at its middle is the field itself.
+    const onTop = await field.evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      return document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === el;
+    });
+    expect(onTop, 'something covers the token address field').toBe(true);
+    // The risk notice is read on the way to the field: it is on screen, above it.
+    const risk = (await page.getByTestId('lp-risk-line').boundingBox())!;
+    expect(risk.y, 'the risk line starts above the top of the screen').toBeGreaterThanOrEqual(0);
+    expect(risk.y + risk.height, 'the risk line is not above the field').toBeLessThanOrEqual(box.y);
 
     await expectNoSidewaysScroll(page);
   });

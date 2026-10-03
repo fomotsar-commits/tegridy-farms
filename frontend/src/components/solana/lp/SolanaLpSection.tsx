@@ -27,12 +27,19 @@ import { browserLpReaders, type LpReaders } from './readers';
  * decides each button. `?mint=<address>` opens the finder on a token; nothing else is
  * ever read from the URL (no amount, side, percent, slippage or open panel).
  */
-export default function SolanaLpSection({ readers: given }: { readers?: LpReaders }) {
+export default function SolanaLpSection({ readers: given, finderFirst = false }: {
+  readers?: LpReaders;
+  /**
+   * /solana-lp: the finder comes first, under a one-line risk notice, then the positions,
+   * the full disclosure and the fee tiers. Without it the order is /pools' own.
+   */
+  finderFirst?: boolean;
+}) {
   const readers = useMemo(() => given ?? browserLpReaders(), [given]);
   if (!readers) return null;
   return (
     <SolanaProviders>
-      <LpInner readers={readers} />
+      <LpInner readers={readers} finderFirst={finderFirst} />
     </SolanaProviders>
   );
 }
@@ -44,14 +51,14 @@ export interface LpWritesOverrides {
   gateRpc?: GateRpc;
 }
 
-export function LpInner({ readers, writes }: { readers: LpReaders; writes?: LpWritesOverrides }) {
+export function LpInner({ readers, writes, finderFirst = false }: { readers: LpReaders; writes?: LpWritesOverrides; finderFirst?: boolean }) {
   // Fixed for the life of a build: a production build reads only the committed constant.
   const mode = writes?.mode ?? lpWriteMode();
   // Bumped when a liquidity flow goes back to idle after an outcome: the finder and the
   // positions read again, keeping what they show until the new answer arrives.
   const [reloadKey, setReloadKey] = useState(0);
   const finished = useCallback(() => setReloadKey((k) => k + 1), []);
-  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} />;
+  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} finderFirst={finderFirst} />;
   if (mode === 'off') return body;
   return (
     <LpWritesProvider readers={readers} mode={mode} load={writes?.load} gateRpc={writes?.gateRpc} onFinished={finished}>
@@ -60,7 +67,7 @@ export function LpInner({ readers, writes }: { readers: LpReaders; writes?: LpWr
   );
 }
 
-function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number }) {
+function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number; finderFirst: boolean }) {
   const [params, setParams] = useSearchParams();
   const raw = params.get('mint');
   const parsed = raw ? parseMintInput(raw) : null;
@@ -79,14 +86,50 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
   );
   const { publicKey } = useWallet();
 
+  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} />;
+  const writesTop = mode !== 'off' && <LpWritesTop />;
+  const tiers = <FeeTiers readers={readers} />;
+  const finder = (
+    <PoolFinder readers={readers} mint={mint} onMint={onMint} linkError={linkError} reloadKey={reloadKey} wantOutside={mode === 'on'} />
+  );
+  const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} />;
+
+  // Finder first sits right under the page's hero, which already leaves the gap above it.
+  if (finderFirst) {
+    return (
+      <div className="space-y-4" data-testid="lp-section" data-lp-mode={mode}>
+        <LpRiskLine />
+        {writesTop}
+        {finder}
+        {positions}
+        {disclosure}
+        {tiers}
+      </div>
+    );
+  }
   return (
     <div className="space-y-4 mt-6" data-testid="lp-section" data-lp-mode={mode}>
-      <LpDisclosure programId={readers.programId} mode={mode} />
-      {mode !== 'off' && <LpWritesTop />}
-      <FeeTiers readers={readers} />
-      <PoolFinder readers={readers} mint={mint} onMint={onMint} linkError={linkError} reloadKey={reloadKey} wantOutside={mode === 'on'} />
-      <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} />
+      {disclosure}
+      {writesTop}
+      {tiers}
+      {finder}
+      {positions}
     </div>
+  );
+}
+
+const RISK_LINE_STYLE = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' } as const;
+
+/**
+ * The short form of LpDisclosure, above the finder on a tab that opens on it. It may be
+ * short only because the full card is on the same page, right under the positions.
+ */
+function LpRiskLine() {
+  return (
+    <p data-testid="lp-risk-line" className="rounded-xl px-4 py-3 text-amber-200 text-[13px] leading-relaxed" style={RISK_LINE_STYLE}>
+      These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what
+      you can afford to lose. The full notice is right under your positions.
+    </p>
   );
 }
 

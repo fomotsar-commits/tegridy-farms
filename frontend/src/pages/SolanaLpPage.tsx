@@ -16,9 +16,10 @@ import { withMint } from '../lib/solana/lp/mintLink';
 const SolanaLpSection = lazy(() => import('../components/solana/lp/SolanaLpSection'));
 
 /**
- * /solana-lp: the Pools tab that opens straight into the venue's Solana LP section (find
- * a pool, add or remove liquidity, open a pool). It is the same section /pools mounts,
- * behind the same live venue read; ?mint= opens the finder on a token, as on /pools.
+ * /solana-lp: the Pools tab that opens on the pool finder (find a pool, add or remove
+ * liquidity, open a pool). It is the same LP section /pools mounts, behind the same live
+ * venue read, in finder-first order: the finder sits right under the hero and the venue's
+ * status card follows the section. ?mint= opens the finder on a token, as on /pools.
  */
 export default function SolanaLpPage() {
   usePageTitle('Solana liquidity', PAGE_DESCRIPTION);
@@ -55,14 +56,20 @@ export default function SolanaLpPage() {
           </p>
         </m.div>
 
-        {/* Live: Refresh keeps the section below mounted while it reads again. Not live: nothing
-            hangs on the old answer, so Refresh goes back to reading and a second failure shows. */}
-        <VenueStatusCard status={status} onRefresh={venueIsOpen ? refresh : retry} lpMode={lpMode} feeSheetBelow={false} />
-
-        {venueIsOpen && (
-          <Suspense fallback={<p className="text-white/60 text-[13px] mt-6">Loading the pool finder…</p>}>
-            <SolanaLpSection />
-          </Suspense>
+        {/* Live: the finder comes first and the status card follows the section; its Refresh
+            keeps the section mounted while it reads again. Not live: the card is all there is,
+            right under the hero, and Refresh goes back to reading so a second failure shows. */}
+        {venueIsOpen ? (
+          <>
+            <Suspense fallback={<p className="text-white/60 text-[13px]">Loading the pool finder…</p>}>
+              <SolanaLpSection finderFirst />
+            </Suspense>
+            <div className="mt-6">
+              <VenueStatusCard status={status} onRefresh={refresh} lpMode={lpMode} feeSheetBelow={false} lpSection="above" />
+            </div>
+          </>
+        ) : (
+          <VenueStatusCard status={status} onRefresh={retry} lpMode={lpMode} feeSheetBelow={false} />
         )}
 
         <VenueProgramCard />

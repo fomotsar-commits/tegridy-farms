@@ -12,8 +12,11 @@ const readVenue = vi.fn();
 vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
 vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}) }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
-// The LP section has its own tests (components/solana/lp); here only WHEN it mounts matters.
-vi.mock('../components/solana/lp/SolanaLpSection', () => ({ default: () => <div data-testid="lp-section" /> }));
+// The LP section has its own tests (components/solana/lp); here only WHEN it mounts matters,
+// and that this tab asks for the section's own order, never the Solana LP tab's finder-first.
+vi.mock('../components/solana/lp/SolanaLpSection', () => ({
+  default: ({ finderFirst = false }: { finderFirst?: boolean }) => <div data-testid="lp-section" data-finder-first={String(finderFirst)} />,
+}));
 // LP's own switch, steerable per test (spec addendum D24): the page's words about what this
 // site can do with the pools follow it. Every other test sees 'off' (the reads-only page),
 // whatever is committed; the committed value is pinned in lpWriteFlag.test.ts.
@@ -145,6 +148,13 @@ describe('when the venue is live', () => {
   it('mounts the LP finder', async () => {
     await mount();
     expect(await screen.findByTestId('lp-section')).toBeInTheDocument();
+  });
+
+  it('keeps the status card above the LP section, and the section in its own order', async () => {
+    await mount();
+    const section = await screen.findByTestId('lp-section');
+    expect(section).toHaveAttribute('data-finder-first', 'false');
+    expect(section.previousElementSibling).toBe(screen.getByRole('region', { name: 'Venue status' }));
   });
 
   it('drops the PROPOSAL badge and reads the fees from the chain', async () => {

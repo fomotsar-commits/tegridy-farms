@@ -3,12 +3,15 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 // /solana-lp: the same live venue read as /pools decides whether the LP section mounts.
-// The section is stubbed here; SolanaLpPage.mintLink.test.tsx mounts the real one.
+// The section is stubbed here (it shows the order it was asked for);
+// SolanaLpPage.mintLink.test.tsx mounts the real one.
 const readVenue = vi.fn();
 vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
 vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}) }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
-vi.mock('../components/solana/lp/SolanaLpSection', () => ({ default: () => <div data-testid="lp-section" /> }));
+vi.mock('../components/solana/lp/SolanaLpSection', () => ({
+  default: ({ finderFirst = false }: { finderFirst?: boolean }) => <div data-testid="lp-section" data-finder-first={String(finderFirst)} />,
+}));
 const lp = vi.hoisted(() => ({ mode: 'on' as 'off' | 'on' | 'withdraw-only' }));
 vi.mock('../lib/launcher/solana/lpWriteFlag', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/launcher/solana/lpWriteFlag')>()),
@@ -50,15 +53,41 @@ function expectNoLpSection() {
 
 const venueAmmLink = () => screen.getByRole('link', { name: /fees, status and how the pools work/i });
 
+/** The hero block, and each thing after it in the page's column, top to bottom. */
+function column() {
+  const hero = screen.getByRole('heading', { level: 1 }).parentElement!;
+  const after: Element[] = [];
+  for (let el = hero.nextElementSibling; el; el = el.nextElementSibling) after.push(el);
+  return { hero, after };
+}
+
 beforeEach(() => { vi.clearAllMocks(); lp.mode = 'on'; });
 
 describe('when the venue reads live', () => {
   beforeEach(() => { readVenue.mockResolvedValue(LIVE); });
 
-  it('mounts the LP section under the live status card', async () => {
+  // The tab opens on the finder: nothing sits between the hero and the LP section.
+  it('mounts the LP section finder-first right under the hero, then the status card, then "The program"', async () => {
     await mount();
-    expect(await screen.findByTestId('lp-section')).toBeInTheDocument();
-    expect(screen.getByText(/Pools are open/i)).toBeInTheDocument();
+    const section = await screen.findByTestId('lp-section');
+    expect(section).toHaveAttribute('data-finder-first', 'true');
+    const card = screen.getByRole('region', { name: 'Venue status' });
+    expect(card).toHaveTextContent(/Pools are open/);
+    const { hero, after } = column();
+    expect(hero).toHaveTextContent(/The pools section below says/);
+    expect(after).toHaveLength(3);
+    expect(after[0]).toBe(section);
+    expect(after[1]).toContainElement(card);
+    expect(after[2]).toBe(screen.getByRole('region', { name: 'The program' }));
+  });
+
+  // The live card sits under the section here, so it may not point down at it.
+  it('the live card says the pools section is above it, never below', async () => {
+    await mount();
+    await screen.findByTestId('lp-section');
+    const card = screen.getByRole('region', { name: 'Venue status' });
+    expect(card).toHaveTextContent('(the pools section above says whether it can right now)');
+    expect(card).not.toHaveTextContent(/below/);
   });
 
   it('heads the page Solana liquidity and says what can be done here, by LP mode', async () => {
@@ -135,6 +164,13 @@ describe('when the venue does not read live', () => {
     // No present-tense claim above a card that says the venue is not open.
     expect(screen.queryByText(/^Find a pool/)).toBeNull();
     expect(screen.getByText(/once a chain read says the venue is open/i)).toBeInTheDocument();
+    // The card is directly under the hero, which says "the card below"; then "The program".
+    const { hero, after } = column();
+    expect(hero).toHaveTextContent(/The card below says what the latest read found\./);
+    expect(after).toHaveLength(2);
+    expect(after[0]).toBe(screen.getByRole('region', { name: 'Venue status' }));
+    expect(after[0]).toHaveTextContent(title);
+    expect(after[1]).toBe(screen.getByRole('region', { name: 'The program' }));
   });
 
   it('while the first read is in flight: reading, and no LP section', async () => {
@@ -142,6 +178,10 @@ describe('when the venue does not read live', () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Reading the venue/i)).toBeInTheDocument());
     expectNoLpSection();
+    const { after } = column();
+    expect(after).toHaveLength(2);
+    expect(after[0]).toHaveTextContent(/Reading the venue/i);
+    expect(after[1]).toBe(screen.getByRole('region', { name: 'The program' }));
   });
 
   it('Refresh reads again, and the section mounts once the venue reads live', async () => {

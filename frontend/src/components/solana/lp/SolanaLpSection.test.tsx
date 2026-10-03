@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
-import { LpInner } from './SolanaLpSection';
+import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
@@ -346,6 +346,53 @@ describe('your positions: a share too small to take out', () => {
     expect(row).toHaveTextContent("Too small to take out at the pool's current size: one side would round to zero.");
     expect(row).not.toHaveTextContent(/Worth if withdrawn now/);
     expect(row).not.toHaveTextContent(/could not be worked out/);
+  });
+});
+
+// /pools keeps the order it has always had. /solana-lp passes `finderFirst`: the finder
+// comes first, under a one-line risk notice, and the full notice follows the positions.
+describe('the order of the section', () => {
+  const RISK_LINE =
+    'These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what you can afford to lose. The full notice is right under your positions.';
+  const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
+  const mountFirst = (r: LpReaders, writes: LpWritesOverrides = { mode: 'off' }) =>
+    render(<MemoryRouter initialEntries={['/solana-lp']}><LpInner readers={r} writes={writes} finderFirst /></MemoryRouter>);
+  // A gate that could not be read: its banner is the top of the section's write half.
+  const unreadGate = () => ({
+    mode: 'on' as const,
+    load: vi.fn(async () => fakeLpApi({ gate: { kind: 'blocked', reason: 'unreadable', detail: 'read detail' } })),
+    gateRpc: unusedGateRpc,
+  });
+
+  it('by default: the disclosure, the fee tiers, the finder, the positions, and no risk line', () => {
+    mount(readers(), '/pools');
+    expect(parts()).toEqual(['lp-disclosure', 'fee-tiers', 'lp-finder', 'lp-positions']);
+    expect(screen.queryByTestId('lp-risk-line')).toBeNull();
+  });
+
+  it('finderFirst: the risk line, the finder, the positions, the full disclosure, the fee tiers', () => {
+    mountFirst(readers());
+    expect(parts()).toEqual(['lp-risk-line', 'lp-finder', 'lp-positions', 'lp-disclosure', 'fee-tiers']);
+  });
+
+  it('the risk line says exactly this, and the full notice it points at is right under the positions', () => {
+    mountFirst(readers());
+    expect(screen.getByTestId('lp-risk-line').textContent).toBe(RISK_LINE);
+    const full = screen.getByTestId('lp-disclosure');
+    expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(full);
+    expect(full).toHaveTextContent(/have not had their own independent review yet/);
+    expect(full).toHaveTextContent(/switch off deposits, withdrawals or swaps on any pool/);
+    expect(full).toHaveTextContent(/arbitrage bots/);
+  });
+
+  it('a gate banner stays above the finder in both orders', async () => {
+    const first = render(<MemoryRouter initialEntries={['/pools']}><LpInner readers={readers()} writes={unreadGate()} /></MemoryRouter>);
+    await screen.findByTestId('lp-gate-banner');
+    expect(parts()).toEqual(['lp-disclosure', 'lp-gate-banner', 'fee-tiers', 'lp-finder', 'lp-positions']);
+    first.unmount();
+    mountFirst(readers(), unreadGate());
+    await screen.findByTestId('lp-gate-banner');
+    expect(parts()).toEqual(['lp-risk-line', 'lp-gate-banner', 'lp-finder', 'lp-positions', 'lp-disclosure', 'fee-tiers']);
   });
 });
 

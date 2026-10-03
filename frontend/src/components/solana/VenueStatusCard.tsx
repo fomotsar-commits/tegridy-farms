@@ -9,23 +9,26 @@ const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-p
 
 // What this site can do with the pools follows LP's own switch (lpWriteFlag.ts). Whether
 // the public fee tier takes new pools is said only by the create card's live read.
-const VENUE_LP_LINE: Record<LpWriteMode, string> = {
-  off: 'This site only reads pools so far.',
-  on: 'This site can add and remove liquidity, and open new pools on the public fee tier (the pools section below says whether it can right now).',
-  'withdraw-only': 'This site can take liquidity out; adding liquidity and opening pools are paused.',
+const VENUE_LP_LINE: Record<LpWriteMode, (lpSection: 'above' | 'below') => string> = {
+  off: () => 'This site only reads pools so far.',
+  on: (lpSection) =>
+    `This site can add and remove liquidity, and open new pools on the public fee tier (the pools section ${lpSection} says whether it can right now).`,
+  'withdraw-only': () => 'This site can take liquidity out; adding liquidity and opening pools are paused.',
 };
 
 /**
  * The venue's real state, from the live read (useVenueStatus), on /pools and /solana-lp.
  * Each branch names what is missing: "not deployed" and "one instruction has not run"
  * are different facts. `feeSheetBelow`: the live card points at the fee sheet read from
- * its config, which only /pools has, so /solana-lp passes false.
+ * its config, which only /pools has, so /solana-lp passes false. `lpSection`: where the
+ * pools section is from the live card; /solana-lp puts the card under it.
  */
-export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = true }: {
+export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = true, lpSection = 'below' }: {
   status: VenueStatus | null;
   onRefresh: () => void;
   lpMode: LpWriteMode;
   feeSheetBelow?: boolean;
+  lpSection?: 'above' | 'below';
 }) {
   const amber = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' };
   const green = { background: 'rgba(6,24,14,0.92)', border: '1px solid rgba(34,197,94,0.45)' };
@@ -48,7 +51,7 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
         <h2 className="heading-luxury text-xl text-white mb-2">Pools are open</h2>
         <p className="text-white/80 text-[13px] leading-relaxed mb-3">
           The AMM is deployed and its config exists, so anyone can open a pool and provide
-          liquidity on chain. {VENUE_LP_LINE[lpMode]}
+          liquidity on chain. {VENUE_LP_LINE[lpMode](lpSection)}
           {feeSheetBelow && ' Fees below are read from that config.'}
         </p>
         <div className="flex flex-wrap gap-3 text-[12px]">

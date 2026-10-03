@@ -8,10 +8,16 @@ import { configBytes } from '../../src/lib/solana/lp/testkit.fixture';
 
 // Not the upgradeable loader, so the executable flag alone settles "deployed" (readDeployment).
 const LOADER = 'BPFLoader2111111111111111111111111111111111';
+// What mainnet answers to getGenesisHash (GENESIS_HASH.mainnet in write/config.ts).
+const MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
 
 type Call = { id?: unknown; method?: unknown; params?: unknown[] };
 
-export async function playLiveVenue(page: Page): Promise<{ answered: string[] }> {
+/**
+ * `gateOpen`: the venue also says it is mainnet, so the LP gate opens as it does in
+ * production and no "could not check the network" banner stands above the finder.
+ */
+export async function playLiveVenue(page: Page, { gateOpen = false }: { gateOpen?: boolean } = {}): Promise<{ answered: string[] }> {
   if (!LIVE_PROGRAM_ID) throw new Error('playLiveVenue: this checkout has no pool program id');
   const program = LIVE_PROGRAM_ID.toBase58();
   const b64 = (d: Uint8Array) => Buffer.from(d).toString('base64');
@@ -24,6 +30,7 @@ export async function playLiveVenue(page: Page): Promise<{ answered: string[] }>
   };
   const result = (c: Call): unknown => {
     const first = c.params?.[0];
+    if (gateOpen && c.method === 'getGenesisHash') return MAINNET_GENESIS;
     if (c.method === 'getAccountInfo' && typeof first === 'string' && first in accounts) {
       return { context: { slot: 1 }, value: accounts[first] };
     }

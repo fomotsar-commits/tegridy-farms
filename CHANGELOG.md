@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-03
 
-- Pools has a Solana LP tab: find a pool, add or remove liquidity, or open a pool on the venue's own Solana AMM.
+- Pools has a Solana LP tab that opens on the pool finder: find a pool, add or remove liquidity, or open a pool on the venue's own Solana AMM.
 
 ### 2026-10-02
 
