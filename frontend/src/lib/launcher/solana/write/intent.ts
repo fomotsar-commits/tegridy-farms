@@ -81,6 +81,7 @@ import {
   baylaAccountOf,
 } from './plant';
 import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, TxKind } from './types';
+import { canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 
 /** Phantom's Lighthouse guard program: assertion-only instructions a wallet may append. */
 export const LIGHTHOUSE_PROGRAM_ID = new PublicKey('L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95');
@@ -178,6 +179,8 @@ function system(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   }
   if (tag === 2) {
     // Transfer { lamports u64 }: ONLY the signer wrapping SOL into their own WSOL account.
+    // A pool paired with USDC or BAYLA takes no SOL, so its transactions wrap none.
+    if (isPoolIntent(ctx) && !pinnedQuote(ctx).native) refuse('it wraps SOL, and this pool is not paired with SOL');
     if (d.length !== 12) refuse('a SOL transfer of the wrong size');
     expectKeyCount(ix, 2, 'SOL transfer');
     if (!key(ix, 0).equals(ctx.signer)) refuse('a SOL transfer from someone other than you');
@@ -206,12 +209,14 @@ function token(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
     }
     case 17:
       // SyncNative
+      if (isPoolIntent(ctx) && !pinnedQuote(ctx).native) refuse('it wraps SOL, and this pool is not paired with SOL');
       expectKeyCount(ix, 1, 'sync wrapped SOL');
       if (d.length !== 1) refuse('sync wrapped SOL of the wrong size');
       if (!key(ix, 0).equals(wsolAta)) refuse('syncs an account that is not your wrapped-SOL account');
       return { kind: 'sync-wsol' };
     case 9:
       // CloseAccount: only the signer's own WSOL account, paid back to the signer.
+      if (isPoolIntent(ctx) && !pinnedQuote(ctx).native) refuse('it unwraps SOL, and this pool is not paired with SOL');
       expectKeyCount(ix, 3, 'close account');
       if (d.length !== 1) refuse('close-account of the wrong size');
       if (!key(ix, 0).equals(wsolAta)) refuse('closes an account that is not your wrapped-SOL account');
@@ -242,33 +247,60 @@ function ata(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
 }
 
 /**
- * An opening creates ONLY the signer's wrapped-SOL account. The pool program opens the
- * pool-share account itself (`initialize` creates it, so one made first would make it
- * fail), and the token account must already hold the tokens going in.
+ * The pool's pairing coin, looked up AGAIN in the site's own list (quotes.ts) by the
+ * mint the pins name, and checked against the pins: it must be the row itself, and it
+ * must sit on the side the pins say, under the program the pins say. So a pin can never
+ * name a coin of its own, and nothing below trusts `pins.quote` for a program or a flag.
  */
-function openingAtaRule(ctx: PoolIntent, mint: PublicKey): void {
-  if (mint.equals(WSOL_MINT)) return;
-  if (mint.equals(deriveLpMint(ctx.cfg.cpSwapProgram, ctx.pins.address))) refuse('the pool program opens your pool-share account itself');
-  refuse('an opening creates only your wrapped-SOL account');
+function pinnedQuote(ctx: PoolIntent): QuoteCoin {
+  const p = ctx.pins;
+  const q = quoteCoin(p.quote.mint);
+  if (!q || q.program !== p.quote.program || q.native !== p.quote.native || q.decimals !== p.quote.decimals) {
+    return refuse('the pool is paired with a coin this site does not build for');
+  }
+  const [mint, program] = p.quoteIsToken0 ? [p.token0Mint, p.token0Program] : [p.token1Mint, p.token1Program];
+  if (mint.toBase58() !== q.mint || program.toBase58() !== q.program) refuse('the pool’s pairing coin is not where the review says it is');
+  const [otherMint, otherProgram] = p.quoteIsToken0 ? [p.token1Mint, p.token1Program] : [p.token0Mint, p.token0Program];
+  if (!otherMint.equals(p.tokenMint) || !otherProgram.equals(p.tokenProgram)) refuse('the pool’s token is not where the review says it is');
+  return q;
 }
 
 /**
- * A liquidity transaction opens the signer's account for wrapped SOL, for the pool's
- * shares, or for the pool's token, and nothing else. Each under THAT mint's program:
- * the classic one for wrapped SOL and the pool shares, the pool's recorded program
- * for the token. The program is one of the address's seeds, so an account seeded
- * under the other program is a different address and is refused.
+ * An opening of a SOL pool creates ONLY the signer's wrapped-SOL account. The pool
+ * program opens the pool-share account itself (`initialize` creates it, so one made
+ * first would make it fail), and the token account must already hold the tokens going
+ * in. An opening of a pool paired with USDC or BAYLA creates nothing: the coin's
+ * account must already hold the coin going in, too.
+ */
+function openingAtaRule(ctx: PoolIntent, mint: PublicKey): void {
+  const quote = pinnedQuote(ctx);
+  if (quote.native && mint.equals(WSOL_MINT)) return;
+  if (mint.equals(deriveLpMint(ctx.cfg.cpSwapProgram, ctx.pins.address))) refuse('the pool program opens your pool-share account itself');
+  refuse(quote.native ? 'an opening creates only your wrapped-SOL account' : 'an opening of a pool that is not paired with SOL creates no account of yours');
+}
+
+/**
+ * A liquidity transaction opens the signer's account for the pool's pairing coin (the
+ * wrapped-SOL account for a SOL pool), for the pool's shares, or for the pool's token,
+ * and nothing else. Each under THAT mint's program: the classic one for the pool
+ * shares, the coin's own for the coin (classic for wrapped SOL and USDC, Token-2022 for
+ * BAYLA), the pool's recorded program for the token. The program is one of the
+ * address's seeds, so an account seeded under the other program is a different address
+ * and is refused. A pool not paired with SOL never opens a wrapped-SOL account.
  */
 function poolAta(
   ctx: PoolIntent,
   a: { address: PublicKey; owner: PublicKey; mint: PublicKey; sys: PublicKey; tok: PublicKey },
 ): IntentStep {
   const p = ctx.pins;
-  const program = a.mint.equals(WSOL_MINT) || a.mint.equals(p.lpMint)
+  const quote = pinnedQuote(ctx);
+  const program = a.mint.equals(p.lpMint)
     ? TOKEN_PROGRAM_ID
-    : a.mint.equals(p.tokenMint)
-      ? p.tokenProgram
-      : refuse('creates a token account for an unrelated token');
+    : a.mint.toBase58() === quote.mint
+      ? new PublicKey(quote.program)
+      : a.mint.equals(p.tokenMint)
+        ? p.tokenProgram
+        : refuse('creates a token account for an unrelated token');
   if (!a.sys.equals(SYSTEM_PROGRAM_ID) || !a.tok.equals(program)) refuse('creates a token account under the wrong programs');
   if (!a.address.equals(associatedTokenAddress(a.mint, a.owner, program))) refuse('creates a token account at the wrong address');
   return { kind: 'create-token-account', owner: a.owner, mint: a.mint, address: a.address };
@@ -469,6 +501,7 @@ function poolDeposit(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
   if (!startsWith(d, IX_DEPOSIT) || d.length !== 32) refuse('a pool instruction other than a deposit');
   expectKeyCount(ix, 13, 'pool deposit');
   const p = ctx.pins;
+  pinnedQuote(ctx);
   const checks = poolSlots(ctx, 'deposit');
   checks.push([3, associatedTokenAddress(p.lpMint, ctx.signer, TOKEN_PROGRAM_ID), 'the pool shares go to an account that is not yours']);
   for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);
@@ -487,6 +520,7 @@ function poolWithdraw(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
   if (!startsWith(d, IX_WITHDRAW) || d.length !== 32) refuse('a pool instruction other than a withdrawal');
   expectKeyCount(ix, 14, 'pool withdrawal');
   const p = ctx.pins;
+  pinnedQuote(ctx);
   const checks = poolSlots(ctx, 'withdrawal');
   checks.push(
     [3, p.lpAccount, 'it takes pool shares from an account that is not the one checked'],
@@ -522,8 +556,13 @@ function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep
   const cp = ctx.cfg.cpSwapProgram;
   const p = ctx.pins;
   const tier1 = publicTierConfig(cp);
-  const { token0: t0, token1: t1 } = sortMints(WSOL_MINT, p.tokenMint);
-  const prog = (m: PublicKey) => (m.equals(WSOL_MINT) ? TOKEN_PROGRAM_ID : p.tokenProgram);
+  // The pair: the token and the pool's pairing coin, the coin under its own program.
+  // Only a pair this site reads that way round (BAYLA/SOL is BAYLA priced in SOL).
+  const quote = pinnedQuote(ctx);
+  const quoteMint = new PublicKey(quote.mint);
+  if (!canPair(p.tokenMint.toBase58(), quote)) refuse('the opening pairs this token with a coin this site does not pair it with');
+  const { token0: t0, token1: t1 } = sortMints(quoteMint, p.tokenMint);
+  const prog = (m: PublicKey) => (m.equals(quoteMint) ? new PublicKey(quote.program) : p.tokenProgram);
 
   // The launch tier by name, before the generic fee-tier refusal below.
   if (key(ix, 1).equals(deriveAmmConfig(cp, 0))) refuse('the pool would open on the launch tier (fee tier 0), which this site never does');

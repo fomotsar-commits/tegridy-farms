@@ -24,6 +24,7 @@ import type { CurveBuyQuote, SellQuote } from '../curve/math';
 import type { AmmConfigView } from '../../../solana/cpswap/program';
 import type { OwnPoolQuote } from '../../../solana/cpswap/read';
 import type { PriceCheck } from '../../../solana/lp/poolHealth';
+import type { QuoteCoin } from '../../../solana/lp/quotes';
 import type { SafetyReason } from '../../../solana/lp/tokenSafety';
 
 export type SolanaCluster = 'mainnet' | 'devnet' | 'localnet';
@@ -136,8 +137,10 @@ export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-
  * own mint's decimals. `treasury` is the platform treasury's account (create: the
  * reserve arriving); `workshop` is the island Workshop's $BAYLA account (create: the
  * plant's half); the rest are the signer's own. No role = the signer's token.
+ * `quote` is the signer's account for a pool's pairing coin when that coin is not SOL
+ * (USDC, BAYLA); SOL's is `wsol`.
  */
-export type TokenRole = 'treasury' | 'workshop' | 'lp' | 'wsol' | 'token';
+export type TokenRole = 'treasury' | 'workshop' | 'lp' | 'wsol' | 'quote' | 'token';
 
 /**
  * One instruction of the FINAL transaction, decoded back out of its bytes.
@@ -311,21 +314,26 @@ export interface LpDepositSummary {
   enableCreatorFee: boolean;
   tokenMint: PublicKey;
   tokenDecimals: number;
+  /** The coin the token is paired with. Every `quote` amount below is in ITS base units. */
+  quote: QuoteCoin;
   quoteIsToken0: boolean;
   lpAmount: bigint;
   lpDecimals: number;
   /** The ceiling cost from the fresh snapshot. */
-  quoted: { sol: bigint; token: bigint };
+  quoted: { quote: bigint; token: bigint };
   /** Decoded from the bytes. */
-  max: { sol: bigint; token: bigint };
+  max: { quote: bigint; token: bigint };
   /** The other side's maximum was lowered to what the wallet holds. */
-  limitedByBalance: 'none' | 'sol' | 'token';
+  limitedByBalance: 'none' | 'quote' | 'token';
   /** Display only. */
   sharePct: { before: number; after: number };
   /** The fresh price check that passed. */
   price: PriceCheck;
   tokenWarnings: SafetyReason[];
-  /** True when the wrapped-SOL account is closed at the end, so unused SOL comes back as plain SOL. */
+  /**
+   * True when the wrapped-SOL account is closed at the end, so unused SOL comes back as
+   * plain SOL. Always false for a pool paired with another coin: nothing is wrapped.
+   */
   unwrapsWsol: boolean;
   wsolHeldBefore: bigint;
   notices: string[];
@@ -339,6 +347,8 @@ export interface LpWithdrawSummary {
   config: AmmConfigView | null;
   tokenMint: PublicKey;
   tokenDecimals: number;
+  /** The coin the token is paired with. Every `quote` amount below is in ITS base units. */
+  quote: QuoteCoin;
   quoteIsToken0: boolean;
   lpAccount: PublicKey;
   lpAmount: bigint;
@@ -348,11 +358,17 @@ export interface LpWithdrawSummary {
   all: boolean;
   keep: bigint;
   /** The floor payout from the fresh snapshot. */
-  quoted: { sol: bigint; token: bigint };
-  min: { sol: bigint; token: bigint };
+  quoted: { quote: bigint; token: bigint };
+  min: { quote: bigint; token: bigint };
   tokenAccount: PublicKey;
   /** What opening the token account costs; `0n` when it exists. */
   tokenAccountRent: bigint;
+  /**
+   * A pool paired with a coin that is not SOL pays that coin into the signer's own
+   * account for it: the account, and what opening it costs (`0n` when it exists).
+   * Null for a SOL pool, whose SOL comes back through the wrapped-SOL account.
+   */
+  quoteAccount: { address: PublicKey; rent: bigint } | null;
   unwrapsWsol: boolean;
   notices: string[];
 }
@@ -371,15 +387,17 @@ export interface LpCreateSummary {
   config: AmmConfigView;
   tokenMint: PublicKey;
   tokenDecimals: number;
+  /** The coin the token is paired with. Every `quote` amount below is in ITS base units. */
+  quote: QuoteCoin;
   quoteIsToken0: boolean;
   /** Decoded from the bytes: exactly what goes in. */
-  put: { sol: bigint; token: bigint };
-  /** isqrt(sol·token), the pool's whole share count; `lpAmount` = supply − 100. */
+  put: { quote: bigint; token: bigint };
+  /** isqrt(quote·token), the pool's whole share count; `lpAmount` = supply − 100. */
   supply: bigint;
   lpAmount: bigint;
   lpDecimals: 9;
   /** What the 100 locked shares are worth at the opening amounts (display). */
-  locked: { sol: bigint; token: bigint };
+  locked: { quote: bigint; token: bigint };
   createFee: bigint;
   feeReceiver: PublicKey;
   /** Read while preparing: the pool's own accounts (never returned), the opener's pool-share account (refundable). */
@@ -532,9 +550,16 @@ export interface PoolPins {
   vault1: PublicKey;
   lpMint: PublicKey;
   observation: PublicKey;
-  /** The side that is not SOL. */
+  /** The side that is not the pairing coin. */
   tokenMint: PublicKey;
   tokenProgram: PublicKey;
+  /**
+   * The pairing coin (quotes.ts): SOL, USDC or BAYLA. The decoder looks its mint up in
+   * the site's own list again and refuses any other, so a pin can never name a coin of
+   * its own. SOL (`native`) is wrapped and unwrapped around the pool instruction; any
+   * other coin moves through the signer's own account for it, under the coin's program.
+   */
+  quote: QuoteCoin;
   quoteIsToken0: boolean;
   /** Deposit: ATA(lpMint, signer, Tokenkeg). Withdraw: the pool-share account verified at prepare. */
   lpAccount: PublicKey;

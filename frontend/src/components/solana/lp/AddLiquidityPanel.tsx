@@ -99,11 +99,11 @@ function AddInner({
 
   const plans = useMemo(() => {
     if (!typed || maxIn === null || maxIn === 0n) return null;
-    const base = { quoteIsToken0: view.quoteIsToken0, driving: typed.side, maxIn, bps: slippageBps ?? DEFAULT_SLIPPAGE_BPS };
+    const base = { quoteIsToken0: view.quoteIsToken0, driving: typed.side === 'sol' ? ('quote' as const) : ('token' as const), maxIn, bps: slippageBps ?? DEFAULT_SLIPPAGE_BPS };
     return {
       // The pool's own answer, with no balance rule: what the other box shows.
-      free: planDeposit(view.snapshot, { ...base, availableSol: null, availableToken: null }),
-      plan: planDeposit(view.snapshot, { ...base, availableSol, availableToken }),
+      free: planDeposit(view.snapshot, { ...base, availableQuote: null, availableToken: null }),
+      plan: planDeposit(view.snapshot, { ...base, availableQuote: availableSol, availableToken }),
     };
   }, [typed, maxIn, slippageBps, view, availableSol, availableToken]);
   const free = plans && !isPlanProblem(plans.free) ? plans.free : null;
@@ -151,7 +151,7 @@ function AddInner({
         problemText = 'Too small: at this pool’s size one side would round to zero. Add a larger amount.';
         break;
       case 'over-balance':
-        if (problem.side === 'sol') {
+        if (problem.side === 'quote') {
           problemText = `That would leave your wallet with too little SOL to stay open on the network. The most you can add is ${solExact(problem.have)}.`;
           fix = { label: `Use ${solExact(problem.have)}`, run: () => setDriving('sol', problem.have) };
         } else {
@@ -197,7 +197,8 @@ function AddInner({
         owner: signer.publicKey,
         pool: new PublicKey(view.address),
         tokenMint: new PublicKey(view.tokenMint),
-        driving: typed.side,
+        quoteMint: new PublicKey(view.quote.mint),
+        driving: typed.side === 'sol' ? 'quote' : 'token',
         maxIn,
         slippageBps,
         shownOtherMax,

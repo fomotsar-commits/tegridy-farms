@@ -33,6 +33,12 @@
 //      account in the meantime);
 //   16. the one-off key is the only extra signer, and only on the one-off path.
 //
+// THE PAIRING COIN (quotes.ts). A pool opens paired with SOL, USDC or BAYLA. SOL goes in
+// through the signer's wrapped-SOL account, as above. USDC and BAYLA are plain tokens:
+// nothing is wrapped and no account is opened, the coin is spent from the signer's own
+// account for it (which must hold it), and the single read also takes that account and
+// the coin's own mint (20 accounts). The fee to open is paid in SOL whatever the coin.
+//
 // The one-off key lives only in `PreparedTx.extraSigners`: never in the summary, the
 // check, a note, storage, the URL or a log. It signs after the wallet (submit.ts), and
 // is dropped with the prepared transaction. Nothing here signs or sends.
@@ -59,10 +65,11 @@ import {
 import { initializeIx } from '../../../solana/cpswap/ix';
 import { ratePercent } from '../../../solana/cpswap/math';
 import type { RawAccount } from '../../../solana/lp/accounts';
-import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, planCreate, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
+import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, planCreate, solSetAside, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
 import { TOKEN_2022_NATIVE_MINT, assessOpening } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { PRICE_TOLERANCE, tokenReasons } from '../../../solana/lp/poolHealth';
+import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { SITE_ALLOWED_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, MAX_CREATE_FEE_LAMPORTS, feeAccountStateOf, tierStateOf } from './config';
@@ -76,6 +83,8 @@ import { closeWsolIxs, openWsolIx, opened, syncCredit, wrapIxs, wsolPlanFrom } f
 
 const solText = (lamports: bigint) => `${formatSol(lamports, 9)} SOL`;
 const tokensText = (raw: bigint, decimals: number) => `${formatTokenAmount(raw, decimals, decimals).text} tokens`;
+/** An amount of the pool's pairing coin, exact, in that coin's own decimals. SOL is `solText`, to the character. */
+const coinText = (raw: bigint, q: QuoteCoin) => (q.native ? solText(raw) : `${formatTokenAmount(raw, q.decimals, q.decimals).text} ${q.symbol}`);
 
 export const CREATE_COPY = {
   paused: 'Opening pools from this site is paused right now. Removing liquidity still works.',
@@ -93,7 +102,11 @@ export const CREATE_COPY = {
     `The account that receives the fee to open a pool is not set up (${detail}), so opening a pool would fail. Nothing was built.`,
   tokenUnread: 'We could not read the token just now, so we did not build the opening. Try again in a moment.',
   tokenRefused: (reason: string) => `This site does not open pools for this token: ${reason}`,
-  native2022: 'This is SOL under the newer token program. Pools here pair a token with SOL.',
+  native2022: `This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`,
+  notAPairingCoin: `Pools opened from this site pair a token with ${QUOTE_COINS_OR} only.`,
+  cannotPair: (symbol: string) => `This site does not open a pool that prices this token in ${symbol}.`,
+  coinPriceUnread: (symbol: string, detail: string) =>
+    `We could not get the price of ${symbol} from Jupiter just now (${detail}), so we could not check the opening price. Try again in a moment.`,
   cannotSizeVault: (why: string) => `This site cannot work out the deposit for this token's pool vault (${why}), so nothing was built.`,
   justOpened:
     'Someone opened a pool for this token at the standard address since this page read it. Read the pools again: you may be able to add to it instead.',
@@ -121,17 +134,20 @@ export const CREATE_COPY = {
  */
 export function createPins(
   cfg: CurveWriteConfig,
-  a: { address: PublicKey; tokenMint: PublicKey; tokenProgram: PublicKey; signer: PublicKey },
+  a: { address: PublicKey; tokenMint: PublicKey; tokenProgram: PublicKey; signer: PublicKey; quote: QuoteCoin },
 ): PoolPins | string {
   if (a.tokenMint.equals(WSOL_MINT)) return 'a pool here pairs a token with SOL, not SOL with itself';
+  // A coin is only priced in the coins that outrank it (quotes.ts): BAYLA in SOL or USDC, never SOL in BAYLA.
+  if (!canPair(a.tokenMint.toBase58(), a.quote)) return `this site does not open a pool that prices this token in ${a.quote.symbol}`;
   if (!a.tokenProgram.equals(TOKEN_PROGRAM_ID) && !a.tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
     return 'the token is not owned by either token program';
   }
   const cp = cfg.cpSwapProgram;
   const ammConfig = publicTierConfig(cp);
-  const { token0, token1 } = sortMints(WSOL_MINT, a.tokenMint);
-  const quoteIsToken0 = token0.equals(WSOL_MINT);
-  const programOf = (m: PublicKey): PublicKey => (m.equals(WSOL_MINT) ? TOKEN_PROGRAM_ID : a.tokenProgram);
+  const quoteMint = new PublicKey(a.quote.mint);
+  const { token0, token1 } = sortMints(quoteMint, a.tokenMint);
+  const quoteIsToken0 = token0.equals(quoteMint);
+  const programOf = (m: PublicKey): PublicKey => (m.equals(quoteMint) ? new PublicKey(a.quote.program) : a.tokenProgram);
   const lpMint = deriveLpMint(cp, a.address);
   return {
     address: a.address,
@@ -147,6 +163,7 @@ export function createPins(
     observation: deriveObservation(cp, a.address),
     tokenMint: a.tokenMint,
     tokenProgram: a.tokenProgram,
+    quote: a.quote,
     quoteIsToken0,
     lpAccount: associatedTokenAddress(lpMint, a.signer, TOKEN_PROGRAM_ID),
   };
@@ -196,7 +213,13 @@ export interface CreateSnapshot {
   signerLamports: bigint;
   /** The signer's associated account for the token, under each token program. */
   tokenAccounts: { classic: RawAccount | null; token2022: RawAccount | null };
-  wsol: { address: PublicKey; account: RawAccount | null };
+  /**
+   * The signer's account for the pairing coin: the wrapped-SOL account for SOL, else the
+   * associated account under the coin's own token program.
+   */
+  quoteAccount: { address: PublicKey; account: RawAccount | null };
+  /** The pairing coin's mint, read in the same slot. Null for SOL (the native mint is not read). */
+  quoteMint: RawAccount | null;
   standard: { address: PublicKey; accounts: Five };
   fresh: { address: PublicKey; accounts: Five };
 }
@@ -208,20 +231,24 @@ function fiveKeys(cp: PublicKey, pool: PublicKey, token0: PublicKey, token1: Pub
 /**
  * The one fresh read (3.1 step 3): ONE getMultipleAccountsInfo of the 18 keys, in this
  * order: tier 1, the fee account, the token mint, its name record, the wallet, its token
- * account under the classic program and under Token-2022, its wrapped-SOL account, the
- * standard pool's five accounts, then the fresh key's five. A string = the read failed
- * (its detail); nothing else is a string.
+ * account under the classic program and under Token-2022, its account for the pairing
+ * coin (the wrapped-SOL account for SOL), the standard pool's five accounts, then the
+ * fresh key's five. For a coin that is not SOL a 19th follows: the coin's own mint. A
+ * string = the read failed (its detail); nothing else is a string.
  */
 export async function readCreateSnapshot(
   rpc: WriteRpc,
   cfg: CurveWriteConfig,
-  a: { tokenMint: PublicKey; owner: PublicKey; fresh: PublicKey },
+  a: { tokenMint: PublicKey; owner: PublicKey; fresh: PublicKey; quote: QuoteCoin },
 ): Promise<CreateSnapshot | string> {
   const cp = cfg.cpSwapProgram;
   const tier1 = publicTierConfig(cp);
-  const { token0, token1 } = sortMints(WSOL_MINT, a.tokenMint);
+  const quoteMintKey = new PublicKey(a.quote.mint);
+  const { token0, token1 } = sortMints(quoteMintKey, a.tokenMint);
   const standard = derivePool(cp, tier1, token0, token1);
-  const wsolAddress = associatedTokenAddress(WSOL_MINT, a.owner, TOKEN_PROGRAM_ID);
+  // SOL: the wrapped-SOL account (the same address as ever). Any other coin: the
+  // signer's account for it, under the coin's own program.
+  const wsolAddress = associatedTokenAddress(quoteMintKey, a.owner, new PublicKey(a.quote.program));
   const keys = [
     tier1,
     CP_CREATE_POOL_FEE_RECEIVER,
@@ -233,6 +260,8 @@ export async function readCreateSnapshot(
     wsolAddress,
     ...fiveKeys(cp, standard, token0, token1),
     ...fiveKeys(cp, a.fresh, token0, token1),
+    // Last, so the 18 before it are the keys a SOL opening has always read, in order.
+    ...(a.quote.native ? [] : [quoteMintKey]),
   ];
   let accs: (RawAccount | null)[];
   try {
@@ -249,7 +278,8 @@ export async function readCreateSnapshot(
     signerLamports: BigInt(ownerAcc?.lamports ?? 0),
     // The wallet's own three: an address that only holds SOL someone sent it is no account (`opened`).
     tokenAccounts: { classic: opened(classic), token2022: opened(token2022) },
-    wsol: { address: wsolAddress, account: opened(wsol) },
+    quoteAccount: { address: wsolAddress, account: opened(wsol) },
+    quoteMint: a.quote.native ? null : accs[18] ?? null,
     standard: { address: standard, accounts: accs.slice(8, 13) as Five },
     fresh: { address: a.fresh, accounts: accs.slice(13, 18) as Five },
   };
@@ -257,10 +287,18 @@ export async function readCreateSnapshot(
 
 // ── the plan, checked against the decoded transaction ────────────────────────
 
-/** The decoded steps of an opening must be exactly the plan. A string says what differs. */
+/**
+ * The decoded steps of an opening must be exactly the plan. A string says what differs.
+ * A SOL opening wraps exactly the SOL going in, through the signer's wrapped-SOL account.
+ * An opening paired with any other coin (`quoteNative: false`) wraps nothing and opens
+ * no account at all: it is the pool instruction alone.
+ */
 export function createStepsProblem(
   steps: IntentStep[],
-  want: { pool: PublicKey; ammConfig: PublicKey; init0: bigint; init1: bigint; sol: bigint; closeAfter: boolean; wsolAta: PublicKey },
+  want: { pool: PublicKey; ammConfig: PublicKey; init0: bigint; init1: bigint } & (
+    | { quoteNative?: true; sol: bigint; closeAfter: boolean; wsolAta: PublicKey }
+    | { quoteNative: false }
+  ),
 ): string | null {
   const body = bodySteps(steps);
   const openings = body.filter((s) => s.kind === 'pool-create');
@@ -270,9 +308,15 @@ export function createStepsProblem(
     return 'The opening in the transaction does not match the amounts worked out.';
   }
   const wraps = body.filter((s) => s.kind === 'wrap-sol');
-  if (wraps.length !== 1 || wraps[0]?.kind !== 'wrap-sol' || wraps[0].lamports !== want.sol) return 'The SOL wrapped for the opening does not match the amount to put in.';
-  if (body.filter((s) => s.kind === 'sync-wsol').length !== 1) return 'The wrapped SOL is not synced exactly once.';
+  const syncs = body.filter((s) => s.kind === 'sync-wsol').length;
   const creates = body.filter((s) => s.kind === 'create-token-account');
+  if (want.quoteNative === false) {
+    if (wraps.length !== 0 || syncs !== 0 || body.some((s) => s.kind === 'close-wsol')) return 'The transaction wraps or unwraps SOL, and this pool is not paired with SOL.';
+    if (creates.length !== 0) return 'The transaction opens an account, and this opening opens none.';
+    return null;
+  }
+  if (wraps.length !== 1 || wraps[0]?.kind !== 'wrap-sol' || wraps[0].lamports !== want.sol) return 'The SOL wrapped for the opening does not match the amount to put in.';
+  if (syncs !== 1) return 'The wrapped SOL is not synced exactly once.';
   if (creates.length !== 1 || creates[0]?.kind !== 'create-token-account' || !creates[0].address.equals(want.wsolAta)) {
     return 'The transaction does not open exactly your wrapped-SOL account.';
   }
@@ -286,8 +330,13 @@ export function createStepsProblem(
 export interface LpCreateArgs {
   owner: PublicKey;
   tokenMint: PublicKey;
-  /** Exactly what goes in, on each side. There is no slippage: an opening sets the price. */
-  sol: bigint;
+  /** The coin the pool pairs the token with: wrapped SOL's mint, USDC's or BAYLA's. */
+  quoteMint: PublicKey;
+  /**
+   * Exactly what goes in, on each side: `quote` of the pairing coin, in its own base
+   * units (lamports for SOL). There is no slippage: an opening sets the price.
+   */
+  quote: bigint;
   token: bigint;
   /** What the panel showed: tier 1's terms as read, and whether the standard pool address held anything. */
   shown: { terms: TierTerms; standard: 'empty' | 'taken' };
@@ -323,7 +372,7 @@ function lockPct(supply: bigint): string {
   return String(shown);
 }
 
-function createProblemCopy(p: CreateProblem, decimals: number): string {
+function createProblemCopy(p: CreateProblem, decimals: number, quote: QuoteCoin): string {
   switch (p.problem) {
     case 'empty-side':
       return CREATE_COPY.emptySide;
@@ -334,7 +383,10 @@ function createProblemCopy(p: CreateProblem, decimals: number): string {
     case 'lock-too-large':
       return CREATE_COPY.lockTooLarge(lockPct(p.supply));
     case 'over-balance':
-      return p.side === 'sol' ? CREATE_COPY.rentBand(solText(p.have)) : LP_COPY.overBalance(tokensText(p.need, decimals), tokensText(p.have, decimals));
+      // SOL: `have` is what the wallet can put in after the fee, the deposits and its own
+      // floor, so it is named as the most it can put in. Any other coin's is its balance.
+      if (p.side === 'quote') return quote.native ? CREATE_COPY.rentBand(solText(p.have)) : LP_COPY.overBalance(coinText(p.need, quote), coinText(p.have, quote));
+      return LP_COPY.overBalance(tokensText(p.need, decimals), tokensText(p.have, decimals));
   }
 }
 
@@ -347,8 +399,13 @@ const allEmpty = (five: Five): boolean => five.every((acc) => acc === null);
 export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpCreateArgs): Promise<Prepared> {
   // 1. Inputs.
   if (gate.kind !== 'open' || gate.mode !== 'on') return notSent('build', CREATE_COPY.paused);
-  if (a.sol < 1n || a.token < 1n) return notSent('build', CREATE_COPY.emptySide);
-  if (a.sol > U64_MAX || a.token > U64_MAX) return notSent('build', CREATE_COPY.tooLarge);
+  if (a.quote < 1n || a.token < 1n) return notSent('build', CREATE_COPY.emptySide);
+  if (a.quote > U64_MAX || a.token > U64_MAX) return notSent('build', CREATE_COPY.tooLarge);
+  const quote = quoteCoin(a.quoteMint.toBase58());
+  if (!quote) return notSent('build', CREATE_COPY.notAPairingCoin);
+  if (!canPair(a.tokenMint.toBase58(), quote) && !a.tokenMint.equals(WSOL_MINT)) return notSent('build', CREATE_COPY.cannotPair(quote.symbol));
+  const quoteMintKey = new PublicKey(quote.mint);
+  const quoteProgram = new PublicKey(quote.program);
   const cfg = gate.cfg;
   const cp = cfg.cpSwapProgram;
 
@@ -356,7 +413,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   const kp = Keypair.generate();
 
   // 3. One fresh read covering both possible addresses.
-  const snap = await readCreateSnapshot(rpc, cfg, { tokenMint: a.tokenMint, owner: a.owner, fresh: kp.publicKey });
+  const snap = await readCreateSnapshot(rpc, cfg, { tokenMint: a.tokenMint, owner: a.owner, fresh: kp.publicKey, quote });
   if (typeof snap === 'string') return notSent('build', CREATE_COPY.readFailed);
 
   // 4. Tier 1, again, and the terms the panel showed.
@@ -425,21 +482,38 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
     return notSent('build', CREATE_COPY.freshTaken);
   }
 
-  // 8. The market price, read again.
-  let outside: OutsidePrice;
-  try {
-    outside = await reads.outsidePrice(mintText, decimals);
-  } catch (e) {
-    outside = { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
+  // 7b. The pairing coin's own mint, for a coin that is not SOL: it must be the mint this
+  // site knows (its program and its decimals, read now), and its pool vault is sized from it.
+  let quoteVaultSize: number = TOKEN_ACCOUNT_SIZE;
+  if (!quote.native) {
+    const qm = snap.quoteMint;
+    if (!qm) return notSent('build', LP_COPY.coinChanged(quote.symbol, 'its mint is missing'));
+    if (qm.owner !== quote.program) return notSent('build', LP_COPY.coinChanged(quote.symbol, 'it sits under another token program'));
+    if (qm.data.length < 82 || qm.data[44] !== quote.decimals) return notSent('build', LP_COPY.coinChanged(quote.symbol, 'its decimals differ'));
+    const size = vaultAccountSize(qm);
+    if (typeof size === 'string') return notSent('build', CREATE_COPY.cannotSizeVault(`${quote.symbol}: ${size}`));
+    quoteVaultSize = size;
   }
 
+  // 8. The market price, read again: the token's, and the pairing coin's own when the
+  // pool is not paired with SOL (the opening price is checked in that coin).
+  const readPrice = async (mint: string, d: number): Promise<OutsidePrice> => {
+    try {
+      return await reads.outsidePrice(mint, d);
+    } catch (e) {
+      return { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
+    }
+  };
+  const [outside, coinOutside] = await Promise.all([readPrice(mintText, decimals), quote.native ? null : readPrice(quote.mint, quote.decimals)]);
+
   // 9. The opening check.
-  const opening = assessOpening({ tokenMint: mintText, sol: a.sol, token: a.token, tokenDecimals: decimals, outside, safety });
+  const opening = assessOpening({ tokenMint: mintText, quote, quoteAmount: a.quote, token: a.token, tokenDecimals: decimals, outside, coinOutside, safety });
   const price = opening.price;
   if (opening.verdict !== 'allowed' || price.state !== 'agrees') {
     if (price.state === 'disagrees') return notSent('build', CREATE_COPY.priceDisagrees(`${(Math.abs(price.diff) * 100).toFixed(1)}% ${price.diff > 0 ? 'above' : 'below'}`));
     if (outside.kind === 'no-route') return notSent('build', CREATE_COPY.noRoute);
     if (outside.kind === 'unread') return notSent('build', CREATE_COPY.priceUnread(outside.detail));
+    if (coinOutside && coinOutside.kind !== 'ok') return notSent('build', CREATE_COPY.coinPriceUnread(quote.symbol, coinOutside.detail));
     return notSent('build', CREATE_COPY.notBuilt(opening.reasons));
   }
 
@@ -452,10 +526,15 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if (source.refuse) return notSent('build', source.refuse);
   const availableToken = amountOf(tokenAccount);
   if (availableToken < a.token) return notSent('build', LP_COPY.overBalance(tokensText(a.token, decimals), tokensText(availableToken, decimals)));
-  const wsolCheck = accountCheck(snap.wsol.account, { owner: a.owner, mint: WSOL_MINT, program: TOKEN_PROGRAM_ID, use: 'source', what: 'wrapped SOL', decimals: 9 });
+  // A coin that is not SOL is spent from the signer's own account for it, which must exist.
+  if (!quote.native && !snap.quoteAccount.account) return notSent('build', LP_COPY.noCoinAccount(quote.symbol, snap.quoteAccount.address.toBase58()));
+  const wsolCheck = accountCheck(snap.quoteAccount.account, {
+    owner: a.owner, mint: quoteMintKey, program: quoteProgram, use: 'source', what: quote.native ? 'wrapped SOL' : quote.symbol, decimals: quote.decimals,
+  });
   if (wsolCheck.refuse) return notSent('build', wsolCheck.refuse);
   // A stranger's close authority, or a spender on a kept account, is refused here (wsol.ts).
-  const plan = wsolPlanFrom(a.owner, snap.wsol.account);
+  // Only a SOL opening has a plan for wrapped SOL: `null` = nothing is wrapped.
+  const plan = quote.native ? wsolPlanFrom(a.owner, snap.quoteAccount.account) : null;
   if (typeof plan === 'string') return notSent('build', plan);
 
   // 11. Rents, read live.
@@ -465,6 +544,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   let r637: bigint;
   let r4075: bigint;
   let rVault: bigint;
+  let rQuoteVault: bigint;
   try {
     const got = await Promise.all([
       rpc.getMinimumBalanceForRentExemption(0),
@@ -473,33 +553,44 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
       rpc.getMinimumBalanceForRentExemption(POOL_ACCOUNT_SIZE),
       rpc.getMinimumBalanceForRentExemption(PRICE_RECORD_SIZE),
       vaultSize === TOKEN_ACCOUNT_SIZE ? Promise.resolve(null) : rpc.getMinimumBalanceForRentExemption(vaultSize),
+      quoteVaultSize === TOKEN_ACCOUNT_SIZE ? Promise.resolve(null) : rpc.getMinimumBalanceForRentExemption(quoteVaultSize),
     ]);
     [r0, r82, r165, r637, r4075] = got.slice(0, 5).map(rentOf) as [bigint, bigint, bigint, bigint, bigint];
     rVault = got[5] === null ? r165 : rentOf(got[5]);
+    rQuoteVault = got[6] === null ? r165 : rentOf(got[6]);
   } catch {
     return notSent('build', CREATE_COPY.readFailed);
   }
-  // The pool, its price record, its share token, the wrapped-SOL vault and the token vault.
-  const neverRefunded = r637 + r4075 + r82 + r165 + rVault;
+  // The pool, its price record, its share token, the pairing coin's vault (the
+  // wrapped-SOL vault for SOL) and the token vault.
+  const neverRefunded = r637 + r4075 + r82 + rQuoteVault + rVault;
   const lpAccountRent = r165;
 
-  // 12. The plan, inside the rent band (3.4). Two signatures' worth of fees whichever
-  // path it takes.
-  const { token0, token1 } = sortMints(WSOL_MINT, a.tokenMint);
-  const quoteIsToken0 = token0.equals(WSOL_MINT);
-  const availableSol = spendableSol({
-    lamports: snap.signerLamports,
-    walletFloor: r0,
-    feeReserve: feeReserveFor(2),
-    lpAccountRent,
-    wsolCreateRent: snap.wsol.account ? 0n : r165,
-    alsoPaid: createFee + neverRefunded,
-  });
-  const planned = planCreate({ quoteIsToken0, sol: a.sol, token: a.token, availableSol, availableToken });
-  if ('problem' in planned) return notSent('build', createProblemCopy(planned, decimals));
+  // 12. The plan. Two signatures' worth of fees whichever path it takes. SOL: inside the
+  // rent band (3.4). Any other coin: what the wallet holds of it, and its SOL must cover
+  // the fee to open, the deposits, the network fee and its own floor.
+  const { token0, token1 } = sortMints(quoteMintKey, a.tokenMint);
+  const quoteIsToken0 = token0.equals(quoteMintKey);
+  let availableQuote: bigint;
+  if (plan) {
+    availableQuote = spendableSol({
+      lamports: snap.signerLamports,
+      walletFloor: r0,
+      feeReserve: feeReserveFor(2),
+      lpAccountRent,
+      wsolCreateRent: snap.quoteAccount.account ? 0n : r165,
+      alsoPaid: createFee + neverRefunded,
+    });
+  } else {
+    const setAside = solSetAside({ walletFloor: r0, feeReserve: feeReserveFor(2), lpAccountRent, wsolCreateRent: 0n, alsoPaid: createFee + neverRefunded });
+    if (snap.signerLamports < setAside) return notSent('build', LP_COPY.needSol(solText(setAside), solText(snap.signerLamports)));
+    availableQuote = snap.quoteAccount.account ? amountOf(snap.quoteAccount.account) : 0n;
+  }
+  const planned = planCreate({ quoteIsToken0, quote: a.quote, token: a.token, availableQuote, availableToken });
+  if ('problem' in planned) return notSent('build', createProblemCopy(planned, decimals, quote));
 
   // 13. Pins.
-  const pins = createPins(cfg, { address, tokenMint: a.tokenMint, tokenProgram, signer: a.owner });
+  const pins = createPins(cfg, { address, tokenMint: a.tokenMint, tokenProgram, signer: a.owner, quote });
   if (typeof pins === 'string') return notSent('build', CREATE_COPY.tokenRefused(pins));
   if (pins.origin !== origin) return notSent('build', CREATE_COPY.signerMismatch);
   const extraSigners = origin === 'other' ? [kp] : [];
@@ -523,7 +614,9 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
     openTime: 0n,
     poolState: origin === 'other' ? address : undefined,
   });
-  const body: TransactionInstruction[] = [openWsolIx(a.owner), ...wrapIxs(a.owner, a.sol), open, ...closeWsolIxs(plan, a.owner)];
+  // A coin that is not SOL: the pool instruction alone. Nothing is wrapped or opened.
+  const body: TransactionInstruction[] = plan ? [openWsolIx(a.owner), ...wrapIxs(a.owner, a.quote), open, ...closeWsolIxs(plan, a.owner)] : [open];
+  const quoteAddress = snap.quoteAccount.address;
 
   // 15. Simulate twice and compare (3.3). The balances are read a slot or more before the
   // test run, and anyone can send a lamport to the fee account, a token to the wallet or
@@ -531,7 +624,9 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   // more arriving cannot hurt the signer, and an exact row let dust block every opening.
   // What a fee above the one on screen would take comes out of the wallet, so the SOL row
   // is what catches it, and it is exact.
-  const maxSolOut = a.sol + createFee + neverRefunded + lpAccountRent;
+  // The fee to open is paid in SOL whatever the pool is paired with; only a SOL opening
+  // also puts SOL into the pool.
+  const maxSolOut = (plan ? a.quote : 0n) + createFee + neverRefunded + lpAccountRent;
   const r = await buildAndSimulate(rpc, {
     kind: 'lp-create',
     body,
@@ -541,7 +636,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
       signer: a.owner,
       tokenAccounts: [
         { account: tokenAddress, mint: a.tokenMint, role: 'token', decimals },
-        { account: plan.ata, mint: WSOL_MINT, role: 'wsol', decimals: 9 },
+        { account: quoteAddress, mint: quoteMintKey, role: plan ? 'wsol' : 'quote', decimals: quote.decimals },
         { account: pins.lpAccount, mint: pins.lpMint, role: 'lp', decimals: 9 },
         { account: CP_CREATE_POOL_FEE_RECEIVER, mint: WSOL_MINT, role: 'treasury', decimals: 9 },
       ],
@@ -552,12 +647,12 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
       // set up under the old rent, gains 550,840 that way on its first opening. The pool
       // program moves and syncs the fee account only when there is a fee to open.
       const feeCredit = createFee === 0n ? 0n : syncCredit(pre.tokens.get(CP_CREATE_POOL_FEE_RECEIVER.toBase58()), rents.tokenAccount);
-      const wsolPre = pre.tokens.get(plan.ata.toBase58());
-      const keptCredit = plan.closeAfter ? 0n : syncCredit(wsolPre, rents.tokenAccount);
+      const wsolPre = plan ? pre.tokens.get(plan.ata.toBase58()) : undefined;
+      const keptCredit = !plan || plan.closeAfter ? 0n : syncCredit(wsolPre, rents.tokenAccount);
       // Lamports already at the wallet's own two addresses come off what it pays: the
       // close hands back every lamport the wrapped-SOL address held, and a pool-share
       // address that already holds SOL needs only the rest of its deposit.
-      const wsolBack = plan.closeAfter ? (wsolPre?.lamports ?? 0n) : 0n;
+      const wsolBack = plan?.closeAfter ? (wsolPre?.lamports ?? 0n) : 0n;
       const lpThere = pre.tokens.get(pins.lpAccount.toBase58())?.lamports ?? 0n;
       return {
         maxSolOut: maxSolOut - wsolBack - (lpThere < lpAccountRent ? lpThere : lpAccountRent),
@@ -565,9 +660,13 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
           { account: pins.lpAccount, mint: pins.lpMint, minDelta: planned.lp, maxDelta: planned.lp },
           // At most the tokens typed leave (the bytes pin the exact number).
           { account: tokenAddress, mint: a.tokenMint, minDelta: -a.token, maxDelta: 2n ** 64n },
-          // Wrapped in and spent by the opening. Closed: it ends where it began. Kept: at
-          // least what its own sync credits, so the person's own wrapped SOL is never spent.
-          { account: plan.ata, mint: WSOL_MINT, minDelta: keptCredit, maxDelta: plan.closeAfter ? 0n : 2n ** 64n },
+          plan
+            ? // Wrapped in and spent by the opening. Closed: it ends where it began. Kept: at
+              // least what its own sync credits, so the person's own wrapped SOL is never spent.
+              { account: plan.ata, mint: WSOL_MINT, minDelta: keptCredit, maxDelta: plan.closeAfter ? 0n : 2n ** 64n }
+            : // Any other coin leaves its own account: at most the amount typed (the bytes
+              // pin the exact number), and more arriving meanwhile cannot hurt the signer.
+              { account: quoteAddress, mint: quoteMintKey, minDelta: -a.quote, maxDelta: 2n ** 64n },
           // At least the fee on screen plus what the account already held: a tier read that
           // shows more than the program takes is blocked here, before any signature.
           { account: CP_CREATE_POOL_FEE_RECEIVER, mint: WSOL_MINT, minDelta: createFee + feeCredit, maxDelta: 2n ** 64n },
@@ -576,19 +675,12 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
     },
     newAccountRent: () => neverRefunded + lpAccountRent,
     summarize: (steps): TxSummary | string => {
-      const problem = createStepsProblem(steps, {
-        pool: address,
-        ammConfig: pins.ammConfig,
-        init0: planned.init0,
-        init1: planned.init1,
-        sol: a.sol,
-        closeAfter: plan.closeAfter,
-        wsolAta: plan.ata,
-      });
+      const base = { pool: address, ammConfig: pins.ammConfig, init0: planned.init0, init1: planned.init1 };
+      const problem = createStepsProblem(steps, plan ? { ...base, sol: a.quote, closeAfter: plan.closeAfter, wsolAta: plan.ata } : { ...base, quoteNative: false });
       if (problem) return problem;
       const c = bodySteps(steps).find((s) => s.kind === 'pool-create');
       if (!c || c.kind !== 'pool-create') return 'The opening is missing from the transaction.';
-      const put = { sol: quoteIsToken0 ? c.init0 : c.init1, token: quoteIsToken0 ? c.init1 : c.init0 };
+      const put = { quote: quoteIsToken0 ? c.init0 : c.init1, token: quoteIsToken0 ? c.init1 : c.init0 };
       const supply = isqrt(c.init0 * c.init1);
       const summary: LpCreateSummary = {
         kind: 'lp-create',
@@ -597,19 +689,20 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
         config,
         tokenMint: a.tokenMint,
         tokenDecimals: decimals,
+        quote,
         quoteIsToken0,
         put,
         supply,
         lpAmount: supply - LOCKED_LP,
         lpDecimals: 9,
-        locked: { sol: (LOCKED_LP * put.sol) / supply, token: (LOCKED_LP * put.token) / supply },
+        locked: { quote: (LOCKED_LP * put.quote) / supply, token: (LOCKED_LP * put.token) / supply },
         createFee,
         feeReceiver: CP_CREATE_POOL_FEE_RECEIVER,
         rents: { neverRefunded, lpAccount: lpAccountRent },
         price,
         tokenWarnings: safety.warnings,
         unwrapsWsol: bodySteps(steps).some((s) => s.kind === 'close-wsol'),
-        wsolHeldBefore: plan.heldBefore,
+        wsolHeldBefore: plan ? plan.heldBefore : 0n,
         notices: [],
       };
       return summary;

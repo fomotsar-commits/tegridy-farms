@@ -8,6 +8,7 @@ import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type C
 import { arbitrageLoss, assessOpening, matchMarket, mostBothAtMarket, openingSolPerToken } from '../../../lib/solana/lp/opening';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { PRICE_TOLERANCE } from '../../../lib/solana/lp/poolHealth';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
@@ -220,11 +221,11 @@ function CreateInner({
   const market = outside?.kind === 'ok' ? outside.solPerToken : null;
 
   const both = solRaw !== null && tokRaw !== null && solRaw > 0n && tokRaw > 0n;
-  const free = both ? planCreate({ quoteIsToken0, sol: solRaw, token: tokRaw, availableSol: null, availableToken: null }) : null;
+  const free = both ? planCreate({ quoteIsToken0, quote: solRaw, token: tokRaw, availableQuote: null, availableToken: null }) : null;
   const preview: CreatePlan | null = free && !('problem' in free) ? free : null;
-  const planned = both ? planCreate({ quoteIsToken0, sol: solRaw, token: tokRaw, availableSol, availableToken }) : null;
+  const planned = both ? planCreate({ quoteIsToken0, quote: solRaw, token: tokRaw, availableQuote: availableSol, availableToken }) : null;
   const problem: CreateProblem | null = planned && 'problem' in planned ? planned : null;
-  const check = assessOpening({ tokenMint: mint, sol: solRaw ?? 0n, token: tokRaw ?? 0n, tokenDecimals: decimals, outside, safety });
+  const check = assessOpening({ tokenMint: mint, quote: SOL_QUOTE, quoteAmount: solRaw ?? 0n, token: tokRaw ?? 0n, tokenDecimals: decimals, outside, safety });
   const opening = both && decimals !== null ? openingSolPerToken(solRaw, tokRaw, decimals) : null;
 
   const setSide = (side: LpSide, v: bigint) => setBoxes((b) => ({ ...b, [side]: baseUnitsToInput(v, sideDecimals(side)) }));
@@ -237,7 +238,7 @@ function CreateInner({
     if (!k || market === null || decimals === null) return;
     const amount = k === 'sol' ? solRaw : tokRaw;
     if (!amount) return;
-    const other = matchMarket({ keep: k, amount, solPerToken: market, tokenDecimals: decimals });
+    const other = matchMarket({ keep: k === 'sol' ? 'quote' : 'token', amount, pricePerToken: market, tokenDecimals: decimals, quote: SOL_QUOTE });
     if (other === null) return;
     setSide(k === 'sol' ? 'token' : 'sol', other);
     setDriving(k);
@@ -245,11 +246,11 @@ function CreateInner({
   const canMatch = keep !== null && market !== null && decimals !== null;
   const mostBoth =
     availableSol !== null && availableToken !== null && market !== null && decimals !== null
-      ? mostBothAtMarket({ spendableSol: availableSol, tokenBalance: availableToken, solPerToken: market, tokenDecimals: decimals })
+      ? mostBothAtMarket({ spendableQuote: availableSol, tokenBalance: availableToken, pricePerToken: market, tokenDecimals: decimals, quote: SOL_QUOTE })
       : null;
   const applyMostBoth = () => {
     if (!mostBoth) return;
-    setBoxes({ sol: baseUnitsToInput(mostBoth.sol, SOL_DECIMALS), token: baseUnitsToInput(mostBoth.token, dec) });
+    setBoxes({ sol: baseUnitsToInput(mostBoth.quote, SOL_DECIMALS), token: baseUnitsToInput(mostBoth.token, dec) });
   };
 
   // ── hints ──
@@ -270,7 +271,7 @@ function CreateInner({
   let problemText = '';
   let fix: { label: string; run: () => void } | null = null;
   if (both && check.price.state === 'disagrees' && market !== null && decimals !== null) {
-    const loss = arbitrageLoss({ sol: solRaw, token: tokRaw, tokenDecimals: decimals, marketSolPerToken: market });
+    const loss = arbitrageLoss({ quoteAmount: solRaw, token: tokRaw, tokenDecimals: decimals, marketPricePerToken: market, quote: SOL_QUOTE });
     problemText = `Your opening price is ${gapText(check.price.diff)} the market price. Bots would trade against your pool as soon as it opens, taking about ${solAbout(BigInt(Math.round(loss)))} of what you put in. Pools opened from this site must start within ${TOLERANCE_PCT}% of the market.`;
     fix = { label: 'Match the market price', run: () => matchTo(keep) };
   } else if (problem?.problem === 'too-small') {
@@ -279,7 +280,7 @@ function CreateInner({
     problemText = lockTooLarge(lockPct(problem.supply));
   } else if (problem?.problem === 'overflow') {
     problemText = 'The amounts are too large for one transaction.';
-  } else if (problem?.problem === 'over-balance' && problem.side === 'sol') {
+  } else if (problem?.problem === 'over-balance' && problem.side === 'quote') {
     problemText = rentBand(solExact(problem.have));
     const have = problem.have;
     if (have > 0n) fix = { label: `Use ${solExact(have)}`, run: () => setSide('sol', have) };
@@ -317,7 +318,8 @@ function CreateInner({
       api.prepareLpCreate(writes.rpc, gate, writes.readers, {
         owner: signer.publicKey,
         tokenMint: new PublicKey(mint),
-        sol: solRaw,
+        quoteMint: new PublicKey(SOL_QUOTE.mint),
+        quote: solRaw,
         token: tokRaw,
         shown: { terms: terms(config), standard },
       }),
@@ -498,7 +500,7 @@ function CreateInner({
               <Row label="You get" value={`${unitsExact(preview.lp, LP_DECIMALS)} pool shares`} mono={false} />
               <Row
                 label="Locked in the pool forever"
-                value={`${LOCKED_SHARES_TEXT}, worth about ${solExact(preview.locked.sol)} and ${unitsExact(preview.locked.token, dec)} tokens`}
+                value={`${LOCKED_SHARES_TEXT}, worth about ${solExact(preview.locked.quote)} and ${unitsExact(preview.locked.token, dec)} tokens`}
                 mono={false}
               />
               <Row label="Your share of the pool" value={sharePct(preview.lp, preview.supply)} mono={false} />

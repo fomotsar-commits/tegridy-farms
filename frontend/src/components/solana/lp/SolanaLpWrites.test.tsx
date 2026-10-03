@@ -271,7 +271,8 @@ describe('Add liquidity', () => {
         owner: OWNER,
         pool: new PublicKey(v.address),
         tokenMint: MINT,
-        driving: 'sol',
+        quoteMint: new PublicKey(SOL_QUOTE.mint),
+        driving: 'quote',
         maxIn: 1_000_000_000n,
         slippageBps: 100n,
         // The token side's maximum the preview showed: ceil(99,009,000 × 1.01).

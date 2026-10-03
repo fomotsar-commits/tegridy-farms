@@ -6,6 +6,7 @@ import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import type { TxFlow } from './useTxFlow';
+import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 
 // What the user sees between pressing a Review button and the chain's answer.
 // Every word here is about THIS transaction, and the numbers come from the
@@ -42,11 +43,13 @@ function tradeLamports(s: TxSummary): bigint | null {
       return s.quote.outAmount;
     case 'create':
       return s.openingBuy ? s.openingBuy.quote.lamportsIn : null;
+    // A pool paired with USDC or BAYLA moves none of the trade in SOL, so a fee has
+    // nothing in lamports to be measured against: it is shown as its own amount.
     case 'lp-deposit':
     case 'lp-withdraw':
-      return s.quoted.sol;
+      return s.quote.native ? s.quoted.quote : null;
     case 'lp-create':
-      return s.put.sol;
+      return s.quote.native ? s.put.quote : null;
     default:
       return null;
   }
@@ -243,6 +246,13 @@ type LpSummary = Extract<TxSummary, { kind: 'lp-deposit' | 'lp-withdraw' }>;
 // digit: rounding "at most" down, or "you get" either way, would misstate it.
 const solExact = (l: bigint) => `${formatSol(l, 9)} SOL`;
 const unitsExact = (v: bigint, d: number) => tokenText(v, d, d);
+/**
+ * An amount of a pool's pairing coin, in that coin's own decimals: "about" (the page's
+ * usual rounding) and exact (to the last digit). SOL is `SOL` / `solExact`, to the
+ * character; USDC and BAYLA are printed with their own 6 decimals and symbol.
+ */
+const coinAbout = (v: bigint, q: QuoteCoin) => (q.native ? SOL(v) : `${formatTokenAmount(v, q.decimals).text} ${q.symbol}`);
+const coinExact = (v: bigint, q: QuoteCoin) => (q.native ? solExact(v) : `${formatTokenAmount(v, q.decimals, q.decimals).text} ${q.symbol}`);
 
 function poolKindText(s: LpSummary): string {
   switch (s.origin) {
@@ -301,15 +311,21 @@ function LpPoolRows({ summary }: { summary: LpSummary }) {
 
 function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-deposit' }> }) {
   const tok = (v: bigint) => tokenText(v, s.tokenDecimals);
+  const q = s.quote;
   const limited =
-    s.limitedByBalance === 'token' ? ' (all the tokens you have)' : s.limitedByBalance === 'sol' ? ' (all the SOL you can spend)' : '';
-  const unused = s.max.sol > s.quoted.sol ? s.max.sol - s.quoted.sol : 0n;
+    s.limitedByBalance === 'token'
+      ? ' (all the tokens you have)'
+      : s.limitedByBalance === 'quote'
+        ? q.native ? ' (all the SOL you can spend)' : ` (all the ${q.symbol} you have)`
+        : '';
+  const unused = s.max.quote > s.quoted.quote ? s.max.quote - s.quoted.quote : 0n;
   return (
     <>
       <LpPoolRows summary={s} />
       <Row label="Fee tier" value={feeTierText(s.config, s.enableCreatorFee)} mono={false} />
-      <Row label="You put in about" value={`${SOL(s.quoted.sol)} and ${tok(s.quoted.token)} tokens`} />
-      <Row label="At most" value={`${solExact(s.max.sol)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} />
+      <Row label="Paired with" value={q.symbol} mono={false} />
+      <Row label="You put in about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} />
+      <Row label="At most" value={`${coinExact(s.max.quote, q)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} />
       <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} />
       <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
       <Row label="Price check" value={priceText(s.price)} mono={false} />
@@ -330,9 +346,11 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
         </Notice>
       ))}
       <Notice>
-        {s.unwrapsWsol
-          ? 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'
-          : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent. Up to ${solExact(unused)} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`}
+        {!q.native
+          ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped, and what the pool does not use never leaves that account.`
+          : s.unwrapsWsol
+            ? 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'
+            : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent. Up to ${solExact(unused)} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`}
       </Notice>
     </>
   );
@@ -342,13 +360,15 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
   const tok = (v: bigint) => tokenText(v, s.tokenDecimals);
   const shares = (v: bigint) => unitsExact(v, s.lpDecimals);
   const ofYours = sharePercent(s.lpAmount, s.heldBefore);
+  const q = s.quote;
   return (
     <>
       <LpPoolRows summary={s} />
+      <Row label="Paired with" value={q.symbol} mono={false} />
       <Row label="Pool shares you give back" value={`${shares(s.lpAmount)}${ofYours ? ` (${ofYours} of yours)` : ''}`} />
       {s.all && <Notice>This is all of your share in this pool.</Notice>}
-      <Row label="You get about" value={`${SOL(s.quoted.sol)} and ${tok(s.quoted.token)} tokens`} />
-      <Row label="You get at least" value={`${solExact(s.min.sol)} and ${unitsExact(s.min.token, s.tokenDecimals)} tokens`} />
+      <Row label="You get about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} />
+      <Row label="You get at least" value={`${coinExact(s.min.quote, q)} and ${unitsExact(s.min.token, s.tokenDecimals)} tokens`} />
       <Row label="You keep" value={s.keep > 0n ? `${shares(s.keep)} pool shares` : 'none in this pool'} />
       <Row
         label="The tokens arrive in"
@@ -358,7 +378,16 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
             : ''
         }`}
       />
-      <Row label="The SOL arrives" value={s.unwrapsWsol ? 'as plain SOL' : 'as wrapped SOL in the account you already hold'} mono={false} />
+      {s.quoteAccount ? (
+        <Row
+          label={`The ${q.symbol} arrives in`}
+          value={`${s.quoteAccount.address.toBase58()}${
+            s.quoteAccount.rent > 0n ? ` (opened for you; its deposit of ${solExact(s.quoteAccount.rent)} stays in that account)` : ''
+          }`}
+        />
+      ) : (
+        <Row label="The SOL arrives" value={s.unwrapsWsol ? 'as plain SOL' : 'as wrapped SOL in the account you already hold'} mono={false} />
+      )}
       <Row label="Pool fee to take out" value="none" mono={false} />
       {s.notices.map((n) => (
         <Notice key={n} tone="warn">
@@ -370,13 +399,13 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
 }
 
 /** What a live mint authority allows, said once more where a pool is about to be opened. */
-const MINT_AUTHORITY_LINE = 'Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.';
+const mintAuthorityLine = (q: QuoteCoin) => `Whoever holds it can make new tokens at any time and sell them into your pool for its ${q.symbol}.`;
 
 /** The opening price against the market, from the check that passed while preparing. */
-function openingPriceText(p: Extract<TxSummary, { kind: 'lp-create' }>['price']): string {
+function openingPriceText(p: Extract<TxSummary, { kind: 'lp-create' }>['price'], q: QuoteCoin): string {
   if ((p.state === 'agrees' || p.state === 'disagrees') && p.against === 'outside') {
     const d = (Math.abs(p.diff) * 100).toFixed(1);
-    return `1 token = ${formatSolPrice(p.pool)} SOL. Market (Jupiter, read just now): ${formatSolPrice(p.reference)} SOL, ${d}% ${p.diff >= 0 ? 'above' : 'below'}`;
+    return `1 token = ${formatSolPrice(p.pool)} ${q.symbol}. Market (Jupiter, read just now): ${formatSolPrice(p.reference)} ${q.symbol}, ${d}% ${p.diff >= 0 ? 'above' : 'below'}`;
   }
   return priceText(p);
 }
@@ -388,6 +417,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
   // The pool's share count less what the opener gets: the program's locked part.
   const lockedShares = s.supply - s.lpAmount;
   const pct = s.supply > 0n ? Number((s.lpAmount * 1_000_000n) / s.supply) / 10_000 : 0;
+  const q = s.quote;
   return (
     <>
       <Row label="Pool" value={s.pool.toBase58()} />
@@ -401,11 +431,12 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
         mono={false}
       />
       <Row label="Token (mint)" value={s.tokenMint.toBase58()} />
+      <Row label="Paired with" value={q.symbol} mono={false} />
       {/* Opened with cp-swap's `initialize`, which switches the new pool's creator fee off. */}
       <Row label="Fee tier" value={feeTierText(s.config, CREATOR_FEE_SWITCH.publicOpen)} mono={false} />
       {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
-      <Row label="You put in" value={`${solExact(s.put.sol)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
-      <Row label="Opening price" value={openingPriceText(s.price)} mono={false} />
+      <Row label="You put in" value={`${coinExact(s.put.quote, q)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
+      <Row label="Opening price" value={openingPriceText(s.price, q)} mono={false} />
       <Row label="Opens for trading" value="At once (one second after it lands)" mono={false} />
       <Row
         label="Fee to open the pool"
@@ -421,7 +452,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       <Row label="You get" value={`${shares(s.lpAmount)} pool shares, exactly`} mono={false} />
       <Row
         label="Locked in the pool forever"
-        value={`${shares(lockedShares)} pool shares (${lockedShares.toString()} of the smallest unit), worth about ${SOL(s.locked.sol)} and ${tok(s.locked.token)} tokens at these amounts`}
+        value={`${shares(lockedShares)} pool shares (${lockedShares.toString()} of the smallest unit), worth about ${coinAbout(s.locked.quote, q)} and ${tok(s.locked.token)} tokens at these amounts`}
         mono={false}
       />
       <Row label="Your share of the pool" value={shareText(pct)} mono={false} />
@@ -432,7 +463,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
             {s.tokenWarnings.map((w) => (
               <li key={w.code}>{w.text}</li>
             ))}
-            {s.tokenWarnings.some((w) => w.code === 'mint-authority') && <li>{MINT_AUTHORITY_LINE}</li>}
+            {s.tokenWarnings.some((w) => w.code === 'mint-authority') && <li>{mintAuthorityLine(q)}</li>}
           </ul>
         </div>
       )}
@@ -442,9 +473,11 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
         </Notice>
       ))}
       <Notice>
-        {s.unwrapsWsol
-          ? 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'
-          : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent.`}
+        {!q.native
+          ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped. The fee to open and the account deposits are paid in SOL.`
+          : s.unwrapsWsol
+            ? 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'
+            : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent.`}
       </Notice>
       {s.origin === 'other' && (
         <Notice tone="warn">
@@ -486,7 +519,7 @@ function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: P
   if (summary.kind === 'create' && t.role !== 'treasury' && t.mint.equals(summary.plant.mint)) {
     return { label: 'Test run: your $BAYLA changes by', value: `${sign}${baylaText(amount)}` };
   }
-  return { label: testRunLabel(prepared.kind, t.role ?? 'token'), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
+  return { label: testRunLabel(prepared.kind, t.role ?? 'token', prepared.summary), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
 }
 
 /**
@@ -523,13 +556,19 @@ const TEST_RUN_LABEL: Record<TokenRole, string> = {
   workshop: "Test run: the island's Workshop receives",
   token: 'Test run: your tokens change by',
   wsol: 'Test run: your wrapped SOL changes by',
+  // A pool's pairing coin that is not SOL. `testRunLabel` names the coin when it knows it.
+  quote: 'Test run: your pairing coin changes by',
   lp: 'Test run: your pool shares change by',
 };
 
 /** The test-run line for an account, said for what this kind of transaction does with it. */
-function testRunLabel(kind: TxKind, role: TokenRole): string {
+function testRunLabel(kind: TxKind, role: TokenRole, summary: TxSummary): string {
   // An opening's `treasury` account is the pool program's fee account, owned by the team's vault.
   if (kind === 'lp-create' && role === 'treasury') return "Test run: the team's vault account gains, in SOL (the fee, plus any SOL that account was already holding)";
+  // The pool's own pairing coin, by name: "your USDC changes by".
+  if (role === 'quote' && (summary.kind === 'lp-deposit' || summary.kind === 'lp-withdraw' || summary.kind === 'lp-create')) {
+    return `Test run: your ${summary.quote.symbol} changes by`;
+  }
   return TEST_RUN_LABEL[role];
 }
 

@@ -23,6 +23,7 @@ import { depositIx, swapBaseInputIx, withdrawIx } from '../../../solana/cpswap/i
 import { LIGHTHOUSE_PROGRAM_ID, PROGRAMS_BY_KIND, decodeIntent, isPoolIntent } from './intent';
 import { AMM_CONFIG, CPSWAP, VAULT, cfgLocal } from './testkit.fixture';
 import type { IntentContext, PoolIntent, PoolPins } from './types';
+import { SOL_QUOTE } from '../../../solana/lp/quotes';
 
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
@@ -50,6 +51,7 @@ function pinsFor(o: { tokenProgram?: PublicKey; lpAccount?: PublicKey } = {}): P
     observation: deriveObservation(CPSWAP, address),
     tokenMint,
     tokenProgram,
+    quote: SOL_QUOTE,
     quoteIsToken0,
     lpAccount: o.lpAccount ?? associatedTokenAddress(lpMint, ME, TOKEN_PROGRAM_ID),
   };

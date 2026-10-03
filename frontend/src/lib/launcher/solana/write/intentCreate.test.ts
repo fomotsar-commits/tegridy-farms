@@ -32,6 +32,7 @@ import { createPins } from './createPool';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import { AMM_CONFIG, CPSWAP, VAULT, cfgLocal } from './testkit.fixture';
 import type { IntentContext, PoolIntent, PoolPins } from './types';
+import { SOL_QUOTE } from '../../../solana/lp/quotes';
 
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
@@ -48,7 +49,7 @@ const standardOf = (tokenMint: PublicKey) => {
 function pinsFor(o: { tokenProgram?: PublicKey; oneOff?: boolean; tokenMint?: PublicKey } = {}): PoolPins {
   const tokenMint = o.tokenMint ?? fresh();
   const address = o.oneOff ? fresh() : standardOf(tokenMint);
-  const p = createPins(cfgLocal, { address, tokenMint, tokenProgram: o.tokenProgram ?? TOKEN_PROGRAM_ID, signer: ME });
+  const p = createPins(cfgLocal, { address, tokenMint, tokenProgram: o.tokenProgram ?? TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE });
   if (typeof p === 'string') throw new Error(p);
   return p;
 }
@@ -154,8 +155,8 @@ describe("the site's own opening decodes into one pool-create", () => {
 
   it('createPins pins the derivations from the address, and says standard only for the standard address', () => {
     const tokenMint = fresh();
-    const std = createPins(cfgLocal, { address: standardOf(tokenMint), tokenMint, tokenProgram: TOKEN_PROGRAM_ID, signer: ME });
-    const other = createPins(cfgLocal, { address: fresh(), tokenMint, tokenProgram: TOKEN_PROGRAM_ID, signer: ME });
+    const std = createPins(cfgLocal, { address: standardOf(tokenMint), tokenMint, tokenProgram: TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE });
+    const other = createPins(cfgLocal, { address: fresh(), tokenMint, tokenProgram: TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE });
     if (typeof std === 'string' || typeof other === 'string') throw new Error('no pins');
     expect(std.origin).toBe('standard');
     expect(other.origin).toBe('other');
@@ -167,8 +168,8 @@ describe("the site's own opening decodes into one pool-create", () => {
       expect(p.observation.equals(deriveObservation(CPSWAP, p.address))).toBe(true);
       expect(p.lpAccount.equals(associatedTokenAddress(p.lpMint, ME, TOKEN_PROGRAM_ID))).toBe(true);
     }
-    expect(createPins(cfgLocal, { address: fresh(), tokenMint, tokenProgram: fresh(), signer: ME })).toMatch(/token program/);
-    expect(createPins(cfgLocal, { address: fresh(), tokenMint: WSOL_MINT, tokenProgram: TOKEN_PROGRAM_ID, signer: ME })).toMatch(/SOL/);
+    expect(createPins(cfgLocal, { address: fresh(), tokenMint, tokenProgram: fresh(), signer: ME, quote: SOL_QUOTE })).toMatch(/token program/);
+    expect(createPins(cfgLocal, { address: fresh(), tokenMint: WSOL_MINT, tokenProgram: TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE })).toMatch(/SOL/);
   });
 });
 

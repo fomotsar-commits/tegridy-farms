@@ -52,6 +52,7 @@ import {
   type SimHandler,
 } from './testkit.fixture';
 import type { LpOpenGate, PreparedTx, WriteRpc, LpDepositSummary, LpWithdrawSummary, IntentStep } from './types';
+import { SOL_QUOTE } from '../../../solana/lp/quotes';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
 const ME = Keypair.generate().publicKey;
@@ -212,7 +213,8 @@ const depositArgs = (w: World, o: Partial<Parameters<typeof prepareLpDeposit>[3]
   owner: ME,
   pool: w.pool.address,
   tokenMint: w.mint,
-  driving: 'sol' as const,
+  quoteMint: WSOL_MINT,
+  driving: 'quote' as const,
   maxIn: 100_000_000n,
   slippageBps: 100n,
   shownOtherMax: null,
@@ -223,6 +225,7 @@ const withdrawArgs = (w: World, o: Partial<Parameters<typeof prepareLpWithdraw>[
   owner: ME,
   pool: w.pool.address,
   tokenMint: w.mint,
+  quoteMint: WSOL_MINT,
   lpAccount: w.lpAta,
   pctBps: 5_000n,
   slippageBps: 100n,
@@ -262,7 +265,7 @@ describe('readPoolForWrite: one read for the maths', () => {
       asked.push(keys.map((k) => k.toBase58()));
       return orig(keys);
     };
-    const snap = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, owner: ME })) as WriteSnapshot;
+    const snap = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME })) as WriteSnapshot;
     expect(typeof snap).toBe('object');
     expect(asked).toHaveLength(1);
     expect(asked[0]).toHaveLength(13);
@@ -271,14 +274,18 @@ describe('readPoolForWrite: one read for the maths', () => {
     expect(w.chain.calls.filter((c) => c === 'getAccountInfo')).toHaveLength(1);
     expect(w.chain.calls.filter((c) => c === 'getMinimumBalanceForRentExemption')).toHaveLength(3);
     expect(snap.view.snapshot.reserve0 + snap.view.snapshot.reserve1).toBe(SOL_RESERVE + TOKEN_RESERVE);
-    expect(snap.rents).toEqual({ walletFloor: BigInt(rent(0)), tokenAccount165: BigInt(rent(165)), tokenAccountForMint: BigInt(rent(165)) });
+    // A SOL pool: the wrapped-SOL account is a classic one, so its rent is the 165 read, with no fourth read.
+    expect(snap.rents).toEqual({ walletFloor: BigInt(rent(0)), tokenAccount165: BigInt(rent(165)), tokenAccountForMint: BigInt(rent(165)), quoteAccount: BigInt(rent(165)) });
+    expect(snap.quote).toBe(SOL_QUOTE);
+    expect(snap.quoteMint).toBeNull();
+    expect(snap.quoteAccount.address.equals(w.wsolAta)).toBe(true);
     expect(snap.chainNow).toBe(NOW);
   });
 
   it('a recorded vault, LP mint or price record that is not the one the address gives is refused (one per field)', async () => {
     for (const field of ['token0Vault', 'token1Vault', 'lpMint', 'observationKey'] as const) {
       const w = world({ record: { [field]: Keypair.generate().publicKey } });
-      const r = await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, owner: ME });
+      const r = await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME });
       expect(r, field).toMatch(/no longer matches what the page read/);
     }
   });
@@ -288,7 +295,7 @@ describe('readPoolForWrite: one read for the maths', () => {
     w.chain.getMultipleAccountsInfo = async () => {
       throw new Error('HTTP 502');
     };
-    expect(await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, owner: ME })).toBe(POOL_READ_FAILED);
+    expect(await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME })).toBe(POOL_READ_FAILED);
     expect(refused(await deposit(w))).toBe(LP_COPY.depositPoolUnread);
     expect(refused(await withdraw(w))).toBe(LP_COPY.withdrawPoolUnread);
   });
@@ -297,16 +304,16 @@ describe('readPoolForWrite: one read for the maths', () => {
     const w = world();
     const acc = w.chain.accounts.get(w.pool.address.toBase58())!;
     w.chain.set(w.pool.address, { ...acc, owner: STRANGER });
-    expect(await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, owner: ME })).toMatch(/not owned by the pool program/);
+    expect(await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME })).toMatch(/not owned by the pool program/);
     const v = world();
-    expect(await readPoolForWrite(W(v.chain), cfgLocal, { pool: v.pool.address, tokenMint: Keypair.generate().publicKey, owner: ME })).toBe(LP_COPY.notThisPair);
+    expect(await readPoolForWrite(W(v.chain), cfgLocal, { pool: v.pool.address, tokenMint: Keypair.generate().publicKey, quote: SOL_QUOTE, owner: ME })).toBe(LP_COPY.notThisPair('SOL'));
   });
 });
 
 describe('poolPins', () => {
   async function view() {
     const w = world();
-    const snap = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, owner: ME })) as WriteSnapshot;
+    const snap = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME })) as WriteSnapshot;
     return { w, view: snap.view };
   }
 
@@ -326,7 +333,7 @@ describe('poolPins', () => {
     const tokSide = v.quoteIsToken0 ? 'token1Program' : 'token0Program';
     const withPool = (over: Partial<typeof v.snapshot.pool>) => ({ ...v, snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, ...over } } });
     expect(poolPins(cfgLocal, withPool({ [solSide]: TOKEN_2022_PROGRAM_ID.toBase58() }), { tokenMint: w.mint, lpAccount: w.lpAta })).toMatch(/SOL side/);
-    expect(poolPins(cfgLocal, v, { tokenMint: Keypair.generate().publicKey, lpAccount: w.lpAta })).toBe(LP_COPY.notThisPair);
+    expect(poolPins(cfgLocal, v, { tokenMint: Keypair.generate().publicKey, lpAccount: w.lpAta })).toBe(LP_COPY.notThisPair('SOL'));
     expect(poolPins(cfgLocal, withPool({ [tokSide]: Keypair.generate().publicKey.toBase58() }), { tokenMint: w.mint, lpAccount: w.lpAta })).toMatch(/program this site does not know/);
   });
 });
@@ -339,8 +346,8 @@ describe('prepareLpDeposit', () => {
     const p = ok(await deposit(w));
     expect(p.kind).toBe('lp-deposit');
     const s = p.summary as LpDepositSummary;
-    expect(s.max.sol).toBe(100_000_000n);
-    expect(s.quoted.sol <= s.max.sol && s.quoted.token <= s.max.token).toBe(true);
+    expect(s.max.quote).toBe(100_000_000n);
+    expect(s.quoted.quote <= s.max.quote && s.quoted.token <= s.max.token).toBe(true);
     expect(s.max.token).toBeLessThan(2n ** 64n - 1n);
     expect(s.lpAmount).toBeGreaterThan(0n);
     expect(s.unwrapsWsol).toBe(true);
@@ -360,7 +367,7 @@ describe('prepareLpDeposit', () => {
 
   it('refused when the price was pushed after the card read it (the card said allowed; the fresh read is 4% off)', async () => {
     const w = world();
-    const first = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, owner: ME })) as WriteSnapshot;
+    const first = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME })) as WriteSnapshot;
     const safety = classifyToken(w.mint.toBase58(), first.mint, first.metaplex);
     expect(assessPool({ view: first.view, tokenDecimals: 6, chainNow: NOW, outside: { kind: 'ok', solPerToken: 0.01, source: 'Jupiter' }, safety }).deposits.verdict).toBe('allowed');
     // Someone pushes the pool's SOL side up 4% before Review.
@@ -551,8 +558,8 @@ describe('prepareLpWithdraw: the leave rule', () => {
     const p = ok(await withdraw(w));
     const s = p.summary as LpWithdrawSummary;
     expect(s.lpAmount).toBe(LP_SUPPLY / 20n);
-    expect(s.min.sol >= 1n && s.min.token >= 1n).toBe(true);
-    expect(s.min.sol <= s.quoted.sol && s.min.token <= s.quoted.token).toBe(true);
+    expect(s.min.quote >= 1n && s.min.token >= 1n).toBe(true);
+    expect(s.min.quote <= s.quoted.quote && s.min.token <= s.quoted.token).toBe(true);
     expect(s.keep).toBe(LP_SUPPLY / 20n);
     expect(s.tokenAccountRent).toBe(0n);
     expect(p.steps.filter((x) => x.kind === 'pool-withdraw')).toHaveLength(1);
@@ -732,13 +739,13 @@ describe('the balance check is sized to the plan (spec 3.4)', () => {
     expect(row(p, w.lpAta)).toEqual([s.lpAmount, 2n ** 64n]);
     expect(row(p, w.tokenAta)).toEqual([-s.max.token, -1n]);
     expect(row(p, w.wsolAta)).toEqual([0n, 0n]);
-    expect(p.check.expect.maxSolOut).toBe(s.max.sol + BigInt(rent(165)));
+    expect(p.check.expect.maxSolOut).toBe(s.max.quote + BigInt(rent(165)));
     expect(p.check.expect.minSolIn).toBeUndefined();
     expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(165)));
     // With the pool-share account already there, no new account is paid for.
     const v = world({ heldLp: 1n });
     const q = ok(await deposit(v));
-    expect(q.check.expect.maxSolOut).toBe((q.summary as LpDepositSummary).max.sol);
+    expect(q.check.expect.maxSolOut).toBe((q.summary as LpDepositSummary).max.quote);
     expect(q.fees.newAccountRentLamports).toBe(0n);
   });
 
@@ -750,7 +757,7 @@ describe('the balance check is sized to the plan (spec 3.4)', () => {
     expect(row(p, w.tokenAta)).toEqual([s.min.token, 2n ** 64n]);
     expect(row(p, w.wsolAta)).toEqual([0n, 0n]);
     expect(p.check.expect.maxSolOut).toBe(BigInt(rent(165)));
-    expect(p.check.expect.minSolIn).toBe(s.min.sol - BigInt(rent(165)));
+    expect(p.check.expect.minSolIn).toBe(s.min.quote - BigInt(rent(165)));
     expect(s.tokenAccountRent).toBe(BigInt(rent(165)));
   });
 
@@ -760,7 +767,7 @@ describe('the balance check is sized to the plan (spec 3.4)', () => {
     const s = p.summary as LpWithdrawSummary;
     expect(p.steps.some((x) => x.kind === 'close-wsol')).toBe(false);
     expect(s.unwrapsWsol).toBe(false);
-    expect(row(p, w.wsolAta)).toEqual([s.min.sol, 2n ** 64n]);
+    expect(row(p, w.wsolAta)).toEqual([s.min.quote, 2n ** 64n]);
     expect(p.check.expect.minSolIn).toBeUndefined();
   });
 });
@@ -844,7 +851,7 @@ describe('SOL sent to an address before its account exists is no account', () =>
       expect(s.unwrapsWsol, String(sent)).toBe(true);
       expect(row(p, w.wsolAta), String(sent)).toEqual([0n, 0n]);
       expect(moved(p, w.wsolAta), String(sent)).toBe(0n);
-      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(s.quoted.sol + BigInt(sent));
+      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(s.quoted.quote + BigInt(sent));
     }
   });
 
@@ -861,7 +868,7 @@ describe('SOL sent to an address before its account exists is no account', () =>
         expect(s.tokenAccountRent, label).toBe(BigInt(deposit));
         expect(p.check.expect.maxSolOut, label).toBe(BigInt(deposit));
         expect(moved(p, w.tokenAta), label).toBe(s.quoted.token);
-        expect(p.simulated.signerLamportsDelta, label).toBe(s.quoted.sol - BigInt(Math.max(0, deposit - sent)));
+        expect(p.simulated.signerLamportsDelta, label).toBe(s.quoted.quote - BigInt(Math.max(0, deposit - sent)));
       }
     }
   });
@@ -876,7 +883,7 @@ describe('SOL sent to an address before its account exists is no account', () =>
       expect(s.wsolHeldBefore, String(sent)).toBe(0n);
       expect(row(p, w.wsolAta), String(sent)).toEqual([0n, 0n]);
       // Out: the cost and the new pool-share account. Back: what was sent to the address.
-      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-s.quoted.sol - BigInt(rent(165)) + BigInt(sent));
+      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-s.quoted.quote - BigInt(rent(165)) + BigInt(sent));
     }
   });
 
@@ -888,9 +895,9 @@ describe('SOL sent to an address before its account exists is no account', () =>
       const s = p.summary as LpDepositSummary;
       expect(moved(p, w.lpAta), String(sent)).toBe(s.lpAmount);
       expect(s.sharePct.before, String(sent)).toBe(0);
-      expect(p.check.expect.maxSolOut, String(sent)).toBe(s.max.sol + BigInt(rent(165)));
+      expect(p.check.expect.maxSolOut, String(sent)).toBe(s.max.quote + BigInt(rent(165)));
       expect(p.fees.newAccountRentLamports, String(sent)).toBe(BigInt(rent(165)));
-      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-s.quoted.sol - BigInt(Math.max(0, rent(165) - sent)));
+      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-s.quoted.quote - BigInt(Math.max(0, rent(165) - sent)));
     }
   });
 
@@ -971,7 +978,7 @@ describe('a credit between the balance read and the test run does not block; a s
     const s = clean.summary as LpWithdrawSummary;
     const fees = clean.fees.baseLamports + clean.fees.priorityLamports;
     const tokenShort = s.quoted.token - s.min.token;
-    const solShort = s.quoted.sol - s.min.sol + fees;
+    const solShort = s.quoted.quote - s.min.quote + fees;
 
     const atMin = holding();
     skewTestRun(atMin.chain, atMin.tokenAta, -tokenShort);

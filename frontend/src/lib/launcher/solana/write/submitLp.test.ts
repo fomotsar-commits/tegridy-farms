@@ -16,6 +16,7 @@ import { LIGHTHOUSE_PROGRAM_ID } from './intent';
 import { recheckOutcome, submitPrepared } from './submit';
 import { AMM_CONFIG, CPSWAP, FakeChain, cfgLocal } from './testkit.fixture';
 import type { PoolIntent, PoolPins, PreparedTx, TxSigner, WriteRpc } from './types';
+import { SOL_QUOTE } from '../../../solana/lp/quotes';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
 
@@ -37,7 +38,7 @@ function pinsFor(): PoolPins {
     token0Mint: token0, token1Mint: token1, token0Program: TOKEN_PROGRAM_ID, token1Program: TOKEN_PROGRAM_ID,
     vault0: deriveVault(CPSWAP, address, token0), vault1: deriveVault(CPSWAP, address, token1),
     lpMint, observation: deriveObservation(CPSWAP, address),
-    tokenMint, tokenProgram: TOKEN_PROGRAM_ID, quoteIsToken0: token0.equals(WSOL_MINT),
+    tokenMint, tokenProgram: TOKEN_PROGRAM_ID, quote: SOL_QUOTE, quoteIsToken0: token0.equals(WSOL_MINT),
     lpAccount: associatedTokenAddress(lpMint, ME),
   };
 }
@@ -77,9 +78,9 @@ async function preparedWithdraw(o: { failWith?: number; finalOnly?: boolean } = 
       steps.some((s) => s.kind === 'pool-withdraw')
         ? {
             kind: 'lp-withdraw', pool: pins.address, origin: 'standard', config: null, tokenMint: pins.tokenMint,
-            tokenDecimals: 6, quoteIsToken0: pins.quoteIsToken0, lpAccount: pins.lpAccount, lpAmount: 1_000n, lpDecimals: 9,
-            heldBefore: 1_000n, all: true, keep: 0n, quoted: { sol: 10n, token: 10n }, min: { sol: 5n, token: 7n },
-            tokenAccount: associatedTokenAddress(pins.tokenMint, ME), tokenAccountRent: 0n, unwrapsWsol: true, notices: [],
+            tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: pins.quoteIsToken0, lpAccount: pins.lpAccount, lpAmount: 1_000n, lpDecimals: 9,
+            heldBefore: 1_000n, all: true, keep: 0n, quoted: { quote: 10n, token: 10n }, min: { quote: 5n, token: 7n },
+            tokenAccount: associatedTokenAddress(pins.tokenMint, ME), tokenAccountRent: 0n, quoteAccount: null, unwrapsWsol: true, notices: [],
           }
         : 'no withdrawal',
   });

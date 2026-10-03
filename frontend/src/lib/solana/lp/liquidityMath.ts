@@ -19,6 +19,11 @@ import type { PoolSnapshot } from '../cpswap/read';
  *   - a deposit is refused when a cost is above its maximum (6005), a withdrawal when a
  *     payout is below its minimum (6005).
  *
+ * THE TWO SIDES are `quote` (the pool's pairing coin: SOL, USDC or BAYLA, in that
+ * coin's own base units) and `token`. Nothing here knows which coin it is: the maths is
+ * the same, and only the caller knows what the wallet can spend of it (for SOL, the
+ * rent band below; for any other coin, its token balance).
+ *
  * BOUNDS. A deposit's maxima round UP (`maxInFor`) and are never u64::MAX (which would
  * mean "no limit"). A withdrawal's minima round DOWN and are never below 1 (`minOutFor`).
  * `minimumOutFor` (cpswap/ix.ts) is NOT used for a deposit: it rounds down, so it would
@@ -64,7 +69,7 @@ export type PlanProblem =
   | { problem: 'no-price' }
   | { problem: 'overflow' }
   | { problem: 'too-small'; minLp: bigint | null }
-  | { problem: 'over-balance'; side: 'sol' | 'token'; need: bigint; have: bigint; mostBoth: bigint | null }
+  | { problem: 'over-balance'; side: 'quote' | 'token'; need: bigint; have: bigint; mostBoth: bigint | null }
   | { problem: 'dust-remainder'; keep: bigint; minLp: bigint }
   | { problem: 'bad-percent' }
   | { problem: 'nothing-held' };
@@ -82,16 +87,16 @@ export interface DepositPlan {
   max0: bigint;
   max1: bigint;
   /** The other side's maximum was lowered to what the wallet holds. */
-  limitedByBalance: 'none' | 'sol' | 'token';
+  limitedByBalance: 'none' | 'quote' | 'token';
 }
 
 /**
  * A deposit where the person typed the most that may leave on one side (`driving`).
- * `availableSol` / `availableToken` are null when not known; then no balance rule runs.
+ * `availableQuote` / `availableToken` are null when not known; then no balance rule runs.
  */
 export function planDeposit(
   s: PoolSnapshot,
-  a: { quoteIsToken0: boolean; driving: 'sol' | 'token'; maxIn: bigint; bps: bigint; availableSol: bigint | null; availableToken: bigint | null },
+  a: { quoteIsToken0: boolean; driving: 'quote' | 'token'; maxIn: bigint; bps: bigint; availableQuote: bigint | null; availableToken: bigint | null },
 ): DepositPlan | PlanProblem {
   const S = s.pool.lpSupply;
   const R0 = s.reserve0;
@@ -99,12 +104,12 @@ export function planDeposit(
   // 1. No price on either side.
   if (S <= 0n || R0 <= 0n || R1 <= 0n) return { problem: 'no-price' };
 
-  const drivingIs0 = (a.driving === 'sol') === a.quoteIsToken0;
+  const drivingIs0 = (a.driving === 'quote') === a.quoteIsToken0;
   const rDriving = drivingIs0 ? R0 : R1;
   const rOther = drivingIs0 ? R1 : R0;
-  const availDriving = a.driving === 'sol' ? a.availableSol : a.availableToken;
-  const availOther = a.driving === 'sol' ? a.availableToken : a.availableSol;
-  const otherSide: 'sol' | 'token' = a.driving === 'sol' ? 'token' : 'sol';
+  const availDriving = a.driving === 'quote' ? a.availableQuote : a.availableToken;
+  const availOther = a.driving === 'quote' ? a.availableToken : a.availableQuote;
+  const otherSide: 'quote' | 'token' = a.driving === 'quote' ? 'token' : 'quote';
   const mostBoth = availDriving !== null && availOther !== null
     ? (() => {
         const viaOther = (availOther * rDriving) / rOther;
@@ -234,7 +239,7 @@ export type CreateProblem =
   | { problem: 'too-small'; supply: bigint }
   /** 100 < supply < 100,000: the locked 100 would be more than 0.1% of the pool. */
   | { problem: 'lock-too-large'; supply: bigint }
-  | { problem: 'over-balance'; side: 'sol' | 'token'; need: bigint; have: bigint };
+  | { problem: 'over-balance'; side: 'quote' | 'token'; need: bigint; have: bigint };
 
 /**
  * Why an opening with these amounts must not be built, or null. Order: an empty side,
@@ -254,39 +259,39 @@ export interface CreatePlan {
   /** What `initialize` carries, by side: token0 first. */
   init0: bigint;
   init1: bigint;
-  /** isqrt(sol·token): the pool's whole share count. */
+  /** isqrt(quote·token): the pool's whole share count. */
   supply: bigint;
   /** What the opener gets: supply − 100. */
   lp: bigint;
   /** What the 100 locked shares are worth at these amounts (floor; display). */
-  locked: { sol: bigint; token: bigint };
+  locked: { quote: bigint; token: bigint };
 }
 
 /**
- * An opening of exactly `sol` and `token`. The share rule first (`openingProblem`), then
- * each side against what the wallet can put in. A `null` balance was not read: it runs
- * no rule and is never treated as 0.
+ * An opening of exactly `quote` (of the pairing coin) and `token`. The share rule first
+ * (`openingProblem`), then each side against what the wallet can put in. A `null`
+ * balance was not read: it runs no rule and is never treated as 0.
  */
 export function planCreate(a: {
   quoteIsToken0: boolean;
-  sol: bigint;
+  quote: bigint;
   token: bigint;
-  availableSol: bigint | null;
+  availableQuote: bigint | null;
   availableToken: bigint | null;
 }): CreatePlan | CreateProblem {
-  const problem = openingProblem(a.sol, a.token);
+  const problem = openingProblem(a.quote, a.token);
   if (problem) return problem;
-  if (a.availableSol !== null && a.sol > a.availableSol) return { problem: 'over-balance', side: 'sol', need: a.sol, have: a.availableSol };
+  if (a.availableQuote !== null && a.quote > a.availableQuote) return { problem: 'over-balance', side: 'quote', need: a.quote, have: a.availableQuote };
   if (a.availableToken !== null && a.token > a.availableToken) {
     return { problem: 'over-balance', side: 'token', need: a.token, have: a.availableToken };
   }
-  const supply = isqrt(a.sol * a.token);
+  const supply = isqrt(a.quote * a.token);
   return {
-    init0: a.quoteIsToken0 ? a.sol : a.token,
-    init1: a.quoteIsToken0 ? a.token : a.sol,
+    init0: a.quoteIsToken0 ? a.quote : a.token,
+    init1: a.quoteIsToken0 ? a.token : a.quote,
     supply,
     lp: supply - LOCKED_LP,
-    locked: { sol: (LOCKED_LP * a.sol) / supply, token: (LOCKED_LP * a.token) / supply },
+    locked: { quote: (LOCKED_LP * a.quote) / supply, token: (LOCKED_LP * a.token) / supply },
   };
 }
 
@@ -302,7 +307,7 @@ export function feeReserveFor(signatures: 1 | 2): bigint {
 }
 
 /**
- * The most SOL a deposit may take from this wallet (section 3.8, the rent band):
+ * SOL POOLS ONLY. The most SOL a deposit may take from this wallet (section 3.8, the rent band):
  * `max(0, lamports − feeReserve − lpAccountRent − max(wsolCreateRent, walletFloor))`.
  *   - during the transaction the wallet pays the WSOL account's rent (when it is
  *     created), the LP account's rent and the wrapped amount;
@@ -311,6 +316,10 @@ export function feeReserveFor(signatures: 1 | 2): bigint {
  *   - `alsoPaid` is anything else the transaction takes for good: for an opening, the fee
  *     to open plus the deposits for the pool's own accounts. Without it, every deposit's
  *     answer is what it always was.
+ *
+ * A pool paired with USDC or BAYLA puts no SOL in: what it can take of the coin is the
+ * wallet's balance of that coin, and the wallet's SOL only has to cover `solSetAside`
+ * (with no wrapped-SOL account, so `wsolCreateRent` 0).
  */
 export function spendableSol(a: {
   lamports: bigint;

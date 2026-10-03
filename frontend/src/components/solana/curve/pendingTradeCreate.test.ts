@@ -9,6 +9,7 @@ import { LP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from './pending
 import { usePendingTrades, type CheckSignature } from './usePendingTrades';
 import { useTxFlow } from './useTxFlow';
 import type { CurveWriteConfig, PreparedTx, TxSummary, WriteRpc } from './ports';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 
 const POOL = KEY(40);
 const CFG = { programId: KEY(50), cpSwapProgram: KEY(51), cluster: 'localnet' } as CurveWriteConfig;
@@ -24,12 +25,13 @@ const createSummary = (): TxSummary => ({
   },
   tokenMint: KEY(41),
   tokenDecimals: 6,
+  quote: SOL_QUOTE,
   quoteIsToken0: true,
-  put: { sol: 1_000_000_000n, token: 5_000_000n },
+  put: { quote: 1_000_000_000n, token: 5_000_000n },
   supply: 70_710_678n,
   lpAmount: 70_710_578n,
   lpDecimals: 9,
-  locked: { sol: 1_414n, token: 7n },
+  locked: { quote: 1_414n, token: 7n },
   createFee: 150_000_000n,
   feeReceiver: KEY(8),
   rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },

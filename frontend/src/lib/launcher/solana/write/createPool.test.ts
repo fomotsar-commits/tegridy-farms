@@ -46,6 +46,7 @@ import {
   type FeeReceiverOptions,
 } from './testkit.fixture';
 import type { IntentStep, LpCreateSummary, LpOpenGate, PreparedTx, TierTerms, WriteRpc } from './types';
+import { SOL_QUOTE } from '../../../solana/lp/quotes';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
 const ME = Keypair.generate().publicKey;
@@ -135,7 +136,8 @@ function world(o: {
 const args = (w: World, o: Partial<LpCreateArgs> = {}): LpCreateArgs => ({
   owner: ME,
   tokenMint: w.mint,
-  sol: SOL,
+  quoteMint: WSOL_MINT,
+  quote: SOL,
   token: TOKENS,
   shown: { terms: TERMS, standard: 'empty' },
   ...o,
@@ -204,7 +206,7 @@ describe('readCreateSnapshot: one read for both possible addresses', () => {
   it('called on its own: exactly one account read, and a failed read is a string, never a snapshot', async () => {
     const w = world();
     const fresh = Keypair.generate().publicKey;
-    const snap = (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh })) as CreateSnapshot;
+    const snap = (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh, quote: SOL_QUOTE })) as CreateSnapshot;
     expect(w.chain.calls).toEqual(['getMultipleAccountsInfo']);
     expect(snap.tier?.owner).toBe(CPSWAP.toBase58());
     expect(snap.standard.address.equals(w.standard)).toBe(true);
@@ -215,7 +217,7 @@ describe('readCreateSnapshot: one read for both possible addresses', () => {
     w.chain.getMultipleAccountsInfo = async () => {
       throw new Error('HTTP 502');
     };
-    expect(typeof (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh }))).toBe('string');
+    expect(typeof (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh, quote: SOL_QUOTE }))).toBe('string');
   });
 });
 
@@ -232,10 +234,10 @@ describe('prepareLpCreate: a clean opening at the standard address', () => {
     expect(s.origin).toBe('standard');
     expect(s.pool.equals(w.standard)).toBe(true);
     expect(s.config.index).toBe(1);
-    expect(s.put).toEqual({ sol: SOL, token: TOKENS });
+    expect(s.put).toEqual({ quote: SOL, token: TOKENS });
     expect(s.supply).toBe(supply);
     expect(s.lpAmount).toBe(supply - 100n);
-    expect(s.locked).toEqual({ sol: (100n * SOL) / supply, token: (100n * TOKENS) / supply });
+    expect(s.locked).toEqual({ quote: (100n * SOL) / supply, token: (100n * TOKENS) / supply });
     expect(s.createFee).toBe(FEE);
     expect(s.feeReceiver.equals(CP_CREATE_POOL_FEE_RECEIVER)).toBe(true);
     expect(s.rents).toEqual({ neverRefunded: NEVER_REFUNDED, lpAccount: R(165) });
@@ -324,7 +326,7 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
   it('inputs: paused, an empty side, a side past u64', async () => {
     const w = world();
     expect(refused(await create(w, {}, priced(), { kind: 'open', cfg: cfgLocal, mode: 'withdraw-only' }))).toBe(CREATE_COPY.paused);
-    expect(refused(await create(w, { sol: 0n }))).toBe(CREATE_COPY.emptySide);
+    expect(refused(await create(w, { quote: 0n }))).toBe(CREATE_COPY.emptySide);
     expect(refused(await create(w, { token: 0n }))).toBe(CREATE_COPY.emptySide);
     expect(refused(await create(w, { token: 1n << 64n }))).toBe(CREATE_COPY.tooLarge);
   });
@@ -413,9 +415,9 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
   it('too small: the program’s 100 locked shares not covered, or more than 0.1% of the pool', async () => {
     const w = world();
     // isqrt(100 · 10) = 31: below the 100 the program keeps.
-    expect(refused(await create(w, { sol: 100n, token: 10n }))).toBe(CREATE_COPY.tooSmall);
+    expect(refused(await create(w, { quote: 100n, token: 10n }))).toBe(CREATE_COPY.tooSmall);
     // isqrt(158,110 · 15,811) = 49,998: the 100 would be 0.2% of the pool.
-    expect(refused(await create(w, { sol: 158_110n, token: 15_811n }))).toBe(CREATE_COPY.lockTooLarge('0.2'));
+    expect(refused(await create(w, { quote: 158_110n, token: 15_811n }))).toBe(CREATE_COPY.lockTooLarge('0.2'));
   });
 
   it('the rent band: exactly what this wallet can put in prepares; one lamport more is refused, naming that number', async () => {
@@ -424,8 +426,8 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
     const wallet = most + feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + R(165);
     expect(spendableSol({ lamports: wallet, walletFloor: R(0), feeReserve: feeReserveFor(2), lpAccountRent: R(165), wsolCreateRent: R(165), alsoPaid: FEE + NEVER_REFUNDED })).toBe(most);
     const w = world({ wallet });
-    ok(await create(w, { sol: most }));
-    expect(refused(await create(w, { sol: most + 1n }))).toBe(CREATE_COPY.rentBand('1 SOL'));
+    ok(await create(w, { quote: most }));
+    expect(refused(await create(w, { quote: most + 1n }))).toBe(CREATE_COPY.rentBand('1 SOL'));
   });
 });
 
@@ -608,8 +610,8 @@ describe('SOL sent to one of the wallet’s addresses before its account exists 
     const wallet = most + feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + R(165);
     const w = world({ wallet });
     w.chain.fund(w.wsolAta, rent(0));
-    ok(await create(w, { sol: most }));
-    expect(refused(await create(w, { sol: most + 1n }))).toBe(CREATE_COPY.rentBand('1 SOL'));
+    ok(await create(w, { quote: most }));
+    expect(refused(await create(w, { quote: most + 1n }))).toBe(CREATE_COPY.rentBand('1 SOL'));
   });
 
   it('anything else at the wrapped-SOL address is still refused: another owner, or data that is not a token account', async () => {

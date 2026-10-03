@@ -7,6 +7,7 @@ import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { tradeCostText } from '../../../lib/solana/lp/format';
 import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
+import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
 import { Notice } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import type { CreateFacts, TierState } from '../curve/ports';
@@ -16,7 +17,7 @@ import { createAdvice, createOffer, poolListCut, type CreateAdvice, type CreateO
 import { solAbout } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
-const NATIVE_2022_LINE = 'This is SOL under the newer token program. Pools here pair a token with SOL.';
+const NATIVE_2022_LINE = `This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`;
 
 /** A sentence ends once: reasons from the checks already carry their own full stop. */
 const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);

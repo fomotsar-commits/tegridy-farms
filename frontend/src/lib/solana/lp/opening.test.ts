@@ -10,6 +10,7 @@ import { TOKEN_2022_NATIVE_MINT, arbitrageLoss, assessOpening, matchMarket, most
 import type { OutsidePrice } from './outsidePrice';
 import type { TokenSafety } from './tokenSafety';
 import { key } from './testkit.fixture';
+import { SOL_QUOTE } from './quotes';
 
 const mint = key().toBase58();
 const OK: TokenSafety = { kind: 'read', mint, verdict: 'ok', blocks: [], warnings: [], facts: null, name: null, symbol: null, metadataSource: 'none' };
@@ -19,7 +20,8 @@ const jupiter = (p: number): OutsidePrice => ({ kind: 'ok', solPerToken: p, sour
 const at = (o: { sol?: bigint; token?: bigint; outside?: OutsidePrice | null; safety?: TokenSafety | null; decimals?: number | null; tokenMint?: string } = {}) =>
   assessOpening({
     tokenMint: o.tokenMint ?? mint,
-    sol: o.sol ?? 1_000_000_000n,
+    quote: SOL_QUOTE,
+    quoteAmount: o.sol ?? 1_000_000_000n,
     token: o.token ?? 5_000_000n,
     tokenDecimals: o.decimals === undefined ? 6 : o.decimals,
     outside: o.outside === undefined ? jupiter(0.2) : o.outside,
@@ -86,7 +88,7 @@ describe('assessOpening: the token', () => {
     expect(TOKEN_2022_NATIVE_MINT).toBe(NATIVE_MINT_2022.toBase58());
     const c = at({ tokenMint: TOKEN_2022_NATIVE_MINT, safety: { ...OK, mint: TOKEN_2022_NATIVE_MINT } });
     expect(c.verdict).toBe('refused');
-    expect(c.reasons).toContain('This is SOL under the newer token program. Pools here pair a token with SOL.');
+    expect(c.reasons).toContain('This is SOL under the newer token program. Pools here pair a token with SOL, USDC or BAYLA.');
   });
 });
 
@@ -109,16 +111,16 @@ describe('matchMarket', () => {
     for (let i = 0; i < 5_000; i++) {
       const decimals = Math.floor(r() * 10);
       const price = 10 ** (r() * 8 - 6); // 1e-6 to 100 SOL per token
-      const keep = r() < 0.5 ? 'sol' : 'token';
+      const keep = r() < 0.5 ? 'quote' : 'token';
       // Amounts large enough that the matched side is at least 10,000 units, so rounding
       // to the nearest unit stays inside the 0.01%.
       const solLamports = BigInt(Math.floor(10 ** (6 + r() * 6)));
       const tokenUnits = BigInt(Math.max(1, Math.round((Number(solLamports) / 1e9 / price) * 10 ** decimals)));
-      const amount = keep === 'sol' ? solLamports : tokenUnits;
-      const other = matchMarket({ keep, amount, solPerToken: price, tokenDecimals: decimals });
+      const amount = keep === 'quote' ? solLamports : tokenUnits;
+      const other = matchMarket({ keep, amount, pricePerToken: price, tokenDecimals: decimals, quote: SOL_QUOTE });
       // Below 10,000 units, rounding to the nearest unit alone can exceed 0.01%.
       if (other === null || other < 10_000n || amount < 10_000n) continue;
-      const [sol, token] = keep === 'sol' ? [amount, other] : [other, amount];
+      const [sol, token] = keep === 'quote' ? [amount, other] : [other, amount];
       const got = openingSolPerToken(sol, token, decimals)!;
       if (Math.abs(got / price - 1) > 1e-4) throw new Error(`${keep} ${amount}: ${got} vs ${price}`);
       checked++;
@@ -128,14 +130,14 @@ describe('matchMarket', () => {
   });
 
   it('keeps the side given and sets the other, rounded to the nearest unit', () => {
-    expect(matchMarket({ keep: 'sol', amount: 1_000_000_000n, solPerToken: 0.2, tokenDecimals: 6 })).toBe(5_000_000n);
-    expect(matchMarket({ keep: 'token', amount: 5_000_000n, solPerToken: 0.2, tokenDecimals: 6 })).toBe(1_000_000_000n);
+    expect(matchMarket({ keep: 'quote', amount: 1_000_000_000n, pricePerToken: 0.2, tokenDecimals: 6, quote: SOL_QUOTE })).toBe(5_000_000n);
+    expect(matchMarket({ keep: 'token', amount: 5_000_000n, pricePerToken: 0.2, tokenDecimals: 6, quote: SOL_QUOTE })).toBe(1_000_000_000n);
   });
 
   it('below one unit: null', () => {
-    expect(matchMarket({ keep: 'sol', amount: 1n, solPerToken: 1_000, tokenDecimals: 0 })).toBeNull();
-    expect(matchMarket({ keep: 'sol', amount: 0n, solPerToken: 0.2, tokenDecimals: 6 })).toBeNull();
-    expect(matchMarket({ keep: 'sol', amount: 5n, solPerToken: 0, tokenDecimals: 6 })).toBeNull();
+    expect(matchMarket({ keep: 'quote', amount: 1n, pricePerToken: 1_000, tokenDecimals: 0, quote: SOL_QUOTE })).toBeNull();
+    expect(matchMarket({ keep: 'quote', amount: 0n, pricePerToken: 0.2, tokenDecimals: 6, quote: SOL_QUOTE })).toBeNull();
+    expect(matchMarket({ keep: 'quote', amount: 5n, pricePerToken: 0, tokenDecimals: 6, quote: SOL_QUOTE })).toBeNull();
   });
 });
 
@@ -147,26 +149,26 @@ describe('mostBothAtMarket', () => {
       const price = 10 ** (r() * 6 - 4);
       const spendable = BigInt(Math.floor(10 ** (7 + r() * 4)));
       const balance = BigInt(Math.floor(10 ** (3 + r() * 10)));
-      const m = mostBothAtMarket({ spendableSol: spendable, tokenBalance: balance, solPerToken: price, tokenDecimals: decimals });
+      const m = mostBothAtMarket({ spendableQuote: spendable, tokenBalance: balance, pricePerToken: price, tokenDecimals: decimals, quote: SOL_QUOTE });
       if (m === null) continue;
-      expect(m.sol <= spendable && m.token <= balance).toBe(true);
+      expect(m.quote <= spendable && m.token <= balance).toBe(true);
       // One side is the whole of what can go in, and the other matches it to the unit.
-      const fromSol = matchMarket({ keep: 'sol', amount: m.sol, solPerToken: price, tokenDecimals: decimals });
-      const fromToken = matchMarket({ keep: 'token', amount: m.token, solPerToken: price, tokenDecimals: decimals });
+      const fromSol = matchMarket({ keep: 'quote', amount: m.quote, pricePerToken: price, tokenDecimals: decimals, quote: SOL_QUOTE });
+      const fromToken = matchMarket({ keep: 'token', amount: m.token, pricePerToken: price, tokenDecimals: decimals, quote: SOL_QUOTE });
       const near = (x: bigint | null, y: bigint) => x !== null && (x - y <= 1n && y - x <= 1n);
-      expect(near(fromSol, m.token) || near(fromToken, m.sol), `${spendable} ${balance} ${price} ${decimals}`).toBe(true);
+      expect(near(fromSol, m.token) || near(fromToken, m.quote), `${spendable} ${balance} ${price} ${decimals}`).toBe(true);
     }
   });
 
   it('all the SOL when the tokens cover it; all the tokens when they do not', () => {
-    expect(mostBothAtMarket({ spendableSol: 1_000_000_000n, tokenBalance: 9_000_000n, solPerToken: 0.2, tokenDecimals: 6 })).toEqual({ sol: 1_000_000_000n, token: 5_000_000n });
-    expect(mostBothAtMarket({ spendableSol: 1_000_000_000n, tokenBalance: 2_000_000n, solPerToken: 0.2, tokenDecimals: 6 })).toEqual({ sol: 400_000_000n, token: 2_000_000n });
-    expect(mostBothAtMarket({ spendableSol: 0n, tokenBalance: 2_000_000n, solPerToken: 0.2, tokenDecimals: 6 })).toBeNull();
+    expect(mostBothAtMarket({ spendableQuote: 1_000_000_000n, tokenBalance: 9_000_000n, pricePerToken: 0.2, tokenDecimals: 6, quote: SOL_QUOTE })).toEqual({ quote: 1_000_000_000n, token: 5_000_000n });
+    expect(mostBothAtMarket({ spendableQuote: 1_000_000_000n, tokenBalance: 2_000_000n, pricePerToken: 0.2, tokenDecimals: 6, quote: SOL_QUOTE })).toEqual({ quote: 400_000_000n, token: 2_000_000n });
+    expect(mostBothAtMarket({ spendableQuote: 0n, tokenBalance: 2_000_000n, pricePerToken: 0.2, tokenDecimals: 6, quote: SOL_QUOTE })).toBeNull();
   });
 });
 
 describe('arbitrageLoss', () => {
-  const loss = (sol: bigint, market: number) => arbitrageLoss({ sol, token: 5_000_000n, tokenDecimals: 6, marketSolPerToken: market });
+  const loss = (sol: bigint, market: number) => arbitrageLoss({ quoteAmount: sol, token: 5_000_000n, tokenDecimals: 6, marketPricePerToken: market, quote: SOL_QUOTE });
 
   it('nothing at the market price, and never negative', () => {
     expect(loss(1_000_000_000n, 0.2)).toBeCloseTo(0, 3);

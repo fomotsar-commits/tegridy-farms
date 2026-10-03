@@ -208,7 +208,9 @@ describe('the panel', () => {
       {
         owner: OWNER,
         tokenMint: MINT,
-        sol: 1_000_000_000n,
+        // The form types in SOL: the pairing coin it names is SOL's wrapped mint.
+        quoteMint: new PublicKey(SOL_QUOTE.mint),
+        quote: 1_000_000_000n,
         token: 100_000_000n,
         shown: { terms: { createPoolFee: 150_000_000n, tradeFeeRate: 10_000n, protocolFeeRate: 160_000n, fundFeeRate: 0n, creatorFeeRate: 0n }, standard: 'empty' },
       },

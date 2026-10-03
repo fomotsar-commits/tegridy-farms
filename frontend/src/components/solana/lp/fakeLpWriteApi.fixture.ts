@@ -8,6 +8,7 @@ import { PublicKey } from '@solana/web3.js';
 import * as validate from '../../../lib/launchMetadata/validate.js';
 import type { AmmConfigView } from '../../../lib/solana/cpswap/program';
 import type { CreateFacts, CurveWriteConfig, GateRpc, LpGate, LpOpenGate, LpWriteApi, TxSummary } from '../curve/ports';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 
 /** The pool program the fake readers report (`LpReaders.programId`). The gate must name the same one. */
 export const LP_PROGRAM = 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT';
@@ -64,11 +65,12 @@ export function lpDepositSummary(pool: PublicKey, tokenMint: PublicKey, over: Pa
     enableCreatorFee: false,
     tokenMint,
     tokenDecimals: 6,
+    quote: SOL_QUOTE,
     quoteIsToken0: true,
     lpAmount: 1_000_000n,
     lpDecimals: 9,
-    quoted: { sol: 100_000_000n, token: 10_000_000n },
-    max: { sol: 101_000_000n, token: 10_100_000n },
+    quoted: { quote: 100_000_000n, token: 10_000_000n },
+    max: { quote: 101_000_000n, token: 10_100_000n },
     limitedByBalance: 'none',
     sharePct: { before: 0, after: 1 },
     price: { state: 'agrees', pool: 0.01, reference: 0.01, against: 'outside', diff: 0 },
@@ -94,6 +96,7 @@ export function lpWithdrawSummary(
     config: null,
     tokenMint,
     tokenDecimals: 6,
+    quote: SOL_QUOTE,
     quoteIsToken0: true,
     lpAccount,
     lpAmount: 500_000n,
@@ -101,10 +104,11 @@ export function lpWithdrawSummary(
     heldBefore: 1_000_000n,
     all: false,
     keep: 500_000n,
-    quoted: { sol: 50_000_000n, token: 5_000_000n },
-    min: { sol: 49_500_000n, token: 4_950_000n },
+    quoted: { quote: 50_000_000n, token: 5_000_000n },
+    min: { quote: 49_500_000n, token: 4_950_000n },
     tokenAccount: tokenMint,
     tokenAccountRent: 0n,
+    quoteAccount: null,
     unwrapsWsol: true,
     notices: [],
     ...over,
@@ -147,12 +151,13 @@ export function lpCreateSummary(pool: PublicKey, tokenMint: PublicKey, over: Par
     config: tier1Config(),
     tokenMint,
     tokenDecimals: 6,
+    quote: SOL_QUOTE,
     quoteIsToken0: true,
-    put: { sol: 1_000_000_000n, token: 100_000_000n },
+    put: { quote: 1_000_000_000n, token: 100_000_000n },
     supply: 10_000_000_000n,
     lpAmount: 9_999_999_900n,
     lpDecimals: 9,
-    locked: { sol: 10n, token: 1n },
+    locked: { quote: 10n, token: 1n },
     createFee: 150_000_000n,
     feeReceiver: new PublicKey(new Uint8Array(32).fill(42)),
     rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },

@@ -4,6 +4,7 @@ import { FeeRows, TxFlowView, TxOutcomeCard } from './TxFlowView';
 import { REVIEW_TTL_MS, useTxFlow } from './useTxFlow';
 import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
 import type { PreparedTx, TxOutcome, TxSigner, TxSummary, WriteRpc } from './ports';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 
 const SOL_1 = 1_000_000_000n;
 const MINT_X = KEY(15);
@@ -756,19 +757,19 @@ describe('liquidity reviews', () => {
     fundFeeRate: 0n, createPoolFee: 0n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
   };
   const deposit = (over: Partial<Extract<TxSummary, { kind: 'lp-deposit' }>> = {}): TxSummary => ({
-    kind: 'lp-deposit', pool: KEY(30), origin: 'standard', config, enableCreatorFee: false, tokenMint: KEY(31), tokenDecimals: 6, quoteIsToken0: true,
+    kind: 'lp-deposit', pool: KEY(30), origin: 'standard', config, enableCreatorFee: false, tokenMint: KEY(31), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
     lpAmount: 123_456_789_012n, lpDecimals: 9,
-    quoted: { sol: 2_000_000_000n, token: 5_000_000n }, max: { sol: 2_020_000_001n, token: 5_050_001n },
+    quoted: { quote: 2_000_000_000n, token: 5_000_000n }, max: { quote: 2_020_000_001n, token: 5_050_001n },
     limitedByBalance: 'none', sharePct: { before: 0, after: 12.5 },
     price: { state: 'agrees', pool: 1, reference: 1, against: 'outside', diff: -0.012 },
     tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }],
     unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['An approved spender can move tokens.'], ...over,
   });
   const withdraw = (over: Partial<Extract<TxSummary, { kind: 'lp-withdraw' }>> = {}): TxSummary => ({
-    kind: 'lp-withdraw', pool: KEY(30), origin: 'launch-pool', config: null, tokenMint: KEY(31), tokenDecimals: 6, quoteIsToken0: true,
+    kind: 'lp-withdraw', pool: KEY(30), origin: 'launch-pool', config: null, tokenMint: KEY(31), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
     lpAccount: KEY(32), lpAmount: 250_000_000n, lpDecimals: 9, heldBefore: 1_000_000_000n, all: false, keep: 750_000_000n,
-    quoted: { sol: 1_000_000_000n, token: 3_000_000n }, min: { sol: 990_000_001n, token: 2_970_001n },
-    tokenAccount: KEY(33), tokenAccountRent: 2_074_080n, unwrapsWsol: false, notices: ['Swaps on this pool are switched off.'], ...over,
+    quoted: { quote: 1_000_000_000n, token: 3_000_000n }, min: { quote: 990_000_001n, token: 2_970_001n },
+    tokenAccount: KEY(33), tokenAccountRent: 2_074_080n, quoteAccount: null, unwrapsWsol: false, notices: ['Swaps on this pool are switched off.'], ...over,
   });
   const value = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
   const review = async (summary: TxSummary) => {
@@ -834,7 +835,7 @@ describe('liquidity reviews', () => {
   });
 
   it('removing all of it: nothing kept, an existing token account, plain SOL', async () => {
-    await review(withdraw({ lpAmount: 1_000_000_000n, all: true, keep: 0n, tokenAccountRent: 0n, unwrapsWsol: true, origin: 'other' }));
+    await review(withdraw({ lpAmount: 1_000_000_000n, all: true, keep: 0n, tokenAccountRent: 0n, quoteAccount: null, unwrapsWsol: true, origin: 'other' }));
     expect(value('Pool kind')).toBe('Its own address');
     expect(value('Pool shares you give back')).toBe('1 (100.00% of yours)');
     expect(screen.getByText('This is all of your share in this pool.')).toBeInTheDocument();
@@ -851,7 +852,7 @@ describe('liquidity reviews', () => {
 
   it('the priority fee is measured against the SOL side of the liquidity change', async () => {
     // 12,000 lamports of priority (the fixture) against 100,000 lamports quoted.
-    await review(deposit({ quoted: { sol: 100_000n, token: 5_000_000n } }));
+    await review(deposit({ quoted: { quote: 100_000n, token: 5_000_000n } }));
     expect(value('Priority fee')).toMatch(/\(12\.00% of this trade\)$/);
   });
 });
@@ -880,9 +881,9 @@ describe('liquidity outcomes', () => {
     const api = fakeApi({ submitPrepared: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'slow' })) });
     const { result } = flowAt(api);
     const summary: TxSummary = {
-      kind: 'lp-withdraw', pool: KEY(30), origin: 'standard', config: null, tokenMint: KEY(31), tokenDecimals: 6, quoteIsToken0: true,
-      lpAccount: KEY(32), lpAmount: 1n, lpDecimals: 9, heldBefore: 1n, all: true, keep: 0n, quoted: { sol: 1n, token: 1n },
-      min: { sol: 1n, token: 1n }, tokenAccount: KEY(33), tokenAccountRent: 0n, unwrapsWsol: true, notices: [],
+      kind: 'lp-withdraw', pool: KEY(30), origin: 'standard', config: null, tokenMint: KEY(31), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
+      lpAccount: KEY(32), lpAmount: 1n, lpDecimals: 9, heldBefore: 1n, all: true, keep: 0n, quoted: { quote: 1n, token: 1n },
+      min: { quote: 1n, token: 1n }, tokenAccount: KEY(33), tokenAccountRent: 0n, quoteAccount: null, unwrapsWsol: true, notices: [],
     };
     await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(summary) })));
     await act(() => result.current.confirm(signer));
@@ -901,10 +902,10 @@ describe('opening a pool: the review', () => {
     fundFeeRate: 0n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
   };
   const create = (over: Partial<Extract<TxSummary, { kind: 'lp-create' }>> = {}): TxSummary => ({
-    kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, quoteIsToken0: true,
-    put: { sol: 1_000_000_000n, token: 5_000_000n },
+    kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
+    put: { quote: 1_000_000_000n, token: 5_000_000n },
     supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
-    locked: { sol: 1_414n, token: 7n },
+    locked: { quote: 1_414n, token: 7n },
     createFee: 150_000_000n, feeReceiver: KEY(8),
     rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
     price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
@@ -976,7 +977,7 @@ describe('opening a pool: the review', () => {
 
   it('the priority fee is measured against the SOL put in', async () => {
     // 12,000 lamports of priority (the fixture) against 100,000 lamports put in.
-    await review(create({ put: { sol: 100_000n, token: 5_000_000n } }));
+    await review(create({ put: { quote: 100_000n, token: 5_000_000n } }));
     expect(value('Priority fee')).toMatch(/\(12\.00% of this trade\)$/);
   });
 });
@@ -1004,9 +1005,9 @@ describe('opening a pool: the review wraps sentences between words', () => {
       fundFeeRate: 0n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
     };
     const summary: TxSummary = {
-      kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, quoteIsToken0: true,
-      put: { sol: 1_000_000_000n, token: 5_000_000n }, supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
-      locked: { sol: 1_414n, token: 7n }, createFee: 150_000_000n, feeReceiver: KEY(8),
+      kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
+      put: { quote: 1_000_000_000n, token: 5_000_000n }, supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
+      locked: { quote: 1_414n, token: 7n }, createFee: 150_000_000n, feeReceiver: KEY(8),
       rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
       price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
       tokenWarnings: [], unwrapsWsol: true, wsolHeldBefore: 0n, notices: [],

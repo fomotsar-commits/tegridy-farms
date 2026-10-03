@@ -168,6 +168,7 @@ function RemoveInner({
         owner: signer.publicKey,
         pool: new PublicKey(view.address),
         tokenMint: new PublicKey(view.tokenMint),
+        quoteMint: new PublicKey(view.quote.mint),
         lpAccount: new PublicKey(position.lpAccount),
         pctBps: pct,
         slippageBps,
