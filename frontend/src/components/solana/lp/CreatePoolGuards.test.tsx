@@ -199,7 +199,8 @@ describe('an open panel obeys the card', () => {
       expect.anything(), expect.anything(), expect.anything(),
       expect.objectContaining({ shown: expect.objectContaining({ standard: 'taken' }) }),
     );
-  });
+    // Two whole flows (sign, close, type again, review): 0.9 s alone, past the default 5 s on a loaded machine.
+  }, 20_000);
 
   it('a stranger opens a passing tier-1 pool first: after Start over the panel points to it, and Review stays on', async () => {
     const prepareLpCreate = vi.fn(async (): Promise<Prepared> => ({ ok: true, prepared: prepared(lpCreateSummary(STANDARD, MINT)) }));

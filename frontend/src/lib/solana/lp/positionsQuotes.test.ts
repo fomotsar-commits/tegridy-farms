@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { readPositions, positionQuoteValue } from './positions';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
 import { TOKEN_PROGRAM } from './tokenSafety';
-import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeIndex, fakeRpc, key, tokenAccountBytes, type FakeAccount } from './testkit.fixture';
+import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeIndex, fakeRpc, key, keyStartingWith, tokenAccountBytes, type FakeAccount } from './testkit.fixture';
 
 const opts = (fetchImpl: typeof fetch) => ({ programId: PROGRAM, launchProgramId: LAUNCH, fetchImpl });
 
@@ -46,8 +46,9 @@ describe('readPositions: shares in pools paired with SOL, USDC and BAYLA', () =>
   it('a share in a USDC pool is valued on the USDC side, whichever side of the pool that is', async () => {
     const wallet = key();
     const seen = new Set<boolean>();
-    for (let i = 0; i < 12 && seen.size < 2; i++) {
-      const p = buildPool({ mint: key(), quote: USDC_QUOTE, address: key(), quoteReserve: 800n, tokenReserve: 50n, lpSupply: 100n });
+    // One token that sorts below USDC's mint and one that sorts above it, made on purpose.
+    for (const mint of [keyStartingWith(1), keyStartingWith(250)]) {
+      const p = buildPool({ mint, quote: USDC_QUOTE, address: key(), quoteReserve: 800n, tokenReserve: 50n, lpSupply: 100n });
       const accounts: Record<string, FakeAccount> = {
         ...p.accounts,
         [CLOCK]: clockAccount(5n),

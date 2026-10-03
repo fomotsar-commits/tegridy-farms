@@ -705,15 +705,18 @@ describe('prepareLpCreate with USDC or BAYLA: what refuses it, each in its own w
     const need = feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + R(0);
     expect(solSetAside({ walletFloor: R(0), feeReserve: feeReserveFor(2), lpAccountRent: R(165), wsolCreateRent: 0n, alsoPaid: FEE + NEVER_REFUNDED })).toBe(need);
     const msg = refused(await create(world(quote, { wallet: need - 1n })));
-    expect(msg).toBe(LP_COPY.needSol(solText(need), solText(need - 1n)));
-    expect(msg).toBe('Your wallet needs about 0.1940576 SOL for the network fee and the account deposits, and has 0.194057599 SOL. Nothing was built.');
+    expect(msg).toBe(CREATE_COPY.needSol(solText(need), solText(need - 1n)));
+    // The fee to open is most of the sum, so the sentence names it.
+    expect(msg).toBe(
+      'Your wallet needs about 0.1940576 SOL for the fee to open, the account deposits and the network fee, and has 0.194057599 SOL. The fee and the deposits are paid in SOL whatever the pool is paired with. Nothing was built.',
+    );
     // The rent band is the SOL pool's rule: its words are never said here.
     expect(msg).not.toMatch(/too little SOL|The most you can put in/);
     // With exactly that much SOL it builds, however many coins go in: they are not SOL.
     ok(await create(world(quote, { wallet: need })));
     ok(await create(world(quote, { wallet: need, heldTokens: 20_000n * U6 }), { quote: 40_000n * U6, token: 20_000n * U6 }));
     // A wallet with next to no SOL is told the same thing, before anything is built.
-    expect(refused(await create(world(quote, { wallet: 10_000_000n })))).toBe(LP_COPY.needSol(solText(need), '0.01 SOL'));
+    expect(refused(await create(world(quote, { wallet: 10_000_000n })))).toBe(CREATE_COPY.needSol(solText(need), '0.01 SOL'));
   });
 
   it('the fee to open is still SOL’s business: the tier’s terms and the fee account are checked the same', async () => {

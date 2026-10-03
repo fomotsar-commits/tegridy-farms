@@ -105,6 +105,10 @@ export const CREATE_COPY = {
   tokenRefused: (reason: string) => `This site does not open pools for this token: ${reason}`,
   native2022: `This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`,
   notAPairingCoin: `Pools opened from this site pair a token with ${QUOTE_COINS_OR} only.`,
+  // The fee to open is most of this sum, so it is named first: "the network fee and the
+  // account deposits" alone would not explain 0.19 SOL.
+  needSol: (need: string, have: string) =>
+    `Your wallet needs about ${need} for the fee to open, the account deposits and the network fee, and has ${have}. The fee and the deposits are paid in SOL whatever the pool is paired with. Nothing was built.`,
   cannotPair: (symbol: string) => `This site does not open a pool that prices this token in ${symbol}.`,
   coinPriceUnread: (symbol: string, detail: string) =>
     `We could not get the price of ${symbol} from Jupiter just now (${detail}), so we could not check the opening price. Try again in a moment.`,
@@ -584,7 +588,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
     });
   } else {
     const setAside = solSetAside({ walletFloor: r0, feeReserve: feeReserveFor(2), lpAccountRent, wsolCreateRent: 0n, alsoPaid: createFee + neverRefunded });
-    if (snap.signerLamports < setAside) return notSent('build', LP_COPY.needSol(solText(setAside), solText(snap.signerLamports)));
+    if (snap.signerLamports < setAside) return notSent('build', CREATE_COPY.needSol(solText(setAside), solText(snap.signerLamports)));
     availableQuote = snap.quoteAccount.account ? amountOf(snap.quoteAccount.account) : 0n;
   }
   const planned = planCreate({ quoteIsToken0, quote: a.quote, token: a.token, availableQuote, availableToken });

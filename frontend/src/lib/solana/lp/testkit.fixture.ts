@@ -29,6 +29,16 @@ export const LAUNCH = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q
 export const WSOL = new PublicKey(WSOL_MINT);
 export const CLOCK = 'SysvarC1ock11111111111111111111111111111111';
 export const key = () => Keypair.generate().publicKey;
+/**
+ * A fresh key whose first byte is `first`. A pool stores its two mints in byte order, so a
+ * test that needs a token on a chosen side of a coin's mint asks for it here instead of
+ * hoping a random key lands there (USDC's mint starts with byte 198, wrapped SOL's with 6).
+ */
+export function keyStartingWith(first: number): PublicKey {
+  const bytes = Keypair.generate().publicKey.toBytes();
+  bytes[0] = first;
+  return new PublicKey(bytes);
+}
 
 export interface FakeAccount { owner: string; data: Uint8Array; lamports?: number }
 

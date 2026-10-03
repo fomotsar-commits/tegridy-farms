@@ -10,7 +10,7 @@ import { POOL_INDEX_MAX } from './poolIndex';
 import { poolStatePda } from '../../launcher/solana/curve/program';
 import { deriveAmmConfig } from '../cpswap/program';
 import {
-  CLOCK, LAUNCH, PROGRAM, WSOL, buildPool, clockAccount, configBytes, fakeIndex, fakeRpc, key, observationBytes, tokenAccountBytes, type FakeAccount,
+  CLOCK, LAUNCH, PROGRAM, WSOL, buildPool, clockAccount, configBytes, fakeIndex, fakeRpc, key, keyStartingWith, observationBytes, tokenAccountBytes, type FakeAccount,
 } from './testkit.fixture';
 import { TOKEN_PROGRAM } from './tokenSafety';
 import { isCreatedPool, rememberCreatedPool } from './poolFinder';
@@ -214,10 +214,9 @@ describe('findPools: pools paired with USDC and BAYLA', () => {
   });
 
   it('which side is the quote follows the pair, not the address order', async () => {
-    // Enough tokens that both byte orders against USDC come up.
+    // One token that sorts below USDC's mint and one that sorts above it, made on purpose.
     const seen = new Set<boolean>();
-    for (let i = 0; i < 12 && seen.size < 2; i++) {
-      const mint = key();
+    for (const mint of [keyStartingWith(1), keyStartingWith(250)]) {
       const b = buildPool({ mint, quote: USDC_QUOTE, configIndex: 1, quoteReserve: 9n, tokenReserve: 4n });
       const r = await findPools(fakeRpc({ ...b.accounts, [CLOCK]: clockAccount(5n) }), mint, opts(fakeIndex({})));
       const e = r.kind === 'ok' ? r.search.pools[0] : undefined;
