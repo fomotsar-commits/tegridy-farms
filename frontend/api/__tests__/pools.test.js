@@ -387,15 +387,15 @@ describe("api/pools: the pairing coins", () => {
   });
 
   it("a pairing coin is searched only with the coins that outrank it: BAYLA with SOL and USDC, USDC with SOL", async () => {
-    const half = mod.MAX_POOLS / 2;
+    const half = Math.floor(mod.MAX_POOLS / 2);
     const baylaSol = poolsOf(WSOL, 100, (i) => 1 + i, 10);
     const baylaUsdc = poolsOf(USDC, 100, (i) => 1 + i, 20);
     const f = pairChain({ token: BAYLA, mint: { owner: TOKEN22, data: mintBytes(300) }, pools: [...baylaSol, ...baylaUsdc] });
     const res = await ask({ mint: BAYLA }, f);
     expect(res.statusCode).toBe(200);
     expect(scannedCoins(f, BAYLA).sort()).toEqual([WSOL, USDC].sort());
-    // Two coins scanned, so each is promised half the list.
-    expect(res.body.pools).toEqual([...addresses(baylaSol).reverse().slice(0, half), ...addresses(baylaUsdc).reverse().slice(0, half)]);
+    // Two coins scanned, so each is promised half the list (an odd slot would be SOL's).
+    expect(res.body.pools).toEqual([...addresses(baylaSol).reverse().slice(0, mod.MAX_POOLS - half), ...addresses(baylaUsdc).reverse().slice(0, half)]);
     expect(res.body.truncated).toBe(true);
     expect(budgetCharges()).toEqual(["pools-precheck", "pools", "pools"]);
 
@@ -411,8 +411,8 @@ describe("api/pools: the pairing coins", () => {
   it("promises each coin an equal share of the list, and hands unused slots on in coin order", () => {
     const M = mod.MAX_POOLS;
     const third = Math.floor(M / 3);
-    // every coin over its promise: each gets exactly its promise
-    expect(mod.shareSlots([500, 500, 500])).toEqual([third, third, third]);
+    // every coin over its promise: each gets its promise (slots left by the division go to SOL)
+    expect(mod.shareSlots([500, 500, 500])).toEqual([M - 2 * third, third, third]);
     // everything fits: nothing is cut
     expect(mod.shareSlots([3, 2, 1])).toEqual([3, 2, 1]);
     // one coin alone takes the whole list, as before the other coins existed
@@ -423,7 +423,7 @@ describe("api/pools: the pairing coins", () => {
     expect(mod.shareSlots([300, 300, 5])).toEqual([M - third - 5, third, 5]);
     expect(mod.shareSlots([10, 20, 300])).toEqual([10, 20, M - 30]);
     // two coins scanned (BAYLA's own search), and one (USDC's)
-    expect(mod.shareSlots([100, 100])).toEqual([Math.floor(M / 2), M - Math.floor(M / 2)]);
+    expect(mod.shareSlots([100, 100])).toEqual([M - Math.floor(M / 2), Math.floor(M / 2)]);
     expect(mod.shareSlots([10, 100])).toEqual([10, M - 10]);
     expect(mod.shareSlots([M + 1])).toEqual([M]);
   });
@@ -477,8 +477,21 @@ describe("api/pools: the pairing coins", () => {
     const flood = COINS.flatMap((coin, c) => poolsOf(coin, 300, (i) => 1 + i, 1 + 2 * c));
     const real = COINS.map((coin, c) => ({ address: k(c, 250), quote: coin, vault: k(c, 251), amount: 10n ** 12n }));
     const res = await ask({ mint: TOKEN_X }, pairChain({ pools: [...flood, ...real] }));
-    expect(res.body.pools).toHaveLength(3 * promise);
-    expect([0, 1, 2].map((c) => res.body.pools[c * promise])).toEqual(addresses(real));
+    expect(res.body.pools).toHaveLength(mod.MAX_POOLS);
+    // SOL's share starts the list, BAYLA's ends it, USDC's sits between.
+    expect([0, mod.MAX_POOLS - 2 * promise, mod.MAX_POOLS - promise].map((at) => res.body.pools[at])).toEqual(addresses(real));
+    expect(res.body.truncated).toBe(true);
+  });
+
+  it("slots one coin does not use go to the coin above it first", async () => {
+    const M = mod.MAX_POOLS;
+    // SOL has eight pools more than its promise, USDC is flooded, BAYLA has five.
+    const sol = poolsOf(WSOL, Math.floor(M / 3) + 8, (i) => 1 + i, 10);
+    const usdc = poolsOf(USDC, 300, (i) => 1 + i, 20);
+    const bayla = poolsOf(BAYLA, 5, (i) => 1 + i, 30);
+    const res = await ask({ mint: TOKEN_X }, pairChain({ pools: [...bayla, ...usdc, ...sol] }));
+    // Every SOL pool is listed: SOL is first in line for the slots BAYLA left. USDC gets the rest.
+    expect(res.body.pools).toEqual([...addresses(sol).reverse(), ...addresses(usdc).reverse().slice(0, M - sol.length - bayla.length), ...addresses(bayla).reverse()]);
     expect(res.body.truncated).toBe(true);
   });
 
@@ -503,7 +516,7 @@ describe("api/pools: the pairing coins", () => {
       // [SOL, USDC, BAYLA pools] → addresses listed, truncated
       [[2, 2, 2], 6, false],
       [[third, third, third], 3 * third, false],
-      [[third + 1, third, third], 3 * third, true],
+      [[M - 2 * third + 1, third, third], M, true],
       [[0, M, 0], M, false],
       [[0, M + 1, 0], M, true],
       [[0, 0, M + 1], M, true],
@@ -523,8 +536,9 @@ describe("api/pools: the pairing coins", () => {
   it("ranks a BAYLA pool by its Token-2022 vault, and a vault under the wrong token program last", async () => {
     const deep = { address: k(1, 30), quote: BAYLA, vault: k(1, 31), amount: 9 };
     const shallow = { address: k(2, 30), quote: BAYLA, vault: k(2, 31), amount: 5 };
-    // A real, empty vault: a zero that was read still outranks a vault that does not count.
-    const empty = { address: k(3, 30), quote: BAYLA, vault: k(3, 31), amount: 0 };
+    // A real, empty vault: a zero that was read still outranks a vault that does not
+    // count, although its address sorts after theirs.
+    const empty = { address: k(9, 30), quote: BAYLA, vault: k(9, 31), amount: 0 };
     // Holds the biggest number of all, but under the classic token program: not a BAYLA vault.
     const wrong = { address: k(4, 30), quote: BAYLA, vault: k(4, 31), amount: 10n ** 15n, vaultOwner: TOKEN };
     const missing = { address: k(5, 30), quote: BAYLA, vault: k(5, 31), amount: 0, vaultOwner: null };
