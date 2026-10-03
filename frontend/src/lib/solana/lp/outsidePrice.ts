@@ -1,5 +1,6 @@
 import { PublicKey } from '@solana/web3.js';
 import { JUPITER_PROXY_BASE, SOL_MINT } from '../../solana';
+import { isNoRouteBody } from '../../jupiter';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { getMultipleAccounts } from './accounts';
@@ -67,16 +68,6 @@ function isAddress(s: unknown): s is string {
   if (typeof s !== 'string' || s.length < 32 || s.length > 44) return false;
   try {
     return new PublicKey(s).toBase58() === s;
-  } catch {
-    return false;
-  }
-}
-
-/** The proxy's "no route" answer: `{"error":"No route","code":"NO_ROUTE"}` (api/_lib/aggregator-proxy.js). */
-async function isNoRouteBody(res: Response): Promise<boolean> {
-  try {
-    const body = (await res.json()) as { code?: unknown } | null;
-    return body !== null && typeof body === 'object' && body.code === 'NO_ROUTE';
   } catch {
     return false;
   }
