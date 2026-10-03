@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { decimalCommaToPoint } from '../../../lib/launcher/solana/curve/format';
 import { SHADOW, TOGGLE_CLS, inputCls, inputStyle } from '../curve/uiFormat';
 
 /** "All": exactly the balance read at prepare, never a rounded share of it. */
@@ -91,7 +92,8 @@ export function PercentPicker({
           disabled={disabled}
           value={other}
           onChange={(e) => {
-            const v = e.target.value;
+            // A comma typed on a phone keypad with no "." is the decimal point.
+            const v = decimalCommaToPoint(e.target.value, other);
             setOther(v);
             if (v.trim() === '') onChange({ bps: null, bad: false });
             else {

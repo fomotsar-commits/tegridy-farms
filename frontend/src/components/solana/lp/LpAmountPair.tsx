@@ -1,3 +1,4 @@
+import { decimalCommaToPoint } from '../../../lib/launcher/solana/curve/format';
 import { Field } from '../curve/ui';
 import { TOGGLE_CLS, inputCls, inputStyle } from '../curve/uiFormat';
 
@@ -10,6 +11,8 @@ export type LpSide = 'sol' | 'token';
  * it drive. Unlinked (opening a pool later), both sides are typed on their own.
  *
  * Every box is 16px (no zoom on a phone), decimal-keyboard, no spellcheck or autofill.
+ * A typed comma becomes the decimal point (some phone keypads have no "."); a pasted
+ * "68,066" is left as it is for the parent to refuse (decimalCommaToPoint).
  * Its visible label is its accessible name; the hint and any error are read with it.
  * A side whose balance could not be read gets no Max: an unread balance is never 0.
  */
@@ -54,7 +57,7 @@ export function LpAmountPair({
               className={`${inputCls} flex-1 min-w-0 disabled:opacity-50`}
               style={inputStyle}
               value={value}
-              onChange={(e) => onType(side, e.target.value)}
+              onChange={(e) => onType(side, decimalCommaToPoint(e.target.value, value))}
               placeholder="0.0"
               inputMode="decimal"
               spellCheck={false}
