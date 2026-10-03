@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-03
 
+- The indexer's upload parser moves to a release that fixes two published denial-of-service flaws; it takes effect at the indexer's next deploy.
 - A DCA or limit-order swap your wallet cancelled no longer counts as done: the schedule does not count it and the order goes back to waiting. A sped-up swap still counts.
 - A TWAP or stop-loss whose registration your wallet cancelled no longer says it was registered, and no CoW order is signed on top of a token approval your wallet cancelled.
 - A zap stops at a step your wallet cancelled and says it was replaced, instead of calling it confirmed and sending the next step.

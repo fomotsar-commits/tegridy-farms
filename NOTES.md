@@ -64,6 +64,109 @@ throws when its time runs out is fine, because the caller's `catch` can say what
 
 ---
 
+## 2026-10-03: "above the fold at 390x844" measures the phone's screen, not the page its browser gets
+
+**Believed:** a field that is whole inside 390x844 in a first-screen test is on an iPhone's
+first screen.
+
+**Measured:** 390x844 is the iPhone 13 and 14 screen. Playwright 1.62.1's own descriptors give
+the page 390x664 on those two and 393x659 on an iPhone 15, the device behind the repo's
+`iphone-safari` project (`frontend/playwright.config.ts`). The /solana-lp token address field
+passed at 390x844; at those heights the whole field sat under the bottom bar and ended 47 to
+52px past the first screen (fixed in b06445e1, PR #704, branch `feat/pools-solana-lp-tab`).
+
+**Do:** measure a first-screen claim at the device's `viewport`, not its `screen`
+(`FIRST_SCREENS` in `frontend/e2e/tab-target-size.spec.ts` on that branch adds 390x664 and
+393x659), and do not set a device project's height to the screen's. Assert that
+`window.innerHeight` is the height the case names, since a project may not give it.
+
+---
+
+## 2026-10-03: the "Main navigation" role matches the top bar from 800px up, so find the phone's bottom bar by position
+
+**Believed:** `getByRole('navigation', { name: 'Main navigation' })` is the phone's bottom bar,
+so its height is what to take off the first screen.
+
+**Found:** two elements carry that label: `frontend/src/components/layout/BottomNav.tsx`
+(`fixed bottom-0`, hidden from 800px) and the row in `frontend/src/components/layout/TopNav.tsx`
+(hidden below 800px). A role query skips whichever is hidden, so at 800px and wider it returns
+the top bar, and a height read from it is the wrong bar's.
+
+**Do:** pick the bar by where it is. `bottomBarHeight` in `frontend/e2e/tab-target-size.spec.ts`
+(branch `feat/pools-solana-lp-tab`, added in 3858c927) walks `nav[aria-label="Main navigation"]`
+and keeps the one whose computed `position` is `fixed`, that has height, and whose bottom edge
+is at `window.innerHeight`. It returns 0 when there is none, and each case asserts which it
+expects.
+
+---
+
+## 2026-10-03: React's `useId` values differ between two loads of the same build, so normalise them before comparing HTML
+
+**Believed:** the same build loaded twice renders the same HTML, so comparing a page's HTML
+before and after a change shows only what the change did.
+
+**Measured:** two loads of one build gave different `useId` values for the same elements, so
+every comparison "differed" until the ids were normalised. react-dom 19.3.0 builds a client id
+as `_r_<n>_` from one page-wide counter, in the order components first mount, so anything that
+changes mount order changes every id after it. The ids land in `id`, `aria-describedby` and
+`aria-labelledby` (`frontend/src/components/ui/InfoTooltip.tsx`,
+`frontend/src/components/solana/lp/PanelFrame.tsx`).
+
+**Do:** before comparing rendered HTML, replace every `_r_[0-9a-v]+_` with one fixed token on
+both sides. A "same HTML before and after" claim (b06445e1 makes one for /pools) holds only
+with that step.
+
+---
+
+## 2026-10-03: in Git Bash on Windows, an argument that starts with a slash is rewritten to a Windows path
+
+**Believed:** a quoted argument reaches the program as typed.
+
+**Measured:** in Git Bash, printing `process.argv` from node: `"/pools shows the tab"` arrives
+as `C:/Program Files/Git/pools shows the tab`, so `npx playwright test -g "/pools ..."` is
+given a pattern no test title matches. `git show origin/mvp-launch:.gitignore` arrives as
+`origin\mvp-launch;.gitignore` and fails with "ambiguous argument", while `HEAD:.gitignore` and
+`origin/mvp-launch:frontend/package.json` pass through untouched.
+
+**Do:** prefix the command with `MSYS_NO_PATHCONV=1` (both then arrive as typed), or keep the
+leading slash out of the pattern (`-g "pools ..."`). When a `-g` run finds no tests, print the
+arguments the program received before doubting the test.
+
+---
+
+## 2026-10-03: `tests | tail -4 && git push` pushes on a red run, because a pipeline's status is its last command's
+
+**Believed:** `&&` after a test command stops the push when the tests fail.
+
+**Measured:** in bash, `false | tail -4 && echo pushed` prints `pushed`: the pipeline's exit
+status is `tail`'s, which is 0. On 2026-10-03 a line of this shape pushed a branch with one
+test red. That test was a load flake and passed on a re-run, but the guard had done nothing.
+With `set -o pipefail` the same line exits 1 and prints nothing.
+
+**Do:** `set -o pipefail` before the line, or run the tests on their own and check their exit
+code (or `${PIPESTATUS[0]}`) before the push. Trimming output with `tail` or `head` is the
+usual way this gets in.
+
+---
+
+## 2026-10-03: a near-full Solana transaction has no room for a memo, so give readers a read recipe instead
+
+**Believed:** the way to make a kind of transaction findable later is to tag it with an SPL
+Memo.
+
+**Measured:** the curve launch's worst-case create, with the plant, is 1,210 of a legacy
+transaction's 1,232 bytes (pinned in `frontend/src/lib/launcher/solana/write/prepare.test.ts`),
+so 22 are left. A "PLANT <mint>" memo costs about 85: the memo program's 32-byte key, 3 bytes
+of instruction framing and about 50 of text.
+
+**Do:** name an account every such transaction must touch, and say what to filter by. Every
+plant pays the Workshop's $BAYLA account (`WORKSHOP_BAYLA_ACCOUNT` in
+`frontend/src/lib/launcher/solana/write/plant.ts`), so the recipe is that account's signatures
+(`getSignaturesForAddress`), keeping the transactions that carry the plant's two instructions
+(`plantInstructions`: a burn and a transfer of 50,000 $BAYLA each).
+
+---
+
 ## 2026-10-02: `import.meta.env.DEV` is true in a `vite build` run with NODE_ENV=development
 
 **Believed:** a dial honoured only when `import.meta.env.DEV` is true can count on a dev server
