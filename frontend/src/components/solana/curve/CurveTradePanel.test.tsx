@@ -117,6 +117,27 @@ describe('curve trade panel', () => {
     expect(screen.getByRole('button', { name: 'Review buy' })).not.toBeDisabled();
   });
 
+  // UX-1: a phone set to a comma-decimal region has "," and no "." on this keypad.
+  it('reads a comma typed in the amount as the decimal point, and builds from what the box shows', async () => {
+    const { api } = renderPanel();
+    const amount = screen.getByLabelText('Spend at most (SOL)') as HTMLInputElement;
+    for (const k of '0,5') fireEvent.change(amount, { target: { value: amount.value + k } });
+    expect(amount).toHaveValue('0.5');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review buy' }));
+    });
+    expect(api.prepareCurveBuy).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ lamportsIn: SOL / 2n }));
+  });
+
+  it('a pasted "68,066" is refused, never read as 68.066', () => {
+    renderPanel();
+    const amount = screen.getByLabelText('Spend at most (SOL)');
+    fireEvent.change(amount, { target: { value: '68,066' } });
+    expect(amount).toHaveValue('68,066');
+    expect(amount).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: 'Review buy' })).toBeDisabled();
+  });
+
   it('a wallet that cannot sign transactions is told to pick another, and nothing can be reviewed', () => {
     renderPanel({ signerState: { kind: 'cannot-sign', address: CREATOR.toBase58(), walletName: 'Some Wallet' } });
     fireEvent.change(screen.getByLabelText('Spend at most (SOL)'), { target: { value: '0.5' } });

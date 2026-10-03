@@ -3,14 +3,15 @@
 // Opening a pool on the public fee tier (SPEC_S2_CREATE 3.1-3.4), against a fake chain
 // whose simulator runs cp-swap's `initialize` on its accounts. The point of most of
 // these: every "no" in 3.1's order says so in its own words, the pool goes to the
-// standard address only when nothing at all is there, the balance check is exact (the
-// fee row included), and the one-off key is never written anywhere but the prepared
-// transaction's signer list.
+// standard address only when nothing at all is there, the balance check lets nothing
+// more leave than the review says (a fee one lamport above the one shown is blocked)
+// while dust a stranger sends in cannot block it, and the one-off key is never written
+// anywhere but the prepared transaction's signer list.
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { base58, hex } from '@scure/base';
 import { NATIVE_MINT_2022 } from '@solana/spl-token';
 import { Keypair, PublicKey } from '@solana/web3.js';
-import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
+import { SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { formatTokenAmount } from '../curve/format';
 import { deriveLpMint, deriveObservation, derivePool, deriveVault, publicTierConfig, sortMints } from '../../../solana/cpswap/program';
@@ -35,10 +36,12 @@ import {
   FakeChain,
   TIER1_VALUES,
   addPool,
+  beforeBalanceRun,
   cfgLocal,
   createSimulator,
   encodeAmmConfig,
   rent,
+  skewTestRun,
   type AmmConfigOverrides,
   type FeeReceiverOptions,
 } from './testkit.fixture';
@@ -428,32 +431,35 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
 
 // ── the exact balance check (3.3) ────────────────────────────────────────────
 
-describe('the balance check is exact', () => {
+/** A row with no upper bound: more arriving than the review says cannot hurt the signer. */
+const NO_CEILING = 2n ** 64n;
+
+describe('the balance check: nothing more may leave the wallet than the review says', () => {
   const row = (p: PreparedTx, k: PublicKey) => {
     const r = p.check.expect.tokens.find((t) => t.account.equals(k))!;
     return [r.minDelta, r.maxDelta];
   };
 
-  it('tokens out exactly, shares in exactly, wrapped SOL back where it was, the fee exactly; SOL out at most the sum of them', async () => {
+  it('shares in exactly; at most the tokens typed out; wrapped SOL back where it was; at least the fee into the fee account; SOL out at most the sum of them', async () => {
     const w = world();
     const p = ok(await create(w));
     const s = summaryOf(p);
     const pins = p.check.intent.kind === 'lp-create' && 'pins' in p.check.intent ? p.check.intent.pins : null;
     expect(row(p, pins!.lpAccount)).toEqual([s.lpAmount, s.lpAmount]);
-    expect(row(p, w.tokenAta)).toEqual([-TOKENS, -TOKENS]);
+    expect(row(p, w.tokenAta)).toEqual([-TOKENS, NO_CEILING]);
     expect(row(p, w.wsolAta)).toEqual([0n, 0n]);
-    expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([FEE, FEE]);
+    expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([FEE, NO_CEILING]);
     expect(p.check.expect.maxSolOut).toBe(SOL + FEE + NEVER_REFUNDED + R(165));
     expect(p.check.expect.minSolIn).toBeUndefined();
     expect(p.check.watch.tokenAccounts.find((t) => t.account.equals(CP_CREATE_POOL_FEE_RECEIVER))?.role).toBe('treasury');
   });
 
-  it('a test run where a different fee reaches the fee account (a stale or lying tier read) is BLOCKED before any signature', async () => {
+  it('a test run where the program takes a different fee than the one shown (a stale or lying tier read) is BLOCKED before any signature', async () => {
     const w = world();
-    w.chain.simulate = createSimulator({ feeArrives: (fee) => fee * 2n });
+    w.chain.simulate = createSimulator({ feeCharged: (fee) => fee * 2n });
     const r = await create(w);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.outcome).toMatchObject({ status: 'not-sent', stage: 'simulate', message: 'Blocked: the simulation shows a different token amount than this screen says.' });
+    if (!r.ok) expect(r.outcome).toMatchObject({ status: 'not-sent', stage: 'simulate', message: 'Blocked: the simulation shows more SOL leaving your wallet than this screen says.' });
   });
 
   it('wrapped SOL the wallet already holds is never spent: kept, never closed', async () => {
@@ -463,7 +469,160 @@ describe('the balance check is exact', () => {
     expect(p.steps.some((x) => x.kind === 'close-wsol')).toBe(false);
     expect(s.unwrapsWsol).toBe(false);
     expect(s.wsolHeldBefore).toBe(500_000_000n);
-    expect(row(p, w.wsolAta)).toEqual([0n, 0n]);
+    expect(row(p, w.wsolAta)).toEqual([0n, NO_CEILING]);
+  });
+});
+
+// ── a credit between the balance read and the test run ───────────────────────
+//
+// The balances are read a slot or more before the test run. Anyone can send a lamport to
+// the fee account, a token to the wallet, or wrapped SOL to a kept account in between,
+// and a row that allowed only the exact change let that dust block every opening. What
+// protects the signer stays: the wallet pays at most the sum on screen, to the lamport,
+// so a fee above the one shown is caught there, whoever sends what to the fee account.
+
+describe('a credit between the balance read and the test run does not block an opening; taking more still does', () => {
+  const moved = (p: PreparedTx, k: PublicKey) => p.simulated.tokenDeltas.find((d) => d.account.equals(k))!.delta;
+  const outcome = (r: Awaited<ReturnType<typeof create>>) => (r.ok ? 'prepared' : r.outcome);
+  const BLOCKED_TOKENS = { status: 'not-sent', stage: 'simulate', message: 'Blocked: the simulation shows a different token amount than this screen says.' };
+  const lpAtaOf = (w: World) => associatedTokenAddress(deriveLpMint(CPSWAP, w.standard), ME);
+
+  it('a lamport sent to the fee account in between: the opening still prepares', async () => {
+    const w = world();
+    beforeBalanceRun(w.chain, () => w.chain.addFeeReceiver({ unsynced: 1n }));
+    expect(moved(ok(await create(w)), CP_CREATE_POOL_FEE_RECEIVER)).toBe(FEE + 1n);
+  });
+
+  it('a token sent to the wallet in between: the opening still prepares', async () => {
+    const w = world();
+    beforeBalanceRun(w.chain, () => w.chain.tokenAccount(w.tokenAta, w.mint, ME, 1_000n * 10n ** 6n + 1n));
+    expect(moved(ok(await create(w)), w.tokenAta)).toBe(1n - TOKENS);
+  });
+
+  it('wrapped SOL sent to a kept wrapped-SOL account in between: the opening still prepares', async () => {
+    const w = world({ heldWsol: 500_000_000n });
+    beforeBalanceRun(w.chain, () => w.chain.tokenAccount(w.wsolAta, WSOL_MINT, ME, 500_000_001n));
+    expect(moved(ok(await create(w)), w.wsolAta)).toBe(1n);
+  });
+
+  // The fee account's own row no longer has a ceiling, so this is the row that must hold:
+  // the fee on screen passes with nothing to spare, and one lamport more is blocked, in
+  // every state the wallet's own addresses can be in. `networkFee`: as a cluster reports it.
+  describe('one lamport more than the fee on screen, taken from the wallet, is still blocked, whatever its addresses held', () => {
+    const states: Array<[string, (w: World) => void]> = [
+      ['no wrapped-SOL account', () => {}],
+      ['an empty wrapped-SOL account, closed at the end', (w) => w.chain.tokenAccount(w.wsolAta, WSOL_MINT, ME, 0n)],
+      ['an empty wrapped-SOL account set up under an older rent', (w) => w.chain.tokenAccount(w.wsolAta, WSOL_MINT, ME, 0n, { native: { reserve: R(165) + 550_840n, unsynced: 5_000n } })],
+      ['wrapped SOL the wallet keeps', (w) => w.chain.tokenAccount(w.wsolAta, WSOL_MINT, ME, 500_000_000n)],
+      ['only SOL someone sent to the wrapped-SOL address', (w) => w.chain.fund(w.wsolAta, rent(165) + 12_345)],
+      ['only SOL someone sent to the pool-share address', (w) => w.chain.fund(lpAtaOf(w), rent(0))],
+    ];
+    for (const [label, set] of states) {
+      it(label, async () => {
+        const shown = world();
+        set(shown);
+        shown.chain.simulate = createSimulator({ networkFee: true });
+        expect(outcome(await create(shown))).toBe('prepared');
+        const over = world();
+        set(over);
+        over.chain.simulate = createSimulator({ networkFee: true, feeCharged: (fee) => fee + 1n });
+        expect(outcome(await create(over))).toMatchObject({ status: 'not-sent', stage: 'simulate', message: expect.stringMatching(/^Blocked: /) });
+      });
+    }
+  });
+
+  it('one token more than typed leaving, one pool share fewer arriving, or kept wrapped SOL going down by one lamport: each is still blocked', async () => {
+    const tok = world();
+    skewTestRun(tok.chain, tok.tokenAta, -1n);
+    expect(outcome(await create(tok))).toMatchObject(BLOCKED_TOKENS);
+
+    const lp = world();
+    skewTestRun(lp.chain, lpAtaOf(lp), -1n);
+    expect(outcome(await create(lp))).toMatchObject(BLOCKED_TOKENS);
+
+    const kept = world({ heldWsol: 500_000_000n });
+    skewTestRun(kept.chain, kept.wsolAta, -1n);
+    expect(outcome(await create(kept))).toMatchObject(BLOCKED_TOKENS);
+  });
+});
+
+// ── SOL sent to an address before its account exists ─────────────────────────
+//
+// Anyone can send SOL to a wallet's associated address before an account is opened
+// there. The address then reads as owned by the System program, with no data. That is
+// no account yet: the transaction opens one over it, and the wallet pays only what is
+// missing from its deposit. A stranger must not be able to stop an opening with it.
+
+describe('SOL sent to one of the wallet’s addresses before its account exists is no account', () => {
+  /** The least a bare address can hold, and more than a token account's deposit. */
+  const SENT = [rent(0), rent(165) + 12_345];
+  const row = (p: PreparedTx, k: PublicKey) => {
+    const r = p.check.expect.tokens.find((t) => t.account.equals(k))!;
+    return [r.minDelta, r.maxDelta];
+  };
+  const moved = (p: PreparedTx, k: PublicKey) => p.simulated.tokenDeltas.find((d) => d.account.equals(k))!.delta;
+
+  it('at the wrapped-SOL address: the opening prepares at the standard address, and the wallet pays the sum on screen less exactly those lamports', async () => {
+    for (const sent of SENT) {
+      const w = world();
+      w.chain.fund(w.wsolAta, sent);
+      const p = ok(await create(w));
+      const s = summaryOf(p);
+      expect(s.origin, String(sent)).toBe('standard');
+      expect(s.unwrapsWsol, String(sent)).toBe(true);
+      expect(s.wsolHeldBefore, String(sent)).toBe(0n);
+      expect(row(p, w.wsolAta), String(sent)).toEqual([0n, 0n]);
+      const paid = SOL + FEE + NEVER_REFUNDED + R(165) - BigInt(sent);
+      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-paid);
+      expect(p.check.expect.maxSolOut, String(sent)).toBe(paid);
+    }
+  });
+
+  it('at the pool-share address of the standard pool: the opening prepares, exactly the shares arrive, and the wallet pays only what is missing from that deposit', async () => {
+    for (const sent of SENT) {
+      const w = world();
+      const lpAta = associatedTokenAddress(deriveLpMint(CPSWAP, w.standard), ME);
+      w.chain.fund(lpAta, sent);
+      const p = ok(await create(w));
+      const s = summaryOf(p);
+      expect(s.origin, String(sent)).toBe('standard');
+      expect(moved(p, lpAta), String(sent)).toBe(s.lpAmount);
+      const paid = SOL + FEE + NEVER_REFUNDED + BigInt(Math.max(0, rent(165) - sent));
+      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-paid);
+      expect(p.check.expect.maxSolOut, String(sent)).toBe(paid);
+      // The review still states the whole deposit.
+      expect(s.rents.lpAccount, String(sent)).toBe(R(165));
+    }
+  });
+
+  it('at the token address (classic and Token-2022): said as holding none of the token', async () => {
+    for (const tokenProgram of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
+      const w = world({ tokenProgram, heldTokens: null });
+      w.chain.fund(w.tokenAta, rent(0));
+      expect(refused(await create(w)), tokenProgram.toBase58()).toBe(LP_COPY.noTokenAccount(w.tokenAta.toBase58()));
+    }
+  });
+
+  it('the most this wallet can put in still sets aside a full deposit for the wrapped-SOL address', async () => {
+    const most = SOL;
+    const wallet = most + feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + R(165);
+    const w = world({ wallet });
+    w.chain.fund(w.wsolAta, rent(0));
+    ok(await create(w, { sol: most }));
+    expect(refused(await create(w, { sol: most + 1n }))).toBe(CREATE_COPY.rentBand('1 SOL'));
+  });
+
+  it('anything else at the wrapped-SOL address is still refused: another owner, or data that is not a token account', async () => {
+    const cases: Array<[string, { owner: PublicKey; data: Uint8Array }]> = [
+      ['owned by the System program, with data', { owner: SYSTEM_PROGRAM_ID, data: new Uint8Array(80) }],
+      ['no data, owned by another program', { owner: STRANGER, data: new Uint8Array(0) }],
+      ['owned by the token program, too short to be a token account', { owner: TOKEN_PROGRAM_ID, data: new Uint8Array(0) }],
+    ];
+    for (const [label, a] of cases) {
+      const w = world();
+      w.chain.set(w.wsolAta, { lamports: rent(0), ...a });
+      expect(refused(await create(w)), label).toBe(LP_COPY.notUsable('wrapped SOL', w.wsolAta.toBase58()));
+    }
   });
 });
 
@@ -474,7 +633,7 @@ describe('the balance check is exact', () => {
 // 550,840 lamports it had been holding as reserve. An exact fee row blocked every opening
 // on mainnet while this suite, whose chain never synced anything, stayed green.
 
-describe('a sync credits exactly what a wrapped-SOL account already held, and nothing more', () => {
+describe('a sync credits what a wrapped-SOL account already held, and the check counts it', () => {
   const OLD_RESERVE_SURPLUS = 550_840n;
   const OLD_RESERVE = R(165) + OLD_RESERVE_SURPLUS;
   const row = (p: PreparedTx, k: PublicKey) => {
@@ -488,7 +647,7 @@ describe('a sync credits exactly what a wrapped-SOL account already held, and no
     const w = world({ feeReceiver: { reserve: OLD_RESERVE } });
     const p = ok(await create(w));
     expect(moved(p, CP_CREATE_POOL_FEE_RECEIVER)).toBe(FEE + OLD_RESERVE_SURPLUS);
-    expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([FEE + OLD_RESERVE_SURPLUS, FEE + OLD_RESERVE_SURPLUS]);
+    expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([FEE + OLD_RESERVE_SURPLUS, NO_CEILING]);
   });
 
   it('a token program that keeps the stored reserve instead (not mainnet): refused, never accepted on a guess', async () => {
@@ -499,20 +658,26 @@ describe('a sync credits exactly what a wrapped-SOL account already held, and no
     if (!r.ok) expect(r.outcome).toMatchObject(BLOCKED);
   });
 
-  it('lamports someone sent to the fee account before Review are credited with the fee, and allowed exactly', async () => {
+  it('lamports someone sent to the fee account before Review are credited with the fee, and the least that must arrive counts them', async () => {
     const w = world({ feeReceiver: { unsynced: 1_000n } });
     const p = ok(await create(w));
     expect(moved(p, CP_CREATE_POOL_FEE_RECEIVER)).toBe(FEE + 1_000n);
-    expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([FEE + 1_000n, FEE + 1_000n]);
+    expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([FEE + 1_000n, NO_CEILING]);
   });
 
+  // One lamport more comes out of the wallet, so the SOL row says so; one lamport less
+  // lands short of the fee account's own row.
   it('a fee one lamport off the one shown, either way, is still blocked on an account set up under the old rent', async () => {
-    for (const arrives of [(fee: bigint) => fee + 1n, (fee: bigint) => fee - 1n]) {
+    const cases: Array<[(fee: bigint) => bigint, string]> = [
+      [(fee) => fee + 1n, 'Blocked: the simulation shows more SOL leaving your wallet than this screen says.'],
+      [(fee) => fee - 1n, BLOCKED.message],
+    ];
+    for (const [feeCharged, message] of cases) {
       const w = world({ feeReceiver: { reserve: OLD_RESERVE } });
-      w.chain.simulate = createSimulator({ feeArrives: arrives });
+      w.chain.simulate = createSimulator({ feeCharged, networkFee: true });
       const r = await create(w);
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.outcome).toMatchObject(BLOCKED);
+      if (!r.ok) expect(r.outcome).toMatchObject({ ...BLOCKED, message });
     }
   });
 
@@ -520,7 +685,7 @@ describe('a sync credits exactly what a wrapped-SOL account already held, and no
     const free = { ...TERMS, createPoolFee: 0n };
     const w = world({ tier: { createPoolFee: 0n }, feeReceiver: { unsynced: 1_000n } });
     const p = ok(await create(w, { shown: { terms: free, standard: 'empty' } }));
-    expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([0n, 0n]);
+    expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([0n, NO_CEILING]);
   });
 
   it('wrapped SOL the wallet keeps, in an account set up under the old rent: the wrap’s sync credits exactly its surplus, and the opening prepares', async () => {
@@ -528,7 +693,7 @@ describe('a sync credits exactly what a wrapped-SOL account already held, and no
     const p = ok(await create(w));
     expect(summaryOf(p).unwrapsWsol).toBe(false);
     expect(moved(p, w.wsolAta)).toBe(OLD_RESERVE_SURPLUS);
-    expect(row(p, w.wsolAta)).toEqual([OLD_RESERVE_SURPLUS, OLD_RESERVE_SURPLUS]);
+    expect(row(p, w.wsolAta)).toEqual([OLD_RESERVE_SURPLUS, NO_CEILING]);
   });
 
   it('a wrapped-SOL account the opening closes is still exact: it ends empty, whatever it held as reserve', async () => {

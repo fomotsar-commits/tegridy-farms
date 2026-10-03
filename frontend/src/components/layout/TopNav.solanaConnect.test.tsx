@@ -137,18 +137,23 @@ describe('TopNav: Connect on a Solana page', () => {
     expect(within(banner()).getByRole('button', { name: 'Connect a Solana wallet' })).not.toHaveAttribute('aria-busy');
   });
 
-  it('dims, and refuses a second tap, while the page\'s wallet is connecting', () => {
+  // Owner, 2026-10-03: "it won't even recognize my phantom wallet". A connect
+  // waits as long as the wallet takes, and a locked wallet takes for ever. This
+  // button refused every tap for that whole wait, so nothing on the page could
+  // open the wallet list. A tap now goes to the page's own connect click, which
+  // opens the list while a wallet is being waited on (useSolanaConnect).
+  it('dims, but still takes a tap, while the page\'s wallet is connecting: a wallet that never answers is not a dead end', () => {
     const solOpen = vi.fn();
     mount('/pools');
     report({ open: solOpen, connecting: true });
     const button = within(banner()).getByRole('button', { name: 'Connect a Solana wallet' });
-    // aria-disabled, never disabled: the list hands focus back to this button.
     expect(button).toBeEnabled();
-    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).not.toHaveAttribute('aria-disabled');
     expect(button).toHaveAttribute('aria-busy', 'true');
-    expect(button).toHaveAttribute('title', 'Connecting your Solana wallet…');
+    expect(button).toHaveAttribute('title', 'Waiting for your Solana wallet. Tap for the wallet list.');
     fireEvent.click(button);
-    expect(solOpen).not.toHaveBeenCalled();
+    expect(solOpen).toHaveBeenCalledTimes(1);
+    expect(evmOpen).not.toHaveBeenCalled();
   });
 
   it('drops a waiting tap when the visitor leaves the page', async () => {
@@ -181,6 +186,31 @@ describe('TopNav: Connect on a Solana page', () => {
       // And it says so: a button that dims and then does nothing reads as broken.
       expect(toastMock).toHaveBeenCalledTimes(1);
       expect(toastMock).toHaveBeenCalledWith('The Solana wallet list did not load on this page. Reload the page and try again.');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // A tap made before the Solana section mounted is kept. If that section then
+  // mounts with a wallet that does not answer, the kept tap is held, and the
+  // visitor taps again. That second tap opens the list, so nothing is left
+  // waiting: ten seconds on it used to say the list "did not load", over the
+  // open list.
+  it('says nothing about a list that did not load once a later tap has opened it', () => {
+    vi.useFakeTimers();
+    try {
+      const solOpen = vi.fn();
+      mount('/pools');
+      fireEvent.click(within(banner()).getByRole('button', { name: 'Connect a Solana wallet' }));
+      report({ open: solOpen, connecting: true });
+      expect(solOpen).not.toHaveBeenCalled();
+      fireEvent.click(within(banner()).getByRole('button', { name: 'Connect a Solana wallet' }));
+      expect(solOpen).toHaveBeenCalledTimes(1);
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+      expect(toastMock).not.toHaveBeenCalled();
+      expect(solOpen).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

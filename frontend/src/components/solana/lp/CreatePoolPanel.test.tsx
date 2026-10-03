@@ -8,6 +8,7 @@ import { act, render, screen, waitFor, within, fireEvent } from '@testing-librar
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
+import { solAbout } from './panelKit';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { isCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
@@ -303,6 +304,59 @@ describe('the panel', () => {
     expect(sol(panel)).toHaveValue('0.1');
     expect(tokens(panel)).toHaveValue('10');
     expect(reviewButton(panel)).toBeEnabled();
+  });
+
+  // Owner, 2026-10-03: "i still am not able to create lp on solana". The form was open
+  // on a wallet holding 0.006 SOL and none of the token, and all it did was grey out
+  // Review: the reason was two small hints under the boxes. A wallet that cannot open
+  // any pool is now told so before it types anything.
+  describe('a wallet that cannot open any pool is told so up front', () => {
+    // What opening takes before any SOL goes in: (10,000 + 1,000,000) for two signatures
+    // and the reserve, 2,039,280 for the share account, 150,000,000 + 40,000,000 for the
+    // fee and the deposits, and max(2,039,280, 890,880) kept in the wallet.
+    const NEEDS = 195_088_560n;
+
+    it('too little SOL and none of the token: says how much opening needs, what the wallet has, and that it holds none', async () => {
+      mount(readers({ wallet: vi.fn(async () => facts({ lamports: 5_960_758n, token: null })) }));
+      const { panel } = await openPanel();
+      const cannot = await within(panel).findByTestId('lp-create-cannot');
+      expect(cannot).toHaveTextContent('This wallet cannot open a pool yet.');
+      expect(cannot).toHaveTextContent(`needs about ${solAbout(NEEDS)}`);
+      expect(cannot).toHaveTextContent('this wallet has 0.005960758 SOL');
+      expect(cannot).toHaveTextContent('holds none of this token');
+      expect(reviewButton(panel)).toBeDisabled();
+    });
+
+    it('too little SOL only: no word about the token', async () => {
+      mount(readers({ wallet: vi.fn(async () => facts({ lamports: NEEDS })) }));
+      const { panel } = await openPanel();
+      const cannot = await within(panel).findByTestId('lp-create-cannot');
+      expect(cannot).toHaveTextContent('This wallet cannot open a pool yet.');
+      expect(cannot).not.toHaveTextContent('none of this token');
+    });
+
+    it('none of the token only: says a pool needs both, and nothing about SOL being short', async () => {
+      mount(readers({ wallet: vi.fn(async () => facts({ token: null })) }));
+      const { panel } = await openPanel();
+      const cannot = await within(panel).findByTestId('lp-create-cannot');
+      expect(cannot).toHaveTextContent('This wallet holds none of this token');
+      expect(cannot).toHaveTextContent('needs both SOL and the token');
+      expect(cannot).not.toHaveTextContent('needs about');
+    });
+
+    it('one lamport above what opening needs, with the token: nothing is said', async () => {
+      mount(readers({ wallet: vi.fn(async () => facts({ lamports: NEEDS + 1n })) }));
+      const { panel } = await openPanel();
+      await within(panel).findByRole('button', { name: 'Max SOL' });
+      expect(within(panel).queryByTestId('lp-create-cannot')).toBeNull();
+    });
+
+    it('an unread wallet is never told it cannot: nothing is claimed from a read that failed', async () => {
+      mount(readers({ wallet: vi.fn(async () => ({ kind: 'unread' as const, detail: 'HTTP 502' })) }));
+      const { panel } = await openPanel();
+      await waitFor(() => expect(panel).toHaveTextContent('could not read (HTTP 502)'));
+      expect(within(panel).queryByTestId('lp-create-cannot')).toBeNull();
+    });
   });
 
   it('an unread wallet offers no Max and is never 0', async () => {

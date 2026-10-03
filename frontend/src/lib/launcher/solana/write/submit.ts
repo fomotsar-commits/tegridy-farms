@@ -307,8 +307,12 @@ export async function submitPrepared(
       if (/already been processed/i.test(msg)) {
         // It is already on chain: fall through to the watch.
       } else {
-        const why = explainFailure(null, logs ?? [], p.check.intent.cfg, p.kind);
-        return notSent('send', `The network refused this before sending it: ${why.message} Nothing was sent.`, logs ?? undefined);
+        // "Blockhash not found" comes with no logs to read a reason from. It is nearly
+        // always a wallet approval that outlasted the blockhash, so that is what is said.
+        const why = /Blockhash not found/i.test(msg)
+          ? 'It most likely took too long to sign, so it ran out of time. Start over to make a new one.'
+          : explainFailure(null, logs ?? [], p.check.intent.cfg, p.kind).message;
+        return notSent('send', `The network refused this before sending it: ${why} Nothing was sent.`, logs ?? undefined);
       }
     }
     // Any other error (a dropped connection, a timeout) may have happened after the

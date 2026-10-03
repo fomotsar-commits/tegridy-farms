@@ -318,6 +318,16 @@ describe('while a saved WalletConnect session is still being restored', () => {
     await waitFor(() => expect(screen.getByTestId('pk')).toHaveTextContent(account));
   });
 
+  // The list names a wallet it is waiting on and says to open it, because it
+  // may be locked (2026-10-03). None of that is true of WalletConnect: its wait
+  // here is this restore, and there is no app of that name to open.
+  it('the list does not say it is waiting for WalletConnect to be opened or unlocked', async () => {
+    await mountRestoring({ live: false });
+    const dialog = await openList();
+    expect(within(dialog).queryByRole('status')).toBeNull();
+    expect(dialog).not.toHaveTextContent(/Waiting for/);
+  });
+
   it('clicking the WalletConnect row with NO session to restore: the click is kept, and the QR follows', async () => {
     await mountRestoring({ live: false });
     fireEvent.click(within(await openList()).getByText('WalletConnect'));

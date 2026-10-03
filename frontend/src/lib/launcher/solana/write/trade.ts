@@ -224,7 +224,10 @@ export async function prepareCurveSell(
     expect: () => ({
       maxSolOut: 0n,
       minSolIn: minLamportsOut,
-      tokens: [{ account: ata, mint: a.mint, minDelta: -a.tokensIn, maxDelta: -a.tokensIn }],
+      // At most the tokens the sale names may leave (the bytes pin the exact number). No
+      // upper bound: the balance is read a slot or more before the test run, and a token
+      // a stranger sends in between must not block the sale.
+      tokens: [{ account: ata, mint: a.mint, minDelta: -a.tokensIn, maxDelta: 2n ** 64n }],
     }),
     newAccountRent: () => 0n,
     summarize: (steps): TxSummary | string => {

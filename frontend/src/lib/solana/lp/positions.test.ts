@@ -1,6 +1,8 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
-import { MAX_POSITIONS, readPositions } from './positions';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import type { PublicKey } from '@solana/web3.js';
+import { deriveAuthority } from '../cpswap/program';
+import { LOOKUPS_AT_ONCE, MAX_POSITIONS, MISS_KEPT_MS, readPositions } from './positions';
 import { rememberCreatedShare } from './positions';
 import { TOKEN_PROGRAM } from './tokenSafety';
 import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeIndex, fakeRpc, key, mintBytes, tokenAccountBytes, type FakeAccount } from './testkit.fixture';
@@ -94,6 +96,151 @@ describe('readPositions', () => {
     const r = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({ [`lpMint:${p.lpMint.toBase58()}`]: [p.address.toBase58()] }, { calls })));
     expect(r.kind === 'ok' && r.positions.map((x) => x.placement)).toEqual(['found', 'found']);
     expect(calls).toHaveLength(1);
+  });
+});
+
+// ATK-2 (audit 2026-10-03): a "share" is cheap to fake. Anyone can make a mint, hand its
+// authority to the pool program's authority address and send one unit to a wallet. Fakes
+// must not push a real share off the first page, and must not spend the index's
+// lookups again on every read.
+describe('readPositions: junk "shares" sent to the wallet', () => {
+  const AUTHORITY = deriveAuthority(PROGRAM);
+
+  /** `n` mints handed to the pool authority with no pool behind them, one unit of each in `wallet`. */
+  function junkShares(wallet: PublicKey, n: number, keep: (mint: string) => boolean = () => true) {
+    const accounts: Record<string, FakeAccount> = {};
+    const mints: string[] = [];
+    while (mints.length < n) {
+      const m = key();
+      if (!keep(m.toBase58())) continue;
+      mints.push(m.toBase58());
+      accounts[m.toBase58()] = { owner: TOKEN_PROGRAM, data: mintBytes(AUTHORITY, 9) };
+      accounts[key().toBase58()] = { owner: TOKEN_PROGRAM, data: tokenAccountBytes(m, wallet, 1n) };
+    }
+    return { accounts, mints: mints.sort() };
+  }
+
+  /** An index that takes a moment to answer, and counts how many lookups are waiting at once. */
+  function slowIndex(table: Record<string, string[]>, calls: string[]) {
+    const answer = fakeIndex(table, { calls });
+    const waiting = { now: 0, most: 0 };
+    const fetchImpl = (async (url: string) => {
+      waiting.most = Math.max(waiting.most, ++waiting.now);
+      await new Promise((r) => setTimeout(r, 0));
+      waiting.now--;
+      return answer(url);
+    }) as unknown as typeof fetch;
+    return { fetchImpl, waiting };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a miss is not asked again within the minute: "read again" asks nothing, "more" asks only for the new ones', async () => {
+    const wallet = key();
+    const junk = junkShares(wallet, MAX_POSITIONS + 5);
+    const accounts = { ...junk.accounts, [CLOCK]: clockAccount(5n) };
+    const first: string[] = [];
+    const a = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({}, { calls: first })));
+    expect(a.kind === 'ok' && [a.positions.length, a.totalShares, a.positions.every((p) => p.placement === 'not-found')]).toEqual([MAX_POSITIONS, MAX_POSITIONS + 5, true]);
+    expect(first).toHaveLength(MAX_POSITIONS);
+
+    const again: string[] = [];
+    const b = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({}, { calls: again })));
+    expect(again).toEqual([]);
+    // The rows are still there, still unplaced: nothing dropped off the list.
+    expect(b.kind === 'ok' && b.positions.map((p) => [p.lpMint, p.placement])).toEqual(junk.mints.slice(0, MAX_POSITIONS).map((m) => [m, 'not-found']));
+
+    const more: string[] = [];
+    const c = await readPositions(fakeRpc(accounts), wallet, { ...opts(fakeIndex({}, { calls: more })), limit: MAX_POSITIONS * 2 });
+    expect(more.sort()).toEqual(junk.mints.slice(MAX_POSITIONS).map((m) => `lpMint:${m}`));
+    expect(c.kind === 'ok' && c.positions.length).toBe(MAX_POSITIONS + 5);
+  });
+
+  it('a miss is asked again after the minute, so a pool the index had not caught up with is placed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const wallet = key();
+    const p = buildPool({ mint: key(), address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
+    const accounts: Record<string, FakeAccount> = { ...p.accounts, [CLOCK]: clockAccount(5n), [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 100n) } };
+    const caughtUp = { [`lpMint:${p.lpMint.toBase58()}`]: [p.address.toBase58()] };
+    const placement = async (table: Record<string, string[]>, calls: string[]) => {
+      const r = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex(table, { calls })));
+      return r.kind === 'ok' ? r.positions.map((x) => x.placement) : r.kind;
+    };
+    expect(await placement({}, [])).toEqual(['not-found']);
+    vi.setSystemTime(Date.now() + MISS_KEPT_MS - 1);
+    const early: string[] = [];
+    expect(await placement(caughtUp, early)).toEqual(['not-found']);
+    expect(early).toEqual([]);
+    vi.setSystemTime(Date.now() + 1);
+    const late: string[] = [];
+    expect(await placement(caughtUp, late)).toEqual(['found']);
+    expect(late).toHaveLength(1);
+  });
+
+  it('an index that could not be read is not a miss: it is asked again at once', async () => {
+    const wallet = key();
+    const junk = junkShares(wallet, 3);
+    const accounts = { ...junk.accounts, [CLOCK]: clockAccount(5n) };
+    const down = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({}, { status: 429 })));
+    expect(down.kind === 'ok' && down.positions.map((p) => p.placement)).toEqual(['index-unread', 'index-unread', 'index-unread']);
+    const asked: string[] = [];
+    await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex({}, { calls: asked })));
+    expect(asked).toHaveLength(3);
+  });
+
+  it('lookups go a few at a time, and shares never asked go before misses that have aged out', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const wallet = key();
+    const junk = junkShares(wallet, MAX_POSITIONS * 2);
+    const accounts = { ...junk.accounts, [CLOCK]: clockAccount(5n) };
+    const first: string[] = [];
+    const one = slowIndex({}, first);
+    await readPositions(fakeRpc(accounts), wallet, opts(one.fetchImpl));
+    const page1 = junk.mints.slice(0, MAX_POSITIONS).map((m) => `lpMint:${m}`);
+    const page2 = junk.mints.slice(MAX_POSITIONS).map((m) => `lpMint:${m}`);
+    // In share order, and never more than LOOKUPS_AT_ONCE waiting: a rate limit then
+    // lands on the last ones asked, not on whichever arrive last.
+    expect(first).toEqual(page1);
+    expect(one.waiting.most).toBe(LOOKUPS_AT_ONCE);
+    expect(LOOKUPS_AT_ONCE).toBeLessThan(MAX_POSITIONS);
+
+    vi.setSystemTime(Date.now() + MISS_KEPT_MS);
+    const second: string[] = [];
+    const two = slowIndex({}, second);
+    await readPositions(fakeRpc(accounts), wallet, { ...opts(two.fetchImpl), limit: MAX_POSITIONS * 2 });
+    expect(second).toEqual([...page2, ...page1]);
+    expect(two.waiting.most).toBe(LOOKUPS_AT_ONCE);
+  });
+
+  it('a proven share is listed before junk whose mints sort ahead of it, and costs no lookup', async () => {
+    const wallet = key();
+    const pool = () => buildPool({ mint: key(), address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
+    let p = pool();
+    // A share mint that does not sort near the very front, so junk ahead of it is quick to make.
+    while (p.lpMint.toBase58() < '9') p = pool();
+    const lpMint = p.lpMint.toBase58();
+    // More than a page of junk, every mint sorting before the real share's.
+    const junk = junkShares(wallet, MAX_POSITIONS + 3, (m) => m < lpMint);
+    const accounts: Record<string, FakeAccount> = { ...p.accounts, ...junk.accounts, [CLOCK]: clockAccount(5n), [key().toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 100n) } };
+    const table = { [`lpMint:${lpMint}`]: [p.address.toBase58()] };
+
+    // Not proven yet: it is past the first page, and is still counted.
+    const before = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex(table)));
+    expect(before.kind === 'ok' && [before.positions.some((x) => x.lpMint === lpMint), before.totalShares]).toEqual([false, MAX_POSITIONS + 4]);
+    // "Look up more" reaches it, and the index proves it.
+    const reached = await readPositions(fakeRpc(accounts), wallet, { ...opts(fakeIndex(table)), limit: MAX_POSITIONS * 2 });
+    expect(reached.kind === 'ok' && reached.positions.find((x) => x.lpMint === lpMint)?.placement).toBe('found');
+
+    // From then on it is on the first page, first, whatever junk sorts ahead of it.
+    const asked: string[] = [];
+    const after = await readPositions(fakeRpc(accounts), wallet, opts(fakeIndex(table, { calls: asked })));
+    expect(after.kind === 'ok' && after.positions.length).toBe(MAX_POSITIONS);
+    const mine = after.kind === 'ok' ? after.positions[0] : undefined;
+    expect(mine).toMatchObject({ lpMint, placement: 'found' });
+    expect(mine?.value?.sharePct).toBeCloseTo(10, 6);
+    expect(asked).not.toContain(`lpMint:${lpMint}`);
   });
 });
 

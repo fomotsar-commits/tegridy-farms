@@ -18,6 +18,30 @@ export const solAbout = (lamports: bigint) => `${formatSol(lamports, 4)} SOL`;
 export const tokensAbout = (raw: bigint, decimals: number) => `${formatTokenAmount(raw, decimals, 4).text} tokens`;
 
 /**
+ * A wallet that cannot fund the action at all is told so before it types anything
+ * (owner, 2026-10-03: the open-a-pool form only greyed out Review, and the reason was
+ * two small hints). `null` whenever a balance is unread or something can go in: nothing
+ * is claimed from a read that did not happen. `setAside` is `solSetAside`'s figure.
+ */
+export function cannotFundText(a: {
+  /** "open a pool", "add to this pool". */
+  doing: string;
+  /** What `setAside` pays for, in the hint's own words. */
+  forWhat: string;
+  lamports: bigint | null;
+  setAside: bigint | null;
+  availableSol: bigint | null;
+  availableToken: bigint | null;
+}): string | null {
+  const noToken = a.availableToken === 0n;
+  if (a.availableSol === 0n && a.setAside !== null && a.lamports !== null) {
+    return `This wallet cannot ${a.doing} yet. That needs about ${solAbout(a.setAside)} for ${a.forWhat} before any SOL goes into the pool, and this wallet has ${solExact(a.lamports)}.${noToken ? ' It also holds none of this token, and a pool needs both.' : ''}`;
+  }
+  if (noToken) return `This wallet holds none of this token, so it cannot ${a.doing} yet. A pool needs both SOL and the token.`;
+  return null;
+}
+
+/**
  * The pool shares the pool program keeps in every new pool forever (100 of the smallest
  * unit), written as the share counts on this page are: in 9 decimals. One text, shared
  * with the write layer's refusals (lib/solana/lp/liquidityMath.ts).

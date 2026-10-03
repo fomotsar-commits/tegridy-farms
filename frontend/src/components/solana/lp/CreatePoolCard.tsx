@@ -12,7 +12,7 @@ import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import type { CreateFacts, TierState } from '../curve/ports';
 import { CreatePoolPanel } from './CreatePoolPanel';
 import { MONEY_NOTE } from './LpDisclosures';
-import { createOffer, type CreateOffer } from './offers';
+import { createOffer, poolListCut, type CreateOffer } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const NATIVE_2022_LINE = 'This is SOL under the newer token program. Pools here pair a token with SOL.';
@@ -180,7 +180,6 @@ function poolsUnreadDetail(search: PoolSearchRead, healths: ReadonlyMap<string, 
   if (search.kind !== 'ok') return search.detail;
   const s = search.search;
   if (s.index.kind !== 'ok') return `our pool index could not be read: ${s.index.detail}`;
-  if (s.index.truncated) return 'our pool index returned its maximum, so there may be more pools';
   for (const e of s.pools) {
     if (e.kind !== 'pool') return `the pool at ${e.address} could not be read`;
     if (healths.get(e.view.address)?.deposits.verdict !== 'allowed' && healths.get(e.view.address)?.deposits.verdict !== 'refused') {
@@ -250,7 +249,9 @@ function OfferLines({
       // Opened with cp-swap's `initialize`, so the new pool never charges the tier's creator fee.
       const terms = `${tradeCostText(tier.config, CREATOR_FEE_SWITCH.publicOpen)}, ${solFee(tier.config.createPoolFee)} SOL to open`;
       const pools = search.kind === 'ok' ? search.search.pools.flatMap((e) => (e.kind === 'pool' ? [e.view] : [])) : [];
-      if (pools.length === 0) {
+      // A cut list (see poolListCut) is never "no pool yet", and a new pool never "the first".
+      const cut = poolListCut(search);
+      if (pools.length === 0 && !cut) {
         return <p>No pool for this token yet. You can open the first one on the public fee tier: {terms} (read just now).</p>;
       }
       const tier1 = tier.address.toBase58();
@@ -263,8 +264,15 @@ function OfferLines({
       ];
       return (
         <>
+          {cut && (
+            <p>
+              This token has more pools than our pool index lists. The index lists the ones holding the most SOL, so the ones left out hold no
+              more SOL than those. They were not read or checked here.
+            </p>
+          )}
           <p>
-            {otherTiers.length > 0 ? "None of this token's pools on the public fee tier passes the checks above." : "None of this token's pools passes the checks above."}{' '}
+            {cut ? 'None of the pools read for this token' : "None of this token's pools"}
+            {otherTiers.length > 0 ? ' on the public fee tier' : ''} passes the checks above.{' '}
             You can open a new one on the public fee tier ({terms}). It will be a separate pool: it does not fix or join the others.
           </p>
           {otherTiers.length > 0 && (

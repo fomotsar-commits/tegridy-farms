@@ -501,7 +501,7 @@ test.describe('group B (chromium only)', () => {
       })(),
       (async () => {
         B.c9 = await fundedKeypair(3);
-        B.t9 = await createToken2022MetadataOnly(B.c9, { name: 'E2E Bayla-like', symbol: 'EBAYLK', supply: 100_000n * UNIT });
+        B.t9 = await createToken2022MetadataOnly(B.c9, { name: 'E2E Meta Only 2022', symbol: 'EMETA22', supply: 100_000n * UNIT });
         book.setPrice(B.t9.toBase58(), FAIR, DEC);
       })(),
       (async () => {

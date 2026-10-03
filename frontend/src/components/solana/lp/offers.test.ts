@@ -14,7 +14,7 @@ import { PROGRAM, buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.
 import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { CurveWriteConfig, LpGate } from '../curve/ports';
-import { createHeld, createOffer, depositOffer, lpHeld, withdrawOffer, type CreateOffer } from './offers';
+import { createHeld, createOffer, depositOffer, lpHeld, poolListCut, withdrawOffer, type CreateOffer } from './offers';
 
 const mint = key();
 const SOL = 10n * 10n ** 9n;
@@ -321,12 +321,45 @@ describe('createOffer', () => {
       ['price unread', { ...base(), outside: { kind: 'unread', detail: 'x' } }],
       ['search unread', { ...base(), search: { kind: 'unread', detail: 'x', index: { kind: 'unread', detail: 'x' } } }],
       ['index unread', { ...base(), search: searchOf([], { kind: 'unread', detail: 'x' }) }],
-      ['index truncated', { ...base(), search: searchOf([], { kind: 'ok', pools: [], truncated: true }) }],
       ['an unread entry', withPool(base(), { kind: 'unread', address: key().toBase58(), detail: 'x' })],
       ['an unchecked pool', withPool(base(), poolOn(0), 'unchecked')],
       ['a pool with no health', withPool(base(), poolOn(0))],
     ];
     for (const [name, a] of unread) expect(createOffer(a), name).not.toBe('offer');
+  });
+
+  // ATK-3 (audit 2026-10-03): a pool costs only rent to open and can never be closed, so
+  // anyone can make the index answer "truncated" for a token for good. That is a cut
+  // list, not an unread one: the index lists the pools holding the most SOL and the
+  // standard addresses are read directly, so Create is decided from the pools read.
+  describe('a truncated index is a cut list, not an unread one', () => {
+    const cut = (): In => ({ ...base(), search: searchOf([], { kind: 'ok', pools: [], truncated: true }) });
+
+    it('offers when no pool that was read passes on the public tier', () => {
+      expect(createOffer(cut())).toBe('offer');
+      expect(createOffer(withPool(withPool(cut(), poolOn(0, key()), 'refused'), poolOn(1, key()), 'refused'))).toBe('offer');
+      expect(createOffer(withPool(cut(), poolOn(0), 'allowed'))).toBe('offer');
+    });
+
+    it('still answers from the pools read: a passing pool on the public tier, or one this tab opened', () => {
+      expect(createOffer(withPool(cut(), poolOn(1), 'allowed'))).toBe('exists');
+      const mine = poolOn(1, key());
+      expect(createOffer({ ...withPool(cut(), mine, 'refused'), openedHere: (p: string) => p === mine.view.address })).toBe('opened-here');
+    });
+
+    it('what is truly unread still stops it: a pool not read, not checked, or the index itself', () => {
+      expect(createOffer(withPool(cut(), { kind: 'unread', address: key().toBase58(), detail: 'x' }))).toBe('pools-unread');
+      expect(createOffer(withPool(cut(), poolOn(0), 'unchecked'))).toBe('pools-unread');
+      expect(createOffer(withPool(cut(), poolOn(0)))).toBe('pools-unread');
+      expect(createOffer({ ...base(), search: searchOf([], { kind: 'unread', detail: 'x' }) })).toBe('pools-unread');
+    });
+
+    it('poolListCut tells the card, so it never calls a new pool "the first"', () => {
+      expect(poolListCut(cut().search)).toBe(true);
+      expect(poolListCut(base().search)).toBe(false);
+      expect(poolListCut(searchOf([], { kind: 'unread', detail: 'x' }))).toBe(false);
+      expect(poolListCut({ kind: 'unread', detail: 'x', index: { kind: 'ok', pools: [], truncated: true } })).toBe(false);
+    });
   });
 
   it('a passing pool blocks only when it is on the public tier: a passing tier-0 pool still gives offer', () => {
