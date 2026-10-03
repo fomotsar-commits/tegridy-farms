@@ -14,6 +14,7 @@ import { isCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
+import { yieldClaim } from '../../../lib/solana/lp/yieldCopy.fixture';
 import { LP_PENDING_SCOPE, readPendingTrades } from '../curve/pendingTrade';
 import { prepared } from '../curve/fakeWriteApi.fixture';
 import type { LpWriteApi, Prepared, SubmitDeps, TxOutcome } from '../curve/ports';
@@ -153,7 +154,8 @@ describe('the panel', () => {
     // Shares are said in 9 decimals everywhere on this page: never "100 pool shares".
     expect(before).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit) stay locked in the pool forever');
     expect(before).toHaveTextContent("Anyone can open other pools for this token, at any price. Yours will not be 'the' pool.");
-    expect(panel).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of|earn fees on every trade/i);
+    expect(yieldClaim(panel.textContent ?? '')).toBeNull();
+    expect(panel).not.toHaveTextContent(/earn fees on every trade/i);
     expect(within(panel).getByText('Pool address').nextElementSibling).toHaveTextContent('the standard address for fee tier 1');
     expect(within(panel).getByText('Fee tier').nextElementSibling).toHaveTextContent('1: traders pay 1% a trade; LPs keep 0.840% of each trade');
     // The wallet is read with the opening's own deposits.

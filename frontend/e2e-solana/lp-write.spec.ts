@@ -35,6 +35,7 @@ import { withdrawIx } from '../src/lib/solana/cpswap/ix';
 import { deriveAmmConfig, derivePool, sortMints } from '../src/lib/solana/cpswap/program';
 import { feeSplit } from '../src/lib/solana/cpswap/venue';
 import { feeRateText } from '../src/lib/solana/lp/format';
+import { NO_YIELD_SENTENCE, yieldClaim } from '../src/lib/solana/lp/yieldCopy.fixture';
 import { feeReserveFor, minLpForBothSides, spendableSol } from '../src/lib/solana/lp/liquidityMath';
 
 const DEC = 6;
@@ -851,12 +852,13 @@ test.describe('group B (chromium only)', () => {
       const { rows, f } = await reviewDeposit(a, panel, pool.address, 'sol', sol(0.05));
       expect(rows['Fee tier']).toBe(tierText(f));
       seen.push(rows['Fee tier']!);
-      expect((await ui.lp.section(p).innerText())).not.toMatch(/APR|APY|yield of/i);
+      // The words, in prose: never letters inside an address (yieldCopy.fixture.ts).
+      expect(yieldClaim(await ui.lp.section(p).innerText(), [NO_YIELD_SENTENCE])).toBeNull();
       await press(p.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel');
       await press(panel.getByRole('button', { name: 'Close', exact: true }), 'close the panel');
     }
     expect(seen[0]).not.toBe(seen[1]);
-    expect(await ui.lp.section(p).innerText()).not.toMatch(/APR|APY|yield of/i);
+    expect(yieldClaim(await ui.lp.section(p).innerText(), [NO_YIELD_SENTENCE])).toBeNull();
     expect(a.wallet.records).toEqual([]);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();

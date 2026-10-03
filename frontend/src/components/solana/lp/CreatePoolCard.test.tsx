@@ -13,6 +13,7 @@ import { isCreatedPool, rememberCreatedPool, type PoolSearchRead, type PoolView 
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
+import { yieldClaim } from '../../../lib/solana/lp/yieldCopy.fixture';
 import { LP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../curve/pendingTrade';
 import type { CreateFacts, LpWriteApi } from '../curve/ports';
 import { TIER1_ADDRESS, fakeLpApi, lpOpenGate, LP_PROGRAM, notOpenFacts, readyFacts, tier1Config, unusedGateRpc } from './fakeLpWriteApi.fixture';
@@ -151,7 +152,8 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(c).toHaveTextContent('Trades on this site go through Jupiter, and Jupiter does not send trades to our pools.');
     expect(c).toHaveTextContent(/a new pool earns fees only when bots trade our pool program directly, mostly arbitrage/);
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
-    expect(c).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of|earn fees on every trade/i);
+    expect(yieldClaim(c.textContent ?? '')).toBeNull();
+    expect(c).not.toHaveTextContent(/earn fees on every trade/i);
     // N20: Jupiter is asked even with no pool, once, so an opening price can be checked.
     expect(r.outsidePrice).toHaveBeenCalledTimes(1);
   });

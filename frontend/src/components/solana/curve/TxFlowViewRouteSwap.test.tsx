@@ -10,6 +10,7 @@ import { act, render, renderHook, screen, waitFor } from '@testing-library/react
 import { TxFlowView, TxOutcomeCard } from './TxFlowView';
 import { useTxFlow } from './useTxFlow';
 import { CREATOR, KEY, SIG, fakeApi, prepared } from './fakeWriteApi.fixture';
+import { yieldClaim } from '../../../lib/solana/lp/yieldCopy.fixture';
 import { LP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from './pendingTrade';
 import { usePendingTrades, type CheckSignature } from './usePendingTrades';
 import type { CurveWriteConfig, PreparedTx, TxSigner, TxSummary, WriteRpc } from './ports';
@@ -156,7 +157,7 @@ describe('the review of a swap through one of our pools', () => {
   it('no row promises a yield, and nothing has an em dash', async () => {
     await review(sell());
     const text = screen.getByTestId('tx-review').textContent ?? '';
-    expect(text).not.toMatch(/APR|APY|yield/i);
+    expect(yieldClaim(text)).toBeNull();
     expect(text).not.toContain('—');
   });
 });

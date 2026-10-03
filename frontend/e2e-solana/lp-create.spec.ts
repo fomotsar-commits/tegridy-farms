@@ -34,6 +34,7 @@ import {
 } from '../src/lib/solana/cpswap/program';
 import { feeSplit } from '../src/lib/solana/cpswap/venue';
 import { feeRateText, formatSolPrice } from '../src/lib/solana/lp/format';
+import { NO_YIELD_SENTENCE, yieldClaim } from '../src/lib/solana/lp/yieldCopy.fixture';
 import { feeReserveFor, isqrt, planCreate, spendableSol } from '../src/lib/solana/lp/liquidityMath';
 import { arbitrageLoss, matchMarket, openingSolPerToken } from '../src/lib/solana/lp/opening';
 
@@ -1119,10 +1120,11 @@ test.describe('group B (chromium only)', () => {
     expect(rows['Fee tier']).toBe(tierText(t1));
     expect(tierText(t1)).not.toBe(tierText(t0));
     await expect(ui.review(p).getByTestId('lp-review-disclosure')).toContainText(MONEY);
-    // The only "yield" in the section is the sentence that says none is shown.
+    // The only "yield" in the section is the sentence that says none is shown. The words
+    // APR, APY and yield in prose: never letters inside an address (yieldCopy.fixture.ts).
     const section = (await ui.lp.section(p).innerText()).replace(/\s+/g, ' ');
-    expect(section).not.toMatch(/APR|APY|yield of/i);
-    expect(section.replace('This page shows no yield, because none has been measured.', '')).not.toMatch(/yield/i);
+    expect(section).toContain(NO_YIELD_SENTENCE);
+    expect(yieldClaim(section, [NO_YIELD_SENTENCE])).toBeNull();
     expect(section).not.toMatch(/earn fees on every trade/i);
     await press(p.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel');
     expect(a.wallet.records).toEqual([]);
