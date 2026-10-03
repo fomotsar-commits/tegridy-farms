@@ -435,5 +435,36 @@ describe('a page opened by a hand-off carries on by itself', () => {
     expect(trust.connectCalls).toBe(0);
     expect(getSolanaSurfaceState().surface!.address).toBe(WSOL);
     expect(solanaHandoffPending()).toBe(false);
+    // Remove the `if (connected)` branch and the list opens over the connected wallet.
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // Anyone can write the marker into a link. An ordinary phone browser that
+  // carries one wallet of its own (Brave's, a Safari extension) is told from a
+  // wallet's own browser by its "Open app" rows. There the wallet is NOT asked:
+  // a link must not make it prompt, or reconnect in silence, with no press.
+  // MUTATION CHECK: drop `&& !ordinaryBrowser`; this must fail (Phantom is asked).
+  it('in an ordinary phone browser the one detected wallet is not asked: the list opens', async () => {
+    arriveByHandoff();
+    const phantom = new FakeWallet('Phantom');
+    const trust = new FakeWallet('Trust', 'plain', WalletReadyState.Loadable);
+    withFake(phantom, trust);
+    expect(await screen.findByRole('dialog')).toHaveTextContent('on Solana to continue');
+    await act(async () => {});
+    expect(phantom.connectCalls + trust.connectCalls).toBe(0);
+    expect(getSolanaSurfaceState().surface!.address).toBeNull();
+    expect(solanaHandoffPending()).toBe(false);
+  });
+
+  // The same browser, with that wallet saved from an earlier visit and its
+  // silent restore refused: the list, never a prompt nobody pressed for.
+  it('nor is a saved wallet asked there', async () => {
+    localStorage.setItem('walletName', JSON.stringify('Phantom'));
+    arriveByHandoff();
+    const phantom = new FakeWallet('Phantom');
+    withFake(phantom, new FakeWallet('Trust', 'plain', WalletReadyState.Loadable));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('on Solana to continue');
+    await act(async () => {});
+    expect(phantom.connectCalls).toBe(0);
   });
 });

@@ -14,6 +14,7 @@
 //
 // MUTATION CHECKS
 //  - Put `Connect Wallet` back as any of these buttons' words: its row fails.
+//    As JSX text, in braces, in a ternary, through a variable, or with a small w.
 //  - Drop `label={CONNECT_ETHEREUM_WALLET}` from a stock <ConnectButton />: its row fails.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -28,6 +29,8 @@ const SURFACES = [
   'components/swap/TwapOrderPanel.tsx',
   'components/swap/TriggerOrderTab.tsx',
   'components/swap/LiquidityTab.tsx',
+  'components/farm/LPFarmingSection.tsx',
+  'components/farm/StakingCard.tsx',
   'components/ui/ConnectPrompt.tsx',
 ];
 
@@ -51,8 +54,11 @@ describe('a Connect button that opens the Ethereum wallet list names Ethereum', 
     // RainbowKit's stock button says "Connect Wallet" unless it is given a label.
     const stock = source.match(/<ConnectButton(?![.\w])[^>]*>/g) ?? [];
     for (const tag of stock) expect(tag, `${file}: ${tag}`).toContain('label={CONNECT_ETHEREUM_WALLET}');
-    // A button's own words, as JSX text.
-    expect(source, `${file} still has a bare "Connect Wallet" button`).not.toMatch(/>\s*Connect Wallet\s*</);
-    expect(source).toContain('CONNECT_ETHEREUM_WALLET');
+    // The bare words, anywhere in code: JSX text, a string in braces or in a
+    // ternary, a variable, either case. The first version of this test looked
+    // for JSX text only, and every other spelling passed it (review, 2026-10-03).
+    expect(source, `${file} still says "Connect Wallet" with no network`).not.toMatch(/connect\s+wallet\b/i);
+    // Used, not only imported.
+    expect(source.split('CONNECT_ETHEREUM_WALLET').length - 1).toBeGreaterThanOrEqual(2);
   });
 });

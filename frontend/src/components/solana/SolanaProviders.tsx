@@ -20,6 +20,7 @@ import { WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
 // See the header in the vendored file before touching this.
 import '../../styles/wallet-adapter-ui.css';
 import { solanaRpcEndpoint } from '../../lib/solana';
+import { opensInWalletApp } from '../../lib/solanaWalletOrder';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import { useSolanaConnect } from './useSolanaConnect';
 import {
@@ -141,7 +142,7 @@ export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
     if (takeSolanaOpenRequest() && !address && !document.querySelector('[aria-modal="true"]')) open();
   }, [surface, openPending, connecting, address, open]);
   // A restore that does not end stops holding the tap (see the header).
-  const { visible } = useWalletModal();
+  const { visible, setVisible } = useWalletModal();
   useEffect(() => {
     if (surface?.open !== open || !openPending || !connecting) return;
     if (visible) {
@@ -161,6 +162,14 @@ export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
   // lapses: a detection that comes late (Trust on some Android builds) changes
   // `wallets` and runs this again. `settled` and `connecting`: as for the
   // early tap above.
+  //
+  // ONLY A WALLET'S OWN BROWSER ASKS BY ITSELF. Anyone can write the marker
+  // into a link. In an ordinary phone browser that carries one wallet of its
+  // own (Brave's, a Safari extension) such a link made that wallet prompt with
+  // no press, or reconnect in silence after a Disconnect (review, 2026-10-03).
+  // An ordinary phone browser is told by its "Open app" rows: a wallet's own
+  // browser has none (the adapters offer that hop only where they can leave).
+  // There the list is opened and nothing is asked: asking is a press.
   useEffect(() => {
     if (!settled || connecting || !solanaHandoffPending()) return;
     if (connected) {
@@ -169,10 +178,14 @@ export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
     }
     const detected = wallets.filter((w) => w.readyState === WalletReadyState.Installed);
     if (detected.length === 0 || !takeSolanaHandoff()) return;
-    const only = detected.length === 1 ? detected[0]!.adapter.name : null;
-    if (only && wallet?.adapter.name !== only) select(only);
-    else if (!document.querySelector('[aria-modal="true"]')) open();
-  }, [settled, connecting, connected, wallets, wallet, select, open]);
+    const ordinaryBrowser = wallets.some((w) => opensInWalletApp(w.readyState, w.adapter.name));
+    const only = detected.length === 1 && !ordinaryBrowser ? detected[0]!.adapter.name : null;
+    if (only) {
+      // Saved already (an earlier visit inside this wallet's app): open() connects it.
+      if (wallet?.adapter.name === only) open();
+      else select(only);
+    } else if (!document.querySelector('[aria-modal="true"]')) setVisible(true);
+  }, [settled, connecting, connected, wallets, wallet, select, open, setVisible]);
   useEffect(() => () => setSolanaSurface(owner, null), [owner]);
   return null;
 }

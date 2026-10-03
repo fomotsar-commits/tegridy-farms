@@ -103,6 +103,8 @@ import { useWalletResync } from './useWalletResync';
  */
 
 const FADE_MS = 150;
+/** How long the page left behind by an "Open app" press says where the connect went. */
+const HANDOFF_NOTICE_MS = 20_000;
 
 /** The wallet a QR was opened for (change 7): its row label and its install page. */
 interface ScanFor {
@@ -249,7 +251,10 @@ function SolanaWalletModal() {
       if (opensInWalletApp(clicked.readyState, clicked.adapter.name)) {
         const label = walletLabel(clicked.adapter.name);
         markSolanaHandoff();
-        toast(`Opening ${label}. This site opens again inside the ${label} app, and connects there.`);
+        // Long, because the wallet's app covers this page a moment after the press.
+        toast(`Opening ${label}. This site opens again inside the ${label} app, and connects there.`, {
+          duration: HANDOFF_NOTICE_MS,
+        });
       }
       setScanFor(
         wallet === clicked ? null : { label: walletLabel(clicked.adapter.name), installUrl: clicked.adapter.url },

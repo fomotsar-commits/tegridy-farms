@@ -70,8 +70,18 @@ export function isToweliRoomPage(pathname: string): boolean {
   return TOWELI_ROOM_PATHS.has(normalize(pathname));
 }
 
-/** The Solana pages whose path alone says so. /earn/<id> and /dashboard are judged below. */
-const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/curve-launch']);
+/**
+ * The Solana pages whose path alone says so. /earn/<id> and /dashboard are judged below.
+ *
+ * EVERY PAGE THAT MOUNTS ITS OWN SolanaProviders BELONGS HERE (or below).
+ * /solana-lp was added to the router without being added here. Until its
+ * Solana section had mounted, the top bar treated it as a page with none and
+ * mounted its own connection; the section then mounted and took that one
+ * away. A wallet approval still open at that moment landed nowhere, and a
+ * hand-off into a wallet's app (lib/solanaSurface.ts) was used up by the
+ * connection that was about to be unmounted (review, 2026-10-03).
+ */
+const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana-lp', '/curve-launch']);
 
 /**
  * Pages whose wallet action is on Solana, read from the path alone, before

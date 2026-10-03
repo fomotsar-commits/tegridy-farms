@@ -195,14 +195,15 @@ test('a Solana wallet connected from the Earn list follows the visitor into a So
 // is. That page used to look like the start again: Connect, Solana and Trust
 // had to be pressed a second time, with nothing saying so (four testers
 // walking it as a Trust user, 2026-10-03). The press now leaves a marker in
-// the address it hands the wallet, and the page that finds it asks the one
-// wallet it detects to connect (src/lib/solanaSurface.ts).
+// the address it hands the wallet, and the page that finds it, inside a
+// wallet's own browser, asks the one wallet it detects to connect
+// (src/lib/solanaSurface.ts).
 //
 // MUTATION CHECKS
 //  - SolanaWalletModal.tsx: delete the change-8 block in handleWalletClick. The
 //    first test must fail (no marker in the address Trust is handed, no notice).
 //  - SolanaProviders.tsx: delete the hand-off effect in SolanaSurfaceBridge. The
-//    second test must fail (the top bar still says Connect).
+//    "inside the wallet app" test must fail (the top bar still says Connect).
 test.describe('the hand-off into a wallet app', () => {
   // A phone on every project: the "Open app" rows exist only there.
   test.use({
@@ -239,13 +240,36 @@ test.describe('the hand-off into a wallet app', () => {
     await expect.poll(() => new URL(page.url()).searchParams.has('solana-connect'), { timeout: 10_000 }).toBe(false);
   });
 
-  test('the page Trust opens connects by itself: no second Connect, Solana, Trust', async ({ page, context }) => {
-    // Inside the wallet's own browser there is one wallet, and it is detected.
+  // Inside the wallet's own browser: an Android WebView ("; wv"), where no row
+  // says "Open app" because there is nowhere to hop to, and one wallet is detected.
+  test.describe('inside the wallet app', () => {
+    test.use({
+      userAgent:
+        'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A.240205.002; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.0.0 Mobile Safari/537.36',
+    });
+
+    test('the page Trust opens connects by itself: no second Connect, Solana, Trust', async ({ page, context }) => {
+      await installConnectOnlySolanaWallet(context);
+      await page.goto('/?solana-connect=1');
+      await expect(walletsChip(page)).toHaveText(SHORT, { timeout: 30_000 });
+      await expect(topBarConnect(page)).toHaveCount(0);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      expect(new URL(page.url()).searchParams.has('solana-connect')).toBe(false);
+    });
+  });
+
+  // Anyone can write the marker into a link. An ordinary phone browser that
+  // carries a wallet of its own (Brave's, a Safari extension) must not have
+  // that wallet asked by a link: the list opens, and asking is a press.
+  // MUTATION CHECK: SolanaProviders.tsx, drop `&& !ordinaryBrowser`. This must
+  // fail (the wallet connects with no press).
+  test('in an ordinary phone browser a link carrying the marker opens the list and asks the wallet nothing', async ({ page, context }) => {
     await installConnectOnlySolanaWallet(context);
     await page.goto('/?solana-connect=1');
-    await expect(walletsChip(page)).toHaveText(SHORT, { timeout: 30_000 });
-    await expect(topBarConnect(page)).toHaveCount(0);
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(solanaList(page)).toBeVisible({ timeout: 30_000 });
+    await expect(solanaList(page).getByRole('button', { name: new RegExp(CONNECT_ONLY_WALLET_NAME) })).toContainText('Detected');
+    await expect(topBarConnect(page)).toBeVisible();
+    await expect(walletsChip(page)).toHaveCount(0);
     expect(new URL(page.url()).searchParams.has('solana-connect')).toBe(false);
   });
 

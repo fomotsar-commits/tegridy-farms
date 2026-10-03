@@ -33,7 +33,9 @@ describe('routeVoice (wave seven, row Q)', () => {
 
 describe("isSolanaPage: where the top bar's Connect connects Solana", () => {
   it("is true for the venue's Solana pages, with or without a trailing slash", () => {
-    for (const p of ['/solana', '/pools', '/pools/', '/curve-launch', '/curve-launch/', '/curve-launch/So11111111111111111111111111111111111111112']) {
+    // /solana-lp mounts the same Solana section as /pools: left out, the top bar
+    // mounted its own connection there and the page then took it away mid-approval.
+    for (const p of ['/solana', '/pools', '/pools/', '/solana-lp', '/solana-lp/', '/curve-launch', '/curve-launch/', '/curve-launch/So11111111111111111111111111111111111111112']) {
       expect(isSolanaPage(p), p).toBe(true);
     }
   });

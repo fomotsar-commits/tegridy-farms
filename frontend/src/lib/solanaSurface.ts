@@ -144,7 +144,10 @@ export const SOLANA_CONNECT_WAIT_NOTICE_MS = 4_000;
  * link can do is what the visitor's own press on Connect does: make this
  * site ask the wallet in that browser to connect, which the wallet shows them
  * and they approve or refuse. It is honoured on a phone or tablet only, where
- * the hand-off exists; on a computer it is removed and nothing follows.
+ * the hand-off exists; on a computer it is removed and nothing follows. And
+ * the wallet is asked only inside a wallet's own browser: an ordinary phone
+ * browser that happens to carry one wallet (Brave's, a Safari extension) gets
+ * the wallet list, and asking is the visitor's own press (SolanaSurfaceBridge).
  *
  * It goes in the QUERY, because every wallet's link keeps that: MetaMask's
  * rebuilds the address from host, path and query and drops a fragment
@@ -157,6 +160,14 @@ export const SOLANA_CONNECT_WAIT_NOTICE_MS = 4_000;
  */
 export const SOLANA_HANDOFF_PARAM = 'solana-connect';
 const HANDOFF_KEY = 'tegridy-solana-handoff';
+/**
+ * Set in the tab that MADE a hand-off. The marker sits in that tab's own
+ * address until it is taken out below, and a tab the phone threw away before
+ * that loads the marked address again in the SAME browser, which is not the
+ * wallet's. So does Back from the wallet's link page. The wallet's own browser
+ * has its own storage and never sees this note.
+ */
+const HANDOFF_SENT_KEY = 'tegridy-solana-handoff-sent';
 /** A hand-off nothing answered (no wallet in this browser after all) stops waiting. */
 const HANDOFF_FRESH_MS = 120_000;
 /** The adapter reads the address within a render of the press; the marker then leaves this page. */
@@ -184,15 +195,19 @@ export function markSolanaHandoff(): void {
     const url = new URL(window.location.href);
     if (url.searchParams.has(SOLANA_HANDOFF_PARAM)) return;
     url.searchParams.set(SOLANA_HANDOFF_PARAM, '1');
+    window.sessionStorage.setItem(HANDOFF_SENT_KEY, '1');
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
-    window.setTimeout(() => {
+    const unmark = () => {
       try {
         const clean = withoutHandoffMarker(window.location.href);
         if (clean !== null) window.history.replaceState(window.history.state, '', clean);
       } catch {
         /* the page has moved on */
       }
-    }, HANDOFF_MARK_MS);
+    };
+    window.setTimeout(unmark, HANDOFF_MARK_MS);
+    // A tab that leaves for the wallet's link page takes the marker out on its way.
+    window.addEventListener('pagehide', unmark, { once: true });
   } catch {
     /* an address that cannot be rewritten: the hand-off still happens, without the carry-on */
   }
@@ -205,6 +220,11 @@ export function noteSolanaHandoffArrival(): void {
     const clean = withoutHandoffMarker(window.location.href);
     if (clean === null) return;
     window.history.replaceState(window.history.state, '', clean);
+    // This tab made that hand-off itself: it is the browser that was left, not the wallet's.
+    if (window.sessionStorage.getItem(HANDOFF_SENT_KEY)) {
+      window.sessionStorage.removeItem(HANDOFF_SENT_KEY);
+      return;
+    }
     if (isPhoneOrTablet()) window.sessionStorage.setItem(HANDOFF_KEY, String(Date.now()));
   } catch {
     /* blocked storage or no URL API: the visitor presses Connect, as before */

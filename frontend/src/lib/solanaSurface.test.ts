@@ -348,6 +348,37 @@ describe('solanaSurface: a hand-off into a wallet app carries on there', () => {
     expect(takeSolanaHandoff()).toBe(false);
   });
 
+  // The marker sits in the address of the page that was LEFT until it is taken
+  // out. A tab that went to the wallet's link page, or that the phone threw away,
+  // loads that address again in the same browser: Back, or a restore. That
+  // browser is not the wallet's, and with a wallet of its own it asked THAT
+  // wallet to connect (review, 2026-10-03).
+  // MUTATION CHECK: drop the HANDOFF_SENT_KEY check in noteSolanaHandoffArrival;
+  // this must fail.
+  it('the tab that made the hand-off, loading its own marked address again, is not treated as the wallet app', () => {
+    onAPhone();
+    window.history.replaceState(null, '', '/pools');
+    markSolanaHandoff();
+    expect(address()).toBe(`/pools?${SOLANA_HANDOFF_PARAM}=1`);
+    // Back from the wallet's link page: the same tab, the marked address.
+    noteSolanaHandoffArrival();
+    expect(address()).toBe('/pools');
+    expect(solanaHandoffPending()).toBe(false);
+    // The note is used once: a real hand-off INTO this tab later is honoured.
+    window.history.replaceState(null, '', `/pools?${SOLANA_HANDOFF_PARAM}=1`);
+    noteSolanaHandoffArrival();
+    expect(solanaHandoffPending()).toBe(true);
+  });
+
+  // MUTATION CHECK: drop the pagehide listener in markSolanaHandoff; this must fail.
+  it('a tab that leaves for the wallet link takes the marker out of its own address on the way', () => {
+    window.history.replaceState(null, '', '/earn?ref=abc');
+    markSolanaHandoff();
+    expect(address()).toBe(`/earn?ref=abc&${SOLANA_HANDOFF_PARAM}=1`);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(address()).toBe('/earn?ref=abc');
+  });
+
   it('an ordinary visit remembers nothing', () => {
     onAPhone();
     window.history.replaceState(null, '', '/earn?ref=abc');

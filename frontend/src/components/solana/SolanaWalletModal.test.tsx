@@ -548,6 +548,8 @@ describe('an "Open app" row hands the page to the wallet app', () => {
     expect(toasts.toast.mock.calls[0]![0]).toBe(
       'Opening Trust Wallet. This site opens again inside the Trust Wallet app, and connects there.',
     );
+    // It outlasts the trip to the wallet's app: a visitor who comes back still reads it.
+    expect(toasts.toast.mock.calls[0]![1]).toEqual({ duration: 20_000 });
   });
 
   // Change 4's path: the wallet is already the saved one, so connect() is
