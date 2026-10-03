@@ -2,6 +2,7 @@
 import { checkRateLimit, checkGlobalLimit } from "./_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { logSafe } from "./_lib/logSafe.js";
+import { VENUE_SLUGS, VENUE_CONTRACTS, READ_ONLY_OPENSEA_SLUGS as READ_ONLY_SLUGS } from "./_lib/venue-registry.js";
 
 const OPENSEA_KEY = process.env.OPENSEA_API_KEY || "";
 if (!process.env.OPENSEA_API_KEY) {
@@ -36,6 +37,8 @@ function isAllowedUrlScheme(url) {
 const URL_FIELD_NAMES = new Set([
   "image_url", "animation_url", "external_url", "background_image_url",
   "banner_image_url", "logo_image_url", "thumbnail_url", "preview_image_url",
+  // The item list (collection/{slug}/nfts) carries these two as well.
+  "display_image_url", "display_animation_url",
 ]);
 
 // AUDIT R053: schema-validate a single price object. Throws on shape mismatch
@@ -90,6 +93,10 @@ function selectCacheControl({ method, path, params }) {
   if (typeof path === "string" && /^collections?\/[^/]+\/stats$/.test(path)) {
     return "public, s-maxage=60, stale-while-revalidate=120";
   }
+  // A collection's item list rarely changes, and the family pages page it whole.
+  if (typeof path === "string" && /^collection\/[^/]+\/nfts$/.test(path)) {
+    return "public, s-maxage=300, stale-while-revalidate=600";
+  }
   return "s-maxage=15, stale-while-revalidate=30";
 }
 
@@ -97,15 +104,54 @@ function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_R
 
 // AUDIT API-M1: real rate limiting now lives in _lib/ratelimit.js.
 
-// Whitelist allowed OpenSea collection slugs (must match openseaSlug values in constants.js)
-const ALLOWED_SLUGS = new Set(["nakamigos", "gnssart", "junglebay"]);
+// The venue's collections (_lib/venue-registry.js): the only slugs with order,
+// offer and event routes, and the only contracts admitted in an order body.
+export const ALLOWED_SLUGS = VENUE_SLUGS;
+export const ALLOWED_CONTRACTS = VENUE_CONTRACTS;
 
-// Whitelist allowed contract addresses (lowercase) — enforced on POST bodies
-const ALLOWED_CONTRACTS = new Set([
-  "0xd774557b647330c91bf44cfeab205095f7e6c367", // Nakamigos
-  "0xa1de9f93c56c290c48849b1393b09eb616d55dbb", // GNSS Art
-  "0xd37264c71e9af940e49795f0d3a8336afaafdda9", // Jungle Bay
-]);
+// The view-only family collections are read by OpenSea slug on exactly two GET
+// routes, stats and the item list, with no query key but `limit` and `next`.
+export const READ_ONLY_OPENSEA_SLUGS = READ_ONLY_SLUGS;
+const READ_ONLY_STATS_PATHS = new Set([...READ_ONLY_SLUGS].map((s) => `collections/${s}/stats`));
+const READ_ONLY_ITEMS_PATHS = new Set([...READ_ONLY_SLUGS].map((s) => `collection/${s}/nfts`));
+const NEXT_CURSOR_RE = /^[A-Za-z0-9+/=_-]{1,1024}$/;
+
+function isReadOnlyPath(path) {
+  return READ_ONLY_STATS_PATHS.has(path) || READ_ONLY_ITEMS_PATHS.has(path);
+}
+
+/** A 400 message when a read-only path carries anything but its own query, else null. */
+function readOnlyQueryProblem(path, params) {
+  const allowed = READ_ONLY_ITEMS_PATHS.has(path) ? new Set(["limit", "next"]) : new Set();
+  for (const key of Object.keys(params)) {
+    if (!allowed.has(key)) return `Query parameter not allowed: ${key}`;
+  }
+  if (params.next != null && !NEXT_CURSOR_RE.test(String(params.next))) return "Invalid next cursor";
+  return null;
+}
+
+// A fill is built from an order hash, so what it moves is known only from the
+// answer. Every NFT item (itemType 2 to 5) in its orders, offer and consideration
+// alike, must be a venue contract, and equal `named` when the request named one.
+const FULFILLMENT_PATHS = new Set(["listings/fulfillment_data", "offers/fulfillment_data"]);
+const listOf = (value) => (Array.isArray(value) ? value : []);
+function fillMovesOnlyVenueNfts(data, named) {
+  const want = typeof named === "string" ? named.toLowerCase() : null;
+  for (const order of listOf(data?.fulfillment_data?.orders)) {
+    const p = order?.parameters;
+    for (const item of [...listOf(p?.offer), ...listOf(p?.consideration)]) {
+      const itemType = Number(item?.itemType);
+      if (!(itemType >= 2 && itemType <= 5)) continue;
+      const token = typeof item?.token === "string" ? item.token.toLowerCase() : "";
+      if (!ALLOWED_CONTRACTS.has(token) || (want && token !== want)) return false;
+    }
+  }
+  return true;
+}
+
+// Criteria offers name their collection by slug in the body. Only a venue
+// collection may be bid on here.
+const CRITERIA_OFFER_PATHS = new Set(["offers/build", "criteria_offers"]);
 
 // Whitelist of allowed path prefixes — reject anything that doesn't start with one of these.
 // F514: "collections/" (plural) is the canonical OpenSea v2 stats prefix — the
@@ -148,6 +194,8 @@ function isAllowedPath(path) {
   if (!ALLOWED_PATH_PREFIXES.some((p) => path.startsWith(p))) return false;
   // Always allow fulfillment endpoints (buy + accept)
   if (path === "listings/fulfillment_data" || path === "offers/fulfillment_data") return true;
+  // The family collections' two read-only routes (method and query checked in the handler).
+  if (isReadOnlyPath(path)) return true;
   // Allow order endpoints (create listings, fetch offers/bids)
   if (path === "orders/ethereum/seaport/offers" || path === "orders/ethereum/seaport/listings") return true;
   // Allow offer building
@@ -209,9 +257,12 @@ export default async function handler(req, res) {
 
   // AUDIT API-M1: 30 req/min per IP. Lower than Alchemy because OpenSea has
   // tighter paid-tier quotas and we want to reserve headroom for buy/sell
-  // flows that burst several requests at checkout time.
+  // flows that burst several requests at checkout time. The family reads get a
+  // per-IP bucket of their own, so a visitor's browsing of them does not spend
+  // that visitor's checkout budget. The global breaker below stays shared.
+  const readOnlyRoute = isReadOnlyPath(req.query?.path);
   const allowed = await checkRateLimit(req, res, {
-    limit: 30, windowSec: 60, identifier: "opensea",
+    limit: 30, windowSec: 60, identifier: readOnlyRoute ? "opensea-read" : "opensea",
   });
   if (!allowed) return;
 
@@ -221,6 +272,8 @@ export default async function handler(req, res) {
   // paid OpenSea key, and CORS headers bound browsers only, never curl. This
   // proxy was the last paid-key surface without an aggregate ceiling.
   // Raise OPENSEA_GLOBAL_RPM via env (no redeploy) if a real spike hits it.
+  // One bucket for every route, the family reads included: it guards the one
+  // paid key, and a second bucket would raise the ceiling it exists to hold.
   const underGlobalCap = await checkGlobalLimit(res, {
     // Deliberately below alchemy's 2400: OpenSea's paid tier is the tighter
     // quota of the two, and checkout bursts are the only legitimate peak.
@@ -242,6 +295,33 @@ export default async function handler(req, res) {
 
   if (!path || !isAllowedPath(path)) {
     return res.status(400).json({ error: "Invalid or missing path" });
+  }
+
+  if (isReadOnlyPath(path)) {
+    if (req.method !== "GET") return res.status(405).json({ error: "Read-only route" });
+    const problem = readOnlyQueryProblem(path, params);
+    if (problem) return res.status(400).json({ error: problem });
+  }
+
+  if (req.method === "POST" && CRITERIA_OFFER_PATHS.has(path)) {
+    const slug = req.body?.criteria?.collection?.slug;
+    if (typeof slug !== "string" || !ALLOWED_SLUGS.has(slug)) {
+      return res.status(403).json({ error: "Collection not supported" });
+    }
+  }
+
+  // The two fill builders serve only Ethereum orders, and an accept must name
+  // the NFT the seller hands over, which must be a venue contract.
+  if (path === "listings/fulfillment_data" && req.body?.listing?.chain !== "ethereum") {
+    return res.status(400).json({ error: "Only Ethereum listings are filled here" });
+  }
+  if (path === "offers/fulfillment_data") {
+    if (req.body?.offer?.chain !== "ethereum") {
+      return res.status(400).json({ error: "Only Ethereum offers are filled here" });
+    }
+    const nft = req.body?.consideration?.asset_contract_address;
+    if (!isValidAddress(nft)) return res.status(400).json({ error: "Invalid contract address format" });
+    if (!ALLOWED_CONTRACTS.has(nft.toLowerCase())) return res.status(403).json({ error: "Contract not supported" });
   }
 
   // Validate contract addresses in POST bodies to prevent open-proxy abuse
@@ -381,6 +461,11 @@ export default async function handler(req, res) {
     } catch (err) {
       console.error("OpenSea schema mismatch:", logSafe(err));
       return res.status(502).json({ error: "Upstream returned data of unexpected shape" });
+    }
+
+    if (FULFILLMENT_PATHS.has(path)) {
+      const named = path === "offers/fulfillment_data" ? req.body?.consideration?.asset_contract_address : null;
+      if (!fillMovesOnlyVenueNfts(data, named)) return res.status(403).json({ error: "Contract not supported" });
     }
 
     // AUDIT R053: cache-control varies by endpoint and per-user binding.

@@ -8,7 +8,9 @@
 //    would not move. A future `api/alerts.js` would be the 12th — the deploy
 //    would still pass, and the NEXT feature would fail a build with an error that
 //    names nothing about alerts. This test makes the branch, not a new function,
-//    the thing that has to be true.
+//    the thing that has to be true. (The cap itself was lifted on 2026-09-04,
+//    Vercel Pro: the count check below now holds the tree to the budget's
+//    written list instead of to 12.)
 //
 //    The branch also has to sit ABOVE the `const provider` line: a `?resource=`
 //    call carries no provider, so a branch placed after it never runs and the
@@ -56,9 +58,11 @@ describe('the alerts store costs no serverless function', () => {
     expect(fns, 'alerts must live on the catchall, not as its own function').not.toContain('alerts.js');
   });
 
-  it('the deployment stays at or under the Hobby cap of 12', () => {
-    const fns = countFunctions(API_DIR);
-    expect(fns.length, `functions: ${fns.join(', ')}`).toBeLessThanOrEqual(12);
+  it('every function in the tree is on the budget list, so a new route is written down', () => {
+    const budget = readFileSync(join(API_DIR, 'SERVERLESS_BUDGET.md'), 'utf8');
+    for (const fn of countFunctions(API_DIR)) {
+      expect(budget, `api/${fn} is a function but SERVERLESS_BUDGET.md does not list it`).toContain(`\`api/${fn}\``);
+    }
   });
 
   it('the catchall dispatches ?resource=alerts behind a lazy import', () => {

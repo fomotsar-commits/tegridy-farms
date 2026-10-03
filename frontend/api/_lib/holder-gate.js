@@ -13,18 +13,14 @@
 //
 // FAIL-CLOSED: unknown slug, bad wallet, or an exhausted RPC chain DENIES.
 import { alchemyUrl, padAddr, ethCall } from "./ethcall.js";
+import { VENUE_SLUG_CONTRACTS } from "./venue-registry.js";
 
 const SELECTOR_BALANCE_OF = "0x70a08231"; // balanceOf(address)
 
-// Mirrors COLLECTIONS in frontend/src/nakamigos/constants.js:28-83. api/ is
-// plain serverless JS and cannot import from src/ (constants.js pulls in
-// ../lib/constants.ts), so the map is duplicated — same precedent as
-// ALLOWED_CONTRACTS in api/alchemy.js:63-67. holder-gate.test.js pins parity.
-export const SLUG_CONTRACTS = Object.freeze({
-  nakamigos: "0xd774557b647330c91bf44cfeab205095f7e6c367",
-  gnssart:   "0xa1de9f93c56c290c48849b1393b09eb616d55dbb",
-  junglebay: "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
-});
+// One chat room per venue collection (_lib/venue-registry.js). The gate is an
+// ERC-721 balanceOf on Ethereum, which the view-only family collections cannot
+// answer, so they have no room. holder-gate.test.js pins parity with the client.
+export const SLUG_CONTRACTS = VENUE_SLUG_CONTRACTS;
 
 const IS_PROD = process.env.NODE_ENV === "production"
   || process.env.VERCEL_ENV === "production"

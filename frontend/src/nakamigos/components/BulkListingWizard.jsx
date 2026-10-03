@@ -121,7 +121,11 @@ function StepSelect({ tokens, selected, setSelected, listingMap, isSubmitting })
   );
 }
 
-function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, setMultiplier, ladderStart, setLadderStart, ladderEnd, setLadderEnd, priceOverrides, setPriceOverrides, floorPrice, duration, setDuration }) {
+// Floor and Trait pricing both start from the collection floor, so neither is
+// offered when no floor was read: an unread floor is not a price of 0.
+const FLOOR_MODES = new Set(["floor", "trait"]);
+
+function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, setMultiplier, ladderStart, setLadderStart, ladderEnd, setLadderEnd, priceOverrides, setPriceOverrides, floorPrice, floorKnown = true, duration, setDuration }) {
   // Compute auto-prices per NFT based on mode
   const autoPrices = useMemo(() => {
     const floor = floorPrice || 0;
@@ -180,13 +184,21 @@ function StepPricing({ selectedNfts, pricingMode, setPricingMode, multiplier, se
         <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-dim)", letterSpacing: "0.06em", marginBottom: 8 }}>
           PRICING STRATEGY
         </div>
+        {!floorKnown && (
+          <div role="status" style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--yellow)", marginBottom: 8, lineHeight: 1.5 }}>
+            Floor unavailable: no floor price is known for this collection right now, so Floor and Trait pricing are off. Set a price range or enter each price.
+          </div>
+        )}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {PRICING_MODES.map((m) => (
             <button
               key={m.value}
               onClick={() => setPricingMode(m.value)}
+              disabled={!floorKnown && FLOOR_MODES.has(m.value)}
               style={{
-                flex: 1, minWidth: 90, padding: "12px 12px", borderRadius: 8, cursor: "pointer",
+                flex: 1, minWidth: 90, padding: "12px 12px", borderRadius: 8,
+                cursor: !floorKnown && FLOOR_MODES.has(m.value) ? "not-allowed" : "pointer",
+                opacity: !floorKnown && FLOOR_MODES.has(m.value) ? 0.45 : 1,
                 border: pricingMode === m.value ? "1px solid var(--naka-blue)" : "1px solid var(--border)",
                 background: pricingMode === m.value ? "rgba(111,168,220,0.1)" : "rgba(0,0,0,0.2)",
                 color: pricingMode === m.value ? "var(--naka-blue)" : "var(--text-dim)",
@@ -468,8 +480,12 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
   const [step, setStep] = useState(0);
   const [selected, setSelected] = useState(new Set());
 
-  // Pricing state
-  const [pricingMode, setPricingMode] = useState("floor");
+  // A floor the read did not produce is unknown, never 0.
+  const floorKnown = stats?.floor != null && Number.isFinite(Number(stats.floor)) && Number(stats.floor) > 0;
+
+  // Pricing state. With no floor read, a floor-based choice falls to Ladder.
+  const [pricingChoice, setPricingMode] = useState("floor");
+  const pricingMode = !floorKnown && FLOOR_MODES.has(pricingChoice) ? "ladder" : pricingChoice;
   const [multiplier, setMultiplier] = useState(1.0);
   const [ladderStart, setLadderStart] = useState("");
   const [ladderEnd, setLadderEnd] = useState("");
@@ -484,7 +500,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
   const [submitProgress, setSubmitProgress] = useState(0);
   const [done, setDone] = useState(false);
 
-  const floorPrice = stats?.floor != null && isFinite(stats.floor) ? stats.floor : 0;
+  const floorPrice = floorKnown ? Number(stats.floor) : 0;
 
   const selectedNfts = useMemo(
     () => tokens.filter((t) => selected.has(t.id)),
@@ -789,6 +805,7 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
                 priceOverrides={priceOverrides}
                 setPriceOverrides={setPriceOverrides}
                 floorPrice={floorPrice}
+                floorKnown={floorKnown}
                 duration={duration}
                 setDuration={setDuration}
               />

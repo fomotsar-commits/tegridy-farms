@@ -597,3 +597,66 @@ describe("alchemy — a missing credential fails closed, it does not ride the de
     for (const [url] of fetchMock.mock.calls) expect(String(url)).not.toContain("demo");
   });
 });
+
+// Gold Cards trades on the venue, so its gallery, stats and live feed read
+// Alchemy like the other three. The four family contracts that live on EVM
+// chains never do: two are ERC-1155s this proxy's Ethereum ERC-721 readers do
+// not serve, and two are on Base, where an Ethereum read answers nothing true.
+describe("alchemy: the Jungle Bay family", () => {
+  const GOLD = "0x6aa03f42c5366e2664c887eb2e90844ca00b92f3";
+  const VIEW_ONLY = {
+    memes: "0x9edaba801123866f25993914e389924744a07e89",
+    towelie: "0x2bcaad3cd618d0c0f87e153b3928e02bab757705",
+    seeds: "0xb34bb1d81a4e5f9dca7360c3043ad50db2ea87f3",
+    bojungles: "0x36afee4fadc3b77ff5f1f9a040e264150afb979a",
+  };
+  let handler;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.ALCHEMY_API_KEY = "real-key-aaaaaaaaaaaaaaaaaaaaaaaa";
+    process.env.NODE_ENV = "test";
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      headers: { get: () => null },
+      body: null,
+      text: async () => JSON.stringify({ nfts: [], result: [] }),
+    }));
+    handler = (await import("../alchemy.js")).default;
+  });
+
+  const getLogs = (address) => makeReq({
+    method: "POST",
+    query: { endpoint: "rpc" },
+    body: { method: "eth_getLogs", params: [{ address, fromBlock: "0x0", toBlock: "0x10" }] },
+  });
+
+  it("admits Gold Cards for getNFTsForContract", async () => {
+    const { res, statusSpy } = makeRes();
+    await handler(makeReq({ query: { endpoint: "getNFTsForContract", contractAddress: GOLD } }), res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+  });
+
+  it("admits Gold Cards for eth_getLogs", async () => {
+    const { res, statusSpy } = makeRes();
+    await handler(getLogs(GOLD), res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+  });
+
+  for (const [label, address] of Object.entries(VIEW_ONLY)) {
+    it(`refuses ${label} for getNFTsForContract with 403`, async () => {
+      const { res, statusSpy, jsonSpy } = makeRes();
+      await handler(makeReq({ query: { endpoint: "getNFTsForContract", contractAddress: address } }), res);
+      expect(statusSpy).toHaveBeenCalledWith(403);
+      expect(jsonSpy).toHaveBeenCalledWith({ error: "Contract not supported" });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it(`refuses ${label} for eth_getLogs with 403`, async () => {
+      const { res, statusSpy } = makeRes();
+      await handler(getLogs(address), res);
+      expect(statusSpy).toHaveBeenCalledWith(403);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+  }
+});

@@ -5,9 +5,10 @@ owner's steps live in [TODO_OPERATOR.md](TODO_OPERATOR.md).
 
 ## The short version
 
-- **GitHub Actions runs the scheduled jobs, day to day.** That is nine scheduled workflows
-  (the monitors, the weekly Supabase backup, CodeQL, contract coverage, and the daily full copy
-  to the GitLab standby) plus Dependabot. Nothing here replaces them.
+- **GitHub Actions runs the scheduled jobs, day to day.** That is ten scheduled workflows
+  (the monitors, the weekly Supabase backup, the hourly 30-day delete of error reports, CodeQL,
+  contract coverage, and the daily full copy to the GitLab standby) plus Dependabot. Nothing
+  here replaces them.
 - **In September 2026 those schedules stopped for more than five days, and nothing told
   anyone.** Every alarm they had lived on GitHub too. Three additions fix that:
   1. **A dead-man switch.** Every 30 minutes, the last step of `synthetic-monitor.yml` pings
@@ -27,7 +28,7 @@ owner's steps live in [TODO_OPERATOR.md](TODO_OPERATOR.md).
 |---|---|---|---|
 | `synthetic-monitor.yml` | GitHub | every 30 minutes | a `prod-incident` GitHub issue |
 | its last step, the heartbeat | GitHub | every 30 minutes | the `github-crons` check, when the pings stop |
-| the other scheduled workflows: arb linkage, revenue watch, registry, npm advisories, Supabase backup, CodeQL, contract coverage | GitHub | as each workflow says | GitHub's own notices |
+| the other scheduled workflows: arb linkage, revenue watch, registry, npm advisories, Supabase backup, error retention, CodeQL, contract coverage | GitHub | as each workflow says | GitHub's own notices |
 | `mirror-to-gitlab.yml`, the daily full copy to the standby | GitHub | daily, 06:41 UTC | the `gitlab-standby` check (`docs/GIT_HOSTING.md` 2E) |
 | `backup-pull` | this PC (Task Scheduler) | weekly, Wednesday 12:53 local | the `backup-pull` check |
 | `git-vault-backup`, the daily git bundles | this PC (Task Scheduler) | daily, 03:30 local | the `git-vault-backup` check (`docs/GIT_HOSTING.md` 2G) |
@@ -253,7 +254,7 @@ The backup needs both files: add `--env-file C:\Users\jimbo\tegridy-ops-env\back
 no alarm will hear the result.
 
 **If the failover lasts more than a week or two, move it off this PC.** The runner needs only
-Node 20 or newer, gpg, and a checkout.
+Node 24 (the version in `.nvmrc`), gpg, and a checkout.
 
 - **A small always-on Linux machine** (a $5 a month server, or a free cloud VM). Clone the repo,
   run `npm ci --ignore-scripts` in `frontend/`, put both env files outside the clone
@@ -407,3 +408,7 @@ before it is printed or pinged. Section 3 says what this does not protect agains
   decrypted and compared before it is kept.
 - **Each task's time limit** is longer than its job's own timeouts plus the pings, so a slow run
   is reported by the runner instead of being killed silently by Task Scheduler.
+- **`error-retention` has no failover job.** Off GitHub, `/api/errors` still deletes reports
+  older than 30 days after it stores one (at most once an hour per server instance), but not
+  while no report arrives. In a failover longer than a day, run it by hand from the repo root
+  with `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` set: `node frontend/scripts/purge-error-events.mjs`.

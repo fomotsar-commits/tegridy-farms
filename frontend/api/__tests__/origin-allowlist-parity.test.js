@@ -37,6 +37,7 @@ const CANONICAL_SOURCE = join(API_DIR, "_lib", "launcher-outcomes.js");
 const MIRRORS = [
   "alchemy.js",
   "analytics.js",
+  "errors.js",
   "etherscan.js",
   "opensea.js",
   "orderbook.js",

@@ -12,6 +12,7 @@
 
 import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED, resolveSeaportTarget } from "../constants";
 import { getProvider } from "../api";
+import { venueRefusal, venueRefusalForAll } from "./venue";
 
 const ORDERBOOK_API = "/api/orderbook";
 
@@ -131,7 +132,33 @@ export async function fetchNativeBundles(contract, opts = {}) {
 // Buy an NFT from a native orderbook listing by calling Seaport directly.
 // The order was signed with EIP-712 for Seaport v1.5, so we can fulfillOrder on-chain.
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const isNftItem = (i) => Number(i?.itemType) >= 2 && Number(i?.itemType) <= 5;
+const itemsOf = (list) => (Array.isArray(list) ? list : []);
+
+// The NFT contracts a stored order moves, either way: the NFT items of its offer
+// and its consideration, and the row's contract.
+function nativeOrderNftTokens(order) {
+  const p = order?.parameters;
+  const tokens = [...itemsOf(p?.offer), ...itemsOf(p?.consideration)].filter(isNftItem).map((i) => i.token);
+  if (order?.contract_address) tokens.push(order.contract_address);
+  return tokens;
+}
+
+// Seaport takes every consideration item from the buyer, and msg.value pays only
+// native ETH. So, as on the server (api/orderbook.js, ETH-ONLY), each item must be
+// itemType 0 at the zero address; any other item would take the buyer's own tokens.
+function nativeOrderAsksBeyondEth(order) {
+  return itemsOf(order?.parameters?.consideration).some((i) => Number(i?.itemType) !== 0
+    || String(i?.token || ZERO_ADDRESS).toLowerCase() !== ZERO_ADDRESS);
+}
+
 export async function fulfillNativeOrder(order) {
+  const refusal = venueRefusalForAll(nativeOrderNftTokens(order));
+  if (refusal) return refusal;
+  if (nativeOrderAsksBeyondEth(order)) {
+    return { error: "not-eth-priced", message: "This order asks for something other than ETH. This venue fills only orders paid in ETH." };
+  }
   const ethProvider = getProvider();
   if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
 
@@ -329,6 +356,9 @@ export async function fulfillNativeOrder(order) {
 // the edge is treasury-funding fees + no marketplace dependency. See header.)
 
 export async function createNativeListing({ contract, tokenId, priceEth, expirationHours = 168 }) {
+  // Refused before setApprovalForAll: the venue lists only what it can settle.
+  const refusal = venueRefusal(contract);
+  if (refusal) return refusal;
   const ethProvider = getProvider();
   if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
 
@@ -520,6 +550,10 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
   if (!BUNDLE_LISTING_ENABLED) {
     return { error: "disabled", message: "Bundle listing is not enabled yet." };
   }
+  const refusal = Array.isArray(items) && items.length
+    ? venueRefusalForAll(items.map((it) => it?.contract))
+    : null;
+  if (refusal) return refusal;
   if (!Array.isArray(items) || items.length < 2) {
     return { error: "too-few-items", message: "A bundle needs at least 2 NFTs." };
   }

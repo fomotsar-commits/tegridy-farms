@@ -1,17 +1,24 @@
-import { COLLECTIONS } from "../constants";
 import { Eth } from "./Icons";
 import { currentLegAmounts } from "../lib/trades";
+import { VENUE_COLLECTIONS, venueCollectionByContract } from "../lib/venue";
 
 const fmtWei = (wei) => {
   const v = Number(wei / 10n ** 12n) / 1e6;
   return v > 0 ? v.toFixed(4) : null;
 };
 
-// Shared by TradesPanel cards and DM trade cards.
-const SHORT_NAME = Object.values(COLLECTIONS).reduce((m, c) => {
-  m[c.contract.toLowerCase()] = c.name.split(" ")[0].toUpperCase().slice(0, 5);
+// Shared by TradesPanel cards and DM trade cards. A chip is the only identity
+// a taker sees before handing over NFTs, so each venue collection wears its own
+// registry chip (never a derived prefix two collections could share).
+export const SHORT_NAME = Object.freeze(VENUE_COLLECTIONS.reduce((m, c) => {
+  m[c.contract.toLowerCase()] = c.chip;
   return m;
-}, {});
+}, {}));
+
+const VISUALLY_HIDDEN = {
+  position: "absolute", width: 1, height: 1, padding: 0, margin: -1,
+  overflow: "hidden", clip: "rect(0, 0, 0, 0)", whiteSpace: "nowrap", border: 0,
+};
 
 export const fmtEthWei = (wei) => {
   try {
@@ -23,18 +30,22 @@ export const fmtEthWei = (wei) => {
 export function ItemChips({ items, accent }) {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-      {(items || []).map((it, i) => (
-        <span key={i} style={{
-          fontFamily: "var(--mono)", fontSize: 9, padding: "3px 7px", borderRadius: 5,
-          background: "rgba(0,0,0,0.3)", border: `1px solid ${accent}30`, color: accent,
-          letterSpacing: "0.03em",
-          ...(it.any ? { borderStyle: "dashed" } : {}),
-        }}>
-          {it.any
-            ? `ANY ${SHORT_NAME[(it.contract || "").toLowerCase()] || "NFT"}`
-            : `${SHORT_NAME[(it.contract || "").toLowerCase()] || "NFT"} #${it.tokenId}`}
-        </span>
-      ))}
+      {(items || []).map((it, i) => {
+        const fullName = venueCollectionByContract(it.contract)?.name || null;
+        const short = SHORT_NAME[(it.contract || "").toLowerCase()] || "NFT";
+        return (
+          <span key={i} title={fullName || undefined} style={{
+            position: "relative",
+            fontFamily: "var(--mono)", fontSize: 9, padding: "3px 7px", borderRadius: 5,
+            background: "rgba(0,0,0,0.3)", border: `1px solid ${accent}30`, color: accent,
+            letterSpacing: "0.03em",
+            ...(it.any ? { borderStyle: "dashed" } : {}),
+          }}>
+            {it.any ? `ANY ${short}` : `${short} #${it.tokenId}`}
+            {fullName && <span style={VISUALLY_HIDDEN}> ({fullName})</span>}
+          </span>
+        );
+      })}
     </div>
   );
 }

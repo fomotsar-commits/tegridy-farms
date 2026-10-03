@@ -159,6 +159,36 @@ regexes = [
   # (LaunchCreateForm.heatGate.test.tsx:59, e2e-solana/fixtures/heatStub.ts:40,
   # commit 2de8a915). Flagged by `generic-api-key` as `token_address: '…'`.
   '''\b7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump\b''',
+  # \ JUNGLETS, added 2026-09-24 \\\\\\\\\\\\\\\\\\\\\\\\@
+  #
+  # Ten public Solana ids from a Junglets listings answer that earlier commits of
+  # PR #672 restated in an e2e fixture and in externalMarket.test.js, where the
+  # tokenMint and tokenAddress keys trip `generic-api-key`. Read on mainnet with
+  # getMultipleAccounts on 2026-09-24: five SPL mints (supply 1, decimals 0) and
+  # the five token accounts holding them. EXACT strings, per the SOLANA section
+  # above. The fixture and those tests were removed by the owner ruling of
+  # 2026-10-02, so no file holds these ids now; the entries stay because the PR
+  # scan reads every commit in the PR, and can be DELETED once #672 has merged.
+  # Junglet #64 mint
+  '''\bDGzxMHMKVdy1SsSRfR1wLXxA1eB5TeNMp22NADsKYPK3\b''',
+  # Junglet #64 token account
+  '''\bJCiUWAY14Mx2zQzau6nUfKYkc7nd1kinWuWDj3C4Voeu\b''',
+  # Junglet #141 mint
+  '''\bFmfwobBva7QgPaFJLwU5fVnttDo85s4BVA4vie4DnBxu\b''',
+  # Junglet #141 token account
+  '''\b6eda1eCrzowZ8rt7svfLyNK6Q3vaUvE4pZXRRo9Bp5Bo\b''',
+  # Junglet #143 mint
+  '''\bGUER2inTd5QrNqPUaShCw6aA44nda2BwTsQS3CLbnZw9\b''',
+  # Junglet #143 token account
+  '''\bHS3xKYAFnvxY2h5khWAzjn8KyAn3TtYrM2RiuytGuu1K\b''',
+  # Junglet #162 mint
+  '''\bA1M1VctHkTLS3DMcmAAYvKQzFvP5KNZLPzEo7o4ctgQS\b''',
+  # Junglet #162 token account
+  '''\b6HrpgWTMxSLx3dT9SwLLBbPox5d9ZHWE6jTgAtTgeadh\b''',
+  # Junglet #186 mint
+  '''\bBq8afhG1WzwXAaZk47x9ZhyF8snd4iseR6jXMyGDXKuL\b''',
+  # Junglet #186 token account
+  '''\b9ZxoqoqDEKSdAhvvSDQe8J6CbogjEFX4ZbjLkbCNo9h1\b''',
   #
   # \ BAYLA LADDER VAULTS, added 2026-10-01 \\\\\\\\\\\\\\\\\\\\\\\\@
   #

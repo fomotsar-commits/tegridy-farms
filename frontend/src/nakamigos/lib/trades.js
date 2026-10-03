@@ -24,6 +24,7 @@
 
 import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, WETH, resolveSeaportTarget } from "../constants";
 import { getProvider } from "../api";
+import { cancelRefusal, venueRefusalForAll } from "./venue";
 import { getWethBalance, getWethAllowance, approveWeth, wrapEth } from "./weth";
 
 const ORDERBOOK_API = "/api/orderbook";
@@ -67,6 +68,17 @@ async function postOrderbook(body, timeoutMs = 30000) {
       clearTimeout(timer);
     }
   });
+}
+
+// Every NFT a signed trade moves (itemType 2..5, offer and consideration).
+// A trade carrying one the venue cannot settle is refused before any wallet
+// call. A cancel is refused only for an NFT on another chain (cancelRefusal).
+function tradeRefusal(trade) {
+  const params = trade?.parameters;
+  const tokens = [...(params?.offer || []), ...(params?.consideration || [])]
+    .filter((i) => Number(i?.itemType) >= 2 && Number(i?.itemType) <= 5)
+    .map((i) => i.token);
+  return tokens.length ? venueRefusalForAll(tokens) : null;
 }
 
 async function getMainnetSigner() {
@@ -263,6 +275,10 @@ export function buildTradeOrderParameters({ maker, give, get, wethTopupWei = "0"
  * @returns {Promise<{success?:true, trade?:object, error?:string, message?:string}>}
  */
 export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", ethTopupEth = "0", wethTopupEndEth = null, ethTopupEndEth = null, expirationHours = 72, counterOf = null, open = false }) {
+  // Both sides, wildcards included, must be collections the venue settles.
+  const legs = [...(Array.isArray(give) ? give : []), ...(Array.isArray(get) ? get : [])];
+  const refusal = legs.length ? venueRefusalForAll(legs.map((l) => l?.contract)) : null;
+  if (refusal) return refusal;
   const ctx = await getMainnetSigner();
   if (ctx.error) return ctx;
   const { ethers, provider, signer, address: maker } = ctx;
@@ -466,6 +482,8 @@ export function fillableHoldings(trade, wallet, holdings) {
  * burning gas (just-in-time item swaps are the classic trade-window scam).
  */
 export async function acceptTrade(trade) {
+  const refusal = tradeRefusal(trade);
+  if (refusal) return refusal;
   const ctx = await getMainnetSigner();
   if (ctx.error) return ctx;
   const { ethers, provider, signer, address: takerAddress } = ctx;
@@ -752,6 +770,8 @@ export function buildCriteriaResolvers(parameters, selections = {}) {
  * @param {object} selections  consideration index → tokenId the acceptor gives
  */
 export async function acceptOpenTrade(trade, selections) {
+  const refusal = tradeRefusal(trade);
+  if (refusal) return refusal;
   const ctx = await getMainnetSigner();
   if (ctx.error) return ctx;
   const { ethers, provider, signer, address: acceptor } = ctx;
@@ -1000,6 +1020,9 @@ export async function updateTradeStatus(trade, action /* "trade-decline" | "trad
  * acceptTrade's DB check + the taker-side UI respect the soft cancel.
  */
 export async function cancelTradeOnChain(trade) {
+  // An order on another chain cannot be cancelled on Ethereum (lib/venue.js).
+  const refusal = cancelRefusal(trade?.parameters);
+  if (refusal) return refusal;
   const ctx = await getMainnetSigner();
   if (ctx.error) return ctx;
   const { ethers, signer, address } = ctx;

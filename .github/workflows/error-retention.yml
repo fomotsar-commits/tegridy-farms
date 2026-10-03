@@ -1,0 +1,56 @@
+name: Error Retention
+
+# Deletes error reports more than 30 days old from the error_events table, every hour.
+#
+# WHY: the owner's decision of 2026-10-02, and the Privacy page's words (sections 3 and 5
+# and the notice at its top): an error report is kept for 30 days and then deleted
+# automatically. "Automatically" has to hold when no new report arrives, so the delete
+# runs on a clock here. api/errors.js also runs it after a stored batch, at most once an
+# hour per instance, as a backstop for when this schedule is late or GitHub is down.
+#
+# WHY HERE, AND NOT A VERCEL CRON OR pg_cron: this repo has no Vercel cron, no CRON_SECRET
+# and no pg_cron. It does have scheduled GitHub workflows, watched by the `github-crons`
+# heartbeat (docs/OPS_SCHEDULER.md), and it already holds the two secrets this needs:
+# SUPABASE_URL and SUPABASE_SERVICE_KEY, set for supabase-backup.yml. So the owner sets
+# nothing new, and no new public route exists to attack.
+#
+# Hourly, though the job is daily in spirit: GitHub drops and delays scheduled runs, and
+# each run is a few seconds. A row is gone within about an hour of turning 30 days old.
+#
+# RED MEANS SOMETHING WAS NOT DELETED. Missing secrets, a refused key, a server error or
+# no answer all fail the run, and GitHub mails the owner. The one green run that deletes
+# nothing on purpose is the table not existing yet (before migration 026).
+#
+# The script imports nothing from node_modules, so there is no npm install and no third
+# party code runs next to the service key.
+
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: error-retention
+  cancel-in-progress: false
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Delete error reports older than 30 days
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node frontend/scripts/purge-error-events.mjs

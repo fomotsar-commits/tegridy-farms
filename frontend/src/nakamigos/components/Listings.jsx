@@ -567,6 +567,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
 
   const hasRealListings = listedNfts.length > 0;
   const hasRecentSales = recentSales.length > 0;
+  // A failed read has no source and carries an error; only a read that
+  // answered can say that nothing is listed.
+  const listingsRead = !listingsError && listingsSource != null;
   const floor = stats?.floor || null;
 
   // Price stats computed from listings
@@ -1025,8 +1028,10 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
             </div>
           )}
 
-          {/* Empty state — no listings and no recent sales (wait for both to finish) */}
-          {!listingsLoading && !activitiesLoading && !hasRealListings && !hasRecentSales && (
+          {/* Empty state — no listings and no recent sales (wait for both to finish).
+              "No Listings Available" needs a listings read that answered; an
+              unread feed keeps only the unavailable notice above. */}
+          {!listingsLoading && !activitiesLoading && !hasRealListings && !hasRecentSales && (activitiesEmpty || listingsRead) && (
             <div className="empty-state" style={{ borderRadius: 16, background: "var(--surface-glass)", border: "1px solid var(--border)", backdropFilter: "var(--glass-blur)" }}>
               <div className="empty-state-icon">{"\uD83D\uDCC9"}</div>
               <div className="empty-state-title">

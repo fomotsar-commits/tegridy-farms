@@ -20,15 +20,25 @@ page keeps the newest thirty days.
 - Once launching is switched on, the Solana launch form shows the plant and your $BAYLA before Review, and will not review a launch your wallet cannot plant.
 - Once launching is switched on, the Solana launch review lists the plant: 100,000 $BAYLA, 50,000 burned and 50,000 to the island's Workshop, from your own $BAYLA account.
 - Once launching is switched on, a Solana launch's page shows the maker's create-buy as a share of the supply with the maker's wallet, says it has no lock, and shows whether its launch transaction carried the plant. The launches list shows the same maker figure.
+- The indexer moves from Node 20, which stopped getting security fixes in April, to Node 24 at its next deploy; the site already ran on 24 and is now held there.
+- The marketplace lists the six Jungle Bay family collections: Gold Cards trade here with the same flat 1% fee, four more can be browsed here and link out to OpenSea, and Junglets shows its facts only.
 - When the site cannot read a transaction's result, it says so and points to the explorer, instead of saying the transaction failed.
 - A reverted transaction says it reverted, and the Swap button no longer stays stuck after one.
 - A transaction your wallet cancelled or replaced is no longer shown as a success; a sped-up one still is.
 - A limit order can no longer be sent twice from two open tabs.
+- Share to X posts your receipt (amount, lock, boost, APR and the transaction link) with @JungleBayAC and your room's hashtag, and always fits X's 280 characters.
+- The receipt card image is drawn before you tap Share, so the share sheet, the image copy and the X window open on your tap instead of after it, where a browser such as iPhone Safari can block them.
+- Copy Image on a receipt copies the card as a picture; it had been copying only the text, because the image could not be drawn.
+- On a phone, Share to X attaches the receipt card through the share menu, and closing the menu still leaves a link to post it on X; on a computer it opens X and copies the card for you to paste.
+- When Copy Image cannot copy the picture, it copies the receipt as text and says so, and if nothing could be copied it says that too.
+- A receipt no longer shows a broken character where a long name is cut in the middle of an emoji.
 - The security policy no longer puts memetic.fun in scope.
 - The indexer no longer treats memetic.fun as a name for this venue.
 - memetic.fun can no longer call the venue's API as if it were the venue.
 - On /pools, fees appear only once read from the chain: a failed read says the fee tiers could not be read just now and offers Try again, where it used to show an old fee proposal.
 - On /pools, a site built without the pool program's id says so, where it used to say the AMM was being redeployed.
+- The privacy policy says exactly what an error report holds: one is sent only with your consent and without cookies, wallet addresses and tokens are removed before it is stored, and withdrawing consent deletes any report still waiting in your browser.
+- The privacy page gives 14 days' notice at its top: from 16 October 2026, error reports you opt in to are stored on our server, kept for 30 days and then deleted automatically, and none is sent or stored before that date.
 
 ### 2026-10-01
 

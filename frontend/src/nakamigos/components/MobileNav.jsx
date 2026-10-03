@@ -29,18 +29,27 @@ export const MORE_TABS = [
   { key: "about", label: "About" },
 ];
 
-export default function MobileNav({ tab, onTabChange }) {
+// Icons for More tabs that can be promoted to the bar by `allowedTabs`.
+const PROMOTED_ICONS = { about: "\u24D8" };
+
+// `allowedTabs` (a Set) fixes the bar to a collection's own tabs: they show
+// as primary tabs and the More menu is not offered.
+export default function MobileNav({ tab, onTabChange, allowedTabs }) {
   const { isLite } = useTradingMode();
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const filteredPrimary = useMemo(
-    () => isLite ? PRIMARY_TABS.filter((t) => !LITE_HIDDEN_PRIMARY.has(t.key)) : PRIMARY_TABS,
-    [isLite],
-  );
-  const filteredMore = useMemo(
-    () => isLite ? MORE_TABS.filter((t) => !LITE_HIDDEN_ALL.has(t.key)) : MORE_TABS,
-    [isLite],
-  );
+  const filteredPrimary = useMemo(() => {
+    if (allowedTabs) {
+      return [...PRIMARY_TABS, ...MORE_TABS]
+        .filter((t) => allowedTabs.has(t.key))
+        .map((t) => ({ ...t, icon: t.icon || PROMOTED_ICONS[t.key] || "\u2022" }));
+    }
+    return isLite ? PRIMARY_TABS.filter((t) => !LITE_HIDDEN_PRIMARY.has(t.key)) : PRIMARY_TABS;
+  }, [isLite, allowedTabs]);
+  const filteredMore = useMemo(() => {
+    if (allowedTabs) return [];
+    return isLite ? MORE_TABS.filter((t) => !LITE_HIDDEN_ALL.has(t.key)) : MORE_TABS;
+  }, [isLite, allowedTabs]);
 
   const handleTab = useCallback((key) => {
     onTabChange(key);
@@ -172,6 +181,7 @@ export default function MobileNav({ tab, onTabChange }) {
           ))}
 
           {/* More button */}
+          {filteredMore.length > 0 && (
           <button
             onClick={() => setMoreOpen((v) => !v)}
             style={{
@@ -200,6 +210,7 @@ export default function MobileNav({ tab, onTabChange }) {
               More
             </span>
           </button>
+          )}
         </div>
       </nav>
     </>
