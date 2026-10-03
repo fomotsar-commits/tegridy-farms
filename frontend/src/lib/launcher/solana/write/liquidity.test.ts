@@ -18,7 +18,8 @@ import {
 } from '../../../solana/cpswap/program';
 import { lpTokensToTradingTokens } from '../../../solana/cpswap/math';
 import { spendableSol } from '../../../solana/lp/liquidityMath';
-import { assessPool } from '../../../solana/lp/poolHealth';
+import { DEPOSIT_RESERVES_MOVED, DEPOSIT_TOO_QUIET, assessPool } from '../../../solana/lp/poolHealth';
+import { observationBytes } from '../../../solana/lp/testkit.fixture';
 import { classifyToken } from '../../../solana/lp/tokenSafety';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import {
@@ -52,6 +53,9 @@ const METADATA_ONLY: Array<[number, number]> = [[EXT.MetadataPointer, 64], [EXT.
 
 const priced = (solPerToken = 0.01): LpPrepareReads => ({ outsidePrice: async () => ({ kind: 'ok', solPerToken, source: 'Jupiter' }) });
 const answering = (o: OutsidePrice): LpPrepareReads => ({ outsidePrice: async () => o });
+const NO_ROUTE = answering({ kind: 'no-route', detail: 'Jupiter has no route for this token' });
+/** floor(sqrt(SOL_RESERVE x TOKEN_RESERVE)): the shares the pool program opens a pool of these reserves with. */
+const OPENING_SHARES = 3_162_277_660n;
 
 // ── the simulator: the pool program's own maths on the fake chain ─────────────
 
@@ -435,12 +439,59 @@ describe('prepareLpDeposit', () => {
   });
 
   it('a never-traded launch pool prepares when Jupiter answers no route, and is refused when Jupiter is down', async () => {
-    const w = world({ launch: true });
-    const p = ok(await deposit(w, {}, answering({ kind: 'no-route', detail: 'Jupiter has no route for this token' })));
+    // The shares the pool program opens these reserves with: floor(sqrt(10 SOL x 1,000 tokens)).
+    const w = world({ launch: true, lpSupply: OPENING_SHARES });
+    const p = ok(await deposit(w, {}, NO_ROUTE));
     expect((p.summary as LpDepositSummary).origin).toBe('launch-pool');
     expect((p.summary as LpDepositSummary).price.state).toBe('no-trades-yet');
     // The card had said allowed; at prepare Jupiter is down: unchecked, so no deposit.
     expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+  });
+
+  // funds-1 at prepare time: the same rule as the card (one implementation, assessPool),
+  // on the fresh read. A price moved without a trade builds no deposit; removing still prepares.
+  describe('a launch pool with no outside price, whose price was moved without a trade', () => {
+    /** A price record at one price `solPerBase` (lamports per token base unit), a slot every `stepSecs` over the last hour, ending `endedAgo` seconds ago. */
+    function record(w: World, solPerBase: bigint, o: { stepSecs: bigint; endedAgo?: bigint }): void {
+      const Q32 = 1n << 32n;
+      const end = NOW - (o.endedAgo ?? 10n);
+      const first = end - 3_600n;
+      const obs: [number, bigint, bigint, bigint][] = [];
+      for (let t = first; t <= end; t += o.stepSecs) {
+        const own = solPerBase * Q32 * (t - first);
+        const other = (Q32 / solPerBase) * (t - first);
+        obs.push(w.pool.solIsToken0 ? [obs.length, t, other, own] : [obs.length, t, own, other]);
+      }
+      const data = observationBytes({ pool: w.pool.address, index: obs.length - 1, lastUpdate: end, obs });
+      w.chain.set(w.pool.observation, { lamports: rent(data.length), owner: CPSWAP, data });
+    }
+
+    it('never traded, tokens sent straight into its vault: no deposit, in its own words; Remove still prepares', async () => {
+      const w = world({ launch: true, lpSupply: OPENING_SHARES, tokens: TOKEN_RESERVE * 2n, heldLp: OPENING_SHARES / 10n });
+      expect(refused(await deposit(w, {}, NO_ROUTE))).toBe(LP_COPY.gateSaysNo([DEPOSIT_RESERVES_MOVED]));
+      expect((await withdraw(w)).ok).toBe(true);
+    });
+
+    it('a transfer, then one dust swap (two records an hour apart, both at the moved price): no deposit; Remove still prepares', async () => {
+      const w = world({ launch: true, lpSupply: OPENING_SHARES, tokens: TOKEN_RESERVE * 2n, heldLp: OPENING_SHARES / 10n });
+      record(w, 5n, { stepSecs: 3_600n });
+      expect(refused(await deposit(w, {}, NO_ROUTE))).toBe(LP_COPY.gateSaysNo([DEPOSIT_TOO_QUIET]));
+      expect((await withdraw(w)).ok).toBe(true);
+    });
+
+    it('a quiet record (steady trading that stopped an hour ago): no deposit; Remove still prepares', async () => {
+      const w = world({ launch: true, lpSupply: OPENING_SHARES, heldLp: OPENING_SHARES / 10n });
+      record(w, 10n, { stepSecs: 60n, endedAgo: 3_600n });
+      expect(refused(await deposit(w, {}, NO_ROUTE))).toBe(LP_COPY.gateSaysNo([DEPOSIT_TOO_QUIET]));
+      expect((await withdraw(w)).ok).toBe(true);
+    });
+
+    it('the same pool trading steadily up to now, at its own average: the deposit prepares', async () => {
+      const w = world({ launch: true, lpSupply: OPENING_SHARES });
+      record(w, 10n, { stepSecs: 60n });
+      const p = ok(await deposit(w, {}, NO_ROUTE));
+      expect((p.summary as LpDepositSummary).price).toMatchObject({ state: 'agrees', against: 'own-average' });
+    });
   });
 
   it('existing wrapped SOL is never closed, and only what the pool did not use may stay in it', async () => {

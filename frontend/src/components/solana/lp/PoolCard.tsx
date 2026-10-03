@@ -53,6 +53,20 @@ function PriceRows({ price }: { price: PoolHealth['price'] }) {
           <Row label="Checked against" value="Nothing needed: nobody has traded since the launch program opened this pool at this price" mono={false} />
         </>
       );
+    case 'reserves-moved':
+      return (
+        <>
+          <Row label="Price here" value={`1 token = ${formatSolPrice(price.pool)} SOL`} mono={false} />
+          <Row label="Checked against" value="Its own shares, and they do not match: nobody has traded here, yet the pool holds more than its shares account for" mono={false} />
+        </>
+      );
+    case 'too-quiet':
+      return (
+        <>
+          <Row label="Price here" value={`1 token = ${formatSolPrice(price.pool)} SOL`} mono={false} />
+          <Row label="Checked against" value="Nothing we can rely on: it has not traded steadily over the last 30 minutes, so its own average proves nothing" mono={false} />
+        </>
+      );
     case 'skipped':
     case 'unread':
       return (

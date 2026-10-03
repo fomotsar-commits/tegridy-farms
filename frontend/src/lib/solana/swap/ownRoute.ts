@@ -31,9 +31,8 @@ import { jupiterNet, pickFeeMint, type QuoteRead } from '../../jupiter';
 import { applySlippage, isU64 } from '../../launcher/solana/curve/math';
 import { POOL_STATUS_DISABLE_SWAP, deriveAmmConfig, swapEnabled } from '../cpswap/program';
 import { quoteOwnPool, type OwnPoolQuote } from '../cpswap/read';
-import { recordSilence } from '../lp/ownPrice';
 import type { PoolView } from '../lp/poolFinder';
-import { assessPool, formatWhen, tokenReasons } from '../lp/poolHealth';
+import { LAUNCH_MAX_SILENCE_DIVISOR, UNTRADED_RESERVES_TOLERANCE_BPS, assessPool, formatWhen, reservesMatchShares, tokenReasons } from '../lp/poolHealth';
 import { WSOL_MINT, type TokenSafety } from '../lp/tokenSafety';
 import { chooseRoute } from '../route';
 import { siteFee } from './siteFee';
@@ -186,32 +185,9 @@ function beats(a: OwnCandidate, b: OwnCandidate): boolean {
   return a.view.address < b.view.address;
 }
 
-/**
- * A launch pool that has never traded must still hold what its shares account for.
- * The pool program opens a pool with `lp_supply = floor(sqrt(side0 x side1))`, and a
- * deposit or a withdrawal moves both sides and the shares together, so until the first
- * swap `side0 x side1` stays at `lp_supply^2` (a hair above, from rounding in the pool's
- * favour). Tokens or SOL sent STRAIGHT into a vault raise the product and move the
- * price without a trade; this tolerance is the most such a transfer may have moved it.
- */
-export const UNTRADED_RESERVES_TOLERANCE_BPS = 10n;
-
-export function reservesMatchShares(view: PoolView): boolean {
-  const lp = view.snapshot.pool.lpSupply;
-  if (lp <= 0n || view.solReserve <= 0n || view.tokenReserve <= 0n) return false;
-  const product = view.solReserve * view.tokenReserve;
-  const shares = lp * lp;
-  // Below the shares is a state the pool program never produces: unread, not fine.
-  return product >= shares && product * 10_000n <= shares * (10_000n + UNTRADED_RESERVES_TOLERANCE_BPS);
-}
-
-/**
- * A traded launch pool's average counts only while it traded steadily: no stretch
- * without a recorded swap longer than a sixth of the window (5 minutes of 30). A price
- * moved inside such a stretch is then at most a sixth of the average, so a move past
- * about 3.6% still shows as more than the 3% tolerance (lp/ownPrice.ts recordSilence).
- */
-export const LAUNCH_MAX_SILENCE_DIVISOR = 6n;
+// The rule itself lives with the deposit check (lp/poolHealth.ts launchOwnPriceCheck),
+// so adding liquidity and routing a swap judge a launch pool's own price the same way.
+export { LAUNCH_MAX_SILENCE_DIVISOR, UNTRADED_RESERVES_TOLERANCE_BPS, reservesMatchShares };
 
 export type LaunchPriceProblem =
   | 'not-launch-pool'
@@ -227,15 +203,11 @@ export type LaunchPriceProblem =
 /**
  * Why the token's launch pool may NOT run when Jupiter has no route; null when it may.
  *
- * With no outside price, the only evidence that the pool's price is honest is the pool
- * itself, and its price can be moved WITHOUT a trade: its reserves are its vaults' live
- * balances, and a plain transfer into a vault leaves no mark in its price record. So
- * "agrees with its own average" and "has never traded" are not enough on their own:
+ * The answer is the deposit check's own (lp/poolHealth.ts `launchOwnPriceCheck`, read
+ * through `assessPool`), so there is one implementation of it:
  *   - never traded: its two sides must still match its shares (`reservesMatchShares`);
  *   - traded: within 3% of its half-hour average, AND that average must be made of
- *     steady trading (`LAUNCH_MAX_SILENCE_DIVISOR`). Time with no recorded swap is not
- *     evidence: the average fills it with whatever the price is now, and a dust swap
- *     after a transfer writes the moved price over the whole quiet stretch.
+ *     steady trading (`LAUNCH_MAX_SILENCE_DIVISOR`).
  * Anything unread is a problem, never a pass. Any pool but a launch pool is a problem.
  */
 export function launchPriceProblem(view: PoolView, a: { chainNow: bigint | null; safety: TokenSafety | null }): LaunchPriceProblem | null {
@@ -248,12 +220,21 @@ export function launchPriceProblem(view: PoolView, a: { chainNow: bigint | null;
     outside: { kind: 'no-route', detail: 'Jupiter has no route for this token' },
     safety: a.safety,
   });
-  if (price.state === 'disagrees') return 'disagrees';
-  if (price.state === 'no-trades-yet') return reservesMatchShares(view) ? null : 'reserves-moved';
-  if (price.state !== 'agrees' || view.history.kind !== 'ok' || a.chainNow === null) return 'unread';
-  const quiet = recordSilence(view.history.obs, a.chainNow);
-  if (quiet === null) return 'unread';
-  return quiet.longestSecs * LAUNCH_MAX_SILENCE_DIVISOR > quiet.windowSecs ? 'too-quiet' : null;
+  switch (price.state) {
+    case 'disagrees':
+    case 'reserves-moved':
+    case 'too-quiet':
+      return price.state;
+    case 'no-trades-yet':
+      return null;
+    case 'agrees':
+      // Only the pool's own average counts here; the outside price was "no route".
+      return price.against === 'own-average' ? null : 'unread';
+    case 'empty-pool':
+    case 'skipped':
+    case 'unread':
+      return 'unread';
+  }
 }
 
 /** May the token's launch pool run when Jupiter has no route? (`launchPriceProblem` is null.) */

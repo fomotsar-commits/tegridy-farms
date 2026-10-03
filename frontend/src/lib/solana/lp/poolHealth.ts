@@ -1,7 +1,7 @@
 import { depositEnabled, swapEnabled, withdrawEnabled } from '../cpswap/program';
 import type { PoolSnapshot } from '../cpswap/read';
 import type { OutsidePrice } from './outsidePrice';
-import { ownAveragePrice, type OwnPrice } from './ownPrice';
+import { ownAveragePrice, recordSilence, type OwnPrice } from './ownPrice';
 import type { PoolView } from './poolFinder';
 import type { TokenSafety } from './tokenSafety';
 import { WSOL_MINT } from './tokenSafety';
@@ -29,10 +29,17 @@ import { WSOL_MINT } from './tokenSafety';
  * THE REFERENCE PRICE. The outside price (Jupiter) when there is one. A launch pool,
  * which only the launch program can open, usually has none (it is the token's only
  * market). When Jupiter ANSWERS that it has no route (`no-route`, never a failed read),
- * a launch pool is checked against its OWN average over the last half hour instead
- * (ownPrice.ts): someone who pushes its price just before a deposit is caught. A pool
- * anyone could have opened is never checked against its own history, because its opener
- * wrote that history.
+ * a launch pool is checked against ITSELF instead (`launchOwnPriceCheck`, the one rule
+ * the swap route uses too): it has never traded and still holds exactly what its shares
+ * account for, or it traded steadily through the last half hour and agrees with that
+ * average. Its price can be moved WITHOUT a trade, by sending tokens or SOL straight
+ * into a vault, and one dust swap then writes the moved price across the whole quiet
+ * stretch of its price record; so a pool topped up by a plain transfer, and a quiet
+ * one, are REFUSED, each with its own sentence. A pool anyone could have opened is
+ * never checked against its own history, because its opener wrote that history.
+ *
+ * WITHDRAWALS do not read any of this: `withdrawals` comes from the status bit and the
+ * vaults alone (the leave rule: money already in a pool can always be taken out here).
  *
  * A deposit is UNCHECKED (never "allowed") when something that decides it was not read:
  * the chain clock, the reference price, the pool's fee settings, or the token.
@@ -55,8 +62,12 @@ export type PriceReference = 'outside' | 'own-average';
 export type PriceCheck =
   | { state: 'agrees'; pool: number; reference: number; against: PriceReference; diff: number }
   | { state: 'disagrees'; pool: number; reference: number; against: PriceReference; diff: number }
-  /** A launch pool that has never traded: its price is still the one the launch program set. */
+  /** A launch pool that has never traded AND still holds what its shares account for: its price is still the one the launch program set. */
   | { state: 'no-trades-yet'; pool: number }
+  /** A launch pool that has never traded, yet its two sides no longer match its shares: something was sent straight into a vault. */
+  | { state: 'reserves-moved'; pool: number }
+  /** A launch pool within 3% of its own average, but that average has a long stretch with no trade in it, so it proves nothing. */
+  | { state: 'too-quiet'; pool: number; reference: number; diff: number }
   | { state: 'empty-pool' }
   /** Not compared on purpose (the token is blocked, so nothing here will be deposited). */
   | { state: 'skipped'; pool: number | null; detail: string }
@@ -122,6 +133,80 @@ function ownPriceOf(view: PoolView, tokenDecimals: number, chainNow: bigint | nu
     now: chainNow,
   });
 }
+
+/**
+ * A launch pool that has never traded must still hold what its shares account for.
+ * The pool program opens a pool with `lp_supply = floor(sqrt(side0 x side1))`, and a
+ * deposit or a withdrawal moves both sides and the shares together, so until the first
+ * swap `side0 x side1` stays at `lp_supply^2` (a hair above, from rounding in the pool's
+ * favour). Tokens or SOL sent STRAIGHT into a vault raise the product and move the
+ * price without a trade; this tolerance is the most such a transfer may have moved it.
+ */
+export const UNTRADED_RESERVES_TOLERANCE_BPS = 10n;
+
+export function reservesMatchShares(view: PoolView): boolean {
+  const lp = view.snapshot.pool.lpSupply;
+  if (lp <= 0n || view.solReserve <= 0n || view.tokenReserve <= 0n) return false;
+  const product = view.solReserve * view.tokenReserve;
+  const shares = lp * lp;
+  // Below the shares is a state the pool program never produces: unread, not fine.
+  return product >= shares && product * 10_000n <= shares * (10_000n + UNTRADED_RESERVES_TOLERANCE_BPS);
+}
+
+/**
+ * A traded launch pool's average counts only while it traded steadily: no stretch
+ * without a recorded swap longer than a sixth of the window (5 minutes of 30). A price
+ * moved inside such a stretch is then at most a sixth of the average, so a move past
+ * about 3.6% still shows as more than the 3% tolerance (ownPrice.ts recordSilence).
+ */
+export const LAUNCH_MAX_SILENCE_DIVISOR = 6n;
+
+/**
+ * A launch pool's price against the pool itself, for when Jupiter ANSWERED "no route".
+ * ONE rule for every place money rests on it: the deposit check below (on the card and
+ * again at prepare time, liquidity.ts) and the swap route (swap/ownRoute.ts
+ * launchPriceProblem reads this answer).
+ *
+ * With no outside price, the only evidence that the pool's price is honest is the pool
+ * itself, and its price can be moved WITHOUT a trade: its reserves are its vaults' live
+ * balances, and a plain transfer into a vault leaves no mark in its price record. So
+ * "agrees with its own average" and "has never traded" are not enough on their own:
+ *   - never traded: its two sides must still match its shares (`reservesMatchShares`),
+ *     else 'reserves-moved';
+ *   - traded: within 3% of its half-hour average ('disagrees' otherwise), AND that
+ *     average must be made of steady trading (`LAUNCH_MAX_SILENCE_DIVISOR`), else
+ *     'too-quiet'. Time with no recorded swap is not evidence: the average fills it with
+ *     whatever the price is now, and a dust swap after a transfer writes the moved price
+ *     over the whole quiet stretch.
+ * Anything not read is 'unread', never a pass.
+ */
+export function launchOwnPriceCheck(view: PoolView, a: { poolPrice: number; tokenDecimals: number; chainNow: bigint | null; noOutside: string }): PriceCheck {
+  const own = ownPriceOf(view, a.tokenDecimals, a.chainNow);
+  if (own.kind === 'no-trades') {
+    return reservesMatchShares(view) ? { state: 'no-trades-yet', pool: a.poolPrice } : { state: 'reserves-moved', pool: a.poolPrice };
+  }
+  if (own.kind !== 'ok') {
+    return { state: 'unread', pool: a.poolPrice, detail: `no outside price (${a.noOutside}), and its own price history could not be used: ${own.detail}` };
+  }
+  const compared = comparePrice(a.poolPrice, own.solPerToken, 'own-average');
+  if (compared.state !== 'agrees') return compared;
+  // `own` is 'ok' only with a read record and a read clock; held again here so a future
+  // change to ownPriceOf cannot turn "not read" into "steady".
+  const quiet = view.history.kind === 'ok' && a.chainNow !== null ? recordSilence(view.history.obs, a.chainNow) : null;
+  if (quiet === null) {
+    return { state: 'unread', pool: a.poolPrice, detail: `no outside price (${a.noOutside}), and its own price record does not say how steadily it traded` };
+  }
+  if (quiet.longestSecs * LAUNCH_MAX_SILENCE_DIVISOR > quiet.windowSecs) {
+    return { state: 'too-quiet', pool: a.poolPrice, reference: own.solPerToken, diff: compared.diff };
+  }
+  return compared;
+}
+
+/** The two refusals only a launch pool with no outside price can get, in the deposit check's words. */
+export const DEPOSIT_RESERVES_MOVED =
+  'Nobody has traded in this launch pool yet, but its two sides no longer match its shares. Someone may have moved its price by sending tokens or SOL straight into it, and there is no outside price to check it against. A deposit now would go in at that price.';
+export const DEPOSIT_TOO_QUIET =
+  'This launch pool has not traded steadily over the last half hour, so its own average cannot show that its price is honest, and there is no outside price to check it against. Deposits here wait until it trades steadily again or gets an outside price.';
 
 /**
  * The token's part of the verdict, one function for deposits, for opening a pool AND for
@@ -203,13 +288,7 @@ export function assessPool(input: {
   } else if (isLaunchPool && outside?.kind === 'no-route') {
     // Only when Jupiter ANSWERED "no route". A failed read is not "no outside market":
     // the token may trade elsewhere at another price, so it stays unread below.
-    const own = ownPriceOf(view, tokenDecimals, chainNow);
-    price =
-      own.kind === 'ok'
-        ? comparePrice(poolPrice, own.solPerToken, 'own-average')
-        : own.kind === 'no-trades'
-          ? { state: 'no-trades-yet', pool: poolPrice }
-          : { state: 'unread', pool: poolPrice, detail: `no outside price (${outside?.detail ?? 'not asked'}), and its own price history could not be used: ${own.detail}` };
+    price = launchOwnPriceCheck(view, { poolPrice, tokenDecimals, chainNow, noOutside: outside.detail });
   } else {
     price = { state: 'unread', pool: poolPrice, detail: outside?.detail ?? 'not asked' };
   }
@@ -221,6 +300,8 @@ export function assessPool(input: {
         : `Its price is ${(Math.abs(price.diff) * 100).toFixed(1)}% ${price.diff > 0 ? 'above' : 'below'} its own average over the last half hour. Someone may have just pushed it; a deposit now would pay for that.`,
     );
   }
+  if (price.state === 'reserves-moved') refused.push(DEPOSIT_RESERVES_MOVED);
+  if (price.state === 'too-quiet') refused.push(DEPOSIT_TOO_QUIET);
   if (price.state === 'unread') {
     unchecked.push(isLaunchPool ? `We could not check its price (${price.detail}).` : `We could not check its price against an outside price (${price.detail}).`);
   }

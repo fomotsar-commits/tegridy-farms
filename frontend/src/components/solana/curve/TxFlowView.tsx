@@ -283,6 +283,12 @@ function priceText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price']): stri
     }
     case 'no-trades-yet':
       return 'nobody has traded since the launch program opened it';
+    // Neither of these two reaches a review (the deposit check refuses both, and the
+    // swap route builds nothing); said truthfully all the same.
+    case 'reserves-moved':
+      return 'not trusted: nobody has traded here, yet its two sides no longer match its shares';
+    case 'too-quiet':
+      return 'not trusted: it has not traded steadily over the last 30 minutes';
     case 'empty-pool':
       return 'not checked: the pool is empty';
     case 'skipped':

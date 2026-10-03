@@ -109,7 +109,8 @@ function windowStart(obs: ObservationStateView, lastUpdate: bigint, now: bigint)
  * that stretch: with no swap since, `ownAveragePrice` fills it with the price right now
  * (it compares the price with itself), and a dust swap after the transfer writes the
  * moved price over the whole stretch. A caller that lets MONEY rest on "the price agrees
- * with its average" must also bound this number against the window (ownRoute.ts does).
+ * with its average" must also bound this number against the window (poolHealth.ts
+ * launchOwnPriceCheck does, for deposits and for the swap route alike).
  *
  * The stretches measured: between one recorded slot and the next (from the window's
  * start), from the newest slot to the last update, and from the last update to now.

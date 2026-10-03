@@ -10,7 +10,8 @@ import type { PoolSearch, PoolSearchRead, PoolView } from '../../../lib/solana/l
 import type { Position } from '../../../lib/solana/lp/positions';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
-import { PROGRAM, buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.fixture';
+import { PROGRAM, buildPool, key, observationBytes, viewOf } from '../../../lib/solana/lp/testkit.fixture';
+import { decodeObservationState } from '../../../lib/solana/lp/ownPrice';
 import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { CurveWriteConfig, LpGate } from '../curve/ports';
@@ -119,6 +120,41 @@ describe('the leave rule, row by row (spec 3.7)', () => {
       expect(add(view(), { price })).toBe('checks');
       expect(remove(position(view()))).toBe('offer');
     }
+  });
+
+  // funds-1 on the deposit check: with no outside price, a launch pool whose price can
+  // have been moved without a trade takes no deposit. Money already in it can still leave.
+  it('a launch pool with no outside price, topped up by a plain transfer or too quiet: no add; remove offered', () => {
+    const SHARES = 3_162_277_660n; // floor(sqrt(10 SOL x 1,000 tokens))
+    const Q32 = 1n << 32n;
+    const b = buildPool({ mint, solReserve: SOL, tokenReserve: TOK, openTime: 100n, lpSupply: SHARES });
+    const tokenIs0 = !viewOf(b, { sol: SOL, tok: TOK }).solIsToken0;
+    /** A record from 1,000 to 4,600 at `price` lamports per token base unit, a slot every `step` seconds. */
+    const record = (price: bigint, step: bigint, initialized = true): PoolView['history'] => {
+      const obs: [number, bigint, bigint, bigint][] = [];
+      for (let t = 1_000n; t <= 4_600n; t += step) {
+        const own = price * Q32 * (t - 1_000n);
+        const other = (Q32 / price) * (t - 1_000n);
+        obs.push(tokenIs0 ? [obs.length, t, own, other] : [obs.length, t, other, own]);
+      }
+      return { kind: 'ok', obs: decodeObservationState(observationBytes({ pool: b.address, initialized, index: obs.length - 1, lastUpdate: 4_600n, obs }))! };
+    };
+    const launch = (history: PoolView['history'], tok = TOK) => viewOf(b, { sol: SOL, tok, origin: 'launch-pool', history });
+    const noRoute = { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' };
+    const offers = (v: PoolView, chainNow: bigint) => ({
+      add: depositOffer({ mode: 'on', gate: OPEN, health: assessPool({ view: v, tokenDecimals: 6, chainNow, outside: noRoute, safety: okToken }), held: false }),
+      remove: remove(position(v)),
+    });
+    const never = record(10n, 60n, false);
+    // The two honest pools: never traded with matching shares, and steadily traded.
+    expect(offers(launch(never), 4_610n)).toEqual({ add: 'offer', remove: 'offer' });
+    expect(offers(launch(record(10n, 60n)), 4_610n)).toEqual({ add: 'offer', remove: 'offer' });
+    // Never traded, tokens sent straight into the vault.
+    expect(offers(launch(never, TOK * 2n), 4_610n)).toEqual({ add: 'checks', remove: 'offer' });
+    // A transfer, then one dust swap an hour after the last trade.
+    expect(offers(launch(record(5n, 3_600n), TOK * 2n), 4_610n)).toEqual({ add: 'checks', remove: 'offer' });
+    // Steady trading that stopped an hour ago.
+    expect(offers(launch(record(10n, 60n)), 8_200n)).toEqual({ add: 'checks', remove: 'offer' });
   });
 
   it('a token blocked, warned or unread: add no / yes / no; remove offered in every case', () => {
