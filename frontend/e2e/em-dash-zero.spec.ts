@@ -59,6 +59,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/privacy': 7,
   '/trust': 7,
   '/pools': 3,
+  '/solana-lp': 0,
   '/nft-finance': 10,
   '/developers': 10,
   '/risks': 3,
@@ -84,7 +85,7 @@ const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading', '/competiti
  *  chain answers picks the branch (/curve-launch's write mode, /pools' live AMM card), so
  *  the count moved with the network. Sealed, each is the branch that cannot read the chain,
  *  on every machine. A route that starts asking the RPC belongs here. */
-const SOLRPC_SEALED_ROUTES = new Set(['/solana', '/pools', '/curve-launch']);
+const SOLRPC_SEALED_ROUTES = new Set(['/solana', '/pools', '/solana-lp', '/curve-launch']);
 
 /** `/nakamigos` opens on a full-viewport splash with no `main` behind it, so it
  *  needs the fixture's own driver rather than the standard mount probe. */

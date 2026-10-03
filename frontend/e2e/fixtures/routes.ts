@@ -415,6 +415,17 @@ export const ROUTES: readonly RouteSpec[] = [
       'until its chain read returns a config, not a placeholder.',
     knownViolations: [],
   },
+  {
+    path: '/solana-lp',
+    voice: 'venue',
+    owner: 'pages/SolanaLpPage.tsx',
+    tabOf: 'PoolsHostPage · solana-lp',
+    gate: null,
+    why:
+      'The LP section mounts only once the venue read returns live, which in this suite depends on the ' +
+      'preview proxy reaching Solana; with no answer it audits the hero and the status card alone.',
+    knownViolations: [],
+  },
   { path: '/curve-launch', voice: 'venue', owner: 'pages/CurveLaunchPage.tsx',
     tabOf: 'LaunchHubPage · curve-launch', gate: null, knownViolations: [] },
   // One launch on the Solana curve. With writes off (every build but the owner's flip and

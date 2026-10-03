@@ -236,6 +236,12 @@ describe('always', () => {
     await waitFor(() => expect(screen.getByText(/has no program id to read/i)).toBeInTheDocument());
     expect(screen.queryByTestId('lp-section')).not.toBeInTheDocument();
   });
+
+  it('links from the hero to the Solana LP tab', async () => {
+    await mount();
+    await settled();
+    expect(screen.getByRole('link', { name: /on the Solana LP tab$/ })).toHaveAttribute('href', '/solana-lp');
+  });
 });
 
 // Addendum D24 (C8): the two "not switched on yet" sentences follow LP's own switch, so
@@ -261,6 +267,7 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     expect(screen.getByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeInTheDocument();
     expect(screen.getByText(/This site only reads pools so far\./)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Find a pool on the Solana LP tab' })).toHaveAttribute('href', '/solana-lp');
     expect(screen.getByText(/still goes through\s+Jupiter/i)).toBeInTheDocument();
   });
 
@@ -277,6 +284,7 @@ describe("what this site can do with the pools follows LP's own switch", () => {
       screen.getByText(/This site can add and remove liquidity, and open new pools on the public fee tier \(the pools section below says whether it can right now\)\./),
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/once (the public fee tier|that tier) exists/i);
+    expect(screen.getByRole('link', { name: 'Add or remove liquidity on the Solana LP tab' })).toHaveAttribute('href', '/solana-lp');
     expect(screen.queryByText(/does not open pools/i)).toBeNull();
     // The swap's routing card keeps its own "not switched on yet" (addendum D24); this is the LP one.
     expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
@@ -291,6 +299,7 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     expect(screen.getByText(/Adding liquidity and opening pools from here are paused; taking yours out still works\./)).toBeInTheDocument();
     expect(screen.getByText(/This site can take liquidity out; adding liquidity and opening pools are paused\./)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Take your liquidity out on the Solana LP tab' })).toHaveAttribute('href', '/solana-lp');
     expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
   });
 });

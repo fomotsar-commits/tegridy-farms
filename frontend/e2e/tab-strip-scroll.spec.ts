@@ -13,9 +13,11 @@ const PHONE_WIDTHS = [360, 375, 390, 430];
 /** Sub-pixel rounding between a tab and its strip is not a cut. */
 const TOLERANCE_PX = 0.5;
 
-// The later tabs of the three strips that scroll on a phone. Each of these pages
-// landed with its selected tab partly or wholly past the strip's right edge.
+// The later tabs of the strips that scroll on a phone. Each of these pages landed
+// with its selected tab partly or wholly past the strip's right edge. The Pools
+// strip, four tabs since Solana LP, scrolls at 360px.
 const LANDINGS = [
+  { path: '/zap', strip: 'Liquidity sections' },
   { path: '/eth-curve', strip: 'Launch sections' },
   { path: '/launch-simulator', strip: 'Launch sections' },
   { path: '/copy-trading', strip: 'Earn sections' },

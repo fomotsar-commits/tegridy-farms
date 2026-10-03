@@ -1,7 +1,7 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../../../lib/solanaPolyfill';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { SolanaProviders } from '../SolanaProviders';
 import { feeSplit, solOf } from '../../../lib/solana/cpswap/venue';
@@ -20,18 +20,12 @@ import { LpWritesProvider, useLpWrites } from './useLpWrites';
 import { browserLpReaders, type LpReaders } from './readers';
 
 /**
- * The Solana LP venue on /pools: a plain disclosure, the fee tiers as they are on chain,
- * the pool finder (token safety, every pool, each pool's health) and the wallet's own
- * positions.
- *
- * Adding and removing liquidity follow LP's own switch (lib/launcher/solana/lpWriteFlag):
- * with it 'off' (the shipped build) this section only reads, no write code is fetched,
- * and nothing on it can sign. Otherwise the cards and rows are wrapped in
- * `LpWritesProvider`, which loads the write code, reads the LP gate and offers Add and
- * Remove where `offers.ts` says so.
- *
- * `?mint=<address>` opens the finder on a token, so a pool list can be linked. Nothing
- * else is ever read from the URL: no amount, side, percent, slippage or open panel.
+ * The Solana LP section on /pools and /solana-lp: a plain disclosure, the fee tiers read
+ * from the chain, the pool finder and the wallet's own positions. Adding, removing and
+ * opening pools follow LP's own switch (lpWriteFlag.ts): with it 'off' no write code is
+ * fetched and nothing here can sign; otherwise LpWritesProvider loads it and offers.ts
+ * decides each button. `?mint=<address>` opens the finder on a token; nothing else is
+ * ever read from the URL (no amount, side, percent, slippage or open panel).
  */
 export default function SolanaLpSection({ readers: given }: { readers?: LpReaders }) {
   const readers = useMemo(() => given ?? browserLpReaders(), [given]);
@@ -148,11 +142,14 @@ const DISCLOSURE_NOTICE: Record<LpWriteMode, string> = {
 };
 
 export function LpDisclosure({ programId, mode = 'off' }: { programId: string; mode?: LpWriteMode }) {
+  // "The program" is a section of /pools: below it there, a link to it anywhere else.
+  const onPools = useLocation().pathname === '/pools';
   return (
     <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
       <Card title="Before you provide liquidity">
         <p className="text-white/80">
-          Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program” below).{' '}
+          Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program”{' '}
+          {onPools ? 'below' : <Link to="/pools" className="underline underline-offset-2">on the Venue AMM tab</Link>}).{' '}
           <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
         </p>
         <p>

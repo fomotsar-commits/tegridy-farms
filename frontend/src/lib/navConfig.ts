@@ -115,11 +115,13 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // Providing liquidity: add/remove, the venue's own Solana AMM, and zap in.
+    // Providing liquidity: add/remove, Solana LP, the venue's own Solana AMM, and zap in.
     heading: 'Pools',
     hub: '/liquidity',
     items: [
       { to: '/liquidity', label: 'Liquidity', tabLabel: 'Add / Remove' },
+      // Ungated, like /pools: the page mounts its LP section only once the venue reads live.
+      { to: '/solana-lp', label: 'Solana LP' },
       // Ungated: a live probe of the venue's AMM that states when it is undeployed.
       { to: '/pools', label: 'Venue AMM' },
       // Unpilled: every leg runs on deployed contracts; a missing vault is named on the page.

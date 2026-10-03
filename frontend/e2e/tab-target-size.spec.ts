@@ -106,7 +106,7 @@ for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', 
  * `overflow-x: hidden` in index.css, so the two can disagree, and the question
  * that matters to a person holding a phone is whether it moves.
  */
-for (const path of ['/', '/liquidity', '/earn', '/island', '/swap', '/trust']) {
+for (const path of ['/', '/liquidity', '/solana-lp', '/earn', '/island', '/swap', '/trust']) {
   test(`${path} does not scroll horizontally at 390px`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(IPHONE_390);
     await gotoRoute(page, path);
