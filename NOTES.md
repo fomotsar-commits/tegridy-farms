@@ -15,6 +15,73 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-03: minted minus today's supply is what was burnt
+
+**Believed:** for a fixed-supply ERC-20, everything ever minted minus `totalSupply()` is the
+burn, so a burn figure needs one constant per token and one read.
+
+**Measured:** QR, DRB and JBM on Base are ClankerTokens (IERC7802). Their verified source has
+`crosschainBurn` and `crosschainMint`, callable only by the SuperchainTokenBridge predeploy
+`0x4200000000000000000000000000000000000028`. At Base block 52136964 that proxy's EIP-1967
+implementation slot reads zero, so the bridge is off today, and its admin slot reads
+`0x4200000000000000000000000000000000000018`, the standard ProxyAdmin, so an ordinary upgrade
+can switch it on. A bridge-out would then lower `totalSupply()` with nothing destroyed. The
+same contract also has a public `burn()`, and the two cannot be told apart from the supply.
+A first read of that proxy reported "no admin": the script held a mistyped slot constant, and
+a slot nobody writes returns zero, which reads exactly like "no admin".
+
+**Do:** before counting a fall in supply as a burn, read the token's source for every path
+that lowers supply. Where a second one exists, count only the burn-address balance, show the
+fall beside it as not counted, and do not print a "not burnt" figure. Paste the EIP-1967
+slots from the standard (implementation `0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc`,
+admin `0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103`): never retype one,
+and treat a zero from a storage read as "nothing here OR the wrong slot".
+
+## 2026-10-03: a pump.fun mint ends in "pump"
+
+**Believed:** RIZZ (`5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k`) was not a pump.fun mint,
+because its address has no "pump" suffix, so its minted supply could not be taken as
+pump.fun's 1,000,000,000.
+
+**Measured:** its create transaction
+`4mKCtSuQtBgtFfpThuqgDxaVJzz7fhpkFTvbRj7xMYHysjPgNynzkYP5QU81Cs7b9hLuZBUATPbj3hazE8Vbs5Sc`
+(slot 263919365, 2024-05-05) is pump.fun's `Create`: InitializeMint2 with pump's PDA as mint
+authority, one MintTo of 1,000,000,000,000,000 base units, then the authority set to none.
+Its bonding-curve account (seeds `bonding-curve` and the mint, under
+`6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P`) exists and is owned by pump, in the older
+49-byte layout. The suffix came later. It proves nothing in the other direction either:
+anyone can grind an address that ends in "pump". Finding the create transaction did not need
+the mint's own history, which is too deep to page on a free RPC: the oldest signature of the
+mint's Metaplex metadata account, or of its bonding-curve account, is the create transaction
+and sits one or two pages down.
+
+**Do:** prove pump.fun origin from the owner of the bonding-curve account or from the create
+transaction, never from the address. To find a busy mint's first transaction, page an account
+that only its creation and a few later events touch, not the mint.
+
+## 2026-10-03: no element box past the card means every number fits
+
+**Believed:** "no descendant's box runs past the card, and the page is no wider than the
+window" proves a long figure fits on a phone. The first run printed zero overflow for twelve
+bungalows at four widths, and its screenshots were filed as the proof.
+
+**Measured:** two blind spots, both in that run. (1) The figure sat in a `min-w-0` cell
+inside an `overflow-hidden` panel. A figure too wide for its row shrinks the cell and is
+clipped, or its unit drops under it, and no element's box moves. Run with the figures set
+to 26px on a 393px WebKit phone: the box check read 0 past the card and 0 page overflow,
+and the page did not slide, while a check on the TEXT (a `Range` over the cell) reported 4
+of the 5 rows, four with the unit on a second line and two with digits past the row. At
+320px in Chromium the same: box check 0, text check 4 of 5. (2) Every screenshot from that run was
+Vite's red error overlay. The page's market card fetches `/api/aggregator`; `vite` (dev) has
+no such function, serves `api/aggregator.js` as a module, fails its import analysis and
+paints the overlay over the whole page. The DOM under the overlay measured fine.
+
+**Do:** measure a figure's fit on its text: `range.selectNodeContents(cell)`, then require
+the rects to sit inside the row's padding box and to share one line. See the check fail
+once at a size that cannot fit before trusting its zero. Take screenshots from
+`vite preview` of a build, and open them: a measurement that passes says nothing about
+what was painted.
+
 ## 2026-10-03: a button disabled "while connecting" is a dead end when the wallet never answers
 
 **Believed:** the site could not see Phantom ("it wont even recognize my phantom wallet", the
