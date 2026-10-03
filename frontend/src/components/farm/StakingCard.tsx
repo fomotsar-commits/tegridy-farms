@@ -4,7 +4,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
 import { formatTokenAmount, sanitizeDecimalInput } from '../../lib/formatting';
 import { AnimatedCounter } from '../AnimatedCounter';
-import { PENALTY_COPY } from '../../lib/copy';
+import { CONNECT_ETHEREUM_WALLET, PENALTY_COPY } from '../../lib/copy';
 import type { useFarmActions } from '../../hooks/useFarmActions';
 import type { useUserPosition } from '../../hooks/useUserPosition';
 import type { useNFTBoost } from '../../hooks/useNFTBoost';
@@ -547,12 +547,12 @@ export function StakingCard({
           </div>
         ) : !isConnected ? (
           <div className="text-center py-8">
-            <p className="text-white text-[13px] mb-4">Connect wallet to start staking</p>
+            <p className="text-white text-[13px] mb-4">Connect an Ethereum wallet to start staking</p>
             <ConnectButton.Custom>
               {({ openConnectModal, mounted }) => (
                 <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
                   <button onClick={openConnectModal} className="btn-primary px-7 py-2.5 text-[14px]">
-                    Connect Wallet
+                    {CONNECT_ETHEREUM_WALLET}
                   </button>
                 </div>
               )}

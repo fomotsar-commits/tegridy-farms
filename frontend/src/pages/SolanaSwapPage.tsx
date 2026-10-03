@@ -42,6 +42,7 @@ import {
 } from '../lib/solanaTokenList';
 import {
   getQuote,
+  NoRouteError,
   buildSwapTransaction,
   pickFeeMint,
   getUsdPrices,
@@ -68,7 +69,6 @@ import {
   type TriggerOrder,
 } from '../lib/jupiter';
 import { prepareJupiterSwap, NO_SITE_FEE_ROUTE_COPY } from '../lib/solana/swap/jupiterFeeRetry';
-import { pollSignature } from '../lib/solana/swap/confirm';
 import { SiteFeeRow } from '../components/swap/SiteFeeRow';
 import { TokenDetail } from '../components/solana/TokenDetail';
 import { PairChart } from '../components/solana/PairChart';
@@ -76,6 +76,8 @@ import { ClockLine } from '../components/ClockLine';
 import { bungalowByAddress } from '../lib/bungalows';
 import { setLastBuy } from '../lib/heat/lastBuy';
 import { recordActivity, getActivity, timeAgo } from '../lib/solanaActivity';
+import { pollConfirm } from '../lib/solana/confirm';
+import { surfaceUnconfirmedTx } from '../lib/txErrors';
 
 const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
 
@@ -118,20 +120,33 @@ function intervalLabel(secs: number): string {
   return `every ${secs}s`;
 }
 
-// Confirm by polling signature status — deliberately avoids a WS subscription
-// so the RPC only needs an https CSP entry, not wss.
-async function pollConfirm(connection: Connection, signature: string, timeoutMs = 60_000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const { value } = await connection.getSignatureStatuses([signature]);
-    const st = value[0];
-    if (st) {
-      if (st.err) throw new Error('Transaction failed on-chain');
-      if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return;
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  throw new Error('Could not confirm in time — check your wallet / Solscan before retrying');
+/** Completes "if it landed, ___" for a cancel we could not confirm. */
+const CANCEL_REPEAT_COST = 'the order is already closed, so a second cancel will fail.';
+
+/** How long a sent swap is watched before the page says it cannot tell (SPEC_S3). */
+const SWAP_CONFIRM_TIMEOUT_MS = 90_000;
+
+/**
+ * Watch a sent transaction (polled, never subscribed: see lib/solana/confirm.ts).
+ *
+ * True once it confirmed. A revert the network reported throws, and each caller's
+ * "failed" toast is right for that one. Anything short of either (a watch that ran out,
+ * a status read that kept erroring) is NOT a failure: the transaction may still land,
+ * and "failed" invites a second one that pays twice. That says "we can't tell, check
+ * before you send it again" with the signature, and returns false.
+ *
+ * `repeatCost` completes "if it landed, ___" in the caller's own terms.
+ *
+ * The DCA and limit senders use this. The instant swap reads the same poller itself
+ * (handleSwap), because it has more to say on each ending: the same warning here, plus
+ * a row in recent activity and, for a revert, the signature and a link.
+ */
+async function confirmSent(connection: Connection, sig: string, repeatCost: string): Promise<boolean> {
+  const { outcome } = await pollConfirm(connection, sig);
+  if (outcome === 'confirmed') return true;
+  if (outcome === 'reverted') throw new Error('Transaction failed on-chain');
+  surfaceUnconfirmedTx(toast, { hash: sig, explorerUrl: `https://solscan.io/tx/${sig}`, repeatCost });
+  return false;
 }
 
 interface TokenPickerProps {
@@ -426,22 +441,38 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
 }
 
 // Connected wallet's balance for a token (SOL via getBalance; SPL via parsed
-// token accounts). Reads through the proxied connection. Returns null on no
-// wallet / error (balance just doesn't render).
-function useTokenBalance(token: SolToken): { raw: bigint | null; human: string | null; loading: boolean } {
+// token accounts). Reads through the proxied connection.
+//
+// Three answers, kept apart: a number that was READ (a real 0 included), a
+// read still in flight, and UNREAD (the read threw, or an account came back
+// without an amount). `raw` is null for the last two and with no wallet, so
+// MAX and the insufficient guard stay off. `unread` is what lets a page say
+// "could not be read" where it used to print a 0 nobody had read, which is
+// exactly what an empty wallet looks like. `retry` reads again.
+function useTokenBalance(token: SolToken): {
+  raw: bigint | null;
+  human: string | null;
+  loading: boolean;
+  unread: boolean;
+  retry: () => void;
+} {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
   const [raw, setRaw] = useState<bigint | null>(null);
   const [loading, setLoading] = useState(false);
+  const [unread, setUnread] = useState(false);
+  // Bumped by retry(): re-runs the read below for the same wallet and token.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!publicKey) { setRaw(null); setLoading(false); return; }
+    if (!publicKey) { setRaw(null); setUnread(false); setLoading(false); return; }
     let cancelled = false;
     // Reset on EVERY re-run, not just disconnect: between a token switch and
     // the RPC response the old token's raw balance would otherwise feed MAX
     // and the insufficient guard in the NEW token's decimals (5 SOL raw ->
     // "5000" USDC). null hides MAX and skips the guard until the read lands.
     setRaw(null);
+    setUnread(false);
     setLoading(true);
     (async () => {
       try {
@@ -452,21 +483,27 @@ function useTokenBalance(token: SolToken): { raw: bigint | null; human: string |
           const resp = await connection.getParsedTokenAccountsByOwner(publicKey, { mint: new PublicKey(token.mint) });
           amount = resp.value.reduce((sum, a) => {
             const v = (a.account.data.parsed as { info?: { tokenAmount?: { amount?: string } } } | undefined)?.info?.tokenAmount?.amount;
-            return sum + (v ? BigInt(v) : 0n);
+            // An account that came back without an amount is not an empty one:
+            // the sum is not known, so the whole read counts as failed. Plain
+            // digits only: BigInt('') is 0n and BigInt('0x10') is 16n, and
+            // neither is an amount the RPC sent.
+            if (typeof v !== 'string' || !/^\d+$/.test(v)) throw new Error('a token account came back without an amount');
+            return sum + BigInt(v);
           }, 0n);
         }
         if (!cancelled) setRaw(amount);
       } catch {
-        if (!cancelled) setRaw(null);
+        if (!cancelled) { setRaw(null); setUnread(true); }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [connection, publicKey, token.mint, token.decimals]);
+  }, [connection, publicKey, token.mint, token.decimals, attempt]);
 
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
   const human = raw === null ? null : fromBaseUnits(raw.toString(), token.decimals);
-  return { raw, human, loading };
+  return { raw, human, loading, unread, retry };
 }
 
 // Trending Solana tokens — drives one-click, fee-bearing buys (pay SOL → token).
@@ -687,12 +724,12 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
 
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
-  async function signSend(b64: string): Promise<string> {
+  /** The signature once it confirmed; null when it was sent and we cannot tell (already said). */
+  async function signSend(b64: string, repeatCost: string): Promise<string | null> {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const tx = VersionedTransaction.deserialize(bytes);
     const sig = await sendTransaction(tx, connection);
-    await pollConfirm(connection, sig);
-    return sig;
+    return (await confirmSent(connection, sig, repeatCost)) ? sig : null;
   }
 
   async function handlePlace() {
@@ -707,7 +744,13 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
         numberOfOrders: numBuys,
         intervalSeconds: intervalSecs,
       });
-      const sig = await signSend(b64);
+      const sig = await signSend(b64, 'starting it again opens a second DCA that deposits the same total again.');
+      if (!sig) {
+        // It may be running: clear the form so one more click does not start another.
+        setTotalAmount('');
+        loadOrders();
+        return;
+      }
       toast.success('DCA started', {
         description: shortSig(sig),
         action: { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') },
@@ -732,7 +775,8 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
     if (!publicKey || !key) return;
     setCancelling(key);
     try {
-      const sig = await signSend(await cancelRecurringOrder(publicKey.toBase58(), key));
+      const sig = await signSend(await cancelRecurringOrder(publicKey.toBase58(), key), CANCEL_REPEAT_COST);
+      if (!sig) { loadOrders(); return; }
       toast.success('DCA cancelled — unspent funds return to your wallet', { description: shortSig(sig) });
       recordActivity(publicKey.toBase58(), { sig, ts: Date.now(), kind: 'dca-cancel', summary: 'Cancelled a DCA' });
       loadOrders();
@@ -911,12 +955,12 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
 
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
-  async function signSend(b64: string): Promise<string> {
+  /** The signature once it confirmed; null when it was sent and we cannot tell (already said). */
+  async function signSend(b64: string, repeatCost: string): Promise<string | null> {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const tx = VersionedTransaction.deserialize(bytes);
     const sig = await sendTransaction(tx, connection);
-    await pollConfirm(connection, sig);
-    return sig;
+    return (await confirmSent(connection, sig, repeatCost)) ? sig : null;
   }
 
   async function handlePlace() {
@@ -932,7 +976,13 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
         takingAmount,
         expiredAt,
       });
-      const sig = await signSend(b64);
+      const sig = await signSend(b64, 'placing it again opens a second order that sells the same amount again.');
+      if (!sig) {
+        // It may be open: clear the form so one more click does not place another.
+        setSellAmount(''); setPrice('');
+        loadOrders();
+        return;
+      }
       toast.success('Limit order placed', {
         description: shortSig(sig),
         action: { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') },
@@ -957,7 +1007,8 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
     if (!publicKey || !key) return;
     setCancelling(key);
     try {
-      const sig = await signSend(await cancelTriggerOrder(publicKey.toBase58(), key));
+      const sig = await signSend(await cancelTriggerOrder(publicKey.toBase58(), key), CANCEL_REPEAT_COST);
+      if (!sig) { loadOrders(); return; }
       toast.success('Order cancelled', { description: shortSig(sig) });
       recordActivity(publicKey.toBase58(), {
         sig,
@@ -1156,7 +1207,15 @@ function SolanaSwapInner() {
   const [waivedQuote, setWaivedQuote] = useState<JupiterQuote | null>(null);
   const feeWaived = quote !== null && quote === waivedQuote;
   const [quoteLoading, setQuoteLoading] = useState(false);
-  const [quoteError, setQuoteError] = useState<string | null>(null);
+  // Why there is no quote, when one was asked for and none came back.
+  // 'no-route' is ONLY the quote service's own answer (lib/jupiter.ts
+  // NoRouteError). Every other failure (a 429, a 502, a dropped request) is
+  // 'unavailable': a quote that could not be fetched just now. That one is
+  // never worded as "no route", which would tell the trader the token cannot
+  // be bought here, and it comes with "Try again".
+  const [quoteFail, setQuoteFail] = useState<'no-route' | 'unavailable' | null>(null);
+  // Bumped by "Try again": asks for the same quote again, the form untouched.
+  const [quoteAttempt, setQuoteAttempt] = useState(0);
   const [swapping, setSwapping] = useState(false);
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
   const [mode, setMode] = useState<'swap' | 'limit' | 'dca'>('swap');
@@ -1203,13 +1262,13 @@ function SolanaSwapInner() {
   useEffect(() => {
     if (!canQuote || !baseAmount) {
       setQuote(null);
-      setQuoteError(null);
+      setQuoteFail(null);
       setQuoteLoading(false);
       return;
     }
     const ctrl = new AbortController();
     setQuoteLoading(true);
-    setQuoteError(null);
+    setQuoteFail(null);
     // A quote for a DIFFERENT pair must not survive into the fetch window:
     // the details rows format its raw base units with the NEW buy token's
     // decimals and symbol ("min received 149250000" USDC-units rendered as
@@ -1226,17 +1285,19 @@ function SolanaSwapInner() {
       })
         .then((q) => {
           if (ctrl.signal.aborted) return;
-          setQuote(q); setQuoteError(null); setQuoteLoading(false);
+          setQuote(q); setQuoteFail(null); setQuoteLoading(false);
         })
         .catch((err: unknown) => {
           if (ctrl.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
           setQuote(null);
-          setQuoteError('No route for this pair / amount.');
+          // "No route" only when the quote service itself said so.
+          setQuoteFail(err instanceof NoRouteError ? 'no-route' : 'unavailable');
           setQuoteLoading(false);
         });
     }, 400);
     return () => { clearTimeout(t); ctrl.abort(); };
-  }, [baseAmount, canQuote, payToken.mint, buyToken.mint, slippageBps]);
+    // quoteAttempt is here only so "Try again" re-runs this for the same form.
+  }, [baseAmount, canQuote, payToken.mint, buyToken.mint, slippageBps, quoteAttempt]);
 
   // USD prices for the pay + receive legs (one call, refreshed on pair change
   // — and every 30s while USD-denominated input is on, so a stale price can't
@@ -1267,7 +1328,13 @@ function SolanaSwapInner() {
     return () => { cancelled = true; };
   }, [payToken.mint, buyToken.mint]);
 
-  const outputDisplay = quote ? prettyAmount(fromBaseUnits(quote.outAmount, buyToken.decimals)) : '0';
+  // A figure only when a quote answered with one. A quote that was asked for
+  // and did not come back is a dash (the same mark as an unread balance),
+  // never a 0, which reads as "you would receive nothing". With no amount
+  // typed nothing was asked, and the 0 stands.
+  const outputDisplay = quote
+    ? prettyAmount(fromBaseUnits(quote.outAmount, buyToken.decimals))
+    : quoteFail ? '–' : '0';
   const rawImpact = Number(quote?.priceImpactPct);
   const priceImpact = Number.isFinite(rawImpact) ? Math.abs(rawImpact * 100) : null;
   const feePct = (SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2);
@@ -1432,20 +1499,25 @@ function SolanaSwapInner() {
       const sig = await sendTransaction(tx, connection);
       toast.success('Swap submitted', { description: `${shortSig(sig)} — confirming…` });
       // A signature exists: from here the swap may be on chain, so nothing
-      // below may say "failed" unless the chain itself said so. pollSignature
-      // never throws; a timeout or an unreadable status is 'unknown'.
+      // below may say "failed" unless the chain itself said so. pollConfirm
+      // (lib/solana/confirm.ts, the one poller the ladder and the DCA and limit
+      // tabs also use) never throws; a timeout or an unreadable status is
+      // 'unknown'. 90 s is SPEC_S3's wait for a swap.
       const view = { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') };
       const tradeWords = `≈${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}${feeWaivedOnSend ? ' (no site fee on this route)' : ''}`;
-      const ending = await pollSignature((sigs) => connection.getSignatureStatuses(sigs), sig);
-      if (ending === 'reverted') {
+      const { outcome } = await pollConfirm(connection, sig, SWAP_CONFIRM_TIMEOUT_MS);
+      if (outcome === 'reverted') {
         toast.error('Swap refused on chain', { description: `${shortSig(sig)}. Only the network fee was spent.`, action: view });
         return;
       }
-      if (ending === 'unknown') {
-        toast.warning('Sent, not confirmed yet', {
-          description: `${shortSig(sig)}. It may still land. Check your wallet or Solscan before trying again.${feeWaivedOnSend ? ` ${NO_SITE_FEE_ROUTE_COPY}` : ''}`,
-          action: view,
-          duration: 30_000,
+      if (outcome === 'unknown') {
+        // The same "we can't tell, check before you send it again" the DCA and
+        // limit tabs raise (confirmSent above). A swap that may have landed with
+        // no site fee says that too: the waiver is never silent in a result.
+        surfaceUnconfirmedTx(toast, {
+          hash: sig,
+          explorerUrl: `https://solscan.io/tx/${sig}`,
+          repeatCost: `swapping again buys a second time.${feeWaivedOnSend ? ` ${NO_SITE_FEE_ROUTE_COPY}` : ''}`,
         });
         // Kept in "Your recent activity" so the signature outlives the toast,
         // and the form is cleared so the same buy is not one click away.
@@ -1488,6 +1560,18 @@ function SolanaSwapInner() {
   }
 
   const actionDisabled = !quote || quoteLoading || swapping || sameToken || (needsAck && !ack) || insufficient;
+  // What the buy button says. "No route" only when the quote service said it:
+  // a quote that could not be fetched, two of the same token, and the moment
+  // before the first quote is asked for each get their own words.
+  const ctaLabel = swapping ? 'Swapping…'
+    : quoteLoading ? 'Fetching quote…'
+    : !baseAmount ? 'Enter an amount'
+    : sameToken ? 'Pick two different tokens'
+    : insufficient ? `Insufficient ${payToken.symbol}`
+    : quote ? `Buy ${buyToken.symbol}`
+    : quoteFail === 'no-route' ? 'No route'
+    : quoteFail === 'unavailable' ? 'Quote unavailable'
+    : 'Fetching quote…';
 
   return (
     <div className="max-w-md mx-auto px-4 py-8">
@@ -1559,7 +1643,21 @@ function SolanaSwapInner() {
               </span>
               {publicKey && (
                 <span className="text-white/60 text-[10px] font-mono">
-                  Balance: {payBalance.loading ? '…' : payBalance.human ? prettyAmount(payBalance.human) : '0'}
+                  {/* A number only when it was READ (a real 0 included). A read
+                      that failed is a dash with a way to read again, the same
+                      mark the EVM swap uses, never a 0 nobody read. */}
+                  Balance: {payBalance.loading ? '…' : payBalance.human !== null ? prettyAmount(payBalance.human) : '–'}
+                  {payBalance.unread && (
+                    <button
+                      type="button"
+                      onClick={payBalance.retry}
+                      aria-label={`Retry reading your ${payToken.symbol} balance`}
+                      className="ml-1 px-2 py-2.5 -my-2 font-semibold"
+                      style={{ color: 'var(--color-stan)' }}
+                    >
+                      Retry
+                    </button>
+                  )}
                   {payBalance.raw !== null && payBalance.raw > 0n && (
                     <button type="button" onClick={handleMax} className="ml-1 px-2 py-2.5 -my-2 font-semibold" style={{ color: 'var(--color-stan)' }}>MAX</button>
                   )}
@@ -1749,9 +1847,26 @@ function SolanaSwapInner() {
               </div>
             )}
             {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
-            {quoteError && !sameToken && <p className="text-amber-300">{quoteError}</p>}
+            {quoteFail === 'no-route' && !sameToken && <p className="text-amber-300">No route for this pair / amount.</p>}
+            {quoteFail === 'unavailable' && !sameToken && (
+              <p className="text-amber-300" data-testid="solana-quote-unavailable">
+                Could not get a quote just now. This is not a statement that the pair cannot be traded.
+                <button
+                  type="button"
+                  onClick={() => setQuoteAttempt((n) => n + 1)}
+                  className="ml-1 px-2 py-2.5 -my-2 font-semibold underline underline-offset-2"
+                >
+                  Try again
+                </button>
+              </p>
+            )}
             {amount.trim() !== '' && !baseAmount && !sameToken && <p className="text-amber-300">Enter a valid amount.</p>}
             {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
+            {publicKey && payBalance.unread && (
+              <p className="text-amber-300" data-testid="solana-balance-unread">
+                Your {payToken.symbol} balance could not be read just now. This is not a statement that you hold none.
+              </p>
+            )}
             {shieldWarnings.map((w, i) => (
               <p key={`sh-${i}`} className={`flex items-start gap-1 ${shieldIsAlarming(w, w.mint) ? 'text-red-300' : 'text-white/50'}`}>
                 <span aria-hidden="true">⚠</span><span>{w.message}</span>
@@ -1783,7 +1898,7 @@ function SolanaSwapInner() {
               disabled={actionDisabled}
               className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-50"
             >
-              {swapping ? 'Swapping…' : quoteLoading ? 'Fetching quote…' : !baseAmount ? 'Enter an amount' : insufficient ? `Insufficient ${payToken.symbol}` : !quote ? 'No route' : `Buy ${buyToken.symbol}`}
+              {ctaLabel}
             </button>
           )}
 

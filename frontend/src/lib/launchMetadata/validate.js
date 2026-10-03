@@ -91,7 +91,7 @@ export const BRAND_WORDS = Object.freeze(["TEGRIDY", "TOWELI", "BAYLA", "MEMETIC
 const CONFUSABLES = new Map(Object.entries({
   // Cyrillic
   "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H", "О": "O", "Р": "P",
-  "С": "C", "Т": "T", "Х": "X", "У": "Y", "Ѕ": "S", "І": "I", "Ј": "J", "Ԛ": "Q", "Ԝ": "W",
+  "С": "C", "Т": "T", "Х": "X", "У": "Y", "Ѕ": "S", "І": "I", "Ј": "J", "Ԁ": "D", "Ԛ": "Q", "Ԝ": "W",
   // Greek
   "Α": "A", "Β": "B", "Ε": "E", "Ζ": "Z", "Η": "H", "Ι": "I", "Κ": "K", "Μ": "M",
   "Ν": "N", "Ο": "O", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X",
@@ -101,13 +101,21 @@ const CONFUSABLES = new Map(Object.entries({
   "L": "I",
 }));
 
+// Greek letters whose LOWER case reads as a different Latin letter than their capital
+// does (ν reads as v, its capital Ν as N). Folded before upper-casing.
+const CONFUSABLES_LOWER = new Map(Object.entries({ "ν": "V", "υ": "U", "η": "N", "μ": "U" }));
+
 /**
- * The comparison skeleton: compatibility-normalised, upper-cased, lookalikes
- * folded, everything that is not A-Z or 0-9 removed.
+ * The comparison skeleton: compatibility-decomposed (so an accented letter keeps
+ * its plain letter: "Sölana" is SOLANA), upper-cased, lookalikes folded, everything
+ * that is not A-Z or 0-9 removed.
+ *
+ * The pool pages compare with this same skeleton (src/lib/solana/lp/tokenSafety.ts),
+ * against their own list of names: the ones they know the one real mint of.
  */
 export function foldForCompare(s) {
   if (typeof s !== "string") return "";
-  const upper = s.normalize("NFKC").toUpperCase();
+  const upper = [...s.normalize("NFKD")].map((ch) => CONFUSABLES_LOWER.get(ch) ?? ch).join("").toUpperCase();
   let out = "";
   for (const ch of upper) {
     const mapped = CONFUSABLES.get(ch) ?? ch;
@@ -121,18 +129,52 @@ const FOLDED_NAMES = new Map(RESERVED_NAMES.map((s) => [foldForCompare(s), s]));
 const FOLDED_BRANDS = BRAND_WORDS.map((s) => [foldForCompare(s), s]);
 
 /**
- * A brand word inside a longer name. Long brand words are searched for anywhere
+ * Every skeleton a name, symbol or word is compared under: as written (a "$" reads
+ * as S, so "$OL" is SOL) and, when it starts with "$", without it, because "$SOL" is
+ * how a ticker is written.
+ */
+export function foldedForms(text) {
+  if (typeof text !== "string") return [];
+  const t = text.trim();
+  return [...new Set([t, t.replace(/^\$/, "")].map(foldForCompare))].filter(Boolean);
+}
+
+/**
+ * Characters a reader does not see as a gap between two letters: marks drawn on a
+ * letter, format characters (zero width, soft hyphen, text direction), unassigned and
+ * private-use ones, and the braille blank. `displaySafe` removes most of them, so
+ * "Bay", a zero-width space, "la Token" is shown as "Bayla Token" and must be read as
+ * that. They are taken out before a name is cut into words.
+ */
+const NOT_A_GAP = /[\p{M}\p{Cf}\p{Cs}\p{Cn}\p{Co}\u2800]/gu;
+
+/**
+ * Every brand word inside a longer name. Long brand words are searched for anywhere
  * ("TegridyFarms", "Official Toweli"); a short one only at the start of a word, or
  * "Bay Lagoon" (folded BAYIAGOON) would read as BAYLA.
  */
-function containsBrand(text) {
+function containedBrands(text) {
   const whole = foldForCompare(text);
-  const words = String(text).normalize("NFKC").split(/[^\p{L}\p{N}$|!]+/u).map(foldForCompare).filter(Boolean);
-  for (const [folded, word] of FOLDED_BRANDS) {
-    if (whole === folded) return word;
-    if (folded.length >= 6 ? whole.includes(folded) : words.some((w) => w.startsWith(folded))) return word;
+  const words = String(text).normalize("NFKC").replace(NOT_A_GAP, "").split(/[^\p{L}\p{N}$|!]+/u).flatMap(foldedForms);
+  return FOLDED_BRANDS.filter(
+    ([folded]) => whole === folded || (folded.length >= 6 ? whole.includes(folded) : words.some((w) => w.startsWith(folded))),
+  ).map(([, word]) => word);
+}
+
+/**
+ * Everything a name or symbol would be mistaken for, most exact first; empty when
+ * nothing. A name can copy more than one ("Bayla by Tegridy"), and a reader that
+ * knows only some of these words (the pool pages) must see them all.
+ */
+export function impersonatesAll(text) {
+  const forms = foldedForms(text);
+  if (!forms.length) return [];
+  const hits = [];
+  for (const f of forms) {
+    if (FOLDED_SYMBOLS.has(f)) hits.push(FOLDED_SYMBOLS.get(f));
+    if (FOLDED_NAMES.has(f)) hits.push(FOLDED_NAMES.get(f));
   }
-  return null;
+  return [...new Set([...hits, ...containedBrands(text)])];
 }
 
 /**
@@ -140,11 +182,7 @@ function containsBrand(text) {
  * and on read (to warn about a launch made anywhere).
  */
 export function impersonates(text) {
-  const f = foldForCompare(text);
-  if (!f) return null;
-  if (FOLDED_SYMBOLS.has(f)) return FOLDED_SYMBOLS.get(f);
-  if (FOLDED_NAMES.has(f)) return FOLDED_NAMES.get(f);
-  return containsBrand(text);
+  return impersonatesAll(text)[0] ?? null;
 }
 
 /** Plain-English warning for a launch's name and symbol, or null when neither copies anything. */

@@ -167,20 +167,72 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(c).toHaveTextContent('This token also has a pool on fee tier 0 that passes the checks. A new pool will not share its liquidity or fees.');
   });
 
-  it('exists: a passing pool on the public tier; no button', async () => {
-    mount(readers({ findPools: vi.fn(async () => search([view({ tier1: true })])) }));
-    const c = await settled('exists');
-    expect(c).toHaveTextContent('This token already has a pool on the public fee tier that passes the checks (above). Add to it instead, so the liquidity stays in one place.');
-    expect(within(c).queryByRole('button', { name: 'Open a pool' })).toBeNull();
+  // ATK-3 (audit 2026-10-03): anyone can open enough junk pools to make the index answer
+  // "truncated" for good. A cut list is not an unread one: the button stays, the card
+  // says the list was cut, and a new pool is never called "the first".
+  it.each<[string, () => PoolView[]]>([
+    ['with failing pools read', () => [view({ tier1: true, openTime: 10n ** 12n }), view({ address: key(), openTime: 10n ** 12n })]],
+    ['with no pool read at all', () => []],
+  ])('offer, a truncated index %s: the cut is said, and never "the first" pool or "no pool yet"', async (_l, pools) => {
+    const views = pools();
+    mount(readers({ findPools: vi.fn(async () => search(views, { index: { kind: 'ok', pools: views.map((v) => v.address), truncated: true } })) }));
+    const c = await settled('offer');
+    expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
+    expect(c).toHaveTextContent(/This token has more pools than our pool index lists/);
+    expect(c).toHaveTextContent(/were not read or checked here/);
+    expect(c).toHaveTextContent(/None of the pools read for this token/);
+    expect(c).not.toHaveTextContent(/first|No pool for this token|None of this token's pools/i);
   });
 
-  it("opened-here: a pool this tab opened, even while it reads 'not open yet'; its card says so too", async () => {
+  // Owner ruling 2026-10-03: a token may have as many pools as people open. A pool that
+  // already exists is pointed to first, and the button stays.
+  it('a passing pool on the public tier: the card points to it, and the button stays', async () => {
+    const theirs = view({ tier1: true });
+    mount(readers({ findPools: vi.fn(async () => search([theirs])) }));
+    const c = await settled('offer');
+    expect(c).toHaveAttribute('data-advice', 'exists');
+    expect(within(c).getByTestId('lp-create-refer')).toHaveTextContent(
+      `This token already has a pool on the public fee tier that passes the checks (above). The biggest is ${theirs.address}, holding 10 SOL. We suggest adding to it: liquidity in one place gives traders a better price.`,
+    );
+    expect(within(c).getByTestId('lp-create-still')).toHaveTextContent(
+      "You can still open your own on the public fee tier (1% a trade, 0.15 SOL to open). It will be a separate pool: it does not share the other pool's liquidity or fees.",
+    );
+    expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
+    expect(c).not.toHaveTextContent(/Add to it instead|first one|No pool for this token/);
+  });
+
+  it('several passing pools: the one holding the most SOL is the one named', async () => {
+    const small = view({ tier1: true });
+    const big: PoolView = { ...view({ tier1: true, address: key() }), solReserve: 250n * 10n ** 9n };
+    // Listed smallest first, so the answer does not lean on the list's order.
+    mount(readers({ findPools: vi.fn(async () => search([small, big])) }));
+    const c = await settled('offer');
+    const refer = within(c).getByTestId('lp-create-refer');
+    expect(refer).toHaveTextContent(`The biggest is ${big.address}, holding 250 SOL.`);
+    expect(refer).not.toHaveTextContent(small.address);
+  });
+
+  it("a pool this tab opened, even while it reads 'not open yet': pointed to, its card says so too, and the button stays", async () => {
     const mine = view({ tier1: true, openTime: 10n ** 12n });
     rememberCreatedPool(mine.address);
     mount(readers({ findPools: vi.fn(async () => search([mine])) }));
-    const c = await settled('opened-here');
-    expect(c).toHaveTextContent(`You opened a pool for this token just now (${mine.address}). Add to it instead of opening another. Your share is under 'Your positions'.`);
+    const c = await settled('offer');
+    expect(c).toHaveAttribute('data-advice', 'opened-here');
+    expect(c).toHaveTextContent(`You opened a pool for this token just now (${mine.address}). Your share is under 'Your positions'. Adding to it keeps your liquidity in one place.`);
+    expect(within(c).getByTestId('lp-create-still')).toHaveTextContent(
+      'You can still open another on the public fee tier (1% a trade, 0.15 SOL to open). It will be a separate pool, and the fee to open is paid again.',
+    );
+    expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
     expect(within(screen.getByTestId('lp-pool')).getByTestId('lp-opened-here')).toHaveTextContent("You opened this pool just now. Your share is under 'Your positions'.");
+  });
+
+  it('a stopped card names no pool to add to: the stop has its own line', async () => {
+    const theirs = view({ tier1: true });
+    mount(readers({ findPools: vi.fn(async () => search([theirs])), outsidePrice: vi.fn(async () => ({ kind: 'no-route' as const, detail: 'no route' })) }));
+    const c = await settled('no-route');
+    expect(c).toHaveAttribute('data-advice', 'none');
+    expect(within(c).queryByTestId('lp-create-refer')).toBeNull();
+    expect(within(c).queryByRole('button', { name: 'Open a pool' })).toBeNull();
   });
 
   it('pools-unread: an index outage; Read again searches again', async () => {
@@ -288,7 +340,7 @@ describe('a pending opening', () => {
     await waitFor(() => expect(api.recheckOutcome).toHaveBeenCalledWith(conn.connection, SIG, expect.objectContaining({ kind: 'lp-create' })));
   });
 
-  it("confirmed on its check: the tab remembers the note's pool, so the card says 'opened-here'", async () => {
+  it("confirmed on its check: the tab remembers the note's pool, so the card points to it as opened here", async () => {
     const mine = view({ tier1: true });
     savePendingTrade(LP_PENDING_SCOPE, { kind: 'lp-create', signature: SIG, lastValidBlockHeight: 50, pool: mine.address });
     const findPools = vi.fn().mockResolvedValueOnce(search([])).mockResolvedValue(search([mine]));
@@ -299,7 +351,8 @@ describe('a pending opening', () => {
     await act(async () => {});
     expect(readPendingTrades(LP_PENDING_SCOPE)).toEqual([]);
     // The answer bumps the section's re-read: the pool is listed, and is this tab's.
-    await settled('opened-here');
+    const c = await settled('offer');
+    await waitFor(() => expect(c).toHaveAttribute('data-advice', 'opened-here'));
   });
 });
 

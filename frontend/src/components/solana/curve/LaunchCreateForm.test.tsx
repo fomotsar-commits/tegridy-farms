@@ -400,6 +400,24 @@ describe('launch form: review and send', () => {
     expect(vi.mocked(api.prepareCreateLaunch).mock.calls[0]![2].openingBuy).toEqual({ lamportsIn: SOL / 10n, slippageBps: 0n });
   });
 
+  // UX-1: a phone set to a comma-decimal region has "," and no "." on this keypad.
+  it('the opening buy reads a typed comma as the decimal point; a pasted "68,066" is refused, never 68.066', async () => {
+    const api = renderForm(createApi());
+    await fillValid();
+    fireEvent.click(screen.getByRole('checkbox'));
+    const buy = screen.getByLabelText('Opening buy (SOL)') as HTMLInputElement;
+    fireEvent.change(buy, { target: { value: '68,066' } });
+    expect(buy).toHaveValue('68,066');
+    expect(buy).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.change(buy, { target: { value: '' } });
+    for (const k of '0,1') fireEvent.change(buy, { target: { value: buy.value + k } });
+    expect(buy).toHaveValue('0.1');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
+    });
+    expect(vi.mocked(api.prepareCreateLaunch).mock.calls[0]![2].openingBuy).toEqual({ lamportsIn: SOL / 10n, slippageBps: 0n });
+  });
+
   it('pressing Review again with the same details reuses the upload and the mint, so the wallet is asked once', async () => {
     const api = renderForm(createApi());
     await fillValid();

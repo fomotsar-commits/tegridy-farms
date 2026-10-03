@@ -56,6 +56,9 @@ export type LaunchGateProps =
       connect?: React.ReactNode;
       /** Shown directly under the door in every state, before anything the door lets through. */
       below?: React.ReactNode;
+      /** For a page where no launch can be made: the sentence that says so. The door then
+       *  shows the reading and that sentence, gives no verdict, and lets nothing through. */
+      launchingOff?: string;
       children?: React.ReactNode;
     };
 
@@ -63,7 +66,13 @@ export type LaunchGateProps =
 export function LaunchGate(props: LaunchGateProps) {
   if (props.rail === 'solana') {
     return (
-      <Door rail="solana" address={props.wallet ?? undefined} connect={props.connect} below={props.below}>
+      <Door
+        rail="solana"
+        address={props.wallet ?? undefined}
+        connect={props.connect}
+        below={props.below}
+        launchingOff={props.launchingOff}
+      >
         {props.children}
       </Door>
     );
@@ -103,10 +112,11 @@ interface DoorProps {
   onOpen?: (row: GateAuditRow | null) => void;
   connect?: React.ReactNode;
   below?: React.ReactNode;
+  launchingOff?: string;
   children?: React.ReactNode;
 }
 
-function Door({ rail, address, signProof, onOpen, connect, below, children }: DoorProps) {
+function Door({ rail, address, signProof, onOpen, connect, below, launchingOff, children }: DoorProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'no-wallet' });
   const [proving, setProving] = useState(false);
   const [proveError, setProveError] = useState<string | null>(null);
@@ -165,8 +175,9 @@ function Door({ rail, address, signProof, onOpen, connect, below, children }: Do
             Island.{' '}
             {rail === 'solana' ? (
               <>
-                Connect the Solana wallet that will sign the launch, or read any address below. One person, every
-                wallet. Link Ethereum and Base, link Solana, and the island reads you whole.
+                {launchingOff ? 'Connect a Solana wallet to see its reading' : 'Connect the Solana wallet that will sign the launch'},
+                or read any address below. One person, every wallet. Link Ethereum and Base, link Solana, and the
+                island reads you whole.
               </>
             ) : (
               'Connect the Ethereum wallet that carries it, or read any address below.'
@@ -177,13 +188,16 @@ function Door({ rail, address, signProof, onOpen, connect, below, children }: Do
           {/* The card reads a pasted address, as VenueHero mounts it. It reads; it does not
               open: the lane opens for the connected wallet, and the launch call re-reads
               that wallet at submit. On Solana an empty draft keeps it from filling in the
-              Ethereum wallet, which this door never reads. */}
+              Ethereum wallet, which this door never reads. With launching off the card gives
+              the reading without its "can launch" line. */}
           <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-            <HeatCard variant="embedded" showEligibility initialDraft={rail === 'solana' ? '' : null} />
+            <HeatCard variant="embedded" showEligibility={!launchingOff} initialDraft={rail === 'solana' ? '' : null} />
             <p className="text-[12px] text-white/45 mt-3">
-              {rail === 'solana'
-                ? 'A reading is not a key. The lane opens for the connected wallet, and the launch reads it again before anything is signed.'
-                : 'A reading is not a key. The lane opens for a wallet that signs.'}
+              {launchingOff
+                ? `A reading is not a key. ${launchingOff}`
+                : rail === 'solana'
+                  ? 'A reading is not a key. The lane opens for the connected wallet, and the launch reads it again before anything is signed.'
+                  : 'A reading is not a key. The lane opens for a wallet that signs.'}
             </p>
           </div>
         </Frame>
@@ -209,9 +223,10 @@ function Door({ rail, address, signProof, onOpen, connect, below, children }: Do
   // that replaced it before the re-read lands. Solana has no proof step (see DoorProps).
   // Dialled off, the door only informs on both rails: the lane stays open whatever the
   // reading, as the note below says, and the call at submit reads the wallet again.
+  // With launching off there is no lane, so nothing opens it.
   const forThisWallet = decision.address === address;
   const verdictOpens = rail === 'solana' ? decision.state === 'WARM' : decision.state === 'WARM' && proved;
-  const open = forThisWallet && (verdictOpens || !isHeatGateEnabled());
+  const open = !launchingOff && forThisWallet && (verdictOpens || !isHeatGateEnabled());
 
   const door = (
     <Frame state={decision.state}>
@@ -224,7 +239,10 @@ function Door({ rail, address, signProof, onOpen, connect, below, children }: Do
         {/* ── WARM ───────────────────────────────────────────────────────────── */}
         {decision.state === 'WARM' && (
           <m.div key="warm" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <p className="text-[13px] text-white/75 leading-relaxed mb-3">{decision.detail}</p>
+            {/* `detail` ends "The launch lane is open."; with launching off only the reading is said. */}
+            <p className="text-[13px] text-white/75 leading-relaxed mb-3">
+              {launchingOff ? `This wallet reads ${decision.degrees?.toFixed(2)}° (${decision.tier}).` : decision.detail}
+            </p>
             {!signProof ? null : !proved ? (
               <>
                 <button onClick={() => void prove()} disabled={proving} className="btn-primary px-5 py-2 text-[13px] disabled:opacity-40">
@@ -283,12 +301,17 @@ function Door({ rail, address, signProof, onOpen, connect, below, children }: Do
         )}
       </AnimatePresence>
 
-      {/* The gate is ADVISORY: both rails sign client-side. Say so where a launcher reads it. */}
-      {!isHeatGateEnabled() && (
-        <p className="text-[11px] text-white/40 mt-3">
-          Denial is currently dialled off, so the reading above is shown for information and the lane
-          stays open either way.
-        </p>
+      {/* The gate is ADVISORY: both rails sign client-side. Say so where a launcher reads it.
+          With launching off there is no launcher: the door ends on the page's sentence. */}
+      {launchingOff ? (
+        <p className="text-[13px] text-white/75 leading-relaxed mt-3">{launchingOff}</p>
+      ) : (
+        !isHeatGateEnabled() && (
+          <p className="text-[11px] text-white/40 mt-3">
+            Denial is currently dialled off, so the reading above is shown for information and the lane
+            stays open either way.
+          </p>
+        )
       )}
     </Frame>
   );

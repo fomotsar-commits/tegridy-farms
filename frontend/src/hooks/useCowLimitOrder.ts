@@ -15,7 +15,9 @@ import { maxUint256, type Address } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
+import { surfaceReceiptNotice, waitForReceiptOutcome } from '../lib/txErrors';
 import {
+  COW_APPROVE_REPEAT_COST,
   COW_VAULT_RELAYER_ADDRESS,
   COW_ORDER_TYPES,
   cowDomain,
@@ -154,9 +156,15 @@ export function useCowLimitOrder() {
           // AUDIT (receipt-status, 2026-08-24): waitForTransactionReceipt
           // RESOLVES for reverted txs — signing an order on top of a reverted
           // approve creates an open order that can only expire unfilled.
-          const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
-          if (approveReceipt.status !== 'success') {
+          const approval = await waitForReceiptOutcome(publicClient, approveHash);
+          if (approval.kind === 'reverted') {
             throw new Error('Token approval reverted on-chain — the order was not submitted.');
+          }
+          if (approval.kind !== 'success') {
+            // Unread, or the wallet put another transaction at its nonce (a cancel's
+            // receipt says success): nothing is signed on an allowance nobody has seen.
+            surfaceReceiptNotice(toast, approval, { hash: approveHash, chainId: CHAIN_ID, repeatCost: COW_APPROVE_REPEAT_COST });
+            return null;
           }
         }
 

@@ -95,6 +95,24 @@ export function quoteHasPlatformFee(quote: JupiterQuote): boolean {
   return !(zeroBps && zeroAmount);
 }
 
+/**
+ * Jupiter's own answer that it has no route for this pair and amount.
+ *
+ * Our proxy turns Jupiter's "no route" codes into a 404 with the fixed body
+ * {"error":"No route","code":"NO_ROUTE"} (api/aggregator.js noRouteErrorCodes)
+ * and every other upstream failure into a 502. Only that exact answer is "no
+ * route". A 429, a 502, a dropped request or a 404 without the code is a quote
+ * that could not be FETCHED, and a caller must never word that as "no route":
+ * it tells a trader the token cannot be bought when the truth is that we did
+ * not get an answer. Same rule as lib/solana/lp/outsidePrice.ts.
+ */
+export class NoRouteError extends Error {
+  constructor() {
+    super('No route for this pair / amount.');
+    this.name = 'NoRouteError';
+  }
+}
+
 export interface QuoteParams {
   inputMint: string;
   outputMint: string;
@@ -132,8 +150,9 @@ function quoteRequest(params: QuoteParams): { url: string; feeBpsSent: number | 
 }
 
 /**
- * The older reader: it THROWS for every answer that is not a quote, so its
- * caller cannot tell "Jupiter has no route" from "Jupiter could not be read".
+ * The older reader: it THROWS for every answer that is not a quote. Jupiter's
+ * own "no route" is a NoRouteError; everything else is "Quote unavailable
+ * (status)" or the fetch's own error, so the swap page can word the two apart.
  * The swap page still calls it; the page half of SPEC_S3 step S1 moves the page
  * to readQuote below and deletes this.
  */
@@ -142,11 +161,16 @@ export async function getQuote(params: QuoteParams): Promise<JupiterQuote> {
     headers: { Accept: 'application/json' },
     signal: params.signal,
   });
+  // The same one rule readQuote follows: a 404 AND the proxy's fixed body.
+  if (res.status === 404 && (await isNoRouteBody(res))) throw new NoRouteError();
   if (!res.ok) throw new Error(`Quote unavailable (${res.status})`);
   return (await res.json()) as JupiterQuote;
 }
 
-/** The proxy's "no route" answer: `{"error":"No route","code":"NO_ROUTE"}` (api/_lib/aggregator-proxy.js). */
+/**
+ * The proxy's "no route" body: `{"error":"No route","code":"NO_ROUTE"}` (api/_lib/aggregator-proxy.js).
+ * The body alone is not the answer: every caller also requires the 404 it comes with.
+ */
 export async function isNoRouteBody(res: Response): Promise<boolean> {
   try {
     const body = (await res.json()) as { code?: unknown } | null;

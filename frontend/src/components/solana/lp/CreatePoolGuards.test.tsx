@@ -2,8 +2,11 @@
 // panel that is already open (B review: funds-1, person-1, parity-1 and funds-2).
 //
 // - An open "Open a pool" panel obeys the card: Review is off whenever the card does not
-//   say `offer` (opened-here, exists, pools unread…), and while the search is being read
+//   say `offer` (pools unread, a held opening…), and while the search is being read
 //   again. After its own confirmed opening its boxes are emptied.
+// - A pool that already exists is NOT one of those stops (owner ruling 2026-10-03: a
+//   token may have as many pools as people open). The panel says so next to Review, in
+//   words, and a second opening takes typing the amounts again and a new Review.
 // - The liquidity notes hold in THIS tab at once (sent, unknown), not only after a reload,
 //   on every token, and the "may still be landing" card shows them.
 //
@@ -160,7 +163,7 @@ beforeEach(() => {
 });
 
 describe('an open panel obeys the card', () => {
-  it("after its own confirmed opening and the outcome's Close: the card says opened-here, the boxes are empty, and Review stays off", async () => {
+  it("after its own confirmed opening and the outcome's Close: the boxes are empty, the panel says a second pool is separate, and nothing opens without typing again", async () => {
     const prepareLpCreate = vi.fn(async (): Promise<Prepared> => ({ ok: true, prepared: prepared(lpCreateSummary(STANDARD, MINT)) }));
     const r = readers();
     mount(r, { prepareLpCreate, submitPrepared: sends(() => ({ status: 'confirmed', signature: SIG, slot: 7 })) });
@@ -169,20 +172,33 @@ describe('an open panel obeys the card', () => {
     // The chain now lists the new pool at the standard address.
     (r.findPools as ReturnType<typeof vi.fn>).mockImplementation(async (m: PublicKey) => search(m.toBase58(), [tier1View(STANDARD)], 'pool'));
     await act(async () => fireEvent.click(within(within(panel).getByTestId('tx-outcome')).getByRole('button', { name: 'Close' })));
-    await waitFor(() => expect(createCard()).toHaveAttribute('data-create', 'opened-here'));
+    await waitFor(() => expect(createCard()).toHaveAttribute('data-advice', 'opened-here'));
+    expect(createCard()).toHaveAttribute('data-create', 'offer');
     const still = screen.getByTestId('lp-create-panel');
+    // The accident guard: the amounts are gone, so a stray press of Review opens nothing.
     expect(sol(still)).toHaveValue('');
     expect(tokens(still)).toHaveValue('');
-    expect(still).toHaveTextContent('You opened a pool for this token just now. Add to it instead of opening another, so Review is off here.');
-    // Even with the amounts typed again, Review stays off: the card does not offer an opening.
-    fireEvent.change(sol(still), { target: { value: '1' } });
-    fireEvent.click(matchButton(still));
     expect(reviewButton(still)).toBeDisabled();
     fireEvent.click(reviewButton(still));
     expect(prepareLpCreate).toHaveBeenCalledTimes(1);
+    expect(within(still).getByTestId('lp-create-advice')).toHaveTextContent(
+      'You opened a pool for this token just now. Opening again makes a second, separate pool and pays the fee to open again.',
+    );
+    expect(still).not.toHaveTextContent('Review is off here');
+    // A second pool is the opener's choice: with the amounts typed again, Review builds
+    // one at an address of its own (the standard address now holds the first).
+    fireEvent.change(sol(still), { target: { value: '1' } });
+    fireEvent.click(matchButton(still));
+    await waitFor(() => expect(reviewButton(still)).toBeEnabled());
+    await act(async () => fireEvent.click(reviewButton(still)));
+    expect(prepareLpCreate).toHaveBeenCalledTimes(2);
+    expect(prepareLpCreate).toHaveBeenLastCalledWith(
+      expect.anything(), expect.anything(), expect.anything(),
+      expect.objectContaining({ shown: expect.objectContaining({ standard: 'taken' }) }),
+    );
   });
 
-  it('a stranger opens a passing tier-1 pool first: after Start over the card says exists, and Review stays off', async () => {
+  it('a stranger opens a passing tier-1 pool first: after Start over the panel points to it, and Review stays on', async () => {
     const prepareLpCreate = vi.fn(async (): Promise<Prepared> => ({ ok: true, prepared: prepared(lpCreateSummary(STANDARD, MINT)) }));
     const r = readers();
     mount(r, {
@@ -195,13 +211,18 @@ describe('an open panel obeys the card', () => {
     const theirs = tier1View(key());
     (r.findPools as ReturnType<typeof vi.fn>).mockImplementation(async (m: PublicKey) => search(m.toBase58(), [theirs], 'pool'));
     await act(async () => fireEvent.click(within(within(panel).getByTestId('tx-outcome')).getByRole('button', { name: 'Start over' })));
-    await waitFor(() => expect(createCard()).toHaveAttribute('data-create', 'exists'));
+    await waitFor(() => expect(createCard()).toHaveAttribute('data-advice', 'exists'));
+    expect(createCard()).toHaveAttribute('data-create', 'offer');
+    expect(within(createCard()).getByTestId('lp-create-refer')).toHaveTextContent(`The biggest is ${theirs.address}, holding 10 SOL.`);
     const still = screen.getByTestId('lp-create-panel');
-    // The boxes are kept (nothing was opened), but the card's answer switches Review off.
+    // The boxes are kept (nothing was opened). The panel says a pool is already there,
+    // next to Review, and Review stays on: opening a separate pool is the opener's choice.
     expect(sol(still)).toHaveValue('1');
-    expect(still).toHaveTextContent('This token already has a pool on the public fee tier that passes the checks. Add to it instead, so Review is off here.');
-    await act(async () => {});
-    expect(reviewButton(still)).toBeDisabled();
+    expect(within(still).getByTestId('lp-create-advice')).toHaveTextContent(
+      'This token already has a pool that passes the checks (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.',
+    );
+    expect(still).not.toHaveTextContent('Review is off here');
+    await waitFor(() => expect(reviewButton(still)).toBeEnabled());
     expect(prepareLpCreate).toHaveBeenCalledTimes(1);
   });
 

@@ -67,15 +67,15 @@ describe('ConnectPrompt', () => {
 
   it('renders dashboard surface copy (F519)', () => {
     renderPrompt('dashboard');
-    expect(screen.getByRole('heading', { name: /Connect Wallet/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Connect an Ethereum wallet' })).toBeInTheDocument();
     expect(screen.getByText(/View your portfolio, positions, and earnings/i)).toBeInTheDocument();
   });
 
-  it('renders "Connect Wallet" button and FAQ link', () => {
+  it('names its button for the wallet list it opens, and links the FAQ', () => {
     renderPrompt('farm');
-    expect(
-      screen.getByRole('button', { name: /Open wallet connection modal/i }),
-    ).toBeInTheDocument();
+    // Every page that shows this prompt acts on Ethereum, and the button opens
+    // the Ethereum list: a Trust wallet picked there is offered no Solana.
+    expect(screen.getByRole('button', { name: 'Connect Ethereum wallet' })).toBeInTheDocument();
     const faqLink = screen.getByRole('link', { name: /New to DeFi\? Read the FAQ/i });
     expect(faqLink).toHaveAttribute('href', '/faq');
   });

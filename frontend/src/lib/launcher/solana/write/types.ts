@@ -314,6 +314,11 @@ export interface LpDepositSummary {
   origin: PoolPins['origin'];
   /** The pool's fee tier as read while preparing; `null` = not read (display only). */
   config: AmmConfigView | null;
+  /**
+   * The pool's own creator-fee switch (cp-swap `enable_creator_fee`), from the same fresh
+   * read: whether a trade on it pays the tier's creator fee on top of the trade fee.
+   */
+  enableCreatorFee: boolean;
   tokenMint: PublicKey;
   tokenDecimals: number;
   solIsToken0: boolean;
@@ -409,6 +414,11 @@ export interface RouteSwapSummary {
   origin: PoolPins['origin'];
   /** The pool's own tier, read in the same slot. Never null: prepare refuses without it. */
   config: AmmConfigView;
+  /**
+   * The pool's own creator-fee switch (cp-swap `enable_creator_fee`), from the same fresh
+   * read: whether this trade pays the tier's creator fee on top of the trade fee.
+   */
+  enableCreatorFee: boolean;
   tier: 0 | 1;
   side: 'buy' | 'sell';
   tokenMint: PublicKey;
@@ -515,9 +525,12 @@ export interface PreState {
 
 /**
  * One watched token account before the transaction. `lamports` and `nativeReserve`
- * matter only for wrapped SOL: a sync turns every lamport above the reserve and the
+ * matter for wrapped SOL: a sync turns every lamport above the reserve and the
  * balance into balance, so the check needs both to know what a sync may add
  * (`syncCredit` in wsol.ts). `nativeReserve` is null for an account that is not native.
+ * `exists: false` with `lamports` above 0 is an address that only holds SOL someone sent
+ * it (`opened` in wsol.ts): no account yet, so no balance, but whoever opens an account
+ * there pays only what is missing from its deposit (the opening's SOL row counts this).
  */
 export interface PreToken {
   exists: boolean;

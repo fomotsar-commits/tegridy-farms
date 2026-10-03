@@ -12,8 +12,10 @@
  * src/pages/CommunityPage.tabTargets.test.tsx; /nft-finance is pinned only here
  * (see that file's header for why it cannot be rendered in vitest).
  */
+import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
-import { gotoRoute } from './fixtures/routes';
+import { gotoRoute, waitForQuiescence } from './fixtures/routes';
+import { playLiveVenue } from './fixtures/playedVenue';
 
 const IPHONE_390 = { width: 390, height: 844 };
 const FLOOR = 44;
@@ -106,24 +108,170 @@ for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', 
  * `overflow-x: hidden` in index.css, so the two can disagree, and the question
  * that matters to a person holding a phone is whether it moves.
  */
+async function expectNoSidewaysScroll(page: Page): Promise<void> {
+  const moved = await page.evaluate(() => {
+    const before = window.scrollX;
+    window.scrollTo(500, 0);
+    const after = window.scrollX;
+    window.scrollTo(0, 0);
+    return { before, after, scrollW: document.documentElement.scrollWidth };
+  });
+
+  expect(
+    moved.after,
+    `the page slid sideways to x=${moved.after} (scrollWidth ${moved.scrollW}). Something is ` +
+      'escaping its scroll container: check for a position:absolute child (sr-only!) inside ' +
+      'a STATIC overflow-x-auto wrapper.',
+  ).toBe(moved.before);
+}
+
 for (const path of ['/', '/liquidity', '/earn', '/island', '/swap', '/trust']) {
   test(`${path} does not scroll horizontally at 390px`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(IPHONE_390);
     await gotoRoute(page, path);
-
-    const moved = await page.evaluate(() => {
-      const before = window.scrollX;
-      window.scrollTo(500, 0);
-      const after = window.scrollX;
-      window.scrollTo(0, 0);
-      return { before, after, scrollW: document.documentElement.scrollWidth };
-    });
-
-    expect(
-      moved.after,
-      `the page slid sideways to x=${moved.after} (scrollWidth ${moved.scrollW}). Something is ` +
-        'escaping its scroll container — check for a position:absolute child (sr-only!) inside ' +
-        'a STATIC overflow-x-auto wrapper.',
-    ).toBe(moved.before);
+    await expectNoSidewaysScroll(page);
   });
 }
+
+/**
+ * /solana-lp is measured in each state it settles into, never at first paint: its wide
+ * content is the LP section, which mounts only after a live venue read and a lazy chunk,
+ * so at first paint the page is a hero and a "Reading" line. Live is a played venue
+ * (fixtures/playedVenue.ts), so the section and its fee tiers are up on every machine.
+ */
+const A_MINT = '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R';
+
+/**
+ * /solana-lp on the played venue, settled: the LP section is up and both fee tiers read.
+ * `gateOpen`: the venue also answers the LP gate, so the page is as production shows it,
+ * with no "could not check the network" banner above the finder.
+ */
+async function settledSolanaLp(page: Page, path: string, { gateOpen = false } = {}): Promise<void> {
+  const venue = await playLiveVenue(page, { gateOpen });
+  await gotoRoute(page, path);
+
+  await expect(page.getByTestId('lp-finder'), 'the LP section did not mount on the played venue').toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('[data-testid="fee-tier"][data-state="live"]'), 'both played fee tiers read').toHaveCount(2);
+  if (path.includes('?mint=')) await expect(page.getByLabel(/Token mint address/)).toHaveValue(A_MINT);
+  if (gateOpen) await expect.poll(() => venue.answered, 'the LP gate asked which network this is').toContain('getGenesisHash');
+  await waitForQuiescence(page, { quietMs: 600, timeout: 12_000 });
+  expect(venue.answered, 'the page asked the played venue').toContain('getMultipleAccounts');
+}
+
+for (const path of ['/solana-lp', `/solana-lp?mint=${A_MINT}`]) {
+  test(`${path} with its LP section mounted does not scroll horizontally at 390px`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize(IPHONE_390);
+    await settledSolanaLp(page, path);
+    await expectNoSidewaysScroll(page);
+  });
+}
+
+/**
+ * /solana-lp opens on the pool finder: the field a visitor types a token address into is
+ * whole inside the first screen, above the phone's bottom bar where there is one. It was
+ * 1,506px down a phone and 1,049px down a desktop, under the status card, the risk card
+ * and the fee tiers. Measured unscrolled, once the fonts have loaded.
+ */
+const FIRST_SCREENS = [
+  { name: '390x844 phone', size: IPHONE_390, bottomBar: true },
+  // A phone's browser gives a page less than the phone's screen. Playwright's own devices:
+  // an iPhone 14 (a 390x844 screen) leaves Safari 390x664, and an iPhone 15 leaves 393x659.
+  { name: '390x664, Safari on an iPhone 14', size: { width: 390, height: 664 }, bottomBar: true },
+  { name: '393x659, Safari on an iPhone 15', size: { width: 393, height: 659 }, bottomBar: true },
+  { name: '375x667, a narrower phone', size: { width: 375, height: 667 }, bottomBar: true },
+  { name: '1280x900 desktop', size: { width: 1280, height: 900 }, bottomBar: false },
+];
+
+/** How tall the bar pinned to the foot of the screen is (the phone's BottomNav), or 0 with none. */
+async function bottomBarHeight(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    for (const nav of document.querySelectorAll('nav[aria-label="Main navigation"]')) {
+      const box = nav.getBoundingClientRect();
+      if (getComputedStyle(nav).position === 'fixed' && box.height > 0 && box.bottom >= window.innerHeight - 1) return box.height;
+    }
+    return 0;
+  });
+}
+
+for (const vp of FIRST_SCREENS) {
+  test(`/solana-lp shows the finder's token address field in the first screen at ${vp.name}`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize(vp.size);
+    await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
+    await expect(page.getByTestId('lp-gate-banner'), 'the played LP gate did not open').toHaveCount(0);
+    await page.evaluate(() => document.fonts.ready);
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    const barHeight = await bottomBarHeight(page);
+    expect(barHeight > 0, `the bottom bar is ${barHeight}px tall at ${vp.name}`).toBe(vp.bottomBar);
+
+    const field = page.getByTestId('lp-finder').getByLabel(/Token mint address/);
+    const box = (await field.boundingBox())!;
+    const fieldEnds = Math.round(box.y + box.height);
+    // The height the page really has, not the one asked for: a project may not give it.
+    const pageHeight = await page.evaluate(() => window.innerHeight);
+    expect(pageHeight, 'the page is as tall as this case says').toBe(vp.size.height);
+    const screenEnds = pageHeight - barHeight;
+    expect(
+      fieldEnds,
+      `the field ends ${fieldEnds}px down; the first screen ends at ${screenEnds}px ` +
+        `(${pageHeight}px tall, ${barHeight}px of bottom bar)`,
+    ).toBeLessThanOrEqual(screenEnds);
+    // In the first screen and not under anything: the point at its middle is the field itself.
+    const onTop = await field.evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      return document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === el;
+    });
+    expect(onTop, 'something covers the token address field').toBe(true);
+    // The risk notice is read on the way to the field: it is on screen, above it.
+    const risk = (await page.getByTestId('lp-risk-line').boundingBox())!;
+    expect(risk.y, 'the risk line starts above the top of the screen').toBeGreaterThanOrEqual(0);
+    expect(risk.y + risk.height, 'the risk line is not above the field').toBeLessThanOrEqual(box.y);
+
+    await expectNoSidewaysScroll(page);
+  });
+}
+
+/**
+ * Refresh on the live card, and the re-read fails: the LP section above the card unmounts,
+ * so the card jumps up the page. The Refresh that was pressed keeps keyboard focus, and
+ * what the read found is on screen, clear of the header, the tab strip and the phone's
+ * bottom bar. Chromium holds the card in place by itself; at 1280x720 WebKit does not, so
+ * there the page's own scroll is what this measures.
+ */
+for (const size of [{ width: 390, height: 664 }, { width: 1280, height: 720 }]) {
+  test(`/solana-lp: a live Refresh that fails keeps focus on Refresh and shows its answer, at ${size.width}x${size.height}`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize(size);
+    await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
+    const card = page.getByRole('region', { name: 'Venue status' });
+    await expect(card.getByRole('heading', { name: 'Pools are open' })).toBeVisible();
+    // Focusing the button scrolls the card into view, down under the whole LP section.
+    // Polled: in WebKit that scroll can land after the focus call has returned.
+    await card.getByRole('button', { name: 'Refresh' }).focus();
+    await expect.poll(() => page.evaluate(() => window.scrollY), 'the live card is a scroll down the page').toBeGreaterThan(size.height);
+
+    // The proxy stops answering, the same way the unreadable case below plays it.
+    await page.unroute('**/api/solrpc');
+    await page.route('**/api/solrpc', (r) => r.abort());
+    await page.keyboard.press('Enter');
+    const answer = card.getByRole('heading', { name: 'The chain could not be read' });
+    await expect(answer).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('lp-finder')).toHaveCount(0);
+
+    await expect.soft(card.getByRole('button', { name: 'Refresh' }), 'keyboard focus left the pressed Refresh').toBeFocused();
+    // On screen and under nothing: the points at both ends of the heading are the heading.
+    const seen = await answer.evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      const hits = (y: number) => el.contains(document.elementFromPoint(b.left + 4, y));
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom), screen: window.innerHeight, shown: hits(b.top + 2) && hits(b.bottom - 2) };
+    });
+    expect(seen.shown, `the answer's heading is at ${seen.top} to ${seen.bottom}px of a ${seen.screen}px screen`).toBe(true);
+  });
+}
+
+test('/solana-lp with the chain unreadable does not scroll horizontally at 390px', async ({ page, walletMock: _w }) => {
+  await page.setViewportSize(IPHONE_390);
+  await page.route('**/api/solrpc', (r) => r.abort());
+  await gotoRoute(page, '/solana-lp');
+  await expect(page.getByRole('heading', { name: 'The chain could not be read' })).toBeVisible({ timeout: 20_000 });
+  await expectNoSidewaysScroll(page);
+});

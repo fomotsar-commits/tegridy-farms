@@ -8,12 +8,13 @@
 // carrying the signature.
 import { describe, it, expect, vi } from 'vitest';
 import { base58 } from '@scure/base';
-import { Keypair, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { Keypair, SendTransactionError, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { WSOL_MINT, cpPermissionPda, migrationAuthorityPda } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { quoteBuyOnCurve } from '../curve/math';
 import { readCurve } from '../curve/read';
 import { CP_CREATE_POOL_FEE_RECEIVER, readWriteGate } from './config';
+import { explainFailure } from './errors';
 import { LIGHTHOUSE_PROGRAM_ID } from './intent';
 import { prepareCreateLaunch, quoteOpeningBuy } from './launch';
 import { recheckOutcome, submitPrepared } from './submit';
@@ -127,6 +128,42 @@ describe('before anything is sent', () => {
     };
     const o = await submitPrepared(W(chain), walletSigner(), p, deps);
     expect(o).toMatchObject({ status: 'not-sent', stage: 'send', message: expect.stringMatching(/price moved past your limit.*Nothing was sent/) });
+  });
+
+  // LC-9: a slow approval in the wallet outlives the blockhash, and the first send's
+  // preflight answers "Blockhash not found" with no logs. The general words ("could not
+  // run") said neither what happened nor what to do. Both shapes web3.js can throw.
+  for (const logs of [[], undefined]) {
+    it(`a blockhash the network will not take (logs ${logs ? 'empty' : 'missing'}) is not-sent, says it took too long to sign, and is never sent again`, async () => {
+      const { chain, p } = await preparedBuy();
+      let sends = 0;
+      chain.sendRawTransaction = async () => {
+        sends++;
+        throw new SendTransactionError({ action: 'simulate', signature: '', transactionMessage: 'Transaction simulation failed: Blockhash not found', logs });
+      };
+      const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+      expect(o).toMatchObject({ status: 'not-sent', stage: 'send' });
+      const message = o.status === 'not-sent' ? o.message : '';
+      expect(message).not.toContain(explainFailure(null, [], cfgLocal).message);
+      expect(message).toMatch(/too long to sign.*Start over.*Nothing was sent\.$/);
+      // The card around every not-sent outcome says "Nothing was charged." itself, once.
+      expect(message).not.toMatch(/charged/i);
+      expect(message, 'no em dash').not.toContain(String.fromCharCode(0x2014));
+      // "Nothing was sent" stays true: no second send, with or without preflight.
+      expect(sends).toBe(1);
+    });
+  }
+
+  it('any other preflight refusal with no logs keeps the general words', async () => {
+    const { chain, p } = await preparedBuy();
+    chain.sendRawTransaction = async () => {
+      throw new SendTransactionError({ action: 'simulate', signature: '', transactionMessage: 'Transaction simulation failed: Transaction signature verification failure', logs: [] });
+    };
+    const o = await submitPrepared(W(chain), walletSigner(), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'send' });
+    const message = o.status === 'not-sent' ? o.message : '';
+    expect(message).toContain(explainFailure(null, [], cfgLocal).message);
+    expect(message).not.toMatch(/too long to sign/);
   });
 });
 

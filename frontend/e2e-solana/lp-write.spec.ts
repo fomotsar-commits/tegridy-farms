@@ -34,7 +34,7 @@ import { poolStatePda } from '../src/lib/launcher/solana/curve/program';
 import { withdrawIx } from '../src/lib/solana/cpswap/ix';
 import { deriveAmmConfig, derivePool, sortMints } from '../src/lib/solana/cpswap/program';
 import { feeSplit } from '../src/lib/solana/cpswap/venue';
-import { feeRateText } from '../src/lib/solana/lp/format';
+import { tradeCostText } from '../src/lib/solana/lp/format';
 import { NO_YIELD_SENTENCE, yieldClaim } from '../src/lib/solana/lp/yieldCopy.fixture';
 import { feeReserveFor, minLpForBothSides, spendableSol } from '../src/lib/solana/lp/liquidityMath';
 
@@ -322,7 +322,7 @@ test.describe('group B (chromium only)', () => {
       })(),
       (async () => {
         B.creator3 = await fundedKeypair(5);
-        B.t3 = await createToken2022MetadataOnly(B.creator3, { name: 'E2E Bayla-like', symbol: 'EBAYLK', supply: 10_000_000n * UNIT });
+        B.t3 = await createToken2022MetadataOnly(B.creator3, { name: 'E2E Meta Only 2022', symbol: 'EMETA22', supply: 10_000_000n * UNIT });
         B.p3 = await pool(B.creator3, B.t3, 0, 1, 1_000_000n, 'standard', TOKEN_2022_PROGRAM_ID);
         B.w3 = await fundedKeypair(3);
         await transferTokens(B.creator3, B.w3.publicKey, B.t3, 100_000n * UNIT);
@@ -845,7 +845,8 @@ test.describe('group B (chromium only)', () => {
     expect(page).not.toContain('adding and removing liquidity from here is not switched on yet');
 
     const tierText = (f: PoolFacts) =>
-      `${f.ammConfig.index}: traders pay ${feeRateText(f.ammConfig.tradeFeeRate)} a trade; LPs keep ${feeSplit(f.ammConfig).lpKeepsPct.toFixed(3)}% of each trade`;
+      // The pool's own creator-fee switch decides whether the tier's creator fee is in the cost.
+      `${f.ammConfig.index}: traders pay ${tradeCostText(f.ammConfig, f.pool.enableCreatorFee)}; LPs keep ${feeSplit(f.ammConfig).lpKeepsPct.toFixed(3)}% of each trade`;
     const seen: string[] = [];
     for (const pool of [B.a1, B.b1]) {
       const { panel } = await addAndReview(a, pool.address, '0.05');

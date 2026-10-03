@@ -63,6 +63,17 @@ export function walletLabel(name: string): string {
 }
 
 /**
+ * The name to say for a wallet a connect is still waiting on ("Open Phantom: it
+ * may be locked"), or null where that sentence would be untrue. WalletConnect
+ * waits on its QR code in the list, or on the restore of its saved session:
+ * there is no app of that name to open and nothing that can be locked. One rule
+ * for the list's notice and the card's (SolanaWalletModal, SolanaConnectButton).
+ */
+export function waitedOnWalletLabel(name: string): string | null {
+  return name === WALLETCONNECT_ROW ? null : walletLabel(name);
+}
+
+/**
  * Detected first; then the offered order; then everything else as given;
  * WalletConnect last of all. Fixed on purpose: Standard wallets register in
  * whatever order their extensions happen to load, so registration order is not
@@ -91,6 +102,15 @@ export function orderWallets(wallets: readonly Wallet[]): Wallet[] {
  */
 export function scansForWallet(readyState: WalletReadyState, name: string, canScan: boolean): boolean {
   return canScan && readyState === WalletReadyState.NotDetected && SCANNABLE_WALLETS.has(name);
+}
+
+/**
+ * Does a click on this row reopen the page inside that wallet's own app? True
+ * for the offered wallets in a phone browser. Not for the Mobile Wallet
+ * Adapter row, which is Loadable too and connects in place.
+ */
+export function opensInWalletApp(readyState: WalletReadyState, name: string): boolean {
+  return readyState === WalletReadyState.Loadable && PRIORITY.has(name);
 }
 
 /** What a click on this row will do, in the row's own words. */

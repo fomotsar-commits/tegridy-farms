@@ -15,6 +15,292 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-03: a flag carried through a wallet's "Open app" link is an input anyone can write
+
+**Believed:** after a phone visitor presses a wallet's "Open app" row and the page reopens
+inside that wallet's own browser, the job is done, or at least the next step is obvious. And
+once a marker in the address was added to make that page connect by itself: that only our
+own press could ever put it there.
+
+**Measured:** four testers who had not seen the code walked the built site as a Trust user.
+Inside the wallet's browser the page asked the wallet for nothing and looked exactly like the
+start; the same three presses had to be repeated, and one tester called it "the spot most
+likely to produce: there was no way to connect". With a marker in the query the page
+connected with zero presses, 1.6 s after arrival (3.4 s with a provider injected 2.5 s late).
+Then three reviewers and three skeptics, each running real code, broke the first versions
+nine ways. The ones that transfer:
+
+- `WalletProvider autoConnect` (wallet-adapter-react 0.15.39) restores WHATEVER wallet name is
+  saved. For a Wallet Standard wallet that is `connect({ silent: true })`; for a legacy
+  injected adapter (`autoConnect() { await this.connect() }`) it is a full connect, the
+  wallet's own prompt. So mounting a provider because of a link made a wallet prompt, or
+  reconnect after the visitor had disconnected, with no press. `autoConnect` also takes a
+  function `(adapter) => Promise<boolean>`: gate the restore there.
+- The tab that WROTE the marker loads its own marked address again: Back from the wallet's
+  link page, a reload, a tab the phone discarded. A 3 second timer does not cover it (a tab
+  that has navigated away never runs it, and Playwright's WebKit recorded no `pagehide` at
+  all), and a link pressed inside the 3 seconds leaves the marked entry in history, where
+  the timer never looks. What held: a `sessionStorage` note in the origin tab that lasts as
+  long as the tab (the wallet's browser has its own storage and never sees it), plus
+  stripping the marker on `popstate`. Used up on first read, the note failed on the second
+  marked load.
+- Every wallet's app link is built from `window.location.href` inside `connect()`, upstream
+  Phantom's included, so one `history.replaceState` just before the press covers them all.
+  Put the flag in the QUERY: MetaMask's link is rebuilt from host, path and query and drops a
+  fragment.
+- With tab storage blocked the marker was not written, and the notice still promised the
+  page would connect by itself. A helper that can fail must say so to the caller that words
+  the notice.
+
+**Do:** treat a URL flag that triggers behaviour as hostile input from the first line. Read
+nothing out of it. Decide separately what a crafted link may cause in each kind of browser
+(a computer, an ordinary phone browser with a wallet of its own, a wallet's own browser),
+and write one test per kind against the REAL provider and adapters: fakes whose
+`autoConnect` is a no-op passed while the real ones prompted. Not settled here: the rule
+that tells a wallet's own browser from an ordinary one (no adapter offers "Open app" there)
+rests on user agents nobody has read off a real device.
+
+## 2026-10-03: React Router matches a path whatever its case; a hand-written path test does not
+
+**Believed:** `isSolanaPage(pathname)` and the router agree about which page is on screen,
+because both are given the same pathname.
+
+**Measured:** `/Earn/bobo`, `/earn/%62obo`, `/Dashboard` and `/Curve-Launch/<mint>` all render
+their route (React Router ignores case and decodes params), while a predicate comparing the
+raw string said "not a Solana page". Two wallet providers were then mounted for one page and
+the wallet was asked twice, 80 to 330 ms apart; with a wallet that refuses a second request
+the approval landed nowhere. The same shape, without the case trick: a route (`/solana-lp`)
+added to the router and not to the predicate.
+
+**Do:** a predicate that mirrors the router has to match the way the router does:
+`decodeURI`, and the `i` flag on the static part of the pattern (keep ids and addresses as
+written), or mark the routes `caseSensitive`. And when a route is added, grep for every
+hand-kept list of paths.
+
+## 2026-10-03: three things a Playwright walk and a wording guard got wrong before they were right
+
+**Believed:** `context.on('page')` is how to catch a popup; `route.abort()` on a navigation
+models "the phone opened an app instead"; and a test that greps for `>Connect Wallet<`
+proves the bare words are gone.
+
+**Measured:**
+
+- `context.on('page', ...)` registered before `context.newPage()` fires for that page too. A
+  handler that closes "the popup" closed the page under test: `page.goto: net::ERR_ABORTED;
+  maybe frame was detached`. Register it after creating the page, or skip `popup === page`.
+- Aborting a main-frame navigation leaves Chromium on a blank error page, while WebKit stays
+  where it was. A real phone that hands a link to an app leaves the browser ON the page. To
+  model that in both engines, answer the link with `route.fulfill({ status: 204 })`.
+- The guard caught `>Connect Wallet<` and a stock `<ConnectButton />`, and passed
+  `{'Connect Wallet'}`, a ternary, a variable, and `Connect wallet` with a small w (each
+  tried by mutation). After stripping comments, refuse the phrase anywhere in code, case
+  ignored, and count uses of the replacement constant rather than its presence: the import
+  line alone satisfied "contains".
+
+**Do:** when a test guards WORDS, mutate the ways the words can be spelled, not only the
+one spelling that existed.
+
+## 2026-10-03: a button disabled "while connecting" is a dead end when the wallet never answers
+
+**Believed:** the site could not see Phantom ("it wont even recognize my phantom wallet", the
+owner's words), so the fault was in wallet detection.
+
+**Measured:** in the owner's browser `window.phantom.solana.isPhantom` was true and a Wallet
+Standard wallet named Phantom was registered with the Solana chains; the swap card read
+"Connecting…" and was disabled, and the top bar's Connect did nothing. On production, a
+Wallet Standard wallet named Phantom whose `standard:connect` returned a promise that never
+settles, with `walletName` saved, gave the same screen 9 and 30 seconds after load: card
+disabled, top bar `aria-disabled`, no dialog. wallet-adapter-react 0.15.39 keeps
+`connecting` true until that promise settles, and resets it only when the adapter changes
+or emits `disconnect`. The page connected by itself once the real wallet answered.
+
+**Do:** never tie `disabled` to a promise that the user's own wallet settles. Keep the
+control pressable and let the press lead somewhere (here the wallet list, where another
+wallet can be picked: the provider resets on an adapter change), and say which wallet is
+being waited on. Do not cancel the wait: an approval prompt may be open. A second connect
+on the same Standard wallet does nothing while the first is pending (`StandardWalletAdapter`
+1.1.5 returns early), so retrying the same wallet needs it to answer, or a reload. Fixed
+in PR #715. A scripted `button.click()` on Connect in someone's real browser starts a real
+wallet prompt that only they can answer: say so when a probe does that.
+
+## 2026-10-03: a form that only greys out its button reads as "it does not work"
+
+**Believed:** the open-a-pool form was broken or missing ("i still am not able to create lp
+on solana").
+
+**Measured:** in the owner's browser the form was open and correct. Under its two boxes, in
+10px grey, it said "You have 0.005960758 SOL. Up to 0 SOL can go in after the fee to open,
+the account deposits and network fees." and "You have 0 tokens.", and Review was greyed
+out. Opening needs about 0.183 SOL before any SOL goes into the pool: a wallet with
+0.879012984 SOL was told 0.695744984 could go in.
+
+**Do:** when nothing the visitor types can make the button work, say that in one sentence
+beside the button, with the number needed and the number held, before anything is typed.
+A hint under an input answers "what is the most I can enter", not "why can I not proceed".
+Done for the open and add forms in PR #716 (`cannotFundText`).
+
+## 2026-10-03: a live money flow can be walked to the sign step with a wallet that is only a public address
+
+**Believed:** checking the live site's open, add and remove flows needs a real wallet with
+real money, or a local validator.
+
+**Measured:** against https://memetics.finance at trunk a5c3d19a, Playwright registered a
+Wallet Standard wallet whose account was a public mainnet address
+(3wAjKgQN6HEV58wgsbedVb4ZSmJXc7i5wkRtZ9GTu9Dm, found as a recent fee payer on the BAYLA
+mint) and whose `signTransaction` handed the bytes to Node through `exposeBinding` and then
+threw `User rejected the request.` The site read that address's balances (0.879012984 SOL,
+1,393,591.753468 BAYLA), built an 888-byte legacy transaction of 7 instructions that opens
+a BAYLA/SOL pool on fee tier 1, ran its own test run and reached "Sign in wallet". After
+the refusal it said "Not sent. Your wallet did not sign it." The captured bytes, run from
+Node with `simulateTransaction` (`sigVerify: false`, `replaceRecentBlockhash: true`),
+returned no error, 117,094 units, and a fee payer 480,774,560 lamports lower: the 0.4807
+SOL the review printed. Nothing was signed and nothing was sent.
+
+**Do:** copy the registration block from `frontend/e2e-solana/fixtures/testWallet.ts`,
+drop the keypair, and make every sign feature capture and refuse. To find a funded address
+use `getSignaturesForAddress` on the mint and then `getTransaction` for the fee payers:
+`getTokenLargestAccounts` answered 429 on api.mainnet-beta.solana.com and "requires a
+personal token" on publicnode. This cannot reach add or remove while no pool exists.
+
+## 2026-10-03: the on-chain suite can run beside another session's, given its own validator ports, preview port and build folder
+
+**Believed:** one machine runs one `npm run e2e:solana` at a time, because the validator
+port, the preview port and the build folder are fixed.
+
+**Measured:** another session's `solana-test-validator` 3.1.11 was listening on 8899 and
+on 9900, the default faucet port (`ss -ltn` in WSL). A second one, started from a copy of
+`start-validator.sh` with `--faucet-port 9911 --gossip-port 8111 --dynamic-port-range
+8112-8160` added, `E2E_RPC_PORT=8999` and its ledger under `$HOME/audit1003/` (the script
+writes its log beside the ledger's parent, so a shared parent shares the log), reached
+READY with its own genesis hash while the first kept its own. `playwright.solana.config.ts`
+fixes port 4180 and `os.tmpdir()/tegridy-solana-e2e` with `--emptyOutDir`, so a second run
+of that config would empty the first run's build; an untracked config that spreads the
+base one and overrides `webServer`, `use.baseURL` and `outputDir` (port 4191, its own
+folder), run with `E2E_SOLANA_RPC=http://127.0.0.1:8999`, ran all 157 tests: 124 passed,
+31 skipped by design, 2 failed. Not measured: whether the second validator starts without
+the faucet flag.
+
+The two failures were load, not code: both were "reload while unconfirmed" tests, run
+while two other jobs were running vitest sweeps on the same machine. One (`lp-write` E12,
+"transaction did not land", a 10-second wait in `landedTx`) passed in the same run at
+phone size, and both passed when their files were run again alone on the same commit.
+
+**Do:** give a parallel run all four of its own: validator ports, ledger folder, preview
+port, build folder. Read "did not land" and "visible but not clickable" in a full run on
+a busy machine as a reason to re-run that file alone, not as a break, and say which it was.
+
+## 2026-10-03: create-if-missing opens a token account over an address a stranger already sent SOL to
+
+**Believed:** an account that exists at a wallet's associated token address but is not a
+token account is a broken account, so refuse to build on it.
+
+**Measured:** two mainnet test runs from Node (`simulateTransaction`, `sigVerify: false`),
+each one transaction: a System transfer of 650,240 lamports to a never-used associated
+address, then `createAssociatedTokenAccountIdempotent` for that address. For the BAYLA
+mint (Token-2022) and for wrapped SOL (classic) both returned no error, and the address
+ended owned by the token program as an initialized account with amount 0. The fee payer
+paid only the top-up: the wrapped-SOL run moved it by 1,493,440 lamports, which is the
+650,240 it sent itself, 838,200 to reach the 1,488,440 deposit, and the 5,000 fee.
+
+**Do:** treat an address owned by the System program with no data as an account that has
+not been opened, wherever "absent" is decided, and refuse only another owner or data that
+is not a token account. Treating only `null` as absent let anyone block a wallet's
+withdrawals on the site for the price of one dust transfer. Fixed in PR #716 (`opened` in
+`frontend/src/lib/launcher/solana/write/wsol.ts`).
+
+## 2026-10-03: in `String.prototype.replace`, a replacement text that holds `$'` pastes in the rest of the input
+
+**Believed:** `s.replace(oldLine, newLine)` with two plain strings swaps one line for the
+other.
+
+**Measured:** a scripted edit of `DashboardPage.tsx` whose new line held `prefix: '$', sub:`
+left the file unparseable (vitest: "Transform failed with 1 error"). `$'` in a replacement
+string means "the text after the match", so everything after the matched line had been
+spliced into the middle of it; the tail of the new line turned up about 950 lines further
+down, at line 1381. `$&`, `` $` `` and `$1` are read the same way.
+
+**Do:** pass a function, `s.replace(oldLine, () => newLine)`, which is used as written,
+and afterwards grep for a phrase from the new line and expect exactly one hit.
+
+## 2026-10-03: a tab the browser extension cannot screenshot can still report what it drew, through the console
+
+**Believed:** when the extension's tab is hidden and every evaluate and screenshot times
+out, the owner's own browser can tell us nothing.
+
+**Measured:** in Edge the extension's tab had `document.hidden` true. One synchronous
+evaluate straight after `navigate` returned (readyState `interactive`, `<main>` empty);
+every later one timed out at 45 seconds, and screenshots failed with "Script injection
+timed out". A `MutationObserver` installed by that first evaluate, writing one
+`console.log('[AUDIT] ' + JSON)` line whenever the page changed, was read back with the
+extension's console reader: 11.3 seconds after navigation the page had its title, the
+`lp-section` test id and "VENUE · LIVE". `clientWidth` was 0 in that tab, so it says
+nothing about layout.
+
+**Do:** install the observer in the one evaluate that works and read the console, not the
+page. Use it for "did it render, and what did it read"; measure layout somewhere visible.
+
+## 2026-10-03: a screenshot taken the moment a dialog exists shows it half see-through
+
+**Believed:** the phone wallet list was transparent, with the page's text readable through
+it.
+
+**Measured:** the wallet adapter's `.wallet-adapter-modal-fade-in` wrapper had computed
+opacity 0 at the moment `getByRole('dialog')` first resolved on desktop, 0.33 on an 820px
+viewport, and 1 by 400ms on all three sizes. A screenshot at 4 seconds was solid.
+
+**Do:** before judging or capturing a dialog, wait until the computed opacity of its fade
+wrapper is 1. The same goes for a tall element screenshot: where the element passes under
+a fixed header, the header is painted across the middle of the picture.
+
+## 2026-10-03: a guard that names one spelling of a call covers one spelling
+
+**Believed:** after #603/#609/#622 every receipt wait passed `onReplaced` and checked the hash,
+because `receiptConsumers.guard.test.ts` failed any file that did not. And a status poller that
+throws when its time runs out is fine, because the caller's `catch` can say what happened.
+
+**Measured** (PR #696, trunk `ab739ff3`):
+
+- The guard matched `useWaitForTransactionReceipt(`, the wagmi hook. `git grep
+  waitForTransactionReceipt` found 11 direct `publicClient.waitForTransactionReceipt` calls and
+  4 `getTransactionReceipt` re-reads it never saw. A real viem 2.56.8 public client driven
+  through a scripted node (`frontend/src/lib/txErrors.direct.test.ts`) resolves a cancel, a
+  speed-up and any other same-nonce transaction with the replacement's success receipt, the
+  same as through the hook. On the pre-fix hooks, in vitest: a cancelled DCA swap was counted, a
+  cancelled limit-order swap marked the order filled, a cancelled registration toasted "TWAP
+  registered", and a zap recorded a cancelled approval as confirmed and sent the next step.
+- A third spelling is inside `node_modules`: `@whetstone-research/doppler-sdk` 1.0.39
+  `createDynamicAuction` waits with no `onReplaced` and returns `transactionHash: hash`, the
+  submitted hash, so after a speed-up the caller holds a hash that never mined (read in
+  `dist/evm/index.js`, not run).
+- A re-read by hash cannot find a replacement. `getTransactionReceipt(sent)` answers only for
+  `sent`, and viem's live wait finds a replacement from the pending transaction's sender and
+  nonce, which it can no longer read once the original is dropped. So a transaction replaced
+  after the live wait gave up stays unread for good.
+- The Solana swap page's own poller threw `Could not confirm in time` after 60s and let a
+  `getSignatureStatuses` rejection escape. With the real page under vitest and a scripted
+  connection, a watch that ran out toasted `Swap failed`, and one rejected status read toasted
+  `Swap failed` for a swap whose next read said confirmed.
+- ethers is the other way round. Read in the installed ethers 6.17.0 source
+  (`lib.esm/providers/provider.js`, `TransactionResponse.wait`; not run): a revert throws
+  `CALL_EXCEPTION`, so `receipt.status === 0` after `await tx.wait()` is dead code, and every
+  replacement throws `TRANSACTION_REPLACED`, a speed-up included (`reason: 'repriced'`,
+  `cancelled: false`, with `receipt`). An ethers `catch` is three facts: reverted, replaced but
+  ran, and unread.
+
+**Do:**
+
+- Pin a rule on the library call, not on the wrapper you fixed first. Grep every spelling
+  (hook, client method, bare action import, SDK internals) and make the guard forbid the raw
+  call outside one helper, with any exception named beside its reason.
+- A wait that can outlive its transaction needs the sender and nonce if a later re-read must
+  learn it was replaced. A hash alone cannot.
+- A confirm poller returns an outcome (`confirmed`, `reverted`, `unknown`). It never throws
+  for "time ran out" or for one failed read: a caller's `catch` will call both a failure.
+- With ethers, `TRANSACTION_REPLACED` with `cancelled === false` is a success: take
+  `error.receipt`.
+
+---
+
 ## 2026-10-03: "above the fold at 390x844" measures the phone's screen, not the page its browser gets
 
 **Believed:** a field that is whole inside 390x844 in a first-screen test is on an iPhone's

@@ -428,8 +428,10 @@ describe('after a signature exists: onSent first, then only honest endings (J2)'
     const d = deps({ getSignatureStatuses: vi.fn(async () => ({ value: [null as Status] })) });
     const r = await sendJupiterSwap(d, args());
     expect(r).toEqual({ status: 'unknown', signature: SIG, fresh: FEE_QUOTE, siteFeeWaived: false });
-    // 90 s at one read every 2 s, on the test's own clock.
-    expect(d.getSignatureStatuses).toHaveBeenCalledTimes(45);
+    // 90 s at one read every 2 s, on the test's own clock: the reads at 0, 2, ... 88 s,
+    // and the shared poller's last read AT the limit (lib/solana/confirm.ts reads, then
+    // looks at the clock).
+    expect(d.getSignatureStatuses).toHaveBeenCalledTimes(46);
   });
 
   it('status reads that throw the whole time -> unknown', async () => {

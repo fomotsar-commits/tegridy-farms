@@ -17,8 +17,18 @@ import { Cuer } from 'cuer';
 import { WalletReadyState } from '@solana/wallet-adapter-base';
 import { useWallet, type Wallet } from '@solana/wallet-adapter-react';
 import { WalletModalContext, useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { orderWallets, rowStatus, scansForWallet, walletLabel } from '../../lib/solanaWalletOrder';
+import { toast } from 'sonner';
+import {
+  opensInWalletApp,
+  orderWallets,
+  rowStatus,
+  scansForWallet,
+  waitedOnWalletLabel,
+  walletLabel,
+} from '../../lib/solanaWalletOrder';
 import { WalletConnectWalletAdapter, type WalletConnectPairing } from '../../lib/solanaWalletConnect';
+import { markSolanaHandoff, shortSolanaAddress } from '../../lib/solanaSurface';
+import { useWalletResync } from './useWalletResync';
 
 /**
  * The Solana connect modal — upstream's WalletModal (wallet-adapter-react-ui
@@ -86,9 +96,15 @@ import { WalletConnectWalletAdapter, type WalletConnectPairing } from '../../lib
  *     — not the extension's install page. Both phone apps scan it
  *     (solanaWalletOrder.ts SCANNABLE_WALLETS). The connection is the
  *     WalletConnect row's: the same adapter, saved under the same name.
+ *  8. An "Open app" row (a phone browser) says where the connect went, and
+ *     the page it opens inside the wallet's app connects by itself
+ *     (lib/solanaSurface.ts markSolanaHandoff). Before, that page looked like
+ *     the start again and the same three presses had to be repeated.
  */
 
 const FADE_MS = 150;
+/** How long the page left behind by an "Open app" press says where the connect went. */
+const HANDOFF_NOTICE_MS = 20_000;
 
 /** The wallet a QR was opened for (change 7): its row label and its install page. */
 interface ScanFor {
@@ -116,7 +132,7 @@ function SolanaWalletModal() {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
-  const { wallets, wallet: selected, select, connect, connected, connecting } = useWallet();
+  const { wallets, wallet: selected, select, connect, disconnect, connected, connecting, publicKey } = useWallet();
   const { setVisible } = useWalletModal();
   const [fadeIn, setFadeIn] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -138,6 +154,18 @@ function SolanaWalletModal() {
   const [scanFor, setScanFor] = useState<ScanFor | null>(null);
   const pairing = useWalletConnectPairing(walletConnect);
   const pairingActive = pairing.phase === 'starting' || pairing.phase === 'scan';
+  const connectedAs = connected && publicKey ? shortSolanaAddress(publicKey.toBase58()) : null;
+  // The wallet a connect is still waiting on: a locked wallet, or an approval
+  // window nobody saw, answers late or never, and until 2026-10-03 nothing
+  // named it. WalletConnect's own wait is its QR, or its saved session's restore.
+  const waitingNow = connecting && !connected && selected ? waitedOnWalletLabel(selected.adapter.name) : null;
+  // What the list shows is held as it was once the dialog starts to close. A
+  // pick starts a connect and the list then fades for FADE_MS, still mounted:
+  // following `connecting` through that fade, it said "it may be locked" at
+  // every ordinary connect, in a live region, about a wallet asked a moment ago.
+  const [closing, setClosing] = useState(false);
+  const [waitingFor, setWaitingFor] = useState(waitingNow);
+  if (!closing && waitingFor !== waitingNow) setWaitingFor(waitingNow);
   // The WalletConnect row clicked while its own saved session was still being
   // restored: connect once the restore is over, if it did not connect.
   const connectAfterRestore = useRef(false);
@@ -149,6 +177,7 @@ function SolanaWalletModal() {
     connectAfterRestore.current = false;
     walletConnect?.cancelPairing();
     walletConnect?.dismissPairing();
+    setClosing(true);
     setFadeIn(false);
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => setVisible(false), FADE_MS);
@@ -187,6 +216,13 @@ function SolanaWalletModal() {
     document.getElementById(titleId)?.focus();
   }, [pairingActive, titleId]);
 
+  const handleDisconnect = useCallback(() => {
+    disconnect().catch(() => {
+      /* surfaced by the provider's error handler */
+    });
+    hideModal();
+  }, [disconnect, hideModal]);
+
   const handleClose = useCallback(
     (event: MouseEvent) => {
       event.preventDefault();
@@ -208,6 +244,22 @@ function SolanaWalletModal() {
         // Change 7: Trust or Jupiter, not in this browser — the QR its phone app scans.
         wallet = walletConnectWallet;
       }
+      // Change 8: an "Open app" row reopens this page inside the wallet's app.
+      // The address it is handed carries a marker, so the page that opens
+      // there asks the wallet to connect by itself (lib/solanaSurface.ts), and
+      // the page left behind here says where the connect went.
+      if (opensInWalletApp(clicked.readyState, clicked.adapter.name)) {
+        const label = walletLabel(clicked.adapter.name);
+        // Not carried where tab storage is blocked: the page in the app then waits for a press.
+        const carried = markSolanaHandoff();
+        // Long, because the wallet's app covers this page a moment after the press.
+        toast(
+          carried
+            ? `Opening ${label}. This site opens again inside the ${label} app, and connects there.`
+            : `Opening ${label}. This site opens again inside the ${label} app. Press Connect there.`,
+          { duration: HANDOFF_NOTICE_MS },
+        );
+      }
       setScanFor(
         wallet === clicked ? null : { label: walletLabel(clicked.adapter.name), installUrl: clicked.adapter.url },
       );
@@ -227,7 +279,10 @@ function SolanaWalletModal() {
           sawPairing.current = true;
           connectAfterRestore.current = true;
         }
-        if (!keepOpen) hideModal();
+        // Connected already (the top bar's address opens this list): the row
+        // of the wallet in use closes it, WalletConnect's included. That row
+        // otherwise stays open for a QR, and here there is none to draw.
+        if (!keepOpen || connected) hideModal();
         return;
       }
       select(wallet.adapter.name);
@@ -324,9 +379,26 @@ function SolanaWalletModal() {
             />
           ) : ordered.length > 0 ? (
             <>
+              {/* The top bar's address opens this list while connected: it then
+                  says so, names the wallet in use, and offers the way out the
+                  Solana pages lacked (only the dashboard panel had one). */}
               <h1 id={titleId} tabIndex={-1} className="wallet-adapter-modal-title">
-                Connect a wallet on Solana to continue
+                {connectedAs ? 'Switch Solana wallet' : 'Connect a wallet on Solana to continue'}
               </h1>
+              {connectedAs && (
+                <p className="wallet-adapter-modal-note">
+                  Connected as {connectedAs}.{' '}
+                  <button type="button" onClick={handleDisconnect} className="underline font-semibold text-white">
+                    Disconnect
+                  </button>
+                </p>
+              )}
+              {waitingFor && (
+                <p role="status" className="wallet-adapter-modal-note">
+                  Waiting for {waitingFor} to answer. Open {waitingFor}: it may be locked, or waiting for you to
+                  approve this site. Or pick another wallet below.
+                </p>
+              )}
               {pairing.phase === 'failed' && (
                 <p role="alert" className="wallet-adapter-modal-note">
                   {pairing.reason}
@@ -338,17 +410,17 @@ function SolanaWalletModal() {
                     key={wallet.adapter.name}
                     wallet={wallet}
                     canScan={walletConnectWallet !== null}
+                    current={connectedAs !== null && selected?.adapter.name === wallet.adapter.name}
                     onClick={handleWalletClick}
                   />
                 ))}
               </ul>
-              {/* A visitor who connected through the top bar (RainbowKit, EVM
-                  only) and reads "Connect a Solana wallet" on a pool otherwise
-                  has no way to know the two are separate (owner, 2026-09-30:
-                  Trust "only recognizes the EVM chains"). */}
+              {/* On a Solana page the top bar's Connect opens this list
+                  (lib/solanaSurface.ts). An Ethereum wallet connected on
+                  another page is a separate connection and never shows here. */}
               <p className="wallet-adapter-modal-note">
-                Only wallets that work on Solana are listed. The Connect button at the top of the page is a
-                separate connection, and it does not connect Solana.
+                Only wallets that work on Solana are listed. This connects your Solana account. An Ethereum or
+                Base connection is separate and stays as it is.
               </p>
             </>
           ) : (
@@ -367,10 +439,13 @@ function SolanaWalletModal() {
 function WalletRow({
   wallet,
   canScan,
+  current,
   onClick,
 }: {
   wallet: Wallet;
   canScan: boolean;
+  /** The wallet connected right now. */
+  current: boolean;
   onClick: (event: MouseEvent, wallet: Wallet) => void;
 }) {
   const label = walletLabel(wallet.adapter.name);
@@ -381,7 +456,7 @@ function WalletRow({
           <img src={wallet.adapter.icon} alt="" />
         </i>
         {label}
-        <span>{rowStatus(wallet.readyState, wallet.adapter.name, canScan)}</span>
+        <span>{current ? 'Connected' : rowStatus(wallet.readyState, wallet.adapter.name, canScan)}</span>
       </button>
     </li>
   );
@@ -468,6 +543,8 @@ function WalletConnectQr({
  */
 export function SolanaWalletModalProvider({ children }: { children: ReactNode }) {
   const [visible, setVisible] = useState(false);
+  // Here because this provider is mounted once inside every Solana section's WalletProvider.
+  useWalletResync();
   const value = useMemo(() => ({ visible, setVisible }), [visible]);
   return (
     <WalletModalContext.Provider value={value}>

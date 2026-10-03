@@ -454,6 +454,7 @@ export async function prepareRouteSwap(
         pool: s.pool,
         origin: pins.origin,
         config,
+        enableCreatorFee: p.enableCreatorFee,
         tier,
         side: a.side,
         tokenMint: a.tokenMint,

@@ -91,6 +91,8 @@ interface WorldOptions {
   tier?: 0 | 1;
   ammConfig?: PublicKey;
   launch?: boolean;
+  /** The pool's own creator-fee switch, on as the launch program opens a pool (default off). */
+  enableCreatorFee?: boolean;
   status?: number;
   openTime?: bigint;
   frozenTokenVault?: boolean;
@@ -137,6 +139,7 @@ function world(o: WorldOptions = {}): World {
     status: o.status,
     openTime: o.openTime,
     launch: o.launch,
+    enableCreatorFee: o.enableCreatorFee,
     tokenProgram,
     tokenDecimals: o.mintDecimals ?? 6,
     frozenTokenVault: o.frozenTokenVault,
@@ -309,6 +312,14 @@ describe('T-B-01: an honest swap prepares, and the review is the transaction’s
     expect(s.netGuaranteed).toBe(s.swap.minimumAmountOut - s.fee.amount);
     // It ranks on the fee Jupiter would take at the quote, so the small undercharge never wins a trade.
     expect(s.netExpected).toBe(839_500_977n - (839_500_977n * 50n) / 10_000n);
+  });
+
+  // The review's "traders pay" is the pool's own cost: the trade fee, plus the tier's creator
+  // fee when the POOL's switch is on (#698). The switch comes from the same fresh read.
+  it("carries the pool's own creator-fee switch into the summary, read fresh", async () => {
+    const launch = world({ launch: true, enableCreatorFee: true, lpSupply: OPENING_SHARES });
+    expect(summaryOf(ok(await run(launch, 'buy'))).enableCreatorFee).toBe(true);
+    expect(summaryOf(ok(await run(world(), 'buy'))).enableCreatorFee).toBe(false);
   });
 
   it('a tie with Jupiter is ours; one unit below ours prepares too', async () => {

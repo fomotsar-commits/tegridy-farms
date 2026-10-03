@@ -62,6 +62,7 @@ export function lpDepositSummary(pool: PublicKey, tokenMint: PublicKey, over: Pa
     pool,
     origin: 'other',
     config: null,
+    enableCreatorFee: false,
     tokenMint,
     tokenDecimals: 6,
     solIsToken0: true,

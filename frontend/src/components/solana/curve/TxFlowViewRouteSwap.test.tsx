@@ -39,7 +39,7 @@ const quote = (over: Partial<RouteSummary['quote']> = {}): RouteSummary['quote']
 
 // 1 SOL typed: fee 5,000,000, into the pool 995,000,000.
 const buy = (over: Partial<RouteSummary> = {}): RouteSummary => ({
-  kind: 'lp-swap', pool: POOL, origin: 'standard', config, tier: 1, side: 'buy', tokenMint: TOKEN, tokenDecimals: 6,
+  kind: 'lp-swap', pool: POOL, origin: 'standard', config, enableCreatorFee: false, tier: 1, side: 'buy', tokenMint: TOKEN, tokenDecimals: 6,
   amountIn: 1_000_000_000n,
   swap: { amountIn: 995_000_000n, minimumAmountOut: 2_279_756_189n },
   fee: { amount: 5_000_000n, to: FEE_ACCOUNT },
@@ -50,7 +50,7 @@ const buy = (over: Partial<RouteSummary> = {}): RouteSummary => ({
 
 // 2,000,000 tokens sold: gross 839,081,226, minimum 834,885,819, fee 4,174,429.
 const sell = (over: Partial<RouteSummary> = {}): RouteSummary => ({
-  kind: 'lp-swap', pool: POOL, origin: 'launch-pool', config: { ...config, index: 0, tradeFeeRate: 2_500n }, tier: 0, side: 'sell',
+  kind: 'lp-swap', pool: POOL, origin: 'launch-pool', config: { ...config, index: 0, tradeFeeRate: 2_500n }, enableCreatorFee: true, tier: 0, side: 'sell',
   tokenMint: TOKEN, tokenDecimals: 6,
   amountIn: 2_000_000_000_000n,
   swap: { amountIn: 2_000_000_000_000n, minimumAmountOut: 834_885_819n },
@@ -115,6 +115,20 @@ describe('the review of a swap through one of our pools', () => {
     expect(value('Compared with')).toBe('Jupiter has no route for this token');
     expect(screen.getByText('The pool pays out wrapped SOL. You already had a wrapped-SOL account, so it is left open with its balance.')).toBeInTheDocument();
     expect(screen.queryByText('Read these about this token first:')).not.toBeInTheDocument();
+  });
+
+  // What a trade costs includes the creator fee wherever the pool charges one (#698): the
+  // tier's creator rate counts only when the pool's OWN switch is on, read with the pool.
+  it('the fee tier row adds the creator fee when this pool charges one, and says so when its tier has one it does not charge', async () => {
+    const launchTier = { ...config, index: 0, tradeFeeRate: 2_500n, creatorFeeRate: 500n };
+    await review(sell({ config: launchTier, enableCreatorFee: true }));
+    expect(value('Fee tier')).toBe('0: traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee); LPs keep 0.210% of each trade');
+  });
+
+  it('the fee tier row of a pool on the same tier whose own switch is off names no creator fee', async () => {
+    const launchTier = { ...config, index: 0, tradeFeeRate: 2_500n, creatorFeeRate: 500n };
+    await review(sell({ config: launchTier, enableCreatorFee: false }));
+    expect(value('Fee tier')).toBe('0: traders pay 0.25% a trade (no creator fee); LPs keep 0.210% of each trade');
   });
 
   it('a buy when Jupiter has no route: the fee row does not claim "the same fee as on Jupiter’s route", there is no such route', async () => {

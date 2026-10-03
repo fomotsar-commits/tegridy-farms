@@ -27,6 +27,7 @@ import {
   WELL_KNOWN_NAMES,
   type TokenSafety,
 } from './tokenSafety';
+import { tokenReasons } from './poolHealth';
 import { BAYLA_MINT as SITE_BAYLA_MINT, BUNGALOWS } from '../../bungalows';
 import type { RawAccount } from './accounts';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../../launcher/solana/write/metaplex';
@@ -222,6 +223,117 @@ describe('classifyToken', () => {
     const m = key();
     const t = classifyToken(m.toBase58(), acct(m, TOKEN_PROGRAM, classicMint()), acct(metadataPda(m), METAPLEX_TOKEN_METADATA_ID.toBase58(), metaplexRecord(m, false, 'Solana Doge', 'SDOGE')));
     expect(reasons(t)).toEqual({ blocks: [], warnings: [], verdict: 'ok' });
+  });
+
+  // ATK-5 (audit 2026-10-03): the copy check is the launcher's own comparison
+  // (launchMetadata/validate.js). A spelling the launcher would refuse is never
+  // "No problems found" here.
+  const named = (name: string, symbol: string) => {
+    const m = key();
+    return classifyToken(m.toBase58(), acct(m, TOKEN_PROGRAM, classicMint()), acct(metadataPda(m), METAPLEX_TOKEN_METADATA_ID.toBase58(), metaplexRecord(m, false, name, symbol)));
+  };
+
+  it('a look-alike spelling, a ticker written with its $, or a brand word inside a longer name is a copy', () => {
+    const cases: [string, string, string][] = [
+      ['SoIana', 'X', 'NOT the real SOL'], // a capital i for the l
+      ['Totally real', 'S0L', 'NOT the real SOL'], // a zero for the O
+      ['TOWELl', 'X', 'no real TOWELI'], // a lower-case L for the I
+      ['BAYLA Token', 'X', 'NOT the real BAYLA'],
+      ['Totally real', 'BAYLA2', 'NOT the real BAYLA'],
+      ['Official $BAYLA', 'X', 'NOT the real BAYLA'],
+      ['Totally real', '$USDC', 'NOT the real USDC'],
+      ['$BOBO', 'X', 'NOT the real BOBO'],
+      ['Sölana', 'X', 'NOT the real SOL'], // an accent on the o
+      ['υsdc', 'X', 'NOT the real USDC'], // a Greek lower-case upsilon for the u
+    ];
+    for (const [name, symbol, says] of cases) {
+      const s = named(name, symbol);
+      expect(reasons(s), name + ' / ' + symbol).toEqual({ blocks: [], warnings: ['copies-known-name'], verdict: 'warn' });
+      expect(s.kind === 'read' && s.warnings[0]!.text).toContain(says);
+      // The copied-name warning is what refuses deposits and openings.
+      expect(tokenReasons(s, 'pools').refused, name + ' / ' + symbol).toHaveLength(1);
+    }
+  });
+
+  it('a copied name is caught behind another reserved word, and through characters that are not shown', () => {
+    const cases: [string, string, string][] = [
+      // The launcher's first answer for these two is TEGRIDY, which is not on this page's list.
+      ['BAYLA by Tegridy', 'X', 'NOT the real BAYLA'],
+      ['Tegridy Toweli', 'X', 'no real TOWELI'],
+      // Shown as "Bayla Token", "BAYLA Token" and "BAYLA2": the character inside is not drawn.
+      ['Bay\u200Bla Token', 'X', 'NOT the real BAYLA'], // zero-width space
+      ['BAY\u00ADLA Token', 'X', 'NOT the real BAYLA'], // soft hyphen
+      ['Totally real', 'BAY\u2060LA2', 'NOT the real BAYLA'], // word joiner
+      ['BA\uE000YLA Token', 'X', 'NOT the real BAYLA'], // private use
+      ['BA\u034FYLA Token', 'X', 'NOT the real BAYLA'], // combining grapheme joiner
+      ['BAY\u2800LA Token', 'X', 'NOT the real BAYLA'], // braille blank
+    ];
+    for (const [name, symbol, says] of cases) {
+      const s = named(name, symbol);
+      const label = JSON.stringify(name + ' / ' + symbol);
+      expect(reasons(s), label).toEqual({ blocks: [], warnings: ['copies-known-name'], verdict: 'warn' });
+      expect(s.kind === 'read' && s.warnings[0]!.text, label).toContain(says);
+      expect(tokenReasons(s, 'pools').refused, label).toHaveLength(1);
+      expect(tokenReasons(s, 'deposits').refused, label).toHaveLength(1);
+    }
+    // A reserved word this page has no real mint for is not a copy here (the launcher refuses it).
+    expect(reasons(named('Tegridy Farms', 'X'))).toEqual({ blocks: [], warnings: [], verdict: 'ok' });
+  });
+
+  it('every name on the list is still a copy under each swap the launcher folds', () => {
+    // 0 for O, 1 or l for I, I or 1 for L, 5 or $ for S, 8 for B, 3 for E.
+    const swaps: [RegExp, string][] = [[/O/g, '0'], [/I/g, '1'], [/I/g, 'l'], [/L/g, 'I'], [/L/g, '1'], [/S/g, '5'], [/S/g, '$'], [/B/g, '8'], [/E/g, '3']];
+    let tried = 0;
+    for (const known of WELL_KNOWN_NAMES) {
+      for (const n of known.names) {
+        for (const [from, to] of swaps) {
+          const spelled = n.toUpperCase().replace(from, to);
+          if (spelled === n.toUpperCase()) continue;
+          tried++;
+          const s = named(spelled, 'X');
+          expect(s.kind === 'read' && s.warnings.map((w) => w.code), `${n} spelled ${spelled}`).toEqual(['copies-known-name']);
+        }
+      }
+    }
+    expect(tried).toBeGreaterThan(WELL_KNOWN_NAMES.length);
+  });
+
+  it('letters outside plain A to Z are a warning: never "No problems found", and never a block', () => {
+    const lookalikes = [
+      'ʙᴀʏʟᴀ', // "BAYLA" in small capitals
+      'ᏴᎪᎽᏞᎪ', // Cherokee letters shaped like B, A, y, L, A
+      'Сorn', // a Cyrillic capital Es for the C, in a name that is on no list
+      '玉米', // not a look-alike of anything: still not plain A to Z
+    ];
+    for (const text of lookalikes) {
+      for (const s of [named(text, 'X'), named('Totally real', text)]) {
+        expect(reasons(s), text).toEqual({ blocks: [], warnings: ['lookalike-letters'], verdict: 'warn' });
+        expect(tokenReasons(s, 'pools'), text).toEqual({ refused: [], unchecked: [] });
+        expect(tokenReasons(s, 'deposits'), text).toEqual({ refused: [], unchecked: [] });
+      }
+    }
+    // An accent or an emoji is not a look-alike letter.
+    for (const name of ['Café Crème', 'Corn \u{1f33d}']) expect(reasons(named(name, 'CORN')), name).toEqual({ blocks: [], warnings: [], verdict: 'ok' });
+  });
+
+  it('a copied name in EITHER name record is caught, not only the one shown', () => {
+    const data = t22Mint(classicMint(), [pointer(null, mint), metadataExt(mint, null, 'Corn', 'CORN')]);
+    const metaplex = acct(metadataPda(mint), METAPLEX_TOKEN_METADATA_ID.toBase58(), metaplexRecord(mint, false, 'USD Coin', 'USDC'));
+    const s = classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, data), metaplex);
+    expect(reasons(s)).toEqual({ blocks: [], warnings: ['copies-known-name'], verdict: 'warn' });
+    expect(s.kind === 'read' && [s.name, s.symbol, s.metadataSource]).toEqual(['Corn', 'CORN', 'token-2022']);
+  });
+
+  it('a name kept at another account is said even when another name record was read', () => {
+    const elsewhere = key();
+    const data = t22Mint(classicMint(), [pointer(null, elsewhere)]);
+    const s = classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, data), immutableName());
+    expect(reasons(s)).toEqual({ blocks: [], warnings: ['metadata-elsewhere'], verdict: 'warn' });
+    expect(s.kind === 'read' && s.warnings[0]!.text).toContain(elsewhere.toBase58());
+    expect(s.kind === 'read' && s.name).toBe('Corn');
+    // A pointer at the name record that WAS read is not "another account".
+    const atRecord = t22Mint(classicMint(), [pointer(null, metadataPda(mint))]);
+    expect(reasons(classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, atRecord), immutableName()))).toEqual({ blocks: [], warnings: [], verdict: 'ok' });
   });
 
   it('BAYLA here is the same mint the rest of the site calls BAYLA', () => {

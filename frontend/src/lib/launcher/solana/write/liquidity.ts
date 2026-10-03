@@ -65,7 +65,7 @@ import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import { slippageProblem } from './trade';
 import type { CurveWriteConfig, IntentStep, LpOpenGate, PoolPins, Prepared, TxSummary, WriteRpc } from './types';
-import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
+import { closeWsolIxs, openWsolIx, opened, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
 
 // ── copy (spec 3.9) ──────────────────────────────────────────────────────────
 
@@ -101,7 +101,8 @@ export const LP_COPY = {
   withdrawBit:
     "Withdrawals are switched off on this pool by the pool program's admin (the team's vault). Only the vault can switch them back on. Your pool shares stay in your wallet.",
   vaultFrozen: "The token's issuer has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
-  cannotBuild: (why: string) => `This site cannot build a withdrawal for this token yet (${why}). The pool program still lets you withdraw: see "Leaving without this site".`,
+  cannotBuild: (why: string) =>
+    `This site cannot build a withdrawal for this token yet (${why}). The pool program still lets you withdraw with any other tool that can build its withdrawals. Your pool shares stay in your wallet.`,
   shareChanged: 'Your pool-share account now holds fewer shares than this would take out, or is no longer yours. Read your positions again.',
   tooSmallWithdraw: 'Too small: one side would round to zero. Take out a larger share, or all of it.',
   dustRemainder: (n: string) => `That would leave ${n} pool shares, too few to ever take out at this pool's size. Take out all of it, or less.`,
@@ -324,9 +325,10 @@ export async function readPoolForWrite(
     mint: mintAcc,
     metaplex: metaAcc ?? null,
     signerLamports: BigInt(ownerAcc?.lamports ?? 0),
-    tokenAccount: { address: tokenAddress, account: (tokenProgram === TOKEN_2022_PROGRAM_ID.toBase58() ? ata2022 : ataClassic) ?? null },
-    wsol: { address: wsolAddress, account: wsolAcc ?? null },
-    lp: { address: lpAddress, account: lpAcc ?? null },
+    // The wallet's own three: an address that only holds SOL someone sent it is no account (`opened`).
+    tokenAccount: { address: tokenAddress, account: opened(tokenProgram === TOKEN_2022_PROGRAM_ID.toBase58() ? ata2022 : ataClassic) },
+    wsol: { address: wsolAddress, account: opened(wsolAcc) },
+    lp: { address: lpAddress, account: opened(lpAcc) },
     rents,
     ...(swap ? { swap: { feeAccount: swap.feeAccount, tier: swap.tier } } : {}),
   };
@@ -392,12 +394,14 @@ function amountOf(acc: RawAccount | null): bigint {
  * memos. A destination with an approved spender who can still move something is
  * refused (what arrives would not be only yours); one a stranger can close once it
  * is empty is a notice. Wrapped SOL's spender and close authority: see wsolPlanFrom.
- * An absent account is not refused here; the caller decides what absence means.
+ * An absent account is not refused here; the caller decides what absence means. An
+ * address that only holds SOL someone sent it is absent too (`opened`, wsol.ts).
  */
 export function accountCheck(
-  acc: RawAccount | null,
+  read: RawAccount | null,
   want: { owner: PublicKey; mint: PublicKey; program: PublicKey; use: 'source' | 'destination'; what: string; decimals?: number },
 ): { refuse?: string; notices: string[] } {
+  const acc = opened(read);
   if (!acc) return { notices: [] };
   if (acc.owner !== want.program.toBase58() || acc.data.length < 165) return { refuse: LP_COPY.notUsable(want.what, acc.address), notices: [] };
   const b = baseAccount(acc.data);
@@ -632,7 +636,9 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
       return {
         maxSolOut: maxSol + (lpExists ? 0n : rents.tokenAccount),
         tokens: [
-          { account: lpAta, mint: lpMint, minDelta: planned.lp, maxDelta: planned.lp },
+          // At least the shares the deposit names (the bytes pin the exact number). No upper
+          // bound: shares a stranger sends in after the balance read must not block it.
+          { account: lpAta, mint: lpMint, minDelta: planned.lp, maxDelta: 2n ** 64n },
           { account: tokenAddress, mint: a.tokenMint, minDelta: -maxTok, maxDelta: -1n },
           // Closed: it ends where it began. Kept: only what the pool did not use stays,
           // plus what the wrap's sync credits, and the person's own wrapped SOL is never spent.
@@ -651,6 +657,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
         pool: pins.address,
         origin: pins.origin,
         config: view.config,
+        enableCreatorFee: p.enableCreatorFee,
         tokenMint: a.tokenMint,
         tokenDecimals: decimals,
         solIsToken0,
@@ -818,7 +825,9 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
   const rentIfOpened = (exists: boolean) => (exists ? 0n : (tokRent ?? 0n));
 
   // 13. Simulate twice and compare. No upper bound on what arrives: a donation to the
-  // pool must never block a withdrawal.
+  // pool must never block a withdrawal. The same for the shares: at most the ones this
+  // names may leave (the bytes pin the exact number), and shares a stranger sends in
+  // after the balance read must not block it either.
   return buildAndSimulate(rpc, {
     kind: 'lp-withdraw',
     body,
@@ -835,7 +844,7 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
     expect: (pre) => {
       const rentPaid = rentIfOpened(pre.tokens.get(tokenAta.toBase58())?.exists ?? false);
       const tokens = [
-        { account: a.lpAccount, mint: lpMint, minDelta: -planned.lp, maxDelta: -planned.lp },
+        { account: a.lpAccount, mint: lpMint, minDelta: -planned.lp, maxDelta: 2n ** 64n },
         { account: tokenAta, mint: a.tokenMint, minDelta: minTok, maxDelta: 2n ** 64n },
         plan.closeAfter
           ? { account: plan.ata, mint: WSOL_MINT, minDelta: 0n, maxDelta: 0n }

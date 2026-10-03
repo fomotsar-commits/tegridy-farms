@@ -8,6 +8,7 @@ import { act, render, screen, waitFor, within, fireEvent } from '@testing-librar
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
+import { solAbout } from './panelKit';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { isCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
@@ -19,6 +20,7 @@ import { LP_PENDING_SCOPE, readPendingTrades } from '../curve/pendingTrade';
 import { prepared } from '../curve/fakeWriteApi.fixture';
 import type { LpWriteApi, Prepared, SubmitDeps, TxOutcome } from '../curve/ports';
 import { TIER1_ADDRESS, fakeLpApi, lpCreateSummary, LP_PROGRAM, readyFacts, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import { recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
 
 vi.mock('../../../lib/solana/cpswap/program', async (orig) => {
   const { PublicKey: Key } = await import('@solana/web3.js');
@@ -306,6 +308,59 @@ describe('the panel', () => {
     expect(reviewButton(panel)).toBeEnabled();
   });
 
+  // Owner, 2026-10-03: "i still am not able to create lp on solana". The form was open
+  // on a wallet holding 0.006 SOL and none of the token, and all it did was grey out
+  // Review: the reason was two small hints under the boxes. A wallet that cannot open
+  // any pool is now told so before it types anything.
+  describe('a wallet that cannot open any pool is told so up front', () => {
+    // What opening takes before any SOL goes in: (10,000 + 1,000,000) for two signatures
+    // and the reserve, 2,039,280 for the share account, 150,000,000 + 40,000,000 for the
+    // fee and the deposits, and max(2,039,280, 890,880) kept in the wallet.
+    const NEEDS = 195_088_560n;
+
+    it('too little SOL and none of the token: says how much opening needs, what the wallet has, and that it holds none', async () => {
+      mount(readers({ wallet: vi.fn(async () => facts({ lamports: 5_960_758n, token: null })) }));
+      const { panel } = await openPanel();
+      const cannot = await within(panel).findByTestId('lp-create-cannot');
+      expect(cannot).toHaveTextContent('This wallet cannot open a pool yet.');
+      expect(cannot).toHaveTextContent(`needs about ${solAbout(NEEDS)}`);
+      expect(cannot).toHaveTextContent('this wallet has 0.005960758 SOL');
+      expect(cannot).toHaveTextContent('holds none of this token');
+      expect(reviewButton(panel)).toBeDisabled();
+    });
+
+    it('too little SOL only: no word about the token', async () => {
+      mount(readers({ wallet: vi.fn(async () => facts({ lamports: NEEDS })) }));
+      const { panel } = await openPanel();
+      const cannot = await within(panel).findByTestId('lp-create-cannot');
+      expect(cannot).toHaveTextContent('This wallet cannot open a pool yet.');
+      expect(cannot).not.toHaveTextContent('none of this token');
+    });
+
+    it('none of the token only: says a pool needs both, and nothing about SOL being short', async () => {
+      mount(readers({ wallet: vi.fn(async () => facts({ token: null })) }));
+      const { panel } = await openPanel();
+      const cannot = await within(panel).findByTestId('lp-create-cannot');
+      expect(cannot).toHaveTextContent('This wallet holds none of this token');
+      expect(cannot).toHaveTextContent('needs both SOL and the token');
+      expect(cannot).not.toHaveTextContent('needs about');
+    });
+
+    it('one lamport above what opening needs, with the token: nothing is said', async () => {
+      mount(readers({ wallet: vi.fn(async () => facts({ lamports: NEEDS + 1n })) }));
+      const { panel } = await openPanel();
+      await within(panel).findByRole('button', { name: 'Max SOL' });
+      expect(within(panel).queryByTestId('lp-create-cannot')).toBeNull();
+    });
+
+    it('an unread wallet is never told it cannot: nothing is claimed from a read that failed', async () => {
+      mount(readers({ wallet: vi.fn(async () => ({ kind: 'unread' as const, detail: 'HTTP 502' })) }));
+      const { panel } = await openPanel();
+      await waitFor(() => expect(panel).toHaveTextContent('could not read (HTTP 502)'));
+      expect(within(panel).queryByTestId('lp-create-cannot')).toBeNull();
+    });
+  });
+
   it('an unread wallet offers no Max and is never 0', async () => {
     mount(readers({ wallet: vi.fn(async () => ({ kind: 'unread' as const, detail: 'HTTP 502' })) }));
     const { panel } = await openPanel();
@@ -399,6 +454,47 @@ describe('one panel at a time', () => {
   });
 });
 
+// A pool this site opens goes through cp-swap's `initialize`, which switches the pool's
+// creator fee off for good, so a trade on it costs the tier's trade fee and nothing more.
+// The card, the panel and the review must all say that one figure, whatever creator rate
+// the tier carries for the pools the launch program opens.
+describe('what a trade on the new pool costs', () => {
+  const tierRow = (panel: HTMLElement) => within(panel).getAllByText('Fee tier', { exact: true }).map((el) => el.nextElementSibling?.textContent);
+
+  it('on tier 1 as mainnet holds it (recorded): 1% a trade, the same on the card, the panel and the review', async () => {
+    const tier = { ...recordedTier(1), address: TIER1_ADDRESS.toBase58() };
+    const summary = lpCreateSummary(key(), MINT, { config: tier });
+    mount(readers(), { api: { readCreateFacts: vi.fn(async () => readyFacts(tier)), prepareLpCreate: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })) } });
+    const { card, panel } = await openPanel();
+    expect(card).toHaveTextContent('You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
+    expect(tierRow(panel)).toEqual(['1: traders pay 1% a trade; LPs keep 0.840% of each trade']);
+    fireEvent.change(sol(panel), { target: { value: '1' } });
+    fireEvent.click(matchButton(panel));
+    await act(async () => {
+      fireEvent.click(reviewButton(panel));
+    });
+    await within(panel).findByRole('heading', { name: 'Review: open a pool' });
+    expect(new Set(tierRow(panel))).toEqual(new Set(['1: traders pay 1% a trade; LPs keep 0.840% of each trade']));
+  });
+
+  it('on a tier with a creator rate set, still the trade fee alone, and it says the new pool charges no creator fee', async () => {
+    const tier = { ...recordedTier(1), address: TIER1_ADDRESS.toBase58(), creatorFeeRate: 500n };
+    const summary = lpCreateSummary(key(), MINT, { config: tier });
+    mount(readers(), { api: { readCreateFacts: vi.fn(async () => readyFacts(tier)), prepareLpCreate: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })) } });
+    const { card, panel } = await openPanel();
+    expect(card).toHaveTextContent('You can open the first one on the public fee tier: 1% a trade (no creator fee), 0.15 SOL to open (read just now).');
+    expect(card).not.toHaveTextContent(/1\.05%/);
+    expect(tierRow(panel)).toEqual(['1: traders pay 1% a trade (no creator fee); LPs keep 0.840% of each trade']);
+    fireEvent.change(sol(panel), { target: { value: '1' } });
+    fireEvent.click(matchButton(panel));
+    await act(async () => {
+      fireEvent.click(reviewButton(panel));
+    });
+    await within(panel).findByRole('heading', { name: 'Review: open a pool' });
+    expect(new Set(tierRow(panel))).toEqual(new Set(['1: traders pay 1% a trade (no creator fee); LPs keep 0.840% of each trade']));
+  });
+});
+
 describe('the review and a confirmed opening', () => {
   it('shows the opening review with its disclosure, and once confirmed the tab remembers the pool', async () => {
     const pool = key();
@@ -438,7 +534,8 @@ describe('the review and a confirmed opening', () => {
     const listed: PoolView = { ...created, address: pool.toBase58() };
     (r.findPools as ReturnType<typeof vi.fn>).mockResolvedValue(search([listed]));
     fireEvent.click(within(screen.getByTestId('lp-finder')).getByRole('button', { name: 'Read again' }));
-    await waitFor(() => expect(screen.getByTestId('lp-create')).toHaveAttribute('data-create', 'opened-here'));
+    await waitFor(() => expect(screen.getByTestId('lp-create')).toHaveAttribute('data-advice', 'opened-here'));
+    expect(screen.getByTestId('lp-create')).toHaveAttribute('data-create', 'offer');
     expect(screen.getByTestId('lp-create-panel')).toBe(panel);
     expect(outcome.isConnected).toBe(true);
     expect(within(screen.getByTestId('lp-pool')).getByTestId('lp-opened-here')).toBeInTheDocument();

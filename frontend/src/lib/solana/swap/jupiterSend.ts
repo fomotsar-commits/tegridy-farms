@@ -33,8 +33,17 @@ import type {
   QuoteRead,
   SwapSimulation,
 } from '../../jupiter';
-import { pollSignature, type SignatureStatusReader } from './confirm';
+import { pollConfirm, type SignatureStatusSource } from '../confirm';
 import { prepareJupiterSwap, type PreparedJupiterSwap } from './jupiterFeeRetry';
+
+/** How a sent swap's status is read: the one call lib/solana/confirm.ts polls. */
+export type SignatureStatusReader = SignatureStatusSource['getSignatureStatuses'];
+
+/**
+ * How long a sent swap is watched before the ending is "unknown": the swap
+ * page's own limit (SWAP_CONFIRM_TIMEOUT_MS in SolanaSwapPage.tsx).
+ */
+export const JUPITER_CONFIRM_TIMEOUT_MS = 90_000;
 
 export interface JupiterSendDeps {
   /** lib/jupiter.ts readQuote. */
@@ -260,6 +269,14 @@ export async function sendJupiterSwap(
   } catch {
     /* the note failed to write; the ending below still carries the signature */
   }
-  const ending = await pollSignature(deps.getSignatureStatuses, signature, { sleep: deps.sleep, now: deps.now });
-  return { status: ending, signature, fresh: sent, siteFeeWaived };
+  // The one shared poller (lib/solana/confirm.ts): only a status at confirmed or
+  // finalized is an ending; a read that throws and a run-out clock are 'unknown'.
+  const { outcome } = await pollConfirm(
+    { getSignatureStatuses: deps.getSignatureStatuses },
+    signature,
+    JUPITER_CONFIRM_TIMEOUT_MS,
+    deps.sleep,
+    deps.now,
+  );
+  return { status: outcome, signature, fresh: sent, siteFeeWaived };
 }
