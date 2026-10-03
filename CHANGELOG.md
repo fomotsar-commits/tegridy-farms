@@ -21,6 +21,7 @@ page keeps the newest thirty days.
 - On /pools, a pool you open is shown at its tier's trade fee alone, because a pool opened from this site never charges a creator fee.
 - On /pools, the venue card says anyone can open a pool only while the fee tier it read takes new pools.
 - The /pools fee sheet's note about where its rates come from no longer has an em dash.
+- The site's own tests now run on Vitest 5 and jsdom 30; nothing a visitor sees changes.
 
 ### 2026-10-02
 
