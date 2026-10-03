@@ -14,6 +14,8 @@ page keeps the newest thirty days.
 - On /pools, the venue card says anyone can open a pool only while the fee tier it read takes new pools.
 - The /pools fee sheet's note about where its rates come from no longer has an em dash.
 
+### 2026-10-02
+
 - An Ethereum launch's page (/launch) shows the maker's wallet, its allocation and whether its vesting still locks it, read from the launch transaction Doppler's Airlock made.
 - A Memetics Curve launch's page shows the maker's create-buy and its wallet, read from the launch transaction, and says the curve has no lock. Each card in its launches list says the figure is on that page.
 - /nb1, the island's open lot, opens on its own heading and picture from the first second, and its link preview carries no em dash.
