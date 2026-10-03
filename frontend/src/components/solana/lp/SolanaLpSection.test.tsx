@@ -306,6 +306,23 @@ describe('your positions', () => {
     expect(within(row).getByText('25.0000%')).toBeInTheDocument();
     expect(within(row).getByText('no problems found')).toBeInTheDocument();
     expect(r.positions).toHaveBeenCalledWith(owner, 20);
+    // No SOL price in these readers: the worth row stands alone, no dollar line.
+    expect(row).not.toHaveTextContent('$');
+  });
+
+  it('puts an "about $" line under the share only when the SOL price was read', async () => {
+    wallet.publicKey = key();
+    const v = view({ sol: 1_000_000_000n, tok: 1_000_000_000n });
+    const positions = vi.fn(async () => ({
+      kind: 'ok' as const,
+      chainNow: 5n,
+      totalShares: 1,
+      // A tenth of the pool: 0.1 SOL and 100 tokens at 0.001 SOL each, 0.2 SOL in all.
+      positions: [{ lpMint: v.snapshot.pool.lpMint, lpAccount: key().toBase58(), lpAmount: 1n, placement: 'found' as const, placementDetail: null, pool: { kind: 'pool' as const, view: v }, value: { token0: 100_000_000n, token1: 100_000_000n, sharePct: 10 }, tooSmall: false }],
+    }));
+    mount(readers({ positions, usdPerSol: vi.fn(async () => 150) }), '/pools');
+    const row = await screen.findByTestId('lp-position');
+    await waitFor(() => expect(row).toHaveTextContent(/That is\s*about \$30\.00 \(SOL at Jupiter’s price, tokens at this pool’s price\)/));
   });
 
   // F3 / S1-R03: shares beyond the ones placed are counted and reachable, never dropped.

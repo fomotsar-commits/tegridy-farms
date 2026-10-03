@@ -28,7 +28,8 @@ export type PoolIndexRead =
   /** The index did not answer, or answered with something we did not expect. */
   | { kind: 'unread'; detail: string };
 
-export type PoolIndexQuery = { mint: string } | { lpMint: string };
+/** `all`: every TOKEN/SOL pool on the program, for the list shown before a token is typed. */
+export type PoolIndexQuery = { mint: string } | { lpMint: string } | { all: true };
 
 function isAddress(s: unknown): s is string {
   if (typeof s !== 'string' || s.length < 32 || s.length > 44) return false;
@@ -40,8 +41,17 @@ function isAddress(s: unknown): s is string {
 }
 
 export async function readPoolIndex(query: PoolIndexQuery, expectedProgram: string, fetchImpl: typeof fetch = fetch): Promise<PoolIndexRead> {
-  const [key, value] = 'mint' in query ? ['mint', query.mint] : ['lpMint', query.lpMint];
-  if (!isAddress(value)) return { kind: 'unread', detail: 'that is not a Solana address' };
+  const all = 'all' in query;
+  let key: string;
+  let value: string;
+  if ('all' in query) {
+    [key, value] = ['all', '1'];
+  } else if ('mint' in query) {
+    [key, value] = ['mint', query.mint];
+  } else {
+    [key, value] = ['lpMint', query.lpMint];
+  }
+  if (!all && !isAddress(value)) return { kind: 'unread', detail: 'that is not a Solana address' };
   let res: Response;
   try {
     res = await fetchImpl(`${POOL_INDEX_PATH}?${key}=${encodeURIComponent(value)}`, { headers: { Accept: 'application/json' } });
@@ -69,7 +79,9 @@ export async function readPoolIndex(query: PoolIndexQuery, expectedProgram: stri
   if (typeof body !== 'object' || body === null || !Array.isArray(b.pools) || typeof b.truncated !== 'boolean') {
     return { kind: 'unread', detail: 'the pool index answered in an unexpected shape' };
   }
-  if (b[key] !== value) return { kind: 'unread', detail: 'the pool index answered about a different token' };
+  if (all ? b.all !== true : b[key] !== value) {
+    return { kind: 'unread', detail: all ? 'the pool index answered a different question' : 'the pool index answered about a different token' };
+  }
   if (b.program !== expectedProgram) return { kind: 'unread', detail: 'the pool index answered for a different pool program than this page reads' };
   if (b.pools.length > POOL_INDEX_MAX || !b.pools.every(isAddress)) {
     return { kind: 'unread', detail: 'the pool index answered with an invalid address list' };

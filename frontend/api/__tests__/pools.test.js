@@ -284,6 +284,56 @@ describe("api/pools", () => {
     await mod.handlePoolIndex(makeReq({ resource: "pools", mint: MINT, provider: "jupiter" }), bad, f);
     expect(bad.statusCode).toBe(400);
   });
+
+  // The list a visitor sees before typing a token: every TOKEN/SOL pool on the program.
+  it("all=1 lists every TOKEN/SOL pool: SOL in either mint slot, two scans, ranked by SOL depth, no mint check", async () => {
+    const f = chain({ pools: [{ address: k(1), solVault: k(2), sol: 5 }, { address: k(3), solVault: k(4), sol: 50 }] });
+    const res = makeRes();
+    await mod.handlePoolIndex(makeReq({ all: "1" }), res, f);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ all: true, program: mod.CP_SWAP_PROGRAM, pools: [k(3), k(1)], truncated: false });
+    expect(res.body.mint).toBeUndefined();
+    const scans = calls(f, "getProgramAccounts");
+    expect(scans).toHaveLength(2);
+    expect(scans.map((s) => s.params[1].filters.filter((x) => x.memcmp && x.memcmp.offset !== 0).map((x) => x.memcmp))).toEqual([
+      [{ offset: 168, bytes: WSOL }],
+      [{ offset: 200, bytes: WSOL }],
+    ]);
+    for (const s of scans) {
+      expect(s.params[1].dataSlice).toEqual({ offset: 72, length: 64 });
+      expect(s.params[1].filters).toContainEqual({ dataSize: 637 });
+    }
+    expect(calls(f, "getAccountInfo")).toHaveLength(0);
+  });
+
+  it("all takes only 1, alone, and its answer is cached apart from any token's", async () => {
+    const f = chain({ pools: [{ address: k(1), solVault: k(2), sol: 5 }] });
+    for (const q of [{ all: "0" }, { all: "true" }, { all: "1", mint: MINT }, { all: ["1", "1"] }]) {
+      const res = makeRes();
+      await mod.handlePoolIndex(makeReq(q), res, f);
+      expect(res.statusCode, JSON.stringify(q)).toBe(400);
+    }
+    expect(f).not.toHaveBeenCalled();
+    const first = makeRes();
+    await mod.handlePoolIndex(makeReq({ all: "1" }), first, f);
+    const byMint = makeRes();
+    await mod.handlePoolIndex(makeReq({ mint: MINT }), byMint, f);
+    expect(first.body.all).toBe(true);
+    expect(byMint.body.mint).toBe(MINT);
+    // The token's question was a miss of its own: it checked the mint and scanned once more.
+    expect(calls(f, "getAccountInfo")).toHaveLength(1);
+    expect(calls(f, "getProgramAccounts")).toHaveLength(3);
+    const again = makeRes();
+    await mod.handlePoolIndex(makeReq({ all: "1" }), again, f);
+    expect(again.body).toEqual(first.body);
+    expect(calls(f, "getProgramAccounts")).toHaveLength(3);
+  });
+
+  it("all=1 never answers 'no pools' when a scan failed", async () => {
+    const res = makeRes();
+    await mod.handlePoolIndex(makeReq({ all: "1" }), res, chain({ fail: { method: "getProgramAccounts", throws: true } }));
+    expect(res.statusCode).toBe(502);
+  });
 });
 
 describe("routing: /api/pools costs no function of its own", () => {
