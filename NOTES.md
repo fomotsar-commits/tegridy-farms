@@ -15,6 +15,29 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-03: two renders of a hook that stamps the clock are equal only inside one second
+
+**Believed:** rendering a hook twice, back to back, and deep-comparing the two reports is a
+stable test when nothing in the stubs changed.
+
+**Measured:** `useWalletExposure` stamps `observedAt` with `Math.floor(Date.now() / 1000)` on
+every render (`deriveHoldingExposure`). `walletChainDisplayReads.test.ts` compared two renders
+with `toEqual` and failed CI run 37116193466 on that one field, 1791023351 against 1791023350:
+a second boundary fell between the renders. To find every test of this kind at once, a
+throwaway setup file made each `Date.now()` read land one second after the last
+(`Date.now = () => base + reads++ * 1000`) and the whole unit suite ran under it at 288a7948:
+13,267 tests, 16 failed. Two were this test. The other 14, in three files, time themselves
+with a stopwatch or a deadline (`fork-relay`, `orderbook.bundle-guards`,
+`seaport-verify.bundle-ownership`), which that clock breaks by design; all pass on the real
+clock. `new Date()` with no argument reads the clock on its own and was not swept.
+
+**Do:** freeze the clock in any test that compares two reports (`vi.useFakeTimers({ toFake:
+['Date'] })`, `vi.setSystemTime(NOW)`, real timers back in `afterEach`), and assert one stamp
+equals the frozen time, so taking the freeze away fails every run and not only when a second
+turns.
+
+---
+
 ## 2026-10-02: `import.meta.env.DEV` is true in a `vite build` run with NODE_ENV=development
 
 **Believed:** a dial honoured only when `import.meta.env.DEV` is true can count on a dev server
