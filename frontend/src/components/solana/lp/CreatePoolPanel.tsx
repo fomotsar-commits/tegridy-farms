@@ -20,7 +20,7 @@ import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
-import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
+import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, reviewOffWhy, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { createHeld, type CreateOffer } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -313,6 +313,7 @@ function CreateInner({
 
   const warnings = safety.kind === 'read' && safety.verdict === 'warn' ? safety.warnings : [];
   const walletReady = writes.signerState.kind === 'ready';
+  const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotOpen !== null, hasAmounts: both, amountsWord: 'both amounts' });
   const callsItself =
     safety.kind === 'read' && safety.verdict !== 'blocked' && (safety.name || safety.symbol)
       ? `${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`
@@ -387,7 +388,7 @@ function CreateInner({
           {cannotOpen && (
             <div data-testid="lp-create-cannot" className="text-[13px] leading-relaxed space-y-1">
               <Notice tone="warn">{cannotOpen}</Notice>
-              <FundingNextStep needsSol={availableSol === 0n} needsToken={availableToken === 0n} />
+              <FundingNextStep needsSol={availableSol === 0n} needsToken={availableToken === 0n} mint={mint} wallet={signer?.publicKey.toBase58() ?? null} />
             </div>
           )}
           <div className="space-y-2" data-testid="lp-create-market">
@@ -472,7 +473,9 @@ function CreateInner({
                 value={
                   neverRefunded !== null && lpRent !== null
                     ? `about ${solAbout(neverRefunded)} kept by the pool's accounts forever, plus ${solExact(lpRent)} for your pool-share account (it comes back if you close that account later)`
-                    : 'could not be read'
+                    : signer
+                      ? 'could not be read'
+                      : 'read once a wallet is connected (the fee tiers list on this page has the amount)'
                 }
                 mono={false}
               />
@@ -488,7 +491,9 @@ function CreateInner({
                 value={
                   neverRefunded !== null && lpRent !== null
                     ? `about ${solAbout((solRaw ?? 0n) + config.createPoolFee + neverRefunded + lpRent)}, plus the network fee`
-                    : 'could not be worked out (the account deposits could not be read)'
+                    : signer
+                      ? 'could not be worked out (the account deposits could not be read)'
+                      : 'worked out once a wallet is connected'
                 }
                 mono={false}
               />
@@ -509,11 +514,16 @@ function CreateInner({
           </div>
           {held && <Notice tone="warn">A pool you opened is not confirmed yet (see the top of this section), so opening another is off.</Notice>}
           <p className="text-white/60">{NOTES_BELOW}</p>
+          {!canReview && reviewWhy && (
+            <p className="text-amber-300/90 text-[12px]" data-testid="lp-review-why">
+              {reviewWhy}
+            </p>
+          )}
           <div className="flex flex-col sm:flex-row gap-2">
             <button
               ref={reviewRef}
               type="button"
-              className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60"
+              className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale"
               disabled={!canReview}
               onClick={review}
             >
@@ -544,7 +554,7 @@ function CreateInner({
           mono={false}
         />
       </div>
-      <LpBeforeYouOpen fee={fee ?? 0n} neverRefunded={neverRefunded} />
+      <LpBeforeYouOpen fee={fee ?? 0n} neverRefunded={neverRefunded} walletConnected={!!signer} />
       <p role="status" className="sr-only">
         {flow.state.step === 'idle' ? status : ''}
       </p>

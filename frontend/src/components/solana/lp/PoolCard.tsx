@@ -213,6 +213,7 @@ function DepositOfferBlock({
   const open = writes.active?.key === key;
   // The visitor asked for this lookup to end in the Add form: it opens by itself, once.
   const addButton = useRef<HTMLButtonElement | null>(null);
+  const blockRef = useRef<HTMLDivElement | null>(null);
   const acted = useRef(0);
   const { open: openPanel, busy } = writes;
   useEffect(() => {
@@ -220,7 +221,7 @@ function DepositOfferBlock({
     acted.current = openNow;
     // Already open, or another form is mid-flow: the press still shows where its form is.
     if (!open && !busy) openPanel('add', key, addButton.current);
-    else addButton.current?.scrollIntoView?.({ block: 'center' });
+    else (blockRef.current?.querySelector('h4') ?? addButton.current)?.scrollIntoView?.({ block: 'start' });
     onActed?.(openNow);
   }, [openNow, offer, open, busy, openPanel, key, onActed]);
   // Another panel's flow is running: this one cannot open over it.
@@ -229,7 +230,7 @@ function DepositOfferBlock({
   // own sent deposit makes this pool `held`, and the outcome on screen must not vanish.
   const panel = open ? <AddLiquidityPanel view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} onClose={writes.close} /> : null;
   return (
-    <div className="space-y-2 mt-2">
+    <div ref={blockRef} className="space-y-2 mt-2">
       <OfferLine offer={offer} health={health} />
       {offer === 'offer' && (
         <>
@@ -237,7 +238,7 @@ function DepositOfferBlock({
           <button
             ref={addButton}
             type="button"
-            className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+            className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60 scroll-mt-[4.5rem]"
             disabled={blockedByOther}
             aria-expanded={open}
             onClick={(e) => writes.open('add', key, e.currentTarget)}

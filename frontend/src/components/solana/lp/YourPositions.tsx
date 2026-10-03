@@ -8,6 +8,7 @@ import { formatWhen, withdrawalsState } from '../../../lib/solana/lp/poolHealth'
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
 import { solText, tokenText } from '../../../lib/solana/lp/format';
 import { SolanaConnectButton } from '../SolanaConnectButton';
+import { WalletAppHint } from '../curve/WalletNeeded';
 import { Card, Notice, Row } from '../curve/ui';
 import { LeaveWithoutThisSite } from './LpDisclosures';
 import { lpHeld, withdrawOffer, type WithdrawOffer } from './offers';
@@ -132,6 +133,8 @@ export function YourPositions({
             <p>Connect a Solana wallet to see the pool shares it holds. Reading them sends nothing and signs nothing.</p>
             {writes && <p>Removing liquidity starts here: each share that can be taken out gets a Remove liquidity button.</p>}
             <SolanaConnectButton />
+            {/* A phone's own browser has no wallet in it: the same way on the forms give. */}
+            <WalletAppHint />
           </>
         ) : !state || state.status === 'loading' ? (
           <p>Reading your wallet’s pool shares…</p>

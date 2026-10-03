@@ -56,6 +56,19 @@ export { LOCKED_SHARES_TEXT };
  */
 export const NOTES_BELOW = 'Read the notes under this form before you review. The main ones are shown again before you sign.';
 
+/**
+ * Why Review is greyed out, said right above it. On a phone the Connect button and the
+ * "cannot ... yet" notice are a screen above the button they switch off, and a dimmed
+ * Review read as a live button that ignored the press (phone walk, 2026-10-03). Only the
+ * reasons that are NOT already said beside the button; an amount problem has its own line.
+ */
+export function reviewOffWhy(a: { hasWallet: boolean; cannot: boolean; hasAmounts: boolean; amountsWord: string }): string | null {
+  if (!a.hasWallet) return 'Review needs a wallet: the Connect button is at the top of this form.';
+  if (a.cannot) return 'Review is off for this wallet: the top of this form says what it is short of.';
+  if (!a.hasAmounts) return `Type ${a.amountsWord} to review.`;
+  return null;
+}
+
 /** A share of the pool as a percentage; a real share that rounds to nothing says so. */
 export function sharePct(part: bigint, whole: bigint): string {
   if (whole <= 0n || part <= 0n) return 'none';

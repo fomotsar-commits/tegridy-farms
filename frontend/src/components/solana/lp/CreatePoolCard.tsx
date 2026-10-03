@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { formatSol } from '../../../lib/launcher/solana/curve/format';
 import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import { isCreatedPool, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
@@ -6,13 +6,14 @@ import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { tradeCostText } from '../../../lib/solana/lp/format';
 import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
+import { publicTierConfig } from '../../../lib/solana/cpswap/program';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { Notice } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import type { CreateFacts, TierState } from '../curve/ports';
 import { CreatePoolPanel } from './CreatePoolPanel';
 import { MONEY_NOTE } from './LpDisclosures';
-import { createOffer, poolListCut, type CreateOffer } from './offers';
+import { createOffer, depositOffer, lpHeld, poolListCut, type CreateOffer } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const NATIVE_2022_LINE = 'This is SOL under the newer token program. Pools here pair a token with SOL.';
@@ -115,10 +116,31 @@ function CreateCard({
     acted.current = openNow;
     // Not offered, already open, or another form is mid-flow: the card comes onto the
     // screen, so the press shows its reason (or its open form) instead of doing nothing.
-    if (offer !== 'offer' || open || busy) sectionRef.current?.scrollIntoView?.({ block: 'start' });
+    // An open form's own heading, when there is one: the card's top would leave it below the screen.
+    if (offer !== 'offer' || open || busy) (sectionRef.current?.querySelector('h4') ?? sectionRef.current)?.scrollIntoView?.({ block: 'start' });
     else openPanel('create', key, openButton.current, headingRef.current);
     onActed?.(openNow);
   }, [openNow, settled, offer, open, busy, openPanel, key, onActed]);
+  // "Add to it instead" used to be only words: asked to create a pool for a token that has
+  // one, a phone ended on a card with nothing to press (phone walk of the build,
+  // 2026-10-03, the day the first BAYLA pool was opened). The pool the card means, when it
+  // takes deposits right now by the same rule its own Add button follows.
+  const { mode, gate } = writes;
+  const notes = writes.pending.notes;
+  const addInstead = useMemo(() => {
+    if ((offer !== 'exists' && offer !== 'opened-here') || search.kind !== 'ok' || gate?.kind !== 'open') return null;
+    // Only reached once createOffer itself has worked the public tier's address out.
+    const tier1 = offer === 'exists' ? publicTierConfig(gate.cfg.cpSwapProgram).toBase58() : null;
+    for (const e of search.search.pools) {
+      if (e.kind !== 'pool') continue;
+      const health = healths.get(e.view.address);
+      if (!health) continue;
+      const meant = offer === 'opened-here' ? isCreatedPool(e.view.address) : e.view.snapshot.pool.ammConfig === tier1 && health.deposits.verdict === 'allowed';
+      if (!meant) continue;
+      return depositOffer({ mode, gate, health, held: lpHeld(notes, e.view.address, 'add') }) === 'offer' ? e.view.address : null;
+    }
+    return null;
+  }, [offer, search, healths, mode, gate, notes]);
   if (offer === 'off') return null;
 
   // Another panel's flow is running: this one cannot open over it.
@@ -163,6 +185,16 @@ function CreateCard({
         <p role="status" className="text-white/55 text-[11px]" data-testid="lp-create-reread">
           {asked !== null ? 'Reading again…' : said === 'same' ? 'Read again just now: the same answer.' : said === 'changed' ? 'Read again just now: the answer above is new.' : ''}
         </p>
+        {addInstead && (
+          <button
+            type="button"
+            className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+            disabled={writes.busy}
+            onClick={(e) => writes.open('add', `add:${addInstead}`, e.currentTarget)}
+          >
+            Add liquidity to that pool
+          </button>
+        )}
         {offer === 'offer' && (
           <>
             <p className="text-white/60 text-[11px]">{MONEY_NOTE}</p>

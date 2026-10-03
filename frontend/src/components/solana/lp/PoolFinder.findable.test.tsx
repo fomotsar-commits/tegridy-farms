@@ -16,6 +16,7 @@
 //   4. Remove liquidity goes to the positions, which say what an empty list means.
 //   5. The form starts with the wallet and the amount boxes; the long notes follow it.
 
+import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useNavigate, type NavigateFunction } from 'react-router-dom';
@@ -63,13 +64,14 @@ const noPools = (mint: string): PoolSearchRead => ({
   },
 });
 
-/** A pool holding 10 SOL and 1,000 tokens (0.01 SOL a token), on a fee tier that is not the public one. */
-function poolView(): PoolView {
+/** A pool holding 10 SOL and 1,000 tokens (0.01 SOL a token): on the public fee tier with `tier1`, else on another. */
+function poolView(tier1 = false): PoolView {
   const sol = 10n * 10n ** 9n;
   const tok = 1_000n * 10n ** 6n;
   const mint = key();
   const b = buildPool({ plain: true, mint, configIndex: 1, solReserve: sol, tokenReserve: tok, openTime: 1n });
-  const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
+  const raw = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
+  const pool = { ...raw, ammConfig: tier1 ? TIER1_ADDRESS.toBase58() : raw.ammConfig };
   const solIsToken0 = pool.token0Mint.startsWith('So111');
   return {
     address: b.address.toBase58(),
@@ -107,7 +109,10 @@ function readers(over: Partial<LpReaders> = {}): LpReaders {
 /** The page's own history, for Back and Forward. */
 let go: NavigateFunction = () => {};
 function History() {
-  go = useNavigate();
+  const navigate = useNavigate();
+  useEffect(() => {
+    go = navigate;
+  }, [navigate]);
   return null;
 }
 
@@ -261,6 +266,43 @@ describe('a lookup asked for with a button ends in a form', () => {
     fireEvent.click(await chip('BAYLA'));
     expect(await screen.findByTestId('lp-create-panel')).toBeInTheDocument();
     expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+  });
+
+  // The first BAYLA pool was opened on mainnet on 2026-10-03, while this was being built:
+  // from then on "Create a pool" then BAYLA ended on a card with nothing to press.
+  it('Create a pool on a token that already has a pool on the public tier: the card says so, on the screen, with a button that opens that pool\'s Add form', async () => {
+    const v = poolView(true);
+    mount('/solana-lp', 'on', {
+      findPools: vi.fn(async (mint: PublicKey) => onePool(mint.toBase58(), v)),
+      outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
+    });
+    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await chip('BAYLA'));
+    const card = await screen.findByTestId('lp-create');
+    await waitFor(() => expect(card).toHaveAttribute('data-create', 'exists'));
+    expect(card).toHaveTextContent('This token already has a pool on the public fee tier that passes the checks (above). Add to it instead');
+    // No second pool is opened, and nothing was opened for them: the card is what they see.
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    await waitFor(() => expect(scrolledTo()).toContain(card));
+    fireEvent.click(within(card).getByRole('button', { name: 'Add liquidity to that pool' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    expect(screen.getByTestId('lp-pool')).toHaveAttribute('data-pool', v.address);
+    expect(screen.getByTestId('lp-pool')).toContainElement(panel);
+  });
+
+  it('a second press on Create a pool with its form already open brings the form back onto the screen', async () => {
+    mount();
+    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await chip('BAYLA'));
+    const panel = await screen.findByTestId('lp-create-panel');
+    const heading = within(panel).getByRole('heading', { name: 'Open a pool for this token' });
+    await waitFor(() => expect(scrolledTo()[scrolledTo().length - 1]).toBe(heading));
+    scrolled.mockClear();
+    fireEvent.click(await task('Add liquidity'));
+    fireEvent.click(await task('Create a pool'));
+    await waitFor(() => expect(scrolledTo()[scrolledTo().length - 1]).toBe(heading));
+    expect(screen.getByTestId('lp-create-panel')).toBe(panel);
   });
 
   it('a token pressed with nothing chosen still ends in a form', async () => {
@@ -421,6 +463,14 @@ describe('the form starts with what a phone needs', () => {
     expect(before(terms, notes)).toBe(true);
     // The notes are still on the page, whole, and the form says where.
     expect(notes).toHaveTextContent('Put in only what you can afford to lose.');
+    // With no wallet the deposits are not called unread: they are read with the wallet, and the page has them.
+    expect(notes).toHaveTextContent('account deposits that never come back (the fee tiers list on this page has their amount)');
+    expect(notes).not.toHaveTextContent('could not be read');
+    // The greyed Review says why, right above it.
+    const why = within(panel).getByTestId('lp-review-why');
+    expect(why).toHaveTextContent('Review needs a wallet: the Connect button is at the top of this form.');
+    expect(before(why, review)).toBe(true);
+    expect(review).toBeDisabled();
     expect(terms).toHaveTextContent('Fee to open');
     expect(panel).toHaveTextContent('Read the notes under this form before you review. The main ones are shown again before you sign.');
   });
@@ -436,6 +486,8 @@ describe('Remove liquidity goes to the positions', () => {
     expect(await task('Remove liquidity')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent('Your pool shares are listed under Your positions.');
     expect(positions).toHaveTextContent('Removing liquidity starts here: each share that can be taken out gets a Remove liquidity button.');
+    // A phone's own browser has no wallet in it: the card says what to do, as the forms do.
+    expect(positions).toHaveTextContent('On a phone or tablet with no wallet in this browser: open this page inside your wallet app');
   });
 
   it('a wallet with no shares is told there is nothing to remove yet, and why', async () => {

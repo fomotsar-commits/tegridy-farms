@@ -349,7 +349,9 @@ describe('Add liquidity', () => {
     fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
     const panel = await screen.findByTestId('lp-add-panel');
     const cannot = await within(panel).findByTestId('lp-add-cannot');
-    expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', '/solana');
+    // The swap opens on this token by its address, never by a name to search for; the wallet's address is one press to copy.
+    expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', `/solana?out=${M}`);
+    expect(within(cannot).getByRole('button', { name: /Copy this wallet’s address/ })).toBeInTheDocument();
     expect(cannot).toHaveTextContent('This wallet cannot add to this pool yet.');
     // (5,000 + 1,000,000) for one signature and the reserve, 2,039,280 for the share
     // account, and max(2,039,280, 890,880) kept in the wallet.

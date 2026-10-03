@@ -325,9 +325,11 @@ describe('the panel', () => {
       expect(cannot).toHaveTextContent('this wallet has 0.005960758 SOL');
       expect(cannot).toHaveTextContent('holds none of this token');
       expect(reviewButton(panel)).toBeDisabled();
+      // The greyed Review says why, right beside it.
+      expect(within(panel).getByTestId('lp-review-why')).toHaveTextContent('Review is off for this wallet: the top of this form says what it is short of.');
       // And what to do about it, with the way there (it used to stop at the numbers).
       expect(cannot).toHaveTextContent('Send SOL to this wallet first.');
-      expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', '/solana');
+      expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', `/solana?out=${M}`);
       // First on the form: a phone reads it before the amount boxes, not two screens under them.
       const sol = within(panel).getByLabelText('SOL to put in');
       expect(cannot.compareDocumentPosition(sol) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -353,8 +355,8 @@ describe('the panel', () => {
       expect(cannot).not.toHaveTextContent('needs about');
       // It has the SOL: it is not told to send any.
       expect(cannot).not.toHaveTextContent('Send SOL');
-      expect(cannot).toHaveTextContent('Try this site’s Solana swap for the token, then come back to this tab.');
-      expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', '/solana');
+      expect(cannot).toHaveTextContent('Try this site’s Solana swap for the token (it opens on this token, by its address), then come back to this tab.');
+      expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', `/solana?out=${M}`);
     });
 
     it('one lamport above what opening needs, with the token: nothing is said', async () => {
@@ -362,6 +364,7 @@ describe('the panel', () => {
       const { panel } = await openPanel();
       await within(panel).findByRole('button', { name: 'Max SOL' });
       expect(within(panel).queryByTestId('lp-create-cannot')).toBeNull();
+      expect(within(panel).getByTestId('lp-review-why')).toHaveTextContent('Type both amounts to review.');
     });
 
     it('an unread wallet is never told it cannot: nothing is claimed from a read that failed', async () => {
