@@ -38,8 +38,11 @@ describe('the yield-copy check means the words, never letters inside an address'
     expect(yieldClaim(`Your share account ${short}`)).toBeNull();
     // Even a short form whose half IS the word, which word boundaries alone would catch.
     expect(YIELD_WORDS.test('account xAPR…APY and more')).toBe(true);
-    expect(yieldClaim('account 9xAPR…APY1z and more')).toBeNull();
-    expect(yieldClaim('account 9xAPR...APY1z and more')).toBeNull();
+    expect(yieldClaim('account 9APR…APY1 and more')).toBeNull();
+    expect(yieldClaim('account 9APR...APY1 and more')).toBeNull();
+    expect(yieldClaim('(9APR…APY1)')).toBeNull();
+    // Only the exact four-and-four shape is an address: anything longer is read as prose.
+    expect(yieldClaim('account 9xAPR…APY1z and more')).not.toBeNull();
   });
 
   it('a signature (88 characters of base58) is removed whole', () => {
@@ -59,6 +62,14 @@ describe('the yield-copy check means the words, never letters inside an address'
       `Pool ${CRAFTED[0]} pays 12% APR`,
       `12% APR\n${CRAFTED[2]}`,
       'APR…',
+      // Plurals, and a number glued on: the old pattern caught these too.
+      'APRs vary by pool',
+      'Pool APYs',
+      'APR12%',
+      '12%APR',
+      // Prose around an ellipsis is not a short address: only four characters each side is.
+      'variable APRs…from fees',
+      'yields...from fees',
     ]) {
       expect(yieldClaim(copy), copy).not.toBeNull();
     }
@@ -67,6 +78,7 @@ describe('the yield-copy check means the words, never letters inside an address'
 
   it('prose that only contains the letters inside another word is not a claim', () => {
     expect(yieldClaim('An April snapshot of the happy path')).toBeNull();
+    expect(yieldClaim('capri sun, therapy, xAPRs, 9APY, APRIL, apyx')).toBeNull();
   });
 
   it('a named sentence may say "yield" (the one that says none is shown); any other use is still caught', () => {

@@ -11,6 +11,7 @@ import {
   DEPOSIT_RESERVES_MOVED,
   DEPOSIT_TOO_QUIET,
   LAUNCH_MAX_SILENCE_DIVISOR,
+  LAUNCH_MIN_WINDOW_SECS,
   UNTRADED_RESERVES_TOLERANCE_BPS,
 } from './poolHealth';
 import { decodeObservationState } from './ownPrice';
@@ -233,6 +234,57 @@ describe('assessPool: a launch pool is checked against its own recent average', 
       expect(assessPool({ ...base, chainNow: 4_901n, view: launch(history(10n * Q32)), outside: noOutside }).price.state).toBe('too-quiet');
       // A silent stretch in the MIDDLE of the window counts the same as one at its end.
       expect(assessPool({ ...now, view: launch(history(10n * Q32, { stepSecs: 400n })), outside: noOutside }).price.state).toBe('too-quiet');
+    });
+
+    // A record at one price with a slot at each of `times`, last updated at the last one.
+    const slots = (solPerBaseX32: bigint, first: bigint, last: bigint, step: bigint): PoolView['history'] => {
+      const obs: [number, bigint, bigint, bigint][] = [];
+      for (let t = first, i = 0; t <= last; t += step, i++) {
+        const own = solPerBaseX32 * (t - first);
+        const other = ((Q32 * Q32) / solPerBaseX32) * (t - first);
+        obs.push(tokenIs0 ? [i, t, own, other] : [i, t, other, own]);
+      }
+      const data = observationBytes({ pool: b.address, index: obs.length - 1, lastUpdate: obs[obs.length - 1]![1], obs });
+      return { kind: 'ok', obs: decodeObservationState(data)! };
+    };
+
+    it('a transfer, then dust swaps spread over ten minutes: a short record written wholly at the moved price is not a pass', () => {
+      // Never traded; the token vault is doubled by a transfer; then a dust swap every
+      // 100 s for 10 minutes. The record starts at the first swap, so every second of
+      // it is at the moved price (5), with no long silence. This was 'allowed'.
+      const pushed = launch(slots(5n * Q32, 10_000n, 10_600n, 100n), { tok: TOK * 2n });
+      const h = assessPool({ ...base, chainNow: 10_601n, view: pushed, outside: noOutside });
+      expect(h.price.state).toBe('unread');
+      expect(h.deposits.verdict).toBe('unchecked');
+      expect(h.deposits.reasons.join(' ')).toMatch(/only 10 minutes of price history/);
+      expect(h.withdrawals).toBe('open');
+      // An HONEST young pool waits the same way: a short record is not evidence either way.
+      const young = assessPool({ ...base, chainNow: 10_601n, view: launch(slots(10n * Q32, 10_000n, 10_600n, 100n)), outside: noOutside });
+      expect(young.deposits.verdict).toBe('unchecked');
+      // One second short of the least that counts, and exactly at it.
+      const at = (now: bigint) => assessPool({ ...base, chainNow: now, view: launch(slots(5n * Q32, 10_000n, now - 1n, 100n), { tok: TOK * 2n }), outside: noOutside }).deposits.verdict;
+      expect(at(10_000n + LAUNCH_MIN_WINDOW_SECS - 1n)).toBe('unchecked');
+      expect(at(10_000n + LAUNCH_MIN_WINDOW_SECS)).toBe('allowed');
+    });
+
+    it('the limit that remains: a moved price held through a full half hour of open trading IS the pool’s price', () => {
+      // Nothing on chain tells this from a pool that simply trades at 5. What the rule
+      // buys is time: the moved price has to survive half an hour of anyone trading it.
+      const held = launch(slots(5n * Q32, 10_000n, 11_800n, 100n), { tok: TOK * 2n });
+      const h = assessPool({ ...base, chainNow: 11_801n, view: held, outside: noOutside });
+      expect(h.price).toMatchObject({ state: 'agrees', against: 'own-average' });
+      expect(h.deposits.verdict).toBe('allowed');
+    });
+
+    it('a pool trading every block holds under half an hour of record (100 slots, 15 s apart) and still passes', () => {
+      // The ring keeps 100 slots at least 15 s apart: 99 gaps = 1,485 s, the most a
+      // very busy pool can ever show. The least window that counts sits below that.
+      expect(LAUNCH_MIN_WINDOW_SECS).toBeLessThanOrEqual(99n * 15n);
+      expect(LAUNCH_MIN_WINDOW_SECS).toBeGreaterThanOrEqual(24n * 60n);
+      const busy = launch(slots(10n * Q32, 10_000n, 11_485n, 15n));
+      const h = assessPool({ ...base, chainNow: 11_486n, view: busy, outside: noOutside });
+      expect(h.price).toMatchObject({ state: 'agrees', against: 'own-average' });
+      expect(h.deposits.verdict).toBe('allowed');
     });
 
     it('a real outside price still decides on its own: none of this applies when Jupiter prices the token', () => {

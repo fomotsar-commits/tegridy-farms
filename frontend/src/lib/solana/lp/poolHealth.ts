@@ -35,8 +35,13 @@ import { WSOL_MINT } from './tokenSafety';
  * average. Its price can be moved WITHOUT a trade, by sending tokens or SOL straight
  * into a vault, and one dust swap then writes the moved price across the whole quiet
  * stretch of its price record; so a pool topped up by a plain transfer, and a quiet
- * one, are REFUSED, each with its own sentence. A pool anyone could have opened is
- * never checked against its own history, because its opener wrote that history.
+ * one, are REFUSED, each with its own sentence, and a record shorter than
+ * `LAUNCH_MIN_WINDOW_SECS` is UNCHECKED. That holds UNTIL the pool has traded steadily
+ * for the whole window at the moved price: after that the moved price is the pool's
+ * price, and nothing on chain tells it from one reached by trading. What the rule buys
+ * is that the move must survive that long with anyone free to trade against it. A pool
+ * anyone could have opened is never checked against its own history, because its opener
+ * wrote that history.
  *
  * WITHDRAWALS do not read any of this: `withdrawals` comes from the status bit and the
  * vaults alone (the leave rule: money already in a pool can always be taken out here).
@@ -159,6 +164,21 @@ export function reservesMatchShares(view: PoolView): boolean {
  * moved inside such a stretch is then at most a sixth of the average, so a move past
  * about 3.6% still shows as more than the 3% tolerance (ownPrice.ts recordSilence).
  */
+
+/**
+ * The least price record a launch pool's average needs before MONEY rests on it.
+ *
+ * The record starts at the pool's FIRST swap (oracle.rs skips the opening price). A
+ * pool whose price was moved by a transfer before it ever traded therefore has a record
+ * written wholly at the moved price, and dust swaps every few minutes make it "steady".
+ * Ten minutes of that (ownPrice.ts MIN_HISTORY_SECS) is not evidence; the moved price
+ * must survive open trading for the whole window, as it must on an older pool.
+ *
+ * Why 24 minutes and not the full 30: the record is a ring of 100 slots at least 15 s
+ * apart, so a pool that trades every block never shows more than 99 x 15 s = 24 m 45 s.
+ * A full half hour here would refuse the busiest pools for as long as they stay busy.
+ */
+export const LAUNCH_MIN_WINDOW_SECS = 24n * 60n;
 export const LAUNCH_MAX_SILENCE_DIVISOR = 6n;
 
 /**
@@ -174,8 +194,8 @@ export const LAUNCH_MAX_SILENCE_DIVISOR = 6n;
  *   - never traded: its two sides must still match its shares (`reservesMatchShares`),
  *     else 'reserves-moved';
  *   - traded: within 3% of its half-hour average ('disagrees' otherwise), AND that
- *     average must be made of steady trading (`LAUNCH_MAX_SILENCE_DIVISOR`), else
- *     'too-quiet'. Time with no recorded swap is not evidence: the average fills it with
+ *     average must reach back far enough (`LAUNCH_MIN_WINDOW_SECS`, else 'unread'), AND
+ *     be made of steady trading (`LAUNCH_MAX_SILENCE_DIVISOR`), else 'too-quiet'. Time with no recorded swap is not evidence: the average fills it with
  *     whatever the price is now, and a dust swap after a transfer writes the moved price
  *     over the whole quiet stretch.
  * Anything not read is 'unread', never a pass.
@@ -190,6 +210,13 @@ export function launchOwnPriceCheck(view: PoolView, a: { poolPrice: number; toke
   }
   const compared = comparePrice(a.poolPrice, own.solPerToken, 'own-average');
   if (compared.state !== 'agrees') return compared;
+  if (own.windowSecs < LAUNCH_MIN_WINDOW_SECS) {
+    return {
+      state: 'unread',
+      pool: a.poolPrice,
+      detail: `no outside price (${a.noOutside}), and it has only ${(own.windowSecs / 60n).toString()} minutes of price history since its first trade; its own average counts after ${(LAUNCH_MIN_WINDOW_SECS / 60n).toString()}`,
+    };
+  }
   // `own` is 'ok' only with a read record and a read clock; held again here so a future
   // change to ownPriceOf cannot turn "not read" into "steady".
   const quiet = view.history.kind === 'ok' && a.chainNow !== null ? recordSilence(view.history.obs, a.chainNow) : null;
