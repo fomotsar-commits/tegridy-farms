@@ -432,7 +432,6 @@ export function useDCA() {
     const held = storageHoldsListRef.current && address ? loadSchedules(address) : schedulesRef.current;
     if (held.find(s => s.id === id)?.pendingTx === hash) {
       patchSchedule(id, s => {
-        if (s.pendingTx !== hash) return s;
         if (outcome.kind !== 'success') return { ...s, pendingTx: undefined };
         const completed = s.completedSwaps + 1;
         return {
