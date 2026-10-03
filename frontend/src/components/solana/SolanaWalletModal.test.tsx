@@ -197,6 +197,28 @@ describe('SolanaWalletModal — nothing is folded away', () => {
     const dialog = await openList();
     const rows = within(dialog).getAllByRole('listitem').map((li) => li.textContent);
     expect(rows).toEqual(['PhantomDetected', 'Trust WalletOpen app', 'MetaMaskInstall']);
+    // A wallet is in this browser: nothing is said about leaving it.
+    expect(within(dialog).queryByTestId('wallet-opens-apps')).toBeNull();
+  });
+
+  // A phone's own browser (owner and three phone walks, 2026-10-03): every row leaves for
+  // a wallet app, and the list said nothing about it.
+  it('with no wallet in the browser, says once what Open app does', async () => {
+    mount([new FakeWallet('Phantom', WalletReadyState.Loadable), new FakeWallet('Trust', WalletReadyState.Loadable)]);
+    const dialog = await openList();
+    const note = within(dialog).getByTestId('wallet-opens-apps');
+    expect(note).toHaveTextContent('No wallet was found in this browser.');
+    // True of every Open app row, the Android one included: it hands over to the app; most load the page there.
+    expect(note).toHaveTextContent('Open app hands you to that wallet’s own app to connect; most load this page inside it.');
+    // Above the rows it is about.
+    const list = within(dialog).getByRole('list');
+    expect(note.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('says nothing of the kind when every row is an install page', async () => {
+    mount([new FakeWallet('MetaMask', WalletReadyState.NotDetected)]);
+    const dialog = await openList();
+    expect(within(dialog).queryByTestId('wallet-opens-apps')).toBeNull();
   });
 });
 

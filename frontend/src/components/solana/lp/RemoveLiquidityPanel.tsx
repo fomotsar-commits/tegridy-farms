@@ -249,7 +249,7 @@ function RemoveInner({
             )}
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
-            <button ref={reviewRef} type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60" disabled={!canReview} onClick={review}>
+            <button ref={reviewRef} type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale" disabled={!canReview} onClick={review}>
               Review: remove liquidity
             </button>
             <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={onClose}>

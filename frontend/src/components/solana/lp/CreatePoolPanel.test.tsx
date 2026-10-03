@@ -296,6 +296,23 @@ describe('the panel', () => {
     expect(sol(panel)).toHaveValue('4.80491144');
   });
 
+  // Phone walk of the build, 2026-10-03: Max on both sides, then the two offered fixes
+  // undid each other for ever. The token side was left driving, so Match put the SOL back.
+  it('after Use that much, Match the market price keeps the SOL and moves the tokens: the two fixes do not undo each other', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    // The token side is typed last, so it drives: Match works the SOL out from it.
+    fireEvent.change(tokens(panel), { target: { value: '490' } });
+    fireEvent.click(matchButton(panel));
+    expect(sol(panel)).toHaveValue('4.9');
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Use 4.80491144 SOL' }));
+    expect(sol(panel)).toHaveValue('4.80491144');
+    fireEvent.click(matchButton(panel));
+    expect(sol(panel)).toHaveValue('4.80491144');
+    expect(tokens(panel)).toHaveValue('480.491144');
+  });
+
   it('more tokens than the wallet holds: says so, and the most both balances allow fits', async () => {
     mount(readers({ wallet: vi.fn(async () => facts({ token: { address: key().toBase58(), amount: 10n * 10n ** 6n } })) }));
     const { panel } = await openPanel();
@@ -329,6 +346,14 @@ describe('the panel', () => {
       expect(cannot).toHaveTextContent('this wallet has 0.005960758 SOL');
       expect(cannot).toHaveTextContent('holds none of this token');
       expect(reviewButton(panel)).toBeDisabled();
+      // The greyed Review says why, right beside it.
+      expect(within(panel).getByTestId('lp-review-why')).toHaveTextContent('Review is off for this wallet: the top of this form says what it is short of.');
+      // And what to do about it, with the way there (it used to stop at the numbers).
+      expect(cannot).toHaveTextContent('Send SOL to this wallet first.');
+      expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', `/solana?out=${M}`);
+      // First on the form: a phone reads it before the amount boxes, not two screens under them.
+      const sol = within(panel).getByLabelText('SOL to put in');
+      expect(cannot.compareDocumentPosition(sol) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('too little SOL only: no word about the token', async () => {
@@ -337,6 +362,9 @@ describe('the panel', () => {
       const cannot = await within(panel).findByTestId('lp-create-cannot');
       expect(cannot).toHaveTextContent('This wallet cannot open a pool yet.');
       expect(cannot).not.toHaveTextContent('none of this token');
+      // It holds the token: the next step is SOL, and the swap is not offered for a token it has.
+      expect(cannot).toHaveTextContent('Send SOL to this wallet, then come back to this tab.');
+      expect(within(cannot).queryByRole('link')).toBeNull();
     });
 
     it('none of the token only: says a pool needs both, and nothing about SOL being short', async () => {
@@ -346,6 +374,10 @@ describe('the panel', () => {
       expect(cannot).toHaveTextContent('This wallet holds none of this token');
       expect(cannot).toHaveTextContent('needs both SOL and the token');
       expect(cannot).not.toHaveTextContent('needs about');
+      // It has the SOL: it is not told to send any.
+      expect(cannot).not.toHaveTextContent('Send SOL');
+      expect(cannot).toHaveTextContent('Try this site’s Solana swap for the token (it opens on this token, by its address), then come back to this tab.');
+      expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', `/solana?out=${M}`);
     });
 
     it('one lamport above what opening needs, with the token: nothing is said', async () => {
@@ -353,6 +385,7 @@ describe('the panel', () => {
       const { panel } = await openPanel();
       await within(panel).findByRole('button', { name: 'Max SOL' });
       expect(within(panel).queryByTestId('lp-create-cannot')).toBeNull();
+      expect(within(panel).getByTestId('lp-review-why')).toHaveTextContent('Type both amounts to review.');
     });
 
     it('an unread wallet is never told it cannot: nothing is claimed from a read that failed', async () => {
@@ -396,14 +429,14 @@ describe('the panel', () => {
     const r = readers();
     mount(r);
     const { panel } = await openPanel();
-    const market = within(panel).getByTestId('lp-create-market');
+    const market = within(panel).getByTestId('lp-create-market-again');
     let release!: () => void;
     (r.outsidePrice as ReturnType<typeof vi.fn>).mockImplementationOnce(
       () => new Promise((res) => (release = () => res({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const }))),
     );
-    fireEvent.click(within(market).getByRole('button', { name: 'Read again' }));
+    fireEvent.click(within(market).getByRole('button', { name: 'Read the market price again' }));
     await waitFor(() => expect(within(market).getByRole('status')).toHaveTextContent('Reading the market price again…'));
-    expect(within(market).getByRole('button', { name: 'Read again' })).toHaveAttribute('aria-disabled', 'true');
+    expect(within(market).getByRole('button', { name: 'Read the market price again' })).toHaveAttribute('aria-disabled', 'true');
     await act(async () => release());
     await waitFor(() => expect(within(market).getByRole('status')).toHaveTextContent('Read again just now: the same answer.'));
   });

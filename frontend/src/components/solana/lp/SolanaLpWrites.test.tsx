@@ -186,6 +186,58 @@ describe('Add liquidity', () => {
     expect(screen.getByTestId('lp-disclosure')).not.toHaveTextContent(/only reads/);
   });
 
+  // The owner on a phone (2026-10-03): "there is still no way to" add. The button was a
+  // screen and a half below the lookup. Chosen from the first card, the lookup ends in it.
+  it('with the token already on the page, Add liquidity on the first card opens the Add form of the pool that offers it, with nothing read again', async () => {
+    const v = view();
+    const r = readers({ findPools: vi.fn(async () => search([v])) });
+    mount(r);
+    await within(await card()).findByRole('button', { name: 'Add liquidity' });
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    const finder = screen.getByTestId('lp-finder');
+    fireEvent.click(within(within(finder).getByTestId('lp-tasks')).getByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    expect(r.findPools).toHaveBeenCalledTimes(1);
+    expect(await card()).toContainElement(panel);
+    // No pool was opened instead: the token has one that takes deposits.
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+    // The amount boxes come before the long notes, which are still on the page.
+    const sol = within(panel).getByLabelText('SOL to add');
+    const notes = within(panel).getByTestId('lp-before-you-add');
+    expect(sol.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(panel).toHaveTextContent('Read the notes under this form before you review.');
+  });
+
+  it('chosen on the first card, then a typed address: the lookup ends in the Add form, and no pool form opens beside it', async () => {
+    const v = view();
+    mount(readers({ findPools: vi.fn(async () => search([v])) }), { path: '/pools' });
+    const finder = await screen.findByTestId('lp-finder');
+    expect(screen.queryByTestId('lp-pool')).toBeNull();
+    fireEvent.click(within(within(finder).getByTestId('lp-tasks')).getByRole('button', { name: 'Add liquidity' }));
+    fireEvent.change(within(finder).getByLabelText('Token mint address'), { target: { value: M } });
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    fireEvent.click(within(finder).getByRole('button', { name: 'Find pools' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    expect(await card()).toContainElement(panel);
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+  });
+
+  it('with two pools, Add goes to the first one that takes deposits, not to one a pending deposit holds', async () => {
+    const a = view();
+    const b = view();
+    savePendingTrade(LP_PENDING_SCOPE, { kind: 'lp-deposit', signature: SIG, lastValidBlockHeight: 50, pool: a.address });
+    const api = fakeLpApi({ recheckOutcome: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'Not found yet.' })) });
+    mount(readers({ findPools: vi.fn(async () => search([a, b])) }), { api });
+    await waitFor(() => expect(screen.getAllByTestId('lp-pool')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByTestId('lp-pool')[0]).toHaveAttribute('data-add', 'held'));
+    fireEvent.click(within(screen.getByTestId('lp-tasks')).getByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    const cards = screen.getAllByTestId('lp-pool');
+    expect(cards[1]).toHaveAttribute('data-pool', b.address);
+    expect(cards[1]).toContainElement(panel);
+    expect(cards[0]).not.toContainElement(panel);
+  });
+
   it("is never offered on 'unchecked' (no outside price), and says why in the amended words", async () => {
     mount(readers({ outsidePrice: vi.fn(async () => ({ kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' })) }));
     const c = await card();
@@ -300,6 +352,9 @@ describe('Add liquidity', () => {
     fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
     const panel = await screen.findByTestId('lp-add-panel');
     const cannot = await within(panel).findByTestId('lp-add-cannot');
+    // The swap opens on this token by its address, never by a name to search for; the wallet's address is one press to copy.
+    expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', `/solana?out=${M}`);
+    expect(within(cannot).getByRole('button', { name: /Copy this wallet’s address/ })).toBeInTheDocument();
     expect(cannot).toHaveTextContent('This wallet cannot add to this pool yet.');
     // (5,000 + 1,000,000) for one signature and the reserve, 2,039,280 for the share
     // account, and max(2,039,280, 890,880) kept in the wallet.

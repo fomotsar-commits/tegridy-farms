@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { formatSol } from '../../../lib/launcher/solana/curve/format';
 import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import { isCreatedPool, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
@@ -13,7 +13,7 @@ import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import type { CreateFacts, TierState } from '../curve/ports';
 import { CreatePoolPanel } from './CreatePoolPanel';
 import { MONEY_NOTE } from './LpDisclosures';
-import { createAdvice, createOffer, poolListCut, type CreateAdvice, type CreateOffer } from './offers';
+import { createAdvice, createOffer, depositOffer, lpHeld, poolListCut, type CreateAdvice, type CreateOffer } from './offers';
 import { solAbout } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -50,6 +50,14 @@ export function CreatePoolCard(p: {
   onReread: () => void;
   /** The search on screen is the last answer, shown while the same token is read again. */
   refreshing?: boolean;
+  /**
+   * A wish's number (PoolFinder LpWish), or 0: the visitor asked for this lookup to end in
+   * the form. It opens by itself once the card can offer it; when the card settles on
+   * anything else, the card is brought onto the screen so its reason is what they see.
+   */
+  openNow?: number;
+  /** Told when this card acts on a wish, so the finder spends it. */
+  onActed?: (n: number) => void;
 }) {
   const writes = useLpWrites();
   if (!writes) return null;
@@ -66,6 +74,8 @@ function CreateCard({
   outsideAt,
   onReread,
   refreshing = false,
+  openNow = 0,
+  onActed,
   writes,
 }: Parameters<typeof CreatePoolCard>[0] & { writes: LpWrites }) {
   const headingId = useId();
@@ -100,10 +110,44 @@ function CreateCard({
     setSaid(null);
     run();
   };
-  if (offer === 'off') return null;
-
   const key = `create:${mint}`;
   const open = writes.active?.key === key;
+  // Each wish acts once, and only on a settled answer: never on "checking", never on a re-read.
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const openButton = useRef<HTMLButtonElement | null>(null);
+  const acted = useRef(0);
+  const settled = offer !== 'checking' && !reading;
+  const { open: openPanel, busy } = writes;
+  const pointsTo = advice.kind;
+  useEffect(() => {
+    if (!openNow || acted.current === openNow || !settled) return;
+    acted.current = openNow;
+    // Not offered, already open, or another form is mid-flow: the card comes onto the
+    // screen, so the press shows its reason (or its open form) instead of doing nothing.
+    // An open form's own heading, when there is one: the card's top would leave it below the screen.
+    // A token that already has a pool to add to is not taken straight into the open-a-pool
+    // form either: the card comes onto the screen with both choices (add to that pool, or
+    // open another), so the pool it points to is seen before a second one is opened.
+    if (offer !== 'offer' || pointsTo !== 'none' || open || busy) (sectionRef.current?.querySelector('h4') ?? sectionRef.current)?.scrollIntoView?.({ block: 'start' });
+    else openPanel('create', key, openButton.current, headingRef.current);
+    onActed?.(openNow);
+  }, [openNow, settled, offer, pointsTo, open, busy, openPanel, key, onActed]);
+  // The pool the card points to (createAdvice) gets a button, not only words: asked to
+  // create a pool for a token that has one, a phone ended on a card with nothing to press
+  // for it (phone walk of the build, 2026-10-03, the day the first BAYLA pool was
+  // opened). Offered when that pool takes deposits right now, by the same rule its own
+  // Add button follows. It sits beside Open a pool, which stays: a token may have as
+  // many pools as people open (owner ruling 2026-10-03).
+  const { mode, gate } = writes;
+  const notes = writes.pending.notes;
+  const pointedTo = advice.kind === 'none' ? null : advice.pool.address;
+  const pointedHealth = pointedTo ? healths.get(pointedTo) : undefined;
+  const addInstead =
+    pointedTo && pointedHealth && gate?.kind === 'open' && depositOffer({ mode, gate, health: pointedHealth, held: lpHeld(notes, pointedTo, 'add') }) === 'offer'
+      ? pointedTo
+      : null;
+  if (offer === 'off') return null;
+
   // Another panel's flow is running: this one cannot open over it.
   const blockedByOther = writes.busy && !open;
   const tier: TierState | null = facts?.tier ?? null;
@@ -116,7 +160,8 @@ function CreateCard({
 
   return (
     <section
-      className={CARD}
+      ref={sectionRef}
+      className={`${CARD} scroll-mt-[4.5rem]`}
       style={CARD_STYLE}
       data-testid="lp-create"
       data-create={offer}
@@ -147,13 +192,25 @@ function CreateCard({
         <p role="status" className="text-white/55 text-[11px]" data-testid="lp-create-reread">
           {asked !== null ? 'Reading again…' : said === 'same' ? 'Read again just now: the same answer.' : said === 'changed' ? 'Read again just now: the answer above is new.' : ''}
         </p>
+        {addInstead && (
+          <button
+            type="button"
+            className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+            disabled={writes.busy}
+            onClick={(e) => writes.open('add', `add:${addInstead}`, e.currentTarget)}
+          >
+            Add liquidity to that pool
+          </button>
+        )}
         {offer === 'offer' && (
           <>
             <p className="text-white/60 text-[11px]">{MONEY_NOTE}</p>
             {/* Stays mounted while its panel is open, so focus can come back to it on Close. */}
             <button
+              ref={openButton}
               type="button"
-              className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+              // Beside "Add liquidity to that pool" this is the second choice, and looks it.
+              className={`${addInstead ? 'btn-secondary' : 'btn-primary'} w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60`}
               disabled={blockedByOther}
               aria-expanded={open}
               onClick={(e) => writes.open('create', key, e.currentTarget, headingRef.current)}

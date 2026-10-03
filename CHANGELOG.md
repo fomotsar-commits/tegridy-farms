@@ -8,6 +8,12 @@ page keeps the newest thirty days.
 
 ### 2026-10-03
 
+- Solana LP on a phone: the tab now opens on three buttons, Create a pool, Add liquidity and Remove liquidity, and on the site's own Solana tokens (BAYLA, BOBO, SOY, Brainlet, RIZZ) as buttons, so nothing has to be pasted. Two presses open the form with its amount boxes on the screen. Before, the first screen was a paragraph and an empty box asking for a 44-character token address, with nothing else to press.
+- Solana LP: the open-a-pool and add-liquidity forms start with the wallet and the amount boxes. The long notes that used to fill two phone screens above them now follow the form, and the review still repeats the main ones before you sign. A wallet that cannot pay is told so first, with what to do next.
+- Solana LP: when a token already has a pool, the Open a new pool card has a button that opens that pool's Add liquidity form (the first pool on the venue, BAYLA/SOL, was opened on 2026-10-03). A greyed Review button now says why right above it.
+- Solana LP: Remove liquidity takes you to Your positions, which says that is where liquidity is taken out and, for a wallet with no shares, that there is nothing to remove yet.
+- The page that Pools opens has a link to the Solana LP tab on its first screen, and the Pools icon in the phone's bottom bar stays lit on every Pools tab.
+- Connecting on a phone with no wallet in the browser: the wallet list says that Open app loads the page inside that wallet's own app.
 - Open a pool: a token that already has a pool can have another. The card names the biggest pool that passes the checks and suggests adding to it first, and the Open a pool button stays, so anyone can open a separate pool of their own. Before, the button was taken away once one passing pool existed.
 - Solana LP: in a Solana room (BAYLA, BOBO, SOY, Brainlet, RIZZ) one button looks up that room's token, so a phone does not have to paste its address. After a lookup the page moves to the answer, and a token with no pool yet says that opening the pool is how the first liquidity goes in.
 - Pools has a Solana LP tab that opens on the pool finder: find a pool, add or remove liquidity, or open a pool on the venue's own Solana AMM.

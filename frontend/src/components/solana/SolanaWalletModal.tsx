@@ -141,6 +141,12 @@ function SolanaWalletModal() {
   const pairing = useWalletConnectPairing(walletConnect);
   const pairingActive = pairing.phase === 'starting' || pairing.phase === 'scan';
   const connectedAs = connected && publicKey ? shortSolanaAddress(publicKey.toBase58()) : null;
+  // A phone's own browser has no wallet in it: every row then leaves for a wallet app.
+  // Said once, above the rows, so the list does not read as seven dead ends.
+  const opensApps =
+    connectedAs === null &&
+    !ordered.some((w) => w.readyState === WalletReadyState.Installed) &&
+    ordered.some((w) => rowStatus(w.readyState, w.adapter.name, walletConnectWallet !== null) === 'Open app');
   // The wallet a connect is still waiting on: a locked wallet, or an approval
   // window nobody saw, answers late or never, and until 2026-10-03 nothing
   // named it. WalletConnect's own wait is its QR, or its saved session's restore.
@@ -361,6 +367,12 @@ function SolanaWalletModal() {
                   <button type="button" onClick={handleDisconnect} className="underline font-semibold text-white">
                     Disconnect
                   </button>
+                </p>
+              )}
+              {opensApps && (
+                <p className="wallet-adapter-modal-note" data-testid="wallet-opens-apps">
+                  No wallet was found in this browser. Open app hands you to that wallet’s own app to connect; most
+                  load this page inside it. The app has to be installed on this device.
                 </p>
               )}
               {waitingFor && (
