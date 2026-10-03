@@ -120,7 +120,9 @@ test('where the Solana wallets cannot be loaded, the sheet says so instead of lo
   await expect(topBarConnect(page)).toBeVisible({ timeout: 30_000 });
   await topBarConnect(page).click();
   await solanaRow(page).click();
-  await expect(solanaRow(page)).toContainText('Couldn’t load Solana wallets. Tap to reload the page.', { timeout: 30_000 });
+  // Well inside the row's own fifteen-second limit: it is the failed load that
+  // is heard here, not the limit running out.
+  await expect(solanaRow(page)).toContainText('Couldn’t load Solana wallets. Tap to reload the page.', { timeout: 8_000 });
   await expect(solanaList(page)).toHaveCount(0);
   expect(aborted, "the provider's stylesheet was asked for, and refused").toBeGreaterThan(0);
 });
