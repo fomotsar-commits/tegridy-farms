@@ -68,7 +68,6 @@ import {
   type TriggerOrder,
 } from '../lib/jupiter';
 import { prepareJupiterSwap, NO_SITE_FEE_ROUTE_COPY } from '../lib/solana/swap/jupiterFeeRetry';
-import { pollSignature } from '../lib/solana/swap/confirm';
 import { SiteFeeRow } from '../components/swap/SiteFeeRow';
 import { TokenDetail } from '../components/solana/TokenDetail';
 import { PairChart } from '../components/solana/PairChart';
@@ -76,6 +75,8 @@ import { ClockLine } from '../components/ClockLine';
 import { bungalowByAddress } from '../lib/bungalows';
 import { setLastBuy } from '../lib/heat/lastBuy';
 import { recordActivity, getActivity, timeAgo } from '../lib/solanaActivity';
+import { pollConfirm } from '../lib/solana/confirm';
+import { surfaceUnconfirmedTx } from '../lib/txErrors';
 
 const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
 
@@ -118,20 +119,33 @@ function intervalLabel(secs: number): string {
   return `every ${secs}s`;
 }
 
-// Confirm by polling signature status — deliberately avoids a WS subscription
-// so the RPC only needs an https CSP entry, not wss.
-async function pollConfirm(connection: Connection, signature: string, timeoutMs = 60_000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const { value } = await connection.getSignatureStatuses([signature]);
-    const st = value[0];
-    if (st) {
-      if (st.err) throw new Error('Transaction failed on-chain');
-      if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return;
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  throw new Error('Could not confirm in time — check your wallet / Solscan before retrying');
+/** Completes "if it landed, ___" for a cancel we could not confirm. */
+const CANCEL_REPEAT_COST = 'the order is already closed, so a second cancel will fail.';
+
+/** How long a sent swap is watched before the page says it cannot tell (SPEC_S3). */
+const SWAP_CONFIRM_TIMEOUT_MS = 90_000;
+
+/**
+ * Watch a sent transaction (polled, never subscribed: see lib/solana/confirm.ts).
+ *
+ * True once it confirmed. A revert the network reported throws, and each caller's
+ * "failed" toast is right for that one. Anything short of either (a watch that ran out,
+ * a status read that kept erroring) is NOT a failure: the transaction may still land,
+ * and "failed" invites a second one that pays twice. That says "we can't tell, check
+ * before you send it again" with the signature, and returns false.
+ *
+ * `repeatCost` completes "if it landed, ___" in the caller's own terms.
+ *
+ * The DCA and limit senders use this. The instant swap reads the same poller itself
+ * (handleSwap), because it has more to say on each ending: the same warning here, plus
+ * a row in recent activity and, for a revert, the signature and a link.
+ */
+async function confirmSent(connection: Connection, sig: string, repeatCost: string): Promise<boolean> {
+  const { outcome } = await pollConfirm(connection, sig);
+  if (outcome === 'confirmed') return true;
+  if (outcome === 'reverted') throw new Error('Transaction failed on-chain');
+  surfaceUnconfirmedTx(toast, { hash: sig, explorerUrl: `https://solscan.io/tx/${sig}`, repeatCost });
+  return false;
 }
 
 interface TokenPickerProps {
@@ -687,12 +701,12 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
 
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
-  async function signSend(b64: string): Promise<string> {
+  /** The signature once it confirmed; null when it was sent and we cannot tell (already said). */
+  async function signSend(b64: string, repeatCost: string): Promise<string | null> {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const tx = VersionedTransaction.deserialize(bytes);
     const sig = await sendTransaction(tx, connection);
-    await pollConfirm(connection, sig);
-    return sig;
+    return (await confirmSent(connection, sig, repeatCost)) ? sig : null;
   }
 
   async function handlePlace() {
@@ -707,7 +721,13 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
         numberOfOrders: numBuys,
         intervalSeconds: intervalSecs,
       });
-      const sig = await signSend(b64);
+      const sig = await signSend(b64, 'starting it again opens a second DCA that deposits the same total again.');
+      if (!sig) {
+        // It may be running: clear the form so one more click does not start another.
+        setTotalAmount('');
+        loadOrders();
+        return;
+      }
       toast.success('DCA started', {
         description: shortSig(sig),
         action: { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') },
@@ -732,7 +752,8 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
     if (!publicKey || !key) return;
     setCancelling(key);
     try {
-      const sig = await signSend(await cancelRecurringOrder(publicKey.toBase58(), key));
+      const sig = await signSend(await cancelRecurringOrder(publicKey.toBase58(), key), CANCEL_REPEAT_COST);
+      if (!sig) { loadOrders(); return; }
       toast.success('DCA cancelled — unspent funds return to your wallet', { description: shortSig(sig) });
       recordActivity(publicKey.toBase58(), { sig, ts: Date.now(), kind: 'dca-cancel', summary: 'Cancelled a DCA' });
       loadOrders();
@@ -911,12 +932,12 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
 
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
-  async function signSend(b64: string): Promise<string> {
+  /** The signature once it confirmed; null when it was sent and we cannot tell (already said). */
+  async function signSend(b64: string, repeatCost: string): Promise<string | null> {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const tx = VersionedTransaction.deserialize(bytes);
     const sig = await sendTransaction(tx, connection);
-    await pollConfirm(connection, sig);
-    return sig;
+    return (await confirmSent(connection, sig, repeatCost)) ? sig : null;
   }
 
   async function handlePlace() {
@@ -932,7 +953,13 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
         takingAmount,
         expiredAt,
       });
-      const sig = await signSend(b64);
+      const sig = await signSend(b64, 'placing it again opens a second order that sells the same amount again.');
+      if (!sig) {
+        // It may be open: clear the form so one more click does not place another.
+        setSellAmount(''); setPrice('');
+        loadOrders();
+        return;
+      }
       toast.success('Limit order placed', {
         description: shortSig(sig),
         action: { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') },
@@ -957,7 +984,8 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
     if (!publicKey || !key) return;
     setCancelling(key);
     try {
-      const sig = await signSend(await cancelTriggerOrder(publicKey.toBase58(), key));
+      const sig = await signSend(await cancelTriggerOrder(publicKey.toBase58(), key), CANCEL_REPEAT_COST);
+      if (!sig) { loadOrders(); return; }
       toast.success('Order cancelled', { description: shortSig(sig) });
       recordActivity(publicKey.toBase58(), {
         sig,
@@ -1432,20 +1460,25 @@ function SolanaSwapInner() {
       const sig = await sendTransaction(tx, connection);
       toast.success('Swap submitted', { description: `${shortSig(sig)} — confirming…` });
       // A signature exists: from here the swap may be on chain, so nothing
-      // below may say "failed" unless the chain itself said so. pollSignature
-      // never throws; a timeout or an unreadable status is 'unknown'.
+      // below may say "failed" unless the chain itself said so. pollConfirm
+      // (lib/solana/confirm.ts, the one poller the ladder and the DCA and limit
+      // tabs also use) never throws; a timeout or an unreadable status is
+      // 'unknown'. 90 s is SPEC_S3's wait for a swap.
       const view = { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') };
       const tradeWords = `≈${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}${feeWaivedOnSend ? ' (no site fee on this route)' : ''}`;
-      const ending = await pollSignature((sigs) => connection.getSignatureStatuses(sigs), sig);
-      if (ending === 'reverted') {
+      const { outcome } = await pollConfirm(connection, sig, SWAP_CONFIRM_TIMEOUT_MS);
+      if (outcome === 'reverted') {
         toast.error('Swap refused on chain', { description: `${shortSig(sig)}. Only the network fee was spent.`, action: view });
         return;
       }
-      if (ending === 'unknown') {
-        toast.warning('Sent, not confirmed yet', {
-          description: `${shortSig(sig)}. It may still land. Check your wallet or Solscan before trying again.${feeWaivedOnSend ? ` ${NO_SITE_FEE_ROUTE_COPY}` : ''}`,
-          action: view,
-          duration: 30_000,
+      if (outcome === 'unknown') {
+        // The same "we can't tell, check before you send it again" the DCA and
+        // limit tabs raise (confirmSent above). A swap that may have landed with
+        // no site fee says that too: the waiver is never silent in a result.
+        surfaceUnconfirmedTx(toast, {
+          hash: sig,
+          explorerUrl: `https://solscan.io/tx/${sig}`,
+          repeatCost: `swapping again buys a second time.${feeWaivedOnSend ? ` ${NO_SITE_FEE_ROUTE_COPY}` : ''}`,
         });
         // Kept in "Your recent activity" so the signature outlives the toast,
         // and the form is cleared so the same buy is not one click away.

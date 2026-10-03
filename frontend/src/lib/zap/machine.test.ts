@@ -183,6 +183,27 @@ describe('a run that stops part-way', () => {
     expect(zapReadout(state, plan).detail).toMatch(/never sent/);
     expect(zapResume(state)).toEqual({ kind: 'resume', fromStep: 1 });
   });
+
+  // A wallet cancel (or any other transaction at the leg's nonce) confirmed in its
+  // place. The leg can never run, so it had no effect and is safe to send again, like
+  // a revert. But it did not revert, and the words must not say it did.
+  it('stops at a leg the wallet replaced, says replaced (not reverted), and resumes there', () => {
+    const plan = ethToLpFarmPlan();
+    let state = fresh(plan);
+    state = confirmStage(state, plan, 0, '0xswap');
+    const liqSteps = pendingStepsOfStage(state, plan, 1);
+    state = fold(state, [
+      { type: 'submitted', steps: [liqSteps[0]!], txHash: '0xapprove', at: T + 3 },
+      { type: 'replaced', steps: [liqSteps[0]!], txHash: '0xapprove', detail: 'cancelled in the wallet', at: T + 4 },
+    ]);
+    expect(state.steps[liqSteps[0]!]!.status).toBe('replaced');
+    expect(zapProgress(state)).toEqual({ kind: 'stopped', step: liqSteps[0], reason: 'replaced' });
+    const readout = zapReadout(state, plan);
+    expect(readout.isComplete).toBe(false);
+    expect(readout.detail).toMatch(/replaced/);
+    expect(readout.detail).not.toMatch(/reverted/);
+    expect(zapResume(state)).toEqual({ kind: 'resume', fromStep: liqSteps[0] });
+  });
 });
 
 describe('a leg whose outcome was never read', () => {

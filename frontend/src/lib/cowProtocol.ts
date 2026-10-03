@@ -19,6 +19,9 @@ import { keccak256, stringToHex, type Address } from 'viem';
 export const COW_SETTLEMENT_ADDRESS = '0x9008D19f58AAbD9eD0D60971565AA8510560ab41' as Address;
 // The spender users must approve for the SELL token (NOT the settlement contract).
 export const COW_VAULT_RELAYER_ADDRESS = '0xC92E8bdf79f0507f65a392b0ab4667716BFE0110' as Address;
+// Completes "if it landed, ___" when an approval's receipt could not be read.
+export const COW_APPROVE_REPEAT_COST =
+  'approving again sets the same allowance twice, which costs gas and moves no tokens. Trying again reads the allowance first.';
 
 // EIP-712 domain. `verifyingContract` = the settlement contract.
 export function cowDomain(chainId: number) {
