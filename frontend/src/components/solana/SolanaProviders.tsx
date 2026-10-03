@@ -20,6 +20,7 @@ import '../../styles/wallet-adapter-ui.css';
 import { solanaRpcEndpoint } from '../../lib/solana';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import { useSolanaConnect } from './useSolanaConnect';
+import { SOLANA_CONNECT_WAIT_NOTICE_MS } from './SolanaConnectButton';
 import { setSolanaSurface, takeSolanaOpenRequest, useSolanaSurface } from '../../lib/solanaSurface';
 
 /**
@@ -95,6 +96,13 @@ import { setSolanaSurface, takeSolanaOpenRequest, useSolanaSurface } from '../..
  * until a reload. So the tap is used only once a render has SEEN this
  * provider's own report in the store, which is a render after that first
  * effect, and only after any restore in flight (`connecting`) has ended.
+ *
+ * A RESTORE THAT DOES NOT END STOPS HOLDING IT (2026-10-03). A locked wallet's
+ * restore runs for ever, so the held tap was never used: the top bar dimmed,
+ * did nothing, and ten seconds on said the list "did not load". Once the wait
+ * has run as long as the card takes to name the wallet, the tap opens the
+ * list, which names it too. Nothing is connected then: with a connect in
+ * flight the click only opens the list (useSolanaConnect).
  */
 export function SolanaSurfaceBridge() {
   const { publicKey, connecting } = useWallet();
@@ -113,6 +121,13 @@ export function SolanaSurfaceBridge() {
     // left the page's scroll locked until a reload. The tap is still used up.
     if (takeSolanaOpenRequest() && !address && !document.querySelector('[aria-modal="true"]')) open();
   }, [surface, openPending, connecting, address, open]);
+  useEffect(() => {
+    if (surface?.open !== open || !openPending || !connecting) return;
+    const timer = window.setTimeout(() => {
+      if (takeSolanaOpenRequest() && !document.querySelector('[aria-modal="true"]')) open();
+    }, SOLANA_CONNECT_WAIT_NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [surface, openPending, connecting, open]);
   useEffect(() => () => setSolanaSurface(owner, null), [owner]);
   return null;
 }

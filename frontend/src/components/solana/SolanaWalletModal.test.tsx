@@ -489,6 +489,23 @@ describe('a wallet that never answers is not a dead end', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Connecting…' })).toBeNull());
   });
 
+  // A pick starts the connect and the list then fades out for 150 ms, still
+  // mounted. For that fade it said "it may be locked", in a live region, at
+  // every ordinary connect: a wallet that had been asked nothing a moment ago.
+  it('an ordinary pick does not put the notice in the list as it closes', async () => {
+    const phantom = new HungWallet('Phantom', WalletReadyState.Installed);
+    mountCard([phantom, new FakeWallet('Backpack', WalletReadyState.Installed)]);
+    await restoreSettled();
+    const dialog = await openList();
+    expect(within(dialog).queryByRole('status')).toBeNull();
+    fireEvent.click(within(dialog).getByText('Phantom'));
+    // The connect has begun, and the list is still on screen for its fade.
+    expect(phantom.connectCalls).toBe(1);
+    expect(screen.getByRole('button', { name: 'Connecting…' })).toBeTruthy();
+    expect(within(screen.getByRole('dialog')).queryByRole('status')).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
   it('says nothing about waiting when nothing is being waited on (the control)', async () => {
     mountCard([new FakeWallet('Phantom', WalletReadyState.Installed), new FakeWallet('Backpack', WalletReadyState.Installed)]);
     await restoreSettled();

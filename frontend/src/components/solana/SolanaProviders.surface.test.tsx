@@ -16,6 +16,7 @@ import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-ad
 import { PublicKey } from '@solana/web3.js';
 import { SolanaProviders, SolanaSurfaceBridge } from './SolanaProviders';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
+import { SOLANA_CONNECT_WAIT_NOTICE_MS } from './SolanaConnectButton';
 import { cancelSolanaOpenRequest, getSolanaSurfaceState, requestSolanaOpen } from '../../lib/solanaSurface';
 
 const WSOL = 'So11111111111111111111111111111111111111112';
@@ -27,10 +28,13 @@ class FakeWallet extends BaseMessageSignerWalletAdapter {
   readonly supportedTransactionVersions: SupportedTransactionVersions = new Set(['legacy' as const, 0 as const]);
   connectCalls = 0;
   private _publicKey: PublicKey | null = null;
-  /** 'restores': the saved wallet reconnects by itself. 'hangs': connect() waits on the wallet. */
-  private readonly _mode: 'plain' | 'restores' | 'hangs';
+  /**
+   * 'restores': the saved wallet reconnects by itself. 'hangs': connect() waits on the wallet.
+   * 'restore-hangs': the saved wallet's restore never answers (a locked wallet).
+   */
+  private readonly _mode: 'plain' | 'restores' | 'hangs' | 'restore-hangs';
 
-  constructor(name: string, mode: 'plain' | 'restores' | 'hangs' = 'plain') {
+  constructor(name: string, mode: 'plain' | 'restores' | 'hangs' | 'restore-hangs' = 'plain') {
     super();
     this.name = name as WalletName;
     this._mode = mode;
@@ -45,6 +49,7 @@ class FakeWallet extends BaseMessageSignerWalletAdapter {
     return WalletReadyState.Installed;
   }
   override async autoConnect() {
+    if (this._mode === 'restore-hangs') await new Promise<void>(() => {});
     if (this._mode !== 'restores') return;
     await Promise.resolve();
     this._publicKey = new PublicKey(WSOL);
@@ -171,6 +176,60 @@ describe('SolanaProviders reports to the top bar', () => {
     expect(fake.connectCalls).toBe(1);
     expect(getSolanaSurfaceState().surface!.connecting).toBe(true);
     expect(getSolanaSurfaceState().surface!.address).toBeNull();
+  });
+
+  // A locked wallet's restore never ends (owner, 2026-10-03). The early tap was
+  // held for as long as it ran, so for ever: the top bar dimmed, did nothing,
+  // and ten seconds on said the list "did not load". Once the wait has run as
+  // long as the card takes to name the wallet, the tap opens the list, which
+  // names it too. Nothing is connected a second time.
+  it('opens its list for an early tap when the saved wallet has not answered, and not before', async () => {
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem('walletName', JSON.stringify('Fake'));
+      const fake = new FakeWallet('Fake', 'restore-hangs');
+      act(() => requestSolanaOpen());
+      withFake(fake);
+      await act(async () => {});
+      expect(getSolanaSurfaceState().surface!.connecting).toBe(true);
+      expect(getSolanaSurfaceState().openPending).toBe(true);
+      act(() => {
+        vi.advanceTimersByTime(SOLANA_CONNECT_WAIT_NOTICE_MS - 1);
+      });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(getSolanaSurfaceState().openPending).toBe(true);
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(screen.getByRole('dialog')).toHaveTextContent('Waiting for Fake to answer');
+      expect(getSolanaSurfaceState().openPending).toBe(false);
+      expect(fake.connectCalls).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still never opens it over another dialog, however long the wallet takes', async () => {
+    vi.useFakeTimers();
+    const other = document.createElement('div');
+    other.setAttribute('role', 'dialog');
+    other.setAttribute('aria-modal', 'true');
+    document.body.appendChild(other);
+    try {
+      localStorage.setItem('walletName', JSON.stringify('Fake'));
+      act(() => requestSolanaOpen());
+      withFake(new FakeWallet('Fake', 'restore-hangs'));
+      await act(async () => {});
+      act(() => {
+        vi.advanceTimersByTime(SOLANA_CONNECT_WAIT_NOTICE_MS);
+      });
+      expect(document.querySelector('.wallet-adapter-modal')).toBeNull();
+      // The tap is used up all the same: the top bar's button stops waiting.
+      expect(getSolanaSurfaceState().openPending).toBe(false);
+    } finally {
+      other.remove();
+      vi.useRealTimers();
+    }
   });
 
   // Overlays are never stacked here. One Escape closed both, in the wrong

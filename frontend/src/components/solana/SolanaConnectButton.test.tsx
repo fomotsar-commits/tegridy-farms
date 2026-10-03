@@ -110,4 +110,57 @@ describe('SolanaConnectButton while a wallet is being waited on', () => {
     });
     expect(screen.getByRole('status')).toBeTruthy();
   });
+
+  // Inside the real WalletProvider a wallet picked while another is being waited
+  // on never shows `connecting` false: the provider ends the old wait and starts
+  // the new one in the same pass (a Wallet Standard wallet's disconnect answers
+  // later, so nothing in between says "not connecting"). The card then said
+  // "Still waiting for Backpack" the instant Backpack was picked.
+  it('starts the count again when the wallet being waited on changes, though the waiting never paused', () => {
+    state.connecting = true;
+    const view = render(<SolanaConnectButton />);
+    act(() => {
+      vi.advanceTimersByTime(SOLANA_CONNECT_WAIT_NOTICE_MS);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent(/waiting for Phantom/i);
+    state.wallet = { readyState: WalletReadyState.Installed, adapter: { name: 'Backpack', url: 'https://backpack.app' } };
+    view.rerender(<SolanaConnectButton />);
+    expect(screen.queryByRole('status')).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(SOLANA_CONNECT_WAIT_NOTICE_MS - 1);
+    });
+    expect(screen.queryByRole('status')).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent(/waiting for Backpack/i);
+  });
+
+  // WalletConnect waits on a QR code in the list, or on the restore of its saved
+  // session. There is no app of that name to open and nothing that can be
+  // locked, and the list says nothing for it either (SolanaWalletModal).
+  it('says nothing for WalletConnect, and stays pressable', () => {
+    state.connecting = true;
+    state.wallet = { readyState: WalletReadyState.Loadable, adapter: { name: 'WalletConnect', url: 'https://walletconnect.network' } };
+    render(<SolanaConnectButton />);
+    act(() => {
+      vi.advanceTimersByTime(SOLANA_CONNECT_WAIT_NOTICE_MS * 3);
+    });
+    expect(screen.queryByRole('status')).toBeNull();
+    const button = screen.getByRole('button', { name: 'Connecting…' });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    expect(state.setVisible).toHaveBeenCalledWith(true);
+    expect(state.connect).not.toHaveBeenCalled();
+  });
+
+  it('names the wallet as its row in the list does: Trust is "Trust Wallet"', () => {
+    state.connecting = true;
+    state.wallet = { readyState: WalletReadyState.Installed, adapter: { name: 'Trust', url: 'https://trustwallet.com' } };
+    render(<SolanaConnectButton />);
+    act(() => {
+      vi.advanceTimersByTime(SOLANA_CONNECT_WAIT_NOTICE_MS);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Still waiting for Trust Wallet. Open Trust Wallet:');
+  });
 });

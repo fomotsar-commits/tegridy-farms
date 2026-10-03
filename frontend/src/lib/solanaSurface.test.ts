@@ -103,6 +103,21 @@ describe('solanaSurface: a top-bar tap', () => {
     expect(takeSolanaOpenRequest()).toBe(false);
   });
 
+  // While the page's wallet is being waited on, the page holds an early tap
+  // (SolanaSurfaceBridge) and the top bar still takes taps. A later tap that
+  // reaches the page is the answer to both: the early one must not be replayed
+  // after it, nor reported as "did not load" ten seconds on (TopNav).
+  it('a tap that reaches the page answers a tap still waiting for it', () => {
+    requestSolanaOpen();
+    const s = surface({ connecting: true });
+    setSolanaSurface(owner(), s);
+    expect(getSolanaSurfaceState().openPending).toBe(true);
+    requestSolanaOpen();
+    expect(s.open).toHaveBeenCalledTimes(1);
+    expect(getSolanaSurfaceState().openPending).toBe(false);
+    expect(takeSolanaOpenRequest()).toBe(false);
+  });
+
   it('is dropped by a cancel (the visitor left the page)', () => {
     requestSolanaOpen();
     cancelSolanaOpenRequest();

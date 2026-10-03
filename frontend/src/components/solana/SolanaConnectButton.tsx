@@ -5,6 +5,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { WalletReadyState } from '@solana/wallet-adapter-base';
 import { useSolanaConnect } from './useSolanaConnect';
+import { waitedOnWalletLabel } from '../../lib/solanaWalletOrder';
 
 /** How long a connect may run before the card says which wallet it is waiting for. */
 export const SOLANA_CONNECT_WAIT_NOTICE_MS = 4_000;
@@ -35,19 +36,28 @@ export function SolanaConnectButton() {
   const notInstalled =
     !connected && !connecting && wallet?.readyState === WalletReadyState.NotDetected;
 
+  // The wait in progress: the wallet's name while a connect runs, null otherwise.
+  // The wallet is part of it because `connecting` alone does not mark a new
+  // wait: a wallet picked while another is being waited on takes over with
+  // `connecting` true throughout (WalletProvider ends one wait and starts the
+  // next in the same pass), and this line then said "Still waiting for
+  // Backpack" the instant Backpack was picked.
+  const wait = connecting ? (wallet?.adapter.name ?? '') : null;
   const [slow, setSlow] = useState(false);
-  const [tracked, setTracked] = useState(connecting);
+  const [tracked, setTracked] = useState(wait);
   // Reset during render (as the watchdog does): each wait starts from nothing.
-  if (connecting !== tracked) {
-    setTracked(connecting);
+  if (wait !== tracked) {
+    setTracked(wait);
     setSlow(false);
   }
   useEffect(() => {
-    if (!connecting) return;
+    if (wait === null) return;
     const timer = window.setTimeout(() => setSlow(true), SOLANA_CONNECT_WAIT_NOTICE_MS);
     return () => window.clearTimeout(timer);
-  }, [connecting]);
-  const waitingFor = wallet?.adapter.name ?? 'your wallet';
+  }, [wait]);
+  // Named as its row in the list names it. Null for WalletConnect, which has
+  // no app to open and nothing to unlock: no notice then, as in the list.
+  const waitingFor = wallet ? waitedOnWalletLabel(wallet.adapter.name) : 'your wallet';
 
   return (
     <>
@@ -59,7 +69,7 @@ export function SolanaConnectButton() {
       >
         {connecting ? 'Connecting…' : 'Connect Solana Wallet'}
       </button>
-      {connecting && slow && (
+      {connecting && slow && waitingFor && (
         <p role="status" className="mt-2 text-center text-[11px] text-amber-300">
           Still waiting for {waitingFor}. Open {waitingFor}: it may be locked, or waiting for you to approve
           this site. Or{' '}

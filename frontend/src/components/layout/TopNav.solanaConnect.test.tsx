@@ -191,6 +191,31 @@ describe('TopNav: Connect on a Solana page', () => {
     }
   });
 
+  // A tap made before the Solana section mounted is kept. If that section then
+  // mounts with a wallet that does not answer, the kept tap is held, and the
+  // visitor taps again. That second tap opens the list, so nothing is left
+  // waiting: ten seconds on it used to say the list "did not load", over the
+  // open list.
+  it('says nothing about a list that did not load once a later tap has opened it', () => {
+    vi.useFakeTimers();
+    try {
+      const solOpen = vi.fn();
+      mount('/pools');
+      fireEvent.click(within(banner()).getByRole('button', { name: 'Connect a Solana wallet' }));
+      report({ open: solOpen, connecting: true });
+      expect(solOpen).not.toHaveBeenCalled();
+      fireEvent.click(within(banner()).getByRole('button', { name: 'Connect a Solana wallet' }));
+      expect(solOpen).toHaveBeenCalledTimes(1);
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+      expect(toastMock).not.toHaveBeenCalled();
+      expect(solOpen).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reads /dashboard by the room: Solana in BAYLA\'s, Ethereum in PEPE\'s', () => {
     localStorage.setItem('tegridy-bungalow', 'bayla');
     const first = mount('/dashboard');
