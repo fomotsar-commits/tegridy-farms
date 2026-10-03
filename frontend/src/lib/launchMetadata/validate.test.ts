@@ -87,9 +87,20 @@ describe('checkName', () => {
     (raw) => refused(checkName(raw)),
   );
 
+  // ATK-5 (audit 2026-10-03): the pool pages compare names with these same rules, so the
+  // spellings their own, older check caught are caught here too.
+  it.each([
+    ['an accent on a letter', 'Sölana'],
+    ['a ticker written with its $', '$SOL'],
+    ['a brand word written with its $ inside a longer name', 'Official $BAYLA'],
+    ['a Greek lower-case upsilon for the u', 'υsdc'],
+    ['a Greek lower-case mu for the u', 'μsdt'],
+  ])('refuses a reserved name spelled with %s', (_l, raw) => refused(checkName(raw)));
+
   it('does not refuse a name that merely contains the letters of a short brand word', () => {
     expect(checkName('Bay Lagoon').ok).toBe(true);
     expect(checkName('Solar Cat').ok).toBe(true);
+    expect(checkName('Cash $ Carry').ok).toBe(true);
   });
 });
 
@@ -118,6 +129,7 @@ describe('checkSymbol', () => {
     expect(foldForCompare('S0L')).toBe(foldForCompare('SOL'));
     expect(foldForCompare('ЅOL')).toBe(foldForCompare('SOL'));
     expect(foldForCompare('U$DC')).toBe(foldForCompare('USDC'));
+    expect(foldForCompare('Sölana')).toBe(foldForCompare('Solana'));
   });
 });
 
@@ -393,6 +405,7 @@ describe('parseLaunchMetadataJson (a file ANY client may have written)', () => {
 
   it('warns about lookalikes on read', () => {
     expect(impersonationWarning({ name: 'Solana', symbol: 'S0L' })).toMatch(/SOL/);
+    expect(impersonationWarning({ name: 'Pepe', symbol: '$SOL' })).toMatch(/SOL/);
     expect(impersonationWarning({ name: 'Pepe', symbol: 'PEPE' })).toBeNull();
   });
 });

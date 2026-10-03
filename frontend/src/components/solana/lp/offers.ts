@@ -132,6 +132,19 @@ export function createHeld(notes: PendingTrade[]): boolean {
 }
 
 /**
+ * Did the index say this token has more pools than it listed? That is a cut list, not an
+ * unread one. The index lists the pools holding the most SOL and the standard addresses
+ * are read directly, so a pool left out holds no more SOL than the ones listed, and
+ * Create is decided from the pools that were read. A pool costs only rent to open and
+ * can never be closed, so treating a cut list as unread let anyone switch Create off
+ * for a token for good (audit 2026-10-03, ATK-3). The card says the list was cut, and
+ * never calls a new pool "the first".
+ */
+export function poolListCut(search: PoolSearchRead): boolean {
+  return search.kind === 'ok' && search.search.index.kind === 'ok' && search.search.index.truncated;
+}
+
+/**
  * Open a new pool, in this order (the first that applies wins): LP switched off → the
  * gate is not open → paused ('withdraw-only') → an opening is still pending → the create
  * facts are not read yet → the public tier: unread, not created, not a tier, switched
@@ -141,7 +154,8 @@ export function createHeld(notes: PendingTrade[]): boolean {
  *
  * Unread is never "no": every unread input stops here before `offer`. A passing pool on
  * ANOTHER tier does not stop an opening on tier 1 (the card says they will not share
- * liquidity or fees).
+ * liquidity or fees). A truncated index is not unread (`poolListCut`): the answer comes
+ * from the pools that were read.
  */
 export function createOffer(a: {
   mode: LpWriteMode;
@@ -186,7 +200,7 @@ export function createOffer(a: {
 
   if (a.search.kind !== 'ok') return 'pools-unread';
   const s = a.search.search;
-  if (s.index.kind !== 'ok' || s.index.truncated) return 'pools-unread';
+  if (s.index.kind !== 'ok') return 'pools-unread';
   for (const e of s.pools) {
     if (e.kind !== 'pool') return 'pools-unread';
     const verdict = a.healths.get(e.view.address)?.deposits.verdict;

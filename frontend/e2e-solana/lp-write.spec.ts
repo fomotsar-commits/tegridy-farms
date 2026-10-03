@@ -321,7 +321,7 @@ test.describe('group B (chromium only)', () => {
       })(),
       (async () => {
         B.creator3 = await fundedKeypair(5);
-        B.t3 = await createToken2022MetadataOnly(B.creator3, { name: 'E2E Bayla-like', symbol: 'EBAYLK', supply: 10_000_000n * UNIT });
+        B.t3 = await createToken2022MetadataOnly(B.creator3, { name: 'E2E Meta Only 2022', symbol: 'EMETA22', supply: 10_000_000n * UNIT });
         B.p3 = await pool(B.creator3, B.t3, 0, 1, 1_000_000n, 'standard', TOKEN_2022_PROGRAM_ID);
         B.w3 = await fundedKeypair(3);
         await transferTokens(B.creator3, B.w3.publicKey, B.t3, 100_000n * UNIT);

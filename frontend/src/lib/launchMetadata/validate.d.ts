@@ -67,6 +67,8 @@ export type ParsedMetadata =
   | { kind: 'invalid'; reason: string };
 
 export declare function foldForCompare(s: string): string;
+/** Every skeleton `text` is compared under: as written and, when it starts with "$", without it. Empty ones dropped. */
+export declare function foldedForms(text: string): string[];
 /** What a name or symbol would be mistaken for (e.g. "SOL", "TEGRIDY"), or null. */
 export declare function impersonates(text: string): string | null;
 export declare function impersonationWarning(t: { name?: string | null; symbol?: string | null }): string | null;

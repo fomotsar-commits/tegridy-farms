@@ -3,6 +3,7 @@ import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { decodeTokenMetadata } from '../../launcher/solana/discover/metadata';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../../launcher/solana/write/metaplex';
+import { foldForCompare, foldedForms, impersonates } from '../../launchMetadata/validate';
 import { getMultipleAccounts, type RawAccount } from './accounts';
 
 /**
@@ -63,31 +64,32 @@ export const WELL_KNOWN_NAMES: readonly { label: string; mint: string | null; na
   { label: 'RIZZ', mint: '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k', names: ['RIZZ'] },
 ];
 
-/** Letters that look like Latin ones, folded to them, so "USDС" (a Cyrillic С) still reads as USDC. */
-const LOOKALIKES: Record<string, string> = {
-  а: 'a', в: 'b', е: 'e', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', ѕ: 's', і: 'i', ј: 'j', ԁ: 'd', ԛ: 'q', ԝ: 'w',
-  α: 'a', β: 'b', ε: 'e', ι: 'i', κ: 'k', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', ζ: 'z', η: 'n', μ: 'u',
-};
+// Names are compared with the launcher's own rules (launchMetadata/validate.js), never
+// a second copy of them: its skeleton reads "S0L", "SoIana" and "TOWELl" as SOL, Solana
+// and TOWELI, and its brand rule finds BAYLA inside "BAYLA Token" and "BAYLA2". A
+// spelling the launcher would refuse is therefore never "No problems found" here.
+const WELL_KNOWN_FOLDED = WELL_KNOWN_NAMES.flatMap((k) => k.names.map((n) => ({ folded: foldForCompare(n), known: k })));
 
-/** A name folded for comparison: compatibility forms, lookalikes, case, and everything but letters and digits removed. */
-export function foldName(s: string): string {
-  const base = s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  let out = '';
-  for (const ch of base) out += LOOKALIKES[ch] ?? ch;
-  return out.replace(/[^a-z0-9]/g, '');
-}
-
-const WELL_KNOWN_FOLDED = WELL_KNOWN_NAMES.flatMap((k) => k.names.map((n) => ({ folded: foldName(n), known: k })));
-
-/** The well-known token `name`/`symbol` claims to be, when `mint` is not that token; else null. */
-export function copiedWellKnownName(mint: string, name: string | null, symbol: string | null): (typeof WELL_KNOWN_NAMES)[number] | null {
-  const claims = [name, symbol].filter((x): x is string => !!x).map(foldName).filter(Boolean);
-  for (const c of claims) {
-    const hit = WELL_KNOWN_FOLDED.find((k) => k.folded === c);
+/**
+ * The well-known token any of `claims` (every name and symbol read for the mint) says
+ * it is, when `mint` is not that token; else null.
+ */
+export function copiedWellKnownName(mint: string, claims: readonly string[]): (typeof WELL_KNOWN_NAMES)[number] | null {
+  for (const claim of claims) {
+    // The claim itself, and what the launcher's lists say it would be mistaken for.
+    const said = [...foldedForms(claim), foldForCompare(impersonates(claim) ?? '')];
+    const hit = WELL_KNOWN_FOLDED.find((k) => said.includes(k.folded));
     if (hit && hit.known.mint !== mint) return hit.known;
   }
   return null;
 }
+
+/**
+ * A letter or digit that is not plain A-Z or 0-9 once accents are taken off: Cyrillic,
+ * Greek, small capitals, Cherokee and many more have letters shaped like Latin ones, and
+ * no table lists them all. A warning, never a block: most such names copy nothing.
+ */
+const hasLookalikeLetters = (s: string) => /(?!\p{ASCII})[\p{L}\p{N}]/u.test(s.normalize('NFKD'));
 
 /** USDC and USDT keep a freeze authority by design; the site accepts that and says so. */
 export const FREEZE_AUTHORITY_ACCEPTED = new Set([USDC_MINT, USDT_MINT]);
@@ -283,7 +285,8 @@ export interface SafetyReason {
     | 'no-metadata'
     | 'metadata-elsewhere'
     | 'metadata-unreadable'
-    | 'copies-known-name';
+    | 'copies-known-name'
+    | 'lookalike-letters';
   text: string;
 }
 
@@ -373,16 +376,20 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
     });
   }
 
-  // The name: Token-2022's own metadata when the mint carries it, else Metaplex.
+  // The name: Token-2022's own metadata when the mint carries it, else Metaplex. A mint
+  // can carry both, and a wallet may show either, so `claims` keeps every one read.
   let name: string | null = null;
   let symbol: string | null = null;
   let source: 'token-2022' | 'metaplex' | 'none' = 'none';
   let anyMutable = false;
-  const t22 = f.tokenMetadata && f.tokenMetadata.mint === mint ? f.tokenMetadata : null;
+  const claims: string[] = [];
+  let recordRead: string | null = null;
+  const t22 =f.tokenMetadata && f.tokenMetadata.mint === mint ? f.tokenMetadata : null;
   if (t22) {
     name = t22.name;
     symbol = t22.symbol;
     source = 'token-2022';
+    claims.push(t22.name, t22.symbol);
     if (t22.updateAuthority) anyMutable = true;
   }
   // Whoever controls the pointer can point the token at a different name record.
@@ -400,28 +407,42 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
           symbol = d.value.symbol;
           source = 'metaplex';
         }
+        claims.push(d.value.name, d.value.symbol);
+        recordRead = metaplexAccount.address;
         if (d.value.isMutable) anyMutable = true;
       }
     }
   }
-  if (source === 'none') {
-    const elsewhere = f.metadataPointer?.metadataAddress && f.metadataPointer.metadataAddress !== mint;
-    warnings.push(
-      elsewhere
-        ? { code: 'metadata-elsewhere', text: `Its name is kept at another account (${f.metadataPointer!.metadataAddress}) that this page does not read. Go by the mint address.` }
-        : { code: 'no-metadata', text: 'It has no name on chain. Only its mint address identifies it.' },
-    );
+  // A pointer to a name record this page did not read is said whether or not another
+  // name was read. (The pointer may name the Metaplex record itself, which was read.)
+  const pointsTo = f.metadataPointer?.metadataAddress ?? null;
+  const elsewhere = pointsTo !== mint && pointsTo !== recordRead ? pointsTo : null;
+  if (elsewhere) {
+    warnings.push({
+      code: 'metadata-elsewhere',
+      text:
+        source === 'none'
+          ? `Its name is kept at another account (${elsewhere}) that this page does not read. Go by the mint address.`
+          : `It also points to a name record at another account (${elsewhere}) that this page does not read, so a wallet may show a different name. Go by the mint address.`,
+    });
+  } else if (source === 'none') {
+    warnings.push({ code: 'no-metadata', text: 'It has no name on chain. Only its mint address identifies it.' });
   }
   if (anyMutable) {
     warnings.push({ code: 'metadata-mutable', text: 'Its name, symbol and picture can still be changed by whoever controls them.' });
   }
-  const copied = copiedWellKnownName(mint, name, symbol);
+  const copied = copiedWellKnownName(mint, claims);
   if (copied) {
     warnings.push({
       code: 'copies-known-name',
       text: copied.mint
         ? `It calls itself ${copied.label}, but it is NOT the real ${copied.label} (whose mint is ${copied.mint}). It is a different token that copied the name.`
         : `It calls itself ${copied.label}, but there is no real ${copied.label} on Solana. It is a different token that copied the name.`,
+    });
+  } else if (claims.some(hasLookalikeLetters)) {
+    warnings.push({
+      code: 'lookalike-letters',
+      text: 'Its name or symbol uses letters or digits that are not plain A to Z or 0 to 9. Some of those look the same as plain ones, so it may be copying another token’s name. Go by the mint address.',
     });
   }
   return done(f, name, symbol, source);
