@@ -2,6 +2,7 @@
 // in web3.js) — keep this the very first import in this lazy chunk's entry.
 import '../lib/solanaPolyfill';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { PublicKey, VersionedTransaction, type Connection } from '@solana/web3.js';
@@ -47,6 +48,7 @@ import {
   routeLabels,
   getShield,
   simulateSwap,
+  swapCarriesPlatformFee,
   createTriggerOrder,
   getTriggerOrders,
   cancelTriggerOrder,
@@ -65,6 +67,9 @@ import {
   type ShieldWarning,
   type TriggerOrder,
 } from '../lib/jupiter';
+import { prepareJupiterSwap, NO_SITE_FEE_ROUTE_COPY } from '../lib/solana/swap/jupiterFeeRetry';
+import { pollSignature } from '../lib/solana/swap/confirm';
+import { SiteFeeRow } from '../components/swap/SiteFeeRow';
 import { TokenDetail } from '../components/solana/TokenDetail';
 import { PairChart } from '../components/solana/PairChart';
 import { ClockLine } from '../components/ClockLine';
@@ -1145,6 +1150,11 @@ function SolanaSwapInner() {
   });
   const [detailToken, setDetailToken] = useState<SolToken | null>(null);
   const [quote, setQuote] = useState<JupiterQuote | null>(null);
+  // The no-fee re-quote the send path took after Jupiter's 6014, if that is the
+  // quote on screen. Compared by identity below, so ANY other quote landing
+  // (a re-quote on an edit, a new pair, the clear after a buy) ends it by itself.
+  const [waivedQuote, setWaivedQuote] = useState<JupiterQuote | null>(null);
+  const feeWaived = quote !== null && quote === waivedQuote;
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [swapping, setSwapping] = useState(false);
@@ -1326,6 +1336,11 @@ function SolanaSwapInner() {
   async function handleSwap() {
     if (!publicKey || !quote || !baseAmount) return;
     const shown = quote; // snapshot the exact quote the user clicked on
+    // Did the trader click the NO-FEE re-quote (left on screen by a wallet
+    // reject, a send error or a "moved" result)? Then `fresh` below, which is
+    // fee-bearing, is about 0.5% under it by construction and is not the trade
+    // being compared: see the two guards below.
+    const shownWaived = feeWaived;
     setSwapping(true);
     try {
       // Re-quote right before building so the on-chain min-out + routing match
@@ -1336,39 +1351,112 @@ function SolanaSwapInner() {
         amount: baseAmount,
         slippageBps,
       });
-      setQuote(fresh);
       // DISPLAY-VS-SUBMIT GUARD (2026-07-24): the user consented to `shown`.
       // slippageBps protects the tx on-chain, but the re-quoted BASELINE itself
       // could be materially worse than what they saw. If `fresh` dropped beyond
       // their own slippage tolerance, don't silently execute on it — show the new
       // rate and make them swap again. Compared in BigInt base units (outAmount
       // is a raw integer string); falls through if either is unparseable.
-      try {
-        const shownOut = BigInt(shown.outAmount);
-        const floor = shownOut - (shownOut * BigInt(slippageBps)) / 10000n;
-        if (BigInt(fresh.outAmount) < floor) {
-          toast.error('Price moved', { description: `The quote dropped beyond your ${(slippageBps / 100).toFixed(2)}% slippage. Review the new rate and swap again.` });
-          return;
-        }
-      } catch { /* unparseable amount — the pre-sign simulation below still guards */ }
-      const b64 = await buildSwapTransaction({ quote: fresh, userPublicKey: publicKey.toBase58(), priorityLevel: speed });
-      // Pre-sign simulation — refuse to send a swap that would revert (honeypot /
-      // freeze / slippage / insufficient). FAIL OPEN if simulation itself errors.
-      try {
-        const sim = await simulateSwap(b64);
-        if (!sim.ok) {
-          toast.error('Swap would fail — not sending', { description: sim.reason ?? 'Simulation reverted on-chain.' });
-          return;
-        }
-      } catch { /* simulation unavailable — proceed to the wallet */ }
+      //
+      // NOT run when the clicked quote is the no-fee one. A fee-bearing `fresh`
+      // sits right on that quote's 0.50% floor before the market moves at all,
+      // so this guard said "Price moved" when nothing had, and put the
+      // fee-bearing numbers back on screen. The like-for-like check is the one
+      // in prepareJupiterSwap: the no-fee RE-quote against max(fresh, shown).
+      if (!shownWaived) {
+        setQuote(fresh);
+        try {
+          const shownOut = BigInt(shown.outAmount);
+          const floor = shownOut - (shownOut * BigInt(slippageBps)) / 10000n;
+          if (BigInt(fresh.outAmount) < floor) {
+            toast.error('Price moved', { description: `The quote dropped beyond your ${(slippageBps / 100).toFixed(2)}% slippage. Review the new rate and swap again.` });
+            return;
+          }
+        } catch { /* unparseable amount — the pre-sign simulation below still guards */ }
+      }
+      // Build, then the pre-sign simulation — refuse to send a swap that would
+      // revert (honeypot / freeze / slippage / insufficient). FAIL OPEN if the
+      // first simulation itself errors. One narrow exception to "a failed
+      // simulation blocks": Jupiter's own 6014 on a fee-bearing build is
+      // answered by ONE no-fee rebuild, which must itself simulate clean. The
+      // whole rule lives in lib/solana/swap/jupiterFeeRetry.ts.
+      const prepared = await prepareJupiterSwap(
+        { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
+        {
+          fresh,
+          shown,
+          inputMint: payToken.mint,
+          outputMint: buyToken.mint,
+          amount: baseAmount,
+          slippageBps,
+          user: publicKey.toBase58(),
+          priority: speed,
+        },
+      );
+      if (prepared.status === 'blocked') {
+        toast.error('Swap would fail — not sending', { description: prepared.reason ?? 'Simulation reverted on-chain.' });
+        return;
+      }
+      if (prepared.status === 'moved') {
+        // The no-fee re-quote is on screen now, labelled as such; nothing was sent.
+        setWaivedQuote(prepared.quote);
+        setQuote(prepared.quote);
+        toast.error('Price moved', { description: `The quote dropped beyond your ${(slippageBps / 100).toFixed(2)}% slippage. Review the new rate and swap again.` });
+        return;
+      }
+      const sent = prepared.quote;
+      const feeWaivedOnSend = prepared.siteFeeWaived;
+      if (shownWaived && !feeWaivedOnSend) {
+        // The trader clicked a quote that said "no site fee", and this time the
+        // fee-bearing build simulates clean. That swap pays them less than the
+        // one they clicked: show it, and let them choose it with their own click.
+        setQuote(sent);
+        toast.error('Quote changed', { description: 'The site fee can be taken on this route now, so you receive slightly less. Review the new rate and swap again.' });
+        return;
+      }
+      if (feeWaivedOnSend) {
+        // BEFORE the wallet opens: the amounts on the page become the re-quoted
+        // ones, the fee row says there is none, and the trader is told why.
+        // flushSync so that is already painted when the wallet prompt appears.
+        flushSync(() => {
+          setWaivedQuote(sent);
+          setQuote(sent);
+        });
+        toast.info(NO_SITE_FEE_ROUTE_COPY, {
+          description: `You receive about ${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol}.`,
+        });
+      }
+      const b64 = prepared.swapTransaction;
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       const tx = VersionedTransaction.deserialize(bytes);
       const sig = await sendTransaction(tx, connection);
       toast.success('Swap submitted', { description: `${shortSig(sig)} — confirming…` });
-      await pollConfirm(connection, sig);
+      // A signature exists: from here the swap may be on chain, so nothing
+      // below may say "failed" unless the chain itself said so. pollSignature
+      // never throws; a timeout or an unreadable status is 'unknown'.
+      const view = { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') };
+      const tradeWords = `≈${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}${feeWaivedOnSend ? ' (no site fee on this route)' : ''}`;
+      const ending = await pollSignature((sigs) => connection.getSignatureStatuses(sigs), sig);
+      if (ending === 'reverted') {
+        toast.error('Swap refused on chain', { description: `${shortSig(sig)}. Only the network fee was spent.`, action: view });
+        return;
+      }
+      if (ending === 'unknown') {
+        toast.warning('Sent, not confirmed yet', {
+          description: `${shortSig(sig)}. It may still land. Check your wallet or Solscan before trying again.${feeWaivedOnSend ? ` ${NO_SITE_FEE_ROUTE_COPY}` : ''}`,
+          action: view,
+          duration: 30_000,
+        });
+        // Kept in "Your recent activity" so the signature outlives the toast,
+        // and the form is cleared so the same buy is not one click away.
+        recordActivity(publicKey.toBase58(), { sig, ts: Date.now(), kind: 'swap', summary: `Sent, not confirmed: ${tradeWords}` });
+        setAmount('');
+        setQuote(null);
+        return;
+      }
       toast.success(`Bought ${buyToken.symbol}`, {
-        description: shortSig(sig),
-        action: { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') },
+        description: feeWaivedOnSend ? `${shortSig(sig)}. ${NO_SITE_FEE_ROUTE_COPY}` : shortSig(sig),
+        action: view,
       });
       // WAVE SEVEN, element O: latch a buy that landed in a resident's token.
       // The five Solana rooms are mints, so the finder takes the chain word;
@@ -1388,7 +1476,7 @@ function SolanaSwapInner() {
         sig,
         ts: Date.now(),
         kind: 'swap',
-        summary: `Bought ≈${prettyAmount(fromBaseUnits(fresh.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}`,
+        summary: `Bought ${tradeWords}`,
       });
       setAmount('');
       setQuote(null);
@@ -1641,10 +1729,7 @@ function SolanaSwapInner() {
 
           {/* Quote details */}
           <div className="mb-4 text-[11px] space-y-1">
-            <div className="flex items-center justify-between text-white/70">
-              <span>Platform fee</span>
-              <span className="font-mono">{feeMintSymbol ? `${feePct}% · in ${feeMintSymbol}` : 'None on this pair'}</span>
-            </div>
+            <SiteFeeRow feePct={feePct} feeMintSymbol={feeMintSymbol} waived={feeWaived} />
             {quote && priceImpact !== null && (
               <div className="flex items-center justify-between text-white/70">
                 <span>Price impact</span>
@@ -1709,11 +1794,15 @@ function SolanaSwapInner() {
               support is worse than no sentence at all. */}
           <ClockLine />
 
-          <p className="mt-3 text-center text-white/60 text-[10px]">
+          <p className="mt-3 text-center text-white/60 text-[10px]" data-testid="swap-footer">
             Swaps route through Jupiter on Solana.{' '}
-            {isSolanaFeeConfigured()
-              ? `A ${feePct}% platform fee applies on pairs that include SOL or USDC.`
-              : 'No platform fee is charged here today — you get Jupiter’s route as quoted.'}
+            {/* While the no-fee re-quote is on screen the standing sentence
+                would contradict the notice a few rows above it. */}
+            {!isSolanaFeeConfigured()
+              ? 'No platform fee is charged here today — you get Jupiter’s route as quoted.'
+              : feeWaived
+                ? 'No platform fee on this route.'
+                : `A ${feePct}% platform fee applies on pairs that include SOL or USDC.`}
           </p>
             </>
           ) : mode === 'limit' ? (
