@@ -4,6 +4,7 @@ import { ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import { feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, formatSolPrice } from '../../../lib/solana/lp/format';
+import { SITE_SWAP_FEE_BPS } from '../../../lib/solana/swap/siteFee';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import type { TxFlow } from './useTxFlow';
 
@@ -47,6 +48,8 @@ function tradeLamports(s: TxSummary): bigint | null {
       return s.quoted.sol;
     case 'lp-create':
       return s.put.sol;
+    case 'lp-swap':
+      return s.side === 'buy' ? s.amountIn : s.quote.outAmount;
     default:
       return null;
   }
@@ -187,6 +190,8 @@ export function SummaryRows({
       return <LpWithdrawRows summary={summary} />;
     case 'lp-create':
       return <LpCreateRows summary={summary} />;
+    case 'lp-swap':
+      return <RouteSwapRows summary={summary} />;
     default:
       // A new kind of transaction is a compile error here until it has rows.
       return noRowsFor(summary);
@@ -238,13 +243,14 @@ function CreateReserveRows({ summary }: { summary: Extract<TxSummary, { kind: 'c
 // on. A row never falls back to a value the panel was typed into.
 
 type LpSummary = Extract<TxSummary, { kind: 'lp-deposit' | 'lp-withdraw' }>;
+type RouteSummary = Extract<TxSummary, { kind: 'lp-swap' }>;
 
 // A bound the program enforces, or a count of pool shares, is printed to its last
 // digit: rounding "at most" down, or "you get" either way, would misstate it.
 const solExact = (l: bigint) => `${formatSol(l, 9)} SOL`;
 const unitsExact = (v: bigint, d: number) => tokenText(v, d, d);
 
-function poolKindText(s: LpSummary): string {
+function poolKindText(s: LpSummary | RouteSummary): string {
   switch (s.origin) {
     case 'launch-pool':
       return 'Launch pool: opened by the launch program at graduation';
@@ -255,7 +261,7 @@ function poolKindText(s: LpSummary): string {
   }
 }
 
-function feeTierText(config: LpSummary['config']): string {
+function feeTierText(config: LpSummary['config'] | RouteSummary['config']): string {
   if (!config) return 'not read';
   return `${config.index}: traders pay ${feeRateText(config.tradeFeeRate)} a trade; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade`;
 }
@@ -451,6 +457,81 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
   );
 }
 
+/** The site's swap fee as a percentage with two places ("0.50%"), from the committed rate. */
+const SITE_FEE_PCT = `${(Number(SITE_SWAP_FEE_BPS) / 100).toFixed(2)}%`;
+
+/**
+ * A swap through one of our pools from the main swap page. Every value comes from the
+ * prepared transaction: the amount into the pool, the minimum and the site fee (amount
+ * and destination) are decoded from its bytes; the quote is the fresh one the minimum
+ * came from. A buy pays SOL and receives the token; a sell the other way round.
+ */
+function RouteSwapRows({ summary: s }: { summary: RouteSummary }) {
+  const buying = s.side === 'buy';
+  const tok = (v: bigint) => `${tokenText(v, s.tokenDecimals)} tokens`;
+  const tokExact = (v: bigint) => `${unitsExact(v, s.tokenDecimals)} tokens`;
+  const fee = `${solExact(s.fee.amount)}, to the site's fee account ${s.fee.to.toBase58()}`;
+  // A sell's minimum is what the pool must pay; the fee comes out of it, in this transaction.
+  const leastSol = s.swap.minimumAmountOut - s.fee.amount;
+  return (
+    <>
+      <Row label="Token address (mint)" value={s.tokenMint.toBase58()} />
+      <Row label="Pool" value={s.pool.toBase58()} />
+      <Row label="Pool kind" value={poolKindText(s)} mono={false} />
+      <Row label="Fee tier" value={feeTierText(s.config)} mono={false} />
+      <Row label="You pay" value={buying ? solExact(s.amountIn) : tokExact(s.amountIn)} />
+      <Row
+        label={`Platform fee (${SITE_FEE_PCT})`}
+        value={
+          buying
+            ? `${fee}; the same fee as on Jupiter's route`
+            : `${fee}; ${SITE_FEE_PCT} of the minimum below, never more than ${SITE_FEE_PCT} of what you get`
+        }
+        mono={false}
+      />
+      {buying && <Row label="Goes into the pool" value={solExact(s.swap.amountIn)} />}
+      <Row label="You receive, expected" value={buying ? tok(s.netExpected) : `about ${SOL(s.netExpected)}`} />
+      <Row label="You receive, at least" value={buying ? tokExact(s.swap.minimumAmountOut) : solExact(leastSol)} />
+      <Row
+        label="Pool fee (inside what you pay)"
+        value={buying ? SOL(s.quote.result.tradeFee) : tok(s.quote.result.tradeFee)}
+      />
+      <PoolCreatorFeeRow quote={s.quote} buying={buying} sol={SOL} tok={tok} />
+      <ImpactRows bps={fractionToBps(s.quote.priceImpact)} />
+      <Row
+        label="Compared with"
+        value={
+          s.versus === null
+            ? 'Jupiter has no route for this token'
+            : `Jupiter: ${buying ? tok(s.versus) : SOL(s.versus)} after the same fee`
+        }
+        mono={false}
+      />
+      <Notice>
+        {buying ? 'Your SOL is wrapped for the swap' : 'The pool pays out wrapped SOL'}
+        {s.unwrapsWsol
+          ? ', and that account is closed at the end.'
+          : '. You already had a wrapped-SOL account, so it is left open with its balance.'}
+      </Notice>
+      {s.tokenWarnings.length > 0 && (
+        <div className="space-y-1">
+          <Notice tone="warn">Read these about this token first:</Notice>
+          <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+            {s.tokenWarnings.map((w) => (
+              <li key={w.code}>{w.text}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
+    </>
+  );
+}
+
 /**
  * The plant this create pays (island ruling 2), read back out of the transaction itself:
  * half burned, half to the island's Workshop, both from the creator's own $BAYLA account.
@@ -525,6 +606,8 @@ const TEST_RUN_LABEL: Record<TokenRole, string> = {
 function testRunLabel(kind: TxKind, role: TokenRole): string {
   // An opening's `treasury` account is the pool program's fee account, owned by the team's vault.
   if (kind === 'lp-create' && role === 'treasury') return "Test run: the team's vault account gains, in SOL (the fee, plus any SOL that account was already holding)";
+  // A swap's `treasury` account is the site's fee account (the same vault account).
+  if (kind === 'lp-swap' && role === 'treasury') return "Test run: the site's fee account receives";
   return TEST_RUN_LABEL[role];
 }
 
@@ -540,6 +623,7 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
   'lp-withdraw': 'One-time deposit for your new token account (it stays in that account)',
   'lp-create':
     "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
+  'lp-swap': 'One-time deposit for your new token account (it stays in that account)',
 };
 
 export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals: number | null }) {
@@ -591,6 +675,7 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   'lp-deposit': 'Review: add liquidity',
   'lp-withdraw': 'Review: remove liquidity',
   'lp-create': 'Review: open a pool',
+  'lp-swap': 'Review your swap',
 };
 
 export function TxReview({
@@ -649,6 +734,8 @@ function unknownLine(kind: TxKind | undefined): string {
       return 'It may still land. Taking liquidity out again now could take out more than you meant. Check again, or look it up on the explorer.';
     case 'lp-create':
       return 'It may still land. Opening a pool again now could open a second pool and pay the fee to open twice. Check again, or look it up on the explorer.';
+    case 'lp-swap':
+      return 'It may still land. Swapping again now could swap twice. Check again, or look it up on the explorer.';
     default:
       return 'It may still land. Sending again could make you pay twice. Check again, or look it up on the explorer.';
   }

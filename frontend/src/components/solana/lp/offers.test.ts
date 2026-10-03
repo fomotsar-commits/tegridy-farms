@@ -205,6 +205,17 @@ describe('lpHeld', () => {
     expect(lpHeld([note('pool-buy', null), note('buy', null)], A, 'add')).toBe(false);
     expect(lpHeld([], A, 'remove')).toBe(false);
   });
+
+  // A swap through a pool is a pool kind (it keeps its pool on its note), but it is not
+  // a liquidity change: its note must never switch Add or Remove off, on its own pool or
+  // (with the pool unread) on every pool.
+  it('a swap’s note never holds a liquidity form, with its pool or without', () => {
+    expect(lpHeld([note('lp-swap', A)], A, 'add')).toBe(false);
+    expect(lpHeld([note('lp-swap', A)], A, 'remove')).toBe(false);
+    expect(lpHeld([note('lp-swap', null)], A, 'add')).toBe(false);
+    expect(lpHeld([note('lp-swap', null)], B, 'remove')).toBe(false);
+    expect(createHeld([note('lp-swap', A)])).toBe(false);
+  });
 });
 
 // ── opening a pool (SPEC_S2_CREATE 2.5, N14, N15) ─────────────────────────────

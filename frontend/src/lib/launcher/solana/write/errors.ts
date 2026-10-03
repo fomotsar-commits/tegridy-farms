@@ -53,10 +53,11 @@ export const LAUNCH_FAILURE_COPY: Record<LaunchErrorName, string> = {
 };
 
 /**
- * Liquidity failures, said for what the person was doing. Used ONLY for the two
- * liquidity kinds: the pool's own codes mean something different to someone adding
- * than to someone taking out ("switched off" is a closed door for one and a locked
- * exit for the other), and the swap copy in CP_SWAP_ERROR_COPY stays the swap's.
+ * Liquidity failures, said for what the person was doing. Used ONLY for adding,
+ * removing and the swap page's own-pool swap (`lp-swap`): the pool's own codes mean
+ * something different to someone adding than to someone taking out ("switched off" is
+ * a closed door for one and a locked exit for the other), and the swap copy in
+ * CP_SWAP_ERROR_COPY stays the launch pool swap's.
  */
 export interface LpFailureCopy {
   /** cp-swap 6000 NotApproved: the pool's deposit or withdraw switch is off. */
@@ -101,6 +102,19 @@ export const LP_FAILURE_COPY: Record<Exclude<LpKind, 'lp-create'>, LpFailureCopy
     zeroTradingTokens: 'Too small: one side would round to zero. Take out a larger share, or all of it.',
     booksOff: "The pool's books did not add up when this ran (error {n}). Your shares are still in your wallet; tell us.",
     heldTooFew: 'Your wallet held fewer pool shares than this tried to take out when it ran. Read your positions again.',
+    accountFrozen: LP_FROZEN,
+    ataInvalidOwner: LP_ATA_OWNER,
+  },
+  // A swap through one of our pools from the main swap page (spec S3 3.10). "Nothing was
+  // swapped" is true on every row: the whole transaction reverts, the site fee with it.
+  'lp-swap': {
+    notApproved:
+      "Swaps on this pool are switched off by the pool program's admin (the team's vault), or the pool is not open yet. Nothing was swapped.",
+    exceededSlippage:
+      "The pool's price moved past your limit before this ran, so you would have received less than your minimum. Nothing was swapped. Start over for a fresh price.",
+    zeroTradingTokens: "Too small: at this pool's size the swap would round to nothing. Try a larger amount.",
+    booksOff: "The pool's books did not add up when this ran (error {n}). Nothing was swapped; tell us.",
+    heldTooFew: null,
     accountFrozen: LP_FROZEN,
     ataInvalidOwner: LP_ATA_OWNER,
   },

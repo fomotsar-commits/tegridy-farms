@@ -452,8 +452,12 @@ describe('pinned for every kind built today: no token transfer, and the fee acco
     refused([createSyncNativeInstruction(CP_CREATE_POOL_FEE_RECEIVER)], /syncs an account that is not your wrapped-SOL account/, c);
   });
 
-  it('the list above is every kind that reaches the token program today', () => {
+  // Stage 3 added exactly one kind that reaches the token program: `lp-swap`, the only
+  // kind allowed a TransferChecked (its site fee, pinned in intentRouteSwap.test.ts,
+  // which also holds it to the second rule above: T-DEC-29). Any kind after it must be
+  // added to KINDS here, or argued for by name like this one.
+  it('the list above is every kind that reaches the token program, but for the swap’s own kind', () => {
     const reachToken = (Object.keys(PROGRAMS_BY_KIND) as (keyof typeof PROGRAMS_BY_KIND)[]).filter((k) => PROGRAMS_BY_KIND[k].has('token'));
-    expect(reachToken.sort()).toEqual(KINDS.map(([name]) => name).sort());
+    expect(reachToken.sort()).toEqual([...KINDS.map(([name]) => name), 'lp-swap'].sort());
   });
 });

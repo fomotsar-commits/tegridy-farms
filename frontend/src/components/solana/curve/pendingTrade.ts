@@ -49,6 +49,7 @@ const KNOWN: Record<TradeKind, true> = {
   'lp-deposit': true,
   'lp-withdraw': true,
   'lp-create': true,
+  'lp-swap': true,
 };
 const TRADE_KINDS: ReadonlySet<string> = new Set(Object.keys(KNOWN));
 

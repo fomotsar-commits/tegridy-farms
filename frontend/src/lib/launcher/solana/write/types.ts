@@ -126,15 +126,18 @@ export interface ActionAvailability {
   poolSwap: boolean;
 }
 
-/** Adding and removing liquidity in one of our cp-swap pools, and opening a new one. */
-export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create';
+/**
+ * Adding and removing liquidity in one of our cp-swap pools, opening a new one, and
+ * (`lp-swap`) a swap through one of them from the main swap page.
+ */
+export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create' | 'lp-swap';
 
 export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | LpKind;
 
 /**
  * What a watched token account is, so the review can name it and print it in its
- * own mint's decimals. `treasury` is the platform treasury's account (create: the
- * reserve arriving); `workshop` is the island Workshop's $BAYLA account (create: the
+ * own mint's decimals. `treasury` is the platform treasury's account (create's
+ * reserve, lp-create's opening fee account, lp-swap's site-fee account); `workshop` is the island Workshop's $BAYLA account (create: the
  * plant's half); the rest are the signer's own. No role = the signer's token.
  */
 export type TokenRole = 'treasury' | 'workshop' | 'lp' | 'wsol' | 'token';
@@ -203,7 +206,13 @@ export type IntentStep =
    * `init0` / `init1`. Its open time is always 0 (the decoder refuses any other), so it is
    * not carried.
    */
-  | { kind: 'pool-create'; pool: PublicKey; ammConfig: PublicKey; init0: bigint; init1: bigint };
+  | { kind: 'pool-create'; pool: PublicKey; ammConfig: PublicKey; init0: bigint; init1: bigint }
+  /**
+   * The site fee of an `lp-swap`: one classic `TransferChecked` of wrapped SOL from the
+   * signer's own wrapped-SOL account (`from`) to the site's fee account (`to`). The
+   * decoder derives both addresses itself and reads `amount` from the bytes.
+   */
+  | { kind: 'site-fee'; from: PublicKey; to: PublicKey; amount: bigint };
 
 export type TxSummary =
   | {
@@ -291,7 +300,8 @@ export type TxSummary =
     }
   | LpDepositSummary
   | LpWithdrawSummary
-  | LpCreateSummary;
+  | LpCreateSummary
+  | RouteSwapSummary;
 
 /**
  * Adding liquidity, as the review shows it. Every amount comes from the prepared
@@ -381,6 +391,42 @@ export interface LpCreateSummary {
   rents: { neverRefunded: bigint; lpAccount: bigint };
   /** The opening check that passed: state 'agrees', against 'outside'. */
   price: PriceCheck;
+  tokenWarnings: SafetyReason[];
+  unwrapsWsol: boolean;
+  wsolHeldBefore: bigint;
+  notices: string[];
+}
+
+/**
+ * A swap through one of our pools from the main swap page, as the review shows it.
+ * `swap` and `fee` are decoded from the transaction's bytes; `quote` is the fresh quote
+ * the minimum came from.
+ */
+export interface RouteSwapSummary {
+  kind: 'lp-swap';
+  /** `usePendingTrades` keeps it on the note. */
+  pool: PublicKey;
+  origin: PoolPins['origin'];
+  /** The pool's own tier, read in the same slot. Never null: prepare refuses without it. */
+  config: AmmConfigView;
+  tier: 0 | 1;
+  side: 'buy' | 'sell';
+  tokenMint: PublicKey;
+  /** From the mint just read. */
+  tokenDecimals: number;
+  /** What the trader typed: lamports (buy) or token base units (sell). */
+  amountIn: bigint;
+  /** Decoded from the bytes. */
+  swap: { amountIn: bigint; minimumAmountOut: bigint };
+  /** Decoded from the bytes. */
+  fee: { amount: bigint; to: PublicKey };
+  quote: OwnPoolQuote;
+  netExpected: bigint;
+  netGuaranteed: bigint;
+  /** Jupiter's net this beat; null: Jupiter answered no-route and this is the launch pool. */
+  versus: bigint | null;
+  /** The launch pool's own-average check, on a no-route only. */
+  priceCheck: PriceCheck | null;
   tokenWarnings: SafetyReason[];
   unwrapsWsol: boolean;
   wsolHeldBefore: bigint;
@@ -482,9 +528,10 @@ export interface PreToken {
 
 /**
  * What `intent.ts` needs to judge a transaction for one signer: a launch-program
- * transaction (`CurveIntent`), or adding or removing liquidity (`PoolIntent`).
+ * transaction (`CurveIntent`), adding or removing liquidity or opening a pool
+ * (`PoolIntent`), or a swap through one of our pools from the swap page (`RouteIntent`).
  */
-export type IntentContext = CurveIntent | PoolIntent;
+export type IntentContext = CurveIntent | PoolIntent | RouteIntent;
 
 /** A launch, a curve trade, a graduation or a launch pool's swap. Every field it had before liquidity stays required. */
 export interface CurveIntent {
@@ -532,9 +579,29 @@ export interface PoolPins {
   lpAccount: PublicKey;
 }
 
-/** Adding or removing liquidity: every account the pool instruction names is pinned by `pins`. */
+/**
+ * Adding or removing liquidity, or opening a pool: every account the pool instruction
+ * names is pinned by `pins`. Its shape is unchanged; its kind excludes `lp-swap`, which
+ * has its own intent below.
+ */
 export interface PoolIntent {
-  kind: LpKind;
+  kind: Exclude<LpKind, 'lp-swap'>;
+  signer: PublicKey;
+  cfg: CurveWriteConfig;
+  /** The most priority fee this transaction may carry, in lamports. */
+  maxPriorityLamports: bigint;
+  pins: PoolPins;
+}
+
+/**
+ * A swap through one of our pools from the main swap page. It carries no fee account
+ * and no fee rate: the checker derives the account from two constants and recomputes
+ * the amount from the transaction's own bytes, so neither can be handed in wrong.
+ */
+export interface RouteIntent {
+  kind: 'lp-swap';
+  /** Buy: SOL in, the token out. Sell: the token in, SOL out. */
+  side: 'buy' | 'sell';
   signer: PublicKey;
   cfg: CurveWriteConfig;
   /** The most priority fee this transaction may carry, in lamports. */

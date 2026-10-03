@@ -8,6 +8,9 @@
 // account sends the proceeds to a stranger. So every instruction must match one
 // SHAPE this site builds, down to its accounts and arguments, and every account
 // that decides where value goes must be the signer's own or read off chain state.
+// ONE named exception: the site fee of an `lp-swap`. It goes to one account derived
+// from two constants (the team vault's wrapped-SOL account), at one committed rate,
+// computed from the transaction's own amounts. Nothing about it comes from the caller.
 //
 // And each KIND of transaction may call only its own programs (PROGRAMS_BY_KIND):
 // a launch never reaches the pool program, a pool swap never reaches Token
@@ -22,6 +25,11 @@
 // derived here from the constant. The launch-program kinds (`CurveIntent`) are judged
 // exactly as before; their branches below did not change.
 //
+// A swap through one of our pools from the main swap page (`lp-swap`, `RouteIntent`) is
+// judged against the same `PoolPins`: all 13 accounts of its one swap are pinned, its
+// one site-fee transfer is pinned to the derived account and recomputed from the bytes,
+// and the whole transaction must have the shape of a buy or of a sell (`routeSwapShape`).
+//
 // This runs twice: on the transaction before any wallet sees it, and again on
 // whatever the wallet hands back. The review screen is built from the steps it
 // returns, so what a person reads is what the bytes say.
@@ -35,6 +43,7 @@ import {
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   IX_DISCRIMINATOR,
+  PLATFORM_TREASURY_VAULT,
   SYSTEM_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
@@ -63,6 +72,7 @@ import {
 } from '../../../solana/cpswap/program';
 import { openingProblem } from '../../../solana/lp/liquidityMath';
 import { MEMO_PROGRAM_ID } from '../../../solana/cpswap/ix';
+import { siteFee } from '../../../solana/swap/siteFee';
 import { CP_CREATE_POOL_FEE_RECEIVER, launchIndexAddress } from './config';
 import {
   METAPLEX_TOKEN_METADATA_ID,
@@ -80,7 +90,7 @@ import {
   WORKSHOP_BAYLA_ACCOUNT,
   baylaAccountOf,
 } from './plant';
-import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, TxKind } from './types';
+import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, RouteIntent, TxKind } from './types';
 
 /** Phantom's Lighthouse guard program: assertion-only instructions a wallet may append. */
 export const LIGHTHOUSE_PROGRAM_ID = new PublicKey('L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95');
@@ -96,8 +106,13 @@ const refuse = (reason: string): never => {
   throw new Refuse(reason);
 };
 
-/** Adding or removing liquidity, or opening a pool, as opposed to a launch-program transaction. */
-export function isPoolIntent(c: IntentContext): c is PoolIntent {
+/**
+ * Adding or removing liquidity, opening a pool, or a swap-page swap through a pool, as
+ * opposed to a launch-program transaction. An `lp-swap` is a pool intent, so it inherits
+ * every refusal below that is keyed on this: no account creation, no new token, no
+ * Token-2022 at the top level, no launch program, no Token Metadata.
+ */
+export function isPoolIntent(c: IntentContext): c is PoolIntent | RouteIntent {
   return isLpKind(c.kind);
 }
 
@@ -192,6 +207,9 @@ function system(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
 function token(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   const d = ix.data;
   const wsolAta = associatedTokenAddress(WSOL_MINT, ctx.signer);
+  // TransferChecked (tag 12) is the site fee of an `lp-swap`, and of nothing else: every
+  // other kind reaching tag 12 falls to the default refusal below, as it always did.
+  if (d[0] === TOKEN_IX_TRANSFER_CHECKED && ctx.kind === 'lp-swap') return routeSiteFee(ix, ctx, wsolAta);
   switch (d[0]) {
     case 20: {
       if (isPoolIntent(ctx)) return refuse('this kind of transaction never creates a token');
@@ -224,6 +242,34 @@ function token(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   }
 }
 
+/** Wrapped SOL has 9 decimals; TransferChecked names them and the token program checks them. */
+const WSOL_DECIMALS = 9;
+
+/**
+ * The site fee of an `lp-swap`: ONE classic `TransferChecked { amount u64, decimals u8 }`
+ * of wrapped SOL, from the signer's own wrapped-SOL account to the site's fee account,
+ * authorised by the signer alone.
+ *
+ * The destination is derived HERE from two constants (wrapped SOL's mint and the team
+ * vault); it is never read from `ctx`, env or the caller. The amount is read from the
+ * bytes and `routeSwapShape` then requires it to be exactly the committed rate of the
+ * transaction's own amounts.
+ */
+function routeSiteFee(ix: TransactionInstruction, ctx: RouteIntent, wsolAta: PublicKey): IntentStep {
+  const d = ix.data;
+  if (d.length !== 1 + 8 + 1 || d[9] !== WSOL_DECIMALS) refuse('the site fee instruction has the wrong size or decimals');
+  // Exactly four: a fifth account would be a multisig signer.
+  if (ix.keys.length !== 4) refuse('the site fee names the wrong accounts');
+  const to = associatedTokenAddress(WSOL_MINT, PLATFORM_TREASURY_VAULT);
+  if (!key(ix, 0).equals(wsolAta)) refuse('the site fee is paid from an account that is not your wrapped-SOL account');
+  if (!key(ix, 1).equals(WSOL_MINT)) refuse('the site fee moves a token other than wrapped SOL');
+  if (!key(ix, 2).equals(to)) refuse("the site fee goes somewhere other than the site's fee account");
+  if (!key(ix, 3).equals(ctx.signer)) refuse('the site fee is authorised by someone other than you');
+  const amount = u64(d, 1);
+  if (amount === 0n) refuse('the site fee is zero');
+  return { kind: 'site-fee', from: wsolAta, to, amount };
+}
+
 function ata(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   if (!(ix.data.length === 1 && ix.data[0] === 1)) refuse('an associated-account instruction other than create-if-missing');
   expectKeyCount(ix, 6, 'create token account');
@@ -233,6 +279,7 @@ function ata(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   if (!payer.equals(ctx.signer) || !owner.equals(ctx.signer)) refuse('creates a token account for someone else');
   if (isPoolIntent(ctx)) {
     if (ctx.kind === 'lp-create') openingAtaRule(ctx, mint);
+    if (ctx.kind === 'lp-swap') swapAtaRule(ctx, mint);
     return poolAta(ctx, { address, owner, mint, sys, tok });
   }
   if (!(mint.equals(ctx.mint) || mint.equals(WSOL_MINT))) refuse('creates a token account for an unrelated token');
@@ -253,6 +300,16 @@ function openingAtaRule(ctx: PoolIntent, mint: PublicKey): void {
 }
 
 /**
+ * A swap opens only the signer's wrapped-SOL account and the signer's account for the
+ * pool's token. It never touches pool shares, so their account is refused by name.
+ */
+function swapAtaRule(ctx: RouteIntent, mint: PublicKey): void {
+  if (mint.equals(WSOL_MINT) || mint.equals(ctx.pins.tokenMint)) return;
+  if (mint.equals(ctx.pins.lpMint)) refuse('a swap never opens a pool-share account');
+  refuse('creates a token account for an unrelated token');
+}
+
+/**
  * A liquidity transaction opens the signer's account for wrapped SOL, for the pool's
  * shares, or for the pool's token, and nothing else. Each under THAT mint's program:
  * the classic one for wrapped SOL and the pool shares, the pool's recorded program
@@ -260,7 +317,7 @@ function openingAtaRule(ctx: PoolIntent, mint: PublicKey): void {
  * under the other program is a different address and is refused.
  */
 function poolAta(
-  ctx: PoolIntent,
+  ctx: PoolIntent | RouteIntent,
   a: { address: PublicKey; owner: PublicKey; mint: PublicKey; sys: PublicKey; tok: PublicKey },
 ): IntentStep {
   const p = ctx.pins;
@@ -400,6 +457,8 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
         return poolWithdraw(ix, ctx);
       case 'lp-create':
         return poolInitialize(ix, ctx);
+      case 'lp-swap':
+        return poolRouteSwap(ix, ctx);
       default:
         return noPoolInstructionFor(ctx);
     }
@@ -432,6 +491,62 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   if (amountIn === 0n) refuse('the swap amount is zero');
   if (minimumAmountOut === 0n) refuse('the swap accepts any price (no minimum)');
   return { kind: 'pool-swap', pool, inputMint: inMint, outputMint: outMint, amountIn, minimumAmountOut };
+}
+
+/**
+ * cp-swap `swap_base_input` for an `lp-swap`: `IX_SWAP_BASE_INPUT ‖ amountIn u64 ‖
+ * minimumAmountOut u64`, 13 accounts, every one pinned to the pool as it was read and
+ * checked while preparing (`PoolPins`), in the direction the review names (`ctx.side`).
+ *
+ * Slot 5 is the only thing between the payout and a stranger: cp-swap declares the
+ * output account only `mut` (swap_base_input.rs). Here it must be the signer's own
+ * account for the output mint, under that mint's own token program.
+ *
+ * Unlike the launch pool's swap above, nothing is read from the instruction to decide
+ * what it should be: the mints come from the side and the pins, and the fee settings
+ * must be the pool's own AND one of the two tiers this site routes to.
+ */
+function poolRouteSwap(ix: TransactionInstruction, ctx: RouteIntent): IntentStep {
+  const d = ix.data;
+  if (!startsWith(d, IX_SWAP_BASE_INPUT) || d.length !== 24) refuse('a pool instruction other than a swap');
+  expectKeyCount(ix, 13, 'pool swap');
+  if (ctx.side !== 'buy' && ctx.side !== 'sell') refuse('the swap has no reviewed direction');
+  const cp = ctx.cfg.cpSwapProgram;
+  const p = ctx.pins;
+  // The pins must describe a pool of SOL and this token, or `vaultOf` below means nothing.
+  const solIs0 = p.token0Mint.equals(WSOL_MINT) && p.token1Mint.equals(p.tokenMint);
+  const solIs1 = p.token1Mint.equals(WSOL_MINT) && p.token0Mint.equals(p.tokenMint);
+  if (solIs0 === solIs1) refuse('the pool checked does not pair SOL with this token');
+  const [inMint, outMint] = ctx.side === 'buy' ? [WSOL_MINT, p.tokenMint] : [p.tokenMint, WSOL_MINT];
+  const prog = (m: PublicKey) => (m.equals(WSOL_MINT) ? TOKEN_PROGRAM_ID : p.tokenProgram);
+  const mine = (m: PublicKey) => associatedTokenAddress(m, ctx.signer, prog(m));
+  const vaultOf = (m: PublicKey) => (m.equals(p.token0Mint) ? p.vault0 : p.vault1);
+  const direction = 'the swap is not between SOL and this token in the reviewed direction';
+  const checks: Array<[number, PublicKey, string]> = [
+    // The direction first, so a swap the other way round is named as that.
+    [10, inMint, direction],
+    [11, outMint, direction],
+    [0, ctx.signer, 'the swap is paid by someone else'],
+    [1, deriveAuthority(cp), 'the swap names the wrong pool authority'],
+    [2, p.ammConfig, 'the swap names the wrong fee settings'],
+    [3, p.address, 'the swap is against a different pool than the one checked'],
+    [4, mine(inMint), 'the swap spends from an account that is not yours'],
+    [5, mine(outMint), 'the swap pays out to an account that is not yours'],
+    [6, vaultOf(inMint), 'the swap names the wrong pool vault'],
+    [7, vaultOf(outMint), 'the swap names the wrong pool vault'],
+    [8, prog(inMint), 'the swap names the wrong token program'],
+    [9, prog(outMint), 'the swap names the wrong token program'],
+    [12, p.observation, 'the swap names the wrong price record'],
+  ];
+  for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);
+  if (!p.ammConfig.equals(deriveAmmConfig(cp, 0)) && !p.ammConfig.equals(deriveAmmConfig(cp, 1))) {
+    refuse('the swap names a fee tier this site does not route to');
+  }
+  const amountIn = u64(d, 8);
+  const minimumAmountOut = u64(d, 16);
+  if (amountIn === 0n) refuse('the swap amount is zero');
+  if (minimumAmountOut === 0n) refuse('the swap accepts any price (no minimum)');
+  return { kind: 'pool-swap', pool: p.address, inputMint: inMint, outputMint: outMint, amountIn, minimumAmountOut };
 }
 
 /** The largest maximum a deposit may carry: u64::MAX itself means "no limit". */
@@ -591,6 +706,10 @@ export const PROGRAMS_BY_KIND: Readonly<Record<TxKind, ReadonlySet<ProgramFamily
   // Opening a pool wraps SOL exactly like adding liquidity, and nothing more: the pool
   // program creates the pool's own accounts and the pool-share account itself.
   'lp-create': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
+  // A swap-page swap through a pool: a buy wraps SOL (System, Token), both sides pay
+  // the site fee (Token) and may open the signer's accounts (ATA). Token-2022 stays out
+  // at the top level even for a Token-2022 token: the pool program calls it, not us.
+  'lp-swap': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
 };
 
 /**
@@ -601,7 +720,43 @@ const OWN_STEP: Readonly<Record<LpKind, { step: IntentStep['kind']; refuse: stri
   'lp-deposit': { step: 'pool-deposit', refuse: 'it does not hold exactly one deposit into the pool' },
   'lp-withdraw': { step: 'pool-withdraw', refuse: 'it does not hold exactly one withdrawal from the pool' },
   'lp-create': { step: 'pool-create', refuse: 'it does not open exactly one pool' },
+  'lp-swap': { step: 'pool-swap', refuse: 'it does not hold exactly one swap through the pool' },
 };
+
+/**
+ * The whole-transaction rule of an `lp-swap`: what a buy or a sell is made of, and that
+ * the site fee is exactly the committed rate of the transaction's OWN amounts.
+ *
+ *   buy:  wraps SOL once (one transfer, one sync); fee = floor(wrapped x 0.5%);
+ *         the pool gets exactly the wrapped amount less the fee.
+ *   sell: never wraps; fee = floor(the swap's minimum out x 0.5%).
+ *
+ * Order is not pinned: the transaction is atomic, a reorder either fails in simulation
+ * or nets the same, and the balance rows check the net effect. This runs inside
+ * `decodeIntent`, not only in the review's summary, because a wallet's returned copy is
+ * re-decoded with `decodeIntent` and never summarized again.
+ */
+function routeSwapShape(steps: readonly IntentStep[], ctx: RouteIntent): void {
+  const count = (k: IntentStep['kind']) => steps.filter((s) => s.kind === k).length;
+  const swap = steps.find((s) => s.kind === 'pool-swap');
+  const fees = steps.filter((s) => s.kind === 'site-fee');
+  const fee = fees[0];
+  if (fees.length !== 1 || fee?.kind !== 'site-fee') return refuse('it does not pay the site fee exactly once');
+  if (swap?.kind !== 'pool-swap') return refuse(OWN_STEP['lp-swap'].refuse);
+  const wraps = count('wrap-sol');
+  const syncs = count('sync-wsol');
+  if (ctx.side === 'buy') {
+    const wrap = steps.find((s) => s.kind === 'wrap-sol');
+    if (wraps !== 1 || syncs !== 1 || wrap?.kind !== 'wrap-sol') return refuse('a buy must wrap your SOL exactly once');
+    if (fee.amount !== siteFee(wrap.lamports)) refuse('the site fee is not 0.5% of the SOL you pay');
+    if (swap.amountIn !== wrap.lamports - fee.amount) refuse('the swap does not put in exactly what you pay less the site fee');
+  } else {
+    if (wraps !== 0 || syncs !== 0) refuse('a sell never wraps SOL');
+    if (fee.amount !== siteFee(swap.minimumAmountOut)) refuse('the site fee is not 0.5% of the minimum the pool must pay you');
+  }
+  if (count('close-wsol') > 1) refuse('it closes your wrapped-SOL account more than once');
+  if (count('create-token-account') > (ctx.side === 'buy' ? 2 : 1)) refuse('it opens more token accounts than a swap needs');
+}
 
 function familyOf(p: PublicKey, ctx: IntentContext): ProgramFamily | null {
   if (p.equals(ComputeBudgetProgram.programId)) return 'compute';
@@ -662,6 +817,7 @@ export function decodeIntent(
       // shows one, and the balance check is sized for one.
       const own = OWN_STEP[ctx.kind];
       if (steps.filter((s) => s.kind === own.step).length !== 1) refuse(own.refuse);
+      if (ctx.kind === 'lp-swap') routeSwapShape(steps, ctx);
     }
     const limits = steps.filter((s) => s.kind === 'compute-limit');
     const prices = steps.filter((s) => s.kind === 'compute-price');
