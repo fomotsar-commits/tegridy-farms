@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { assessPool, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { getActiveBungalow } from '../../../lib/bungalows';
+import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
 import { inputCls, inputStyle } from '../curve/uiFormat';
 import { TokenSafetyCard } from './TokenSafetyCard';
@@ -107,6 +109,25 @@ export function PoolFinder({
     }
   }
 
+  // A lookup the visitor asked for is brought onto the screen. On a phone the answer
+  // begins below the fold, so a press on Find pools looked as if it had done nothing
+  // (owner, 2026-10-03). A link that carries a token does not move the page by itself.
+  const answerRef = useRef<HTMLDivElement>(null);
+  const asked = useRef(false);
+  const lookUp = useCallback(
+    (next: string) => {
+      asked.current = true;
+      if (next === mint) setNonce((n) => n + 1);
+      else onMint(next);
+    },
+    [mint, onMint],
+  );
+  useEffect(() => {
+    if (!asked.current || state.status === 'idle') return;
+    asked.current = false;
+    answerRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [state.status, mint, nonce]);
+
   const submit = useCallback(() => {
     const p = parseMintInput(input);
     if (!p.ok) {
@@ -114,9 +135,22 @@ export function PoolFinder({
       return;
     }
     setError(null);
-    if (p.mint === mint) setNonce((n) => n + 1);
-    else onMint(p.mint);
-  }, [input, mint, onMint]);
+    lookUp(p.mint);
+  }, [input, lookUp]);
+
+  // The visitor's own room, when its token is on Solana: one press looks it up by its
+  // address, which a phone would otherwise have to find, copy and paste.
+  const roomId = useActiveBungalowId();
+  const room = useMemo(() => {
+    const b = getActiveBungalow();
+    return roomId && b && b.chain === 'solana' && b.address ? { symbol: b.symbol, mint: b.address } : null;
+  }, [roomId]);
+  const findRoomToken = useCallback(() => {
+    if (!room) return;
+    setInput(room.mint);
+    setError(null);
+    lookUp(room.mint);
+  }, [room, lookUp]);
 
   return (
     <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
@@ -145,14 +179,26 @@ export function PoolFinder({
             <button type="submit" className="btn-primary min-h-[44px] px-4 text-[13px]">
               Find pools
             </button>
+            {room && (
+              <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={findRoomToken}>
+                Find {room.symbol} pools
+              </button>
+            )}
             {state.status === 'done' && (
               <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={() => setNonce((n) => n + 1)}>
                 Read again
               </button>
             )}
           </div>
+          <p className="mt-3 text-white/55 text-[12px] leading-relaxed">
+            To add liquidity, look a token up. A pool that passes its checks gets an Add liquidity button; a token
+            with no pool yet gets Open a pool.
+          </p>
         </form>
       </Card>
+
+      {/* Where a lookup the visitor asked for scrolls to: clear of the fixed bar and tabs. */}
+      <div ref={answerRef} className="scroll-mt-32" />
 
       <p role="status" aria-live="polite" className="sr-only" data-testid="lp-status">
         {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? announce(state) : ''}
