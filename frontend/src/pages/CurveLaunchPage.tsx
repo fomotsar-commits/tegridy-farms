@@ -761,11 +761,13 @@ export function CurveLaunchView({
             {wallet.address ? (
               <Row label="Connected" value={wallet.address} />
             ) : (
+              // Not switched off while it waits: a press then opens the wallet list
+              // (useSolanaConnect), so a wallet that never answers is not a dead end.
               <button
                 type="button"
                 onClick={wallet.onConnect}
-                disabled={wallet.connecting}
-                className="btn-primary w-full py-2.5 text-[13px] disabled:opacity-60"
+                aria-busy={wallet.connecting || undefined}
+                className={`btn-primary w-full py-2.5 text-[13px]${wallet.connecting ? ' opacity-60' : ''}`}
               >
                 {wallet.connecting ? 'Connecting…' : 'Connect Solana Wallet'}
               </button>

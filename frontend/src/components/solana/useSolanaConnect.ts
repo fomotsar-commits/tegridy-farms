@@ -36,7 +36,10 @@ export function useSolanaConnect() {
   const { wallet, connected, connecting, connect } = useWallet();
   const { setVisible } = useWalletModal();
   return useCallback(() => {
-    if (wallet?.readyState === WalletReadyState.Installed && !connected && !connecting) {
+    // `adapter.connecting`, read at the press: the provider's own flag can say "not
+    // connecting" over a wallet that is still being waited on (another wallet's late
+    // answer clears it, see useWalletResync), and connect() would then do nothing at all.
+    if (wallet?.readyState === WalletReadyState.Installed && !connected && !connecting && !wallet.adapter.connecting) {
       connect().catch(() => {
         /* surfaced by the provider's error handler */
       });

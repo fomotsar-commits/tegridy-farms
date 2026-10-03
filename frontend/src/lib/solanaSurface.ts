@@ -61,10 +61,23 @@ export function setSolanaSurface(owner: object, surface: SolanaSurface | null): 
   announce();
 }
 
-/** The top bar's Solana Connect: the page's list now, or once the page's Solana section loads. */
+/**
+ * The top bar's Solana Connect: the page's list now, or once the page's Solana section loads.
+ *
+ * A tap that reaches the page also answers a tap still waiting for it. The page
+ * holds an early tap while its saved wallet is being restored, and the top bar
+ * takes taps through that wait. Left waiting, the early one could be replayed
+ * after the list it asked for had been opened and closed, and ten seconds on
+ * it was reported as a list that "did not load" (TopNav), over the open list.
+ */
 export function requestSolanaOpen(): void {
-  if (state.surface) {
-    state.surface.open();
+  const { surface } = state;
+  if (surface) {
+    if (pending) {
+      pending = false;
+      announce();
+    }
+    surface.open();
     return;
   }
   if (pending) return;
