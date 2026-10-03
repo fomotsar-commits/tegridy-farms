@@ -20,9 +20,18 @@
  *     neither when no fee account is configured);
  *   - our own-pool quote already has the pool's trade fee, protocol cut, fund
  *     cut and creator fee taken out, because it runs the program's own maths.
- * Neither number is "before fees", so no fee adjustment happens here. If a
- * future venue fee sits OUTSIDE the quote, it must be subtracted before a
- * candidate reaches this file, not compensated for inside it.
+ * Neither number is "before fees", so no fee adjustment happens here. A venue
+ * fee that sits OUTSIDE the quote must be subtracted before a candidate reaches
+ * this file, not compensated for inside it. The site's own swap fee on a trade
+ * through our pool is exactly that, and the one place it is taken off is
+ * `lib/solana/swap/ownRoute.ts routeQuote()`: an own-pool candidate's
+ * `outAmount` must be that function's `netExpected`, never a bare pool quote.
+ * Whether Jupiter's `outAmount` is really "after our fee" is proven per quote by
+ * `lib/jupiter.ts jupiterNet()`; an unproven quote never reaches this file.
+ *
+ * A LONE CANDIDATE WINS. `chooseRoute([ownOnly])` picks our pool, because there
+ * is nothing to lose to. That is right for this file and wrong for a trade, so
+ * `ownRoute.ts decideRoute()` only calls this with BOTH candidates present.
  *
  * WHAT THIS FILE DOES NOT DO: it does not execute, does not fetch, and does not
  * know what a wallet is. It takes two quotes and returns a decision plus the

@@ -247,6 +247,20 @@ describe('tokenReasons', () => {
       'It calls itself by a well-known token’s name but has a different mint. This site does not open pools for copies.',
     ]);
   });
+
+  // SPEC_S3 D8: routing a swap judges the token with the same function.
+  it('a copied name is refused for swaps too, in its own words', () => {
+    expect(tokenReasons(copy, 'swaps').refused).toEqual([
+      'It calls itself by a well-known token’s name but has a different mint. This site does not send trades to pools of copies.',
+    ]);
+  });
+
+  it.each(fixtures)('%s: the swaps version differs only in the copied-name sentence', (_name, safety) => {
+    const deposits = tokenReasons(safety, 'deposits');
+    const swaps = tokenReasons(safety, 'swaps');
+    const swap = (s: string) => s.replace('This site does not take deposits into copies.', 'This site does not send trades to pools of copies.');
+    expect(swaps).toEqual({ refused: deposits.refused.map(swap), unchecked: deposits.unchecked });
+  });
 });
 
 describe('comparePrice', () => {

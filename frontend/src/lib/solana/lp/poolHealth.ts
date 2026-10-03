@@ -124,12 +124,19 @@ function ownPriceOf(view: PoolView, tokenDecimals: number, chainNow: bigint | nu
 }
 
 /**
- * The token's part of the verdict, one function for deposits AND for opening a pool, so
- * both judge a token the same way. Unread is unchecked, never a pass; an absent token, a
- * blocked one, and one that copies a well-known name from another mint are refused.
+ * The token's part of the verdict, one function for deposits, for opening a pool AND for
+ * routing a swap into a pool, so all three judge a token the same way. Unread is
+ * unchecked, never a pass; an absent token, a blocked one, and one that copies a
+ * well-known name from another mint are refused.
  * `action` changes only the copied-name sentence: what this site will not do with a copy.
  */
-export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'pools'): { refused: string[]; unchecked: string[] } {
+const COPY_REFUSAL: Record<'deposits' | 'pools' | 'swaps', string> = {
+  deposits: 'This site does not take deposits into copies.',
+  pools: 'This site does not open pools for copies.',
+  swaps: 'This site does not send trades to pools of copies.',
+};
+
+export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'pools' | 'swaps'): { refused: string[]; unchecked: string[] } {
   const refused: string[] = [];
   const unchecked: string[] = [];
   if (!safety || safety.kind === 'unread') unchecked.push('We could not read the token, so we cannot say whether it is safe.');
@@ -139,11 +146,7 @@ export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'p
   // liquidity here to a token that poses as one on WELL_KNOWN_NAMES (SOL, USDC, USDT,
   // BAYLA, TOWELI and the island's Solana tokens).
   if (safety?.kind === 'read' && safety.warnings.some((w) => w.code === 'copies-known-name')) {
-    refused.push(
-      action === 'deposits'
-        ? 'It calls itself by a well-known token’s name but has a different mint. This site does not take deposits into copies.'
-        : 'It calls itself by a well-known token’s name but has a different mint. This site does not open pools for copies.',
-    );
+    refused.push(`It calls itself by a well-known token’s name but has a different mint. ${COPY_REFUSAL[action]}`);
   }
   return { refused, unchecked };
 }
