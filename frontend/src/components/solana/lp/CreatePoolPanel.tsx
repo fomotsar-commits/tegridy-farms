@@ -153,7 +153,7 @@ function CreateInner({
   const [factsNonce, setFactsNonce] = useState(0);
   const facts = useWalletFacts(writes, signer?.publicKey ?? null, { tokenMint: mint, tokenProgram, lpMint: null, opening: true }, factsNonce);
 
-  const [boxes, setBoxes] = useState<{ sol: string; token: string }>({ sol: '', token: '' });
+  const [boxes, setBoxes] = useState<{ quote: string; token: string }>({ quote: '', token: '' });
   const [driving, setDriving] = useState<LpSide | null>(null);
 
   const lastOutcome = useRef<string | null>(null);
@@ -176,22 +176,22 @@ function CreateInner({
     if (lastOutcome.current === 'not-sent') refreshCreateFacts();
     // Opened: the amounts it opened with are spent. Nothing here may be reviewed again.
     if (lastOutcome.current === 'confirmed') {
-      setBoxes({ sol: '', token: '' });
+      setBoxes({ quote: '', token: '' });
       setDriving(null);
     }
   }, [refreshCreateFacts]);
   useFlowReports(writes, flow.state.step, flow.locked, reread);
 
   const dec = decimals ?? 0;
-  const sideDecimals = (s: LpSide) => (s === 'sol' ? SOL_DECIMALS : dec);
+  const sideDecimals = (s: LpSide) => (s === 'quote' ? SOL_DECIMALS : dec);
   const parse = (s: LpSide): bigint | null => {
     const t = boxes[s].trim();
     if (t === '' || (s === 'token' && decimals === null)) return null;
     return parseDecimalToBaseUnits(t, sideDecimals(s));
   };
-  const solRaw = parse('sol');
+  const solRaw = parse('quote');
   const tokRaw = parse('token');
-  const bad = (s: LpSide) => boxes[s].trim() !== '' && (s === 'sol' ? solRaw : tokRaw) === null && !(s === 'token' && decimals === null);
+  const bad = (s: LpSide) => boxes[s].trim() !== '' && (s === 'quote' ? solRaw : tokRaw) === null && !(s === 'token' && decimals === null);
 
   // What the wallet can put in, after the fee to open, the pool's own account deposits,
   // the pool-share account and two signatures' fees. Unread is null, never 0.
@@ -214,9 +214,10 @@ function CreateInner({
   const cannotOpen = cannotFundText({
     doing: 'open a pool',
     forWhat: 'the fee to open, the account deposits and network fees',
+    quote: SOL_QUOTE,
     lamports: facts?.kind === 'ok' ? facts.lamports : null,
     setAside,
-    availableSol,
+    availableQuote: availableSol,
     availableToken,
   });
   const market = outside?.kind === 'ok' ? outside.solPerToken : null;
@@ -234,14 +235,14 @@ function CreateInner({
     setBoxes((b) => ({ ...b, [side]: text }));
     setDriving(side);
   };
-  const keep: LpSide | null = driving && (driving === 'sol' ? solRaw : tokRaw) ? driving : solRaw ? 'sol' : tokRaw ? 'token' : null;
+  const keep: LpSide | null = driving && (driving === 'quote' ? solRaw : tokRaw) ? driving : solRaw ? 'quote' : tokRaw ? 'token' : null;
   const matchTo = (k: LpSide | null) => {
     if (!k || market === null || decimals === null) return;
-    const amount = k === 'sol' ? solRaw : tokRaw;
+    const amount = k === 'quote' ? solRaw : tokRaw;
     if (!amount) return;
-    const other = matchMarket({ keep: k === 'sol' ? 'quote' : 'token', amount, pricePerToken: market, tokenDecimals: decimals, quote: SOL_QUOTE });
+    const other = matchMarket({ keep: k, amount, pricePerToken: market, tokenDecimals: decimals, quote: SOL_QUOTE });
     if (other === null) return;
-    setSide(k === 'sol' ? 'token' : 'sol', other);
+    setSide(k === 'quote' ? 'token' : 'quote', other);
     setDriving(k);
   };
   const canMatch = keep !== null && market !== null && decimals !== null;
@@ -251,7 +252,7 @@ function CreateInner({
       : null;
   const applyMostBoth = () => {
     if (!mostBoth) return;
-    setBoxes({ sol: baseUnitsToInput(mostBoth.quote, SOL_DECIMALS), token: baseUnitsToInput(mostBoth.token, dec) });
+    setBoxes({ quote: baseUnitsToInput(mostBoth.quote, SOL_DECIMALS), token: baseUnitsToInput(mostBoth.token, dec) });
   };
 
   // ── hints ──
@@ -266,7 +267,7 @@ function CreateInner({
       : `You have ${solExact(facts.lamports)}. Up to ${solExact(availableSol)} can go in after the fee to open, the account deposits and network fees.`;
   };
   const parseError = (side: LpSide) =>
-    bad(side) ? (side === 'sol' ? 'That is not a SOL amount (at most 9 decimals).' : `That is not an amount this token can hold (at most ${dec} decimals).`) : null;
+    bad(side) ? (side === 'quote' ? 'That is not a SOL amount (at most 9 decimals).' : `That is not an amount this token can hold (at most ${dec} decimals).`) : null;
 
   // ── the problems line: one sentence ──
   let problemText = '';
@@ -290,8 +291,8 @@ function CreateInner({
       fix = {
         label: `Use ${solExact(have)}`,
         run: () => {
-          setSide('sol', have);
-          setDriving('sol');
+          setSide('quote', have);
+          setDriving('quote');
         },
       };
     }
@@ -340,7 +341,7 @@ function CreateInner({
   const warnings = safety.kind === 'read' && safety.verdict === 'warn' ? safety.warnings : [];
   const walletReady = writes.signerState.kind === 'ready';
   // An amount that does not parse has its own line under its box: it is not "type both amounts".
-  const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotOpen !== null, hasAmounts: both || bad('sol') || bad('token'), amountsWord: 'both amounts' });
+  const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotOpen !== null, hasAmounts: both || bad('quote') || bad('token'), amountsWord: 'both amounts' });
   const callsItself =
     safety.kind === 'read' && safety.verdict !== 'blocked' && (safety.name || safety.symbol)
       ? `${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`
@@ -420,7 +421,7 @@ function CreateInner({
           {cannotOpen && (
             <div data-testid="lp-create-cannot" className="text-[13px] leading-relaxed space-y-1">
               <Notice tone="warn">{cannotOpen}</Notice>
-              <FundingNextStep needsSol={availableSol === 0n} needsToken={availableToken === 0n} mint={mint} wallet={signer?.publicKey.toBase58() ?? null} />
+              <FundingNextStep coin={SOL_QUOTE} needsSol={availableSol === 0n} needsToken={availableToken === 0n} mint={mint} wallet={signer?.publicKey.toBase58() ?? null} />
             </div>
           )}
           <div className="space-y-2" data-testid="lp-create-market">
@@ -431,26 +432,27 @@ function CreateInner({
             </p>
           </div>
           <LpAmountPair
-            sol={boxes.sol}
+            coin={SOL_QUOTE}
+            quote={boxes.quote}
             token={boxes.token}
             driving={driving}
             tokenDecimals={decimals}
             linked={false}
-            labels={{ sol: 'SOL to put in', token: 'Tokens to put in' }}
+            labels={{ quote: 'SOL to put in', token: 'Tokens to put in' }}
             onType={onType}
             onMax={(side) => {
-              if (side === 'sol' && availableSol !== null) {
-                setSide('sol', availableSol);
-                setDriving('sol');
+              if (side === 'quote' && availableSol !== null) {
+                setSide('quote', availableSol);
+                setDriving('quote');
               }
               if (side === 'token' && availableToken !== null) {
                 setSide('token', availableToken);
                 setDriving('token');
               }
             }}
-            canMax={{ sol: availableSol !== null, token: availableToken !== null && decimals !== null }}
-            hints={{ sol: hintFor('sol'), token: hintFor('token') }}
-            errors={{ sol: parseError('sol'), token: parseError('token') }}
+            canMax={{ quote: availableSol !== null, token: availableToken !== null && decimals !== null }}
+            hints={{ quote: hintFor('quote'), token: hintFor('token') }}
+            errors={{ quote: parseError('quote'), token: parseError('token') }}
           />
           <div className="space-y-2">
             <button

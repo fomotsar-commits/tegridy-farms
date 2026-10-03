@@ -34,15 +34,7 @@
 // pays into it (opened with create-if-missing, under the coin's own token program).
 
 import { Buffer } from 'buffer';
-import {
-  ExtensionType,
-  createAssociatedTokenAccountIdempotentInstruction,
-  getAccountLen,
-  getAccountTypeOfMintType,
-  getCpiGuard,
-  getMemoTransfer,
-  unpackAccount,
-} from '@solana/spl-token';
+import { createAssociatedTokenAccountIdempotentInstruction, getCpiGuard, getMemoTransfer, unpackAccount } from '@solana/spl-token';
 import { PublicKey, type TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
@@ -64,6 +56,7 @@ import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { CLOCK_SYSVAR, chainTimeOf, poolViewFrom, type PoolView } from '../../../solana/lp/poolFinder';
 import { assessPool, formatWhen } from '../../../solana/lp/poolHealth';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
+import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
 import { EXTENSION, SITE_ALLOWED_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { metadataPda } from './metaplex';
@@ -215,26 +208,10 @@ function poolProblem(cp: PublicKey, address: PublicKey, pool: PoolStateView, tok
   return null;
 }
 
-/**
- * The size of a token account for this mint (D20). Classic: 165. Token-2022: the
- * account extensions the mint's own extensions require, plus ImmutableOwner, which
- * the associated-token program always adds. NOT `getAccountLenForMint`, which leaves
- * ImmutableOwner out and answers 165 for a Token-2022 mint with no extensions, where
- * the real account is 170. A string = this site cannot size it.
- */
-export function tokenAccountSize(mint: RawAccount): number | string {
-  if (mint.owner === TOKEN_PROGRAM_ID.toBase58()) return 165;
-  if (mint.owner !== TOKEN_2022_PROGRAM_ID.toBase58()) return 'the token is not owned by a token program';
-  const d = decodeMintAccount(mint.owner, mint.data);
-  if (!d.ok) return d.reason;
-  const types = new Set<ExtensionType>([ExtensionType.ImmutableOwner]);
-  for (const e of d.value.extensions) {
-    const t = getAccountTypeOfMintType(e as ExtensionType) as ExtensionType | undefined;
-    if (t === undefined) return `it uses ${extensionPlain(e)}`;
-    if (t !== ExtensionType.Uninitialized) types.add(t);
-  }
-  return getAccountLen([...types]);
-}
+// The size of a token account for a mint (D20) lives in solana/lp/tokenAccountSize.ts:
+// the page's wallet read sizes the pairing coin's account by the same rule, and the page
+// does not import this file.
+export { tokenAccountSize };
 
 /**
  * The one fresh read (3.1 step 2-4, 3.2 step 2-4). Round 1: ONE getMultipleAccountsInfo
