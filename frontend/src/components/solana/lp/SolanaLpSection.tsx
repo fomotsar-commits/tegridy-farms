@@ -123,10 +123,11 @@ const RISK_LINE_STYLE = { background: 'rgba(28,21,6,0.92)', border: '1px solid r
 /**
  * The short form of LpDisclosure, above the finder on a tab that opens on it. It may be
  * short only because the full card is on the same page, right under the positions.
+ * Set tighter on a phone, where each of its lines pushes the finder's field down.
  */
 function LpRiskLine() {
   return (
-    <p data-testid="lp-risk-line" className="rounded-xl px-4 py-3 text-amber-200 text-[13px] leading-relaxed" style={RISK_LINE_STYLE}>
+    <p data-testid="lp-risk-line" className="rounded-xl px-4 py-2.5 sm:py-3 text-amber-200 text-[13px] leading-snug sm:leading-relaxed" style={RISK_LINE_STYLE}>
       These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what
       you can afford to lose. The full notice is right under your positions.
     </p>

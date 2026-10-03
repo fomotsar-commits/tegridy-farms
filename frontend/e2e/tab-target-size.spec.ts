@@ -174,6 +174,11 @@ for (const path of ['/solana-lp', `/solana-lp?mint=${A_MINT}`]) {
  */
 const FIRST_SCREENS = [
   { name: '390x844 phone', size: IPHONE_390, bottomBar: true },
+  // A phone's browser gives a page less than the phone's screen. Playwright's own devices:
+  // an iPhone 14 (a 390x844 screen) leaves Safari 390x664, and an iPhone 15 leaves 393x659.
+  { name: '390x664, Safari on an iPhone 14', size: { width: 390, height: 664 }, bottomBar: true },
+  { name: '393x659, Safari on an iPhone 15', size: { width: 393, height: 659 }, bottomBar: true },
+  { name: '375x667, a narrower phone', size: { width: 375, height: 667 }, bottomBar: true },
   { name: '1280x900 desktop', size: { width: 1280, height: 900 }, bottomBar: false },
 ];
 
@@ -202,11 +207,14 @@ for (const vp of FIRST_SCREENS) {
     const field = page.getByTestId('lp-finder').getByLabel(/Token mint address/);
     const box = (await field.boundingBox())!;
     const fieldEnds = Math.round(box.y + box.height);
-    const screenEnds = vp.size.height - barHeight;
+    // The height the page really has, not the one asked for: a project may not give it.
+    const pageHeight = await page.evaluate(() => window.innerHeight);
+    expect(pageHeight, 'the page is as tall as this case says').toBe(vp.size.height);
+    const screenEnds = pageHeight - barHeight;
     expect(
       fieldEnds,
       `the field ends ${fieldEnds}px down; the first screen ends at ${screenEnds}px ` +
-        `(${vp.size.height}px tall, ${barHeight}px of bottom bar)`,
+        `(${pageHeight}px tall, ${barHeight}px of bottom bar)`,
     ).toBeLessThanOrEqual(screenEnds);
     // In the first screen and not under anything: the point at its middle is the field itself.
     const onTop = await field.evaluate((el) => {
@@ -220,6 +228,43 @@ for (const vp of FIRST_SCREENS) {
     expect(risk.y + risk.height, 'the risk line is not above the field').toBeLessThanOrEqual(box.y);
 
     await expectNoSidewaysScroll(page);
+  });
+}
+
+/**
+ * Refresh on the live card, and the re-read fails: the LP section above the card unmounts,
+ * so the card jumps up the page. The Refresh that was pressed keeps keyboard focus, and
+ * what the read found is on screen, clear of the header, the tab strip and the phone's
+ * bottom bar. Chromium holds the card in place by itself; at 1280x720 WebKit does not, so
+ * there the page's own scroll is what this measures.
+ */
+for (const size of [{ width: 390, height: 664 }, { width: 1280, height: 720 }]) {
+  test(`/solana-lp: a live Refresh that fails keeps focus on Refresh and shows its answer, at ${size.width}x${size.height}`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize(size);
+    await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
+    const card = page.getByRole('region', { name: 'Venue status' });
+    await expect(card.getByRole('heading', { name: 'Pools are open' })).toBeVisible();
+    // Focusing the button scrolls the card into view, down under the whole LP section.
+    // Polled: in WebKit that scroll can land after the focus call has returned.
+    await card.getByRole('button', { name: 'Refresh' }).focus();
+    await expect.poll(() => page.evaluate(() => window.scrollY), 'the live card is a scroll down the page').toBeGreaterThan(size.height);
+
+    // The proxy stops answering, the same way the unreadable case below plays it.
+    await page.unroute('**/api/solrpc');
+    await page.route('**/api/solrpc', (r) => r.abort());
+    await page.keyboard.press('Enter');
+    const answer = card.getByRole('heading', { name: 'The chain could not be read' });
+    await expect(answer).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('lp-finder')).toHaveCount(0);
+
+    await expect.soft(card.getByRole('button', { name: 'Refresh' }), 'keyboard focus left the pressed Refresh').toBeFocused();
+    // On screen and under nothing: the points at both ends of the heading are the heading.
+    const seen = await answer.evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      const hits = (y: number) => el.contains(document.elementFromPoint(b.left + 4, y));
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom), screen: window.innerHeight, shown: hits(b.top + 2) && hits(b.bottom - 2) };
+    });
+    expect(seen.shown, `the answer's heading is at ${seen.top} to ${seen.bottom}px of a ${seen.screen}px screen`).toBe(true);
   });
 }
 

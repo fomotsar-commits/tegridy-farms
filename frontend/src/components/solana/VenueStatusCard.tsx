@@ -1,5 +1,6 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
+import type { Ref } from 'react';
 import { CopyButton } from '../ui/CopyButton';
 import type { VenueStatus } from '../../lib/solana/cpswap/read';
 import { SPENT_PROGRAM_ID, hasProgramId } from '../../lib/solana/cpswap/program';
@@ -23,7 +24,9 @@ const VENUE_LP_LINE: Record<LpWriteMode, (lpSection: 'above' | 'below') => strin
  * its config, which only /pools has, so /solana-lp passes false. `lpSection`: where the
  * pools section is from the live card; /solana-lp puts the card under it.
  */
-export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = true, lpSection = 'below' }: {
+export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = true, lpSection = 'below', ref }: {
+  /** The card's own section, whichever state it shows, for a page that scrolls to it. */
+  ref?: Ref<HTMLElement>;
   status: VenueStatus | null;
   onRefresh: () => void;
   lpMode: LpWriteMode;
@@ -32,18 +35,22 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
 }) {
   const amber = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' };
   const green = { background: 'rgba(6,24,14,0.92)', border: '1px solid rgba(34,197,94,0.45)' };
+  // A card that is scrolled to stops clear of the fixed header and the tab strip under it.
+  const frame = ref ? 'rounded-2xl p-6 scroll-mt-24' : 'rounded-2xl p-6';
 
   if (status === null) {
     return (
-      <section className="rounded-2xl p-6" style={CARD}>
+      <section ref={ref} className={frame} style={CARD}>
         <p className="text-white/70 text-[13px]">Reading the venue&rsquo;s status from the chain…</p>
       </section>
     );
   }
 
+  // The live card and the not-live card below open the same way (section, row, label,
+  // Refresh), so a re-read that changes the state keeps the pressed Refresh and its focus.
   if (status.kind === 'live') {
     return (
-      <section className="rounded-2xl p-6" style={green} aria-label="Venue status">
+      <section ref={ref} className={frame} style={green} aria-label="Venue status">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
           <p className="text-[10px] uppercase tracking-wider" style={{ color: '#4ade80' }}>Venue · LIVE</p>
           <button type="button" onClick={onRefresh} className="text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
@@ -107,7 +114,7 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
   })();
 
   return (
-    <section className="rounded-2xl p-6" style={amber} aria-label="Venue status">
+    <section ref={ref} className={frame} style={amber} aria-label="Venue status">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
         <p className="text-[10px] uppercase tracking-wider" style={{ color: '#e3b341' }}>Venue status · live chain read</p>
         <button type="button" onClick={onRefresh} className="text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>

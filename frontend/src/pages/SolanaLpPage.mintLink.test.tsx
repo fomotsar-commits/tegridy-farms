@@ -109,17 +109,24 @@ describe('the ?mint= link on /solana-lp', () => {
 // The finder used to sit 1,506px down a phone, under the status card, the risk card and
 // the fee tiers, where a visitor did not find it. On this tab it comes first.
 describe('/solana-lp opens on the pool finder', () => {
-  it('live: the risk line, the finder, the positions, the full notice, the fee tiers, the status card, "The program"', async () => {
+  it('live: the risk line, the finder, the positions, the full notice, the fee tiers, the Venue AMM link, the status card, "The program"', async () => {
     fakeReaders();
     await mount('/solana-lp');
     await screen.findByTestId('lp-finder');
+    const h1 = screen.getByRole('heading', { level: 1 });
     expectTopToBottom([
-      ['the heading', screen.getByRole('heading', { level: 1 })],
+      ['the heading', h1],
       ...LP_PARTS.map((id): [string, HTMLElement] => [id, screen.getByTestId(id)]),
+      ['the Venue AMM link', screen.getByRole('link', { name: /fees, status and how the pools work/i })],
       ['the status card', screen.getByRole('region', { name: 'Venue status' })],
       ['"The program"', screen.getByRole('region', { name: 'The program' })],
     ]);
     expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/Pools are open/);
+    // Between the hero's words and the finder there is the risk line and nothing else.
+    expect(h1.parentElement!.nextElementSibling!.firstElementChild).toBe(screen.getByTestId('lp-section'));
+    expect(screen.getByTestId('lp-section').firstElementChild).toBe(screen.getByTestId('lp-risk-line'));
+    expect(screen.getByTestId('lp-risk-line').nextElementSibling).toBe(screen.getByTestId('lp-finder'));
+    expect(within(h1.parentElement!).queryByRole('link')).toBeNull();
   });
 
   // The line may be short only because the whole notice is on the same page, where it says.

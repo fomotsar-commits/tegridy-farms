@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 // /solana-lp: the same live venue read as /pools decides whether the LP section mounts.
@@ -37,6 +37,12 @@ const UNREADABLE = { kind: 'unreadable', detail: 'proxy timed out' } as const;
 // The page's module graph is loaded once, outside any test's own clock. No test needs a
 // fresh copy: the reads and LP's mode are looked up on every render.
 beforeAll(async () => { await import('./SolanaLpPage'); }, 60_000);
+
+// jsdom has no scrollIntoView. The page calls it on the status card, so this is the record.
+const scrolled = vi.fn();
+const proto = Element.prototype as { scrollIntoView?: unknown };
+beforeAll(() => { proto.scrollIntoView = scrolled; });
+afterAll(() => { delete proto.scrollIntoView; });
 
 async function mount(path = '/solana-lp') {
   const { default: SolanaLpPage } = await import('./SolanaLpPage');
@@ -76,9 +82,23 @@ describe('when the venue reads live', () => {
     const { hero, after } = column();
     expect(hero).toHaveTextContent(/The pools section below says/);
     expect(after).toHaveLength(3);
-    expect(after[0]).toBe(section);
-    expect(after[1]).toContainElement(card);
+    expect(after[0]!.firstElementChild).toBe(section);
+    expect(after[1]).toBe(card);
     expect(after[2]).toBe(screen.getByRole('region', { name: 'The program' }));
+  });
+
+  // In the hero the link cost a 390px phone 63px of first screen above the finder's field.
+  it('the Venue AMM link follows the section, and the hero ends on its own words', async () => {
+    await mount(`/solana-lp?mint=${M}&amount=5`);
+    const section = await screen.findByTestId('lp-section');
+    const { hero, after } = column();
+    expect(within(hero).queryByRole('link')).toBeNull();
+    expect(hero.lastElementChild).toHaveTextContent(/^Find a pool/);
+    const link = venueAmmLink();
+    expect(link).toHaveAttribute('href', `/pools?mint=${M}`);
+    expect(after[0]).toContainElement(link);
+    expect(section.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole('link')).toHaveLength(1);
   });
 
   // The live card sits under the section here, so it may not point down at it.
@@ -148,6 +168,44 @@ describe('when the venue reads live', () => {
     expect(screen.getByTestId('lp-section')).toBeInTheDocument();
     expect(screen.queryByText(/Reading the venue/i)).toBeNull();
   });
+
+  // One card, live or not: a failed re-read changes what it says, not which button was pressed.
+  it('a Refresh whose re-read fails keeps keyboard focus on that same Refresh', async () => {
+    readVenue.mockResolvedValueOnce(LIVE).mockResolvedValueOnce(UNREADABLE);
+    await mount();
+    await screen.findByTestId('lp-section');
+    const pressed = screen.getByRole('button', { name: 'Refresh' });
+    pressed.focus();
+    expect(document.activeElement).toBe(pressed);
+    fireEvent.click(pressed);
+    await screen.findByText(/The chain could not be read/i);
+    const card = screen.getByRole('region', { name: 'Venue status' });
+    expectNoLpSection();
+    expect(document.activeElement).toBe(pressed);
+    expect(within(card).getByRole('button', { name: 'Refresh' })).toBe(pressed);
+    expect(column().after[0]).toBe(card);
+  });
+
+  // The section above the card goes away, so the card jumps up the page under the reader.
+  it('a Refresh whose re-read fails brings the card back into view; one that reads live does not scroll', async () => {
+    let answer!: (v: unknown) => void;
+    readVenue.mockResolvedValueOnce(LIVE).mockResolvedValueOnce(LIVE).mockReturnValueOnce(new Promise((r) => { answer = r; }));
+    await mount();
+    await screen.findByTestId('lp-section');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(readVenue).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(readVenue).toHaveBeenCalledTimes(3));
+    expect(scrolled).not.toHaveBeenCalled();
+    answer(UNREADABLE);
+    await screen.findByText(/The chain could not be read/i);
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    const card = screen.getByRole('region', { name: 'Venue status' });
+    expect(scrolled.mock.contexts[0]).toBe(card);
+    expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' });
+    // The scroll stops short of the fixed header and tab strip (e2e measures it in a browser).
+    expect(card).toHaveClass('scroll-mt-24');
+  });
 });
 
 describe('when the venue does not read live', () => {
@@ -171,6 +229,9 @@ describe('when the venue does not read live', () => {
     expect(after[0]).toBe(screen.getByRole('region', { name: 'Venue status' }));
     expect(after[0]).toHaveTextContent(title);
     expect(after[1]).toBe(screen.getByRole('region', { name: 'The program' }));
+    // The Venue AMM link is the hero's last line, as it was before the finder came first.
+    expect(hero.lastElementChild).toContainElement(venueAmmLink());
+    expect(scrolled).not.toHaveBeenCalled();
   });
 
   it('while the first read is in flight: reading, and no LP section', async () => {
@@ -191,6 +252,8 @@ describe('when the venue does not read live', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Refresh' }));
     expect(await screen.findByTestId('lp-section')).toBeInTheDocument();
     expect(readVenue).toHaveBeenCalledTimes(2);
+    // The finder arriving above the card moves nothing under the reader's thumb.
+    expect(scrolled).not.toHaveBeenCalled();
   });
 
   // The card is all this tab shows then, so a second failure has to look like a new read.
@@ -206,6 +269,7 @@ describe('when the venue does not read live', () => {
     expect(await screen.findByText(/The chain could not be read/i)).toBeInTheDocument();
     expect(readVenue).toHaveBeenCalledTimes(2);
     expectNoLpSection();
+    expect(scrolled).not.toHaveBeenCalled();
   });
 });
 

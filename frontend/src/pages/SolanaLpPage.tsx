@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../lib/solanaPolyfill';
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react';
 import { m } from 'framer-motion';
 import { Link, useSearchParams } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -32,6 +32,21 @@ export default function SolanaLpPage() {
   const lpMode = lpWriteMode();
   // The token being looked at (?mint=) follows the reader to the Venue AMM tab.
   const [params] = useSearchParams();
+  const venueAmmLink = (
+    <Link to={withMint('/pools', params)} className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
+      See fees, status and how the pools work on the Venue AMM tab
+    </Link>
+  );
+
+  // A Refresh that stops reading live unmounts the LP section above the status card, so the
+  // card jumps up the page. It is brought back into view: the answer to the press stays on
+  // screen. 'nearest' moves nothing when the card is already in view.
+  const statusCard = useRef<HTMLElement>(null);
+  const wasOpen = useRef(venueIsOpen);
+  useLayoutEffect(() => {
+    if (wasOpen.current && !venueIsOpen) statusCard.current?.scrollIntoView?.({ block: 'nearest' });
+    wasOpen.current = venueIsOpen;
+  }, [venueIsOpen]);
 
   return (
     <div className="relative min-h-screen">
@@ -49,28 +64,32 @@ export default function SolanaLpPage() {
           <p className="text-white/85 text-[15px] max-w-xl leading-relaxed">
             {venueIsOpen ? HERO_LINE[lpMode] : HERO_NOT_OPEN}
           </p>
-          <p className="text-[13px] mt-2">
-            <Link to={withMint('/pools', params)} className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
-              See fees, status and how the pools work on the Venue AMM tab
-            </Link>
-          </p>
+          {/* Live, this link follows the section: here it stood between a phone and the finder. */}
+          {!venueIsOpen && <p className="text-[13px] mt-2">{venueAmmLink}</p>}
         </m.div>
 
-        {/* Live: the finder comes first and the status card follows the section; its Refresh
-            keeps the section mounted while it reads again. Not live: the card is all there is,
-            right under the hero, and Refresh goes back to reading so a second failure shows. */}
-        {venueIsOpen ? (
-          <>
+        {/* Live: the finder comes first, right under the hero's words. */}
+        {venueIsOpen && (
+          <div className="mb-6">
             <Suspense fallback={<p className="text-white/60 text-[13px]">Loading the pool finder…</p>}>
               <SolanaLpSection finderFirst />
             </Suspense>
-            <div className="mt-6">
-              <VenueStatusCard status={status} onRefresh={refresh} lpMode={lpMode} feeSheetBelow={false} lpSection="above" />
-            </div>
-          </>
-        ) : (
-          <VenueStatusCard status={status} onRefresh={retry} lpMode={lpMode} feeSheetBelow={false} />
+            <p className="text-[13px] mt-4">{venueAmmLink}</p>
+          </div>
         )}
+
+        {/* ONE status card in one place, live or not: under the section when live, right under
+            the hero when not. A re-read then changes what the card says and keeps the Refresh
+            that was pressed, with its keyboard focus. Live, Refresh keeps the section mounted
+            while it reads again; not live it goes back to reading, so a second failure shows. */}
+        <VenueStatusCard
+          ref={statusCard}
+          status={status}
+          onRefresh={venueIsOpen ? refresh : retry}
+          lpMode={lpMode}
+          feeSheetBelow={false}
+          lpSection="above"
+        />
 
         <VenueProgramCard />
       </div>

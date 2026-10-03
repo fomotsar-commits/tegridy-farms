@@ -154,7 +154,10 @@ describe('when the venue is live', () => {
     await mount();
     const section = await screen.findByTestId('lp-section');
     expect(section).toHaveAttribute('data-finder-first', 'false');
-    expect(section.previousElementSibling).toBe(screen.getByRole('region', { name: 'Venue status' }));
+    const card = screen.getByRole('region', { name: 'Venue status' });
+    expect(section.previousElementSibling).toBe(card);
+    // The card is this tab's own: nothing the Solana LP tab asks of it (a scroll margin) is on it.
+    expect(card.className).toBe('rounded-2xl p-6');
   });
 
   it('drops the PROPOSAL badge and reads the fees from the chain', async () => {
