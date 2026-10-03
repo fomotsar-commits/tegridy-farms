@@ -1,14 +1,20 @@
 import { decimalCommaToPoint } from '../../../lib/launcher/solana/curve/format';
+import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { Field } from '../curve/ui';
 import { TOGGLE_CLS, inputCls, inputStyle } from '../curve/uiFormat';
 
-export type LpSide = 'sol' | 'token';
+/** The pairing coin's box (SOL, USDC or BAYLA: quotes.ts) and the token's. */
+export type LpSide = 'quote' | 'token';
 
 /**
- * The two amount boxes of a liquidity form: SOL and the token. With `linked`, the box
- * typed in last drives and the other one shows what the pool asks for it (the parent
- * passes that worked-out text as the other side's value); typing in the other box makes
- * it drive. Unlinked (opening a pool later), both sides are typed on their own.
+ * The two amount boxes of a liquidity form: the pool's pairing coin (`coin`) and the
+ * token. With `linked`, the box typed in last drives and the other one shows what the
+ * pool asks for it (the parent passes that worked-out text as the other side's value);
+ * typing in the other box makes it drive. Unlinked (opening a pool later), both sides are
+ * typed on their own.
+ *
+ * The coin's box and its Max button are named after the coin ("SOL to add", "Max SOL";
+ * "USDC to add", "Max USDC"), so a person always reads which coin a number is in.
  *
  * Every box is 16px (no zoom on a phone), decimal-keyboard, no spellcheck or autofill.
  * A typed comma becomes the decimal point (some phone keypads have no "."); a pasted
@@ -17,7 +23,8 @@ export type LpSide = 'sol' | 'token';
  * A side whose balance could not be read gets no Max: an unread balance is never 0.
  */
 export function LpAmountPair({
-  sol,
+  coin,
+  quote,
   token,
   driving,
   tokenDecimals,
@@ -28,9 +35,12 @@ export function LpAmountPair({
   hints,
   errors,
   canMax,
-  labels = { sol: 'SOL to add', token: 'Tokens to add' },
+  labels = { quote: `${coin.symbol} to add`, token: 'Tokens to add' },
 }: {
-  sol: string;
+  /** The pool's pairing coin: it names the coin's box and its Max button. */
+  coin: QuoteCoin;
+  /** The coin box's text. */
+  quote: string;
   token: string;
   driving: LpSide | null;
   tokenDecimals: number | null;
@@ -38,16 +48,16 @@ export function LpAmountPair({
   onType: (side: LpSide, text: string) => void;
   onMax: (side: LpSide) => void;
   disabled?: boolean;
-  hints: { sol: string; token: string };
-  errors?: { sol?: string | null; token?: string | null };
+  hints: { quote: string; token: string };
+  errors?: { quote?: string | null; token?: string | null };
   /** Max is offered only for a side whose balance was read. */
-  canMax: { sol: boolean; token: boolean };
+  canMax: { quote: boolean; token: boolean };
   /** The visible labels (and so the boxes' names). Opening a pool says "to put in". */
-  labels?: { sol: string; token: string };
+  labels?: { quote: string; token: string };
 }) {
   const box = (side: LpSide) => {
-    const label = side === 'sol' ? labels.sol : tokenDecimals === null ? `${labels.token} (base units)` : labels.token;
-    const value = side === 'sol' ? sol : token;
+    const label = side === 'quote' ? labels.quote : tokenDecimals === null ? `${labels.token} (base units)` : labels.token;
+    const value = side === 'quote' ? quote : token;
     return (
       <Field key={side} label={label} hint={hints[side]} error={errors?.[side] ?? null}>
         {(a11y) => (
@@ -70,7 +80,7 @@ export function LpAmountPair({
                 type="button"
                 className={`${TOGGLE_CLS} !flex-none min-w-[56px] px-3 disabled:opacity-50`}
                 style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)' }}
-                aria-label={side === 'sol' ? 'Max SOL' : 'Max tokens'}
+                aria-label={side === 'quote' ? `Max ${coin.symbol}` : 'Max tokens'}
                 onClick={() => onMax(side)}
                 disabled={disabled}
               >
@@ -84,7 +94,7 @@ export function LpAmountPair({
   };
   return (
     <div data-testid="lp-amount-pair">
-      {box('sol')}
+      {box('quote')}
       {box('token')}
     </div>
   );

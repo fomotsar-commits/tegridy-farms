@@ -93,6 +93,7 @@ const facts = (): WalletFacts => ({
   lamports: 5n * 10n ** 9n,
   token: { address: key().toBase58(), amount: 500n * 10n ** 6n },
   wsol: { exists: false, amount: 0n },
+  coin: null,
   lpAccountExists: false,
   rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n, neverRefunded: 40_000_000n },
 });

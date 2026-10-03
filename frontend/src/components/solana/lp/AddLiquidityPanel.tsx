@@ -5,6 +5,7 @@ import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { feeReserveFor, isPlanProblem, planDeposit, solSetAside, spendableSol, type DepositPlan, type PlanProblem } from '../../../lib/solana/lp/liquidityMath';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { PoolHealth } from '../../../lib/solana/lp/poolHealth';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { solText, tokenText } from '../../../lib/solana/lp/format';
 import { Notice, Row, SlippagePicker } from '../curve/ui';
@@ -72,7 +73,7 @@ function AddInner({
   const reread = useCallback(() => setFactsNonce((n) => n + 1), []);
   useFlowReports(writes, flow.state.step, flow.locked, reread);
 
-  const sideDecimals = (s: LpSide) => (s === 'sol' ? SOL_DECIMALS : decimals);
+  const sideDecimals = (s: LpSide) => (s === 'quote' ? SOL_DECIMALS : decimals);
   const maxIn = typed && typed.text.trim() !== '' ? parseDecimalToBaseUnits(typed.text, sideDecimals(typed.side)) : null;
   const typedBad = !!typed && typed.text.trim() !== '' && maxIn === null;
 
@@ -92,15 +93,16 @@ function AddInner({
   const cannotAdd = cannotFundText({
     doing: 'add to this pool',
     forWhat: 'fees and account deposits',
+    quote: SOL_QUOTE,
     lamports: facts?.kind === 'ok' ? facts.lamports : null,
     setAside,
-    availableSol,
+    availableQuote: availableSol,
     availableToken,
   });
 
   const plans = useMemo(() => {
     if (!typed || maxIn === null || maxIn === 0n) return null;
-    const base = { quoteIsToken0: view.quoteIsToken0, driving: typed.side === 'sol' ? ('quote' as const) : ('token' as const), maxIn, bps: slippageBps ?? DEFAULT_SLIPPAGE_BPS };
+    const base = { quoteIsToken0: view.quoteIsToken0, driving: typed.side, maxIn, bps: slippageBps ?? DEFAULT_SLIPPAGE_BPS };
     return {
       // The pool's own answer, with no balance rule: what the other box shows.
       free: planDeposit(view.snapshot, { ...base, availableQuote: null, availableToken: null }),
@@ -113,9 +115,9 @@ function AddInner({
 
   const solOf = (pl: DepositPlan) => ({ cost: view.quoteIsToken0 ? pl.cost0 : pl.cost1, max: view.quoteIsToken0 ? pl.max0 : pl.max1 });
   const tokOf = (pl: DepositPlan) => ({ cost: view.quoteIsToken0 ? pl.cost1 : pl.cost0, max: view.quoteIsToken0 ? pl.max1 : pl.max0 });
-  const other: LpSide | null = typed ? (typed.side === 'sol' ? 'token' : 'sol') : null;
-  const otherText = free && other ? baseUnitsToInput(other === 'sol' ? solOf(free).cost : tokOf(free).cost, sideDecimals(other)) : '';
-  const boxes = { sol: typed?.side === 'sol' ? typed.text : otherText, token: typed?.side === 'token' ? typed.text : otherText };
+  const other: LpSide | null = typed ? (typed.side === 'quote' ? 'token' : 'quote') : null;
+  const otherText = free && other ? baseUnitsToInput(other === 'quote' ? solOf(free).cost : tokOf(free).cost, sideDecimals(other)) : '';
+  const boxes = { quote: typed?.side === 'quote' ? typed.text : otherText, token: typed?.side === 'token' ? typed.text : otherText };
 
   const onType = (side: LpSide, text: string) => setTyped(text.trim() === '' ? null : { side, text });
   const setDriving = (side: LpSide, v: bigint) => setTyped({ side, text: baseUnitsToInput(v, sideDecimals(side)) });
@@ -125,19 +127,19 @@ function AddInner({
     if (!signer) return 'Connect a wallet to see what you can put in.';
     if (!facts) return 'Reading your wallet…';
     if (facts.kind === 'unread') return `You have: could not read (${facts.detail})`;
-    return side === 'sol'
+    return side === 'quote'
       ? `You have ${solText(facts.lamports)}. Up to ${solText(availableSol ?? 0n)} can go in after fees and account deposits.`
       : `You have ${tokenText(availableToken ?? 0n, decimals)}.`;
   };
   const hintFor = (side: LpSide): string => {
     const base = balanceHint(side);
     if (!free || !typed || typed.side === side) return base;
-    const max = side === 'sol' ? solExact(solOf(plan ?? free).max) : `${unitsExact(tokOf(plan ?? free).max, decimals)} tokens`;
-    return `Worked out from the ${typed.side === 'sol' ? 'SOL' : 'token'} amount: at most ${max} can leave your wallet. ${base}`;
+    const max = side === 'quote' ? solExact(solOf(plan ?? free).max) : `${unitsExact(tokOf(plan ?? free).max, decimals)} tokens`;
+    return `Worked out from the ${typed.side === 'quote' ? 'SOL' : 'token'} amount: at most ${max} can leave your wallet. ${base}`;
   };
   const parseError = (side: LpSide) =>
     typed?.side === side && typedBad
-      ? side === 'sol'
+      ? side === 'quote'
         ? 'That is not a SOL amount (at most 9 decimals).'
         : `That is not an amount this token can hold (at most ${decimals} decimals).`
       : null;
@@ -154,9 +156,9 @@ function AddInner({
       case 'over-balance':
         if (problem.side === 'quote') {
           problemText = `That would leave your wallet with too little SOL to stay open on the network. The most you can add is ${solExact(problem.have)}.`;
-          fix = { label: `Use ${solExact(problem.have)}`, run: () => setDriving('sol', problem.have) };
+          fix = { label: `Use ${solExact(problem.have)}`, run: () => setDriving('quote', problem.have) };
         } else {
-          problemText = `This needs up to ${tok(problem.need)} and your wallet has ${tok(problem.have)}. Lower the ${typed.side === 'sol' ? 'SOL' : 'token'} amount, or use the most both balances allow.`;
+          problemText = `This needs up to ${tok(problem.need)} and your wallet has ${tok(problem.have)}. Lower the ${typed.side === 'quote' ? 'SOL' : 'token'} amount, or use the most both balances allow.`;
           const most = problem.mostBoth;
           if (most !== null && most > 0n) fix = { label: 'Use the most both balances allow', run: () => setDriving(typed.side, most) };
         }
@@ -192,14 +194,14 @@ function AddInner({
   const canReview = !!signer && !!plan && slippageBps !== null && !typedBad && !problem && !flow.locked && !pendingHere && maxIn !== null;
   const review = () => {
     if (!signer || !plan || !typed || maxIn === null || slippageBps === null) return;
-    const shownOtherMax = typed.side === 'sol' ? tokOf(plan).max : solOf(plan).max;
+    const shownOtherMax = typed.side === 'quote' ? tokOf(plan).max : solOf(plan).max;
     void flow.prepare(() =>
       api.prepareLpDeposit(writes.rpc, gate, writes.readers, {
         owner: signer.publicKey,
         pool: new PublicKey(view.address),
         tokenMint: new PublicKey(view.tokenMint),
         quoteMint: new PublicKey(view.quote.mint),
-        driving: typed.side === 'sol' ? 'quote' : 'token',
+        driving: typed.side,
         maxIn,
         slippageBps,
         shownOtherMax,
@@ -248,23 +250,24 @@ function AddInner({
           {cannotAdd && (
             <div data-testid="lp-add-cannot" className="text-[13px] leading-relaxed space-y-1">
               <Notice tone="warn">{cannotAdd}</Notice>
-              <FundingNextStep needsSol={availableSol === 0n} needsToken={availableToken === 0n} mint={view.tokenMint} wallet={signer?.publicKey.toBase58() ?? null} />
+              <FundingNextStep coin={SOL_QUOTE} needsSol={availableSol === 0n} needsToken={availableToken === 0n} mint={view.tokenMint} wallet={signer?.publicKey.toBase58() ?? null} />
             </div>
           )}
           <LpAmountPair
-            sol={boxes.sol}
+            coin={SOL_QUOTE}
+            quote={boxes.quote}
             token={boxes.token}
             driving={typed?.side ?? null}
             tokenDecimals={decimals}
             linked
             onType={onType}
             onMax={(side) => {
-              if (side === 'sol' && availableSol !== null) setDriving('sol', availableSol);
+              if (side === 'quote' && availableSol !== null) setDriving('quote', availableSol);
               if (side === 'token' && availableToken !== null) setDriving('token', availableToken);
             }}
-            canMax={{ sol: availableSol !== null, token: availableToken !== null }}
-            hints={{ sol: hintFor('sol'), token: hintFor('token') }}
-            errors={{ sol: parseError('sol'), token: parseError('token') }}
+            canMax={{ quote: availableSol !== null, token: availableToken !== null }}
+            hints={{ quote: hintFor('quote'), token: hintFor('token') }}
+            errors={{ quote: parseError('quote'), token: parseError('token') }}
           />
           <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} hint={ADD_HINT} />
           {plan && (
