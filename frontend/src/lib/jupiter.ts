@@ -94,6 +94,35 @@ export function quoteHasPlatformFee(quote: JupiterQuote): boolean {
   return !(zeroBps && zeroAmount);
 }
 
+/**
+ * Jupiter's own answer that it has no route for this pair and amount.
+ *
+ * Our proxy turns Jupiter's "no route" codes into a 404 with the fixed body
+ * {"error":"No route","code":"NO_ROUTE"} (api/aggregator.js noRouteErrorCodes)
+ * and every other upstream failure into a 502. Only that exact answer is "no
+ * route". A 429, a 502, a dropped request or a 404 without the code is a quote
+ * that could not be FETCHED, and a caller must never word that as "no route":
+ * it tells a trader the token cannot be bought when the truth is that we did
+ * not get an answer. Same rule as lib/solana/lp/outsidePrice.ts.
+ */
+export class NoRouteError extends Error {
+  constructor() {
+    super('No route for this pair / amount.');
+    this.name = 'NoRouteError';
+  }
+}
+
+/** The proxy's "no route" answer, and nothing else (api/_lib/aggregator-proxy.js). */
+async function isNoRouteAnswer(res: Response): Promise<boolean> {
+  if (res.status !== 404) return false;
+  try {
+    const body = (await res.json()) as { code?: unknown } | null;
+    return body !== null && typeof body === 'object' && body.code === 'NO_ROUTE';
+  } catch {
+    return false;
+  }
+}
+
 export async function getQuote(params: {
   inputMint: string;
   outputMint: string;
@@ -126,6 +155,7 @@ export async function getQuote(params: {
     headers: { Accept: 'application/json' },
     signal: params.signal,
   });
+  if (await isNoRouteAnswer(res)) throw new NoRouteError();
   if (!res.ok) throw new Error(`Quote unavailable (${res.status})`);
   return (await res.json()) as JupiterQuote;
 }
