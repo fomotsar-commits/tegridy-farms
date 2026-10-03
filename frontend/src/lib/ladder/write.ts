@@ -13,9 +13,9 @@
 // ── CONFIRMATION IS POLLED, NOT SUBSCRIBED ──────────────────────────────────
 // `connection.confirmTransaction` opens a websocket subscription. The browser
 // talks to `/api/solrpc`, which is HTTPS-only — there is no wss origin, and the
-// CSP has no entry for one. So confirmation polls `getSignatureStatuses`, exactly
-// as SolanaSwapPage.tsx:114 has done since the swap shipped; the proxy's own rate
-// limit is written around that cadence (api/solrpc.js:172).
+// CSP has no entry for one. So confirmation polls `getSignatureStatuses`
+// (lib/solana/confirm.ts, shared with the swap page); the proxy's own rate limit is
+// written around that cadence (api/solrpc.js:172).
 import { Connection, PublicKey, Transaction, type TransactionInstruction } from '@solana/web3.js';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import {
@@ -23,6 +23,7 @@ import {
   type PoolAccounts,
 } from './ix';
 import { MAX_EARLY_EXIT_PENALTY_BPS } from './program';
+import { pollConfirm } from '../solana/confirm';
 
 /**
  * Sent and confirmed, or an honest reason. Never a bare boolean.
@@ -201,45 +202,6 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
 }
 
 /* ─────────────────────────── submit ─────────────────────────── */
-
-/**
- * Confirm by polling, never by subscribing — see the file header.
- *
- * Returns the outcome rather than throwing on a revert, so the caller can attach
- * the signature to whichever answer it gives.
- *
- * A FAILED POLL IS NOT A FAILED TRANSACTION. One RPC hiccup mid-flight must not be
- * reported as a revert; it keeps polling and the outcome is only unknown when the
- * clock runs out.
- */
-async function pollConfirm(
-  conn: Connection,
-  signature: string,
-  timeoutMs: number,
-  sleep: (ms: number) => Promise<void>,
-  now: () => number,
-): Promise<{ outcome: 'confirmed' | 'reverted' | 'unknown'; slot: number | null }> {
-  const start = now();
-  for (;;) {
-    const status = await (async () => {
-      try {
-        const r = await conn.getSignatureStatuses([signature]);
-        return r?.value?.[0] ?? null;
-      } catch {
-        return null;
-      }
-    })();
-    if (status) {
-      if (status.err) return { outcome: 'reverted', slot: null };
-      if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') {
-        const slot = typeof status.slot === 'number' && Number.isSafeInteger(status.slot) ? status.slot : null;
-        return { outcome: 'confirmed', slot };
-      }
-    }
-    if (now() - start >= timeoutMs) return { outcome: 'unknown', slot: null };
-    await sleep(2_000);
-  }
-}
 
 export interface SubmitDeps {
   /** Injected so tests neither sleep nor depend on the wall clock. */

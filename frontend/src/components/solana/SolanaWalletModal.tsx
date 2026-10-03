@@ -17,9 +17,10 @@ import { Cuer } from 'cuer';
 import { WalletReadyState } from '@solana/wallet-adapter-base';
 import { useWallet, type Wallet } from '@solana/wallet-adapter-react';
 import { WalletModalContext, useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { orderWallets, rowStatus, scansForWallet, walletLabel } from '../../lib/solanaWalletOrder';
+import { orderWallets, rowStatus, scansForWallet, waitedOnWalletLabel, walletLabel } from '../../lib/solanaWalletOrder';
 import { WalletConnectWalletAdapter, type WalletConnectPairing } from '../../lib/solanaWalletConnect';
 import { shortSolanaAddress } from '../../lib/solanaSurface';
+import { useWalletResync } from './useWalletResync';
 
 /**
  * The Solana connect modal — upstream's WalletModal (wallet-adapter-react-ui
@@ -140,6 +141,17 @@ function SolanaWalletModal() {
   const pairing = useWalletConnectPairing(walletConnect);
   const pairingActive = pairing.phase === 'starting' || pairing.phase === 'scan';
   const connectedAs = connected && publicKey ? shortSolanaAddress(publicKey.toBase58()) : null;
+  // The wallet a connect is still waiting on: a locked wallet, or an approval
+  // window nobody saw, answers late or never, and until 2026-10-03 nothing
+  // named it. WalletConnect's own wait is its QR, or its saved session's restore.
+  const waitingNow = connecting && !connected && selected ? waitedOnWalletLabel(selected.adapter.name) : null;
+  // What the list shows is held as it was once the dialog starts to close. A
+  // pick starts a connect and the list then fades for FADE_MS, still mounted:
+  // following `connecting` through that fade, it said "it may be locked" at
+  // every ordinary connect, in a live region, about a wallet asked a moment ago.
+  const [closing, setClosing] = useState(false);
+  const [waitingFor, setWaitingFor] = useState(waitingNow);
+  if (!closing && waitingFor !== waitingNow) setWaitingFor(waitingNow);
   // The WalletConnect row clicked while its own saved session was still being
   // restored: connect once the restore is over, if it did not connect.
   const connectAfterRestore = useRef(false);
@@ -151,6 +163,7 @@ function SolanaWalletModal() {
     connectAfterRestore.current = false;
     walletConnect?.cancelPairing();
     walletConnect?.dismissPairing();
+    setClosing(true);
     setFadeIn(false);
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => setVisible(false), FADE_MS);
@@ -350,6 +363,12 @@ function SolanaWalletModal() {
                   </button>
                 </p>
               )}
+              {waitingFor && (
+                <p role="status" className="wallet-adapter-modal-note">
+                  Waiting for {waitingFor} to answer. Open {waitingFor}: it may be locked, or waiting for you to
+                  approve this site. Or pick another wallet below.
+                </p>
+              )}
               {pairing.phase === 'failed' && (
                 <p role="alert" className="wallet-adapter-modal-note">
                   {pairing.reason}
@@ -494,6 +513,8 @@ function WalletConnectQr({
  */
 export function SolanaWalletModalProvider({ children }: { children: ReactNode }) {
   const [visible, setVisible] = useState(false);
+  // Here because this provider is mounted once inside every Solana section's WalletProvider.
+  useWalletResync();
   const value = useMemo(() => ({ visible, setVisible }), [visible]);
   return (
     <WalletModalContext.Provider value={value}>

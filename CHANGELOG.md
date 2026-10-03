@@ -8,11 +8,42 @@ page keeps the newest thirty days.
 
 ### 2026-10-03
 
+- Pools has a Solana LP tab that opens on the pool finder: find a pool, add or remove liquidity, or open a pool on the venue's own Solana AMM.
+- Solana pools: a wallet that cannot open a pool or add liquidity yet is told so in plain words, with how much SOL that needs before anything goes into the pool, how much the wallet has, and whether it holds the token. The form used to only grey out Review.
+- Solana pools: SOL that a stranger sends to your wrapped-SOL, token or pool-share address before that account exists no longer blocks Remove liquidity, Add liquidity, opening a pool, a curve buy or a pool swap. The site opens the account over it and you pay only what is missing from its deposit.
+- Solana pools: a token, a pool share or a lamport that someone sends you or the fee account between the balance read and the test run no longer ends Review with "Blocked: the simulation shows a different token amount than this screen says". Taking more from you than the review says, or paying you less than the minimum, is still blocked.
+- Solana pools: when this site cannot build a withdrawal for a token, the message no longer points to a section that is not on screen.
+- On the pools page and in the Solana curve and pool-swap panels, a comma typed in an amount, percent or slippage box works as the decimal point, so a phone keypad with a comma and no point can enter 0,5. A pasted amount with thousands commas, such as 68,066, is still refused and never read as 68.066.
+- A real token amount too small to show at four decimals reads "<0.0001" instead of "0" on the liquidity, launch and trade screens.
+- Pool pages: a token whose name or symbol is a look-alike spelling of a well-known one (SoIana, S0L, TOWELl, BAYLA Token) is flagged as a copy, and this site does not open pools or take deposits for it. Letters or digits outside plain A to Z and 0 to 9 get a warning.
+- Launcher: names such as $SOL and Official $BAYLA are refused as copies, by the same rule the pool pages use.
+- Open a pool: when our pool index lists its maximum of 96 pools for a token, the button is no longer switched off. The card says the token has more pools than the index lists, and it no longer says a new pool would be the first.
+- Your positions: pool shares already matched to their pool are listed first, and reading again does not repeat index lookups that found nothing in the last minute.
+- On /curve-launch, while launching is off, the "Who may plant" door shows a wallet's reading and says "Launching here is not switched on yet." It no longer tells a wallet at 80 degrees or more that the launch lane is open, and the "Open a launch" card says launching is off too.
+- When a Solana transaction is turned away because it took too long to sign, the card says so and tells you to start over. Nothing was sent.
+- Solana swap: when your wallet balance cannot be read, the page shows "Balance: –" with a Retry button instead of "Balance: 0". A balance that really is zero still shows 0.
+- Solana swap: "No route" appears only when Jupiter itself says there is no route. If a quote could not be fetched, the page says that and offers "Try again" without you retyping the amount.
+- Dashboard, TOWELI room: the TOWELI Price card says "Could not load" when no price source answers, instead of loading forever or showing $0.00000000.
+- Solana Connect no longer goes dead while a wallet is being waited on. If Phantom or another wallet is locked, or its approval window opened where you did not see it, the Connect buttons still open the wallet list, the page says which wallet it is waiting for and what to do, and you can pick another wallet without reloading.
 - On a Solana page (/pools, /solana, /curve-launch, a Solana pool, or the dashboard in a Solana room) the Connect button at the top opens the Solana wallet list, and shows your Solana address once connected. Before, it connected only Ethereum and Base wallets there.
 - Tapping your Solana address at the top opens the wallet list, which now names the wallet in use and has a Disconnect.
 - On every other page the Connect button at the top now asks which network first, Solana or Ethereum, so a Solana wallet can be connected from the home page, the Earn list and the doors. Once a wallet is connected the button lists both networks.
 - A Solana wallet you connected stays connected as you move between pages, and comes back on your next visit. With an Ethereum wallet connected too, the button at the top names the Ethereum account off the Solana pages and lists both wallets when tapped.
 - The indexer's upload parser moves to a release that fixes two published denial-of-service flaws; it takes effect at the indexer's next deploy.
+- A DCA or limit-order swap your wallet cancelled no longer counts as done: the schedule does not count it and the order goes back to waiting. A sped-up swap still counts.
+- A TWAP or stop-loss whose registration your wallet cancelled no longer says it was registered, and no CoW order is signed on top of a token approval your wallet cancelled.
+- A zap stops at a step your wallet cancelled and says it was replaced, instead of calling it confirmed and sending the next step.
+- A cancelled integrator fee withdrawal no longer says Withdrew, and a cancelled curve launch says it was cancelled instead of reporting a missing launch log.
+- When the result of a CoW token approval or an integrator fee withdrawal cannot be read, the site says it cannot tell and points to the explorer, instead of showing an error.
+- A DCA swap that landed is counted even when the browser will not save to storage, instead of showing Confirming forever, and another open tab can no longer make that schedule swap twice.
+- On the Solana swap page, a swap, DCA or limit order that was sent but not confirmed while the page watched says it cannot tell and links to Solscan, instead of saying it failed, and one failed status check no longer reads as a failure.
+- On Solana, a BAYLA lock ladder transaction, a DCA or a limit order is called failed only once the network has confirmed the failure; a failure seen before that is watched until the network decides, as a swap already was.
+- On /pools, the fee sheet's trader-pays figure for launch pools adds the creator fee that every launch pool charges on top of its trade fee, and shows that fee on its own line, paid to the token's creator. It had shown the trade fee alone, so a trade there read cheaper than it is.
+- On /pools, the fee tiers, each pool's card, the add-liquidity panel and its review say what a trade on that pool costs, creator fee included when the pool charges one, and say so when a pool charges none.
+- On /pools, a pool you open is shown at its tier's trade fee alone, because a pool opened from this site never charges a creator fee.
+- On /pools, the venue card says anyone can open a pool only while the fee tier it read takes new pools.
+- The /pools fee sheet's note about where its rates come from no longer has an em dash.
+- The site's own tests now run on Vitest 5 and jsdom 30; nothing a visitor sees changes.
 
 ### 2026-10-02
 

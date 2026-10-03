@@ -3,6 +3,7 @@ import type { PublicKey } from '@solana/web3.js';
 import {
   WSOL_MINT,
   applySlippage,
+  decimalCommaToPoint,
   formatSol,
   formatTokenAmount,
   parseDecimalToBaseUnits,
@@ -166,7 +167,8 @@ export function PoolSwapPanel({
                 className={`${inputCls} disabled:opacity-50`}
                 style={inputStyle}
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                // A comma typed on a phone keypad with no "." is the decimal point.
+                onChange={(e) => setAmount(decimalCommaToPoint(e.target.value, amount))}
                 placeholder="0.0"
                 inputMode="decimal"
                 spellCheck={false}

@@ -26,6 +26,10 @@ const state = vi.hoisted(() => ({
   balances: {} as Record<string, bigint>,
   allowance: 0n,
   receipts: {} as Record<string, { status: string } | Error>,
+  // A hash the wallet replaced: viem calls onReplaced, then resolves with the
+  // REPLACEMENT's receipt (pinned against the real client in lib/txErrors.direct.test.ts).
+  replaced: {} as Record<string, { reason: 'cancelled' | 'repriced' | 'replaced'; by: string }>,
+  waits: [] as { hash: string; onReplaced?: unknown }[],
 }));
 
 vi.mock('wagmi', () => ({
@@ -40,7 +44,14 @@ vi.mock('wagmi', () => ({
       if (functionName === 'allowance') return state.allowance;
       return state.balances[address.toLowerCase()] ?? 0n;
     },
-    waitForTransactionReceipt: async ({ hash }: { hash: string }) => {
+    waitForTransactionReceipt: async (args: { hash: string; onReplaced?: (r: unknown) => void }) => {
+      const { hash } = args;
+      state.waits.push(args);
+      const swap = state.replaced[hash];
+      if (swap) {
+        args.onReplaced?.({ reason: swap.reason, replacedTransaction: { hash }, transaction: { hash: swap.by }, transactionReceipt: {} });
+        return { status: 'success', transactionHash: swap.by };
+      }
       const r = state.receipts[hash];
       if (r instanceof Error) throw r;
       return r ?? { status: 'success' };
@@ -642,5 +653,58 @@ describe('useZapRun — wrong chain and no wallet', () => {
       await result.current.start();
     });
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe('useZapRun: a leg the wallet replaced', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    state.address = WALLET;
+    state.chainId = CHAIN_ID;
+    state.balances = {};
+    state.allowance = 0n;
+    state.receipts = {};
+    state.replaced = {};
+    state.waits = [];
+  });
+
+  it('asks viem why a replaced leg was replaced (onReplaced on the wait)', async () => {
+    const plan = toweliLockPlan();
+    stubWallet({ hashes: ['0xa', '0xb'] });
+    const { result } = renderHook(() => useZapRun(plan));
+    await settle();
+    await act(async () => { await result.current.start(); });
+    expect(state.waits.length).toBeGreaterThan(0);
+    for (const w of state.waits) expect(w.onReplaced).toEqual(expect.any(Function));
+  });
+
+  it('a CANCELLED approval is not confirmed: the run stops there and the lock is never sent', async () => {
+    const plan = toweliLockPlan();
+    state.replaced = { '0xa': { reason: 'cancelled', by: '0xcancel' } };
+    const sent = stubWallet({ hashes: ['0xa', '0xb'] });
+    const { result } = renderHook(() => useZapRun(plan));
+    await settle();
+    await act(async () => { await result.current.start(); });
+
+    expect(result.current.run?.steps[0]!.status).toBe('replaced');
+    expect(sent).toHaveLength(1); // the cancelled approve; no lock on top of it
+    expect(result.current.readout?.isComplete).toBe(false);
+    expect(result.current.readout?.detail).not.toMatch(/reverted/);
+    // Nothing ran, so re-sending that leg is safe.
+    expect(result.current.resume).toEqual({ kind: 'resume', fromStep: 0 });
+  });
+
+  it('a SPED-UP approval is the same call: confirmed, under the hash that mined, and the run goes on', async () => {
+    const plan = toweliLockPlan();
+    state.replaced = { '0xa': { reason: 'repriced', by: '0xfaster' } };
+    const sent = stubWallet({ hashes: ['0xa', '0xb'] });
+    const { result } = renderHook(() => useZapRun(plan));
+    await settle();
+    await act(async () => { await result.current.start(); });
+
+    expect(result.current.run?.steps[0]!.status).toBe('confirmed');
+    expect(result.current.run?.steps[0]!.txHash).toBe('0xfaster');
+    expect(sent).toHaveLength(2);
+    expect(result.current.readout?.isComplete).toBe(true);
   });
 });

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
-import { feeReserveFor, isPlanProblem, planDeposit, spendableSol, type DepositPlan, type PlanProblem } from '../../../lib/solana/lp/liquidityMath';
+import { feeReserveFor, isPlanProblem, planDeposit, solSetAside, spendableSol, type DepositPlan, type PlanProblem } from '../../../lib/solana/lp/liquidityMath';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
@@ -16,7 +16,7 @@ import type { LpOpenGate, LpWriteApi } from '../curve/ports';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { LpBeforeYouAdd, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
-import { sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
+import { cannotFundText, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { lpHeld } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -76,16 +76,26 @@ function AddInner({
   const typedBad = !!typed && typed.text.trim() !== '' && maxIn === null;
 
   // What the wallet can put in. Unread is null, never 0: then no Max and no balance rule.
-  const availableSol = facts?.kind === 'ok'
-    ? spendableSol({
-        lamports: facts.lamports,
+  const band = facts?.kind === 'ok'
+    ? {
         walletFloor: facts.rents.walletFloor,
         feeReserve: feeReserveFor(1),
         lpAccountRent: facts.lpAccountExists ? 0n : facts.rents.tokenAccount165,
         wsolCreateRent: facts.wsol.exists ? 0n : facts.rents.tokenAccount165,
-      })
+      }
     : null;
+  const availableSol = facts?.kind === 'ok' && band ? spendableSol({ lamports: facts.lamports, ...band }) : null;
+  const setAside = band ? solSetAside(band) : null;
   const availableToken = facts?.kind === 'ok' ? (facts.token?.amount ?? 0n) : null;
+  // Said before anything is typed: a wallet that can put nothing in is not left with a greyed-out Review.
+  const cannotAdd = cannotFundText({
+    doing: 'add to this pool',
+    forWhat: 'fees and account deposits',
+    lamports: facts?.kind === 'ok' ? facts.lamports : null,
+    setAside,
+    availableSol,
+    availableToken,
+  });
 
   const plans = useMemo(() => {
     if (!typed || maxIn === null || maxIn === 0n) return null;
@@ -207,7 +217,7 @@ function AddInner({
         <Row label="Token" value={view.tokenMint} />
         {callsItself && <Row label="Calls itself" value={callsItself} mono={false} />}
       </div>
-      <LpBeforeYouAdd launchPool={view.origin === 'launch-pool'} config={view.config} />
+      <LpBeforeYouAdd launchPool={view.origin === 'launch-pool'} config={view.config} enableCreatorFee={pool.enableCreatorFee} />
       {flow.state.step !== 'idle' ? (
         <TxFlowView
           flow={flow}
@@ -268,6 +278,11 @@ function AddInner({
               </button>
             )}
           </div>
+          {cannotAdd && (
+            <div data-testid="lp-add-cannot">
+              <Notice tone="warn">{cannotAdd}</Notice>
+            </div>
+          )}
           <div className="flex flex-col sm:flex-row gap-2">
             <button ref={reviewRef} type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60" disabled={!canReview} onClick={review}>
               Review: add liquidity

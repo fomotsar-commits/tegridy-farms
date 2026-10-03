@@ -165,6 +165,23 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(c).toHaveTextContent('This token also has a pool on fee tier 0 that passes the checks. A new pool will not share its liquidity or fees.');
   });
 
+  // ATK-3 (audit 2026-10-03): anyone can open enough junk pools to make the index answer
+  // "truncated" for good. A cut list is not an unread one: the button stays, the card
+  // says the list was cut, and a new pool is never called "the first".
+  it.each<[string, () => PoolView[]]>([
+    ['with failing pools read', () => [view({ tier1: true, openTime: 10n ** 12n }), view({ address: key(), openTime: 10n ** 12n })]],
+    ['with no pool read at all', () => []],
+  ])('offer, a truncated index %s: the cut is said, and never "the first" pool or "no pool yet"', async (_l, pools) => {
+    const views = pools();
+    mount(readers({ findPools: vi.fn(async () => search(views, { index: { kind: 'ok', pools: views.map((v) => v.address), truncated: true } })) }));
+    const c = await settled('offer');
+    expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
+    expect(c).toHaveTextContent(/This token has more pools than our pool index lists/);
+    expect(c).toHaveTextContent(/were not read or checked here/);
+    expect(c).toHaveTextContent(/None of the pools read for this token/);
+    expect(c).not.toHaveTextContent(/first|No pool for this token|None of this token's pools/i);
+  });
+
   it('exists: a passing pool on the public tier; no button', async () => {
     mount(readers({ findPools: vi.fn(async () => search([view({ tier1: true })])) }));
     const c = await settled('exists');

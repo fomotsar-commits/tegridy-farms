@@ -8,6 +8,7 @@ import { act, render, screen, waitFor, within, fireEvent } from '@testing-librar
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
+import { solAbout } from './panelKit';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
@@ -20,6 +21,7 @@ import { prepared } from '../curve/fakeWriteApi.fixture';
 import type { LpWriteApi, Prepared } from '../curve/ports';
 import { fakeLpApi, lpCfg, lpDepositSummary, lpOpenGate, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { parsePercentBps } from './PercentPicker';
+import { recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
 
 const OWNER = key();
 const wallet = vi.hoisted(() => ({
@@ -286,6 +288,30 @@ describe('Add liquidity', () => {
     expect(within(panel).getByLabelText('Tokens to add')).toHaveValue('500');
     expect(within(panel).getByLabelText('Tokens to add')).toHaveAttribute('data-driving', 'true');
     expect(r.wallet).toHaveBeenCalledWith(OWNER, M, 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', expect.any(String));
+  });
+
+  // The Add form's side of the owner's report of 2026-10-03: a wallet that cannot add
+  // anything was shown a greyed-out Review and two small hints. It is now told so.
+  it('a wallet with no SOL to spare and none of the token is told it cannot add yet, with what adding needs and what it has', async () => {
+    mount(readers({ wallet: vi.fn(async () => facts({ lamports: 3_000_000n, token: null })) }));
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    const cannot = await within(panel).findByTestId('lp-add-cannot');
+    expect(cannot).toHaveTextContent('This wallet cannot add to this pool yet.');
+    // (5,000 + 1,000,000) for one signature and the reserve, 2,039,280 for the share
+    // account, and max(2,039,280, 890,880) kept in the wallet.
+    expect(cannot).toHaveTextContent(`needs about ${solAbout(5_083_560n)}`);
+    expect(cannot).toHaveTextContent('this wallet has 0.003 SOL');
+    expect(cannot).toHaveTextContent('holds none of this token');
+    expect(within(panel).getByRole('button', { name: 'Review: add liquidity' })).toBeDisabled();
+  });
+
+  it('a wallet that can add is told nothing of the sort', async () => {
+    mount(readers());
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    expect(within(panel).queryByTestId('lp-add-cannot')).toBeNull();
   });
 
   it('an unread wallet balance offers no Max and says it could not read', async () => {
@@ -676,6 +702,55 @@ describe('the review', () => {
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
     expect(disclosure).toHaveTextContent(/change its fee rates at once/);
+  });
+});
+
+// A launch pool on tier 0 exactly as mainnet holds it (scripts/record-pools-venue-fixture.mjs):
+// the launch program opens it with its creator fee switched on, so a trade costs the 0.25%
+// trade fee plus the tier's 0.05% creator fee. What LPs keep is unchanged; the creator's part
+// is on top and is not theirs, and the panel and its review must say both.
+describe('adding to a launch pool that charges the creator fee', () => {
+  const launchPool = (): PoolView => {
+    const v = view({ origin: 'launch-pool' });
+    return { ...v, config: recordedTier(0), snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, enableCreatorFee: true, creatorFeeOn: v.solIsToken0 ? 1 : 2 } } };
+  };
+
+  it("the panel says what LPs keep, and that traders also pay the pool's creator on top", async () => {
+    mount(readers({ findPools: vi.fn(async () => search([launchPool()])) }));
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const before = await screen.findByTestId('lp-before-you-add');
+    expect(before).toHaveTextContent(
+      "Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. Traders also pay this pool's creator 0.05% of each trade on top; that part is not yours.",
+    );
+  });
+
+  it('a pool that charges no creator fee says nothing about one', async () => {
+    const v = launchPool();
+    const off: PoolView = { ...v, origin: 'other', snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, enableCreatorFee: false } } };
+    mount(readers({ findPools: vi.fn(async () => search([off])) }));
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const before = await screen.findByTestId('lp-before-you-add');
+    expect(before).toHaveTextContent("Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. The vault can change");
+    // ("creator" alone also names the token's creator, in the freeze-account risk line.)
+    expect(before).not.toHaveTextContent(/pool's creator|creator fee/i);
+  });
+
+  it('the review says traders pay 0.3% a trade, the creator fee within it', async () => {
+    const v = launchPool();
+    const summary = lpDepositSummary(new PublicKey(v.address), MINT, { origin: 'launch-pool', config: recordedTier(0), enableCreatorFee: true });
+    const api = fakeLpApi({ prepareLpDeposit: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })) });
+    mount(readers({ findPools: vi.fn(async () => search([v])) }), { api });
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '0.1' } });
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: add liquidity' }));
+    });
+    await within(panel).findByRole('heading', { name: 'Review: add liquidity' });
+    expect(within(panel).getByText('Fee tier', { exact: true }).nextElementSibling?.textContent).toBe(
+      '0: traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee); LPs keep 0.200% of each trade',
+    );
   });
 });
 

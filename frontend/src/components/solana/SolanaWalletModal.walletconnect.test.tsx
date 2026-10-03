@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import { WalletReadyState, BaseMessageSignerWalletAdapter, type SupportedTransactionVersions, type WalletName } from '@solana/wallet-adapter-base';
 import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
@@ -317,6 +316,16 @@ describe('while a saved WalletConnect session is still being restored', () => {
     fireEvent.click(within(await openList()).getByText('WalletConnect'));
     // The session is still live, so it is restored without a QR.
     await waitFor(() => expect(screen.getByTestId('pk')).toHaveTextContent(account));
+  });
+
+  // The list names a wallet it is waiting on and says to open it, because it
+  // may be locked (2026-10-03). None of that is true of WalletConnect: its wait
+  // here is this restore, and there is no app of that name to open.
+  it('the list does not say it is waiting for WalletConnect to be opened or unlocked', async () => {
+    await mountRestoring({ live: false });
+    const dialog = await openList();
+    expect(within(dialog).queryByRole('status')).toBeNull();
+    expect(dialog).not.toHaveTextContent(/Waiting for/);
   });
 
   it('clicking the WalletConnect row with NO session to restore: the click is kept, and the QR follows', async () => {

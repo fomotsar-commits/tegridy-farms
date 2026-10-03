@@ -3,13 +3,13 @@ import { PublicKey } from '@solana/web3.js';
 import { formatSol, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { sortMints, type AmmConfigView } from '../../../lib/solana/cpswap/program';
-import { feeSplit } from '../../../lib/solana/cpswap/venue';
-import { LOCKED_LP, feeReserveFor, planCreate, spendableSol, type CreatePlan, type CreateProblem } from '../../../lib/solana/lp/liquidityMath';
+import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
+import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type CreatePlan, type CreateProblem } from '../../../lib/solana/lp/liquidityMath';
 import { arbitrageLoss, assessOpening, matchMarket, mostBothAtMarket, openingSolPerToken } from '../../../lib/solana/lp/opening';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { PRICE_TOLERANCE } from '../../../lib/solana/lp/poolHealth';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { feeRateText, formatSolPrice } from '../../../lib/solana/lp/format';
+import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
 import { baseUnitsToInput } from '../curve/uiFormat';
 import { TxFlowView } from '../curve/TxFlowView';
@@ -19,7 +19,7 @@ import type { LpOpenGate, LpWriteApi, TierState, TierTerms } from '../curve/port
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
-import { LOCKED_SHARES_TEXT, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
+import { LOCKED_SHARES_TEXT, cannotFundText, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { createHeld, type CreateOffer } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -181,18 +181,28 @@ function CreateInner({
   // the pool-share account and two signatures' fees. Unread is null, never 0.
   const neverRefunded = facts?.kind === 'ok' ? (facts.rents.neverRefunded ?? null) : null;
   const lpRent = facts?.kind === 'ok' ? facts.rents.tokenAccount165 : null;
-  const availableSol =
+  const band =
     facts?.kind === 'ok' && config && neverRefunded !== null
-      ? spendableSol({
-          lamports: facts.lamports,
+      ? {
           walletFloor: facts.rents.walletFloor,
           feeReserve: feeReserveFor(2),
           lpAccountRent: facts.rents.tokenAccount165,
           wsolCreateRent: facts.wsol.exists ? 0n : facts.rents.tokenAccount165,
           alsoPaid: config.createPoolFee + neverRefunded,
-        })
+        }
       : null;
+  const availableSol = facts?.kind === 'ok' && band ? spendableSol({ lamports: facts.lamports, ...band }) : null;
+  const setAside = band ? solSetAside(band) : null;
   const availableToken = facts?.kind === 'ok' ? (facts.token?.amount ?? 0n) : null;
+  // Said before anything is typed: a wallet that can put nothing in is not left with a greyed-out Review.
+  const cannotOpen = cannotFundText({
+    doing: 'open a pool',
+    forWhat: 'the fee to open, the account deposits and network fees',
+    lamports: facts?.kind === 'ok' ? facts.lamports : null,
+    setAside,
+    availableSol,
+    availableToken,
+  });
   const market = outside?.kind === 'ok' ? outside.solPerToken : null;
 
   const both = solRaw !== null && tokRaw !== null && solRaw > 0n && tokRaw > 0n;
@@ -337,9 +347,10 @@ function CreateInner({
             <p className="text-white/55">Check this is the token you mean: compare the address with the one its project publishes. Names can be copied.</p>
           </>
         )}
+        {/* Opened with cp-swap's `initialize`, so the new pool never charges the tier's creator fee. */}
         <Row
           label="Fee tier"
-          value={config ? `1: traders pay ${feeRateText(config.tradeFeeRate)} a trade; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade` : 'not read'}
+          value={config ? `1: traders pay ${tradeCostText(config, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade` : 'not read'}
           mono={false}
         />
         <Row label="Fee to open" value={fee === null ? 'not read' : `${formatSol(fee, 9)} SOL, paid to the team's vault (read just now)`} mono={false} />
@@ -496,6 +507,11 @@ function CreateInner({
               </button>
             )}
           </div>
+          {cannotOpen && (
+            <div data-testid="lp-create-cannot">
+              <Notice tone="warn">{cannotOpen}</Notice>
+            </div>
+          )}
           {held && <Notice tone="warn">A pool you opened is not confirmed yet (see the top of this section), so opening another is off.</Notice>}
           <div className="flex flex-col sm:flex-row gap-2">
             <button

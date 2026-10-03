@@ -24,7 +24,13 @@ import {
 import { useIrysUpload } from '../../hooks/useIrysUpload';
 import { assertMayLaunch } from '../../lib/heat/launchGate';
 import { getTxUrl } from '../../lib/explorer';
-import { surfaceUnconfirmedTx } from '../../lib/txErrors';
+import {
+  readReceiptOutcome,
+  surfaceReplacedTx,
+  surfaceUnconfirmedTx,
+  waitForReceiptOutcome,
+  type DirectReceiptOutcome,
+} from '../../lib/txErrors';
 
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
 const inputCls = 'w-full px-3 py-2 rounded-lg bg-black/55 text-white text-[13px] outline-none';
@@ -491,16 +497,7 @@ export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: Curv
 
       setStage('confirming');
       if (!publicClient) throw new Error('No client for the curve chain.');
-      let receipt: TransactionReceipt;
-      try {
-        receipt = await publicClient.waitForTransactionReceipt({ hash });
-      } catch {
-        // viem RETURNS a reverted receipt (checked in settleLaunch), so this only
-        // means the receipt could not be read. The coin may exist: not a failure.
-        holdUnconfirmed({ hash, imageTxId, fields });
-        return;
-      }
-      await settleLaunch(receipt, { hash, imageTxId, fields });
+      await settleLaunch(await waitForReceiptOutcome(publicClient, hash), { hash, imageTxId, fields });
     } catch (e) {
       setStage('idle');
       toast.error(e instanceof Error ? e.message : 'The wallet rejected the launch.');
@@ -517,17 +514,39 @@ export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: Curv
     });
   };
 
-  /** Everything after a create receipt was READ. Throws on a revert or a missing log. */
-  const settleLaunch = async (receipt: TransactionReceipt, { hash, imageTxId, fields }: SentLaunch) => {
-    if (receipt.status !== 'success') {
+  /**
+   * Everything after the create's receipt wait. viem RETURNS a reverted receipt, so
+   * 'unreadable' only means the receipt could not be read: the coin may exist, so the
+   * form stays held. A create the wallet replaced (a cancel, or another call at its
+   * nonce) never ran: the form comes back. Throws on a revert or a missing log.
+   */
+  const settleLaunch = async (outcome: DirectReceiptOutcome<TransactionReceipt>, sent: SentLaunch) => {
+    const { hash, imageTxId, fields } = sent;
+    if (outcome.kind === 'unreadable') {
+      holdUnconfirmed(sent);
+      return;
+    }
+    if (outcome.kind === 'replaced') {
+      setUnconfirmed(null);
+      setStage('idle');
+      surfaceReplacedTx(toast, {
+        hash,
+        replacement: outcome.replacement,
+        explorerUrl: getTxUrl(chainId, outcome.replacement.hash),
+      });
+      return;
+    }
+    if (outcome.kind === 'reverted') {
       throw new Error('The launch reverted on-chain: no coin was created, and only gas was spent.');
     }
+    const { receipt } = outcome;
     const created = parseEventLogs({
       abi: CURVE_LAUNCHER_ABI,
       logs: receipt.logs,
       eventName: 'LaunchCreated',
     }).find((log) => log.address.toLowerCase() === launcher.toLowerCase());
-    if (!created) throw new Error(`Launch confirmed (tx ${hash}) but no LaunchCreated log was found.`);
+    // The hash that mined: a sped-up create confirmed under a new one.
+    if (!created) throw new Error(`Launch confirmed (tx ${receipt.transactionHash ?? hash}) but no LaunchCreated log was found.`);
     const token = created.args.token;
     setCreatedToken(token);
     onCreated?.(token);
@@ -550,15 +569,10 @@ export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: Curv
     const sent = unconfirmed;
     setStage('confirming');
     try {
-      let receipt: TransactionReceipt;
-      try {
-        receipt = await publicClient.getTransactionReceipt({ hash: sent.hash });
-      } catch {
-        holdUnconfirmed(sent); // still unreadable, or not mined yet
-        return;
-      }
-      setUnconfirmed(null);
-      await settleLaunch(receipt, sent);
+      // Still unreadable, or not mined yet: settleLaunch holds it again.
+      const outcome = await readReceiptOutcome(publicClient, sent.hash);
+      if (outcome.kind !== 'unreadable') setUnconfirmed(null);
+      await settleLaunch(outcome, sent);
     } catch (e) {
       setStage('idle');
       toast.error(e instanceof Error ? e.message : 'Could not finish the launch.');

@@ -2,6 +2,7 @@
 import '../../lib/solanaPolyfill';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import {
   BackpackWalletAdapter,
   CoinbaseWalletAdapter,
@@ -20,6 +21,7 @@ import '../../styles/wallet-adapter-ui.css';
 import { solanaRpcEndpoint } from '../../lib/solana';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import { useSolanaConnect } from './useSolanaConnect';
+import { SOLANA_CONNECT_WAIT_NOTICE_MS } from './SolanaConnectButton';
 import { setSolanaSurface, takeSolanaOpenRequest, useSolanaSurface } from '../../lib/solanaSurface';
 
 /**
@@ -95,6 +97,15 @@ import { setSolanaSurface, takeSolanaOpenRequest, useSolanaSurface } from '../..
  * until a reload. So the tap is used only once a render has SEEN this
  * provider's own report in the store, which is a render after that first
  * effect, and only after any restore in flight (`connecting`) has ended.
+ *
+ * A RESTORE THAT DOES NOT END STOPS HOLDING IT (2026-10-03). A locked wallet's
+ * restore runs for ever, so the held tap was never used: the top bar dimmed,
+ * did nothing, and ten seconds on said the list "did not load". Once the wait
+ * has run as long as the card takes to name the wallet, the tap opens the
+ * list, which names it too. Nothing is connected then: with a connect in
+ * flight the click only opens the list (useSolanaConnect). If the visitor has
+ * this page's list on screen before that, the list is the answer and the tap
+ * is used up: it does not open the list again after they have closed it.
  */
 export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
   const { publicKey, connecting } = useWallet();
@@ -122,6 +133,19 @@ export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
     // left the page's scroll locked until a reload. The tap is still used up.
     if (takeSolanaOpenRequest() && !address && !document.querySelector('[aria-modal="true"]')) open();
   }, [surface, openPending, connecting, address, open]);
+  // A restore that does not end stops holding the tap (see the header).
+  const { visible } = useWalletModal();
+  useEffect(() => {
+    if (surface?.open !== open || !openPending || !connecting) return;
+    if (visible) {
+      takeSolanaOpenRequest();
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (takeSolanaOpenRequest() && !document.querySelector('[aria-modal="true"]')) open();
+    }, SOLANA_CONNECT_WAIT_NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [surface, openPending, connecting, open, visible]);
   useEffect(() => () => setSolanaSurface(owner, null), [owner]);
   return null;
 }

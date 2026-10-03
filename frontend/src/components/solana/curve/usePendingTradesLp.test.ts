@@ -22,7 +22,7 @@ const SIG2 = '4'.repeat(88);
 const lpSummary = (kind: 'lp-deposit' | 'lp-withdraw'): TxSummary =>
   kind === 'lp-deposit'
     ? {
-        kind, pool: POOL, origin: 'standard', config: null, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
+        kind, pool: POOL, origin: 'standard', config: null, enableCreatorFee: false, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
         lpAmount: 1n, lpDecimals: 9, quoted: { sol: 1n, token: 1n }, max: { sol: 1n, token: 1n }, limitedByBalance: 'none',
         sharePct: { before: 0, after: 1 }, price: { state: 'no-trades-yet', pool: 1 }, tokenWarnings: [],
         unwrapsWsol: true, wsolHeldBefore: 0n, notices: [],

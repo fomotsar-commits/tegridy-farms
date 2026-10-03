@@ -22,10 +22,24 @@ import {
   createSyncNativeInstruction,
 } from '@solana/spl-token';
 import { PublicKey, SystemProgram, type TransactionInstruction } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
+import { SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { formatSol } from '../curve/format';
 import type { PreToken } from './types';
+
+/**
+ * The account at one of a wallet's own addresses, or `null` when none has been opened
+ * there. An address someone only sent SOL to is not an account yet: it reads as owned by
+ * the System program with no data, and anyone can make one at a wallet's associated
+ * address. It counts as absent, because create-if-missing opens the account over it and
+ * the signer pays only what is missing from its deposit. Any other owner, or any data, is
+ * an account and is judged as one.
+ */
+export function opened<T extends { owner: PublicKey | string; data: Uint8Array }>(a: T | null | undefined): T | null {
+  if (!a) return null;
+  const owner = typeof a.owner === 'string' ? a.owner : a.owner.toBase58();
+  return owner === SYSTEM_PROGRAM_ID.toBase58() && a.data.length === 0 ? null : a;
+}
 
 export interface WsolPlan {
   /** The signer's WSOL associated account. */
@@ -45,7 +59,8 @@ function readAccount(data: Uint8Array): { amount: bigint; delegate: PublicKey | 
 }
 
 /**
- * Plan from the builder's read of the signer's WSOL account (`null` = absent).
+ * Plan from the builder's read of the signer's WSOL account (`null` = absent, and so is
+ * an address that only holds SOL someone sent it: `opened`).
  * A string = this account cannot be used, said in plain words:
  *  - it is not a readable token account;
  *  - someone other than the signer can close it. Wrapped SOL is native, so its close
@@ -57,8 +72,9 @@ function readAccount(data: Uint8Array): { amount: bigint; delegate: PublicKey | 
  *    and an approved spender can still move some out. A closed account is emptied and
  *    closed in the same transaction, so a spender there can take nothing.
  */
-export function wsolPlanFrom(owner: PublicKey, account: { data: Uint8Array } | null): WsolPlan | string {
+export function wsolPlanFrom(owner: PublicKey, read: { owner: PublicKey | string; data: Uint8Array } | null): WsolPlan | string {
   const ata = associatedTokenAddress(WSOL_MINT, owner);
+  const account = opened(read);
   if (!account) return { ata, closeAfter: true, heldBefore: 0n };
   const acc = readAccount(account.data);
   if (!acc) return 'Your wrapped-SOL account could not be read.';

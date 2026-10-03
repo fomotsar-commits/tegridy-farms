@@ -170,6 +170,65 @@ describe('the door on the Solana rail', () => {
   });
 });
 
+// LC-4: a page where no launch can be made (launching off) still mounts the door to show a
+// reading. Told so, the door lets nothing through and says nothing that reads as a go.
+describe('the Solana door on a page where launching is off', () => {
+  const OFF = 'Launching here is not switched on yet.';
+  const offDoor = (wallet: string | null) => (
+    <MemoryRouter>
+      <LaunchGate rail="solana" wallet={wallet} launchingOff={OFF}>
+        <p>{LANE}</p>
+      </LaunchGate>
+    </MemoryRouter>
+  );
+  const door = () => screen.getByRole('region', { name: 'Who may plant' });
+
+  it('WARM lets nothing through, and ends on the page’s sentence', async () => {
+    h.fetchHeat.mockResolvedValue(reading(SOL_A, 95, 'Resident'));
+    render(offDoor(SOL_A));
+    await screen.findByText('WARM');
+    expect(lane()).not.toBeInTheDocument();
+    // The reading is kept; only the verdict is withheld.
+    expect(door()).toHaveTextContent('This wallet reads 95.00° (Resident).');
+    expect(door()).toHaveTextContent(OFF);
+    expect(door()).not.toHaveTextContent(/lane is open/i);
+  });
+
+  it('denial dialled off still lets nothing through, and never says the lane stays open', async () => {
+    vi.stubEnv('VITE_HEAT_GATE', 'off');
+    h.fetchHeat.mockResolvedValue(reading(SOL_A, 12, 'Observer'));
+    render(offDoor(SOL_A));
+    await screen.findByText('COLD');
+    expect(lane()).not.toBeInTheDocument();
+    expect(door()).toHaveTextContent(OFF);
+    expect(door()).not.toHaveTextContent(/lane stays open/i);
+  });
+
+  it('a pasted address still reads, with its ladder, and gets no launch verdict', async () => {
+    const paste = async () => {
+      h.fetchHeat.mockResolvedValue(reading(SOL_A, 95, 'Resident'));
+      fireEvent.change(screen.getByRole('textbox', { name: /Wallet address to read Heat for/ }), { target: { value: SOL_A } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Read Heat' }));
+      });
+      await screen.findByText('The ladder');
+    };
+    // With launching on, the same card does give the verdict: that is what is being withheld.
+    const on = render(solanaDoor(null));
+    await paste();
+    expect(screen.getByText(/Can launch a token here/)).toBeInTheDocument();
+    on.unmount();
+
+    render(offDoor(null));
+    expect(door()).toHaveTextContent('Connect a Solana wallet to see its reading, or read any address below.');
+    expect(door()).toHaveTextContent(`A reading is not a key. ${OFF}`);
+    expect(door()).not.toHaveTextContent(/will sign the launch|lane opens/i);
+    await paste();
+    expect(door()).not.toHaveTextContent(/can launch a token|lane is open|the moment you launch/i);
+    expect(lane()).not.toBeInTheDocument();
+  });
+});
+
 // What a page hands the door as `below` (the venue lines) sits directly under the door in
 // every state, outside it, and before the lane. On both rails the lane follows the door,
 // so at phone width the order is door, lines, form.

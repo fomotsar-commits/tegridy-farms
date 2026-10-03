@@ -32,8 +32,8 @@ import { initializeIx } from '../src/lib/solana/cpswap/ix';
 import {
   AMM_CONFIG_OFFSETS, decodeAmmConfig, deriveAmmConfig, deriveLpMint, derivePool, deriveVault, publicTierConfig, sortMints, type AmmConfigView,
 } from '../src/lib/solana/cpswap/program';
-import { feeSplit } from '../src/lib/solana/cpswap/venue';
-import { feeRateText, formatSolPrice } from '../src/lib/solana/lp/format';
+import { CREATOR_FEE_SWITCH, feeSplit } from '../src/lib/solana/cpswap/venue';
+import { formatSolPrice, tradeCostText } from '../src/lib/solana/lp/format';
 import { feeReserveFor, isqrt, planCreate, spendableSol } from '../src/lib/solana/lp/liquidityMath';
 import { arbitrageLoss, matchMarket, openingSolPerToken } from '../src/lib/solana/lp/opening';
 
@@ -78,7 +78,8 @@ async function tierView(index: 0 | 1): Promise<AmmConfigView> {
   return v;
 }
 const tierText = (c: AmmConfigView) =>
-  `${c.index}: traders pay ${feeRateText(c.tradeFeeRate)} a trade; LPs keep ${feeSplit(c).lpKeepsPct.toFixed(3)}% of each trade`;
+  // A pool this site opens goes through `initialize`, which switches its creator fee off.
+  `${c.index}: traders pay ${tradeCostText(c, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(c).lpKeepsPct.toFixed(3)}% of each trade`;
 
 interface Rents { r0: bigint; r165: bigint; neverRefunded: bigint }
 /** Live rents: the pool (637), its price record (4075), its share mint (82) and its two 165-byte vaults never come back. */
@@ -303,7 +304,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     const tier = await tierView(1);
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
     await expect(createCard(p)).toContainText(
-      `No pool for this token yet. You can open the first one on the public fee tier: ${feeRateText(tier.tradeFeeRate)} a trade, ${formatSol(tier.createPoolFee, 9)} SOL to open (read just now).`,
+      `No pool for this token yet. You can open the first one on the public fee tier: ${tradeCostText(tier, CREATOR_FEE_SWITCH.publicOpen)}, ${formatSol(tier.createPoolFee, 9)} SOL to open (read just now).`,
     );
     await expect(createCard(p)).toContainText(MONEY);
     await openCreate(p);
@@ -500,7 +501,7 @@ test.describe('group B (chromium only)', () => {
       })(),
       (async () => {
         B.c9 = await fundedKeypair(3);
-        B.t9 = await createToken2022MetadataOnly(B.c9, { name: 'E2E Bayla-like', symbol: 'EBAYLK', supply: 100_000n * UNIT });
+        B.t9 = await createToken2022MetadataOnly(B.c9, { name: 'E2E Meta Only 2022', symbol: 'EMETA22', supply: 100_000n * UNIT });
         book.setPrice(B.t9.toBase58(), FAIR, DEC);
       })(),
       (async () => {

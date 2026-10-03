@@ -26,6 +26,9 @@ export function PriceProvider({ children }: { children: ReactNode }) {
       // it out would hand the Farm a stale memoized 0 and re-dash the pool card.
       price.ethUsdForDisplay,
       price.isLoaded,
+      // Flips on its own when the last leg fails with no price: the only signal a
+      // caller has that a missing price is no longer loading.
+      price.priceSettled,
       price.oracleStale,
       price.priceChange,
       price.priceUnavailable,

@@ -95,15 +95,15 @@ function SolanaWalletSlot({ surface, pending }: { surface: SolanaSurface | null;
   const busy = pending || connecting;
   return (
     <div className="min-w-0">
-      {/* aria-disabled, not disabled: a second tap is refused while the wallet
-          answers, but the button keeps focus, which the list hands back to it. */}
+      {/* Never refused. A connect waits as long as the wallet takes, and a
+          locked wallet takes for ever: while it waits, a tap goes to the page's
+          own connect click, which opens the wallet list (useSolanaConnect). */}
       <button
         type="button"
-        onClick={connecting ? undefined : requestSolanaOpen}
+        onClick={requestSolanaOpen}
         aria-label="Connect a Solana wallet"
         aria-busy={busy || undefined}
-        aria-disabled={connecting || undefined}
-        title={connecting ? 'Connecting your Solana wallet…' : pending ? 'Opening the Solana wallet list…' : undefined}
+        title={connecting ? 'Waiting for your Solana wallet. Tap for the wallet list.' : pending ? 'Opening the Solana wallet list…' : undefined}
         className={`${CONNECT_BUTTON_CLASS}${busy ? ' opacity-60' : ''}`}
         style={CONNECT_BUTTON_STYLE}
       >
