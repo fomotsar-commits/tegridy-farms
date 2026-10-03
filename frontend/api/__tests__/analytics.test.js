@@ -307,6 +307,20 @@ describe("the backstop purge after a stored batch", () => {
     expect(out.payload.accepted).toBe(1);
   });
 
+  it("even a purge function that breaks its never-throw contract leaves the stored batch at 200", async () => {
+    vi.doMock("../_lib/errorPurge.js", () => ({
+      purgeExpiredAnalyticsEvents: async () => { throw new Error("contract broken"); },
+    }));
+    try {
+      const { default: handler } = await load();
+      const out = await post(handler);
+      expect(out.status).toBe(200);
+      expect(out.payload.accepted).toBe(1);
+    } finally {
+      vi.doUnmock("../_lib/errorPurge.js");
+    }
+  });
+
   it("does not run after a failed insert, or when nothing was stored", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const { default: handler } = await load();
