@@ -210,6 +210,41 @@ describe('display-vs-submit: a fresh quote worse than the one clicked, beyond th
     expect(d.buildSwapTransaction.mock.calls[0]![0].quote.outAmount).toBe('1200000');
   });
 
+  // funds-2 (dark review): the guard used to sit in a try/catch with an empty catch, so a
+  // clicked amount or a slippage that could not be turned into a whole number SKIPPED it
+  // and the swap went to the wallet on a quote far below what the screen showed.
+  it('FAIL CLOSED: a clicked amount that cannot be read is not "nothing moved": not sent, nothing built, the wallet never asked', async () => {
+    for (const bad of [undefined, null, '', 'abc', '12.5', '-5', 1_000_000, '9'.repeat(31)]) {
+      // The fresh quote pays a thousandth of anything the screen could have shown.
+      const d = deps({ readQuote: fresh('1000') });
+      const r = await sendJupiterSwap(d, args({ shown: quote({ outAmount: bad as never }) }));
+      expect(notSent(r), String(bad)).toMatchObject({ reason: 'quote-unread', message: JUPITER_SEND_COPY.shownUnread });
+      expect(d.buildSwapTransaction, String(bad)).not.toHaveBeenCalled();
+      expect(d.simulateSwap, String(bad)).not.toHaveBeenCalled();
+      expect(d.sendTransaction, String(bad)).not.toHaveBeenCalled();
+    }
+  });
+
+  it('FAIL CLOSED: a slippage that is not a whole number from 0 to 10,000 stops it too (BigInt(0.5) used to throw into the empty catch)', async () => {
+    for (const slippageBps of [0.5, Number.NaN, -1, 10_001, Number.POSITIVE_INFINITY]) {
+      const d = deps({ readQuote: fresh('1000') });
+      const r = await sendJupiterSwap(d, args({ shown, slippageBps }));
+      expect(notSent(r), String(slippageBps)).toMatchObject({ reason: 'quote-unread', message: JUPITER_SEND_COPY.shownUnread });
+      expect(d.buildSwapTransaction, String(slippageBps)).not.toHaveBeenCalled();
+      expect(d.sendTransaction, String(slippageBps)).not.toHaveBeenCalled();
+    }
+    // The same holds when the clicked quote is the no-fee one (the amount check is skipped there, the slippage check is not).
+    const d = deps();
+    expect(notSent(await sendJupiterSwap(d, args({ shown: NO_FEE_QUOTE, shownWaived: true, slippageBps: 0.5 }))).reason).toBe('quote-unread');
+    expect(d.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('FAIL CLOSED: a fresh quote whose amount cannot be read is not compared as zero or as fine', async () => {
+    const d = deps({ readQuote: vi.fn(async (): Promise<QuoteRead> => ({ kind: 'quote', quote: quote({ outAmount: undefined as never }), feeBpsSent: 50 })) });
+    expect(notSent(await sendJupiterSwap(d, args({ shown }))).reason).toBe('quote-unread');
+    expect(d.buildSwapTransaction).not.toHaveBeenCalled();
+  });
+
   it('not run when the clicked quote is the no-fee one: the fee-bearing fresh quote sits on that floor by construction', async () => {
     // shown (no fee) 21,759,829,670, so its floor is 21,651,030,522: exactly the fee-bearing
     // quote. One tick of the market (fresh 21,651,030,000) and the guard would say "moved"
@@ -413,6 +448,7 @@ describe('what the trader is told', () => {
   it('no sentence says "failed" for something that was never sent, and none uses an em dash', () => {
     const all = [
       JUPITER_SEND_COPY.quoteUnread,
+      JUPITER_SEND_COPY.shownUnread,
       JUPITER_SEND_COPY.noRoute,
       JUPITER_SEND_COPY.build('x'),
       JUPITER_SEND_COPY.simulateUnread,

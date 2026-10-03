@@ -116,6 +116,13 @@ describe('the review of a swap through one of our pools', () => {
     expect(screen.queryByText('Read these about this token first:')).not.toBeInTheDocument();
   });
 
+  it('a buy when Jupiter has no route: the fee row does not claim "the same fee as on Jupiter’s route", there is no such route', async () => {
+    await review(buy({ origin: 'launch-pool', versus: null, priceCheck: { state: 'no-trades-yet', pool: 1 } }));
+    expect(value('Platform fee (0.50%)')).toBe(`0.005 SOL, to the site's fee account ${FEE_ACCOUNT.toBase58()}; 0.50% of the SOL you pay`);
+    expect(value('Compared with')).toBe('Jupiter has no route for this token');
+    expect(screen.queryByText(/same fee/)).not.toBeInTheDocument();
+  });
+
   it('a pool at its own address, and the wrapped-SOL endings the other way round', async () => {
     await review(buy({ origin: 'other', unwrapsWsol: false }));
     expect(value('Pool kind')).toBe('Its own address');

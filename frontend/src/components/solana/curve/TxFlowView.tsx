@@ -483,9 +483,14 @@ function RouteSwapRows({ summary: s }: { summary: RouteSummary }) {
       <Row
         label={`Platform fee (${SITE_FEE_PCT})`}
         value={
+          // "The same fee as on Jupiter's route" is said only when there IS a Jupiter
+          // amount this was ranked against. The builder takes one only with a proof
+          // that Jupiter's own trade carries the fee (routeSwap.ts step 1).
           buying
-            ? `${fee}; the same fee as on Jupiter's route`
-            : `${fee}; ${SITE_FEE_PCT} of the minimum below, never more than ${SITE_FEE_PCT} of what you get`
+            ? s.versus !== null
+              ? `${fee}; the same fee as on Jupiter's route`
+              : `${fee}; ${SITE_FEE_PCT} of the SOL you pay`
+            :`${fee}; ${SITE_FEE_PCT} of the minimum below, never more than ${SITE_FEE_PCT} of what you get`
         }
         mono={false}
       />

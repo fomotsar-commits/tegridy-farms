@@ -6,7 +6,8 @@
 //   1. A FRESH quote is read first. "Jupiter could not be read" and "Jupiter
 //      has no route" are different answers and both stop here.
 //   2. The display-vs-submit guard: a fresh quote that pays less than the one
-//      the trader clicked, beyond their own slippage, is shown, not sent.
+//      the trader clicked, beyond their own slippage, is shown, not sent. If
+//      either amount or the slippage cannot be read, nothing is sent either.
 //   3. Build and simulate go through the fee-retry rule
 //      (./jupiterFeeRetry.ts prepareJupiterSwap), unchanged: the fee-bearing
 //      build first, and one no-fee rebuild only on Jupiter's own 6014.
@@ -81,6 +82,8 @@ export type JupiterSendResult =
 
 export const JUPITER_SEND_COPY = {
   quoteUnread: 'We could not get Jupiter’s price just now, so nothing was sent. Try again in a moment.',
+  shownUnread:
+    'We could not compare the price you were shown with Jupiter’s price now, so nothing was sent. Wait for a fresh price and try again.',
   noRoute: 'Jupiter has no route for this pair and amount right now. Nothing was sent.',
   build: (detail: string) => `Jupiter could not build this swap (${detail}). Nothing was sent.`,
   simulateUnread: 'We could not test this swap before signing, so it was not sent to your wallet. Try again in a moment.',
@@ -100,6 +103,11 @@ export const JUPITER_SEND_COPY = {
 function isDecline(e: unknown): boolean {
   const msg = e instanceof Error ? `${e.name} ${e.message}` : String(e ?? '');
   return /reject|declin|denied|cancel|WalletSignTransactionError|User rejected/i.test(msg);
+}
+
+/** A raw amount as Jupiter sends it: a string of digits (lib/jupiter.ts RAW_AMOUNT). Anything else is unread: null, never 0. */
+function rawAmount(raw: unknown): bigint | null {
+  return typeof raw === 'string' && /^\d{1,30}$/.test(raw) ? BigInt(raw) : null;
 }
 
 function detailOf(e: unknown): string {
@@ -148,14 +156,19 @@ export async function sendJupiterSwap(
   // Not run when the clicked quote is the no-fee one: a fee-bearing `fresh`
   // sits right on that quote's floor before the market moves at all. The
   // like-for-like check for that case is inside prepareJupiterSwap.
+  //
+  // FAIL CLOSED: an amount or a price limit that cannot be read is not "nothing
+  // moved". The simulation further down only proves the FRESH quote's own
+  // minimum; it knows nothing about what the trader clicked. So when the
+  // comparison cannot be made, nothing is built and nothing reaches the wallet.
+  const slippageOk = Number.isInteger(a.slippageBps) && a.slippageBps >= 0 && a.slippageBps <= 10_000;
+  const freshOut = rawAmount(fresh.outAmount);
+  if (!slippageOk || freshOut === null) return { status: 'not-sent', reason: 'quote-unread', message: JUPITER_SEND_COPY.shownUnread };
   if (!a.shownWaived) {
-    try {
-      const shownOut = BigInt(a.shown.outAmount);
-      const floor = shownOut - (shownOut * BigInt(a.slippageBps)) / 10_000n;
-      if (BigInt(fresh.outAmount) < floor) return { status: 'moved', why: 'price', fresh, siteFeeWaived: false };
-    } catch {
-      /* an unparseable shown amount: the pre-sign simulation below still guards */
-    }
+    const shownOut = rawAmount(a.shown?.outAmount);
+    if (shownOut === null) return { status: 'not-sent', reason: 'quote-unread', message: JUPITER_SEND_COPY.shownUnread };
+    const floor = shownOut - (shownOut * BigInt(a.slippageBps)) / 10_000n;
+    if (freshOut < floor) return { status: 'moved', why: 'price', fresh, siteFeeWaived: false };
   }
 
   // 3 and 4. Build and simulate through the fee-retry rule, watching every

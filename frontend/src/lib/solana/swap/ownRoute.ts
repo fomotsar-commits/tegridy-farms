@@ -18,14 +18,20 @@
 //        - Jupiter's number not proven to be "after our fee": Jupiter runs, ours does
 //          not compete;
 //        - Jupiter answered "no route": only the token's launch pool may run, and only
-//          while its price agrees with its own half-hour average (or it has never
-//          traded). A pool anyone could open is never routed to on its own, because its
+//          while its price is provably its own (`launchPriceProblem`): it has never
+//          traded and still holds exactly what its shares account for, or it has traded
+//          steadily for the whole of the last half hour and its price agrees with that
+//          average. A pool anyone could open is never routed to on its own, because its
 //          opener set its price.
+//      And ours competes only on a pair whose site fee is taken in SOL, against a
+//      Jupiter trade that really carries that fee (`jupiterSideOf`).
 
 import type { PublicKey } from '@solana/web3.js';
+import { jupiterNet, pickFeeMint, type QuoteRead } from '../../jupiter';
 import { applySlippage, isU64 } from '../../launcher/solana/curve/math';
 import { POOL_STATUS_DISABLE_SWAP, deriveAmmConfig, swapEnabled } from '../cpswap/program';
 import { quoteOwnPool, type OwnPoolQuote } from '../cpswap/read';
+import { recordSilence } from '../lp/ownPrice';
 import type { PoolView } from '../lp/poolFinder';
 import { assessPool, formatWhen, tokenReasons } from '../lp/poolHealth';
 import { WSOL_MINT, type TokenSafety } from '../lp/tokenSafety';
@@ -110,6 +116,19 @@ export function routedTier(cp: PublicKey, configAddress: string): 0 | 1 | null {
 export const ROUTE_TOO_SMALL = 'it can’t take an amount this size';
 
 /**
+ * Is the site fee on TOKEN/SOL taken in SOL? Jupiter's route takes it in USDC whenever
+ * USDC is on either side (lib/jupiter.ts pickFeeMint), and our route can only take it in
+ * wrapped SOL. So a USDC/SOL pool is never ours: the fee would land on another side and
+ * in another account than on Jupiter's route (SPEC_S3 D3).
+ */
+export function siteFeeIsInSol(tokenMint: string): boolean {
+  return pickFeeMint(WSOL_MINT, tokenMint) === WSOL_MINT && pickFeeMint(tokenMint, WSOL_MINT) === WSOL_MINT;
+}
+
+/** Said by `routeExclusion` and by the builder for a pair `siteFeeIsInSol` refuses. */
+export const ROUTE_FEE_NOT_IN_SOL = 'the site fee on this pair is taken in USDC, not in SOL';
+
+/**
  * Why this pool may not take a routed swap, in plain words that finish "Our pool can't
  * take this trade right now: …"; null when it may. The first reason that applies.
  *
@@ -121,6 +140,7 @@ export function routeExclusion(
   a: { cp: PublicKey; chainNow: bigint | null; safety: TokenSafety | null; demoted: ReadonlySet<string> },
 ): string | null {
   const { pool } = view.snapshot;
+  if (!siteFeeIsInSol(view.tokenMint)) return ROUTE_FEE_NOT_IN_SOL;
   if (!swapEnabled(pool)) return 'swaps are switched off on it';
   // Any other bit, known or not. The program only checks the swap bit on a swap, but a
   // pool whose admin has switched deposits or withdrawals off is not one to send trades to.
@@ -167,14 +187,60 @@ function beats(a: OwnCandidate, b: OwnCandidate): boolean {
 }
 
 /**
- * May the token's launch pool run when Jupiter has no route? Only when its price agrees
- * with its OWN average over the last half hour, or it has not traded since it opened
- * (the price the launch program set). Anything unread is a no: the token, its decimals,
- * the clock, the pool's price record. Any pool but a launch pool is a no.
+ * A launch pool that has never traded must still hold what its shares account for.
+ * The pool program opens a pool with `lp_supply = floor(sqrt(side0 x side1))`, and a
+ * deposit or a withdrawal moves both sides and the shares together, so until the first
+ * swap `side0 x side1` stays at `lp_supply^2` (a hair above, from rounding in the pool's
+ * favour). Tokens or SOL sent STRAIGHT into a vault raise the product and move the
+ * price without a trade; this tolerance is the most such a transfer may have moved it.
  */
-export function launchPriceOk(view: PoolView, a: { chainNow: bigint | null; safety: TokenSafety | null }): boolean {
-  if (view.origin !== 'launch-pool') return false;
-  if (a.safety?.kind !== 'read' || a.safety.facts === null) return false;
+export const UNTRADED_RESERVES_TOLERANCE_BPS = 10n;
+
+export function reservesMatchShares(view: PoolView): boolean {
+  const lp = view.snapshot.pool.lpSupply;
+  if (lp <= 0n || view.solReserve <= 0n || view.tokenReserve <= 0n) return false;
+  const product = view.solReserve * view.tokenReserve;
+  const shares = lp * lp;
+  // Below the shares is a state the pool program never produces: unread, not fine.
+  return product >= shares && product * 10_000n <= shares * (10_000n + UNTRADED_RESERVES_TOLERANCE_BPS);
+}
+
+/**
+ * A traded launch pool's average counts only while it traded steadily: no stretch
+ * without a recorded swap longer than a sixth of the window (5 minutes of 30). A price
+ * moved inside such a stretch is then at most a sixth of the average, so a move past
+ * about 3.6% still shows as more than the 3% tolerance (lp/ownPrice.ts recordSilence).
+ */
+export const LAUNCH_MAX_SILENCE_DIVISOR = 6n;
+
+export type LaunchPriceProblem =
+  | 'not-launch-pool'
+  /** The token, its decimals, the clock or the pool's price record could not be read or used. */
+  | 'unread'
+  /** More than 3% from its own average over the last half hour. */
+  | 'disagrees'
+  /** Never traded, yet its two sides no longer match its shares. */
+  | 'reserves-moved'
+  /** It agrees with its average, but the average has a long stretch with no trade in it. */
+  | 'too-quiet';
+
+/**
+ * Why the token's launch pool may NOT run when Jupiter has no route; null when it may.
+ *
+ * With no outside price, the only evidence that the pool's price is honest is the pool
+ * itself, and its price can be moved WITHOUT a trade: its reserves are its vaults' live
+ * balances, and a plain transfer into a vault leaves no mark in its price record. So
+ * "agrees with its own average" and "has never traded" are not enough on their own:
+ *   - never traded: its two sides must still match its shares (`reservesMatchShares`);
+ *   - traded: within 3% of its half-hour average, AND that average must be made of
+ *     steady trading (`LAUNCH_MAX_SILENCE_DIVISOR`). Time with no recorded swap is not
+ *     evidence: the average fills it with whatever the price is now, and a dust swap
+ *     after a transfer writes the moved price over the whole quiet stretch.
+ * Anything unread is a problem, never a pass. Any pool but a launch pool is a problem.
+ */
+export function launchPriceProblem(view: PoolView, a: { chainNow: bigint | null; safety: TokenSafety | null }): LaunchPriceProblem | null {
+  if (view.origin !== 'launch-pool') return 'not-launch-pool';
+  if (a.safety?.kind !== 'read' || a.safety.facts === null) return 'unread';
   const { price } = assessPool({
     view,
     tokenDecimals: a.safety.facts.decimals,
@@ -182,7 +248,17 @@ export function launchPriceOk(view: PoolView, a: { chainNow: bigint | null; safe
     outside: { kind: 'no-route', detail: 'Jupiter has no route for this token' },
     safety: a.safety,
   });
-  return price.state === 'agrees' || price.state === 'no-trades-yet';
+  if (price.state === 'disagrees') return 'disagrees';
+  if (price.state === 'no-trades-yet') return reservesMatchShares(view) ? null : 'reserves-moved';
+  if (price.state !== 'agrees' || view.history.kind !== 'ok' || a.chainNow === null) return 'unread';
+  const quiet = recordSilence(view.history.obs, a.chainNow);
+  if (quiet === null) return 'unread';
+  return quiet.longestSecs * LAUNCH_MAX_SILENCE_DIVISOR > quiet.windowSecs ? 'too-quiet' : null;
+}
+
+/** May the token's launch pool run when Jupiter has no route? (`launchPriceProblem` is null.) */
+export function launchPriceOk(view: PoolView, a: { chainNow: bigint | null; safety: TokenSafety | null }): boolean {
+  return launchPriceProblem(view, a) === null;
 }
 
 /** What Jupiter said, as the route rule sees it. `net` is lib/jupiter.ts jupiterNet(): proven to be after our fee. */
@@ -194,6 +270,28 @@ export type JupiterSide =
   | { kind: 'no-route' }
   /** No answer: a 502, a 429, a network error, bad JSON. */
   | { kind: 'unread' };
+
+/**
+ * What the route rule may be told about Jupiter, from a quote read.
+ *
+ * `feeWaivedOnPair`: the page knows Jupiter's trade on this pair goes out WITHOUT the
+ * site fee (jupiterFeeRetry.ts: Jupiter's own program refuses the fee on that route, so
+ * the same trade is rebuilt with no fee and pays the trader about 0.5% more than the
+ * fee-bearing quote says). The fee-bearing number is then not what Jupiter would pay,
+ * and "after the same fee" would be untrue, so our pool does not compete: Jupiter runs.
+ * The builder holds the same line at send time with a proof (jupiterFeeProbe.ts).
+ */
+export function jupiterSideOf(
+  read: QuoteRead,
+  asked: { inputMint: string; outputMint: string; amount: string },
+  o: { feeWaivedOnPair: boolean },
+): JupiterSide {
+  if (read.kind === 'unread') return { kind: 'unread' };
+  if (read.kind === 'no-route') return { kind: 'no-route' };
+  if (o.feeWaivedOnPair) return { kind: 'meaning-unread' };
+  const net = jupiterNet(read, asked);
+  return net === null ? { kind: 'meaning-unread' } : { kind: 'net', net };
+}
 
 export type RouteChoice =
   /** `versus` null: Jupiter answered no-route (so there is no edge and no tie). `edge`: how much more ours pays, as a fraction of Jupiter's. */

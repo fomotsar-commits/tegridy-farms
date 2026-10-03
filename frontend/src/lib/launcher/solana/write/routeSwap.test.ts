@@ -12,6 +12,7 @@ import { Keypair, PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { formatSol } from '../curve/format';
+import { USDC_MINT } from '../../../solana';
 import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, deriveAmmConfig, sortMints } from '../../../solana/cpswap/program';
 import { spendableSol } from '../../../solana/lp/liquidityMath';
 import { observationBytes } from '../../../solana/lp/testkit.fixture';
@@ -102,21 +103,37 @@ interface WorldOptions {
   /** false = no fee account on the chain. */
   feeReceiver?: Parameters<FakeChain['addFeeReceiver']>[0] | false;
   sim?: RouteSwapSimOptions;
+  /** The token itself (default: a fresh key). */
+  mint?: PublicKey;
+  /** What the pool's token vault holds (default TOKEN_RESERVE), and the shares it records (default: the fixture's). */
+  tokens?: bigint;
+  lpSupply?: bigint;
 }
+
+/** floor(sqrt(n)): the shares the pool program records when it opens a pool with these two sides. */
+function isqrt(n: bigint): bigint {
+  let x = BigInt(Math.floor(Math.sqrt(Number(n))));
+  while (x * x > n) x -= 1n;
+  while ((x + 1n) * (x + 1n) <= n) x += 1n;
+  return x;
+}
+/** The shares of a pool opened with the spec's worked reserves and not traded since. */
+const OPENING_SHARES = isqrt(SOL_RESERVE * TOKEN_RESERVE);
 
 function world(o: WorldOptions = {}): World {
   const chain = FakeChain.healthy();
   chain.addTier1();
   if (o.feeReceiver !== false) chain.addFeeReceiver(o.feeReceiver ?? {});
   chain.simulate = routeSwapSimulator(o.sim);
-  const mint = o.solIsToken0 === undefined ? fresh() : mintWith(o.solIsToken0);
+  const mint = o.mint ?? (o.solIsToken0 === undefined ? fresh() : mintWith(o.solIsToken0));
   const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
   const mintOpts = { decimals: o.mintDecimals ?? 6, freezeAuthority: o.freezeAuthority };
   if (tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) chain.mint2022(mint, o.mintExtensions ?? METADATA_ONLY, mintOpts);
   else chain.mint(mint, mintOpts);
   const pool = addPool(chain, mint, {
     sol: SOL_RESERVE,
-    tokens: TOKEN_RESERVE,
+    tokens: o.tokens ?? TOKEN_RESERVE,
+    lpSupply: o.lpSupply,
     status: o.status,
     openTime: o.openTime,
     launch: o.launch,
@@ -175,6 +192,8 @@ async function run(w: World, side: 'buy' | 'sell', over: Over = {}, o: Parameter
       amountIn,
       slippageBps: SLIP,
       jupiterNet: q ? q.netExpected - 1n : 1n,
+      // The page proved at Review that Jupiter's own trade carries the fee, unless the case says otherwise.
+      jupiterFee: 'charged',
       shownNet: q ? q.netExpected : 1n,
       ...over,
     },
@@ -381,7 +400,7 @@ describe('T-B-02: the pool’s fee settings come from the same read, or nothing 
     w.chain.getMultipleAccountsInfo = async () => {
       throw new Error('503');
     };
-    const r = await prepareRouteSwap(W(w.chain), OPEN, { owner: ME, pool: w.pool.address, tokenMint: w.mint, tokenDecimals: 6, side: 'buy', amountIn: BUY, slippageBps: SLIP, jupiterNet: 1n, shownNet: 1n }, ON);
+    const r = await prepareRouteSwap(W(w.chain), OPEN, { owner: ME, pool: w.pool.address, tokenMint: w.mint, tokenDecimals: 6, side: 'buy', amountIn: BUY, slippageBps: SLIP, jupiterNet: 1n, jupiterFee: 'charged', shownNet: 1n }, ON);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.outcome.message).toBe(ROUTE_COPY.poolUnread);
   });
@@ -627,10 +646,44 @@ describe('T-B-12: the route is decided here, on this read', () => {
     }
   });
 
-  it('Jupiter has no route: the token’s launch pool runs while it has never traded, and the review says which check passed', async () => {
-    const w = world({ launch: true });
+  it('Jupiter has no route: the token’s launch pool runs while it has never traded and still holds what its shares account for, and the review says which check passed', async () => {
+    const w = world({ launch: true, lpSupply: OPENING_SHARES });
     const s = summaryOf(ok(await run(w, 'buy', { jupiterNet: null })));
     expect(s).toMatchObject({ origin: 'launch-pool', versus: null, priceCheck: { state: 'no-trades-yet' } });
+    // With no Jupiter trade to compare with, the fee proof is not read.
+    ok(await run(w, 'sell', { jupiterNet: null, jupiterFee: 'unchecked' }));
+  });
+
+  // funds-1 (dark review): a transfer straight into a vault moves the price and leaves
+  // no mark in the pool's price record, so "never traded" used to pass on a moved price.
+  it('Jupiter has no route: a never-traded launch pool whose token vault was topped up by a plain transfer is not built, on a buy or a sell', async () => {
+    // Half as many tokens again sent straight in: the price is a third lower and no swap recorded it.
+    const w = world({ launch: true, lpSupply: OPENING_SHARES, tokens: (TOKEN_RESERVE * 3n) / 2n });
+    for (const side of ['buy', 'sell'] as const) {
+      expect(refused(w, await run(w, side, { jupiterNet: null })), side).toBe(ROUTE_COPY.launchReservesMoved);
+    }
+    // The same pool still has to be the better route when Jupiter HAS one: that path is unchanged.
+    ok(await run(w, 'sell'));
+  });
+
+  it('Jupiter has no route: a launch pool that traded, went quiet, and then had tokens sent in is not built ("its average" would be the price now compared with itself)', async () => {
+    const w = world({ launch: true, lpSupply: OPENING_SHARES, tokens: TOKEN_RESERVE * 2n });
+    // Its record: steady trading at the ORIGINAL price for 40 minutes, the last swap an hour ago.
+    const Q32 = 1n << 32n;
+    const perUnit = (SOL_RESERVE * Q32) / TOKEN_RESERVE;
+    const inverse = (TOKEN_RESERVE * Q32) / SOL_RESERVE;
+    const start = NOW - 6_000n;
+    const obs: [number, bigint, bigint, bigint][] = [];
+    for (let i = 0n; i <= 40n; i++) {
+      const [own, other] = [perUnit * i * 60n, inverse * i * 60n];
+      obs.push([Number(i), start + i * 60n, ...(w.pool.solIsToken0 ? ([other, own] as const) : ([own, other] as const))]);
+    }
+    w.chain.set(w.pool.observation, {
+      lamports: rent(4075),
+      owner: CPSWAP,
+      data: observationBytes({ pool: w.pool.address, index: 40, lastUpdate: start + 2_400n, obs }),
+    });
+    expect(refused(w, await run(w, 'sell', { jupiterNet: null }))).toBe(ROUTE_COPY.launchTooQuiet);
   });
 
   it('Jupiter has no route: a launch pool whose price is far from its own half-hour average is not built', async () => {
@@ -686,6 +739,39 @@ describe('T-B-13: the switches hold even when the builder is called directly', (
     }
   });
 
+  // parity-1 (dark review): on a route where Jupiter's own program refuses the site fee,
+  // the Jupiter trade that goes out carries NO fee and pays about 0.5% more than the
+  // fee-bearing number our pool is ranked against. Ours used to be built there.
+  it('a Jupiter number without a proof that Jupiter’s own trade carries the fee is not one our pool may beat: not built, nothing read', async () => {
+    const w = world();
+    expect(refused(w, await run(w, 'buy', { jupiterFee: 'waived' }))).toBe(ROUTE_COPY.jupiterFeeWaived);
+    expect(w.chain.calls).toHaveLength(0);
+    expect(refused(w, await run(w, 'buy', { jupiterFee: 'unchecked' }))).toBe(ROUTE_COPY.jupiterFeeUnchecked);
+    expect(w.chain.calls).toHaveLength(0);
+    // A caller that leaves the proof out altogether (a JS caller, a stale page) is refused, not waved through.
+    expect(refused(w, await run(w, 'sell', { jupiterFee: undefined as never }))).toBe(ROUTE_COPY.jupiterFeeUnchecked);
+    // Ours beats the fee-bearing number by the width of the fee: exactly the case that used to route to us.
+    const q = await ours(w, 'buy', BUY);
+    const feeBearing = q.netExpected - q.netExpected / 400n;
+    expect(refused(w, await run(w, 'buy', { jupiterNet: feeBearing, jupiterFee: 'waived' }))).toBe(ROUTE_COPY.jupiterFeeWaived);
+    ok(await run(w, 'buy', { jupiterNet: feeBearing, jupiterFee: 'charged' }));
+    for (const s of [ROUTE_COPY.jupiterFeeWaived, ROUTE_COPY.jupiterFeeUnchecked, ROUTE_COPY.feeNotInSol, ROUTE_COPY.launchReservesMoved, ROUTE_COPY.launchTooQuiet]) {
+      expect(s).not.toMatch(/[–—]/);
+      expect(s).toMatch(/Nothing was built|nothing was built/);
+    }
+  });
+
+  // parity-2 (dark review): SPEC_S3 D3. Jupiter takes the fee on a USDC pair in USDC, to
+  // another account; our route can only take it in wrapped SOL. The builder never checked.
+  it('a USDC/SOL pool on our program is never ours: not built, nothing read, though the pool and the token are sound', async () => {
+    const w = world({ mint: new PublicKey(USDC_MINT), tier: 1 });
+    for (const side of ['buy', 'sell'] as const) {
+      expect(refused(w, await run(w, side)), side).toBe(ROUTE_COPY.feeNotInSol);
+      expect(w.chain.calls, side).toHaveLength(0);
+    }
+    expect(ROUTE_COPY.feeNotInSol).toBe('Our pools are not used for this pair: the site fee on this pair is taken in USDC, not in SOL. Nothing was built.');
+  });
+
   it('a bad price limit or an empty amount is refused first', async () => {
     const w = world();
     expect(refused(w, await run(w, 'buy', { slippageBps: 501n }))).toMatch(/price limit/);
@@ -728,7 +814,7 @@ describe('T-B-14: the fee account’s row proves the fee arrived, and nothing mo
     const q = await ours(w, 'sell', SELL);
     reads = 0;
     w.chain.accounts.delete(w.wsolAta.toBase58());
-    const r = await prepareRouteSwap(W(w.chain), OPEN, { owner: ME, pool: w.pool.address, tokenMint: w.mint, tokenDecimals: 6, side: 'sell', amountIn: SELL, slippageBps: SLIP, jupiterNet: q.netExpected, shownNet: q.netExpected }, ON);
+    const r = await prepareRouteSwap(W(w.chain), OPEN, { owner: ME, pool: w.pool.address, tokenMint: w.mint, tokenDecimals: 6, side: 'sell', amountIn: SELL, slippageBps: SLIP, jupiterNet: q.netExpected, jupiterFee: 'charged', shownNet: q.netExpected }, ON);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.outcome).toMatchObject({ stage: 'simulate', message: expect.stringMatching(/^Blocked:/) });
   });
@@ -809,7 +895,7 @@ describe('the pool and the token are judged again on the builder’s read', () =
   it('a token mint that is gone is refused as not existing', async () => {
     const w = world();
     w.chain.accounts.delete(w.mint.toBase58());
-    const r = await prepareRouteSwap(W(w.chain), OPEN, { owner: ME, pool: w.pool.address, tokenMint: w.mint, tokenDecimals: 6, side: 'buy', amountIn: BUY, slippageBps: SLIP, jupiterNet: 1n, shownNet: 1n }, ON);
+    const r = await prepareRouteSwap(W(w.chain), OPEN, { owner: ME, pool: w.pool.address, tokenMint: w.mint, tokenDecimals: 6, side: 'buy', amountIn: BUY, slippageBps: SLIP, jupiterNet: 1n, jupiterFee: 'charged', shownNet: 1n }, ON);
     expect(r.ok).toBe(false);
     expect(w.chain.simulateCalls).toHaveLength(0);
   });
@@ -823,7 +909,7 @@ describe('the pool and the token are judged again on the builder’s read', () =
   it('a pool that is not this token’s is refused', async () => {
     const w = world();
     const other = world();
-    const r = await prepareRouteSwap(W(w.chain), OPEN, { owner: ME, pool: w.pool.address, tokenMint: other.mint, tokenDecimals: 6, side: 'buy', amountIn: BUY, slippageBps: SLIP, jupiterNet: 1n, shownNet: 1n }, ON);
+    const r = await prepareRouteSwap(W(w.chain), OPEN, { owner: ME, pool: w.pool.address, tokenMint: other.mint, tokenDecimals: 6, side: 'buy', amountIn: BUY, slippageBps: SLIP, jupiterNet: 1n, jupiterFee: 'charged', shownNet: 1n }, ON);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.outcome.message).toBe(LP_COPY.notThisPair);
   });

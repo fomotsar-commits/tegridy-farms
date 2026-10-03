@@ -8,7 +8,10 @@
 //
 //   1. the inputs: both switches are on (LP's, and the route's own), this build's fee
 //      settings agree with the committed 0.5% to the team vault, and Jupiter's number
-//      for the same trade is either a positive amount or an ANSWERED "no route";
+//      for the same trade is either a positive amount or an ANSWERED "no route". The
+//      pair's site fee must be taken in SOL (never a USDC pair), and a Jupiter amount
+//      counts only with a proof that Jupiter's own trade carries the fee
+//      (jupiterFeeProbe.ts): where it goes out with no fee, it pays more than that;
 //   2. ONE read of 16 accounts in one slot: the 13 a deposit reads, both routed fee
 //      tiers, and the site's fee account. The pool is priced with the tier it records;
 //   3. the pool is the pool (`poolPins`): each vault, the share token and the price
@@ -22,7 +25,9 @@
 //      fee taken off on the SOL side;
 //   9. the route, re-ranked on THIS read (`decideRoute`, the rule the route line uses):
 //      ours must still pay at least what Jupiter pays; with no Jupiter route, only the
-//      token's launch pool, and only while its price agrees with its own average;
+//      token's launch pool, and only while its price is provably its own: never traded
+//      and still holding what its shares account for, or traded steadily and within 3%
+//      of its own average (a transfer straight into a vault moves the price unrecorded);
 //  10. the amount the page showed is still there, within the trader's price limit;
 //  11. a buy leaves the wallet enough SOL to stay open on the network (the rent band);
 //  12-13. the body, then the shared simulate-and-compare path. The trader's balance rows
@@ -54,7 +59,16 @@ import type { RawAccount } from '../../../solana/lp/accounts';
 import { spendableSol } from '../../../solana/lp/liquidityMath';
 import { assessPool, tokenReasons, type PriceCheck } from '../../../solana/lp/poolHealth';
 import { SITE_ALLOWED_EXTENSIONS, classifyToken, extensionPlain } from '../../../solana/lp/tokenSafety';
-import { decideRoute, launchPriceOk, routeExclusion, routeQuote } from '../../../solana/swap/ownRoute';
+import type { JupiterFeeProof } from '../../../solana/swap/jupiterFeeProbe';
+import {
+  ROUTE_FEE_NOT_IN_SOL,
+  decideRoute,
+  launchPriceProblem,
+  routeExclusion,
+  routeQuote,
+  siteFeeIsInSol,
+  type LaunchPriceProblem,
+} from '../../../solana/swap/ownRoute';
 import { siteFeeAgrees } from '../../../solana/swap/siteFee';
 import { SITE_FEE_WSOL_ACCOUNT } from '../../../solana/swap/siteFeeAccount';
 import { ownPoolRouteMode, type OwnPoolRouteMode } from '../lpWriteFlag';
@@ -87,6 +101,14 @@ export interface RouteSwapArgs {
   slippageBps: bigint;
   /** Jupiter's net for the same trade, re-quoted at Review and passed through jupiterNet(). null ONLY when Jupiter answered no-route. */
   jupiterNet: bigint | null;
+  /**
+   * Whether Jupiter's own trade for that quote really carries the site fee, from
+   * lib/solana/swap/jupiterFeeProbe.ts probeJupiterFee at Review. Only 'charged' lets our
+   * pool be ranked against `jupiterNet`: on a route where Jupiter's trade goes out with
+   * no fee, it pays more than that number says. Not read when `jupiterNet` is null
+   * (Jupiter has no trade to compare with).
+   */
+  jupiterFee: JupiterFeeProof;
   /** The net the page showed for this route; the fresh net must not fall below it by more than the slippage. */
   shownNet: bigint;
 }
@@ -100,7 +122,12 @@ const tokensText = (raw: bigint, decimals: number) => `${formatTokenAmount(raw, 
 export const ROUTE_COPY = {
   switchedOff: 'Trading through our pools is switched off right now. Nothing was built.',
   feeDisagrees: "This build's fee settings do not match the site's 0.5% fee, so our pools are not used. Nothing was built.",
+  feeNotInSol: `Our pools are not used for this pair: ${ROUTE_FEE_NOT_IN_SOL}. Nothing was built.`,
   jupiterUnread: "We couldn't get Jupiter's price just now, so we can't compare routes. Nothing was sent.",
+  jupiterFeeWaived:
+    "Jupiter's route for this trade goes out with no site fee, so it pays more than the number our pool was compared with. Nothing was built. Press again to use Jupiter.",
+  jupiterFeeUnchecked:
+    "We could not check that Jupiter's route for this trade carries the same fee, so our pool was not compared with it. Nothing was built. Press again to use Jupiter.",
   poolUnread: 'We could not read the pool just now, so nothing was built. Try again in a moment.',
   poolChanged: LP_COPY.poolChanged,
   tierNotRouted: SWAP_TIER_NOT_ROUTED,
@@ -121,6 +148,10 @@ export const ROUTE_COPY = {
   launchPriceMoved: (pct: string) =>
     `This launch pool's price is ${pct}% from its own average over the last half hour. Someone may have just pushed it, so nothing was built.`,
   launchPriceUnread: "We could not check this launch pool's price against its own average, so nothing was built.",
+  launchReservesMoved:
+    'This launch pool has not traded yet, but its two sides no longer match its shares. Someone may have moved its price by sending tokens or SOL straight into it, so nothing was built.',
+  launchTooQuiet:
+    'This launch pool has not traded steadily over the last half hour, so its own average cannot show that its price is honest, and Jupiter has no route to compare with. Nothing was built.',
   rentBand: (most: string) =>
     `That would leave your wallet with too little SOL to stay open on the network. The most you can swap from this wallet is ${most} SOL.`,
   cannotSizeAccount: 'This site cannot work out the deposit for an account of this token, so nothing was built.',
@@ -213,6 +244,16 @@ export async function prepareRouteSwap(
   // null is Jupiter's ANSWERED "no route". Anything else must be a positive amount:
   // our pool never competes against a number that is not a price.
   if (a.jupiterNet !== null && a.jupiterNet <= 0n) return notSent('build', ROUTE_COPY.jupiterUnread);
+  // The site fee on this pair must be the one this route can take: wrapped SOL. On a
+  // USDC pair Jupiter's fee is in USDC, to another account (D3). Held here too, not only
+  // by the page: only this answer moves money.
+  if (!siteFeeIsInSol(a.tokenMint.toBase58())) return notSent('build', ROUTE_COPY.feeNotInSol);
+  // Jupiter's number is "after the same fee" only when Jupiter's own trade carries the
+  // fee. Where it goes out with no fee it pays more than `jupiterNet`, so ours would
+  // win a ranking it should lose. Anything but a proof that the fee is charged refuses.
+  if (a.jupiterNet !== null && a.jupiterFee !== 'charged') {
+    return notSent('build', a.jupiterFee === 'waived' ? ROUTE_COPY.jupiterFeeWaived : ROUTE_COPY.jupiterFeeUnchecked);
+  }
   // The page showed an amount for this route, or there is nothing to hold the fresh one to.
   if (a.shownNet <= 0n) return notSent('build', ROUTE_COPY.priceMoved);
   if (!Number.isInteger(a.tokenDecimals) || a.tokenDecimals < 0 || a.tokenDecimals > 18) return notSent('build', ROUTE_COPY.decimalsUnknown);
@@ -286,11 +327,12 @@ export async function prepareRouteSwap(
   const candidate = { view, q };
   const isLaunch = view.origin === 'launch-pool';
   let priceCheck: PriceCheck | null = null;
-  let launchOk = false;
+  let launchProblem: LaunchPriceProblem | null = 'unread';
   if (a.jupiterNet === null && isLaunch) {
     priceCheck = assessPool({ view, tokenDecimals: decimals, chainNow, outside: { kind: 'no-route', detail: 'Jupiter has no route for this token' }, safety }).price;
-    launchOk = launchPriceOk(view, { chainNow, safety });
+    launchProblem = launchPriceProblem(view, { chainNow, safety });
   }
+  const launchOk = launchProblem === null;
   const choice = decideRoute({
     best: candidate,
     launch: isLaunch ? { ...candidate, priceOk: launchOk } : null,
@@ -300,6 +342,8 @@ export async function prepareRouteSwap(
     if (a.jupiterNet !== null) return notSent('build', choice.route === 'none' ? ROUTE_COPY.jupiterUnread : ROUTE_COPY.jupiterPaysMore);
     if (!isLaunch) return notSent('build', ROUTE_COPY.noRouteNotLaunch);
     if (priceCheck?.state === 'disagrees') return notSent('build', ROUTE_COPY.launchPriceMoved((Math.abs(priceCheck.diff) * 100).toFixed(1)));
+    if (launchProblem === 'reserves-moved') return notSent('build', ROUTE_COPY.launchReservesMoved);
+    if (launchProblem === 'too-quiet') return notSent('build', ROUTE_COPY.launchTooQuiet);
     return notSent('build', ROUTE_COPY.launchPriceUnread);
   }
 

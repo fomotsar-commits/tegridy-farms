@@ -26,6 +26,25 @@
 // logged; none is typed here. More can be offered with SOLANA_MAINNET_DRYRUN_WALLETS
 // (comma-separated public keys). The log is written to SOLANA_MAINNET_DRYRUN_OUT if set.
 //
+// A GREEN RUN MEANS ALL FOUR CASES RAN, on every pool: buy and sell, each from a wallet
+// with no wrapped-SOL account and from one that keeps wrapped SOL, and the kept buy's
+// sync credit was MORE THAN ZERO (an account set up under an older rent: the only place
+// mainnet's re-price is proven). A case with no wallet is a RED run that names the case;
+// supply a wallet with SOLANA_MAINNET_DRYRUN_WALLETS and run again. (Before the dark
+// review, three of the four were skipped silently and the run still read green.)
+//
+// DR-3, THE FLIP GATE: the same matrix against one of OUR OWN pools. Set all three of
+//   SOLANA_MAINNET_DRYRUN_PROGRAM  the pool program id (ours, on the flip day)
+//   SOLANA_MAINNET_DRYRUN_POOL     the pool
+//   SOLANA_MAINNET_DRYRUN_MINT     its token
+// and the file runs against that pool instead of Raydium's two. For every case it then
+// also takes a LIVE Jupiter quote for the same trade, proves its meaning (`jupiterNet`),
+// probes whether Jupiter's own transaction carries the fee (`probeJupiterFee`, simulated
+// with signature checks off), and hands the builder those real numbers with the amount
+// the page would have shown: ours must be built exactly when it pays at least what
+// Jupiter pays after the same fee, with a guaranteed amount within 2 units of Jupiter's
+// own threshold (T-INV), and refused in the builder's own words otherwise.
+//
 // The four addresses typed below are public on-chain ids, listed in .gitleaks.toml.
 import { afterAll, describe, expect, it } from 'vitest';
 import { writeFileSync } from 'node:fs';
@@ -33,9 +52,10 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { PLATFORM_TREASURY_VAULT, PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { SOL_MINT, USDC_MINT } from '../../../solana';
-import { COMPARABLE_PLATFORM_FEE_BPS, jupiterNet, type JupiterQuote } from '../../../jupiter';
+import { COMPARABLE_PLATFORM_FEE_BPS, isJupiterIncorrectTokenProgram, jupiterNet, type JupiterQuote } from '../../../jupiter';
 import { deriveAmmConfig, derivePool, sortMints } from '../../../solana/cpswap/program';
 import { spendableSol } from '../../../solana/lp/liquidityMath';
+import { probeJupiterFee, type JupiterFeeProof } from '../../../solana/swap/jupiterFeeProbe';
 import { SITE_FEE_WSOL_ACCOUNT } from '../../../solana/swap/siteFeeAccount';
 import { LP_FEE_RESERVE } from './liquidity';
 import { bodySteps } from './prepare';
@@ -56,7 +76,21 @@ const USELESS_MINT = new PublicKey('Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk
 const AI16Z_MINT = new PublicKey('HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC');
 const AI16Z_POOL = new PublicKey('7qAVrzrbULwg1B13YseqA95Uapf8EVp9jQE5uipqFMoP');
 
-const cfg: CurveWriteConfig = { programId: PROGRAM_ID, cpSwapProgram: RAYDIUM_CPMM, cluster: 'mainnet' };
+// DR-3: all three, or none. Half a target is a mistake, said before anything runs.
+const DR3_ENV = {
+  program: (process.env.SOLANA_MAINNET_DRYRUN_PROGRAM ?? '').trim(),
+  pool: (process.env.SOLANA_MAINNET_DRYRUN_POOL ?? '').trim(),
+  mint: (process.env.SOLANA_MAINNET_DRYRUN_MINT ?? '').trim(),
+};
+const DR3_SET = Object.values(DR3_ENV).filter((v) => v !== '').length;
+if (ENABLED && DR3_SET !== 0 && DR3_SET !== 3) {
+  throw new Error('DR-3 needs all three of SOLANA_MAINNET_DRYRUN_PROGRAM, SOLANA_MAINNET_DRYRUN_POOL and SOLANA_MAINNET_DRYRUN_MINT (or none, for DR-2).');
+}
+const DR3 = ENABLED && DR3_SET === 3;
+/** The pool program the builder is pointed at: ours for DR-3, Raydium's identical one for DR-2. */
+const POOL_PROGRAM = DR3 ? new PublicKey(DR3_ENV.program) : RAYDIUM_CPMM;
+
+const cfg: CurveWriteConfig = { programId: PROGRAM_ID, cpSwapProgram: POOL_PROGRAM, cluster: 'mainnet' };
 const GATE: LpOpenGate = { kind: 'open', cfg, mode: 'on' };
 const ON = { routeMode: 'on' as const, feeEnv: { account: PLATFORM_TREASURY_VAULT.toBase58(), bps: 50 } };
 const SLIP = 50n;
@@ -109,7 +143,7 @@ function readOnly(conn: Connection): WriteRpc {
 
 // ── the log ──────────────────────────────────────────────────────────────────
 
-const log: Record<string, unknown> = { at: new Date().toISOString(), rpc: RPC_URL, feeAccount: SITE_FEE_WSOL_ACCOUNT.toBase58() };
+const log: Record<string, unknown> = { at: new Date().toISOString(), rpc: RPC_URL, feeAccount: SITE_FEE_WSOL_ACCOUNT.toBase58(), run: DR3 ? 'DR-3' : 'DR-2', poolProgram: POOL_PROGRAM.toBase58() };
 const plain = (v: unknown): unknown => JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x instanceof PublicKey ? x.toBase58() : x)));
 
 afterAll(() => {
@@ -194,7 +228,103 @@ interface Target {
   name: string;
   pool: PublicKey;
   mint: PublicKey;
-  tokenProgram: PublicKey;
+  /** null: read from the mint's owner (DR-3, where the token is whatever the pool pairs). */
+  tokenProgram: PublicKey | null;
+}
+type Resolved = Target & { tokenProgram: PublicKey };
+
+// ── DR-3: Jupiter's live answer for the same trade ───────────────────────────
+
+type LiveJupiter =
+  | { kind: 'net'; net: bigint; threshold: string; fee: JupiterFeeProof; /** Why the probe did not say 'charged', in the build's or the simulation's own words. */ feeDetail: string | null }
+  | { kind: 'no-route' }
+  | { kind: 'unread'; detail: string };
+
+/** The codes our proxy turns into "no route" (api/aggregator.js noRouteErrorCodes). Anything else is unread. */
+const NO_ROUTE_CODES = ['TOKEN_NOT_TRADABLE', 'NO_ROUTES_FOUND', 'COULD_NOT_FIND_ANY_ROUTE'];
+
+async function liveJupiter(conn: Connection, t: Resolved, owner: PublicKey, side: 'buy' | 'sell', amountIn: bigint): Promise<LiveJupiter> {
+  const [inputMint, outputMint] = side === 'buy' ? [SOL_MINT, t.mint.toBase58()] : [t.mint.toBase58(), SOL_MINT];
+  const amount = amountIn.toString();
+  const qs = new URLSearchParams({ inputMint, outputMint, amount, slippageBps: SLIP.toString(), swapMode: 'ExactIn', restrictIntermediateTokens: 'true', platformFeeBps: String(COMPARABLE_PLATFORM_FEE_BPS) });
+  let res: Response | null = null;
+  for (let i = 0; i < 5; i++) {
+    res = await fetch(`${JUPITER}/quote?${qs}`, { headers: { Accept: 'application/json' } }).catch(() => null);
+    if (res && res.status !== 429) break;
+    await sleep(3_000 * (i + 1));
+  }
+  await sleep(900);
+  if (!res) return { kind: 'unread', detail: 'Jupiter could not be reached' };
+  const text = await res.text();
+  if (res.status === 400) {
+    let code: unknown = null;
+    try {
+      code = (JSON.parse(text) as { errorCode?: unknown } | null)?.errorCode;
+    } catch {
+      /* not JSON: unread below */
+    }
+    if (typeof code === 'string' && NO_ROUTE_CODES.includes(code)) return { kind: 'no-route' };
+  }
+  if (!res.ok) return { kind: 'unread', detail: `HTTP ${res.status}: ${text.slice(0, 160)}` };
+  let quote: JupiterQuote;
+  try {
+    quote = JSON.parse(text) as JupiterQuote;
+  } catch {
+    return { kind: 'unread', detail: 'the quote was not JSON' };
+  }
+  const net = jupiterNet({ kind: 'quote', quote, feeBpsSent: COMPARABLE_PLATFORM_FEE_BPS }, { inputMint, outputMint, amount });
+  if (net === null) return { kind: 'unread', detail: 'the quote does not prove its amount is after our fee' };
+  // Does Jupiter's OWN transaction for this quote carry the fee? The real probe, on the
+  // fee-bearing build Jupiter returns, simulated with signature checks off.
+  let feeDetail: string | null = null;
+  const fee = await probeJupiterFee(
+    {
+      swapCarriesPlatformFee: () => true,
+      buildSwapTransaction: async (p) => {
+        const r = await fetch(`${JUPITER}/swap`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ quoteResponse: p.quote, userPublicKey: p.userPublicKey, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true, feeAccount: SITE_FEE_WSOL_ACCOUNT.toBase58() }),
+        });
+        await sleep(900);
+        if (!r.ok) {
+          feeDetail = `Jupiter could not build the swap (HTTP ${r.status}: ${(await r.text()).slice(0, 160)})`;
+          throw new Error(feeDetail);
+        }
+        const j = (await r.json()) as { swapTransaction?: string; lastValidBlockHeight?: number };
+        if (!j.swapTransaction) {
+          feeDetail = 'Jupiter returned no transaction';
+          throw new Error(feeDetail);
+        }
+        return { swapTransaction: j.swapTransaction, lastValidBlockHeight: j.lastValidBlockHeight ?? null };
+      },
+      simulateSwap: async (b64) => {
+        // The same call lib/jupiter.ts simulateSwap makes: Jupiter's own bytes, as they came, never re-encoded here.
+        let value: { err: unknown; logs?: string[] | null };
+        try {
+          const answer = await paced(async () => {
+            const r = await fetch(RPC_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+              body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'simulateTransaction', params: [b64, { encoding: 'base64', replaceRecentBlockhash: true, sigVerify: false, commitment: 'processed' }] }),
+            });
+            if (!r.ok) throw new Error(`the RPC answered ${r.status}`);
+            return (await r.json()) as { result?: { value?: { err?: unknown; logs?: string[] | null } }; error?: { message?: string } };
+          });
+          if (!answer.result?.value) throw new Error(answer.error?.message ?? 'no simulation result');
+          value = { err: answer.result.value.err ?? null, logs: answer.result.value.logs };
+        } catch (e) {
+          feeDetail = `its simulation could not be run: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`;
+          throw e;
+        }
+        if (value.err === null) return { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
+        feeDetail = `its simulation failed: ${JSON.stringify(value.err)}; ${(value.logs ?? []).slice(-3).join(' / ')}`;
+        return { ok: false, reason: JSON.stringify(value.err), jupiterIncorrectTokenProgram: isJupiterIncorrectTokenProgram(b64, value.err, value.logs) };
+      },
+    },
+    { quote, inputMint, outputMint, user: owner.toBase58() },
+  );
+  return { kind: 'net', net, threshold: String(quote.otherAmountThreshold), fee, feeDetail: fee === 'charged' ? null : feeDetail };
 }
 
 function record(p: PreparedTx, c: Candidate) {
@@ -222,19 +352,21 @@ function record(p: PreparedTx, c: Candidate) {
   };
 }
 
-describe.skipIf(!ENABLED)('DR-2: the real builder against Raydium’s identical pool program on mainnet (nothing signed, nothing sent)', () => {
+describe.skipIf(!ENABLED)(DR3 ? 'DR-3: the real builder against one of OUR OWN pools on mainnet, with Jupiter’s live numbers (nothing signed, nothing sent)' : 'DR-2: the real builder against Raydium’s identical pool program on mainnet (nothing signed, nothing sent)', () => {
   const conn = new Connection(RPC_URL, { commitment: 'confirmed', disableRetryOnRateLimit: true });
   const rpc = readOnly(conn);
   const tier0 = deriveAmmConfig(RAYDIUM_CPMM, 0);
   const useless = sortMints(WSOL_MINT, USELESS_MINT);
-  const targets: Target[] = [
-    { name: 'USELESS/SOL (classic token, standard address, tier 0)', pool: derivePool(RAYDIUM_CPMM, tier0, useless.token0, useless.token1), mint: USELESS_MINT, tokenProgram: TOKEN_PROGRAM_ID },
-    { name: 'ai16z/SOL (Token-2022, one-off address, tier 0)', pool: AI16Z_POOL, mint: AI16Z_MINT, tokenProgram: TOKEN_2022_PROGRAM_ID },
-  ];
+  const targets: Target[] = DR3
+    ? [{ name: `our pool ${DR3_ENV.pool} for ${DR3_ENV.mint} on ${DR3_ENV.program}`, pool: new PublicKey(DR3_ENV.pool), mint: new PublicKey(DR3_ENV.mint), tokenProgram: null }]
+    : [
+        { name: 'USELESS/SOL (classic token, standard address, tier 0)', pool: derivePool(RAYDIUM_CPMM, tier0, useless.token0, useless.token1), mint: USELESS_MINT, tokenProgram: TOKEN_PROGRAM_ID },
+        { name: 'ai16z/SOL (Token-2022, one-off address, tier 0)', pool: AI16Z_POOL, mint: AI16Z_MINT, tokenProgram: TOKEN_2022_PROGRAM_ID },
+      ];
   const runs: Record<string, unknown> = {};
   log.dr2 = runs;
 
-  const args = (t: Target, c: Candidate, decimals: number, side: 'buy' | 'sell', amountIn: bigint): RouteSwapArgs => ({
+  const args = (t: Resolved, c: Candidate, decimals: number, side: 'buy' | 'sell', amountIn: bigint): RouteSwapArgs => ({
     owner: c.owner,
     pool: t.pool,
     tokenMint: t.mint,
@@ -242,18 +374,69 @@ describe.skipIf(!ENABLED)('DR-2: the real builder against Raydium’s identical 
     side,
     amountIn,
     slippageBps: SLIP,
-    // The ranking is not under test: any pool beats a Jupiter net of 1, and a shown net of 1.
+    // The SHAPE pass. The ranking is not under test here: any pool beats a Jupiter net of
+    // 1 and a shown net of 1. (DR-3 then runs the same trade with Jupiter's live numbers.)
     jupiterNet: 1n,
+    jupiterFee: 'charged',
     shownNet: 1n,
   });
 
+  /**
+   * DR-3 only: the same trade again, with what the PAGE would hand the builder. Jupiter's
+   * live amount for it, proven to be after our fee; the probe's answer on whether
+   * Jupiter's own transaction carries that fee; and the amount this pool just showed.
+   * The builder must then decide as the route rule says, and say so in its own words.
+   */
+  async function withLiveNumbers(t: Resolved, c: Candidate, decimals: number, side: 'buy' | 'sell', amountIn: bigint, shape: PreparedTx, key: string) {
+    const shown = (shape.summary as RouteSwapSummary).netExpected;
+    const j = await liveJupiter(conn, t, c.owner, side, amountIn);
+    const entry = runs[key] as Record<string, unknown>;
+    entry.live = { jupiter: j, shownNet: shown };
+    // Unread is never "no competitor": the run is red (softly, so the other cases still run and are logged).
+    expect.soft(j.kind, `${key}: Jupiter's live answer could not be read (${j.kind === 'unread' ? j.detail : ''}); run again`).not.toBe('unread');
+    if (j.kind === 'unread') return;
+    const real = await prepareRouteSwap(rpc, GATE, { ...args(t, c, decimals, side, amountIn), jupiterNet: j.kind === 'net' ? j.net : null, jupiterFee: j.kind === 'net' ? j.fee : 'unchecked', shownNet: shown }, ON);
+    (entry.live as Record<string, unknown>).builder = real.ok ? { built: true, netExpected: (real.prepared.summary as RouteSwapSummary).netExpected, netGuaranteed: (real.prepared.summary as RouteSwapSummary).netGuaranteed } : { built: false, message: real.outcome.message };
+    if (j.kind === 'no-route') {
+      // Only the token's launch pool may run, and only with a provably honest price.
+      if (!real.ok) {
+        const noRouteRefusals: string[] = [ROUTE_COPY.noRouteNotLaunch, ROUTE_COPY.launchPriceUnread, ROUTE_COPY.launchReservesMoved, ROUTE_COPY.launchTooQuiet];
+        expect(noRouteRefusals.includes(real.outcome.message) ||/% from its own average/.test(real.outcome.message), real.outcome.message).toBe(true);
+      }
+      return;
+    }
+    if (j.fee !== 'charged') {
+      // Jupiter's trade goes out without the fee (or that could not be checked): ours must not be built against its number.
+      expect(real.ok, `${key}: built against a Jupiter number whose fee is '${j.fee}'`).toBe(false);
+      if (!real.ok) expect(real.outcome.message).toBe(j.fee === 'waived' ? ROUTE_COPY.jupiterFeeWaived : ROUTE_COPY.jupiterFeeUnchecked);
+      return;
+    }
+    if (!real.ok) {
+      expect(real.outcome.message, `${key}: refused, but not because Jupiter pays more`).toBe(ROUTE_COPY.jupiterPaysMore);
+      // The pool is live, so ours may have moved since the shape pass. Read it once more
+      // and log it, so a reader can see what ours paid around the refusal.
+      const again = await prepareRouteSwap(rpc, GATE, args(t, c, decimals, side, amountIn), ON);
+      (entry.live as Record<string, unknown>).oursAfterRefusal = again.ok ? (again.prepared.summary as RouteSwapSummary).netExpected : again.outcome.message;
+      return;
+    }
+    const s = real.prepared.summary as RouteSwapSummary;
+    expect(s.versus).toBe(j.net);
+    // Built only when ours pays at least what Jupiter pays after the same fee...
+    expect(s.netExpected).toBeGreaterThanOrEqual(j.net);
+    // ...and then the trader's worst case is within 2 units of Jupiter's own (T-INV).
+    const jupiterThreshold = (j.net * (10_000n - SLIP) + 9_999n) / 10_000n;
+    expect(s.netGuaranteed).toBeGreaterThanOrEqual(jupiterThreshold - 2n);
+    proven(real.prepared, c, t);
+  }
+
   /** The first candidate the builder prepares for, with every refusal on the way logged. */
-  async function firstPrepared(t: Target, pick: Candidate[], decimals: number, side: 'buy' | 'sell', amountOf: (c: Candidate) => bigint, key: string): Promise<{ p: PreparedTx; c: Candidate } | null> {
+  async function firstPrepared(t: Resolved, pick: Candidate[], decimals: number, side: 'buy' | 'sell', amountOf: (c: Candidate) => bigint, key: string): Promise<{ p: PreparedTx; c: Candidate } | null> {
     const tried: unknown[] = [];
     for (const c of pick.slice(0, 6)) {
       const r: Prepared = await prepareRouteSwap(rpc, GATE, args(t, c, decimals, side, amountOf(c)), ON);
       if (r.ok) {
         runs[key] = { ...record(r.prepared, c), triedFirst: tried };
+        if (DR3) await withLiveNumbers(t, c, decimals, side, amountOf(c), r.prepared, key);
         return { p: r.prepared, c };
       }
       tried.push({ wallet: c.owner.toBase58(), outcome: r.outcome });
@@ -262,8 +445,15 @@ describe.skipIf(!ENABLED)('DR-2: the real builder against Raydium’s identical 
     return null;
   }
 
+  /** Why a required case did not run, for the failure line: the kind of wallet missing, or each refusal. */
+  const whyNot = (key: string): string => {
+    const e = runs[key] as { notRun?: string; tried?: Array<{ wallet: string; outcome: { message?: string } }> } | undefined;
+    const refusals = (e?.tried ?? []).map((x) => `${x.wallet}: ${x.outcome.message ?? 'refused'}`).join(' | ');
+    return `REQUIRED CASE DID NOT RUN: "${key}" (${e?.notRun ?? 'not attempted'}). ${refusals} Offer a wallet of this kind with SOLANA_MAINNET_DRYRUN_WALLETS, or scan more with SOLANA_MAINNET_DRYRUN_SCAN, and run again. A run without this case proves nothing about it.`;
+  };
+
   /** What every prepared dry run must show (3.6), from the simulation of the final bytes. */
-  function proven(p: PreparedTx, c: Candidate, t: Target) {
+  function proven(p: PreparedTx, c: Candidate, t: Resolved) {
     const s = p.summary as RouteSwapSummary;
     const wsolAta = associatedTokenAddress(WSOL_MINT, c.owner);
     const tokenAta = associatedTokenAddress(t.mint, c.owner, t.tokenProgram);
@@ -274,7 +464,7 @@ describe.skipIf(!ENABLED)('DR-2: the real builder against Raydium’s identical 
     expect(d(SITE_FEE_WSOL_ACCOUNT)).toBe(s.fee.amount);
     expect(s.fee.to.equals(SITE_FEE_WSOL_ACCOUNT)).toBe(true);
     expect(p.simulation.logs.some((l) => /Instruction: SwapBaseInput/.test(l))).toBe(true);
-    expect(p.simulation.logs.some((l) => l.includes(`Program ${RAYDIUM_CPMM.toBase58()} success`))).toBe(true);
+    expect(p.simulation.logs.some((l) => l.includes(`Program ${POOL_PROGRAM.toBase58()} success`))).toBe(true);
     if (s.side === 'buy') {
       expect(s.fee.amount).toBe((s.amountIn * 50n) / 10_000n);
       expect(d(tokenAta)).toBeGreaterThanOrEqual(s.swap.minimumAmountOut);
@@ -289,13 +479,18 @@ describe.skipIf(!ENABLED)('DR-2: the real builder against Raydium’s identical 
     }
   }
 
-  for (const t of targets) {
+  for (const t0 of targets) {
     it(
-      t.name,
+      t0.name,
       async () => {
-        const slug = t.mint.toBase58().slice(0, 4);
-        const mintInfo = await rpc.getAccountInfo(t.mint, 'confirmed');
-        expect(mintInfo?.owner.equals(t.tokenProgram)).toBe(true);
+        const slug = t0.mint.toBase58().slice(0, 4);
+        const mintInfo = await rpc.getAccountInfo(t0.mint, 'confirmed');
+        expect(mintInfo, 'the token mint could not be read').not.toBeNull();
+        const mintOwner = mintInfo!.owner;
+        // The token's program is the mint's owner, and it must be one of the two token programs.
+        expect(mintOwner.equals(TOKEN_PROGRAM_ID) || mintOwner.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+        if (t0.tokenProgram) expect(mintOwner.equals(t0.tokenProgram)).toBe(true);
+        const t: Resolved = { ...t0, tokenProgram: mintOwner };
         const decimals = mintInfo!.data[44]!;
         const rent165 = BigInt(await rpc.getMinimumBalanceForRentExemption(165));
         const owners = await traders(conn, t.pool, Number(process.env.SOLANA_MAINNET_DRYRUN_SCAN ?? 60));
@@ -318,8 +513,24 @@ describe.skipIf(!ENABLED)('DR-2: the real builder against Raydium’s identical 
         const half = (c: Candidate) => (c.tokens > 1n ? c.tokens / 2n : c.tokens);
 
         // (a) a wallet with no wrapped-SOL account, or an empty one: closed after.
-        const buyA = await firstPrepared(t, noWsol.filter((c) => c.lamports > 100_000_000n), decimals, 'buy', () => BUY, `${slug} buy, wSOL closed after`);
-        expect(buyA, 'no wallet without a wrapped-SOL account prepared a buy').not.toBeNull();
+        // ALL FOUR CASES ARE REQUIRED. Each is attempted and logged first, so one red run
+        // names every case that is missing; then each is held to its own numbers.
+        const KEY = { buyA: `${slug} buy, wSOL closed after`, buyB: `${slug} buy, wSOL kept`, sellA: `${slug} sell, wSOL closed after`, sellB: `${slug} sell, wSOL kept` };
+        const buyA = await firstPrepared(t, noWsol.filter((c) => c.lamports > 100_000_000n), decimals, 'buy', () => BUY, KEY.buyA);
+        // (b) Only a kept account whose sync credit is MORE THAN ZERO proves mainnet's re-price
+        // of the stored reserve: an account already at today's rent shows a row of exactly 0
+        // whether the token program re-prices or not.
+        const buyB = await firstPrepared(t, keeps.filter((c) => c.lamports > 100_000_000n && credit(c) > 0n), decimals, 'buy', () => BUY, KEY.buyB);
+        const sellA = await firstPrepared(t, noWsol.filter((c) => c.tokens > 0n), decimals, 'sell', half, KEY.sellA);
+        // The largest holder first, so the fee is more than a lamport or two.
+        const keepsWithTokens = keeps.filter((c) => c.tokens > 0n).sort((a, b) => (a.tokens > b.tokens ? -1 : 1));
+        const sellB = await firstPrepared(t, keepsWithTokens, decimals, 'sell', half, KEY.sellB);
+        const missing = (Object.keys(KEY) as Array<keyof typeof KEY>).filter((k) => ({ buyA, buyB, sellA, sellB })[k] === null);
+        runs[`${slug} required cases`] = { ran: 4 - missing.length, of: 4, missing: missing.map((k) => KEY[k]) };
+        // A SOFT expectation: the run is red from here on, whatever happens below, and the
+        // cases that did run are still checked and the rent band still runs and is logged.
+        expect.soft(missing.map((k) => whyNot(KEY[k])), missing.map((k) => whyNot(KEY[k])).join('\n')).toEqual([]);
+
         if (buyA) {
           proven(buyA.p, buyA.c, t);
           const s = buyA.p.summary as RouteSwapSummary;
@@ -332,18 +543,18 @@ describe.skipIf(!ENABLED)('DR-2: the real builder against Raydium’s identical 
         }
 
         // (b) a wallet that keeps wrapped SOL: never unwrapped, never spent, and the sync's credit is exact.
-        const buyB = await firstPrepared(t, keeps.filter((c) => c.lamports > 100_000_000n), decimals, 'buy', () => BUY, `${slug} buy, wSOL kept`);
         if (buyB) {
           proven(buyB.p, buyB.c, t);
           const wsolAta = associatedTokenAddress(WSOL_MINT, buyB.c.owner);
           const pre = buyB.p.check.pre.tokens.get(wsolAta.toBase58());
           const want = syncCredit(pre, rent165);
           expect((buyB.p.summary as RouteSwapSummary).unwrapsWsol).toBe(false);
+          // On the builder's own read too, not only the scan's: the re-price is really exercised.
+          expect(want, 'the kept account was already at today’s rent when the builder read it, so the re-price was not exercised; run again').toBeGreaterThan(0n);
           expect(buyB.p.simulated.tokenDeltas.find((x) => x.account.equals(wsolAta))!.delta).toBe(want);
-          (runs[`${slug} buy, wSOL kept`] as Record<string, unknown>).syncCreditPredicted = want;
+          (runs[KEY.buyB] as Record<string, unknown>).syncCreditPredicted = want;
         }
 
-        const sellA = await firstPrepared(t, noWsol.filter((c) => c.tokens > 0n), decimals, 'sell', half, `${slug} sell, wSOL closed after`);
         if (sellA) {
           proven(sellA.p, sellA.c, t);
           const s = sellA.p.summary as RouteSwapSummary;
@@ -352,9 +563,6 @@ describe.skipIf(!ENABLED)('DR-2: the real builder against Raydium’s identical 
           expect(sellA.p.simulated.signerLamportsDelta + fees).toBeGreaterThanOrEqual(s.swap.minimumAmountOut - s.fee.amount);
         }
 
-        // The largest holder first, so the fee is more than a lamport or two.
-        const keepsWithTokens = keeps.filter((c) => c.tokens > 0n).sort((a, b) => (a.tokens > b.tokens ? -1 : 1));
-        const sellB = await firstPrepared(t, keepsWithTokens, decimals, 'sell', half, `${slug} sell, wSOL kept`);
         if (sellB) {
           proven(sellB.p, sellB.c, t);
           const s = sellB.p.summary as RouteSwapSummary;
@@ -406,7 +614,7 @@ describe.skipIf(!ENABLED)('DR-2: the real builder against Raydium’s identical 
           }
         }
       },
-      900_000,
+      1_500_000,
     );
   }
 });

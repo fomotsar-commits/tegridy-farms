@@ -1,19 +1,27 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import type { PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
+import { SOL_MINT, USDC_MINT } from '../../solana';
 import { swapBaseInput } from '../cpswap/math';
 import { isCreatorFeeOnInput } from '../cpswap/program';
-import { decodeObservationState } from '../lp/ownPrice';
+import { decodeObservationState, recordSilence } from '../lp/ownPrice';
 import { poolViewFrom, type PoolView } from '../lp/poolFinder';
 import type { MintFacts, TokenSafety } from '../lp/tokenSafety';
 import { LAUNCH, PROGRAM, buildPool, key, observationBytes, viewOf } from '../lp/testkit.fixture';
 import { chooseRoute } from '../route';
 import {
+  LAUNCH_MAX_SILENCE_DIVISOR,
+  ROUTE_FEE_NOT_IN_SOL,
   ROUTE_TOO_SMALL,
+  UNTRADED_RESERVES_TOLERANCE_BPS,
   bestOwn,
   decideRoute,
+  jupiterSideOf,
   launchPriceOk,
+  launchPriceProblem,
+  reservesMatchShares,
   routeExclusion,
+  siteFeeIsInSol,
   routeQuote,
   routedTier,
   type OwnCandidate,
@@ -449,29 +457,109 @@ describe('launchPriceOk: may the launch pool run when Jupiter has no route', () 
   // 10 SOL against 1,000 tokens of 6 decimals: 10 lamports per token base unit.
   const SOL = 10n * 10n ** 9n;
   const TOK = 1_000n * 10n ** 6n;
-  const b = buildPool({ mint, configIndex: 0, address: key(), solReserve: SOL, tokenReserve: TOK, openTime: 100n });
+  // The pool program opens a pool with lp_supply = floor(sqrt(side0 x side1)): 3,162,277,660 here.
+  const SHARES = 3_162_277_660n;
+  const b = buildPool({ mint, configIndex: 0, address: key(), solReserve: SOL, tokenReserve: TOK, openTime: 100n, lpSupply: SHARES });
   const tokenIs0 = viewOf(b, { sol: SOL, tok: TOK }).solIsToken0 === false;
   const Q32 = 1n << 32n;
-  function history(solPerBaseX32: bigint, o: { initialized?: boolean } = {}): PoolView['history'] {
-    const span = 4_600n - 1_000n;
-    const own = solPerBaseX32 * span;
-    const other = ((Q32 * Q32) / solPerBaseX32) * span;
-    const [c0, c1] = tokenIs0 ? [own, other] : [other, own];
-    const data = observationBytes({ pool: b.address, initialized: o.initialized, index: 1, lastUpdate: 4_600n, obs: [[0, 1_000n, 0n, 0n], [1, 4_600n, c0, c1]] });
+  /**
+   * A price record from 1,000 to 4,600 at one price, a slot every `stepSecs`. The default
+   * (a trade a minute) is a steadily traded pool; 3,600 is two slots an hour apart: one
+   * swap, an hour of nothing, one swap.
+   */
+  function history(solPerBaseX32: bigint, o: { initialized?: boolean; stepSecs?: bigint } = {}): PoolView['history'] {
+    const step = o.stepSecs ?? 60n;
+    const obs: [number, bigint, bigint, bigint][] = [];
+    for (let t = 1_000n; t <= 4_600n; t += step) {
+      const own = solPerBaseX32 * (t - 1_000n);
+      const other = ((Q32 * Q32) / solPerBaseX32) * (t - 1_000n);
+      obs.push([obs.length, t, ...(tokenIs0 ? ([own, other] as const) : ([other, own] as const))]);
+    }
+    const data = observationBytes({ pool: b.address, initialized: o.initialized, index: obs.length - 1, lastUpdate: 4_600n, obs });
     return { kind: 'ok', obs: decodeObservationState(data)! };
   }
-  const launch = (h: PoolView['history'], origin: PoolView['origin'] = 'launch-pool') => viewOf(b, { sol: SOL, tok: TOK, origin, history: h });
+  const launch = (h: PoolView['history'], origin: PoolView['origin'] = 'launch-pool', r: { sol?: bigint; tok?: bigint } = {}) =>
+    viewOf(b, { sol: r.sol ?? SOL, tok: r.tok ?? TOK, origin, history: h });
   const at = { chainNow: 4_610n, safety: OK_TOKEN };
+  const never = history(10n * Q32, { initialized: false });
 
-  it('its price agrees with its own half-hour average: yes', () => {
+  it('it traded steadily and its price agrees with its own half-hour average: yes', () => {
+    expect(launchPriceProblem(launch(history(10n * Q32)), at)).toBeNull();
     expect(launchPriceOk(launch(history(10n * Q32)), at)).toBe(true);
   });
 
-  it('it has never traded (the price the launch program set): yes', () => {
-    expect(launchPriceOk(launch(history(10n * Q32, { initialized: false })), at)).toBe(true);
+  it('it has never traded and still holds what its shares account for (the price the launch program set): yes', () => {
+    expect(launchPriceProblem(launch(never), at)).toBeNull();
+    expect(launchPriceOk(launch(never), at)).toBe(true);
   });
 
-  it('its price is double its own average (someone just pushed it): no', () => {
+  // funds-1 (dark review). A pool's reserves are its vaults' live balances, and its price
+  // record is written only by swaps. Tokens or SOL sent STRAIGHT into a vault move the
+  // price and leave no mark, and both "never traded" and "agrees with its average"
+  // used to pass on the moved price.
+  describe('a price moved without a trade (a transfer straight into a vault) is never trusted', () => {
+    it('never traded, tokens sent into the token vault: the price fell by a third and no swap recorded it -> no', () => {
+      const pushed = launch(never, 'launch-pool', { tok: (TOK * 3n) / 2n });
+      expect(launchPriceProblem(pushed, at)).toBe('reserves-moved');
+      expect(launchPriceOk(pushed, at)).toBe(false);
+    });
+
+    it('never traded, wrapped SOL sent into the SOL vault -> no', () => {
+      expect(launchPriceProblem(launch(never, 'launch-pool', { sol: SOL * 2n }), at)).toBe('reserves-moved');
+    });
+
+    it('the tolerance is 10 bps of the product: rounding dust passes, the first unit past it does not', () => {
+      expect(UNTRADED_RESERVES_TOLERANCE_BPS).toBe(10n);
+      expect(reservesMatchShares(launch(never, 'launch-pool', { tok: TOK + 1n }))).toBe(true);
+      // The largest token side with sol x tok x 10,000 <= shares^2 x 10,010, and one more.
+      const most = (SHARES * SHARES * 10_010n) / (SOL * 10_000n);
+      expect(reservesMatchShares(launch(never, 'launch-pool', { tok: most }))).toBe(true);
+      expect(reservesMatchShares(launch(never, 'launch-pool', { tok: most + 1n }))).toBe(false);
+    });
+
+    it('reserves BELOW the shares, a pool with no shares, an empty side: a state the pool program never makes is unread, not fine', () => {
+      expect(reservesMatchShares(launch(never, 'launch-pool', { tok: TOK - TOK / 1_000n }))).toBe(false);
+      expect(reservesMatchShares(launch(never, 'launch-pool', { tok: 0n }))).toBe(false);
+      const noShares = viewOf(buildPool({ mint, configIndex: 0, address: key(), solReserve: SOL, tokenReserve: TOK, lpSupply: 0n }), { sol: SOL, tok: TOK, origin: 'launch-pool', history: never });
+      expect(reservesMatchShares(noShares)).toBe(false);
+      expect(launchPriceOk(noShares, at)).toBe(false);
+    });
+
+    it('a deposit or a withdrawal moves both sides and the shares together, and still passes', () => {
+      const doubled = viewOf(buildPool({ mint, configIndex: 0, address: key(), solReserve: SOL * 2n, tokenReserve: TOK * 2n, lpSupply: SHARES * 2n }), { sol: SOL * 2n, tok: TOK * 2n, origin: 'launch-pool', history: never });
+      expect(launchPriceProblem(doubled, at)).toBeNull();
+    });
+
+    it('traded, then quiet for an hour, then tokens sent in: "its average" is only the price right now compared with itself -> no', () => {
+      // The record ends at 4,600; it is now 8,200 and the pool holds twice the tokens.
+      const pushed = launch(history(10n * Q32), 'launch-pool', { tok: TOK * 2n });
+      const later = { ...at, chainNow: 8_200n };
+      expect(launchPriceProblem(pushed, later)).toBe('too-quiet');
+      // And the honest pool in the same quiet hour is refused too: silence is not evidence either way.
+      expect(launchPriceProblem(launch(history(10n * Q32)), later)).toBe('too-quiet');
+    });
+
+    it('a quiet hour, tokens sent in, then one dust swap: that swap writes the moved price over the whole hour -> no', () => {
+      // Two slots an hour apart, the whole hour credited at 5 (the moved price), and the pool at 5.
+      const pushed = launch(history(5n * Q32, { stepSecs: 3_600n }), 'launch-pool', { tok: TOK * 2n });
+      expect(launchPriceProblem(pushed, at)).toBe('too-quiet');
+      expect(launchPriceOk(pushed, at)).toBe(false);
+    });
+
+    it('the longest stretch with no recorded swap may be a sixth of the window, and not a second more', () => {
+      expect(LAUNCH_MAX_SILENCE_DIVISOR).toBe(6n);
+      // Last swap at 4,600. At 4,900 the window starts at the slot at 3,100: 1,800 s, of which 300 are silent.
+      expect(launchPriceProblem(launch(history(10n * Q32)), { ...at, chainNow: 4_900n })).toBeNull();
+      // One second later: 301 s of 1,801.
+      expect(launchPriceProblem(launch(history(10n * Q32)), { ...at, chainNow: 4_901n })).toBe('too-quiet');
+      // A silent stretch in the MIDDLE of the window counts the same as one at its end.
+      const gapInside = history(10n * Q32, { stepSecs: 400n });
+      expect(launchPriceProblem(launch(gapInside), at)).toBe('too-quiet');
+    });
+  });
+
+  it('its price is double its own average (someone just pushed it with a swap): no', () => {
+    expect(launchPriceProblem(launch(history(5n * Q32)), at)).toBe('disagrees');
     expect(launchPriceOk(launch(history(5n * Q32)), at)).toBe(false);
   });
 
@@ -492,6 +580,84 @@ describe('launchPriceOk: may the launch pool run when Jupiter has no route', () 
   it('a pool anyone could open is never trusted on its own history, however well it agrees', () => {
     expect(launchPriceOk(launch(history(10n * Q32), 'standard'), at)).toBe(false);
     expect(launchPriceOk(launch(history(10n * Q32), 'other'), at)).toBe(false);
+    expect(launchPriceProblem(launch(never, 'standard'), at)).toBe('not-launch-pool');
+  });
+});
+
+describe('recordSilence: the longest stretch in the average’s window with nothing recorded', () => {
+  const pool = key();
+  const state = (obs: [number, bigint, bigint, bigint][], lastUpdate: bigint, initialized = true) =>
+    decodeObservationState(observationBytes({ pool, initialized, index: obs.length - 1, lastUpdate, obs }))!;
+
+  it('counts slot to slot, the newest slot to the last update, and the last update to now', () => {
+    const s = state([[0, 1_000n, 0n, 0n], [1, 1_100n, 1n, 1n], [2, 1_700n, 2n, 2n]], 1_710n);
+    // From 1,000 (the oldest: nothing is 30 minutes old yet) to 2,000: the gaps are 100, 600, 10, 290.
+    expect(recordSilence(s, 2_000n)).toEqual({ windowSecs: 1_000n, longestSecs: 600n });
+    // Much later, the window starts at the newest slot and all of it is silence.
+    expect(recordSilence(s, 10_000n)).toEqual({ windowSecs: 8_300n, longestSecs: 8_290n });
+  });
+
+  it('a record that cannot say is null, never "no silence": never traded, empty, or later than the clock', () => {
+    expect(recordSilence(state([[0, 1_000n, 0n, 0n]], 1_000n, false), 2_000n)).toBeNull();
+    expect(recordSilence(state([[0, 0n, 0n, 0n]], 0n), 2_000n)).toBeNull();
+    expect(recordSilence(state([[0, 1_000n, 0n, 0n]], 3_000n), 2_000n)).toBeNull();
+  });
+});
+
+describe('parity-2: a pair whose site fee Jupiter takes in USDC is never ours', () => {
+  const usdc = new PublicKey(USDC_MINT);
+
+  it('TOKEN/SOL takes the fee in SOL; USDC/SOL takes it in USDC, in either direction', () => {
+    expect(siteFeeIsInSol(mint.toBase58())).toBe(true);
+    expect(siteFeeIsInSol(USDC_MINT)).toBe(false);
+  });
+
+  it('a USDC/SOL pool on our program, healthy in every other way, is excluded, and that is the first reason', () => {
+    const b = buildPool({ mint: usdc, configIndex: 1, solReserve: 85_000_000_000n, tokenReserve: 20_000_000_000n, openTime: 100n });
+    const v = viewOf(b, { sol: 85_000_000_000n, tok: 20_000_000_000n, origin: 'standard' });
+    const safe: TokenSafety = { ...OK_TOKEN, mint: USDC_MINT };
+    expect(routeExclusion(v, { ...eligible, safety: safe })).toBe(ROUTE_FEE_NOT_IN_SOL);
+    expect(ROUTE_FEE_NOT_IN_SOL).toBe('the site fee on this pair is taken in USDC, not in SOL');
+    // The same pool with any other token is eligible: the fee side is the ONLY thing refused here.
+    expect(routeExclusion(tier1Pool(), eligible)).toBeNull();
+    // Even with every other fault present, this is the reason said.
+    const broken = { ...v, vaultsFrozen: true, config: null };
+    expect(routeExclusion(broken, { ...eligible, chainNow: null, safety: null })).toBe(ROUTE_FEE_NOT_IN_SOL);
+  });
+});
+
+describe('parity-1: what the route rule is told about Jupiter (jupiterSideOf)', () => {
+  const SOL = SOL_MINT;
+  const TOKEN = mint.toBase58();
+  const asked = { inputMint: SOL, outputMint: TOKEN, amount: '1000000000' };
+  // A quote that proves its outAmount is after our fee: one leg paying 2,000,000, fee 10,000, out 1,990,000.
+  const proven = {
+    kind: 'quote' as const,
+    feeBpsSent: 50,
+    quote: {
+      inputMint: SOL, outputMint: TOKEN, inAmount: '1000000000', outAmount: '1990000', otherAmountThreshold: '1980050', swapMode: 'ExactIn',
+      slippageBps: 50, priceImpactPct: '0', platformFee: { amount: '10000', feeBps: 50 },
+      routePlan: [{ swapInfo: { outputMint: TOKEN, outAmount: '2000000' } }],
+    },
+  };
+
+  it('a proven fee-bearing quote is a number our pool may be ranked against', () => {
+    expect(jupiterSideOf(proven, asked, { feeWaivedOnPair: false })).toEqual({ kind: 'net', net: 1_990_000n });
+  });
+
+  it('the SAME quote on a pair where Jupiter’s trade goes out with no fee is not: Jupiter runs, ours does not compete', () => {
+    const side = jupiterSideOf(proven, asked, { feeWaivedOnPair: true });
+    expect(side).toEqual({ kind: 'meaning-unread' });
+    // A pool that would "win" against the fee-bearing number by a hair does not get the trade.
+    const c = cand(tier1Pool(), 1_990_001n);
+    expect(decideRoute({ best: c, launch: null, jupiter: side })).toMatchObject({ route: 'jupiter', why: 'meaning-unread' });
+    expect(decideRoute({ best: c, launch: null, jupiter: jupiterSideOf(proven, asked, { feeWaivedOnPair: false }) }).route).toBe('own');
+  });
+
+  it('unread, no-route and an unproven quote pass through as themselves', () => {
+    expect(jupiterSideOf({ kind: 'unread', detail: 'x' }, asked, { feeWaivedOnPair: false })).toEqual({ kind: 'unread' });
+    expect(jupiterSideOf({ kind: 'no-route' }, asked, { feeWaivedOnPair: true })).toEqual({ kind: 'no-route' });
+    expect(jupiterSideOf({ ...proven, feeBpsSent: null }, asked, { feeWaivedOnPair: false })).toEqual({ kind: 'meaning-unread' });
   });
 });
 

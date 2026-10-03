@@ -88,9 +88,60 @@ export type OwnPrice =
   | { kind: 'ok'; solPerToken: number; windowSecs: bigint }
   | { kind: 'unread'; detail: string };
 
+/** Where the average starts: the newest slot at least AVERAGE_WINDOW old; failing that, the oldest one there is. */
+function windowStart(obs: ObservationStateView, lastUpdate: bigint, now: bigint): Observation | null {
+  const valid = obs.observations.filter((o) => o.blockTimestamp > 0n && o.blockTimestamp <= lastUpdate);
+  let from: Observation | null = null;
+  for (const o of valid) if (o.blockTimestamp <= now - AVERAGE_WINDOW_SECS && (!from || o.blockTimestamp > from.blockTimestamp)) from = o;
+  if (!from) for (const o of valid) if (!from || o.blockTimestamp < from.blockTimestamp) from = o;
+  return from;
+}
+
+/**
+ * The longest stretch inside the average's window in which the pool recorded NOTHING,
+ * and the window's length, both in seconds; null when the record cannot say (never
+ * traded, empty, or later than the clock).
+ *
+ * WHY IT MATTERS. The record is written only by swaps, and each swap credits the price
+ * it finds to the WHOLE stretch since the last update. The pool's reserves are its
+ * vaults' live balances, so tokens or SOL sent straight into a vault move the price and
+ * write nothing here. After a quiet stretch the average therefore proves nothing about
+ * that stretch: with no swap since, `ownAveragePrice` fills it with the price right now
+ * (it compares the price with itself), and a dust swap after the transfer writes the
+ * moved price over the whole stretch. A caller that lets MONEY rest on "the price agrees
+ * with its average" must also bound this number against the window (ownRoute.ts does).
+ *
+ * The stretches measured: between one recorded slot and the next (from the window's
+ * start), from the newest slot to the last update, and from the last update to now.
+ */
+export function recordSilence(obs: ObservationStateView, now: bigint): { windowSecs: bigint; longestSecs: bigint } | null {
+  if (!obs.initialized) return null;
+  const latest = obs.observations[obs.index];
+  if (!latest || latest.blockTimestamp === 0n) return null;
+  const lastUpdate = obs.lastUpdate > 0n ? obs.lastUpdate : latest.blockTimestamp;
+  if (lastUpdate > now) return null;
+  const from = windowStart(obs, lastUpdate, now);
+  if (!from) return null;
+  const times = obs.observations
+    .map((o) => o.blockTimestamp)
+    .filter((t) => t >= from.blockTimestamp && t <= lastUpdate)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  times.push(lastUpdate, now);
+  let longestSecs = 0n;
+  for (let i = 1; i < times.length; i++) {
+    const gap = times[i]! - times[i - 1]!;
+    if (gap > longestSecs) longestSecs = gap;
+  }
+  return { windowSecs: now - from.blockTimestamp, longestSecs };
+}
+
 /**
  * The pool's average price (SOL per whole token) over up to the last 30 minutes, ending
  * now. `tokenIsToken0` says which side is the token; reserves are net of fees.
+ *
+ * It counts the time since the last recorded swap at the price right now, so it catches
+ * a price pushed by a SWAP moments ago. It does not catch a price moved by sending
+ * tokens straight into a vault during a quiet stretch: see `recordSilence`.
  */
 export function ownAveragePrice(input: {
   obs: ObservationStateView;
@@ -107,11 +158,7 @@ export function ownAveragePrice(input: {
   const lastUpdate = obs.lastUpdate > 0n ? obs.lastUpdate : latest.blockTimestamp;
   if (latest.blockTimestamp === 0n || lastUpdate > now) return { kind: 'unread', detail: 'its price record is later than the network clock' };
 
-  // Pick the newest slot at least AVERAGE_WINDOW old; failing that, the oldest one there is.
-  const valid = obs.observations.filter((o) => o.blockTimestamp > 0n && o.blockTimestamp <= lastUpdate);
-  let from: Observation | null = null;
-  for (const o of valid) if (o.blockTimestamp <= now - AVERAGE_WINDOW_SECS && (!from || o.blockTimestamp > from.blockTimestamp)) from = o;
-  if (!from) for (const o of valid) if (!from || o.blockTimestamp < from.blockTimestamp) from = o;
+  const from = windowStart(obs, lastUpdate, now);
   if (!from) return { kind: 'unread', detail: 'its price record is empty' };
   const window = now - from.blockTimestamp;
   if (window < MIN_HISTORY_SECS) {

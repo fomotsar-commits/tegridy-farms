@@ -44,7 +44,7 @@ async function ready(side: 'buy' | 'sell'): Promise<{ chain: FakeChain; p: Prepa
   const r = await prepareRouteSwap(
     W(chain),
     OPEN,
-    { owner: ME, pool: pool.address, tokenMint: mint, tokenDecimals: 6, side, amountIn, slippageBps: 50n, jupiterNet: q.netExpected, shownNet: q.netExpected },
+    { owner: ME, pool: pool.address, tokenMint: mint, tokenDecimals: 6, side, amountIn, slippageBps: 50n, jupiterNet: q.netExpected, jupiterFee: 'charged', shownNet: q.netExpected },
     ON,
   );
   if (!r.ok) throw new Error(r.outcome.message);
