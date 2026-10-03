@@ -23,8 +23,9 @@ import type { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
-import { key } from '../../../lib/solana/lp/testkit.fixture';
+import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
+import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
+import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { BUNGALOWS, BUNGALOW_STORAGE_KEY } from '../../../lib/bungalows';
 import { TIER1_ADDRESS, fakeLpApi, readyFacts, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { recordedFeeTiers } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
@@ -62,7 +63,34 @@ const noPools = (mint: string): PoolSearchRead => ({
   },
 });
 
-function readers(): LpReaders {
+/** A pool holding 10 SOL and 1,000 tokens (0.01 SOL a token), on a fee tier that is not the public one. */
+function poolView(): PoolView {
+  const sol = 10n * 10n ** 9n;
+  const tok = 1_000n * 10n ** 6n;
+  const mint = key();
+  const b = buildPool({ plain: true, mint, configIndex: 1, solReserve: sol, tokenReserve: tok, openTime: 1n });
+  const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
+  const solIsToken0 = pool.token0Mint.startsWith('So111');
+  return {
+    address: b.address.toBase58(),
+    origin: 'other',
+    snapshot: { pool, vault0Amount: solIsToken0 ? sol : tok, vault1Amount: solIsToken0 ? tok : sol, reserve0: solIsToken0 ? sol : tok, reserve1: solIsToken0 ? tok : sol },
+    config: decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data),
+    tokenMint: mint.toBase58(),
+    solIsToken0,
+    solReserve: sol,
+    tokenReserve: tok,
+    vaultsFrozen: false,
+    history: { kind: 'not-read' },
+  };
+}
+const onePool = (mint: string, v: PoolView): PoolSearchRead => {
+  const none = noPools(mint);
+  if (none.kind !== 'ok') throw new Error('unreachable');
+  return { kind: 'ok', search: { ...none.search, index: { kind: 'ok', pools: [v.address], truncated: false }, pools: [{ kind: 'pool', view: v }] } };
+};
+
+function readers(over: Partial<LpReaders> = {}): LpReaders {
   return {
     programId: 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT',
     safety: vi.fn(async (mints: string[]) => new Map(mints.map((m) => [m, token(m)]))),
@@ -72,11 +100,12 @@ function readers(): LpReaders {
     feeTiers: vi.fn(async () => recordedFeeTiers()),
     wallet: vi.fn(async () => { throw new Error('not read in these tests'); }),
     placeShareOnChain: vi.fn(async () => { throw new Error('not read in these tests'); }),
+    ...over,
   };
 }
 
-function mount(path = '/solana-lp', mode: LpWritesOverrides['mode'] = 'on') {
-  const r = readers();
+function mount(path = '/solana-lp', mode: LpWritesOverrides['mode'] = 'on', over: Partial<LpReaders> = {}) {
+  const r = readers(over);
   const api = fakeLpApi({ readCreateFacts: vi.fn(async () => readyFacts()) });
   render(
     <MemoryRouter initialEntries={[path]}>
@@ -196,6 +225,36 @@ describe('a lookup asked for with a button ends in a form', () => {
     expect(screen.getByTestId('lp-create')).toHaveTextContent('There is no pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
   });
 
+  it("Add liquidity on a token whose pool takes deposits opens that pool's Add form, and never the Open-a-pool form beside it", async () => {
+    const v = poolView();
+    mount('/solana-lp', 'on', {
+      findPools: vi.fn(async (mint: PublicKey) => onePool(mint.toBase58(), v)),
+      // The pool's own price, so its deposit checks pass.
+      outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
+    });
+    fireEvent.click(await task('Add liquidity'));
+    fireEvent.click(await chip('BAYLA'));
+    const panel = await screen.findByTestId('lp-add-panel');
+    expect(screen.getByTestId('lp-pool')).toContainElement(panel);
+    // The pool is not on the public fee tier, so the Open card offers an opening too. It
+    // was not asked for: its form stays shut and the Add form stays open.
+    await waitFor(() => expect(screen.getByTestId('lp-create')).toHaveAttribute('data-create', 'offer'));
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+    expect(screen.getByTestId('lp-add-panel')).toBeInTheDocument();
+  });
+
+  it('Create a pool on that same token opens the Open-a-pool form, and not the Add form', async () => {
+    const v = poolView();
+    mount('/solana-lp', 'on', {
+      findPools: vi.fn(async (mint: PublicKey) => onePool(mint.toBase58(), v)),
+      outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
+    });
+    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await chip('BAYLA'));
+    expect(await screen.findByTestId('lp-create-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+  });
+
   it('a token pressed with nothing chosen still ends in a form', async () => {
     mount();
     fireEvent.click(await chip('BAYLA'));
@@ -296,6 +355,18 @@ describe('Remove liquidity goes to the positions', () => {
     const positions = await screen.findByTestId('lp-positions');
     await within(positions).findByTestId('lp-no-positions');
     expect(positions).toHaveTextContent('So there is nothing to remove yet. A share appears here once this wallet adds liquidity or opens a pool.');
+  });
+});
+
+describe('the address box', () => {
+  it('a refused address stops being called wrong as soon as it is typed over', async () => {
+    mount();
+    const box = within(await finder()).getByLabelText('Token mint address');
+    fireEvent.change(box, { target: { value: 'BAYLA' } });
+    fireEvent.click(within(await finder()).getByRole('button', { name: 'Find pools' }));
+    const refusal = await within(await finder()).findByText(/does not look like a Solana address/);
+    fireEvent.change(box, { target: { value: BAYLA } });
+    expect(refusal).not.toBeInTheDocument();
   });
 });
 

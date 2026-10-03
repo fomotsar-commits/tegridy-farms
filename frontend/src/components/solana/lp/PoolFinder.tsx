@@ -282,7 +282,11 @@ export function PoolFinder({
                 className={`${inputCls} font-mono`}
                 style={inputStyle}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  // The refusal was about the text that was there: it does not stay over a new one.
+                  setError(null);
+                }}
                 autoComplete="off"
                 spellCheck={false}
                 inputMode="text"
