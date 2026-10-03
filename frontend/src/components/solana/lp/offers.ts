@@ -17,7 +17,7 @@ import { minLpForBothSides } from '../../../lib/solana/lp/liquidityMath';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
-import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
+import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { Position } from '../../../lib/solana/lp/positions';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
@@ -118,9 +118,7 @@ export type CreateOffer =
   | 'token-refused'
   | 'price-unread'
   | 'no-route'
-  | 'pools-unread'
-  | 'opened-here'
-  | 'exists';
+  | 'pools-unread';
 
 /**
  * Is an opening of any pool still unconfirmed in this tab? It holds Create on EVERY
@@ -149,13 +147,14 @@ export function poolListCut(search: PoolSearchRead): boolean {
  * gate is not open → paused ('withdraw-only') → an opening is still pending → the create
  * facts are not read yet → the public tier: unread, not created, not a tier, switched
  * off, fee above the ceiling → the fee account: unread, not set up → the token: unread,
- * refused → the market price: unread, no route → any pool unread or unchecked → a pool
- * this tab just opened → a passing pool already on the public tier → offer.
+ * refused → the market price: unread, no route → any pool unread or unchecked → offer.
  *
- * Unread is never "no": every unread input stops here before `offer`. A passing pool on
- * ANOTHER tier does not stop an opening on tier 1 (the card says they will not share
- * liquidity or fees). A truncated index is not unread (`poolListCut`): the answer comes
- * from the pools that were read.
+ * Unread is never "no": every unread input stops here before `offer`. A truncated index
+ * is not unread (`poolListCut`): the answer comes from the pools that were read.
+ *
+ * A pool that already exists NEVER stops an opening (owner ruling 2026-10-03): a token
+ * may have as many pools as people open. The card points to the pool to add to first
+ * (`createAdvice`), which is why every pool must be read and checked before `offer`.
  */
 export function createOffer(a: {
   mode: LpWriteMode;
@@ -166,7 +165,6 @@ export function createOffer(a: {
   outside: OutsidePrice | null;
   search: PoolSearchRead;
   healths: ReadonlyMap<string, PoolHealth>;
-  openedHere: (pool: string) => boolean;
 }): CreateOffer {
   if (a.mode === 'off') return 'off';
   if (!a.gate || a.gate.kind !== 'open') return 'gate';
@@ -206,12 +204,37 @@ export function createOffer(a: {
     const verdict = a.healths.get(e.view.address)?.deposits.verdict;
     if (verdict === undefined || verdict === 'unchecked') return 'pools-unread';
   }
-
-  const pools = s.pools.filter((e): e is Extract<typeof e, { kind: 'pool' }> => e.kind === 'pool');
-  if (pools.some((e) => a.openedHere(e.view.address))) return 'opened-here';
-  const tier1 = publicTierConfig(a.gate.cfg.cpSwapProgram).toBase58();
-  if (pools.some((e) => e.view.snapshot.pool.ammConfig === tier1 && a.healths.get(e.view.address)?.deposits.verdict === 'allowed')) {
-    return 'exists';
-  }
   return 'offer';
+}
+
+/**
+ * The pool an opener is pointed to before they open another. Advice, never a stop:
+ *
+ *   - 'opened-here': a pool this tab opened in this session, whatever its checks say;
+ *   - 'exists': else the pool on the public tier that passes the deposit checks and
+ *     holds the most SOL (the same tier a new pool would go on, so the same fees);
+ *   - 'none': neither. A passing pool on ANOTHER tier is not a referral (the card names
+ *     it and says a new pool will not share its liquidity or fees).
+ *
+ * The pool program keeps no creation time, so "the bigger pool" is the only ranking
+ * there is. Pure; it reads only pools the search read, and names nothing while the gate
+ * is not open (there is then no tier to compare with).
+ */
+export type CreateAdvice = { kind: 'none' } | { kind: 'opened-here' | 'exists'; pool: PoolView };
+
+export function createAdvice(a: {
+  gate: LpGate | null;
+  search: PoolSearchRead;
+  healths: ReadonlyMap<string, PoolHealth>;
+  openedHere: (pool: string) => boolean;
+}): CreateAdvice {
+  if (!a.gate || a.gate.kind !== 'open' || a.search.kind !== 'ok') return { kind: 'none' };
+  const views = a.search.search.pools.flatMap((e) => (e.kind === 'pool' ? [e.view] : []));
+  const biggest = (list: PoolView[]): PoolView | null =>
+    list.reduce<PoolView | null>((best, v) => (best === null || v.solReserve > best.solReserve ? v : best), null);
+  const mine = biggest(views.filter((v) => a.openedHere(v.address)));
+  if (mine) return { kind: 'opened-here', pool: mine };
+  const tier1 = publicTierConfig(a.gate.cfg.cpSwapProgram).toBase58();
+  const passing = biggest(views.filter((v) => v.snapshot.pool.ammConfig === tier1 && a.healths.get(v.address)?.deposits.verdict === 'allowed'));
+  return passing ? { kind: 'exists', pool: passing } : { kind: 'none' };
 }
