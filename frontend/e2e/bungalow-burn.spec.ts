@@ -25,7 +25,8 @@ const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers
 // app's own constant: a recording that answers whatever address the app asks proves nothing.
 const BURN_ADDRESS_BALANCE_CALL = '0x70a08231000000000000000000000000000000000000000000000000000000000000dead';
 
-type Erc20Recording = { token: string; totalSupply: bigint; decimals: number; atBurnAddress: bigint };
+/** `inOwnContract`: what the token contract holds of its own token (0 when the recording leaves it out). */
+type Erc20Recording = { token: string; totalSupply: bigint; decimals: number; atBurnAddress: bigint; inOwnContract?: bigint };
 type RpcCall = { id: number; method: string; params?: unknown[] };
 /** What the chain answers. `recording: null` refuses every read. Mutable, so a test can bring the chain back. */
 type Chain = { evm: Erc20Recording | null; solana: { mint: string; amount: string } | null; multicalls: number; supplyReads: number };
@@ -59,6 +60,7 @@ async function stubChain(page: Page, initial: Partial<Pick<Chain, 'evm' | 'solan
           : data === '0x18160ddd' ? rec.totalSupply
           : data === '0x313ce567' ? BigInt(rec.decimals)
           : data === BURN_ADDRESS_BALANCE_CALL ? rec.atBurnAddress
+          : data === `0x70a08231${rec.token.slice(2).toLowerCase().padStart(64, '0')}` ? (rec.inOwnContract ?? 0n)
           : null;
         return value === null ? { success: false, returnData: '0x' as const } : { success: true, returnData: word(value) };
       });
@@ -98,6 +100,7 @@ const PEPE_RECORDING = (): Erc20Recording => ({
   totalSupply: 420_689_899_645_071_695787564425681079n,
   decimals: 18,
   atBurnAddress: 6_917_544_537_127_740524900319904797n,
+  inOwnContract: 41_310_455_910_459684113788017621n,
 });
 
 const burnCard = (page: Page, symbol: string) => page.locator(`section[aria-label="${symbol} burn"]`);
@@ -204,10 +207,12 @@ test.describe('the burn card, read and fitted', () => {
     const card = burnCard(page, 'PEPE');
     await expect(card.locator('dl')).toBeVisible({ timeout: 30_000 });
     expect(chain.multicalls, 'the recording answered nothing, so the figures below are not its figures').toBeGreaterThan(0);
-    await expect(headline(page, 'PEPE')).toHaveText('1.64%');
-    await expect(card).toContainText('6.91T of the 420.69T PEPE ever minted');
-    await expect(card).toContainText('6,917,644,892,056');
-    await expect(card).toContainText('413,772,355,107,944');
+    await expect(headline(page, 'PEPE')).toHaveText('1.65%');
+    await expect(card).toContainText('6.95T of the 420.69T PEPE ever minted');
+    await expect(card.locator('dd')).toHaveText([
+      '6,958,955,347,966 PEPE', '6,917,544,537,127 PEPE', '41,310,455,910 PEPE', '100,354,928 PEPE',
+      '420,690,000,000,000 PEPE', '413,731,044,652,034 PEPE',
+    ]);
     await expect(card).toContainText('Read from Ethereum.');
     await card.scrollIntoViewIfNeeded();
     expect(await ledgerMisfits(page, 'PEPE')).toEqual([]);
@@ -245,22 +250,54 @@ test.describe('the burn card, read and fitted', () => {
     expect(await slidSideways(page), 'the page slid sideways').toBe(0);
   });
 
-  test('/qr on Base counts the burn address only, and shows a supply fall without counting it', async ({ page }) => {
+  test('/qr on Base counts the burn address and its own contract, and shows a supply fall without counting it', async ({ page }) => {
     test.skip(test.info().project.name !== 'chromium', 'figures, not layout');
     await seed(page, 'qr');
     const E18 = 10n ** 18n;
     // 10B destroyed with burn(): supply 90B. The card cannot tell that from a bridge-out.
     await stubChain(page, {
-      evm: { token: room('qr').address!, totalSupply: 90_000_000_000n * E18, decimals: 18, atBurnAddress: 6_669_949_934n * E18 },
+      evm: {
+        token: room('qr').address!, totalSupply: 90_000_000_000n * E18, decimals: 18,
+        atBurnAddress: 6_669_949_934n * E18, inOwnContract: 112_159n * E18,
+      },
     });
     await gotoRoute(page, '/qr');
 
     const card = burnCard(page, 'QR');
     await expect(card.locator('dl')).toBeVisible({ timeout: 30_000 });
-    await expect(headline(page, 'QR')).toHaveText('6.66%');
+    await expect(headline(page, 'QR')).toHaveText('6.67%');
     await expect(card).toContainText('Read from Base.');
-    await expect(card.locator('dt')).toHaveText(['Burnt', 'Ever minted', 'Supply fall, not counted']);
-    await expect(card.locator('dd')).toHaveText(['6,669,949,934 QR', '100,000,000,000 QR', '10,000,000,000 QR']);
+    await expect(card.locator('dt')).toHaveText([
+      'Burnt', 'Sent to the burn address', 'Stuck in the token contract', 'Ever minted', 'Supply fall, not counted',
+    ]);
+    await expect(card.locator('dd')).toHaveText([
+      '6,670,062,093 QR', '6,669,949,934 QR', '112,159 QR', '100,000,000,000 QR', '10,000,000,000 QR',
+    ]);
+  });
+
+  test('/mfer counts what is stuck in the token\'s own contract, in a row of its own', async ({ page }) => {
+    test.skip(test.info().project.name !== 'chromium', 'figures, not layout');
+    await seed(page, 'mfer');
+    await stubChain(page, {
+      evm: {
+        token: room('mfer').address!,
+        totalSupply: 999_997_819_542365138940470525n,
+        decimals: 18,
+        atBurnAddress: 934_220_813059864763270444n,
+        inOwnContract: 364_950_370401477478889761n,
+      },
+    });
+    await gotoRoute(page, '/mfer');
+
+    const card = burnCard(page, 'MFER');
+    await expect(card.locator('dl')).toBeVisible({ timeout: 30_000 });
+    await expect(headline(page, 'MFER')).toHaveText('0.1301%');
+    await expect(card.locator('dt')).toHaveText([
+      'Burnt', 'Sent to the burn address', 'Stuck in the token contract', 'Destroyed outright', 'Ever minted', 'Not burnt',
+    ]);
+    await expect(card.locator('dd')).toHaveText([
+      '1,301,351 MFER', '934,220 MFER', '364,950 MFER', '2,180 MFER', '1,000,000,000 MFER', '998,698,649 MFER',
+    ]);
   });
 
   for (const id of ['pepe', 'brainlet']) {
@@ -282,7 +319,7 @@ test.describe('the burn card, read and fitted', () => {
 
       await card.getByRole('button', { name: 'Refresh' }).click();
       await expect(card.locator('dl')).toBeVisible({ timeout: 30_000 });
-      await expect(headline(page, b.symbol)).toHaveText(id === 'pepe' ? '1.64%' : '0.0001%');
+      await expect(headline(page, b.symbol)).toHaveText(id === 'pepe' ? '1.65%' : '0.0001%');
       await expect(card.getByRole('status')).toHaveCount(0);
     });
   }

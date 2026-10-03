@@ -14,21 +14,26 @@ export interface BurnFact {
   mintTx: string;
   /** False when supply can also move through a bridge: a fall in supply is then not counted. */
   countsSupplyDrop: boolean;
+  /** Set only where the token contract's balance of its own token is proven unable to ever
+   *  move (its source has no way out, and its history shows none): it is then counted as burnt. */
+  countsOwnBalance?: true;
 }
 
 // One row per token bungalow, keyed by bungalow id. Each `minted` is the single mint in
 // `mintTx`, re-derived twice on 2026-10-03; none of these tokens has a live mint path.
-// QR, DRB and JBM carry a dormant bridge mint and burn, so only their burn address is counted.
+// QR, DRB and JBM carry a dormant bridge mint and burn, so a fall in their supply is not counted.
+// `countsOwnBalance`: each of the seven EVM contracts was read for any way out of its own
+// balance and its whole history searched for one (2026-10-03). None has one. A new token starts off.
 export const BUNGALOW_BURN_FACTS: Readonly<Record<string, BurnFact>> = {
-  toweli: { minted: '1000000000', decimals: 18, countsSupplyDrop: true, mintTx: '0x6cce8d54940c37fdfed3041daf76923d7adfd487f459b026ff456073a26a673b' },
+  toweli: { minted: '1000000000', decimals: 18, countsSupplyDrop: true, countsOwnBalance: true, mintTx: '0x6cce8d54940c37fdfed3041daf76923d7adfd487f459b026ff456073a26a673b' },
   bayla: { minted: '1000000000', decimals: 6, countsSupplyDrop: true, mintTx: '57z5CJ5j5UhnQz5qBwvzxKPFJJUeRv3BiWNNgddF5XrjESivCqNUc2bqQN8HGTuLMxUFbZQX8BS6rc1kT5HNhzeQ' },
-  pepe: { minted: '420690000000000', decimals: 18, countsSupplyDrop: true, mintTx: '0x2afae7763487e60b893cb57803694810e6d3d136186a6de6719921afd7ca304a' },
-  qr: { minted: '100000000000', decimals: 18, countsSupplyDrop: false, mintTx: '0x18a677ce1fc39876aa2a75b9d78c77a0f58cf6a539e5edf30b2f15595cefa47f' },
-  mfer: { minted: '1000000000', decimals: 18, countsSupplyDrop: true, mintTx: '0xb23ea44e81cf3546ed2a4a13c1e6d27b6de21f419230bbc6a7ed67c3185b3912' },
-  bnkr: { minted: '100000000000', decimals: 18, countsSupplyDrop: true, mintTx: '0x661d7c8f088bb866b756bf17cf74ca43890c18260318deab861e37e8d7594662' },
-  drb: { minted: '100000000000', decimals: 18, countsSupplyDrop: false, mintTx: '0x2cf2f8330f8e1b72c5efdc1db80790e6f47ff0c3af6a33cec31186f2c7df795e' },
+  pepe: { minted: '420690000000000', decimals: 18, countsSupplyDrop: true, countsOwnBalance: true, mintTx: '0x2afae7763487e60b893cb57803694810e6d3d136186a6de6719921afd7ca304a' },
+  qr: { minted: '100000000000', decimals: 18, countsSupplyDrop: false, countsOwnBalance: true, mintTx: '0x18a677ce1fc39876aa2a75b9d78c77a0f58cf6a539e5edf30b2f15595cefa47f' },
+  mfer: { minted: '1000000000', decimals: 18, countsSupplyDrop: true, countsOwnBalance: true, mintTx: '0xb23ea44e81cf3546ed2a4a13c1e6d27b6de21f419230bbc6a7ed67c3185b3912' },
+  bnkr: { minted: '100000000000', decimals: 18, countsSupplyDrop: true, countsOwnBalance: true, mintTx: '0x661d7c8f088bb866b756bf17cf74ca43890c18260318deab861e37e8d7594662' },
+  drb: { minted: '100000000000', decimals: 18, countsSupplyDrop: false, countsOwnBalance: true, mintTx: '0x2cf2f8330f8e1b72c5efdc1db80790e6f47ff0c3af6a33cec31186f2c7df795e' },
   bobo: { minted: '1000000000', decimals: 6, countsSupplyDrop: true, mintTx: '3w3NbHbcr2wXqBTSBrzjePECJS5FG8A8jYJLRCwevntYr4JzVWvsAaN1nHNjeegsb4KLBPA6vL9jm3VjJAy1ovf3' },
-  jbm: { minted: '100000000000', decimals: 18, countsSupplyDrop: false, mintTx: '0xb7c0d5dbc33584461b5dd5f9f45b6527d98869ab7918f19de7b9a04318cce6aa' },
+  jbm: { minted: '100000000000', decimals: 18, countsSupplyDrop: false, countsOwnBalance: true, mintTx: '0xb7c0d5dbc33584461b5dd5f9f45b6527d98869ab7918f19de7b9a04318cce6aa' },
   soy: { minted: '1000000000', decimals: 6, countsSupplyDrop: true, mintTx: '5LrYVwyf3xJkKWRn4CjDWc5YwZbdFTeC45nc9N8RQmwtxAGbp18PtLw6o6QacDsB9JAufj1fc3CqmcvMUTWnWdVn' },
   brainlet: { minted: '1000000000', decimals: 6, countsSupplyDrop: true, mintTx: '2htyuqizj1MEqaTL7QcoEbX6Le11XFUQ7QYG685FJ4QRzCzhPeDS1qfBGGDikL9hHrPkfcDNYGz1ZG8urJR8HqaW' },
   rizz: { minted: '1000000000', decimals: 6, countsSupplyDrop: true, mintTx: '4mKCtSuQtBgtFfpThuqgDxaVJzz7fhpkFTvbRj7xMYHysjPgNynzkYP5QU81Cs7b9hLuZBUATPbj3hazE8Vbs5Sc' },
@@ -61,9 +66,11 @@ export interface BurnReading {
   decimals: number;
   /** Balance at the burn address. Left out on Solana, where a burn always lowers the supply. */
   atBurnAddressRaw?: bigint;
+  /** The token contract's balance of its own token. Counted only where the record says so. */
+  inOwnContractRaw?: bigint;
 }
 
-export type BurnMismatch = 'decimals' | 'supply-above-minted' | 'burn-address-above-supply';
+export type BurnMismatch = 'decimals' | 'supply-above-minted' | 'balances-above-supply';
 
 export type BurnTally =
   | {
@@ -76,6 +83,8 @@ export type BurnTally =
       uncountedFallRaw?: bigint;
       /** Held at the burn address. Absent on a chain where none is read. */
       atBurnAddressRaw?: bigint;
+      /** Stuck in the token's own contract. Absent unless the record counts it. */
+      inOwnContractRaw?: bigint;
       burntRaw: bigint;
       /** Absent while an uncounted fall is above zero: it may be a burn or a bridge-out. */
       notBurntRaw?: bigint;
@@ -86,7 +95,7 @@ export type BurnTally =
 
 /**
  * The burn, from one reading. A reading that contradicts the record (other decimals, more
- * supply than was ever minted, a burn balance larger than the supply) yields no figure:
+ * supply than was ever minted, counted balances larger than the supply) yields no figure:
  * the record is wrong or the token changed, and either way a number would be a guess.
  */
 export function tallyBurn(fact: BurnFact, reading: BurnReading): BurnTally {
@@ -94,15 +103,17 @@ export function tallyBurn(fact: BurnFact, reading: BurnReading): BurnTally {
   const mintedRaw = mintedRawOf(fact);
   if (reading.supplyRaw > mintedRaw) return { ok: false, reason: 'supply-above-minted' };
   const { atBurnAddressRaw } = reading;
-  if (atBurnAddressRaw !== undefined && atBurnAddressRaw > reading.supplyRaw) {
-    return { ok: false, reason: 'burn-address-above-supply' };
-  }
+  // An own balance handed in for a token whose record does not count it is left out.
+  const inOwnContractRaw = fact.countsOwnBalance ? reading.inOwnContractRaw : undefined;
+  let heldRaw = 0n;
+  if (atBurnAddressRaw !== undefined) heldRaw += atBurnAddressRaw;
+  if (inOwnContractRaw !== undefined) heldRaw += inOwnContractRaw;
+  if (heldRaw > reading.supplyRaw) return { ok: false, reason: 'balances-above-supply' };
   const fallRaw = mintedRaw - reading.supplyRaw;
   const destroyedRaw = fact.countsSupplyDrop ? fallRaw : undefined;
   const uncountedFallRaw = fact.countsSupplyDrop ? undefined : fallRaw;
-  let burntRaw = 0n;
+  let burntRaw = heldRaw;
   if (destroyedRaw !== undefined) burntRaw += destroyedRaw;
-  if (atBurnAddressRaw !== undefined) burntRaw += atBurnAddressRaw;
   return {
     ok: true,
     decimals: fact.decimals,
@@ -110,6 +121,7 @@ export function tallyBurn(fact: BurnFact, reading: BurnReading): BurnTally {
     destroyedRaw,
     uncountedFallRaw,
     atBurnAddressRaw,
+    inOwnContractRaw,
     burntRaw,
     notBurntRaw: uncountedFallRaw !== undefined && uncountedFallRaw > 0n ? undefined : mintedRaw - burntRaw,
     burntPpm: Number((burntRaw * 1_000_000n) / mintedRaw),

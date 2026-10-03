@@ -10,6 +10,8 @@ type ReadCell = { status: 'success'; result: unknown } | { status: 'failure'; er
 type Query = { address: string; functionName: string; args?: readonly unknown[] };
 
 // Keyed by token, function and args, so an answer read from the wrong slot is a failure.
+// The row reads through useBungalowBurn, the hook behind the burn card, which is not mocked:
+// this file holds the row to that hook's real answer.
 const wagmi = vi.hoisted(() => ({ answers: new Map<string, ReadCell>() }));
 const keyOf = (q: Query) => `${q.address.toLowerCase()}:${q.functionName}:${(q.args ?? []).map(String).join(',')}`;
 vi.mock('wagmi', () => ({
@@ -25,10 +27,11 @@ const ok = (result: unknown): ReadCell => ({ status: 'success', result });
 const fail = (): ReadCell => ({ status: 'failure', error: new Error('rpc down') });
 const at = (fn: string, args = '') => `${TOWELI_ADDRESS.toLowerCase()}:${fn}:${args}`;
 
-function seed(over: { supply?: ReadCell; burnAddress?: ReadCell; decimals?: ReadCell } = {}) {
+function seed(over: { supply?: ReadCell; burnAddress?: ReadCell; decimals?: ReadCell; ownBalance?: ReadCell } = {}) {
   wagmi.answers.set(at('totalSupply'), over.supply ?? ok(1_000_000_000n * E18));
   wagmi.answers.set(at('balanceOf', EVM_BURN_ADDRESS), over.burnAddress ?? ok(257_626_865_814586290000000000n));
   wagmi.answers.set(at('decimals'), over.decimals ?? ok(18));
+  wagmi.answers.set(at('balanceOf', TOWELI_ADDRESS), over.ownBalance ?? ok(0n));
 }
 
 /** The percent the burn card prints for the same reading. */
@@ -63,6 +66,7 @@ describe('ProofOfClaims, the burn row', () => {
   it.each([
     ['the burn address', { burnAddress: fail() }],
     ['the decimals', { decimals: fail() }],
+    ['the token contract\'s own balance', { ownBalance: fail() }],
   ])('prints no burn row when %s could not be read, and keeps the supply row', (_leg, over) => {
     seed(over);
     render(<ProofOfClaims />);

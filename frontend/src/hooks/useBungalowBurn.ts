@@ -37,21 +37,24 @@ export interface BungalowBurnResult {
 
 type SolanaOutcome = { mint: string; reading: BurnReading | null };
 
-export function useBungalowBurn(bungalow: Bungalow): BungalowBurnResult {
-  const fact = burnFactFor(bungalow);
-  const evmChainId = EVM_CHAIN_IDS[bungalow.chain] ?? null;
+/** `null` (no bungalow) is idle, like a lot with no token: nothing is read. */
+export function useBungalowBurn(bungalow: Bungalow | null): BungalowBurnResult {
+  const fact = bungalow ? burnFactFor(bungalow) : null;
+  const evmChainId = (bungalow && EVM_CHAIN_IDS[bungalow.chain]) ?? null;
   const evmEnabled = fact !== null && evmChainId !== null;
-  const solanaMint = fact !== null && bungalow.chain === 'solana' ? (bungalow.address ?? null) : null;
+  const solanaMint = fact !== null && bungalow?.chain === 'solana' ? (bungalow.address ?? null) : null;
 
   // EVM: one multicall on the TOKEN's chain, whatever chain the visitor's wallet is on.
   // The batch shape is static, since a conditional entry collapses wagmi's tuple types.
-  const token = (evmEnabled ? bungalow.address : PLACEHOLDER_ADDR) as `0x${string}`;
+  const token = (evmEnabled ? bungalow?.address : PLACEHOLDER_ADDR) as `0x${string}`;
   const chainId = evmChainId ?? 1;
   const { data, isError, isFetching, refetch } = useReadContracts({
     contracts: [
       { address: token, abi: ERC20_ABI, chainId, functionName: 'totalSupply' },
       { address: token, abi: ERC20_ABI, chainId, functionName: 'decimals' },
       { address: token, abi: ERC20_ABI, chainId, functionName: 'balanceOf', args: [EVM_BURN_ADDRESS] },
+      // The contract's balance of its own token. Always asked, used only where the record counts it.
+      { address: token, abi: ERC20_ABI, chainId, functionName: 'balanceOf', args: [token] },
     ],
     // staleTime 0: every mount reads, even when another mount of this token left a figure cached.
     query: { enabled: evmEnabled, staleTime: 0, refetchOnWindowFocus: false, refetchOnReconnect: false },
@@ -96,18 +99,21 @@ export function useBungalowBurn(bungalow: Bungalow): BungalowBurnResult {
     // A read that failed as a whole is unread even if an older answer is still held.
     if (isError) return { burn: { status: 'unread' }, isReading: isFetching, refresh };
     if (!data) return { burn: { status: 'loading' }, isReading: isFetching, refresh };
-    // Per-entry status is the signal: a dead RPC comes back as three failures, not as isError.
+    // Per-entry status is the signal: a dead RPC comes back as failed entries, not as isError.
     const supply = data[0]?.status === 'success' ? data[0].result : null;
     const decimals = data[1]?.status === 'success' ? data[1].result : null;
     const atBurnAddress = data[2]?.status === 'success' ? data[2].result : null;
+    const inOwnContract = data[3]?.status === 'success' ? data[3].result : null;
     if (typeof supply !== 'bigint' || typeof decimals !== 'number' || typeof atBurnAddress !== 'bigint') {
       return { burn: { status: 'unread' }, isReading: isFetching, refresh };
     }
-    return {
-      burn: toBurn(tallyBurn(fact, { supplyRaw: supply, decimals, atBurnAddressRaw: atBurnAddress })),
-      isReading: isFetching,
-      refresh,
-    };
+    const reading: BurnReading = { supplyRaw: supply, decimals, atBurnAddressRaw: atBurnAddress };
+    if (fact.countsOwnBalance) {
+      // A counted leg that did not land makes the burn unread, never smaller.
+      if (typeof inOwnContract !== 'bigint') return { burn: { status: 'unread' }, isReading: isFetching, refresh };
+      reading.inOwnContractRaw = inOwnContract;
+    }
+    return { burn: toBurn(tallyBurn(fact, reading)), isReading: isFetching, refresh };
   }
 
   if (!solanaMint) return { burn: { status: 'idle' }, isReading: false, refresh };

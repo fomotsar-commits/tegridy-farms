@@ -71,9 +71,20 @@ export function BungalowBurn({ bungalow }: { bungalow: Bungalow }) {
 
 function BurnLedger({ bungalow, tally }: { bungalow: Bungalow; tally: Extract<BurnTally, { ok: true }> }) {
   const { symbol } = bungalow;
-  const { decimals, destroyedRaw, atBurnAddressRaw, uncountedFallRaw } = tally;
+  const { decimals, uncountedFallRaw } = tally;
   const whole = (raw: bigint) => formatWholeTokens(raw, decimals);
-  const twoWays = destroyedRaw !== undefined && atBurnAddressRaw !== undefined;
+  // Each way this token's burn is counted, in ledger order. A row per way only when there are several.
+  const ways: { label: string; phrase: string; raw: bigint }[] = [];
+  if (tally.atBurnAddressRaw !== undefined) {
+    ways.push({ label: 'Sent to the burn address', phrase: 'sent to the burn address', raw: tally.atBurnAddressRaw });
+  }
+  if (tally.inOwnContractRaw !== undefined) {
+    ways.push({ label: 'Stuck in the token contract', phrase: "stuck for good in the token's own contract", raw: tally.inOwnContractRaw });
+  }
+  if (tally.destroyedRaw !== undefined) {
+    ways.push({ label: 'Destroyed outright', phrase: 'destroyed outright, which lowers the supply', raw: tally.destroyedRaw });
+  }
+  const hasBurnAddress = tally.atBurnAddressRaw !== undefined;
   const notBurnt = formatNotBurnt(tally);
   const proofUrl = burnProofUrl(bungalow);
   const proofLabel = EXPLORER_LABEL[bungalow.chain];
@@ -110,8 +121,7 @@ function BurnLedger({ bungalow, tally }: { bungalow: Bungalow; tally: Extract<Bu
         </div>
         <dl className="m-0">
           <Row label="Burnt" value={whole(tally.burntRaw)} unit={symbol} />
-          {twoWays && <Row label="Sent to the burn address" value={whole(atBurnAddressRaw)} unit={symbol} />}
-          {twoWays && <Row label="Destroyed outright" value={whole(destroyedRaw)} unit={symbol} />}
+          {ways.length > 1 && ways.map((w) => <Row key={w.label} label={w.label} value={whole(w.raw)} unit={symbol} />)}
           <Row label="Ever minted" value={whole(tally.mintedRaw)} unit={symbol} />
           {uncountedFallRaw !== undefined && uncountedFallRaw > 0n && (
             <Row label="Supply fall, not counted" value={whole(uncountedFallRaw)} unit={symbol} />
@@ -121,12 +131,15 @@ function BurnLedger({ bungalow, tally }: { bungalow: Bungalow; tally: Extract<Bu
       </div>
 
       <p className="text-[11px] text-white/60 mt-3">
-        {twoWays ? (
-          <>Burnt counts {symbol} sent to the burn address and {symbol} destroyed outright, which lowers the supply. </>
-        ) : atBurnAddressRaw !== undefined ? (
+        {hasBurnAddress ? (
           <>
-            Burnt counts {symbol} sent to the burn address. This token has a bridge path that could lower its supply
-            without a burn, so a fall in supply is not counted as burnt.{' '}
+            Burnt counts {symbol} {listPhrases(ways.map((w) => w.phrase))}.{' '}
+            {uncountedFallRaw !== undefined && (
+              <>
+                This token has a bridge path that could lower its supply without a burn, so a fall in supply is not
+                counted as burnt.{' '}
+              </>
+            )}
           </>
         ) : (
           <>Burnt is the {symbol} destroyed outright: everything ever minted, less the supply on chain now. </>
@@ -150,6 +163,12 @@ function BurnLedger({ bungalow, tally }: { bungalow: Bungalow; tally: Extract<Bu
       </p>
     </>
   );
+}
+
+/** "a", "a and b", "a, b and c". */
+function listPhrases(items: string[]): string {
+  if (items.length < 2) return items.join('');
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
 /** One ledger line. A wrapping flex row: on a narrow phone a long figure drops under its label. */

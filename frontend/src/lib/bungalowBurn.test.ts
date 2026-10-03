@@ -81,6 +81,11 @@ describe('the burn record covers the registry', () => {
     });
   });
 
+  it('counts a token contract\'s own balance for the seven EVM tokens proven stuck, and for no other', () => {
+    const counted = Object.entries(BUNGALOW_BURN_FACTS).filter(([, f]) => f.countsOwnBalance).map(([id]) => id);
+    expect(counted.sort()).toEqual(['bnkr', 'drb', 'jbm', 'mfer', 'pepe', 'qr', 'toweli']);
+  });
+
   it('reads the same burn address the scanner excludes from holders', () => {
     // The literal, not only set membership: the zero address is in that set too, and it holds 0.
     expect(EVM_BURN_ADDRESS).toBe('0x000000000000000000000000000000000000dEaD');
@@ -173,7 +178,38 @@ describe('tallyBurn', () => {
 
   it('gives no figure when the burn address holds more than the whole supply', () => {
     expect(tallyBurn(fact('mfer'), { supplyRaw: 10n * E18, decimals: 18, atBurnAddressRaw: 11n * E18 }))
-      .toEqual({ ok: false, reason: 'burn-address-above-supply' });
+      .toEqual({ ok: false, reason: 'balances-above-supply' });
+  });
+
+  it('MFER: tokens stuck in the token\'s own contract are counted, beside the burn address and the fall', () => {
+    const t = okTally(tallyBurn(fact('mfer'), {
+      supplyRaw: 999_997_819_542365138940470525n,
+      decimals: 18,
+      atBurnAddressRaw: 934_220_813059864763270444n,
+      inOwnContractRaw: 364_950_370401477478889761n,
+    }));
+    expect(t.inOwnContractRaw).toBe(364_950_370401477478889761n);
+    expect(t.destroyedRaw).toBe(2_180_457634861059529475n);
+    expect(t.burntRaw).toBe(934_220_813059864763270444n + 364_950_370401477478889761n + 2_180_457634861059529475n);
+    expect(formatWholeTokens(t.burntRaw, 18)).toBe('1,301,351');
+    expect(formatBurnPercent(t)).toBe('0.1301%');
+    expect(t.burntRaw + t.notBurntRaw!).toBe(t.mintedRaw);
+  });
+
+  it('an own balance is counted only where the record proves it stuck', () => {
+    // The same reading against a record without the flag: the own balance is left out, not added.
+    const unproven: BurnFact = { ...fact('mfer'), countsOwnBalance: undefined };
+    const t = okTally(tallyBurn(unproven, {
+      supplyRaw: 1_000_000_000n * E18, decimals: 18, atBurnAddressRaw: 100n * E18, inOwnContractRaw: 50n * E18,
+    }));
+    expect(t.inOwnContractRaw).toBeUndefined();
+    expect(t.burntRaw).toBe(100n * E18);
+  });
+
+  it('gives no figure when the burn address and the own balance together exceed the supply', () => {
+    // Each alone fits; a reading where the two overlap or are wrong must not be summed into a burn.
+    expect(tallyBurn(fact('mfer'), { supplyRaw: 10n * E18, decimals: 18, atBurnAddressRaw: 6n * E18, inOwnContractRaw: 6n * E18 }))
+      .toEqual({ ok: false, reason: 'balances-above-supply' });
   });
 });
 

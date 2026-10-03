@@ -2,8 +2,8 @@ import { useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
 import { ERC20_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
 import { TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, TOWELI_DECIMALS, CHAIN_ID, isDeployed } from '../lib/constants';
-import { BUNGALOW_BURN_FACTS, formatBurnPercent, tallyBurn } from '../lib/bungalowBurn';
-import { DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
+import { formatBurnPercent, homeBurnRoom } from '../lib/bungalowBurn';
+import { useBungalowBurn } from '../hooks/useBungalowBurn';
 
 /**
  * "Prove It" — every headline claim rendered FROM a live on-chain read, not from
@@ -54,17 +54,16 @@ export function ProofOfClaims() {
   const { data } = useReadContracts({
     contracts: [
       { address: TOWELI_ADDRESS, abi: ERC20_ABI, chainId: CHAIN_ID, functionName: 'totalSupply' },
-      { address: TOWELI_ADDRESS, abi: ERC20_ABI, chainId: CHAIN_ID, functionName: 'balanceOf', args: [DEAD] },
       { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, chainId: CHAIN_ID, functionName: 'feeBps' },
-      { address: TOWELI_ADDRESS, abi: ERC20_ABI, chainId: CHAIN_ID, functionName: 'decimals' },
     ],
     query: { refetchInterval: 300_000, staleTime: 120_000 },
   });
 
   const supplyRaw = data?.[0]?.status === 'success' ? (data[0].result as bigint) : undefined;
-  const burnedRaw = data?.[1]?.status === 'success' ? (data[1].result as bigint) : undefined;
-  const feeBps = feeDeployed && data?.[2]?.status === 'success' ? Number(data[2].result as bigint) : undefined;
-  const decimals = data?.[3]?.status === 'success' ? data[3].result : undefined;
+  const feeBps = feeDeployed && data?.[1]?.status === 'success' ? Number(data[1].result as bigint) : undefined;
+  // The burn row reads through the TOWELI bungalow's own burn hook: the same query, sum and
+  // rounding as the burn card on this page, so the page prints one answer.
+  const { burn } = useBungalowBurn(homeBurnRoom(null, true));
 
   const rows: { label: string; value: string; href: string }[] = [];
 
@@ -75,19 +74,15 @@ export function ProofOfClaims() {
       value: `${supply.toLocaleString(undefined, { maximumFractionDigits: 0 })} TOWELI`,
       href: `https://etherscan.io/token/${TOWELI_ADDRESS}#code`,
     });
-    // The same sum and rounding as this room's burn card, so one page cannot print two answers.
-    // No row unless every leg landed and the reading agrees with the minted record.
-    const burnFact = BUNGALOW_BURN_FACTS[DEFAULT_BUNGALOW_ID];
-    if (burnFact && burnedRaw !== undefined && typeof decimals === 'number') {
-      const burn = tallyBurn(burnFact, { supplyRaw, decimals, atBurnAddressRaw: burnedRaw });
-      if (burn.ok) {
-        rows.push({
-          label: 'Burned forever',
-          value: `${formatBurnPercent(burn)} of everything minted`,
-          href: `https://etherscan.io/token/${TOWELI_ADDRESS}?a=${DEAD}`,
-        });
-      }
-    }
+  }
+
+  // No row unless the burn was read whole and agrees with the minted record.
+  if (burn.status === 'read') {
+    rows.push({
+      label: 'Burned forever',
+      value: `${formatBurnPercent(burn.tally)} of everything minted`,
+      href: `https://etherscan.io/token/${TOWELI_ADDRESS}?a=${DEAD}`,
+    });
   }
 
   if (feeBps !== undefined) {

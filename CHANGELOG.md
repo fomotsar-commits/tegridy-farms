@@ -8,7 +8,8 @@ page keeps the newest thirty days.
 
 ### 2026-10-03
 
-- Every bungalow now has a burn tracker. Each token's bungalow shows the percent of everything ever minted that is burnt, the amount, and where it went: sent to the burn address, or destroyed outright so the supply itself fell. It is read from the token's own chain when the card loads. A burn that could not be read says so and never shows as zero. For QR, DRB and JBM only the burn address is counted.
+- The burn tracker in each bungalow also counts tokens stuck for good in the token's own contract, where nobody can ever move them, and shows them in a row of their own. MFER's burn reads 0.13% where it read 0.09%, and PEPE, QR, BNKR and DRB rise by a few hundredths of a percent.
+- Every bungalow now has a burn tracker. Each token's bungalow shows the percent of everything ever minted that is burnt, the amount, and where it went: sent to the burn address, or destroyed outright so the supply itself fell. It is read from the token's own chain when the card loads. A burn that could not be read says so and never shows as zero. For QR, DRB and JBM a fall in supply is not counted.
 - Solana LP: in a Solana room (BAYLA, BOBO, SOY, Brainlet, RIZZ) one button looks up that room's token, so a phone does not have to paste its address. After a lookup the page moves to the answer, and a token with no pool yet says that opening the pool is how the first liquidity goes in.
 - Pools has a Solana LP tab that opens on the pool finder: find a pool, add or remove liquidity, or open a pool on the venue's own Solana AMM.
 - Solana pools: a wallet that cannot open a pool or add liquidity yet is told so in plain words, with how much SOL that needs before anything goes into the pool, how much the wallet has, and whether it holds the token. The form used to only grey out Review.

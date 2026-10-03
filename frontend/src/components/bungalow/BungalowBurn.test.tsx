@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { BUNGALOWS, type Bungalow } from '../../lib/bungalows';
-import { BUNGALOW_BURN_FACTS, mintedRawOf, tallyBurn, type BurnTally } from '../../lib/bungalowBurn';
+import { BUNGALOW_BURN_FACTS, mintedRawOf, tallyBurn, type BurnFact, type BurnTally } from '../../lib/bungalowBurn';
 import type { BungalowBurn as BurnState } from '../../hooks/useBungalowBurn';
 
 const hook = vi.hoisted(() => ({
@@ -28,7 +28,7 @@ function set(burn: BurnState, isReading = false) {
 }
 
 /** A read state built by the real maths, so the card is fed exactly what the hook would hand it. */
-function read(id: string, reading: { supplyRaw: bigint; atBurnAddressRaw?: bigint }): BurnState {
+function read(id: string, reading: { supplyRaw: bigint; atBurnAddressRaw?: bigint; inOwnContractRaw?: bigint }): BurnState {
   const fact = BUNGALOW_BURN_FACTS[id]!;
   const tally: BurnTally = tallyBurn(fact, { decimals: fact.decimals, ...reading });
   if (!tally.ok) throw new Error(`fixture mismatch: ${tally.reason}`);
@@ -49,51 +49,93 @@ function row(label: string): string {
 beforeEach(() => set({ status: 'idle' }));
 
 describe('BungalowBurn, a full read', () => {
-  it('PEPE: prints the percent, the short figure, and both ways it was burnt', () => {
+  it('PEPE: prints the percent, the short figure, and each of the three ways it was burnt', () => {
     set(read('pepe', {
       supplyRaw: 420_689_899_645_071_695787564425681079n,
       atBurnAddressRaw: 6_917_544_537_127_740524900319904797n,
+      inOwnContractRaw: 41_310_455_910_459684113788017621n,
     }));
     render(<BungalowBurn bungalow={room('pepe')} />);
 
     const card = screen.getByRole('region', { name: 'PEPE burn' });
     expect(within(card).getByRole('heading', { level: 2, name: 'PEPE burnt' })).toBeTruthy();
-    expect(headline(card)).toBe('1.64%');
-    expect(meterFill(card).style.width).toBe('1.6443%');
+    expect(headline(card)).toBe('1.65%');
+    expect(meterFill(card).style.width).toBe('1.6541%');
     expect(meterFill(card).style.minWidth).toBe('4px');
-    expect(card.textContent).toContain('6.91T of the 420.69T PEPE ever minted');
-    expect(card.textContent).toContain('Burnt counts PEPE sent to the burn address and PEPE destroyed outright');
-    expect(row('Burnt')).toBe('6,917,644,892,056 PEPE');
+    expect(card.textContent).toContain('6.95T of the 420.69T PEPE ever minted');
+    expect(card.textContent).toContain(
+      'Burnt counts PEPE sent to the burn address, stuck for good in the token\'s own contract and destroyed outright, which lowers the supply.',
+    );
+    expect(card.textContent).not.toContain('bridge');
+    expect(row('Burnt')).toBe('6,958,955,347,966 PEPE');
     expect(row('Sent to the burn address')).toBe('6,917,544,537,127 PEPE');
+    expect(row('Stuck in the token contract')).toBe('41,310,455,910 PEPE');
     expect(row('Destroyed outright')).toBe('100,354,928 PEPE');
     expect(row('Ever minted')).toBe('420,690,000,000,000 PEPE');
     // Whole Ever minted minus whole Burnt: the two rows add up to the third.
-    expect(row('Not burnt')).toBe('413,772,355,107,944 PEPE');
+    expect(row('Not burnt')).toBe('413,731,044,652,034 PEPE');
     expect(card.textContent).toContain('Read from Ethereum. The burn is rounded down to whole tokens.');
     expect(card.textContent).not.toContain('when this card loaded');
   });
 
-  it('QR: counts the burn address only, and says why a fall in supply is left out', () => {
-    set(read('qr', { supplyRaw: 100_000_000_000n * E18, atBurnAddressRaw: 6_669_949_934n * E18 }));
+  it('QR: counts the burn address and its own contract, and says why a fall in supply is left out', () => {
+    set(read('qr', { supplyRaw: 100_000_000_000n * E18, atBurnAddressRaw: 6_669_949_934n * E18, inOwnContractRaw: 112_159n * E18 }));
     render(<BungalowBurn bungalow={room('qr')} />);
-    expect(row('Burnt')).toBe('6,669,949,934 QR');
+    expect(row('Burnt')).toBe('6,670,062,093 QR');
+    expect(row('Sent to the burn address')).toBe('6,669,949,934 QR');
+    expect(row('Stuck in the token contract')).toBe('112,159 QR');
     expect(screen.queryByText('Destroyed outright')).toBeNull();
-    expect(screen.queryByText('Sent to the burn address')).toBeNull();
-    expect(row('Not burnt')).toBe('93,330,050,066 QR');
+    expect(row('Not burnt')).toBe('93,329,937,907 QR');
+    expect(screen.getByRole('region').textContent).toContain(
+      'Burnt counts QR sent to the burn address and stuck for good in the token\'s own contract. This token has a bridge path',
+    );
     expect(screen.queryByText('Supply fall, not counted')).toBeNull();
     expect(screen.getByRole('region').textContent).toContain('a fall in supply is not counted as burnt');
     expect(screen.getByRole('region').textContent).toContain('Read from Base.');
-    expect(headline(screen.getByRole('region'))).toBe('6.66%');
+    expect(headline(screen.getByRole('region'))).toBe('6.67%');
     // The chain is named in the header too, beside the heading.
     expect(within(screen.getByRole('region')).getByText('Base', { selector: 'span' })).toBeTruthy();
+  });
+
+  it('MFER: tokens stuck in the token\'s own contract get their own row and are named in the note', () => {
+    set(read('mfer', {
+      supplyRaw: 999_997_819_542365138940470525n,
+      atBurnAddressRaw: 934_220_813059864763270444n,
+      inOwnContractRaw: 364_950_370401477478889761n,
+    }));
+    render(<BungalowBurn bungalow={room('mfer')} />);
+    const card = screen.getByRole('region', { name: 'MFER burn' });
+    expect(headline(card)).toBe('0.1301%');
+    expect(row('Burnt')).toBe('1,301,351 MFER');
+    expect(row('Sent to the burn address')).toBe('934,220 MFER');
+    expect(row('Stuck in the token contract')).toBe('364,950 MFER');
+    expect(row('Destroyed outright')).toBe('2,180 MFER');
+    expect(row('Not burnt')).toBe('998,698,649 MFER');
+    expect(card.textContent).toContain(
+      'Burnt counts MFER sent to the burn address, stuck for good in the token\'s own contract and destroyed outright, which lowers the supply.',
+    );
+  });
+
+  it('a token whose own balance is not counted shows no such row and does not mention it', () => {
+    // The default for a token not yet proven: the same reading against a record without the flag.
+    const unproven: BurnFact = { ...BUNGALOW_BURN_FACTS.toweli!, countsOwnBalance: undefined };
+    const tally = tallyBurn(unproven, {
+      supplyRaw: 1_000_000_000n * E18, decimals: 18, atBurnAddressRaw: 257_626_865n * E18, inOwnContractRaw: 9n * E18,
+    });
+    if (!tally.ok) throw new Error(tally.reason);
+    set({ status: 'read', tally });
+    render(<BungalowBurn bungalow={room('toweli')} />);
+    expect(row('Burnt')).toBe('257,626,865 TOWELI');
+    expect(screen.queryByText('Stuck in the token contract')).toBeNull();
+    expect(screen.getByRole('region').textContent).not.toContain('own contract');
   });
 
   it('DRB after someone burns 5B outright: the fall is shown, not counted, and "Not burnt" is withheld', () => {
     // burn() is open to anyone on these three. The card cannot tell it from a bridge-out, so it
     // must not print more DRB as "not burnt" than exists.
-    set(read('drb', { supplyRaw: 95_000_000_000n * E18, atBurnAddressRaw: 1_315_291_862n * E18 }));
+    set(read('drb', { supplyRaw: 95_000_000_000n * E18, atBurnAddressRaw: 1_315_291_862n * E18, inOwnContractRaw: 45_374_810n * E18 }));
     render(<BungalowBurn bungalow={room('drb')} />);
-    expect(row('Burnt')).toBe('1,315,291,862 DRB');
+    expect(row('Burnt')).toBe('1,360,666,672 DRB');
     expect(row('Supply fall, not counted')).toBe('5,000,000,000 DRB');
     expect(screen.queryByText('Not burnt')).toBeNull();
   });
@@ -111,10 +153,12 @@ describe('BungalowBurn, a full read', () => {
     expect(card.textContent).toContain('Burnt is the BAYLA destroyed outright');
     expect(card.textContent).not.toContain('bridge');
     expect(card.textContent).not.toContain('burn address');
+    // One way only, so no per-way row: it would repeat the Burnt row above it.
+    expect(screen.queryByText('Destroyed outright')).toBeNull();
   });
 
   it('a read zero prints as zero', () => {
-    set(read('bnkr', { supplyRaw: 100_000_000_000n * E18, atBurnAddressRaw: 0n }));
+    set(read('bnkr', { supplyRaw: 100_000_000_000n * E18, atBurnAddressRaw: 0n, inOwnContractRaw: 0n }));
     render(<BungalowBurn bungalow={room('bnkr')} />);
     expect(headline(screen.getByRole('region'))).toBe('0%');
     expect(row('Burnt')).toBe('0 BNKR');
@@ -200,7 +244,7 @@ describe('BungalowBurn, the frame', () => {
   const states: [string, (b: Bungalow) => BurnState][] = [
     ['read', (b) => read(b.id, b.chain === 'solana'
       ? { supplyRaw: mintedRawOf(BUNGALOW_BURN_FACTS[b.id]!) / 2n }
-      : { supplyRaw: mintedRawOf(BUNGALOW_BURN_FACTS[b.id]!) / 2n, atBurnAddressRaw: 12_345n * E18 })],
+      : { supplyRaw: mintedRawOf(BUNGALOW_BURN_FACTS[b.id]!) / 2n, atBurnAddressRaw: 12_345n * E18, inOwnContractRaw: 678n * E18 })],
     ['loading', () => ({ status: 'loading' })],
     ['unread', () => ({ status: 'unread' })],
     ['mismatch', () => ({ status: 'mismatch', reason: 'decimals' })],
