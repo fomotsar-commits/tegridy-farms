@@ -15,6 +15,55 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-03: a helper that asks "the wallet" picks a network when the browser carries two
+
+**Believed:** a "use my wallet" helper that tries the Ethereum provider and falls back to
+Solana serves both kinds of visitor, and a Solana wallet's provider is at `window.solana`.
+
+**Measured:** at 393px on a production build, with a stand-in for Trust Wallet's own
+browser (`window.ethereum` and `window.trustwallet.solana`, each recording its calls), the
+Heat reader's button sent `eth_accounts`, then `eth_requestAccounts`, and never called the
+Solana provider. It did so on the home page, on the Solana launch door, and on trunk with
+#714 merged after the top bar showed the connected Solana address. Once each network had
+its own button, an Ethereum prompt approved after the Solana button was pressed replaced
+the Solana address in the field.
+
+**Do:** a fill or connect helper takes the network as an argument, and the caller names it:
+the page's own network, or one button per network. Where the site already holds the
+address (a connected wallet), use it and ask no provider. Two buttons are two answers that
+can arrive in either order: let only the latest press write. Read
+`window.trustwallet.solana` wherever `window.solana` is read.
+
+## 2026-10-03: a plain `vite build` is not the build the e2e suite runs against
+
+**Believed:** `vite build --outDir <temp>` plus `vite preview --outDir <temp>` is the
+production build, so any spec can run against it.
+
+**Measured:** against such a folder `e2e/door-first-frame.spec.ts` failed 11 tests on
+chromium ("/bayla: served the stock shell"). Against the `dist/` that `npm run build`
+writes, the same eleven spec files listed 456 tests on chromium and mobile-chrome: 284
+passed, 172 skipped by design, none failed. `npm run build` runs
+`render-bungalow-doors.mjs` after `vite build`, and the door pages exist only after it.
+
+**Do:** walk a flow on a plain `vite build`; run specs against `npm run build`. A local,
+uncommitted config that spreads `playwright.config.ts` and overrides `webServer` (its own
+port, `reuseExistingServer: false`), `use.baseURL` and `outputDir` keeps the run off
+another session's preview on 4173.
+
+## 2026-10-03: a `flex: 1 1 0; min-width: 0` field does not let a sibling wrap; it shrinks
+
+**Believed:** `flex-wrap` on a form drops a third control to the next row on a phone.
+
+**Measured:** at 393px the address field (`flex-1 min-w-0`), Read Heat and one wallet
+button stayed on one row. The field's hint needs 158px and the field was left 99px on the
+home page and 57px on the launch door. A line wraps on the items' starting sizes, and a
+zero basis with no minimum starts at zero. With the wallet button in a `w-full sm:w-auto`
+row of its own the field had 212px and 170px.
+
+**Do:** give the control that must not squeeze the field its own full-width row below the
+breakpoint, or give the field a real minimum. Pin it by measuring the hint's drawn width
+(canvas `measureText` with the field's computed font) against the field's content width.
+
 ## 2026-10-03: a button disabled "while connecting" is a dead end when the wallet never answers
 
 **Believed:** the site could not see Phantom ("it wont even recognize my phantom wallet", the
