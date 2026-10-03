@@ -1,4 +1,5 @@
-// THE ONLY FILE IN THE UI THAT IMPORTS THE WRITE LAYER.
+// ONE OF TWO FILES IN THE UI THAT LOAD THE WRITE LAYER; the other is
+// `components/solana/lp/lpWriteApi.ts`, the pools page's liquidity path.
 //
 // Everything is a dynamic import, called only once the flag in
 // lib/launcher/solana/curveWriteFlag.ts says writes may load. A production build

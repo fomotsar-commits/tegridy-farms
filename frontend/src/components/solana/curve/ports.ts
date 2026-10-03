@@ -15,7 +15,11 @@
 import type { PublicKey } from '@solana/web3.js';
 import type { CurveAccount, CurveRpc, CurveTerms, GlobalConfig, LaunchState, BondingCurve, Read, SolanaRpc } from '../../../lib/launcher/solana/curve';
 import type {
+  CreateFacts,
   CurveWriteConfig,
+  LpGate,
+  LpKind,
+  LpOpenGate,
   OpenGate,
   Prepared,
   PreparedTx,
@@ -29,6 +33,8 @@ import type {
 } from '../../../lib/launcher/solana/write/types';
 import type { GateRpc } from '../../../lib/launcher/solana/write/config';
 import type { CreateLaunchInput } from '../../../lib/launcher/solana/write/launch';
+import type { LpDepositArgs, LpPrepareReads, LpWithdrawArgs } from '../../../lib/launcher/solana/write/liquidity';
+import type { LpCreateArgs } from '../../../lib/launcher/solana/write/createPool';
 import type { PlantBalance } from '../../../lib/launcher/solana/write/plant';
 import type { LaunchPool, LaunchPoolRead } from '../../../lib/launcher/solana/discover/pool';
 import type { TokenMetadata } from '../../../lib/launcher/solana/discover/metadata';
@@ -54,9 +60,14 @@ import type { quoteBuyOnCurve } from '../../../lib/launcher/solana/curve';
 
 export type {
   ActionAvailability,
+  CreateFacts,
   CurveWriteConfig,
+  FeeAccountState,
   FeeSplitView,
   GateBlock,
+  LpGate,
+  LpKind,
+  LpOpenGate,
   GraduationReadiness,
   NotSent,
   OpenGate,
@@ -65,6 +76,9 @@ export type {
   SimulatedEffect,
   SolanaCluster,
   SubmitDeps,
+  TierState,
+  TierTerms,
+  TokenRole,
   TxKind,
   TxOutcome,
   TxSigner,
@@ -73,6 +87,7 @@ export type {
   WriteRpc,
 } from '../../../lib/launcher/solana/write/types';
 export type { GateRpc, CreateLaunchInput, PlantBalance, LaunchPool, LaunchPoolRead, TokenMetadata, LaunchListItem, LaunchListPage, LaunchOrigin };
+export type { LpCreateArgs, LpDepositArgs, LpPrepareReads, LpWithdrawArgs };
 export type { Checked, ImageMime, LaunchLinks, LaunchMetadataJson, ReadLaunchMetadata } from '../../../lib/launchMetadata/validate.js';
 export type { MetadataRead, PreparedImage, PreparedImageResult, UploadInput, UploadResult } from '../../../lib/launchMetadata/upload';
 
@@ -141,8 +156,11 @@ export interface WriteApi {
   ): Promise<Prepared>;
 
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;
-  /** With `lastValidBlockHeight`, a signature with no record past that height is `expired` (safe to retry). */
-  recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number }): Promise<TxOutcome>;
+  /**
+   * With `lastValidBlockHeight`, a signature with no record past that height is `expired` (safe to retry).
+   * With `cfg` and a liquidity `kind`, a refusal is said in that kind's words (useTxFlow passes them for LP kinds only).
+   */
+  recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; cfg?: CurveWriteConfig; kind?: LpKind }): Promise<TxOutcome>;
 
   readTokenMetadata(rpc: CurveRpc, mint: PublicKey): Promise<Read<TokenMetadata>>;
   /** Anyone can appear in this list. The page must say so. */
@@ -167,4 +185,29 @@ export interface WriteApi {
   ): Promise<LaunchPoolRead>;
 
   meta: MetadataApi;
+}
+
+// ── what the review needs, and the pools page's own write API ───────────────
+
+/** What `TxFlowView` uses: the explorer link and the display-safe text rule. Both APIs satisfy it. */
+export type TxViewApi = Pick<WriteApi, 'explorerTxUrl'> & { meta: Pick<MetadataApi, 'displaySafe'> };
+
+/**
+ * Adding and removing liquidity, and opening a pool, on /pools. A sibling of `WriteApi`,
+ * loaded by its own file (`components/solana/lp/lpWriteApi.ts`), so the pools page never
+ * downloads the launch page's upload and metadata clients (spec D19).
+ */
+export interface LpWriteApi {
+  lpWriteConfig(): CurveWriteConfig | null;
+  readLpGate(rpc: GateRpc, cfg: CurveWriteConfig | null): Promise<LpGate>;
+  /** The public fee tier and the fee account, read beside the gate and never inside it. Never throws. */
+  readCreateFacts(rpc: GateRpc, cfg: CurveWriteConfig): Promise<CreateFacts>;
+  prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpDepositArgs): Promise<Prepared>;
+  prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWithdrawArgs): Promise<Prepared>;
+  prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpCreateArgs): Promise<Prepared>;
+  submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;
+  /** As `WriteApi.recheckOutcome`: with `cfg` and a liquidity `kind`, a refusal is said in that kind's words. */
+  recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; cfg?: CurveWriteConfig; kind?: LpKind }): Promise<TxOutcome>;
+  explorerTxUrl(signature: string, cluster: SolanaCluster): string;
+  meta: Pick<MetadataApi, 'displaySafe'>;
 }

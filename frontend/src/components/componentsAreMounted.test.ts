@@ -71,6 +71,13 @@ const UNMOUNTED_BY_DESIGN: Array<{ pattern: RegExp; because: string }> = [
       'shared fake WriteApi for the /curve-launch UI suites (curve/*.test.tsx and ' +
       'pages/CurveLaunchDetailPage.test.tsx), which is the only place it is imported.',
   },
+  {
+    pattern: /^solana\/lp\/fakeLpWriteApi\.fixture\.ts$/,
+    because:
+      'Test-only by construction: it imports `vi` from vitest, so it cannot ship. It is the ' +
+      'shared fake LpWriteApi for the /pools liquidity UI suites (components/solana/lp/*.test.tsx), ' +
+      'which is the only place it is imported.',
+  },
 ];
 
 const isTest = (p: string) => /\.(test|spec)\.[tj]sx?$/.test(p);

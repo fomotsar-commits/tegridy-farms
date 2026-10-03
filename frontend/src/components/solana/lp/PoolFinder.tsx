@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
-import { assessPool } from '../../../lib/solana/lp/poolHealth';
+import { assessPool, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
@@ -9,22 +9,29 @@ import { Card, Field, Notice } from '../curve/ui';
 import { inputCls, inputStyle } from '../curve/uiFormat';
 import { TokenSafetyCard } from './TokenSafetyCard';
 import { PoolCard, UnreadPoolCard } from './PoolCard';
+import { CreatePoolCard } from './CreatePoolCard';
 import type { LpReaders } from './readers';
 
 type SearchState =
   | { status: 'idle' }
   | { status: 'loading'; mint: string }
-  | { status: 'done'; mint: string; safety: TokenSafety; pools: PoolSearchRead; outside: OutsidePrice | null };
+  /**
+   * `refreshing`: the last answer for this same mint, shown while it is read again.
+   * `outsideAt`: when Jupiter's price was read (ms), or null when it was not asked.
+   */
+  | { status: 'done'; mint: string; safety: TokenSafety; pools: PoolSearchRead; outside: OutsidePrice | null; outsideAt: number | null; refreshing?: boolean };
 
 type Done = Extract<SearchState, { status: 'done' }>;
 
 /**
- * The search for `mint`. Results are stored with the question they answer (mint and
- * nonce), so a new question reads as loading until its own answer arrives, and a late
- * answer to an old question is never shown.
+ * The search for `mint`. Results are stored with the question they answer (mint, nonce
+ * and the section's reload key), so a late answer to an old question is never shown. A
+ * re-read of the SAME mint keeps showing the last answer until the new one arrives, so
+ * the cards and an open panel (with its outcome on screen) never unmount; only a
+ * different mint reads as loading.
  */
-function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number): SearchState {
-  const key = mint ? `${mint}#${nonce}` : null;
+function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, reloadKey: number, wantOutside: boolean): SearchState {
+  const key = mint ? `${mint}#${nonce}#${reloadKey}#${wantOutside ? 'o' : ''}` : null;
   const [answer, setAnswer] = useState<{ key: string; value: Done } | null>(null);
   useEffect(() => {
     if (!mint || !key) return;
@@ -35,22 +42,25 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number): 
     (async () => {
       const [safetyMap, pools] = await Promise.all([readers.safety([mint]), readers.findPools(new PublicKey(mint))]);
       const safety: TokenSafety = safetyMap.get(mint) ?? { kind: 'unread', mint, detail: 'no answer for this token' };
-      // The outside price only matters when there is a pool to compare and a token we
-      // could read; it costs two Jupiter calls, so it is not asked for otherwise.
+      // The outside price only matters when there is a pool to compare, or (with opening
+      // pools offered, `wantOutside`) an opening price to check, and a token we could
+      // read; it costs two Jupiter calls, so it is not asked for otherwise.
       const hasPool = pools.kind === 'ok' && pools.search.pools.some((p) => p.kind === 'pool');
       const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
-      const outside = hasPool && decimals !== null && safety.kind === 'read' && safety.verdict !== 'blocked' ? await readers.outsidePrice(mint, decimals) : null;
-      finish({ status: 'done', mint, safety, pools, outside });
+      const ask = (hasPool || wantOutside) && decimals !== null && safety.kind === 'read' && safety.verdict !== 'blocked';
+      const outside = ask ? await readers.outsidePrice(mint, decimals) : null;
+      finish({ status: 'done', mint, safety, pools, outside, outsideAt: ask ? Date.now() : null });
     })().catch((e: unknown) => {
       const detail = e instanceof Error ? e.message : String(e);
-      finish({ status: 'done', mint, safety: { kind: 'unread', mint, detail }, pools: { kind: 'unread', detail, index: { kind: 'unread', detail } }, outside: null });
+      finish({ status: 'done', mint, safety: { kind: 'unread', mint, detail }, pools: { kind: 'unread', detail, index: { kind: 'unread', detail } }, outside: null, outsideAt: null });
     });
     return () => {
       live = false;
     };
-  }, [readers, mint, key]);
+  }, [readers, mint, key, wantOutside]);
   if (!mint || !key) return { status: 'idle' };
-  return answer?.key === key ? answer.value : { status: 'loading', mint };
+  if (answer?.key === key) return answer.value;
+  return answer?.value.mint === mint ? { ...answer.value, refreshing: true } : { status: 'loading', mint };
 }
 
 /**
@@ -62,16 +72,26 @@ export function PoolFinder({
   mint,
   onMint,
   linkError = null,
+  reloadKey = 0,
+  wantOutside = false,
 }: {
   readers: LpReaders;
   mint: string | null;
   onMint: (m: string | null) => void;
   linkError?: { raw: string; reason: string } | null;
+  /** Bumped by the section after a liquidity flow finishes: read the same mint again. */
+  reloadKey?: number;
+  /**
+   * Ask Jupiter for every readable, unblocked token, pool or not: opening a pool checks
+   * its price against Jupiter's. Only when opening pools can be offered (LP mode 'on').
+   */
+  wantOutside?: boolean;
 }) {
   const [input, setInput] = useState(mint ?? linkError?.raw ?? '');
   const [error, setError] = useState<string | null>(linkError?.reason ?? null);
   const [nonce, setNonce] = useState(0);
-  const state = usePoolSearch(readers, mint, nonce);
+  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside);
+  const reread = useCallback(() => setNonce((n) => n + 1), []);
   // A new ?mint= (a link, or back/forward) fills the field: adjusted during render, the
   // React way to follow a prop, rather than in an effect.
   const linkKey = mint ?? (linkError ? `bad:${linkError.raw}` : null);
@@ -139,7 +159,8 @@ export function PoolFinder({
       </p>
 
       {state.status === 'loading' && <p className="text-white/70 text-[13px]">Reading the token and its pools from the chain…</p>}
-      {state.status === 'done' && <SearchResults state={state} />}
+      {state.status === 'done' && state.refreshing && <p className="text-white/55 text-[12px]">Reading the token and its pools again…</p>}
+      {state.status === 'done' && <SearchResults state={state} onReread={reread} />}
     </section>
   );
 }
@@ -160,9 +181,18 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
   return parts.join(' ');
 }
 
-function SearchResults({ state }: { state: Extract<SearchState, { status: 'done' }> }) {
-  const { safety, pools, outside, mint } = state;
+function SearchResults({ state, onReread }: { state: Extract<SearchState, { status: 'done' }>; onReread: () => void }) {
+  const { safety, pools, outside, outsideAt, mint } = state;
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
+  // One check per pool, shared by its card and by the "Open a new pool" card.
+  const healths = useMemo(() => {
+    const m = new Map<string, PoolHealth>();
+    if (pools.kind !== 'ok') return m;
+    for (const p of pools.search.pools) {
+      if (p.kind === 'pool') m.set(p.view.address, assessPool({ view: p.view, tokenDecimals: decimals, chainNow: pools.search.chainNow, outside, safety }));
+    }
+    return m;
+  }, [pools, decimals, outside, safety]);
   return (
     <div className="space-y-4">
       <TokenSafetyCard mint={mint} safety={safety} />
@@ -196,7 +226,8 @@ function SearchResults({ state }: { state: Extract<SearchState, { status: 'done'
                     key={p.view.address}
                     view={p.view}
                     tokenDecimals={decimals}
-                    health={assessPool({ view: p.view, tokenDecimals: decimals, chainNow: pools.search.chainNow, outside, safety })}
+                    safety={safety}
+                    health={healths.get(p.view.address)!}
                   />
                 ) : (
                   <UnreadPoolCard key={p.address} entry={p} />
@@ -209,6 +240,17 @@ function SearchResults({ state }: { state: Extract<SearchState, { status: 'done'
           )}
         </div>
       )}
+      <CreatePoolCard
+        mint={mint}
+        safety={safety}
+        decimals={decimals}
+        search={pools}
+        healths={healths}
+        outside={outside}
+        outsideAt={outsideAt}
+        onReread={onReread}
+        refreshing={state.refreshing === true}
+      />
     </div>
   );
 }

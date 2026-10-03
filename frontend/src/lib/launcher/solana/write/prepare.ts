@@ -48,6 +48,7 @@ import type {
   PreparedCheck,
   PreparedTx,
   PreState,
+  PreToken,
   SimulatedEffect,
   TxKind,
   TxSummary,
@@ -99,6 +100,13 @@ function tokenAmount(data: Uint8Array | null | undefined): bigint | null {
   return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(64, true);
 }
 
+/** A native (wrapped-SOL) account's stored rent reserve: `is_native`, bytes 109-120. Null when it is not native. */
+export function nativeReserve(data: Uint8Array | null | undefined): bigint | null {
+  if (!data || data.length < 121) return null;
+  const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return v.getUint32(109, true) === 1 ? v.getBigUint64(113, true) : null;
+}
+
 function b64ToBytes(s: string): Uint8Array {
   const bin = atob(s);
   const out = new Uint8Array(bin.length);
@@ -112,16 +120,16 @@ async function readPreState(rpc: WriteRpc, watch: WatchList): Promise<PreState> 
   if (!Array.isArray(infos) || infos.length !== keys.length) {
     throw new Error('the balance read returned the wrong number of accounts');
   }
-  const tokens = new Map<string, { exists: boolean; amount: bigint }>();
+  const tokens = new Map<string, PreToken>();
   watch.tokenAccounts.forEach((t, i) => {
     const info = infos[i + 1];
     if (!info) {
-      tokens.set(t.account.toBase58(), { exists: false, amount: 0n });
+      tokens.set(t.account.toBase58(), { exists: false, amount: 0n, lamports: 0n, nativeReserve: null });
       return;
     }
     const amt = tokenAmount(info.data);
     if (amt === null) throw new Error(`${t.account.toBase58()} is not a token account`);
-    tokens.set(t.account.toBase58(), { exists: true, amount: amt });
+    tokens.set(t.account.toBase58(), { exists: true, amount: amt, lamports: BigInt(info.lamports), nativeReserve: nativeReserve(info.data) });
   });
   return { signerLamports: BigInt(infos[0]?.lamports ?? 0), tokens };
 }
@@ -176,7 +184,13 @@ export function simulatedEffect(watch: WatchList, pre: PreState, post: SimOutcom
       after = amt;
     }
     const before = pre.tokens.get(t.account.toBase58())?.amount ?? 0n;
-    tokenDeltas.push({ mint: t.mint, account: t.account, delta: after - before, ...(t.role ? { role: t.role } : {}) });
+    tokenDeltas.push({
+      mint: t.mint,
+      account: t.account,
+      delta: after - before,
+      ...(t.role ? { role: t.role } : {}),
+      ...(t.decimals !== undefined ? { decimals: t.decimals } : {}),
+    });
   }
   return { signerLamportsDelta, tokenDeltas };
 }
@@ -192,7 +206,10 @@ export function checkEffect(effect: SimulatedEffect, expect: Expectation, networ
   }
   for (const t of expect.tokens) {
     const got = effect.tokenDeltas.find((d) => d.account.equals(t.account));
-    const delta = got?.delta ?? 0n;
+    // An account the simulation was never asked about has no known change. Counting
+    // it as 0 would pass any band that holds 0, so it is refused instead.
+    if (!got) return 'the check was asked about an account it did not watch';
+    const delta = got.delta;
     if (delta < t.minDelta || delta > t.maxDelta) {
       return 'the simulation shows a different token amount than this screen says';
     }
@@ -258,7 +275,7 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
     return notSent('simulate', `Could not run the safety check: ${clipDetail(e)}`);
   }
   if (!first.ok) {
-    const why = explainFailure(first.err, first.logs, spec.intent.cfg);
+    const why = explainFailure(first.err, first.logs, spec.intent.cfg, spec.kind);
     return notSent('simulate', why.message, first.logs);
   }
 
@@ -287,7 +304,7 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
     return notSent('simulate', `Could not run the safety check: ${clipDetail(e)}`);
   }
   if (!second.ok) {
-    const why = explainFailure(second.err, second.logs, spec.intent.cfg);
+    const why = explainFailure(second.err, second.logs, spec.intent.cfg, spec.kind);
     return notSent('simulate', why.message, second.logs);
   }
 

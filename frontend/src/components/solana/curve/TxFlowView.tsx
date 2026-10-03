@@ -2,7 +2,9 @@ import { useEffect, useRef, type ReactNode, type Ref } from 'react';
 import { describeTreasury, formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
 import { ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
-import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TxOutcome, TxSigner, TxSummary, WriteApi } from './ports';
+import { feeSplit } from '../../../lib/solana/cpswap/venue';
+import { feeRateText, formatSolPrice } from '../../../lib/solana/lp/format';
+import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import type { TxFlow } from './useTxFlow';
 
 // What the user sees between pressing a Review button and the chain's answer.
@@ -19,8 +21,8 @@ import type { TxFlow } from './useTxFlow';
 
 const SOL = (l: bigint) => `${formatSol(l)} SOL`;
 const signedSol = (l: bigint) => `${l < 0n ? '-' : '+'}${SOL(l < 0n ? -l : l)}`;
-function tokenText(v: bigint, d: number | null): string {
-  const f = formatTokenAmount(v, d);
+function tokenText(v: bigint, d: number | null, maxFractionDigits?: number): string {
+  const f = formatTokenAmount(v, d, maxFractionDigits);
   return f.isBaseUnits ? `${f.text} (base units)` : f.text;
 }
 /** $BAYLA always has 6 decimals, whatever the launch token's are. */
@@ -40,6 +42,11 @@ function tradeLamports(s: TxSummary): bigint | null {
       return s.quote.outAmount;
     case 'create':
       return s.openingBuy ? s.openingBuy.quote.lamportsIn : null;
+    case 'lp-deposit':
+    case 'lp-withdraw':
+      return s.quoted.sol;
+    case 'lp-create':
+      return s.put.sol;
     default:
       return null;
   }
@@ -61,6 +68,11 @@ function FeeSplitRows({ split }: { split: FeeSplitView }) {
       </p>
     </>
   );
+}
+
+/** Takes `never`, so a summary kind with no rows below does not compile. */
+function noRowsFor(_summary: never): null {
+  return null;
 }
 
 export function SummaryRows({
@@ -169,6 +181,15 @@ export function SummaryRows({
         </>
       );
     }
+    case 'lp-deposit':
+      return <LpDepositRows summary={summary} />;
+    case 'lp-withdraw':
+      return <LpWithdrawRows summary={summary} />;
+    case 'lp-create':
+      return <LpCreateRows summary={summary} />;
+    default:
+      // A new kind of transaction is a compile error here until it has rows.
+      return noRowsFor(summary);
   }
 }
 
@@ -211,6 +232,225 @@ function CreateReserveRows({ summary }: { summary: Extract<TxSummary, { kind: 'c
   );
 }
 
+// ── liquidity ────────────────────────────────────────────────────────────────
+// Every value below comes from the prepared transaction: the maxima and minima are
+// decoded from its bytes, the amounts were worked out from the read it was built
+// on. A row never falls back to a value the panel was typed into.
+
+type LpSummary = Extract<TxSummary, { kind: 'lp-deposit' | 'lp-withdraw' }>;
+
+// A bound the program enforces, or a count of pool shares, is printed to its last
+// digit: rounding "at most" down, or "you get" either way, would misstate it.
+const solExact = (l: bigint) => `${formatSol(l, 9)} SOL`;
+const unitsExact = (v: bigint, d: number) => tokenText(v, d, d);
+
+function poolKindText(s: LpSummary): string {
+  switch (s.origin) {
+    case 'launch-pool':
+      return 'Launch pool: opened by the launch program at graduation';
+    case 'standard':
+      return s.config ? `Standard address for fee tier ${s.config.index}` : 'Standard address for its fee tier';
+    case 'other':
+      return 'Its own address';
+  }
+}
+
+function feeTierText(config: LpSummary['config']): string {
+  if (!config) return 'not read';
+  return `${config.index}: traders pay ${feeRateText(config.tradeFeeRate)} a trade; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade`;
+}
+
+/** A share of the pool, said as a percentage; a real share that rounds to nothing says so. */
+function shareText(pct: number): string {
+  if (!Number.isFinite(pct) || pct <= 0) return 'none';
+  return pct < 0.01 ? '<0.01%' : `${pct.toFixed(2)}%`;
+}
+
+function priceText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price']): string {
+  switch (p.state) {
+    case 'agrees':
+    case 'disagrees': {
+      const d = (Math.abs(p.diff) * 100).toFixed(1);
+      return p.against === 'outside'
+        ? `${d}% ${p.diff >= 0 ? 'above' : 'below'} the outside price (Jupiter), read just now`
+        : `${d}% from its own average over the last 30 minutes`;
+    }
+    case 'no-trades-yet':
+      return 'nobody has traded since the launch program opened it';
+    case 'empty-pool':
+      return 'not checked: the pool is empty';
+    case 'skipped':
+    case 'unread':
+      return `not checked (${p.detail})`;
+  }
+}
+
+function LpPoolRows({ summary }: { summary: LpSummary }) {
+  return (
+    <>
+      <Row label="Pool" value={summary.pool.toBase58()} />
+      <Row label="Pool kind" value={poolKindText(summary)} mono={false} />
+      <Row label="Token (mint)" value={summary.tokenMint.toBase58()} />
+    </>
+  );
+}
+
+function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-deposit' }> }) {
+  const tok = (v: bigint) => tokenText(v, s.tokenDecimals);
+  const limited =
+    s.limitedByBalance === 'token' ? ' (all the tokens you have)' : s.limitedByBalance === 'sol' ? ' (all the SOL you can spend)' : '';
+  const unused = s.max.sol > s.quoted.sol ? s.max.sol - s.quoted.sol : 0n;
+  return (
+    <>
+      <LpPoolRows summary={s} />
+      <Row label="Fee tier" value={feeTierText(s.config)} mono={false} />
+      <Row label="You put in about" value={`${SOL(s.quoted.sol)} and ${tok(s.quoted.token)} tokens`} />
+      <Row label="At most" value={`${solExact(s.max.sol)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} />
+      <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} />
+      <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
+      <Row label="Price check" value={priceText(s.price)} mono={false} />
+      <Row label="Pool fee to add" value="none" mono={false} />
+      {s.tokenWarnings.length > 0 && (
+        <div className="space-y-1">
+          <Notice tone="warn">Read these about this token first:</Notice>
+          <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+            {s.tokenWarnings.map((w) => (
+              <li key={w.code}>{w.text}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
+      <Notice>
+        {s.unwrapsWsol
+          ? 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'
+          : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent. Up to ${solExact(unused)} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`}
+      </Notice>
+    </>
+  );
+}
+
+function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-withdraw' }> }) {
+  const tok = (v: bigint) => tokenText(v, s.tokenDecimals);
+  const shares = (v: bigint) => unitsExact(v, s.lpDecimals);
+  const ofYours = sharePercent(s.lpAmount, s.heldBefore);
+  return (
+    <>
+      <LpPoolRows summary={s} />
+      <Row label="Pool shares you give back" value={`${shares(s.lpAmount)}${ofYours ? ` (${ofYours} of yours)` : ''}`} />
+      {s.all && <Notice>This is all of your share in this pool.</Notice>}
+      <Row label="You get about" value={`${SOL(s.quoted.sol)} and ${tok(s.quoted.token)} tokens`} />
+      <Row label="You get at least" value={`${solExact(s.min.sol)} and ${unitsExact(s.min.token, s.tokenDecimals)} tokens`} />
+      <Row label="You keep" value={s.keep > 0n ? `${shares(s.keep)} pool shares` : 'none in this pool'} />
+      <Row
+        label="The tokens arrive in"
+        value={`${s.tokenAccount.toBase58()}${
+          s.tokenAccountRent > 0n
+            ? ` (opened for you; its deposit of ${solExact(s.tokenAccountRent)} stays in that account)`
+            : ''
+        }`}
+      />
+      <Row label="The SOL arrives" value={s.unwrapsWsol ? 'as plain SOL' : 'as wrapped SOL in the account you already hold'} mono={false} />
+      <Row label="Pool fee to take out" value="none" mono={false} />
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
+    </>
+  );
+}
+
+/** What a live mint authority allows, said once more where a pool is about to be opened. */
+const MINT_AUTHORITY_LINE = 'Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.';
+
+/** The opening price against the market, from the check that passed while preparing. */
+function openingPriceText(p: Extract<TxSummary, { kind: 'lp-create' }>['price']): string {
+  if ((p.state === 'agrees' || p.state === 'disagrees') && p.against === 'outside') {
+    const d = (Math.abs(p.diff) * 100).toFixed(1);
+    return `1 token = ${formatSolPrice(p.pool)} SOL. Market (Jupiter, read just now): ${formatSolPrice(p.reference)} SOL, ${d}% ${p.diff >= 0 ? 'above' : 'below'}`;
+  }
+  return priceText(p);
+}
+
+/** Opening a pool. Every value from the prepared transaction: the amounts from its bytes, the fee and rents as read while preparing. */
+function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-create' }> }) {
+  const tok = (v: bigint) => tokenText(v, s.tokenDecimals);
+  const shares = (v: bigint) => unitsExact(v, s.lpDecimals);
+  // The pool's share count less what the opener gets: the program's locked part.
+  const lockedShares = s.supply - s.lpAmount;
+  const pct = s.supply > 0n ? Number((s.lpAmount * 1_000_000n) / s.supply) / 10_000 : 0;
+  return (
+    <>
+      <Row label="Pool" value={s.pool.toBase58()} />
+      <Row
+        label="Pool kind"
+        value={
+          s.origin === 'standard'
+            ? 'Standard address for fee tier 1'
+            : 'Its own address: the standard address is taken, so this pool gets a new address made in this browser'
+        }
+        mono={false}
+      />
+      <Row label="Token (mint)" value={s.tokenMint.toBase58()} />
+      <Row label="Fee tier" value={feeTierText(s.config)} mono={false} />
+      {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
+      <Row label="You put in" value={`${solExact(s.put.sol)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
+      <Row label="Opening price" value={openingPriceText(s.price)} mono={false} />
+      <Row label="Opens for trading" value="At once (one second after it lands)" mono={false} />
+      <Row
+        label="Fee to open the pool"
+        value={`${solExact(s.createFee)}, paid to the team's vault (into ${s.feeReceiver.toBase58()}, the account the pool program fixes); not refundable`}
+        mono={false}
+      />
+      <Row
+        label="Account deposits that never come back"
+        value={`${solExact(s.rents.neverRefunded)} (the pool, its price record, its share token and its two vaults; none can be closed)`}
+        mono={false}
+      />
+      <Row label="Your pool-share account" value={`${solExact(s.rents.lpAccount)} (it comes back if you close that account later)`} mono={false} />
+      <Row label="You get" value={`${shares(s.lpAmount)} pool shares, exactly`} mono={false} />
+      <Row
+        label="Locked in the pool forever"
+        value={`${shares(lockedShares)} pool shares (${lockedShares.toString()} of the smallest unit), worth about ${SOL(s.locked.sol)} and ${tok(s.locked.token)} tokens at these amounts`}
+        mono={false}
+      />
+      <Row label="Your share of the pool" value={shareText(pct)} mono={false} />
+      {s.tokenWarnings.length > 0 && (
+        <div className="space-y-1">
+          <Notice tone="warn">Read these about this token first:</Notice>
+          <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+            {s.tokenWarnings.map((w) => (
+              <li key={w.code}>{w.text}</li>
+            ))}
+            {s.tokenWarnings.some((w) => w.code === 'mint-authority') && <li>{MINT_AUTHORITY_LINE}</li>}
+          </ul>
+        </div>
+      )}
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
+      <Notice>
+        {s.unwrapsWsol
+          ? 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'
+          : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent.`}
+      </Notice>
+      {s.origin === 'other' && (
+        <Notice tone="warn">
+          Your wallet will show that this transaction needs a second signature. That is the new pool&apos;s own address: this
+          page signs it after you, then forgets the key.
+        </Notice>
+      )}
+    </>
+  );
+}
+
 /**
  * The plant this create pays (island ruling 2), read back out of the transaction itself:
  * half burned, half to the island's Workshop, both from the creator's own $BAYLA account.
@@ -228,16 +468,20 @@ function CreatePlantRows({ plant }: { plant: Extract<TxSummary, { kind: 'create'
   );
 }
 
-/** One test-run token change, in words for whose it is. The plant's are always in $BAYLA. */
-function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], summary: TxSummary, decimals: number | null) {
+/**
+ * One test-run token change, in words for whose it is and for what this kind of
+ * transaction does with it. The plant's are always in $BAYLA; every other account is
+ * in its own mint's decimals when the builder knew them.
+ */
+function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: PreparedTx, decimals: number | null) {
+  const summary = prepared.summary;
   const sign = t.delta < 0n ? '-' : '+';
   const amount = t.delta < 0n ? -t.delta : t.delta;
-  if (t.role === 'treasury') return { label: 'Test run: the platform treasury receives', value: `${sign}${tokenText(amount, decimals)}` };
-  if (t.role === 'workshop') return { label: "Test run: the island's Workshop receives", value: `${sign}${baylaText(amount)} $BAYLA` };
-  if (summary.kind === 'create' && t.mint.equals(summary.plant.mint)) {
+  if (t.role === 'workshop') return { label: TEST_RUN_LABEL.workshop, value: `${sign}${baylaText(amount)} $BAYLA` };
+  if (summary.kind === 'create' && t.role !== 'treasury' && t.mint.equals(summary.plant.mint)) {
     return { label: 'Test run: your $BAYLA changes by', value: `${sign}${baylaText(amount)}` };
   }
-  return { label: 'Test run: your tokens change by', value: `${sign}${tokenText(amount, decimals)}` };
+  return { label: testRunLabel(prepared.kind, t.role ?? 'token'), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
 }
 
 /**
@@ -268,6 +512,36 @@ export function PoolCreatorFeeRow({
   );
 }
 
+/** What each watched account's test-run line is called. No role = the signer's token. */
+const TEST_RUN_LABEL: Record<TokenRole, string> = {
+  treasury: 'Test run: the platform treasury receives',
+  workshop: "Test run: the island's Workshop receives",
+  token: 'Test run: your tokens change by',
+  wsol: 'Test run: your wrapped SOL changes by',
+  lp: 'Test run: your pool shares change by',
+};
+
+/** The test-run line for an account, said for what this kind of transaction does with it. */
+function testRunLabel(kind: TxKind, role: TokenRole): string {
+  // An opening's `treasury` account is the pool program's fee account, owned by the team's vault.
+  if (kind === 'lp-create' && role === 'treasury') return "Test run: the team's vault account gains, in SOL (the fee, plus any SOL that account was already holding)";
+  return TEST_RUN_LABEL[role];
+}
+
+/** What the one-time account rent line is called, per kind. A Record, so a new kind must say. */
+const RENT_ROW_LABEL: Record<TxKind, string> = {
+  create: "One-time account rent (your token, its curve and vault, the treasury's token account, any token account of yours)",
+  buy: 'One-time account rent',
+  sell: 'One-time account rent',
+  migrate: 'One-time account rent',
+  'pool-buy': 'One-time account rent',
+  'pool-sell': 'One-time account rent',
+  'lp-deposit': 'One-time deposit for your new token account (it stays in that account)',
+  'lp-withdraw': 'One-time deposit for your new token account (it stays in that account)',
+  'lp-create':
+    "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
+};
+
 export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals: number | null }) {
   const f = prepared.fees;
   const base = tradeLamports(prepared.summary);
@@ -289,14 +563,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
         </Notice>
       )}
       {f.newAccountRentLamports > 0n && (
-        <Row
-          label={
-            prepared.kind === 'create'
-              ? "One-time account rent (your token, its curve and vault, the treasury's token account, any token account of yours)"
-              : 'One-time account rent'
-          }
-          value={SOL(f.newAccountRentLamports)}
-        />
+        <Row label={RENT_ROW_LABEL[prepared.kind]} value={SOL(f.newAccountRentLamports)} />
       )}
       {prepared.kind === 'create' && (
         <p className="text-white/40 text-[10px]">
@@ -308,7 +575,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
       {prepared.simulated.tokenDeltas
         .filter((t) => t.delta !== 0n)
         .map((t) => (
-          <Row key={t.account.toBase58()} {...deltaRow(t, prepared.summary, decimals)} />
+          <Row key={t.account.toBase58()} {...deltaRow(t, prepared, decimals)} />
         ))}
     </>
   );
@@ -321,6 +588,9 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   migrate: 'Review: finish graduation',
   'pool-buy': 'Review your pool buy',
   'pool-sell': 'Review your pool sell',
+  'lp-deposit': 'Review: add liquidity',
+  'lp-withdraw': 'Review: remove liquidity',
+  'lp-create': 'Review: open a pool',
 };
 
 export function TxReview({
@@ -372,7 +642,19 @@ function feesSpentText(fees: PreparedTx['fees'] | null | undefined): string {
   return `Nothing moved except the fees: ${SOL(fees.baseLamports + fees.priorityLamports)} (${which}).`;
 }
 
-const EXPIRED_TEXT = 'Did not go through, and it can no longer go through. Nothing was charged. It is safe to try again.';
+/** What not to do while a sent transaction is unconfirmed: each kind's own risk in repeating it. */
+function unknownLine(kind: TxKind | undefined): string {
+  switch (kind) {
+    case 'lp-withdraw':
+      return 'It may still land. Taking liquidity out again now could take out more than you meant. Check again, or look it up on the explorer.';
+    case 'lp-create':
+      return 'It may still land. Opening a pool again now could open a second pool and pay the fee to open twice. Check again, or look it up on the explorer.';
+    default:
+      return 'It may still land. Sending again could make you pay twice. Check again, or look it up on the explorer.';
+  }
+}
+
+const EXPIRED_TEXT ='Did not go through, and it can no longer go through. Nothing was charged. It is safe to try again.';
 
 const NOT_SENT_COPY: Record<NotSent['stage'], string> = {
   gate: 'Not sent. The launch door did not open for this wallet, so nothing was uploaded, built or signed.',
@@ -391,6 +673,7 @@ export function TxOutcomeCard({
   boxRef,
   fees,
   checks = 0,
+  kind,
 }: {
   outcome: TxOutcome;
   /** `null` when there is no signature to link. */
@@ -404,6 +687,8 @@ export function TxOutcomeCard({
   fees?: PreparedTx['fees'] | null;
   /** How many times Check again has answered. */
   checks?: number;
+  /** What the transaction was for, when known: taking liquidity out again has its own risk to name. */
+  kind?: TxKind;
 }) {
   // Done is news; everything else needs the user to read it before acting.
   const a11y = {
@@ -419,7 +704,7 @@ export function TxOutcomeCard({
           <Notice tone="good">Done. The network confirmed it.</Notice>
           <SignatureRow signature={outcome.signature} />
           {explorerUrl && <ExplorerLink href={explorerUrl} />}
-          <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
+          <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
             Close
           </button>
         </div>
@@ -432,7 +717,7 @@ export function TxOutcomeCard({
           <Notice>{feesSpentText(fees)}</Notice>
           <SignatureRow signature={outcome.signature} />
           {explorerUrl && <ExplorerLink href={explorerUrl} />}
-          <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
+          <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
             Start over
           </button>
         </div>
@@ -442,7 +727,7 @@ export function TxOutcomeCard({
         <div {...a11y} data-testid="tx-outcome" data-status="expired">
           <Notice tone="warn">{EXPIRED_TEXT}</Notice>
           {outcome.signature && <SignatureRow signature={outcome.signature} />}
-          <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
+          <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
             Start over
           </button>
         </div>
@@ -461,9 +746,7 @@ export function TxOutcomeCard({
           <div className="space-y-1.5" data-testid="tx-outcome" data-status="unknown">
             <div ref={boxRef} tabIndex={-1} role="alert" className="space-y-1.5 outline-none">
               <Notice tone="warn">Sent, not confirmed yet. Do not retry until you check.</Notice>
-              <Notice>
-                It may still land. Sending again could make you pay twice. Check again, or look it up on the explorer.
-              </Notice>
+              <Notice>{unknownLine(kind)}</Notice>
               <SignatureRow signature={outcome.signature} />
               {explorerUrl && <ExplorerLink href={explorerUrl} />}
             </div>
@@ -478,11 +761,11 @@ export function TxOutcomeCard({
               onClick={() => {
                 if (!rechecking) onRecheck();
               }}
-              className={`btn-primary w-full py-2 text-[12px] mt-1 ${rechecking ? 'opacity-60' : ''}`}
+              className={`btn-primary min-h-[44px] w-full py-2 text-[12px] mt-1 ${rechecking ? 'opacity-60' : ''}`}
             >
               Check again
             </button>
-            <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px]">
+            <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px]">
               I checked my wallet: start over
             </button>
           </div>
@@ -492,7 +775,7 @@ export function TxOutcomeCard({
         <div {...a11y} data-testid="tx-outcome" data-status="unknown">
           <Notice tone="warn">We cannot tell whether this was sent.</Notice>
           <Notice>{outcome.message}</Notice>
-          <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
+          <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
             I checked my wallet: start over
           </button>
         </div>
@@ -503,7 +786,7 @@ export function TxOutcomeCard({
           <Notice tone="warn">{NOT_SENT_COPY[outcome.stage]}</Notice>
           {outcome.message && <Notice>{outcome.message}</Notice>}
           <Notice>Nothing was charged.</Notice>
-          <button type="button" onClick={onReset} className="btn-secondary w-full py-2 text-[12px] mt-1">
+          <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
             Start over
           </button>
         </div>
@@ -526,7 +809,8 @@ export function TxFlowView({
   preparingText,
 }: {
   flow: TxFlow;
-  api: Pick<WriteApi, 'explorerTxUrl' | 'meta'>;
+  /** `WriteApi` and `LpWriteApi` both satisfy it. */
+  api: TxViewApi;
   cluster: SolanaCluster;
   decimals: number | null;
   /** `null` when no wallet that can sign is connected. */
@@ -586,14 +870,14 @@ export function TxFlowView({
         <div className="flex flex-col sm:flex-row gap-2">
           <button
             type="button"
-            className={`btn-primary w-full py-2.5 text-[13px] disabled:opacity-60 ${s.checking ? 'opacity-60' : ''}`}
+            className={`btn-primary min-h-[44px] w-full py-2.5 text-[13px] disabled:opacity-60 ${s.checking ? 'opacity-60' : ''}`}
             disabled={s.expired || signer === null}
             aria-disabled={s.checking || undefined}
             onClick={() => signer && !s.checking && flow.confirm(signer)}
           >
             Sign in wallet
           </button>
-          <button type="button" className="btn-secondary w-full py-2.5 text-[13px]" onClick={flow.reset}>
+          <button type="button" className="btn-secondary min-h-[44px] w-full py-2.5 text-[13px]" onClick={flow.reset}>
             {s.expired ? 'Start over' : 'Cancel'}
           </button>
         </div>
@@ -632,6 +916,7 @@ export function TxFlowView({
       boxRef={setFocus}
       fees={s.prepared?.fees ?? null}
       checks={s.checks ?? 0}
+      kind={s.prepared?.kind}
     />
   );
 }

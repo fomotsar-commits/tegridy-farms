@@ -107,6 +107,21 @@ export function deriveAmmConfig(programId: PublicKey, index: number): PublicKey 
   return derive(programId, [AMM_CONFIG_SEED, be]);
 }
 
+/**
+ * The public fee tier: the one AmmConfig this site opens pools on. Tier 0 is the
+ * launch tier (graduations); this site never opens a pool there. Mainnet:
+ * `CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy`.
+ */
+export const PUBLIC_TIER_INDEX = 1;
+
+/**
+ * The public fee tier's address, DERIVED from `PUBLIC_TIER_INDEX`, never read and never
+ * passed in, so a lying read cannot point an opening at the launch tier.
+ */
+export function publicTierConfig(programId: PublicKey): PublicKey {
+  return deriveAmmConfig(programId, PUBLIC_TIER_INDEX);
+}
+
 /** `[AUTH_SEED]` — the vault + LP-mint authority, one per program. */
 export function deriveAuthority(programId: PublicKey): PublicKey {
   return derive(programId, [AUTH_SEED]);

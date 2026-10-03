@@ -1,31 +1,43 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { PublicKey } from '@solana/web3.js';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { MAX_POSITIONS, type PositionsRead, type Position } from '../../../lib/solana/lp/positions';
+import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { formatWhen, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
 import { solText, tokenText } from '../../../lib/solana/lp/format';
 import { SolanaConnectButton } from '../SolanaConnectButton';
 import { Card, Notice, Row } from '../curve/ui';
+import { LeaveWithoutThisSite } from './LpDisclosures';
+import { lpHeld, withdrawOffer, type WithdrawOffer } from './offers';
+import { RemoveLiquidityPanel } from './RemoveLiquidityPanel';
+import { useLpWrites, type LpWrites } from './useLpWrites';
 import type { LpReaders } from './readers';
 
 type State =
   | { status: 'loading' }
-  | { status: 'done'; read: PositionsRead; safety: Map<string, TokenSafety> };
+  /** `refreshing`: this is the last answer for the same wallet, shown while it is read again. */
+  | { status: 'done'; read: PositionsRead; safety: Map<string, TokenSafety>; refreshing?: boolean };
 
 type Done = Extract<State, { status: 'done' }>;
 
-/** Positions for `owner`, keyed like usePoolSearch: an answer is shown only for its own question. */
-function usePositions(readers: LpReaders, owner: PublicKey | null, nonce: number, limit: number): State | null {
+/**
+ * Positions for `owner`, keyed like usePoolSearch: an answer is shown only for its own
+ * question. A re-read of the SAME wallet (Read again, Look up more, or a finished
+ * liquidity flow) keeps showing the last answer until the new one arrives, so rows and
+ * an open panel, with its outcome on screen, never unmount. Only another wallet shows
+ * "loading".
+ */
+function usePositions(readers: LpReaders, owner: PublicKey | null, nonce: number, limit: number, reloadKey: number): State | null {
   const ownerKey = owner?.toBase58() ?? null;
-  const key = ownerKey ? `${ownerKey}#${nonce}#${limit}` : null;
-  const [answer, setAnswer] = useState<{ key: string; value: Done } | null>(null);
+  const key = ownerKey ? `${ownerKey}#${nonce}#${limit}#${reloadKey}` : null;
+  const [answer, setAnswer] = useState<{ key: string; owner: string; value: Done } | null>(null);
   useEffect(() => {
-    if (!owner || !key) return;
+    if (!owner || !key || !ownerKey) return;
     let live = true;
     const finish = (value: Done) => {
-      if (live) setAnswer({ key, value });
+      if (live) setAnswer({ key, owner: ownerKey, value });
     };
     (async () => {
       const read = await readers.positions(owner, limit);
@@ -44,7 +56,8 @@ function usePositions(readers: LpReaders, owner: PublicKey | null, nonce: number
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readers, key]);
   if (!key) return null;
-  return answer?.key === key ? answer.value : { status: 'loading' };
+  if (answer?.key === key) return answer.value;
+  return answer && answer.owner === ownerKey ? { ...answer.value, refreshing: true } : { status: 'loading' };
 }
 
 const VERDICT_WORD = { blocked: 'blocked on this site', warn: 'allowed, with warnings', ok: 'no problems found' } as const;
@@ -74,7 +87,7 @@ function statusText(owner: PublicKey | null, state: State | null): string {
   return `This wallet holds ${plural(totalShares, 'pool share', 'pool shares')}.${more > 0 ? ` ${positions.length} are shown; ${more} more are not looked up yet.` : ''}`;
 }
 
-export function YourPositions({ readers, owner }: { readers: LpReaders; owner: PublicKey | null }) {
+export function YourPositions({ readers, owner, reloadKey = 0 }: { readers: LpReaders; owner: PublicKey | null; reloadKey?: number }) {
   const [nonce, setNonce] = useState(0);
   const [limit, setLimit] = useState(MAX_POSITIONS);
   // A different wallet starts from the first page again (adjusted during render).
@@ -84,7 +97,18 @@ export function YourPositions({ readers, owner }: { readers: LpReaders; owner: P
     setShownOwner(ownerKey);
     setLimit(MAX_POSITIONS);
   }
-  const state = usePositions(readers, owner, nonce, limit);
+  const state = usePositions(readers, owner, nonce, limit, reloadKey);
+  // The Add panels say the share before and after from this answer.
+  const writes = useLpWrites();
+  const report = writes?.reportPositions;
+  const read = state?.status === 'done' && !state.refreshing ? state.read : null;
+  useEffect(() => {
+    if (report && read) report(read);
+  }, [report, read]);
+  useEffect(() => {
+    if (report && !owner) report(null);
+  }, [report, owner]);
+  const readAgain = useCallback(() => setNonce((n) => n + 1), []);
   return (
     <section data-testid="lp-positions" aria-label="Your positions">
       <Card title="Your positions">
@@ -109,7 +133,8 @@ export function YourPositions({ readers, owner }: { readers: LpReaders; owner: P
             read={state.read}
             safety={state.safety}
             onMore={() => setLimit((l) => l + MAX_POSITIONS)}
-            onReadAgain={() => setNonce((n) => n + 1)}
+            onReadAgain={readAgain}
+            readers={readers}
           />
         )}
       </Card>
@@ -122,11 +147,13 @@ function PositionsList({
   safety,
   onMore,
   onReadAgain,
+  readers,
 }: {
   read: Extract<PositionsRead, { kind: 'ok' }>;
   safety: Map<string, TokenSafety>;
   onMore: () => void;
   onReadAgain: () => void;
+  readers: LpReaders;
 }) {
   const safetyOf = (p: Position) => (p.pool?.kind === 'pool' ? safety.get(p.pool.view.tokenMint) ?? null : null);
   const main = read.positions.filter((p) => setAsideReason(p, safetyOf(p)) === null);
@@ -145,7 +172,7 @@ function PositionsList({
       {main.length > 0 && (
         <ul className="space-y-3" aria-label="Your pool shares, most valuable first">
           {main.map((p) => (
-            <PositionRow key={p.lpAccount} p={p} safety={safetyOf(p)} chainNow={read.chainNow} />
+            <PositionRow key={p.lpAccount} p={p} safety={safetyOf(p)} chainNow={read.chainNow} readers={readers} onReadAgain={onReadAgain} />
           ))}
         </ul>
       )}
@@ -157,7 +184,15 @@ function PositionsList({
           </summary>
           <ul className="space-y-3 p-3">
             {aside.map((p) => (
-              <PositionRow key={p.lpAccount} p={p} safety={safetyOf(p)} chainNow={read.chainNow} setAside={setAsideReason(p, safetyOf(p))} />
+              <PositionRow
+                key={p.lpAccount}
+                p={p}
+                safety={safetyOf(p)}
+                chainNow={read.chainNow}
+                setAside={setAsideReason(p, safetyOf(p))}
+                readers={readers}
+                onReadAgain={onReadAgain}
+              />
             ))}
           </ul>
         </details>
@@ -186,10 +221,33 @@ function ReadAgain({ onClick }: { onClick: () => void }) {
   );
 }
 
-function PositionRow({ p, safety, chainNow, setAside = null }: { p: Position; safety: TokenSafety | null; chainNow: bigint | null; setAside?: string | null }) {
+function PositionRow({
+  p,
+  safety,
+  chainNow,
+  setAside = null,
+  readers,
+  onReadAgain,
+}: {
+  p: Position;
+  safety: TokenSafety | null;
+  chainNow: bigint | null;
+  setAside?: string | null;
+  readers: LpReaders;
+  onReadAgain: () => void;
+}) {
   const view = p.pool?.kind === 'pool' ? p.pool.view : null;
   const decimals = safety?.kind === 'read' ? safety.facts?.decimals ?? null : null;
   const pool = p.pool;
+  const writes = useLpWrites();
+  // The pool a pending withdrawal would name: the read pool, or the address the share was placed at.
+  const poolAddress = view?.address ?? (pool && pool.kind !== 'pool' ? pool.address : null);
+  const offer = withdrawOffer({
+    mode: writes?.mode ?? 'off',
+    gate: writes?.gate ?? null,
+    position: p,
+    held: writes !== null && poolAddress !== null && lpHeld(writes.pending.notes, poolAddress, 'remove'),
+  });
   return (
     <li
       className="rounded-lg p-3 space-y-1.5"
@@ -198,6 +256,7 @@ function PositionRow({ p, safety, chainNow, setAside = null }: { p: Position; sa
       data-pool={view?.address ?? ''}
       data-placement={p.placement}
       data-pool-kind={pool?.kind ?? 'none'}
+      data-remove={offer}
     >
       <Row label="Pool share token" value={p.lpMint} />
       <Row label="You hold" value={tokenText(p.lpAmount, view ? view.snapshot.pool.lpMintDecimals : null, 'shares')} mono={false} />
@@ -253,6 +312,8 @@ function PositionRow({ p, safety, chainNow, setAside = null }: { p: Position; sa
                 mono={false}
               />
             </>
+          ) : p.tooSmall ? (
+            <Notice tone="warn">Too small to take out at the pool&apos;s current size: one side would round to zero.</Notice>
           ) : (
             <Notice tone="warn">Its value could not be worked out.</Notice>
           )}
@@ -272,6 +333,203 @@ function PositionRow({ p, safety, chainNow, setAside = null }: { p: Position; sa
           <Row label="Withdrawals" value={WITHDRAWALS_WORD[withdrawalsState(view)]} mono={false} />
         </>
       )}
+      <RemoveBlock
+        offer={offer}
+        writes={writes}
+        p={p}
+        view={view}
+        safety={safety}
+        decimals={decimals}
+        chainNow={chainNow}
+        setAside={setAside !== null}
+        readers={readers}
+        onReadAgain={onReadAgain}
+      />
     </li>
+  );
+}
+
+/**
+ * What a position row offers for taking liquidity out (spec 4.3), from `withdrawOffer`:
+ * the Remove button and its panel, the "find this share's pool on the chain" search
+ * when our index could not place it, or one line saying why not. A placed share that
+ * this site cannot take out right now also shows how to leave without it.
+ */
+function RemoveBlock({
+  offer,
+  writes,
+  p,
+  view,
+  safety,
+  decimals,
+  chainNow,
+  setAside,
+  readers,
+  onReadAgain,
+}: {
+  offer: WithdrawOffer;
+  writes: LpWrites | null;
+  p: Position;
+  view: PoolView | null;
+  safety: TokenSafety | null;
+  decimals: number | null;
+  chainNow: bigint | null;
+  setAside: boolean;
+  readers: LpReaders;
+  onReadAgain: () => void;
+}) {
+  const key = `remove:${p.lpAccount}`;
+  const open = writes?.active?.key === key;
+  const blockedByOther = !!writes?.busy && !open;
+  const pool = p.pool;
+  // A share whose pool is known: the accounts the pool program's own withdraw takes.
+  const placedAt = view?.address ?? (pool?.kind === 'other-pair' ? pool.address : null);
+  const leaving =
+    placedAt !== null && (offer === 'off' || offer === 'gate' || offer === 'other-pair') ? (
+      <LeaveWithoutThisSite
+        programId={readers.programId}
+        pool={placedAt}
+        lpMint={p.lpMint}
+        lpAccount={p.lpAccount}
+        shares={tokenText(p.lpAmount, view ? view.snapshot.pool.lpMintDecimals : null, 'pool shares')}
+      />
+    ) : null;
+  // An open panel stays mounted whatever the offer turns into while its flow runs: its
+  // own sent withdrawal makes this pool `held`, and the outcome must stay on screen.
+  const panel =
+    open && writes && view ? (
+      <RemoveLiquidityPanel position={p} view={view} safety={safety} tokenDecimals={decimals} chainNow={chainNow} setAside={setAside} onClose={writes.close} />
+    ) : null;
+
+  let line: ReactNode = null;
+  switch (offer) {
+    case 'offer':
+      line = (
+        <>
+          <button
+            type="button"
+            className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+            disabled={blockedByOther}
+            aria-expanded={open}
+            onClick={(e) => writes?.open('remove', key, e.currentTarget)}
+          >
+            Remove liquidity
+          </button>
+          {blockedByOther && <Notice>Finish or close the open liquidity panel first.</Notice>}
+        </>
+      );
+      break;
+    case 'switched-off':
+      line = (
+        <Notice tone="warn">
+          Withdrawals are switched off on this pool by the pool program&apos;s admin (the team&apos;s vault). Only the vault can switch them
+          back on. Your pool shares stay in your wallet and keep their claim on the pool.
+        </Notice>
+      );
+      break;
+    case 'vault-frozen':
+      line = (
+        <Notice tone="warn">
+          The token&apos;s issuer has frozen one of this pool&apos;s vaults, so nothing can move in or out, for anyone. That is the
+          issuer&apos;s doing, not the pool program&apos;s. Your pool shares stay in your wallet.
+        </Notice>
+      );
+      break;
+    case 'dust':
+      line = (
+        <Notice tone="warn">
+          This share is too small to take out at the pool&apos;s current size: one side would round to zero (the pool program&apos;s rule).
+          Nothing is lost by waiting; if the pool grows, it may become possible.
+        </Notice>
+      );
+      break;
+    case 'other-pair':
+      line = <Notice>Neither side of this pool is SOL. This site cannot build a withdrawal for it yet. The pool program still lets you withdraw.</Notice>;
+      break;
+    case 'unplaced':
+      line = <FindOnChain readers={readers} p={p} disabled={blockedByOther} onPlaced={onReadAgain} />;
+      break;
+    case 'pool-unread':
+      line = (
+        <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={onReadAgain}>
+          Read my positions again
+        </button>
+      );
+      break;
+    case 'held':
+      line = <Notice tone="warn">A withdrawal you sent from this pool is not confirmed yet (see the top of this section).</Notice>;
+      break;
+    case 'gate':
+      line = (
+        <Notice>
+          Removing liquidity needs this page to reach the pool program, and it cannot right now (see the note at the top of this section).
+        </Notice>
+      );
+      break;
+    case 'off':
+      // Said only where there is a share to leave with: an unplaced row has its own lines.
+      line =
+        placedAt !== null ? (
+          <Notice>
+            Removing liquidity from this site is switched off right now. The pool program still lets you withdraw, and your shares are safe
+            in your wallet.
+          </Notice>
+        ) : null;
+      break;
+  }
+  if (!line && !leaving && !panel) return null;
+  return (
+    <div className="space-y-2 pt-1">
+      {line}
+      {leaving}
+      {panel}
+    </div>
+  );
+}
+
+type FindState = { status: 'idle' } | { status: 'searching' } | { status: 'not-found' } | { status: 'unread'; detail: string };
+
+/**
+ * Leaving does not depend on our index (D12): a share the index could not place can be
+ * placed from its own chain history. A match is proven twice (the program derives this
+ * share's mint from the pool, and the pool names that mint) and kept for the session, so
+ * reading the positions again shows the row placed `chain`, with Remove offered.
+ */
+function FindOnChain({ readers, p, disabled, onPlaced }: { readers: LpReaders; p: Position; disabled: boolean; onPlaced: () => void }) {
+  const [state, setState] = useState<FindState>({ status: 'idle' });
+  const find = async () => {
+    setState({ status: 'searching' });
+    try {
+      const r = await readers.placeShareOnChain({ lpMint: p.lpMint, lpAccount: p.lpAccount });
+      if (r.kind === 'placed') {
+        setState({ status: 'idle' });
+        onPlaced();
+      } else if (r.kind === 'not-found') setState({ status: 'not-found' });
+      else setState({ status: 'unread', detail: r.detail });
+    } catch (e) {
+      setState({ status: 'unread', detail: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+        disabled={disabled || state.status === 'searching'}
+        onClick={() => void find()}
+      >
+        Find this share&apos;s pool on the chain
+      </button>
+      {/* Always there, so each answer is read out when it arrives. */}
+      <p role="status" className="text-white/70">
+        {state.status === 'searching'
+          ? 'Looking for this share’s pool on the chain…'
+          : state.status === 'not-found'
+            ? 'We could not find this share’s pool from its recent history. Your shares are safe in your wallet. Read again later.'
+            : state.status === 'unread'
+              ? `We could not read the chain just now (${state.detail}). Your shares are safe in your wallet. Try again.`
+              : ''}
+      </p>
+    </div>
   );
 }

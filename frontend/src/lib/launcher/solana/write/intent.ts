@@ -14,6 +14,14 @@
 // Metadata or the launch program, and only a launch reaches Token-2022, for the
 // two exact instructions of its $BAYLA plant.
 //
+// Adding and removing liquidity (`PoolIntent`) are judged against `PoolPins`, the
+// pool as it was read and checked while preparing: every account of the pool's
+// deposit or withdraw instruction must equal its pin, and the transaction must hold
+// exactly one of them. Opening a pool (`lp-create`) is a third PoolIntent kind: its
+// one `initialize` is pinned slot by slot, always on the public fee tier (tier 1),
+// derived here from the constant. The launch-program kinds (`CurveIntent`) are judged
+// exactly as before; their branches below did not change.
+//
 // This runs twice: on the transaction before any wallet sees it, and again on
 // whatever the wallet hands back. The review screen is built from the steps it
 // returns, so what a person reads is what the bytes say.
@@ -40,17 +48,28 @@ import {
   migrateToAmmIx,
 } from '../curve/ix';
 import {
+  IX_DEPOSIT,
+  IX_INITIALIZE,
   IX_SWAP_BASE_INPUT,
+  IX_WITHDRAW,
+  deriveAmmConfig,
   deriveAuthority,
+  deriveLpMint,
   deriveObservation,
+  derivePool,
   deriveVault,
+  publicTierConfig,
+  sortMints,
 } from '../../../solana/cpswap/program';
+import { openingProblem } from '../../../solana/lp/liquidityMath';
+import { MEMO_PROGRAM_ID } from '../../../solana/cpswap/ix';
 import { CP_CREATE_POOL_FEE_RECEIVER, launchIndexAddress } from './config';
 import {
   METAPLEX_TOKEN_METADATA_ID,
   decodeCreateMetadataV3,
   metadataPda,
 } from './metaplex';
+import { isLpKind } from './lpKinds';
 import {
   BAYLA_DECIMALS,
   BAYLA_MINT,
@@ -61,7 +80,7 @@ import {
   WORKSHOP_BAYLA_ACCOUNT,
   baylaAccountOf,
 } from './plant';
-import type { IntentContext, IntentStep, TxKind } from './types';
+import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, TxKind } from './types';
 
 /** Phantom's Lighthouse guard program: assertion-only instructions a wallet may append. */
 export const LIGHTHOUSE_PROGRAM_ID = new PublicKey('L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95');
@@ -76,6 +95,19 @@ class Refuse extends Error {}
 const refuse = (reason: string): never => {
   throw new Refuse(reason);
 };
+
+/** Adding or removing liquidity, or opening a pool, as opposed to a launch-program transaction. */
+export function isPoolIntent(c: IntentContext): c is PoolIntent {
+  return isLpKind(c.kind);
+}
+
+/**
+ * The launch-program families take a `CurveIntent` only. `PROGRAMS_BY_KIND` already
+ * keeps them out of a liquidity transaction; this makes it a type, too.
+ */
+function asCurve(c: IntentContext): CurveIntent {
+  return isPoolIntent(c) ? refuse('a liquidity transaction reaches a program it never uses') : c;
+}
 
 function u32(d: Uint8Array, o: number): number {
   if (o + 4 > d.length) refuse('an instruction is shorter than its own format');
@@ -132,6 +164,7 @@ function system(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   const d = ix.data;
   const tag = u32(d, 0);
   if (tag === 0) {
+    if (isPoolIntent(ctx)) return refuse('this kind of transaction never creates an account');
     // CreateAccount { lamports u64, space u64, owner Pubkey }
     if (d.length !== 4 + 8 + 8 + 32) refuse('a create-account instruction of the wrong size');
     expectKeyCount(ix, 2, 'create-account');
@@ -161,6 +194,7 @@ function token(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   const wsolAta = associatedTokenAddress(WSOL_MINT, ctx.signer);
   switch (d[0]) {
     case 20: {
+      if (isPoolIntent(ctx)) return refuse('this kind of transaction never creates a token');
       // InitializeMint2 { decimals u8, mint_authority Pubkey, freeze_authority COption<Pubkey> }
       expectKeyCount(ix, 1, 'initialize-mint');
       if (!key(ix, 0).equals(ctx.mint)) refuse('a different token is initialized');
@@ -197,6 +231,10 @@ function ata(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
     PublicKey, PublicKey, PublicKey, PublicKey, PublicKey, PublicKey,
   ];
   if (!payer.equals(ctx.signer) || !owner.equals(ctx.signer)) refuse('creates a token account for someone else');
+  if (isPoolIntent(ctx)) {
+    if (ctx.kind === 'lp-create') openingAtaRule(ctx, mint);
+    return poolAta(ctx, { address, owner, mint, sys, tok });
+  }
   if (!(mint.equals(ctx.mint) || mint.equals(WSOL_MINT))) refuse('creates a token account for an unrelated token');
   if (!sys.equals(SYSTEM_PROGRAM_ID) || !tok.equals(TOKEN_PROGRAM_ID)) refuse('creates a token account under the wrong programs');
   if (!address.equals(associatedTokenAddress(mint, owner))) refuse('creates a token account at the wrong address');
@@ -204,12 +242,47 @@ function ata(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
 }
 
 /**
+ * An opening creates ONLY the signer's wrapped-SOL account. The pool program opens the
+ * pool-share account itself (`initialize` creates it, so one made first would make it
+ * fail), and the token account must already hold the tokens going in.
+ */
+function openingAtaRule(ctx: PoolIntent, mint: PublicKey): void {
+  if (mint.equals(WSOL_MINT)) return;
+  if (mint.equals(deriveLpMint(ctx.cfg.cpSwapProgram, ctx.pins.address))) refuse('the pool program opens your pool-share account itself');
+  refuse('an opening creates only your wrapped-SOL account');
+}
+
+/**
+ * A liquidity transaction opens the signer's account for wrapped SOL, for the pool's
+ * shares, or for the pool's token, and nothing else. Each under THAT mint's program:
+ * the classic one for wrapped SOL and the pool shares, the pool's recorded program
+ * for the token. The program is one of the address's seeds, so an account seeded
+ * under the other program is a different address and is refused.
+ */
+function poolAta(
+  ctx: PoolIntent,
+  a: { address: PublicKey; owner: PublicKey; mint: PublicKey; sys: PublicKey; tok: PublicKey },
+): IntentStep {
+  const p = ctx.pins;
+  const program = a.mint.equals(WSOL_MINT) || a.mint.equals(p.lpMint)
+    ? TOKEN_PROGRAM_ID
+    : a.mint.equals(p.tokenMint)
+      ? p.tokenProgram
+      : refuse('creates a token account for an unrelated token');
+  if (!a.sys.equals(SYSTEM_PROGRAM_ID) || !a.tok.equals(program)) refuse('creates a token account under the wrong programs');
+  if (!a.address.equals(associatedTokenAddress(a.mint, a.owner, program))) refuse('creates a token account at the wrong address');
+  return { kind: 'create-token-account', owner: a.owner, mint: a.mint, address: a.address };
+}
+
+/**
  * Token-2022: the plant, and nothing else. Burn 50,000 $BAYLA from the signer's own
  * $BAYLA account, and send 50,000 from it to the island's Workshop; every account and
  * number pinned, the source derived from the signer. Any other Token-2022 instruction
- * (transfer, approve, authority change, mint, close, ...) is refused.
+ * (transfer, approve, authority change, mint, close, ...) is refused. Takes a
+ * `CurveIntent`: no liquidity kind may reach Token-2022 (PROGRAMS_BY_KIND), and the
+ * type says so too.
  */
-function t22(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
+function t22(ix: TransactionInstruction, ctx: CurveIntent): IntentStep {
   const d = ix.data;
   const tag = d[0];
   if (tag !== TOKEN_IX_BURN_CHECKED && tag !== TOKEN_IX_TRANSFER_CHECKED) {
@@ -232,7 +305,7 @@ function t22(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
     : { kind: 'plant-transfer', from, to: WORKSHOP_BAYLA_ACCOUNT, mint: BAYLA_MINT, amount };
 }
 
-function metaplex(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
+function metaplex(ix: TransactionInstruction, ctx: CurveIntent): IntentStep {
   const args = decodeCreateMetadataV3(ix.data);
   if (!args) refuse('a token-details instruction this page never builds');
   if (args!.isMutable) refuse('the token details could be changed later');
@@ -248,7 +321,7 @@ function metaplex(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   return { kind: 'create-metadata', mint: ctx.mint, name: args!.name, symbol: args!.symbol, uri: args!.uri };
 }
 
-function launch(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
+function launch(ix: TransactionInstruction, ctx: CurveIntent): IntentStep {
   const d = ix.data;
   const ids = { programId: ctx.cfg.programId, cpSwapProgram: ctx.cfg.cpSwapProgram };
   if (sameBytes(d, IX_DISCRIMINATOR.createLaunch)) {
@@ -313,7 +386,24 @@ function launch(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   return refuse('a launch-program instruction this page never builds');
 }
 
+/** Takes `never`, so a liquidity kind with no pool instruction below does not compile. */
+function noPoolInstructionFor(_ctx: never): never {
+  return refuse('it is a liquidity kind this page has no pool instruction for');
+}
+
 function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
+  if (isPoolIntent(ctx)) {
+    switch (ctx.kind) {
+      case 'lp-deposit':
+        return poolDeposit(ix, ctx);
+      case 'lp-withdraw':
+        return poolWithdraw(ix, ctx);
+      case 'lp-create':
+        return poolInitialize(ix, ctx);
+      default:
+        return noPoolInstructionFor(ctx);
+    }
+  }
   const d = ix.data;
   if (!startsWith(d, IX_SWAP_BASE_INPUT) || d.length !== 24) refuse('a pool instruction other than a swap');
   expectKeyCount(ix, 13, 'pool swap');
@@ -344,6 +434,139 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   return { kind: 'pool-swap', pool, inputMint: inMint, outputMint: outMint, amountIn, minimumAmountOut };
 }
 
+/** The largest maximum a deposit may carry: u64::MAX itself means "no limit". */
+const MAX_DEPOSIT_LIMIT = 0xffff_ffff_ffff_fffen;
+
+/**
+ * The slots cp-swap's deposit and withdraw share (deposit.rs, withdraw.rs: the same
+ * first 13 accounts). Slot 3, the pool-share account, differs and is checked by each.
+ * Slots 4 and 5 are the signer's own accounts under each mint's program: withdraw.rs
+ * checks only their MINT, so these pins are all that stops a payout to a stranger.
+ */
+function poolSlots(ctx: PoolIntent, what: 'deposit' | 'withdrawal'): Array<[number, PublicKey, string]> {
+  const p = ctx.pins;
+  const mine = (mint: PublicKey, program: PublicKey) => associatedTokenAddress(mint, ctx.signer, program);
+  const own = what === 'deposit' ? 'the deposit spends from an account that is not yours' : 'the withdrawal pays out to an account that is not yours';
+  return [
+    [0, ctx.signer, what === 'deposit' ? 'the deposit is paid by someone else' : 'the withdrawal is signed for by someone else'],
+    [1, deriveAuthority(ctx.cfg.cpSwapProgram), `the ${what} names the wrong pool authority`],
+    [2, p.address, what === 'deposit' ? 'the deposit goes into a different pool than the one checked' : 'the withdrawal comes out of a different pool than the one checked'],
+    [4, mine(p.token0Mint, p.token0Program), own],
+    [5, mine(p.token1Mint, p.token1Program), own],
+    [6, p.vault0, `the ${what} names the wrong pool vault`],
+    [7, p.vault1, `the ${what} names the wrong pool vault`],
+    [8, TOKEN_PROGRAM_ID, `the ${what} names the wrong token program`],
+    [9, TOKEN_2022_PROGRAM_ID, `the ${what} names the wrong token program`],
+    [10, p.token0Mint, `the ${what} names the wrong token`],
+    [11, p.token1Mint, `the ${what} names the wrong token`],
+    [12, p.lpMint, `the ${what} names the wrong pool-share token`],
+  ];
+}
+
+/** cp-swap `deposit`: `IX_DEPOSIT ‖ lp u64 ‖ max0 u64 ‖ max1 u64`, 13 accounts. */
+function poolDeposit(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
+  const d = ix.data;
+  if (!startsWith(d, IX_DEPOSIT) || d.length !== 32) refuse('a pool instruction other than a deposit');
+  expectKeyCount(ix, 13, 'pool deposit');
+  const p = ctx.pins;
+  const checks = poolSlots(ctx, 'deposit');
+  checks.push([3, associatedTokenAddress(p.lpMint, ctx.signer, TOKEN_PROGRAM_ID), 'the pool shares go to an account that is not yours']);
+  for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);
+  const lpAmount = u64(d, 8);
+  const max0 = u64(d, 16);
+  const max1 = u64(d, 24);
+  if (lpAmount === 0n) refuse('the deposit asks for zero pool shares');
+  if (max0 === 0n || max1 === 0n) refuse('the deposit has a zero limit on one side');
+  if (max0 > MAX_DEPOSIT_LIMIT || max1 > MAX_DEPOSIT_LIMIT) refuse('the deposit accepts any price (no limit)');
+  return { kind: 'pool-deposit', pool: p.address, lpAmount, max0, max1 };
+}
+
+/** cp-swap `withdraw`: `IX_WITHDRAW ‖ lp u64 ‖ min0 u64 ‖ min1 u64`, 14 accounts (the memo program last). */
+function poolWithdraw(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
+  const d = ix.data;
+  if (!startsWith(d, IX_WITHDRAW) || d.length !== 32) refuse('a pool instruction other than a withdrawal');
+  expectKeyCount(ix, 14, 'pool withdrawal');
+  const p = ctx.pins;
+  const checks = poolSlots(ctx, 'withdrawal');
+  checks.push(
+    [3, p.lpAccount, 'it takes pool shares from an account that is not the one checked'],
+    [13, MEMO_PROGRAM_ID, 'the withdrawal names the wrong memo program'],
+  );
+  for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);
+  const lpAmount = u64(d, 8);
+  const min0 = u64(d, 16);
+  const min1 = u64(d, 24);
+  if (lpAmount === 0n) refuse('the withdrawal asks for zero pool shares');
+  if (min0 === 0n || min1 === 0n) refuse('the withdrawal accepts any payout (no minimum)');
+  return { kind: 'pool-withdraw', pool: p.address, lpAccount: p.lpAccount, lpAmount, min0, min1 };
+}
+
+/** cp-swap `initialize`: `IX_INITIALIZE ‖ init_amount_0 u64 ‖ init_amount_1 u64 ‖ open_time u64`. */
+const INITIALIZE_DATA_LEN = 32;
+/** initialize.rs reads any account past these 20 as a support-mint record, so a 21st is refused. */
+const INITIALIZE_KEY_COUNT = 20;
+
+/**
+ * cp-swap `initialize`: opening a pool, always on the public fee tier (tier 1).
+ *
+ * Every one of the 20 accounts is pinned. The tier is derived here from the constant,
+ * never from a read or a caller; the pool, its vaults, its share token and its price
+ * record are derived from the pool address prepare chose; the creator's accounts are
+ * the signer's own under each mint's program. The amounts must clear the site's
+ * share rule (`openingProblem`), and the pool must open for trading at once.
+ */
+function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
+  const d = ix.data;
+  if (!startsWith(d, IX_INITIALIZE) || d.length !== INITIALIZE_DATA_LEN) refuse('a pool instruction other than opening a pool');
+  expectKeyCount(ix, INITIALIZE_KEY_COUNT, 'opening a pool');
+  const cp = ctx.cfg.cpSwapProgram;
+  const p = ctx.pins;
+  const tier1 = publicTierConfig(cp);
+  const { token0: t0, token1: t1 } = sortMints(WSOL_MINT, p.tokenMint);
+  const prog = (m: PublicKey) => (m.equals(WSOL_MINT) ? TOKEN_PROGRAM_ID : p.tokenProgram);
+
+  // The launch tier by name, before the generic fee-tier refusal below.
+  if (key(ix, 1).equals(deriveAmmConfig(cp, 0))) refuse('the pool would open on the launch tier (fee tier 0), which this site never does');
+  // Only the launch program opens a launch pool; this site opens a pool at the standard
+  // address or at a fresh key of its own, and the pins must say which, truthfully.
+  if (p.origin !== 'standard' && p.origin !== 'other') refuse("the pool's address does not match the review");
+  if ((p.origin === 'standard') !== p.address.equals(derivePool(cp, tier1, t0, t1))) refuse("the pool's address does not match the review");
+
+  const lpMint = deriveLpMint(cp, p.address);
+  const checks: Array<[number, PublicKey, string]> = [
+    [0, ctx.signer, 'the pool is opened and paid for by someone else'],
+    [1, tier1, 'the pool would open on a fee tier this site does not use'],
+    [2, deriveAuthority(cp), 'the opening names the wrong pool authority'],
+    [3, p.address, 'the opening creates a different pool than the one checked'],
+    [4, t0, 'the opening pairs different tokens than the review names'],
+    [5, t1, 'the opening pairs different tokens than the review names'],
+    [6, lpMint, 'the opening names the wrong pool-share token'],
+    [7, associatedTokenAddress(t0, ctx.signer, prog(t0)), 'the opening spends from an account that is not yours'],
+    [8, associatedTokenAddress(t1, ctx.signer, prog(t1)), 'the opening spends from an account that is not yours'],
+    [9, associatedTokenAddress(lpMint, ctx.signer, TOKEN_PROGRAM_ID), 'the pool shares go to an account that is not yours'],
+    [10, deriveVault(cp, p.address, t0), 'the opening names the wrong pool vault'],
+    [11, deriveVault(cp, p.address, t1), 'the opening names the wrong pool vault'],
+    [12, CP_CREATE_POOL_FEE_RECEIVER, "the fee to open a pool goes somewhere other than the pool program's fee account"],
+    [13, deriveObservation(cp, p.address), 'the opening names the wrong price record'],
+    [14, TOKEN_PROGRAM_ID, 'the opening names the wrong token program'],
+    [15, prog(t0), 'the opening names the wrong token program'],
+    [16, prog(t1), 'the opening names the wrong token program'],
+    [17, ASSOCIATED_TOKEN_PROGRAM_ID, 'the opening names the wrong system program'],
+    [18, SYSTEM_PROGRAM_ID, 'the opening names the wrong system program'],
+    [19, SYSVAR_RENT_PUBKEY, 'the opening names the wrong system program'],
+  ];
+  for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);
+
+  const init0 = u64(d, 8);
+  const init1 = u64(d, 16);
+  const openTime = u64(d, 24);
+  const problem = openingProblem(init0, init1);
+  if (problem?.problem === 'empty-side') refuse('the pool would open with an empty side');
+  if (problem) refuse('the pool would keep more than 0.1% of what you put in forever');
+  if (openTime !== 0n) refuse('the pool would open for trading later, not now');
+  return { kind: 'pool-create', pool: p.address, ammConfig: tier1, init0, init1 };
+}
+
 // ── the whole transaction ────────────────────────────────────────────────────
 
 type ProgramFamily = 'compute' | 'system' | 'token' | 't22' | 'ata' | 'metadata' | 'launch' | 'pool';
@@ -361,13 +584,33 @@ export const PROGRAMS_BY_KIND: Readonly<Record<TxKind, ReadonlySet<ProgramFamily
   migrate: new Set<ProgramFamily>(['compute', 'launch']),
   'pool-buy': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
   'pool-sell': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
+  // Adding liquidity wraps SOL (System transfer, Token sync and close); taking it out
+  // only unwraps, so it never reaches the System program.
+  'lp-deposit': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
+  'lp-withdraw': new Set<ProgramFamily>(['compute', 'token', 'ata', 'pool']),
+  // Opening a pool wraps SOL exactly like adding liquidity, and nothing more: the pool
+  // program creates the pool's own accounts and the pool-share account itself.
+  'lp-create': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
+};
+
+/**
+ * The one pool step each liquidity kind must hold exactly once, and what to say when it
+ * does not. A Record, so a new kind cannot fall into another kind's rule.
+ */
+const OWN_STEP: Readonly<Record<LpKind, { step: IntentStep['kind']; refuse: string }>> = {
+  'lp-deposit': { step: 'pool-deposit', refuse: 'it does not hold exactly one deposit into the pool' },
+  'lp-withdraw': { step: 'pool-withdraw', refuse: 'it does not hold exactly one withdrawal from the pool' },
+  'lp-create': { step: 'pool-create', refuse: 'it does not open exactly one pool' },
 };
 
 function familyOf(p: PublicKey, ctx: IntentContext): ProgramFamily | null {
   if (p.equals(ComputeBudgetProgram.programId)) return 'compute';
   if (p.equals(SYSTEM_PROGRAM_ID)) return 'system';
   if (p.equals(TOKEN_PROGRAM_ID)) return 'token';
-  if (p.equals(TOKEN_2022_PROGRAM_ID)) return 't22';
+  // Token-2022 is a family only for the launch-program kinds (it is the create's plant,
+  // and PROGRAMS_BY_KIND refuses it in every other curve kind). A liquidity transaction
+  // never calls it at the top level, so to one it is a program this page never uses.
+  if (p.equals(TOKEN_2022_PROGRAM_ID)) return isPoolIntent(ctx) ? null : 't22';
   if (p.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) return 'ata';
   if (p.equals(METAPLEX_TOKEN_METADATA_ID)) return 'metadata';
   if (p.equals(ctx.cfg.programId)) return 'launch';
@@ -408,11 +651,17 @@ export function decodeIntent(
       if (family === 'compute') steps.push(computeBudget(ix));
       else if (family === 'system') steps.push(system(ix, ctx));
       else if (family === 'token') steps.push(token(ix, ctx));
-      else if (family === 't22') steps.push(t22(ix, ctx));
+      else if (family === 't22') steps.push(t22(ix, asCurve(ctx)));
       else if (family === 'ata') steps.push(ata(ix, ctx));
-      else if (family === 'metadata') steps.push(metaplex(ix, ctx));
-      else if (family === 'launch') steps.push(launch(ix, ctx));
+      else if (family === 'metadata') steps.push(metaplex(ix, asCurve(ctx)));
+      else if (family === 'launch') steps.push(launch(ix, asCurve(ctx)));
       else steps.push(cpswap(ix, ctx));
+    }
+    if (isPoolIntent(ctx)) {
+      // One liquidity change per transaction, of the kind's own type: the review
+      // shows one, and the balance check is sized for one.
+      const own = OWN_STEP[ctx.kind];
+      if (steps.filter((s) => s.kind === own.step).length !== 1) refuse(own.refuse);
     }
     const limits = steps.filter((s) => s.kind === 'compute-limit');
     const prices = steps.filter((s) => s.kind === 'compute-price');

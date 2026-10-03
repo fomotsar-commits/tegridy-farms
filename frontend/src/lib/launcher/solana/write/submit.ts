@@ -43,7 +43,7 @@ import { explainFailure } from './errors';
 import { computeUnitLimit, decodeIntent } from './intent';
 import { baseFeeLamports, checkEffect, serializeBody, simulate, simulatedEffect } from './prepare';
 import { priorityLamports } from './budget';
-import type { NotSent, PreparedTx, SubmitDeps, TxOutcome, TxSigner, WriteRpc } from './types';
+import type { NotSent, PreparedTx, SubmitDeps, TxKind, TxOutcome, TxSigner, WriteRpc } from './types';
 
 const notSent = (stage: NotSent['stage'], message: string, logs?: string[]): NotSent => ({
   status: 'not-sent',
@@ -114,7 +114,7 @@ async function checkWalletChanges(rpc: WriteRpc, p: PreparedTx, signed: Transact
   try {
     const sim = await simulate(rpc, signed, p.check.watch);
     if (!sim.ok) {
-      return `After your wallet changed it, this transaction no longer works: ${explainFailure(sim.err, sim.logs, p.check.intent.cfg).message} Nothing was sent.`;
+      return `After your wallet changed it, this transaction no longer works: ${explainFailure(sim.err, sim.logs, p.check.intent.cfg, p.kind).message} Nothing was sent.`;
     }
     const effect = simulatedEffect(p.check.watch, p.check.pre, sim.accounts);
     if (typeof effect === 'string') return `The safety check could not confirm your wallet’s version: ${effect}. Nothing was sent.`;
@@ -142,7 +142,7 @@ async function revertedOutcome(rpc: WriteRpc, p: PreparedTx, signature: string, 
   } catch {
     /* the reason stays general rather than becoming wrong */
   }
-  const why = explainFailure(err, logs, p.check.intent.cfg);
+  const why = explainFailure(err, logs, p.check.intent.cfg, p.kind);
   return {
     status: 'reverted',
     signature,
@@ -307,7 +307,7 @@ export async function submitPrepared(
       if (/already been processed/i.test(msg)) {
         // It is already on chain: fall through to the watch.
       } else {
-        const why = explainFailure(null, logs ?? [], p.check.intent.cfg);
+        const why = explainFailure(null, logs ?? [], p.check.intent.cfg, p.kind);
         return notSent('send', `The network refused this before sending it: ${why.message} Nothing was sent.`, logs ?? undefined);
       }
     }
@@ -361,12 +361,13 @@ function extractLogs(e: unknown): string[] | null {
  *
  * With `lastValidBlockHeight`, a signature the network has no record of AND whose
  * height has passed is `expired` (safe to retry). Without it, or when the height
- * cannot be read, no record is `unknown`, never "failed".
+ * cannot be read, no record is `unknown`, never "failed". With `cfg`, a refusal names
+ * the program and its reason; `kind` says it in that kind's own words (liquidity).
  */
 export async function recheckOutcome(
   rpc: WriteRpc,
   signature: string,
-  opts: { lastValidBlockHeight?: number; cfg?: PreparedTx['check']['intent']['cfg'] } = {},
+  opts: { lastValidBlockHeight?: number; cfg?: PreparedTx['check']['intent']['cfg']; kind?: TxKind } = {},
 ): Promise<TxOutcome> {
   const read = await readStatus(rpc, signature, true);
   if (read === 'unread') return { status: 'unknown', signature, message: 'Could not check right now. Try again in a moment.' };
@@ -385,7 +386,7 @@ export async function recheckOutcome(
         /* keep it general */
       }
       const why = opts.cfg
-        ? explainFailure(st.err, logs, opts.cfg)
+        ? explainFailure(st.err, logs, opts.cfg, opts.kind)
         : { program: 'other' as const, code: null, message: 'A program refused this transaction.' };
       return {
         status: 'reverted',
@@ -404,7 +405,7 @@ export async function recheckOutcome(
       // reads, each from a server caught up to the finalized slot.
       const again = await recordAfterExpiry(rpc, signature, await finalizedSlot(rpc));
       if (again === null) return { status: 'expired', signature, message: EXPIRED_COPY };
-      if (again !== 'unread' && settled(again)) return recheckOutcome(rpc, signature, { cfg: opts.cfg });
+      if (again !== 'unread' && settled(again)) return recheckOutcome(rpc, signature, { cfg: opts.cfg, kind: opts.kind });
       if (again !== 'unread') {
         return { status: 'unknown', signature, message: 'The network has seen it but has not confirmed it yet.' };
       }

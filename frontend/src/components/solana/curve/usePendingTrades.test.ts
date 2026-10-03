@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { SIG, buySummary, prepared } from './fakeWriteApi.fixture';
-import { PENDING_TRADE_TTL_MS, readPendingTrades, savePendingTrade } from './pendingTrade';
+import { PENDING_TRADE_TTL_MS, curveTradeScope, readPendingTrades, savePendingTrade } from './pendingTrade';
 import { usePendingTrades, type CheckSignature } from './usePendingTrades';
 import type { TxOutcome } from './ports';
 
@@ -77,6 +77,26 @@ describe('pending trade notes', () => {
     act(() => result.current.dismiss());
     expect(result.current.notes).toEqual([]);
     expect(readPendingTrades(MINT_A)).toEqual([]);
+  });
+
+  // A note written by the build that is live when a deploy lands must still be read by
+  // the next build, or a trade sent just before the deploy loses its lock on reload.
+  // So the key is pinned to the byte, in both directions.
+  it('a curve note is stored at exactly curve-launch:pending-trade:<mint>, and a note found there is read back', () => {
+    const { result } = renderHook(() => usePendingTrades(curveTradeScope(MINT_A), null, vi.fn()));
+    act(() => result.current.record({ status: 'unknown', signature: SIG, message: 'slow' }, prepared(buySummary())));
+    const keys = Array.from({ length: sessionStorage.length }, (_, i) => sessionStorage.key(i));
+    expect(keys).toEqual([`curve-launch:pending-trade:${MINT_A}`]);
+    expect(JSON.parse(sessionStorage.getItem(`curve-launch:pending-trade:${MINT_A}`) ?? 'null')).toMatchObject([
+      { kind: 'buy', signature: SIG, lastValidBlockHeight: 1234, sentAt: expect.any(Number) },
+    ]);
+
+    sessionStorage.clear();
+    sessionStorage.setItem(
+      `curve-launch:pending-trade:${MINT_B}`,
+      JSON.stringify([{ kind: 'pool-sell', signature: SIG2, lastValidBlockHeight: 7, sentAt: Date.now() }]),
+    );
+    expect(readPendingTrades(curveTradeScope(MINT_B))).toMatchObject([{ kind: 'pool-sell', signature: SIG2, lastValidBlockHeight: 7 }]);
   });
 
   it('ignores storage it cannot trust: a bad signature, an unknown kind, or a note past its lifetime', () => {

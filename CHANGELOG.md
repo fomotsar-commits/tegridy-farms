@@ -32,7 +32,11 @@ page keeps the newest thirty days.
 
 ### 2026-10-01
 
-- On /pools, the Solana section finds a token's pools by its address, checks the token and each pool's fee tier, price and status, and shows a connected wallet's pool shares. It only reads: adding and removing liquidity from the site comes next.
+- On /pools, a connected Solana wallet can add liquidity to one of our Solana pools whose checks pass, and take its share back out. Each transaction is read again, checked and test-run on the network before the wallet is asked to sign.
+- On /pools, a token with no passing pool can be opened as a new pool on the public fee tier, where traders pay 1% a trade. The fee to open the pool goes to the team's vault and is read live, and the Open a pool button appears only once that tier exists on the network.
+- Before anyone adds liquidity, /pools says our pool program is Raydium's with only its admin keys changed, that those changes have not had their own independent review yet, what the team's two-signature vault can switch off, change or upgrade, and that Jupiter does not send trades to these pools yet, so most trades will be arbitrage bots. It shows no yield, because none has been measured.
+- If adding liquidity ever has to be paused, /pools keeps taking liquidity out working and says adding and opening pools are paused.
+- On /pools, the Solana section finds a token's pools by its address, checks the token and each pool's fee tier, price and status, and shows a connected wallet's pool shares.
 - On /pools, a token or pool check that could not be read says so, and never shows as safe, healthy or empty.
 - /pools no longer says the Solana swap sends a trade to our own pool when ours pays more. The swap compares the two and still trades through Jupiter.
 - /curve-launch reads the live Solana launch program. Launching and trading from the site are switched off for now, and the Solana Curve tab says Soon.

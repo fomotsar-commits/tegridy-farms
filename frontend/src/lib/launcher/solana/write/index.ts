@@ -1,4 +1,5 @@
-// The write path for /curve-launch: launch, buy, sell, graduate, pool swap.
+// The write path for /curve-launch (launch, buy, sell, graduate, pool swap) and for
+// /pools (add and remove liquidity).
 //
 // Load this module with a DYNAMIC import behind `isCurveWriteEnabled()`
 // (`../curveWriteFlag`), so a build with writes off never downloads it.
@@ -12,6 +13,11 @@
 //   trade.ts     curve buy / sell
 //   graduate.ts  finish graduation
 //   poolSwap.ts  buy / sell in the graduated launch's own pool
+//   liquidity.ts add / remove liquidity in one of our pools (its own switch and gate:
+//                lpWriteFlag.ts, config.ts lpWriteConfig + readLpGate)
+//   createPool.ts open a new pool on the public fee tier (tier 1)
+//   lpKinds.ts   which kinds are liquidity kinds, in one place
+//   wsol.ts      SOL in and out through the signer's wrapped-SOL account
 //   prepare.ts   the one simulate-check-summarize path all of them use
 //   intent.ts    decode a transaction back into steps; refuse any shape we never build
 //   submit.ts    wallet signs only; we broadcast, re-send and settle the outcome
@@ -28,6 +34,10 @@ export * from './plant';
 export * from './trade';
 export * from './graduate';
 export * from './poolSwap';
+export * from './liquidity';
+export * from './createPool';
+export * from './lpKinds';
+export * from './wsol';
 export * from './submit';
 export * from './errors';
 export {

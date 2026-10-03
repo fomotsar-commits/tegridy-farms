@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   loadVerifiedIdls, goldenMismatches, encodeIdlAccount, buildGenesisAccounts, rentExempt,
-  rehearsalGlobalValues, e2eGlobalValues, ammConfigValues, ammConfig1Values, derived, readGolden,
+  rehearsalGlobalValues, e2eGlobalValues, ammConfigValues, ammConfig1Values, e2eAmmConfigValues, mainnetConfigMismatches, derived, readGolden,
   baylaMintStandIn, baylaMintAuthority,
   LAUNCH_PROGRAM, CP_SWAP_PROGRAM, VAULT, DEPLOYER, BAYLA_MINT, TOKEN_2022_PROGRAM,
 } from './genesis-accounts.mjs';
@@ -151,5 +151,28 @@ it('config 1 (the public tier) is config 0 with ONLY its bump, index and fee fie
     const accts = Object.fromEntries(buildGenesisAccounts(idls).map((a) => [a.file, a.json]));
     expect(accts['amm-config-1.json'].pubkey).toBe(derived().ammConfig1.toBase58());
     expect(accts['amm-config-1.json'].account.owner).toBe(CP_SWAP_PROGRAM.toBase58());
+  });
+
+  it('seeds fee tiers 0 and 1 with MAINNET\'s own bytes (read from api.mainnet-beta 2026-10-01)', () => {
+    expect(mainnetConfigMismatches(idls)).toEqual([]);
+    const accts = Object.fromEntries(buildGenesisAccounts(idls).map((a) => [a.file, a.json]));
+    for (const [file, golden] of [['amm-config-1.json', 'amm-config-1.mainnet.json'], ['amm-config.json', 'amm-config-0.mainnet.json']]) {
+      expect(accts[file].account.data[0], file).toBe(readGolden(golden).account.data[0]);
+    }
+    // Mainnet tier 0 after the fee proposals: 20% to the venue, a 0.05% creator fee.
+    const c0 = encodeIdlAccount(idls.cpIdl, 'AmmConfig', e2eAmmConfigValues());
+    expect(c0.readBigUInt64LE(20)).toBe(200_000n);
+    expect(c0.readBigUInt64LE(108)).toBe(500n);
+  });
+
+  it('the mainnet check fails on a one-field difference in either tier', () => {
+    const cpIdl = clone(idls.cpIdl);
+    const f = cpIdl.types.find((t) => t.name === 'AmmConfig').type.fields;
+    const a = f.findIndex((x) => x.name === 'trade_fee_rate');
+    const b = f.findIndex((x) => x.name === 'protocol_fee_rate');
+    [f[a], f[b]] = [f[b], f[a]];
+    const problems = mainnetConfigMismatches({ ...idls, cpIdl });
+    expect(problems.some((p) => p.startsWith('amm-config-1.mainnet.json'))).toBe(true);
+    expect(problems.some((p) => p.startsWith('amm-config-0.mainnet.json'))).toBe(true);
   });
 });

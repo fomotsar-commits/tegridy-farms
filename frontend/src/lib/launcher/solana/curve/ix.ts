@@ -148,10 +148,14 @@ class Writer {
  * what migration needs: `auth_wsol` / `auth_token` / `auth_lp` are owned by the
  * `migration_authority` PDA, and spl-token's helper throws for an off-curve owner
  * unless that flag is passed (tests/tegridy-launch-migration.test.ts:434-436).
+ *
+ * `tokenProgram` is the mint's owner, and it is one of the seeds: a Token-2022
+ * mint's account lives at a different address from a classic one. The default is
+ * the classic program, so every call that passes two arguments is unchanged.
  */
-export function associatedTokenAddress(mint: PublicKey, owner: PublicKey): PublicKey {
+export function associatedTokenAddress(mint: PublicKey, owner: PublicKey, tokenProgram: PublicKey = TOKEN_PROGRAM_ID): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [owner.toBytes(), TOKEN_PROGRAM_ID.toBytes(), mint.toBytes()],
+    [owner.toBytes(), tokenProgram.toBytes(), mint.toBytes()],
     ASSOCIATED_TOKEN_PROGRAM_ID,
   )[0];
 }

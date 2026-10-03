@@ -11,6 +11,7 @@ import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { browserCurveRpc } from '../lib/launcher/solana/curve/rpc';
 import { readVenue, type VenueStatus } from '../lib/solana/cpswap/read';
 import { SPENT_PROGRAM_ID, hasProgramId } from '../lib/solana/cpswap/program';
+import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 import {
   feeSplit,
   solOf,
@@ -61,6 +62,8 @@ export default function PoolsPage() {
   // licence to assert either — so the conditional copy is the default and the
   // present-tense copy is what the probe has to earn.
   const venueIsOpen = liveConfig !== null;
+  // Fixed for the life of a build: a production build reads only the committed constant.
+  const lpMode = lpWriteMode();
 
   return (
     <div className="relative min-h-screen">
@@ -82,8 +85,7 @@ export default function PoolsPage() {
               <>
                 Our own constant-product AMM on Solana. Anyone can open a pool or provide
                 liquidity on chain, and the trade fee is split between the LPs who funded it
-                and the venue. This site reads pools and shares; adding and removing
-                liquidity from here is not switched on yet.
+                and the venue. {HERO_LP_LINE[lpMode]}
               </>
             ) : (
               <>
@@ -95,7 +97,7 @@ export default function PoolsPage() {
           </p>
         </m.div>
 
-        <VenueStatusCard status={status} onRefresh={refresh} />
+        <VenueStatusCard status={status} onRefresh={refresh} lpMode={lpMode} />
 
         {venueIsOpen && (
           <Suspense fallback={<p className="text-white/60 text-[13px] mt-6">Loading the pool finder…</p>}>
@@ -107,7 +109,9 @@ export default function PoolsPage() {
         <section className="rounded-2xl p-6 mt-6" style={CARD} aria-label="Fee sheet">
           <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
             <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
-              {liveConfig ? 'Fees · read from the chain' : 'Fees · not read'}
+              {liveConfig
+                ? `Fees · tier ${liveConfig.index}, graduated launch pools · read from the chain`
+                : 'Fees · not read'}
             </p>
           </div>
           <h2 className="heading-luxury text-xl text-white mb-4">
@@ -124,7 +128,7 @@ export default function PoolsPage() {
               <Stat
                 label="Open a pool"
                 value={`${solOf(liveConfig.createPoolFee)} SOL`}
-                sub="fee; account deposits extra"
+                sub={`fee on tier ${liveConfig.index}; account deposits extra`}
               />
             </div>
           )}
@@ -132,9 +136,11 @@ export default function PoolsPage() {
           <p className="text-white/70 text-[13px] leading-relaxed">
             {liveConfig ? (
               <>
-                These are the live <code className="font-mono text-white/85">AmmConfig</code> rates,
-                read from the chain on load — not a copy in this page. Retuning them on
-                chain changes this card without a deploy.
+                These are the live <code className="font-mono text-white/85">AmmConfig</code> rates
+                of fee tier {liveConfig.index}, where launches graduate, read from the chain on
+                load — not a copy in this page. Retuning them on chain changes this card without a
+                deploy. Pools opened from this site use the public fee tier instead; the fee tiers
+                in the pools section below are read live for both.
               </>
             ) : (
               feesNotRead(status).line
@@ -212,6 +218,21 @@ export default function PoolsPage() {
 
 const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-purple-25)' } as const;
 
+// What this site itself can do with the pools follows LP's own switch
+// (lib/launcher/solana/lpWriteFlag.ts), so flipping that one line changes these too.
+// Whether the public fee tier exists, or takes new pools, is never said here: only the
+// create card's live read of the tier says that.
+const HERO_LP_LINE: Record<LpWriteMode, string> = {
+  off: 'This site reads pools and shares; adding and removing liquidity from here is not switched on yet.',
+  on: 'This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier (the pools section says whether that can be done right now).',
+  'withdraw-only': 'This site reads pools and shares. Adding liquidity and opening pools from here are paused; taking yours out still works.',
+};
+const VENUE_LP_LINE: Record<LpWriteMode, string> = {
+  off: 'This site only reads pools so far.',
+  on: 'This site can add and remove liquidity, and open new pools on the public fee tier (the pools section below says whether it can right now).',
+  'withdraw-only': 'This site can take liquidity out; adding liquidity and opening pools are paused.',
+};
+
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'good' }) {
   return (
     <div className="rounded-lg px-3 py-2" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -227,7 +248,7 @@ function Stat({ label, value, sub, tone }: { label: string; value: string; sub?:
  * is missing — "come back later" and "one instruction has not run" are
  * different facts and a reader deserves to know which one they are looking at.
  */
-function VenueStatusCard({ status, onRefresh }: { status: VenueStatus | null; onRefresh: () => void }) {
+function VenueStatusCard({ status, onRefresh, lpMode }: { status: VenueStatus | null; onRefresh: () => void; lpMode: LpWriteMode }) {
   const amber = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' };
   const green = { background: 'rgba(6,24,14,0.92)', border: '1px solid rgba(34,197,94,0.45)' };
 
@@ -249,7 +270,7 @@ function VenueStatusCard({ status, onRefresh }: { status: VenueStatus | null; on
         <h2 className="heading-luxury text-xl text-white mb-2">Pools are open</h2>
         <p className="text-white/80 text-[13px] leading-relaxed mb-3">
           The AMM is deployed and its config exists, so anyone can open a pool and provide
-          liquidity on chain. This site only reads pools so far. Fees below are read from
+          liquidity on chain. {VENUE_LP_LINE[lpMode]} Fees below are read from
           that config.
         </p>
         <div className="flex flex-wrap gap-3 text-[12px]">

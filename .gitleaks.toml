@@ -173,4 +173,13 @@ regexes = [
   '''\bFLCy81my7vNEaiqeFH7F1tk2aPR4Gcg8XSCFTvxWVps7\b''',
   # Reward vault: holds the rewards to be paid.
   '''\b3yFvfhdRS9WNJEwVec7fgB3KRcKAi7Lo4jUyzzDMPAK1\b''',
+  #
+  # \ TOKEN-2022 NATIVE MINT, added 2026-10-02 \\\\\\\\\\\\\\\\\\\\\\\\@
+  #
+  # SOL under the Token-2022 program: @solana/spl-token's own NATIVE_MINT_2022
+  # constant (lib/esm/constants.js). getAccountInfo on mainnet, 2026-10-02, slot
+  # 452,659,062: program owner TokenzQd..., parsed type "mint", 9 decimals.
+  # Flagged by `generic-api-key` as TOKEN_2022_NATIVE_MINT in
+  # frontend/src/lib/solana/lp/opening.ts:23 (commit 27131a79, PR #693).
+  '''\b9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP\b''',
 ]

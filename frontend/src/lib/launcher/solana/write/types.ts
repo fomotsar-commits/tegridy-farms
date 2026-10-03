@@ -1,7 +1,7 @@
 // The contract between the write layer and the page that drives it.
 //
-// Everything a page needs to offer a launch, a trade, a graduation or a pool
-// swap passes through these types, and every one of them keeps
+// Everything a page needs to offer a launch, a trade, a graduation, a pool
+// swap or a liquidity change passes through these types, and every one of them keeps
 // three answers apart that this repo has collapsed before:
 //
 //   - we READ it and the answer is no,
@@ -23,6 +23,8 @@ import type { GlobalConfig } from '../curve/program';
 import type { CurveBuyQuote, SellQuote } from '../curve/math';
 import type { AmmConfigView } from '../../../solana/cpswap/program';
 import type { OwnPoolQuote } from '../../../solana/cpswap/read';
+import type { PriceCheck } from '../../../solana/lp/poolHealth';
+import type { SafetyReason } from '../../../solana/lp/tokenSafety';
 
 export type SolanaCluster = 'mainnet' | 'devnet' | 'localnet';
 
@@ -71,6 +73,51 @@ export type WriteGate =
 
 export type OpenGate = Extract<WriteGate, { kind: 'open' }>;
 
+/**
+ * Whether adding or removing liquidity may be offered. Read from the cluster and the
+ * pool program only: never the launch program, `global` or a fee tier, so nothing
+ * about the launch program can close the way out of a pool (spec D2).
+ */
+export type LpGate =
+  /** LP's own switch is off, or there is no write configuration. */
+  | { kind: 'off' }
+  | { kind: 'blocked'; reason: GateBlock; detail: string }
+  /** `mode` 'withdraw-only': removing works, adding is paused. */
+  | { kind: 'open'; cfg: CurveWriteConfig; mode: 'on' | 'withdraw-only' };
+
+export type LpOpenGate = Extract<LpGate, { kind: 'open' }>;
+
+/** The public fee tier's terms a person is shown before opening a pool, and that prepare re-checks. */
+export type TierTerms = Pick<AmmConfigView, 'createPoolFee' | 'tradeFeeRate' | 'protocolFeeRate' | 'fundFeeRate' | 'creatorFeeRate'>;
+
+/**
+ * The public fee tier (tier 1), as read for opening a pool. Separate from `LpGate`:
+ * nothing here can close or open adding and removing liquidity (spec N3).
+ */
+export type TierState =
+  | { kind: 'ready'; address: PublicKey; config: AmmConfigView }
+  /** No account there: the vault has not created the tier yet. */
+  | { kind: 'not-open'; address: PublicKey }
+  /** The tier's `disable_create_pool` is on. */
+  | { kind: 'switched-off'; address: PublicKey; config: AmmConfigView }
+  /** Its fee to open is above this site's ceiling. */
+  | { kind: 'fee-too-high'; address: PublicKey; config: AmmConfigView; limit: bigint }
+  /** Something is there, but not the pool program's tier 1 (wrong owner, undecodable, another index). */
+  | { kind: 'not-a-tier'; address: PublicKey; detail: string }
+  | { kind: 'unread'; address: PublicKey; detail: string };
+
+/** The pool program's fee account for openings: it must be a native wrapped-SOL account, or every opening fails. */
+export type FeeAccountState =
+  | { kind: 'ready' }
+  | { kind: 'missing' }
+  | { kind: 'not-wsol'; detail: string }
+  | { kind: 'unread'; detail: string };
+
+export interface CreateFacts {
+  tier: TierState;
+  feeAccount: FeeAccountState;
+}
+
 export interface ActionAvailability {
   create: boolean;
   buy: boolean;
@@ -79,7 +126,18 @@ export interface ActionAvailability {
   poolSwap: boolean;
 }
 
-export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell';
+/** Adding and removing liquidity in one of our cp-swap pools, and opening a new one. */
+export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create';
+
+export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | LpKind;
+
+/**
+ * What a watched token account is, so the review can name it and print it in its
+ * own mint's decimals. `treasury` is the platform treasury's account (create: the
+ * reserve arriving); `workshop` is the island Workshop's $BAYLA account (create: the
+ * plant's half); the rest are the signer's own. No role = the signer's token.
+ */
+export type TokenRole = 'treasury' | 'workshop' | 'lp' | 'wsol' | 'token';
 
 /**
  * One instruction of the FINAL transaction, decoded back out of its bytes.
@@ -135,7 +193,17 @@ export type IntentStep =
   /** The plant, half 1: $BAYLA burned from the signer's own $BAYLA account (create only). */
   | { kind: 'plant-burn'; account: PublicKey; mint: PublicKey; amount: bigint }
   /** The plant, half 2: $BAYLA sent from that account to the island's Workshop (create only). */
-  | { kind: 'plant-transfer'; from: PublicKey; to: PublicKey; mint: PublicKey; amount: bigint };
+  | { kind: 'plant-transfer'; from: PublicKey; to: PublicKey; mint: PublicKey; amount: bigint }
+  /** cp-swap `deposit`: exactly `lpAmount` pool shares, at most `max0` / `max1` of each side. */
+  | { kind: 'pool-deposit'; pool: PublicKey; lpAmount: bigint; max0: bigint; max1: bigint }
+  /** cp-swap `withdraw`: `lpAmount` pool shares out of `lpAccount`, at least `min0` / `min1` back. */
+  | { kind: 'pool-withdraw'; pool: PublicKey; lpAccount: PublicKey; lpAmount: bigint; min0: bigint; min1: bigint }
+  /**
+   * cp-swap `initialize`: open `pool` on fee tier `ammConfig` (always tier 1) with exactly
+   * `init0` / `init1`. Its open time is always 0 (the decoder refuses any other), so it is
+   * not carried.
+   */
+  | { kind: 'pool-create'; pool: PublicKey; ammConfig: PublicKey; init0: bigint; init1: bigint };
 
 export type TxSummary =
   | {
@@ -220,7 +288,104 @@ export type TxSummary =
       quote: OwnPoolQuote;
       /** True when the transaction closes the wrapped-SOL account, so SOL comes back as plain SOL. */
       unwrapsWsol: boolean;
-    };
+    }
+  | LpDepositSummary
+  | LpWithdrawSummary
+  | LpCreateSummary;
+
+/**
+ * Adding liquidity, as the review shows it. Every amount comes from the prepared
+ * transaction: `max` is decoded from its bytes, `quoted` is the cost worked out from
+ * the fresh read it was built on.
+ */
+export interface LpDepositSummary {
+  kind: 'lp-deposit';
+  pool: PublicKey;
+  origin: PoolPins['origin'];
+  /** The pool's fee tier as read while preparing; `null` = not read (display only). */
+  config: AmmConfigView | null;
+  tokenMint: PublicKey;
+  tokenDecimals: number;
+  solIsToken0: boolean;
+  lpAmount: bigint;
+  lpDecimals: number;
+  /** The ceiling cost from the fresh snapshot. */
+  quoted: { sol: bigint; token: bigint };
+  /** Decoded from the bytes. */
+  max: { sol: bigint; token: bigint };
+  /** The other side's maximum was lowered to what the wallet holds. */
+  limitedByBalance: 'none' | 'sol' | 'token';
+  /** Display only. */
+  sharePct: { before: number; after: number };
+  /** The fresh price check that passed. */
+  price: PriceCheck;
+  tokenWarnings: SafetyReason[];
+  /** True when the wrapped-SOL account is closed at the end, so unused SOL comes back as plain SOL. */
+  unwrapsWsol: boolean;
+  wsolHeldBefore: bigint;
+  notices: string[];
+}
+
+/** Removing liquidity, as the review shows it. `min` is decoded from the bytes. */
+export interface LpWithdrawSummary {
+  kind: 'lp-withdraw';
+  pool: PublicKey;
+  origin: PoolPins['origin'];
+  config: AmmConfigView | null;
+  tokenMint: PublicKey;
+  tokenDecimals: number;
+  solIsToken0: boolean;
+  lpAccount: PublicKey;
+  lpAmount: bigint;
+  lpDecimals: number;
+  heldBefore: bigint;
+  /** Every pool share the account held. */
+  all: boolean;
+  keep: bigint;
+  /** The floor payout from the fresh snapshot. */
+  quoted: { sol: bigint; token: bigint };
+  min: { sol: bigint; token: bigint };
+  tokenAccount: PublicKey;
+  /** What opening the token account costs; `0n` when it exists. */
+  tokenAccountRent: bigint;
+  unwrapsWsol: boolean;
+  notices: string[];
+}
+
+/**
+ * Opening a new pool on the public fee tier, as the review shows it. Every amount comes
+ * from the prepared transaction: `put` is decoded from its bytes, the rents and the fee
+ * were read while preparing.
+ */
+export interface LpCreateSummary {
+  kind: 'lp-create';
+  pool: PublicKey;
+  /** `standard`: the pool's standard address for tier 1. `other`: a fresh key made in this browser. */
+  origin: 'standard' | 'other';
+  /** Tier 1 as read while preparing. Never null: prepare refuses without it. */
+  config: AmmConfigView;
+  tokenMint: PublicKey;
+  tokenDecimals: number;
+  solIsToken0: boolean;
+  /** Decoded from the bytes: exactly what goes in. */
+  put: { sol: bigint; token: bigint };
+  /** isqrt(sol·token), the pool's whole share count; `lpAmount` = supply − 100. */
+  supply: bigint;
+  lpAmount: bigint;
+  lpDecimals: 9;
+  /** What the 100 locked shares are worth at the opening amounts (display). */
+  locked: { sol: bigint; token: bigint };
+  createFee: bigint;
+  feeReceiver: PublicKey;
+  /** Read while preparing: the pool's own accounts (never returned), the opener's pool-share account (refundable). */
+  rents: { neverRefunded: bigint; lpAccount: bigint };
+  /** The opening check that passed: state 'agrees', against 'outside'. */
+  price: PriceCheck;
+  tokenWarnings: SafetyReason[];
+  unwrapsWsol: boolean;
+  wsolHeldBefore: bigint;
+  notices: string[];
+}
 
 /**
  * The trade fee's SCHEDULED split. The program pays the creator's share to the
@@ -245,21 +410,22 @@ export interface SimulatedEffect {
   /** Change in the signer's SOL balance, in lamports (negative = leaves the wallet). */
   signerLamportsDelta: bigint;
   /**
-   * Change in each watched token account. Without `role` it is the signer's own;
+   * Change in each watched token account, with the watch entry's `role` and
+   * `decimals` copied across. Without `role` it is the signer's own token;
    * `role: 'treasury'` is the platform treasury's (create: the reserve arriving), and
    * `role: 'workshop'` the island Workshop's $BAYLA account (create: the plant's half).
    */
-  tokenDeltas: Array<{ mint: PublicKey; account: PublicKey; delta: bigint; role?: WatchRole }>;
+  tokenDeltas: Array<{ mint: PublicKey; account: PublicKey; delta: bigint; role?: TokenRole; decimals?: number }>;
 }
-
-/** Whose a watched token account is, when it is not the signer's own. */
-export type WatchRole = 'treasury' | 'workshop';
 
 export interface PreparedTx {
   kind: TxKind;
   /** Legacy transaction: fee payer = the wallet, blockhash and compute budget set. */
   tx: Transaction;
-  /** `create`: the fresh mint keypair (kept in memory only). Everything else: none. */
+  /**
+   * `create`: the fresh mint keypair. `lp-create` on a one-off address: the new pool's
+   * keypair. Memory only. Everything else: none.
+   */
   extraSigners: Keypair[];
   blockhash: string;
   lastValidBlockHeight: number;
@@ -298,16 +464,35 @@ export interface PreparedCheck {
 /** What was on chain before the transaction, for the accounts the check watches. */
 export interface PreState {
   signerLamports: bigint;
-  tokens: Map<string, { exists: boolean; amount: bigint }>;
+  tokens: Map<string, PreToken>;
 }
 
-/** What `intent.ts` needs to judge a transaction for one signer. */
-export interface IntentContext {
+/**
+ * One watched token account before the transaction. `lamports` and `nativeReserve`
+ * matter only for wrapped SOL: a sync turns every lamport above the reserve and the
+ * balance into balance, so the check needs both to know what a sync may add
+ * (`syncCredit` in wsol.ts). `nativeReserve` is null for an account that is not native.
+ */
+export interface PreToken {
+  exists: boolean;
+  amount: bigint;
+  lamports: bigint;
+  nativeReserve: bigint | null;
+}
+
+/**
+ * What `intent.ts` needs to judge a transaction for one signer: a launch-program
+ * transaction (`CurveIntent`), or adding or removing liquidity (`PoolIntent`).
+ */
+export type IntentContext = CurveIntent | PoolIntent;
+
+/** A launch, a curve trade, a graduation or a launch pool's swap. Every field it had before liquidity stays required. */
+export interface CurveIntent {
   /**
    * What this transaction is for. Each kind may call only its own programs: a create
    * never reaches the pool program, a curve trade never reaches Token Metadata.
    */
-  kind: TxKind;
+  kind: Exclude<TxKind, LpKind>;
   signer: PublicKey;
   cfg: CurveWriteConfig;
   /** Read off the decoded global, never guessed. */
@@ -319,6 +504,42 @@ export interface IntentContext {
   mint: PublicKey;
   /** The most priority fee this transaction may carry, in lamports. */
   maxPriorityLamports: bigint;
+}
+
+/**
+ * One pool, as checked while preparing. Built ONLY by `poolPins()` from the
+ * prepare-time read: each vault, the LP mint and the price record equal BOTH the
+ * derivation from the pool address AND the pool's own recorded field. Never taken
+ * from the page's copy, which can be stale or a hostile pool.
+ */
+export interface PoolPins {
+  address: PublicKey;
+  ammConfig: PublicKey;
+  origin: 'launch-pool' | 'standard' | 'other';
+  token0Mint: PublicKey;
+  token1Mint: PublicKey;
+  token0Program: PublicKey;
+  token1Program: PublicKey;
+  vault0: PublicKey;
+  vault1: PublicKey;
+  lpMint: PublicKey;
+  observation: PublicKey;
+  /** The side that is not SOL. */
+  tokenMint: PublicKey;
+  tokenProgram: PublicKey;
+  solIsToken0: boolean;
+  /** Deposit: ATA(lpMint, signer, Tokenkeg). Withdraw: the pool-share account verified at prepare. */
+  lpAccount: PublicKey;
+}
+
+/** Adding or removing liquidity: every account the pool instruction names is pinned by `pins`. */
+export interface PoolIntent {
+  kind: LpKind;
+  signer: PublicKey;
+  cfg: CurveWriteConfig;
+  /** The most priority fee this transaction may carry, in lamports. */
+  maxPriorityLamports: bigint;
+  pins: PoolPins;
 }
 
 /**
@@ -336,8 +557,12 @@ export interface Expectation {
 
 export interface WatchList {
   signer: PublicKey;
-  /** The signer's own token accounts, plus (create only) the treasury's and the Workshop's, marked by `role`. */
-  tokenAccounts: Array<{ account: PublicKey; mint: PublicKey; role?: WatchRole }>;
+  /**
+   * The signer's own token accounts, plus (create only) the treasury's and the
+   * Workshop's, marked by `role`. `decimals` is that mint's, when the builder knows
+   * it; the review falls back to the page's token decimals without it.
+   */
+  tokenAccounts: Array<{ account: PublicKey; mint: PublicKey; role?: TokenRole; decimals?: number }>;
 }
 
 export type NotSent = {

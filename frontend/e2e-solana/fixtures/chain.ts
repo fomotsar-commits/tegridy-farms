@@ -9,18 +9,22 @@
 // rpc.ts / index.ts are deliberately NOT imported: they pull in lib/solana.ts, which
 // reads import.meta.env at load and does not exist in Node.
 import {
-  Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction,
+  ComputeBudgetProgram, Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction,
   type TransactionInstruction, type TransactionResponse, type VersionedTransactionResponse,
 } from '@solana/web3.js';
-import { createAssociatedTokenAccountIdempotentInstruction, createInitializeMint2Instruction, MINT_SIZE } from '@solana/spl-token';
 import {
-  REGISTERED_CP_SWAP_PROGRAM_ID, REGISTERED_PROGRAM_ID, WSOL_MINT, TOKEN_PROGRAM_ID,
+  AuthorityType, createAssociatedTokenAccountIdempotentInstruction, createCloseAccountInstruction, createInitializeMint2Instruction,
+  createSetAuthorityInstruction, createSyncNativeInstruction, MINT_SIZE,
+} from '@solana/spl-token';
+import {
+  REGISTERED_CP_SWAP_PROGRAM_ID, REGISTERED_PROGRAM_ID, WSOL_MINT, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID,
   curvePda, poolStatePda, migrationAuthorityPda, type GlobalConfig,
 } from '../../src/lib/launcher/solana/curve/program';
 import { readCurve, readGlobal, readDeployment, type CurveAccount } from '../../src/lib/launcher/solana/curve/read';
-import { associatedTokenAddress, buyIx, createLaunchIx } from '../../src/lib/launcher/solana/curve/ix';
+import { MIGRATE_COMPUTE_UNITS, associatedTokenAddress, buyIx, createLaunchIx, migrateToAmmIx } from '../../src/lib/launcher/solana/curve/ix';
 import { quoteBuyOnCurve, type CurveTerms } from '../../src/lib/launcher/solana/curve/math';
 import { decodeAmmConfig, decodePoolState, deriveAmmConfig, type AmmConfigView, type PoolStateView } from '../../src/lib/solana/cpswap/program';
+import { swapBaseInputIx } from '../../src/lib/solana/cpswap/ix';
 import { quoteOwnPool, type PoolSnapshot } from '../../src/lib/solana/cpswap/read';
 import { vaultAmountWithoutFee } from '../../src/lib/solana/cpswap/math';
 
@@ -67,24 +71,51 @@ export async function lamports(pk: PublicKey): Promise<bigint> {
   return BigInt(await chain().getBalance(pk, 'confirmed'));
 }
 
-/** Raw token amount of a token account; null when the account does not exist. */
+/** Either token program: the classic one or Token-2022. */
+export const isTokenProgram = (p: PublicKey) => p.equals(TOKEN_PROGRAM_ID) || p.equals(TOKEN_2022_PROGRAM_ID);
+
+/**
+ * Raw token amount of a token account, under either token program; null when the
+ * account does not exist. The first 165 bytes are the same layout in both (a Token-2022
+ * account only appends its extensions after them).
+ */
 export async function tokenAmount(account: PublicKey): Promise<bigint | null> {
   const a = await chain().getAccountInfo(account, 'confirmed');
   if (!a) return null;
-  if (!a.owner.equals(TOKEN_PROGRAM_ID) || a.data.length < 72) throw new Error(`${account.toBase58()} is not a token account`);
+  if (!isTokenProgram(a.owner) || a.data.length < 165) throw new Error(`${account.toBase58()} is not a token account`);
   return a.data.readBigUInt64LE(64);
 }
 
-export const ata = (mint: PublicKey, owner: PublicKey) => associatedTokenAddress(mint, owner);
+/** The associated token account of `owner` for `mint`, under `program` (classic unless said). */
+export const ata = (mint: PublicKey, owner: PublicKey, program: PublicKey = TOKEN_PROGRAM_ID) => associatedTokenAddress(mint, owner, program);
 
+// The shape is pinned by launch-flow.spec.ts (`toEqual`): the owning program is read
+// with `accountOwner`, never added here.
 export interface MintFacts { mintAuthority: PublicKey | null; supply: bigint; decimals: number; freezeAuthority: PublicKey | null }
-/** SPL Mint, decoded by hand: COption<Pubkey> | u64 | u8 | bool | COption<Pubkey>. */
+/**
+ * SPL Mint, decoded by hand: COption<Pubkey> | u64 | u8 | bool | COption<Pubkey>.
+ * A Token-2022 mint has the same first 82 bytes; its extensions follow them.
+ */
 export async function mintFacts(mint: PublicKey): Promise<MintFacts> {
   const a = await chain().getAccountInfo(mint, 'confirmed');
-  if (!a || !a.owner.equals(TOKEN_PROGRAM_ID) || a.data.length !== 82) throw new Error(`${mint.toBase58()} is not an SPL mint`);
+  const classicOk = !!a && a.owner.equals(TOKEN_PROGRAM_ID) && a.data.length === 82;
+  const t22Ok = !!a && a.owner.equals(TOKEN_2022_PROGRAM_ID) && a.data.length >= 82;
+  if (!a || !(classicOk || t22Ok)) throw new Error(`${mint.toBase58()} is not an SPL mint`);
   const d = a.data;
   const opt = (o: number) => (d.readUInt32LE(o) === 1 ? new PublicKey(d.subarray(o + 4, o + 36)) : null);
   return { mintAuthority: opt(0), supply: d.readBigUInt64LE(36), decimals: d[44], freezeAuthority: opt(46) };
+}
+
+/** The program that owns an account; null when it does not exist. */
+export async function accountOwner(address: PublicKey): Promise<PublicKey | null> {
+  const a = await chain().getAccountInfo(address, 'confirmed');
+  return a ? a.owner : null;
+}
+
+/** The data length of an account; null when it does not exist. */
+export async function accountDataLength(address: PublicKey): Promise<number | null> {
+  const a = await chain().getAccountInfo(address, 'confirmed');
+  return a ? a.data.length : null;
 }
 
 export const metadataAddress = (mint: PublicKey) =>
@@ -160,7 +191,21 @@ export async function launchPool(mint: PublicKey): Promise<PoolFacts> {
   const pool = decodePoolState(address.toBase58(), a.data);
   if (!pool) throw new Error('pool does not decode');
   const cfgAddr = deriveAmmConfig(CP_SWAP_PROGRAM, 0);
-  const c = await conn.getAccountInfo(cfgAddr, 'confirmed');
+  return poolWithBooks(address, a.owner, pool, cfgAddr);
+}
+
+/** ANY pool of the pool program, at any address, with the fee tier it records itself. */
+export async function poolFacts(address: PublicKey): Promise<PoolFacts> {
+  const a = await chain().getAccountInfo(address, 'confirmed');
+  if (!a) throw new Error(`no pool at ${address.toBase58()}`);
+  if (!a.owner.equals(CP_SWAP_PROGRAM)) throw new Error(`${address.toBase58()} is not owned by the pool program`);
+  const pool = decodePoolState(address.toBase58(), a.data);
+  if (!pool) throw new Error('pool does not decode');
+  return poolWithBooks(address, a.owner, pool, new PublicKey(pool.ammConfig));
+}
+
+async function poolWithBooks(address: PublicKey, owner: PublicKey, pool: PoolStateView, cfgAddr: PublicKey): Promise<PoolFacts> {
+  const c = await chain().getAccountInfo(cfgAddr, 'confirmed');
   const ammConfig = c ? decodeAmmConfig(cfgAddr.toBase58(), c.data) : null;
   if (!ammConfig) throw new Error('AmmConfig does not decode');
   const v0 = await tokenAmount(new PublicKey(pool.token0Vault));
@@ -169,7 +214,7 @@ export async function launchPool(mint: PublicKey): Promise<PoolFacts> {
   const reserve0 = vaultAmountWithoutFee(v0, pool.protocolFeesToken0, pool.fundFeesToken0, pool.creatorFeesToken0);
   const reserve1 = vaultAmountWithoutFee(v1, pool.protocolFeesToken1, pool.fundFeesToken1, pool.creatorFeesToken1);
   if (reserve0 === null || reserve1 === null) throw new Error('pool books do not balance');
-  return { address, owner: a.owner, pool, ammConfig, snapshot: { pool, vault0Amount: v0, vault1Amount: v1, reserve0, reserve1 } };
+  return { address, owner, pool, ammConfig, snapshot: { pool, vault0Amount: v0, vault1Amount: v1, reserve0, reserve1 } };
 }
 
 /** What cp-swap will pay for `amountIn` of `inputMint`, from the pool as it is NOW. */
@@ -228,13 +273,15 @@ export const sol = (n: number) => BigInt(Math.round(n * LAMPORTS_PER_SOL));
 // made directly with the frontend's own curve/ix.ts, with NO metadata, the way a launch
 // made outside this site looks. The page must cope with that too.
 
-export async function sendFromNode(ixs: TransactionInstruction[], signers: Keypair[]): Promise<string> {
+export async function sendFromNode(ixs: TransactionInstruction[], signers: Keypair[], settle: 'confirmed' | 'finalized' = 'finalized'): Promise<string> {
   await assertLocalCluster();
   const tx = new Transaction().add(...ixs);
   tx.feePayer = signers[0].publicKey;
   // FINALIZED, not confirmed: the page reads at the RPC's default (finalized) commitment, and
-  // a fixture must be settled before the page under test looks at it.
+  // a fixture must be settled before the page under test looks at it. A push made DURING a
+  // scenario may stop at confirmed: the LP pages and the pool index read at confirmed.
   const sig = await sendAndConfirmTransaction(chain(), tx, signers, { commitment: 'confirmed', preflightCommitment: 'confirmed' });
+  if (settle === 'confirmed') return sig;
   for (let i = 0; i < 120; i++) {
     const s = (await chain().getSignatureStatuses([sig])).value[0];
     if (s?.confirmationStatus === 'finalized') return sig;
@@ -267,4 +314,143 @@ export async function buyDirect(trader: Keypair, mint: PublicKey, lamportsIn: bi
     buyIx({ trader: trader.publicKey, mint, feeRecipient: g.feeRecipient, creator: c.curve.creator }, lamportsIn, q.value.tokensOut, { programId: LAUNCH_PROGRAM, cpSwapProgram: CP_SWAP_PROGRAM }),
   ], [trader]);
   return q.value.tokensOut;
+}
+
+// ── stage-2 fixtures (liquidity): graduation, pushes, wrapped SOL, the drainer pattern ──
+
+/** The vault's WSOL account: cp-swap's fixed create-pool-fee receiver (the binary's constant). */
+export const CREATE_POOL_FEE_RECEIVER = new PublicKey('2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa');
+
+export interface Graduated { mint: PublicKey; pool: PublicKey; signature: string }
+/**
+ * A launch made from Node, bought to its target by `buyer`, then graduated: the launch
+ * program opens its pool at ['launchpool', mint] on the launch tier and burns the pool
+ * shares. Never traded afterwards (the "nobody has traded since graduation" case).
+ */
+export async function graduateDirect(creator: Keypair, buyer: Keypair): Promise<Graduated> {
+  const mint = await createLaunchDirect(creator);
+  const g = await globalConfig();
+  // The program caps a buy at what is left to the target, so asking for more fills it exactly.
+  await buyDirect(buyer, mint, 2n * (g.graduationTargetLamports + g.migrationReserveLamports));
+  const c = await curve(mint);
+  if (!c) throw new Error('no curve after the buy');
+  const signature = await sendFromNode([
+    ComputeBudgetProgram.setComputeUnitLimit({ units: MIGRATE_COMPUTE_UNITS }),
+    migrateToAmmIx(
+      { payer: buyer.publicKey, creator: c.curve.creator, feeRecipient: g.feeRecipient, launchMint: mint, ammConfig: g.ammConfig, createPoolFee: CREATE_POOL_FEE_RECEIVER },
+      { programId: LAUNCH_PROGRAM, cpSwapProgram: CP_SWAP_PROGRAM },
+    ),
+  ], [buyer]);
+  const pool = poolStatePda(mint, LAUNCH_PROGRAM);
+  if (!(await accountOwner(pool))?.equals(CP_SWAP_PROGRAM)) throw new Error(`graduation landed but no pool at ${pool.toBase58()}`);
+  return { mint, pool, signature };
+}
+
+/**
+ * A swap made from Node straight against the pool program (a price push), with no
+ * slippage floor worth the name: it is the fixture moving the market, not the site.
+ * SOL in or out goes through `kp`'s classic WSOL account, which is closed at the end
+ * only when this call created it. Stops at `confirmed` unless told otherwise.
+ * `outAmount` is the output account's token change; when SOL comes out and is unwrapped,
+ * it is `kp`'s net lamport change instead (after the network fee).
+ */
+export async function swapDirect(
+  kp: Keypair,
+  pool: PublicKey,
+  inputMint: PublicKey,
+  amountIn: bigint,
+  o: { settle?: 'confirmed' | 'finalized' } = {},
+): Promise<{ signature: string; outAmount: bigint }> {
+  const f = await poolFacts(pool);
+  const p = f.pool;
+  const m0 = new PublicKey(p.token0Mint);
+  const m1 = new PublicKey(p.token1Mint);
+  const inIs0 = inputMint.equals(m0);
+  if (!inIs0 && !inputMint.equals(m1)) throw new Error(`${inputMint.toBase58()} is not a side of ${pool.toBase58()}`);
+  const outputMint = inIs0 ? m1 : m0;
+  const inProg = new PublicKey(inIs0 ? p.token0Program : p.token1Program);
+  const outProg = new PublicKey(inIs0 ? p.token1Program : p.token0Program);
+  const inAcc = ata(inputMint, kp.publicKey, inProg);
+  const outAcc = ata(outputMint, kp.publicKey, outProg);
+  const wsolAcc = ata(WSOL, kp.publicKey);
+  const wsolExisted = (await chain().getAccountInfo(wsolAcc, 'confirmed')) !== null;
+  const outBefore = (await tokenAmount(outAcc)) ?? 0n;
+  const ixs: TransactionInstruction[] = [];
+  if (inputMint.equals(WSOL)) {
+    ixs.push(
+      createAssociatedTokenAccountIdempotentInstruction(kp.publicKey, wsolAcc, kp.publicKey, WSOL),
+      SystemProgram.transfer({ fromPubkey: kp.publicKey, toPubkey: wsolAcc, lamports: amountIn }),
+      createSyncNativeInstruction(wsolAcc),
+    );
+  }
+  ixs.push(
+    createAssociatedTokenAccountIdempotentInstruction(kp.publicKey, outAcc, kp.publicKey, outputMint, outProg),
+    swapBaseInputIx({
+      programId: CP_SWAP_PROGRAM,
+      payer: kp.publicKey,
+      ammConfig: new PublicKey(p.ammConfig),
+      poolState: pool,
+      inputTokenAccount: inAcc,
+      outputTokenAccount: outAcc,
+      inputVault: new PublicKey(inIs0 ? p.token0Vault : p.token1Vault),
+      outputVault: new PublicKey(inIs0 ? p.token1Vault : p.token0Vault),
+      inputTokenProgram: inProg,
+      outputTokenProgram: outProg,
+      inputTokenMint: inputMint,
+      outputTokenMint: outputMint,
+      observationState: new PublicKey(p.observationKey),
+      amountIn,
+      minimumAmountOut: 1n,
+    }),
+  );
+  const outIsSol = outputMint.equals(WSOL);
+  if (!wsolExisted && (inputMint.equals(WSOL) || outIsSol)) ixs.push(createCloseAccountInstruction(wsolAcc, kp.publicKey, kp.publicKey));
+  const signature = await sendFromNode(ixs, [kp], o.settle ?? 'confirmed');
+  if (outIsSol && !wsolExisted) {
+    const t = await landedTx(signature);
+    return { signature, outAmount: lamportDelta(t, kp.publicKey) };
+  }
+  return { signature, outAmount: ((await tokenAmount(outAcc)) ?? 0n) - outBefore };
+}
+
+/**
+ * Every pool of the pool program that pairs `mint` (either side), optionally only those
+ * `creator` opened: "exactly one pool by this creator". Read by NODE straight from the
+ * validator with getProgramAccounts (the page is never allowed to scan; Node is the
+ * referee). Offsets from the PoolState layout: pool_creator 40, token_0_mint 168,
+ * token_1_mint 200, 637 bytes.
+ */
+export async function poolsFor(mint: PublicKey, creator?: PublicKey): Promise<PublicKey[]> {
+  await assertLocalCluster();
+  const found = new Map<string, PublicKey>();
+  for (const offset of [168, 200]) {
+    const filters = [
+      { dataSize: 637 },
+      { memcmp: { offset, bytes: mint.toBase58() } },
+      ...(creator ? [{ memcmp: { offset: 40, bytes: creator.toBase58() } }] : []),
+    ];
+    const rows = await chain().getProgramAccounts(CP_SWAP_PROGRAM, { commitment: 'confirmed', filters });
+    for (const r of rows) found.set(r.pubkey.toBase58(), r.pubkey);
+  }
+  return [...found.values()].sort((a, b) => a.toBase58().localeCompare(b.toBase58()));
+}
+
+/** Wrap `lamports` of `kp`'s SOL into its classic WSOL account (created if missing). Settles to finalized. */
+export async function wrapSol(kp: Keypair, lamports: bigint): Promise<PublicKey> {
+  const account = ata(WSOL, kp.publicKey);
+  await sendFromNode([
+    createAssociatedTokenAccountIdempotentInstruction(kp.publicKey, account, kp.publicKey, WSOL),
+    SystemProgram.transfer({ fromPubkey: kp.publicKey, toPubkey: account, lamports }),
+    createSyncNativeInstruction(account),
+  ], [kp]);
+  return account;
+}
+
+/**
+ * The drainer pattern: `kp` hands ownership of its classic token account `account` to
+ * `newOwner` (SetAuthority AccountOwner). The address stays `kp`'s ATA; the money in it
+ * no longer answers to `kp`.
+ */
+export async function reassignAtaOwner(kp: Keypair, account: PublicKey, newOwner: PublicKey): Promise<string> {
+  return sendFromNode([createSetAuthorityInstruction(account, kp.publicKey, AuthorityType.AccountOwner, newOwner)], [kp]);
 }

@@ -14,6 +14,14 @@ vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({})
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 // The LP section has its own tests (components/solana/lp); here only WHEN it mounts matters.
 vi.mock('../components/solana/lp/SolanaLpSection', () => ({ default: () => <div data-testid="lp-section" /> }));
+// LP's own switch, steerable per test (spec addendum D24): the page's words about what this
+// site can do with the pools follow it. Every other test sees 'off' (the reads-only page),
+// whatever is committed; the committed value is pinned in lpWriteFlag.test.ts.
+const lp = vi.hoisted(() => ({ mode: 'off' as 'off' | 'on' | 'withdraw-only' }));
+vi.mock('../lib/launcher/solana/lpWriteFlag', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/launcher/solana/lpWriteFlag')>()),
+  lpWriteMode: () => lp.mode,
+}));
 
 const PROGRAM = '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y';
 
@@ -139,6 +147,18 @@ describe('when the venue is live', () => {
     expect(screen.getByText('0.3 SOL')).toBeInTheDocument();
     expect(screen.getByText(/read from the chain on load/i)).toBeInTheDocument();
   });
+
+  // The page also offers "Open a pool" on the public tier, which charges its own fee. This card
+  // reads the graduation tier only, so it must say which tier it is, or its "Open a pool" figure
+  // reads as the price of opening a pool here.
+  it('names the tier it reads, and says pools opened here use the public tier', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
+    expect(sheet).toHaveTextContent(/tier 0, graduated launch pools/);
+    expect(sheet).toHaveTextContent(/fee on tier 0/);
+    expect(sheet).toHaveTextContent(/Pools opened from this site use the public fee tier/);
+  });
 });
 
 describe('when the chain cannot be read', () => {
@@ -215,5 +235,62 @@ describe('always', () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/has no program id to read/i)).toBeInTheDocument());
     expect(screen.queryByTestId('lp-section')).not.toBeInTheDocument();
+  });
+});
+
+// Addendum D24 (C8): the two "not switched on yet" sentences follow LP's own switch, so
+// flipping it (or the e2e build, where it is already 'on') never leaves this page saying
+// something false. The routing card is about the swap and stays in every mode.
+describe("what this site can do with the pools follows LP's own switch", () => {
+  const live = () =>
+    readVenue.mockResolvedValue({
+      kind: 'live',
+      programId: PROGRAM,
+      config: {
+        address: 'CfG1111111111111111111111111111111111111111',
+        index: 0, disableCreatePool: false,
+        tradeFeeRate: 2500n, protocolFeeRate: 200_000n, fundFeeRate: 0n,
+        createPoolFee: 0n, creatorFeeRate: 500n,
+        protocolOwner: 'Own1', fundOwner: 'Own2',
+      },
+    });
+  beforeEach(() => { lp.mode = 'off'; live(); });
+
+  it("'off': reads only, and says adding and removing are not switched on", async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    expect(screen.getByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/This site only reads pools so far\./)).toBeInTheDocument();
+    expect(screen.getByText(/still goes through\s+Jupiter/i)).toBeInTheDocument();
+  });
+
+  it("'on': says what the section below can do, and never that it is not switched on", async () => {
+    lp.mode = 'on';
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    // SPEC_S2_CREATE 2.6 (K4): opening a pool joins the 'on' copy. Whether the public tier
+    // exists is said only by the create card's live read, never by this fixed copy (B review parity-3).
+    expect(
+      screen.getByText(/below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier \(the pools section says whether that can be done right now\)\./i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/This site can add and remove liquidity, and open new pools on the public fee tier \(the pools section below says whether it can right now\)\./),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/once (the public fee tier|that tier) exists/i);
+    expect(screen.queryByText(/does not open pools/i)).toBeNull();
+    // The swap's routing card keeps its own "not switched on yet" (addendum D24); this is the LP one.
+    expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
+    expect(screen.queryByText(/only reads pools so far/i)).toBeNull();
+    // The swap's own routing is a different matter: still through Jupiter, in every mode.
+    expect(screen.getByText(/still goes through\s+Jupiter/i)).toBeInTheDocument();
+  });
+
+  it("'withdraw-only': adding is paused, taking liquidity out still works", async () => {
+    lp.mode = 'withdraw-only';
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    expect(screen.getByText(/Adding liquidity and opening pools from here are paused; taking yours out still works\./)).toBeInTheDocument();
+    expect(screen.getByText(/This site can take liquidity out; adding liquidity and opening pools are paused\./)).toBeInTheDocument();
+    expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
   });
 });

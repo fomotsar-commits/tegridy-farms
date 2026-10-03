@@ -25,10 +25,14 @@ import { getMultipleAccounts } from './accounts';
  * outside price. A quote without a readable route is not one either.
  *
  * NO ROUTE IS AN ANSWER. Our proxy turns Jupiter's own "no route" codes into a 404
- * (api/aggregator.js `noRouteErrorCodes`) and every other failure into a 502. Only the
- * 404 is `no-route`: Jupiter answered, and this token has no market it can reach. Every
- * other failure is `unread`. The two must stay apart, because a launch pool falls back
- * to its own history only on `no-route` (poolHealth.ts); a down Jupiter is not "no
+ * with the fixed body `{"error":"No route","code":"NO_ROUTE"}` (api/aggregator.js
+ * `noRouteErrorCodes`) and every other failure into a 502. Two rules decide `no-route`:
+ *   1. only a 404 whose JSON body carries `code: "NO_ROUTE"`; any other 404 (a path off
+ *      the proxy's allowlist, an unknown provider, a broken platform rewrite) is unread;
+ *   2. only on the BUY quote. A priced buy proves the token has an outside market, so a
+ *      sale back with no route is unread, not "no market".
+ * Everything else is `unread`. The two must stay apart, because a launch pool falls
+ * back to its own history only on `no-route` (poolHealth.ts); a down Jupiter is not "no
  * outside market".
  */
 
@@ -68,6 +72,16 @@ function isAddress(s: unknown): s is string {
   }
 }
 
+/** The proxy's "no route" answer: `{"error":"No route","code":"NO_ROUTE"}` (api/_lib/aggregator-proxy.js). */
+async function isNoRouteBody(res: Response): Promise<boolean> {
+  try {
+    const body = (await res.json()) as { code?: unknown } | null;
+    return body !== null && typeof body === 'object' && body.code === 'NO_ROUTE';
+  } catch {
+    return false;
+  }
+}
+
 async function quote(
   inputMint: string,
   outputMint: string,
@@ -84,7 +98,9 @@ async function quote(
     restrictIntermediateTokens: 'true',
   });
   const res = await fetchImpl(`${JUPITER_PROXY_BASE}/quote?${qs.toString()}`, { headers: { Accept: 'application/json' }, signal });
-  if (res.status === 404) throw new NoRoute('Jupiter has no route for this token');
+  // Only our proxy's fixed answer is "no route". Any other 404 (a path off its
+  // allowlist, an unknown provider, a platform rewrite gone wrong) is a failed read.
+  if (res.status === 404 && (await isNoRouteBody(res))) throw new NoRoute('Jupiter has no route for this token');
   if (!res.ok) throw new Error(`Jupiter did not give a price (HTTP ${res.status})`);
   const q = (await res.json()) as QuoteShape;
   if (q.inputMint !== inputMint || q.outputMint !== outputMint || q.inAmount !== amount.toString()) {
@@ -117,15 +133,25 @@ export async function readOutsidePrice(
   let tokensOut: bigint;
   let lamportsBack: bigint;
   let pools: string[];
+  const failed = (e: unknown): OutsidePrice => ({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) });
+  let buy: { out: bigint; pools: string[] };
   try {
-    const buy = await quote(SOL_MINT, mint, PROBE_LAMPORTS, fetchImpl, signal);
+    buy = await quote(SOL_MINT, mint, PROBE_LAMPORTS, fetchImpl, signal);
+  } catch (e) {
+    // "No route" counts only on the BUY: Jupiter answered that it cannot reach this token.
+    if (e instanceof NoRoute) return { kind: 'no-route', detail: e.message };
+    return failed(e);
+  }
+  try {
     const sell = await quote(mint, SOL_MINT, buy.out, fetchImpl, signal);
     tokensOut = buy.out;
     lamportsBack = sell.out;
     pools = [...new Set([...buy.pools, ...sell.pools])];
   } catch (e) {
-    if (e instanceof NoRoute) return { kind: 'no-route', detail: e.message };
-    return { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
+    // A priced buy proves an outside market, so a sale with no route is a failed read
+    // (an amount no route fills), never "no market".
+    if (e instanceof NoRoute) return { kind: 'unread', detail: 'Jupiter priced a buy but not the sale back' };
+    return failed(e);
   }
   if (pools.length > MAX_ROUTE_POOLS) return { kind: 'unread', detail: 'Jupiter’s price came through more pools than we can check' };
   try {

@@ -37,6 +37,8 @@ export interface SignRecord {
   signature: string | null;
   /** Wire size of the transaction as the page handed it over. */
   bytes: number;
+  /** The message version the page handed over (transactions only). */
+  version?: 'legacy' | 0;
   instructions: SignedIx[];
   /** For kind 'message': the text that was presented. */
   text?: string;
@@ -55,18 +57,41 @@ export interface TestWallet {
   lastIx(name: string): SignedIx;
 }
 
+export interface TestWalletOptions {
+  /**
+   * The transaction versions the wallet says it signs (Wallet Standard
+   * `supportedTransactionVersions`). Default both. `['legacy']` is a legacy-only wallet:
+   * it also REFUSES a versioned message, as such a wallet cannot sign one.
+   */
+  versions?: ('legacy' | 0)[];
+}
+
 /**
  * Register the wallet in every page of `context`. One wallet per context: a second
  * call on the same context throws (the binding name is fixed).
  */
-export async function installTestWallet(context: BrowserContext, keypair: Keypair, name = TEST_WALLET_NAME): Promise<TestWallet> {
+export async function installTestWallet(context: BrowserContext, keypair: Keypair, name = TEST_WALLET_NAME, o: TestWalletOptions = {}): Promise<TestWallet> {
   let mode: 'approve' | 'decline' = 'approve';
   const records: SignRecord[] = [];
+  const versions = o.versions ?? ['legacy', 0];
+  if (versions.length === 0) throw new Error('a wallet must sign at least one transaction version');
 
   await context.exposeBinding(BINDING, async (_source, txBase64: string): Promise<string> => {
     const bytes = Uint8Array.from(Buffer.from(txBase64, 'base64'));
     const rec: SignRecord = { at: new Date().toISOString(), kind: 'transaction', outcome: 'refused', reason: null, signature: null, bytes: bytes.length, instructions: [] };
     records.push(rec);
+    let version: 'legacy' | 0;
+    try {
+      version = VersionedTransaction.deserialize(bytes).version;
+    } catch (e) {
+      rec.reason = `the wallet could not read the transaction: ${(e as Error).message}`;
+      throw new Error(`E2E wallet refused to sign: ${rec.reason}`, { cause: e });
+    }
+    rec.version = version;
+    if (!versions.includes(version)) {
+      rec.reason = `a ${version === 'legacy' ? 'legacy' : 'version 0'} transaction, which this wallet does not sign (it signs ${versions.join(', ')})`;
+      throw new Error(`E2E wallet refused to sign: ${rec.reason}`);
+    }
     try {
       rec.instructions = await checkTransaction(bytes, keypair.publicKey);
     } catch (e) {
@@ -116,7 +141,7 @@ export async function installTestWallet(context: BrowserContext, keypair: Keypai
   });
 
   await context.addInitScript(
-    ({ name, address, pk, chains, icon, binding, messageBinding }) => {
+    ({ name, address, pk, chains, icon, binding, messageBinding, versions }) => {
       type Listener = (props: { accounts?: unknown[] }) => void;
       const listeners = new Set<Listener>();
       let connected = false;
@@ -145,7 +170,7 @@ export async function installTestWallet(context: BrowserContext, keypair: Keypai
           'standard:events': { version: '1.0.0', on: (event: string, l: Listener) => { if (event === 'change') listeners.add(l); return () => listeners.delete(l); } },
           'solana:signTransaction': {
             version: '1.0.0',
-            supportedTransactionVersions: ['legacy', 0],
+            supportedTransactionVersions: versions,
             signTransaction: async (...inputs: { transaction: Uint8Array }[]) => {
               const outputs = [];
               for (const input of inputs) outputs.push({ signedTransaction: unb64(await sign(b64(input.transaction))) });
@@ -172,7 +197,7 @@ export async function installTestWallet(context: BrowserContext, keypair: Keypai
       try { window.dispatchEvent(new RegisterWalletEvent(callback)); } catch (e) { console.error('e2e wallet: register failed', e); }
       try { window.addEventListener('wallet-standard:app-ready', ((ev: CustomEvent) => callback(ev.detail)) as EventListener); } catch (e) { console.error('e2e wallet: app-ready failed', e); }
     },
-    { name, address: keypair.publicKey.toBase58(), pk: Array.from(keypair.publicKey.toBytes()), chains: CHAINS, icon: ICON, binding: BINDING, messageBinding: MESSAGE_BINDING },
+    { name, address: keypair.publicKey.toBase58(), pk: Array.from(keypair.publicKey.toBytes()), chains: CHAINS, icon: ICON, binding: BINDING, messageBinding: MESSAGE_BINDING, versions },
   );
 
   return {
