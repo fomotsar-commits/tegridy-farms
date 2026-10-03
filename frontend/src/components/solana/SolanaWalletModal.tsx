@@ -20,6 +20,7 @@ import { WalletModalContext, useWalletModal } from '@solana/wallet-adapter-react
 import { orderWallets, rowStatus, scansForWallet, waitedOnWalletLabel, walletLabel } from '../../lib/solanaWalletOrder';
 import { WalletConnectWalletAdapter, type WalletConnectPairing } from '../../lib/solanaWalletConnect';
 import { shortSolanaAddress } from '../../lib/solanaSurface';
+import { useWalletResync } from './useWalletResync';
 
 /**
  * The Solana connect modal — upstream's WalletModal (wallet-adapter-react-ui
@@ -512,6 +513,8 @@ function WalletConnectQr({
  */
 export function SolanaWalletModalProvider({ children }: { children: ReactNode }) {
   const [visible, setVisible] = useState(false);
+  // Here because this provider is mounted once inside every Solana section's WalletProvider.
+  useWalletResync();
   const value = useMemo(() => ({ visible, setVisible }), [visible]);
   return (
     <WalletModalContext.Provider value={value}>
