@@ -55,6 +55,31 @@ describe('readWalletFacts', () => {
     expect(wrong).toMatchObject({ kind: 'unread', detail: expect.stringMatching(/different token/) });
   });
 
+  // Anyone can send SOL to an associated address before its account exists. That is no
+  // account yet: it must not turn the whole read into "could not read" (no Max, no hints),
+  // and the pool-share account still has to be paid for.
+  it('an address that only holds SOL someone sent it is read as no account: the token, wrapped SOL and pool shares', async () => {
+    const w = wallet();
+    const bare: FakeAccount = { owner: '11111111111111111111111111111111', data: new Uint8Array(0), lamports: 890_880 };
+    for (const k of [ata(w.mint, w.owner), ata(new PublicKey(WSOL_MINT), w.owner), ata(w.lpMint, w.owner)]) w.accounts[k] = bare;
+    const f = await readWalletFacts(fakeRpc(w.accounts), { owner: w.owner.toBase58(), tokenMint: w.mint.toBase58(), tokenProgram: TOKEN_PROGRAM, lpMint: w.lpMint.toBase58() });
+    // The wallet itself is System-owned with no data too, and is still read.
+    expect(f).toMatchObject({ kind: 'ok', lamports: 3_000_000_000n, token: null, wsol: { exists: false, amount: 0n }, lpAccountExists: false });
+  });
+
+  it('anything else at such an address is still unread: data under the System program, or no data under a token program', async () => {
+    const odd: FakeAccount[] = [
+      { owner: '11111111111111111111111111111111', data: new Uint8Array(80), lamports: 890_880 },
+      { owner: TOKEN_PROGRAM, data: new Uint8Array(0), lamports: 890_880 },
+    ];
+    for (const account of odd) {
+      const w = wallet();
+      w.accounts[ata(new PublicKey(WSOL_MINT), w.owner)] = account;
+      const f = await readWalletFacts(fakeRpc(w.accounts), { owner: w.owner.toBase58(), tokenMint: w.mint.toBase58(), tokenProgram: TOKEN_PROGRAM, lpMint: null });
+      expect(f).toMatchObject({ kind: 'unread', detail: expect.stringMatching(/wrapped-SOL account is not a token account/) });
+    }
+  });
+
   it('asks the rents once per session', async () => {
     const w = wallet();
     const calls: [string, unknown[]][] = [];

@@ -55,6 +55,7 @@ import type {
   WatchList,
   WriteRpc,
 } from './types';
+import { opened } from './wsol';
 
 /** Account reads at 'confirmed', the level the write path confirms at. */
 export function confirmedReads(rpc: WriteRpc): CurveRpc {
@@ -122,9 +123,11 @@ async function readPreState(rpc: WriteRpc, watch: WatchList): Promise<PreState> 
   }
   const tokens = new Map<string, PreToken>();
   watch.tokenAccounts.forEach((t, i) => {
-    const info = infos[i + 1];
+    // An address that only holds SOL someone sent it is no token account yet (`opened`):
+    // it has no balance, and `lamports` says what already sits there.
+    const info = opened(infos[i + 1]);
     if (!info) {
-      tokens.set(t.account.toBase58(), { exists: false, amount: 0n, lamports: 0n, nativeReserve: null });
+      tokens.set(t.account.toBase58(), { exists: false, amount: 0n, lamports: BigInt(infos[i + 1]?.lamports ?? 0), nativeReserve: null });
       return;
     }
     const amt = tokenAmount(info.data);

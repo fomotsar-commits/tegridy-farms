@@ -25,6 +25,7 @@ import {
   LP_COPY,
   LP_FEE_RESERVE,
   POOL_READ_FAILED,
+  accountCheck,
   depositStepsProblem,
   poolPins,
   prepareLpDeposit,
@@ -36,7 +37,20 @@ import {
   type WriteSnapshot,
 } from './liquidity';
 import { TX_SIZE_LIMIT } from './prepare';
-import { CPSWAP, EXT, FakeChain, addPool, cfgLocal, rent, setClock, type PoolFixture, type SimHandler } from './testkit.fixture';
+import {
+  CPSWAP,
+  EXT,
+  FakeChain,
+  addPool,
+  beforeBalanceRun,
+  cfgLocal,
+  openAccount,
+  rent,
+  setClock,
+  skewTestRun,
+  type PoolFixture,
+  type SimHandler,
+} from './testkit.fixture';
 import type { LpOpenGate, PreparedTx, WriteRpc, LpDepositSummary, LpWithdrawSummary, IntentStep } from './types';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
@@ -82,15 +96,17 @@ const lpSimulator: SimHandler = (vtx: VersionedTransaction, config, chain) => {
   const wsolAta = associatedTokenAddress(WSOL_MINT, ME);
   const userTok = pool.accounts[solIs0 ? 5 : 4]!;
   const userLp = pool.accounts[3]!;
-  const created = new Set(ixs.filter((i) => i.program.equals(ASSOCIATED_TOKEN_PROGRAM_ID)).map((i) => i.accounts[1]!.toBase58()).filter((k) => !chain.accounts.has(k)));
-  const createRent = (k: PublicKey) => {
-    if (!created.has(k.toBase58())) return 0;
-    const program = ixs.find((i) => i.program.equals(ASSOCIATED_TOKEN_PROGRAM_ID) && i.accounts[1]!.equals(k))!.accounts[5]!;
-    return program.equals(TOKEN_2022_PROGRAM_ID) ? rent(170) : rent(165);
-  };
+  // What the signer pays to open accounts: a full deposit each, or only the top-up for an
+  // address that already holds SOL someone sent it.
+  const paidToOpen = ixs
+    .filter((i) => i.program.equals(ASSOCIATED_TOKEN_PROGRAM_ID))
+    .reduce((n, i) => n + openAccount(chain, i.accounts[1]!, i.accounts[5]!.equals(TOKEN_2022_PROGRAM_ID) ? 170 : 165).paid, 0);
   const wrapped = ixs.filter((i) => i.program.equals(SYSTEM_PROGRAM_ID)).reduce((n, i) => n + new DataView(i.data.buffer, i.data.byteOffset, i.data.byteLength).getBigUint64(4, true), 0n);
   const closes = ixs.some((i) => i.program.equals(TOKEN_PROGRAM_ID) && i.data[0] === 9);
-  const wsolBefore = amountAt(chain, wsolAta) ?? 0n;
+  // Both kinds open the wrapped-SOL account first. Opened over lamports already there, it
+  // starts with those above its deposit as balance.
+  const wsolLamports = openAccount(chain, wsolAta).lamports;
+  const wsolBefore = amountAt(chain, wsolAta) ?? BigInt(wsolLamports - rent(165));
   const tokBefore = amountAt(chain, userTok) ?? 0n;
   const lpBefore = amountAt(chain, userLp) ?? 0n;
 
@@ -116,8 +132,8 @@ const lpSimulator: SimHandler = (vtx: VersionedTransaction, config, chain) => {
   if (!config?.accounts) return { err: null, logs: [], unitsConsumed: 60_000 };
 
   const wsolAfter = wsolBefore + wrapped + solMoved;
-  const signerDelta =
-    -Number(wrapped) - createRent(wsolAta) - createRent(userLp) - createRent(userTok) + (closes ? Number(wsolAfter) + rent(165) : 0);
+  // The close hands back every lamport in the account.
+  const signerDelta = -Number(wrapped) - paidToOpen + (closes ? wsolLamports + Number(wrapped + solMoved) : 0);
   const changes: Parameters<FakeChain['post']>[1] = {
     [ME.toBase58()]: { lamportsDelta: signerDelta },
     [userTok.toBase58()]: { tokenAmount: tokBefore + tokMoved, mint: new PublicKey(solIs0 ? state.token1Mint : state.token0Mint), owner: ME },
@@ -594,9 +610,13 @@ describe('prepareLpWithdraw: what may refuse it', () => {
     expect(refused(await withdraw(holding({ frozenTokenVault: true })))).toBe(LP_COPY.vaultFrozen);
   });
 
-  it('a transfer-fee token: this site cannot build it yet (and says the program still allows it)', async () => {
+  // The row still offers Remove in this state, so the "Leaving without this site" block
+  // is not on screen: the refusal must stand on its own and point at nothing.
+  it('a transfer-fee token: this site cannot build it yet, says the program still allows it, and points at no section that is not shown', async () => {
     const w = holding({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
-    expect(refused(await withdraw(w))).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer fee.*Leaving without this site/);
+    const msg = refused(await withdraw(w));
+    expect(msg).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer fee[^)]*\)\. The pool program still lets you withdraw/);
+    expect(msg).not.toMatch(/Leaving without this site|\bsee\b/i);
   });
 
   it('a payout account a stranger owns is refused, naming the owner; required memos are refused; so is a spender who could take the payout', async () => {
@@ -705,11 +725,11 @@ describe('the balance check is sized to the plan (spec 3.4)', () => {
     return [r.minDelta, r.maxDelta];
   };
 
-  it('deposit: exactly the shares, at most the token maximum and at least 1, the wrapped SOL back where it was, and SOL out = the maximum plus the new account', async () => {
+  it('deposit: at least the shares, at most the token maximum and at least 1, the wrapped SOL back where it was, and SOL out = the maximum plus the new account', async () => {
     const w = world();
     const p = ok(await deposit(w));
     const s = p.summary as LpDepositSummary;
-    expect(row(p, w.lpAta)).toEqual([s.lpAmount, s.lpAmount]);
+    expect(row(p, w.lpAta)).toEqual([s.lpAmount, 2n ** 64n]);
     expect(row(p, w.tokenAta)).toEqual([-s.max.token, -1n]);
     expect(row(p, w.wsolAta)).toEqual([0n, 0n]);
     expect(p.check.expect.maxSolOut).toBe(s.max.sol + BigInt(rent(165)));
@@ -722,11 +742,11 @@ describe('the balance check is sized to the plan (spec 3.4)', () => {
     expect(q.fees.newAccountRentLamports).toBe(0n);
   });
 
-  it('withdraw: exactly the shares out, at least the minimum in with no upper bound, and SOL at least the minimum less a new account', async () => {
+  it('withdraw: at most the shares out, at least the minimum in with no upper bound, and SOL at least the minimum less a new account', async () => {
     const w = holding({ heldTokens: null });
     const p = ok(await withdraw(w));
     const s = p.summary as LpWithdrawSummary;
-    expect(row(p, w.lpAta)).toEqual([-s.lpAmount, -s.lpAmount]);
+    expect(row(p, w.lpAta)).toEqual([-s.lpAmount, 2n ** 64n]);
     expect(row(p, w.tokenAta)).toEqual([s.min.token, 2n ** 64n]);
     expect(row(p, w.wsolAta)).toEqual([0n, 0n]);
     expect(p.check.expect.maxSolOut).toBe(BigInt(rent(165)));
@@ -795,5 +815,186 @@ describe('size', () => {
     expect(dep.steps.some((s) => s.kind === 'close-wsol')).toBe(true);
     expect(dep.sizeBytes).toBeLessThanOrEqual(limit);
     expect(out.sizeBytes).toBeLessThanOrEqual(limit);
+  });
+});
+
+// ── SOL sent to an address before its account exists ─────────────────────────
+//
+// Anyone can send SOL to a wallet's associated address before an account is opened
+// there. The address then reads as owned by the System program, with no data. That is
+// no account yet: create-if-missing adopts it, and the signer pays only what is missing
+// from its deposit. It must never refuse a withdrawal or a deposit, or a stranger could
+// close the way out of a pool with dust.
+
+describe('SOL sent to an address before its account exists is no account', () => {
+  /** The least a bare address can hold, and more than a token account's deposit. */
+  const SENT = [rent(0), rent(165) + 12_345];
+  const row = (p: PreparedTx, k: PublicKey) => {
+    const r = p.check.expect.tokens.find((t) => t.account.equals(k))!;
+    return [r.minDelta, r.maxDelta];
+  };
+  const moved = (p: PreparedTx, k: PublicKey) => p.simulated.tokenDeltas.find((d) => d.account.equals(k))!.delta;
+
+  it('withdraw, at the wrapped-SOL address: it prepares, and those lamports come back with the payout', async () => {
+    for (const sent of SENT) {
+      const w = holding();
+      w.chain.fund(w.wsolAta, sent);
+      const p = ok(await withdraw(w));
+      const s = p.summary as LpWithdrawSummary;
+      expect(s.unwrapsWsol, String(sent)).toBe(true);
+      expect(row(p, w.wsolAta), String(sent)).toEqual([0n, 0n]);
+      expect(moved(p, w.wsolAta), String(sent)).toBe(0n);
+      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(s.quoted.sol + BigInt(sent));
+    }
+  });
+
+  it('withdraw, at the token address (classic and Token-2022): it prepares, and the wallet pays only what is missing from the deposit', async () => {
+    for (const tokenProgram of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
+      const deposit = rent(tokenProgram.equals(TOKEN_2022_PROGRAM_ID) ? 170 : 165);
+      for (const sent of SENT) {
+        const label = `${tokenProgram.toBase58()} ${sent}`;
+        const w = holding({ tokenProgram, heldTokens: null });
+        w.chain.fund(w.tokenAta, sent);
+        const p = ok(await withdraw(w));
+        const s = p.summary as LpWithdrawSummary;
+        // The review states the whole deposit, and the check allows at most that.
+        expect(s.tokenAccountRent, label).toBe(BigInt(deposit));
+        expect(p.check.expect.maxSolOut, label).toBe(BigInt(deposit));
+        expect(moved(p, w.tokenAta), label).toBe(s.quoted.token);
+        expect(p.simulated.signerLamportsDelta, label).toBe(s.quoted.sol - BigInt(Math.max(0, deposit - sent)));
+      }
+    }
+  });
+
+  it('deposit, at the wrapped-SOL address: it prepares, and those lamports come back at the close', async () => {
+    for (const sent of SENT) {
+      const w = world();
+      w.chain.fund(w.wsolAta, sent);
+      const p = ok(await deposit(w));
+      const s = p.summary as LpDepositSummary;
+      expect(s.unwrapsWsol, String(sent)).toBe(true);
+      expect(s.wsolHeldBefore, String(sent)).toBe(0n);
+      expect(row(p, w.wsolAta), String(sent)).toEqual([0n, 0n]);
+      // Out: the cost and the new pool-share account. Back: what was sent to the address.
+      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-s.quoted.sol - BigInt(rent(165)) + BigInt(sent));
+    }
+  });
+
+  it('deposit, at the pool-share address: it prepares, exactly the shares arrive, and the wallet pays only what is missing from the deposit', async () => {
+    for (const sent of SENT) {
+      const w = world();
+      w.chain.fund(w.lpAta, sent);
+      const p = ok(await deposit(w));
+      const s = p.summary as LpDepositSummary;
+      expect(moved(p, w.lpAta), String(sent)).toBe(s.lpAmount);
+      expect(s.sharePct.before, String(sent)).toBe(0);
+      expect(p.check.expect.maxSolOut, String(sent)).toBe(s.max.sol + BigInt(rent(165)));
+      expect(p.fees.newAccountRentLamports, String(sent)).toBe(BigInt(rent(165)));
+      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-s.quoted.sol - BigInt(Math.max(0, rent(165) - sent)));
+    }
+  });
+
+  it('deposit: the most this wallet can put in still sets aside a full deposit for each such address', async () => {
+    const wallet = 1_000_000_000n;
+    const w = world({ wallet });
+    w.chain.fund(w.wsolAta, rent(0));
+    w.chain.fund(w.lpAta, rent(0));
+    const most = spendableSol({ lamports: wallet, walletFloor: BigInt(rent(0)), feeReserve: LP_FEE_RESERVE, lpAccountRent: BigInt(rent(165)), wsolCreateRent: BigInt(rent(165)) });
+    expect(refused(await deposit(w, { maxIn: most + 1n }))).toBe(LP_COPY.rentBand(`${(Number(most) / 1e9).toFixed(9).replace(/0+$/, '')} SOL`));
+    ok(await deposit(w, { maxIn: most }));
+  });
+
+  it('deposit: a token address that only holds SOL is said as holding none of the token', async () => {
+    const w = world({ heldTokens: null });
+    w.chain.fund(w.tokenAta, rent(0));
+    expect(refused(await deposit(w))).toBe(LP_COPY.noTokenAccount(w.tokenAta.toBase58()));
+  });
+
+  it('accountCheck itself reads it as absent, whoever calls it', () => {
+    const bare = { address: STRANGER.toBase58(), owner: SYSTEM_PROGRAM_ID.toBase58(), data: new Uint8Array(0), lamports: rent(0) };
+    for (const use of ['source', 'destination'] as const) {
+      expect(accountCheck(bare, { owner: ME, mint: WSOL_MINT, program: TOKEN_PROGRAM_ID, use, what: 'wrapped SOL' })).toEqual({ notices: [] });
+    }
+  });
+
+  it('anything else at the address is still refused: another owner, or data that is not a token account', async () => {
+    const cases: Array<[string, { owner: PublicKey; data: Uint8Array }]> = [
+      ['owned by the System program, with data', { owner: SYSTEM_PROGRAM_ID, data: new Uint8Array(80) }],
+      ['no data, owned by another program', { owner: STRANGER, data: new Uint8Array(0) }],
+      ['owned by the token program, too short to be a token account', { owner: TOKEN_PROGRAM_ID, data: new Uint8Array(0) }],
+    ];
+    for (const [label, a] of cases) {
+      const out = holding();
+      out.chain.set(out.wsolAta, { lamports: rent(0), ...a });
+      expect(refused(await withdraw(out)), label).toBe(LP_COPY.notUsable('wrapped SOL', out.wsolAta.toBase58()));
+      const tok = holding({ heldTokens: null });
+      tok.chain.set(tok.tokenAta, { lamports: rent(0), ...a });
+      expect(refused(await withdraw(tok)), label).toBe(LP_COPY.notUsable('token', tok.tokenAta.toBase58()));
+      const into = world();
+      into.chain.set(into.lpAta, { lamports: rent(0), ...a });
+      expect(refused(await deposit(into)), label).toBe(LP_COPY.notUsable('pool-share', into.lpAta.toBase58()));
+    }
+    // A pool-share address that only holds SOL has no shares to take out.
+    const none = world();
+    none.chain.fund(none.lpAta, rent(0));
+    expect(refused(await withdraw(none))).toBe(LP_COPY.shareChanged);
+  });
+});
+
+// ── a credit between the balance read and the test run ───────────────────────
+//
+// The balances are read a slot or more before the test run, so whatever a stranger sends
+// in between shows up as a larger change. A row that allowed only the exact change let
+// one unit of dust a slot block every Review. What protects the signer stays: no more
+// may leave than the review says, and no less may arrive.
+
+describe('a credit between the balance read and the test run does not block; a shortfall still does', () => {
+  const BLOCKED = { status: 'not-sent', stage: 'simulate', message: 'Blocked: the simulation shows a different token amount than this screen says.' };
+  const outcome = (r: Awaited<ReturnType<typeof withdraw>>) => (r.ok ? 'prepared' : r.outcome);
+  const moved = (p: PreparedTx, k: PublicKey) => p.simulated.tokenDeltas.find((d) => d.account.equals(k))!.delta;
+
+  it('withdraw: a pool share a stranger sends to your account in between does not block it', async () => {
+    const w = holding();
+    beforeBalanceRun(w.chain, () => w.chain.tokenAccount(w.lpAta, w.pool.lpMint, ME, LP_SUPPLY / 10n + 1n));
+    const p = ok(await withdraw(w));
+    expect(moved(p, w.lpAta)).toBe(1n - (p.summary as LpWithdrawSummary).lpAmount);
+  });
+
+  it('withdraw: one share more than the review says leaving your account is still blocked', async () => {
+    const w = holding();
+    skewTestRun(w.chain, w.lpAta, -1n);
+    expect(outcome(await withdraw(w))).toMatchObject(BLOCKED);
+  });
+
+  it('withdraw: exactly the minimum arriving passes; one token, or one lamport, less is still blocked', async () => {
+    const clean = ok(await withdraw(holding()));
+    const s = clean.summary as LpWithdrawSummary;
+    const fees = clean.fees.baseLamports + clean.fees.priorityLamports;
+    const tokenShort = s.quoted.token - s.min.token;
+    const solShort = s.quoted.sol - s.min.sol + fees;
+
+    const atMin = holding();
+    skewTestRun(atMin.chain, atMin.tokenAta, -tokenShort);
+    skewTestRun(atMin.chain, ME, -solShort);
+    ok(await withdraw(atMin));
+
+    const fewerTokens = holding();
+    skewTestRun(fewerTokens.chain, fewerTokens.tokenAta, -tokenShort - 1n);
+    expect(outcome(await withdraw(fewerTokens))).toMatchObject(BLOCKED);
+
+    const lessSol = holding();
+    skewTestRun(lessSol.chain, ME, -solShort - 1n);
+    expect(outcome(await withdraw(lessSol))).toMatchObject({ stage: 'simulate', message: 'Blocked: the simulation shows less SOL arriving than this screen says.' });
+  });
+
+  it('deposit: a pool share a stranger sends in between does not block it; one share fewer than the review says still does', async () => {
+    const w = world({ heldLp: 5n });
+    beforeBalanceRun(w.chain, () => w.chain.tokenAccount(w.lpAta, w.pool.lpMint, ME, 6n));
+    const p = ok(await deposit(w));
+    expect(moved(p, w.lpAta)).toBe((p.summary as LpDepositSummary).lpAmount + 1n);
+
+    const short = world();
+    skewTestRun(short.chain, short.lpAta, -1n);
+    expect(outcome(await deposit(short))).toMatchObject(BLOCKED);
   });
 });

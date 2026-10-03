@@ -930,6 +930,23 @@ describe('pool swap: the wrapped-SOL account is always checked', () => {
     expect(p.summary).toMatchObject({ kind: 'pool-sell', unwrapsWsol: true });
   });
 
+  // Anyone can send SOL to the wrapped-SOL address before the account exists. The swap's
+  // own create-if-missing opens the account over it, and the close hands those lamports
+  // to the signer with the sale.
+  it('sell with unwrap: an address that only holds SOL someone sent it is opened, closed, and the sale arrives as plain SOL', async () => {
+    const { chain, gate, lp, out } = await sellSetup();
+    const sent = rent(0);
+    chain.fund(WSOL_ATA, sent);
+    simulating(chain, {
+      [ME.toBase58()]: { lamportsDelta: Number(out) + sent },
+      [ATA.toBase58()]: { tokenAmount: 0n, mint: MINT, owner: ME },
+      [WSOL_ATA.toBase58()]: { closed: true },
+    });
+    const p = ok(await preparePoolSwap(W(chain), gate, { owner: ME, mint: MINT, pool: lp, side: 'sell', amountIn: SELL, slippageBps: 100n }));
+    expect(p.summary).toMatchObject({ kind: 'pool-sell', unwrapsWsol: true });
+    expect(p.check.pre.tokens.get(WSOL_ATA.toBase58())).toEqual({ exists: false, amount: 0n, lamports: BigInt(sent), nativeReserve: null });
+  });
+
   it('each watched account says what it is, and wrapped SOL carries its own 9 decimals', async () => {
     const { chain, gate, lp, out } = await sellSetup();
     chain.tokenAccount(WSOL_ATA, WSOL_MINT, ME, 5n);
@@ -944,5 +961,36 @@ describe('pool swap: the wrapped-SOL account is always checked', () => {
     ]);
     expect(p.simulated.tokenDeltas).toContainEqual({ mint: WSOL_MINT, account: WSOL_ATA, delta: out, role: 'wsol', decimals: 9 });
     expect(p.simulated.tokenDeltas).toContainEqual({ mint: MINT, account: ATA, delta: -SELL, role: 'token' });
+  });
+});
+
+// The balance read every kind of transaction passes through used to throw "is not a token
+// account" for an address that only holds SOL someone sent it, so dust at a buyer's token
+// address stopped the buy. It is no account yet: the buy opens one over it.
+describe('the balance read: SOL sent to a watched address before its account exists is no account', () => {
+  it('curve buy: it builds, the wallet pays only what is missing from the deposit, and the whole deposit is still allowed for', async () => {
+    const { chain, gate, curve } = await setup();
+    const sent = rent(0);
+    chain.fund(ATA, sent);
+    const lamportsIn = 300_000_000n;
+    const q = quoteBuyOnCurve(curve.curve, lamportsIn);
+    if (!q.ok) throw new Error('quote');
+    simulating(chain, {
+      [ME.toBase58()]: { lamportsDelta: -(Number(lamportsIn) + TOKEN_RENT - sent) },
+      [ATA.toBase58()]: { tokenAmount: q.value.tokensOut, mint: MINT, owner: ME },
+    });
+    const p = ok(await prepareCurveBuy(W(chain), gate, { trader: ME, mint: MINT, curve, lamportsIn, slippageBps: 100n }));
+    expect(p.check.pre.tokens.get(ATA.toBase58())).toEqual({ exists: false, amount: 0n, lamports: BigInt(sent), nativeReserve: null });
+    expect(p.check.expect.maxSolOut).toBe(lamportsIn + BigInt(TOKEN_RENT));
+    expect(p.simulated.tokenDeltas[0]!.delta).toBe(q.value.tokensOut);
+  });
+
+  it('an account there that is not a token account still stops the build', async () => {
+    const { chain, gate, curve } = await setup();
+    chain.set(ATA, { lamports: rent(0), owner: CREATOR, data: new Uint8Array(0) });
+    simulating(chain, {});
+    const r = await prepareCurveBuy(W(chain), gate, { trader: ME, mint: MINT, curve, lamportsIn: 300_000_000n, slippageBps: 100n });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.outcome).toMatchObject({ stage: 'build', message: expect.stringMatching(/is not a token account/) });
   });
 });

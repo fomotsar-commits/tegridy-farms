@@ -2,6 +2,7 @@ import { PublicKey } from '@solana/web3.js';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { associatedTokenAddress } from '../../launcher/solana/curve/ix';
+import { opened } from '../../launcher/solana/write/wsol';
 import { getMultipleAccounts, type RawAccount } from './accounts';
 import { NEVER_REFUNDED_ACCOUNT_SIZES } from './poolFinder';
 import { TOKEN_PROGRAM, WSOL_MINT } from './tokenSafety';
@@ -73,7 +74,9 @@ export async function readWalletFacts(
       rent(rpc, 165),
       a.opening ? Promise.all(NEVER_REFUNDED_ACCOUNT_SIZES.map((n) => rent(rpc, n))).then((r) => r.reduce((sum, v) => sum + v, 0n)) : null,
     ]);
-    const [wallet, tok, wsol, lp] = accounts;
+    const [wallet, ...own] = accounts;
+    // An address that only holds SOL someone sent it is no account yet (`opened`).
+    const [tok, wsol, lp] = own.map(opened);
     return {
       kind: 'ok',
       lamports: BigInt(wallet?.lamports ?? 0),
