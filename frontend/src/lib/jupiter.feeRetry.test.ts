@@ -75,6 +75,25 @@ describe('isJupiterIncorrectTokenProgram: exactly Jupiter\'s 6014, raised by Jup
     }
   });
 
+  // The two halves of the rule, each held alone. The test above changes the
+  // structured code AND the log line together, so a matcher that read only one
+  // of them still passed it.
+  it('no: the structured error says 6001 while the logs carry Jupiter\'s own 0x177e line', async () => {
+    const { isJupiterIncorrectTokenProgram } = await load();
+    // The logs alone would say yes (the first test proves it); the code the RPC reported says no.
+    expect(isJupiterIncorrectTokenProgram(SWAP_TX, { InstructionError: [2, { Custom: 6001 }] }, LOGS_JUP_6014)).toBe(false);
+  });
+
+  it('no: the structured error says 6014 while Jupiter\'s first failed line carries another code', async () => {
+    const { isJupiterIncorrectTokenProgram } = await load();
+    // Jupiter IS the first program reported failed, at the right instruction, but with 6001 (0x1771).
+    const logs = LOGS_JUP_6014.map((l) => l.replace('0x177e', '0x1771'));
+    expect(logs).toContain(`Program ${JUP} failed: custom program error: 0x1771`);
+    expect(isJupiterIncorrectTokenProgram(SWAP_TX, ERR_6014_AT_2, logs)).toBe(false);
+    // A later Jupiter line with the right code does not rescue it: only the FIRST failed line counts.
+    expect(isJupiterIncorrectTokenProgram(SWAP_TX, ERR_6014_AT_2, [...logs, `Program ${JUP} failed: custom program error: 0x177e`])).toBe(false);
+  });
+
   it('no: a non-custom instruction error, a non-instruction error, or no error at all', async () => {
     const { isJupiterIncorrectTokenProgram } = await load();
     const no = (err: unknown) => expect(isJupiterIncorrectTokenProgram(SWAP_TX, err, LOGS_JUP_6014)).toBe(false);
