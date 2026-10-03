@@ -36,8 +36,9 @@
 // THE PAIRING COIN (quotes.ts). A pool opens paired with SOL, USDC or BAYLA. SOL goes in
 // through the signer's wrapped-SOL account, as above. USDC and BAYLA are plain tokens:
 // nothing is wrapped and no account is opened, the coin is spent from the signer's own
-// account for it (which must hold it), and the single read also takes that account and
-// the coin's own mint (20 accounts). The fee to open is paid in SOL whatever the coin.
+// account for it (which must hold it), and the single read takes that account in the
+// wrapped-SOL account's place and then the coin's own mint (19 accounts). The fee to open
+// is paid in SOL whatever the coin.
 //
 // The one-off key lives only in `PreparedTx.extraSigners`: never in the summary, the
 // check, a note, storage, the URL or a log. It signs after the wallet (submit.ts), and
