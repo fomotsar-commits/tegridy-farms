@@ -24,7 +24,7 @@ export const TOKEN_2022_NATIVE_MINT = '9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdX
 
 const LAMPORTS_PER_SOL = 1e9;
 
-/** SOL per whole token at these opening amounts, or null; the same formula as `poolSolPerToken`. */
+/** SOL per whole token at these opening amounts, or null; the same formula as `poolPricePerToken`. */
 export function openingSolPerToken(sol: bigint, token: bigint, decimals: number): number | null {
   if (sol <= 0n || token <= 0n) return null;
   const p = Number(sol) / LAMPORTS_PER_SOL / (Number(token) / 10 ** decimals);

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { assessPool, comparePrice, poolSolPerToken, PRICE_TOLERANCE, FAR_FUTURE_SECS, tokenReasons } from './poolHealth';
+import { assessPool, comparePrice, poolPricePerToken, PRICE_TOLERANCE, FAR_FUTURE_SECS, tokenReasons } from './poolHealth';
 import { decodeObservationState } from './ownPrice';
 import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISABLE_WITHDRAW } from '../cpswap/program';
 import type { PoolView } from './poolFinder';
@@ -24,7 +24,7 @@ const noOutside = { kind: 'no-route' as const, detail: 'Jupiter has no route for
 
 describe('assessPool', () => {
   it('prices the pool from its reserves, SOL per whole token', () => {
-    expect(poolSolPerToken(view().snapshot, mint.toBase58(), 6)).toBeCloseTo(0.01, 12);
+    expect(poolPricePerToken(view().snapshot, mint.toBase58(), 6)).toBeCloseTo(0.01, 12);
   });
 
   it('a healthy pool: open, price within 3% of the outside price, token ok → deposits allowed', () => {

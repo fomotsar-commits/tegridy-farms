@@ -1,10 +1,10 @@
 import { depositEnabled, swapEnabled, withdrawEnabled } from '../cpswap/program';
 import type { PoolSnapshot } from '../cpswap/read';
-import type { OutsidePrice } from './outsidePrice';
+import { priceInQuote, type OutsidePrice } from './outsidePrice';
 import { ownAveragePrice, type OwnPrice } from './ownPrice';
 import type { PoolView } from './poolFinder';
+import { readPair } from './quotes';
 import type { TokenSafety } from './tokenSafety';
-import { WSOL_MINT } from './tokenSafety';
 
 /**
  * Is this pool safe to deposit into right now? Pure: every input was read elsewhere.
@@ -25,6 +25,12 @@ import { WSOL_MINT } from './tokenSafety';
  *   - the pool is empty on either side (no price at all);
  *   - the token itself is blocked (tokenSafety.ts), or it copies a well-known token's
  *     name from a different mint.
+ *
+ * EVERY PRICE HERE IS IN THE POOL'S OWN PAIRING COIN (quotes.ts): SOL per token for a
+ * SOL pool, USDC per token for a USDC pool, BAYLA per token for a BAYLA pool. Jupiter is
+ * only ever asked for SOL prices; a USDC or BAYLA pool's reference is the token's SOL
+ * price over that coin's own SOL price (`priceInQuote`), and when the coin's price
+ * could not be read the pool is unchecked.
  *
  * THE REFERENCE PRICE. The outside price (Jupiter) when there is one. A launch pool,
  * which only the launch program can open, usually has none (it is the token's only
@@ -77,22 +83,18 @@ export function withdrawalsState(view: Pick<PoolView, 'vaultsFrozen'> & { snapsh
   return withdrawEnabled(view.snapshot.pool) ? 'open' : 'switched-off';
 }
 
-/** SOL per whole token from the pool's tradeable reserves, or null (empty / not a SOL pair). */
-export function poolSolPerToken(snapshot: PoolSnapshot, tokenMint: string, tokenDecimals: number): number | null {
-  const { pool } = snapshot;
-  let solRes: bigint;
-  let tokRes: bigint;
-  if (pool.token0Mint === WSOL_MINT && pool.token1Mint === tokenMint) {
-    solRes = snapshot.reserve0;
-    tokRes = snapshot.reserve1;
-  } else if (pool.token1Mint === WSOL_MINT && pool.token0Mint === tokenMint) {
-    solRes = snapshot.reserve1;
-    tokRes = snapshot.reserve0;
-  } else {
-    return null;
-  }
-  if (solRes <= 0n || tokRes <= 0n) return null;
-  const p = (Number(solRes) / 1e9) / (Number(tokRes) / 10 ** tokenDecimals);
+/**
+ * The pool's price: whole pairing coins per whole token, from its tradeable reserves.
+ * Null when the pool is empty on a side, or is not `tokenMint` paired with a pairing
+ * coin (`readPair`: BAYLA/SOL is BAYLA's pool, so it has no price as "SOL's pool").
+ */
+export function poolPricePerToken(snapshot: PoolSnapshot, tokenMint: string, tokenDecimals: number): number | null {
+  const pair = readPair(snapshot.pool.token0Mint, snapshot.pool.token1Mint);
+  if (!pair || pair.tokenMint !== tokenMint) return null;
+  const quoteRes = pair.quoteIsToken0 ? snapshot.reserve0 : snapshot.reserve1;
+  const tokRes = pair.quoteIsToken0 ? snapshot.reserve1 : snapshot.reserve0;
+  if (quoteRes <= 0n || tokRes <= 0n) return null;
+  const p = (Number(quoteRes) / 10 ** pair.quote.decimals) / (Number(tokRes) / 10 ** tokenDecimals);
   return Number.isFinite(p) && p > 0 ? p : null;
 }
 
@@ -153,10 +155,18 @@ export function assessPool(input: {
   tokenDecimals: number | null;
   /** The cluster's clock, or null when it was not read. */
   chainNow: bigint | null;
+  /** The TOKEN's outside price, in SOL. */
   outside: OutsidePrice | null;
+  /**
+   * The pool's PAIRING COIN's own outside price, in SOL (USDC's, or BAYLA's). A SOL pool
+   * never looks at it; any other pool is unchecked without it.
+   */
+  coinOutside?: OutsidePrice | null;
   safety: TokenSafety | null;
 }): PoolHealth {
   const { view, tokenDecimals, chainNow, outside, safety } = input;
+  // The token's outside price in THIS pool's coin; null when Jupiter was not asked at all.
+  const reference = outside ? priceInQuote(outside, view.quote, input.coinOutside ?? null) : null;
   const { snapshot } = view;
   const { pool } = snapshot;
   const isLaunchPool = view.origin === 'launch-pool';
@@ -187,17 +197,17 @@ export function assessPool(input: {
     unchecked.push('We could not read the network clock, so we cannot tell whether this pool is open.');
   }
 
-  const poolPrice = tokenDecimals === null ? null : poolSolPerToken(snapshot, view.tokenMint, tokenDecimals);
+  const poolPrice = tokenDecimals === null ? null : poolPricePerToken(snapshot, view.tokenMint, tokenDecimals);
   let price: PriceCheck;
   if (tokenDecimals === null) {
     price = { state: 'unread', pool: null, detail: 'the token’s decimals were not read' };
   } else if (poolPrice === null) {
     price = { state: 'empty-pool' };
-  } else if (outside?.kind === 'ok') {
-    price = comparePrice(poolPrice, outside.solPerToken, 'outside');
+  } else if (reference?.kind === 'ok') {
+    price = comparePrice(poolPrice, reference.perToken, 'outside');
   } else if (tokenBlocked) {
     price = { state: 'skipped', pool: poolPrice, detail: 'not compared, because the token is blocked' };
-  } else if (isLaunchPool && outside?.kind === 'no-route') {
+  } else if (isLaunchPool && reference?.kind === 'no-route') {
     // Only when Jupiter ANSWERED "no route". A failed read is not "no outside market":
     // the token may trade elsewhere at another price, so it stays unread below.
     const own = ownPriceOf(view, tokenDecimals, chainNow);
@@ -206,9 +216,9 @@ export function assessPool(input: {
         ? comparePrice(poolPrice, own.solPerToken, 'own-average')
         : own.kind === 'no-trades'
           ? { state: 'no-trades-yet', pool: poolPrice }
-          : { state: 'unread', pool: poolPrice, detail: `no outside price (${outside?.detail ?? 'not asked'}), and its own price history could not be used: ${own.detail}` };
+          : { state: 'unread', pool: poolPrice, detail: `no outside price (${reference.detail}), and its own price history could not be used: ${own.detail}` };
   } else {
-    price = { state: 'unread', pool: poolPrice, detail: outside?.detail ?? 'not asked' };
+    price = { state: 'unread', pool: poolPrice, detail: reference?.detail ?? 'not asked' };
   }
   if (price.state === 'empty-pool') refused.push('The pool is empty on one side, so it has no price.');
   if (price.state === 'disagrees') {

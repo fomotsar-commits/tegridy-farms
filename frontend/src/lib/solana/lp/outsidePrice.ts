@@ -3,6 +3,7 @@ import { JUPITER_PROXY_BASE, SOL_MINT } from '../../solana';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { getMultipleAccounts } from './accounts';
+import type { QuoteCoin } from './quotes';
 
 /**
  * The token's price OUTSIDE our pools, to check a pool's price against before anyone
@@ -168,4 +169,37 @@ export async function readOutsidePrice(
   const mid = Math.sqrt(buyPrice * sellPrice);
   if (!Number.isFinite(mid) || mid <= 0) return { kind: 'unread', detail: 'Jupiter’s quotes did not give a usable price' };
   return { kind: 'ok', solPerToken: mid, source: 'Jupiter' };
+}
+
+/**
+ * A token's outside price in a POOL'S OWN pairing coin: what a pool paired with USDC or
+ * BAYLA is checked against. `perToken` is whole coins per whole token.
+ */
+export type QuotePrice =
+  | { kind: 'ok'; perToken: number; source: 'Jupiter' }
+  /** Jupiter answered that it has no route for the TOKEN. Never said about the coin. */
+  | { kind: 'no-route'; detail: string }
+  | { kind: 'unread'; detail: string };
+
+/**
+ * The token's outside price in `quote`, from SOL prices only: the token's own
+ * (`readOutsidePrice`) and, for a coin that is not SOL, that coin's own, read the same
+ * way. Both are the mid of a 0.05 SOL round trip, so their ratio is the token priced in
+ * the coin with each route's fees cancelled, and no second kind of Jupiter read exists.
+ *
+ * For SOL the answer IS the token's price: `coin` is not looked at.
+ *
+ * `no-route` is only ever the TOKEN's: it means the token has no outside market, and a
+ * launch pool then falls back to its own history (poolHealth.ts). A pairing coin that
+ * could not be priced (not asked, a failed read, even "no route") is `unread`: the
+ * token may well trade elsewhere, and unread is never a pass.
+ */
+export function priceInQuote(token: OutsidePrice, quote: QuoteCoin, coin: OutsidePrice | null): QuotePrice {
+  if (token.kind !== 'ok') return token;
+  if (quote.native) return { kind: 'ok', perToken: token.solPerToken, source: 'Jupiter' };
+  if (!coin) return { kind: 'unread', detail: `the price of ${quote.symbol} was not read` };
+  if (coin.kind !== 'ok') return { kind: 'unread', detail: `the price of ${quote.symbol} could not be read (${coin.detail})` };
+  const perToken = token.solPerToken / coin.solPerToken;
+  if (!Number.isFinite(perToken) || perToken <= 0) return { kind: 'unread', detail: `the price of ${quote.symbol} did not give a usable price` };
+  return { kind: 'ok', perToken, source: 'Jupiter' };
 }
