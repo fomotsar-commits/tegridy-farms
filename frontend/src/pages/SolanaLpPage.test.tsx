@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -16,6 +16,8 @@ vi.mock('../lib/launcher/solana/lpWriteFlag', async (importOriginal) => ({
 }));
 
 const PROGRAM = 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT';
+// A real mint (32 bytes of base58), for the ?mint= the cross-link carries.
+const M = '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R';
 const LIVE = {
   kind: 'live',
   programId: PROGRAM,
@@ -27,14 +29,26 @@ const LIVE = {
     protocolOwner: 'Own1', fundOwner: 'Own2',
   },
 } as const;
+const UNREADABLE = { kind: 'unreadable', detail: 'proxy timed out' } as const;
+
+// The page's module graph is loaded once, outside any test's own clock. No test needs a
+// fresh copy: the reads and LP's mode are looked up on every render.
+beforeAll(async () => { await import('./SolanaLpPage'); }, 60_000);
 
 async function mount(path = '/solana-lp') {
-  vi.resetModules();
   const { default: SolanaLpPage } = await import('./SolanaLpPage');
   return render(<MemoryRouter initialEntries={[path]}><SolanaLpPage /></MemoryRouter>);
 }
 
 const settled = () => waitFor(() => expect(screen.queryByText(/Reading the venue/i)).not.toBeInTheDocument());
+
+/** No LP section, and none on its way: the section is lazy, so its loading line counts too. */
+function expectNoLpSection() {
+  expect(screen.queryByTestId('lp-section')).toBeNull();
+  expect(screen.queryByText(/Loading the pool finder/)).toBeNull();
+}
+
+const venueAmmLink = () => screen.getByRole('link', { name: /fees, status and how the pools work/i });
 
 beforeEach(() => { vi.clearAllMocks(); lp.mode = 'on'; });
 
@@ -52,7 +66,10 @@ describe('when the venue reads live', () => {
     await screen.findByTestId('lp-section');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Solana liquidity.');
     expect(document.title).toMatch(/^Solana liquidity/);
-    expect(screen.getByText(/^Find a pool, add or remove liquidity, or open a new pool on the venue.s own Solana AMM\.$/)).toBeInTheDocument();
+    // The venue read alone does not say each can be done right now: the section's own reads do.
+    expect(
+      screen.getByText(/^Find a pool, add or remove liquidity, or open a new pool on the venue.s own Solana AMM\. The pools section below says whether each can be done right now\.$/),
+    ).toBeInTheDocument();
   });
 
   it("'withdraw-only' and 'off' never say adding is open", async () => {
@@ -68,6 +85,40 @@ describe('when the venue reads live', () => {
     expect(screen.getByText(/Adding and removing liquidity from here is not switched on yet\./)).toBeInTheDocument();
     expect(screen.queryByText(/add or remove liquidity, or open/)).toBeNull();
   });
+
+  it('the page description is the same in every LP mode and claims no adding, removing or opening', async () => {
+    const seen = new Set<string>();
+    for (const mode of ['on', 'withdraw-only', 'off'] as const) {
+      lp.mode = mode;
+      const view = await mount();
+      await screen.findByTestId('lp-section');
+      const text = document.querySelector('meta[name="description"]')?.getAttribute('content') ?? '';
+      expect(text).toMatch(/Solana AMM/);
+      expect(text).not.toMatch(/\b(add|adding|remove|removing|open|opening|take|taking)\b/i);
+      expect(document.querySelector('meta[property="og:description"]')?.getAttribute('content')).toBe(text);
+      seen.add(text);
+      view.unmount();
+    }
+    expect(seen.size).toBe(1);
+  });
+
+  it('the live card does not point at a fee sheet this tab does not have', async () => {
+    await mount();
+    await screen.findByTestId('lp-section');
+    const card = screen.getByRole('region', { name: 'Venue status' });
+    expect(card).toHaveTextContent(/Pools are open/);
+    expect(card).not.toHaveTextContent(/Fees below/);
+  });
+
+  it('Refresh keeps the LP section mounted while it reads again', async () => {
+    readVenue.mockResolvedValueOnce(LIVE).mockReturnValueOnce(new Promise(() => {}));
+    await mount();
+    await screen.findByTestId('lp-section');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(readVenue).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('lp-section')).toBeInTheDocument();
+    expect(screen.queryByText(/Reading the venue/i)).toBeNull();
+  });
 });
 
 describe('when the venue does not read live', () => {
@@ -75,12 +126,12 @@ describe('when the venue does not read live', () => {
     [{ kind: 'no-program-id' }, /has no program id to read/i],
     [{ kind: 'no-config', programId: PROGRAM }, /one instruction from open/i],
     [{ kind: 'program', deployment: { kind: 'closed' } }, /That program id is closed/i],
-    [{ kind: 'unreadable', detail: 'proxy timed out' }, /The chain could not be read/i],
+    [UNREADABLE, /The chain could not be read/i],
   ])('%o: the status card says so, and no LP section', async (status, title) => {
     readVenue.mockResolvedValue(status);
     await mount();
     await waitFor(() => expect(screen.getByText(title)).toBeInTheDocument());
-    expect(screen.queryByTestId('lp-section')).toBeNull();
+    expectNoLpSection();
     // No present-tense claim above a card that says the venue is not open.
     expect(screen.queryByText(/^Find a pool/)).toBeNull();
     expect(screen.getByText(/once a chain read says the venue is open/i)).toBeInTheDocument();
@@ -90,25 +141,60 @@ describe('when the venue does not read live', () => {
     readVenue.mockReturnValue(new Promise(() => {}));
     await mount();
     await waitFor(() => expect(screen.getByText(/Reading the venue/i)).toBeInTheDocument());
-    expect(screen.queryByTestId('lp-section')).toBeNull();
+    expectNoLpSection();
   });
 
   it('Refresh reads again, and the section mounts once the venue reads live', async () => {
-    readVenue.mockResolvedValueOnce({ kind: 'unreadable', detail: 'proxy timed out' }).mockResolvedValueOnce(LIVE);
+    readVenue.mockResolvedValueOnce(UNREADABLE).mockResolvedValueOnce(LIVE);
     await mount();
     await settled();
     fireEvent.click(await screen.findByRole('button', { name: 'Refresh' }));
     expect(await screen.findByTestId('lp-section')).toBeInTheDocument();
     expect(readVenue).toHaveBeenCalledTimes(2);
   });
+
+  // The card is all this tab shows then, so a second failure has to look like a new read.
+  it('Refresh on a failed read goes back to reading, then shows the second failure', async () => {
+    let answer!: (v: unknown) => void;
+    readVenue.mockResolvedValueOnce(UNREADABLE).mockReturnValueOnce(new Promise((r) => { answer = r; }));
+    await mount();
+    await screen.findByText(/The chain could not be read/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(await screen.findByText(/Reading the venue/i)).toBeInTheDocument();
+    expect(screen.queryByText(/The chain could not be read/i)).toBeNull();
+    answer(UNREADABLE);
+    expect(await screen.findByText(/The chain could not be read/i)).toBeInTheDocument();
+    expect(readVenue).toHaveBeenCalledTimes(2);
+    expectNoLpSection();
+  });
 });
 
 describe('always', () => {
-  beforeEach(() => { readVenue.mockResolvedValue({ kind: 'unreadable', detail: 'proxy timed out' }); });
+  beforeEach(() => { readVenue.mockResolvedValue(UNREADABLE); });
 
   it('links to the Venue AMM tab for fees, status and how the pools work', async () => {
     await mount();
     await settled();
-    expect(screen.getByRole('link', { name: /fees, status and how the pools work/i })).toHaveAttribute('href', '/pools');
+    expect(venueAmmLink()).toHaveAttribute('href', '/pools');
+  });
+
+  it('the link carries the token being looked at, and nothing else from the URL', async () => {
+    const first = await mount(`/solana-lp?mint=${M}&amount=5`);
+    await settled();
+    expect(venueAmmLink()).toHaveAttribute('href', `/pools?mint=${M}`);
+    first.unmount();
+    await mount('/solana-lp?mint=not%20a%20mint%3Cb%3E&amount=5');
+    await settled();
+    expect(venueAmmLink()).toHaveAttribute('href', '/pools');
+  });
+
+  // The LP section's disclosure says: see "The program" below. So it is below, here too.
+  it('shows "The program" at the foot of the page', async () => {
+    await mount();
+    await settled();
+    const program = screen.getByRole('region', { name: 'The program' });
+    expect(program).toHaveTextContent(/verbatim fork/i);
+    const card = screen.getByRole('region', { name: 'Venue status' });
+    expect(card.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

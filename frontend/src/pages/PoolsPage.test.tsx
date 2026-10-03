@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -39,10 +39,23 @@ const LIVE = {
   },
 } as const;
 
-async function mount() {
+// The page's module graph is loaded once here, outside any test's own clock: mount() then
+// re-runs modules that are already transformed, so a busy machine cannot time the first test out.
+beforeAll(async () => { await import('./PoolsPage'); }, 60_000);
+
+async function mount(path = '/pools') {
   vi.resetModules();
   const { default: PoolsPage } = await import('./PoolsPage');
-  return render(<MemoryRouter><PoolsPage /></MemoryRouter>);
+  return render(<MemoryRouter initialEntries={[path]}><PoolsPage /></MemoryRouter>);
+}
+
+// A real mint (32 bytes of base58), for the ?mint= the hero's link carries.
+const M = '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R';
+/** The hero's door to the Solana LP tab: the one link on the page that goes there. */
+function solanaLpLink() {
+  const links = screen.getAllByRole('link').filter((a) => (a.getAttribute('href') ?? '').startsWith('/solana-lp'));
+  expect(links).toHaveLength(1);
+  return links[0]!;
 }
 
 /** The first read has answered: the status card is past its loading line. */
@@ -146,6 +159,8 @@ describe('when the venue is live', () => {
     expect(screen.getByText('0.07%')).toBeInTheDocument();
     expect(screen.getByText('0.3 SOL')).toBeInTheDocument();
     expect(screen.getByText(/read from the chain on load/i)).toBeInTheDocument();
+    // The live card points at the fee sheet, which this tab has.
+    expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/Fees below are read from that config\./);
   });
 
   // The page also offers "Open a pool" on the public tier, which charges its own fee. This card
@@ -235,12 +250,51 @@ describe('always', () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/has no program id to read/i)).toBeInTheDocument());
     expect(screen.queryByTestId('lp-section')).not.toBeInTheDocument();
+    // The section is lazy: its loading line is on screen first, so that counts as mounting.
+    expect(screen.queryByText(/Loading the pool finder/)).toBeNull();
   });
 
-  it('links from the hero to the Solana LP tab', async () => {
+  // The hero says "No pool can be opened here yet" until the read says live, so the link
+  // under it may not say what can be done on that tab, in any LP mode.
+  it('links from the hero to the Solana LP tab, claiming nothing while the venue is not live', async () => {
+    for (const mode of ['on', 'withdraw-only', 'off'] as const) {
+      lp.mode = mode;
+      const view = await mount();
+      await settled();
+      expect(solanaLpLink()).toHaveAttribute('href', '/solana-lp');
+      expect(solanaLpLink()).toHaveTextContent(/^Go to the Solana LP tab$/);
+      view.unmount();
+    }
+    lp.mode = 'off';
+  });
+
+  it('the link claims nothing while the first read is still in flight', async () => {
+    lp.mode = 'on';
+    readVenue.mockReturnValue(new Promise(() => {}));
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Reading the venue/i)).toBeInTheDocument());
+    expect(solanaLpLink()).toHaveTextContent(/^Go to the Solana LP tab$/);
+    lp.mode = 'off';
+  });
+
+  it('the link carries the token being looked at, and nothing else from the URL', async () => {
+    const first = await mount(`/pools?mint=${M}&amount=5`);
+    await settled();
+    expect(solanaLpLink()).toHaveAttribute('href', `/solana-lp?mint=${M}`);
+    first.unmount();
+    await mount('/pools?mint=not%20a%20mint%3Cb%3E&amount=5');
+    await settled();
+    expect(solanaLpLink()).toHaveAttribute('href', '/solana-lp');
+  });
+
+  it('keeps "The program" as its last section, where the LP disclosure says it is', async () => {
     await mount();
     await settled();
-    expect(screen.getByRole('link', { name: /on the Solana LP tab$/ })).toHaveAttribute('href', '/solana-lp');
+    const program = screen.getByRole('region', { name: 'The program' });
+    expect(program).toHaveTextContent(/verbatim fork/i);
+    expect(program).toHaveTextContent(/A browser cannot list pools itself/i);
+    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
+    expect(sheet.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

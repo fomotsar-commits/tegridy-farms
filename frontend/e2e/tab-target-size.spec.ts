@@ -12,8 +12,10 @@
  * src/pages/CommunityPage.tabTargets.test.tsx; /nft-finance is pinned only here
  * (see that file's header for why it cannot be rendered in vitest).
  */
+import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
-import { gotoRoute } from './fixtures/routes';
+import { gotoRoute, waitForQuiescence } from './fixtures/routes';
+import { playLiveVenue } from './fixtures/playedVenue';
 
 const IPHONE_390 = { width: 390, height: 844 };
 const FLOOR = 44;
@@ -106,24 +108,59 @@ for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', 
  * `overflow-x: hidden` in index.css, so the two can disagree, and the question
  * that matters to a person holding a phone is whether it moves.
  */
-for (const path of ['/', '/liquidity', '/solana-lp', '/earn', '/island', '/swap', '/trust']) {
+async function expectNoSidewaysScroll(page: Page): Promise<void> {
+  const moved = await page.evaluate(() => {
+    const before = window.scrollX;
+    window.scrollTo(500, 0);
+    const after = window.scrollX;
+    window.scrollTo(0, 0);
+    return { before, after, scrollW: document.documentElement.scrollWidth };
+  });
+
+  expect(
+    moved.after,
+    `the page slid sideways to x=${moved.after} (scrollWidth ${moved.scrollW}). Something is ` +
+      'escaping its scroll container: check for a position:absolute child (sr-only!) inside ' +
+      'a STATIC overflow-x-auto wrapper.',
+  ).toBe(moved.before);
+}
+
+for (const path of ['/', '/liquidity', '/earn', '/island', '/swap', '/trust']) {
   test(`${path} does not scroll horizontally at 390px`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(IPHONE_390);
     await gotoRoute(page, path);
-
-    const moved = await page.evaluate(() => {
-      const before = window.scrollX;
-      window.scrollTo(500, 0);
-      const after = window.scrollX;
-      window.scrollTo(0, 0);
-      return { before, after, scrollW: document.documentElement.scrollWidth };
-    });
-
-    expect(
-      moved.after,
-      `the page slid sideways to x=${moved.after} (scrollWidth ${moved.scrollW}). Something is ` +
-        'escaping its scroll container — check for a position:absolute child (sr-only!) inside ' +
-        'a STATIC overflow-x-auto wrapper.',
-    ).toBe(moved.before);
+    await expectNoSidewaysScroll(page);
   });
 }
+
+/**
+ * /solana-lp is measured in each state it settles into, never at first paint: its wide
+ * content is the LP section, which mounts only after a live venue read and a lazy chunk,
+ * so at first paint the page is a hero and a "Reading" line. Live is a played venue
+ * (fixtures/playedVenue.ts), so the section and its fee tiers are up on every machine.
+ */
+const A_MINT = '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R';
+
+for (const path of ['/solana-lp', `/solana-lp?mint=${A_MINT}`]) {
+  test(`${path} with its LP section mounted does not scroll horizontally at 390px`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize(IPHONE_390);
+    const venue = await playLiveVenue(page);
+    await gotoRoute(page, path);
+
+    await expect(page.getByTestId('lp-finder'), 'the LP section did not mount on the played venue').toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('[data-testid="fee-tier"][data-state="live"]'), 'both played fee tiers read').toHaveCount(2);
+    if (path.includes('?mint=')) await expect(page.getByLabel(/Token mint address/)).toHaveValue(A_MINT);
+    await waitForQuiescence(page, { quietMs: 600, timeout: 12_000 });
+    expect(venue.answered, 'the page asked the played venue').toContain('getMultipleAccounts');
+
+    await expectNoSidewaysScroll(page);
+  });
+}
+
+test('/solana-lp with the chain unreadable does not scroll horizontally at 390px', async ({ page, walletMock: _w }) => {
+  await page.setViewportSize(IPHONE_390);
+  await page.route('**/api/solrpc', (r) => r.abort());
+  await gotoRoute(page, '/solana-lp');
+  await expect(page.getByRole('heading', { name: 'The chain could not be read' })).toBeVisible({ timeout: 20_000 });
+  await expectNoSidewaysScroll(page);
+});

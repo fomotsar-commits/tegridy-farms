@@ -2,19 +2,21 @@
 import '../lib/solanaPolyfill';
 import { lazy, Suspense, useEffect } from 'react';
 import { m } from 'framer-motion';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useVenueStatus } from '../hooks/useVenueStatus';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { VenueStatusCard } from '../components/solana/VenueStatusCard';
+import { VenueProgramCard } from '../components/solana/VenueProgramCard';
 import type { VenueStatus } from '../lib/solana/cpswap/read';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 import {
   feeSplit,
   solOf,
 } from '../lib/solana/cpswap/venue';
+import { withMint } from '../lib/solana/lp/mintLink';
 
 // The LP finder, positions and fee tiers. Lazy: it brings the Solana wallet stack, which
 // only a live venue needs.
@@ -49,6 +51,8 @@ export default function PoolsPage() {
   const venueIsOpen = liveConfig !== null;
   // Fixed for the life of a build: a production build reads only the committed constant.
   const lpMode = lpWriteMode();
+  // The token being looked at (?mint=) follows the reader to the Solana LP tab.
+  const [params] = useSearchParams();
 
   return (
     <div className="relative min-h-screen">
@@ -81,8 +85,8 @@ export default function PoolsPage() {
             )}
           </p>
           <p className="text-[13px] mt-2">
-            <Link to="/solana-lp" className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
-              {SOLANA_LP_LINK[lpMode]}
+            <Link to={withMint('/solana-lp', params)} className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
+              {venueIsOpen ? SOLANA_LP_LINK[lpMode] : SOLANA_LP_LINK_NOT_OPEN}
             </Link>
           </p>
         </m.div>
@@ -182,25 +186,7 @@ export default function PoolsPage() {
           </section>
         </div>
 
-        {/* ── The program ─────────────────────────────────────────────────── */}
-        <section className="rounded-2xl p-6 mt-6" style={CARD}>
-          <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The program</p>
-          <h2 className="heading-luxury text-lg text-white mb-3">Raydium&rsquo;s CPMM, unmodified</h2>
-          <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-            The AMM is a verbatim fork of <strong>raydium-cp-swap</strong>. CI clones the pinned
-            upstream commit, refuses any differing file outside two, and sha256-hashes the
-            remaining delta against a pinned value — currently 86 lines across three files,
-            all of it authority constants and comments. The curve, the swap, the deposit and
-            withdraw paths and the fee maths are Raydium&rsquo;s, not ours, and the quotes on
-            the swap page run that same maths client-side.
-          </p>
-          <p className="text-white/50 text-[12px] leading-relaxed">
-            A browser cannot list pools itself — <code className="font-mono">getProgramAccounts</code> stays
-            off our RPC proxy&rsquo;s allowlist as an unbounded scan. Our server runs that one scan,
-            filtered to pools holding the token you look up, and returns addresses only; this page
-            then reads and checks every one of those pools on chain itself.
-          </p>
-        </section>
+        <VenueProgramCard />
       </div>
     </div>
   );
@@ -217,12 +203,14 @@ const HERO_LP_LINE: Record<LpWriteMode, string> = {
   on: 'This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier (the pools section says whether that can be done right now).',
   'withdraw-only': 'This site reads pools and shares. Adding liquidity and opening pools from here are paused; taking yours out still works.',
 };
-// The hero's door to the Solana LP tab says what that tab can do, by the same switch.
+// The hero's door to the Solana LP tab says what that tab can do, by the same switch,
+// and only once the venue reads live: until then the door claims nothing.
 const SOLANA_LP_LINK: Record<LpWriteMode, string> = {
   off: 'Find a pool on the Solana LP tab',
   on: 'Add or remove liquidity on the Solana LP tab',
   'withdraw-only': 'Take your liquidity out on the Solana LP tab',
 };
+const SOLANA_LP_LINK_NOT_OPEN = 'Go to the Solana LP tab';
 
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'good' }) {
   return (

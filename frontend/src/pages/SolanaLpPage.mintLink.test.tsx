@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
@@ -52,8 +52,15 @@ function fakeReaders() {
   return r;
 }
 
+// The real LP section is a lazy chunk. Its module graph is loaded once here, outside any
+// test's own clock, so the lazy import inside a test resolves from what is already loaded
+// (a cold load under a busy machine outran findBy's one second).
+beforeAll(async () => {
+  await import('../components/solana/lp/SolanaLpSection');
+  await import('./SolanaLpPage');
+}, 60_000);
+
 async function mount(path: string) {
-  vi.resetModules();
   const { default: SolanaLpPage } = await import('./SolanaLpPage');
   return render(<MemoryRouter initialEntries={[path]}><SolanaLpPage /></MemoryRouter>);
 }
@@ -80,12 +87,14 @@ describe('the ?mint= link on /solana-lp', () => {
 });
 
 describe('the disclosure on /solana-lp', () => {
-  it('points to "The program" on the Venue AMM tab, since it is not below on this page', async () => {
+  it('says to see "The program" below, and that section is below it on this page', async () => {
     fakeReaders();
     await mount('/solana-lp');
     const d = await screen.findByTestId('lp-disclosure');
-    expect(within(d).getByRole('link', { name: 'on the Venue AMM tab' })).toHaveAttribute('href', '/pools');
-    expect(d).not.toHaveTextContent('“The program” below');
+    expect(d).toHaveTextContent('(see “The program” below)');
+    expect(within(d).queryByRole('link')).toBeNull();
     expect(d).toHaveTextContent(/have not had their own independent review yet/);
+    const program = screen.getByRole('region', { name: 'The program' });
+    expect(d.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

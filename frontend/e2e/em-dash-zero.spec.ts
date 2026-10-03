@@ -58,7 +58,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/liquidity': 6,
   '/privacy': 7,
   '/trust': 7,
-  '/pools': 3,
+  '/pools': 1,
   '/solana-lp': 0,
   '/nft-finance': 10,
   '/developers': 10,

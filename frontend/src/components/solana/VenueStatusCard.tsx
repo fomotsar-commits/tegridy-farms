@@ -18,9 +18,15 @@ const VENUE_LP_LINE: Record<LpWriteMode, string> = {
 /**
  * The venue's real state, from the live read (useVenueStatus), on /pools and /solana-lp.
  * Each branch names what is missing: "not deployed" and "one instruction has not run"
- * are different facts.
+ * are different facts. `feeSheetBelow`: the live card points at the fee sheet read from
+ * its config, which only /pools has, so /solana-lp passes false.
  */
-export function VenueStatusCard({ status, onRefresh, lpMode }: { status: VenueStatus | null; onRefresh: () => void; lpMode: LpWriteMode }) {
+export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = true }: {
+  status: VenueStatus | null;
+  onRefresh: () => void;
+  lpMode: LpWriteMode;
+  feeSheetBelow?: boolean;
+}) {
   const amber = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' };
   const green = { background: 'rgba(6,24,14,0.92)', border: '1px solid rgba(34,197,94,0.45)' };
 
@@ -42,8 +48,8 @@ export function VenueStatusCard({ status, onRefresh, lpMode }: { status: VenueSt
         <h2 className="heading-luxury text-xl text-white mb-2">Pools are open</h2>
         <p className="text-white/80 text-[13px] leading-relaxed mb-3">
           The AMM is deployed and its config exists, so anyone can open a pool and provide
-          liquidity on chain. {VENUE_LP_LINE[lpMode]} Fees below are read from
-          that config.
+          liquidity on chain. {VENUE_LP_LINE[lpMode]}
+          {feeSheetBelow && ' Fees below are read from that config.'}
         </p>
         <div className="flex flex-wrap gap-3 text-[12px]">
           <Addr label="Program" value={status.programId} />

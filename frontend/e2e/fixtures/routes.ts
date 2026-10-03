@@ -423,7 +423,7 @@ export const ROUTES: readonly RouteSpec[] = [
     gate: null,
     why:
       'The LP section mounts only once the venue read returns live, which in this suite depends on the ' +
-      'preview proxy reaching Solana; with no answer it audits the hero and the status card alone.',
+      'preview proxy reaching Solana; with no answer it audits the hero, the status card and the program card alone.',
     knownViolations: [],
   },
   { path: '/curve-launch', voice: 'venue', owner: 'pages/CurveLaunchPage.tsx',

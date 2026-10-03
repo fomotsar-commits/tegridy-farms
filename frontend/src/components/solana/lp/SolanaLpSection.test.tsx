@@ -93,7 +93,7 @@ describe('the LP section', () => {
     expect(d).toHaveTextContent(/have not had their own independent review yet/);
     expect(d).toHaveTextContent(/switch off deposits, withdrawals or swaps on any pool/);
     expect(d).toHaveTextContent(/only reads/);
-    // On /pools "The program" is the next section down, so the pointer stays plain text.
+    // Both tabs that mount this section end with "The program", so the pointer is plain text.
     expect(d).toHaveTextContent('(see “The program” below)');
     expect(within(d).queryByRole('link')).toBeNull();
   });

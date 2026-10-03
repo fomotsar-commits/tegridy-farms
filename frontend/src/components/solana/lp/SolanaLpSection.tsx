@@ -1,7 +1,7 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../../../lib/solanaPolyfill';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { SolanaProviders } from '../SolanaProviders';
 import { feeSplit, solOf } from '../../../lib/solana/cpswap/venue';
@@ -142,14 +142,12 @@ const DISCLOSURE_NOTICE: Record<LpWriteMode, string> = {
 };
 
 export function LpDisclosure({ programId, mode = 'off' }: { programId: string; mode?: LpWriteMode }) {
-  // "The program" is a section of /pools: below it there, a link to it anywhere else.
-  const onPools = useLocation().pathname === '/pools';
+  // "The program" (VenueProgramCard) is the last section of every page that mounts this one.
   return (
     <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
       <Card title="Before you provide liquidity">
         <p className="text-white/80">
-          Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program”{' '}
-          {onPools ? 'below' : <Link to="/pools" className="underline underline-offset-2">on the Venue AMM tab</Link>}).{' '}
+          Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program” below).{' '}
           <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
         </p>
         <p>
