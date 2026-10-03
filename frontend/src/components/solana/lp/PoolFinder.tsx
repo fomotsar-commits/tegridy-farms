@@ -5,6 +5,7 @@ import { assessPool, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { QUOTE_COINS_OR, quotesFor } from '../../../lib/solana/lp/quotes';
 import { getActiveBungalow } from '../../../lib/bungalows';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
@@ -20,8 +21,23 @@ type SearchState =
   /**
    * `refreshing`: the last answer for this same mint, shown while it is read again.
    * `outsideAt`: when Jupiter's price was read (ms), or null when it was not asked.
+   * `coins`: each pairing coin's own SOL price, by its mint, for the coins that were asked
+   * (USDC, BAYLA). A pool paired with one is checked in that coin (poolHealth.ts), and a
+   * coin missing here leaves its pools unchecked.
    */
-  | { status: 'done'; mint: string; safety: TokenSafety; pools: PoolSearchRead; outside: OutsidePrice | null; outsideAt: number | null; refreshing?: boolean };
+  | {
+      status: 'done';
+      mint: string;
+      safety: TokenSafety;
+      pools: PoolSearchRead;
+      outside: OutsidePrice | null;
+      coins: CoinPrices;
+      outsideAt: number | null;
+      refreshing?: boolean;
+    };
+
+/** Each pairing coin's own outside price in SOL, by its mint. */
+export type CoinPrices = Readonly<Record<string, OutsidePrice>>;
 
 type Done = Extract<SearchState, { status: 'done' }>;
 
@@ -50,11 +66,23 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
       const hasPool = pools.kind === 'ok' && pools.search.pools.some((p) => p.kind === 'pool');
       const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
       const ask = (hasPool || wantOutside) && decimals !== null && safety.kind === 'read' && safety.verdict !== 'blocked';
-      const outside = ask ? await readers.outsidePrice(mint, decimals) : null;
-      finish({ status: 'done', mint, safety, pools, outside, outsideAt: ask ? Date.now() : null });
+      // A pool paired with USDC or BAYLA is checked in that coin, which needs the coin's
+      // own price: two more Jupiter calls each, so it is asked only for a coin that has a
+      // pool here. (An opening priced in a coin reads that coin's price in its own panel.)
+      const paired = new Set(pools.kind === 'ok' ? pools.search.pools.flatMap((p) => (p.kind === 'pool' ? [p.view.quote.mint] : [])) : []);
+      const wanted = ask ? quotesFor(mint).filter((q) => !q.native && paired.has(q.mint)) : [];
+      const [outside, ...coinPrices] = await Promise.all([
+        ask ? readers.outsidePrice(mint, decimals) : null,
+        ...wanted.map((q) => readers.outsidePrice(q.mint, q.decimals)),
+      ]);
+      const coins: Record<string, OutsidePrice> = {};
+      wanted.forEach((q, i) => {
+        coins[q.mint] = coinPrices[i]!;
+      });
+      finish({ status: 'done', mint, safety, pools, outside, coins, outsideAt: ask ? Date.now() : null });
     })().catch((e: unknown) => {
       const detail = e instanceof Error ? e.message : String(e);
-      finish({ status: 'done', mint, safety: { kind: 'unread', mint, detail }, pools: { kind: 'unread', detail, index: { kind: 'unread', detail } }, outside: null, outsideAt: null });
+      finish({ status: 'done', mint, safety: { kind: 'unread', mint, detail }, pools: { kind: 'unread', detail, index: { kind: 'unread', detail } }, outside: null, coins: {}, outsideAt: null });
     });
     return () => {
       live = false;
@@ -228,17 +256,19 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
 }
 
 function SearchResults({ state, onReread }: { state: Extract<SearchState, { status: 'done' }>; onReread: () => void }) {
-  const { safety, pools, outside, outsideAt, mint } = state;
+  const { safety, pools, outside, coins, outsideAt, mint } = state;
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
   // One check per pool, shared by its card and by the "Open a new pool" card.
   const healths = useMemo(() => {
     const m = new Map<string, PoolHealth>();
     if (pools.kind !== 'ok') return m;
     for (const p of pools.search.pools) {
-      if (p.kind === 'pool') m.set(p.view.address, assessPool({ view: p.view, tokenDecimals: decimals, chainNow: pools.search.chainNow, outside, safety }));
+      if (p.kind === 'pool') {
+        m.set(p.view.address, assessPool({ view: p.view, tokenDecimals: decimals, chainNow: pools.search.chainNow, outside, coinOutside: coins[p.view.quote.mint] ?? null, safety }));
+      }
     }
     return m;
-  }, [pools, decimals, outside, safety]);
+  }, [pools, decimals, outside, coins, safety]);
   return (
     <div className="space-y-4">
       <TokenSafetyCard mint={mint} safety={safety} />
@@ -255,17 +285,19 @@ function SearchResults({ state, onReread }: { state: Extract<SearchState, { stat
             <Card title="Pools">
               <p data-testid="lp-no-pools">
                 {pools.search.index.kind !== 'ok'
-                  ? 'No TOKEN/SOL pools found at the addresses we could check.'
+                  ? `No pools pairing this token with ${QUOTE_COINS_OR} found at the addresses we could check.`
                   : pools.search.index.truncated
-                    ? 'None of the pools our index returned is a TOKEN/SOL pool we can show. It returned its maximum, so there may be more.'
-                    : 'No TOKEN/SOL pools found for this token.'}
+                    ? `None of the pools our index returned pairs this token with ${QUOTE_COINS_OR}. It returned its maximum, so there may be more.`
+                    : `No pools pairing this token with ${QUOTE_COINS_OR} found.`}
               </p>
               {pools.search.otherPairs > 0 && (
-                <Notice>{pools.search.otherPairs} pool(s) pair this token with something other than SOL. This site only shows TOKEN/SOL pools for now.</Notice>
+                <Notice>
+                  {pools.search.otherPairs} pool(s) pair this token with something else. This site only shows pools paired with {QUOTE_COINS_OR}.
+                </Notice>
               )}
             </Card>
           ) : (
-            <ul className="space-y-3" aria-label="Pools, deepest first">
+            <ul className="space-y-3" aria-label="Pools: SOL pools first, then USDC, then BAYLA, the deepest of each first">
               {pools.search.pools.map((p) =>
                 p.kind === 'pool' ? (
                   <PoolCard
@@ -282,7 +314,7 @@ function SearchResults({ state, onReread }: { state: Extract<SearchState, { stat
             </ul>
           )}
           {pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
-            <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than SOL and are not shown.</Notice>
+            <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
           )}
         </div>
       )}
@@ -309,25 +341,26 @@ function IndexNote({ read }: { read: Extract<PoolSearchRead, { kind: 'ok' }> }) 
       {index.kind === 'ok' ? (
         <>
           <p>
-            Pools are listed from our pool index and each one is then read and checked on chain. Deepest first. None of them is
+            Pools are listed from our pool index and each one is then read and checked on chain. SOL pools first, then USDC, then
+            BAYLA, the deepest of each first. None of them is
             “the” pool for this token: anyone can open one, at any price.
           </p>
           {index.truncated && (
             <p className="text-amber-300/90" data-testid="lp-index-truncated">
-              Our pool index returned its maximum: the pools holding the most SOL. There may be more pools for this token that are not
-              listed here.
+              Our pool index returned its maximum: for each coin, the pools holding the most of it. There may be more pools for this
+              token that are not listed here.
             </p>
           )}
         </>
       ) : (
         <p className="text-amber-300/90">
           Our pool index could not be read ({index.detail}), so only the addresses we can work out ourselves were checked:
-          the launch pool and the standard address on each fee tier. There may be other pools.
+          the launch pool and the standard address on each fee tier, for each coin a pool can pair with. There may be other pools.
         </p>
       )}
       {squatted.length > 0 && (
         <p>
-          Someone has opened a pool at the standard address for fee tier {squatted.map((s) => s.index).join(' and ')}. Being at that
+          Someone has opened a pool at the standard address for fee tier {[...new Set(squatted.map((s) => s.index))].join(' and ')}. Being at that
           address does not make it the right pool: check its price and open time below.
         </p>
       )}

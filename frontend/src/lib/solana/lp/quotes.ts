@@ -44,6 +44,9 @@ export const BAYLA_QUOTE: QuoteCoin = { mint: BAYLA_MINT, symbol: 'BAYLA', decim
 /** Rank order: when a pool pairs two of these, the EARLIER one is the quote. */
 export const QUOTE_COINS: readonly QuoteCoin[] = [SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE];
 
+/** The pairing coins in words, for copy: "SOL, USDC or BAYLA". */
+export const QUOTE_COINS_OR = `${QUOTE_COINS.slice(0, -1).map((q) => q.symbol).join(', ')} or ${QUOTE_COINS[QUOTE_COINS.length - 1]!.symbol}`;
+
 const rankOf = (mint: string): number => QUOTE_COINS.findIndex((q) => q.mint === mint);
 
 /** The pairing coin with this mint, or null. */

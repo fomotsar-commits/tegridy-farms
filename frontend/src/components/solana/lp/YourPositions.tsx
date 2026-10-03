@@ -6,7 +6,8 @@ import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { formatWhen, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
-import { solText, tokenText } from '../../../lib/solana/lp/format';
+import { quoteText, tokenText } from '../../../lib/solana/lp/format';
+import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
 import { SolanaConnectButton } from '../SolanaConnectButton';
 import { Card, Notice, Row } from '../curve/ui';
 import { LeaveWithoutThisSite } from './LpDisclosures';
@@ -70,7 +71,7 @@ const WITHDRAWALS_WORD = { open: 'open', 'switched-off': 'switched off', 'vault-
  */
 function setAsideReason(p: Position, safety: TokenSafety | null): string | null {
   if (p.pool?.kind === 'pool' && safety?.kind === 'read' && safety.verdict === 'blocked') return 'its token is blocked on this site';
-  if (p.pool?.kind === 'other-pair') return 'its pool is not a TOKEN/SOL pool';
+  if (p.pool?.kind === 'other-pair') return `its pool is not paired with ${QUOTE_COINS_OR}`;
   if (p.pool?.kind === 'absent' || p.pool?.kind === 'not-a-pool') return 'its pool could not be confirmed on chain';
   return null;
 }
@@ -180,7 +181,7 @@ function PositionsList({
         <details data-testid="lp-positions-set-aside" className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
           <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">
             {plural(aside.length, 'other pool share', 'other pool shares')}, set aside without their names: blocked tokens, pools that are
-            not TOKEN/SOL, or pools we could not confirm
+            not paired with {QUOTE_COINS_OR}, or pools we could not confirm
           </summary>
           <ul className="space-y-3 p-3">
             {aside.map((p) => (
@@ -272,7 +273,7 @@ function PositionRow({
         <>
           <Row label="Pool" value={pool.address} />
           <Row label="Its two tokens" value={`${pool.token0Mint} and ${pool.token1Mint}`} />
-          <Notice>Neither side of this pool is SOL. This site does not show those pools yet, so nothing about it is checked here.</Notice>
+          <Notice>Neither side of this pool is {QUOTE_COINS_OR}. This site does not show those pools, so nothing about it is checked here.</Notice>
         </>
       )}
       {pool?.kind === 'absent' && (
@@ -306,8 +307,8 @@ function PositionRow({
                 label="Worth if withdrawn now"
                 value={
                   view.quoteIsToken0
-                    ? `${solText(p.value.token0)} and ${tokenText(p.value.token1, decimals)}`
-                    : `${solText(p.value.token1)} and ${tokenText(p.value.token0, decimals)}`
+                    ? `${quoteText(p.value.token0, view.quote)} and ${tokenText(p.value.token1, decimals)}`
+                    : `${quoteText(p.value.token1, view.quote)} and ${tokenText(p.value.token0, decimals)}`
                 }
                 mono={false}
               />
@@ -444,7 +445,7 @@ function RemoveBlock({
       );
       break;
     case 'other-pair':
-      line = <Notice>Neither side of this pool is SOL. This site cannot build a withdrawal for it yet. The pool program still lets you withdraw.</Notice>;
+      line = <Notice>Neither side of this pool is {QUOTE_COINS_OR}. This site cannot build a withdrawal for it. The pool program still lets you withdraw.</Notice>;
       break;
     case 'unplaced':
       line = <FindOnChain readers={readers} p={p} disabled={blockedByOther} onPlaced={onReadAgain} />;

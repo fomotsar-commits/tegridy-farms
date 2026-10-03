@@ -1,6 +1,7 @@
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { formatWhen, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
-import { feeRateText, formatSolPrice, solText, tokenText, tradeCostText } from '../../../lib/solana/lp/format';
+import { feeRateText, priceText, quoteText, tokenText, tradeCostText } from '../../../lib/solana/lp/format';
+import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { ratePercent } from '../../../lib/solana/cpswap/math';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
@@ -43,14 +44,15 @@ const DEPOSIT_TITLE = {
   unchecked: 'Deposits: not checked',
 } as const;
 
-function PriceRows({ price }: { price: PoolHealth['price'] }) {
+/** The pool's price and what it was checked against, both in the pool's own pairing coin. */
+function PriceRows({ price, quote }: { price: PoolHealth['price']; quote: QuoteCoin }) {
   switch (price.state) {
     case 'empty-pool':
       return <Row label="Price" value="No price: one side is empty" mono={false} />;
     case 'no-trades-yet':
       return (
         <>
-          <Row label="Price here" value={`1 token = ${formatSolPrice(price.pool)} SOL`} mono={false} />
+          <Row label="Price here" value={priceText(price.pool, quote)} mono={false} />
           <Row label="Checked against" value="Nothing needed: nobody has traded since the launch program opened this pool at this price" mono={false} />
         </>
       );
@@ -58,7 +60,7 @@ function PriceRows({ price }: { price: PoolHealth['price'] }) {
     case 'unread':
       return (
         <>
-          <Row label="Price here" value={price.pool === null ? 'not worked out' : `1 token = ${formatSolPrice(price.pool)} SOL`} mono={false} />
+          <Row label="Price here" value={price.pool === null ? 'not worked out' : priceText(price.pool, quote)} mono={false} />
           <Row label="Checked against" value={price.state === 'skipped' ? `Not compared: ${price.detail.replace(/^not compared, /, '')}` : `Nothing: ${price.detail}`} mono={false} />
         </>
       );
@@ -66,10 +68,10 @@ function PriceRows({ price }: { price: PoolHealth['price'] }) {
     case 'disagrees':
       return (
         <>
-          <Row label="Price here" value={`1 token = ${formatSolPrice(price.pool)} SOL`} mono={false} />
+          <Row label="Price here" value={priceText(price.pool, quote)} mono={false} />
           <Row
             label={price.against === 'outside' ? 'Outside price (Jupiter)' : 'Its own average, last 30 minutes'}
-            value={`1 token = ${formatSolPrice(price.reference)} SOL`}
+            value={priceText(price.reference, quote)}
             mono={false}
           />
           <Row label="Difference" value={`${(price.diff * 100).toFixed(1)}% ${price.diff >= 0 ? 'above' : 'below'}`} mono={false} />
@@ -100,7 +102,7 @@ export function PoolCard({
   const split = cfg ? feeSplit(cfg) : null;
   // cp-swap adjust_creator_fee_rate: the tier's rate, only when this pool's own switch is on.
   const creatorRate = cfg ? chargedCreatorFeeRate(cfg, pool.enableCreatorFee) : 0n;
-  const solFees = view.quoteIsToken0 ? [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0] : [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1];
+  const quoteFees = view.quoteIsToken0 ? [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0] : [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1];
   const tokFees = view.quoteIsToken0 ? [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1] : [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0];
   const price = health.price;
 
@@ -111,6 +113,7 @@ export function PoolCard({
       data-testid="lp-pool"
       data-pool={view.address}
       data-origin={view.origin}
+      data-quote={view.quote.symbol}
       data-swaps={health.swaps.state}
       data-withdrawals={health.withdrawals}
       data-deposits={health.deposits.verdict}
@@ -129,6 +132,7 @@ export function PoolCard({
       <div className="text-white/60 text-[11px] leading-relaxed space-y-2">
         <Row label="Pool address" value={view.address} />
         <Row label="Token" value={view.tokenMint} />
+        <Row label="Paired with" value={view.quote.symbol} mono={false} />
 
         <Row label="Swaps" value={swaps.text} mono={false} />
         <Row label="Withdrawals" value={WITHDRAWALS_TEXT[health.withdrawals]} mono={false} />
@@ -145,8 +149,8 @@ export function PoolCard({
           {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} />}
         </div>
 
-        <Row label="In the pool" value={`${solText(view.quoteReserve)} and ${tokenText(view.tokenReserve, tokenDecimals)}`} mono={false} />
-        <PriceRows price={price} />
+        <Row label="In the pool" value={`${quoteText(view.quoteReserve, view.quote)} and ${tokenText(view.tokenReserve, tokenDecimals)}`} mono={false} />
+        <PriceRows price={price} quote={view.quote} />
 
         {cfg && split ? (
           <>
@@ -168,9 +172,9 @@ export function PoolCard({
         ) : (
           <Notice tone="warn">This pool’s fee settings could not be read.</Notice>
         )}
-        <Row label="Fees waiting: venue’s share" value={`${solText(solFees[0]!)} and ${tokenText(tokFees[0]!, tokenDecimals)}`} mono={false} />
+        <Row label="Fees waiting: venue’s share" value={`${quoteText(quoteFees[0]!, view.quote)} and ${tokenText(tokFees[0]!, tokenDecimals)}`} mono={false} />
         {pool.enableCreatorFee && (
-          <Row label="Fees waiting: creator’s share" value={`${solText(solFees[1]!)} and ${tokenText(tokFees[1]!, tokenDecimals)}`} mono={false} />
+          <Row label="Fees waiting: creator’s share" value={`${quoteText(quoteFees[1]!, view.quote)} and ${tokenText(tokFees[1]!, tokenDecimals)}`} mono={false} />
         )}
         <Notice>
           LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.

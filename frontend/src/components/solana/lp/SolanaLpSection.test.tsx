@@ -193,8 +193,9 @@ describe('the LP section', () => {
     const s = search([], { index: { kind: 'ok', pools: [], truncated: true } });
     mount(readers({ findPools: vi.fn(async () => s) }));
     const none = await screen.findByTestId('lp-no-pools');
-    expect(none).not.toHaveTextContent('No TOKEN/SOL pools found for this token.');
-    expect(none).toHaveTextContent(/may be more/);
+    // The plain "none found" line (see the next test) must not be what a cut list says.
+    expect(none).not.toHaveTextContent(/No pools pairing this token with SOL, USDC or BAYLA found\./);
+    expect(none).toHaveTextContent('None of the pools our index returned pairs this token with SOL, USDC or BAYLA. It returned its maximum, so there may be more.');
     expect(screen.getByTestId('lp-index-truncated')).toHaveClass('text-amber-300/90');
     expect(screen.getByTestId('lp-status')).toHaveTextContent(/returned its maximum/);
   });
@@ -340,7 +341,7 @@ describe('your positions', () => {
     const aside = await screen.findByTestId('lp-positions-set-aside');
     const rows = within(aside).getAllByTestId('lp-position');
     expect(rows.map((r) => r.getAttribute('data-pool-kind'))).toEqual(['other-pair', 'absent', 'not-a-pool']);
-    expect(rows[0]).toHaveTextContent(/Neither side of this pool is SOL/);
+    expect(rows[0]).toHaveTextContent("Neither side of this pool is SOL, USDC or BAYLA. This site does not show those pools, so nothing about it is checked here.");
     expect(rows[0]).toHaveTextContent(t0);
     expect(rows[1]).toHaveTextContent(/could not be confirmed on chain/);
     expect(rows[2]).toHaveTextContent(/not owned by the pool program/);
