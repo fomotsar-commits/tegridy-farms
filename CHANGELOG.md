@@ -10,6 +10,7 @@ page keeps the newest thirty days.
 
 - On a Solana page (/pools, /solana, /curve-launch, a Solana pool, or the dashboard in a Solana room) the Connect button at the top opens the Solana wallet list, and shows your Solana address once connected. Before, it connected only Ethereum and Base wallets there.
 - Tapping your Solana address at the top opens the wallet list, which now names the wallet in use and has a Disconnect.
+- The indexer's upload parser moves to a release that fixes two published denial-of-service flaws; it takes effect at the indexer's next deploy.
 
 ### 2026-10-02
 
