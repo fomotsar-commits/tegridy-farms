@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { safeGetItem, safeSetItem } from './storage';
 
 /**
  * The Solana connection the top bar shows and opens.
@@ -51,7 +52,10 @@ export interface SolanaSurfaceState {
    * downloads its code.
    */
   readonly ownWanted: boolean;
-  /** Its code did not load (offline, or a deploy rotated the chunk). Asking again clears it. */
+  /**
+   * Its code did not load (offline, or a deploy rotated the chunk). Only a new
+   * page can fetch it again, or a Solana page that loads the same code.
+   */
   readonly ownFailed: boolean;
 }
 
@@ -86,17 +90,38 @@ function announce(): void {
  */
 export function setSolanaSurface(owner: object, surface: SolanaSurface | null, own = false): void {
   if (surface) {
+    const wasConnected = Boolean(surfaces.get(owner)?.surface.address);
     surfaces.set(owner, { surface, own });
-    if (surface.address) ownWanted = true;
+    // A mounted connection proves the Solana code loads.
+    ownFailed = false;
+    if (surface.address) {
+      ownWanted = true;
+      if (!wasConnected) safeSetItem(RESTORE_KEY, '1');
+    } else if (wasConnected) {
+      // That connection disconnected. A withdraw (null) is only a page change, and says nothing.
+      safeSetItem(RESTORE_KEY, '0');
+    }
   } else if (!surfaces.delete(owner)) return;
   announce();
 }
 
-/** The visitor asked for Solana where the page has no Solana section, or tries again after a failed load. */
+/**
+ * Whether a Solana wallet was really connected in this browser, and has not
+ * been disconnected since: the only thing worth restoring on a later visit.
+ * The wallet adapter's own `walletName` is saved as soon as a row is tapped,
+ * so on a phone, where "Open app" hands the page to the wallet's app, it names
+ * a wallet that can never connect in this browser: restoring on it would
+ * download the Solana code on every page, for nothing.
+ */
+const RESTORE_KEY = 'tegridy-solana-restore';
+export function solanaWasConnectedHere(): boolean {
+  return safeGetItem(RESTORE_KEY) === '1';
+}
+
+/** The visitor asked for Solana where the page has no Solana section. */
 export function wantOwnSolana(): void {
-  if (ownWanted && !ownFailed) return;
+  if (ownWanted) return;
   ownWanted = true;
-  ownFailed = false;
   announce();
 }
 

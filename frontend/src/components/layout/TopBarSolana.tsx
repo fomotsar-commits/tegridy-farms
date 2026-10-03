@@ -1,7 +1,7 @@
 import { useEffect, useState, type ComponentType } from 'react';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { safeGetItem } from '../../lib/storage';
-import { noteOwnSolanaFailed, useSolanaSurface, wantOwnSolana } from '../../lib/solanaSurface';
+import { noteOwnSolanaFailed, solanaWasConnectedHere, useSolanaSurface, wantOwnSolana } from '../../lib/solanaSurface';
 
 /**
  * The top bar's own Solana connection, on pages with no Solana section.
@@ -17,8 +17,9 @@ import { noteOwnSolanaFailed, useSolanaSurface, wantOwnSolana } from '../../lib/
  *     reaches the Solana code only through the import() below, and only once
  *     Solana is wanted (lib/solanaSurface.ts `ownWanted`): the visitor picked
  *     Solana in the wallet sheet, a Solana wallet connected in this tab, or
- *     one is saved from an earlier visit. A visitor who never touches Solana
- *     downloads none of it. check-dist-graph.mjs cannot see an import() that
+ *     one was really connected here on an earlier visit and is still saved. A
+ *     visitor who never touches Solana downloads none of it, and neither does
+ *     a phone visitor who only ever tapped an "Open app" row. check-dist-graph.mjs cannot see an import() that
  *     runs at mount, so e2e/topbar-wallet-sheet.spec.ts watches the network.
  *  2. ONE LIVE CONNECTION PER PAGE. It is unmounted wherever the page has, or
  *     is about to have, its own Solana section (`solanaPage`, or a page's
@@ -27,10 +28,13 @@ import { noteOwnSolanaFailed, useSolanaSurface, wantOwnSolana } from '../../lib/
  *     unmount disconnects nothing: the page's provider reads the same saved
  *     wallet as it mounts, and reconnects without a prompt.
  *  3. A FAILED LOAD IS SAID, NOT SPUN. Offline, or a deploy that rotated the
- *     chunk's name: the store is told, the wallet sheet says so and offers
- *     another try. While it is failed nothing is mounted here, so a new try
- *     mounts afresh and runs the import() again. A crash inside the provider
- *     is caught here too, so it can never take the top bar down.
+ *     chunk's name: the store is told, and the wallet sheet says so and offers
+ *     to reload the page, the one retry that works (a browser does not fetch
+ *     a failed chunk or stylesheet again in the same tab). A crash inside the
+ *     provider is caught here too, so it can never take the top bar down.
+ *
+ * An approval still open in a wallet when the route swaps this connection for
+ * a page's (or back) is lost with it, and needs one more pick.
  */
 
 /** The wallet adapter's own key (WalletProvider `localStorageKey`): set while a Solana wallet is chosen. */
@@ -50,14 +54,17 @@ function OwnSolanaProviders() {
   const [Providers, setProviders] = useState<ComponentType | null>(null);
   useEffect(() => {
     let live = true;
-    import('../solana/SolanaProviders').then(
-      (module) => {
+    // try/await, not .then(ok, failed): the bundler wraps import() in a helper
+    // that also loads the chunk's stylesheet, and that helper's rejection (a
+    // stylesheet that did not load) has to land in the same catch.
+    void (async () => {
+      try {
+        const module = await import('../solana/SolanaProviders');
         if (live) setProviders(() => module.TopBarSolanaProviders);
-      },
-      () => {
+      } catch {
         if (live) noteOwnSolanaFailed();
-      },
-    );
+      }
+    })();
     return () => {
       live = false;
     };
@@ -68,11 +75,11 @@ function OwnSolanaProviders() {
 export function TopBarSolana({ solanaPage }: { solanaPage: boolean }) {
   const { page, ownWanted, ownFailed } = useSolanaSurface();
 
-  // A wallet saved on an earlier visit: restore it here too, so the address is
-  // in the top bar on every page and not only on the Solana ones.
+  // A wallet connected on an earlier visit: restore it here too, so the address
+  // is in the top bar on every page and not only on the Solana ones.
   useEffect(() => {
     const saved = safeGetItem(SAVED_WALLET_KEY);
-    if (!saved || saved === 'null') return;
+    if (!solanaWasConnectedHere() || !saved || saved === 'null') return;
     const timer = setTimeout(wantOwnSolana, RESTORE_DELAY_MS);
     return () => clearTimeout(timer);
   }, []);

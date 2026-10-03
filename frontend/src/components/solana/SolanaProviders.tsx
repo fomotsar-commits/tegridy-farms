@@ -102,9 +102,18 @@ export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
   const address = publicKey ? publicKey.toBase58() : null;
   const [owner] = useState(() => ({}));
   const { surface, openPending } = useSolanaSurface();
+  // "NOT CONNECTING" IS NOT SAID BEFORE IT IS KNOWN. WalletProvider starts the
+  // restore of a saved wallet in its own effect, after this component's first
+  // one: a first report of `connecting: false` would be a guess, and the
+  // wallet sheet acted on it (it closed and opened the list while a restore
+  // was about to start). So this reports "connecting" until a render has seen
+  // its own report in the store, which is a render after that effect.
+  const [settled, setSettled] = useState(false);
+  if (!settled && surface?.open === open) setSettled(true);
+  const busy = connecting || !settled;
   useEffect(() => {
-    setSolanaSurface(owner, { open, address, connecting }, own);
-  }, [owner, open, address, connecting, own]);
+    setSolanaSurface(owner, { open, address, connecting: busy }, own);
+  }, [owner, open, address, busy, own]);
   useEffect(() => {
     if (surface?.open !== open || !openPending || connecting) return;
     // A restore that connected answers the tap; otherwise it is the card's click.

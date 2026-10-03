@@ -1,6 +1,14 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
 import { Modal } from '../ui/Modal';
-import { shortSolanaAddress, useSolanaSurface, wantOwnSolana } from '../../lib/solanaSurface';
+import { reloadPage } from '../../lib/reloadPage';
+import {
+  getSolanaSurfaceState,
+  noteOwnSolanaFailed,
+  shortSolanaAddress,
+  useSolanaSurface,
+  wantOwnSolana,
+} from '../../lib/solanaSurface';
 
 /**
  * The top bar's wallet sheet: one row per network, Solana first.
@@ -15,23 +23,32 @@ import { shortSolanaAddress, useSolanaSurface, wantOwnSolana } from '../../lib/s
  *
  * This sheet lists no wallets and connects nothing itself.
  *
- * ── CLOSE FIRST, OPEN ON THE NEXT FRAME ──
+ * ── THE NEXT DIALOG OPENS FROM THE COMMIT THAT CLOSED THIS ONE ──
  *
- * Every row closes this sheet and opens the next dialog a frame later, never
- * in the same tick. Modal locks the page's scroll and remembers where focus
- * was, and gives both back when it closes; the Solana list does the same and
- * reads the page's state as it opens. Opened in the same tick it would read
- * this sheet's lock as the page's own and put it back when it closed (a page
- * that no longer scrolls), and it would hand focus back to a row that is gone.
- * A frame later this sheet has let go of both.
+ * Modal locks the page's scroll and remembers where focus was, and gives both
+ * back when it closes. The Solana list does the same, and reads the page's
+ * state as it opens. If it opens while this sheet still holds the lock, it
+ * takes the lock for the page's own and puts it back when it closes: a page
+ * that no longer scrolls until a reload, with focus dropped on <body>.
+ *
+ * "Close, then open on the next animation frame" was the first attempt, and it
+ * was wrong: a close asked for from an effect is rendered by a later task, and
+ * nothing orders that task before a frame. On a phone the frame came first
+ * most of the time (review, 2026-10-03). So no clock is used. A row leaves what
+ * to open in `afterClose` and closes the sheet; the effect on `open` below
+ * opens it. In the commit that closes the sheet React runs every effect
+ * cleanup, Modal's among them, before any effect body, so by the time this one
+ * runs the scroll lock is released and focus is back on the top bar's button.
  *
  * ── THE SOLANA ROW WAITS HERE, WITH THE SHEET OPEN ──
  *
  * Where the page has no Solana section, the top bar's own connection is loaded
  * on the first tap (TopBarSolana.tsx). The sheet stays open and says so until
- * it has loaded and any saved wallet has finished reconnecting; then it closes,
- * and opens the list only if that did not connect. Closing the sheet while it
- * waits cancels the open, so a list never appears later, uninvited.
+ * it has loaded and any saved wallet has finished reconnecting (a provider
+ * reports "connecting" until it knows: SolanaProviders' bridge); then it
+ * closes, and opens the list only if that did not connect. Closing the sheet
+ * while it waits cancels the open, so a list never appears later, uninvited.
+ * The wait has a limit, after which the row says the wallets did not load.
  */
 
 /** The Ethereum side, as RainbowKit's ConnectButton.Custom hands it over. */
@@ -48,9 +65,15 @@ interface WalletSheetProps {
   evm: EvmWallet;
 }
 
+/** How long "Loading Solana wallets…" may stand before it is called failed. */
+const LOAD_LIMIT_MS = 15_000;
+
 const ROW_CLASS =
   'w-full text-left rounded-xl px-4 py-3 min-h-[64px] flex items-center justify-between gap-3 transition-colors hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]';
 const ROW_STYLE = { background: 'rgba(4,9,18,0.85)', border: '1px solid rgba(139,92,246,0.45)' };
+
+/** Opens whichever Solana list is mounted NOW: a connect handler captured earlier may belong to a wallet since cleared. */
+const openSolanaList = () => getSolanaSurfaceState().surface?.open();
 
 function Row({
   name,
@@ -72,7 +95,12 @@ function Row({
           <span className="block text-white text-[15px] font-semibold">{name}</span>
           <span className="block text-white/70 text-[12.5px] leading-snug">{detail}</span>
         </span>
-        {value && <span className="flex-shrink-0 font-mono text-[12.5px] text-white/85">{value}</span>}
+        {/* A long ENS name must not crush the row's own words on a phone. */}
+        {value && (
+          <span title={value} className="flex-shrink-0 max-w-[55%] truncate font-mono text-[12.5px] text-white/85">
+            {value}
+          </span>
+        )}
       </button>
     </li>
   );
@@ -86,30 +114,62 @@ export function WalletSheet({ open, onClose, evm }: WalletSheetProps) {
   const [waiting, setWaiting] = useState(false);
   // However the sheet closes, it stops waiting (state from the previous
   // render, compared in render: no effect, no extra pass). That is also what
-  // makes the effect below act once, and never after the visitor closed it.
+  // makes the waiting effect below act once, and never after the visitor closed it.
   const [wasOpen, setWasOpen] = useState(open);
   if (wasOpen !== open) {
     setWasOpen(open);
     if (!open && waiting) setWaiting(false);
   }
 
+  // What to open once this sheet has closed (see the header).
+  const afterClose = useRef<(() => void) | null>(null);
   const closeThen = (next: (() => void) | undefined) => {
+    afterClose.current = next ?? null;
     onClose();
-    if (next) requestAnimationFrame(() => next());
   };
+  useEffect(() => {
+    const next = afterClose.current;
+    if (open || !next) return;
+    afterClose.current = null;
+    next();
+  }, [open]);
 
-  // The top bar's own connection has loaded and its restore is over.
+  // The top bar's own connection has loaded and its restore is over: a saved
+  // wallet that reconnected answers the tap; otherwise the list opens.
   useEffect(() => {
     if (!waiting || !surface || surface.connecting) return;
+    afterClose.current = surface.address ? null : openSolanaList;
     onClose();
-    // A saved wallet that reconnected answers the tap; otherwise the list opens.
-    const openList = surface.open;
-    if (!surface.address) requestAnimationFrame(() => openList());
   }, [waiting, surface, onClose]);
 
+  const loading = waiting && !surface && !ownFailed;
+  // A load that never ends is a failed one: say so, and stop the spinner.
+  useEffect(() => {
+    if (!loading) return;
+    const timer = setTimeout(noteOwnSolanaFailed, LOAD_LIMIT_MS);
+    return () => clearTimeout(timer);
+  }, [loading]);
+
+  // With an Ethereum wallet connected the chip keeps naming that account, so a
+  // Solana connect made from this sheet changes nothing in the top bar: say it.
+  const askedSolana = useRef(false);
+  const hasEvm = evm.label !== null;
+  useEffect(() => {
+    if (!askedSolana.current || !solanaAddress) return;
+    askedSolana.current = false;
+    if (hasEvm) toast(`Solana wallet ${shortSolanaAddress(solanaAddress)} connected. Tap your wallet at the top to see both.`);
+  }, [solanaAddress, hasEvm]);
+
   const onSolana = () => {
+    if (ownFailed) {
+      // A failed chunk or stylesheet is not fetched again in the same tab, and
+      // after a deploy its old name is gone for good: only a new page gets it.
+      reloadPage();
+      return;
+    }
+    if (!solanaAddress) askedSolana.current = true;
     if (surface) {
-      closeThen(surface.open);
+      closeThen(openSolanaList);
       return;
     }
     setWaiting(true);
@@ -118,17 +178,18 @@ export function WalletSheet({ open, onClose, evm }: WalletSheetProps) {
 
   const onEthereum = () => closeThen(evm.label ? evm.account : evm.connect);
 
-  const loading = waiting && !surface && !ownFailed;
   const solanaDetail = solanaAddress
     ? 'Switch wallet or disconnect'
     : ownFailed
-      ? 'Couldn’t load Solana wallets. Check your connection and tap to try again.'
+      ? 'Couldn’t load Solana wallets. Tap to reload the page.'
       : loading
         ? 'Loading Solana wallets…'
         : surface?.connecting
           ? 'Connecting…'
           : 'Phantom, Trust, Jupiter, Solflare and more';
   const ethereumDetail = evm.label ? 'Account and disconnect' : 'MetaMask, Trust, Rainbow and more';
+  // Said once, outside the row: a status inside a button is not read out.
+  const solanaStatus = ownFailed ? 'Couldn’t load Solana wallets.' : loading ? 'Loading Solana wallets…' : '';
 
   return (
     <Modal open={open} onClose={onClose} title={anyConnected ? 'Your wallets' : 'Connect a wallet'} maxWidth="max-w-sm">
@@ -138,13 +199,16 @@ export function WalletSheet({ open, onClose, evm }: WalletSheetProps) {
       <ul className="flex flex-col gap-2.5 list-none p-0 m-0">
         <Row
           name="Solana"
-          detail={<span role={ownFailed ? 'alert' : undefined}>{solanaDetail}</span>}
+          detail={solanaDetail}
           value={solanaAddress ? shortSolanaAddress(solanaAddress) : null}
           busy={loading}
           onClick={onSolana}
         />
         <Row name="Ethereum, Base, Robinhood Chain" detail={ethereumDetail} value={evm.label} onClick={onEthereum} />
       </ul>
+      <p role="status" className="sr-only">
+        {solanaStatus}
+      </p>
     </Modal>
   );
 }

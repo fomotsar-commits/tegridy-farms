@@ -9,6 +9,7 @@ import {
   requestSolanaOpen,
   resetSolanaSurfaceForTests,
   setSolanaSurface,
+  solanaWasConnectedHere,
   shortSolanaAddress,
   subscribeSolanaSurface,
   takeSolanaOpenRequest,
@@ -33,6 +34,7 @@ const owner = () => {
 afterEach(() => {
   for (const o of owners.splice(0)) setSolanaSurface(o, null);
   resetSolanaSurfaceForTests();
+  localStorage.clear();
 });
 
 describe('solanaSurface: who answers', () => {
@@ -158,12 +160,42 @@ describe("solanaSurface: the top bar's own connection", () => {
     expect(getSolanaSurfaceState().ownWanted).toBe(true);
   });
 
-  it('says when its code did not load, until it is asked for again', () => {
+  // In the same tab only a reload can fetch a failed chunk again, so asking
+  // again changes nothing; a Solana page that mounts its section proves the
+  // code loads after all.
+  it('says when its code did not load, until a Solana connection does mount', () => {
     wantOwnSolana();
     noteOwnSolanaFailed();
     expect(getSolanaSurfaceState()).toMatchObject({ ownWanted: true, ownFailed: true });
     wantOwnSolana();
+    expect(getSolanaSurfaceState().ownFailed).toBe(true);
+    setSolanaSurface(owner(), surface());
     expect(getSolanaSurfaceState()).toMatchObject({ ownWanted: true, ownFailed: false });
+  });
+
+  // What a later visit restores on. The wallet adapter saves a wallet's NAME
+  // the moment its row is tapped, connected or not, so the name alone would
+  // download the Solana code on every page for a phone visitor who only ever
+  // tapped "Open app".
+  it('remembers that a Solana wallet really connected here, until that connection disconnects', () => {
+    const pageOwner = owner();
+    expect(solanaWasConnectedHere()).toBe(false);
+    setSolanaSurface(pageOwner, surface());
+    setSolanaSurface(pageOwner, surface({ connecting: true }));
+    expect(solanaWasConnectedHere()).toBe(false);
+    setSolanaSurface(pageOwner, surface({ address: 'X' }));
+    expect(solanaWasConnectedHere()).toBe(true);
+    // Leaving the page is not a disconnect.
+    setSolanaSurface(pageOwner, null);
+    expect(solanaWasConnectedHere()).toBe(true);
+    // Another connection that never had an address says nothing either.
+    setSolanaSurface(owner(), surface());
+    expect(solanaWasConnectedHere()).toBe(true);
+    // A connection that had an address and now has none was disconnected.
+    const again = owner();
+    setSolanaSurface(again, surface({ address: 'X' }));
+    setSolanaSurface(again, surface());
+    expect(solanaWasConnectedHere()).toBe(false);
   });
 
   it('tells no one when it is asked for twice', () => {

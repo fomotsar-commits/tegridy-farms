@@ -61,7 +61,7 @@ async function answerLadderFromRecording(page: Page) {
   });
 }
 
-test('on the home page a first visit downloads no Solana code; Connect, then Solana, opens the Solana wallet list', async ({ page }) => {
+test('on the home page a first visit downloads no Solana code; Connect, then Solana, opens the Solana wallet list', async ({ page }, testInfo) => {
   const solanaCode: string[] = [];
   page.on('request', (request) => {
     if (/\/assets\/vendor-solana[^/]*\.js/.test(request.url())) solanaCode.push(request.url());
@@ -69,9 +69,18 @@ test('on the home page a first visit downloads no Solana code; Connect, then Sol
   await page.goto('/');
   await expect(topBarConnect(page)).toBeVisible({ timeout: 30_000 });
   // Past the moment a saved wallet would be restored (TopBarSolana RESTORE_DELAY_MS): none is saved.
-  await page.waitForLoadState('networkidle');
   await page.waitForTimeout(2_500);
   expect(solanaCode, 'a visitor who never touched Solana downloaded its code').toEqual([]);
+
+  // ⚠️ AT A PHONE'S SPEED. The list once opened "a frame after" the sheet
+  // closed, and on a slow device the frame came before the close: the list
+  // took the sheet's scroll lock for the page's own and put it back when it
+  // closed. Measured then: locked in 1 try of 10 at full speed, 10 of 10 at a
+  // quarter (review, 2026-10-03). Chromium only: the throttle is a DevTools call.
+  if (testInfo.project.name === 'chromium') {
+    const devtools = await page.context().newCDPSession(page);
+    await devtools.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+  }
 
   await topBarConnect(page).click();
   await expect(connectSheet(page)).toBeVisible();
@@ -88,11 +97,32 @@ test('on the home page a first visit downloads no Solana code; Connect, then Sol
   await expect(ethereumList(page)).toHaveCount(0);
   expect(solanaCode.length, 'the Solana code is loaded once Solana is picked').toBeGreaterThan(0);
 
-  // The list closes cleanly: the page scrolls again and the top bar is back.
+  // While the list is open the page behind it is locked; once it closes the
+  // page scrolls again, and focus is back on the button the visitor started from.
+  expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe('hidden');
   await solanaList(page).getByRole('button', { name: 'Close' }).click();
   await expect(solanaList(page)).toHaveCount(0);
   expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).not.toBe('hidden');
   await expect(topBarConnect(page)).toBeVisible();
+  await expect(topBarConnect(page)).toBeFocused();
+});
+
+test('where the Solana wallets cannot be loaded, the sheet says so instead of loading for ever', async ({ page }) => {
+  // The provider's stylesheet fails, as it does offline or in a tab left open
+  // across a deploy. The bundler's import() wrapper rejects for it, and that
+  // rejection once went unheard: "Loading Solana wallets…" never ended.
+  let aborted = 0;
+  await page.route(/\/assets\/SolanaProviders-[^/]*\.css(\?.*)?$/, (route) => {
+    aborted += 1;
+    return route.abort();
+  });
+  await page.goto('/');
+  await expect(topBarConnect(page)).toBeVisible({ timeout: 30_000 });
+  await topBarConnect(page).click();
+  await solanaRow(page).click();
+  await expect(solanaRow(page)).toContainText('Couldn’t load Solana wallets. Tap to reload the page.', { timeout: 30_000 });
+  await expect(solanaList(page)).toHaveCount(0);
+  expect(aborted, "the provider's stylesheet was asked for, and refused").toBeGreaterThan(0);
 });
 
 test('Connect, then Ethereum, is still the Ethereum wallet list', async ({ page }) => {

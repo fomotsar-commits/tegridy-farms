@@ -47,6 +47,13 @@ describe("isSolanaPage: where the top bar's Connect connects Solana", () => {
     }
   });
 
+  // That page draws "Not a token address" and mounts no wallet section.
+  it('is false for a launch page whose address is not an address', () => {
+    for (const p of ['/curve-launch/nope', '/curve-launch/0xabc', '/curve-launch/So1111111111111111111111111111111111111111O', '/curve-launch/So11111111111111111111111111111111111111112/x']) {
+      expect(isSolanaPage(p), p).toBe(false);
+    }
+  });
+
   it('is false for the Ethereum pages, the lists and the doors', () => {
     for (const p of ['/', '/swap', '/liquidity', '/launch', '/eth-curve', '/earn', '/earn/', '/earn/toweli', '/earn/pepe', '/earn/nope', '/bayla', '/curve-launchpad', '/solanaX', '/earn/bayla/x']) {
       expect(isSolanaPage(p), p).toBe(false);
