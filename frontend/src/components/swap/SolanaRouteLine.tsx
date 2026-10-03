@@ -18,18 +18,12 @@ import {
 } from '../../lib/solana/route';
 
 /**
- * "Where is this trade going, and why?" — rendered on the Solana swap under the
- * quote.
- *
- * The venue quotes its OWN pools alongside the aggregator and takes whichever
- * pays the trader more (`lib/solana/route.ts`). This is the line that says so,
- * and it is deliberately shown in every state, including the ones where we
- * lose or have nothing to offer — a routing disclosure that only appears when
- * the house wins is an advertisement, not a disclosure.
- *
- * The venue read is done once per mount and cached in module scope: the AMM's
- * deployment state does not change between two quotes, and re-probing it on
- * every keystroke would put a ProgramData read behind the amount field.
+ * The route line under the Solana swap's quote. It compares the venue's own pool quote
+ * with the aggregator's (`lib/solana/route.ts`) and says where the swap is sent: through
+ * the aggregator, because SolanaSwapPage submits only the aggregator's transaction.
+ * Shown in every state, including the ones where our pool loses or has nothing to offer.
+ * The venue read is cached in module scope: its deployment state does not change between
+ * two quotes.
  */
 
 let venueCache: Promise<VenueStatus> | null = null;
@@ -65,14 +59,10 @@ export function SolanaRouteLine({
   aggregatorLabel = 'Jupiter',
 }: SolanaRouteLineProps) {
   const [venue, setVenue] = useState<VenueStatus | null>(null);
-  // The own-pool READ OUTCOME is the only asynchronous input, so it is the
-  // only thing held in state — and it is KEYED, so a stale answer for a
-  // previous pair or amount is discarded by derivation rather than by a
-  // synchronous setState in an effect (react-hooks/set-state-in-effect).
-  // The outcome distinguishes "the pool is absent" from "the read failed":
-  // collapsing those used to render a fabricated "this venue has no pool for
-  // this pair" while the read was merely in flight or erroring — exactly the
-  // degraded-read-as-finding class lib/solana/cpswap/read.ts prohibits.
+  // The own-pool read outcome is the only asynchronous input, so it is the only state, and
+  // it is keyed: an answer for an earlier pair or amount is dropped by derivation, not by
+  // a setState in an effect (react-hooks/set-state-in-effect). 'absent' and 'error' stay
+  // apart: a read in flight or failed is never "this venue has no pool for this pair".
   const [ownRead, setOwnRead] = useState<{
     key: string;
     state: 'absent' | 'error' | 'quoted';
@@ -143,13 +133,19 @@ export function SolanaRouteLine({
 
   if (!venue) return null;
 
-  // Before there is an amount, still say what the router will do — this is the
-  // showcase half, and it costs one quiet line.
+  // SolanaSwapPage.handleSwap submits the aggregator's transaction whatever chooseRoute()
+  // picks: no own-pool execution path exists yet. So every line here is a comparison of
+  // quotes plus where the swap is sent, never decision.reason, which reads as execution.
+  // When own-pool execution lands, send the winner's transaction and render
+  // decision.reason again, in the same change.
+  const sentThrough = `For now, every swap on this page is sent through ${aggregatorLabel}.`;
+
+  // Before there is an amount, still say what this page does with a quote. One quiet line.
   if (!decision?.chosen) {
     return (
       <RouteShell>
         {venue.kind === 'live'
-          ? <>Quotes are taken from our own pools and {aggregatorLabel}, whichever pays more.</>
+          ? <>We compare quotes from our own pools and {aggregatorLabel}. {sentThrough}</>
           : venue.kind === 'unreadable'
             ? <>Quoting {aggregatorLabel}. Our own pools could not be checked just now.</>
             : <>
@@ -162,15 +158,7 @@ export function SolanaRouteLine({
 
   const won = decision.chosen.venue === 'own-pool';
 
-  // EXECUTION HONESTY: the page this renders under submits the AGGREGATOR
-  // transaction unconditionally (SolanaSwapPage.handleSwap →
-  // buildSwapTransaction) — no own-pool execution path exists in the app yet.
-  // chooseRoute() says which venue SHOULD win; until execution follows the
-  // decision, an own-pool win must render as a price comparison, never as
-  // "routed to the venue pool". When own-pool execution lands, route the
-  // winning venue's transaction AND restore decision.reason here in the SAME
-  // change.
-  let reason: string = decision.reason;
+  let reason: string;
   if (won) {
     const pct =
       decision.edge !== null && decision.edge > 0
@@ -179,13 +167,20 @@ export function SolanaRouteLine({
     reason = decision.runnerUp
       ? `Our own pool quotes ${pct} than ${decision.runnerUp.label} — own-pool routing isn't wired into this swap yet, so it still executes via ${aggregatorLabel}.`
       : `Only our own pool quoted this pair, and this swap executes via ${aggregatorLabel} — so it cannot fill right now.`;
-  } else if (!decision.runnerUp && (ownState === 'pending' || ownState === 'error')) {
-    // Jupiter is the only candidate but our pool wasn't PROVEN absent — an
-    // in-flight or failed read must not render as "this venue has no pool".
-    reason =
+  } else if (decision.runnerUp) {
+    // Our pool quoted less. A tie goes to our pool, so the edge here is above zero.
+    const pct = ((decision.edge ?? 0) * 100).toLocaleString(undefined, { maximumFractionDigits: 3 });
+    reason = `${decision.chosen.label} quotes ${pct}% more output than our own pool. ${sentThrough}`;
+  } else {
+    // The aggregator's is the only quote. Our pool is absent only when a read proved it:
+    // a read in flight or failed says so instead.
+    const ownPool =
       ownState === 'pending'
-        ? `Routed to ${decision.chosen.label}. Checking our own pool…`
-        : `Routed to ${decision.chosen.label}. Our own pool could not be quoted this time.`;
+        ? 'Checking our own pool…'
+        : ownState === 'error'
+          ? 'Our own pool could not be quoted this time.'
+          : 'This venue has no pool for this pair.';
+    reason = `${ownPool} ${sentThrough}`;
   }
 
   return (

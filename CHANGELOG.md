@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-03
 
+- Solana swap: the Route line under the quote no longer reads as if your trade goes to whichever of our own pools or Jupiter pays more. It says quotes are compared and that, for now, every swap on that page is sent through Jupiter, as the pool pages already said.
 - Solana LP: in a Solana room (BAYLA, BOBO, SOY, Brainlet, RIZZ) one button looks up that room's token, so a phone does not have to paste its address. After a lookup the page moves to the answer, and a token with no pool yet says that opening the pool is how the first liquidity goes in.
 - Pools has a Solana LP tab that opens on the pool finder: find a pool, add or remove liquidity, or open a pool on the venue's own Solana AMM.
 - Solana pools: a wallet that cannot open a pool or add liquidity yet is told so in plain words, with how much SOL that needs before anything goes into the pool, how much the wallet has, and whether it holds the token. The form used to only grey out Review.
