@@ -292,6 +292,23 @@ describe('the panel', () => {
     expect(sol(panel)).toHaveValue('4.80491144');
   });
 
+  // Phone walk of the build, 2026-10-03: Max on both sides, then the two offered fixes
+  // undid each other for ever. The token side was left driving, so Match put the SOL back.
+  it('after Use that much, Match the market price keeps the SOL and moves the tokens: the two fixes do not undo each other', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    // The token side is typed last, so it drives: Match works the SOL out from it.
+    fireEvent.change(tokens(panel), { target: { value: '490' } });
+    fireEvent.click(matchButton(panel));
+    expect(sol(panel)).toHaveValue('4.9');
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Use 4.80491144 SOL' }));
+    expect(sol(panel)).toHaveValue('4.80491144');
+    fireEvent.click(matchButton(panel));
+    expect(sol(panel)).toHaveValue('4.80491144');
+    expect(tokens(panel)).toHaveValue('480.491144');
+  });
+
   it('more tokens than the wallet holds: says so, and the most both balances allow fits', async () => {
     mount(readers({ wallet: vi.fn(async () => facts({ token: { address: key().toBase58(), amount: 10n * 10n ** 6n } })) }));
     const { panel } = await openPanel();

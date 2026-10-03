@@ -208,7 +208,7 @@ function AddInner({
 
   const warnings = safety?.kind === 'read' && safety.verdict === 'warn' ? safety.warnings : [];
   const walletReady = writes.signerState.kind === 'ready';
-  const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotAdd !== null, hasAmounts: !!typed, amountsWord: 'an amount' });
+  const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotAdd !== null, hasAmounts: !!typed && typed.text.trim() !== '', amountsWord: 'an amount' });
   const callsItself = safety?.kind === 'read' && safety.verdict !== 'blocked' && (safety.name || safety.symbol)
     ? `${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`
     : null;

@@ -269,7 +269,17 @@ function CreateInner({
   } else if (problem?.problem === 'over-balance' && problem.side === 'sol') {
     problemText = rentBand(solExact(problem.have));
     const have = problem.have;
-    if (have > 0n) fix = { label: `Use ${solExact(have)}`, run: () => setSide('sol', have) };
+    // The SOL side now drives: left on the token side, "Match the market price" put the
+    // SOL straight back over the limit and the two fixes undid each other for ever.
+    if (have > 0n) {
+      fix = {
+        label: `Use ${solExact(have)}`,
+        run: () => {
+          setSide('sol', have);
+          setDriving('sol');
+        },
+      };
+    }
   } else if (problem?.problem === 'over-balance' && problem.side === 'token') {
     problemText = `You have ${tok(problem.have)}; this needs ${tok(problem.need)}.`;
     if (mostBoth) fix = { label: 'Use the most both balances allow', run: applyMostBoth };
@@ -313,7 +323,8 @@ function CreateInner({
 
   const warnings = safety.kind === 'read' && safety.verdict === 'warn' ? safety.warnings : [];
   const walletReady = writes.signerState.kind === 'ready';
-  const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotOpen !== null, hasAmounts: both, amountsWord: 'both amounts' });
+  // An amount that does not parse has its own line under its box: it is not "type both amounts".
+  const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotOpen !== null, hasAmounts: both || bad('sol') || bad('token'), amountsWord: 'both amounts' });
   const callsItself =
     safety.kind === 'read' && safety.verdict !== 'blocked' && (safety.name || safety.symbol)
       ? `${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`

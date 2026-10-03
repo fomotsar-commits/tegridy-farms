@@ -57,7 +57,8 @@ export default function SolanaLpPage() {
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-8 pb-16">
         <m.div className="mb-4 sm:mb-6" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">Solana LP · Venue AMM</p>
+          {/* Not on a phone: the tab above already says Solana LP, and its line pushed the token buttons under the bottom bar. */}
+          <p className="hidden sm:block text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">Solana LP · Venue AMM</p>
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
             Solana liquidity.
           </h1>
