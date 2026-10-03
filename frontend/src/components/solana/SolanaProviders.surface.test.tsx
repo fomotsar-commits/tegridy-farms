@@ -13,6 +13,7 @@ import {
   type WalletName,
 } from '@solana/wallet-adapter-base';
 import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey } from '@solana/web3.js';
 import { SolanaProviders, SolanaSurfaceBridge } from './SolanaProviders';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
@@ -75,10 +76,16 @@ class FakeWallet extends BaseMessageSignerWalletAdapter {
 
 function PickAndConnect() {
   const { select } = useWallet();
+  const { setVisible } = useWalletModal();
   return (
-    <button type="button" onClick={() => select('Fake' as WalletName)}>
-      pick fake
-    </button>
+    <>
+      <button type="button" onClick={() => select('Fake' as WalletName)}>
+        pick fake
+      </button>
+      <button type="button" onClick={() => setVisible(true)}>
+        open list
+      </button>
+    </>
   );
 }
 
@@ -204,6 +211,34 @@ describe('SolanaProviders reports to the top bar', () => {
       expect(screen.getByRole('dialog')).toHaveTextContent('Waiting for Fake to answer');
       expect(getSolanaSurfaceState().openPending).toBe(false);
       expect(fake.connectCalls).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // The early tap asked for the list. If the visitor opens it from the page
+  // while the tap is held, that is the answer: closing it must be the end of
+  // it, not the list opening again by itself when the hold runs out.
+  it('does not open the list again for a held tap once the visitor has had the list from the page', async () => {
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem('walletName', JSON.stringify('Fake'));
+      act(() => requestSolanaOpen());
+      withFake(new FakeWallet('Fake', 'restore-hangs'));
+      await act(async () => {});
+      expect(getSolanaSurfaceState().openPending).toBe(true);
+      fireEvent.click(screen.getByRole('button', { name: 'open list' }));
+      expect(screen.getByRole('dialog')).toBeTruthy();
+      expect(getSolanaSurfaceState().openPending).toBe(false);
+      fireEvent.keyDown(window, { key: 'Escape' });
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(SOLANA_CONNECT_WAIT_NOTICE_MS);
+      });
+      expect(screen.queryByRole('dialog')).toBeNull();
     } finally {
       vi.useRealTimers();
     }

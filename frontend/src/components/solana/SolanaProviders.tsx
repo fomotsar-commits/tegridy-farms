@@ -2,6 +2,7 @@
 import '../../lib/solanaPolyfill';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import {
   BackpackWalletAdapter,
   CoinbaseWalletAdapter,
@@ -102,7 +103,9 @@ import { setSolanaSurface, takeSolanaOpenRequest, useSolanaSurface } from '../..
  * did nothing, and ten seconds on said the list "did not load". Once the wait
  * has run as long as the card takes to name the wallet, the tap opens the
  * list, which names it too. Nothing is connected then: with a connect in
- * flight the click only opens the list (useSolanaConnect).
+ * flight the click only opens the list (useSolanaConnect). If the visitor has
+ * this page's list on screen before that, the list is the answer and the tap
+ * is used up: it does not open the list again after they have closed it.
  */
 export function SolanaSurfaceBridge() {
   const { publicKey, connecting } = useWallet();
@@ -110,6 +113,7 @@ export function SolanaSurfaceBridge() {
   const address = publicKey ? publicKey.toBase58() : null;
   const [owner] = useState(() => ({}));
   const { surface, openPending } = useSolanaSurface();
+  const { visible } = useWalletModal();
   useEffect(() => {
     setSolanaSurface(owner, { open, address, connecting });
   }, [owner, open, address, connecting]);
@@ -123,11 +127,15 @@ export function SolanaSurfaceBridge() {
   }, [surface, openPending, connecting, address, open]);
   useEffect(() => {
     if (surface?.open !== open || !openPending || !connecting) return;
+    if (visible) {
+      takeSolanaOpenRequest();
+      return;
+    }
     const timer = window.setTimeout(() => {
       if (takeSolanaOpenRequest() && !document.querySelector('[aria-modal="true"]')) open();
     }, SOLANA_CONNECT_WAIT_NOTICE_MS);
     return () => window.clearTimeout(timer);
-  }, [surface, openPending, connecting, open]);
+  }, [surface, openPending, connecting, open, visible]);
   useEffect(() => () => setSolanaSurface(owner, null), [owner]);
   return null;
 }
