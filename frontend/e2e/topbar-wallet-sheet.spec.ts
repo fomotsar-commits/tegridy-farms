@@ -104,7 +104,9 @@ test('on the home page a first visit downloads no Solana code; Connect, then Sol
   await expect(solanaList(page)).toHaveCount(0);
   expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).not.toBe('hidden');
   await expect(topBarConnect(page)).toBeVisible();
-  await expect(topBarConnect(page)).toBeFocused();
+  // Safari does not focus a button when it is tapped, so there focus was never
+  // on Connect to be handed back.
+  if (!testInfo.project.name.includes('safari')) await expect(topBarConnect(page)).toBeFocused();
 });
 
 test('where the Solana wallets cannot be loaded, the sheet says so instead of loading for ever', async ({ page }) => {
