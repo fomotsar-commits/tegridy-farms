@@ -52,6 +52,7 @@ import {
   WORKSHOP_WALLET,
   baylaAccountOf,
 } from './plant';
+import { SOL_QUOTE, type QuoteCoin } from '../../../solana/lp/quotes';
 
 export const LAUNCH = new PublicKey('64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2');
 export const CPSWAP = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
@@ -463,13 +464,21 @@ export function addPool(
     tokenProgram?: PublicKey;
     tokenDecimals?: number;
     frozenTokenVault?: boolean;
+    /**
+     * The coin the token is paired with (quotes.ts); default SOL. `sol` is then that
+     * coin's reserve, in its own base units, and its vault sits under its own program.
+     */
+    quote?: QuoteCoin;
     /** Override recorded fields (to test a pool whose record and derivation disagree). */
     record?: Partial<Record<'token0Vault' | 'token1Vault' | 'lpMint' | 'observationKey' | 'token0Program' | 'token1Program', PublicKey>>;
   },
 ): PoolFixture {
-  const { token0, token1 } = sortMints(WSOL_MINT, mint);
+  const quote = o.quote ?? SOL_QUOTE;
+  const quoteMint = new PublicKey(quote.mint);
+  const quoteProgram = new PublicKey(quote.program);
+  const { token0, token1 } = sortMints(quoteMint, mint);
   const address = o.address ?? (o.launch ? poolStatePda(mint, LAUNCH) : derivePool(CPSWAP, AMM_CONFIG, token0, token1));
-  const quoteIsToken0 = token0.equals(WSOL_MINT);
+  const quoteIsToken0 = token0.equals(quoteMint);
   const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
   const vault0 = deriveVault(CPSWAP, address, token0);
   const vault1 = deriveVault(CPSWAP, address, token1);
@@ -487,16 +496,16 @@ export function addPool(
     [off.lpMint, r.lpMint ?? lpMint],
     [off.token0Mint, token0],
     [off.token1Mint, token1],
-    [off.token0Program, r.token0Program ?? (quoteIsToken0 ? TOKEN_PROGRAM_ID : tokenProgram)],
-    [off.token1Program, r.token1Program ?? (quoteIsToken0 ? tokenProgram : TOKEN_PROGRAM_ID)],
+    [off.token0Program, r.token0Program ?? (quoteIsToken0 ? quoteProgram : tokenProgram)],
+    [off.token1Program, r.token1Program ?? (quoteIsToken0 ? tokenProgram : quoteProgram)],
     [off.observationKey, r.observationKey ?? observation],
   ];
   for (const [at, k] of keys) d.set(k.toBytes(), at);
   d[off.status] = o.status ?? 0;
   d[off.lpMintDecimals] = 9;
   const dec = o.tokenDecimals ?? 6;
-  d[off.mint0Decimals] = quoteIsToken0 ? 9 : dec;
-  d[off.mint1Decimals] = quoteIsToken0 ? dec : 9;
+  d[off.mint0Decimals] = quoteIsToken0 ? quote.decimals : dec;
+  d[off.mint1Decimals] = quoteIsToken0 ? dec : quote.decimals;
   d.set(u64le(o.lpSupply ?? 1_000_000_000n), off.lpSupply);
   d.set(u64le(o.openTime ?? 0n), off.openTime);
   if (o.enableCreatorFee) {
@@ -507,7 +516,8 @@ export function addPool(
   const authority = deriveAuthority(CPSWAP);
   const solVault = quoteIsToken0 ? vault0 : vault1;
   const tokenVault = quoteIsToken0 ? vault1 : vault0;
-  chain.tokenAccount(solVault, WSOL_MINT, authority, o.sol);
+  if (quoteProgram.equals(TOKEN_2022_PROGRAM_ID)) chain.token2022Account(solVault, quoteMint, authority, o.sol);
+  else chain.tokenAccount(solVault, quoteMint, authority, o.sol);
   const vaultOpts = { state: o.frozenTokenVault ? (2 as const) : (1 as const) };
   if (tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) chain.token2022Account(tokenVault, mint, authority, o.tokens, vaultOpts);
   else chain.tokenAccount(tokenVault, mint, authority, o.tokens, vaultOpts);
