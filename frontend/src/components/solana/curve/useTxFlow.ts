@@ -12,12 +12,13 @@ import type { Prepared, PreparedTx, TxOutcome, TxSigner, WriteApi, WriteRpc } fr
 // Nothing reaches the wallet without a review whose every line is true of it.
 
 /**
- * How long a review may be signed as it is, from the Review press: its blockhash is
- * read while preparing and lasts about 150 blocks. Past this the reviewed transaction
- * is never handed to the wallet.
+ * How long a review may be signed as it is, from the Review press. Its blockhash is read
+ * while preparing and lasts 150 blocks: about 40 seconds at mainnet's 0.27 s a block
+ * (measured 2026-10-03), so this clock runs out with SIGN_MARGIN_BLOCKS and more to
+ * spare. Past it the reviewed transaction is never handed to the wallet.
  */
-export const REVIEW_TTL_MS = 45_000;
-/** Blocks (~0.4 s each) the wallet prompt and the first send must still have. */
+export const REVIEW_TTL_MS = 30_000;
+/** Blocks the wallet prompt and the first send must still have: about 7 seconds. */
 export const SIGN_MARGIN_BLOCKS = 25;
 const HEIGHT_READ_TIMEOUT_MS = 3_000;
 

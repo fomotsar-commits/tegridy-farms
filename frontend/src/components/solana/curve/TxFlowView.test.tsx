@@ -3,7 +3,7 @@ import { act, fireEvent, render, renderHook, screen } from '@testing-library/rea
 import { Transaction, TransactionInstruction, type PublicKey } from '@solana/web3.js';
 import { FeeRows, TxFlowView, TxOutcomeCard, TxReview } from './TxFlowView';
 import { reviewLines } from './reviewLines';
-import { REVIEW_TTL_MS, useTxFlow } from './useTxFlow';
+import { REVIEW_TTL_MS, SIGN_MARGIN_BLOCKS, useTxFlow } from './useTxFlow';
 import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
 import { lpCreateSummary, lpDepositSummary, lpWithdrawSummary } from '../lp/fakeLpWriteApi.fixture';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, TxSummary, WriteApi, WriteRpc } from './ports';
@@ -415,6 +415,14 @@ describe('announced and focused', () => {
 // ---------------------------------------------------------------------------
 
 describe('useTxFlow', () => {
+  // Mainnet on 2026-10-03: 219 to 228 slots a minute (getRecentPerformanceSamples) and 114
+  // blocks in 30.6 seconds. A blockhash lasts 150 blocks: about 40 seconds, not a minute.
+  it('the review clock runs out while the blockhash still has its signing margin', () => {
+    const BLOCK_MS = 268;
+    const BLOCKHASH_BLOCKS = 150;
+    expect(REVIEW_TTL_MS / BLOCK_MS + SIGN_MARGIN_BLOCKS).toBeLessThanOrEqual(BLOCKHASH_BLOCKS);
+  });
+
   it('a review goes stale when its clock runs out and can no longer be signed', async () => {
     vi.useFakeTimers();
     const api = fakeApi();
