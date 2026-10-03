@@ -342,6 +342,28 @@ describe('while a saved WalletConnect session is still being restored', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  // The top bar's address opens the list while connected (2026-10-02). The
+  // WalletConnect row stays open for a QR; connected, there is none to draw,
+  // and the row did nothing at all, with the dialog left open.
+  it('once CONNECTED over WalletConnect, its row reads Connected and a tap on it closes the list', async () => {
+    await mountRestoring({ live: true });
+    await act(async () => {
+      release!(client);
+      await settle(50);
+    });
+    await settle();
+    expect(screen.getByTestId('pk')).toHaveTextContent(account);
+    const dialog = await openList();
+    expect(dialog).toHaveTextContent('Switch Solana wallet');
+    const row = within(dialog).getByText('WalletConnect').closest('button')!;
+    expect(row).toHaveTextContent('WalletConnectConnected');
+    fireEvent.click(row);
+    await settle();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('img', { name: 'WalletConnect QR code' })).toBeNull();
+    expect(screen.getByTestId('pk')).toHaveTextContent(account);
+  });
+
   it('a kept click is dropped by Close: a restore ending during the fade starts no QR', async () => {
     await mountRestoring({ live: false });
     const connect = vi.spyOn(client, 'connect');
@@ -482,11 +504,15 @@ describe('Trust and Jupiter, not in this browser, open the QR their phone app sc
   });
 });
 
-describe('the list says the top bar is a separate connection', () => {
-  it('names what the top-bar Connect is for', async () => {
+describe('the list no longer says the top bar cannot connect Solana', () => {
+  // On a Solana page the top bar's Connect opens this list (lib/solanaSurface.ts).
+  it('says what it connects, and that an Ethereum or Base connection is separate and stays', async () => {
     mount();
     const dialog = await openList();
-    expect(dialog).toHaveTextContent('The Connect button at the top of the page is a separate connection, and it does not connect Solana.');
+    expect(dialog).not.toHaveTextContent('does not connect Solana');
+    expect(dialog).toHaveTextContent(
+      'Only wallets that work on Solana are listed. This connects your Solana account. An Ethereum or Base connection is separate and stays as it is.',
+    );
   });
 });
 
