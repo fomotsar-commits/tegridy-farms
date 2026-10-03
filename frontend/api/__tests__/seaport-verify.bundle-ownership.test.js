@@ -9,6 +9,11 @@
 // duplicate bundle on retry. These tests pin both the fan-out AND that parallelising it
 // did not change which error wins.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+// Warms the module graph at collection time. NOT dead code: the first re-import under
+// `vi.resetModules()` below is a cold load of seaport-verify.js's graph (it pulls in
+// viem), inside a `beforeEach` that vitest bounds at 10s, and it slows with machine
+// load. Paid here, where no timeout runs, every re-import is a few ms.
+import "../_lib/seaport-verify.js";
 
 const OFFERER = "0x" + "a".repeat(40);
 const OTHER = "0x" + "b".repeat(40);

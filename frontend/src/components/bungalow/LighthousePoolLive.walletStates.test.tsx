@@ -9,7 +9,7 @@
 // TEXT (containment in the DOM tree), not pixel overflow. The first test proves that, so
 // nobody mistakes a green here for a layout measurement.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, within, configure } from '@testing-library/react';
 import type { Bungalow } from '../../lib/bungalows';
 
 const DAY = 86_400;
@@ -106,6 +106,13 @@ function assertNoZero(text: string) {
 async function noteShows(re: RegExp) {
   await waitFor(() => expect(shareParts().note.textContent ?? '').toMatch(re));
 }
+
+// The first test to run pays for the card's first full render and the first role query
+// inside its wait. That is real work (no import is left cold, no read is left real):
+// 0.7 to 0.9s on a busy machine against Testing Library's 1s default. So the waits get
+// 10s and the tests 20s. Both are their own clocks: --testTimeout moves neither.
+configure({ asyncUtilTimeout: 10_000 });
+vi.setConfig({ testTimeout: 20_000 });
 
 beforeEach(() => {
   poolState.totalEffective = 100_000_000n;

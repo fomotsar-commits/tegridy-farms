@@ -6,6 +6,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { base58 } from "@scure/base";
+// For the size of FLOOD below. Every test still gets its own instance: the beforeEach
+// resets modules and imports again.
+import { MAX_SCANNED } from "../_lib/pool-index.js";
 
 const API_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -54,11 +57,11 @@ function chain({ mint = { owner: TOKEN, data: mintBytes() }, pools = [], lpPools
     if (method === "getProgramAccounts") {
       const lpScan = params[1].filters.some((f) => f.memcmp && f.memcmp.offset === 136);
       if (lpScan) return reply(lpPools.map((pubkey) => ({ pubkey, account: { data: ["", "base64"], owner: "x", lamports: 1 } })));
+      // the slice is token0Vault | token1Vault; SOL sits on the side the scan put it
+      const [t0] = params[1].filters.filter((f) => f.memcmp && f.memcmp.offset === 168).map((f) => f.memcmp.bytes);
+      const other = base58.decode(k(0, 200));
       return reply(pools.map((p) => {
-        // the slice is token0Vault | token1Vault; SOL sits on the side the scan put it
-        const [t0] = params[1].filters.filter((f) => f.memcmp && f.memcmp.offset === 168).map((f) => f.memcmp.bytes);
         const solVault = base58.decode(p.solVault);
-        const other = base58.decode(k(0, 200));
         const slice = t0 === WSOL ? [...solVault, ...other] : [...other, ...solVault];
         return { pubkey: p.address, account: { data: [b64(Uint8Array.from(slice)), "base64"], owner: "x", lamports: 1 } };
       }));
@@ -70,6 +73,11 @@ function chain({ mint = { owner: TOKEN, data: mintBytes() }, pools = [], lpPools
   });
 }
 const calls = (f, method) => f.mock.calls.map(([, init]) => JSON.parse(init.body)).filter((b) => b.method === method);
+
+// One pool more than the index will rank. Built at collection, where no timeout runs:
+// its 20,002 base58 encodes were a quarter of the flood test's body, and they slow with
+// machine load.
+const FLOOD = Array.from({ length: MAX_SCANNED + 1 }, (_, i) => ({ address: k(i, 1), solVault: k(i, 2), sol: 1 }));
 
 let mod;
 beforeEach(async () => {
@@ -130,13 +138,15 @@ describe("api/pools", () => {
   });
 
   it("more pools than it can rank is a 502, never a cut list", async () => {
-    const flood = Array.from({ length: mod.MAX_SCANNED + 1 }, (_, i) => ({ address: k(i, 1), solVault: k(i, 2), sol: 1 }));
-    const f = chain({ pools: flood });
+    const f = chain({ pools: FLOOD });
     const res = makeRes();
     await mod.handlePoolIndex(makeReq({ mint: MINT }), res, f);
     expect(res.statusCode).toBe(502);
     expect(calls(f, "getMultipleAccounts")).toHaveLength(0);
-  });
+    // 30s, not the default 5s: what is left is real work, about 40,000 base58 conversions
+    // between the fake chain and the handler, and it slows with machine load. A bound
+    // written here is its own clock: --testTimeout does not override it.
+  }, 30_000);
 
   it("gives every chain call a deadline", async () => {
     const f = chain({ pools: [{ address: k(1), solVault: k(2), sol: 5 }] });

@@ -12,6 +12,10 @@
 // answer about the address rather than a failure of ours.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+// Warms the module graph at collection time. NOT dead code: every test loads v1/index.js
+// again under `vi.resetModules()`, and the first of those was a cold load inside a test
+// body, on the 5s clock, that slows with machine load. Paid here, where no timeout runs.
+import "../v1/index.js";
 
 const TOKEN = "0x95ad61b0a150d79219dcf64e1e6cc01f0b64c4ce";
 const KEY = "mtk_" + "a".repeat(43);

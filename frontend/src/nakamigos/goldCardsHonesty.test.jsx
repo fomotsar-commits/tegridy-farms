@@ -20,7 +20,7 @@
 //   - the footer offers no Blur page the venue never verified.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, cleanup, configure } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CollectionProvider } from "./contexts/CollectionContext";
@@ -87,6 +87,10 @@ vi.mock("./api", async (importOriginal) => {
 
 // Rendering the real Modal and App costs a first import of several seconds.
 vi.setConfig({ testTimeout: 30000 });
+// The waits get room too. Testing Library gives up a findBy or waitFor after 1s, a clock
+// the line above does not move, and what these waits wait for is real work (the gallery
+// read, then the lazy Modal) that slows with machine load.
+configure({ asyncUtilTimeout: 15000 });
 
 beforeEach(() => {
   // Not resetModules: the providers imported above must be the same module
