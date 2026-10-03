@@ -847,10 +847,10 @@ describe('the wallet fill', () => {
     act(() => setSolanaSurface(surfaceOwner, { open: () => {}, address: SOL, connecting: false }));
   }
 
-  // MUTATION CHECKS (each of the next six was seen red on the code before this change)
-  //  - HeatCard.tsx: make `fillAsked` ['ethereum'] whenever both can answer. Tests 1 and 2 fail.
-  //  - HeatCard.tsx: drop the `solanaConnected` shortcut from the button's press. Test 4 fails.
-  //  - HeatCard.tsx: ignore `fillFrom`. Test 6 fails.
+  // MUTATION CHECKS, all in HeatCard.tsx
+  //  - fillNetworks: offer ['ethereum'] alone whenever both can answer. The next three fail.
+  //  - fill: drop the `solanaConnected` shortcut. "asks no provider" fails.
+  //  - fillNetworks: ignore `fillFrom`. Both "on a page about Solana" tests fail.
   it('inside a wallet browser that carries both networks, offers one button each and picks neither', () => {
     insideTrust();
     mountOpen();
@@ -878,13 +878,61 @@ describe('the wallet fill', () => {
 
   it('with a Solana wallet connected to the site and no Ethereum account, fills that address and asks no provider', async () => {
     const { request, connect } = insideTrust();
-    mountOpen();
     solanaConnectedToTheSite();
+    mountOpen();
     expect(screen.queryByRole('button', { name: 'Use my Ethereum address' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
     await waitFor(() => expect(field().value).toBe(SOL));
     expect(request).not.toHaveBeenCalled();
     expect(connect).not.toHaveBeenCalled();
+  });
+
+  // MUTATION CHECK: drop `|| solanaConnected !== null` from fillNetworks. This fails.
+  it('offers a Solana wallet connected to the site even where the browser carries no provider', async () => {
+    solanaConnectedToTheSite();
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+  });
+
+  // MUTATION CHECK: compute the buttons on every render instead of once per mount. This fails.
+  it('a Solana wallet that connects once the card is on screen changes no label, and its button then asks no provider', async () => {
+    const { connect } = insideTrust();
+    mountOpen();
+    solanaConnectedToTheSite();
+    expect(screen.getByRole('button', { name: 'Use my Ethereum address' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Use my wallet' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Solana address' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  // MUTATION CHECK: let the lone button keep the network it was drawn with. The next two fail.
+  it('the lone button asks nothing when a Solana wallet arrived after it was drawn: it becomes the two named buttons', async () => {
+    const request = vi.fn(async ({ method }: { method: string }) =>
+      method === 'eth_requestAccounts' ? [INJECTED] : [],
+    );
+    (window as unknown as Record<string, unknown>).ethereum = { isTrust: true, request };
+    mountOpen();
+    // The wallet's Solana provider is injected late, as on some Android builds.
+    const connect = vi.fn(async () => ({ publicKey: { toString: () => SOL } }));
+    (window as unknown as Record<string, unknown>).trustwallet = { solana: { isTrust: true, publicKey: null, connect } };
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    expect(await screen.findByRole('button', { name: 'Use my Solana address' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Use my Ethereum address' })).toBeTruthy();
+    expect(request).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+    expect(field().value).toBe('');
+  });
+
+  it('the lone button fills a Solana wallet that connected to the site after it was drawn, and asks Ethereum nothing', async () => {
+    const request = vi.fn(async () => [] as string[]);
+    (window as unknown as Record<string, unknown>).ethereum = { request };
+    mountOpen();
+    solanaConnectedToTheSite();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(field().value).toBe(SOL));
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('with both a Solana wallet and an Ethereum account connected, offers both and still asks Solana nothing', async () => {
@@ -931,7 +979,7 @@ describe('the wallet fill', () => {
   });
 
   /** Both networks, with an Ethereum prompt that stays open until `approve` is called. */
-  function insideTrustWithAnOpenEthereumPrompt() {
+  function insideTrustWithAnOpenEthereumPrompt({ solanaTrusted = true }: { solanaTrusted?: boolean } = {}) {
     let approve: (accounts: string[]) => void = () => {};
     const request = vi.fn(({ method }: { method: string }) =>
       method === 'eth_requestAccounts'
@@ -940,13 +988,52 @@ describe('the wallet fill', () => {
           })
         : Promise.resolve([] as string[]),
     );
-    const connect = vi.fn(async () => ({ publicKey: { toString: () => SOL } }));
+    const connect = vi.fn(async () => {
+      if (!solanaTrusted) throw new Error('This site has not been connected.');
+      return { publicKey: { toString: () => SOL } };
+    });
     (window as unknown as Record<string, unknown>).ethereum = { isTrust: true, request };
     (window as unknown as Record<string, unknown>).trustwallet = { solana: { isTrust: true, publicKey: null, connect } };
     return { request, approve: (accounts: string[]) => approve(accounts) };
   }
 
-  // MUTATION CHECK: drop the `fillSeq` comparison from the button's press. Both fail.
+  // MUTATION CHECK: drop an answer whenever any later press happened (not only a later
+  // write). The next two fail.
+  it('an approved prompt still fills after a second press on the same button was refused', async () => {
+    let approve: (accounts: string[]) => void = () => {};
+    let prompts = 0;
+    // A wallet with a prompt open refuses a second one at once (MetaMask, -32002).
+    const request = vi.fn(({ method }: { method: string }) => {
+      if (method !== 'eth_requestAccounts') return Promise.resolve([] as string[]);
+      prompts += 1;
+      if (prompts > 1) return Promise.reject(Object.assign(new Error('Already pending.'), { code: -32002 }));
+      return new Promise<string[]>((resolve) => {
+        approve = resolve;
+      });
+    });
+    (window as unknown as Record<string, unknown>).ethereum = { request };
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(prompts).toBe(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    expect(await screen.findByText('Paste the address instead.')).toBeTruthy();
+    await act(async () => approve([INJECTED]));
+    expect(field().value).toBe(INJECTED);
+    expect(screen.queryByText('Paste the address instead.')).toBeNull();
+  });
+
+  it('an approved Ethereum prompt still fills after the Solana wallet said no', async () => {
+    const { request, approve } = insideTrustWithAnOpenEthereumPrompt({ solanaTrusted: false });
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Ethereum address' }));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Use my Solana address' }));
+    expect(await screen.findByText('Paste the address instead.')).toBeTruthy();
+    await act(async () => approve([INJECTED]));
+    expect(field().value).toBe(INJECTED);
+  });
+
+  // MUTATION CHECK: drop the `fieldWrites` comparison from the fill. The next two fail.
   it('a wallet that answers late does not overwrite the address a later press filled', async () => {
     const { request, approve } = insideTrustWithAnOpenEthereumPrompt();
     mountOpen();
@@ -970,7 +1057,7 @@ describe('the wallet fill', () => {
 
   it('offers nothing when the browser has no wallet to offer', () => {
     mountOpen();
-    expect(screen.queryByRole('button', { name: 'Use my wallet' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Use my/ })).toBeNull();
   });
 
   it('fills from the account the page is ALREADY allowed to see, with no prompt', async () => {

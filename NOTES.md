@@ -31,7 +31,9 @@ the Solana address in the field.
 **Do:** a fill or connect helper takes the network as an argument, and the caller names it:
 the page's own network, or one button per network. Where the site already holds the
 address (a connected wallet), use it and ask no provider. Two buttons are two answers that
-can arrive in either order: let only the latest press write. Read
+can arrive in either order: drop an answer only when the field was written after its press
+(typing, or another fill). "Latest press wins" was tried first and lost a prompt the
+visitor approved after a second press on the same button had been refused. Read
 `window.trustwallet.solana` wherever `window.solana` is read.
 
 ## 2026-10-03: a plain `vite build` is not the build the e2e suite runs against

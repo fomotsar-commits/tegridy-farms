@@ -1,11 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 
 // THE HEAT READER'S WALLET BUTTON, INSIDE A WALLET'S OWN BROWSER. Trust Wallet's carries
-// Ethereum at window.ethereum and Solana at window.trustwallet.solana. The button asked
-// Ethereum first and never read the Solana provider, so a Solana visitor got an Ethereum
-// prompt on the home page and on the Solana launch door (2026-10-03). The wallet here is
-// a stand-in that records what it is asked; it holds no key.
-//
+// Ethereum at window.ethereum and Solana at window.trustwallet.solana, and a Solana
+// visitor must never be handed an Ethereum prompt for it. The wallet here is a stand-in
+// that records what it is asked; it holds no key.
+
 // MUTATION CHECKS
 //  - lib/heat/walletFill.ts: drop `w.trustwallet?.solana`. The first two tests fail.
 //  - LaunchGate.tsx: drop `fillFrom`. The second test fails.

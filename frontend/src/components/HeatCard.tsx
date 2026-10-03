@@ -179,26 +179,57 @@ export function HeatCard({
   const subject = pinned ?? initialAddress ?? connected ?? '';
   const input = pinned ?? draft ?? connected ?? '';
   const [state, setState] = useState<State>({ kind: 'idle' });
-  // WALLET FILL. The providers are read once per mount: a button that appears under the
-  // visitor's finger is worse than one that arrives a navigation later. A Solana wallet
-  // connected to the site, with no Ethereum account connected, is the visitor's wallet.
-  // Otherwise each network a provider can answer for gets its own button: the card never
-  // picks Ethereum for a visitor who also carries Solana.
-  const [injected] = useState(() => injectedNetworks());
-  const canFill: Record<FillNetwork, boolean> = {
-    ethereum: injected.ethereum,
-    solana: injected.solana || solanaConnected !== null,
+  // WALLET FILL: the networks the fill can read now. The page's own if it names one. Else
+  // a Solana wallet connected to the site, with no Ethereum account connected, is the
+  // visitor's wallet. Else every network that can answer: the card never picks Ethereum
+  // for a visitor who also carries Solana.
+  const fillNetworks = (): FillNetwork[] => {
+    const injected = injectedNetworks();
+    const can = { ethereum: injected.ethereum, solana: injected.solana || solanaConnected !== null };
+    const asked: FillNetwork[] = fillFrom
+      ? [fillFrom]
+      : solanaConnected !== null && !connected
+        ? ['solana']
+        : ['ethereum', 'solana'];
+    return asked.filter((network) => can[network]);
   };
-  const fillAsked: FillNetwork[] = fillFrom
-    ? [fillFrom]
-    : solanaConnected !== null && !connected
-      ? ['solana']
-      : ['ethereum', 'solana'];
-  const fillOffers = fillAsked.filter((network) => canFill[network]);
+  // The buttons are settled once per mount: a label that changes under the visitor's
+  // finger is worse than a button that arrives a navigation later.
+  const [fillOffers, setFillOffers] = useState(fillNetworks);
   const [fillFailed, setFillFailed] = useState(false);
-  // A wallet can answer long after it was asked (its prompt stays open). Only the latest
-  // press may write the field, and typing counts as later than any press.
-  const fillSeq = useRef(0);
+  // A wallet can answer long after it was asked (its prompt stays open). Its answer is
+  // dropped once the field has been written since, by typing or by another fill.
+  const fieldWrites = useRef(0);
+  const fill = (offered: FillNetwork) => {
+    let network = offered;
+    if (fillOffers.length === 1) {
+      // The lone button says "my wallet": which one is settled at the press. When two
+      // can answer by then, the visitor picks: the buttons are named and nothing is asked.
+      const now = fillNetworks();
+      if (now.length > 1) {
+        setFillOffers(now);
+        return;
+      }
+      network = now[0] ?? offered;
+    }
+    setFillFailed(false);
+    if (network === 'solana' && solanaConnected) {
+      fieldWrites.current += 1;
+      setDraft(solanaConnected);
+      return;
+    }
+    const writesAtPress = fieldWrites.current;
+    void readInjectedAddress(network).then((addr) => {
+      if (fieldWrites.current !== writesAtPress) return;
+      if (!addr) {
+        setFillFailed(true);
+        return;
+      }
+      fieldWrites.current += 1;
+      setDraft(addr);
+      setFillFailed(false);
+    });
+  };
   const [showMath, setShowMath] = useState(false);
   // Frozen per lookup so every relative label on screen is measured from one instant.
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -305,7 +336,7 @@ export function HeatCard({
           <input
             value={input}
             onChange={(e) => {
-              fillSeq.current += 1;
+              fieldWrites.current += 1;
               setDraft(e.target.value);
             }}
             autoFocus={focusField}
@@ -334,19 +365,7 @@ export function HeatCard({
                 <button
                   key={network}
                   type="button"
-                  onClick={() => {
-                    const seq = ++fillSeq.current;
-                    setFillFailed(false);
-                    if (network === 'solana' && solanaConnected) {
-                      setDraft(solanaConnected);
-                      return;
-                    }
-                    void readInjectedAddress(network).then((addr) => {
-                      if (seq !== fillSeq.current) return;
-                      if (addr) setDraft(addr);
-                      else setFillFailed(true);
-                    });
-                  }}
+                  onClick={() => fill(network)}
                   className="px-3 py-2 rounded-lg text-[12px] text-white/80 hover:text-white transition-colors"
                   style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid var(--color-purple-25)' }}
                 >

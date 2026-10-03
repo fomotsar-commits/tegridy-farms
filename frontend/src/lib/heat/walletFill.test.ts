@@ -1,12 +1,11 @@
 // The wallet fill reads the network it is asked for and no other. Trust Wallet's own
 // browser carries an Ethereum provider at window.ethereum and its Solana provider at
-// window.trustwallet.solana; a fill that asked Ethereum first could only ever hand that
-// visitor an Ethereum address.
-//
+// window.trustwallet.solana.
+
 // MUTATION CHECKS
 //  - walletFill.ts: drop `w.trustwallet?.solana` from solanaProviders. Every Trust test fails.
-//  - walletFill.ts: make readInjectedAddress ask Ethereum before Solana whatever it is
-//    asked for (the code before this file existed). "never touches the Ethereum one" fails.
+//  - walletFill.ts: ask Ethereum before Solana whatever was asked for. "never touches the
+//    Ethereum one" fails.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { injectedNetworks, readInjectedAddress } from './walletFill';
