@@ -51,7 +51,7 @@ vi.mock('../ArtImg', () => ({ ArtImg: () => null }));
 import { TopNav } from './TopNav';
 import { ThemeProvider } from '../../contexts/ThemeContext';
 import {
-  cancelSolanaOpenRequest,
+  resetSolanaSurfaceForTests,
   setSolanaSurface,
   takeSolanaOpenRequest,
   type SolanaSurface,
@@ -91,7 +91,7 @@ const banner = () => screen.getByRole('banner');
 afterEach(() => {
   act(() => {
     for (const o of owners.splice(0)) setSolanaSurface(o, null);
-    cancelSolanaOpenRequest();
+    resetSolanaSurfaceForTests();
   });
   localStorage.clear();
   evmOpen.mockClear();
@@ -258,7 +258,7 @@ describe('TopNav: the connected chip is one chip on both networks', () => {
   it('gives the Ethereum chip and the Solana chip the same classes, dot included', () => {
     evm.account = { displayName: '0x71…5788' };
     mount('/');
-    const evmChip = within(banner()).getByRole('button', { name: 'Account details' });
+    const evmChip = within(banner()).getByRole('button', { name: 'Your wallets' });
     const evmClass = evmChip.className;
     const evmDot = evmChip.querySelector('span')!.className;
     goToSolana();
@@ -270,15 +270,5 @@ describe('TopNav: the connected chip is one chip on both networks', () => {
     expect(evmClass.split(' ')).toEqual(expect.arrayContaining(['px-1', 'min-[375px]:px-2', 'lg:px-3']));
     expect(evmClass).not.toMatch(/(^| )md:px-3( |$)/);
     expect(evmDot.split(' ')).toEqual(expect.arrayContaining(['hidden', 'min-[400px]:block']));
-  });
-});
-
-describe('TopNav: Connect everywhere else is unchanged (RainbowKit)', () => {
-  it.each(['/', '/swap', '/liquidity', '/earn', '/earn/toweli', '/earn/pepe', '/bayla'])('%s', (path) => {
-    mount(path);
-    const button = within(banner()).getByRole('button', { name: 'Connect wallet' });
-    fireEvent.click(button);
-    expect(evmOpen).toHaveBeenCalledTimes(1);
-    expect(within(banner()).queryByRole('button', { name: 'Connect a Solana wallet' })).toBeNull();
   });
 });

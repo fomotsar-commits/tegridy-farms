@@ -6,9 +6,7 @@ import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { WalletReadyState } from '@solana/wallet-adapter-base';
 import { useSolanaConnect } from './useSolanaConnect';
 import { waitedOnWalletLabel } from '../../lib/solanaWalletOrder';
-
-/** How long a connect may run before the card says which wallet it is waiting for. */
-export const SOLANA_CONNECT_WAIT_NOTICE_MS = 4_000;
+import { SOLANA_CONNECT_WAIT_NOTICE_MS } from '../../lib/solanaSurface';
 
 /**
  * The connect CTA for the swap and limit tabs. Click behavior comes from
