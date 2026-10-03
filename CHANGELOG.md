@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-03
 
+- Solana pools: a wallet that cannot open a pool or add liquidity yet is told so in plain words, with how much SOL that needs before anything goes into the pool, how much the wallet has, and whether it holds the token. The form used to only grey out Review.
 - Solana pools: SOL that a stranger sends to your wrapped-SOL, token or pool-share address before that account exists no longer blocks Remove liquidity, Add liquidity, opening a pool, a curve buy or a pool swap. The site opens the account over it and you pay only what is missing from its deposit.
 - Solana pools: a token, a pool share or a lamport that someone sends you or the fee account between the balance read and the test run no longer ends Review with "Blocked: the simulation shows a different token amount than this screen says". Taking more from you than the review says, or paying you less than the minimum, is still blocked.
 - Solana pools: when this site cannot build a withdrawal for a token, the message no longer points to a section that is not on screen.
