@@ -15,6 +15,7 @@ import type { ReactNode } from 'react';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import { orderWallets } from '../../lib/solanaWalletOrder';
 import { useSolanaConnect } from './useSolanaConnect';
+import { SolanaConnectButton } from './SolanaConnectButton';
 
 /**
  * The Solana connect modal, mounted inside the REAL WalletProvider — the
@@ -406,5 +407,93 @@ describe('SolanaWalletModal — opened while connected', () => {
     expect(again).toHaveTextContent('Connect a wallet on Solana to continue');
     expect(within(again).queryByRole('button', { name: 'Disconnect' })).toBeNull();
     expect(within(again).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['PhantomDetected', 'Trust WalletDetected']);
+  });
+});
+
+/**
+ * A wallet that does not answer (owner, 2026-10-03: "it won't even recognize my
+ * phantom wallet"). A connect waits on the wallet for as long as the wallet
+ * takes; a locked wallet, or an approval window nobody saw, takes for ever. For
+ * that whole wait every Connect button was switched off and nothing named the
+ * wallet being waited on, so the page looked as if it could not see the wallet
+ * at all, and the list that would have let the visitor pick another one could
+ * not be opened. Run inside the real WalletProvider, with a wallet whose
+ * connect never answers.
+ *
+ * Nothing here cancels the wait: a person reading an approval prompt must not
+ * have it pulled away from them.
+ */
+describe('a wallet that never answers is not a dead end', () => {
+  class HungWallet extends FakeWallet {
+    override async connect(): Promise<void> {
+      this.connectCalls += 1;
+      await new Promise<void>(() => {});
+    }
+  }
+
+  function mountCard(adapters: FakeWallet[]) {
+    return render(
+      <ConnectionProvider endpoint="http://127.0.0.1:8899">
+        <WalletProvider wallets={adapters} autoConnect>
+          <SolanaWalletModalProvider>
+            <Opener />
+            <SolanaConnectButton />
+          </SolanaWalletModalProvider>
+        </WalletProvider>
+      </ConnectionProvider>,
+    );
+  }
+
+  /** A remembered Phantom, pressed once: its connect is now waiting for ever. */
+  async function waitingOnPhantom() {
+    localStorage.setItem('walletName', JSON.stringify('Phantom'));
+    const phantom = new HungWallet('Phantom', WalletReadyState.Installed);
+    const backpack = new FakeWallet('Backpack', WalletReadyState.Installed);
+    mountCard([phantom, backpack]);
+    await restoreSettled();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Solana Wallet' }));
+    const waiting = await screen.findByRole('button', { name: 'Connecting…' });
+    expect(phantom.connectCalls).toBe(1);
+    return { phantom, backpack, waiting };
+  }
+
+  it('the card stays pressable while it waits, and a press opens the wallet list', async () => {
+    const { phantom, waiting } = await waitingOnPhantom();
+    expect(waiting).toBeEnabled();
+    fireEvent.click(waiting);
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    // The wait was not started a second time.
+    expect(phantom.connectCalls).toBe(1);
+  });
+
+  it('the list says which wallet it is waiting for and what to do about it', async () => {
+    const { waiting } = await waitingOnPhantom();
+    fireEvent.click(waiting);
+    const dialog = await screen.findByRole('dialog');
+    const notice = within(dialog).getByRole('status');
+    expect(notice).toHaveTextContent(/Waiting for Phantom/);
+    expect(notice).toHaveTextContent(/locked/);
+    expect(notice).toHaveTextContent(/approve/);
+    expect(notice).toHaveTextContent(/another wallet/);
+  });
+
+  it('another wallet picked from that list connects, so the wait is escaped without a reload', async () => {
+    const { phantom, backpack, waiting } = await waitingOnPhantom();
+    fireEvent.click(waiting);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByText('Backpack'));
+    await waitFor(() => expect(backpack.connectCalls).toBe(1));
+    await waitFor(() => expect(backpack.publicKey).not.toBeNull());
+    expect(JSON.parse(localStorage.getItem('walletName') ?? 'null')).toBe('Backpack');
+    expect(phantom.connectCalls).toBe(1);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Connecting…' })).toBeNull());
+  });
+
+  it('says nothing about waiting when nothing is being waited on (the control)', async () => {
+    mountCard([new FakeWallet('Phantom', WalletReadyState.Installed), new FakeWallet('Backpack', WalletReadyState.Installed)]);
+    await restoreSettled();
+    const dialog = await openList();
+    expect(within(dialog).queryByRole('status')).toBeNull();
+    expect(dialog).not.toHaveTextContent(/Waiting for/);
   });
 });

@@ -140,6 +140,13 @@ function SolanaWalletModal() {
   const pairing = useWalletConnectPairing(walletConnect);
   const pairingActive = pairing.phase === 'starting' || pairing.phase === 'scan';
   const connectedAs = connected && publicKey ? shortSolanaAddress(publicKey.toBase58()) : null;
+  // The wallet a connect is still waiting on: a locked wallet, or an approval
+  // window nobody saw, answers late or never, and until 2026-10-03 nothing
+  // named it. WalletConnect's own wait is its QR, or its saved session's restore.
+  const waitingFor =
+    connecting && !connected && selected && selected.adapter !== walletConnect
+      ? walletLabel(selected.adapter.name)
+      : null;
   // The WalletConnect row clicked while its own saved session was still being
   // restored: connect once the restore is over, if it did not connect.
   const connectAfterRestore = useRef(false);
@@ -348,6 +355,12 @@ function SolanaWalletModal() {
                   <button type="button" onClick={handleDisconnect} className="underline font-semibold text-white">
                     Disconnect
                   </button>
+                </p>
+              )}
+              {waitingFor && (
+                <p role="status" className="wallet-adapter-modal-note">
+                  Waiting for {waitingFor} to answer. Open {waitingFor}: it may be locked, or waiting for you to
+                  approve this site. Or pick another wallet below.
                 </p>
               )}
               {pairing.phase === 'failed' && (

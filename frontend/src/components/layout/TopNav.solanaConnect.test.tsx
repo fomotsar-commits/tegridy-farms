@@ -137,18 +137,23 @@ describe('TopNav: Connect on a Solana page', () => {
     expect(within(banner()).getByRole('button', { name: 'Connect a Solana wallet' })).not.toHaveAttribute('aria-busy');
   });
 
-  it('dims, and refuses a second tap, while the page\'s wallet is connecting', () => {
+  // Owner, 2026-10-03: "it won't even recognize my phantom wallet". A connect
+  // waits as long as the wallet takes, and a locked wallet takes for ever. This
+  // button refused every tap for that whole wait, so nothing on the page could
+  // open the wallet list. A tap now goes to the page's own connect click, which
+  // opens the list while a wallet is being waited on (useSolanaConnect).
+  it('dims, but still takes a tap, while the page\'s wallet is connecting: a wallet that never answers is not a dead end', () => {
     const solOpen = vi.fn();
     mount('/pools');
     report({ open: solOpen, connecting: true });
     const button = within(banner()).getByRole('button', { name: 'Connect a Solana wallet' });
-    // aria-disabled, never disabled: the list hands focus back to this button.
     expect(button).toBeEnabled();
-    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).not.toHaveAttribute('aria-disabled');
     expect(button).toHaveAttribute('aria-busy', 'true');
-    expect(button).toHaveAttribute('title', 'Connecting your Solana wallet…');
+    expect(button).toHaveAttribute('title', 'Waiting for your Solana wallet. Tap for the wallet list.');
     fireEvent.click(button);
-    expect(solOpen).not.toHaveBeenCalled();
+    expect(solOpen).toHaveBeenCalledTimes(1);
+    expect(evmOpen).not.toHaveBeenCalled();
   });
 
   it('drops a waiting tap when the visitor leaves the page', async () => {
