@@ -198,6 +198,19 @@ describe('navConfig', () => {
     expect(unique.size).toBe(paths.length);
   });
 
+  // Solana liquidity has its own tab, second, so the strip names it. The hub stays the
+  // Ethereum form, and the Venue AMM tab keeps its status and fee sheet.
+  it('lists the Pools strip as Add / Remove, Solana LP, Venue AMM, Zap, landing on /liquidity', () => {
+    const pools = NAV_SECTIONS.find((s) => s.heading === 'Pools');
+    expect(pools?.hub).toBe('/liquidity');
+    expect(pools?.items.map((i) => [i.to, i.tabLabel ?? i.label])).toEqual([
+      ['/liquidity', 'Add / Remove'],
+      ['/solana-lp', 'Solana LP'],
+      ['/pools', 'Venue AMM'],
+      ['/zap', 'Zap'],
+    ]);
+  });
+
   // The "Soon" pill answers one question for a visitor: can I do the thing this
   // entry names? The lesson that produced that rule is worth keeping even though the
   // rail that taught it is gone: /solana-launch was once `soon: !isSolanaLauncherEnabled()`,
