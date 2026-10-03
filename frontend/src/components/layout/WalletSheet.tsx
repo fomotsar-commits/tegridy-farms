@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Modal } from '../ui/Modal';
 import { reloadPage } from '../../lib/reloadPage';
 import {
+  SOLANA_CONNECT_WAIT_NOTICE_MS,
   getSolanaSurfaceState,
   noteOwnSolanaFailed,
   shortSolanaAddress,
@@ -42,13 +43,12 @@ import {
  *
  * ── THE SOLANA ROW WAITS HERE, WITH THE SHEET OPEN ──
  *
- * Where the page has no Solana section, the top bar's own connection is loaded
- * on the first tap (TopBarSolana.tsx). The sheet stays open and says so until
- * it has loaded and any saved wallet has finished reconnecting (a provider
- * reports "connecting" until it knows: SolanaProviders' bridge); then it
- * closes, and opens the list only if that did not connect. Closing the sheet
- * while it waits cancels the open, so a list never appears later, uninvited.
- * The wait has a limit, after which the row says the wallets did not load.
+ * Where the page has no Solana section, the top bar's own connection loads on
+ * the first tap (TopBarSolana.tsx). The sheet stays open until it has loaded
+ * and a saved wallet's restore is over; then it closes, and opens the list
+ * unless that connected. Both waits have a limit: a load that does not end is
+ * said to have failed, and a restore that does not end (a locked wallet) opens
+ * the list, which names the wallet. Closing the sheet cancels the open.
  */
 
 /** The Ethereum side, as RainbowKit's ConnectButton.Custom hands it over. */
@@ -141,6 +141,18 @@ export function WalletSheet({ open, onClose, evm }: WalletSheetProps) {
     afterClose.current = surface.address ? null : openSolanaList;
     onClose();
   }, [waiting, surface, onClose]);
+
+  // A restore that does not end stops holding the sheet: the list opens, and
+  // names the wallet. The wallet's own wait goes on (a prompt may be open).
+  const stalled = waiting && Boolean(surface?.connecting);
+  useEffect(() => {
+    if (!stalled) return;
+    const timer = setTimeout(() => {
+      afterClose.current = openSolanaList;
+      onClose();
+    }, SOLANA_CONNECT_WAIT_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [stalled, onClose]);
 
   const loading = waiting && !surface && !ownFailed;
   // A load that never ends is a failed one: say so, and stop the spinner.

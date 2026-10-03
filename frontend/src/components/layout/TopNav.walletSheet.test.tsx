@@ -64,6 +64,7 @@ vi.mock('./TopBarSolana', () => ({ TopBarSolana: () => null }));
 import { TopNav } from './TopNav';
 import { ThemeProvider } from '../../contexts/ThemeContext';
 import {
+  SOLANA_CONNECT_WAIT_NOTICE_MS,
   getSolanaSurfaceState,
   noteOwnSolanaFailed,
   resetSolanaSurfaceForTests,
@@ -267,6 +268,90 @@ describe("TopNav: the Solana row loads the top bar's own connection on first use
     fireEvent.click(within(sheet()).getByRole('button', { name: 'Close dialog' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(solOpen).not.toHaveBeenCalled();
+  });
+
+  // A locked wallet's restore never ends, and the provider reports "connecting"
+  // for as long as it runs. The sheet waited for that to end: "Connecting…",
+  // for ever. It now waits as long as the card takes to name the wallet.
+  it('stops waiting on a restore that does not end: it closes and the list opens, once, and not before', () => {
+    vi.useFakeTimers();
+    let scrollWhenOpened: string | null = null;
+    const solOpen = vi.fn(() => {
+      scrollWhenOpened = document.body.style.overflow;
+    });
+    mount('/');
+    openSheet();
+    fireEvent.click(solanaRow());
+    const owner = reportOwn({ open: solOpen, connecting: true });
+    act(() => {
+      vi.advanceTimersByTime(SOLANA_CONNECT_WAIT_NOTICE_MS - 1);
+    });
+    expect(solOpen).not.toHaveBeenCalled();
+    expect(solanaRow()).toHaveTextContent('Connecting…');
+    // The provider reports again during the same wait: the clock does not start over.
+    reportOwn({ open: solOpen, connecting: true }, owner);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(solOpen).toHaveBeenCalledTimes(1);
+    expect(scrollWhenOpened).toBe('');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // Nothing more opens, however long the wallet takes, or when it answers.
+    act(() => {
+      vi.advanceTimersByTime(SOLANA_CONNECT_WAIT_NOTICE_MS * 3);
+    });
+    reportOwn({ open: solOpen }, owner);
+    expect(solOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('a tap on the row while it waits opens the list at once, and the delay opens no second one', () => {
+    vi.useFakeTimers();
+    const solOpen = vi.fn();
+    mount('/');
+    openSheet();
+    fireEvent.click(solanaRow());
+    reportOwn({ open: solOpen, connecting: true });
+    fireEvent.click(solanaRow());
+    expect(solOpen).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(SOLANA_CONNECT_WAIT_NOTICE_MS * 3);
+    });
+    expect(solOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens nothing later if the sheet was closed while the wallet was being waited on', () => {
+    vi.useFakeTimers();
+    const solOpen = vi.fn();
+    mount('/');
+    openSheet();
+    fireEvent.click(solanaRow());
+    reportOwn({ open: solOpen, connecting: true });
+    fireEvent.click(within(sheet()).getByRole('button', { name: 'Close dialog' }));
+    act(() => {
+      vi.advanceTimersByTime(SOLANA_CONNECT_WAIT_NOTICE_MS * 3);
+    });
+    expect(solOpen).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // Only a tap on the Solana row asks for the list. A sheet opened over a
+  // wallet that is still being waited on is a list of networks, and stays one.
+  it('a sheet that was only opened opens no list by itself, however long the wallet takes', () => {
+    vi.useFakeTimers();
+    const solOpen = vi.fn();
+    mount('/');
+    reportOwn({ open: solOpen, connecting: true });
+    openSheet();
+    expect(solanaRow()).toHaveTextContent('Connecting…');
+    act(() => {
+      vi.advanceTimersByTime(SOLANA_CONNECT_WAIT_NOTICE_MS * 3);
+    });
+    expect(solOpen).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    // And the row is never refused: a tap opens the list.
+    fireEvent.click(solanaRow());
+    expect(solOpen).toHaveBeenCalledTimes(1);
   });
 
   // A failed chunk or stylesheet is not fetched again in the same tab, and after
