@@ -14,11 +14,16 @@ import {
 } from '@solana/wallet-adapter-base';
 import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { SOLANA_CONNECT_WAIT_NOTICE_MS } from './SolanaConnectButton';
 import { PublicKey } from '@solana/web3.js';
-import { SolanaProviders, SolanaSurfaceBridge } from './SolanaProviders';
+import { SolanaProviders, SolanaSurfaceBridge, TopBarSolanaProviders } from './SolanaProviders';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
-import { cancelSolanaOpenRequest, getSolanaSurfaceState, requestSolanaOpen } from '../../lib/solanaSurface';
+import {
+  SOLANA_CONNECT_WAIT_NOTICE_MS,
+  getSolanaSurfaceState,
+  requestSolanaOpen,
+  resetSolanaSurfaceForTests,
+  subscribeSolanaSurface,
+} from '../../lib/solanaSurface';
 
 const WSOL = 'So11111111111111111111111111111111111111112';
 
@@ -104,7 +109,7 @@ function withFake(wallet: FakeWallet) {
 
 afterEach(() => {
   cleanup();
-  act(() => cancelSolanaOpenRequest());
+  act(() => resetSolanaSurfaceForTests());
   localStorage.clear();
   vi.unstubAllEnvs();
 });
@@ -285,5 +290,56 @@ describe('SolanaProviders reports to the top bar', () => {
     } finally {
       other.remove();
     }
+  });
+
+  // One live connection per page: TopBarSolana.tsx unmounts the top bar's own
+  // wherever a page's is mounted, and it tells them apart by this flag.
+  it("marks the top bar's own connection as its own, and a page's as the page's", () => {
+    vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', '');
+    const own = render(<TopBarSolanaProviders />);
+    expect(getSolanaSurfaceState()).toMatchObject({ page: false });
+    expect(getSolanaSurfaceState().surface).not.toBeNull();
+    own.unmount();
+    render(<SolanaProviders>page</SolanaProviders>);
+    expect(getSolanaSurfaceState()).toMatchObject({ page: true });
+  });
+
+  it("opens the Solana list from the top bar's own connection, with nothing else inside it", async () => {
+    vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', '');
+    const { container } = render(<TopBarSolanaProviders />);
+    expect(container).toBeEmptyDOMElement();
+    act(() => getSolanaSurfaceState().surface!.open());
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Connect a wallet on Solana to continue');
+  });
+
+  // WalletProvider starts restoring a saved wallet in its own effect, after the
+  // bridge's first one. A first report of "not connecting" was a guess, and the
+  // wallet sheet acted on it: it opened the list while a restore was starting.
+  it('never says "not connecting, not connected" before a saved wallet has had its restore', async () => {
+    localStorage.setItem('walletName', JSON.stringify('Fake'));
+    const seen: string[] = [];
+    const off = subscribeSolanaSurface(() => {
+      const s = getSolanaSurfaceState().surface;
+      if (s) seen.push(`${s.address ? 'connected' : 'none'}/${s.connecting ? 'connecting' : 'idle'}`);
+    });
+    withFake(new FakeWallet('Fake', 'restores'));
+    await act(async () => {});
+    off();
+    expect(seen[0]).toBe('none/connecting');
+    expect(seen[seen.length - 1]).toBe('connected/idle');
+    expect(seen).not.toContain('none/idle');
+  });
+
+  it('says "not connecting" once it knows there is nothing to restore', async () => {
+    const seen: string[] = [];
+    const off = subscribeSolanaSurface(() => {
+      const s = getSolanaSurfaceState().surface;
+      if (s) seen.push(`${s.address ? 'connected' : 'none'}/${s.connecting ? 'connecting' : 'idle'}`);
+    });
+    withFake(new FakeWallet('Fake'));
+    await act(async () => {});
+    off();
+    expect(seen[0]).toBe('none/connecting');
+    expect(seen[seen.length - 1]).toBe('none/idle');
   });
 });

@@ -236,7 +236,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Wallet / network ────────────────────────────────────────
   {
     keywords: ['wallet', 'connect'],
-    answer: "Top right → Connect Wallet. MetaMask, Rainbow, Coinbase, WalletConnect — anything WalletConnect-compatible works. On the Solana pages (/solana, /pools, /curve-launch, a Solana pool) the same button lists Solana wallets instead: Phantom, Trust, Solflare and the rest.",
+    answer: "Top right → Connect Wallet. It asks which network first. Ethereum: MetaMask, Rainbow, Coinbase, WalletConnect — anything WalletConnect-compatible works. Solana: Phantom, Trust, Solflare and the rest. On the Solana pages (/solana, /pools, /curve-launch, a Solana pool) it goes straight to the Solana wallets.",
   },
   {
     keywords: ['hardware', 'ledger', 'trezor'],

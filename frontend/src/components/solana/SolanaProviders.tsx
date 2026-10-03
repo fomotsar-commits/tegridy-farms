@@ -21,8 +21,12 @@ import '../../styles/wallet-adapter-ui.css';
 import { solanaRpcEndpoint } from '../../lib/solana';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import { useSolanaConnect } from './useSolanaConnect';
-import { SOLANA_CONNECT_WAIT_NOTICE_MS } from './SolanaConnectButton';
-import { setSolanaSurface, takeSolanaOpenRequest, useSolanaSurface } from '../../lib/solanaSurface';
+import {
+  SOLANA_CONNECT_WAIT_NOTICE_MS,
+  setSolanaSurface,
+  takeSolanaOpenRequest,
+  useSolanaSurface,
+} from '../../lib/solanaSurface';
 
 /**
  * Solana wallet context — mounted once per Solana section, always lazily, so
@@ -107,15 +111,24 @@ import { setSolanaSurface, takeSolanaOpenRequest, useSolanaSurface } from '../..
  * this page's list on screen before that, the list is the answer and the tap
  * is used up: it does not open the list again after they have closed it.
  */
-export function SolanaSurfaceBridge() {
+export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
   const { publicKey, connecting } = useWallet();
   const open = useSolanaConnect();
   const address = publicKey ? publicKey.toBase58() : null;
   const [owner] = useState(() => ({}));
   const { surface, openPending } = useSolanaSurface();
+  // "NOT CONNECTING" IS NOT SAID BEFORE IT IS KNOWN. WalletProvider starts the
+  // restore of a saved wallet in its own effect, after this component's first
+  // one: a first report of `connecting: false` would be a guess, and the
+  // wallet sheet acted on it (it closed and opened the list while a restore
+  // was about to start). So this reports "connecting" until a render has seen
+  // its own report in the store, which is a render after that effect.
+  const [settled, setSettled] = useState(false);
+  if (!settled && surface?.open === open) setSettled(true);
+  const busy = connecting || !settled;
   useEffect(() => {
-    setSolanaSurface(owner, { open, address, connecting });
-  }, [owner, open, address, connecting]);
+    setSolanaSurface(owner, { open, address, connecting: busy }, own);
+  }, [owner, open, address, busy, own]);
   useEffect(() => {
     if (surface?.open !== open || !openPending || connecting) return;
     // A restore that connected answers the tap; otherwise it is the card's click.
@@ -141,7 +154,12 @@ export function SolanaSurfaceBridge() {
   return null;
 }
 
-export function SolanaProviders({ children }: { children: ReactNode }) {
+/**
+ * `own` marks the top bar's own connection (TopBarSolanaProviders below), the
+ * one mounted where the page has no Solana section. Every page site leaves it
+ * unset.
+ */
+export function SolanaProviders({ children, own = false }: { children: ReactNode; own?: boolean }) {
   const endpoint = useMemo(() => solanaRpcEndpoint(), []);
   const wallets = useMemo(
     () => [
@@ -165,10 +183,22 @@ export function SolanaProviders({ children }: { children: ReactNode }) {
     <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
       <WalletProvider wallets={wallets} autoConnect>
         <SolanaWalletModalProvider>
-          <SolanaSurfaceBridge />
+          <SolanaSurfaceBridge own={own} />
           {children}
         </SolanaWalletModalProvider>
       </WalletProvider>
     </ConnectionProvider>
   );
+}
+
+/**
+ * The top bar's own Solana connection, for pages with no Solana section (the
+ * home page, the Earn list, the doors, the Ethereum pages). It is this same
+ * provider with nothing inside but the wallet list. components/layout/
+ * TopBarSolana.tsx loads it lazily, only once Solana is asked for or a Solana
+ * wallet is saved, and unmounts it wherever a page brings its own: one live
+ * connection per page (lib/solanaSurface.ts).
+ */
+export function TopBarSolanaProviders() {
+  return <SolanaProviders own>{null}</SolanaProviders>;
 }
