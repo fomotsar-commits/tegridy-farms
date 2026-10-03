@@ -255,6 +255,31 @@ describe('classifyToken', () => {
     }
   });
 
+  it('a copied name is caught behind another reserved word, and through characters that are not shown', () => {
+    const cases: [string, string, string][] = [
+      // The launcher's first answer for these two is TEGRIDY, which is not on this page's list.
+      ['BAYLA by Tegridy', 'X', 'NOT the real BAYLA'],
+      ['Tegridy Toweli', 'X', 'no real TOWELI'],
+      // Shown as "Bayla Token", "BAYLA Token" and "BAYLA2": the character inside is not drawn.
+      ['Bay\u200Bla Token', 'X', 'NOT the real BAYLA'], // zero-width space
+      ['BAY\u00ADLA Token', 'X', 'NOT the real BAYLA'], // soft hyphen
+      ['Totally real', 'BAY\u2060LA2', 'NOT the real BAYLA'], // word joiner
+      ['BA\uE000YLA Token', 'X', 'NOT the real BAYLA'], // private use
+      ['BA\u034FYLA Token', 'X', 'NOT the real BAYLA'], // combining grapheme joiner
+      ['BAY\u2800LA Token', 'X', 'NOT the real BAYLA'], // braille blank
+    ];
+    for (const [name, symbol, says] of cases) {
+      const s = named(name, symbol);
+      const label = JSON.stringify(name + ' / ' + symbol);
+      expect(reasons(s), label).toEqual({ blocks: [], warnings: ['copies-known-name'], verdict: 'warn' });
+      expect(s.kind === 'read' && s.warnings[0]!.text, label).toContain(says);
+      expect(tokenReasons(s, 'pools').refused, label).toHaveLength(1);
+      expect(tokenReasons(s, 'deposits').refused, label).toHaveLength(1);
+    }
+    // A reserved word this page has no real mint for is not a copy here (the launcher refuses it).
+    expect(reasons(named('Tegridy Farms', 'X'))).toEqual({ blocks: [], warnings: [], verdict: 'ok' });
+  });
+
   it('every name on the list is still a copy under each swap the launcher folds', () => {
     // 0 for O, 1 or l for I, I or 1 for L, 5 or $ for S, 8 for B, 3 for E.
     const swaps: [RegExp, string][] = [[/O/g, '0'], [/I/g, '1'], [/I/g, 'l'], [/L/g, 'I'], [/L/g, '1'], [/S/g, '5'], [/S/g, '$'], [/B/g, '8'], [/E/g, '3']];

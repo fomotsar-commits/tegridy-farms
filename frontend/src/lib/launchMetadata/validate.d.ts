@@ -69,8 +69,10 @@ export type ParsedMetadata =
 export declare function foldForCompare(s: string): string;
 /** Every skeleton `text` is compared under: as written and, when it starts with "$", without it. Empty ones dropped. */
 export declare function foldedForms(text: string): string[];
-/** What a name or symbol would be mistaken for (e.g. "SOL", "TEGRIDY"), or null. */
+/** What a name or symbol would be mistaken for (e.g. "SOL", "TEGRIDY"), or null. The first of `impersonatesAll`. */
 export declare function impersonates(text: string): string | null;
+/** Everything a name or symbol would be mistaken for, most exact first ("Bayla by Tegridy" is TEGRIDY and BAYLA). */
+export declare function impersonatesAll(text: string): string[];
 export declare function impersonationWarning(t: { name?: string | null; symbol?: string | null }): string | null;
 
 /** NFC, trimmed, no control/bidi/zero-width/invisible characters, at most 32 UTF-8 bytes, not a reserved name. */

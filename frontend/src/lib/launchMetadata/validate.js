@@ -111,7 +111,7 @@ const CONFUSABLES_LOWER = new Map(Object.entries({ "ν": "V", "υ": "U", "η": "
  * that is not A-Z or 0-9 removed.
  *
  * The pool pages compare with this same skeleton (src/lib/solana/lp/tokenSafety.ts),
- * so a spelling refused here is never "No problems found" there.
+ * against their own list of names: the ones they know the one real mint of.
  */
 export function foldForCompare(s) {
   if (typeof s !== "string") return "";
@@ -140,18 +140,41 @@ export function foldedForms(text) {
 }
 
 /**
- * A brand word inside a longer name. Long brand words are searched for anywhere
+ * Characters a reader does not see as a gap between two letters: marks drawn on a
+ * letter, format characters (zero width, soft hyphen, text direction), unassigned and
+ * private-use ones, and the braille blank. `displaySafe` removes most of them, so
+ * "Bay", a zero-width space, "la Token" is shown as "Bayla Token" and must be read as
+ * that. They are taken out before a name is cut into words.
+ */
+const NOT_A_GAP = /[\p{M}\p{Cf}\p{Cs}\p{Cn}\p{Co}\u2800]/gu;
+
+/**
+ * Every brand word inside a longer name. Long brand words are searched for anywhere
  * ("TegridyFarms", "Official Toweli"); a short one only at the start of a word, or
  * "Bay Lagoon" (folded BAYIAGOON) would read as BAYLA.
  */
-function containsBrand(text) {
+function containedBrands(text) {
   const whole = foldForCompare(text);
-  const words = String(text).normalize("NFKC").split(/[^\p{L}\p{N}$|!]+/u).flatMap(foldedForms);
-  for (const [folded, word] of FOLDED_BRANDS) {
-    if (whole === folded) return word;
-    if (folded.length >= 6 ? whole.includes(folded) : words.some((w) => w.startsWith(folded))) return word;
+  const words = String(text).normalize("NFKC").replace(NOT_A_GAP, "").split(/[^\p{L}\p{N}$|!]+/u).flatMap(foldedForms);
+  return FOLDED_BRANDS.filter(
+    ([folded]) => whole === folded || (folded.length >= 6 ? whole.includes(folded) : words.some((w) => w.startsWith(folded))),
+  ).map(([, word]) => word);
+}
+
+/**
+ * Everything a name or symbol would be mistaken for, most exact first; empty when
+ * nothing. A name can copy more than one ("Bayla by Tegridy"), and a reader that
+ * knows only some of these words (the pool pages) must see them all.
+ */
+export function impersonatesAll(text) {
+  const forms = foldedForms(text);
+  if (!forms.length) return [];
+  const hits = [];
+  for (const f of forms) {
+    if (FOLDED_SYMBOLS.has(f)) hits.push(FOLDED_SYMBOLS.get(f));
+    if (FOLDED_NAMES.has(f)) hits.push(FOLDED_NAMES.get(f));
   }
-  return null;
+  return [...new Set([...hits, ...containedBrands(text)])];
 }
 
 /**
@@ -159,12 +182,7 @@ function containsBrand(text) {
  * and on read (to warn about a launch made anywhere).
  */
 export function impersonates(text) {
-  const forms = foldedForms(text);
-  for (const f of forms) {
-    if (FOLDED_SYMBOLS.has(f)) return FOLDED_SYMBOLS.get(f);
-    if (FOLDED_NAMES.has(f)) return FOLDED_NAMES.get(f);
-  }
-  return forms.length ? containsBrand(text) : null;
+  return impersonatesAll(text)[0] ?? null;
 }
 
 /** Plain-English warning for a launch's name and symbol, or null when neither copies anything. */

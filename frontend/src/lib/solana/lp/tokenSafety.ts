@@ -3,7 +3,7 @@ import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { decodeTokenMetadata } from '../../launcher/solana/discover/metadata';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../../launcher/solana/write/metaplex';
-import { foldForCompare, foldedForms, impersonates } from '../../launchMetadata/validate';
+import { foldForCompare, foldedForms, impersonatesAll } from '../../launchMetadata/validate';
 import { getMultipleAccounts, type RawAccount } from './accounts';
 
 /**
@@ -66,8 +66,9 @@ export const WELL_KNOWN_NAMES: readonly { label: string; mint: string | null; na
 
 // Names are compared with the launcher's own rules (launchMetadata/validate.js), never
 // a second copy of them: its skeleton reads "S0L", "SoIana" and "TOWELl" as SOL, Solana
-// and TOWELI, and its brand rule finds BAYLA inside "BAYLA Token" and "BAYLA2". A
-// spelling the launcher would refuse is therefore never "No problems found" here.
+// and TOWELI, and its brand rule finds BAYLA inside "BAYLA Token" and "BAYLA2". The
+// LIST is this page's own (WELL_KNOWN_NAMES): a word the launcher refuses but that has
+// no entry here (ETH, BONK, TEGRIDY) is not called a copy on this page.
 const WELL_KNOWN_FOLDED = WELL_KNOWN_NAMES.flatMap((k) => k.names.map((n) => ({ folded: foldForCompare(n), known: k })));
 
 /**
@@ -76,8 +77,9 @@ const WELL_KNOWN_FOLDED = WELL_KNOWN_NAMES.flatMap((k) => k.names.map((n) => ({ 
  */
 export function copiedWellKnownName(mint: string, claims: readonly string[]): (typeof WELL_KNOWN_NAMES)[number] | null {
   for (const claim of claims) {
-    // The claim itself, and what the launcher's lists say it would be mistaken for.
-    const said = [...foldedForms(claim), foldForCompare(impersonates(claim) ?? '')];
+    // The claim itself, and EVERY word the launcher's lists say it would be mistaken
+    // for: its first answer for "BAYLA by Tegridy" is TEGRIDY, which is not on this list.
+    const said = [...foldedForms(claim), ...impersonatesAll(claim).map(foldForCompare)];
     const hit = WELL_KNOWN_FOLDED.find((k) => said.includes(k.folded));
     if (hit && hit.known.mint !== mint) return hit.known;
   }
@@ -384,7 +386,7 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
   let anyMutable = false;
   const claims: string[] = [];
   let recordRead: string | null = null;
-  const t22 =f.tokenMetadata && f.tokenMetadata.mint === mint ? f.tokenMetadata : null;
+  const t22 = f.tokenMetadata && f.tokenMetadata.mint === mint ? f.tokenMetadata : null;
   if (t22) {
     name = t22.name;
     symbol = t22.symbol;
