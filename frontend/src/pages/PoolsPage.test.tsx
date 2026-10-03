@@ -8,6 +8,12 @@ import { MemoryRouter } from 'react-router-dom';
  * the chain returned it: a failed or pending read shows no number at all.
  */
 
+// Warms the page's module graph at collection time. NOT dead code: mount() re-imports the
+// page under vi.resetModules(), and the first of those is a cold load inside a test body,
+// on the 5s clock, that grows with machine load. Paid here, where no timeout runs, every
+// re-import is a few ms.
+import './PoolsPage';
+
 const readVenue = vi.fn();
 vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
 vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}) }));
