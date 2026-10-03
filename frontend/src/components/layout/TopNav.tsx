@@ -8,9 +8,16 @@ import { NAV_SECTIONS, DASHBOARD_NAV } from '../../lib/navConfig';
 import type { NavSection } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
-import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
+import { getActiveBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
-import { isToweliRoomPage } from '../../lib/routeVoice';
+import { isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
+import {
+  cancelSolanaOpenRequest,
+  requestSolanaOpen,
+  shortSolanaAddress,
+  useSolanaSurface,
+  type SolanaSurface,
+} from '../../lib/solanaSurface';
 import { ArtImg } from '../ArtImg';
 import { VENUE } from '../../lib/arrival';
 import { artImgProps } from '../../lib/artSrcSet';
@@ -36,6 +43,65 @@ function sectionIsActive(section: NavSection, pathname: string): boolean {
    draws the same two badges from the same NavItem. Both navs show one row per
    section, so neither has an item to pin a pill to. */
 
+// The wallet button's two looks, shared by the Ethereum (RainbowKit) and Solana
+// slots so they are the same width: the 360px row has no room to spare.
+const CONNECT_BUTTON_CLASS =
+  'text-[13px] md:text-[14px] font-semibold rounded-lg px-2.5 md:px-4 py-1.5 min-h-[44px] md:min-h-[36px] transition-all hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]';
+const CONNECT_BUTTON_STYLE = { background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(139,92,246,0.60)', color: 'var(--color-primary)' };
+const ACCOUNT_CHIP_CLASS =
+  'flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 min-h-[44px] md:min-h-0 rounded-lg text-[11.5px] md:text-[13px] font-mono text-text-secondary max-w-[140px] md:max-w-none';
+const ACCOUNT_CHIP_STYLE = { background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' };
+// The chip's green dot, from 375px up. MEASURED 2026-10-02 at 360px: a connected
+// chip is 86.9px against Connect's 75.3px, and the row, which has 0px to spare
+// there, overflowed by 7px; without the dot the chip is 74.9px and the row fits.
+// Nothing had swept a connected header (e2e/topbar-solana-connect.spec.ts does).
+const ACCOUNT_DOT_CLASS = 'hidden min-[375px]:block w-1.5 h-1.5 rounded-full bg-success flex-shrink-0';
+
+/** How long a top-bar tap waits for a Solana page's wallet section to load. */
+const SOLANA_OPEN_WAIT_MS = 10_000;
+
+/**
+ * The wallet slot on a Solana page (lib/solanaSurface.ts): it opens that page's
+ * own Solana list, and shows the Solana address once connected. RainbowKit's
+ * Connect proposes Ethereum chains only, so on these pages it handed Trust an
+ * Ethereum-only connection (owner, 2026-10-02).
+ *
+ * Never hidden: a tap before the page's Solana section has loaded is kept and
+ * used once it loads (`pending`). The label stays "Connect" in every state;
+ * "Connecting…" would not fit the 360px row.
+ */
+function SolanaWalletSlot({ surface, pending }: { surface: SolanaSurface | null; pending: boolean }) {
+  const address = surface?.address ?? null;
+  if (address) {
+    const short = shortSolanaAddress(address);
+    return (
+      <div className="min-w-0">
+        <button type="button" onClick={requestSolanaOpen} aria-label={`Solana wallet ${short}`} title="Solana wallet" className={ACCOUNT_CHIP_CLASS} style={ACCOUNT_CHIP_STYLE}>
+          <span className={ACCOUNT_DOT_CLASS} />
+          <span className="truncate">{short}</span>
+        </button>
+      </div>
+    );
+  }
+  const connecting = Boolean(surface?.connecting);
+  const busy = pending || connecting;
+  return (
+    <div className="min-w-0">
+      <button
+        type="button"
+        onClick={requestSolanaOpen}
+        aria-label="Connect a Solana wallet"
+        aria-busy={busy || undefined}
+        disabled={connecting}
+        className={`${CONNECT_BUTTON_CLASS}${busy ? ' opacity-60' : ''}`}
+        style={CONNECT_BUTTON_STYLE}
+      >
+        Connect
+      </button>
+    </div>
+  );
+}
+
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
   const [kebabOpen, setKebabOpen] = useState(false);
@@ -50,6 +116,20 @@ export const TopNav = React.memo(function TopNav() {
   // `useAccount` is already provided app-wide by WagmiProvider (App.tsx), and
   // this component is inside it — the same hook StakingCard and the rest use.
   const { isConnected } = useAccount();
+  // On a page with a Solana section the wallet slot connects Solana. The path
+  // answers while that section loads; its mounted provider answers after, and
+  // covers any page the path misses (lib/solanaSurface.ts).
+  const { surface: solana, openPending: solanaOpenPending } = useSolanaSurface();
+  const solanaPage = solana !== null || isSolanaPage(location.pathname, getBungalowIdentity());
+  // A tap waiting for this page's Solana section belongs to this page.
+  useEffect(() => () => cancelSolanaOpenRequest(), [location.pathname]);
+  // And it does not wait for ever: a section that never loads (its read failed)
+  // must not leave the button dimmed, or open a list a minute after the tap.
+  useEffect(() => {
+    if (!solanaOpenPending) return;
+    const timer = setTimeout(cancelSolanaOpenRequest, SOLANA_OPEN_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [solanaOpenPending]);
 
   // Admin link visibility — only show if flag set in localStorage. Keeps the
   // kebab menu empty (and hidden) for ordinary users.
@@ -385,6 +465,9 @@ export const TopNav = React.memo(function TopNav() {
                 clear slot at the far right on narrow viewports. Padding, font
                 size, and displayName width all shrink on mobile so long ENS
                 names don't push the menu button off-screen. */}
+            {solanaPage ? (
+              <SolanaWalletSlot surface={solana} pending={solanaOpenPending} />
+            ) : (
             <ConnectButton.Custom>
               {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
                 const connected = mounted && account && chain;
@@ -418,8 +501,8 @@ export const TopNav = React.memo(function TopNav() {
                       <button
                         onClick={openConnectModal}
                         aria-label="Connect wallet"
-                        className="text-[13px] md:text-[14px] font-semibold rounded-lg px-2.5 md:px-4 py-1.5 min-h-[44px] md:min-h-[36px] transition-all hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]"
-                        style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(139,92,246,0.60)', color: 'var(--color-primary)' }}
+                        className={CONNECT_BUTTON_CLASS}
+                        style={CONNECT_BUTTON_STYLE}
                       >
                         Connect
                       </button>
@@ -429,9 +512,9 @@ export const TopNav = React.memo(function TopNav() {
                       </button>
                     ) : (
                       <button onClick={openAccountModal} aria-label="Account details"
-                        className="flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 min-h-[44px] md:min-h-0 rounded-lg text-[11.5px] md:text-[13px] font-mono text-text-secondary max-w-[140px] md:max-w-none"
-                        style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-                        <span className="w-1.5 h-1.5 rounded-full bg-success flex-shrink-0" />
+                        className={ACCOUNT_CHIP_CLASS}
+                        style={ACCOUNT_CHIP_STYLE}>
+                        <span className={ACCOUNT_DOT_CLASS} />
                         <span className="truncate">{account.displayName}</span>
                       </button>
                     )}
@@ -439,6 +522,7 @@ export const TopNav = React.memo(function TopNav() {
                 );
               }}
             </ConnectButton.Custom>
+            )}
 
             {/* The theme toggle lived here until 2026-08-23. Light mode was removed
                 (operator decision — it carried an app-wide ~1.5:1 contrast defect), so a

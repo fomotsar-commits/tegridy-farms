@@ -482,11 +482,13 @@ describe('Trust and Jupiter, not in this browser, open the QR their phone app sc
   });
 });
 
-describe('the list says the top bar is a separate connection', () => {
-  it('names what the top-bar Connect is for', async () => {
+describe('the list no longer says the top bar cannot connect Solana', () => {
+  // On a Solana page the top bar's Connect opens this list (lib/solanaSurface.ts).
+  it('says only that an Ethereum or Base wallet is a separate connection', async () => {
     mount();
     const dialog = await openList();
-    expect(dialog).toHaveTextContent('The Connect button at the top of the page is a separate connection, and it does not connect Solana.');
+    expect(dialog).not.toHaveTextContent('does not connect Solana');
+    expect(dialog).toHaveTextContent('Only wallets that work on Solana are listed. An Ethereum or Base wallet connects separately.');
   });
 });
 

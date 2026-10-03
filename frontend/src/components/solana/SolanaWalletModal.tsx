@@ -342,13 +342,11 @@ function SolanaWalletModal() {
                   />
                 ))}
               </ul>
-              {/* A visitor who connected through the top bar (RainbowKit, EVM
-                  only) and reads "Connect a Solana wallet" on a pool otherwise
-                  has no way to know the two are separate (owner, 2026-09-30:
-                  Trust "only recognizes the EVM chains"). */}
+              {/* On a Solana page the top bar's Connect opens this list
+                  (lib/solanaSurface.ts). An Ethereum wallet connected on
+                  another page is a separate connection and never shows here. */}
               <p className="wallet-adapter-modal-note">
-                Only wallets that work on Solana are listed. The Connect button at the top of the page is a
-                separate connection, and it does not connect Solana.
+                Only wallets that work on Solana are listed. An Ethereum or Base wallet connects separately.
               </p>
             </>
           ) : (

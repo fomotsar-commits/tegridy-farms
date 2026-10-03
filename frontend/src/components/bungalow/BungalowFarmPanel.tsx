@@ -108,16 +108,6 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             </>
           )}
         </p>
-        {/* The top bar's Connect is EVM only (RainbowKit), and on this page it is
-            the most visible one. A Trust wallet connected there showed "only the
-            EVM chains" while every card here still asked for Solana, and Jupiter,
-            Solana only, can never be in that list (owner, 2026-09-30). */}
-        {poolIsLive && bungalow.chain === 'solana' && (
-          <p className="text-white/70 text-[13px] max-w-lg leading-relaxed mt-3">
-            This pool is on Solana: connect your wallet on the pool card below. The Connect button
-            at the top of the page does not connect Solana.
-          </p>
-        )}
       </div>
 
       {/* THE LIVE POOL LEADS (2026-09-20): the ladder comes first in the DOM and spans

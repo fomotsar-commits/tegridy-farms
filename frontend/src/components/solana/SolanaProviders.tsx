@@ -1,7 +1,7 @@
 // Polyfill MUST load before any @solana/* import — keep this first.
 import '../../lib/solanaPolyfill';
-import { useMemo, type ReactNode } from 'react';
-import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
 import {
   BackpackWalletAdapter,
   CoinbaseWalletAdapter,
@@ -19,11 +19,14 @@ import { WalletConnectWalletAdapter } from '../../lib/solanaWalletConnect';
 import '../../styles/wallet-adapter-ui.css';
 import { solanaRpcEndpoint } from '../../lib/solana';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
+import { useSolanaConnect } from './useSolanaConnect';
+import { setSolanaSurface, takeSolanaOpenRequest, useSolanaSurface } from '../../lib/solanaSurface';
 
 /**
- * Solana wallet context — mounted ONLY around the lazy Solana swap page, so the
- * @solana/* deps + their CSS load with that chunk and never touch the main
- * bundle or the EVM surface.
+ * Solana wallet context — mounted once per Solana section, always lazily, so
+ * the @solana/* deps + their CSS load with that chunk and never touch the main
+ * bundle or the EVM surface. On a Solana page it also drives the top bar's
+ * Connect, through SolanaSurfaceBridge below.
  *
  * Installed extensions (Phantom/Solflare/Backpack) register themselves via the
  * Wallet Standard, and that registration replaces an adapter of the same name
@@ -77,6 +80,40 @@ import { SolanaWalletModalProvider } from './SolanaWalletModal';
  * import() of it is compiled out (check-dist-graph.mjs D fails a no-id build
  * that carries any).
  */
+/**
+ * Hands this page's Solana connection to the top bar (lib/solanaSurface.ts),
+ * acts on a top-bar tap that came before this mounted, and takes it all back
+ * on unmount, so a page with no Solana section never shows a stale address.
+ * It sits inside the modal provider because useSolanaConnect needs it.
+ *
+ * THE EARLY TAP WAITS ONE RENDER. This child's effects run before
+ * WalletProvider's own, which attach its 'connect' listener and start the
+ * restore of the saved wallet. A connect() from this component's first effect
+ * could land before that listener: a trusted Wallet Standard wallet (Trust's
+ * own browser, after the first approval) emits 'connect' with no await, the
+ * provider never hears it, and it reads disconnected over a connected adapter
+ * until a reload. So the tap is used only once a render has SEEN this
+ * provider's own report in the store, which is a render after that first
+ * effect, and only after any restore in flight (`connecting`) has ended.
+ */
+export function SolanaSurfaceBridge() {
+  const { publicKey, connecting } = useWallet();
+  const open = useSolanaConnect();
+  const address = publicKey ? publicKey.toBase58() : null;
+  const [owner] = useState(() => ({}));
+  const { surface, openPending } = useSolanaSurface();
+  useEffect(() => {
+    setSolanaSurface(owner, { open, address, connecting });
+  }, [owner, open, address, connecting]);
+  useEffect(() => {
+    if (surface?.open !== open || !openPending || connecting) return;
+    // A restore that connected answers the tap; otherwise it is the card's click.
+    if (takeSolanaOpenRequest() && !address) open();
+  }, [surface, openPending, connecting, address, open]);
+  useEffect(() => () => setSolanaSurface(owner, null), [owner]);
+  return null;
+}
+
 export function SolanaProviders({ children }: { children: ReactNode }) {
   const endpoint = useMemo(() => solanaRpcEndpoint(), []);
   const wallets = useMemo(
@@ -100,7 +137,10 @@ export function SolanaProviders({ children }: { children: ReactNode }) {
   return (
     <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
       <WalletProvider wallets={wallets} autoConnect>
-        <SolanaWalletModalProvider>{children}</SolanaWalletModalProvider>
+        <SolanaWalletModalProvider>
+          <SolanaSurfaceBridge />
+          {children}
+        </SolanaWalletModalProvider>
       </WalletProvider>
     </ConnectionProvider>
   );
