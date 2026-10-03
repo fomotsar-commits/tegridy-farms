@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { assessPool, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
@@ -29,6 +29,38 @@ export interface LpWish {
   task: 'create' | 'add';
   mint: string;
   n: number;
+  /**
+   * An 'add' wish for ONE pool, by its address: "Add more liquidity" on a position names
+   * the pool that share is in. Such a wish goes to that pool or to nowhere. It never
+   * opens another pool's Add form and never the open-a-pool form: the holder asked to add
+   * to the pool they are already in, not to whichever pool is deepest today.
+   */
+  pool?: string;
+}
+
+/** What the section can ask of the finder from outside it. */
+export interface PoolFinderHandle {
+  /**
+   * Look `mint` up exactly as a press in the finder does, and end in the Add form of the
+   * pool at `pool` (`LpWish.pool`). A position's "Add more liquidity" comes in this way,
+   * so there is one lookup and one set of checks, whichever button started it.
+   */
+  addTo(mint: string, pool: string): void;
+}
+
+/** Is this pool in the lookup's answer, read or not? A lookup that failed lists nothing. */
+function listsPool(pools: PoolSearchRead, address: string): boolean {
+  return pools.kind === 'ok' && pools.search.pools.some((p) => (p.kind === 'pool' ? p.view.address : p.address) === address);
+}
+
+/**
+ * The line for a position's wish whose pool the lookup did not return. A lookup that
+ * could not be read says that: it is never told as "your pool is not there".
+ */
+function unfoundText(pools: PoolSearchRead, pool: string): string {
+  return pools.kind !== 'ok'
+    ? `This token’s pools could not be read just now, so the Add form for your position’s pool (${pool}) was not opened. Press Read again.`
+    : `Your position’s pool (${pool}) is not among the pools found for this token just now, so its Add form was not opened, and no other pool’s was opened in its place. Read again in a minute.`;
 }
 
 /**
@@ -146,7 +178,10 @@ export function PoolFinder({
   reloadKey = 0,
   wantOutside = false,
   onRemove,
+  ref,
 }: {
+  /** For the section: a position's "Add more liquidity" starts its lookup here. */
+  ref?: Ref<PoolFinderHandle>;
   readers: LpReaders;
   mint: string | null;
   onMint: (m: string | null) => void;
@@ -174,9 +209,15 @@ export function PoolFinder({
   // act: the page moving to another token drops it (Back, Forward, a link), and the card
   // that acts on it spends it (`spent`), so nothing later can act on it again.
   const [wish, setWish] = useState<LpWish | null>(null);
+  // A position's wish whose pool the lookup did not return. The wish is spent and this is
+  // the line the page keeps in its place (`unfoundText`). It is about one lookup of one
+  // token: the next thing the visitor asks for, or the page moving to another token,
+  // takes it away.
+  const [unfound, setUnfound] = useState<{ mint: string; pool: string } | null>(null);
   if (linkKey !== shownLink) {
     setShownLink(linkKey);
     if (wish && wish.mint !== mint) setWish(null);
+    if (unfound && unfound.mint !== mint) setUnfound(null);
     if (mint) {
       setInput(mint);
       setError(null);
@@ -185,6 +226,17 @@ export function PoolFinder({
       setError(linkError.reason);
     }
   }
+  // A wish that names a pool the fresh answer does not list goes to nowhere, at once
+  // (adjusted during render, like the link above). Left alive it would have nothing to
+  // open now, and would open that pool's form by itself whenever a later read listed it.
+  // A later answer that does list the pool takes the line away again.
+  if (state.status === 'done' && !state.refreshing) {
+    if (wish?.pool && wish.mint === state.mint && !listsPool(state.pools, wish.pool)) {
+      setUnfound({ mint: wish.mint, pool: wish.pool });
+      setWish(null);
+    } else if (unfound && unfound.mint === state.mint && listsPool(state.pools, unfound.pool)) setUnfound(null);
+  }
+  const unfoundLine = unfound && state.status === 'done' && unfound.mint === state.mint ? unfoundText(state.pools, unfound.pool) : null;
 
   // A lookup the visitor asked for is brought onto the screen. On a phone the answer
   // begins below the fold, so a press on Find pools looked as if it had done nothing
@@ -202,14 +254,29 @@ export function PoolFinder({
   // then Forward reopened a form the visitor had closed (review, 2026-10-03).
   const spent = useCallback((n: number) => setWish((w) => (w?.n === n ? null : w)), []);
   const lookUp = useCallback(
-    (next: string, want: LpWish['task'] | null) => {
+    (next: string, want: LpWish['task'] | null, pool?: string) => {
       asked.current = true;
       wishes.current += 1;
-      setWish(want ? { task: want, mint: next, n: wishes.current } : null);
+      setUnfound(null);
+      setWish(want ? { task: want, mint: next, n: wishes.current, ...(pool ? { pool } : {}) } : null);
       if (next === mint) setNonce((n) => n + 1);
       else onMint(next);
     },
     [mint, onMint],
+  );
+  // "Add more liquidity" on a position (the section passes it on). The token goes into
+  // the box and is looked up like a picked one, so the holder sees which token and which
+  // checks the form came from.
+  useImperativeHandle(
+    ref,
+    () => ({
+      addTo(next, pool) {
+        setInput(next);
+        setError(null);
+        lookUp(next, 'add', pool);
+      },
+    }),
+    [lookUp],
   );
   useEffect(() => {
     if (!asked.current || state.status === 'idle') return;
@@ -256,6 +323,7 @@ export function PoolFinder({
       if (t === 'remove') onRemove?.();
       else if (answered && canAdd) {
         wishes.current += 1;
+        setUnfound(null);
         setWish({ task: t, mint: answered, n: wishes.current });
       } else tasksRef.current?.scrollIntoView?.({ block: 'start' });
     },
@@ -356,14 +424,20 @@ export function PoolFinder({
       </Card>
 
       {/* Where a lookup the visitor asked for scrolls to: clear of the fixed bar and tabs. */}
-      <div ref={answerRef} className="scroll-mt-[4.5rem]" />
+      <div ref={answerRef} data-testid="lp-answer" className="scroll-mt-[4.5rem]" />
 
       <p role="status" aria-live="polite" className="sr-only" data-testid="lp-status">
-        {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? announce(state) : ''}
+        {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? `${announce(state)}${unfoundLine ? ` ${unfoundLine}` : ''}` : ''}
       </p>
 
       {state.status === 'loading' && <p className="text-white/70 text-[13px]">Reading the token and its pools from the chain…</p>}
       {state.status === 'done' && state.refreshing && <p className="text-white/55 text-[12px]">Reading the token and its pools again…</p>}
+      {/* Right under where the lookup scrolled to, so it is the first thing read. */}
+      {unfoundLine && (
+        <div data-testid="lp-wish-unfound" className="text-[13px] leading-relaxed [overflow-wrap:anywhere]">
+          <Notice tone="warn">{unfoundLine}</Notice>
+        </div>
+      )}
       {state.status === 'done' && (
         <SearchResults state={state} onReread={reread} wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null} onActed={spent} />
       )}
@@ -415,20 +489,28 @@ function SearchResults({
   }, [pools, decimals, outside, coins, safety]);
   // Where a wish ends. Adding goes to the deepest pool that offers it; with none, and for
   // creating, it goes to the "Open a new pool" card, which opens its form or says why not.
+  // A wish that names its pool (`LpWish.pool`) is for that pool alone: its Add form when
+  // the pool offers adding, else its card, brought onto the screen so the pool's own
+  // reason is what is read. It is never passed on to another pool or to the Open card.
   const gate = writes?.gate ?? null;
   const mode = writes?.mode ?? 'off';
   const notes = writes?.pending.notes;
+  const named = wish?.task === 'add' ? wish.pool ?? null : null;
   const addTo = useMemo(() => {
     if (wish?.task !== 'add' || pools.kind !== 'ok' || !notes) return null;
     for (const p of pools.search.pools) {
-      const health = p.kind === 'pool' ? healths.get(p.view.address) : undefined;
-      if (p.kind === 'pool' && health && depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) === 'offer') return p.view.address;
+      if (p.kind !== 'pool' || (named !== null && p.view.address !== named)) continue;
+      const health = healths.get(p.view.address);
+      if (health && depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) === 'offer') return p.view.address;
     }
     return null;
-  }, [wish, pools, healths, mode, gate, notes]);
+  }, [wish, named, pools, healths, mode, gate, notes]);
   // Waits for the gate: until it has answered, no pool can say whether it offers adding.
   const gateAnswered = writes !== null && writes.status !== 'loading' && gate !== null;
-  const openCreate = wish && gateAnswered && (wish.task === 'create' || addTo === null) ? wish.n : 0;
+  const due = wish && gateAnswered ? wish.n : 0;
+  const openCreate = wish && named === null && (wish.task === 'create' || addTo === null) ? due : 0;
+  // The named pool cannot open its form: its card is shown instead, once.
+  const showNamed = named !== null && addTo === null ? due : 0;
   return (
     <div className="space-y-4">
       <TokenSafetyCard mint={mint} safety={safety} />
@@ -467,10 +549,11 @@ function SearchResults({
                     safety={safety}
                     health={healths.get(p.view.address)!}
                     openNow={wish && addTo === p.view.address ? wish.n : 0}
+                    showNow={named === p.view.address ? showNamed : 0}
                     onActed={onActed}
                   />
                 ) : (
-                  <UnreadPoolCard key={p.address} entry={p} />
+                  <UnreadPoolCard key={p.address} entry={p} showNow={named === p.address ? showNamed : 0} onActed={onActed} />
                 ),
               )}
             </ul>

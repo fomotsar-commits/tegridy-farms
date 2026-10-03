@@ -89,17 +89,31 @@ function statusText(owner: PublicKey | null, state: State | null): string {
   return `This wallet holds ${plural(totalShares, 'pool share', 'pool shares')}.${more > 0 ? ` ${positions.length} are shown; ${more} more are not looked up yet.` : ''}`;
 }
 
+/**
+ * "Add more liquidity" on a position: the token to look up and the pool the share is in.
+ * The section hands it to the finder, which owns the lookup, the checks and the form.
+ */
+export type AddMore = (tokenMint: string, pool: string) => void;
+
+/** Can this section add at all right now? `depositOffer`'s first three stops, without a pool. */
+function addingOpen(writes: LpWrites | null): boolean {
+  return writes !== null && writes.mode === 'on' && writes.gate?.kind === 'open' && writes.gate.mode === 'on';
+}
+
 export function YourPositions({
   readers,
   owner,
   reloadKey = 0,
   sectionRef,
+  onAddMore,
 }: {
   readers: LpReaders;
   owner: PublicKey | null;
   reloadKey?: number;
   /** Set by the section: "Remove liquidity" scrolls here and sends focus here. */
   sectionRef?: Ref<HTMLElement>;
+  /** Set by the section: without it no position offers "Add more liquidity". */
+  onAddMore?: AddMore;
 }) {
   const [nonce, setNonce] = useState(0);
   const [limit, setLimit] = useState(MAX_POSITIONS);
@@ -151,6 +165,7 @@ export function YourPositions({
             onMore={() => setLimit((l) => l + MAX_POSITIONS)}
             onReadAgain={readAgain}
             readers={readers}
+            onAddMore={onAddMore}
           />
         )}
       </Card>
@@ -164,12 +179,14 @@ function PositionsList({
   onMore,
   onReadAgain,
   readers,
+  onAddMore,
 }: {
   read: Extract<PositionsRead, { kind: 'ok' }>;
   safety: Map<string, TokenSafety>;
   onMore: () => void;
   onReadAgain: () => void;
   readers: LpReaders;
+  onAddMore?: AddMore;
 }) {
   const safetyOf = (p: Position) => (p.pool?.kind === 'pool' ? safety.get(p.pool.view.tokenMint) ?? null : null);
   const main = read.positions.filter((p) => setAsideReason(p, safetyOf(p)) === null);
@@ -189,7 +206,7 @@ function PositionsList({
       {main.length > 0 && (
         <ul className="space-y-3" aria-label="Your pool shares, most valuable first">
           {main.map((p) => (
-            <PositionRow key={p.lpAccount} p={p} safety={safetyOf(p)} chainNow={read.chainNow} readers={readers} onReadAgain={onReadAgain} />
+            <PositionRow key={p.lpAccount} p={p} safety={safetyOf(p)} chainNow={read.chainNow} readers={readers} onReadAgain={onReadAgain} onAddMore={onAddMore} />
           ))}
         </ul>
       )}
@@ -209,6 +226,7 @@ function PositionsList({
                 setAside={setAsideReason(p, safetyOf(p))}
                 readers={readers}
                 onReadAgain={onReadAgain}
+                onAddMore={onAddMore}
               />
             ))}
           </ul>
@@ -245,6 +263,7 @@ function PositionRow({
   setAside = null,
   readers,
   onReadAgain,
+  onAddMore,
 }: {
   p: Position;
   safety: TokenSafety | null;
@@ -252,6 +271,7 @@ function PositionRow({
   setAside?: string | null;
   readers: LpReaders;
   onReadAgain: () => void;
+  onAddMore?: AddMore;
 }) {
   const view = p.pool?.kind === 'pool' ? p.pool.view : null;
   const decimals = safety?.kind === 'read' ? safety.facts?.decimals ?? null : null;
@@ -361,6 +381,7 @@ function PositionRow({
         setAside={setAside !== null}
         readers={readers}
         onReadAgain={onReadAgain}
+        onAddMore={onAddMore}
       />
     </li>
   );
@@ -371,6 +392,13 @@ function PositionRow({
  * the Remove button and its panel, the "find this share's pool on the chain" search
  * when our index could not place it, or one line saying why not. A placed share that
  * this site cannot take out right now also shows how to leave without it.
+ *
+ * And, beside Remove, **Add more liquidity** (owner, 2026-10-03): a holder who wanted to
+ * add to the pool they were already in had to know to look the token up in the finder and
+ * pick the right card. The button does that for them and nothing more. It opens no form
+ * of its own: the finder runs its whole lookup and opens the Add form on this pool's own
+ * card, or shows that card's reason. So a deposit is checked in one place, however it
+ * was asked for.
  */
 function RemoveBlock({
   offer,
@@ -383,6 +411,7 @@ function RemoveBlock({
   setAside,
   readers,
   onReadAgain,
+  onAddMore,
 }: {
   offer: WithdrawOffer;
   writes: LpWrites | null;
@@ -394,10 +423,30 @@ function RemoveBlock({
   setAside: boolean;
   readers: LpReaders;
   onReadAgain: () => void;
+  onAddMore?: AddMore;
 }) {
   const key = `remove:${p.lpAccount}`;
   const open = writes?.active?.key === key;
   const blockedByOther = !!writes?.busy && !open;
+  // Any form mid-flow, this row's own Remove included: a lookup started now would pull
+  // the page away from it, and could not open a form over it anyway.
+  const flowRunning = !!writes?.busy;
+  // Add more liquidity: on a share that is not set aside, whose pool this site read as one
+  // of its own and which names this share, while the section can add at all. Whether THIS
+  // pool takes a deposit right now is not decided here: the finder says so, on the pool's
+  // card, after its checks. Nor does it wait on Remove: a share too small to take out is
+  // one a holder may well want to add to.
+  const addMore =
+    onAddMore && !setAside && view && view.snapshot.pool.lpMint === p.lpMint && addingOpen(writes) ? (
+      <button
+        type="button"
+        className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+        disabled={flowRunning}
+        onClick={() => onAddMore(view.tokenMint, view.address)}
+      >
+        Add more liquidity
+      </button>
+    ) : null;
   const pool = p.pool;
   // A share whose pool is known: the accounts the pool program's own withdraw takes.
   const placedAt = view?.address ?? (pool?.kind === 'other-pair' ? pool.address : null);
@@ -418,23 +467,33 @@ function RemoveBlock({
       <RemoveLiquidityPanel position={p} view={view} safety={safety} tokenDecimals={decimals} chainNow={chainNow} setAside={setAside} onClose={writes.close} />
     ) : null;
 
+  const removeButton =
+    offer === 'offer' ? (
+      <button
+        type="button"
+        className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+        disabled={blockedByOther}
+        aria-expanded={open}
+        onClick={(e) => writes?.open('remove', key, e.currentTarget)}
+      >
+        Remove liquidity
+      </button>
+    ) : null;
+  // One row for both: stacked and full width on a phone, side by side from `sm:` up.
+  const buttons =
+    removeButton || addMore ? (
+      <div className="flex flex-col sm:flex-row gap-2">
+        {removeButton}
+        {addMore}
+      </div>
+    ) : null;
+  // Said once under the row, for whichever button a running flow has switched off.
+  const wait = (removeButton && blockedByOther) || (addMore && flowRunning) ? <Notice>Finish or close the open liquidity panel first.</Notice> : null;
+
+  // Why the share cannot be taken out here, or the other thing to press. Above the buttons.
   let line: ReactNode = null;
   switch (offer) {
     case 'offer':
-      line = (
-        <>
-          <button
-            type="button"
-            className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
-            disabled={blockedByOther}
-            aria-expanded={open}
-            onClick={(e) => writes?.open('remove', key, e.currentTarget)}
-          >
-            Remove liquidity
-          </button>
-          {blockedByOther && <Notice>Finish or close the open liquidity panel first.</Notice>}
-        </>
-      );
       break;
     case 'switched-off':
       line = (
@@ -494,10 +553,12 @@ function RemoveBlock({
         ) : null;
       break;
   }
-  if (!line && !leaving && !panel) return null;
+  if (!line && !buttons && !leaving && !panel) return null;
   return (
     <div className="space-y-2 pt-1">
       {line}
+      {buttons}
+      {wait}
       {leaving}
       {panel}
     </div>
