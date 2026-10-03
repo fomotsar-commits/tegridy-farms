@@ -8,12 +8,12 @@ page keeps the newest thirty days.
 
 ### 2026-10-04
 
+- Read Heat: inside a wallet's own browser that carries both Ethereum and Solana, such as Trust Wallet's, the wallet button no longer asks for Ethereum only. It offers "Use my Ethereum address" and "Use my Solana address", and each asks its own network. A Solana wallet you have already connected to the site is filled without asking the wallet anything. On a launch page the button reads that page's network only: Solana on the Solana page, Ethereum on the Ethereum ones. On a phone the address box shows its whole hint again.
 - Every bungalow now has a burn tracker. Each token's bungalow shows the percent of everything ever minted that is burnt, the amount, and where it went: sent to the burn address, stuck for good in the token's own contract, or destroyed outright so the supply itself fell. It is read from the token's own chain when the card loads. A burn that could not be read says so and never shows as zero. For QR, DRB and JBM a fall in supply is not counted.
 - TOWELI: the "Burned forever" row on its page now prints the same figure as the burn card, 25.76% of everything minted. It read 25.8% of supply.
 
 ### 2026-10-03
 
-- Read Heat: inside a wallet's own browser that carries both Ethereum and Solana, such as Trust Wallet's, the wallet button no longer asks for Ethereum only. It offers "Use my Ethereum address" and "Use my Solana address", and each asks its own network. On a launch page the button reads that page's network only: Solana on the Solana page, Ethereum on the Ethereum ones. On a phone the address box shows its whole hint again.
 - Open a pool: a token that already has a pool can have another. The card names the biggest pool that passes the checks and suggests adding to it first, and the Open a pool button stays, so anyone can open a separate pool of their own. Before, the button was taken away once one passing pool existed.
 - Solana LP: in a Solana room (BAYLA, BOBO, SOY, Brainlet, RIZZ) one button looks up that room's token, so a phone does not have to paste its address. After a lookup the page moves to the answer, and a token with no pool yet says that opening the pool is how the first liquidity goes in.
 - Pools has a Solana LP tab that opens on the pool finder: find a pool, add or remove liquidity, or open a pool on the venue's own Solana AMM.
