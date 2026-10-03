@@ -21,7 +21,9 @@ vi.mock('../../lib/errorReporting', () => ({ reportError: vi.fn() }));
 
 import { TopBarSolana } from './TopBarSolana';
 import {
+  SOLANA_HANDOFF_PARAM,
   getSolanaSurfaceState,
+  noteSolanaHandoffArrival,
   resetSolanaSurfaceForTests,
   setSolanaSurface,
   wantOwnSolana,
@@ -38,6 +40,8 @@ afterEach(() => {
   cleanup();
   act(() => resetSolanaSurfaceForTests());
   localStorage.clear();
+  sessionStorage.clear();
+  window.history.replaceState(null, '', '/');
   fake.throwOnRender = false;
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -95,6 +99,22 @@ describe("TopBarSolana: the top bar's own Solana connection", () => {
       vi.advanceTimersByTime(1);
     });
     expect(getSolanaSurfaceState().ownWanted).toBe(true);
+  });
+
+  // A page opened by an "Open app" press in another browser (lib/solanaSurface.ts):
+  // that visitor is waiting on the connect, so the Solana code loads at once,
+  // on a first visit, with nothing saved. MUTATION CHECK: drop the
+  // solanaHandoffPending() branch in TopBarSolana's effect; this must fail.
+  it('mounts at once on a page opened by a hand-off into a wallet app', async () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Linux; Android 14; Pixel 7; wv) AppleWebKit/537.36 Chrome/126.0.0.0 Mobile Safari/537.36',
+    );
+    window.history.replaceState(null, '', `/?${SOLANA_HANDOFF_PARAM}=1`);
+    noteSolanaHandoffArrival();
+    render(<TopBarSolana solanaPage={false} />);
+    expect(getSolanaSurfaceState().ownWanted).toBe(true);
+    await settle();
+    expect(await screen.findByTestId('own-solana')).toBeTruthy();
   });
 
   it.each([

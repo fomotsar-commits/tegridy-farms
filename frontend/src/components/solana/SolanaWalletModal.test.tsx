@@ -16,6 +16,10 @@ import { SolanaWalletModalProvider } from './SolanaWalletModal';
 import { orderWallets } from '../../lib/solanaWalletOrder';
 import { useSolanaConnect } from './useSolanaConnect';
 import { SolanaConnectButton } from './SolanaConnectButton';
+import { SOLANA_HANDOFF_PARAM } from '../../lib/solanaSurface';
+
+const toasts = vi.hoisted(() => ({ toast: vi.fn() }));
+vi.mock('sonner', () => ({ toast: toasts.toast }));
 
 /**
  * The Solana connect modal, mounted inside the REAL WalletProvider — the
@@ -37,6 +41,8 @@ class FakeWallet extends BaseMessageSignerWalletAdapter {
   icon = 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E';
   readonly supportedTransactionVersions: SupportedTransactionVersions = new Set(['legacy' as const, 0 as const]);
   connectCalls = 0;
+  /** The address a real adapter would build its app link from: read at connect(). */
+  hrefAtConnect: string | null = null;
   private _readyState: WalletReadyState;
   private _publicKey: PublicKey | null = null;
 
@@ -61,6 +67,7 @@ class FakeWallet extends BaseMessageSignerWalletAdapter {
   override async autoConnect() {}
   async connect() {
     this.connectCalls += 1;
+    this.hrefAtConnect = window.location.href;
     if (this._readyState === WalletReadyState.NotDetected) {
       const error = new WalletNotReadyError();
       this.emit('error', error);
@@ -161,6 +168,8 @@ function assertEveryWalletReachable(dialog: HTMLElement, names: string[]) {
 
 beforeEach(() => {
   localStorage.clear();
+  toasts.toast.mockClear();
+  window.history.replaceState(null, '', '/');
 });
 
 afterEach(() => {
@@ -512,5 +521,63 @@ describe('a wallet that never answers is not a dead end', () => {
     const dialog = await openList();
     expect(within(dialog).queryByRole('status')).toBeNull();
     expect(dialog).not.toHaveTextContent(/Waiting for/);
+  });
+});
+
+// In a phone browser an offered wallet's row says "Open app": its adapter
+// reopens the CURRENT address inside the wallet's own app. That page used to
+// look like the start again (four testers, 2026-10-03), and the page left
+// behind said nothing about where the connect had gone.
+//
+// MUTATION CHECK: delete the change-8 block in handleWalletClick. The first
+// two tests must fail (no marker in the address the wallet read, no notice).
+describe('an "Open app" row hands the page to the wallet app', () => {
+  it('the address the wallet reads carries the marker, and the page left behind says where the connect went', async () => {
+    window.history.replaceState(null, '', '/earn?ref=abc');
+    const trust = new FakeWallet('Trust', WalletReadyState.Loadable);
+    mount([new FakeWallet('Phantom', WalletReadyState.Loadable), trust]);
+    const dialog = await openList();
+    expect(within(dialog).getByText('Trust Wallet').closest('button')).toHaveTextContent('Open app');
+    fireEvent.click(within(dialog).getByText('Trust Wallet'));
+    await waitFor(() => expect(trust.connectCalls).toBe(1));
+    const read = new URL(trust.hrefAtConnect!);
+    expect(read.pathname).toBe('/earn');
+    expect(read.searchParams.get('ref')).toBe('abc');
+    expect(read.searchParams.get(SOLANA_HANDOFF_PARAM)).toBe('1');
+    expect(toasts.toast).toHaveBeenCalledTimes(1);
+    expect(toasts.toast.mock.calls[0]![0]).toBe(
+      'Opening Trust Wallet. This site opens again inside the Trust Wallet app, and connects there.',
+    );
+  });
+
+  // Change 4's path: the wallet is already the saved one, so connect() is
+  // called straight from the press. The marker has to be there by then too.
+  it('the same for the wallet that is already the saved one', async () => {
+    localStorage.setItem('walletName', JSON.stringify('MetaMask'));
+    const metamask = new FakeWallet('MetaMask', WalletReadyState.Loadable);
+    mount([metamask]);
+    await restoreSettled();
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByText('MetaMask'));
+    await waitFor(() => expect(metamask.connectCalls).toBe(1));
+    expect(new URL(metamask.hrefAtConnect!).searchParams.get(SOLANA_HANDOFF_PARAM)).toBe('1');
+    expect(toasts.toast).toHaveBeenCalledTimes(1);
+  });
+
+  // The controls: a wallet in this browser connects here, and the Mobile
+  // Wallet Adapter row is "Open app" too but connects in place. Neither
+  // reopens the page anywhere, so neither marks it or says it will.
+  it.each([
+    ['a wallet detected in this browser', 'Phantom', WalletReadyState.Installed],
+    ['the Mobile Wallet Adapter row', 'Mobile Wallet Adapter', WalletReadyState.Loadable],
+  ])('%s leaves the address alone and says nothing', async (_label, name, readyState) => {
+    window.history.replaceState(null, '', '/earn?ref=abc');
+    const wallet = new FakeWallet(name, readyState);
+    mount([wallet]);
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByText(name));
+    await waitFor(() => expect(wallet.connectCalls).toBe(1));
+    expect(wallet.hrefAtConnect).toBe(`${window.location.origin}/earn?ref=abc`);
+    expect(toasts.toast).not.toHaveBeenCalled();
   });
 });

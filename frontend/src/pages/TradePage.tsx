@@ -3,6 +3,7 @@ import { m } from 'framer-motion';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONNECT_ETHEREUM_WALLET } from '../lib/copy';
 import { ClockLine } from '../components/ClockLine';
 import { getTxUrl } from '../lib/explorer';
 import { RealYieldProof } from '../components/RealYieldProof';
@@ -672,7 +673,7 @@ export default function TradePage() {
                     and a Connect CTA here instead of the Approve/Swap actions. */}
                 {!isConnected ? (
                   <div className="w-full flex flex-col items-center gap-2">
-                    <ConnectButton />
+                    <ConnectButton label={CONNECT_ETHEREUM_WALLET} />
                     <span className="text-white/70 text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Connect your wallet to swap</span>
                   </div>
                 ) : swap.needsApproval ? (

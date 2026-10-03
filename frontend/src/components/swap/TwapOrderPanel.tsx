@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { useCowTwap } from '../../hooks/useCowTwap';
 import { planTwap, twapDataFromPlan, TWAP_MAX_PARTS, TWAP_MIN_PARTS } from '../../lib/composableCow';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
@@ -247,7 +248,7 @@ export function TwapOrderPanel() {
           <ConnectButton.Custom>
             {({ openConnectModal, mounted }) => (
               <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
-                <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">Connect Wallet</button>
+                <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">{CONNECT_ETHEREUM_WALLET}</button>
               </div>
             )}
           </ConnectButton.Custom>

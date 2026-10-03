@@ -16,6 +16,7 @@ import { m } from 'framer-motion';
 import { pageArt } from '../../lib/artConfig';
 import { OpenInPhantom } from './OpenInPhantom';
 import { artImgProps } from '../../lib/artSrcSet';
+import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 
 type Surface = 'farm' | 'trade' | 'lending' | 'governance' | 'dashboard' | 'generic';
 
@@ -137,9 +138,12 @@ export function ConnectPrompt({ surface = 'generic', title, description }: Conne
               onClick={openConnectModal}
               disabled={!mounted}
               className="btn-primary px-7 py-2.5 text-[14px]"
-              aria-label="Open wallet connection modal"
             >
-              Connect Wallet
+              {/* Every page that shows this prompt acts on Ethereum (TOWELI staking,
+                  its dashboard, the wallet-exposure scan), and this opens the
+                  Ethereum list. Its name is its words: it carried an aria-label
+                  that said neither. */}
+              {CONNECT_ETHEREUM_WALLET}
             </button>
           )}
         </ConnectButton.Custom>

@@ -17,9 +17,17 @@ import { Cuer } from 'cuer';
 import { WalletReadyState } from '@solana/wallet-adapter-base';
 import { useWallet, type Wallet } from '@solana/wallet-adapter-react';
 import { WalletModalContext, useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { orderWallets, rowStatus, scansForWallet, waitedOnWalletLabel, walletLabel } from '../../lib/solanaWalletOrder';
+import { toast } from 'sonner';
+import {
+  opensInWalletApp,
+  orderWallets,
+  rowStatus,
+  scansForWallet,
+  waitedOnWalletLabel,
+  walletLabel,
+} from '../../lib/solanaWalletOrder';
 import { WalletConnectWalletAdapter, type WalletConnectPairing } from '../../lib/solanaWalletConnect';
-import { shortSolanaAddress } from '../../lib/solanaSurface';
+import { markSolanaHandoff, shortSolanaAddress } from '../../lib/solanaSurface';
 import { useWalletResync } from './useWalletResync';
 
 /**
@@ -88,6 +96,10 @@ import { useWalletResync } from './useWalletResync';
  *     — not the extension's install page. Both phone apps scan it
  *     (solanaWalletOrder.ts SCANNABLE_WALLETS). The connection is the
  *     WalletConnect row's: the same adapter, saved under the same name.
+ *  8. An "Open app" row (a phone browser) says where the connect went, and
+ *     the page it opens inside the wallet's app connects by itself
+ *     (lib/solanaSurface.ts markSolanaHandoff). Before, that page looked like
+ *     the start again and the same three presses had to be repeated.
  */
 
 const FADE_MS = 150;
@@ -229,6 +241,15 @@ function SolanaWalletModal() {
         }
         // Change 7: Trust or Jupiter, not in this browser — the QR its phone app scans.
         wallet = walletConnectWallet;
+      }
+      // Change 8: an "Open app" row reopens this page inside the wallet's app.
+      // The address it is handed carries a marker, so the page that opens
+      // there asks the wallet to connect by itself (lib/solanaSurface.ts), and
+      // the page left behind here says where the connect went.
+      if (opensInWalletApp(clicked.readyState, clicked.adapter.name)) {
+        const label = walletLabel(clicked.adapter.name);
+        markSolanaHandoff();
+        toast(`Opening ${label}. This site opens again inside the ${label} app, and connects there.`);
       }
       setScanFor(
         wallet === clicked ? null : { label: walletLabel(clicked.adapter.name), installUrl: clicked.adapter.url },

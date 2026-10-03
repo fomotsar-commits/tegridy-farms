@@ -1,6 +1,7 @@
 // Polyfill MUST load before any @solana/* import — keep this first.
 import '../../lib/solanaPolyfill';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { WalletReadyState } from '@solana/wallet-adapter-base';
 import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import {
@@ -24,6 +25,8 @@ import { useSolanaConnect } from './useSolanaConnect';
 import {
   SOLANA_CONNECT_WAIT_NOTICE_MS,
   setSolanaSurface,
+  solanaHandoffPending,
+  takeSolanaHandoff,
   takeSolanaOpenRequest,
   useSolanaSurface,
 } from '../../lib/solanaSurface';
@@ -112,7 +115,7 @@ import {
  * is used up: it does not open the list again after they have closed it.
  */
 export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
-  const { publicKey, connecting } = useWallet();
+  const { publicKey, connecting, connected, wallets, wallet, select } = useWallet();
   const open = useSolanaConnect();
   const address = publicKey ? publicKey.toBase58() : null;
   const [owner] = useState(() => ({}));
@@ -150,6 +153,26 @@ export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
     }, SOLANA_CONNECT_WAIT_NOTICE_MS);
     return () => window.clearTimeout(timer);
   }, [surface, openPending, connecting, open, visible]);
+  // This page was opened by an "Open app" press in another browser (see
+  // lib/solanaSurface.ts): it carries on from that press. Inside a wallet's
+  // own browser one wallet is detected, and it is asked to connect, which is
+  // what the visitor pressed for. Anything else is their choice to make: the
+  // list opens. With no wallet detected nothing happens, and the hand-off
+  // lapses: a detection that comes late (Trust on some Android builds) changes
+  // `wallets` and runs this again. `settled` and `connecting`: as for the
+  // early tap above.
+  useEffect(() => {
+    if (!settled || connecting || !solanaHandoffPending()) return;
+    if (connected) {
+      takeSolanaHandoff();
+      return;
+    }
+    const detected = wallets.filter((w) => w.readyState === WalletReadyState.Installed);
+    if (detected.length === 0 || !takeSolanaHandoff()) return;
+    const only = detected.length === 1 ? detected[0]!.adapter.name : null;
+    if (only && wallet?.adapter.name !== only) select(only);
+    else if (!document.querySelector('[aria-modal="true"]')) open();
+  }, [settled, connecting, connected, wallets, wallet, select, open]);
   useEffect(() => () => setSolanaSurface(owner, null), [owner]);
   return null;
 }
