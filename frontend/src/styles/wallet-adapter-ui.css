@@ -157,7 +157,11 @@
        close button out of them (upstream has no safe-area handling). */
     top: max(18px, env(safe-area-inset-top));
     right: max(18px, env(safe-area-inset-right));
-    padding: 12px;
+    /* NOT upstream's 12px of padding round a 14px mark, which is 38px: 44px
+       is the floor for a touch target. */
+    width: 44px;
+    height: 44px;
+    padding: 0;
     cursor: pointer;
     background: #1a1f2e;
     border: none;
@@ -236,6 +240,30 @@
     padding: 64px 48px 48px 48px;
     text-align: center;
     color: #fff;
+}
+
+/* NOT upstream. A phone lists seven or eight wallets, and upstream's 184px
+   title block pushed the closing note off a 320x568 and a 360x640 screen.
+   Here the title starts where the rows do and sits beside the close button,
+   which moves into the corner. 64px on the right keeps every line of it 8px
+   clear of that button. e2e/solana-wallet-list-phone.spec.ts holds both sizes. */
+@media (max-width: 480px) {
+    .wallet-adapter-modal-button-close {
+        top: max(12px, env(safe-area-inset-top));
+        right: max(12px, env(safe-area-inset-right));
+    }
+
+    .wallet-adapter-modal-title {
+        align-self: stretch;
+        font-size: 20px;
+        line-height: 28px;
+        padding: 20px 64px 8px 24px;
+        text-align: left;
+    }
+
+    .wallet-adapter-modal-wrapper .wallet-adapter-modal-note {
+        padding-bottom: 16px;
+    }
 }
 
 @media (max-width: 374px) {

@@ -15,6 +15,46 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-03: "the page says nothing" from a text probe misses a sheet drawn in a closed shadow root
+
+**Believed:** after a tap on the Mobile Wallet Adapter row on Android Chrome with no wallet app,
+the page says nothing and then throws "Wallet connection timed out". A phone walk of production
+read the page's text and its dialogs and found none.
+
+**Measured:** on a production build of trunk af44844e, in Chromium with Pixel 5's user agent at
+360x640, a screenshot after that tap shows the package's own sheet, "Allow connections to your
+wallet" (`@solana-mobile/wallet-standard-mobile` 0.5.3). It is drawn in a closed shadow root at
+z-index 2147483647, so `document.body.innerText`, `getByRole('dialog')` and every other query
+return nothing. The adapter's `connect()` (`wallet-adapter-mobile` 2.2.9) calls its private
+`#connect()` and awaits nothing, so wallet-adapter-react's `connecting` is false at once. The
+failure came 32 seconds later, from a 30 second timer that runs while that sheet is still up: an
+`error` event, which WalletProvider only logs, and the same error rejected into a promise nobody
+holds (Playwright's `pageerror`). By the package's code the attempt is not over then: the timer
+only wins a `Promise.race`, and the other branch goes on.
+
+**Do:** take a screenshot before writing "the page says nothing". To report a failure like this
+one, listen on the adapter itself for `error`; the unhandled rejection carries the same object,
+so it can be matched by identity. React only to an attempt the visitor tapped for, because
+`autoConnect()` takes the same path at page load. Done in
+`frontend/src/components/solana/usePhoneWalletFailure.ts` (branch `fix/solana-wallet-list-phone`).
+
+## 2026-10-03: a phone walk of `/solana-lp` can meet the Ethereum Connect, because its Solana section waits on a chain read
+
+**Believed:** `/solana-lp` always has the Solana Connect in the top bar, so a wallet-list test can
+open the list from there.
+
+**Measured:** against a local production build, in 1 of 6 fresh browser launches the top bar read
+"Connect wallet" (the Ethereum list) for a full 25 second wait, and the screenshot showed the
+page saying "Reading the venue's status from the chain...". 8 of 8 loads in one already-open
+browser were fine. Two earlier runs timed out waiting for the same button; what they showed was
+not captured. `SolanaLpPage.tsx` mounts its Solana section only once that read says the venue is
+live, and the top bar borrows its Solana connect from that section.
+
+**Do:** open the wallet list from a page whose Solana section is there from the first render,
+`/earn/bayla`, as `frontend/e2e/topbar-solana-connect.spec.ts` and
+`frontend/e2e/solana-wallet-list-phone.spec.ts` do. On `/solana-lp`, wait for the Solana button by
+name and treat its absence as "the read has not answered", not as a missing wallet list.
+
 ## 2026-10-03: a button disabled "while connecting" is a dead end when the wallet never answers
 
 **Believed:** the site could not see Phantom ("it wont even recognize my phantom wallet", the

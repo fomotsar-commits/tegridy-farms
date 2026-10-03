@@ -3,8 +3,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   BaseMessageSignerWalletAdapter,
+  WalletConnectionError,
   WalletNotReadyError,
   WalletReadyState,
+  WalletSignTransactionError,
   type SupportedTransactionVersions,
   type WalletName,
 } from '@solana/wallet-adapter-base';
@@ -512,5 +514,207 @@ describe('a wallet that never answers is not a dead end', () => {
     const dialog = await openList();
     expect(within(dialog).queryByRole('status')).toBeNull();
     expect(dialog).not.toHaveTextContent(/Waiting for/);
+  });
+});
+
+/**
+ * Inside a wallet app's own browser (phone walk of production, 2026-10-03): the
+ * app's wallet registered as "Trust Wallet", our Trust row is named "Trust", so
+ * both were listed under one label, and the second was a link out of the
+ * browser the visitor was already in.
+ */
+describe('SolanaWalletModal — a wallet detected in this browser is listed once', () => {
+  it('shows no "Open app" row for a wallet whose own registration is detected', async () => {
+    mount([
+      new FakeWallet('Trust Wallet', WalletReadyState.Installed),
+      new FakeWallet('Phantom', WalletReadyState.Loadable),
+      new FakeWallet('Trust', WalletReadyState.Loadable),
+    ]);
+    const dialog = await openList();
+    const rows = within(dialog).getAllByRole('listitem').map((li) => li.textContent);
+    expect(rows).toEqual(['Trust WalletDetected', 'PhantomOpen app']);
+  });
+});
+
+/**
+ * WalletProvider adds one row of its own on Android Chrome: its Mobile Wallet
+ * Adapter, which asks Android for any wallet app on the phone. Phone walk of
+ * production, 2026-10-03: it was listed under that name, and a failed attempt
+ * left an uncaught error and a page that said nothing.
+ *
+ * The fake has the one property that matters, read from the package
+ * (@solana-mobile/wallet-adapter-mobile 2.2.9): connect() starts the attempt
+ * and returns without waiting for it, so the attempt's end reaches nobody. It
+ * is an 'error' event, and the same error thrown into a promise nothing awaits.
+ */
+describe('the row that asks Android for a wallet app', () => {
+  class PhoneWallet extends FakeWallet {
+    private key: PublicKey | null = null;
+    constructor() {
+      super('Mobile Wallet Adapter', WalletReadyState.Loadable);
+    }
+    override get publicKey() {
+      return this.key;
+    }
+    override async connect() {
+      this.connectCalls += 1;
+    }
+    /** The attempt ends in a failure. Returns the error, as the unawaited promise rejects with it. */
+    fail(message = 'Wallet connection timed out') {
+      const error = new WalletConnectionError(message);
+      act(() => {
+        this.emit('error', error);
+      });
+      return error;
+    }
+    /** The wallet app answers after all. */
+    approve() {
+      this.key = new PublicKey(WSOL);
+      act(() => {
+        this.emit('connect', this.key!);
+      });
+    }
+  }
+
+  /** Is this rejection still an uncaught error, once every listener on the page has had it? */
+  function staysUncaught(reason: unknown): boolean {
+    const event = new Event('unhandledrejection', { cancelable: true });
+    Object.defineProperty(event, 'reason', { value: reason });
+    window.dispatchEvent(event);
+    return !event.defaultPrevented;
+  }
+
+  /** The row itself, by position: what it is called is the first test's business. */
+  function phoneRow(dialog: HTMLElement) {
+    const rows = within(dialog).getAllByRole('listitem');
+    return within(rows[rows.length - 1]!).getByRole('button');
+  }
+
+  async function tapped() {
+    // WalletProvider logs every adapter error; these tests cause some on purpose.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const phone = new PhoneWallet();
+    const phantom = new FakeWallet('Phantom', WalletReadyState.Loadable);
+    mount([phone, phantom]);
+    const dialog = await openList();
+    fireEvent.click(phoneRow(dialog));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(phone.connectCalls).toBe(1));
+    return { phone, phantom };
+  }
+
+  it('is listed in plain words, after the wallets offered by name', async () => {
+    mount([new PhoneWallet(), new FakeWallet('Phantom', WalletReadyState.Loadable)]);
+    const dialog = await openList();
+    const rows = within(dialog).getAllByRole('listitem').map((li) => li.textContent);
+    expect(rows).toEqual(['PhantomOpen app', 'Any wallet appOpen app']);
+    expect(dialog).not.toHaveTextContent('Mobile Wallet Adapter');
+  });
+
+  it('an attempt that fails brings the list back and says so', async () => {
+    const { phone } = await tapped();
+    phone.fail();
+    const dialog = await screen.findByRole('dialog');
+    const notice = within(dialog).getByRole('alert');
+    expect(notice).toHaveTextContent(/Could not connect to a wallet app on this device/);
+    expect(notice).toHaveTextContent(/Pick a wallet below/);
+    // Every row is still there to pick.
+    expect(within(dialog).getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('the failure the page has shown is not also an uncaught error', async () => {
+    const { phone } = await tapped();
+    const error = phone.fail();
+    expect(staysUncaught(error)).toBe(false);
+    // Any other rejection on the page is left alone (the control).
+    expect(staysUncaught(new WalletConnectionError('Wallet connection timed out'))).toBe(true);
+    expect(staysUncaught(undefined)).toBe(true);
+  });
+
+  it('closing the list clears the notice', async () => {
+    const { phone } = await tapped();
+    phone.fail();
+    await screen.findByRole('dialog');
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Escape' });
+    });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const again = await openList();
+    expect(within(again).queryByRole('alert')).toBeNull();
+  });
+
+  it('a wallet app that answers after all closes the list it brought back', async () => {
+    const { phone } = await tapped();
+    phone.fail();
+    await screen.findByRole('dialog');
+    phone.approve();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const again = await openList();
+    expect(again).toHaveTextContent('Switch Solana wallet');
+    expect(within(again).queryByRole('alert')).toBeNull();
+  });
+
+  it('does not open over another dialog: the notice waits for the next time the list is opened', async () => {
+    const { phone } = await tapped();
+    const other = document.createElement('div');
+    other.setAttribute('aria-modal', 'true');
+    document.body.appendChild(other);
+    try {
+      phone.fail();
+      await restoreSettled();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    } finally {
+      other.remove();
+    }
+    const dialog = await openList();
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/Could not connect to a wallet app/);
+  });
+
+  it('a notice still waiting to be seen is dropped once a wallet connects', async () => {
+    const { phone } = await tapped();
+    const other = document.createElement('div');
+    other.setAttribute('aria-modal', 'true');
+    document.body.appendChild(other);
+    try {
+      phone.fail();
+      await restoreSettled();
+    } finally {
+      other.remove();
+    }
+    phone.approve();
+    const dialog = await openList();
+    expect(dialog).toHaveTextContent('Switch Solana wallet');
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+  });
+
+  it('a failure nobody tapped for opens nothing and is left as it was', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const phone = new PhoneWallet();
+    mount([phone, new FakeWallet('Phantom', WalletReadyState.Loadable)]);
+    await restoreSettled();
+    const error = phone.fail();
+    await restoreSettled();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(staysUncaught(error)).toBe(true);
+    const dialog = await openList();
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+  });
+
+  it('an error that is not a failed connect opens nothing', async () => {
+    const { phone } = await tapped();
+    act(() => {
+      phone.emit('error', new WalletSignTransactionError('declined'));
+    });
+    await restoreSettled();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('another wallet’s failed connect is not this row’s to report', async () => {
+    const { phantom } = await tapped();
+    act(() => {
+      phantom.emit('error', new WalletConnectionError('User rejected the request.'));
+    });
+    await restoreSettled();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

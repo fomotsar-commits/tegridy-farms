@@ -17,10 +17,18 @@ import { Cuer } from 'cuer';
 import { WalletReadyState } from '@solana/wallet-adapter-base';
 import { useWallet, type Wallet } from '@solana/wallet-adapter-react';
 import { WalletModalContext, useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { orderWallets, rowStatus, scansForWallet, waitedOnWalletLabel, walletLabel } from '../../lib/solanaWalletOrder';
+import {
+  PHONE_WALLET_ROW,
+  orderWallets,
+  rowStatus,
+  scansForWallet,
+  waitedOnWalletLabel,
+  walletLabel,
+} from '../../lib/solanaWalletOrder';
 import { WalletConnectWalletAdapter, type WalletConnectPairing } from '../../lib/solanaWalletConnect';
 import { shortSolanaAddress } from '../../lib/solanaSurface';
 import { useWalletResync } from './useWalletResync';
+import { usePhoneWalletFailure, type PhoneWalletFailure } from './usePhoneWalletFailure';
 
 /**
  * The Solana connect modal — upstream's WalletModal (wallet-adapter-react-ui
@@ -88,6 +96,10 @@ import { useWalletResync } from './useWalletResync';
  *     — not the extension's install page. Both phone apps scan it
  *     (solanaWalletOrder.ts SCANNABLE_WALLETS). The connection is the
  *     WalletConnect row's: the same adapter, saved under the same name.
+ *  8. A wallet detected in this browser is listed once: a row of ours under
+ *     the same label is dropped (solanaWalletOrder.ts orderWallets).
+ *  9. The row WalletProvider adds on Android Chrome is named in plain words,
+ *     and its failed connect brings this list back (usePhoneWalletFailure.ts).
  */
 
 const FADE_MS = 150;
@@ -114,7 +126,10 @@ function useWalletConnectPairing(adapter: WalletConnectWalletAdapter | null): Wa
   );
 }
 
-function SolanaWalletModal() {
+function SolanaWalletModal({ phoneWallet }: { phoneWallet: PhoneWalletFailure }) {
+  // `asked` and `seen` never change, so hideModal keeps its identity: the
+  // focus and scroll-lock effect below is keyed on it.
+  const { failed: phoneWalletFailed, asked: phoneWalletAsked, seen: phoneWalletSeen } = phoneWallet;
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
@@ -166,8 +181,11 @@ function SolanaWalletModal() {
     setClosing(true);
     setFadeIn(false);
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setVisible(false), FADE_MS);
-  }, [setVisible, walletConnect]);
+    hideTimer.current = setTimeout(() => {
+      phoneWalletSeen();
+      setVisible(false);
+    }, FADE_MS);
+  }, [setVisible, walletConnect, phoneWalletSeen]);
 
   // A WalletConnect attempt that ends CONNECTED closes the dialog. One that
   // fails leaves it open, showing the reason above the list.
@@ -181,6 +199,14 @@ function SolanaWalletModal() {
       sawPairing.current = false;
       hideModal();
     }
+  }, [connected, hideModal]);
+  // The list a phone-wallet failure brought back closes if the wallet app
+  // answers after all: the attempt goes on behind its own late error.
+  const openedOnFailure = useRef(phoneWalletFailed);
+  useEffect(() => {
+    if (!connected || !openedOnFailure.current) return;
+    openedOnFailure.current = false;
+    hideModal();
   }, [connected, hideModal]);
   useEffect(() => {
     if (!connectAfterRestore.current || connecting) return;
@@ -233,6 +259,7 @@ function SolanaWalletModal() {
       setScanFor(
         wallet === clicked ? null : { label: walletLabel(clicked.adapter.name), installUrl: clicked.adapter.url },
       );
+      if (wallet.adapter.name === PHONE_WALLET_ROW) phoneWalletAsked();
       // WalletConnect's QR is drawn in this dialog, so its row does not close it.
       const keepOpen = wallet.adapter === walletConnect;
       if (keepOpen) walletConnect.dismissPairing();
@@ -258,7 +285,7 @@ function SolanaWalletModal() {
       select(wallet.adapter.name);
       if (!keepOpen) hideModal();
     },
-    [selected, connected, connecting, connect, select, hideModal, walletConnect, walletConnectWallet],
+    [selected, connected, connecting, connect, select, hideModal, walletConnect, walletConnectWallet, phoneWalletAsked],
   );
 
   // Focus in, Escape, Tab kept inside, scroll lock, focus back out.
@@ -372,6 +399,12 @@ function SolanaWalletModal() {
               {pairing.phase === 'failed' && (
                 <p role="alert" className="wallet-adapter-modal-note">
                   {pairing.reason}
+                </p>
+              )}
+              {phoneWalletFailed && (
+                <p role="alert" className="wallet-adapter-modal-note">
+                  Could not connect to a wallet app on this device. Pick a wallet below to open this page inside
+                  its app.
                 </p>
               )}
               <ul className="wallet-adapter-modal-list">
@@ -515,11 +548,13 @@ export function SolanaWalletModalProvider({ children }: { children: ReactNode })
   const [visible, setVisible] = useState(false);
   // Here because this provider is mounted once inside every Solana section's WalletProvider.
   useWalletResync();
+  const openList = useCallback(() => setVisible(true), []);
+  const phoneWallet = usePhoneWalletFailure(openList);
   const value = useMemo(() => ({ visible, setVisible }), [visible]);
   return (
     <WalletModalContext.Provider value={value}>
       {children}
-      {visible && <SolanaWalletModal />}
+      {visible && <SolanaWalletModal phoneWallet={phoneWallet} />}
     </WalletModalContext.Provider>
   );
 }
