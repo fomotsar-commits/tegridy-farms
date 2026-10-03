@@ -31,12 +31,14 @@ import {
   FakeChain,
   VAULT,
   addPool,
+  beforeBalanceRun,
   cfgLocal,
   encodeAmmConfig,
   encodeTokenAccountWith,
   rent,
   routeSwapSimulator,
   setClock,
+  skewTestRun,
   type PoolFixture,
   type RouteSwapSimOptions,
 } from './testkit.fixture';
@@ -296,7 +298,8 @@ describe('T-B-01: an honest swap prepares, and the review is the transaction’s
     // Everything the pool paid, less the fee, reaches the wallet as plain SOL.
     expect(p.simulated.signerLamportsDelta).toBe(q.quoteOut - fee);
     expect(p.check.expect).toMatchObject({ maxSolOut: 0n, minSolIn: q.minOut - fee });
-    expect(row(p, w.tokenAta)).toMatchObject({ minDelta: -SELL, maxDelta: -SELL });
+    // At most the tokens typed leave; no ceiling, so a token a stranger sends in cannot block it.
+    expect(row(p, w.tokenAta)).toMatchObject({ minDelta: -SELL, maxDelta: U64_SPAN });
     expect(row(p, w.wsolAta)).toMatchObject({ minDelta: 0n, maxDelta: 0n });
     expect(row(p, SITE_FEE_WSOL_ACCOUNT)).toMatchObject({ minDelta: fee, maxDelta: U64_SPAN });
   });
@@ -449,15 +452,18 @@ describe('T-B-03: the fee account is the vault’s own, or nothing is built (nev
 
 // ── T-B-04, T-B-05, T-B-06 ───────────────────────────────────────────────────
 
+// The row's floor is the sync's own credit, to the lamport, and the run shows exactly that.
+// It has no ceiling: wrapped SOL a stranger sends in after the balance read must not block
+// the buy (the 2026-10-03 audit's rule for every kept wrapped-SOL row; see the dust tests).
 describe('T-B-04: a wallet’s own wrapped SOL is never spent, and the sync’s credit is exact', () => {
   const HELD = 5n * 10n ** 9n;
 
-  it('a kept account set up under the old rent: the buy’s wrapped-SOL row is EXACTLY the re-priced reserve (550,840)', async () => {
+  it('a kept account set up under the old rent: the buy’s wrapped-SOL row starts at EXACTLY the re-priced reserve (550,840), and the run lands on it', async () => {
     const w = world({ heldTokens: null, wsol: { amount: HELD, reserve: RENT165 + 550_840n } });
     const p = ok(await run(w, 'buy'));
     expect(kinds(p)).not.toContain('close-wsol');
     expect(summaryOf(p)).toMatchObject({ unwrapsWsol: false, wsolHeldBefore: HELD });
-    expect(row(p, w.wsolAta)).toMatchObject({ minDelta: 550_840n, maxDelta: 550_840n });
+    expect(row(p, w.wsolAta)).toMatchObject({ minDelta: 550_840n, maxDelta: U64_SPAN });
     expect(delta(p, w.wsolAta)).toBe(550_840n);
     // The wallet pays the SOL typed and the token account's deposit; nothing comes out of the wrapped balance.
     expect(p.simulated.signerLamportsDelta).toBe(-(BUY + RENT165));
@@ -468,14 +474,14 @@ describe('T-B-04: a wallet’s own wrapped SOL is never spent, and the sync’s 
     // Seen live: a reserve of 1,855,569 against today's 1,488,440, crediting 367,130.
     const w = world({ wsol: { amount: HELD, reserve: RENT165 + 367_129n, unsynced: 1n } });
     const p = ok(await run(w, 'buy'));
-    expect(row(p, w.wsolAta)).toMatchObject({ minDelta: 367_130n, maxDelta: 367_130n });
+    expect(row(p, w.wsolAta)).toMatchObject({ minDelta: 367_130n, maxDelta: U64_SPAN });
     expect(delta(p, w.wsolAta)).toBe(367_130n);
   });
 
-  it('a kept account already at today’s rent: the row is exactly 0', async () => {
+  it('a kept account already at today’s rent: the row starts at exactly 0, and the run lands on it', async () => {
     const w = world({ wsol: { amount: HELD } });
     const p = ok(await run(w, 'buy'));
-    expect(row(p, w.wsolAta)).toMatchObject({ minDelta: 0n, maxDelta: 0n });
+    expect(row(p, w.wsolAta)).toMatchObject({ minDelta: 0n, maxDelta: U64_SPAN });
     expect(delta(p, w.wsolAta)).toBe(0n);
   });
 
@@ -533,6 +539,95 @@ describe('T-B-06: a wrapped-SOL account someone else controls is not used', () =
   it('reassigned to another wallet: not built', async () => {
     const w = world({ wsol: { amount: 10n ** 9n, owner: STRANGER } });
     expect(refused(w, await run(w, 'buy'))).toBe(LP_COPY.foreignOwner(w.wsolAta.toBase58(), STRANGER.toBase58()));
+  });
+});
+
+// ── dust (the 2026-10-03 audit's ATK-1 and ATK-4, on this kind too) ───────────
+
+// The audit closed these for adding, removing and opening liquidity, the launch pool's
+// swap and the curve sale (2ebb8e13, 175d1f27). A swap through one of our pools is the
+// same shape and gets the same two rules.
+describe('dust a stranger sends cannot block a swap through one of our pools', () => {
+  const SENT = 650_240;
+  const BLOCKED = { status: 'not-sent', stage: 'simulate', message: 'Blocked: the simulation shows a different token amount than this screen says.' };
+  const outcome = (r: Prepared) => (r.ok ? 'prepared' : r.outcome);
+  const HELD_TOKENS = 10_000_000n * 10n ** 6n;
+  const HELD_WSOL = 5n * 10n ** 9n;
+  const keptWsol = (w: World, amount: bigint) => w.chain.tokenAccount(w.wsolAta, WSOL_MINT, ME, amount, { native: { reserve: RENT165 } });
+
+  // ATK-1: an address that only holds SOL someone sent it is no account yet. The
+  // transaction's own create-if-missing opens the account over it.
+  it('only SOL someone sent to the wallet’s wrapped-SOL address: a buy and a sell still prepare, and those lamports come back at the close', async () => {
+    const buy = world();
+    buy.chain.fund(buy.wsolAta, SENT);
+    const b = ok(await run(buy, 'buy'));
+    expect(summaryOf(b)).toMatchObject({ unwrapsWsol: true, wsolHeldBefore: 0n });
+    expect(row(b, buy.wsolAta)).toMatchObject({ minDelta: 0n, maxDelta: 0n });
+    // The wallet tops the deposit up, and the close hands back all of it: the SOL typed leaves, what was sent arrives.
+    expect(b.simulated.signerLamportsDelta).toBe(-BUY + BigInt(SENT));
+
+    const sell = world();
+    sell.chain.fund(sell.wsolAta, SENT);
+    const q = await ours(sell, 'sell', SELL);
+    const s = ok(await run(sell, 'sell'));
+    expect(s.simulated.signerLamportsDelta).toBe(q.quoteOut - q.fee + BigInt(SENT));
+  });
+
+  it('more SOL than a deposit sent to the wrapped-SOL address: still opened, used and closed, never kept', async () => {
+    const w = world();
+    w.chain.fund(w.wsolAta, rent(165) + 12_345);
+    const p = ok(await run(w, 'buy'));
+    expect(kinds(p).filter((k) => k === 'close-wsol')).toHaveLength(1);
+    expect(p.simulated.signerLamportsDelta).toBe(-BUY + RENT165 + 12_345n);
+  });
+
+  it('only SOL someone sent to the wallet’s token address: a buy opens the account over it and pays only what is missing', async () => {
+    const w = world({ heldTokens: null });
+    w.chain.fund(w.tokenAta, SENT);
+    const q = await ours(w, 'buy', BUY);
+    const p = ok(await run(w, 'buy'));
+    expect(delta(p, w.tokenAta)).toBe(q.quoteOut);
+    expect(p.simulated.signerLamportsDelta).toBe(-(BUY + RENT165 - BigInt(SENT)));
+    // A sell from there has nothing to sell: the same answer as no account at all.
+    expect(refused(w, await run(w, 'sell'))).toBe(ROUTE_COPY.noTokenAccount(w.tokenAta.toBase58()));
+  });
+
+  // ATK-4: the balances are read a slot or more before the test run. A row that allowed
+  // only the exact change let one unit a slot block every Review.
+  it.each([
+    ['unwrapped', undefined],
+    ['into a kept wrapped-SOL account', { amount: HELD_WSOL }],
+  ] as const)('a sell (%s): a token a stranger sends in between does not block it; one token more leaving still does', async (_n, wsol) => {
+    const w = world({ wsol });
+    beforeBalanceRun(w.chain, () => w.chain.tokenAccount(w.tokenAta, w.mint, ME, HELD_TOKENS + 1n));
+    const p = ok(await run(w, 'sell'));
+    expect(delta(p, w.tokenAta)).toBe(1n - SELL);
+    // At most the tokens the sale names may leave: the bytes pin the exact number.
+    expect(row(p, w.tokenAta)).toMatchObject({ minDelta: -SELL, maxDelta: U64_SPAN });
+
+    const more = world({ wsol });
+    skewTestRun(more.chain, more.tokenAta, -1n);
+    expect(outcome(await run(more, 'sell'))).toMatchObject(BLOCKED);
+  });
+
+  it('a buy into a kept wrapped-SOL account: wrapped SOL a stranger sends in between does not block it; one lamport of the wallet’s own leaving still does', async () => {
+    const w = world({ wsol: { amount: HELD_WSOL } });
+    beforeBalanceRun(w.chain, () => keptWsol(w, HELD_WSOL + 1n));
+    const p = ok(await run(w, 'buy'));
+    expect(delta(p, w.wsolAta)).toBe(1n);
+    expect(kinds(p)).not.toContain('close-wsol');
+
+    const less = world({ wsol: { amount: HELD_WSOL } });
+    skewTestRun(less.chain, less.wsolAta, -1n);
+    expect(outcome(await run(less, 'buy'))).toMatchObject(BLOCKED);
+  });
+
+  it('a wrapped-SOL account the swap closes keeps its exact row: wrapped SOL that arrives in between is blocked, not unwrapped', async () => {
+    for (const side of ['buy', 'sell'] as const) {
+      const w = world();
+      const p = ok(await run(w, side));
+      expect(row(p, w.wsolAta)).toMatchObject({ minDelta: 0n, maxDelta: 0n });
+    }
   });
 });
 

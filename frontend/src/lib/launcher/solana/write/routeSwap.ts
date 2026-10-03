@@ -31,7 +31,9 @@
 //  10. the amount the page showed is still there, within the trader's price limit;
 //  11. a buy leaves the wallet enough SOL to stay open on the network (the rent band);
 //  12-13. the body, then the shared simulate-and-compare path. The trader's balance rows
-//      are exact, or one-sided in the trader's favour. The fee account's row is a LOWER
+//      are one-sided in the trader's favour (no more may leave and no less may arrive than
+//      the review says; more arriving never blocks), and exact only for a wrapped-SOL
+//      account the swap closes. The fee account's row is a LOWER
 //      bound: the bytes already pin the fee's amount and destination, so its row only has
 //      to prove the fee arrived, and an unrelated payment landing there meanwhile must
 //      not block an honest swap (D11).
@@ -403,20 +405,26 @@ export async function prepareRouteSwap(
       // The fee arrived. No upper bound: the bytes pin its amount and destination, and
       // every lamport it could gain beyond that must leave one of the trader's rows.
       const feeRow = { account: SITE_FEE_WSOL_ACCOUNT, mint: WSOL_MINT, minDelta: q.fee, maxDelta: U64_SPAN };
+      // The balances are read a slot or more before the test run, and anyone can send a
+      // token to the wallet or wrapped SOL to a kept account in between. A row where more
+      // arriving cannot hurt the signer has a floor and no ceiling, as every other kind's
+      // has (the 2026-10-03 audit, ATK-4): an exact row let dust block every Review.
       if (buy) {
-        // Closed: it ends where it began. Kept: exactly what its own sync credits from
-        // lamports it already held; the trader's own wrapped SOL is never spent.
+        // Closed: it ends where it began. Kept: at least what its own sync credits from
+        // lamports it already held, so the trader's own wrapped SOL is never spent, and a
+        // token program that credits less than mainnet's is blocked.
         const kept = plan.closeAfter ? 0n : syncCredit(pre.tokens.get(plan.ata.toBase58()), rents.tokenAccount);
         return {
           maxSolOut: a.amountIn + rentIfOpened(tokenExists),
           tokens: [
             { account: tokenAta, mint: a.tokenMint, minDelta: q.minOut, maxDelta: U64_SPAN },
-            { account: plan.ata, mint: WSOL_MINT, minDelta: kept, maxDelta: kept },
+            { account: plan.ata, mint: WSOL_MINT, minDelta: kept, maxDelta: plan.closeAfter ? 0n : U64_SPAN },
             feeRow,
           ],
         };
       }
-      const tokenRow = { account: tokenAta, mint: a.tokenMint, minDelta: -a.amountIn, maxDelta: -a.amountIn };
+      // A sell: at most the tokens it names may leave (the bytes pin the exact number).
+      const tokenRow = { account: tokenAta, mint: a.tokenMint, minDelta: -a.amountIn, maxDelta: U64_SPAN };
       return plan.closeAfter
         ? {
             maxSolOut: 0n,

@@ -897,7 +897,9 @@ export interface RouteSwapSimOptions {
 /**
  * Runs a swap through one of our pools on the fake chain's accounts, instruction by
  * instruction, and reports the watched post-state:
- *   - create-if-missing: the account's rent leaves the wallet (165 bytes classic, 170 Token-2022);
+ *   - create-if-missing: the account's rent leaves the wallet (165 bytes classic, 170
+ *     Token-2022); over an address that only holds SOL someone sent it, only the top-up
+ *     does (`openAccount`), and a close returns every lamport the account holds;
  *   - a System transfer into the wallet's wrapped-SOL account;
  *   - SyncNative on it: balance = lamports − reserve, and mainnet's token program also
  *     re-prices a stale stored reserve to this chain's rent (as `createSimulator` models it);
@@ -924,9 +926,11 @@ export function routeSwapSimulator(o: RouteSwapSimOptions = {}): SimHandler {
 
     let signerDelta = 0n;
     const wsolAcc = chain.accounts.get(wsolAta.toBase58());
-    const wsol = wsolAcc
+    // An address that only holds SOL someone sent it (System-owned, no data) is no account yet.
+    const wsolIsAccount = !!wsolAcc && !(wsolAcc.owner.equals(SYSTEM_PROGRAM) && wsolAcc.data.length === 0);
+    const wsol = wsolAcc && wsolIsAccount
       ? { open: true, lamports: BigInt(wsolAcc.lamports), amount: amountOnChain(chain, wsolAta) ?? 0n, reserve: storedReserve(wsolAcc.data) ?? rentNow }
-      : { open: false, lamports: 0n, amount: 0n, reserve: rentNow };
+      : { open: false, lamports: BigInt(wsolAcc?.lamports ?? 0), amount: 0n, reserve: rentNow };
     let wsolClosed = false;
     /** Token balances this run changes, other than the wallet's wrapped SOL: address -> { amount, mint, owner }. */
     const moved = new Map<string, { amount: bigint; mint: PublicKey; owner: PublicKey }>();
@@ -940,7 +944,11 @@ export function routeSwapSimulator(o: RouteSwapSimOptions = {}): SimHandler {
       return b;
     };
     const opened = new Set<string>();
-    const exists = (k: PublicKey) => chain.accounts.has(k.toBase58()) || opened.has(k.toBase58());
+    /** A token account is there: on the chain as an account (not an address that only holds SOL), or opened by this run. */
+    const exists = (k: PublicKey) => {
+      const a = chain.accounts.get(k.toBase58());
+      return opened.has(k.toBase58()) || (!!a && !(a.owner.equals(SYSTEM_PROGRAM) && a.data.length === 0));
+    };
 
     for (let n = 0; n < ixs.length; n++) {
       const ix = ixs[n]!;
@@ -949,13 +957,18 @@ export function routeSwapSimulator(o: RouteSwapSimOptions = {}): SimHandler {
         const address = ix.accounts[1]!;
         if (address.equals(wsolAta)) {
           if (!wsol.open) {
+            // Opened over whatever the address already holds (`openAccount`): the signer pays
+            // only the top-up, and a native account starts with the lamports above its
+            // deposit as balance.
+            const o = openAccount(chain, wsolAta);
             wsol.open = true;
-            wsol.lamports = rentNow;
-            signerDelta -= rentNow;
+            wsol.lamports = BigInt(o.lamports);
+            wsol.amount = wsol.lamports - rentNow;
+            signerDelta -= BigInt(o.paid);
           }
         } else if (!exists(address)) {
           opened.add(address.toBase58());
-          signerDelta -= BigInt(rent(ix.accounts[5]!.equals(TOKEN_2022_PROGRAM_ID) ? 170 : 165));
+          signerDelta -= BigInt(openAccount(chain, address, ix.accounts[5]!.equals(TOKEN_2022_PROGRAM_ID) ? 170 : 165).paid);
         }
       } else if (ix.program.equals(SYSTEM_PROGRAM)) {
         const lamports = view(d).getBigUint64(4, true);

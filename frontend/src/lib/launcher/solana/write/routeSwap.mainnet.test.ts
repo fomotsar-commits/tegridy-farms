@@ -468,10 +468,12 @@ describe.skipIf(!ENABLED)(DR3 ? 'DR-3: the real builder against one of OUR OWN p
     if (s.side === 'buy') {
       expect(s.fee.amount).toBe((s.amountIn * 50n) / 10_000n);
       expect(d(tokenAta)).toBeGreaterThanOrEqual(s.swap.minimumAmountOut);
-      // Exact, on mainnet's token program: 0 when it is closed, and when kept exactly what
-      // the sync credits from lamports the account already held.
+      // On mainnet's token program the run lands exactly on the row's floor: 0 when the
+      // account is closed, and when kept exactly what the sync credits from lamports the
+      // account already held. A closed account's row is exact; a kept one's has no ceiling
+      // (wrapped SOL a stranger sends in after the balance read must not block the buy).
       const row = rowOf(wsolAta);
-      expect(row.minDelta).toBe(row.maxDelta);
+      expect(row.maxDelta).toBe(s.unwrapsWsol ? row.minDelta : 2n ** 64n);
       expect(d(wsolAta)).toBe(row.minDelta);
     } else {
       expect(s.fee.amount).toBe((s.swap.minimumAmountOut * 50n) / 10_000n);
