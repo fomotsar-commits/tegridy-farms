@@ -339,6 +339,9 @@ describe('the panel', () => {
       const cannot = await within(panel).findByTestId('lp-create-cannot');
       expect(cannot).toHaveTextContent('This wallet cannot open a pool yet.');
       expect(cannot).not.toHaveTextContent('none of this token');
+      // It holds the token: the next step is SOL, and the swap is not offered for a token it has.
+      expect(cannot).toHaveTextContent('Send SOL to this wallet, then come back to this tab.');
+      expect(within(cannot).queryByRole('link')).toBeNull();
     });
 
     it('none of the token only: says a pool needs both, and nothing about SOL being short', async () => {
@@ -348,6 +351,10 @@ describe('the panel', () => {
       expect(cannot).toHaveTextContent('This wallet holds none of this token');
       expect(cannot).toHaveTextContent('needs both SOL and the token');
       expect(cannot).not.toHaveTextContent('needs about');
+      // It has the SOL: it is not told to send any.
+      expect(cannot).not.toHaveTextContent('Send SOL');
+      expect(cannot).toHaveTextContent('Try this site’s Solana swap for the token, then come back to this tab.');
+      expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', '/solana');
     });
 
     it('one lamport above what opening needs, with the token: nothing is said', async () => {

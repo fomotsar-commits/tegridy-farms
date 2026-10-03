@@ -246,7 +246,7 @@ function AddInner({
           {cannotAdd && (
             <div data-testid="lp-add-cannot" className="text-[13px] leading-relaxed space-y-1">
               <Notice tone="warn">{cannotAdd}</Notice>
-              <FundingNextStep />
+              <FundingNextStep needsSol={availableSol === 0n} needsToken={availableToken === 0n} />
             </div>
           )}
           <LpAmountPair

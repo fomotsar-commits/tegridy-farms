@@ -208,7 +208,8 @@ describe('SolanaWalletModal — nothing is folded away', () => {
     const dialog = await openList();
     const note = within(dialog).getByTestId('wallet-opens-apps');
     expect(note).toHaveTextContent('No wallet was found in this browser.');
-    expect(note).toHaveTextContent('Open app loads this page inside that wallet’s own app, where you connect.');
+    // True of every Open app row, the Android one included: it hands over to the app; most load the page there.
+    expect(note).toHaveTextContent('Open app hands you to that wallet’s own app to connect; most load this page inside it.');
     // Above the rows it is about.
     const list = within(dialog).getByRole('list');
     expect(note.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

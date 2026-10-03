@@ -387,7 +387,7 @@ function CreateInner({
           {cannotOpen && (
             <div data-testid="lp-create-cannot" className="text-[13px] leading-relaxed space-y-1">
               <Notice tone="warn">{cannotOpen}</Notice>
-              <FundingNextStep />
+              <FundingNextStep needsSol={availableSol === 0n} needsToken={availableToken === 0n} />
             </div>
           )}
           <div className="space-y-2" data-testid="lp-create-market">

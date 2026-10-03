@@ -85,6 +85,7 @@ export function PoolCard({
   tokenDecimals,
   safety = null,
   openNow = 0,
+  onActed,
 }: {
   view: PoolView;
   health: PoolHealth;
@@ -93,6 +94,8 @@ export function PoolCard({
   safety?: TokenSafety | null;
   /** A wish's number (PoolFinder LpWish), or 0: open this pool's Add form by itself, once. */
   openNow?: number;
+  /** Told when this card acts on a wish, so the finder spends it. */
+  onActed?: (n: number) => void;
 }) {
   const writes = useLpWrites();
   const offer: DepositOffer = writes
@@ -146,7 +149,7 @@ export function PoolCard({
           {!writes && health.deposits.verdict === 'allowed' && (
             <Notice>Adding liquidity from this page is not switched on yet. These checks will run again before any deposit.</Notice>
           )}
-          {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} />}
+          {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} onActed={onActed} />}
         </div>
 
         <Row label="In the pool" value={`${solText(view.solReserve)} and ${tokenText(view.tokenReserve, tokenDecimals)}`} mono={false} />
@@ -195,6 +198,7 @@ function DepositOfferBlock({
   safety,
   tokenDecimals,
   openNow,
+  onActed,
 }: {
   writes: LpWrites;
   offer: DepositOffer;
@@ -203,6 +207,7 @@ function DepositOfferBlock({
   safety: TokenSafety | null;
   tokenDecimals: number | null;
   openNow: number;
+  onActed?: (n: number) => void;
 }) {
   const key = `add:${view.address}`;
   const open = writes.active?.key === key;
@@ -213,8 +218,11 @@ function DepositOfferBlock({
   useEffect(() => {
     if (!openNow || acted.current === openNow || offer !== 'offer') return;
     acted.current = openNow;
+    // Already open, or another form is mid-flow: the press still shows where its form is.
     if (!open && !busy) openPanel('add', key, addButton.current);
-  }, [openNow, offer, open, busy, openPanel, key]);
+    else addButton.current?.scrollIntoView?.({ block: 'center' });
+    onActed?.(openNow);
+  }, [openNow, offer, open, busy, openPanel, key, onActed]);
   // Another panel's flow is running: this one cannot open over it.
   const blockedByOther = writes.busy && !open;
   // An open panel stays mounted whatever the offer turns into while its flow runs: its

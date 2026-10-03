@@ -3,11 +3,12 @@
 // press away from it, so the bar no longer showed where a phone was (three phone walks of
 // production, 2026-10-03).
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-vi.mock('wagmi', () => ({ useAccount: () => ({ isConnected: false }) }));
+const account = vi.hoisted(() => ({ isConnected: false }));
+vi.mock('wagmi', () => ({ useAccount: () => account }));
 
 import { BottomNav } from './BottomNav';
 import { CHECK_SECTION, EARN_SECTION, POOLS_SECTION, SWAP_SECTION } from '../../lib/navConfig';
@@ -25,6 +26,10 @@ function lit(path: string): string[] {
   unmount();
   return names;
 }
+
+afterEach(() => {
+  account.isConnected = false;
+});
 
 describe('BottomNav: a tab is lit on every page of its section', () => {
   it.each(POOLS_SECTION.items.map((i) => i.to))('Pools on %s', (to) => {
@@ -45,5 +50,11 @@ describe('BottomNav: a tab is lit on every page of its section', () => {
 
   it('nothing is lit on a page that belongs to no tab', () => {
     expect(lit('/changelog')).toEqual([]);
+  });
+
+  it('connected: Dashboard is lit on /dashboard only, and never steals a section page', () => {
+    account.isConnected = true;
+    expect(lit('/dashboard')).toEqual(['Dashboard']);
+    expect(lit('/solana-lp')).toEqual(['Pools']);
   });
 });

@@ -371,8 +371,8 @@ function SolanaWalletModal() {
               )}
               {opensApps && (
                 <p className="wallet-adapter-modal-note" data-testid="wallet-opens-apps">
-                  No wallet was found in this browser. Open app loads this page inside that wallet’s own app, where
-                  you connect. The app has to be installed on this device.
+                  No wallet was found in this browser. Open app hands you to that wallet’s own app to connect; most
+                  load this page inside it. The app has to be installed on this device.
                 </p>
               )}
               {waitingFor && (

@@ -50,6 +50,8 @@ export function CreatePoolCard(p: {
    * anything else, the card is brought onto the screen so its reason is what they see.
    */
   openNow?: number;
+  /** Told when this card acts on a wish, so the finder spends it. */
+  onActed?: (n: number) => void;
 }) {
   const writes = useLpWrites();
   if (!writes) return null;
@@ -67,6 +69,7 @@ function CreateCard({
   onReread,
   refreshing = false,
   openNow = 0,
+  onActed,
   writes,
 }: Parameters<typeof CreatePoolCard>[0] & { writes: LpWrites }) {
   const headingId = useId();
@@ -110,9 +113,12 @@ function CreateCard({
   useEffect(() => {
     if (!openNow || acted.current === openNow || !settled) return;
     acted.current = openNow;
-    if (offer !== 'offer') sectionRef.current?.scrollIntoView?.({ block: 'start' });
-    else if (!open && !busy) openPanel('create', key, openButton.current, headingRef.current);
-  }, [openNow, settled, offer, open, busy, openPanel, key]);
+    // Not offered, already open, or another form is mid-flow: the card comes onto the
+    // screen, so the press shows its reason (or its open form) instead of doing nothing.
+    if (offer !== 'offer' || open || busy) sectionRef.current?.scrollIntoView?.({ block: 'start' });
+    else openPanel('create', key, openButton.current, headingRef.current);
+    onActed?.(openNow);
+  }, [openNow, settled, offer, open, busy, openPanel, key, onActed]);
   if (offer === 'off') return null;
 
   // Another panel's flow is running: this one cannot open over it.

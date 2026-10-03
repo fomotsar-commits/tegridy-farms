@@ -17,8 +17,8 @@
 //   5. The form starts with the wallet and the amount boxes; the long notes follow it.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, useNavigate, type NavigateFunction } from 'react-router-dom';
 import type { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
@@ -104,11 +104,19 @@ function readers(over: Partial<LpReaders> = {}): LpReaders {
   };
 }
 
+/** The page's own history, for Back and Forward. */
+let go: NavigateFunction = () => {};
+function History() {
+  go = useNavigate();
+  return null;
+}
+
 function mount(path = '/solana-lp', mode: LpWritesOverrides['mode'] = 'on', over: Partial<LpReaders> = {}) {
   const r = readers(over);
   const api = fakeLpApi({ readCreateFacts: vi.fn(async () => readyFacts()) });
   render(
     <MemoryRouter initialEntries={[path]}>
+      <History />
       <LpInner readers={r} writes={{ mode, load: vi.fn(async () => api), gateRpc: unusedGateRpc }} />
     </MemoryRouter>,
   );
@@ -289,6 +297,26 @@ describe('a lookup asked for with a button ends in a form', () => {
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent('The form opens under this token’s checks.');
   });
 
+  it('before a press, a token already on the page is named by where its address is', async () => {
+    mount(`/solana-lp?mint=${BAYLA}`);
+    await screen.findByTestId('lp-create');
+    expect(screen.getByTestId('lp-task-line')).toHaveTextContent(
+      'A token is already on this page: its address is in the box below. Create a pool and Add liquidity open its form.',
+    );
+    expect(within(await finder()).getByLabelText('Token mint address')).toHaveValue(BAYLA);
+  });
+
+  it('Create a pool pressed while the linked token is still being read: the form opens when the answer arrives', async () => {
+    let release!: () => void;
+    const held = new Promise<PoolSearchRead>((res) => (release = () => res(noPools(BAYLA))));
+    mount(`/solana-lp?mint=${BAYLA}`, 'on', { findPools: vi.fn(() => held) });
+    await finder();
+    fireEvent.click(await task('Create a pool'));
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+    await act(async () => release());
+    expect(await screen.findByTestId('lp-create-panel')).toHaveTextContent(BAYLA);
+  });
+
   it('a link that carries a token opens nothing and does not move the page', async () => {
     mount(`/solana-lp?mint=${BAYLA}`);
     await within(await screen.findByTestId('lp-create')).findByRole('button', { name: 'Open a pool' });
@@ -311,6 +339,67 @@ describe('a lookup asked for with a button ends in a form', () => {
     // Asked again, it opens again.
     fireEvent.click(await chip('BAYLA'));
     expect(await screen.findByTestId('lp-create-panel')).toBeTruthy();
+  });
+
+  // Review, 2026-10-03: the wish was never spent, so anything that later changed which
+  // card it pointed at made that card act on it. The three ways it showed:
+  it('is spent by the form it opened: a pool that appears in a later read does not get its Add form opened by itself', async () => {
+    const v = poolView();
+    let withPool = false;
+    mount('/solana-lp', 'on', {
+      findPools: vi.fn(async (mint: PublicKey) => (withPool ? onePool(mint.toBase58(), v) : noPools(mint.toBase58()))),
+      outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
+    });
+    // Add on a token with no pool: the form that opens the pool.
+    fireEvent.click(await task('Add liquidity'));
+    fireEvent.click(await chip('BAYLA'));
+    const panel = await screen.findByTestId('lp-create-panel');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByTestId('lp-create-panel')).toBeNull());
+    // The pool now exists (as after opening it) and takes deposits.
+    withPool = true;
+    fireEvent.click(within(await finder()).getByRole('button', { name: 'Read again' }));
+    await within(await screen.findByTestId('lp-pool')).findByRole('button', { name: 'Add liquidity' });
+    expect(screen.getByTestId('lp-pool')).toHaveAttribute('data-add', 'offer');
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+  });
+
+  it('Back then Forward does not reopen a form the visitor closed', async () => {
+    mount();
+    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await chip('BAYLA'));
+    const panel = await screen.findByTestId('lp-create-panel');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByTestId('lp-create-panel')).toBeNull());
+    await act(async () => go(-1));
+    await waitFor(() => expect(screen.queryByTestId('lp-create')).toBeNull());
+    await act(async () => go(1));
+    await within(await screen.findByTestId('lp-create')).findByRole('button', { name: 'Open a pool' });
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+  });
+
+  it('Back while the form is open, then Forward: the page comes back without a form', async () => {
+    mount();
+    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await chip('BAYLA'));
+    await screen.findByTestId('lp-create-panel');
+    await act(async () => go(-1));
+    await waitFor(() => expect(screen.queryByTestId('lp-create')).toBeNull());
+    fireEvent.click(await chip('BOBO'));
+    await screen.findByTestId('lp-create-panel');
+    await act(async () => go(-1));
+    await waitFor(() => expect(screen.queryByTestId('lp-create')).toBeNull());
+  });
+
+  it('with Remove liquidity chosen, a token is only looked up: no Add or Open form opens', async () => {
+    const r = mount();
+    fireEvent.click(await task('Remove liquidity'));
+    fireEvent.click(await chip('BAYLA'));
+    await waitFor(() => expect(r.findPools).toHaveBeenCalled());
+    await within(await screen.findByTestId('lp-create')).findByRole('button', { name: 'Open a pool' });
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
   });
 });
 

@@ -47,6 +47,8 @@ const TASK_LINE: Record<LpTask, string> = {
   add: 'Pick the token to add liquidity for. If it has no pool yet, your deposit opens one.',
   remove: 'Your pool shares are listed under Your positions. Each one that can be taken out has a Remove liquidity button.',
 };
+/** Before a press, with a token already on the page: which token the first two buttons act on. */
+const TOKEN_HERE_LINE = 'A token is already on this page: its address is in the box below. Create a pool and Add liquidity open its form.';
 /** The same, with a token already answered on the page: its form opens at once. */
 const TASK_LINE_HERE: Record<'create' | 'add', string> = {
   create: 'The form opens under this token’s checks. Pick another token to change it.',
@@ -140,8 +142,13 @@ export function PoolFinder({
   // React way to follow a prop, rather than in an effect.
   const linkKey = mint ?? (linkError ? `bad:${linkError.raw}` : null);
   const [shownLink, setShownLink] = useState(linkKey);
+  // The form the visitor's lookup should end in (LpWish). It is for one token and one
+  // act: the page moving to another token drops it (Back, Forward, a link), and the card
+  // that acts on it spends it (`spent`), so nothing later can act on it again.
+  const [wish, setWish] = useState<LpWish | null>(null);
   if (linkKey !== shownLink) {
     setShownLink(linkKey);
+    if (wish && wish.mint !== mint) setWish(null);
     if (mint) {
       setInput(mint);
       setError(null);
@@ -160,8 +167,12 @@ export function PoolFinder({
   const writes = useLpWrites();
   const canAdd = writes?.mode === 'on';
   const [task, setTask] = useState<LpTask | null>(null);
-  const [wish, setWish] = useState<LpWish | null>(null);
   const wishes = useRef(0);
+  // Without this a wish outlived its form: a deposit sent from it held the pool, the
+  // target moved to the Open card and the page jumped off "Sent, do not send it again";
+  // a pool just opened came back in the re-read and its Add form opened by itself; Back
+  // then Forward reopened a form the visitor had closed (review, 2026-10-03).
+  const spent = useCallback((n: number) => setWish((w) => (w?.n === n ? null : w)), []);
   const lookUp = useCallback(
     (next: string, want: LpWish['task'] | null) => {
       asked.current = true;
@@ -191,14 +202,15 @@ export function PoolFinder({
 
   // One press looks a token up by its address, which a phone would otherwise have to
   // find, copy and paste. With adding switched on the press ends in a form: the one the
-  // visitor chose, or adding (which opens the pool when there is none yet).
+  // visitor chose, or adding (which opens the pool when there is none yet). With Remove
+  // chosen it is only a lookup: nobody who asked to take liquidity out gets an Add form.
   const roomId = useActiveBungalowId();
   const tokens = useMemo(() => siteTokens(roomId), [roomId]);
   const pick = useCallback(
     (m: string) => {
       setInput(m);
       setError(null);
-      lookUp(m, canAdd ? (task === 'create' ? 'create' : 'add') : null);
+      lookUp(m, canAdd && task !== 'remove' ? (task === 'create' ? 'create' : 'add') : null);
     },
     [lookUp, task, canAdd],
   );
@@ -206,9 +218,10 @@ export function PoolFinder({
   // buttons (on a phone they start at its foot). Remove: the section goes to the positions.
   // With a token already answered on the page (a ?mint= link, which is how a wallet app's
   // own browser arrives, or an earlier lookup), Create and Add go straight to its form:
-  // the answer is on the page, so nothing is read again.
+  // the answer is on the page (or on its way), so nothing is read again. The card says
+  // which token that is before the press, by where its address is, never by its name.
   const tasksRef = useRef<HTMLDivElement>(null);
-  const answered = state.status === 'done' ? state.mint : null;
+  const answered = state.status === 'idle' ? null : state.mint;
   const choose = useCallback(
     (t: LpTask) => {
       setTask(t);
@@ -244,7 +257,15 @@ export function PoolFinder({
             {/* Always mounted, so what a press changed is read out. Empty until something is chosen:
                 on a phone each line here pushes the tokens under it off the first screen. */}
             <p role="status" className="text-white/75 text-[12px] leading-relaxed empty:hidden" data-testid="lp-task-line">
-              {task ? (task !== 'remove' && answered ? TASK_LINE_HERE[task] : TASK_LINE[task]) : canAdd ? '' : 'Adding liquidity and opening pools from this site are paused right now. Removing still works.'}
+              {task
+                ? task !== 'remove' && answered
+                  ? TASK_LINE_HERE[task]
+                  : TASK_LINE[task]
+                : !canAdd
+                  ? 'Adding liquidity and opening pools from this site are paused right now. Removing still works.'
+                  : answered
+                    ? TOKEN_HERE_LINE
+                    : ''}
             </p>
           </div>
         )}
@@ -316,7 +337,7 @@ export function PoolFinder({
       {state.status === 'loading' && <p className="text-white/70 text-[13px]">Reading the token and its pools from the chain…</p>}
       {state.status === 'done' && state.refreshing && <p className="text-white/55 text-[12px]">Reading the token and its pools again…</p>}
       {state.status === 'done' && (
-        <SearchResults state={state} onReread={reread} wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null} />
+        <SearchResults state={state} onReread={reread} wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null} onActed={spent} />
       )}
     </section>
   );
@@ -338,7 +359,18 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
   return parts.join(' ');
 }
 
-function SearchResults({ state, onReread, wish }: { state: Extract<SearchState, { status: 'done' }>; onReread: () => void; wish: LpWish | null }) {
+function SearchResults({
+  state,
+  onReread,
+  wish,
+  onActed,
+}: {
+  state: Extract<SearchState, { status: 'done' }>;
+  onReread: () => void;
+  wish: LpWish | null;
+  /** A card acted on wish number `n`: it is spent. */
+  onActed: (n: number) => void;
+}) {
   const { safety, pools, outside, outsideAt, mint } = state;
   const writes = useLpWrites();
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
@@ -403,6 +435,7 @@ function SearchResults({ state, onReread, wish }: { state: Extract<SearchState, 
                     safety={safety}
                     health={healths.get(p.view.address)!}
                     openNow={wish && addTo === p.view.address ? wish.n : 0}
+                    onActed={onActed}
                   />
                 ) : (
                   <UnreadPoolCard key={p.address} entry={p} />
@@ -426,6 +459,7 @@ function SearchResults({ state, onReread, wish }: { state: Extract<SearchState, 
         onReread={onReread}
         refreshing={state.refreshing === true}
         openNow={openCreate}
+        onActed={onActed}
       />
     </div>
   );
