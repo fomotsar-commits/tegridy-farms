@@ -2,6 +2,7 @@
 // in web3.js) — keep this the very first import in this lazy chunk's entry.
 import '../lib/solanaPolyfill';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { PublicKey, VersionedTransaction, type Connection } from '@solana/web3.js';
@@ -47,6 +48,7 @@ import {
   routeLabels,
   getShield,
   simulateSwap,
+  swapCarriesPlatformFee,
   createTriggerOrder,
   getTriggerOrders,
   cancelTriggerOrder,
@@ -65,6 +67,8 @@ import {
   type ShieldWarning,
   type TriggerOrder,
 } from '../lib/jupiter';
+import { prepareJupiterSwap, NO_SITE_FEE_ROUTE_COPY } from '../lib/solana/swap/jupiterFeeRetry';
+import { SiteFeeRow } from '../components/swap/SiteFeeRow';
 import { TokenDetail } from '../components/solana/TokenDetail';
 import { PairChart } from '../components/solana/PairChart';
 import { ClockLine } from '../components/ClockLine';
@@ -1145,6 +1149,11 @@ function SolanaSwapInner() {
   });
   const [detailToken, setDetailToken] = useState<SolToken | null>(null);
   const [quote, setQuote] = useState<JupiterQuote | null>(null);
+  // The no-fee re-quote the send path took after Jupiter's 6014, if that is the
+  // quote on screen. Compared by identity below, so ANY other quote landing
+  // (a re-quote on an edit, a new pair, the clear after a buy) ends it by itself.
+  const [waivedQuote, setWaivedQuote] = useState<JupiterQuote | null>(null);
+  const feeWaived = quote !== null && quote === waivedQuote;
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [swapping, setSwapping] = useState(false);
@@ -1351,23 +1360,58 @@ function SolanaSwapInner() {
           return;
         }
       } catch { /* unparseable amount — the pre-sign simulation below still guards */ }
-      const b64 = await buildSwapTransaction({ quote: fresh, userPublicKey: publicKey.toBase58(), priorityLevel: speed });
-      // Pre-sign simulation — refuse to send a swap that would revert (honeypot /
-      // freeze / slippage / insufficient). FAIL OPEN if simulation itself errors.
-      try {
-        const sim = await simulateSwap(b64);
-        if (!sim.ok) {
-          toast.error('Swap would fail — not sending', { description: sim.reason ?? 'Simulation reverted on-chain.' });
-          return;
-        }
-      } catch { /* simulation unavailable — proceed to the wallet */ }
+      // Build, then the pre-sign simulation — refuse to send a swap that would
+      // revert (honeypot / freeze / slippage / insufficient). FAIL OPEN if the
+      // first simulation itself errors. One narrow exception to "a failed
+      // simulation blocks": Jupiter's own 6014 on a fee-bearing build is
+      // answered by ONE no-fee rebuild, which must itself simulate clean. The
+      // whole rule lives in lib/solana/swap/jupiterFeeRetry.ts.
+      const prepared = await prepareJupiterSwap(
+        { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
+        {
+          fresh,
+          shown,
+          inputMint: payToken.mint,
+          outputMint: buyToken.mint,
+          amount: baseAmount,
+          slippageBps,
+          user: publicKey.toBase58(),
+          priority: speed,
+        },
+      );
+      if (prepared.status === 'blocked') {
+        toast.error('Swap would fail — not sending', { description: prepared.reason ?? 'Simulation reverted on-chain.' });
+        return;
+      }
+      if (prepared.status === 'moved') {
+        // The no-fee re-quote is on screen now, labelled as such; nothing was sent.
+        setWaivedQuote(prepared.quote);
+        setQuote(prepared.quote);
+        toast.error('Price moved', { description: `The quote dropped beyond your ${(slippageBps / 100).toFixed(2)}% slippage. Review the new rate and swap again.` });
+        return;
+      }
+      const sent = prepared.quote;
+      const feeWaivedOnSend = prepared.siteFeeWaived;
+      if (feeWaivedOnSend) {
+        // BEFORE the wallet opens: the amounts on the page become the re-quoted
+        // ones, the fee row says there is none, and the trader is told why.
+        // flushSync so that is already painted when the wallet prompt appears.
+        flushSync(() => {
+          setWaivedQuote(sent);
+          setQuote(sent);
+        });
+        toast.info(NO_SITE_FEE_ROUTE_COPY, {
+          description: `You receive about ${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol}.`,
+        });
+      }
+      const b64 = prepared.swapTransaction;
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       const tx = VersionedTransaction.deserialize(bytes);
       const sig = await sendTransaction(tx, connection);
       toast.success('Swap submitted', { description: `${shortSig(sig)} — confirming…` });
       await pollConfirm(connection, sig);
       toast.success(`Bought ${buyToken.symbol}`, {
-        description: shortSig(sig),
+        description: feeWaivedOnSend ? `${shortSig(sig)}. ${NO_SITE_FEE_ROUTE_COPY}` : shortSig(sig),
         action: { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') },
       });
       // WAVE SEVEN, element O: latch a buy that landed in a resident's token.
@@ -1388,7 +1432,7 @@ function SolanaSwapInner() {
         sig,
         ts: Date.now(),
         kind: 'swap',
-        summary: `Bought ≈${prettyAmount(fromBaseUnits(fresh.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}`,
+        summary: `Bought ≈${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}${feeWaivedOnSend ? ' (no site fee on this route)' : ''}`,
       });
       setAmount('');
       setQuote(null);
@@ -1641,10 +1685,7 @@ function SolanaSwapInner() {
 
           {/* Quote details */}
           <div className="mb-4 text-[11px] space-y-1">
-            <div className="flex items-center justify-between text-white/70">
-              <span>Platform fee</span>
-              <span className="font-mono">{feeMintSymbol ? `${feePct}% · in ${feeMintSymbol}` : 'None on this pair'}</span>
-            </div>
+            <SiteFeeRow feePct={feePct} feeMintSymbol={feeMintSymbol} waived={feeWaived} />
             {quote && priceImpact !== null && (
               <div className="flex items-center justify-between text-white/70">
                 <span>Price impact</span>
