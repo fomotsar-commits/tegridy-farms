@@ -32,6 +32,12 @@ export type ZapStepStatus =
   | 'confirmed'
   /** Receipt read, status failure. Definitively no effect; safe to send again. */
   | 'reverted'
+  /**
+   * Another transaction from the wallet confirmed at this leg's nonce: a cancel, or a
+   * different call. This leg can never run, so it had no effect; safe to send again.
+   * (A speed-up is the same call, and is recorded as 'confirmed'.)
+   */
+  | 'replaced'
   /** The wallet refused or the user rejected. Never reached a node; safe to send again. */
   | 'rejected'
   /**
@@ -45,7 +51,7 @@ export type ZapStepStatus =
 /** Statuses from which nothing further is owed. */
 const SETTLED: ReadonlySet<ZapStepStatus> = new Set<ZapStepStatus>(['confirmed', 'skipped']);
 /** Statuses that prove the leg had no effect, so re-sending it cannot double-spend. */
-const PROVEN_INERT: ReadonlySet<ZapStepStatus> = new Set<ZapStepStatus>(['pending', 'reverted', 'rejected']);
+const PROVEN_INERT: ReadonlySet<ZapStepStatus> = new Set<ZapStepStatus>(['pending', 'reverted', 'replaced', 'rejected']);
 
 export interface ZapStepState {
   id: ZapStepId;
@@ -79,6 +85,8 @@ export type ZapEvent =
   | { type: 'submitted'; steps: number[]; txHash?: string; batchId?: string; at: number }
   | { type: 'confirmed'; steps: number[]; txHash?: string; at: number }
   | { type: 'reverted'; steps: number[]; txHash?: string; detail: string; at: number }
+  /** Its receipt was another transaction's: the wallet replaced it at its nonce. */
+  | { type: 'replaced'; steps: number[]; txHash?: string; detail: string; at: number }
   | { type: 'rejected'; steps: number[]; detail: string; at: number }
   /** Sent and then lost sight of: a closed tab, a dropped RPC, a wallet that went quiet. */
   | { type: 'lost'; steps: number[]; detail: string; at: number }
@@ -146,6 +154,8 @@ function transition(step: ZapStepState, event: ZapEvent): ZapStepState {
       return { ...step, status: 'confirmed', txHash: event.txHash ?? step.txHash, detail: undefined, updatedAt: event.at };
     case 'reverted':
       return { ...step, status: 'reverted', txHash: event.txHash ?? step.txHash, detail: event.detail, updatedAt: event.at };
+    case 'replaced':
+      return { ...step, status: 'replaced', txHash: event.txHash ?? step.txHash, detail: event.detail, updatedAt: event.at };
     case 'rejected':
       // A rejection is only meaningful before a hash exists. Once one does, the wallet's
       // "rejected" is about a follow-up prompt, not about the transaction already on-chain.
@@ -176,7 +186,7 @@ export type ZapProgress =
   | { kind: 'in-flight'; step: number }
   | { kind: 'complete' }
   /** A leg stopped for a reason we can prove had no effect. Resumable. */
-  | { kind: 'stopped'; step: number; reason: 'reverted' | 'rejected' | 'not-sent' }
+  | { kind: 'stopped'; step: number; reason: 'reverted' | 'replaced' | 'rejected' | 'not-sent' }
   /** A leg's outcome is unread. NOT resumable until it is read. */
   | { kind: 'needs-verification'; step: number }
   /** The record disagrees with itself. Never resumed, always reported. */
@@ -215,7 +225,7 @@ export function zapProgress(state: ZapRunState): ZapProgress {
   const status = state.steps[first]!.status;
   if (status === 'unknown') return { kind: 'needs-verification', step: first };
   if (status === 'signing' || status === 'submitted') return { kind: 'in-flight', step: first };
-  if (status === 'reverted' || status === 'rejected') return { kind: 'stopped', step: first, reason: status };
+  if (status === 'reverted' || status === 'replaced' || status === 'rejected') return { kind: 'stopped', step: first, reason: status };
   // Pending, with settled legs behind it: the run was interrupted between stages without
   // anything failing — a closed tab, a reload. Distinct from a revert, and reported as
   // such: telling someone their step failed when it was never sent is its own small lie.
@@ -363,7 +373,9 @@ export function zapReadout(state: ZapRunState, plan: ZapPlan): ZapReadout {
           ? 'was not signed'
           : progress.reason === 'not-sent'
             ? 'was never sent'
-            : 'reverted on-chain';
+            : progress.reason === 'replaced'
+              ? 'was replaced in your wallet by another transaction'
+              : 'reverted on-chain';
       return {
         tone: 'warning',
         headline: `Zap stopped part-way — ${done} of ${total} steps confirmed`,

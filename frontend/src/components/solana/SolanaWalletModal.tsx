@@ -19,6 +19,7 @@ import { useWallet, type Wallet } from '@solana/wallet-adapter-react';
 import { WalletModalContext, useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { orderWallets, rowStatus, scansForWallet, walletLabel } from '../../lib/solanaWalletOrder';
 import { WalletConnectWalletAdapter, type WalletConnectPairing } from '../../lib/solanaWalletConnect';
+import { shortSolanaAddress } from '../../lib/solanaSurface';
 
 /**
  * The Solana connect modal — upstream's WalletModal (wallet-adapter-react-ui
@@ -116,7 +117,7 @@ function SolanaWalletModal() {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
-  const { wallets, wallet: selected, select, connect, connected, connecting } = useWallet();
+  const { wallets, wallet: selected, select, connect, disconnect, connected, connecting, publicKey } = useWallet();
   const { setVisible } = useWalletModal();
   const [fadeIn, setFadeIn] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -138,6 +139,7 @@ function SolanaWalletModal() {
   const [scanFor, setScanFor] = useState<ScanFor | null>(null);
   const pairing = useWalletConnectPairing(walletConnect);
   const pairingActive = pairing.phase === 'starting' || pairing.phase === 'scan';
+  const connectedAs = connected && publicKey ? shortSolanaAddress(publicKey.toBase58()) : null;
   // The WalletConnect row clicked while its own saved session was still being
   // restored: connect once the restore is over, if it did not connect.
   const connectAfterRestore = useRef(false);
@@ -187,6 +189,13 @@ function SolanaWalletModal() {
     document.getElementById(titleId)?.focus();
   }, [pairingActive, titleId]);
 
+  const handleDisconnect = useCallback(() => {
+    disconnect().catch(() => {
+      /* surfaced by the provider's error handler */
+    });
+    hideModal();
+  }, [disconnect, hideModal]);
+
   const handleClose = useCallback(
     (event: MouseEvent) => {
       event.preventDefault();
@@ -227,7 +236,10 @@ function SolanaWalletModal() {
           sawPairing.current = true;
           connectAfterRestore.current = true;
         }
-        if (!keepOpen) hideModal();
+        // Connected already (the top bar's address opens this list): the row
+        // of the wallet in use closes it, WalletConnect's included. That row
+        // otherwise stays open for a QR, and here there is none to draw.
+        if (!keepOpen || connected) hideModal();
         return;
       }
       select(wallet.adapter.name);
@@ -324,9 +336,20 @@ function SolanaWalletModal() {
             />
           ) : ordered.length > 0 ? (
             <>
+              {/* The top bar's address opens this list while connected: it then
+                  says so, names the wallet in use, and offers the way out the
+                  Solana pages lacked (only the dashboard panel had one). */}
               <h1 id={titleId} tabIndex={-1} className="wallet-adapter-modal-title">
-                Connect a wallet on Solana to continue
+                {connectedAs ? 'Switch Solana wallet' : 'Connect a wallet on Solana to continue'}
               </h1>
+              {connectedAs && (
+                <p className="wallet-adapter-modal-note">
+                  Connected as {connectedAs}.{' '}
+                  <button type="button" onClick={handleDisconnect} className="underline font-semibold text-white">
+                    Disconnect
+                  </button>
+                </p>
+              )}
               {pairing.phase === 'failed' && (
                 <p role="alert" className="wallet-adapter-modal-note">
                   {pairing.reason}
@@ -338,17 +361,17 @@ function SolanaWalletModal() {
                     key={wallet.adapter.name}
                     wallet={wallet}
                     canScan={walletConnectWallet !== null}
+                    current={connectedAs !== null && selected?.adapter.name === wallet.adapter.name}
                     onClick={handleWalletClick}
                   />
                 ))}
               </ul>
-              {/* A visitor who connected through the top bar (RainbowKit, EVM
-                  only) and reads "Connect a Solana wallet" on a pool otherwise
-                  has no way to know the two are separate (owner, 2026-09-30:
-                  Trust "only recognizes the EVM chains"). */}
+              {/* On a Solana page the top bar's Connect opens this list
+                  (lib/solanaSurface.ts). An Ethereum wallet connected on
+                  another page is a separate connection and never shows here. */}
               <p className="wallet-adapter-modal-note">
-                Only wallets that work on Solana are listed. The Connect button at the top of the page is a
-                separate connection, and it does not connect Solana.
+                Only wallets that work on Solana are listed. This connects your Solana account. An Ethereum or
+                Base connection is separate and stays as it is.
               </p>
             </>
           ) : (
@@ -367,10 +390,13 @@ function SolanaWalletModal() {
 function WalletRow({
   wallet,
   canScan,
+  current,
   onClick,
 }: {
   wallet: Wallet;
   canScan: boolean;
+  /** The wallet connected right now. */
+  current: boolean;
   onClick: (event: MouseEvent, wallet: Wallet) => void;
 }) {
   const label = walletLabel(wallet.adapter.name);
@@ -381,7 +407,7 @@ function WalletRow({
           <img src={wallet.adapter.icon} alt="" />
         </i>
         {label}
-        <span>{rowStatus(wallet.readyState, wallet.adapter.name, canScan)}</span>
+        <span>{current ? 'Connected' : rowStatus(wallet.readyState, wallet.adapter.name, canScan)}</span>
       </button>
     </li>
   );

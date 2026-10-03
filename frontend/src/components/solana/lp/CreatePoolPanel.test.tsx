@@ -18,6 +18,7 @@ import { LP_PENDING_SCOPE, readPendingTrades } from '../curve/pendingTrade';
 import { prepared } from '../curve/fakeWriteApi.fixture';
 import type { LpWriteApi, Prepared, SubmitDeps, TxOutcome } from '../curve/ports';
 import { TIER1_ADDRESS, fakeLpApi, lpCreateSummary, LP_PROGRAM, readyFacts, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import { recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
 
 vi.mock('../../../lib/solana/cpswap/program', async (orig) => {
   const { PublicKey: Key } = await import('@solana/web3.js');
@@ -394,6 +395,47 @@ describe('one panel at a time', () => {
     expect(pool).toHaveTextContent('Finish or close the open liquidity panel first.');
     await act(async () => release());
     await waitFor(() => expect(within(pool).getByRole('button', { name: 'Add liquidity' })).toBeEnabled());
+  });
+});
+
+// A pool this site opens goes through cp-swap's `initialize`, which switches the pool's
+// creator fee off for good, so a trade on it costs the tier's trade fee and nothing more.
+// The card, the panel and the review must all say that one figure, whatever creator rate
+// the tier carries for the pools the launch program opens.
+describe('what a trade on the new pool costs', () => {
+  const tierRow = (panel: HTMLElement) => within(panel).getAllByText('Fee tier', { exact: true }).map((el) => el.nextElementSibling?.textContent);
+
+  it('on tier 1 as mainnet holds it (recorded): 1% a trade, the same on the card, the panel and the review', async () => {
+    const tier = { ...recordedTier(1), address: TIER1_ADDRESS.toBase58() };
+    const summary = lpCreateSummary(key(), MINT, { config: tier });
+    mount(readers(), { api: { readCreateFacts: vi.fn(async () => readyFacts(tier)), prepareLpCreate: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })) } });
+    const { card, panel } = await openPanel();
+    expect(card).toHaveTextContent('You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
+    expect(tierRow(panel)).toEqual(['1: traders pay 1% a trade; LPs keep 0.840% of each trade']);
+    fireEvent.change(sol(panel), { target: { value: '1' } });
+    fireEvent.click(matchButton(panel));
+    await act(async () => {
+      fireEvent.click(reviewButton(panel));
+    });
+    await within(panel).findByRole('heading', { name: 'Review: open a pool' });
+    expect(new Set(tierRow(panel))).toEqual(new Set(['1: traders pay 1% a trade; LPs keep 0.840% of each trade']));
+  });
+
+  it('on a tier with a creator rate set, still the trade fee alone, and it says the new pool charges no creator fee', async () => {
+    const tier = { ...recordedTier(1), address: TIER1_ADDRESS.toBase58(), creatorFeeRate: 500n };
+    const summary = lpCreateSummary(key(), MINT, { config: tier });
+    mount(readers(), { api: { readCreateFacts: vi.fn(async () => readyFacts(tier)), prepareLpCreate: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })) } });
+    const { card, panel } = await openPanel();
+    expect(card).toHaveTextContent('You can open the first one on the public fee tier: 1% a trade (no creator fee), 0.15 SOL to open (read just now).');
+    expect(card).not.toHaveTextContent(/1\.05%/);
+    expect(tierRow(panel)).toEqual(['1: traders pay 1% a trade (no creator fee); LPs keep 0.840% of each trade']);
+    fireEvent.change(sol(panel), { target: { value: '1' } });
+    fireEvent.click(matchButton(panel));
+    await act(async () => {
+      fireEvent.click(reviewButton(panel));
+    });
+    await within(panel).findByRole('heading', { name: 'Review: open a pool' });
+    expect(new Set(tierRow(panel))).toEqual(new Set(['1: traders pay 1% a trade (no creator fee); LPs keep 0.840% of each trade']));
   });
 });
 

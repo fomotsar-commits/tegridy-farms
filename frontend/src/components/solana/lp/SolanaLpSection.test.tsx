@@ -11,6 +11,7 @@ import type { Position } from '../../../lib/solana/lp/positions';
 import { Row } from '../curve/ui';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { fakeLpApi, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import { recordedFeeTiers, recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
 
 const wallet = vi.hoisted(() => ({ publicKey: null as null | { toBase58(): string } }));
 // useConnection is only reached with LP's mode 'on' (the last describe below).
@@ -229,6 +230,53 @@ describe('the LP section', () => {
     await waitFor(() => expect(screen.getAllByTestId('fee-tier')).toHaveLength(2));
     expect(screen.getAllByTestId('fee-tier')[1]).toHaveAttribute('data-state', 'absent');
     expect(screen.getAllByText('not created yet')).toHaveLength(2);
+  });
+});
+
+// The two tiers exactly as mainnet returned them (scripts/record-pools-venue-fixture.mjs).
+// Tier 0 charges a 0.05% creator fee on top of its 0.25% trade fee, but only in a pool whose
+// own switch is on: the launch program opens every launch pool that way, and cp-swap's
+// public `initialize` opens every other pool with it off. A surface that prints the trade
+// fee alone as what a trade costs understates a launch pool by a fifth.
+describe('what a trade costs, on the tiers mainnet holds (recorded)', () => {
+  const rowValue = (el: HTMLElement, label: string) => within(el).getByText(label, { exact: true }).nextElementSibling?.textContent;
+  /** A pool on recorded tier 0, with the pool's own creator-fee switch as given. */
+  const onTier0 = (v: PoolView, enableCreatorFee: boolean): PoolView => ({
+    ...v,
+    config: recordedTier(0),
+    // The launch program charges the creator in SOL: OnlyToken0 when SOL is token 0.
+    snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, enableCreatorFee, creatorFeeOn: v.solIsToken0 ? 1 : 2 } },
+  });
+
+  it('the fee-tier card: a launch pool on tier 0 costs 0.3% a trade, the creator fee has its own row, tier 1 costs 1%', async () => {
+    mount(readers({ feeTiers: vi.fn(async () => recordedFeeTiers()) }), '/pools');
+    await waitFor(() => expect(screen.getAllByTestId('fee-tier')).toHaveLength(2));
+    const [t0, t1] = screen.getAllByTestId('fee-tier') as [HTMLElement, HTMLElement];
+    expect(rowValue(t0, 'Tier 0 (graduated launches)')).toBe('0.3% a trade in launch pools (0.25% trade fee, 0.05% creator fee); 0.25% in a pool anyone opens');
+    expect(rowValue(t0, 'Split')).toBe('LPs 0.200%, venue 0.050% of each trade');
+    expect(rowValue(t0, 'Creator fee')).toBe("0.05% a trade on top of the trade fee, in launch pools only; it goes to the token's creator, not to LPs");
+    expect(rowValue(t1, 'Tier 1 (public pools)')).toBe('1% a trade');
+    expect(rowValue(t1, 'Split')).toBe('LPs 0.840%, venue 0.160% of each trade');
+    expect(t1).not.toHaveTextContent(/creator/i);
+  });
+
+  it('a launch pool on tier 0: traders pay 0.3%, and the creator fee is its own row, paid to the wallet that opened it', async () => {
+    const v = onTier0(view({ origin: 'launch-pool' }), true);
+    mount(readers({ findPools: vi.fn(async () => search([v])) }));
+    const card = await screen.findByTestId('lp-pool');
+    expect(rowValue(card, 'Fee tier 0')).toBe('Traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee)');
+    expect(rowValue(card, 'Of that fee')).toBe("LPs keep 0.200% of each trade, the venue 0.050%, the pool's creator 0.050%");
+    expect(rowValue(card, 'Creator fee')).toBe("0.05% a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, below), not to LPs");
+    expect(rowValue(card, 'Opened by')).toBe(v.snapshot.pool.poolCreator);
+  });
+
+  it('a pool anyone opened on tier 0 charges no creator fee, and says so; it shows no creator row', async () => {
+    const v = onTier0(view(), false);
+    mount(readers({ findPools: vi.fn(async () => search([v])) }));
+    const card = await screen.findByTestId('lp-pool');
+    expect(rowValue(card, 'Fee tier 0')).toBe('Traders pay 0.25% a trade (no creator fee)');
+    expect(rowValue(card, 'Of that fee')).toBe('LPs keep 0.200% of each trade, the venue 0.050%');
+    expect(within(card).queryByText('Creator fee', { exact: true })).toBeNull();
   });
 });
 

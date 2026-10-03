@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { RECORDING, recordedTier } from '../lib/solana/cpswap/mainnetVenueReplay.fixture';
 
 /**
  * `/pools` answers "can this venue host liquidity pools?" from a LIVE CHAIN PROBE, never
@@ -171,9 +172,81 @@ describe('when the venue is live', () => {
     expect(screen.getByText('0.23%')).toBeInTheDocument();
     expect(screen.getByText('0.07%')).toBeInTheDocument();
     expect(screen.getByText('0.3 SOL')).toBeInTheDocument();
-    expect(screen.getByText(/read from the chain on load/i)).toBeInTheDocument();
+    expect(screen.getByText(/read from the chain when this page loads/i)).toBeInTheDocument();
     // The live card points at the fee sheet, which this tab has.
     expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/Fees below are read from that config\./);
+  });
+
+  it('says it in prose with no em dash', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    expect(screen.getByRole('region', { name: 'Fee sheet' }).textContent).not.toContain('—');
+    expect(screen.getByRole('region', { name: 'Venue status' }).textContent).not.toContain('—');
+  });
+
+  it('a tier that charges no creator fee shows no creator line', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
+    expect(sheet).not.toHaveTextContent(/creator/i);
+  });
+});
+
+// Tier 0 exactly as mainnet returned it (scripts/record-pools-venue-fixture.mjs): 0.25% trade
+// fee, 20% of it to the venue, and a 0.05% creator fee that the program charges on top in
+// every pool the launch program opens. The sheet is about those pools, so a trade on one
+// costs 0.3%, and the creator's part is its own line.
+describe('on tier 0 as mainnet holds it (recorded)', () => {
+  beforeEach(() => {
+    readVenue.mockResolvedValue({ kind: 'live', programId: RECORDING.program, config: recordedTier(0) });
+  });
+
+  it('says a trade on a launch pool costs 0.3%, never the 0.25% trade fee alone', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
+    const stat = (label: string) => within(sheet).getByText(label).nextElementSibling?.textContent;
+    expect(stat('Trader pays')).toBe('0.3%');
+    expect(within(sheet).getByRole('heading', { level: 2 })).toHaveTextContent('0.3% a trade, 0.20% of it to you');
+    expect(sheet).toHaveTextContent('0.25% trade fee + 0.05% creator fee');
+    expect(sheet).not.toHaveTextContent(/0\.25% a trade/);
+  });
+
+  it('shows the creator fee as its own line, and who gets it', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
+    const creator = within(sheet).getByText('Creator gets');
+    expect(creator.nextElementSibling?.textContent).toBe('0.05%');
+    expect(creator.parentElement).toHaveTextContent(/to the token.s creator/);
+    // LPs and the venue split the trade fee; the creator's part is on top of it.
+    expect(within(sheet).getByText('LPs keep').nextElementSibling?.textContent).toBe('0.20%');
+    expect(within(sheet).getByText('Venue takes').nextElementSibling?.textContent).toBe('0.05%');
+    expect(sheet).toHaveTextContent(/20% of the trade fee/);
+    expect(sheet).toHaveTextContent(/the launch program opens every launch pool with it switched on/);
+    expect(sheet).toHaveTextContent(/A pool opened on this tier any other way charges only the trade fee/);
+  });
+
+  it('says anyone can open a pool, which tier 0 allows', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    expect(recordedTier(0).disableCreatePool).toBe(false);
+    expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/anyone can open a pool and provide\s+liquidity on chain/);
+  });
+});
+
+// "Anyone can open a pool" is a claim about the tier the page read: with opening switched
+// off there, it must not be made.
+describe('when the tier it reads is closed to new pools', () => {
+  beforeEach(() => {
+    readVenue.mockResolvedValue({ kind: 'live', programId: RECORDING.program, config: { ...recordedTier(0), disableCreatePool: true } });
+  });
+
+  it('never says anyone can open a pool, and says opening is switched off', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    expect(screen.queryByText(/anyone can open a pool/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/opening new pools on fee tier 0 is switched off/i);
   });
 
   // The page also offers "Open a pool" on the public tier, which charges its own fee. This card

@@ -128,6 +128,21 @@ describe('when the venue AMM is live', () => {
     expect(screen.getByText(/still executes via Jupiter/)).toBeInTheDocument();
   });
 
+  // The quote's cost is the program's: quoteOwnPool charges a pool's creator fee when the
+  // pool's own switch is on (cpswap/mainnetVenue.test.ts pins that on mainnet's tier 0), so
+  // the route must hand it the pool it read and the tier the venue read returned, never a
+  // trimmed copy without the creator rate.
+  it('quotes the pool it read against the tier the venue read returned, creator rate and all', async () => {
+    const venue = { ...LIVE_VENUE, config: { ...LIVE_VENUE.config, creatorFeeRate: 500n } };
+    readVenue.mockResolvedValue(venue);
+    const snapshot = { pool: { address: 'PooL1', enableCreatorFee: true } };
+    readPoolForPair.mockResolvedValue({ kind: 'ok', value: snapshot });
+    quoteOwnPool.mockReturnValue({ outAmount: 999_000n, poolAddress: 'PooL1', priceImpact: 0.01 });
+    await mount({ aggregatorQuote: { outAmount: '1000000' } });
+    await waitFor(() => expect(quoteOwnPool).toHaveBeenCalled());
+    expect(quoteOwnPool).toHaveBeenCalledWith(snapshot, venue.config, SOL, 1_000_000_000n);
+  });
+
   it('falls back to the aggregator when no pool exists for the pair', async () => {
     readPoolForPair.mockResolvedValue({ kind: 'absent' });
     await mount({ aggregatorQuote: { outAmount: '1000000' } });

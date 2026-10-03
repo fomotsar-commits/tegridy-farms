@@ -38,7 +38,12 @@ function titleTexts(file: string): string[] {
 }
 
 describe('page titles', () => {
-  it('no usePageTitle call puts an em dash in the title the live region reads aloud', () => {
+  // This parses every source file with the TypeScript compiler (834 files on 2026-10-03),
+  // so its time is CPU, and in a full run it shares the CPU with every other worker.
+  // Measured on one 18-thread machine: 1.9 s alone; 4.0 s in a full run on vitest 4; 6.4 s
+  // to 6.9 s in three of four full runs on vitest 5, each a timeout at the 5 s default.
+  // The limit below says "this is a long test", it does not loosen what is asserted.
+  it('no usePageTitle call puts an em dash in the title the live region reads aloud', { timeout: 30_000 }, () => {
     const files = sourceFiles(SRC);
     const offenders = files.flatMap((f) =>
       titleTexts(f).filter((t) => t.includes('—')).map((t) => `${relative(SRC, f)}: ${JSON.stringify(t)}`));

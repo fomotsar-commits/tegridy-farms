@@ -10,6 +10,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/test/setup.ts',
+    // Vitest 5 wipes every mock's recorded calls before each test (clearMocks
+    // now defaults to true; implementations stay). Left at that default: a
+    // test that counts calls made by an earlier test, or by beforeAll, fails
+    // instead of passing on leftovers. Calls made in beforeEach are kept.
     // ─────────────────────────────────────────────────────────────────
     // COLLECTION IS PROJECT-WIDE, AND IT HAS ONE HARD EDGE. READ BOTH.
     //

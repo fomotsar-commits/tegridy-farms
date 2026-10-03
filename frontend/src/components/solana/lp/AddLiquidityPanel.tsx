@@ -207,7 +207,7 @@ function AddInner({
         <Row label="Token" value={view.tokenMint} />
         {callsItself && <Row label="Calls itself" value={callsItself} mono={false} />}
       </div>
-      <LpBeforeYouAdd launchPool={view.origin === 'launch-pool'} config={view.config} />
+      <LpBeforeYouAdd launchPool={view.origin === 'launch-pool'} config={view.config} enableCreatorFee={pool.enableCreatorFee} />
       {flow.state.step !== 'idle' ? (
         <TxFlowView
           flow={flow}

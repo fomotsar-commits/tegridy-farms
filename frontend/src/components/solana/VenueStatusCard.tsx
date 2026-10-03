@@ -57,8 +57,10 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
         </div>
         <h2 className="heading-luxury text-xl text-white mb-2">Pools are open</h2>
         <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-          The AMM is deployed and its config exists, so anyone can open a pool and provide
-          liquidity on chain. {VENUE_LP_LINE[lpMode](lpSection)}
+          {status.config.disableCreatePool
+            ? `The AMM is deployed and its config exists, but opening new pools on fee tier ${status.config.index} is switched off by the pool program’s admin, so on chain anyone can only provide liquidity to pools that already exist.`
+            : 'The AMM is deployed and its config exists, so anyone can open a pool and provide liquidity on chain.'}{' '}
+          {VENUE_LP_LINE[lpMode](lpSection)}
           {feeSheetBelow && ' Fees below are read from that config.'}
         </p>
         <div className="flex flex-wrap gap-3 text-[12px]">

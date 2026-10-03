@@ -8,6 +8,7 @@ import {
   GECKO_EDGE_GLOB,
 } from './fixtures/routes';
 import { BAYLA_LADDER_RECORDING } from './fixtures/baylaLadderPool';
+import { MAINNET_VENUE_RECORDING } from '../src/lib/solana/cpswap/mainnetVenue.fixture';
 
 // Element I: zero em dashes in venue-voice prose, and an exact count per route until then.
 // A text node that contains U+2014 and whose trimmed content is not exactly U+2014 is prose
@@ -84,7 +85,8 @@ const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading', '/competiti
 /** The routes that ask /api/solrpc, which the preview proxies to Solana mainnet: what the
  *  chain answers picks the branch (/curve-launch's write mode, /pools' live AMM card), so
  *  the count moved with the network. Sealed, each is the branch that cannot read the chain,
- *  on every machine. A route that starts asking the RPC belongs here. */
+ *  on every machine. A route that starts asking the RPC belongs here. /pools' live branch,
+ *  read from a recording, is held in its own block below (POOLS_LIVE_DEBT). */
 const SOLRPC_SEALED_ROUTES = new Set(['/solana', '/pools', '/solana-lp', '/curve-launch']);
 
 /** `/nakamigos` opens on a full-viewport splash with no `main` behind it, so it
@@ -437,5 +439,86 @@ test.describe('element I: the BAYLA lock ladder card, once its pool reads', () =
     const hits = await proseDashes(page);
     const shown = hits.slice(0, 20).map((h) => `  ${h.owner}: ${h.text}`).join('\n');
     expect(hits.length, `${path}, its ladder read, carries prose em dashes:\n${shown}`).toBe(0);
+  });
+});
+
+// Element I on /pools once its venue reads. The table above seals /api/solrpc, so it walks
+// only the branch that cannot read the chain; the live AMM card, the fee sheet with its
+// figures and the fee tiers were never measured. Here everything is sealed as on the farms
+// except /api/solrpc, which answers from a recording of what /pools reads on load
+// (src/lib/solana/cpswap/mainnetVenue.fixture.ts, written by
+// scripts/record-pools-venue-fixture.mjs; the unit tests read the same recording). A call
+// it does not hold is aborted like every other read, and fails the test by name: with a
+// read unanswered, some card would be on its unread branch and the count would be of a
+// mixed page. The count holds both ways, like every budget here, and the page must show
+// the figures it read, or the test fails: a sheet that never read proves nothing.
+// The three it carries are the same three the sealed branch does, in the sections below
+// the sheet that do not depend on the read.
+const POOLS_LIVE_DEBT: number = 3;
+
+test.describe('element I: /pools, once its venue reads', () => {
+  const path = '/pools';
+  test(`${path} reads the recorded venue and carries ${POOLS_LIVE_DEBT} prose em dash${POOLS_LIVE_DEBT === 1 ? '' : 'es'}`, async ({ page }) => {
+    test.skip(test.info().project.name !== 'chromium', 'measured on the desktop project only');
+    test.slow();
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem('tegridy-onboarding-seen', '1');
+        localStorage.setItem('tegridy_telemetry_consent', 'denied');
+        localStorage.setItem('tegridy-bungalow', 'venue');
+      } catch { /* private mode */ }
+    });
+    await page.route('**/api/**', (r) => r.abort());
+    await page.route((url) => url.hostname !== 'localhost', (r) => r.abort());
+    // Registered last, so it runs first.
+    const answers: Record<string, unknown> = MAINNET_VENUE_RECORDING.answers;
+    const unanswered: string[] = [];
+    await page.route('**/api/solrpc', (route) => {
+      let body: unknown = null;
+      try { body = route.request().postDataJSON(); } catch { /* not JSON: unanswered */ }
+      const calls = (Array.isArray(body) ? body : [body]) as { id?: unknown; method?: unknown; params?: unknown[] }[];
+      const keys = calls.map((c) => `${String(c?.method)}:${String(c?.params?.[0])}`);
+      if (!keys.every((k) => k in answers)) {
+        unanswered.push(...keys);
+        return route.abort();
+      }
+      const replies = calls.map((c, i) => ({ jsonrpc: '2.0', id: c.id, result: answers[keys[i]!] }));
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(Array.isArray(body) ? replies : replies[0]),
+      });
+    });
+
+    await settle(page, path);
+
+    // Every read the page made was answered, so no card is on its unread branch: a page
+    // that starts asking the chain for something new fails here until it is recorded too.
+    expect(
+      [...new Set(unanswered)],
+      `${path} asked /api/solrpc for something the recording does not hold: add the call to scripts/record-pools-venue-fixture.mjs and run it again`,
+    ).toEqual([]);
+    // The live branch, from the recording: the venue card, the sheet's figures and both tiers.
+    await expect(page.getByRole('region', { name: 'Venue status' }), 'the venue did not read').toContainText('Pools are open');
+    const sheet = page.getByRole('region', { name: 'Fee sheet' });
+    await expect(sheet, 'the fee sheet did not read').toContainText('read from the chain when this page loads');
+    const traderPays = await sheet.getByText('Trader pays', { exact: true }).evaluate((el) => el.nextElementSibling?.textContent ?? '');
+    expect(traderPays, 'Trader pays is a figure it read').toMatch(/^\d+(\.\d+)?%$/);
+    await expect(page.getByTestId('fee-tier'), 'the fee tiers did not read').toHaveCount(2);
+    await expect(page.locator('[data-testid="fee-tier"][data-state="live"]')).toHaveCount(2);
+    test.info().annotations.push({ type: 'venue', description: `recorded at slot ${MAINNET_VENUE_RECORDING.slot}: trader pays ${traderPays}` });
+
+    const hits = await proseDashes(page);
+    const shown = hits.slice(0, 20).map((h) => `  ${h.owner}: ${h.text}`).join('\n');
+    if (POOLS_LIVE_DEBT === 0) {
+      expect(hits.length, `${path}, its venue read, is at zero and gained prose em dashes:\n${shown}`).toBe(0);
+      return;
+    }
+    expect(
+      hits.length,
+      hits.length > POOLS_LIVE_DEBT
+        ? `${path}, its venue read, gained prose em dashes (${POOLS_LIVE_DEBT} -> ${hits.length}). First few:\n${shown}`
+        : `${path}, its venue read, is DOWN to ${hits.length} from ${POOLS_LIVE_DEBT}. Good: lower POOLS_LIVE_DEBT to ${hits.length}.`,
+    ).toBe(POOLS_LIVE_DEBT);
   });
 });

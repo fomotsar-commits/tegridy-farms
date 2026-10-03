@@ -86,7 +86,7 @@ describe('CLAUDE.md', () => {
 describe('the root is a front door', () => {
   // Community files stay at the root because GitHub reads them there; NOTICE.md because
   // LICENSE and the contract sources cite it; slither.config.json is config; GitLab reads
-  // .gitlab-ci.yml only at the root.
+  // .gitlab-ci.yml only at the root, and gitleaks reads .gitleaksignore only there.
   const ROOT_ALLOWLIST = [
     '.claude',
     '.gitattributes',
@@ -94,6 +94,7 @@ describe('the root is a front door', () => {
     '.gitignore',
     '.gitlab-ci.yml',
     '.gitleaks.toml',
+    '.gitleaksignore',
     '.gitmodules',
     '.nvmrc',
     '.vercelignore',

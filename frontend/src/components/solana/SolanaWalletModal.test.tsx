@@ -356,3 +356,55 @@ describe('useSolanaConnect — a saved "Open app" wallet on a phone', () => {
     expect(JSON.parse(localStorage.getItem('walletName') ?? 'null')).toBe('Phantom');
   });
 });
+
+/**
+ * The top bar's address opens this list while a wallet is connected
+ * (lib/solanaSurface.ts, 2026-10-02). Before, no button opened it then, so it
+ * still said "Connect a wallet…", marked the wallet in use only "Detected",
+ * and the Solana pages had no way to disconnect at all.
+ */
+describe('SolanaWalletModal — opened while connected', () => {
+  async function connectPhantom() {
+    const phantom = new FakeWallet('Phantom', WalletReadyState.Installed);
+    const trust = new FakeWallet('Trust', WalletReadyState.Installed);
+    mount([phantom, trust]);
+    const first = await openList();
+    expect(first).toHaveTextContent('Connect a wallet on Solana to continue');
+    fireEvent.click(within(first).getByText('Phantom'));
+    await waitFor(() => expect(phantom.connectCalls).toBe(1));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    return { phantom, trust };
+  }
+
+  it('says Switch, names the wallet in use, and marks its row Connected', async () => {
+    await connectPhantom();
+    const dialog = await openList();
+    expect(dialog).toHaveTextContent('Switch Solana wallet');
+    expect(dialog).not.toHaveTextContent('Connect a wallet on Solana to continue');
+    expect(dialog).toHaveTextContent('Connected as So11…1112.');
+    const rows = within(dialog).getAllByRole('listitem').map((li) => li.textContent);
+    expect(rows).toEqual(['PhantomConnected', 'Trust WalletDetected']);
+  });
+
+  it('closes on a tap of the wallet in use, and connects nothing again', async () => {
+    const { phantom } = await connectPhantom();
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByText('Phantom'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(phantom.connectCalls).toBe(1);
+    expect(phantom.publicKey).not.toBeNull();
+  });
+
+  it('has a Disconnect, which disconnects and closes', async () => {
+    const { phantom } = await connectPhantom();
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
+    await waitFor(() => expect(phantom.publicKey).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // And the list is the connect list again.
+    const again = await openList();
+    expect(again).toHaveTextContent('Connect a wallet on Solana to continue');
+    expect(within(again).queryByRole('button', { name: 'Disconnect' })).toBeNull();
+    expect(within(again).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['PhantomDetected', 'Trust WalletDetected']);
+  });
+});

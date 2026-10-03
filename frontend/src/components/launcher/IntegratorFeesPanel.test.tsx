@@ -9,14 +9,14 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import type { Address } from 'viem';
+import { WaitForTransactionReceiptTimeoutError, type Address } from 'viem';
 
 const INTEGRATOR = '0xD355A072d6bBbA275DBD83A3149f6347b06d1051' as Address;
 const OTHER = '0x00000000000000000000000000000000000000bb' as Address;
 const NATIVE = '0x0000000000000000000000000000000000000000' as Address;
 
 const account = { address: undefined as Address | undefined };
-const waitForTransactionReceipt = vi.fn(async () => ({ status: 'success' }));
+const waitForTransactionReceipt = vi.fn(async (_args?: { hash: string; onReplaced?: (r: unknown) => void }): Promise<{ status: string; transactionHash?: string }> => ({ status: 'success' }));
 const publicClient = { waitForTransactionReceipt };
 const walletClient = { account: {} };
 
@@ -29,11 +29,12 @@ vi.mock('wagmi', () => ({
 // `vi.hoisted` because the sonner factory dereferences these at factory-eval time (the
 // other factories only close over their targets and read them at call time, so plain
 // consts are fine there).
-const { toastSuccess, toastError } = vi.hoisted(() => ({
+const { toastSuccess, toastError, toastWarning } = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
+  toastWarning: vi.fn(),
 }));
-vi.mock('sonner', () => ({ toast: { success: toastSuccess, error: toastError } }));
+vi.mock('sonner', () => ({ toast: { success: toastSuccess, error: toastError, warning: toastWarning } }));
 
 const collectIntegratorFees = vi.fn();
 vi.mock('../../lib/launcher/integratorFees', async (importOriginal) => {
@@ -150,7 +151,8 @@ describe('withdrawing', () => {
       currency: NATIVE,
       amount: 2n * 10n ** 18n,
     });
-    expect(waitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xhash' });
+    // With onReplaced: viem says why a replaced withdrawal was replaced only there.
+    expect(waitForTransactionReceipt).toHaveBeenCalledWith({ hash: '0xhash', onReplaced: expect.any(Function) });
     expect(hookState.refetch).toHaveBeenCalled();
   });
 
@@ -162,5 +164,49 @@ describe('withdrawing', () => {
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('User rejected the request.'));
     expect(toastSuccess).not.toHaveBeenCalled();
     expect(hookState.refetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('withdrawing: a receipt that is not a plain success', () => {
+  const R_HASH = `0x${'ef'.repeat(32)}`;
+  beforeEach(() => {
+    account.address = INTEGRATOR;
+    hookState.fees = [{ currency: NATIVE, amount: 2n * 10n ** 18n, symbol: 'ETH', decimals: 18 }];
+    collectIntegratorFees.mockResolvedValue('0xhash');
+  });
+  const withdraw = () => {
+    render(<IntegratorFeesPanel />);
+    fireEvent.click(screen.getByRole('button', { name: /Withdraw ETH integrator fees/i }));
+  };
+
+  it('an unread receipt says we cannot tell, never an error and never "Withdrew"', async () => {
+    waitForTransactionReceipt.mockImplementationOnce(async () => {
+      throw new WaitForTransactionReceiptTimeoutError({ hash: '0xhash' });
+    });
+    withdraw();
+    await waitFor(() => expect(toastWarning).toHaveBeenCalledWith("We couldn't confirm this transaction", expect.anything()));
+    expect(toastError).not.toHaveBeenCalled();
+    expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it('a wallet CANCEL is not a withdrawal: no "Withdrew", and it says it was cancelled', async () => {
+    // viem resolves a replaced tx with the replacement's receipt, and a cancel's says success.
+    waitForTransactionReceipt.mockImplementationOnce(async (args?: { hash: string; onReplaced?: (r: unknown) => void }) => {
+      args?.onReplaced?.({ reason: 'cancelled', replacedTransaction: { hash: args.hash }, transaction: { hash: R_HASH }, transactionReceipt: {} });
+      return { status: 'success', transactionHash: R_HASH };
+    });
+    withdraw();
+    await waitFor(() => expect(toastWarning).toHaveBeenCalledWith('Transaction cancelled', expect.anything()));
+    expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it('a SPEED-UP is the same withdrawal: it says Withdrew', async () => {
+    waitForTransactionReceipt.mockImplementationOnce(async (args?: { hash: string; onReplaced?: (r: unknown) => void }) => {
+      args?.onReplaced?.({ reason: 'repriced', replacedTransaction: { hash: args.hash }, transaction: { hash: R_HASH }, transactionReceipt: {} });
+      return { status: 'success', transactionHash: R_HASH };
+    });
+    withdraw();
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    expect(toastWarning).not.toHaveBeenCalled();
   });
 });

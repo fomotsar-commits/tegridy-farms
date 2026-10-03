@@ -1,4 +1,4 @@
-import { BUNGALOWS } from './bungalows';
+import { BUNGALOWS, type Bungalow } from './bungalows';
 
 /**
  * WAVE SEVEN, ruling 2 (row Q): EVERY ROUTE SPEAKS AS THE VENUE OR LIVES BEHIND
@@ -68,4 +68,28 @@ export function routeVoice(pathname: string): RouteVoice {
 /** A TOWELI protocol page (not the room's own doors, which ARE the room). */
 export function isToweliRoomPage(pathname: string): boolean {
   return TOWELI_ROOM_PATHS.has(normalize(pathname));
+}
+
+/** The Solana pages whose path alone says so. /earn/<id> and /dashboard are judged below. */
+const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/curve-launch']);
+
+/**
+ * Pages whose wallet action is on Solana, read from the path alone, before
+ * that page's Solana section has loaded: the top bar's first tap there must
+ * never open the Ethereum list (lib/solanaSurface.ts). Once the page's
+ * SolanaProviders mounts, its report is the truth; TopNav reads both.
+ *
+ * /earn/<id> mirrors BungalowFarmPanel: a live Solana room with a pool mounts
+ * a Solana card. /dashboard mirrors DashboardPage: `room` is
+ * getBungalowIdentity(), and a Solana room gets the Solana panel.
+ */
+export function isSolanaPage(pathname: string, room: Pick<Bungalow, 'chain'> | null = null): boolean {
+  const path = normalize(pathname);
+  if (SOLANA_PATHS.has(path) || path.startsWith('/curve-launch/')) return true;
+  if (path === '/dashboard') return room?.chain === 'solana';
+  const id = /^\/earn\/([^/]+)$/.exec(path)?.[1];
+  return (
+    id !== undefined &&
+    BUNGALOWS.some((b) => b.id === id && b.live && b.chain === 'solana' && Boolean(b.stakePool || b.ladderPool))
+  );
 }

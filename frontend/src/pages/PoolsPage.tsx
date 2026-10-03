@@ -13,10 +13,14 @@ import { VenueProgramCard } from '../components/solana/VenueProgramCard';
 import type { VenueStatus } from '../lib/solana/cpswap/read';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 import {
+  CREATOR_FEE_SWITCH,
+  chargedCreatorFeeRate,
   feeSplit,
   solOf,
+  tradeCost,
 } from '../lib/solana/cpswap/venue';
 import { withMint } from '../lib/solana/lp/mintLink';
+import { feeRateText } from '../lib/solana/lp/format';
 
 // The LP finder, positions and fee tiers. Lazy: it brings the Solana wallet stack, which
 // only a live venue needs.
@@ -43,12 +47,20 @@ export default function PoolsPage() {
   // Fees come only from a config the chain returned. With none, the sheet shows no number.
   const liveConfig = status?.kind === 'live' ? status.config : null;
   const split = liveConfig ? feeSplit(liveConfig) : null;
+  // The sheet is about the pools that graduate onto this tier, and the launch program
+  // opens every one with its creator fee switched on: a trade there pays the trade fee
+  // AND the tier's creator fee, so that sum is what "trader pays" must say.
+  const cost = liveConfig ? tradeCost(liveConfig, chargedCreatorFeeRate(liveConfig, CREATOR_FEE_SWITCH.launchPool)) : null;
+  const charged = cost !== null && cost.creatorFeeRate > 0n;
 
   // Every capability claim on this page hangs off the live probe. A spent program
   // id must never be described in the present tense, and "still reading" is not a
-  // licence to assert either — so the conditional copy is the default and the
+  // licence to assert either, so the conditional copy is the default and the
   // present-tense copy is what the probe has to earn.
   const venueIsOpen = liveConfig !== null;
+  // "Anyone can open a pool" is a claim about the tier the probe read: cp-swap refuses
+  // every new pool on a tier whose `disable_create_pool` is set.
+  const tierTakesPools = liveConfig !== null && !liveConfig.disableCreatePool;
   // Fixed for the life of a build: a production build reads only the committed constant.
   const lpMode = lpWriteMode();
   // The token being looked at (?mint=) follows the reader to the Solana LP tab.
@@ -70,11 +82,14 @@ export default function PoolsPage() {
             Liquidity pools.
           </h1>
           <p className="text-white/85 text-[15px] max-w-xl leading-relaxed">
-            {venueIsOpen ? (
+            {liveConfig ? (
               <>
-                Our own constant-product AMM on Solana. Anyone can open a pool or provide
-                liquidity on chain, and the trade fee is split between the LPs who funded it
-                and the venue. {HERO_LP_LINE[lpMode]}
+                Our own constant-product AMM on Solana.{' '}
+                {tierTakesPools
+                  ? 'Anyone can open a pool or provide liquidity on chain'
+                  : `Anyone can provide liquidity on chain (opening new pools on fee tier ${liveConfig.index} is switched off right now)`}
+                , and the trade fee is split between the LPs who funded it and the venue.{' '}
+                {HERO_LP_LINE[lpMode]}
               </>
             ) : (
               <>
@@ -109,16 +124,21 @@ export default function PoolsPage() {
             </p>
           </div>
           <h2 className="heading-luxury text-xl text-white mb-4">
-            {split
-              ? `${split.traderPaysPct}% a trade, ${split.lpKeepsPct.toFixed(2)}% of it to you`
+            {split && cost
+              ? `${feeRateText(cost.totalRate)} a trade, ${split.lpKeepsPct.toFixed(2)}% of it to you`
               : feesNotRead(status).title}
           </h2>
 
-          {liveConfig && split && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-              <Stat label="Trader pays" value={`${split.traderPaysPct}%`} sub="of each trade" />
+          {liveConfig && split && cost && (
+            <div className={`grid grid-cols-2 gap-3 mb-4 ${charged ? 'sm:grid-cols-3 md:grid-cols-5' : 'sm:grid-cols-4'}`}>
+              <Stat
+                label="Trader pays"
+                value={feeRateText(cost.totalRate)}
+                sub={charged ? `${feeRateText(cost.tradeFeeRate)} trade fee + ${feeRateText(cost.creatorFeeRate)} creator fee` : 'of each trade'}
+              />
               <Stat label="LPs keep" value={`${split.lpKeepsPct.toFixed(2)}%`} sub="of volume" tone="good" />
-              <Stat label="Venue takes" value={`${split.venueTakesPct.toFixed(2)}%`} sub={`${split.venueShareOfFeePct}% of the fee`} />
+              <Stat label="Venue takes" value={`${split.venueTakesPct.toFixed(2)}%`} sub={`${split.venueShareOfFeePct}% of the trade fee`} />
+              {charged && <Stat label="Creator gets" value={feeRateText(cost.creatorFeeRate)} sub="on top, to the token’s creator" />}
               <Stat
                 label="Open a pool"
                 value={`${solOf(liveConfig.createPoolFee)} SOL`}
@@ -131,10 +151,18 @@ export default function PoolsPage() {
             {liveConfig ? (
               <>
                 These are the live <code className="font-mono text-white/85">AmmConfig</code> rates
-                of fee tier {liveConfig.index}, where launches graduate, read from the chain on
-                load — not a copy in this page. Retuning them on chain changes this card without a
-                deploy. Pools opened from this site use the public fee tier instead; the fee tiers
-                in the pools section below are read live for both.
+                of fee tier {liveConfig.index}, where launches graduate, read from the chain when
+                this page loads, not copied into it. Retuning them on chain changes this card
+                without a deploy.{' '}
+                {charged && (
+                  <>
+                    A launch pool charges the creator fee on top of the trade fee and pays it to the
+                    token&rsquo;s creator: the launch program opens every launch pool with it switched
+                    on. A pool opened on this tier any other way charges only the trade fee.{' '}
+                  </>
+                )}
+                Pools opened from this site use the public fee tier instead; the fee tiers in the
+                pools section below are read live for both.
               </>
             ) : (
               feesNotRead(status).line

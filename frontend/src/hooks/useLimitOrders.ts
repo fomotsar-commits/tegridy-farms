@@ -7,8 +7,7 @@ import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, TEGRIDY_ROUTER_ABI, ERC20_A
 import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_ROUTER_ADDRESS, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
 import { resolveLimitFill } from '../lib/limitOrderMath';
-import { surfaceUnconfirmedTx } from '../lib/txErrors';
-import { getTxUrl } from '../lib/explorer';
+import { readReceiptOutcome, surfaceReceiptNotice, waitForReceiptOutcome, type DirectReceiptOutcome } from '../lib/txErrors';
 
 export interface LimitOrder {
   id: string;
@@ -140,6 +139,9 @@ function loadOrders(address: string): LimitOrder[] {
     return [];
   }
 }
+
+/** What to say about sending an order's swap again, if the one we could not read landed. */
+const REPEAT_COST = 'placing the order again swaps a second time. This order waits until it can read the result.';
 
 /** False when the write did not land (storage full or blocked). */
 function saveOrders(address: string, orders: LimitOrder[]): boolean {
@@ -288,19 +290,28 @@ export function useLimitOrders() {
 
   /**
    * Settle a sent order from a receipt we READ. Keyed on the hash, so the live
-   * waiter and a later re-read of the same receipt settle it once.
+   * waiter and a later re-read of the same receipt settle it once. A swap the
+   * wallet replaced (a cancel, or another call at its nonce) never ran, so the
+   * order goes back to active. A speed-up filled it, and the order keeps the hash
+   * that mined: the one it was sent with never will.
    */
-  const settleOrder = useCallback((id: string, hash: `0x${string}`, succeeded: boolean) => {
+  const settleOrder = useCallback((
+    id: string,
+    hash: `0x${string}`,
+    outcome: Exclude<DirectReceiptOutcome<unknown>, { kind: 'unreadable' }>,
+  ) => {
     executingRef.current.delete(id); // terminal — drop tracking
     // While this tab's writes are not landing, its orders are not in storage.
     const held = storageHoldsListRef.current && address ? loadOrders(address) : ordersRef.current;
     const current = held.find(o => o.id === id);
     if (current?.status === 'executing' && current.txHash === hash) {
-      patchOrder(id, o => (succeeded
-        ? { ...o, status: 'filled' as const }
+      const mined = outcome.kind === 'success' ? outcome.replacement?.hash ?? hash : undefined;
+      patchOrder(id, o => (mined
+        ? { ...o, status: 'filled' as const, txHash: mined }
         : { ...o, status: 'active' as const, txHash: undefined }));
-      if (succeeded) toast.success('Limit order confirmed on-chain!');
-      else toast.error('Limit order transaction reverted on-chain.');
+      if (outcome.kind === 'success') toast.success('Limit order confirmed on-chain!');
+      else if (outcome.kind === 'reverted') toast.error('Limit order transaction reverted on-chain.');
+      else surfaceReceiptNotice(toast, outcome, { hash, chainId: CHAIN_ID, repeatCost: REPEAT_COST });
     }
     releaseTabLock(id);
   }, [address, patchOrder]);
@@ -313,35 +324,29 @@ export function useLimitOrders() {
 
   const waitForReceipt = useCallback(async (hash: `0x${string}`, orderId: string) => {
     if (!publicClient) return;
-    let receipt;
-    try {
-      receipt = await publicClient.waitForTransactionReceipt({ hash });
-    } catch (err) {
-      // viem RETURNS a reverted receipt, so this catch only means we could not
-      // read one: nothing is known about the swap. It is not a failure, and the
-      // order stays 'executing' with its txHash, which the poller never fires; it
-      // re-reads the hash instead. "Failed" here used to put the order back to
-      // 'active', and the next poll swapped a second time.
+    const outcome = await waitForReceiptOutcome(publicClient, hash);
+    if (outcome.kind === 'unreadable') {
+      // viem RETURNS a reverted receipt, so this only means we could not read one:
+      // nothing is known about the swap. It is not a failure, and the order stays
+      // 'executing' with its txHash, which the poller never fires; it re-reads the
+      // hash instead. "Failed" here used to put the order back to 'active', and the
+      // next poll swapped a second time.
       executingRef.current.delete(orderId);
       releaseTabLock(orderId);
-      surfaceUnconfirmedTx(toast, {
-        hash,
-        explorerUrl: getTxUrl(CHAIN_ID, hash),
-        repeatCost: 'placing the order again swaps a second time. This order waits until it can read the result.',
-      });
-      if (import.meta.env.DEV) console.error('Limit order waitForTransactionReceipt error:', err);
+      surfaceReceiptNotice(toast, outcome, { hash, chainId: CHAIN_ID, repeatCost: REPEAT_COST });
+      if (import.meta.env.DEV) console.error('Limit order receipt wait error:', outcome.error);
       return;
     }
-    settleOrder(orderId, hash, receipt.status === 'success');
+    settleOrder(orderId, hash, outcome);
   }, [publicClient, settleOrder]);
 
   /** Re-read the receipt of an order sent earlier. Still unreadable: keep waiting. */
   const recheckSent = useCallback((id: string, hash: `0x${string}`) => {
     if (!publicClient) return;
-    publicClient.getTransactionReceipt({ hash }).then(
-      receipt => settleOrder(id, hash, receipt.status === 'success'),
-      () => { /* still unreadable; the warning already said so */ },
-    );
+    void readReceiptOutcome(publicClient, hash).then((outcome) => {
+      // Still unreadable: keep waiting; the warning already said so.
+      if (outcome.kind !== 'unreadable') settleOrder(id, hash, outcome);
+    });
   }, [publicClient, settleOrder]);
 
   const executeOrder = useCallback(async (order: LimitOrder) => {
