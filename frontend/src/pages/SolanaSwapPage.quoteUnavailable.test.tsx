@@ -168,6 +168,33 @@ describe('SolanaSwapPage: a quote that could not be FETCHED is never worded as "
     expect(tryAgain()).not.toBeNull();
     expect(receive()).toBe('–');
   });
+
+  it('a re-quote that fails takes the old quote off the screen and disarms the buy', async () => {
+    // The page keeps the last quote for the same pair on screen while it asks
+    // for a new one. If the new one does not come back, nothing of the old one
+    // may be left to press Buy on: it was priced for a different amount.
+    h.getQuote.mockResolvedValueOnce(QUOTE);
+    h.getQuote.mockRejectedValue(new Error('Quote unavailable (502)'));
+    render(<SolanaSwapPage />);
+    await typeAndLetTheQuoteEnd();
+    await waitFor(() => expect(cta()).toBeEnabled());
+    expect(receive()).toBe('14.925');
+    expect(document.body.textContent).toContain('Minimum received');
+
+    fireEvent.change(amountInput(), { target: { value: '0.2' } });
+    // Off for the whole time the new quote is being asked for.
+    expect(cta()).toBeDisabled();
+    await waitFor(() => expect(h.getQuote).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(cta()).not.toHaveTextContent('Fetching quote…'));
+
+    expect(receive()).toBe('–');
+    expect(document.body.textContent).not.toContain('14.925');
+    expect(document.body.textContent).not.toContain('Minimum received');
+    expect(cta()).toBeDisabled();
+    expect(cta()).toHaveTextContent('Quote unavailable');
+    expect(tryAgain()).not.toBeNull();
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
 });
 
 describe('SolanaSwapPage: only the quote service’s own answer says "No route"', () => {

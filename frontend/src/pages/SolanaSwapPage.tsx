@@ -484,8 +484,10 @@ function useTokenBalance(token: SolToken): {
           amount = resp.value.reduce((sum, a) => {
             const v = (a.account.data.parsed as { info?: { tokenAmount?: { amount?: string } } } | undefined)?.info?.tokenAmount?.amount;
             // An account that came back without an amount is not an empty one:
-            // the sum is not known, so the whole read counts as failed.
-            if (typeof v !== 'string') throw new Error('a token account came back without an amount');
+            // the sum is not known, so the whole read counts as failed. Plain
+            // digits only: BigInt('') is 0n and BigInt('0x10') is 16n, and
+            // neither is an amount the RPC sent.
+            if (typeof v !== 'string' || !/^\d+$/.test(v)) throw new Error('a token account came back without an amount');
             return sum + BigInt(v);
           }, 0n);
         }

@@ -147,6 +147,22 @@ describe('SolanaSwapPage: a balance read that FAILED is not printed as 0', () =>
     expect(maxButton()).toBeNull();
   });
 
+  it.each([
+    // BigInt('') is 0n and BigInt('0x10') is 16n: neither is an amount the RPC
+    // sent, so neither may be added up as one.
+    ['an empty string', ''],
+    ['a string that is not plain digits', '0x10'],
+  ])('a token account whose amount is %s is unread too, never summed as a number', async (_name, amount) => {
+    h.getTokenAccounts.mockResolvedValue({ value: [tokenAccount('2500000'), tokenAccount(amount)] });
+    open('USDC');
+
+    const line = await readEnded();
+    expect(line).not.toMatch(/\d/);
+    expect(line).toBe('Balance: –');
+    expect(maxButton()).toBeNull();
+    expect(notice()).not.toBeNull();
+  });
+
   it('Retry reads again, and a read that lands prints the number and brings MAX back', async () => {
     h.getBalance.mockRejectedValueOnce(new Error('429 Too Many Requests'));
     h.getBalance.mockResolvedValue(5_000_000_000);
