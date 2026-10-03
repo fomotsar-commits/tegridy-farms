@@ -583,3 +583,25 @@ describe('an "Open app" row hands the page to the wallet app', () => {
     expect(toasts.toast).not.toHaveBeenCalled();
   });
 });
+
+// Tab storage blocked (Chrome with cookies blocked, a full store): the marker is
+// not written, so the page in the wallet's app will wait for a press. The notice
+// said it "connects there" all the same (skeptic, 2026-10-03).
+// MUTATION CHECK: show the first sentence whatever markSolanaHandoff returns; this must fail.
+describe('an "Open app" row where the marker cannot be written', () => {
+  it('hands the wallet the plain address and tells the visitor to press Connect there', async () => {
+    window.history.replaceState(null, '', '/earn');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    });
+    const trust = new FakeWallet('Trust', WalletReadyState.Loadable);
+    mount([trust]);
+    const dialog = await openList();
+    fireEvent.click(within(dialog).getByText('Trust Wallet'));
+    await waitFor(() => expect(trust.connectCalls).toBe(1));
+    expect(trust.hrefAtConnect).toBe(`${window.location.origin}/earn`);
+    expect(toasts.toast.mock.calls[0]![0]).toBe(
+      'Opening Trust Wallet. This site opens again inside the Trust Wallet app. Press Connect there.',
+    );
+  });
+});

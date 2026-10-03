@@ -364,10 +364,39 @@ describe('solanaSurface: a hand-off into a wallet app carries on there', () => {
     noteSolanaHandoffArrival();
     expect(address()).toBe('/pools');
     expect(solanaHandoffPending()).toBe(false);
-    // The note is used once: a real hand-off INTO this tab later is honoured.
+    // And again: a second press, a second reload. The note lasts as long as the
+    // tab. Used up by the first load, the second was taken for a real arrival
+    // and the wallet list opened by itself.
+    // MUTATION CHECK: put the removeItem(HANDOFF_SENT_KEY) back; this must fail.
     window.history.replaceState(null, '', `/pools?${SOLANA_HANDOFF_PARAM}=1`);
     noteSolanaHandoffArrival();
-    expect(solanaHandoffPending()).toBe(true);
+    expect(address()).toBe('/pools');
+    expect(solanaHandoffPending()).toBe(false);
+  });
+
+  // A link pressed inside the three seconds leaves the marked address in the
+  // tab's history, and the timer only ever cleans the address the tab is on.
+  // MUTATION CHECK: drop the popstate listener; this must fail.
+  it('Back onto an address still carrying the marker takes it out, and arms nothing', () => {
+    onAPhone();
+    window.history.replaceState(null, '', `/?${SOLANA_HANDOFF_PARAM}=1`);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(address()).toBe('/');
+    expect(solanaHandoffPending()).toBe(false);
+  });
+
+  // Tab storage blocked or full: the note cannot be kept, so the marker is not
+  // written, and the caller is told, because its notice must not promise the
+  // carry-on. MUTATION CHECK: return true from the catch; this must fail.
+  it('says so when the marker could not be written', () => {
+    window.history.replaceState(null, '', '/earn');
+    expect(markSolanaHandoff()).toBe(true);
+    window.history.replaceState(null, '', '/earn');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    });
+    expect(markSolanaHandoff()).toBe(false);
+    expect(address()).toBe('/earn');
   });
 
   // MUTATION CHECK: drop the pagehide listener in markSolanaHandoff; this must fail.

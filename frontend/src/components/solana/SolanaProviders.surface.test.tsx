@@ -468,3 +468,94 @@ describe('a page opened by a hand-off carries on by itself', () => {
     expect(phantom.connectCalls).toBe(0);
   });
 });
+
+// THE REAL top-bar connection, with the real adapters, over a wallet planted on
+// the page the way Trust plants its own (window.trustwallet.solana). The fakes
+// above cannot see this: their autoConnect does nothing, and the real Trust
+// adapter's restore is a FULL connect, the wallet's own prompt.
+//
+// A link can start a hand-off, and a hand-off mounts the top bar's connection.
+// WalletProvider's plain autoConnect then restored whatever wallet name was
+// saved: in an ordinary phone browser a link made a wallet the visitor had
+// disconnected reconnect, or prompt, with no press (skeptic, 2026-10-03).
+//
+// MUTATION CHECK: SolanaProviders.tsx, give the top bar's own connection plain
+// `autoConnect` again. The first two tests must fail (the wallet is asked).
+describe("a hand-off never switches on the restore of a wallet that did not connect here", () => {
+  const ANDROID_CHROME =
+    'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
+  const ANDROID_IN_APP =
+    'Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.0.0 Mobile Safari/537.36';
+  type Planted = { trustwallet?: unknown };
+  let asked = 0;
+
+  const plantTrust = () => {
+    asked = 0;
+    (window as unknown as Planted).trustwallet = {
+      solana: {
+        isTrust: true,
+        isConnected: false,
+        publicKey: null,
+        async connect() {
+          asked += 1;
+          return { publicKey: WSOL };
+        },
+        async disconnect() {},
+        on() {},
+        off() {},
+      },
+    };
+  };
+  const arrive = (userAgent: string) => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(userAgent);
+    window.history.replaceState(null, '', `/?${SOLANA_HANDOFF_PARAM}=1`);
+    noteSolanaHandoffArrival();
+  };
+
+  afterEach(() => {
+    delete (window as unknown as Planted).trustwallet;
+  });
+
+  it.each([
+    ['the visitor disconnected it', '0'],
+    ['it never connected in this browser', null],
+  ])('in an ordinary phone browser a saved wallet is not asked where %s: the list opens', async (_label, restore) => {
+    vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', '');
+    plantTrust();
+    localStorage.setItem('walletName', JSON.stringify('Trust'));
+    if (restore !== null) localStorage.setItem('tegridy-solana-restore', restore);
+    arrive(ANDROID_CHROME);
+    render(<TopBarSolanaProviders />);
+    expect(await screen.findByRole('dialog')).toHaveTextContent('on Solana to continue');
+    await act(async () => {});
+    expect(asked).toBe(0);
+    expect(getSolanaSurfaceState().surface!.address).toBeNull();
+  });
+
+  // The control: what really connected here before is still restored.
+  it('still restores a wallet that really connected in this browser', async () => {
+    vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', '');
+    plantTrust();
+    localStorage.setItem('walletName', JSON.stringify('Trust'));
+    localStorage.setItem('tegridy-solana-restore', '1');
+    render(<TopBarSolanaProviders />);
+    await act(async () => {});
+    await act(async () => {});
+    expect(asked).toBe(1);
+    expect(getSolanaSurfaceState().surface!.address).toBe(WSOL);
+  });
+
+  // And inside the wallet's own browser the hand-off still asks it, once.
+  it("inside the wallet's own browser the saved wallet is asked once, by the hand-off", async () => {
+    vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', '');
+    plantTrust();
+    localStorage.setItem('walletName', JSON.stringify('Trust'));
+    arrive(ANDROID_IN_APP);
+    render(<TopBarSolanaProviders />);
+    await act(async () => {});
+    await act(async () => {});
+    expect(asked).toBe(1);
+    expect(getSolanaSurfaceState().surface!.address).toBe(WSOL);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});

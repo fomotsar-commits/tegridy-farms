@@ -94,14 +94,26 @@ const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana
  * getBungalowIdentity(), and a Solana room gets the Solana panel.
  */
 export function isSolanaPage(pathname: string, room: Pick<Bungalow, 'chain'> | null = null): boolean {
-  const path = normalize(pathname);
-  if (SOLANA_PATHS.has(path)) return true;
+  const exact = normalize(pathname);
+  // As written only: these four are tabs whose own match is exact (/POOLS draws
+  // the Ethereum tab, with no Solana section).
+  if (SOLANA_PATHS.has(exact)) return true;
+  // The rest are routes the router matches whatever their case, after decoding
+  // them: /Earn/bobo and /earn/%62obo draw the Solana pool, and read as "no
+  // Solana section" here they were /solana-lp over again (skeptic, 2026-10-03).
+  // The mint and the pool id stay as written, as the pages read them.
+  let path = exact;
+  try {
+    path = decodeURI(exact);
+  } catch {
+    /* a malformed escape: judged as written */
+  }
   // One launch's page mounts its Solana section for a real mint address only;
   // a mistyped one draws "Not a token address", with no wallet section at all.
-  const mint = /^\/curve-launch\/([^/]+)$/.exec(path)?.[1];
+  const mint = /^\/curve-launch\/([^/]+)$/i.exec(path)?.[1];
   if (mint !== undefined) return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint);
-  if (path === '/dashboard') return room?.chain === 'solana';
-  const id = /^\/earn\/([^/]+)$/.exec(path)?.[1];
+  if (path.toLowerCase() === '/dashboard') return room?.chain === 'solana';
+  const id = /^\/earn\/([^/]+)$/i.exec(path)?.[1];
   return (
     id !== undefined &&
     BUNGALOWS.some((b) => b.id === id && b.live && b.chain === 'solana' && Boolean(b.stakePool || b.ladderPool))

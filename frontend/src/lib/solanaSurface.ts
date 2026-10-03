@@ -166,6 +166,12 @@ const HANDOFF_KEY = 'tegridy-solana-handoff';
  * that loads the marked address again in the SAME browser, which is not the
  * wallet's. So does Back from the wallet's link page. The wallet's own browser
  * has its own storage and never sees this note.
+ *
+ * IT LASTS AS LONG AS THE TAB. It was used up by the first marked load, and a
+ * second one in the same tab (a second press, another reload) was then taken
+ * for a real arrival: the wallet list opened by itself (skeptic, 2026-10-03).
+ * A tab that offered "Open app" rows is never a wallet's own browser, so
+ * nothing real is lost by keeping it.
  */
 const HANDOFF_SENT_KEY = 'tegridy-solana-handoff-sent';
 /** A hand-off nothing answered (no wallet in this browser after all) stops waiting. */
@@ -188,28 +194,38 @@ function withoutHandoffMarker(href: string): string | null {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-/** An "Open app" row was pressed: the address the wallet is about to be handed carries the marker. */
-export function markSolanaHandoff(): void {
-  if (typeof window === 'undefined') return;
+/** Takes the marker out of the address this tab is on. It arms nothing. */
+function unmarkAddress(): void {
+  try {
+    const clean = withoutHandoffMarker(window.location.href);
+    if (clean !== null) window.history.replaceState(window.history.state, '', clean);
+  } catch {
+    /* the page has moved on */
+  }
+}
+
+/**
+ * An "Open app" row was pressed: the address the wallet is about to be handed
+ * carries the marker. False when it could not be made to: tab storage that is
+ * blocked or full cannot hold the note above, and without the note the marker
+ * is not written, so the page that opens in the wallet's app will not carry on
+ * by itself. The caller's notice must not promise that it will.
+ */
+export function markSolanaHandoff(): boolean {
+  if (typeof window === 'undefined') return false;
   try {
     const url = new URL(window.location.href);
-    if (url.searchParams.has(SOLANA_HANDOFF_PARAM)) return;
+    if (url.searchParams.has(SOLANA_HANDOFF_PARAM)) return true;
     url.searchParams.set(SOLANA_HANDOFF_PARAM, '1');
     window.sessionStorage.setItem(HANDOFF_SENT_KEY, '1');
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
-    const unmark = () => {
-      try {
-        const clean = withoutHandoffMarker(window.location.href);
-        if (clean !== null) window.history.replaceState(window.history.state, '', clean);
-      } catch {
-        /* the page has moved on */
-      }
-    };
-    window.setTimeout(unmark, HANDOFF_MARK_MS);
+    window.setTimeout(unmarkAddress, HANDOFF_MARK_MS);
     // A tab that leaves for the wallet's link page takes the marker out on its way.
-    window.addEventListener('pagehide', unmark, { once: true });
+    window.addEventListener('pagehide', unmarkAddress, { once: true });
+    return true;
   } catch {
-    /* an address that cannot be rewritten: the hand-off still happens, without the carry-on */
+    // The hand-off still happens, without the carry-on.
+    return false;
   }
 }
 
@@ -220,17 +236,19 @@ export function noteSolanaHandoffArrival(): void {
     const clean = withoutHandoffMarker(window.location.href);
     if (clean === null) return;
     window.history.replaceState(window.history.state, '', clean);
-    // This tab made that hand-off itself: it is the browser that was left, not the wallet's.
-    if (window.sessionStorage.getItem(HANDOFF_SENT_KEY)) {
-      window.sessionStorage.removeItem(HANDOFF_SENT_KEY);
-      return;
-    }
+    // This tab made a hand-off itself: it is the browser that was left, not the wallet's.
+    if (window.sessionStorage.getItem(HANDOFF_SENT_KEY)) return;
     if (isPhoneOrTablet()) window.sessionStorage.setItem(HANDOFF_KEY, String(Date.now()));
   } catch {
     /* blocked storage or no URL API: the visitor presses Connect, as before */
   }
 }
 noteSolanaHandoffArrival();
+// A link pressed inside the three seconds leaves the marked address in the
+// tab's history, where the timer never looks again: Back put the marker in the
+// address bar for good. It is taken out as the tab arrives there, before the
+// router (which listens later) reads the address. Nothing is armed by it.
+if (typeof window !== 'undefined') window.addEventListener('popstate', unmarkAddress);
 
 /** This tab was opened by a hand-off that nothing has answered yet. */
 export function solanaHandoffPending(): boolean {

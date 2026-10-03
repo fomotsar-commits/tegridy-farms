@@ -273,6 +273,25 @@ test.describe('the hand-off into a wallet app', () => {
     expect(new URL(page.url()).searchParams.has('solana-connect')).toBe(false);
   });
 
+  // The same browser, with that wallet's name saved and the visitor having
+  // disconnected it. A hand-off mounts the top bar's connection, and its plain
+  // restore reconnected the saved wallet in silence: a link undid a Disconnect.
+  // MUTATION CHECK: SolanaProviders.tsx, plain `autoConnect` on the top bar's
+  // own connection. This must fail (the address shows with no press).
+  test('nor does such a link restore a saved wallet the visitor disconnected', async ({ page, context }) => {
+    await installConnectOnlySolanaWallet(context);
+    await page.addInitScript((name) => {
+      try {
+        localStorage.setItem('walletName', JSON.stringify(name));
+        localStorage.setItem('tegridy-solana-restore', '0');
+      } catch { /* private mode */ }
+    }, CONNECT_ONLY_WALLET_NAME);
+    await page.goto('/?solana-connect=1');
+    await expect(solanaList(page)).toBeVisible({ timeout: 30_000 });
+    await expect(walletsChip(page)).toHaveCount(0);
+    await expect(topBarConnect(page)).toBeVisible();
+  });
+
   test('with no wallet in the browser the same address asks for nothing and opens nothing', async ({ page }) => {
     await page.goto('/?solana-connect=1');
     await expect(topBarConnect(page)).toBeVisible({ timeout: 30_000 });

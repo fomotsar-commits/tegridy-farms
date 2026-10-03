@@ -27,6 +27,7 @@ import {
   SOLANA_CONNECT_WAIT_NOTICE_MS,
   setSolanaSurface,
   solanaHandoffPending,
+  solanaWasConnectedHere,
   takeSolanaHandoff,
   takeSolanaOpenRequest,
   useSolanaSurface,
@@ -191,6 +192,21 @@ export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
 }
 
 /**
+ * Mounted for a hand-off, the top bar's own connection restores a saved wallet
+ * only where one really connected in this browser and was not disconnected
+ * since: the rule TopBarSolana uses to decide whether to mount it at all on a
+ * later visit. A hand-off is started by a marker in the address, which anyone
+ * can write into a link, and WalletProvider's plain `autoConnect` restores
+ * whatever name is saved. In an ordinary phone browser such a link reconnected
+ * a wallet the visitor had never connected here, and made a wallet whose
+ * restore is a full connect (Trust's injected provider) prompt with no press
+ * (skeptic, 2026-10-03). Mounted by the visitor's own press on the Solana row,
+ * it restores as before. A page's own connection keeps the plain rule: it is
+ * mounted by the page, never by a link.
+ */
+const restoreOwn = async () => !solanaHandoffPending() || solanaWasConnectedHere();
+
+/**
  * `own` marks the top bar's own connection (TopBarSolanaProviders below), the
  * one mounted where the page has no Solana section. Every page site leaves it
  * unset.
@@ -217,7 +233,7 @@ export function SolanaProviders({ children, own = false }: { children: ReactNode
   );
   return (
     <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
-      <WalletProvider wallets={wallets} autoConnect>
+      <WalletProvider wallets={wallets} autoConnect={own ? restoreOwn : true}>
         <SolanaWalletModalProvider>
           <SolanaSurfaceBridge own={own} />
           {children}

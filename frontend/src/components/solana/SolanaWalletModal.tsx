@@ -250,11 +250,15 @@ function SolanaWalletModal() {
       // the page left behind here says where the connect went.
       if (opensInWalletApp(clicked.readyState, clicked.adapter.name)) {
         const label = walletLabel(clicked.adapter.name);
-        markSolanaHandoff();
+        // Not carried where tab storage is blocked: the page in the app then waits for a press.
+        const carried = markSolanaHandoff();
         // Long, because the wallet's app covers this page a moment after the press.
-        toast(`Opening ${label}. This site opens again inside the ${label} app, and connects there.`, {
-          duration: HANDOFF_NOTICE_MS,
-        });
+        toast(
+          carried
+            ? `Opening ${label}. This site opens again inside the ${label} app, and connects there.`
+            : `Opening ${label}. This site opens again inside the ${label} app. Press Connect there.`,
+          { duration: HANDOFF_NOTICE_MS },
+        );
       }
       setScanFor(
         wallet === clicked ? null : { label: walletLabel(clicked.adapter.name), installUrl: clicked.adapter.url },
