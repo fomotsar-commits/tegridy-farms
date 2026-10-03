@@ -73,7 +73,7 @@ function OwnSolanaProviders() {
 }
 
 export function TopBarSolana({ solanaPage }: { solanaPage: boolean }) {
-  const { page, ownWanted, ownFailed } = useSolanaSurface();
+  const { page, ownWanted } = useSolanaSurface();
 
   // A wallet connected on an earlier visit: restore it here too, so the address
   // is in the top bar on every page and not only on the Solana ones.
@@ -84,7 +84,7 @@ export function TopBarSolana({ solanaPage }: { solanaPage: boolean }) {
     return () => clearTimeout(timer);
   }, []);
 
-  if (!ownWanted || ownFailed || solanaPage || page) return null;
+  if (!ownWanted || solanaPage || page) return null;
   return (
     <ErrorBoundary fallback={<ReportFailed />}>
       <OwnSolanaProviders />

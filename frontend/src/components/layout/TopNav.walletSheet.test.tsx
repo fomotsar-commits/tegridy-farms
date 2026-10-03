@@ -258,9 +258,15 @@ describe("TopNav: the Solana row loads the top bar's own connection on first use
     expect(screen.queryByRole('dialog')).toBeNull();
     reportOwn({ open: solOpen });
     expect(solOpen).not.toHaveBeenCalled();
-    // And the sheet, opened again, is not still "loading".
+    // And the sheet, opened again, is an ordinary sheet: it stays open, it is
+    // not "loading", and closing it opens nothing. (Still "waiting", it closed
+    // itself the moment it opened and put the list up, uninvited.)
     openSheet();
+    expect(screen.getByRole('dialog')).toBeTruthy();
     expect(solanaRow()).not.toHaveAttribute('aria-busy');
+    fireEvent.click(within(sheet()).getByRole('button', { name: 'Close dialog' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(solOpen).not.toHaveBeenCalled();
   });
 
   // A failed chunk or stylesheet is not fetched again in the same tab, and after
@@ -339,6 +345,16 @@ describe('TopNav: the chip, off the Solana pages, lists both networks', () => {
     expect(toastMock).toHaveBeenCalledTimes(1);
     expect(toastMock).toHaveBeenCalledWith('Solana wallet So11…1112 connected. Tap your wallet at the top to see both.');
     expect(within(banner()).getByRole('button', { name: 'Your wallets' })).toHaveTextContent('0x71…5788');
+  });
+
+  // A wallet restored on page load, or connected on a Solana page a moment
+  // ago: nobody asked this sheet for it, so it is not announced.
+  it('says nothing in a toast for a Solana connection the sheet did not ask for', () => {
+    rk.account = { displayName: '0x71…5788' };
+    mount('/');
+    reportOwn({ open: vi.fn(), address: WALLET_ADDRESS });
+    fireEvent.click(within(banner()).getByRole('button', { name: 'Your wallets' }));
+    expect(toastMock).not.toHaveBeenCalled();
   });
 
   it('says nothing in a toast where the chip itself shows the new Solana address', () => {
