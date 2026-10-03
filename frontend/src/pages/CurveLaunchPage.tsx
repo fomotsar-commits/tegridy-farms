@@ -674,8 +674,19 @@ export function CurveLaunchView({
         {write ?? (
           <>
         {/* THE DOOR on our own curve rail, reading the connected Solana wallet. Same
-            primitive as the other rails: one rule, read live, in one place. */}
-        <LaunchGate rail="solana" wallet={wallet?.address ?? null} below={<VenueLaunchLines rail="solana" />} />
+            primitive as the other rails: one rule, read live, in one place. No launch can
+            be made from this view, so the door shows the reading and says so, in the same
+            two cases as the trade panel's note. */}
+        <LaunchGate
+          rail="solana"
+          wallet={wallet?.address ?? null}
+          below={<VenueLaunchLines rail="solana" />}
+          launchingOff={
+            gateBanner != null
+              ? 'Launching is not open right now. The note above says why.'
+              : 'Launching here is not switched on yet.'
+          }
+        />
 
         <Card title="Look up a launch">
           <p>Open a launch by its token address (mint). This view has no list of launches.</p>
