@@ -15,6 +15,158 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-03: a button disabled "while connecting" is a dead end when the wallet never answers
+
+**Believed:** the site could not see Phantom ("it wont even recognize my phantom wallet", the
+owner's words), so the fault was in wallet detection.
+
+**Measured:** in the owner's browser `window.phantom.solana.isPhantom` was true and a Wallet
+Standard wallet named Phantom was registered with the Solana chains; the swap card read
+"Connecting…" and was disabled, and the top bar's Connect did nothing. On production, a
+Wallet Standard wallet named Phantom whose `standard:connect` returned a promise that never
+settles, with `walletName` saved, gave the same screen 9 and 30 seconds after load: card
+disabled, top bar `aria-disabled`, no dialog. wallet-adapter-react 0.15.39 keeps
+`connecting` true until that promise settles, and resets it only when the adapter changes
+or emits `disconnect`. The page connected by itself once the real wallet answered.
+
+**Do:** never tie `disabled` to a promise that the user's own wallet settles. Keep the
+control pressable and let the press lead somewhere (here the wallet list, where another
+wallet can be picked: the provider resets on an adapter change), and say which wallet is
+being waited on. Do not cancel the wait: an approval prompt may be open. A second connect
+on the same Standard wallet does nothing while the first is pending (`StandardWalletAdapter`
+1.1.5 returns early), so retrying the same wallet needs it to answer, or a reload. Fixed
+in PR #715. A scripted `button.click()` on Connect in someone's real browser starts a real
+wallet prompt that only they can answer: say so when a probe does that.
+
+## 2026-10-03: a form that only greys out its button reads as "it does not work"
+
+**Believed:** the open-a-pool form was broken or missing ("i still am not able to create lp
+on solana").
+
+**Measured:** in the owner's browser the form was open and correct. Under its two boxes, in
+10px grey, it said "You have 0.005960758 SOL. Up to 0 SOL can go in after the fee to open,
+the account deposits and network fees." and "You have 0 tokens.", and Review was greyed
+out. Opening needs about 0.183 SOL before any SOL goes into the pool: a wallet with
+0.879012984 SOL was told 0.695744984 could go in.
+
+**Do:** when nothing the visitor types can make the button work, say that in one sentence
+beside the button, with the number needed and the number held, before anything is typed.
+A hint under an input answers "what is the most I can enter", not "why can I not proceed".
+Done for the open and add forms in PR #716 (`cannotFundText`).
+
+## 2026-10-03: a live money flow can be walked to the sign step with a wallet that is only a public address
+
+**Believed:** checking the live site's open, add and remove flows needs a real wallet with
+real money, or a local validator.
+
+**Measured:** against https://memetics.finance at trunk a5c3d19a, Playwright registered a
+Wallet Standard wallet whose account was a public mainnet address
+(3wAjKgQN6HEV58wgsbedVb4ZSmJXc7i5wkRtZ9GTu9Dm, found as a recent fee payer on the BAYLA
+mint) and whose `signTransaction` handed the bytes to Node through `exposeBinding` and then
+threw `User rejected the request.` The site read that address's balances (0.879012984 SOL,
+1,393,591.753468 BAYLA), built an 888-byte legacy transaction of 7 instructions that opens
+a BAYLA/SOL pool on fee tier 1, ran its own test run and reached "Sign in wallet". After
+the refusal it said "Not sent. Your wallet did not sign it." The captured bytes, run from
+Node with `simulateTransaction` (`sigVerify: false`, `replaceRecentBlockhash: true`),
+returned no error, 117,094 units, and a fee payer 480,774,560 lamports lower: the 0.4807
+SOL the review printed. Nothing was signed and nothing was sent.
+
+**Do:** copy the registration block from `frontend/e2e-solana/fixtures/testWallet.ts`,
+drop the keypair, and make every sign feature capture and refuse. To find a funded address
+use `getSignaturesForAddress` on the mint and then `getTransaction` for the fee payers:
+`getTokenLargestAccounts` answered 429 on api.mainnet-beta.solana.com and "requires a
+personal token" on publicnode. This cannot reach add or remove while no pool exists.
+
+## 2026-10-03: the on-chain suite can run beside another session's, given its own validator ports, preview port and build folder
+
+**Believed:** one machine runs one `npm run e2e:solana` at a time, because the validator
+port, the preview port and the build folder are fixed.
+
+**Measured:** another session's `solana-test-validator` 3.1.11 was listening on 8899 and
+on 9900, the default faucet port (`ss -ltn` in WSL). A second one, started from a copy of
+`start-validator.sh` with `--faucet-port 9911 --gossip-port 8111 --dynamic-port-range
+8112-8160` added, `E2E_RPC_PORT=8999` and its ledger under `$HOME/audit1003/` (the script
+writes its log beside the ledger's parent, so a shared parent shares the log), reached
+READY with its own genesis hash while the first kept its own. `playwright.solana.config.ts`
+fixes port 4180 and `os.tmpdir()/tegridy-solana-e2e` with `--emptyOutDir`, so a second run
+of that config would empty the first run's build; an untracked config that spreads the
+base one and overrides `webServer`, `use.baseURL` and `outputDir` (port 4191, its own
+folder), run with `E2E_SOLANA_RPC=http://127.0.0.1:8999`, ran all 157 tests: 124 passed,
+31 skipped by design, 2 failed. Not measured: whether the second validator starts without
+the faucet flag.
+
+The two failures were load, not code: both were "reload while unconfirmed" tests, run
+while two other jobs were running vitest sweeps on the same machine. One (`lp-write` E12,
+"transaction did not land", a 10-second wait in `landedTx`) passed in the same run at
+phone size, and both passed when their files were run again alone on the same commit.
+
+**Do:** give a parallel run all four of its own: validator ports, ledger folder, preview
+port, build folder. Read "did not land" and "visible but not clickable" in a full run on
+a busy machine as a reason to re-run that file alone, not as a break, and say which it was.
+
+## 2026-10-03: create-if-missing opens a token account over an address a stranger already sent SOL to
+
+**Believed:** an account that exists at a wallet's associated token address but is not a
+token account is a broken account, so refuse to build on it.
+
+**Measured:** two mainnet test runs from Node (`simulateTransaction`, `sigVerify: false`),
+each one transaction: a System transfer of 650,240 lamports to a never-used associated
+address, then `createAssociatedTokenAccountIdempotent` for that address. For the BAYLA
+mint (Token-2022) and for wrapped SOL (classic) both returned no error, and the address
+ended owned by the token program as an initialized account with amount 0. The fee payer
+paid only the top-up: the wrapped-SOL run moved it by 1,493,440 lamports, which is the
+650,240 it sent itself, 838,200 to reach the 1,488,440 deposit, and the 5,000 fee.
+
+**Do:** treat an address owned by the System program with no data as an account that has
+not been opened, wherever "absent" is decided, and refuse only another owner or data that
+is not a token account. Treating only `null` as absent let anyone block a wallet's
+withdrawals on the site for the price of one dust transfer. Fixed in PR #716 (`opened` in
+`frontend/src/lib/launcher/solana/write/wsol.ts`).
+
+## 2026-10-03: in `String.prototype.replace`, a replacement text that holds `$'` pastes in the rest of the input
+
+**Believed:** `s.replace(oldLine, newLine)` with two plain strings swaps one line for the
+other.
+
+**Measured:** a scripted edit of `DashboardPage.tsx` whose new line held `prefix: '$', sub:`
+left the file unparseable (vitest: "Transform failed with 1 error"). `$'` in a replacement
+string means "the text after the match", so everything after the matched line had been
+spliced into the middle of it; the tail of the new line turned up about 950 lines further
+down, at line 1381. `$&`, `` $` `` and `$1` are read the same way.
+
+**Do:** pass a function, `s.replace(oldLine, () => newLine)`, which is used as written,
+and afterwards grep for a phrase from the new line and expect exactly one hit.
+
+## 2026-10-03: a tab the browser extension cannot screenshot can still report what it drew, through the console
+
+**Believed:** when the extension's tab is hidden and every evaluate and screenshot times
+out, the owner's own browser can tell us nothing.
+
+**Measured:** in Edge the extension's tab had `document.hidden` true. One synchronous
+evaluate straight after `navigate` returned (readyState `interactive`, `<main>` empty);
+every later one timed out at 45 seconds, and screenshots failed with "Script injection
+timed out". A `MutationObserver` installed by that first evaluate, writing one
+`console.log('[AUDIT] ' + JSON)` line whenever the page changed, was read back with the
+extension's console reader: 11.3 seconds after navigation the page had its title, the
+`lp-section` test id and "VENUE · LIVE". `clientWidth` was 0 in that tab, so it says
+nothing about layout.
+
+**Do:** install the observer in the one evaluate that works and read the console, not the
+page. Use it for "did it render, and what did it read"; measure layout somewhere visible.
+
+## 2026-10-03: a screenshot taken the moment a dialog exists shows it half see-through
+
+**Believed:** the phone wallet list was transparent, with the page's text readable through
+it.
+
+**Measured:** the wallet adapter's `.wallet-adapter-modal-fade-in` wrapper had computed
+opacity 0 at the moment `getByRole('dialog')` first resolved on desktop, 0.33 on an 820px
+viewport, and 1 by 400ms on all three sizes. A screenshot at 4 seconds was solid.
+
+**Do:** before judging or capturing a dialog, wait until the computed opacity of its fade
+wrapper is 1. The same goes for a tall element screenshot: where the element passes under
+a fixed header, the header is painted across the middle of the picture.
+
 ## 2026-10-03: a guard that names one spelling of a call covers one spelling
 
 **Believed:** after #603/#609/#622 every receipt wait passed `onReplaced` and checked the hash,
