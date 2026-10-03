@@ -320,6 +320,23 @@ describe('pool swap panel', () => {
     );
   });
 
+  // UX-1: a phone set to a comma-decimal region has "," and no "." on this keypad.
+  it('reads a comma typed in the amount as the decimal point; a pasted "68,066" is refused, never 68.066', async () => {
+    const p = renderPool();
+    const amount = screen.getByLabelText('Pay (SOL)') as HTMLInputElement;
+    fireEvent.change(amount, { target: { value: '68,066' } });
+    expect(amount).toHaveValue('68,066');
+    expect(amount).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: 'Review pool buy' })).toBeDisabled();
+    fireEvent.change(amount, { target: { value: '' } });
+    for (const k of '0,5') fireEvent.change(amount, { target: { value: amount.value + k } });
+    expect(amount).toHaveValue('0.5');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review pool buy' }));
+    });
+    expect(p.api.preparePoolSwap).toHaveBeenCalledWith(p.rpc, p.gate, expect.objectContaining({ side: 'buy', amountIn: SOL / 2n }));
+  });
+
   // F7/UX5: the pool's sell side had no balance and no Max either.
   it('the sell side shows what the wallet holds and Max fills it exactly; an unread balance offers no Max', () => {
     renderPool({ walletHolding: { kind: 'ok', value: 1_234_500_000n } });

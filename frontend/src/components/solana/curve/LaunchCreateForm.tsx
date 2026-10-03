@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import {
+  decimalCommaToPoint,
   describeTreasury,
   formatSol,
   formatTokenAmount,
@@ -841,7 +842,8 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
                 className={inputCls}
                 style={inputStyle}
                 value={buySol}
-                onChange={(e) => setBuySol(e.target.value)}
+                // A comma typed on a phone keypad with no "." is the decimal point.
+                onChange={(e) => setBuySol(decimalCommaToPoint(e.target.value, buySol))}
                 inputMode="decimal"
                 placeholder="0.0"
                 {...a11y}
