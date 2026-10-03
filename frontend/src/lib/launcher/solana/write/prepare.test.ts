@@ -262,7 +262,7 @@ function SOL_n() {
 }
 
 describe('curve sell', () => {
-  it('quotes WITH the rent floor, stays open while paused, and pins the exact token debit', async () => {
+  it('quotes WITH the rent floor, stays open while paused, and prepares when exactly the tokens sold leave', async () => {
     const bought = freshCurve(MINT, CREATOR);
     const curveState = { ...bought, realSolReserves: 500_000_000n, realTokenReserves: bought.realTokenReserves - 100_000_000_000_000n };
     const { chain, gate, curve } = await setup({ paused: true, curve: curveState });
@@ -289,6 +289,31 @@ describe('curve sell', () => {
     simulating(chain, { [ME.toBase58()]: { lamportsDelta: 50_000_000 }, [ATA.toBase58()]: { tokenAmount: 0n, mint: MINT, owner: ME } });
     const r = await prepareCurveSell(W(chain), gate, { trader: ME, mint: MINT, curve, curveRentFloor: BigInt(rent(179)), tokensIn: 5_000_000_000_000n, slippageBps: 100n });
     expect(!r.ok && r.outcome.message).toMatch(/different token amount/);
+  });
+
+  // The balance is read a slot or more before the test run, and anyone who holds the token
+  // can send one unit in between. A row that allowed only the exact change let that block
+  // every Review of a sale. What protects the seller stays: no more may leave than the sale says.
+  it('a token a stranger sends between the balance read and the test run does not block the sale; one more leaving than the sale says still does', async () => {
+    const bought = freshCurve(MINT, CREATOR);
+    const curveState = { ...bought, realSolReserves: 500_000_000n, realTokenReserves: bought.realTokenReserves - 100_000_000_000_000n };
+    const held = 10_000_000_000_000n;
+    const tokensIn = 5_000_000_000_000n;
+    const floor = BigInt(rent(179));
+    for (const [extra, prepares] of [[1n, true], [-1n, false]] as const) {
+      const { chain, gate, curve } = await setup({ curve: curveState });
+      chain.tokenAccount(ATA, MINT, ME, held);
+      const q = quoteSellOnCurve(curve.curve, tokensIn, 0n, { curveAccountLamports: curve.lamports, rentExemptLamports: floor });
+      if (!q.ok) throw new Error('quote');
+      simulating(chain, {
+        [ME.toBase58()]: { lamportsDelta: Number(q.value.lamportsOut) },
+        [ATA.toBase58()]: { tokenAmount: held - tokensIn + extra, mint: MINT, owner: ME },
+      });
+      const r = await prepareCurveSell(W(chain), gate, { trader: ME, mint: MINT, curve, curveRentFloor: floor, tokensIn, slippageBps: 100n });
+      expect(r.ok, `${extra}`).toBe(prepares);
+      if (r.ok) expect(r.prepared.simulated.tokenDeltas[0]!.delta).toBe(extra - tokensIn);
+      else expect(r.outcome).toMatchObject({ stage: 'simulate', message: 'Blocked: the simulation shows a different token amount than this screen says.' });
+    }
   });
 
   it('quotes a sell from the curve as it is NOW (reserves and account balance), not the page copy', async () => {
@@ -744,14 +769,19 @@ describe('pool swap', () => {
       'compute-limit', 'compute-price', 'create-token-account', 'wrap-sol', 'sync-wsol', 'create-token-account', 'pool-swap', 'close-wsol',
     ]);
     expect(p.summary).toMatchObject({ kind: 'pool-buy', unwrapsWsol: true, pool: POOL });
+    // An account the buy closes ends where it began, exactly: a close pays out everything in it.
+    expect(p.check.expect.tokens.find((t) => t.account.equals(WSOL_ATA))).toMatchObject({ minDelta: 0n, maxDelta: 0n });
   });
 
   // Mainnet, 2026-10-02: a kept WSOL account set up under the old rent gains its old
   // reserve's surplus (550,840) as balance at the wrap's sync. An exact 0 blocked the buy.
-  it('buy, keeping a WSOL account set up under the old rent: the sync credits exactly its surplus, and only that', async () => {
+  // The surplus is the least that must be there after the buy: one lamport less means the
+  // wallet's own wrapped SOL was spent. More is wrapped SOL a stranger sent in after the
+  // balance read, and an exact row let that dust block every Review of a buy.
+  it('buy, keeping a WSOL account set up under the old rent: one lamport less than its surplus is blocked; wrapped SOL a stranger sends in between is not', async () => {
     const SURPLUS = 550_840n;
     const WSOL_ATA = associatedTokenAddress(WSOL_MINT, ME);
-    for (const [credited, prepares] of [[SURPLUS, true], [SURPLUS + 1n, false], [SURPLUS - 1n, false]] as const) {
+    for (const [credited, prepares] of [[SURPLUS, true], [SURPLUS + 1n, true], [SURPLUS - 1n, false]] as const) {
       const { chain, gate, lp } = await poolSetup();
       const out = quoteOwnPool(lp.snapshot, gate.ammConfig, WSOL_MINT.toBase58(), 100_000_000n)!.outAmount;
       chain.tokenAccount(WSOL_ATA, WSOL_MINT, ME, 5n, { native: { reserve: BigInt(TOKEN_RENT) + SURPLUS } });
@@ -763,6 +793,7 @@ describe('pool swap', () => {
       const r = await preparePoolSwap(W(chain), gate, { owner: ME, mint: MINT, pool: lp, side: 'buy', amountIn: 100_000_000n, slippageBps: 100n });
       expect(r.ok, `credited ${credited}`).toBe(prepares);
       if (r.ok) expect(r.prepared.summary).toMatchObject({ kind: 'pool-buy', unwrapsWsol: false });
+      else expect(r.outcome).toMatchObject({ stage: 'simulate', message: 'Blocked: the simulation shows a different token amount than this screen says.' });
     }
   });
 
@@ -961,6 +992,35 @@ describe('pool swap: the wrapped-SOL account is always checked', () => {
     ]);
     expect(p.simulated.tokenDeltas).toContainEqual({ mint: WSOL_MINT, account: WSOL_ATA, delta: out, role: 'wsol', decimals: 9 });
     expect(p.simulated.tokenDeltas).toContainEqual({ mint: MINT, account: ATA, delta: -SELL, role: 'token' });
+  });
+
+  // The balance is read a slot or more before the test run, and anyone who holds the token
+  // can send one unit in between. A row that allowed only the exact change let that block
+  // every Review of a sale, whether the sale arrives as plain SOL or stays wrapped. What
+  // protects the seller stays: no more may leave than the sale says.
+  it('sell: a token a stranger sends between the balance read and the test run does not block it, unwrapped or kept; one more leaving than the sale says still does', async () => {
+    const LEFT = 5n;
+    for (const kept of [false, true]) {
+      for (const [extra, prepares] of [[1n, true], [-1n, false]] as const) {
+        const label = `${kept ? 'kept' : 'unwrapped'} ${extra}`;
+        const { chain, gate, lp, out } = await sellSetup();
+        chain.tokenAccount(ATA, MINT, ME, SELL + LEFT);
+        if (kept) chain.tokenAccount(WSOL_ATA, WSOL_MINT, ME, 5n);
+        simulating(chain, {
+          ...(kept ? {} : { [ME.toBase58()]: { lamportsDelta: Number(out) } }),
+          [ATA.toBase58()]: { tokenAmount: LEFT + extra, mint: MINT, owner: ME },
+          [WSOL_ATA.toBase58()]: kept ? { tokenAmount: 5n + out, mint: WSOL_MINT, owner: ME } : { closed: true },
+        });
+        const r = await preparePoolSwap(W(chain), gate, { owner: ME, mint: MINT, pool: lp, side: 'sell', amountIn: SELL, slippageBps: 100n });
+        expect(r.ok, label).toBe(prepares);
+        if (r.ok) {
+          expect(r.prepared.summary, label).toMatchObject({ kind: 'pool-sell', unwrapsWsol: !kept });
+          expect(r.prepared.simulated.tokenDeltas, label).toContainEqual({ mint: MINT, account: ATA, delta: extra - SELL, role: 'token' });
+        } else {
+          expect(r.outcome, label).toMatchObject({ stage: 'simulate', message: 'Blocked: the simulation shows a different token amount than this screen says.' });
+        }
+      }
+    }
   });
 });
 
