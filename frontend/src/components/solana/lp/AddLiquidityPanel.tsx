@@ -13,10 +13,11 @@ import { TxFlowView } from '../curve/TxFlowView';
 import { WalletNeeded } from '../curve/WalletNeeded';
 import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
 import type { LpOpenGate, LpWriteApi } from '../curve/ports';
+import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { LpBeforeYouAdd, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
-import { cannotFundText, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
+import { NOTES_BELOW, cannotFundText, reviewOffWhy, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { lpHeld } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -206,6 +207,8 @@ function AddInner({
   };
 
   const warnings = safety?.kind === 'read' && safety.verdict === 'warn' ? safety.warnings : [];
+  const walletReady = writes.signerState.kind === 'ready';
+  const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotAdd !== null, hasAmounts: !!typed && typed.text.trim() !== '', amountsWord: 'an amount' });
   const callsItself = safety?.kind === 'read' && safety.verdict !== 'blocked' && (safety.name || safety.symbol)
     ? `${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`
     : null;
@@ -217,7 +220,6 @@ function AddInner({
         <Row label="Token" value={view.tokenMint} />
         {callsItself && <Row label="Calls itself" value={callsItself} mono={false} />}
       </div>
-      <LpBeforeYouAdd launchPool={view.origin === 'launch-pool'} config={view.config} enableCreatorFee={pool.enableCreatorFee} />
       {flow.state.step !== 'idle' ? (
         <TxFlowView
           flow={flow}
@@ -238,6 +240,14 @@ function AddInner({
                   <li key={w.code}>{w.text}</li>
                 ))}
               </ul>
+            </div>
+          )}
+          {/* First on the form: no wallet yet, or a wallet that cannot pay for a deposit. */}
+          {!walletReady && <WalletNeeded state={writes.signerState} />}
+          {cannotAdd && (
+            <div data-testid="lp-add-cannot" className="text-[13px] leading-relaxed space-y-1">
+              <Notice tone="warn">{cannotAdd}</Notice>
+              <FundingNextStep needsSol={availableSol === 0n} needsToken={availableToken === 0n} mint={view.tokenMint} wallet={signer?.publicKey.toBase58() ?? null} />
             </div>
           )}
           <LpAmountPair
@@ -266,7 +276,7 @@ function AddInner({
               <Row label="Pool fee to add" value="none" mono={false} />
             </div>
           )}
-          <WalletNeeded state={writes.signerState} />
+          {walletReady && <WalletNeeded state={writes.signerState} />}
           {/* Always there, so a new problem is read out the moment it appears. */}
           <div className="space-y-2">
             <p role="alert" className="text-rose-300/90">
@@ -278,13 +288,14 @@ function AddInner({
               </button>
             )}
           </div>
-          {cannotAdd && (
-            <div data-testid="lp-add-cannot">
-              <Notice tone="warn">{cannotAdd}</Notice>
-            </div>
+          <p className="text-white/60">{NOTES_BELOW}</p>
+          {!canReview && reviewWhy && (
+            <p className="text-amber-300/90 text-[12px]" data-testid="lp-review-why">
+              {reviewWhy}
+            </p>
           )}
           <div className="flex flex-col sm:flex-row gap-2">
-            <button ref={reviewRef} type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60" disabled={!canReview} onClick={review}>
+            <button ref={reviewRef} type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale" disabled={!canReview} onClick={review}>
               Review: add liquidity
             </button>
             <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={onClose}>
@@ -298,6 +309,7 @@ function AddInner({
           </p>
         </>
       )}
+      <LpBeforeYouAdd launchPool={view.origin === 'launch-pool'} config={view.config} enableCreatorFee={pool.enableCreatorFee} />
       <p role="status" className="sr-only">
         {flow.state.step === 'idle' ? status : ''}
       </p>

@@ -1,9 +1,18 @@
+import { Link } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { usePoolTVL } from '../hooks/usePoolTVL';
 import { LiquidityTab } from '../components/swap/LiquidityTab';
 import { ILCalculator } from '../components/farm/ILCalculator';
 import { LiquidityPrimer } from '../components/liquidity/LiquidityPrimer';
 import { VenuePoolTable } from '../components/liquidity/VenuePoolTable';
+import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
+
+/** What the Solana LP tab can do follows LP's own switch, so the pointer never promises more. */
+const SOLANA_POINTER: Record<LpWriteMode, string> = {
+  on: 'On Solana? Create a pool, add or remove liquidity on the Solana LP tab',
+  'withdraw-only': 'On Solana? Take liquidity out on the Solana LP tab',
+  off: 'On Solana? Find a pool on the Solana LP tab',
+};
 
 /**
  * LiquidityPage — the venue's liquidity surface, as a page.
@@ -56,6 +65,13 @@ export default function LiquidityPage() {
         <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">
           Liquidity
         </h1>
+        {/* "Pools" opens here, on the Ethereum form, under a tab named Add / Remove. A visitor
+            with a Solana token stopped on this screen (owner on a phone, 2026-10-03). */}
+        <p className="mb-3 text-[14px]" data-testid="solana-lp-pointer">
+          <Link to="/solana-lp" className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
+            {SOLANA_POINTER[lpWriteMode()]}
+          </Link>
+        </p>
         {/* One sentence, and it is the mechanism rather than a pitch: what you
             put in, what you get back, and who pays you. */}
         <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
