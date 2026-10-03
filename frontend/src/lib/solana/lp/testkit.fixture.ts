@@ -171,7 +171,8 @@ export function fakeIndex(table: Record<string, string[]>, opts: { status?: numb
     const [k, v] = [...u.searchParams.entries()][0]!;
     opts.calls?.push(`${k}:${v}`);
     if (opts.status) return new Response('{}', { status: opts.status });
-    return new Response(JSON.stringify({ [k]: v, program: opts.program ?? PROGRAM.toBase58(), pools: table[`${k}:${v}`] ?? [], truncated: opts.truncated ?? false }), { status: 200 });
+    // `all=1` is answered `all: true`, the way the server does.
+    return new Response(JSON.stringify({ [k]: k === 'all' ? true : v, program: opts.program ?? PROGRAM.toBase58(), pools: table[`${k}:${v}`] ?? [], truncated: opts.truncated ?? false }), { status: 200 });
   }) as unknown as typeof fetch;
 }
 

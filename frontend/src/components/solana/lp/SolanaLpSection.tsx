@@ -19,6 +19,8 @@ import { YourPositions } from './YourPositions';
 import { LpGateBanner } from './LpGateBanner';
 import { LpWritesProvider, useLpWrites } from './useLpWrites';
 import { browserLpReaders, type LpReaders } from './readers';
+import { VenuePoolList } from './VenuePoolList';
+import { useUsdPerSol } from './useUsdPerSol';
 
 /**
  * The Solana LP section on /pools and /solana-lp: a plain disclosure, the fee tiers read
@@ -86,6 +88,8 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
     [setParams],
   );
   const { publicKey } = useWallet();
+  // One SOL price for every "about $" line on the page; null (no line) when it could not be read.
+  const usdPerSol = useUsdPerSol(readers, reloadKey);
 
   const disclosure = <LpDisclosure programId={readers.programId} mode={mode} />;
   const writesTop = mode !== 'off' && <LpWritesTop />;
@@ -111,7 +115,9 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
       onRemove={toPositions}
     />
   );
-  const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} sectionRef={positionsRef} />;
+  // The pools a visitor can see before typing anything; "Open this pool" puts its token in the finder.
+  const venuePools = <VenuePoolList readers={readers} reloadKey={reloadKey} usdPerSol={usdPerSol} onPick={onMint} />;
+  const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} sectionRef={positionsRef} usdPerSol={usdPerSol} />;
 
   // Finder first sits right under the page's hero, which already leaves the gap above it.
   if (finderFirst) {
@@ -120,6 +126,7 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
         <LpRiskLine />
         {writesTop}
         {finder}
+        {venuePools}
         {positions}
         {disclosure}
         {tiers}
@@ -132,6 +139,7 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
       {writesTop}
       {tiers}
       {finder}
+      {venuePools}
       {positions}
     </div>
   );

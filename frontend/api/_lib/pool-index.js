@@ -192,6 +192,49 @@ async function scanSolPools(mint, fetchImpl) {
     pools.push({ address, solVault: base58.encode(Uint8Array.from(slice.subarray(solIs0 ? 0 : 32, solIs0 ? 32 : 64))) });
   }
   if (pools.length > MAX_SCANNED) throw new Error(`more than ${MAX_SCANNED} pools for one token`);
+  return rankBySol(pools, fetchImpl);
+}
+
+/**
+ * Every TOKEN/SOL pool on the program, deepest SOL side first: two scans (SOL in the
+ * token0 slot, then SOL in the token1 slot), each returning the two vault keys, then the
+ * SOL vault balances. For the list a visitor sees before typing a token. Same rules as
+ * the one-token scan: addresses only, and the browser reads and checks every one.
+ */
+async function scanAllSolPools(fetchImpl) {
+  const seen = new Set();
+  const pools = [];
+  for (const solIs0 of [true, false]) {
+    const result = await rpc(
+      "getProgramAccounts",
+      [
+        CP_SWAP_PROGRAM,
+        {
+          encoding: "base64",
+          commitment: "confirmed",
+          dataSlice: { offset: OFFSETS.token0Vault, length: 64 },
+          filters: poolFilters([{ memcmp: { offset: solIs0 ? OFFSETS.token0Mint : OFFSETS.token1Mint, bytes: WSOL_MINT } }]),
+        },
+      ],
+      fetchImpl,
+    );
+    if (!Array.isArray(result)) throw new Error("upstream answer carried no result list");
+    for (const item of result) {
+      const address = parseKey(item && item.pubkey);
+      if (!address) throw new Error("upstream answer carried an invalid address");
+      const slice = base64Of(item.account);
+      if (slice.length !== 64) throw new Error("upstream answer carried a wrong-sized slice");
+      if (seen.has(address)) continue;
+      seen.add(address);
+      pools.push({ address, solVault: base58.encode(Uint8Array.from(slice.subarray(solIs0 ? 0 : 32, solIs0 ? 32 : 64))) });
+    }
+    if (pools.length > MAX_SCANNED) throw new Error(`more than ${MAX_SCANNED} pools on the program`);
+  }
+  return rankBySol(pools, fetchImpl);
+}
+
+/** `pools` ({ address, solVault }) by the SOL each holds, deepest first; a vault that cannot be read ranks last. */
+async function rankBySol(pools, fetchImpl) {
   const ranked = pools;
   const depth = new Map();
   const chunks = [];
@@ -245,16 +288,21 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
   const q = { ...(req.query || {}) };
   delete q.resource;
   const keys = Object.keys(q);
-  const which = keys.length === 1 && (keys[0] === "mint" || keys[0] === "lpMint") ? keys[0] : null;
-  const key = which ? parseKey(q[which]) : null;
-  if (!which || !key) {
+  const which = keys.length === 1 && (keys[0] === "mint" || keys[0] === "lpMint" || keys[0] === "all") ? keys[0] : null;
+  // `all=1`: every TOKEN/SOL pool on the program, for the list shown before a token is typed.
+  const all = which === "all";
+  const key = which && !all ? parseKey(q[which]) : null;
+  if (!which || (!all && !key)) {
     return res.status(400).json({ error: "Give exactly one of mint or lpMint, as a Solana address" });
+  }
+  if (all && q.all !== "1") {
+    return res.status(400).json({ error: "all takes only 1" });
   }
   if (which === "mint" && key === WSOL_MINT) {
     return res.status(400).json({ error: "Give the other token of the pair, not SOL itself" });
   }
 
-  const cacheKey = `${which}:${key}`;
+  const cacheKey = all ? "all" : `${which}:${key}`;
   const hit = cache.get(cacheKey);
   if (hit && hit.notAMint && Date.now() - hit.at < NOT_A_MINT_TTL_MS) {
     return res.status(404).json({ error: "That address is not a token mint" });
@@ -268,12 +316,14 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
     let found;
     let total;
     try {
-      if (!(await isTokenMint(key, which, fetchImpl))) {
+      if (!all && !(await isTokenMint(key, which, fetchImpl))) {
         remember(cacheKey, { notAMint: true });
         return res.status(404).json({ error: "That address is not a token mint" });
       }
       if (!(await checkGlobalLimit(res, GLOBAL))) return;
-      if (which === "mint") {
+      if (all) {
+        ({ list: found, total } = await scanAllSolPools(fetchImpl));
+      } else if (which === "mint") {
         ({ list: found, total } = await scanSolPools(key, fetchImpl));
       } else {
         found = [...new Set(await scanLpMint(key, fetchImpl))].sort();
@@ -284,7 +334,7 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
       return res.status(502).json({ error: "The pool index could not read the chain" });
     }
     payload = {
-      [which]: key,
+      ...(all ? { all: true } : { [which]: key }),
       program: CP_SWAP_PROGRAM,
       pools: found.slice(0, MAX_POOLS),
       truncated: total > MAX_POOLS,

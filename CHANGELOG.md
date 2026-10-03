@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-03
 
+- Solana LP: the page lists the pools on the venue before anyone types a token. Each pool shows what it calls itself, its token check, what it holds, its price and its fee tier, and an Open this pool button that puts it in the finder. Where Jupiter's SOL price could be read, a pool's liquidity and each of your shares also carry an "about $" line; where it could not, there is no dollar line rather than a wrong one. Before, the only way to a pool was its 44-character address.
 - Solana LP on a phone: the tab now opens on three buttons, Create a pool, Add liquidity and Remove liquidity, and on the site's own Solana tokens (BAYLA, BOBO, SOY, Brainlet, RIZZ) as buttons, so nothing has to be pasted. Two presses open the form with its amount boxes on the screen. Before, the first screen was a paragraph and an empty box asking for a 44-character token address, with nothing else to press.
 - Solana LP: the open-a-pool and add-liquidity forms start with the wallet and the amount boxes. The long notes that used to fill two phone screens above them now follow the form, and the review still repeats the main ones before you sign. A wallet that cannot pay is told so first, with what to do next.
 - Solana LP: when a token already has a pool, the Open a new pool card has a button that opens that pool's Add liquidity form (the first pool on the venue, BAYLA/SOL, was opened on 2026-10-03). A greyed Review button now says why right above it.

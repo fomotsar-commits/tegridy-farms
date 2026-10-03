@@ -8,6 +8,9 @@ import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead } from '
 import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { placeShareOnChain, readPositions, type ChainPlacement, type PositionsRead } from '../../../lib/solana/lp/positions';
 import { readWalletFacts, type WalletFacts } from '../../../lib/solana/lp/walletFacts';
+import { listPools, type PoolListRead } from '../../../lib/solana/lp/poolList';
+import { getUsdPrices } from '../../../lib/jupiter';
+import { SOL_MINT } from '../../../lib/solana';
 
 /**
  * Everything the LP section reads, behind one interface so a component test can hand
@@ -32,6 +35,10 @@ export interface LpReaders {
   wallet(owner: PublicKey, tokenMint: string, tokenProgram: string, lpMint: string | null, opts?: { opening: true }): Promise<WalletFacts>;
   /** Find a share's pool from its own chain history, when our pool index cannot answer (D12). */
   placeShareOnChain(share: { lpMint: string; lpAccount: string }): Promise<ChainPlacement>;
+  /** Every TOKEN/SOL pool on the venue, for the list shown before a token is typed. A build without it shows no list. */
+  listPools?(): Promise<PoolListRead>;
+  /** Jupiter's SOL price in dollars, for the "about $" lines only; null when it could not be read. */
+  usdPerSol?(): Promise<number | null>;
 }
 
 export function browserLpReaders(): LpReaders | null {
@@ -48,5 +55,14 @@ export function browserLpReaders(): LpReaders | null {
     feeTiers: () => readFeeTiers(rpc, programId),
     wallet: (owner, tokenMint, tokenProgram, lpMint, o) => readWalletFacts(rpc, { owner: owner.toBase58(), tokenMint, tokenProgram, lpMint, ...(o?.opening ? { opening: true as const } : {}) }),
     placeShareOnChain: (share) => placeShareOnChain(rpc, opts, share),
+    listPools: () => listPools(rpc, opts),
+    usdPerSol: async () => {
+      try {
+        const price = (await getUsdPrices([SOL_MINT]))[SOL_MINT];
+        return typeof price === 'number' && Number.isFinite(price) && price > 0 ? price : null;
+      } catch {
+        return null;
+      }
+    },
   };
 }

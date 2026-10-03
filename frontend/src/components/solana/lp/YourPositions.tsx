@@ -4,9 +4,10 @@ import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { MAX_POSITIONS, type PositionsRead, type Position } from '../../../lib/solana/lp/positions';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { formatWhen, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
+import { formatWhen, poolSolPerToken, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
 import { solText, tokenText } from '../../../lib/solana/lp/format';
+import { usdOfPair, usdText } from '../../../lib/solana/lp/usd';
 import { SolanaConnectButton } from '../SolanaConnectButton';
 import { WalletAppHint } from '../curve/WalletNeeded';
 import { Card, Notice, Row } from '../curve/ui';
@@ -93,12 +94,15 @@ export function YourPositions({
   owner,
   reloadKey = 0,
   sectionRef,
+  usdPerSol = null,
 }: {
   readers: LpReaders;
   owner: PublicKey | null;
   reloadKey?: number;
   /** Set by the section: "Remove liquidity" scrolls here and sends focus here. */
   sectionRef?: Ref<HTMLElement>;
+  /** Jupiter's SOL price, for an "about $" line under each share's value; null means no line. */
+  usdPerSol?: number | null;
 }) {
   const [nonce, setNonce] = useState(0);
   const [limit, setLimit] = useState(MAX_POSITIONS);
@@ -150,6 +154,7 @@ export function YourPositions({
             onMore={() => setLimit((l) => l + MAX_POSITIONS)}
             onReadAgain={readAgain}
             readers={readers}
+            usdPerSol={usdPerSol}
           />
         )}
       </Card>
@@ -163,12 +168,14 @@ function PositionsList({
   onMore,
   onReadAgain,
   readers,
+  usdPerSol,
 }: {
   read: Extract<PositionsRead, { kind: 'ok' }>;
   safety: Map<string, TokenSafety>;
   onMore: () => void;
   onReadAgain: () => void;
   readers: LpReaders;
+  usdPerSol: number | null;
 }) {
   const safetyOf = (p: Position) => (p.pool?.kind === 'pool' ? safety.get(p.pool.view.tokenMint) ?? null : null);
   const main = read.positions.filter((p) => setAsideReason(p, safetyOf(p)) === null);
@@ -188,7 +195,7 @@ function PositionsList({
       {main.length > 0 && (
         <ul className="space-y-3" aria-label="Your pool shares, most valuable first">
           {main.map((p) => (
-            <PositionRow key={p.lpAccount} p={p} safety={safetyOf(p)} chainNow={read.chainNow} readers={readers} onReadAgain={onReadAgain} />
+            <PositionRow key={p.lpAccount} p={p} safety={safetyOf(p)} chainNow={read.chainNow} readers={readers} onReadAgain={onReadAgain} usdPerSol={usdPerSol} />
           ))}
         </ul>
       )}
@@ -208,6 +215,7 @@ function PositionsList({
                 setAside={setAsideReason(p, safetyOf(p))}
                 readers={readers}
                 onReadAgain={onReadAgain}
+                usdPerSol={usdPerSol}
               />
             ))}
           </ul>
@@ -244,6 +252,7 @@ function PositionRow({
   setAside = null,
   readers,
   onReadAgain,
+  usdPerSol = null,
 }: {
   p: Position;
   safety: TokenSafety | null;
@@ -251,9 +260,24 @@ function PositionRow({
   setAside?: string | null;
   readers: LpReaders;
   onReadAgain: () => void;
+  usdPerSol?: number | null;
 }) {
   const view = p.pool?.kind === 'pool' ? p.pool.view : null;
   const decimals = safety?.kind === 'read' ? safety.facts?.decimals ?? null : null;
+  // The share's value in dollars: SOL at Jupiter's price, tokens at this pool's own price,
+  // the only price the share can be taken out at. No line unless both were read.
+  const worthUsd =
+    view && p.value
+      ? usdText(
+          usdOfPair(
+            view.solIsToken0 ? p.value.token0 : p.value.token1,
+            view.solIsToken0 ? p.value.token1 : p.value.token0,
+            decimals,
+            decimals === null ? null : poolSolPerToken(view.snapshot, view.tokenMint, decimals),
+            usdPerSol,
+          ),
+        )
+      : null;
   const pool = p.pool;
   const writes = useLpWrites();
   // The pool a pending withdrawal would name: the read pool, or the address the share was placed at.
@@ -327,6 +351,7 @@ function PositionRow({
                 }
                 mono={false}
               />
+              {worthUsd && <Row label="That is" value={`${worthUsd} (SOL at Jupiter’s price, tokens at this pool’s price)`} mono={false} />}
             </>
           ) : p.tooSmall ? (
             <Notice tone="warn">Too small to take out at the pool&apos;s current size: one side would round to zero.</Notice>
