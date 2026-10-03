@@ -27,7 +27,13 @@
     "code change, not a lockfile bump — that is why it is baselined rather than fixed in the commit",
     "that armed this gate, and why the baseline expiry is 90 days and not a year."
   ],
-  "accepted": [],
+  "accepted": [
+    {
+      "ghsa": "GHSA-vfj7-8cjw-p6xm",
+      "reason": "Accepted by the owner on 2026-10-03. No fixed braces exists: 3.0.3 is the newest release and the advisory covers every version up to and including it (GitHub lists no patched version; checked 2026-10-03). The indexer gets braces only through ponder 0.8 -> kysely-pglite (chokidar 3, and micromatch via globby/fast-glob and kysely-codegen). Ponder imports just the KyselyPGlite database dialect from that package; the code that hands patterns to braces is kysely-pglite's own codegen CLI, file watcher and migration finder, which the indexer never runs. The flaw is a stack overflow on a deeply nested brace pattern, so it needs an attacker who chooses the pattern, and no network input reaches one here. Removing braces means leaving ponder 0.8, a migration rather than a lockfile bump. Expires with the baseline so both come due together; delete this entry as soon as braces ships a fix.",
+      "expires": "2026-11-16"
+    }
+  ],
   "baseline": {
     "recordedOn": "2026-08-18",
     "expires": "2026-11-16",
