@@ -1,0 +1,12 @@
+# Findings gitleaks should skip, one fingerprint per line: <commit>:<file>:<rule>:<line>.
+#
+# This is for a false positive that is already in a pushed commit and cannot be
+# edited away. It names ONE line of ONE commit, so it cannot hide anything else.
+# Prefer fixing the line; the allowlist in .gitleaks.toml is for public on-chain
+# ids that live on trunk, and says why a shape rule is not safe.
+#
+# 2026-10-03, PR #706. A made-up Solana address used as test data, in a variable
+# named KEY: the `generic-api-key` rule reads "KEY = <high-entropy string>" as a
+# credential. It is not one (it is no real account, and a Solana address is
+# public anyway). The variable is renamed in the commit that adds this file.
+3fce07daae97ebe29719774c039aa2d0b89f5b91:frontend/src/components/layout/TopNav.solanaConnect.test.tsx:generic-api-key:56

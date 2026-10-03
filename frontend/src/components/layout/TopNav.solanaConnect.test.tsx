@@ -57,7 +57,7 @@ import {
   type SolanaSurface,
 } from '../../lib/solanaSurface';
 
-const KEY = 'Bq6jovnQfVTFjmxL4dPt9xNNNnDBgvdhaXy3D4YqXTXV';
+const WALLET_ADDRESS = 'Bq6jovnQfVTFjmxL4dPt9xNNNnDBgvdhaXy3D4YqXTXV';
 
 let goTo: (path: string) => void = () => {};
 function Navigator() {
@@ -113,7 +113,7 @@ describe('TopNav: Connect on a Solana page', () => {
   it('shows the Solana address once connected, and a tap opens the list to switch', () => {
     const solOpen = vi.fn();
     mount('/pools');
-    report({ open: solOpen, address: KEY });
+    report({ open: solOpen, address: WALLET_ADDRESS });
     const chip = within(banner()).getByRole('button', { name: 'Solana wallet Bq6j…XTXV, switch or disconnect' });
     expect(chip).toHaveTextContent('Bq6j…XTXV');
     expect(within(banner()).queryByRole('button', { name: /^Connect/ })).toBeNull();
@@ -232,7 +232,7 @@ describe('TopNav: the connected chip is one chip on both networks', () => {
     const evmClass = evmChip.className;
     const evmDot = evmChip.querySelector('span')!.className;
     goToSolana();
-    report({ open: vi.fn(), address: KEY });
+    report({ open: vi.fn(), address: WALLET_ADDRESS });
     const solChip = within(banner()).getByRole('button', { name: /^Solana wallet / });
     expect(solChip.className).toBe(evmClass);
     expect(solChip.querySelector('span')!.className).toBe(evmDot);
