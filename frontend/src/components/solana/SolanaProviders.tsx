@@ -108,7 +108,10 @@ export function SolanaSurfaceBridge() {
   useEffect(() => {
     if (surface?.open !== open || !openPending || connecting) return;
     // A restore that connected answers the tap; otherwise it is the card's click.
-    if (takeSolanaOpenRequest() && !address) open();
+    // Never over another dialog the visitor opened while waiting: overlays are
+    // not stacked here, and one Escape closed both in the wrong order, which
+    // left the page's scroll locked until a reload. The tap is still used up.
+    if (takeSolanaOpenRequest() && !address && !document.querySelector('[aria-modal="true"]')) open();
   }, [surface, openPending, connecting, address, open]);
   useEffect(() => () => setSolanaSurface(owner, null), [owner]);
   return null;

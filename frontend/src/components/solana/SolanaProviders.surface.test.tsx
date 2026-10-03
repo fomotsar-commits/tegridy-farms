@@ -27,10 +27,13 @@ class FakeWallet extends BaseMessageSignerWalletAdapter {
   readonly supportedTransactionVersions: SupportedTransactionVersions = new Set(['legacy' as const, 0 as const]);
   connectCalls = 0;
   private _publicKey: PublicKey | null = null;
+  /** 'restores': the saved wallet reconnects by itself. 'hangs': connect() waits on the wallet. */
+  private readonly _mode: 'plain' | 'restores' | 'hangs';
 
-  constructor(name: string) {
+  constructor(name: string, mode: 'plain' | 'restores' | 'hangs' = 'plain') {
     super();
     this.name = name as WalletName;
+    this._mode = mode;
   }
   get publicKey() {
     return this._publicKey;
@@ -41,9 +44,15 @@ class FakeWallet extends BaseMessageSignerWalletAdapter {
   get readyState() {
     return WalletReadyState.Installed;
   }
-  override async autoConnect() {}
+  override async autoConnect() {
+    if (this._mode !== 'restores') return;
+    await Promise.resolve();
+    this._publicKey = new PublicKey(WSOL);
+    this.emit('connect', this._publicKey);
+  }
   async connect() {
     this.connectCalls += 1;
+    if (this._mode === 'hangs') await new Promise<void>(() => {});
     this._publicKey = new PublicKey(WSOL);
     this.emit('connect', this._publicKey);
   }
@@ -137,5 +146,50 @@ describe('SolanaProviders reports to the top bar', () => {
     expect(getSolanaSurfaceState().surface!.address).toBe(WSOL);
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(getSolanaSurfaceState().openPending).toBe(false);
+  });
+
+  // A returning visitor's wallet reconnects by itself. The early tap is then
+  // answered by that connection: no list opens over a connected page.
+  it('lets a restore that connected answer an early tap: no list, no second connect', async () => {
+    localStorage.setItem('walletName', JSON.stringify('Fake'));
+    const fake = new FakeWallet('Fake', 'restores');
+    act(() => requestSolanaOpen());
+    withFake(fake);
+    await act(async () => {});
+    expect(getSolanaSurfaceState().surface!.address).toBe(WSOL);
+    expect(getSolanaSurfaceState().openPending).toBe(false);
+    expect(fake.connectCalls).toBe(0);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('reports that the wallet is connecting, which is what dims the top bar', async () => {
+    const fake = new FakeWallet('Fake', 'hangs');
+    withFake(fake);
+    expect(getSolanaSurfaceState().surface!.connecting).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'pick fake' }));
+    await act(async () => {});
+    expect(fake.connectCalls).toBe(1);
+    expect(getSolanaSurfaceState().surface!.connecting).toBe(true);
+    expect(getSolanaSurfaceState().surface!.address).toBeNull();
+  });
+
+  // Overlays are never stacked here. One Escape closed both, in the wrong
+  // order, and this list's scroll-lock restore left the page unable to scroll.
+  it('does not open its list over another dialog the visitor opened while the tap waited', async () => {
+    vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', '');
+    const other = document.createElement('div');
+    other.setAttribute('role', 'dialog');
+    other.setAttribute('aria-modal', 'true');
+    document.body.appendChild(other);
+    try {
+      act(() => requestSolanaOpen());
+      render(<SolanaProviders>page</SolanaProviders>);
+      await act(async () => {});
+      expect(document.querySelector('.wallet-adapter-modal')).toBeNull();
+      // The tap is used up all the same: the top bar's button un-dims.
+      expect(getSolanaSurfaceState().openPending).toBe(false);
+    } finally {
+      other.remove();
+    }
   });
 });

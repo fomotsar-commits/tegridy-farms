@@ -13,13 +13,17 @@ import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { useEffect, type ReactNode } from 'react';
 
 const evmOpen = vi.hoisted(() => vi.fn());
+/** RainbowKit's side: disconnected unless a test sets an account. */
+const evm = vi.hoisted(() => ({ account: undefined as { displayName: string } | undefined }));
+const toastMock = vi.hoisted(() => vi.fn());
+vi.mock('sonner', () => ({ toast: toastMock }));
 vi.mock('@rainbow-me/rainbowkit', () => ({
   ConnectButton: Object.assign(() => null, {
     Custom: ({ children }: { children: (props: Record<string, unknown>) => ReactNode }) =>
       children({
         mounted: true,
-        account: undefined,
-        chain: undefined,
+        account: evm.account,
+        chain: evm.account ? { unsupported: false } : undefined,
         openConnectModal: evmOpen,
         openAccountModal: vi.fn(),
         openChainModal: vi.fn(),
@@ -91,6 +95,8 @@ afterEach(() => {
   });
   localStorage.clear();
   evmOpen.mockClear();
+  toastMock.mockClear();
+  evm.account = undefined;
 });
 
 describe('TopNav: Connect on a Solana page', () => {
@@ -108,7 +114,7 @@ describe('TopNav: Connect on a Solana page', () => {
     const solOpen = vi.fn();
     mount('/pools');
     report({ open: solOpen, address: KEY });
-    const chip = within(banner()).getByRole('button', { name: 'Solana wallet Bq6j…XTXV' });
+    const chip = within(banner()).getByRole('button', { name: 'Solana wallet Bq6j…XTXV, switch or disconnect' });
     expect(chip).toHaveTextContent('Bq6j…XTXV');
     expect(within(banner()).queryByRole('button', { name: /^Connect/ })).toBeNull();
     fireEvent.click(chip);
@@ -136,8 +142,11 @@ describe('TopNav: Connect on a Solana page', () => {
     mount('/pools');
     report({ open: solOpen, connecting: true });
     const button = within(banner()).getByRole('button', { name: 'Connect a Solana wallet' });
-    expect(button).toBeDisabled();
+    // aria-disabled, never disabled: the list hands focus back to this button.
+    expect(button).toBeEnabled();
+    expect(button).toHaveAttribute('aria-disabled', 'true');
     expect(button).toHaveAttribute('aria-busy', 'true');
+    expect(button).toHaveAttribute('title', 'Connecting your Solana wallet…');
     fireEvent.click(button);
     expect(solOpen).not.toHaveBeenCalled();
   });
@@ -153,7 +162,7 @@ describe('TopNav: Connect on a Solana page', () => {
     expect(within(banner()).getByRole('button', { name: 'Connect a Solana wallet' })).not.toHaveAttribute('aria-busy');
   });
 
-  it('stops waiting after ten seconds, so a section that never loads leaves no dimmed button', () => {
+  it('stops waiting after ten seconds and says so, so a section that never loads leaves no dimmed, silent button', () => {
     vi.useFakeTimers();
     try {
       mount('/pools');
@@ -169,6 +178,9 @@ describe('TopNav: Connect on a Solana page', () => {
       expect(button).not.toHaveAttribute('aria-busy');
       expect(button).toBeEnabled();
       expect(takeSolanaOpenRequest()).toBe(false);
+      // And it says so: a button that dims and then does nothing reads as broken.
+      expect(toastMock).toHaveBeenCalledTimes(1);
+      expect(toastMock).toHaveBeenCalledWith('The Solana wallet list did not load on this page. Reload the page and try again.');
     } finally {
       vi.useRealTimers();
     }
@@ -209,6 +221,27 @@ describe('TopNav: Connect on a Solana page', () => {
 function goToSolana() {
   act(() => goTo('/pools'));
 }
+
+describe('TopNav: the connected chip is one chip on both networks', () => {
+  // Its width was measured once, for both (TopNav ACCOUNT_CHIP_CLASS): the 360px
+  // row has no room to spare, so a class on one and not the other overflows it.
+  it('gives the Ethereum chip and the Solana chip the same classes, dot included', () => {
+    evm.account = { displayName: '0x71…5788' };
+    mount('/');
+    const evmChip = within(banner()).getByRole('button', { name: 'Account details' });
+    const evmClass = evmChip.className;
+    const evmDot = evmChip.querySelector('span')!.className;
+    goToSolana();
+    report({ open: vi.fn(), address: KEY });
+    const solChip = within(banner()).getByRole('button', { name: /^Solana wallet / });
+    expect(solChip.className).toBe(evmClass);
+    expect(solChip.querySelector('span')!.className).toBe(evmDot);
+    // The measured rules themselves: 4px of padding below 375px, no dot below 400px.
+    expect(evmClass.split(' ')).toEqual(expect.arrayContaining(['px-1', 'min-[375px]:px-2', 'lg:px-3']));
+    expect(evmClass).not.toMatch(/(^| )md:px-3( |$)/);
+    expect(evmDot.split(' ')).toEqual(expect.arrayContaining(['hidden', 'min-[400px]:block']));
+  });
+});
 
 describe('TopNav: Connect everywhere else is unchanged (RainbowKit)', () => {
   it.each(['/', '/swap', '/liquidity', '/earn', '/earn/toweli', '/earn/pepe', '/bayla'])('%s', (path) => {

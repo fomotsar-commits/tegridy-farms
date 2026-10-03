@@ -97,12 +97,15 @@ test('on an Ethereum page, the top bar Connect is still the Ethereum list', asyn
 });
 
 test.describe('connected from the top bar', () => {
-  test('the top bar shows the Solana address, the page card is connected too, and the row fits at every width', async ({ page, context }, testInfo) => {
+  test('the top bar shows the Solana address, the page card is connected too, the row fits at every width, and Disconnect undoes it', async ({ page, context }, testInfo) => {
     test.slow();
     await installConnectOnlySolanaWallet(context);
     await answerLadderFromRecording(page);
     await page.goto(SOLANA_POOL);
     await expect(topBarSolanaConnect(page)).toBeVisible({ timeout: 30_000 });
+    // The page itself, not just the top bar: the hero is two lazy chunks behind
+    // it, and a count() read before it has drawn says "no ladder" of any build.
+    await expect(page.getByRole('heading', { level: 1, name: 'Stake BAYLA.' })).toBeVisible({ timeout: 30_000 });
 
     // The ladder card's own connect button (a build with the ladder, as CI's and production's are).
     const cardConnect = page.locator('main').getByRole('button', { name: 'Connect a Solana wallet' });
@@ -113,33 +116,62 @@ test.describe('connected from the top bar', () => {
     await topBarSolanaConnect(page).click();
     await solanaList(page).getByRole('button', { name: new RegExp(CONNECT_ONLY_WALLET_NAME) }).click();
 
-    const chip = page.getByRole('banner').getByRole('button', { name: `Solana wallet ${SHORT}` });
+    const chip = page.getByRole('banner').getByRole('button', { name: `Solana wallet ${SHORT}, switch or disconnect` });
     await expect(chip).toBeVisible({ timeout: 30_000 });
     await expect(chip).toHaveText(SHORT);
     await expect(topBarSolanaConnect(page)).toHaveCount(0);
     // ONE connection: the card the top bar borrowed it from is connected as well.
     await expect(cardConnect).toHaveCount(0);
 
-    // The connected chip at every header width (header-reachability.spec.ts sweeps
-    // the disconnected button on `/`; nothing swept a connected one).
-    if (testInfo.project.name !== 'chromium') return;
-    await page.evaluate(() => document.fonts.ready);
-    const failures: string[] = [];
-    for (const width of [360, 375, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1024, 1440]) {
-      await page.setViewportSize({ width, height: 900 });
-      await expect(chip).toBeVisible();
-      const box = await chip.boundingBox();
-      if (!box || box.x < 0 || box.x + box.width > width) {
-        failures.push(`${width}px: the Solana chip is off-canvas (${box ? `${Math.round(box.x)}..${Math.round(box.x + box.width)}` : 'no box'})`);
-      }
-      const row = await page.getByRole('banner').evaluate((el) => {
-        const r = el.querySelector('div.flex.items-center.justify-between') ?? el.firstElementChild;
-        return r ? { scroll: r.scrollWidth, client: r.clientWidth } : null;
+    // THE CONNECTED CHIP AT EVERY HEADER WIDTH (header-reachability.spec.ts sweeps
+    // the disconnected button on `/`; nothing swept a connected one). The chip is
+    // drawn in the DEVICE's monospace font, so one machine's pass says nothing of
+    // another's: Consolas here is 0.55em a character, Liberation Mono (CI) and
+    // Android's 0.60em, the iPhone's SF Mono 0.618em. So it is swept twice: as
+    // this machine draws it, and at 0.62em, wider than any of them.
+    if (testInfo.project.name === 'chromium') {
+      const viewport = page.viewportSize()!;
+      await page.evaluate(() => document.fonts.ready);
+      const sweep = async (label: string) => {
+        const failures: string[] = [];
+        for (const width of [360, 375, 390, 399, 400, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1023, 1024, 1440]) {
+          await page.setViewportSize({ width, height: 900 });
+          await expect(chip).toBeVisible();
+          const box = await chip.boundingBox();
+          if (!box || box.x < 0 || box.x + box.width > width) {
+            failures.push(`${width}px: the Solana chip is off-canvas (${box ? `${Math.round(box.x)}..${Math.round(box.x + box.width)}` : 'no box'})`);
+          }
+          const row = await page.getByRole('banner').evaluate((el) => {
+            const r = el.querySelector('div.flex.items-center.justify-between') ?? el.firstElementChild;
+            return r ? { scroll: r.scrollWidth, client: r.clientWidth } : null;
+          });
+          if (row && row.scroll > row.client) {
+            failures.push(`${width}px: header row overflows: scrollWidth ${row.scroll} > clientWidth ${row.client}`);
+          }
+        }
+        expect(failures, `connected header failures (${label}):\n  ${failures.join('\n  ')}`).toEqual([]);
+      };
+      await sweep("this machine's monospace font");
+      await page.addStyleTag({
+        content: 'header button[aria-label^="Solana wallet"] { font-family: "Courier New", "Liberation Mono", monospace !important; letter-spacing: 0.02em !important; }',
       });
-      if (row && row.scroll > row.client) {
-        failures.push(`${width}px: header row overflows — scrollWidth ${row.scroll} > clientWidth ${row.client}`);
-      }
+      const advance = await chip.evaluate((el) => {
+        const text = el.querySelector('span.truncate')!;
+        return text.getBoundingClientRect().width / (text.textContent!.length * parseFloat(getComputedStyle(text).fontSize));
+      });
+      expect(advance, 'the widest-font pass really is 0.62em a character').toBeGreaterThan(0.615);
+      await sweep('a 0.62em monospace font, wider than any phone draws');
+      await page.setViewportSize(viewport);
     }
-    expect(failures, `connected header failures:\n  ${failures.join('\n  ')}`).toEqual([]);
+
+    // The address opens the list to switch or disconnect, and Disconnect undoes it all.
+    await chip.click();
+    const switchList = page.getByRole('dialog', { name: 'Switch Solana wallet' });
+    await expect(switchList).toBeVisible({ timeout: 30_000 });
+    await expect(switchList).toContainText(`Connected as ${SHORT}.`);
+    await switchList.getByRole('button', { name: 'Disconnect' }).click();
+    await expect(topBarSolanaConnect(page)).toBeVisible({ timeout: 30_000 });
+    await expect(chip).toHaveCount(0);
+    if (hasLadder) await expect(cardConnect).toBeVisible({ timeout: 30_000 });
   });
 });

@@ -6,6 +6,11 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-03
+
+- On a Solana page (/pools, /solana, /curve-launch, a Solana pool, or the dashboard in a Solana room) the Connect button at the top opens the Solana wallet list, and shows your Solana address once connected. Before, it connected only Ethereum and Base wallets there.
+- Tapping your Solana address at the top opens the wallet list, which now names the wallet in use and has a Disconnect.
+
 ### 2026-10-02
 
 - An Ethereum launch's page (/launch) shows the maker's wallet, its allocation and whether its vesting still locks it, read from the launch transaction Doppler's Airlock made.
