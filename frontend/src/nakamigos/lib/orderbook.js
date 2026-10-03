@@ -13,8 +13,16 @@
 import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED, resolveSeaportTarget } from "../constants";
 import { getProvider } from "../api";
 import { venueRefusal, venueRefusalForAll } from "./venue";
+import { waitForTxOutcome, txOutcomeResult } from "./txOutcome";
 
 const ORDERBOOK_API = "/api/orderbook";
+
+// What a listing's setApprovalForAll says when it did not simply confirm
+// (txOutcomeResult). The listing is only signed once the approval is in place.
+const APPROVAL_WORDS = {
+  reverted: { error: "approval-failed", message: "NFT approval transaction reverted" },
+  ifLanded: "the approval is already in place and a second one only costs gas.",
+};
 
 // Max NFTs in one bundle. MUST equal the server's MAX_BUNDLE_ITEMS (api/orderbook.js) so
 // the client fails fast instead of signing twice + paying approval gas for an order the
@@ -285,10 +293,15 @@ export async function fulfillNativeOrder(order) {
       { value: totalWei }
     );
 
-    const receipt = await tx.wait();
-    if (!receipt || receipt.status === 0) {
-      return { error: "reverted", message: "Transaction was mined but reverted on-chain" };
+    const done = await waitForTxOutcome(tx);
+    if (done.kind !== "success") {
+      return txOutcomeResult(done, {
+        reverted: { error: "reverted", message: "Transaction was mined but reverted on-chain" },
+        ifLanded: "the NFT is already yours and buying it again will not go through.",
+      });
     }
+    // The hash that mined. After a speed-up it is not tx.hash, which never mined.
+    const txHash = done.hash;
 
     // Mark order as filled in our backend
     // AUDIT FIX D-FE-M2: bind fill signature to chainId + a 5-minute timestamp
@@ -308,7 +321,7 @@ export async function fulfillNativeOrder(order) {
     // moves; the pre-flight getOrderStatus check above keeps later buyers
     // from broadcasting against the stale row.
     try {
-      const fillMessage = `Fill order ${order.order_hash} tx ${tx.hash} | Chain: ${_fillChainId} | Time: ${_fillTs}`;
+      const fillMessage = `Fill order ${order.order_hash} tx ${txHash} | Chain: ${_fillChainId} | Time: ${_fillTs}`;
       const fillSignature = await signer.signMessage(fillMessage);
       await withRetry(async () => {
         const fillController = new AbortController();
@@ -321,7 +334,7 @@ export async function fulfillNativeOrder(order) {
             body: JSON.stringify({
               action: "fill",
               orderHash: order.order_hash,
-              txHash: tx.hash,
+              txHash,
               signature: fillSignature,
               chainId: _fillChainId,
               timestamp: _fillTs,
@@ -334,10 +347,10 @@ export async function fulfillNativeOrder(order) {
       });
     } catch {
       // Non-critical: on-chain fill succeeded even if backend update fails
-      console.warn("Failed to update orderbook backend after fill, tx:", tx.hash);
+      console.warn("Failed to update orderbook backend after fill, tx:", txHash);
     }
 
-    return { success: true, hash: tx.hash, tx, receipt };
+    return { success: true, hash: txHash, tx, receipt: done.receipt };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
       return { error: "rejected", message: "Transaction cancelled by user" };
@@ -381,10 +394,8 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     const isApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
     if (!isApproved) {
       const approveTx = await nftContract.setApprovalForAll(CONDUIT_ADDRESS, true);
-      const approveReceipt = await approveTx.wait();
-      if (!approveReceipt || approveReceipt.status === 0) {
-        return { error: "approval-failed", message: "NFT approval transaction reverted" };
-      }
+      const approved = await waitForTxOutcome(approveTx);
+      if (approved.kind !== "success") return txOutcomeResult(approved, APPROVAL_WORDS);
       // Re-verify approval succeeded on-chain
       const stillApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
       if (!stillApproved) {
@@ -607,10 +618,8 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
       const isApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
       if (!isApproved) {
         const approveTx = await nftContract.setApprovalForAll(CONDUIT_ADDRESS, true);
-        const approveReceipt = await approveTx.wait();
-        if (!approveReceipt || approveReceipt.status === 0) {
-          return { error: "approval-failed", message: "NFT approval transaction reverted" };
-        }
+        const approved = await waitForTxOutcome(approveTx);
+        if (approved.kind !== "success") return txOutcomeResult(approved, APPROVAL_WORDS);
         const stillApproved = await nftContract.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
         if (!stillApproved) {
           return { error: "approval-failed", message: "NFT approval did not take effect" };

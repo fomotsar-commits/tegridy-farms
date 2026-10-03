@@ -6,6 +6,7 @@ import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } 
 import { cancelSeaportOrder } from "./lib/seaportCancel";
 import { cancelRefusal, venueCollectionByContract, venueCollectionBySlug, venueRefusal, venueRefusalError, venueSlugRefusal } from "./lib/venue";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
+import { waitForTxOutcome, txOutcomeResult } from "./lib/txOutcome";
 
 // AUDIT FIX M-8 (frontend chain guard): assertOnExpectedChain blocks any
 // on-chain action when the wallet is connected to a chain != SEAPORT_DOMAIN.chainId.
@@ -433,6 +434,8 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
         if (err.code === 4001 || err.code === "ACTION_REJECTED") {
           return { error: "rejected", message: "ETH wrap cancelled by user" };
         }
+        // Unconfirmed or replaced is not "failed": pass the notice through.
+        if (err.notice) return err.notice;
         return { error: "wrap-failed", message: `Wrapping ${formatEther(needed)} ETH to WETH failed: ${err.shortMessage || err.message || "transaction failed"}` };
       }
     }
@@ -446,6 +449,7 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
         if (err.code === 4001 || err.code === "ACTION_REJECTED") {
           return { error: "rejected", message: "WETH approval cancelled by user" };
         }
+        if (err.notice) return err.notice;
         return { error: "approve-failed", message: `WETH approval failed: ${err.shortMessage || err.message || "transaction failed"}` };
       }
     }
@@ -674,6 +678,8 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
       return { error: "rejected", message: "Offer cancelled by user" };
     }
+    // A wrap or approval that is unconfirmed or replaced is not "failed".
+    if (err.notice) return err.notice;
     console.error("Create collection offer error:", err);
     return { error: "failed", message: err.shortMessage || err.message || "Failed to create collection offer" };
   }
@@ -801,6 +807,7 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
       return { error: "rejected", message: "Offer cancelled by user" };
     }
+    if (err.notice) return err.notice;
     console.error("Create trait offer error:", err);
     return { error: "failed", message: err.shortMessage || err.message || "Failed to create trait offer" };
   }
@@ -978,8 +985,14 @@ export async function cancelOrder(order) {
     const orderProtocolAddress =
       order.rawOrder?.protocol_address || order.protocol_address || order.protocolAddress || null;
     const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: orderProtocolAddress });
-    await tx.wait();
-    return { success: true, hash: tx.hash };
+    const done = await waitForTxOutcome(tx);
+    if (done.kind !== "success") {
+      return txOutcomeResult(done, {
+        reverted: { error: "reverted", message: "The cancel reverted on-chain. The order is still live." },
+        ifLanded: "the order is already cancelled and a second cancel only costs gas.",
+      });
+    }
+    return { success: true, hash: done.hash };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
       return { error: "rejected", message: "Transaction cancelled" };
@@ -1143,7 +1156,14 @@ export async function acceptOffer(offer) {
     const isApproved = await nft.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
     if (!isApproved) {
       const approveTx = await nft.setApprovalForAll(CONDUIT_ADDRESS, true);
-      await approveTx.wait();
+      // The fill is only sent once the approval is known to be in place.
+      const approved = await waitForTxOutcome(approveTx);
+      if (approved.kind !== "success") {
+        return txOutcomeResult(approved, {
+          reverted: { error: "approval-failed", message: "NFT approval transaction reverted" },
+          ifLanded: "the approval is already in place and a second one only costs gas.",
+        });
+      }
     }
 
     const tx = await signer.sendTransaction({
@@ -1153,12 +1173,15 @@ export async function acceptOffer(offer) {
     });
 
     // Wait for on-chain confirmation before reporting success
-    const receipt = await tx.wait();
-    if (!receipt || receipt.status === 0) {
-      return { error: "failed", message: "Transaction reverted on-chain" };
+    const done = await waitForTxOutcome(tx);
+    if (done.kind !== "success") {
+      return txOutcomeResult(done, {
+        reverted: { error: "failed", message: "Transaction reverted on-chain" },
+        ifLanded: "the NFT is already sold and accepting the offer again will not go through.",
+      });
     }
 
-    return { success: true, hash: tx.hash };
+    return { success: true, hash: done.hash };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
       return { error: "rejected", message: "Transaction cancelled" };

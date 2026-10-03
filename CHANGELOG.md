@@ -6,6 +6,13 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-03
+
+- In the marketplace, a purchase, accepted offer, trade, cancel or approval you sped up in your wallet counts as done, under the transaction that confirmed, instead of being called failed or waiting forever.
+- In the marketplace, when a transaction's result cannot be read, the site says it cannot tell and links to Etherscan, instead of saying it failed and offering Retry.
+- In the marketplace, a transaction you cancelled or replaced in your wallet says it did not happen, and one that reverted says it reverted.
+- The marketplace's Speed Up button follows the faster transaction it sent, and sends nothing for a purchase that already confirmed.
+
 ### 2026-10-02
 
 - An Ethereum launch's page (/launch) shows the maker's wallet, its allocation and whether its vesting still locks it, read from the launch transaction Doppler's Airlock made.
