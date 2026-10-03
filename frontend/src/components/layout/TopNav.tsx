@@ -5,8 +5,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { NAV_SECTIONS, DASHBOARD_NAV } from '../../lib/navConfig';
-import type { NavSection } from '../../lib/navConfig';
+import { NAV_SECTIONS, DASHBOARD_NAV, sectionIsActive } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
@@ -34,9 +33,6 @@ import { artImgProps } from '../../lib/artSrcSet';
  * Segment-boundary matching, not `startsWith`: `/launch-simulator` starts with
  * `/launch` and is a different destination.
  */
-function sectionIsActive(section: NavSection, pathname: string): boolean {
-  return section.items.some((i) => pathname === i.to || pathname.startsWith(`${i.to}/`));
-}
 
 /* NavPills (the amber SOON / green LIVE badges) was deleted 2026-09-05 with the
    drawer's expanded item list, its only caller. The pills are not lost: they

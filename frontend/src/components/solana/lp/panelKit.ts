@@ -48,6 +48,14 @@ export function cannotFundText(a: {
  */
 export { LOCKED_SHARES_TEXT };
 
+/**
+ * Above Review on the Add and Open forms. The long notes sit under the form, where the
+ * amount boxes used to be: on a phone they filled two screens before the first box, and
+ * the form read as if it were not there (owner, 2026-10-03). They are still always on the
+ * page, and the review repeats the main ones before the wallet is asked to sign.
+ */
+export const NOTES_BELOW = 'Read the notes under this form before you review. The main ones are shown again before you sign.';
+
 /** A share of the pool as a percentage; a real share that rounds to nothing says so. */
 export function sharePct(part: bigint, whole: bigint): string {
   if (whole <= 0n || part <= 0n) return 'none';

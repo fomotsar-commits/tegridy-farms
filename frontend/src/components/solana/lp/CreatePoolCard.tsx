@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { formatSol } from '../../../lib/launcher/solana/curve/format';
 import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import { isCreatedPool, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
@@ -44,6 +44,12 @@ export function CreatePoolCard(p: {
   onReread: () => void;
   /** The search on screen is the last answer, shown while the same token is read again. */
   refreshing?: boolean;
+  /**
+   * A wish's number (PoolFinder LpWish), or 0: the visitor asked for this lookup to end in
+   * the form. It opens by itself once the card can offer it; when the card settles on
+   * anything else, the card is brought onto the screen so its reason is what they see.
+   */
+  openNow?: number;
 }) {
   const writes = useLpWrites();
   if (!writes) return null;
@@ -60,6 +66,7 @@ function CreateCard({
   outsideAt,
   onReread,
   refreshing = false,
+  openNow = 0,
   writes,
 }: Parameters<typeof CreatePoolCard>[0] & { writes: LpWrites }) {
   const headingId = useId();
@@ -92,10 +99,22 @@ function CreateCard({
     setSaid(null);
     run();
   };
-  if (offer === 'off') return null;
-
   const key = `create:${mint}`;
   const open = writes.active?.key === key;
+  // Each wish acts once, and only on a settled answer: never on "checking", never on a re-read.
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const openButton = useRef<HTMLButtonElement | null>(null);
+  const acted = useRef(0);
+  const settled = offer !== 'checking' && !reading;
+  const { open: openPanel, busy } = writes;
+  useEffect(() => {
+    if (!openNow || acted.current === openNow || !settled) return;
+    acted.current = openNow;
+    if (offer !== 'offer') sectionRef.current?.scrollIntoView?.({ block: 'start' });
+    else if (!open && !busy) openPanel('create', key, openButton.current, headingRef.current);
+  }, [openNow, settled, offer, open, busy, openPanel, key]);
+  if (offer === 'off') return null;
+
   // Another panel's flow is running: this one cannot open over it.
   const blockedByOther = writes.busy && !open;
   const tier: TierState | null = facts?.tier ?? null;
@@ -108,7 +127,8 @@ function CreateCard({
 
   return (
     <section
-      className={CARD}
+      ref={sectionRef}
+      className={`${CARD} scroll-mt-[4.5rem]`}
       style={CARD_STYLE}
       data-testid="lp-create"
       data-create={offer}
@@ -142,6 +162,7 @@ function CreateCard({
             <p className="text-white/60 text-[11px]">{MONEY_NOTE}</p>
             {/* Stays mounted while its panel is open, so focus can come back to it on Close. */}
             <button
+              ref={openButton}
               type="button"
               className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
               disabled={blockedByOther}

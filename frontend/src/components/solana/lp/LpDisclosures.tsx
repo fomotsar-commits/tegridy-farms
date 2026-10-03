@@ -113,6 +113,8 @@ export function LpBeforeYouOpen({ fee, neverRefunded }: { fee: bigint; neverRefu
 export function LpReviewDisclosure(p: { kind: 'add'; origin: 'launch-pool' | 'standard' | 'other' } | { kind: 'create' }) {
   return (
     <div className="space-y-1" data-testid="lp-review-disclosure" data-kind={p.kind}>
+      {/* On a phone the review is two screens long and its button is at the end of it. */}
+      <Notice>Read this through. The Sign in wallet button is at the end of it.</Notice>
       <Notice tone="warn">{FORK_LINE}</Notice>
       <Notice>{p.kind === 'create' ? CREATE_VAULT_LINE : VAULT_LINE}</Notice>
       {p.kind === 'add' && p.origin === 'launch-pool' && <Notice>{LAUNCH_POOL_LINE}</Notice>}
