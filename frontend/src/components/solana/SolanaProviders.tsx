@@ -113,7 +113,6 @@ export function SolanaSurfaceBridge() {
   const address = publicKey ? publicKey.toBase58() : null;
   const [owner] = useState(() => ({}));
   const { surface, openPending } = useSolanaSurface();
-  const { visible } = useWalletModal();
   useEffect(() => {
     setSolanaSurface(owner, { open, address, connecting });
   }, [owner, open, address, connecting]);
@@ -125,6 +124,8 @@ export function SolanaSurfaceBridge() {
     // left the page's scroll locked until a reload. The tap is still used up.
     if (takeSolanaOpenRequest() && !address && !document.querySelector('[aria-modal="true"]')) open();
   }, [surface, openPending, connecting, address, open]);
+  // A restore that does not end stops holding the tap (see the header).
+  const { visible } = useWalletModal();
   useEffect(() => {
     if (surface?.open !== open || !openPending || !connecting) return;
     if (visible) {
