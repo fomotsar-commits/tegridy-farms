@@ -292,3 +292,43 @@ describe('CurveCreatePanel container — the create receipt', () => {
     expect(toastWarning).not.toHaveBeenCalled();
   });
 });
+
+describe('CurveCreatePanel container: a create the wallet replaced', () => {
+  // viem's direct wait does not fail on a replaced tx: it calls onReplaced, then
+  // RESOLVES with the replacement's receipt (pinned in lib/txErrors.direct.test.ts).
+  const R_HASH = `0x${'ef'.repeat(32)}`;
+  const replacedWait = (reason: 'cancelled' | 'repriced', logs: unknown[]) =>
+    async (args: { hash: string; onReplaced?: (r: unknown) => void }) => {
+      args.onReplaced?.({ reason, replacedTransaction: { hash: args.hash }, transaction: { hash: R_HASH }, transactionReceipt: {} });
+      return { status: 'success', transactionHash: R_HASH, logs };
+    };
+
+  it('asks viem why a replaced create was replaced (onReplaced on the wait)', async () => {
+    renderPanel();
+    fillAndSubmit();
+    await screen.findByText(TOKEN);
+    expect(waitForTransactionReceipt).toHaveBeenCalledWith(expect.objectContaining({ hash: '0xhash', onReplaced: expect.any(Function) }));
+  });
+
+  it('a wallet CANCEL says it was cancelled, is no error, and gives the form back: no coin was made', async () => {
+    waitForTransactionReceipt.mockImplementation(replacedWait('cancelled', []));
+    parseEventLogs.mockReturnValue([]); // a 0-value send to yourself emits nothing
+    const { onCreated } = renderPanel();
+    fillAndSubmit();
+    await waitFor(() => expect(toastWarning).toHaveBeenCalledWith('Transaction cancelled', expect.anything()));
+    // Pre-fix: "Launch confirmed (tx 0xhash) but no LaunchCreated log was found."
+    expect(toastError).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(await screen.findByRole('button', { name: /create launch/i })).toBeInTheDocument();
+  });
+
+  it('a SPEED-UP is the same create: the launch finishes from the transaction that mined', async () => {
+    waitForTransactionReceipt.mockImplementation(replacedWait('repriced', [{ fake: 'log' }]));
+    const { onCreated } = renderPanel();
+    fillAndSubmit();
+    await screen.findByText(TOKEN);
+    expect(onCreated).toHaveBeenCalledWith(TOKEN);
+    expect(toastWarning).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
+  });
+});

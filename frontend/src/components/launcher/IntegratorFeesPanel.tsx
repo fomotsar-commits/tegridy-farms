@@ -24,6 +24,7 @@ import { useIntegratorFees, type DecoratedFee } from '../../hooks/useIntegratorF
 import { collectIntegratorFees } from '../../lib/launcher/integratorFees';
 import { LAUNCHER_INTEGRATOR_ADDRESS } from '../../lib/launcher/config';
 import { CHAIN_ID } from '../../lib/constants';
+import { surfaceReceiptNotice, waitForReceiptOutcome } from '../../lib/txErrors';
 import { formatWei, shortenAddress } from '../../lib/formatting';
 
 function FeeRow({
@@ -101,11 +102,21 @@ export function IntegratorFeesPanel() {
         amount: fee.amount,
       });
       // AUDIT (receipt-status, 2026-08-24): the receipt resolves for reverted
-      // txs too — only status === 'success' actually moved the fees.
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      // txs too — only status === 'success' actually moved the fees. An unread
+      // receipt is not a failure, and a cancel's receipt (another tx at the same
+      // nonce) says success without moving anything: both get their own warning.
+      const outcome = await waitForReceiptOutcome(publicClient, hash);
       if (!mounted.current) return;
-      if (receipt.status !== 'success') {
+      if (outcome.kind === 'reverted') {
         throw new Error('Withdrawal reverted on-chain — no fees moved.');
+      }
+      if (outcome.kind !== 'success') {
+        surfaceReceiptNotice(toast, outcome, {
+          hash,
+          chainId: CHAIN_ID,
+          repeatCost: 'a second withdrawal finds the fees already gone, and its simulation stops it before your wallet asks.',
+        });
+        return;
       }
       toast.success(`Withdrew ${formatWei(fee.amount, fee.decimals)} ${fee.symbol}`);
       refetch();

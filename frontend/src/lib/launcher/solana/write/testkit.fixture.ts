@@ -26,6 +26,8 @@ import {
   ACCOUNT_POOL_STATE,
   AMM_CONFIG_LEN,
   AMM_CONFIG_OFFSETS,
+  CREATOR_FEE_ON_TOKEN_0,
+  CREATOR_FEE_ON_TOKEN_1,
   IX_INITIALIZE,
   POOL_STATE_LEN,
   POOL_STATE_OFFSETS,
@@ -452,6 +454,11 @@ export function addPool(
     address?: PublicKey;
     /** At the launch program's address for this mint, with a never-traded price record. */
     launch?: boolean;
+    /**
+     * The pool's own creator-fee switch, on as the launch program opens a pool: charged in
+     * SOL (`OnlyToken0`/`OnlyToken1` for the SOL side). Default off, as `initialize` opens one.
+     */
+    enableCreatorFee?: boolean;
     tokenProgram?: PublicKey;
     tokenDecimals?: number;
     frozenTokenVault?: boolean;
@@ -491,6 +498,10 @@ export function addPool(
   d[off.mint1Decimals] = solIsToken0 ? dec : 9;
   d.set(u64le(o.lpSupply ?? 1_000_000_000n), off.lpSupply);
   d.set(u64le(o.openTime ?? 0n), off.openTime);
+  if (o.enableCreatorFee) {
+    d[off.creatorFeeOn] = solIsToken0 ? CREATOR_FEE_ON_TOKEN_0 : CREATOR_FEE_ON_TOKEN_1;
+    d[off.enableCreatorFee] = 1;
+  }
   chain.set(address, { lamports: rent(POOL_STATE_LEN), owner: CPSWAP, data: d });
   const authority = deriveAuthority(CPSWAP);
   const solVault = solIsToken0 ? vault0 : vault1;

@@ -81,16 +81,17 @@ vi.mock('../lib/jupiter', async (orig) => ({
   getUsdPrices: vi.fn(async () => ({})),
   getShield: vi.fn(async () => ({})),
 }));
-// The real wait, on a clock the test owns: each 2 s beat moves it and nothing
-// really sleeps, so a wait that never confirms is exactly 45 reads however
-// loaded the machine is.
-vi.mock('../lib/solana/swap/confirm', async (orig) => {
-  const real = await orig<typeof import('../lib/solana/swap/confirm')>();
+// The real wait (the one shared poller, lib/solana/confirm.ts), on a clock the
+// test owns: each 2 s beat moves it and nothing really sleeps, so a wait that
+// never confirms is exactly 46 reads however loaded the machine is. The page's
+// own time limit is passed through untouched: that count is what pins it.
+vi.mock('../lib/solana/confirm', async (orig) => {
+  const real = await orig<typeof import('../lib/solana/confirm')>();
   return {
     ...real,
-    pollSignature: (read: Parameters<typeof real.pollSignature>[0], sig: string) => {
+    pollConfirm: (conn: Parameters<typeof real.pollConfirm>[0], sig: string, timeoutMs?: number) => {
       let t = 0;
-      return real.pollSignature(read, sig, { now: () => t, sleep: async (ms: number) => { t += ms; } });
+      return real.pollConfirm(conn, sig, timeoutMs, async (ms: number) => { t += ms; }, () => t);
     },
   };
 });
@@ -108,6 +109,11 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
+
+// The first test here pays for the page's first render: 1.6 s to 3.3 s in seven full runs.
+// Its sibling file (SolanaSwapPage.confirm.test.tsx) crossed the 5 s default once under
+// load, so both get the same room. Nothing asserted changes.
+vi.setConfig({ testTimeout: 30_000 });
 
 const OK: SwapSimulation = { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
 const JUP_6014: SwapSimulation = { ok: false, reason: 'custom program error: 0x177e', jupiterIncorrectTokenProgram: true };
@@ -311,23 +317,27 @@ describe('SolanaSwapPage: clicking again on a waived quote compares like with li
 });
 
 describe('SolanaSwapPage: a swap that was SENT is never called "failed" for want of a confirmation', () => {
-  it('never confirmed, on the waived route: "Sent, not confirmed yet", the no-fee sentence, a View link, and a pending row', async () => {
+  // The words are the site's one shared "we can't tell" warning (surfaceUnconfirmedTx
+  // in lib/txErrors.ts), the same one the DCA and limit tabs raise; this path's own
+  // "Sent, not confirmed yet" toast went when the two confirm modules became one.
+  it('never confirmed, on the waived route: "we can\'t tell", the no-fee sentence, an explorer link, and a pending row', async () => {
     h.simulateSwap.mockImplementation(async (b64: string) => (b64 === TX_FEE ? JUP_6014 : OK));
     h.getSignatureStatuses.mockImplementation(async () => ({ value: [null] }));
     await typeAmountAndBuy();
     await waitFor(() => expect(h.toast.warning).toHaveBeenCalledTimes(1));
 
     const [title, opts] = h.toast.warning.mock.calls[0]! as [string, { description: string; action: { label: string } }];
-    expect(title).toBe('Sent, not confirmed yet');
-    expect(opts.description).toMatch(/It may still land/);
-    expect(opts.description).toMatch(/Solscan before trying again/);
+    expect(title).toBe("We couldn't confirm this transaction");
+    expect(opts.description).toContain(SIG.slice(0, 10));
+    expect(opts.description).toMatch(/we can't tell whether it went through/);
+    expect(opts.description).toMatch(/before you send it again: if it landed, swapping again buys a second time\./);
     expect(opts.description).toContain(COPY);
-    expect(opts.action.label).toBe('View');
+    expect(opts.action.label).toBe('Check on Explorer');
     // Never "failed", never "bought".
     expect(h.toast.error).not.toHaveBeenCalled();
     expect(h.toast.success).not.toHaveBeenCalledWith('Bought USDC', expect.anything());
-    // It was asked every 2 s for the whole 90 s before giving up.
-    expect(h.getSignatureStatuses).toHaveBeenCalledTimes(45);
+    // It was asked every 2 s for the whole 90 s (0 s to 90 s inclusive) before giving up.
+    expect(h.getSignatureStatuses).toHaveBeenCalledTimes(46);
     // The activity list keeps the signature, marked as not confirmed, with the waiver.
     const rows = getActivity(USER.toBase58());
     expect(rows).toHaveLength(1);
@@ -344,7 +354,8 @@ describe('SolanaSwapPage: a swap that was SENT is never called "failed" for want
     await typeAmountAndBuy();
     await waitFor(() => expect(h.toast.warning).toHaveBeenCalledTimes(1));
     const [title, opts] = h.toast.warning.mock.calls[0]! as [string, { description: string }];
-    expect(title).toBe('Sent, not confirmed yet');
+    expect(title).toBe("We couldn't confirm this transaction");
+    expect(opts.description).toMatch(/if it landed, swapping again buys a second time\.$/);
     expect(opts.description).not.toMatch(/no site fee/i);
     expect(h.toast.error).not.toHaveBeenCalled();
     const rows = getActivity(USER.toBase58());
@@ -363,5 +374,23 @@ describe('SolanaSwapPage: a swap that was SENT is never called "failed" for want
     expect(opts.action.label).toBe('View');
     expect(h.toast.warning).not.toHaveBeenCalled();
     expect(getActivity(USER.toBase58())).toHaveLength(0);
+  });
+
+  // The rule the shared poller took from this path's own one: a failure seen at
+  // 'processed' can be on a fork that is dropped, and the same swap can then land.
+  it('an error seen only at processed is not "refused": the wait goes on and the swap is bought', async () => {
+    h.simulateSwap.mockResolvedValue(OK);
+    let reads = 0;
+    h.getSignatureStatuses.mockImplementation(async () => {
+      reads += 1;
+      return reads === 1
+        ? { value: [{ err: { InstructionError: [2, { Custom: 6001 }] }, confirmationStatus: 'processed' }] }
+        : { value: [{ err: null, confirmationStatus: 'confirmed' }] };
+    });
+    await typeAmountAndBuy();
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought USDC', expect.anything()));
+    expect(reads).toBe(2);
+    expect(h.toast.error).not.toHaveBeenCalled();
+    expect(h.toast.warning).not.toHaveBeenCalled();
   });
 });
