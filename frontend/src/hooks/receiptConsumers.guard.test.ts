@@ -112,3 +112,84 @@ describe('every useWaitForTransactionReceipt consumer reads the thrown revert', 
     expect(dead, 'wagmi never delivers a reverted receipt on isSuccess; this branch cannot fire').toEqual([]);
   });
 });
+
+// AND A DIRECT WAIT GETS THE SAME SPLIT.
+//
+// `publicClient.waitForTransactionReceipt` (viem, called directly, not through the
+// hook) RETURNS a reverted receipt and rejects only when it read none, and a replaced
+// transaction resolves it with the replacement's receipt (a cancel's says success).
+// Until 2026-10-03 eleven such waits passed no `onReplaced` and never compared the
+// hash: a cancelled DCA swap was counted, a cancelled limit-order swap marked filled,
+// a cancelled stop-loss registration called "registered". So a direct wait or re-read
+// is allowed in exactly one place, lib/txErrors.ts's waitForReceiptOutcome() and
+// readReceiptOutcome(), which pass onReplaced and route the receipt through
+// receiptOutcome(). Anything else that reads a receipt by hash is named below with
+// the reason it is not a wait on a transaction the surface sent.
+const DIRECT_WAIT = /\bwaitForTransactionReceipt\s*\(/g;
+const DIRECT_READ = /\bgetTransactionReceipt\s*\(/g;
+const DIRECT_HELPER = /\b(?:waitForReceiptOutcome|readReceiptOutcome)\(/g;
+const HELPERS_FILE = 'lib/txErrors.ts';
+
+/** Receipt reads that are not a wait on the surface's own transaction. */
+const READS_NOT_WAITS: Record<string, string> = {
+  'lib/launcher/birthPlates.ts':
+    "reads a launch transaction's receipt (anyone's) to show its plates; a failed read renders as unreadable",
+  'lib/launcher/notifyBirth.ts':
+    'reads only the block a confirmed launch landed in; a failed read queues nothing',
+  'nakamigos/components/TransactionProgress.jsx':
+    "ethers, re-reading a receipt its caller already waited for with tx.wait(); ethers' own replacement handling is a separate question",
+};
+
+const sources = walk(SRC).map((f) => ({ file: relative(SRC, f).replace(/\\/g, '/'), src: code(f) }));
+
+describe('every direct receipt wait goes through the one split', () => {
+  it('finds the direct callers (a scan that matched nothing would pass vacuously)', () => {
+    const callers = sources.filter(({ src }) => count(src, DIRECT_HELPER) > 0).map(({ file }) => file);
+    expect(callers.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('calls waitForTransactionReceipt directly nowhere but the helper', () => {
+    const direct = sources
+      .filter(({ file, src }) => file !== HELPERS_FILE && count(src, DIRECT_WAIT) > 0)
+      .map(({ file, src }) => `${file}: ${count(src, DIRECT_WAIT)}`);
+    expect(direct, 'use waitForReceiptOutcome() from lib/txErrors.ts: it passes onReplaced and checks the hash').toEqual([]);
+  });
+
+  it('reads a receipt by hash nowhere but the helper and the named reads', () => {
+    const reads = sources
+      .filter(({ file, src }) => file !== HELPERS_FILE && !(file in READS_NOT_WAITS) && count(src, DIRECT_READ) > 0)
+      .map(({ file }) => file);
+    expect(reads, 'use readReceiptOutcome() from lib/txErrors.ts, or name the read and why it is not a wait').toEqual([]);
+  });
+
+  it('names no read that is no longer there (a stale exemption hides the next one)', () => {
+    const stale = Object.keys(READS_NOT_WAITS).filter(
+      (file) => count(sources.find((s) => s.file === file)?.src ?? '', DIRECT_READ) === 0,
+    );
+    expect(stale).toEqual([]);
+  });
+
+  it("the helper's own wait passes onReplaced: noteReplacement, and its receipts go through receiptOutcome()", () => {
+    const helper = sources.find(({ file }) => file === HELPERS_FILE)?.src ?? '';
+    const calls: string[] = [];
+    for (let i = helper.search(DIRECT_WAIT); i >= 0; ) {
+      const open = helper.indexOf('(', i);
+      let depth = 0;
+      let j = open;
+      do {
+        if (helper[j] === '(') depth++;
+        else if (helper[j] === ')') depth--;
+        j++;
+      } while (depth > 0 && j < helper.length);
+      calls.push(helper.slice(i, j));
+      const next = helper.slice(j).search(DIRECT_WAIT);
+      i = next < 0 ? -1 : j + next;
+    }
+    // One match is the method signature in the client type, the other is the call.
+    const real = calls.filter((c) => /^waitForTransactionReceipt\s*\(\s*\{/.test(c));
+    expect(real.length).toBe(1);
+    expect(real[0]).toMatch(/\bonReplaced:\s*noteReplacement\b/);
+    const directOutcome = /function directOutcome[\s\S]*?\n}/.exec(helper)?.[0] ?? '';
+    expect(directOutcome).toMatch(/\breceiptOutcome\(/);
+  });
+});
