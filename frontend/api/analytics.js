@@ -31,10 +31,21 @@
 // Migration `013_analytics_events.sql` carries an EVM-address CHECK as a
 // database backstop. It deliberately does NOT carry a base58 check; see that
 // file for why substring matching is the wrong tool there.
+//
+// NOTHING KEPT PAST 90 DAYS (owner, 2026-10-03)
+// ---------------------------------------------
+// The Privacy page says an event is kept for 90 days and then deleted
+// automatically. Rows are deleted once they are 90 days old: hourly by
+// .github/workflows/error-retention.yml, and here, after a stored batch, at
+// most once an hour per instance, as a backstop (api/_lib/errorPurge.js, one
+// delete for both). A failed backstop purge never changes the answer to the
+// browser. Until migration 027 grants service_role DELETE, the purge is refused
+// and logs once per instance; the stored batch stands.
 
 import { createClient } from "@supabase/supabase-js";
 import { checkRateLimit } from "./_lib/ratelimit.js";
 import { logSafe } from "./_lib/logSafe.js";
+import { purgeExpiredAnalyticsEvents } from "./_lib/errorPurge.js";
 
 // The client batches up to 200 events; each is small. 64 KB is generous for a
 // full batch and still bounds a hostile caller.
@@ -111,6 +122,32 @@ export function containsAddress(value, depth = 0) {
 }
 
 const MAX_EVENTS_PER_BATCH = 200;
+
+/** The backstop purge runs at most this often per instance; the hourly workflow is the main one. */
+const PURGE_EVERY_MS = 60 * 60_000;
+/** A short ceiling: this runs before the answer to the browser. */
+const PURGE_TIMEOUT_MS = 3_000;
+let lastPurgeAt = -Infinity;
+let purgeWarned = false;
+
+async function backstopPurge() {
+  const now = Date.now();
+  if (now - lastPurgeAt < PURGE_EVERY_MS) return;
+  lastPurgeAt = now;
+  const r = await purgeExpiredAnalyticsEvents({
+    supabaseUrl: SUPABASE_URL,
+    serviceKey: SUPABASE_SERVICE_KEY,
+    nowMs: now,
+    timeoutMs: PURGE_TIMEOUT_MS,
+  });
+  if (!r.ok && !purgeWarned) {
+    purgeWarned = true;
+    console.error(
+      `[analytics] backstop 90-day purge failed (${r.reason}${r.code ? ` ${r.code}` : ""}); ` +
+        "the hourly error-retention workflow is the main purge. 42501 means migration 027 has not been applied.",
+    );
+  }
+}
 
 /**
  * Validate one event. Returns `{ ok: true, row }` or `{ ok: false, reason }`.
@@ -209,6 +246,13 @@ export default async function handler(req, res) {
     // 503 rather than 500: the client re-queues (bounded at 200) and a later
     // flush succeeds once the migration is applied or the blip passes.
     return res.status(503).json({ error: "Analytics sink unavailable" });
+  }
+
+  // Never throws (errorPurge.js returns every outcome as a value); the catch is a belt.
+  try {
+    await backstopPurge();
+  } catch {
+    // the stored batch stands; the hourly workflow purges
   }
 
   return res.status(200).json({

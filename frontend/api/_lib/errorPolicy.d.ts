@@ -8,7 +8,11 @@ export declare const ERROR_REPORTING_STARTS_AT: string;
 export declare const ERROR_REPORTING_STARTS_AT_MS: number;
 /** How long a stored report is kept before it is deleted. */
 export declare const ERROR_RETENTION_DAYS: number;
+/** How long a stored analytics event is kept before it is deleted. */
+export declare const ANALYTICS_RETENTION_DAYS: number;
 /** True from the start instant on; false for any clock value that is not a finite number. */
 export declare function errorReportingOpen(nowMs: unknown): boolean;
 /** Reports received before this instant (ISO string) are past their retention. */
 export declare function errorRetentionCutoff(nowMs: number): string;
+/** Analytics events received before this instant (ISO string) are past their retention. */
+export declare function analyticsRetentionCutoff(nowMs: number): string;

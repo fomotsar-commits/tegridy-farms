@@ -29,6 +29,48 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-03: analytics events kept 90 days, then deleted automatically
+
+Your decision of 2026-10-03: an analytics event (the `analytics_events` table, migration 013,
+written by `/api/analytics`) is **kept for 90 days and then deleted automatically**, and the
+Privacy page's sections 3 and 5 now say so. Until this change nothing deleted those rows and the
+page named no time limit. Keeping less for less long narrows what we hold, so section 9's 14-day
+notice does not apply.
+
+The delete runs in the same hourly workflow as the 30-day error-report delete. That workflow
+is now named **Data Retention** (same file, `error-retention.yml`), and it uses the same two
+secrets, so there is nothing new to set. `/api/analytics` also deletes after it stores a batch,
+at most once an hour per server instance, for when GitHub's schedule is late.
+
+The weekly backup (`supabase-backup.yml`) does not copy `analytics_events`, so no copy outlives
+the 90 days there. A test fails if that table is ever added to its list.
+
+1. **Check whether the table exists.** In the Supabase SQL Editor run
+   `select to_regclass('public.analytics_events');`
+   If it returns `null`, migration 013 was never applied: no event can have been stored, the
+   hourly run stays green with a notice saying so, and steps 2 and 4 wait until the day you
+   apply 013. Then apply 027 straight after it.
+2. **Apply migration 027.** First run `select to_regclass('public.schema_migrations');`. If it
+   returns `null`, run the nine statements in `frontend/supabase/MIGRATIONS.md` section 1 first.
+   Then paste `frontend/supabase/migrations/027_analytics_events_retention.sql` and run it.
+   Never `supabase db push`. It gives the server key permission to delete from that one table
+   and indexes the time each event arrived; it grants the public keys nothing. It is safe to run
+   twice. **You should see** one row from
+   `select filename, applied_at from public.schema_migrations where filename = '027_analytics_events_retention.sql';`
+   Doing this before step 3 matters: without it the delete may be refused, and every hourly run
+   is red until it is done.
+3. **Merge the PR and let it deploy.** The first run deletes, for good, every analytics event
+   already more than 90 days old. That is the decision; if you want old totals kept, write the
+   counts down first.
+4. **Check the delete.** GitHub, Actions, Data Retention, Run workflow. **You should see** a
+   green run that says `Deleted N analytics event(s) received before ... (older than 90 days)`,
+   next to the error-report line. A red run whose message says `(42501)` means step 2 is not done.
+   Then, in the SQL Editor, the check query:
+   `select count(*) from analytics_events where received_at < now() - interval '90 days';`
+   **You should see** `0`.
+
+---
+
 ## 🔴 2026-10-02: turn on error reports (PR #466), in this order
 
 Approved by the owner on 2026-10-02, with two decisions: **reports are kept 30 days, then
@@ -43,7 +85,7 @@ so a step done late costs a delay, never a flood. **026 does not depend on 024 o
 creates and grants only its own table, so it can run before them, after them or alone; 024 and
 025 keep their own runbook further down.
 
-**No new secret.** The 30-day delete runs hourly in a new GitHub workflow, Error Retention, with
+**No new secret.** The 30-day delete runs hourly in a new GitHub workflow, Data Retention, with
 the `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` repository secrets the Supabase backup already uses.
 Nothing named `CRON_SECRET`, or anything else, needs creating.
 
@@ -65,7 +107,7 @@ Nothing named `CRON_SECRET`, or anything else, needs creating.
    other `/api` route from per-instance to shared rate limits, which is the intended mode.
 4. **Check the 30-day delete.** GitHub, Settings, Secrets and variables, Actions: `SUPABASE_URL`
    and `SUPABASE_SERVICE_KEY` should be listed (they were set on 2026-07-30). They must point at
-   the **same Supabase project** as Vercel's. Then Actions, Error Retention, Run workflow.
+   the **same Supabase project** as Vercel's. Then Actions, Data Retention, Run workflow.
    **You should see** a green run that says `Deleted 0 error report(s)` (or, before step 2, a
    notice that `error_events` does not exist yet). A red run means a report may be kept past 30
    days: the run's message says whether a secret is missing, the key was refused, or Supabase did

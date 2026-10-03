@@ -14,7 +14,11 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import PrivacyPage from './PrivacyPage';
-import { ERROR_REPORTING_STARTS_AT, ERROR_RETENTION_DAYS } from '../../api/_lib/errorPolicy.js';
+import {
+  ANALYTICS_RETENTION_DAYS,
+  ERROR_REPORTING_STARTS_AT,
+  ERROR_RETENTION_DAYS,
+} from '../../api/_lib/errorPolicy.js';
 
 const EFFECTIVE = new Date(ERROR_REPORTING_STARTS_AT).toLocaleDateString('en-GB', {
   timeZone: 'UTC',
@@ -23,6 +27,7 @@ const EFFECTIVE = new Date(ERROR_REPORTING_STARTS_AT).toLocaleDateString('en-GB'
   year: 'numeric',
 });
 const KEPT = `${ERROR_RETENTION_DAYS} days`;
+const ANALYTICS_KEPT = `${ANALYTICS_RETENTION_DAYS} days`;
 
 const text = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ');
 const section = (id: string) => {
@@ -95,6 +100,43 @@ describe('Privacy page: sections 3 and 5 say exactly what is stored, and for how
     for (const field of ['message', 'stack', 'page address', 'time']) expect(entry).toContain(field);
     expect(entry).toContain(EFFECTIVE);
     expect(entry).toContain(`kept for ${KEPT} and then deleted automatically`);
+    expect(entry).not.toContain('—');
+  });
+});
+
+/**
+ * Analytics events (owner's decision, 2026-10-03): kept 90 days, then deleted
+ * automatically, by the same hourly job as error reports. The 90 days is read from
+ * ANALYTICS_RETENTION_DAYS, the constant the purge measures from. Shortening how long we
+ * keep something narrows what we hold, so section 9's 14-day notice does not apply and
+ * there is no notice for it at the top of the page.
+ */
+describe('Privacy page: analytics events are kept 90 days, then deleted automatically', () => {
+  it('reads the 90 days from the enforced constant', () => {
+    expect(ANALYTICS_KEPT).toBe('90 days');
+  });
+
+  it('section 3 says so for analytics events, apart from the error reports', () => {
+    render(<PrivacyPage />);
+    const s3 = section('analytics');
+    const analytics = s3.slice(0, s3.indexOf('Separately'));
+    expect(analytics).toMatch(/event records/i);
+    expect(analytics).toContain(`kept for ${ANALYTICS_KEPT} and then deleted automatically`);
+    // The 30 days belongs to error reports alone; the analytics half must not borrow it.
+    expect(analytics).not.toContain(KEPT);
+    expect(s3.slice(s3.indexOf('Separately'))).not.toContain(ANALYTICS_KEPT);
+  });
+
+  it('section 5 lists analytics_events with what it holds and the 90 days', () => {
+    render(<PrivacyPage />);
+    const s5 = section('data-storage');
+    const start = s5.indexOf('`analytics_events`');
+    expect(start).toBeGreaterThan(-1);
+    const entry = s5.slice(start, s5.indexOf(')', start) + 1);
+    for (const field of ['event', 'session identifier', 'time']) expect(entry).toContain(field);
+    expect(entry).toContain('no wallet address');
+    expect(entry).toContain(`kept for ${ANALYTICS_KEPT} and then deleted automatically`);
+    expect(entry).not.toContain(KEPT);
     expect(entry).not.toContain('—');
   });
 });

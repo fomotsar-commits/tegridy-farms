@@ -9,7 +9,7 @@
 # solana-deploy-artifact.yml (manual mainnet builds), the schedule-only
 # arb-linkage-monitor.yml, revenue-watch.yml, synthetic-monitor.yml and supabase-backup.yml
 # (off GitHub the ops scheduler runs them), error-retention.yml (schedule only, holds the
-# Supabase service key; off GitHub api/errors.js purges after each stored report),
+# Supabase service key; off GitHub api/errors.js and api/analytics.js purge after a stored batch),
 # contracts-coverage.yml (not run off GitHub), and mirror-to-gitlab.yml (GitHub copying
 # itself to GitLab).
 
