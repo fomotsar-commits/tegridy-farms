@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { formatTokenAmount, formatPercent, formatNumber, sanitizeDecimalInput } from '../../lib/formatting';
 import { parseEther } from 'viem';
 import type { useLPFarming } from '../../hooks/useLPFarming';
@@ -267,8 +268,8 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
 
           {!isConnected ? (
             <div className="text-center py-8">
-              <p className="text-white text-sm mb-3">Connect wallet to stake LP tokens</p>
-              <ConnectButton />
+              <p className="text-white text-sm mb-3">Connect an Ethereum wallet to stake LP tokens</p>
+              <ConnectButton label={CONNECT_ETHEREUM_WALLET} />
             </div>
           ) : (
             <>
