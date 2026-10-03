@@ -46,6 +46,7 @@ export function fakeLpApi(over: Partial<LpWriteApi> & { gate?: LpGate } = {}): L
     prepareLpDeposit: vi.fn(),
     prepareLpWithdraw: vi.fn(),
     prepareLpCreate: vi.fn(),
+    prepareRouteSwap: vi.fn(),
     submitPrepared: vi.fn(),
     recheckOutcome: vi.fn(),
     explorerTxUrl: vi.fn((sig: string) => `https://explorer.test/tx/${sig}`),
