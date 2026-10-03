@@ -7,6 +7,7 @@ import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { openseaGet } from "../lib/proxy";
 import { cancelSeaportOrder } from "../lib/seaportCancel";
+import { waitForTxOutcome, txOutcomeResult, toastTxNotice } from "../lib/txOutcome";
 import EmptyState from "./EmptyState";
 import CollectionOffersPanel from "./CollectionOffersPanel";
 import NetProceeds from "./NetProceeds";
@@ -290,8 +291,14 @@ async function cancelBid(order) {
     const orderProtocolAddress =
       order.rawOrder?.protocol_address || order.protocol_address || order.protocolAddress || null;
     const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: orderProtocolAddress });
-    await tx.wait();
-    return { success: true, hash: tx.hash };
+    const done = await waitForTxOutcome(tx);
+    if (done.kind !== "success") {
+      return txOutcomeResult(done, {
+        reverted: { error: "reverted", message: "The cancel reverted on-chain. The bid is still live." },
+        ifLanded: "the bid is already cancelled and a second cancel only costs gas.",
+      });
+    }
+    return { success: true, hash: done.hash };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
       return { error: "rejected", message: "Transaction cancelled" };
@@ -474,8 +481,8 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
       setMyBids((prev) => prev.filter((b) => b.orderHash !== bid.orderHash));
     } else if (result.error === "rejected") {
       addToast?.("Bid cancellation was declined in your wallet.", "info");
-    } else {
-      addToast?.("Failed to cancel bid. Please try again.", "error");
+    } else if (!toastTxNotice(addToast, result)) {
+      addToast?.(result.error === "reverted" ? result.message : "Failed to cancel bid. Please try again.", "error");
     }
     setCancelling(null);
   }, [addToast, isWrongNetwork, switchChain]);
@@ -495,7 +502,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
       setReceivedOffers((prev) => prev.filter((o) => o.orderHash !== offer.orderHash));
     } else if (result.error === "rejected") {
       addToast?.("Offer acceptance was declined in your wallet.", "info");
-    } else {
+    } else if (!toastTxNotice(addToast, result)) {
       addToast?.("Failed to accept offer. Please try again.", "error");
     }
     setAccepting(null);

@@ -15,6 +15,50 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-03: ethers' `wait()` throws on a replaced transaction only if the signer sent it; through a contract method it never settles
+
+**Believed:** in ethers v6, `await tx.wait()` throws `TRANSACTION_REPLACED` when the wallet
+speeds up or cancels a pending transaction, so a `catch` around it sees every replacement.
+And a `repriced` replacement is the same call, so it worked.
+
+**Measured** against ethers 6.17.0: the real `BrowserProvider` over a scripted EIP-1193 node,
+one transaction replaced at its nonce, sent two ways
+(`frontend/src/nakamigos/lib/txOutcome.ethers.test.js`):
+
+| Sent by | A speed-up, a cancel, or another call at that nonce |
+|---|---|
+| `signer.sendTransaction(...)` | `wait()` throws `TRANSACTION_REPLACED`, reason `repriced` / `cancelled` / `replaced` |
+| `contract.method(...)` | `wait()` never settles. `wait(1, 250)` ends only on ethers' own `TIMEOUT` |
+
+`JsonRpcSigner.sendTransaction` returns `tx.replaceableTransaction(blockNumber)`. A contract
+method wraps that in `new ContractTransactionResponse(iface, provider, tx)`, whose constructor
+copies the fields and leaves the private start block at -1, and `wait()` skips the replacement
+scan when it is -1. `provider.getTransaction(hash)` hands back the same unarmed kind. 16 of the
+marketplace's 18 waits were on contract methods: a sped-up cancel or approval sat on its spinner
+until a reload, and the two signer sends called a sped-up purchase "failed".
+
+Two more shapes from the same run:
+
+- A speed-up that REVERTED still throws `TRANSACTION_REPLACED` / `repriced`. ethers never
+  checks the replacement's receipt, so `error.receipt.status` is 0 inside a "repriced" error.
+- A reverted receipt throws `CALL_EXCEPTION`, the code a failed gas estimate also uses. Only
+  `error.receipt?.status === 0` says this transaction was mined and reverted.
+
+**Do:** re-arm before waiting: `tx.replaceableTransaction(head - n)` is public and works on any
+response; `n` has to reach the block before the send (`lib/txOutcome.js` uses 5). Then sort the
+throw on positive evidence only: `repriced` is judged by its own receipt, `cancelled` and
+`replaced` did not happen, a `CALL_EXCEPTION` carrying a status 0 receipt reverted, and
+everything else is "we can't tell".
+
+### A scripted node needs `cacheTimeout: -1`
+
+`BrowserProvider` caches each JSON-RPC answer for 250 ms. A script that moves the head when
+`eth_sendTransaction` runs is read back at the old head, the first scan stops one block short,
+and the case passes only on the next poll: 1.5 s of wall clock that reads as a hang. With
+`{ cacheTimeout: -1, pollingInterval: 20 }` every case is one pass.
+
+---
+
 ## 2026-10-02: `import.meta.env.DEV` is true in a `vite build` run with NODE_ENV=development
 
 **Believed:** a dial honoured only when `import.meta.env.DEV` is true can count on a dev server
