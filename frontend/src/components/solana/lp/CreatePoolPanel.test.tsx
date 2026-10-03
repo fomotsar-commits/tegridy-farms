@@ -325,6 +325,12 @@ describe('the panel', () => {
       expect(cannot).toHaveTextContent('this wallet has 0.005960758 SOL');
       expect(cannot).toHaveTextContent('holds none of this token');
       expect(reviewButton(panel)).toBeDisabled();
+      // And what to do about it, with the way there (it used to stop at the numbers).
+      expect(cannot).toHaveTextContent('Send SOL to this wallet first.');
+      expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', '/solana');
+      // First on the form: a phone reads it before the amount boxes, not two screens under them.
+      const sol = within(panel).getByLabelText('SOL to put in');
+      expect(cannot.compareDocumentPosition(sol) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('too little SOL only: no word about the token', async () => {
@@ -392,14 +398,14 @@ describe('the panel', () => {
     const r = readers();
     mount(r);
     const { panel } = await openPanel();
-    const market = within(panel).getByTestId('lp-create-market');
+    const market = within(panel).getByTestId('lp-create-market-again');
     let release!: () => void;
     (r.outsidePrice as ReturnType<typeof vi.fn>).mockImplementationOnce(
       () => new Promise((res) => (release = () => res({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const }))),
     );
-    fireEvent.click(within(market).getByRole('button', { name: 'Read again' }));
+    fireEvent.click(within(market).getByRole('button', { name: 'Read the market price again' }));
     await waitFor(() => expect(within(market).getByRole('status')).toHaveTextContent('Reading the market price again…'));
-    expect(within(market).getByRole('button', { name: 'Read again' })).toHaveAttribute('aria-disabled', 'true');
+    expect(within(market).getByRole('button', { name: 'Read the market price again' })).toHaveAttribute('aria-disabled', 'true');
     await act(async () => release());
     await waitFor(() => expect(within(market).getByRole('status')).toHaveTextContent('Read again just now: the same answer.'));
   });

@@ -29,7 +29,7 @@ export function WalletNeeded({ state }: { state: CurveSignerState }) {
     <div className="space-y-2">
       <SolanaConnectButton />
       <p className="text-white/40 text-[10px] leading-relaxed">
-        On an iPhone or iPad without a wallet extension: open this page inside your wallet app&apos;s own browser
+        On a phone or tablet with no wallet in this browser: open this page inside your wallet app&apos;s own browser
         (Phantom, Solflare or Backpack), then connect there.
         {here && (
           <>
