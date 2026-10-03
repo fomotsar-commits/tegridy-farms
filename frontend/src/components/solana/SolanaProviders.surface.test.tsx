@@ -14,9 +14,9 @@ import {
 } from '@solana/wallet-adapter-base';
 import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
-import { SolanaProviders, SolanaSurfaceBridge } from './SolanaProviders';
+import { SolanaProviders, SolanaSurfaceBridge, TopBarSolanaProviders } from './SolanaProviders';
 import { SolanaWalletModalProvider } from './SolanaWalletModal';
-import { cancelSolanaOpenRequest, getSolanaSurfaceState, requestSolanaOpen } from '../../lib/solanaSurface';
+import { getSolanaSurfaceState, requestSolanaOpen, resetSolanaSurfaceForTests } from '../../lib/solanaSurface';
 
 const WSOL = 'So11111111111111111111111111111111111111112';
 
@@ -92,7 +92,7 @@ function withFake(wallet: FakeWallet) {
 
 afterEach(() => {
   cleanup();
-  act(() => cancelSolanaOpenRequest());
+  act(() => resetSolanaSurfaceForTests());
   localStorage.clear();
   vi.unstubAllEnvs();
 });
@@ -191,5 +191,25 @@ describe('SolanaProviders reports to the top bar', () => {
     } finally {
       other.remove();
     }
+  });
+
+  // One live connection per page: TopBarSolana.tsx unmounts the top bar's own
+  // wherever a page's is mounted, and it tells them apart by this flag.
+  it("marks the top bar's own connection as its own, and a page's as the page's", () => {
+    vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', '');
+    const own = render(<TopBarSolanaProviders />);
+    expect(getSolanaSurfaceState()).toMatchObject({ page: false });
+    expect(getSolanaSurfaceState().surface).not.toBeNull();
+    own.unmount();
+    render(<SolanaProviders>page</SolanaProviders>);
+    expect(getSolanaSurfaceState()).toMatchObject({ page: true });
+  });
+
+  it("opens the Solana list from the top bar's own connection, with nothing else inside it", async () => {
+    vi.stubEnv('VITE_WALLETCONNECT_PROJECT_ID', '');
+    const { container } = render(<TopBarSolanaProviders />);
+    expect(container).toBeEmptyDOMElement();
+    act(() => getSolanaSurfaceState().surface!.open());
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Connect a wallet on Solana to continue');
   });
 });

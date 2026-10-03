@@ -96,15 +96,15 @@ import { setSolanaSurface, takeSolanaOpenRequest, useSolanaSurface } from '../..
  * provider's own report in the store, which is a render after that first
  * effect, and only after any restore in flight (`connecting`) has ended.
  */
-export function SolanaSurfaceBridge() {
+export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
   const { publicKey, connecting } = useWallet();
   const open = useSolanaConnect();
   const address = publicKey ? publicKey.toBase58() : null;
   const [owner] = useState(() => ({}));
   const { surface, openPending } = useSolanaSurface();
   useEffect(() => {
-    setSolanaSurface(owner, { open, address, connecting });
-  }, [owner, open, address, connecting]);
+    setSolanaSurface(owner, { open, address, connecting }, own);
+  }, [owner, open, address, connecting, own]);
   useEffect(() => {
     if (surface?.open !== open || !openPending || connecting) return;
     // A restore that connected answers the tap; otherwise it is the card's click.
@@ -117,7 +117,12 @@ export function SolanaSurfaceBridge() {
   return null;
 }
 
-export function SolanaProviders({ children }: { children: ReactNode }) {
+/**
+ * `own` marks the top bar's own connection (TopBarSolanaProviders below), the
+ * one mounted where the page has no Solana section. Every page site leaves it
+ * unset.
+ */
+export function SolanaProviders({ children, own = false }: { children: ReactNode; own?: boolean }) {
   const endpoint = useMemo(() => solanaRpcEndpoint(), []);
   const wallets = useMemo(
     () => [
@@ -141,10 +146,22 @@ export function SolanaProviders({ children }: { children: ReactNode }) {
     <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
       <WalletProvider wallets={wallets} autoConnect>
         <SolanaWalletModalProvider>
-          <SolanaSurfaceBridge />
+          <SolanaSurfaceBridge own={own} />
           {children}
         </SolanaWalletModalProvider>
       </WalletProvider>
     </ConnectionProvider>
   );
+}
+
+/**
+ * The top bar's own Solana connection, for pages with no Solana section (the
+ * home page, the Earn list, the doors, the Ethereum pages). It is this same
+ * provider with nothing inside but the wallet list. components/layout/
+ * TopBarSolana.tsx loads it lazily, only once Solana is asked for or a Solana
+ * wallet is saved, and unmounts it wherever a page brings its own: one live
+ * connection per page (lib/solanaSurface.ts).
+ */
+export function TopBarSolanaProviders() {
+  return <SolanaProviders own>{null}</SolanaProviders>;
 }
