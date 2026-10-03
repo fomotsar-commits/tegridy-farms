@@ -84,6 +84,8 @@ describe('BungalowBurn, a full read', () => {
     expect(screen.getByRole('region').textContent).toContain('a fall in supply is not counted as burnt');
     expect(screen.getByRole('region').textContent).toContain('Read from Base.');
     expect(headline(screen.getByRole('region'))).toBe('6.66%');
+    // The chain is named in the header too, beside the heading.
+    expect(within(screen.getByRole('region')).getByText('Base', { selector: 'span' })).toBeTruthy();
   });
 
   it('DRB after someone burns 5B outright: the fall is shown, not counted, and "Not burnt" is withheld', () => {
@@ -105,6 +107,10 @@ describe('BungalowBurn, a full read', () => {
     expect(row('Not burnt')).toBe('989,301,009 BAYLA');
     expect(screen.queryByText('Sent to the burn address')).toBeNull();
     expect(card.textContent).toContain('Read from Solana. The burn is rounded down to whole tokens.');
+    // A Solana token has no burn address and no bridge note: saying either would be false.
+    expect(card.textContent).toContain('Burnt is the BAYLA destroyed outright');
+    expect(card.textContent).not.toContain('bridge');
+    expect(card.textContent).not.toContain('burn address');
   });
 
   it('a read zero prints as zero', () => {

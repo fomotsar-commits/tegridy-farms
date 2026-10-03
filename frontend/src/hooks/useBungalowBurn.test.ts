@@ -172,6 +172,18 @@ describe('useBungalowBurn on a Solana token', () => {
     await waitFor(() => expect(result.current.isReading).toBe(false));
   });
 
+  it('says it is reading during a re-read, and keeps the last figure up meanwhile', async () => {
+    const spy = serveSupply('999992834177471');
+    const { result } = renderHook(() => useBungalowBurn(room('bobo')));
+    await waitFor(() => expect(result.current.burn.status).toBe('read'));
+    await waitFor(() => expect(result.current.isReading).toBe(false));
+
+    spy.mockImplementation(() => new Promise<Response>(() => {})); // the re-read never lands
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.isReading).toBe(true));
+    expect(result.current.burn).toMatchObject({ status: 'read', tally: { burntRaw: 7_165_822529n } });
+  });
+
   it('hands the mint\'s own decimals to the tally: 9 where the record says 6 gets no figure', async () => {
     serveSupply('989301008790751', 9);
     const { result } = renderHook(() => useBungalowBurn(room('bayla')));
