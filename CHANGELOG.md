@@ -6,6 +6,11 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-04
+
+- Every bungalow now has a burn tracker. Each token's bungalow shows the percent of everything ever minted that is burnt, the amount, and where it went: sent to the burn address, stuck for good in the token's own contract, or destroyed outright so the supply itself fell. It is read from the token's own chain when the card loads. A burn that could not be read says so and never shows as zero. For QR, DRB and JBM a fall in supply is not counted.
+- TOWELI: the "Burned forever" row on its page now prints the same figure as the burn card, 25.76% of everything minted. It read 25.8% of supply.
+
 ### 2026-10-03
 
 - Open a pool: a token that already has a pool can have another. The card names the biggest pool that passes the checks and suggests adding to it first, and the Open a pool button stays, so anyone can open a separate pool of their own. Before, the button was taken away once one passing pool existed.
