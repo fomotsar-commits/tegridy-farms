@@ -7,16 +7,18 @@
 // spender can still draw from is not either.
 import { describe, it, expect } from 'vitest';
 import { Keypair } from '@solana/web3.js';
-import { WSOL_MINT } from '../curve/program';
+import { SYSTEM_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { encodeTokenAccountWith } from './testkit.fixture';
-import { syncCredit, wsolPlanFrom } from './wsol';
+import { opened, syncCredit, wsolPlanFrom } from './wsol';
 import { nativeReserve } from './prepare';
 
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
 const ATA = associatedTokenAddress(WSOL_MINT, ME);
-const account = (amount: bigint, o: Parameters<typeof encodeTokenAccountWith>[3] = {}) => ({ data: encodeTokenAccountWith(WSOL_MINT, ME, amount, o) });
+const account = (amount: bigint, o: Parameters<typeof encodeTokenAccountWith>[3] = {}) => ({ owner: TOKEN_PROGRAM_ID, data: encodeTokenAccountWith(WSOL_MINT, ME, amount, o) });
+/** What an address reads as after someone sends SOL to it and before any account is opened there. */
+const BARE = { owner: SYSTEM_PROGRAM_ID, data: new Uint8Array(0), lamports: 890_880 };
 
 describe('wsolPlanFrom', () => {
   it('absent or empty: closed at the end; holding wrapped SOL: kept', () => {
@@ -49,7 +51,32 @@ describe('wsolPlanFrom', () => {
   });
 
   it('an account too short to be a token account is unreadable, never planned', () => {
-    expect(wsolPlanFrom(ME, { data: new Uint8Array(72) })).toBe('Your wrapped-SOL account could not be read.');
+    expect(wsolPlanFrom(ME, { owner: TOKEN_PROGRAM_ID, data: new Uint8Array(72) })).toBe('Your wrapped-SOL account could not be read.');
+  });
+
+  // Anyone can send SOL to this address before the account exists. The transaction's own
+  // create-if-missing opens the account over it, so it is absent, not unreadable.
+  it('an address that only holds SOL someone sent it is absent: opened, used, and closed at the end', () => {
+    expect(wsolPlanFrom(ME, BARE)).toEqual({ ata: ATA, closeAfter: true, heldBefore: 0n });
+    expect(wsolPlanFrom(ME, { ...BARE, owner: SYSTEM_PROGRAM_ID.toBase58() })).toEqual({ ata: ATA, closeAfter: true, heldBefore: 0n });
+  });
+
+  it('no data under another owner, or data under the System program, is still unreadable', () => {
+    expect(wsolPlanFrom(ME, { ...BARE, owner: STRANGER })).toBe('Your wrapped-SOL account could not be read.');
+    expect(wsolPlanFrom(ME, { ...BARE, data: new Uint8Array(80) })).toBe('Your wrapped-SOL account could not be read.');
+  });
+});
+
+describe('opened: an address that only holds SOL is not an account yet', () => {
+  it('null for nothing there and for a System-owned address with no data; anything else is handed back as it is', () => {
+    expect(opened(null)).toBeNull();
+    expect(opened(undefined)).toBeNull();
+    expect(opened(BARE)).toBeNull();
+    expect(opened({ ...BARE, owner: SYSTEM_PROGRAM_ID.toBase58() })).toBeNull();
+    const real = account(0n);
+    const withData = { ...BARE, data: new Uint8Array(80) };
+    const otherOwner = { ...BARE, owner: STRANGER };
+    for (const a of [real, withData, otherOwner]) expect(opened(a)).toBe(a);
   });
 });
 

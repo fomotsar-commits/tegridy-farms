@@ -1,7 +1,9 @@
 // Shared presentation for the /curve-launch pages. No I/O, no Solana imports
-// beyond types, so every panel and both pages draw the same cards and rows.
+// beyond types and one pure text helper (decimalCommaToPoint), so every panel and
+// both pages draw the same cards and rows.
 
 import { useId, useState, type ReactNode, type Ref } from 'react';
+import { decimalCommaToPoint } from '../../../lib/launcher/solana/curve/format';
 import {
   CARD,
   CARD_STYLE,
@@ -207,7 +209,8 @@ export function SlippagePicker({
           disabled={disabled}
           value={other}
           onChange={(e) => {
-            const v = e.target.value;
+            // A comma typed on a phone keypad with no "." is the decimal point.
+            const v = decimalCommaToPoint(e.target.value, other);
             setOther(v);
             onChange(v.trim() === '' ? DEFAULT_SLIPPAGE_BPS : parseSlippagePercent(v));
           }}

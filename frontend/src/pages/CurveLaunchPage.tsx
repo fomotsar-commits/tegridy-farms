@@ -497,6 +497,7 @@ export function CreateChecklist({
   global,
   globalPhase,
   createCost = null,
+  launchingOff,
 }: {
   /** `null` = nothing looked up yet, which is not a failed read. */
   mint: Read<MintFacts> | null;
@@ -505,12 +506,15 @@ export function CreateChecklist({
   globalPhase: LaunchPhase | null;
   /** The rent `create_launch` would charge, read from the cluster. `null` = not read. */
   createCost?: Read<CreateLaunchCost> | null;
+  /** The view's sentence that no launch can be made from it, said before anything else. */
+  launchingOff?: string;
 }) {
   const f = mint?.kind === 'ok' ? mint.value : null;
   const g = global;
   const treasury = describeTreasury(g?.feeRecipient ?? null);
   return (
     <Card title="Open a launch">
+      {launchingOff && <p className="text-white/85">{launchingOff}</p>}
       <p>
         Launching mints the entire supply, sends the platform reserve listed below to {treasury.name}, puts the rest
         into a fresh curve&apos;s vault and permanently revokes the mint authority, all in the
@@ -663,6 +667,11 @@ export function CurveLaunchView({
   // not exist and rendering their absence as data about a launch.
   const canLookUp = probe?.kind === 'deployed' && looksLikePubkey(mintInput);
 
+  // No launch can be made from the read-only view. The door and the "Open a launch" card
+  // both say so, in the same two cases as the trade panel's note.
+  const launchingOff =
+    gateBanner != null ? 'Launching is not open right now. The note above says why.' : 'Launching here is not switched on yet.';
+
   return (
     <>
       <PageArtBackdrop pageId="curve-launch" />
@@ -674,8 +683,14 @@ export function CurveLaunchView({
         {write ?? (
           <>
         {/* THE DOOR on our own curve rail, reading the connected Solana wallet. Same
-            primitive as the other rails: one rule, read live, in one place. */}
-        <LaunchGate rail="solana" wallet={wallet?.address ?? null} below={<VenueLaunchLines rail="solana" />} />
+            primitive as the other rails: one rule, read live, in one place. No launch can
+            be made from this view, so the door shows the reading and says so. */}
+        <LaunchGate
+          rail="solana"
+          wallet={wallet?.address ?? null}
+          below={<VenueLaunchLines rail="solana" />}
+          launchingOff={launchingOff}
+        />
 
         <Card title="Look up a launch">
           <p>Open a launch by its token address (mint). This view has no list of launches.</p>
@@ -738,6 +753,7 @@ export function CurveLaunchView({
           global={snapshot?.global ?? null}
           globalPhase={lookedUp ? phase : null}
           createCost={createCost}
+          launchingOff={launchingOff}
         />
 
         {wallet && (

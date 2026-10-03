@@ -8,6 +8,7 @@ import { act, render, screen, waitFor, within, fireEvent } from '@testing-librar
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
+import { solAbout } from './panelKit';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
@@ -287,6 +288,30 @@ describe('Add liquidity', () => {
     expect(within(panel).getByLabelText('Tokens to add')).toHaveValue('500');
     expect(within(panel).getByLabelText('Tokens to add')).toHaveAttribute('data-driving', 'true');
     expect(r.wallet).toHaveBeenCalledWith(OWNER, M, 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', expect.any(String));
+  });
+
+  // The Add form's side of the owner's report of 2026-10-03: a wallet that cannot add
+  // anything was shown a greyed-out Review and two small hints. It is now told so.
+  it('a wallet with no SOL to spare and none of the token is told it cannot add yet, with what adding needs and what it has', async () => {
+    mount(readers({ wallet: vi.fn(async () => facts({ lamports: 3_000_000n, token: null })) }));
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    const cannot = await within(panel).findByTestId('lp-add-cannot');
+    expect(cannot).toHaveTextContent('This wallet cannot add to this pool yet.');
+    // (5,000 + 1,000,000) for one signature and the reserve, 2,039,280 for the share
+    // account, and max(2,039,280, 890,880) kept in the wallet.
+    expect(cannot).toHaveTextContent(`needs about ${solAbout(5_083_560n)}`);
+    expect(cannot).toHaveTextContent('this wallet has 0.003 SOL');
+    expect(cannot).toHaveTextContent('holds none of this token');
+    expect(within(panel).getByRole('button', { name: 'Review: add liquidity' })).toBeDisabled();
+  });
+
+  it('a wallet that can add is told nothing of the sort', async () => {
+    mount(readers());
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    expect(within(panel).queryByTestId('lp-add-cannot')).toBeNull();
   });
 
   it('an unread wallet balance offers no Max and says it could not read', async () => {

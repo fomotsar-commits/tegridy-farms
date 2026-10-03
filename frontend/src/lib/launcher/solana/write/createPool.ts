@@ -26,9 +26,11 @@
 //   10. the wallet's accounts (`accountCheck`, `wsolPlanFrom`);
 //   11-12. the rents, read live, and what this wallet can put in (the rent band);
 //   13-15. the pins, the body, and the shared simulate-and-compare path, whose balance
-//      check is EXACT: the tokens leave by exactly the amount typed, exactly
-//      isqrt − 100 pool shares arrive, and the fee account receives exactly the fee on
-//      screen;
+//      check lets nothing more leave than the review says: exactly isqrt − 100 pool
+//      shares arrive, at most the tokens typed leave, the fee account receives at least
+//      the fee on screen, and the wallet pays at most the sum on screen, to the lamport
+//      (so a fee above the one shown is blocked, whatever a stranger sends the fee
+//      account in the meantime);
 //   16. the one-off key is the only extra signer, and only on the one-off path.
 //
 // The one-off key lives only in `PreparedTx.extraSigners`: never in the summary, the
@@ -68,7 +70,7 @@ import { LP_COPY, accountCheck, rentOf, toRaw, type LpPrepareReads } from './liq
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import type { CurveWriteConfig, IntentStep, LpCreateSummary, LpOpenGate, PoolPins, Prepared, TierTerms, TxSummary, WriteRpc } from './types';
-import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
+import { closeWsolIxs, openWsolIx, opened, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
 
 // ── copy (SPEC_S2_CREATE 3.5) ────────────────────────────────────────────────
 
@@ -245,8 +247,9 @@ export async function readCreateSnapshot(
     mint: mint ?? null,
     metaplex: metaplex ?? null,
     signerLamports: BigInt(ownerAcc?.lamports ?? 0),
-    tokenAccounts: { classic: classic ?? null, token2022: token2022 ?? null },
-    wsol: { address: wsolAddress, account: wsol ?? null },
+    // The wallet's own three: an address that only holds SOL someone sent it is no account (`opened`).
+    tokenAccounts: { classic: opened(classic), token2022: opened(token2022) },
+    wsol: { address: wsolAddress, account: opened(wsol) },
     standard: { address: standard, accounts: accs.slice(8, 13) as Five },
     fresh: { address: a.fresh, accounts: accs.slice(13, 18) as Five },
   };
@@ -522,7 +525,12 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   });
   const body: TransactionInstruction[] = [openWsolIx(a.owner), ...wrapIxs(a.owner, a.sol), open, ...closeWsolIxs(plan, a.owner)];
 
-  // 15. Simulate twice and compare, exactly (3.3).
+  // 15. Simulate twice and compare (3.3). The balances are read a slot or more before the
+  // test run, and anyone can send a lamport to the fee account, a token to the wallet or
+  // wrapped SOL to a kept account in between. So those three rows have no upper bound:
+  // more arriving cannot hurt the signer, and an exact row let dust block every opening.
+  // What a fee above the one on screen would take comes out of the wallet, so the SOL row
+  // is what catches it, and it is exact.
   const maxSolOut = a.sol + createFee + neverRefunded + lpAccountRent;
   const r = await buildAndSimulate(rpc, {
     kind: 'lp-create',
@@ -544,18 +552,25 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
       // set up under the old rent, gains 550,840 that way on its first opening. The pool
       // program moves and syncs the fee account only when there is a fee to open.
       const feeCredit = createFee === 0n ? 0n : syncCredit(pre.tokens.get(CP_CREATE_POOL_FEE_RECEIVER.toBase58()), rents.tokenAccount);
-      const keptCredit = plan.closeAfter ? 0n : syncCredit(pre.tokens.get(plan.ata.toBase58()), rents.tokenAccount);
+      const wsolPre = pre.tokens.get(plan.ata.toBase58());
+      const keptCredit = plan.closeAfter ? 0n : syncCredit(wsolPre, rents.tokenAccount);
+      // Lamports already at the wallet's own two addresses come off what it pays: the
+      // close hands back every lamport the wrapped-SOL address held, and a pool-share
+      // address that already holds SOL needs only the rest of its deposit.
+      const wsolBack = plan.closeAfter ? (wsolPre?.lamports ?? 0n) : 0n;
+      const lpThere = pre.tokens.get(pins.lpAccount.toBase58())?.lamports ?? 0n;
       return {
-        maxSolOut,
+        maxSolOut: maxSolOut - wsolBack - (lpThere < lpAccountRent ? lpThere : lpAccountRent),
         tokens: [
           { account: pins.lpAccount, mint: pins.lpMint, minDelta: planned.lp, maxDelta: planned.lp },
-          { account: tokenAddress, mint: a.tokenMint, minDelta: -a.token, maxDelta: -a.token },
-          // Wrapped in and spent by the opening: it ends where it began, closed or kept
-          // (kept: plus exactly what its own sync credits).
-          { account: plan.ata, mint: WSOL_MINT, minDelta: keptCredit, maxDelta: keptCredit },
-          // The fee on screen plus exactly what the account already held: a stale or lying
-          // tier read is blocked here, before any signature.
-          { account: CP_CREATE_POOL_FEE_RECEIVER, mint: WSOL_MINT, minDelta: createFee + feeCredit, maxDelta: createFee + feeCredit },
+          // At most the tokens typed leave (the bytes pin the exact number).
+          { account: tokenAddress, mint: a.tokenMint, minDelta: -a.token, maxDelta: 2n ** 64n },
+          // Wrapped in and spent by the opening. Closed: it ends where it began. Kept: at
+          // least what its own sync credits, so the person's own wrapped SOL is never spent.
+          { account: plan.ata, mint: WSOL_MINT, minDelta: keptCredit, maxDelta: plan.closeAfter ? 0n : 2n ** 64n },
+          // At least the fee on screen plus what the account already held: a tier read that
+          // shows more than the program takes is blocked here, before any signature.
+          { account: CP_CREATE_POOL_FEE_RECEIVER, mint: WSOL_MINT, minDelta: createFee + feeCredit, maxDelta: 2n ** 64n },
         ],
       };
     },

@@ -320,7 +320,22 @@ export function spendableSol(a: {
   wsolCreateRent: bigint;
   alsoPaid?: bigint;
 }): bigint {
-  const hold = a.wsolCreateRent > a.walletFloor ? a.wsolCreateRent : a.walletFloor;
-  const left = a.lamports - a.feeReserve - a.lpAccountRent - (a.alsoPaid ?? 0n) - hold;
+  const left = a.lamports - solSetAside(a);
   return left > 0n ? left : 0n;
+}
+
+/**
+ * What `spendableSol` takes off a wallet before any SOL can go into a pool: fees, the
+ * deposits it pays, and what must stay in the wallet. A wallet holding no more than
+ * this can put nothing in, and the panels say this figure when they tell it so.
+ */
+export function solSetAside(a: {
+  walletFloor: bigint;
+  feeReserve: bigint;
+  lpAccountRent: bigint;
+  wsolCreateRent: bigint;
+  alsoPaid?: bigint;
+}): bigint {
+  const hold = a.wsolCreateRent > a.walletFloor ? a.wsolCreateRent : a.walletFloor;
+  return a.feeReserve + a.lpAccountRent + (a.alsoPaid ?? 0n) + hold;
 }

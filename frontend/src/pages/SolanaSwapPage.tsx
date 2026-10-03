@@ -42,6 +42,7 @@ import {
 } from '../lib/solanaTokenList';
 import {
   getQuote,
+  NoRouteError,
   buildSwapTransaction,
   pickFeeMint,
   getUsdPrices,
@@ -440,22 +441,38 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
 }
 
 // Connected wallet's balance for a token (SOL via getBalance; SPL via parsed
-// token accounts). Reads through the proxied connection. Returns null on no
-// wallet / error (balance just doesn't render).
-function useTokenBalance(token: SolToken): { raw: bigint | null; human: string | null; loading: boolean } {
+// token accounts). Reads through the proxied connection.
+//
+// Three answers, kept apart: a number that was READ (a real 0 included), a
+// read still in flight, and UNREAD (the read threw, or an account came back
+// without an amount). `raw` is null for the last two and with no wallet, so
+// MAX and the insufficient guard stay off. `unread` is what lets a page say
+// "could not be read" where it used to print a 0 nobody had read, which is
+// exactly what an empty wallet looks like. `retry` reads again.
+function useTokenBalance(token: SolToken): {
+  raw: bigint | null;
+  human: string | null;
+  loading: boolean;
+  unread: boolean;
+  retry: () => void;
+} {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
   const [raw, setRaw] = useState<bigint | null>(null);
   const [loading, setLoading] = useState(false);
+  const [unread, setUnread] = useState(false);
+  // Bumped by retry(): re-runs the read below for the same wallet and token.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!publicKey) { setRaw(null); setLoading(false); return; }
+    if (!publicKey) { setRaw(null); setUnread(false); setLoading(false); return; }
     let cancelled = false;
     // Reset on EVERY re-run, not just disconnect: between a token switch and
     // the RPC response the old token's raw balance would otherwise feed MAX
     // and the insufficient guard in the NEW token's decimals (5 SOL raw ->
     // "5000" USDC). null hides MAX and skips the guard until the read lands.
     setRaw(null);
+    setUnread(false);
     setLoading(true);
     (async () => {
       try {
@@ -466,21 +483,27 @@ function useTokenBalance(token: SolToken): { raw: bigint | null; human: string |
           const resp = await connection.getParsedTokenAccountsByOwner(publicKey, { mint: new PublicKey(token.mint) });
           amount = resp.value.reduce((sum, a) => {
             const v = (a.account.data.parsed as { info?: { tokenAmount?: { amount?: string } } } | undefined)?.info?.tokenAmount?.amount;
-            return sum + (v ? BigInt(v) : 0n);
+            // An account that came back without an amount is not an empty one:
+            // the sum is not known, so the whole read counts as failed. Plain
+            // digits only: BigInt('') is 0n and BigInt('0x10') is 16n, and
+            // neither is an amount the RPC sent.
+            if (typeof v !== 'string' || !/^\d+$/.test(v)) throw new Error('a token account came back without an amount');
+            return sum + BigInt(v);
           }, 0n);
         }
         if (!cancelled) setRaw(amount);
       } catch {
-        if (!cancelled) setRaw(null);
+        if (!cancelled) { setRaw(null); setUnread(true); }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [connection, publicKey, token.mint, token.decimals]);
+  }, [connection, publicKey, token.mint, token.decimals, attempt]);
 
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
   const human = raw === null ? null : fromBaseUnits(raw.toString(), token.decimals);
-  return { raw, human, loading };
+  return { raw, human, loading, unread, retry };
 }
 
 // Trending Solana tokens — drives one-click, fee-bearing buys (pay SOL → token).
@@ -1184,7 +1207,15 @@ function SolanaSwapInner() {
   const [waivedQuote, setWaivedQuote] = useState<JupiterQuote | null>(null);
   const feeWaived = quote !== null && quote === waivedQuote;
   const [quoteLoading, setQuoteLoading] = useState(false);
-  const [quoteError, setQuoteError] = useState<string | null>(null);
+  // Why there is no quote, when one was asked for and none came back.
+  // 'no-route' is ONLY the quote service's own answer (lib/jupiter.ts
+  // NoRouteError). Every other failure (a 429, a 502, a dropped request) is
+  // 'unavailable': a quote that could not be fetched just now. That one is
+  // never worded as "no route", which would tell the trader the token cannot
+  // be bought here, and it comes with "Try again".
+  const [quoteFail, setQuoteFail] = useState<'no-route' | 'unavailable' | null>(null);
+  // Bumped by "Try again": asks for the same quote again, the form untouched.
+  const [quoteAttempt, setQuoteAttempt] = useState(0);
   const [swapping, setSwapping] = useState(false);
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
   const [mode, setMode] = useState<'swap' | 'limit' | 'dca'>('swap');
@@ -1231,13 +1262,13 @@ function SolanaSwapInner() {
   useEffect(() => {
     if (!canQuote || !baseAmount) {
       setQuote(null);
-      setQuoteError(null);
+      setQuoteFail(null);
       setQuoteLoading(false);
       return;
     }
     const ctrl = new AbortController();
     setQuoteLoading(true);
-    setQuoteError(null);
+    setQuoteFail(null);
     // A quote for a DIFFERENT pair must not survive into the fetch window:
     // the details rows format its raw base units with the NEW buy token's
     // decimals and symbol ("min received 149250000" USDC-units rendered as
@@ -1254,17 +1285,19 @@ function SolanaSwapInner() {
       })
         .then((q) => {
           if (ctrl.signal.aborted) return;
-          setQuote(q); setQuoteError(null); setQuoteLoading(false);
+          setQuote(q); setQuoteFail(null); setQuoteLoading(false);
         })
         .catch((err: unknown) => {
           if (ctrl.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
           setQuote(null);
-          setQuoteError('No route for this pair / amount.');
+          // "No route" only when the quote service itself said so.
+          setQuoteFail(err instanceof NoRouteError ? 'no-route' : 'unavailable');
           setQuoteLoading(false);
         });
     }, 400);
     return () => { clearTimeout(t); ctrl.abort(); };
-  }, [baseAmount, canQuote, payToken.mint, buyToken.mint, slippageBps]);
+    // quoteAttempt is here only so "Try again" re-runs this for the same form.
+  }, [baseAmount, canQuote, payToken.mint, buyToken.mint, slippageBps, quoteAttempt]);
 
   // USD prices for the pay + receive legs (one call, refreshed on pair change
   // — and every 30s while USD-denominated input is on, so a stale price can't
@@ -1295,7 +1328,13 @@ function SolanaSwapInner() {
     return () => { cancelled = true; };
   }, [payToken.mint, buyToken.mint]);
 
-  const outputDisplay = quote ? prettyAmount(fromBaseUnits(quote.outAmount, buyToken.decimals)) : '0';
+  // A figure only when a quote answered with one. A quote that was asked for
+  // and did not come back is a dash (the same mark as an unread balance),
+  // never a 0, which reads as "you would receive nothing". With no amount
+  // typed nothing was asked, and the 0 stands.
+  const outputDisplay = quote
+    ? prettyAmount(fromBaseUnits(quote.outAmount, buyToken.decimals))
+    : quoteFail ? '–' : '0';
   const rawImpact = Number(quote?.priceImpactPct);
   const priceImpact = Number.isFinite(rawImpact) ? Math.abs(rawImpact * 100) : null;
   const feePct = (SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2);
@@ -1521,6 +1560,18 @@ function SolanaSwapInner() {
   }
 
   const actionDisabled = !quote || quoteLoading || swapping || sameToken || (needsAck && !ack) || insufficient;
+  // What the buy button says. "No route" only when the quote service said it:
+  // a quote that could not be fetched, two of the same token, and the moment
+  // before the first quote is asked for each get their own words.
+  const ctaLabel = swapping ? 'Swapping…'
+    : quoteLoading ? 'Fetching quote…'
+    : !baseAmount ? 'Enter an amount'
+    : sameToken ? 'Pick two different tokens'
+    : insufficient ? `Insufficient ${payToken.symbol}`
+    : quote ? `Buy ${buyToken.symbol}`
+    : quoteFail === 'no-route' ? 'No route'
+    : quoteFail === 'unavailable' ? 'Quote unavailable'
+    : 'Fetching quote…';
 
   return (
     <div className="max-w-md mx-auto px-4 py-8">
@@ -1592,7 +1643,21 @@ function SolanaSwapInner() {
               </span>
               {publicKey && (
                 <span className="text-white/60 text-[10px] font-mono">
-                  Balance: {payBalance.loading ? '…' : payBalance.human ? prettyAmount(payBalance.human) : '0'}
+                  {/* A number only when it was READ (a real 0 included). A read
+                      that failed is a dash with a way to read again, the same
+                      mark the EVM swap uses, never a 0 nobody read. */}
+                  Balance: {payBalance.loading ? '…' : payBalance.human !== null ? prettyAmount(payBalance.human) : '–'}
+                  {payBalance.unread && (
+                    <button
+                      type="button"
+                      onClick={payBalance.retry}
+                      aria-label={`Retry reading your ${payToken.symbol} balance`}
+                      className="ml-1 px-2 py-2.5 -my-2 font-semibold"
+                      style={{ color: 'var(--color-stan)' }}
+                    >
+                      Retry
+                    </button>
+                  )}
                   {payBalance.raw !== null && payBalance.raw > 0n && (
                     <button type="button" onClick={handleMax} className="ml-1 px-2 py-2.5 -my-2 font-semibold" style={{ color: 'var(--color-stan)' }}>MAX</button>
                   )}
@@ -1782,9 +1847,26 @@ function SolanaSwapInner() {
               </div>
             )}
             {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
-            {quoteError && !sameToken && <p className="text-amber-300">{quoteError}</p>}
+            {quoteFail === 'no-route' && !sameToken && <p className="text-amber-300">No route for this pair / amount.</p>}
+            {quoteFail === 'unavailable' && !sameToken && (
+              <p className="text-amber-300" data-testid="solana-quote-unavailable">
+                Could not get a quote just now. This is not a statement that the pair cannot be traded.
+                <button
+                  type="button"
+                  onClick={() => setQuoteAttempt((n) => n + 1)}
+                  className="ml-1 px-2 py-2.5 -my-2 font-semibold underline underline-offset-2"
+                >
+                  Try again
+                </button>
+              </p>
+            )}
             {amount.trim() !== '' && !baseAmount && !sameToken && <p className="text-amber-300">Enter a valid amount.</p>}
             {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
+            {publicKey && payBalance.unread && (
+              <p className="text-amber-300" data-testid="solana-balance-unread">
+                Your {payToken.symbol} balance could not be read just now. This is not a statement that you hold none.
+              </p>
+            )}
             {shieldWarnings.map((w, i) => (
               <p key={`sh-${i}`} className={`flex items-start gap-1 ${shieldIsAlarming(w, w.mint) ? 'text-red-300' : 'text-white/50'}`}>
                 <span aria-hidden="true">⚠</span><span>{w.message}</span>
@@ -1816,7 +1898,7 @@ function SolanaSwapInner() {
               disabled={actionDisabled}
               className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-50"
             >
-              {swapping ? 'Swapping…' : quoteLoading ? 'Fetching quote…' : !baseAmount ? 'Enter an amount' : insufficient ? `Insufficient ${payToken.symbol}` : !quote ? 'No route' : `Buy ${buyToken.symbol}`}
+              {ctaLabel}
             </button>
           )}
 

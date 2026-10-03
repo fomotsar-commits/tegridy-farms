@@ -7,9 +7,9 @@
 // The rule these share: A REAL VALUE MUST NEVER RENDER AS ZERO, and an unknown
 // must never render as a number. Both directions have shipped from this repo
 // before — a scam pool rendered as "520607 ETH", a balance of one lamport shown as
-// "0.0000". So `formatSol` has a `<0.0001` floor rather than truncating to zero,
-// and every "we could not read it" path returns an explicit marker rather than a
-// default.
+// "0.0000". So `formatSol` and `formatTokenAmount` have a `<0.0001` floor rather than
+// truncating to zero, and every "we could not read it" path returns an explicit
+// marker rather than a default.
 
 import type { PublicKey } from '@solana/web3.js';
 import { PLATFORM_TREASURY_VAULT, type LaunchErrorName } from './program';
@@ -107,6 +107,9 @@ export function formatSol(
  * program's tests use 9 but nothing enforces it. A caller that could not read the
  * mint passes `null` and gets base units back with `isBaseUnits: true`, so the
  * page can say which one it is showing instead of silently assuming 9.
+ *
+ * Truncates like {@link formatSol}, with the same floor: a non-zero amount under the
+ * shown precision reads `<0.0001`, never "0".
  */
 export function formatTokenAmount(
   baseUnits: bigint,
@@ -120,7 +123,30 @@ export function formatTokenAmount(
   const whole = baseUnits / scale;
   const frac = baseUnits % scale;
   const digits = frac.toString().padStart(decimals, '0').slice(0, maxFractionDigits).replace(/0+$/, '');
+  if (whole === 0n && frac > 0n && digits === '') {
+    return { text: maxFractionDigits > 0 ? `<0.${'0'.repeat(maxFractionDigits - 1)}1` : '<1', isBaseUnits: false };
+  }
   return { text: `${whole.toLocaleString('en-US')}${digits ? `.${digits}` : ''}`, isBaseUnits: false };
+}
+
+/**
+ * What an amount box holds after a change, with a decimal comma turned into a point.
+ *
+ * A phone set to a comma-decimal region shows a keypad with "," and no "." for
+ * `inputMode="decimal"`, so a comma has to work. The rule: `next` is digits around ONE
+ * comma, with no point, and NOT exactly three digits after the comma. Then the comma is
+ * the decimal point ("0,5" is 0.5), and the box shows it as one. Typed at the end of a
+ * number, a comma has nothing after it yet, so it is taken.
+ *
+ * Everything else is returned untouched, for {@link parseDecimalToBaseUnits} to refuse
+ * as before. Three digits after the comma is how this site prints thousands ("68,066"),
+ * and a pasted "68,066" must never be read as 68.066. Nor is a comma already in the box
+ * (`prev`) ever read again: deleting a comma from a refused "1,393,591" must not leave
+ * 1.393591.
+ */
+export function decimalCommaToPoint(next: string, prev: string): string {
+  if (prev.includes(',') || !/^\d*,(?!\d{3}$)\d*$/.test(next)) return next;
+  return next.replace(',', '.');
 }
 
 /**

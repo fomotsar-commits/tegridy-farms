@@ -276,6 +276,8 @@ function ToweliDashboard() {
   const priceChangeStr = price.priceChange !== 0
     ? `${price.priceChange > 0 ? '+' : ''}${(price.priceChange ?? 0).toFixed(2)}%`
     : '';
+  // Every price source has answered or failed and none gave a price.
+  const priceUnread = price.priceInUsd <= 0 && price.priceSettled;
 
   // F173 (T11): during wallet auto-reconnect on cold reload, `isConnected` is
   // briefly false-then-true (or true-then-false), which made the connected
@@ -426,7 +428,9 @@ function ToweliDashboard() {
             // rate is derivable. The USD sub-line and Portfolio Value deliberately stay
             // on the settled `pendingTotal` so the dollar figure doesn't jitter.
             { l: 'Claimable', numVal: pos.accrualPerSec > 0 ? pos.pendingLive : pendingTotal, decimals: pos.accrualPerSec > 0 ? 4 : 2, sub: price.isLoaded ? formatCurrency(pendingTotal * price.priceInUsd) : '–', accent: true, art: pageArt('dashboard', 4), loading: pos.isLoading },
-            { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: price.oracleStale, art: pageArt('dashboard', 5), showSparkline: true, isPrice: true, loading: !price.isLoaded },
+            // A price that could not be read is neither still loading nor zero: once every
+            // leg has answered or failed (priceSettled) with nothing to show, the card says so.
+            { l: 'TOWELI Price', numVal: price.priceInUsd, decimals: price.priceInUsd < 0.01 ? 8 : 6, prefix: '$', sub: priceUnread ? 'Could not load' : priceChangeStr || (price.priceInUsd > 0 ? 'Live' : (price.oracleStale ? 'Stale' : '–')), priceUp: price.priceChange > 0, priceDown: price.priceChange < 0, stale: !priceUnread && price.oracleStale, art: pageArt('dashboard', 5), showSparkline: true, isPrice: true, loading: price.priceInUsd <= 0 && !price.priceSettled, error: priceUnread, unread: priceUnread },
           ].map((s) => (
             <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
@@ -444,6 +448,8 @@ function ToweliDashboard() {
               <div className="flex items-center gap-2">
                 {s.loading ? (
                   <Skeleton width={80} height={24} />
+                ) : s.unread ? (
+                  <span className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }}>–</span>
                 ) : s.isPrice ? (
                   <FlashValue value={s.numVal}>
                     <AnimatedCounter value={s.numVal} prefix={s.prefix} decimals={s.decimals} className="stat-value text-2xl" style={{ color: '#22c55e', textShadow: '0 1px 8px rgba(0,0,0,0.95)' }} />
