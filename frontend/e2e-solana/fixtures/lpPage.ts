@@ -6,7 +6,8 @@
 // elementFromPoint), never only toBeVisible.
 import { expect, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { PublicKey, type Keypair } from '@solana/web3.js';
-import { WSOL, landedTx, mintFacts, poolFacts, type PoolFacts } from './chain';
+import { landedTx, mintFacts, poolFacts, type PoolFacts } from './chain';
+import { SOL_COIN, coinAbout, coinExact, coinOfPool, type Coin } from './coins';
 import { installJupiterStub, installPoolIndex, type JupiterStub } from './lp';
 import { installRpcGuard, type RpcGuard } from './rpcGuard';
 import { installTestWallet, TEST_WALLET_NAME, type TestWallet } from './testWallet';
@@ -32,44 +33,72 @@ export const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // ── the pool, read in Node ─────────────────────────────────────────────────────
 
-export interface Sides { solIs0: boolean; lpMint: PublicKey; tokenMint: PublicKey; tokenProgram: PublicKey; solVault: PublicKey; tokenVault: PublicKey }
+/**
+ * The two sides of a pool: its pairing coin (SOL, USDC or BAYLA, by the rank in coins.ts)
+ * and the token priced in it. `solIs0` and `solVault` are the coin's side under the names
+ * the SOL-pool specs were written with: for a SOL pool they are the SOL side, and for any
+ * other pool the same values as `coinIs0` and `coinVault`.
+ */
+export interface Sides {
+  coin: Coin;
+  coinIs0: boolean;
+  coinVault: PublicKey;
+  solIs0: boolean;
+  solVault: PublicKey;
+  lpMint: PublicKey;
+  tokenMint: PublicKey;
+  tokenProgram: PublicKey;
+  tokenVault: PublicKey;
+}
 export function sidesOf(f: PoolFacts): Sides {
   const p = f.pool;
-  const solIs0 = p.token0Mint === WSOL.toBase58();
+  const pair = coinOfPool(p.token0Mint, p.token1Mint);
+  if (!pair) throw new Error(`pool ${f.address.toBase58()} is not paired with SOL, USDC or BAYLA`);
+  const { coin, coinIs0 } = pair;
+  const coinVault = new PublicKey(coinIs0 ? p.token0Vault : p.token1Vault);
   return {
-    solIs0,
+    coin,
+    coinIs0,
+    coinVault,
+    solIs0: coinIs0,
+    solVault: coinVault,
     lpMint: new PublicKey(p.lpMint),
-    tokenMint: new PublicKey(solIs0 ? p.token1Mint : p.token0Mint),
-    tokenProgram: new PublicKey(solIs0 ? p.token1Program : p.token0Program),
-    solVault: new PublicKey(solIs0 ? p.token0Vault : p.token1Vault),
-    tokenVault: new PublicKey(solIs0 ? p.token1Vault : p.token0Vault),
+    tokenMint: new PublicKey(coinIs0 ? p.token1Mint : p.token0Mint),
+    tokenProgram: new PublicKey(coinIs0 ? p.token1Program : p.token0Program),
+    tokenVault: new PublicKey(coinIs0 ? p.token1Vault : p.token0Vault),
   };
 }
 
-/** A deposit plan the page should build: the pool's own answer, with no balance rule (every actor here holds plenty). */
-export function depositPlan(f: PoolFacts, driving: 'sol' | 'token', maxIn: bigint, bps = 100n): DepositPlan & { costSol: bigint; costTok: bigint; maxSol: bigint; maxTok: bigint } {
+/**
+ * A deposit plan the page should build: the pool's own answer, with no balance rule (every
+ * actor here holds plenty). `driving` is the box typed in: the coin's (`'sol'` in the
+ * SOL-pool specs, `'coin'` for any coin) or the token's. The coin's side comes back as
+ * `costSol` / `maxSol`, in the coin's own base units whatever the coin is.
+ */
+export function depositPlan(f: PoolFacts, driving: 'sol' | 'coin' | 'token', maxIn: bigint, bps = 100n): DepositPlan & { costSol: bigint; costTok: bigint; maxSol: bigint; maxTok: bigint } {
   const s = sidesOf(f);
-  const plan = planDeposit(f.snapshot, { quoteIsToken0: s.solIs0, driving, maxIn, bps, availableSol: null, availableToken: null });
+  const plan = planDeposit(f.snapshot, { quoteIsToken0: s.coinIs0, driving: driving === 'token' ? 'token' : 'quote', maxIn, bps, availableQuote: null, availableToken: null });
   if (isPlanProblem(plan)) throw new Error(`deposit plan: ${plan.problem}`);
   return {
     ...plan,
-    costSol: s.solIs0 ? plan.cost0 : plan.cost1,
-    costTok: s.solIs0 ? plan.cost1 : plan.cost0,
-    maxSol: s.solIs0 ? plan.max0 : plan.max1,
-    maxTok: s.solIs0 ? plan.max1 : plan.max0,
+    costSol: s.coinIs0 ? plan.cost0 : plan.cost1,
+    costTok: s.coinIs0 ? plan.cost1 : plan.cost0,
+    maxSol: s.coinIs0 ? plan.max0 : plan.max1,
+    maxTok: s.coinIs0 ? plan.max1 : plan.max0,
   };
 }
 
+/** A withdrawal plan the page should build. The coin's side comes back as `minSol` / `outSol`, in the coin's own base units. */
 export function withdrawPlan(f: PoolFacts, held: bigint, pctBps: bigint, bps = 100n): WithdrawPlan & { minSol: bigint; minTok: bigint; outSol: bigint; outTok: bigint } {
   const s = sidesOf(f);
   const plan = planWithdraw(f.snapshot, { held, pctBps, bps });
   if (isPlanProblem(plan)) throw new Error(`withdraw plan: ${plan.problem}`);
   return {
     ...plan,
-    minSol: s.solIs0 ? plan.min0 : plan.min1,
-    minTok: s.solIs0 ? plan.min1 : plan.min0,
-    outSol: s.solIs0 ? plan.out0 : plan.out1,
-    outTok: s.solIs0 ? plan.out1 : plan.out0,
+    minSol: s.coinIs0 ? plan.min0 : plan.min1,
+    minTok: s.coinIs0 ? plan.min1 : plan.min0,
+    outSol: s.coinIs0 ? plan.out0 : plan.out1,
+    outTok: s.coinIs0 ? plan.out1 : plan.out0,
   };
 }
 
@@ -131,6 +160,18 @@ export async function ensureConnected(p: Page): Promise<void> {
   }
 }
 
+/**
+ * Wait until a pool just opened is open by the WALL clock. A pool's open time is set from
+ * the validator's clock, which runs ahead of this machine's (chain.ts
+ * waitForPoolOpenByWallClock), and a browser judges "open" on its own clock.
+ */
+export async function waitPoolOpenByWallClock(pool: PublicKey, maxMs = 5 * 60_000): Promise<void> {
+  const open = Number((await poolFacts(pool)).pool.openTime);
+  const waitMs = Math.max(0, (open + 2) * 1000 - Date.now());
+  if (waitMs > maxMs) throw new Error(`the pool opens ${Math.round(waitMs / 1000)} s from now by the wall clock: the validator clock has drifted too far, restart it`);
+  await new Promise((r) => setTimeout(r, waitMs));
+}
+
 export const poolCard = (p: Page, address: PublicKey | string) => p.locator(`[data-testid="lp-pool"][data-pool="${typeof address === 'string' ? address : address.toBase58()}"]`);
 export const positionRow = (p: Page, pool: PublicKey | string) => p.locator(`[data-testid="lp-position"][data-pool="${typeof pool === 'string' ? pool : pool.toBase58()}"]`);
 export const pendingNotes = (p: Page) => p.evaluate((k) => sessionStorage.getItem(k), LP_PENDING_KEY);
@@ -148,15 +189,15 @@ export async function reviewRows(p: Page): Promise<Record<string, string>> {
   });
 }
 
-/** Open Add on a pool card; returns the panel, with the wallet's balances read. */
-export async function openAdd(p: Page, pool: PublicKey): Promise<{ card: Locator; panel: Locator }> {
+/** Open Add on a pool card; returns the panel, with the wallet's balances read. `coin` is the pool's pairing coin (SOL unless said). */
+export async function openAdd(p: Page, pool: PublicKey, coin: Coin = SOL_COIN): Promise<{ card: Locator; panel: Locator }> {
   const card = poolCard(p, pool);
   await expect(card).toHaveAttribute('data-add', 'offer', { timeout: 60_000 });
   await press(ui.lp.addButton(card), 'Add liquidity');
   const panel = ui.lp.addPanel(card);
   await expect(panel).toBeVisible();
   // Max is offered once the wallet's balances are read.
-  await expect(ui.lp.maxSol(panel)).toBeVisible({ timeout: 30_000 });
+  await expect(ui.lp.maxCoin(panel, coin.symbol)).toBeVisible({ timeout: 30_000 });
   return { card, panel };
 }
 
@@ -195,17 +236,21 @@ export async function signConfirmed(a: Actor) {
   return { signature, t };
 }
 
-/** Add `solText` SOL to `pool` (typing SOL), and wait for Review to be offered. */
-export async function addAndReview(a: Actor, pool: PublicKey, solText: string, bps = 100n) {
-  const { card, panel } = await openAdd(a.page, pool);
+/** Add `coinText` of the pool's coin to `pool` (typing the coin's box: SOL unless said), and wait for Review to be offered. */
+export async function addAndReview(a: Actor, pool: PublicKey, coinText: string, bps = 100n, coin: Coin = SOL_COIN) {
+  const { card, panel } = await openAdd(a.page, pool, coin);
   if (bps !== 100n) await press(panel.getByRole('button', { name: `${Number(bps) / 100}%`, exact: true }), 'slippage preset');
-  await ui.lp.solToAdd(panel).fill(solText);
+  await ui.lp.coinToAdd(panel, coin.symbol).fill(coinText);
   await expect(ui.lp.reviewAdd(panel)).toBeEnabled({ timeout: 30_000 });
   return { card, panel };
 }
 
-/** Press Review on an Add panel, and check the review against Node's plan for the pool as it is now. */
-export async function reviewDeposit(a: Actor, panel: Locator, pool: PublicKey, driving: 'sol' | 'token', maxIn: bigint, bps = 100n) {
+/**
+ * Press Review on an Add panel, and check the review against Node's plan for the pool as
+ * it is now. Every amount on the coin's side is checked in the pool's own coin, read from
+ * the pool itself (`sidesOf`), and the review must name that coin.
+ */
+export async function reviewDeposit(a: Actor, panel: Locator, pool: PublicKey, driving: 'sol' | 'coin' | 'token', maxIn: bigint, bps = 100n) {
   await press(ui.lp.reviewAdd(panel), 'Review: add liquidity');
   const rows = await reviewRows(a.page);
   const f = await poolFacts(pool);
@@ -214,8 +259,9 @@ export async function reviewDeposit(a: Actor, panel: Locator, pool: PublicKey, d
   const decimals = (await mintFacts(s.tokenMint)).decimals;
   expect(rows['Pool']).toBe(pool.toBase58());
   expect(rows['Token (mint)']).toBe(s.tokenMint.toBase58());
+  expect(rows['Paired with']).toBe(s.coin.symbol);
   expect(rows['You get']).toBe(`${units(plan.lp, f.pool.lpMintDecimals)} pool shares, exactly`);
-  expect(rows['You put in about']).toBe(`${SOL(plan.costSol)} and ${tok(plan.costTok, decimals)} tokens`);
-  expect(rows['At most']).toMatch(new RegExp(`^${esc(`${solExact(plan.maxSol)} and ${units(plan.maxTok, decimals)} tokens`)}`));
+  expect(rows['You put in about']).toBe(`${coinAbout(plan.costSol, s.coin)} and ${tok(plan.costTok, decimals)} tokens`);
+  expect(rows['At most']).toMatch(new RegExp(`^${esc(`${coinExact(plan.maxSol, s.coin)} and ${units(plan.maxTok, decimals)} tokens`)}`));
   return { rows, f, plan, s, decimals };
 }
