@@ -15,6 +15,43 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-04: a local validator answers for every transaction that landed on it
+
+**Believed:** `solana-test-validator` keeps its whole history while it runs, so
+`getSignatureStatuses` with `searchTransactionHistory` always finds a transaction that
+landed on it. A "reload while unconfirmed" spec that is red in a full run and green alone
+is therefore the machine being busy.
+
+**Measured:** its `--help` gives `--limit-ledger-size` a default of 10,000 shreds. Two
+validators (3.1.11) were started side by side from `start-validator.sh`, one with that
+default and one with 50,000,000. Each was sent 14 airdrops between slots 1166 and 1465
+and asked about them every 5 seconds.
+
+- Default: `getFirstAvailableBlock` read 0, then 1057, 1625, 2161 and 2658. About every
+  550 slots, four minutes at the 0.47 seconds a slot it ran at, it dropped all but its
+  newest 30 or so slots. `getTransaction` answered null for all 14 from the next drop, 192
+  to 491 slots after they landed. `getSignatureStatuses` with history answered null for
+  all 14 at 330 to 491 slots: the recent-status cache covered the younger ones to about
+  340.
+- 50,000,000: the first available block was still 0 at slot 2369, and all 14 still
+  answered, the oldest 1,203 slots old.
+
+The page reads two empty history reads past the blockhash window as "expired". `lp-create`
+P2, with a five-minute pause put in before its last Check again, failed on the default
+validator (`data-advice` was "exists", not "opened-here", after 632 slots) and passed on
+the other (609 slots). A fresh validator drops nothing before slot 1057, about eight
+minutes in: a first probe that stopped at slot 998 found nothing wrong on either one, and
+a spec file run alone on a fresh validator passes.
+
+The price: the ledger was 3.7 GB after 24 minutes at 50,000,000, against 2.2 GB at the
+default, and still growing at about 10 GB an hour. Not measured: where it stops growing.
+
+**Do:** when a test asks a local validator about a transaction it sent earlier, start
+the validator with `--limit-ledger-size` far above the run, and stop it afterwards. Before
+reading "expired" or "did not land" in a long run as load, ask `getFirstAvailableBlock`:
+anything but 0 means the chain forgot. A probe for this has to run past the first drop,
+1,100 slots or more.
+
 ## 2026-10-04: a new card that passes on a phone means the change passes on a phone
 
 **Believed:** the burn tracker was checked on phones: every new card at 320, 393, 810 and
