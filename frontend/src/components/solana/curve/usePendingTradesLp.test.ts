@@ -26,7 +26,7 @@ const lpSummary = (kind: 'lp-deposit' | 'lp-withdraw'): TxSummary =>
         kind, pool: POOL, origin: 'standard', config: null, enableCreatorFee: false, tokenMint: KEY(31), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
         lpAmount: 1n, lpDecimals: 9, quoted: { quote: 1n, token: 1n }, max: { quote: 1n, token: 1n }, limitedByBalance: 'none',
         sharePct: { before: 0, after: 1 }, price: { state: 'no-trades-yet', pool: 1 }, tokenWarnings: [],
-        unwrapsWsol: true, wsolHeldBefore: 0n, notices: [],
+        unwrapsWsol: true, wsolHeldBefore: 0n, notices: [], warnings: [], priceGap: null,
       }
     : {
         kind, pool: POOL, origin: 'standard', config: null, tokenMint: KEY(31), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,

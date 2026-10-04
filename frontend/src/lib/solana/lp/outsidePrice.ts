@@ -11,8 +11,9 @@ import type { QuoteCoin } from './quotes';
  *
  * Why it matters: anyone can open a pool for any token at any price. Depositing into a
  * pool whose price is off hands the difference to the first arbitrage bot. So a pool
- * more than 3% away from the outside price is refused (poolHealth.ts), and a pool whose
- * outside price could not be read is "unchecked", never "fine".
+ * more than 3% away from the outside price is warned about, with what the gap is
+ * estimated to cost (poolHealth.ts), and a pool whose outside price could not be read is
+ * "unchecked", never "fine" and never a warning.
  *
  * HOW. Two Jupiter quotes through our own proxy: 0.05 SOL into the token, then that many
  * tokens back into SOL. The buy price includes the route's fees and impact on one side,

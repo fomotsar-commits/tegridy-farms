@@ -27,7 +27,7 @@ import { formatSol } from '../curve/format';
 import { deriveAmmConfig, deriveLpMint, deriveObservation, derivePool, deriveVault, publicTierConfig, sortMints } from '../../../solana/cpswap/program';
 import { initializeIx } from '../../../solana/cpswap/ix';
 import { feeReserveFor, isqrt, solSetAside } from '../../../solana/lp/liquidityMath';
-import { arbitrageLoss, assessOpening, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../solana/lp/opening';
+import { arbitrageLoss, assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../solana/lp/quotes';
 import { USDT_MINT, type TokenSafety } from '../../../solana/lp/tokenSafety';
@@ -621,48 +621,84 @@ describe('prepareLpCreate with USDC or BAYLA: what refuses it, each in its own w
     const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
     const msg = refused(await create(w, {}, priced(quote, { coin: noRoute })));
     expect(msg).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'Jupiter has no route for this token'));
-    // "No market for this token" is only ever said about the token.
-    expect(msg).not.toBe(CREATE_COPY.noRoute);
+    // "No market price for this token" is only ever said about the token.
+    expect(msg).not.toMatch(/no market price for this token/);
     expect(refused(await create(w, {}, priced(quote, { coin: new Error('offline') })))).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'offline'));
     // A price that is a number but prices nothing is not a pass either.
     expect(refused(await create(w, {}, priced(quote, { coin: price(0) })))).toMatch(/^We did not build this opening: We could not get a market price from Jupiter/);
   });
 
-  it('the token: Jupiter has no route for it, or its price was not read', async () => {
+  it('the token’s price NOT read: nothing is built, and it is never a warning', async () => {
     const w = world(USDC_QUOTE);
-    expect(refused(await create(w, {}, priced(USDC_QUOTE, { token: { kind: 'no-route', detail: 'Jupiter has no route for this token' } })))).toBe(CREATE_COPY.noRoute);
     expect(refused(await create(w, {}, priced(USDC_QUOTE, { token: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } })))).toBe(
       CREATE_COPY.priceUnread('Jupiter did not give a price (HTTP 502)'),
     );
   });
 
-  it.each(COIN_ROWS)('%s: an opening price more than 3%% from the market IN THE COIN is refused, whichever of the two prices moved', async (_n, quote) => {
-    const w = world(quote);
-    // The token dearer or cheaper in SOL: the market is 1.92 or 2.08 coins a token, the opening 2.
-    expect(refused(await create(w, {}, priced(quote, { token: price(0.0096) })))).toBe(CREATE_COPY.priceDisagrees('4.2% above'));
-    expect(refused(await create(w, {}, priced(quote, { token: price(0.0104) })))).toBe(CREATE_COPY.priceDisagrees('3.8% below'));
-    // The COIN dearer in SOL, the token unchanged: the market is 1.92 coins a token again.
-    expect(refused(await create(w, {}, priced(quote, { coin: price(0.0052083333) })))).toBe(CREATE_COPY.priceDisagrees('4.2% above'));
-    // Within 3% it builds.
-    ok(await create(w, {}, priced(quote, { token: price(0.0101) })));
+  // Owner ruling 2026-10-04. Jupiter ANSWERING "no route" for the token opens the pool as
+  // "no market". Nothing is compared, so the coin's own price is not needed either.
+  it.each([
+    ['read', price(0.005)],
+    ['unread', { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } as OutsidePrice],
+    ['without a route', { kind: 'no-route', detail: 'Jupiter has no route for this token' } as OutsidePrice],
+    ['a read that throws', new Error('offline')],
+  ])('the token has no route, and the coin’s own price is %s: it builds as "no market", and the opener is told they set the price themselves', async (_n, coin) => {
+    for (const [, quote] of COIN_ROWS) {
+      const w = world(quote);
+      const s = summaryOf(ok(await create(w, {}, priced(quote, { token: { kind: 'no-route', detail: 'Jupiter has no route for this token' }, coin }))));
+      expect(s.price).toEqual({ state: 'no-market', pool: 2, detail: 'Jupiter has no route for this token' });
+      expect(s.priceGap).toBeNull();
+      expect(s.warnings).toEqual([
+        'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.',
+      ]);
+    }
   });
 
-  it('a price that only passes when the units are mixed up is refused: the token’s SOL price is not its price in the coin', async () => {
+  it.each(COIN_ROWS)('%s: an opening price more than 3%% from the market IN THE COIN builds, with the gap and the estimated loss said in that coin, whichever of the two prices moved', async (_n, quote) => {
+    const w = world(quote);
+    const gapOf = async (o: Parameters<typeof priced>[1]) => summaryOf(ok(await create(w, {}, priced(quote, o))));
+    // The token dearer or cheaper in SOL: the market is 1.92 or 2.08 coins a token, the opening 2.
+    const above = await gapOf({ token: price(0.0096) });
+    expect(above.warnings[0]).toBe('Your opening price is 4.2% above the market price (Jupiter). The first trades would move it to the market price, at your cost.');
+    expect(above.priceGap!.diff).toBeCloseTo(2 / 1.92 - 1, 9);
+    // 200 coins against 100 tokens worth 192: (√200 − √192)² coins, about 0.0816.
+    expect(Number(above.priceGap!.lossQuote) / 1e6).toBeCloseTo((Math.sqrt(200) - Math.sqrt(192)) ** 2, 5);
+    expect(above.priceGap!.lossQuote).toBe(estimatedLoss({ quoteAmount: COINS, token: tokensOf(w), tokenDecimals: 6, marketPricePerToken: above.price.state === 'disagrees' ? above.price.reference : 0, quote }));
+    expect(above.warnings[1]).toMatch(new RegExp(`^At these amounts, a move back to the market price would take up to about 0\\.0816\\d* ${quote.symbol} of what you put in\\. That is an estimate\\.$`));
+    expect(above.warnings.join(' ')).not.toMatch(/\bSOL\b/);
+    const below = await gapOf({ token: price(0.0104) });
+    expect(below.warnings[0]).toMatch(/^Your opening price is 3\.8% below the market price/);
+    // The COIN dearer in SOL, the token unchanged: the market is 1.92 coins a token again.
+    const coinMoved = await gapOf({ coin: price(0.0052083333) });
+    expect(coinMoved.warnings[0]).toMatch(/^Your opening price is 4\.2% above the market price/);
+    // Within 3% it builds with nothing to say.
+    const near = await gapOf({ token: price(0.0101) });
+    expect([near.warnings, near.priceGap]).toEqual([[], null]);
+  });
+
+  it('the units cannot be mixed up: a price that only matches the token’s SOL price is 99.5% below its price in the coin, and is said so', async () => {
     const w = world(USDC_QUOTE);
     // 1 USDC for 100 tokens is 0.01 USDC a token. The token is 0.01 SOL, so the number
     // matches its SOL price, but in USDC (at 0.005 SOL) the market is 2 a token.
-    expect(refused(await create(w, { quote: 1n * U6 }))).toBe(CREATE_COPY.priceDisagrees('99.5% below'));
+    const s = summaryOf(ok(await create(w, { quote: 1n * U6 })));
+    expect(s.priceGap!.diff).toBeCloseTo(-0.995, 9);
+    expect(s.warnings[0]).toMatch(/^Your opening price is 99\.5% below the market price/);
+    // (√1 − √200)² is about 172.7 USDC: what the 100 tokens would be sold for too little.
+    expect(Number(s.priceGap!.lossQuote) / 1e6).toBeCloseTo((1 - Math.sqrt(200)) ** 2, 4);
     // The same amounts are the market price only when one coin is worth one SOL.
-    ok(await create(w, { quote: 1n * U6 }, priced(USDC_QUOTE, { coin: price(1) })));
+    const fair = summaryOf(ok(await create(w, { quote: 1n * U6 }, priced(USDC_QUOTE, { coin: price(1) }))));
+    expect([fair.warnings, fair.priceGap]).toEqual([[], null]);
   });
 
-  it('a price that only passes when the coin is read in SOL’s nine decimals is refused: the coin has six', async () => {
-    const w = world(USDC_QUOTE);
+  it('the coin is read in its own six decimals, never SOL’s nine: 200,000,000,000 units is 2,000 a token, and the gap says so', async () => {
+    const w = world(USDC_QUOTE, { heldQuote: 300_000n * U6 });
     // 200,000,000,000 units is 200,000 USDC, not 200: 2,000 a token against a market of 2.
     const typed = 200n * 10n ** 9n;
     expect(openingPricePerToken(typed, tokensOf(w), 6, SOL_QUOTE)).toBeCloseTo(2, 9);
     expect(openingPricePerToken(typed, tokensOf(w), 6, USDC_QUOTE)).toBeCloseTo(2_000, 6);
-    expect(refused(await create(w, { quote: typed }))).toBe(CREATE_COPY.priceDisagrees('99900.0% above'));
+    const s = summaryOf(ok(await create(w, { quote: typed })));
+    expect(s.warnings[0]).toMatch(/^Your opening price is 99900\.0% above the market price/);
+    expect(s.price).toMatchObject({ state: 'disagrees', pool: 2_000 });
   });
 
   it.each(COIN_ROWS)('%s: no account for the coin, or only SOL someone sent to its address, is said as holding none of it', async (_n, quote) => {
@@ -1189,12 +1225,12 @@ describe('assessOpening: the price is checked in the pool’s own coin', () => {
     expect(at(quote, { tokens: 100n * 10n ** 9n, decimals: 9 }).verdict).toBe('allowed');
   });
 
-  it('2.9% off agrees; 3.1% is refused, naming the gap, whichever side of the market', () => {
-    expect(at(USDC_QUOTE, { coins: 205_800_000n }).verdict).toBe('allowed');
+  it('2.9% off agrees; 3.1% is allowed with a warning that names the gap, whichever side of the market', () => {
+    expect(at(USDC_QUOTE, { coins: 205_800_000n })).toMatchObject({ verdict: 'allowed', warnings: [] });
     const above = at(USDC_QUOTE, { coins: 206_200_000n });
-    expect(above.verdict).toBe('refused');
-    expect(above.reasons).toEqual(['Your opening price is 3.1% above the market price (Jupiter). Pools opened from this site must start within 3% of it.']);
-    expect(at(BAYLA_QUOTE, { coins: 193_800_000n }).reasons[0]).toMatch(/3\.1% below the market price/);
+    expect(above).toMatchObject({ verdict: 'allowed', reasons: [], price: { state: 'disagrees' } });
+    expect(above.warnings).toEqual(['Your opening price is 3.1% above the market price (Jupiter). The first trades would move it to the market price, at your cost.']);
+    expect(at(BAYLA_QUOTE, { coins: 193_800_000n }).warnings[0]).toMatch(/3\.1% below the market price/);
   });
 
   it.each(COIN_ROWS)('%s: the coin’s own price not read, not asked for, without a route, or not a usable number: unchecked, never allowed', (_n, quote) => {
@@ -1211,13 +1247,15 @@ describe('assessOpening: the price is checked in the pool’s own coin', () => {
     expect(at(quote, { coin: price(0) }).verdict).toBe('unchecked');
   });
 
-  it('the token without a route is refused, and the token unread is unchecked, as for SOL', () => {
-    expect(at(USDC_QUOTE, { token: { kind: 'no-route', detail: 'no route' } })).toMatchObject({
-      verdict: 'refused',
-      reasons: ['Jupiter has no market price for this token, so this site does not open a pool for it.'],
-    });
-    expect(at(USDC_QUOTE, { token: { kind: 'unread', detail: 'HTTP 502' } }).verdict).toBe('unchecked');
-    expect(at(USDC_QUOTE, { token: null }).verdict).toBe('unchecked');
+  it('the token without a route is allowed as "no market" whatever the coin’s price says, and the token unread is unchecked, as for SOL', () => {
+    for (const coin of [price(0.005), { kind: 'unread', detail: 'HTTP 502' } as OutsidePrice, null]) {
+      const c = at(USDC_QUOTE, { token: { kind: 'no-route', detail: 'no route' }, coin });
+      expect(c).toMatchObject({ verdict: 'allowed', reasons: [], price: { state: 'no-market', pool: 2 } });
+      expect(c.warnings).toHaveLength(1);
+      expect(c.warnings[0]).toMatch(/^Jupiter has no market price for this token, so there is nothing to compare your opening price with\./);
+    }
+    expect(at(USDC_QUOTE, { token: { kind: 'unread', detail: 'HTTP 502' } })).toMatchObject({ verdict: 'unchecked', warnings: [] });
+    expect(at(USDC_QUOTE, { token: null })).toMatchObject({ verdict: 'unchecked', warnings: [] });
   });
 
   it('a SOL opening never looks at a coin price', () => {
@@ -1228,11 +1266,11 @@ describe('assessOpening: the price is checked in the pool’s own coin', () => {
   it('the units cannot be mixed up: the SOL price is not the coin price, and the coin has its own decimals', () => {
     // 0.01 USDC a token equals the token's SOL price, and is 99.5% below its price in USDC.
     const asSol = at(USDC_QUOTE, { coins: 1n * U6 });
-    expect(asSol.verdict).toBe('refused');
-    expect(asSol.reasons[0]).toMatch(/99\.5% below the market price/);
+    expect(asSol.price.state).toBe('disagrees');
+    expect(asSol.warnings[0]).toMatch(/99\.5% below the market price/);
     // 200,000,000,000 units is 2 a token only at nine decimals. USDC has six: 2,000 a token.
     const asLamports = at(USDC_QUOTE, { coins: 200n * 10n ** 9n });
-    expect(asLamports.verdict).toBe('refused');
+    expect(asLamports.warnings[0]).toMatch(/99900\.0% above the market price/);
     expect(asLamports.price.state === 'disagrees' && asLamports.price.pool).toBeCloseTo(2_000, 6);
   });
 

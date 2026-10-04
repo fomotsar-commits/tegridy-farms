@@ -89,6 +89,8 @@ export function lpDepositSummary(pool: PublicKey, tokenMint: PublicKey, over: Pa
     unwrapsWsol: quote.native,
     wsolHeldBefore: 0n,
     notices: [],
+    warnings: [],
+    priceGap: null,
     ...over,
   };
 }
@@ -187,6 +189,8 @@ export function lpCreateSummary(pool: PublicKey, tokenMint: PublicKey, over: Par
     unwrapsWsol: quote.native,
     wsolHeldBefore: 0n,
     notices: [],
+    warnings: [],
+    priceGap: null,
     ...over,
   };
 }

@@ -15,6 +15,8 @@ import {
 } from '@solana/spl-token';
 import { pack as packTokenMetadata } from '@solana/spl-token-metadata';
 import {
+  BUILDABLE_EXTENSIONS,
+  EXTENSION,
   classifyToken,
   decodeMintAccount,
   readTokenSafety,
@@ -133,9 +135,16 @@ describe('classifyToken', () => {
     expect(s.kind === 'read' && s.name).toBe('Corn');
   });
 
-  it('blocks a live freeze authority', () => {
-    const s = classifyToken(mint.toBase58(), acct(mint, TOKEN_PROGRAM, classicMint({ freezeAuthority: key() })), immutableName());
-    expect(reasons(s)).toMatchObject({ blocks: ['freeze-authority'], verdict: 'blocked' });
+  // Owner ruling 2026-10-04: a token whose creator can freeze accounts may have a pool.
+  // It is a warning, and the warning says what a freeze means for a pool and for the holder.
+  it('warns on a live freeze authority, never blocks it, and says what it means for a pool and for the holder', () => {
+    const authority = key();
+    const s = classifyToken(mint.toBase58(), acct(mint, TOKEN_PROGRAM, classicMint({ freezeAuthority: authority })), immutableName());
+    expect(reasons(s)).toEqual({ blocks: [], warnings: ['freeze-authority'], verdict: 'warn' });
+    const text = s.kind === 'read' ? s.warnings[0]!.text : '';
+    expect(text).toContain(authority.toBase58());
+    expect(text).toMatch(/a pool’s own vault and your own account included/);
+    expect(text).toMatch(/While a pool’s vault is frozen, nobody can take liquidity out of that pool\./);
   });
 
   it('accepts USDC’s freeze authority, and says so', () => {
@@ -144,28 +153,95 @@ describe('classifyToken', () => {
     expect(reasons(s)).toEqual({ blocks: [], warnings: ['freeze-authority-accepted'], verdict: 'warn' });
   });
 
-  it('blocks the four stablecoins the pool program lets in by name', () => {
+  // The leave rule: the pool program takes these four by name, but this site cannot build
+  // an exact withdrawal for them, so it lets nobody in. The words say it is this site's limit.
+  it('blocks the four stablecoins the pool program lets in by name, as this site’s own limit', () => {
     for (const m of RAYDIUM_WHITELISTED_MINTS) {
       const pk = new PublicKey(m);
       const s = classifyToken(m, acct(pk, TOKEN_2022_PROGRAM, t22Mint(classicMint(), [tlv(ExtensionType.PermanentDelegate, key().toBytes())])), immutableName(pk));
-      expect(s.kind === 'read' && s.blocks.map((b) => b.code)).toEqual(['permanent-delegate-whitelist', 'extension']);
+      expect(reasons(s)).toMatchObject({ blocks: ['permanent-delegate-whitelist'], verdict: 'blocked' });
+      const text = s.kind === 'read' ? s.blocks.map((b) => b.text).join(' ') : '';
+      expect(text).toMatch(/The pool program accepts it by name, but this site cannot build exact deposits and withdrawals for it, so it does not open or add to pools for it\./);
+      // The pool program DOES take these, so no sentence may say it does not.
+      expect(text).not.toMatch(/does not accept/);
     }
   });
 
-  it('blocks every Token-2022 extension beyond the name, including ones the pool program allows', () => {
+  const withExtension = (type: number) => {
+    const data = t22Mint(classicMint(), [pointer(null, mint), tlv(type, new Uint8Array(8)), metadataExt(mint, null)]);
+    return classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, data), null);
+  };
+
+  it('blocks every Token-2022 extension the pool program rejects, and says the pool program does not accept it', () => {
     const cases: [number, RegExp][] = [
       [ExtensionType.TransferHook, /transfer hook/],
       [ExtensionType.PermanentDelegate, /permanent delegate/],
-      [ExtensionType.TransferFeeConfig, /transfer fee/],
-      [ExtensionType.InterestBearingConfig, /interest/],
       [ExtensionType.DefaultAccountState, /frozen/],
+      [ExtensionType.NonTransferable, /non-transferable/],
+      [ExtensionType.ConfidentialTransferMint, /confidential transfers/],
+      [ExtensionType.MintCloseAuthority, /close authority/],
+      [EXTENSION.PausableConfig, /pause switch/],
+      [ExtensionType.GroupPointer, /group pointer/],
       [99, /does not know \(type 99\)/],
     ];
     for (const [type, text] of cases) {
-      const data = t22Mint(classicMint(), [pointer(null, mint), tlv(type, new Uint8Array(8)), metadataExt(mint, null)]);
-      const s = classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, data), null);
-      expect(s.kind === 'read' && s.verdict).toBe('blocked');
-      expect(s.kind === 'read' && s.blocks[0]!.text).toMatch(text);
+      const s = withExtension(type);
+      expect(reasons(s), String(type)).toEqual({ blocks: ['extension'], warnings: [], verdict: 'blocked' });
+      expect(s.kind === 'read' && s.blocks[0]!.text, String(type)).toMatch(text);
+      expect(s.kind === 'read' && s.blocks[0]!.text, String(type)).toMatch(/The pool program does not accept tokens with it\.$/);
+    }
+  });
+
+  // The pool program takes a transfer fee. This site cannot build an exact withdrawal for
+  // one, so nobody is let in (the leave rule), and the block says whose limit it is.
+  it('blocks a transfer fee under its own code, in words that say it is this site’s limit', () => {
+    const s = withExtension(ExtensionType.TransferFeeConfig);
+    expect(reasons(s)).toEqual({ blocks: ['transfer-fee'], warnings: [], verdict: 'blocked' });
+    const text = s.kind === 'read' ? s.blocks[0]!.text : '';
+    expect(text).toMatch(/^It uses a transfer fee/);
+    expect(text).toContain('This site cannot build exact deposits and withdrawals for a token that charges a transfer fee, so it does not open or add to pools for it.');
+    expect(text).not.toMatch(/pool program does not accept/);
+  });
+
+  it('warns on interest-bearing and scaled amounts, never blocks them, and says this site moves raw units', () => {
+    const cases: [number, string, RegExp][] = [
+      [ExtensionType.InterestBearingConfig, 'interest-bearing', /interest-bearing amounts/],
+      [EXTENSION.ScaledUiAmountConfig, 'scaled-amount', /scaled amounts/],
+    ];
+    for (const [type, code, text] of cases) {
+      const s = withExtension(type);
+      expect(reasons(s), code).toEqual({ blocks: [], warnings: [code], verdict: 'warn' });
+      expect(s.kind === 'read' && s.warnings[0]!.text, code).toMatch(text);
+      expect(s.kind === 'read' && s.warnings[0]!.text, code).toMatch(/This site shows and moves raw token units, so an amount here can differ from the one your wallet shows\.$/);
+    }
+  });
+
+  // The leave rule as code, on the verdict's side: the one set this site builds for is
+  // exactly these four, and every one is on cp-swap's own list (utils/token.rs
+  // `is_supported_mint`), written out here from the program's source.
+  it('the one set of buildable extensions is the four whose raw amounts are exact, all of them accepted by the pool program', () => {
+    const CP_SWAP_ACCEPTED = [
+      EXTENSION.TransferFeeConfig,
+      EXTENSION.MetadataPointer,
+      EXTENSION.TokenMetadata,
+      EXTENSION.InterestBearingConfig,
+      EXTENSION.ScaledUiAmountConfig,
+    ];
+    expect([...BUILDABLE_EXTENSIONS].sort((a, b) => a - b)).toEqual([18, 19, 10, 25].sort((a, b) => a - b));
+    for (const e of BUILDABLE_EXTENSIONS) expect(CP_SWAP_ACCEPTED, String(e)).toContain(e);
+    // A transfer fee is on the pool program's list and NOT in the set: no exact withdrawal.
+    expect(BUILDABLE_EXTENSIONS.has(EXTENSION.TransferFeeConfig)).toBe(false);
+    // The numbers are the token program's own.
+    expect([EXTENSION.InterestBearingConfig, EXTENSION.ScaledUiAmountConfig, EXTENSION.TransferFeeConfig]).toEqual([
+      ExtensionType.InterestBearingConfig,
+      ExtensionType.ScaledUiAmountConfig,
+      ExtensionType.TransferFeeConfig,
+    ]);
+    // Every extension outside the set is blocked by the verdict; every one inside is not.
+    for (const type of [...Object.values(EXTENSION), 99]) {
+      if (type === EXTENSION.MetadataPointer || type === EXTENSION.TokenMetadata) continue; // carried by every case above
+      const s = withExtension(type);
+      expect(s.kind === 'read' && s.verdict !== 'blocked', String(type)).toBe(BUILDABLE_EXTENSIONS.has(type));
     }
   });
 
@@ -179,7 +255,12 @@ describe('classifyToken', () => {
   it('warns on a live mint authority and on a name that can change (either kind of record)', () => {
     const s1 = classifyToken(mint.toBase58(), acct(mint, TOKEN_PROGRAM, classicMint({ mintAuthority: key() })), immutableName());
     expect(reasons(s1)).toEqual({ blocks: [], warnings: ['mint-authority'], verdict: 'warn' });
-    const s2 = classifyToken(mint.toBase58(), acct(mint, TOKEN_PROGRAM, classicMint()), acct(metadataPda(mint), METAPLEX_TOKEN_METADATA_ID.toBase58(), metaplexRecord(mint, true)));
+    // A pool is paired with SOL, USDC or BAYLA, and this sentence is printed on the review
+    // of all three: it must not tell the holder of a USDC pool that SOL is what is at risk.
+    const said = s1.kind === 'read' ? s1.warnings[0]!.text : '';
+    expect(said).toContain('New tokens sold into a pool take out what it is paired with (SOL, USDC or BAYLA).');
+    expect(said).not.toMatch(/take SOL out/);
+    const s2 =classifyToken(mint.toBase58(), acct(mint, TOKEN_PROGRAM, classicMint()), acct(metadataPda(mint), METAPLEX_TOKEN_METADATA_ID.toBase58(), metaplexRecord(mint, true)));
     expect(reasons(s2)).toEqual({ blocks: [], warnings: ['metadata-mutable'], verdict: 'warn' });
     const s3 = classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, t22Mint(classicMint(), [pointer(null, mint), metadataExt(mint, key())])), null);
     expect(reasons(s3)).toEqual({ blocks: [], warnings: ['metadata-mutable'], verdict: 'warn' });
@@ -250,8 +331,9 @@ describe('classifyToken', () => {
       const s = named(name, symbol);
       expect(reasons(s), name + ' / ' + symbol).toEqual({ blocks: [], warnings: ['copies-known-name'], verdict: 'warn' });
       expect(s.kind === 'read' && s.warnings[0]!.text).toContain(says);
-      // The copied-name warning is what refuses deposits and openings.
-      expect(tokenReasons(s, 'pools').refused, name + ' / ' + symbol).toHaveLength(1);
+      // The copied name is said again before an opening, and refuses nothing.
+      expect(tokenReasons(s, 'pools').warned, name + ' / ' + symbol).toHaveLength(1);
+      expect(tokenReasons(s, 'pools').refused, name + ' / ' + symbol).toEqual([]);
     }
   });
 
@@ -273,8 +355,10 @@ describe('classifyToken', () => {
       const label = JSON.stringify(name + ' / ' + symbol);
       expect(reasons(s), label).toEqual({ blocks: [], warnings: ['copies-known-name'], verdict: 'warn' });
       expect(s.kind === 'read' && s.warnings[0]!.text, label).toContain(says);
-      expect(tokenReasons(s, 'pools').refused, label).toHaveLength(1);
-      expect(tokenReasons(s, 'deposits').refused, label).toHaveLength(1);
+      for (const action of ['pools', 'deposits'] as const) {
+        expect(tokenReasons(s, action).warned, label).toHaveLength(1);
+        expect(tokenReasons(s, action).refused, label).toEqual([]);
+      }
     }
     // A reserved word this page has no real mint for is not a copy here (the launcher refuses it).
     expect(reasons(named('Tegridy Farms', 'X'))).toEqual({ blocks: [], warnings: [], verdict: 'ok' });
@@ -308,8 +392,9 @@ describe('classifyToken', () => {
     for (const text of lookalikes) {
       for (const s of [named(text, 'X'), named('Totally real', text)]) {
         expect(reasons(s), text).toEqual({ blocks: [], warnings: ['lookalike-letters'], verdict: 'warn' });
-        expect(tokenReasons(s, 'pools'), text).toEqual({ refused: [], unchecked: [] });
-        expect(tokenReasons(s, 'deposits'), text).toEqual({ refused: [], unchecked: [] });
+        // Said on the token only: it does not change what a deposit or an opening risks.
+        expect(tokenReasons(s, 'pools'), text).toEqual({ refused: [], unchecked: [], warned: [] });
+        expect(tokenReasons(s, 'deposits'), text).toEqual({ refused: [], unchecked: [], warned: [] });
       }
     }
     // An accent or an emoji is not a look-alike letter.

@@ -16,7 +16,9 @@ import { associatedTokenAddress } from '../curve/ix';
 import { formatTokenAmount } from '../curve/format';
 import { deriveLpMint, deriveObservation, derivePool, deriveVault, publicTierConfig, sortMints } from '../../../solana/cpswap/program';
 import { feeReserveFor, isqrt, spendableSol } from '../../../solana/lp/liquidityMath';
+import { estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
+import { BUILDABLE_EXTENSIONS, EXTENSION } from '../../../solana/lp/tokenSafety';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from './metaplex';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import {
@@ -71,6 +73,19 @@ const TERMS: TierTerms = {
 
 const priced = (solPerToken = 0.01): LpPrepareReads => ({ outsidePrice: async () => ({ kind: 'ok', solPerToken, source: 'Jupiter' }) });
 const answering = (o: OutsidePrice): LpPrepareReads => ({ outsidePrice: async () => o });
+const NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+
+/** The body length each Token-2022 mint extension needs to decode (the two name ones); any other is opaque here. */
+const extensionOf = (type: number): [number, number] => [type, type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : 8];
+
+const NO_MARKET_OPENING =
+  'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.';
+const COPY_OPENING =
+  'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of the pool you open.';
+const FREEZE_OPENING =
+  'Its creator can freeze the vault of the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+const AMOUNTS =
+  'The amount a wallet displays for this token changes over time. This site shows and moves raw token units, so check the amounts against your wallet before you sign.';
 
 function str(s: string): number[] {
   const b = Buffer.from(s, 'utf8');
@@ -242,6 +257,9 @@ describe('prepareLpCreate: a clean opening at the standard address', () => {
     expect(s.feeReceiver.equals(CP_CREATE_POOL_FEE_RECEIVER)).toBe(true);
     expect(s.rents).toEqual({ neverRefunded: NEVER_REFUNDED, lpAccount: R(165) });
     expect(s.price.state).toBe('agrees');
+    // A clean token at the market price: nothing to warn of, and no price gap.
+    expect(s.warnings).toEqual([]);
+    expect(s.priceGap).toBeNull();
     expect(s.unwrapsWsol).toBe(true);
     expect(s.notices).toEqual([]);
     expect(p.steps.filter((x) => x.kind === 'pool-create')).toHaveLength(1);
@@ -367,22 +385,119 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
     expect(refused(await create(world({ feeReceiver: { native: false } })))).toBe(CREATE_COPY.feeAccount('it is not a native wrapped-SOL account'));
   });
 
-  it('the token: absent, blocked, a copied name, SOL under Token-2022, a transfer fee at 0 bps', async () => {
+  it('the token, what still refuses it: absent, never set up, SOL under Token-2022, a transfer fee at 0 bps, an extension the pool program rejects', async () => {
     expect(refused(await create(world({ noMint: true })))).toBe(CREATE_COPY.tokenRefused('The token does not exist.'));
-    expect(refused(await create(world({ freezeAuthority: STRANGER })))).toMatch(/^This site does not open pools for this token: Its creator can still freeze/);
-    expect(refused(await create(world({ name: ['USD Coin', 'USDC'] })))).toBe(
-      CREATE_COPY.tokenRefused('It calls itself by a well-known token’s name but has a different mint. This site does not open pools for copies.'),
-    );
+    const never = world();
+    never.chain.accounts.get(never.mint.toBase58())!.data[45] = 0;
+    expect(refused(await create(never))).toBe(CREATE_COPY.tokenRefused('This token mint was never set up.'));
     expect(refused(await create(world({ mint: NATIVE_MINT_2022, tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [] })))).toBe(CREATE_COPY.native2022);
+    // A transfer fee: the leave rule. The words say it is this site's limit.
     const fee = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108]] });
-    expect(refused(await create(fee))).toMatch(/^This site does not open pools for this token: It uses a transfer fee/);
+    expect(refused(await create(fee))).toBe(
+      CREATE_COPY.tokenRefused(
+        'It uses a transfer fee, which its owner can raise as high as 100%. This site cannot build exact deposits and withdrawals for a token that charges a transfer fee, so it does not open or add to pools for it.',
+      ),
+    );
+    const hook = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [extensionOf(EXTENSION.TransferHook)] });
+    expect(refused(await create(hook))).toBe(
+      CREATE_COPY.tokenRefused('It uses a transfer hook, a program that runs on every transfer and can refuse or redirect it. The pool program does not accept tokens with it.'),
+    );
   });
 
-  it('the price: 4% from the market at prepare although the panel agreed; no route; Jupiter down; a read that throws', async () => {
+  // Owner ruling 2026-10-04: these two open a pool, and the review is handed the warning.
+  it('a token whose creator can freeze accounts opens a pool, and the summary says what a freeze means for that pool and for the holder', async () => {
+    const s = summaryOf(ok(await create(world({ freezeAuthority: STRANGER }))));
+    expect(s.warnings).toEqual([FREEZE_OPENING]);
+    expect(s.priceGap).toBeNull();
+    const own = s.tokenWarnings.find((x) => x.code === 'freeze-authority')!;
+    expect(own.text).toContain(STRANGER.toBase58());
+    expect(own.text).toMatch(/a pool’s own vault and your own account included/);
+  });
+
+  it('a copy of a well-known name opens a pool, and the copy warning is on the summary', async () => {
+    const s = summaryOf(ok(await create(world({ name: ['USD Coin', 'USDC'] }))));
+    expect(s.warnings).toEqual([COPY_OPENING]);
+    expect(s.tokenWarnings.map((x) => x.code)).toEqual(['copies-known-name']);
+  });
+
+  it.each([
+    ['interest-bearing', EXTENSION.InterestBearingConfig],
+    ['scaled-amount', EXTENSION.ScaledUiAmountConfig],
+  ] as const)('a Token-2022 token with %s amounts opens a pool with a 165-byte vault, and the summary carries the line about what a wallet displays', async (code, type) => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [extensionOf(type), ...METADATA_ONLY] });
+    const p = ok(await create(w));
+    const s = summaryOf(p);
+    expect(s.warnings).toEqual([AMOUNTS]);
+    expect(s.tokenWarnings.map((x) => x.code)).toContain(code);
+    // The pool program adds no account extension for these, so the vault is a plain 165.
+    expect(s.rents.neverRefunded).toBe(NEVER_REFUNDED);
+    expect(p.fees.newAccountRentLamports).toBe(NEVER_REFUNDED + R(165));
+  });
+
+  // The leave rule, with the real verdict: this site opens a pool for exactly the
+  // extensions it can also build a withdrawal for (liquidity.test.ts pins the other half).
+  it('for each Token-2022 extension: an opening builds only for the one set this site builds for', async () => {
+    const opened: number[] = [];
+    for (const type of [...Object.values(EXTENSION), 99]) {
+      if ((await create(world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [extensionOf(type)] }))).ok) opened.push(type);
+    }
+    const sorted = (xs: Iterable<number>) => [...xs].sort((a, b) => a - b);
+    expect(sorted(opened)).toEqual(sorted(BUILDABLE_EXTENSIONS));
+  });
+
+  // Owner ruling 2026-10-04: an opening price off the market builds. The gap and the
+  // estimated loss come from the price read just now, not from what the panel showed.
+  it('the price, 4% from the market at prepare although the panel agreed: it builds, with the gap and the estimated loss in SOL', async () => {
     const w = world();
-    expect(refused(await create(w, {}, priced(0.0096)))).toBe(CREATE_COPY.priceDisagrees('4.2% above'));
-    expect(refused(await create(w, {}, priced(0.0104)))).toBe(CREATE_COPY.priceDisagrees('3.8% below'));
-    expect(refused(await create(w, {}, answering({ kind: 'no-route', detail: 'Jupiter has no route for this token' })))).toBe(CREATE_COPY.noRoute);
+    const above = summaryOf(ok(await create(w, {}, priced(0.0096))));
+    expect(above.price).toMatchObject({ state: 'disagrees', against: 'outside', pool: 0.01, reference: 0.0096 });
+    expect(above.priceGap!.diff).toBeCloseTo(0.01 / 0.0096 - 1, 12);
+    const loss = estimatedLoss({ quoteAmount: SOL, token: TOKENS, tokenDecimals: 6, marketPricePerToken: 0.0096, quote: SOL_QUOTE })!;
+    expect(above.priceGap!.lossQuote).toBe(loss);
+    // 1 SOL against 100 tokens worth 0.96 SOL: (1 − √0.96)² SOL, about 0.0004 SOL.
+    expect(Number(loss) / 1e9).toBeCloseTo((1 - Math.sqrt(0.96)) ** 2, 9);
+    expect(above.warnings).toEqual([
+      'Your opening price is 4.2% above the market price (Jupiter). The first trades would move it to the market price, at your cost.',
+      `At these amounts, a move back to the market price would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
+    ]);
+    const below = summaryOf(ok(await create(w, {}, priced(0.0104))));
+    expect(below.priceGap!.diff).toBeCloseTo(0.01 / 0.0104 - 1, 12);
+    expect(below.warnings[0]).toBe('Your opening price is 3.8% below the market price (Jupiter). The first trades would move it to the market price, at your cost.');
+    // Within 3% it builds with nothing to say.
+    const near = summaryOf(ok(await create(w, {}, priced(0.0101))));
+    expect([near.warnings, near.priceGap]).toEqual([[], null]);
+    // No sentence says this site refuses a price it now takes.
+    expect([...above.warnings, ...below.warnings].join(' ')).not.toMatch(/must start within|does not open|Match the market price/);
+  });
+
+  it('the estimated loss never decides anything: an opening 50% off is the same transaction as one at the market', async () => {
+    const fair = ok(await create(world()));
+    const off = ok(await create(world(), {}, priced(0.02)));
+    expect(summaryOf(off).priceGap!.lossQuote).toBeGreaterThan(0n);
+    expect([summaryOf(off).put, summaryOf(off).lpAmount]).toEqual([summaryOf(fair).put, summaryOf(fair).lpAmount]);
+    expect(off.check.expect.maxSolOut).toBe(fair.check.expect.maxSolOut);
+  });
+
+  it('a loss that cannot be worked out is said as such, never as 0', async () => {
+    const s = summaryOf(ok(await create(world(), {}, priced(1e300))));
+    expect(s.priceGap).toMatchObject({ lossQuote: null });
+    expect(s.warnings[1]).toBe('What a move back to the market price would cost you at these amounts could not be worked out.');
+  });
+
+  it('the price, Jupiter ANSWERS "no route": it builds as "no market", and the opener is told they set the price themselves', async () => {
+    const s = summaryOf(ok(await create(world(), {}, answering(NO_ROUTE))));
+    expect(s.price).toEqual({ state: 'no-market', pool: 0.01, detail: 'Jupiter has no route for this token' });
+    expect(s.warnings).toEqual([NO_MARKET_OPENING]);
+    expect(s.priceGap).toBeNull();
+  });
+
+  it('every warning that applies is carried together: a freezable copy with no market price', async () => {
+    const s = summaryOf(ok(await create(world({ freezeAuthority: STRANGER, name: ['BAYLA', 'BAYLA'] }), {}, answering(NO_ROUTE))));
+    expect(s.warnings).toEqual([COPY_OPENING, FREEZE_OPENING, NO_MARKET_OPENING]);
+  });
+
+  it('the price, NOT read: Jupiter down, or a read that throws, still builds nothing and is never a warning', async () => {
+    const w = world();
     expect(refused(await create(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toBe(
       CREATE_COPY.priceUnread('Jupiter did not give a price (HTTP 502)'),
     );
@@ -392,8 +507,6 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
       },
     };
     expect(refused(await create(w, {}, throwing))).toBe(CREATE_COPY.priceUnread('offline'));
-    // Within 3% it builds.
-    ok(await create(w, {}, priced(0.0101)));
   });
 
   it('the wallet’s token account: missing, a stranger’s, frozen, CPI Guard on, or holding too little', async () => {
@@ -805,6 +918,24 @@ describe('vaultAccountSize', () => {
     expect(tokenAccountSize(acc(c, meta))).toBe(170);
     expect(vaultAccountSize(acc(c, fee))).toMatch(/^it uses a transfer fee/);
     expect(vaultAccountSize({ address: 'x', owner: STRANGER.toBase58(), data: new Uint8Array(82), lamports: 1 })).toMatch(/not owned by a token program/);
+  });
+
+  // cp-swap sizes a vault by `get_required_init_account_extensions`, which adds an account
+  // extension only for a transfer fee, a non-transferable token, a transfer hook and a
+  // pause switch. Interest-bearing and scaled amounts add none.
+  it('165 for interest-bearing and scaled amounts too (their ASSOCIATED account is 170); every extension outside the one set cannot be sized', () => {
+    const c = new FakeChain();
+    for (const type of [...Object.values(EXTENSION), 99]) {
+      const k = Keypair.generate().publicKey;
+      c.mint2022(k, [extensionOf(type)]);
+      const size = vaultAccountSize(acc(c, k));
+      if (BUILDABLE_EXTENSIONS.has(type)) {
+        expect(size, String(type)).toBe(165);
+        expect(tokenAccountSize(acc(c, k)), String(type)).toBe(170);
+      } else {
+        expect(size, String(type)).toMatch(/^it uses /);
+      }
+    }
   });
 });
 

@@ -297,6 +297,18 @@ export type TxSummary =
   | LpCreateSummary;
 
 /**
+ * A price more than 3% from what it was checked against, from the builder's fresh reads.
+ * `diff` is the fraction above (positive) or below (negative) that reference. `lossQuote`
+ * is what arbitrage is ESTIMATED to take at the amounts going in, in the pairing coin's
+ * base units, rounded up: an upper bound, for display only. Null = it could not be worked
+ * out, which is said as such and never shown as 0.
+ */
+export interface PriceGap {
+  diff: number;
+  lossQuote: bigint | null;
+}
+
+/**
  * Adding liquidity, as the review shows it. Every amount comes from the prepared
  * transaction: `max` is decoded from its bytes, `quoted` is the cost worked out from
  * the fresh read it was built on.
@@ -327,9 +339,20 @@ export interface LpDepositSummary {
   limitedByBalance: 'none' | 'quote' | 'token';
   /** Display only. */
   sharePct: { before: number; after: number };
-  /** The fresh price check that passed. */
+  /**
+   * The fresh price check. A deposit is built when it agrees, and also when it disagrees
+   * or has nothing to be compared with (`no-market`): those two are said in `warnings`.
+   */
   price: PriceCheck;
   tokenWarnings: SafetyReason[];
+  /**
+   * What the review must say before this is signed: plain sentences, any amount already
+   * in the pool's own coin. From the builder's own fresh reads, never from what the form
+   * showed. Always there; empty when there is nothing to warn of.
+   */
+  warnings: string[];
+  /** Set when the pool's price is off what it was checked against; null when it is not. */
+  priceGap: PriceGap | null;
   /**
    * True when the wrapped-SOL account is closed at the end, so unused SOL comes back as
    * plain SOL. Always false for a pool paired with another coin: nothing is wrapped.
@@ -402,9 +425,21 @@ export interface LpCreateSummary {
   feeReceiver: PublicKey;
   /** Read while preparing: the pool's own accounts (never returned), the opener's pool-share account (refundable). */
   rents: { neverRefunded: bigint; lpAccount: bigint };
-  /** The opening check that passed: state 'agrees', against 'outside'. */
+  /**
+   * The fresh opening check, against 'outside'. An opening is built when it agrees, and
+   * also when it disagrees or has nothing to be compared with (`no-market`): those two
+   * are said in `warnings`.
+   */
   price: PriceCheck;
   tokenWarnings: SafetyReason[];
+  /**
+   * What the review must say before this is signed: plain sentences, any amount already
+   * in the pool's own coin. From the builder's own fresh reads, never from what the form
+   * showed. Always there; empty when there is nothing to warn of.
+   */
+  warnings: string[];
+  /** Set when the opening price is off the market price; null when it is not. */
+  priceGap: PriceGap | null;
   unwrapsWsol: boolean;
   wsolHeldBefore: bigint;
   notices: string[];

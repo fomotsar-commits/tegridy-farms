@@ -86,17 +86,19 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
 
   it('a price within 3% of the outside price, in USDC: deposits allowed, and the check is said in USDC per token', () => {
     const h = assessPool({ ...base, view: usdcPool(), outside: ok(FAIR), coinOutside: USDC_IN_SOL });
-    expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [] });
+    expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
     expect(h.price).toMatchObject({ state: 'agrees', against: 'outside' });
     expect(h.price.state === 'agrees' && h.price.pool).toBeCloseTo(0.025, 12);
     expect(h.price.state === 'agrees' && h.price.reference).toBeCloseTo(0.025, 12);
   });
 
-  it('more than 3% off in USDC, either way: refused', () => {
+  it('more than 3% off in USDC, either way: allowed, with the gap as a warning', () => {
     for (const tokenSol of [FAIR / (1 + PRICE_TOLERANCE + 0.001), FAIR / (1 - PRICE_TOLERANCE - 0.001)]) {
       const h = assessPool({ ...base, view: usdcPool(), outside: ok(tokenSol), coinOutside: USDC_IN_SOL });
       expect(h.price.state).toBe('disagrees');
-      expect(h.deposits.verdict).toBe('refused');
+      expect(h.deposits.verdict).toBe('allowed');
+      expect(h.deposits.warnings).toHaveLength(1);
+      expect(h.deposits.warnings[0]).toMatch(/^Its price is 3\.1% (above|below) the outside price\./);
     }
   });
 
@@ -109,7 +111,9 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
     // 0.025 "SOL a token" would agree with the pool's 0.025 USDC a token if the units were mixed up.
     const h = assessPool({ ...base, view: usdcPool(), outside: ok(0.025), coinOutside: USDC_IN_SOL });
     expect(h.price.state).toBe('disagrees');
-    expect(h.deposits.verdict).toBe('refused');
+    // 0.025 USDC a token against a market of 5 USDC a token: said, in the pool's own coin.
+    expect(h.price.state === 'disagrees' && h.price.reference).toBeCloseTo(5, 9);
+    expect(h.deposits.warnings).toEqual(['Its price is 99.5% below the outside price. A deposit here would hand that gap to the first arbitrage trade.']);
   });
 
   it.each([
@@ -117,19 +121,40 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
     ['null', null],
     ['a failed read', DOWN],
     ['"no route" for the coin', NO_ROUTE],
-  ] as const)('the coin’s price %s: unchecked, never allowed', (_n, coinOutside) => {
+  ] as const)('the coin’s price %s, with a token price to compare: unchecked, never allowed and never a warning', (_n, coinOutside) => {
     const h = assessPool({ ...base, view: usdcPool(), outside: ok(FAIR), coinOutside });
     expect(h.price.state).toBe('unread');
     expect(h.deposits.verdict).toBe('unchecked');
     expect(h.deposits.reasons.join(' ')).toMatch(/the price of USDC/);
+    expect(h.deposits.warnings).toEqual([]);
   });
 
-  it('the token’s price unread, or no route: unchecked (a pool anyone could open has no fallback)', () => {
-    for (const outside of [DOWN, NO_ROUTE, null]) {
+  it('the token’s price unread or not asked for: unchecked, never a warning', () => {
+    for (const outside of [DOWN, null]) {
       const h = assessPool({ ...base, view: usdcPool(), outside, coinOutside: USDC_IN_SOL });
       expect(h.price.state).toBe('unread');
       expect(h.deposits.verdict).toBe('unchecked');
+      expect(h.deposits.warnings).toEqual([]);
     }
+  });
+
+  // With no route for the TOKEN nothing is compared, so the coin's own price is not
+  // needed: whatever it says, even unread, the pool is "no market" and says so.
+  it.each([
+    ['read', USDC_IN_SOL],
+    ['not read at all', undefined],
+    ['null', null],
+    ['a failed read', DOWN],
+    ['"no route" for the coin', NO_ROUTE],
+  ] as const)('no route for the token, the coin’s price %s: allowed as "no market", with the warning', (_n, coinOutside) => {
+    const h = assessPool({ ...base, view: usdcPool(), outside: NO_ROUTE, coinOutside });
+    expect(h.price).toMatchObject({ state: 'no-market' });
+    expect(h.price.state === 'no-market' && h.price.pool).toBeCloseTo(0.025, 12);
+    expect(h.deposits.verdict).toBe('allowed');
+    expect(h.deposits.reasons).toEqual([]);
+    expect(h.deposits.warnings).toEqual([
+      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
+    ]);
   });
 
   it('a BAYLA pool is judged in BAYLA per token', () => {
@@ -137,8 +162,11 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
     const v = view(BAYLA_QUOTE, 60_000, 300);
     const fair = assessPool({ ...base, view: v, outside: ok(0.004), coinOutside: ok(0.00002) });
     expect(fair.price.state === 'agrees' && fair.price.pool).toBeCloseTo(200, 9);
-    expect(fair.deposits.verdict).toBe('allowed');
-    expect(assessPool({ ...base, view: v, outside: ok(0.0045), coinOutside: ok(0.00002) }).deposits.verdict).toBe('refused');
+    expect(fair.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
+    // The token at 0.0045 SOL is 225 BAYLA: the pool's 200 is 11.1% below, and that is said.
+    const off = assessPool({ ...base, view: v, outside: ok(0.0045), coinOutside: ok(0.00002) });
+    expect(off.deposits.verdict).toBe('allowed');
+    expect(off.deposits.warnings).toEqual(['Its price is 11.1% below the outside price. A deposit here would hand that gap to the first arbitrage trade.']);
   });
 
   it('a SOL pool ignores the coin’s price entirely, whatever it says', () => {

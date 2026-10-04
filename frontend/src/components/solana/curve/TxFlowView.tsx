@@ -296,6 +296,8 @@ function priceText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price']): stri
       return 'nobody has traded since the launch program opened it';
     case 'empty-pool':
       return 'not checked: the pool is empty';
+    case 'no-market':
+      return 'not checked against anything: Jupiter has no market price for this token';
     case 'skipped':
     case 'unread':
       return `not checked (${p.detail})`;

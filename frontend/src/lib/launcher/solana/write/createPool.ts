@@ -22,7 +22,10 @@
 //   6. the token, judged again (the deposit gate's token rules, plus create's own);
 //   7. where the pool goes: the standard address only when it and its four derived
 //      accounts are all empty; otherwise the fresh key, whose own accounts must be;
-//   8-9. a fresh market price, and the opening price within 3% of it;
+//   8-9. a fresh market price, and the opening check on it. A price more than 3% from
+//      the market, no market price at all, a copied name and a freezable token do not
+//      stop the build: they go on the summary as warnings, with the estimated loss,
+//      for the review to say. A price that could not be read still stops it;
 //   10. the wallet's accounts (`accountCheck`, `wsolPlanFrom`);
 //   11-12. the rents, read live, and what this wallet can put in (the rent band);
 //   13-15. the pins, the body, and the shared simulate-and-compare path, whose balance
@@ -67,17 +70,16 @@ import { initializeIx } from '../../../solana/cpswap/ix';
 import { ratePercent } from '../../../solana/cpswap/math';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, planCreate, solSetAside, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
-import { TOKEN_2022_NATIVE_MINT, assessOpening } from '../../../solana/lp/opening';
+import { TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
-import { PRICE_TOLERANCE, tokenReasons } from '../../../solana/lp/poolHealth';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
-import { SITE_ALLOWED_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
+import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, MAX_CREATE_FEE_LAMPORTS, feeAccountStateOf, tierStateOf } from './config';
 import { LP_COPY, accountCheck, rentOf, toRaw, type LpPrepareReads } from './liquidity';
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
-import type { CurveWriteConfig, IntentStep, LpCreateSummary, LpOpenGate, PoolPins, Prepared, TierTerms, TxSummary, WriteRpc } from './types';
+import type { CurveWriteConfig, IntentStep, LpCreateSummary, LpOpenGate, PoolPins, Prepared, PriceGap, TierTerms, TxSummary, WriteRpc } from './types';
 import { closeWsolIxs, openWsolIx, opened, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
 
 // ── copy (SPEC_S2_CREATE 3.5) ────────────────────────────────────────────────
@@ -116,9 +118,6 @@ export const CREATE_COPY = {
   justOpened:
     'Someone opened a pool for this token at the standard address since this page read it. Read the pools again: you may be able to add to it instead.',
   freshTaken: "Something is already at the new pool's address. Press Review again for a fresh one.",
-  priceDisagrees: (gap: string) =>
-    `Your opening price is now ${gap} the market price (Jupiter, read just now). Pools opened from this site must start within ${PRICE_TOLERANCE * 100}% of it. Press Match the market price, then Review again.`,
-  noRoute: 'Jupiter has no market price for this token, so this site does not open a pool for it.',
   priceUnread: (detail: string) =>
     `We could not get a market price from Jupiter just now (${detail}), so we did not build the opening. Try again in a moment.`,
   notBuilt: (reasons: string[]) => `We did not build this opening: ${reasons.join(' ')}`,
@@ -187,8 +186,10 @@ const TOKEN_ACCOUNT_SIZE = 165;
  * `get_required_init_account_extensions` (utils/token.rs:248-263), which adds no
  * ImmutableOwner. So 165 for a classic mint, for a Token-2022 mint with no extensions,
  * and for one whose only extensions are a name and picture, while that mint's
- * ASSOCIATED account is 170 (`tokenAccountSize`, D20). A string = this site cannot
- * size it: a token program it does not know, or an extension outside the site's set.
+ * ASSOCIATED account is 170 (`tokenAccountSize`, D20). Interest-bearing and scaled
+ * amounts add nothing to an account, so those vaults are 165 too. A string = this site
+ * cannot size it: a token program it does not know, or an extension outside the one set
+ * this site builds for (`BUILDABLE_EXTENSIONS`).
  */
 export function vaultAccountSize(mint: RawAccount): number | string {
   if (mint.owner === TOKEN_PROGRAM_ID.toBase58()) return TOKEN_ACCOUNT_SIZE;
@@ -197,7 +198,7 @@ export function vaultAccountSize(mint: RawAccount): number | string {
   if (!d.ok) return d.reason;
   const types = new Set<ExtensionType>();
   for (const e of d.value.extensions) {
-    if (!SITE_ALLOWED_EXTENSIONS.has(e)) return `it uses ${extensionPlain(e)}`;
+    if (!BUILDABLE_EXTENSIONS.has(e)) return `it uses ${extensionPlain(e)}`;
     const t = getAccountTypeOfMintType(e as ExtensionType) as ExtensionType | undefined;
     if (t === undefined) return `it uses ${extensionPlain(e)}`;
     if (t !== ExtensionType.Uninitialized) types.add(t);
@@ -452,17 +453,16 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if (safety.kind === 'absent') return notSent('build', CREATE_COPY.tokenRefused('The token does not exist.'));
   if (safety.kind !== 'read') return notSent('build', CREATE_COPY.tokenUnread);
   if (safety.verdict === 'blocked') return notSent('build', CREATE_COPY.tokenRefused(safety.blocks[0]?.text ?? 'see the token check'));
-  const reasons = tokenReasons(safety, 'pools');
-  if (reasons.refused.length) return notSent('build', CREATE_COPY.tokenRefused(reasons.refused[0]!));
-  if (reasons.unchecked.length) return notSent('build', CREATE_COPY.tokenUnread);
   const facts = safety.facts;
   const mint = snap.mint;
   if (!facts || !mint) return notSent('build', CREATE_COPY.tokenUnread);
   const tokenProgram =
     mint.owner === TOKEN_PROGRAM_ID.toBase58() ? TOKEN_PROGRAM_ID : mint.owner === TOKEN_2022_PROGRAM_ID.toBase58() ? TOKEN_2022_PROGRAM_ID : null;
   if (!tokenProgram) return notSent('build', CREATE_COPY.tokenRefused('It is not owned by either token program.'));
-  // Repeats the verdict on purpose: a future loosening of classifyToken cannot loosen openings.
-  const outsideSet = facts.extensions.find((e) => !SITE_ALLOWED_EXTENSIONS.has(e));
+  // A second guard, on purpose, against the ONE set of extensions this site builds for
+  // (the same set a withdrawal reads): a verdict loosened by mistake still cannot open a
+  // pool for a token this site could not let back out.
+  const outsideSet = facts.extensions.find((e) => !BUILDABLE_EXTENSIONS.has(e));
   if (outsideSet !== undefined) return notSent('build', CREATE_COPY.tokenRefused(`It uses ${extensionPlain(outsideSet)}.`));
   if (mintText === TOKEN_2022_NATIVE_MINT) return notSent('build', CREATE_COPY.native2022);
   const vaultSize = vaultAccountSize(mint);
@@ -511,16 +511,26 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   };
   const [outside, coinOutside] = await Promise.all([readPrice(mintText, decimals), quote.native ? null : readPrice(quote.mint, quote.decimals)]);
 
-  // 9. The opening check.
+  // 9. The opening check. It builds when the price agrees with the market, and also when
+  // it is off or there is no market price at all: those two are warnings (below). Any
+  // other state is a price that was not read, and never builds.
   const opening = assessOpening({ tokenMint: mintText, quote, quoteAmount: a.quote, token: a.token, tokenDecimals: decimals, outside, coinOutside, safety });
   const price = opening.price;
-  if (opening.verdict !== 'allowed' || price.state !== 'agrees') {
-    if (price.state === 'disagrees') return notSent('build', CREATE_COPY.priceDisagrees(`${(Math.abs(price.diff) * 100).toFixed(1)}% ${price.diff > 0 ? 'above' : 'below'}`));
-    if (outside.kind === 'no-route') return notSent('build', CREATE_COPY.noRoute);
+  if (opening.verdict !== 'allowed' || (price.state !== 'agrees' && price.state !== 'disagrees' && price.state !== 'no-market')) {
     if (outside.kind === 'unread') return notSent('build', CREATE_COPY.priceUnread(outside.detail));
-    if (coinOutside && coinOutside.kind !== 'ok') return notSent('build', CREATE_COPY.coinPriceUnread(quote.symbol, coinOutside.detail));
+    // The coin's own price only matters when there is a token price to compare with.
+    if (outside.kind === 'ok' && coinOutside && coinOutside.kind !== 'ok') return notSent('build', CREATE_COPY.coinPriceUnread(quote.symbol, coinOutside.detail));
     return notSent('build', CREATE_COPY.notBuilt(opening.reasons));
   }
+
+  // 9b. What the review must say. A price that is off gets its estimated loss at the
+  // amounts typed, in the pool's own coin. Display only: it decides nothing.
+  const priceGap: PriceGap | null =
+    price.state === 'disagrees'
+      ? { diff: price.diff, lossQuote: estimatedLoss({ quoteAmount: a.quote, token: a.token, tokenDecimals: decimals, marketPricePerToken: price.reference, quote }) }
+      : null;
+  const warnings = [...opening.warnings];
+  if (priceGap) warnings.push(LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coinText(priceGap.lossQuote, quote), 'the market price'));
 
   // 10. The wallet's accounts. The tokens leave by CPI inside `initialize`, so CPI Guard
   // on the source refuses (accountCheck). A source's notices are not shown.
@@ -706,6 +716,8 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
         rents: { neverRefunded, lpAccount: lpAccountRent },
         price,
         tokenWarnings: safety.warnings,
+        warnings,
+        priceGap,
         unwrapsWsol: bodySteps(steps).some((s) => s.kind === 'close-wsol'),
         wsolHeldBefore: plan ? plan.heldBefore : 0n,
         notices: [],

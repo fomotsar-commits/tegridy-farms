@@ -40,6 +40,8 @@ const createSummary = (): TxSummary => ({
   unwrapsWsol: true,
   wsolHeldBefore: 0n,
   notices: [],
+  warnings: [],
+  priceGap: null,
 });
 
 beforeEach(() => sessionStorage.clear());

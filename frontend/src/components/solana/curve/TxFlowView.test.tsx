@@ -1255,7 +1255,7 @@ describe('liquidity reviews', () => {
     limitedByBalance: 'none', sharePct: { before: 0, after: 12.5 },
     price: { state: 'agrees', pool: 1, reference: 1, against: 'outside', diff: -0.012 },
     tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }],
-    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['An approved spender can move tokens.'], ...over,
+    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['An approved spender can move tokens.'], warnings: [], priceGap: null, ...over,
   });
   const withdraw = (over: Partial<Extract<TxSummary, { kind: 'lp-withdraw' }>> = {}): TxSummary => ({
     kind: 'lp-withdraw', pool: KEY(30), origin: 'launch-pool', config: null, tokenMint: KEY(31), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
@@ -1402,7 +1402,7 @@ describe('opening a pool: the review', () => {
     rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
     price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
     tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }],
-    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['A spender is approved on your token account.'], ...over,
+    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['A spender is approved on your token account.'], warnings: [], priceGap: null, ...over,
   });
   const value = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
   const review = async (summary: TxSummary, over: Partial<PreparedTx> = {}) => {
@@ -1502,7 +1502,7 @@ describe('opening a pool: the review wraps sentences between words', () => {
       locked: { quote: 1_414n, token: 7n }, createFee: 150_000_000n, feeReceiver: KEY(8),
       rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
       price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
-      tokenWarnings: [], unwrapsWsol: true, wsolHeldBefore: 0n, notices: [],
+      tokenWarnings: [], unwrapsWsol: true, wsolHeldBefore: 0n, notices: [], warnings: [], priceGap: null,
     };
     const api = fakeApi();
     const { result } = renderHook(() => useTxFlow(api, rpc));

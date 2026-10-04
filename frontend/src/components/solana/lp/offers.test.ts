@@ -246,7 +246,7 @@ describe('createOffer', () => {
   };
   const READY: CreateFacts = { tier: { kind: 'ready', address: TIER1, config: tierConfig }, feeAccount: { kind: 'ready' } };
   const healthOf = (verdict: PoolHealth['deposits']['verdict']): PoolHealth => ({
-    swaps: { state: 'open' }, withdrawals: 'open', price: { state: 'empty-pool' }, deposits: { verdict, reasons: [] },
+    swaps: { state: 'open' }, withdrawals: 'open', price: { state: 'empty-pool' }, deposits: { verdict, reasons: [], warnings: [] },
   });
   /** A TOKEN/SOL pool for `mint` on fee tier `tier` (its standard address), or at a one-off address. */
   const poolOn = (tier: number, address?: PublicKey, sol: bigint = SOL) =>
