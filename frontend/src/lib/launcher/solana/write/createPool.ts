@@ -69,7 +69,7 @@ import {
 import { initializeIx } from '../../../solana/cpswap/ix';
 import { ratePercent } from '../../../solana/cpswap/math';
 import type { RawAccount } from '../../../solana/lp/accounts';
-import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, planCreate, solSetAside, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
+import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, lockedBehind, planCreate, solSetAside, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
 import { TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss } from '../../../solana/lp/opening';
 import { coinPriceDetail, type OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
@@ -715,7 +715,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
         supply,
         lpAmount: supply - LOCKED_LP,
         lpDecimals: 9,
-        locked: { quote: (LOCKED_LP * put.quote) / supply, token: (LOCKED_LP * put.token) / supply },
+        locked: { quote: lockedBehind(put.quote, supply), token: lockedBehind(put.token, supply) },
         createFee,
         feeReceiver: CP_CREATE_POOL_FEE_RECEIVER,
         rents: { neverRefunded, lpAccount: lpAccountRent },

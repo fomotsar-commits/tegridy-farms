@@ -326,8 +326,9 @@ describe('an amount typed for a coin is that coin’s, to the base unit', () => 
     type(tokens(panel), '25');
     expect(row(panel, 'You put in')).toHaveTextContent('50 USDC and 25 tokens, exactly');
     // The locked part's worth is in USDC's own 6 decimals: 100 shares of isqrt(50,000,000 × 25,000,000) = 35,355,339
-    // are 141 units of USDC and 70 of the token. Printed with SOL's 9 it would read 0.000000141.
-    expect(row(panel, 'Locked in the pool forever')).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit), worth about 0.000141 USDC and 0.00007 tokens');
+    // leave 142 units of USDC and 71 of the token behind (rounded up: what can never come back is not
+    // understated). Printed with SOL's 9 it would read 0.000000142.
+    expect(row(panel, 'Locked in the pool forever')).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit), worth about 0.000142 USDC and 0.000071 tokens');
     // Two coins leave the wallet, and they are never added into one number. The SOL is
     // 0.19203928, said rounded UP: what the wallet must pay never reads as less than it is.
     expect(row(panel, 'In all, from your wallet')).toHaveTextContent('50 USDC and 25 tokens, and about 0.1921 SOL for the fee to open and the account deposits, plus the network fee');

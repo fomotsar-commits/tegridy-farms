@@ -377,6 +377,22 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(within(screen.getByTestId('lp-add-panel')).getByTestId('lp-add-warnings')).toHaveTextContent('Its price is 300.0% above the outside price.');
   }, 20_000);
 
+  // The fallback is the FIRST warned pool in list order (the deepest), which is also the
+  // one this card names. With a single pool, as above, "first" and "last" are the same
+  // pool, so nothing held the rule until this test (review of the fixes, 2026-10-04).
+  it('…and with two pools at wrong prices, the form opens in the first one listed, the pool this card names', async () => {
+    const deeper = view({ tier1: true, address: key(), sol: 40n * 10n ** 9n });
+    const shallower = view({ tier1: true, address: key(), sol: 20n * 10n ** 9n });
+    mount(readers({ findPools: vi.fn(async () => search([deeper, shallower])) }));
+    const c = await settled('offer');
+    await waitFor(() => expect(poolCard(shallower.address)).toHaveAttribute('data-add', 'offer'));
+    for (const v of [deeper, shallower]) expect(poolCard(v.address)).toHaveAttribute('data-price', 'disagrees');
+    addTask();
+    expect(await addFormPool()).toBe(deeper.address);
+    expect(within(c).getByTestId('lp-create-refer')).toHaveTextContent(`The biggest is ${deeper.address}, holding 40 SOL.`);
+    expect(screen.getAllByTestId('lp-add-panel')).toHaveLength(1);
+  }, 20_000);
+
   // A launch pool that passed its own check is listed below a deeper pool anyone could
   // open. With no market price that pool is checked against the launch pool's price
   // (poolHealth.ts): at four times it, it carries the price warning, and is passed over.
@@ -549,6 +565,21 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     // A tier that has a pool with no warning is said to have one that passes, and only that.
     expect(c).toHaveTextContent('This token also has a pool on fee tier 0 that passes the checks. A new pool will not share its liquidity or fees.');
     expect(c).not.toHaveTextContent('takes deposits, with a warning');
+  });
+
+  // The other-tier line goes by ANY warning, not by the price: a pool at the market whose
+  // token can be frozen is headed "with warnings" on its own card, so this line must not
+  // say it passes (review of the fixes, 2026-10-04: the two tests above only move the price).
+  it('a pool on another fee tier at the market, for a token its creator can freeze: not said to pass the checks', async () => {
+    const freezable = realToken(MINT, { freeze: key() });
+    const otherTier = view({});
+    mount(readers({ findPools: vi.fn(async () => search([otherTier])), safety: vi.fn(async () => new Map([[M, freezable]])) }));
+    const c = await settled('offer');
+    await waitFor(() => expect(poolCard(otherTier.address)).toHaveAttribute('data-deposits', 'allowed'));
+    expect(poolCard(otherTier.address)).toHaveAttribute('data-price', 'agrees');
+    expect(within(poolCard(otherTier.address)).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
+    expect(c).toHaveTextContent('This token also has a pool on fee tier 0 that takes deposits, with a warning. A new pool will not share its liquidity or fees.');
+    expect(c).not.toHaveTextContent('that passes the checks');
   });
 
   it('a pool at the market for a token its creator can freeze: "takes deposits, with a warning", and adding to it is still suggested, with its button', async () => {

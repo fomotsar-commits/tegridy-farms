@@ -447,7 +447,7 @@ describe('planDeposit: the shares a deposit buys can always be taken out again',
 describe('planCreate: an opening of exactly what was typed', () => {
   const base = { quoteIsToken0: true, quote: 1_000_000_000n, token: 5_000_000n, availableQuote: 2_000_000_000n, availableToken: 9_000_000n };
 
-  it('puts SOL on the SOL side, the shares are isqrt, the opener gets supply − 100, and the locked part floors', () => {
+  it('puts SOL on the SOL side, the shares are isqrt, the opener gets supply − 100, and the locked part is what stays behind, rounded up', () => {
     const p = planCreate(base);
     if ('problem' in p) throw new Error(p.problem);
     const supply = isqrt(1_000_000_000n * 5_000_000n);
@@ -456,10 +456,25 @@ describe('planCreate: an opening of exactly what was typed', () => {
       init1: 5_000_000n,
       supply,
       lp: supply - 100n,
-      locked: { quote: (100n * 1_000_000_000n) / supply, token: (100n * 5_000_000n) / supply },
+      locked: { quote: 1_415n, token: 8n },
     });
-    // 100·5,000,000 / 70,710,678 = 7.07…: floored, never rounded up.
-    expect(p.locked.token).toBe(7n);
+    // 100·5,000,000 / 70,710,678 = 7.07…: the opener's own shares pay out 4,999,992 (floor), so 8 stay
+    // behind. What can never come back is rounded UP, never down.
+    expect(p.locked.token).toBe(5_000_000n - ((supply - 100n) * 5_000_000n) / supply);
+  });
+
+  // The old figure, floor(100 x put / supply), said "0 tokens" here while a whole token stayed
+  // behind for good. Any token may have a pool now, so whole-unit tokens are in reach (review, 2026-10-04).
+  it('a whole-unit token: the locked part is never said as 0 when a whole unit can never come back', () => {
+    for (const tokens of [2n, 3n, 10n, 1_000n]) {
+      const p = planCreate({ ...base, quote: 10_000_000_000n, token: tokens, availableQuote: null, availableToken: null });
+      if ('problem' in p) throw new Error(p.problem);
+      // The pool program's own sum for the opener's whole share, done by hand.
+      const out = { quote: (p.lp * 10_000_000_000n) / p.supply, token: (p.lp * tokens) / p.supply };
+      expect(p.locked, `${tokens} tokens`).toEqual({ quote: 10_000_000_000n - out.quote, token: tokens - out.token });
+      expect(p.locked.token, `${tokens} tokens`).toBeGreaterThanOrEqual(1n);
+      expect((100n * tokens) / p.supply, 'the old figure').toBe(0n);
+    }
   });
 
   it('with SOL as token1 the sides swap, and only then', () => {
