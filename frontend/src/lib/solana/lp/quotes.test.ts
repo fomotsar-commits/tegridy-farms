@@ -28,7 +28,16 @@ describe('the pairing coins', () => {
   });
 
   it('USDC is Circle’s mainnet mint: classic program, 6 decimals', () => {
-    expect(USDC_QUOTE).toEqual({ mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6, native: false, program: TOKEN_PROGRAM_ID.toBase58() });
+    expect(USDC_QUOTE).toMatchObject({ mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6, native: false, program: TOKEN_PROGRAM_ID.toBase58() });
+  });
+
+  it('USDC says what its issuer can do to a pool, and the coins whose mints have no freeze authority say nothing', () => {
+    // USDC keeps a freeze authority; SOL has no issuer, and BAYLA's mint has neither a
+    // freeze nor a mint authority (pinned against mainnet's bytes in the next test).
+    expect(USDC_QUOTE.risk).toMatch(/can freeze any USDC account, including a pool’s own/);
+    expect(USDC_QUOTE.risk).toMatch(/nobody can take liquidity out of that pool, you included/);
+    expect(SOL_QUOTE.risk).toBeNull();
+    expect(BAYLA_QUOTE.risk).toBeNull();
   });
 
   it('BAYLA is the island’s own mint, and its row is what mainnet’s mint account says', () => {
@@ -42,7 +51,12 @@ describe('the pairing coins', () => {
     expect(dump.account.owner).toBe(TOKEN_2022_PROGRAM_ID.toBase58());
     expect(BAYLA_QUOTE.program).toBe(dump.account.owner);
     // SPL mint layout: decimals is the byte at offset 44.
-    expect(Buffer.from(dump.account.data[0], 'base64')[44]).toBe(BAYLA_QUOTE.decimals);
+    const bytes = Buffer.from(dump.account.data[0], 'base64');
+    expect(bytes[44]).toBe(BAYLA_QUOTE.decimals);
+    // No mint authority (bytes 0-3) and no freeze authority (bytes 46-49): nobody can
+    // freeze a pool's BAYLA account or print more, which is why its row carries no risk line.
+    expect(bytes.readUInt32LE(0)).toBe(0);
+    expect(bytes.readUInt32LE(46)).toBe(0);
     expect(BAYLA_QUOTE.native).toBe(false);
   });
 

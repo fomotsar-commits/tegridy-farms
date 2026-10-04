@@ -345,6 +345,7 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
           {n}
         </Notice>
       ))}
+      {q.risk && <Notice tone="warn">{q.risk}</Notice>}
       <Notice>
         {!q.native
           ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped, and what the pool does not use never leaves that account.`
@@ -472,6 +473,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
           {n}
         </Notice>
       ))}
+      {q.risk && <Notice tone="warn">{q.risk}</Notice>}
       <Notice>
         {!q.native
           ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped. The fee to open and the account deposits are paid in SOL.`

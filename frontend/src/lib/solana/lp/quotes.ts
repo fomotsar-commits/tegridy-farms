@@ -35,11 +35,25 @@ export interface QuoteCoin {
   native: boolean;
   /** The token program its mint is under. */
   program: string;
+  /**
+   * What pairing with THIS coin adds to the risks, in one plain sentence, or null when it
+   * adds none. Said wherever the coin is chosen and again on the review, in these words.
+   * A new coin must say what its issuer can do to a pool's account before it is listed.
+   */
+  risk: string | null;
 }
 
-export const SOL_QUOTE: QuoteCoin = { mint: WSOL_MINT, symbol: 'SOL', decimals: 9, native: true, program: TOKEN_PROGRAM };
-export const USDC_QUOTE: QuoteCoin = { mint: USDC_MINT, symbol: 'USDC', decimals: 6, native: false, program: TOKEN_PROGRAM };
-export const BAYLA_QUOTE: QuoteCoin = { mint: BAYLA_MINT, symbol: 'BAYLA', decimals: 6, native: false, program: TOKEN_2022_PROGRAM };
+/**
+ * USDC's mint keeps a freeze authority (Circle's). A frozen pool account stops every
+ * withdrawal from that pool (the pool program moves the coin out of it), so it is said
+ * before anyone puts USDC in. BAYLA's mint has no freeze authority and no mint authority.
+ */
+const USDC_RISK =
+  'USDC’s issuer (Circle) can freeze any USDC account, including a pool’s own. While a pool’s USDC account is frozen, nobody can take liquidity out of that pool, you included.';
+
+export const SOL_QUOTE: QuoteCoin = { mint: WSOL_MINT, symbol: 'SOL', decimals: 9, native: true, program: TOKEN_PROGRAM, risk: null };
+export const USDC_QUOTE: QuoteCoin = { mint: USDC_MINT, symbol: 'USDC', decimals: 6, native: false, program: TOKEN_PROGRAM, risk: USDC_RISK };
+export const BAYLA_QUOTE: QuoteCoin = { mint: BAYLA_MINT, symbol: 'BAYLA', decimals: 6, native: false, program: TOKEN_2022_PROGRAM, risk: null };
 
 /** Rank order: when a pool pairs two of these, the EARLIER one is the quote. */
 export const QUOTE_COINS: readonly QuoteCoin[] = [SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE];
