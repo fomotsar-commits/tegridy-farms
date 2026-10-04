@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../../../lib/solanaPolyfill';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { SolanaProviders } from '../SolanaProviders';
@@ -90,10 +90,28 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
   const disclosure = <LpDisclosure programId={readers.programId} mode={mode} />;
   const writesTop = mode !== 'off' && <LpWritesTop />;
   const tiers = <FeeTiers readers={readers} />;
+  // Remove liquidity (the finder's third button) brings the positions onto the screen:
+  // that is where every Remove button is. The section takes focus, so a keyboard and a
+  // screen reader land there too.
+  const positionsRef = useRef<HTMLElement | null>(null);
+  const toPositions = useCallback(() => {
+    const el = positionsRef.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.scrollIntoView?.({ block: 'start' });
+  }, []);
   const finder = (
-    <PoolFinder readers={readers} mint={mint} onMint={onMint} linkError={linkError} reloadKey={reloadKey} wantOutside={mode === 'on'} />
+    <PoolFinder
+      readers={readers}
+      mint={mint}
+      onMint={onMint}
+      linkError={linkError}
+      reloadKey={reloadKey}
+      wantOutside={mode === 'on'}
+      onRemove={toPositions}
+    />
   );
-  const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} />;
+  const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} sectionRef={positionsRef} />;
 
   // Finder first sits right under the page's hero, which already leaves the gap above it.
   if (finderFirst) {

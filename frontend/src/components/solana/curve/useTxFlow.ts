@@ -1,39 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clipDetail } from '../../../lib/launcher/solana/curve';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
+import { sameToSign } from '../../../lib/launcher/solana/write/sameToSign';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, WriteApi, WriteRpc } from './ports';
 
+// One transaction, start to finish, for any kind:
+//
+//   idle → preparing → review → submitting → sent → outcome
+//                  ↘ outcome (not-sent: nothing was signed)
+//
+// Nothing reaches the wallet without a review whose every line is true of it.
+
 /**
- * One transaction, start to finish, for any of the seven kinds.
- *
- *   idle → preparing → review → submitting → sent → outcome
- *                  ↘ outcome (not-sent: nothing was signed)
- *
- * `submitting` is the wallet's turn. `sent` starts the moment the signature is known,
- * BEFORE the first byte leaves: from then on the transaction may land even if this
- * tab goes away. So `onSent` is called right then (the page writes its "may still
- * land" note there, which survives a reload), and leaving the page asks first.
- *
- * The rules this machine exists to hold:
- *  - Nothing reaches the wallet without a `review` step, and the review shows the
- *    values the prepared transaction carries (the write layer simulated it first).
- *  - A review cannot be signed once its blockhash is about to run out. The blockhash
- *    is fetched while preparing, so the clock starts when Review is pressed, not when
- *    the review appears, and REVIEW_TTL_MS stays well inside the ~150-block (~60 s)
- *    window. Before the wallet is asked, the block height is read too: with fewer
- *    than SIGN_MARGIN_BLOCKS left, the review is marked stale instead of signed.
- *    The user prepares again.
- *  - One submission per review. A second click, a double tap or a re-render cannot
- *    send the transaction twice.
- *  - `unknown` (sent, not confirmed) is not an error and is never called one. While
- *    it stands, the panel's action stays locked until the user checks again, so the
- *    easy mistake (paying twice) takes a deliberate step.
- *  - If the submit call itself throws, we cannot say whether anything was sent, so
- *    that too is `unknown`, and never "failed". It carries the signature when the
- *    transaction had already reached `sent`.
+ * How long a review may be signed as it is, from the Review press. Its blockhash is read
+ * while preparing and lasts 150 blocks: about 40 seconds at mainnet's 0.27 s a block
+ * (measured 2026-10-03), so this clock runs out with SIGN_MARGIN_BLOCKS and more to
+ * spare. Past it the reviewed transaction is never handed to the wallet.
  */
-export const REVIEW_TTL_MS = 45_000;
-/** Blocks (~0.4 s each) the wallet prompt and the first send must still have. */
+export const REVIEW_TTL_MS = 30_000;
+/** Blocks the wallet prompt and the first send must still have: about 7 seconds. */
 export const SIGN_MARGIN_BLOCKS = 25;
 const HEIGHT_READ_TIMEOUT_MS = 3_000;
 
@@ -56,12 +41,68 @@ async function confirmedHeight(rpc: WriteRpc): Promise<number | null> {
   }
 }
 
+/** Fewer than SIGN_MARGIN_BLOCKS left at a height that was read. An unread height is not "over". */
+const nearlyOver = (height: number | null, p: PreparedTx) => height !== null && height + SIGN_MARGIN_BLOCKS >= p.lastValidBlockHeight;
+
+/** A review's lines as its reader sees them: `reviewLines` in TxFlowView. */
+export type ReviewLines = (p: PreparedTx) => string[];
+
+type Changed = { now: string[]; gone: string[] };
+
+/**
+ * Is `fresh` the review being read: every line the same and every instruction the same,
+ * byte for byte? `null` = yes. Otherwise the lines that read differently, and empty lists
+ * when the lines could not be read or only the bytes differ: unreadable is never "same".
+ */
+function whatChanged(reviewed: PreparedTx, fresh: PreparedTx, lines: ReviewLines | undefined): Changed | null {
+  const unknown: Changed = { now: [], gone: [] };
+  if (!lines) return unknown;
+  try {
+    const was = lines(reviewed);
+    const now = lines(fresh);
+    const same = was.length > 0 && was.length === now.length && was.every((l, i) => l === now[i]);
+    if (!same) {
+      const left = [...was];
+      const added = now.filter((l) => {
+        const at = left.indexOf(l);
+        if (at >= 0) left.splice(at, 1);
+        return at < 0;
+      });
+      return { now: added, gone: left };
+    }
+    return sameToSign(reviewed, fresh) ? null : unknown;
+  } catch {
+    return unknown;
+  }
+}
+
+export interface ReviewState {
+  step: 'review';
+  prepared: PreparedTx;
+  /** Too old to hand to the wallet: its clock ran out, or the block height said so. */
+  expired: boolean;
+  expiresAt: number;
+  /** The panel said its build only reads, so Sign on a stale review builds it again. */
+  renewable: boolean;
+  /** Sign was pressed and the block height is being read before the wallet opens. */
+  checking?: boolean;
+  /** Sign was pressed on a stale review and it is being built again. */
+  renewing?: boolean;
+  /**
+   * This review took the place of the one being read (`n` counts them). `now`: its lines
+   * that read differently. `gone`: lines it no longer has. Both empty when the two could
+   * not be compared line by line, or only the instructions differ.
+   */
+  replaced?: { n: number } & Changed;
+}
+
 export type TxFlowState =
   | { step: 'idle' }
   | { step: 'preparing' }
-  /** `checking`: Sign was pressed and the block height is being read before the wallet opens. */
-  | { step: 'review'; prepared: PreparedTx; expired: boolean; expiresAt: number; checking?: boolean }
+  | ReviewState
+  /** The wallet's turn. */
   | { step: 'submitting'; prepared: PreparedTx }
+  /** The signature is known: from here it may land even if this tab goes away. */
   | { step: 'sent'; prepared: PreparedTx; signature: string }
   /** `checks`: how many times "Check again" has answered, so each answer reads as new. */
   | { step: 'outcome'; outcome: TxOutcome; prepared: PreparedTx | null; rechecking: boolean; checks?: number };
@@ -72,15 +113,23 @@ export type TxFlowState =
  * away at the first send) still names the note to clear.
  */
 export type OnSettled = (outcome: TxOutcome, prepared: PreparedTx | null, sentSignature?: string | null) => void;
-/** The signature is known and the transaction is about to be sent. Write the note here. */
+/**
+ * The signature is known and the first byte has not left yet. The page writes its
+ * "may still land" note here, so the note survives a reload.
+ */
 export type OnSent = (signature: string, prepared: PreparedTx) => void;
 
 export interface TxFlow {
   state: TxFlowState;
   /** True while a sent-but-unconfirmed transaction stands. Panels lock their action on it. */
   locked: boolean;
-  prepare(build: () => Promise<Prepared>): Promise<void>;
-  confirm(signer: TxSigner): Promise<void>;
+  /**
+   * `repeatable`: the build only reads the chain, so it may run again for a stale review.
+   * Leave it off when the build asks the wallet or uploads anything (the launch).
+   */
+  prepare(build: () => Promise<Prepared>, opts?: { repeatable?: boolean }): Promise<void>;
+  /** Without `lines`, a review that was built again is always shown again, never signed unread. */
+  confirm(signer: TxSigner, lines?: ReviewLines): Promise<void>;
   recheck(): Promise<void>;
   reset(): void;
 }
@@ -92,7 +141,22 @@ export function useTxFlow(
   onSent?: OnSent,
 ): TxFlow {
   const [state, setState] = useState<TxFlowState>({ step: 'idle' });
+  // One submission per review: a second click, a double tap or a re-render finds this set.
   const busy = useRef(false);
+  // The build behind the review on screen, kept only when the panel called it repeatable.
+  const again = useRef<(() => Promise<Prepared>) | null>(null);
+  // A stale review being built again: nothing is signed until that ends, so Start over
+  // may abandon it, and so does leaving the page (no wallet prompt for a review nobody
+  // is reading). `press` counts Sign presses; an abandoned press finds it moved on.
+  const rebuilding = useRef(false);
+  const press = useRef(0);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const settledRef = useRef(onSettled);
   const sentRef = useRef(onSent);
   useEffect(() => {
@@ -127,15 +191,17 @@ export function useTxFlow(
     return () => clearTimeout(t);
   }, [reviewing, expiresAt]);
 
-  const prepare = useCallback(async (build: () => Promise<Prepared>) => {
+  const prepare = useCallback(async (build: () => Promise<Prepared>, opts?: { repeatable?: boolean }) => {
     if (busy.current) return;
     busy.current = true;
+    const renewable = opts?.repeatable === true;
+    again.current = renewable ? build : null;
     // The blockhash is fetched inside build(), so its window starts no earlier than now.
     const startedAt = Date.now();
     setState({ step: 'preparing' });
     try {
       const r = await build();
-      if (r.ok) setState({ step: 'review', prepared: r.prepared, expired: false, expiresAt: startedAt + REVIEW_TTL_MS });
+      if (r.ok) setState({ step: 'review', prepared: r.prepared, expired: false, expiresAt: startedAt + REVIEW_TTL_MS, renewable });
       else {
         setState({ step: 'outcome', outcome: r.outcome, prepared: null, rechecking: false });
         // A refusal is often "the price moved": the page reads the chain again so the
@@ -153,23 +219,73 @@ export function useTxFlow(
   }, []);
 
   const confirm = useCallback(
-    async (signer: TxSigner) => {
+    async (signer: TxSigner, lines?: ReviewLines) => {
       if (busy.current) return;
       const s = state;
-      if (s.step !== 'review' || s.expired) return;
+      if (s.step !== 'review') return;
+      const build = s.renewable ? again.current : null;
+      if (s.expired && !build) return;
       busy.current = true;
-      const prepared = s.prepared;
-      // A signature the network can no longer accept is wasted: read the height first.
-      // Unreadable is not "fine", but it is not "stale" either; the first send runs
-      // with preflight, which refuses an expired blockhash before anything is sent.
-      setState((cur) => (cur.step === 'review' && cur.prepared === prepared ? { ...cur, checking: true } : cur));
-      const height = await confirmedHeight(rpc);
-      if (height !== null && height + SIGN_MARGIN_BLOCKS >= prepared.lastValidBlockHeight) {
+      const mine = ++press.current;
+      const abandoned = () => press.current !== mine || !alive.current;
+      let prepared = s.prepared;
+      let stale = s.expired;
+      if (!stale) {
+        // A signature the network can no longer accept is wasted: read the height first.
+        // Unreadable is not "fine", but it is not "stale" either; the first send runs
+        // with preflight, which refuses an expired blockhash before anything is sent.
+        setState((cur) => (cur.step === 'review' && cur.prepared === prepared ? { ...cur, checking: true } : cur));
+        stale = nearlyOver(await confirmedHeight(rpc), prepared);
+      }
+      if (stale && !build) {
         busy.current = false;
         setState((cur) =>
           cur.step === 'review' && cur.prepared === prepared ? { ...cur, expired: true, checking: false } : cur,
         );
         return;
+      }
+      if (stale && build) {
+        // Too old to sign as it is, and never signed: the build runs again on fresh
+        // reads, with every check a first prepare makes.
+        rebuilding.current = true;
+        setState((cur) =>
+          cur.step === 'review' && cur.prepared === prepared ? { ...cur, expired: true, checking: false, renewing: true } : cur,
+        );
+        const startedAt = Date.now();
+        let r: Prepared;
+        try {
+          r = await build();
+        } catch (e) {
+          r = { ok: false, outcome: { status: 'not-sent', stage: 'build', message: clipDetail(e) } };
+        }
+        if (abandoned()) return;
+        if (!r.ok) {
+          rebuilding.current = false;
+          busy.current = false;
+          setState({ step: 'outcome', outcome: r.outcome, prepared: null, rechecking: false });
+          settledRef.current?.(r.outcome, null);
+          return;
+        }
+        const fresh = r.prepared;
+        const review = { step: 'review' as const, prepared: fresh, expiresAt: startedAt + REVIEW_TTL_MS, renewable: true };
+        const changed = whatChanged(prepared, fresh, lines);
+        if (changed) {
+          // Not the review that was read: it is shown, and signing it takes another press.
+          rebuilding.current = false;
+          busy.current = false;
+          setState({ ...review, expired: false, replaced: { n: (s.replaced?.n ?? 0) + 1, ...changed } });
+          return;
+        }
+        // The review that was read, on a newer blockhash: held to both clocks like any other.
+        const height = await confirmedHeight(rpc);
+        if (abandoned()) return;
+        rebuilding.current = false;
+        if (Date.now() >= review.expiresAt || nearlyOver(height, fresh)) {
+          busy.current = false;
+          setState({ ...review, expired: true, ...(s.replaced ? { replaced: s.replaced } : {}) });
+          return;
+        }
+        prepared = fresh;
       }
       setState({ step: 'submitting', prepared });
       let sentSignature: string | null = null;
@@ -189,6 +305,8 @@ export function useTxFlow(
           },
         });
       } catch (e) {
+        // We cannot say whether anything was sent, so this is `unknown`, never "failed".
+        // It carries the signature when the transaction had already reached `sent`.
         outcome = {
           status: 'unknown',
           signature: sentSignature ?? '',
@@ -235,10 +353,18 @@ export function useTxFlow(
   }, [api, rpc, state]);
 
   const reset = useCallback(() => {
-    if (busy.current) return;
+    if (busy.current) {
+      if (!rebuilding.current) return;
+      press.current += 1;
+      rebuilding.current = false;
+      busy.current = false;
+    }
+    again.current = null;
     setState({ step: 'idle' });
   }, []);
 
+  // Sent and not confirmed is not an error. While it stands the panel's action stays
+  // locked, so the easy mistake (paying twice) takes a deliberate step.
   const locked = state.step === 'outcome' && state.outcome.status === 'unknown' && state.outcome.signature !== '';
   return { state, locked, prepare, confirm, recheck, reset };
 }

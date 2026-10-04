@@ -6,7 +6,8 @@ import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import { SITE_SWAP_FEE_BPS } from '../../../lib/solana/swap/siteFee';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
-import type { TxFlow } from './useTxFlow';
+import { reviewLines } from './reviewLines';
+import type { ReviewState, TxFlow } from './useTxFlow';
 
 // What the user sees between pressing a Review button and the chain's answer.
 // Every word here is about THIS transaction, and the numbers come from the
@@ -14,11 +15,10 @@ import type { TxFlow } from './useTxFlow';
 //
 // Screen readers: this view replaces the panel's form, so the button that had focus
 // is gone. Each step moves focus to its own heading or notice (tabIndex -1), which
-// also reads it out. Progress notes are role="status"; an outcome that needs the
-// user's attention (refused, not sent, not confirmed) is role="alert". A review that
-// goes stale moves focus to the alert saying so. A button whose work is running
-// (Check again) stays focusable and says so in a status line, instead of switching
-// off under the keyboard.
+// also reads it out. Progress is role="status"; what needs attention (a refusal, an
+// unconfirmed send, a review that changed or can no longer be signed) is role="alert"
+// and takes focus. A button whose work is running stays focusable and says so in a
+// status line, instead of switching off under the keyboard.
 
 const SOL = (l: bigint) => `${formatSol(l)} SOL`;
 const signedSol = (l: bigint) => `${l < 0n ? '-' : '+'}${SOL(l < 0n ? -l : l)}`;
@@ -724,6 +724,54 @@ export function TxReview({
   );
 }
 
+/** Beside the buttons: what a review that was built again says differently from the one being read. */
+function ReviewChanged({ changed, boxRef }: { changed: NonNullable<ReviewState['replaced']>; boxRef: Ref<HTMLDivElement> }) {
+  const k = changed.now.length;
+  const g = changed.gone.length;
+  const list = (items: string[]) => (
+    <ul className="list-disc pl-4 space-y-0.5 [overflow-wrap:anywhere]">
+      {items.map((line, i) => (
+        <li key={`${i}:${line}`}>{line}</li>
+      ))}
+    </ul>
+  );
+  return (
+    <div ref={boxRef} tabIndex={-1} role="alert" className="text-amber-300/90 space-y-1 outline-none" data-testid="tx-review-changed">
+      {k === 0 && g === 0 ? (
+        <p>
+          This review was built again on fresh numbers, and this page cannot say it is the same as the one you were
+          reading. Read it through again before you sign.
+        </p>
+      ) : (
+        <>
+          <p>
+            This review was built again on fresh numbers.{' '}
+            {k > 0
+              ? `${k} ${k === 1 ? 'line reads' : 'lines read'} differently now:`
+              : `${g === 1 ? 'This line is' : 'These lines are'} no longer on it:`}
+          </p>
+          {k > 0 && list(changed.now)}
+          {k > 0 && g > 0 && <p>In place of:</p>}
+          {g > 0 && list(changed.gone)}
+          <p>Every other line reads as it did. Sign in wallet if this is still what you want.</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The line above the buttons: what Sign in wallet will do, or what it is doing. */
+function signStatus(s: ReviewState): string {
+  if (s.renewing) {
+    return 'This review was too old to sign, so it is being built and test-run again on fresh numbers. Your wallet opens next only if every line still reads the same.';
+  }
+  if (s.checking) return 'Checking the network before your wallet opens…';
+  if (s.expired) {
+    return 'This review is too old to sign as it is. Sign in wallet builds it again on fresh numbers first: your wallet opens only if every line still reads the same. If any line reads differently, you are shown which.';
+  }
+  return 'Your wallet will show this transaction next. Sign only if it matches what is above.';
+}
+
 function ExplorerLink({ href }: { href: string }) {
   return (
     <a href={href} target="_blank" rel="noopener noreferrer nofollow" className="underline text-white/80">
@@ -924,15 +972,25 @@ export function TxFlowView({
 }) {
   const s = flow.state;
   // One focus target per step. Moving focus both keeps keyboard users in place (the
-  // form's button is gone) and makes a screen reader read the new step. A review
-  // going stale is a step of its own: its Sign button is switched off, so focus
-  // moves to the alert that says why.
+  // form's button is gone) and makes a screen reader read the new step. Two reviews
+  // are steps of their own: one that replaced the review being read (focus goes to
+  // what reads differently, beside the buttons) and one whose Sign is switched off
+  // (focus goes to the alert saying why; with Sign still on there is no such alert,
+  // and focus stays where it is).
   const focusRef = useRef<HTMLElement | null>(null);
   const staleRef = useRef<HTMLParagraphElement | null>(null);
+  const changedRef = useRef<HTMLDivElement | null>(null);
   const stepKey =
-    s.step === 'outcome' ? `outcome:${s.outcome.status}` : s.step === 'review' && s.expired ? 'review:stale' : s.step;
+    s.step === 'outcome'
+      ? `outcome:${s.outcome.status}`
+      : s.step === 'review' && s.replaced
+        ? `review:new:${s.replaced.n}`
+        : s.step === 'review' && s.expired
+          ? 'review:stale'
+          : s.step;
   useEffect(() => {
-    (stepKey === 'review:stale' ? staleRef.current : focusRef.current)?.focus();
+    const target = stepKey === 'review:stale' ? staleRef : stepKey.startsWith('review:new:') ? changedRef : focusRef;
+    target.current?.focus();
   }, [stepKey]);
   const setFocus = (el: HTMLElement | null) => {
     focusRef.current = el;
@@ -946,6 +1004,12 @@ export function TxFlowView({
     );
   }
   if (s.step === 'review') {
+    // Too old to sign, and its build may not run twice (the launch): only Start over is left.
+    const dead = s.expired && !s.renewable;
+    const working = s.checking || s.renewing;
+    // The panel's `extraReview` is its own and does not come from the prepared
+    // transaction, so the lines compared are the review's alone.
+    const lines = (p: PreparedTx) => reviewLines(<TxReview prepared={p} decimals={decimals} display={api.meta.displaySafe} />);
     return (
       <div className="space-y-3">
         <TxReview
@@ -955,28 +1019,28 @@ export function TxFlowView({
           extra={extraReview}
           headingRef={setFocus}
         />
-        {s.expired ? (
+        {s.replaced && <ReviewChanged changed={s.replaced} boxRef={changedRef} />}
+        {dead ? (
           <p ref={staleRef} tabIndex={-1} role="alert" className="text-amber-300/90 outline-none">
             This quote is too old to sign: the network would soon refuse it. Start over for a fresh one.
           </p>
         ) : signer === null ? (
           <Notice tone="warn">Connect a wallet that can sign to continue.</Notice>
         ) : (
-          // A status line: between Sign and the wallet opening, the block height is read
-          // (up to a few seconds), and this says so instead of nothing changing.
-          <p role="status" className="text-white/40 text-[10px]">
-            {s.checking
-              ? 'Checking the network before your wallet opens…'
-              : 'Your wallet will show this transaction next. Sign only if it matches what is above.'}
+          // One status line, changed in place so it is read out: the waits between Sign
+          // and the wallet (the block height read, a stale review built again), and what
+          // Sign will do on a review that is too old to sign as it is.
+          <p role="status" className={s.expired ? 'text-amber-300/90' : 'text-white/40 text-[10px]'}>
+            {signStatus(s)}
           </p>
         )}
         <div className="flex flex-col sm:flex-row gap-2">
           <button
             type="button"
-            className={`btn-primary min-h-[44px] w-full py-2.5 text-[13px] disabled:opacity-60 ${s.checking ? 'opacity-60' : ''}`}
-            disabled={s.expired || signer === null}
-            aria-disabled={s.checking || undefined}
-            onClick={() => signer && !s.checking && flow.confirm(signer)}
+            className={`btn-primary min-h-[44px] w-full py-2.5 text-[13px] disabled:opacity-60 ${working ? 'opacity-60' : ''}`}
+            disabled={dead || signer === null}
+            aria-disabled={working || undefined}
+            onClick={() => signer && !working && flow.confirm(signer, lines)}
           >
             Sign in wallet
           </button>

@@ -163,7 +163,7 @@ function RemoveInner({
   const canReview = !!signer && !!plan && slippageBps !== null && !flow.locked && !pendingHere && typeof pct === 'bigint';
   const review = () => {
     if (!signer || !plan || typeof pct !== 'bigint' || slippageBps === null) return;
-    void flow.prepare(() =>
+    const build = () =>
       api.prepareLpWithdraw(writes.rpc, gate, {
         owner: signer.publicKey,
         pool: new PublicKey(view.address),
@@ -171,8 +171,8 @@ function RemoveInner({
         lpAccount: new PublicKey(position.lpAccount),
         pctBps: pct,
         slippageBps,
-      }),
-    );
+      });
+    void flow.prepare(build, { repeatable: true });
   };
 
   const callsItself = !setAside && safety?.kind === 'read' && (safety.name || safety.symbol)
@@ -248,7 +248,7 @@ function RemoveInner({
             )}
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
-            <button ref={reviewRef} type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60" disabled={!canReview} onClick={review}>
+            <button ref={reviewRef} type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale" disabled={!canReview} onClick={review}>
               Review: remove liquidity
             </button>
             <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={onClose}>

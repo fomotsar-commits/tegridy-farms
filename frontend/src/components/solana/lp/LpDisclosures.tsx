@@ -86,8 +86,22 @@ export function LpRisksDetails() {
  * pool earns (honestly), what opening costs and keeps for good, and that it will not be
  * "the" pool. `fee` and `neverRefunded` are read live; an unread deposit says so.
  */
-export function LpBeforeYouOpen({ fee, neverRefunded }: { fee: bigint; neverRefunded: bigint | null }) {
-  const deposits = neverRefunded === null ? 'account deposits that never come back (their amount could not be read)' : `about ${solAbout(neverRefunded)} in account deposits that never come back`;
+export function LpBeforeYouOpen({
+  fee,
+  neverRefunded,
+  walletConnected = true,
+}: {
+  fee: bigint;
+  neverRefunded: bigint | null;
+  /** The deposits are read with the wallet. With none connected they are not "unread": the page's fee tiers list has them. */
+  walletConnected?: boolean;
+}) {
+  const deposits =
+    neverRefunded !== null
+      ? `about ${solAbout(neverRefunded)} in account deposits that never come back`
+      : walletConnected
+        ? 'account deposits that never come back (their amount could not be read)'
+        : 'account deposits that never come back (the fee tiers list on this page has their amount)';
   return (
     <div className="space-y-2" data-testid="lp-before-you-open">
       <ul className="list-disc pl-4 space-y-1 text-white/75">
@@ -113,6 +127,8 @@ export function LpBeforeYouOpen({ fee, neverRefunded }: { fee: bigint; neverRefu
 export function LpReviewDisclosure(p: { kind: 'add'; origin: 'launch-pool' | 'standard' | 'other' } | { kind: 'create' }) {
   return (
     <div className="space-y-1" data-testid="lp-review-disclosure" data-kind={p.kind}>
+      {/* On a phone the review is two screens long and its button is at the end of it. */}
+      <Notice>Read this through. The Sign in wallet button is at the end of it.</Notice>
       <Notice tone="warn">{FORK_LINE}</Notice>
       <Notice>{p.kind === 'create' ? CREATE_VAULT_LINE : VAULT_LINE}</Notice>
       {p.kind === 'add' && p.origin === 'launch-pool' && <Notice>{LAUNCH_POOL_LINE}</Notice>}
