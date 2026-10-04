@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { decodeFunctionData, encodeFunctionResult, multicall3Abi, pad, toHex } from 'viem';
 import { BUNGALOWS } from '../src/lib/bungalows';
+import { readPageWidth } from './fixtures/pageWidth';
 import { gotoRoute, waitForQuiescence } from './fixtures/routes';
 
 // The burn card where a visitor meets it. No vitest renders HomePage or the dashboards, so
@@ -149,14 +150,9 @@ async function ledgerMisfits(page: Page, symbol: string): Promise<string[]> {
   }, `${symbol} burn`);
 }
 
-/** Behavioural, as in tab-target-size.spec.ts: body is overflow-x hidden, so widths can lie. */
+/** How many px too wide the page is; 0 when it fits its window. Measured by fixtures/pageWidth.ts. */
 async function slidSideways(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    window.scrollTo(500, window.scrollY);
-    const x = window.scrollX;
-    window.scrollTo(0, window.scrollY);
-    return x;
-  });
+  return (await readPageWidth(page)).over;
 }
 
 test.describe('the burn card, on every door', () => {

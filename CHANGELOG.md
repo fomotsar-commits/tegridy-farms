@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-04
 
+- NFT Finance on an iPad held upright, or in any window from 768 to 1,118 pixels wide: the page no longer slides sideways. The row of six section tabs was wider than the screen and carried the page with it. It now scrolls inside itself, with a fade at its right edge while more tabs are out of view.
 - TOWELI: on a phone the "Burned forever" and "Fixed supply" rows are no longer cut off with an ellipsis. A long value wraps onto a second line.
 - Burn tracker: a Solana read that never answers is given up after 20 seconds, and the card says it could not read, with Refresh ready again. It used to say "Reading" for good. With no connection, Refresh on an Ethereum or Base bungalow now says it could not read; it used to do nothing and leave the old figure up.
 - The dashboard of an Ethereum or Base bungalow (PEPE, QR, MFER, BNKR, DRB, JBM) sits in the page column with side margins. Its cards used to run to the edges of the window.

@@ -158,10 +158,13 @@ export async function clickReal(loc: Locator, what: string): Promise<void> {
   await loc.click();
 }
 
-/** No horizontal page scroll at this width (the sr-only / wrapper trap). */
+/**
+ * No horizontal page scroll at this width (the sr-only / wrapper trap). Against `clientWidth`,
+ * not `innerWidth`: the phone project widens its window to fit a page that is too wide.
+ */
 export async function expectNoSidewaysScroll(p: Page): Promise<void> {
-  const { sw, iw } = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
-  expect(sw, `page is ${sw}px wide in a ${iw}px window`).toBeLessThanOrEqual(iw);
+  const { sw, cw } = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
+  expect(sw, `page is ${sw}px wide in a ${cw}px window`).toBeLessThanOrEqual(cw);
 }
 
 /** The three sizes the owner checks: desktop, iPhone 14 and iPad (portrait). */
