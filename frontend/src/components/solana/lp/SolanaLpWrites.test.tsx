@@ -3,7 +3,7 @@
 // what the URL may NOT set. The write layer is a fake (fakeLpWriteApi.fixture.ts); the
 // pools, positions and wallet are fake readers. Nothing here touches a chain.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
@@ -18,8 +18,8 @@ import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { LP_PENDING_SCOPE, savePendingTrade } from '../curve/pendingTrade';
 import { prepared } from '../curve/fakeWriteApi.fixture';
-import type { LpWriteApi, Prepared } from '../curve/ports';
-import { fakeLpApi, lpCfg, lpDepositSummary, lpOpenGate, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import type { LpWriteApi, Prepared, TxOutcome, TxSummary } from '../curve/ports';
+import { fakeLpApi, lpCfg, lpDepositSummary, lpOpenGate, lpWithdrawSummary, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { parsePercentBps } from './PercentPicker';
 import { recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
 
@@ -184,6 +184,58 @@ describe('Add liquidity', () => {
     expect(screen.getByTestId('lp-disclosure')).not.toHaveTextContent(/only reads/);
   });
 
+  // The owner on a phone (2026-10-03): "there is still no way to" add. The button was a
+  // screen and a half below the lookup. Chosen from the first card, the lookup ends in it.
+  it('with the token already on the page, Add liquidity on the first card opens the Add form of the pool that offers it, with nothing read again', async () => {
+    const v = view();
+    const r = readers({ findPools: vi.fn(async () => search([v])) });
+    mount(r);
+    await within(await card()).findByRole('button', { name: 'Add liquidity' });
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    const finder = screen.getByTestId('lp-finder');
+    fireEvent.click(within(within(finder).getByTestId('lp-tasks')).getByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    expect(r.findPools).toHaveBeenCalledTimes(1);
+    expect(await card()).toContainElement(panel);
+    // No pool was opened instead: the token has one that takes deposits.
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+    // The amount boxes come before the long notes, which are still on the page.
+    const sol = within(panel).getByLabelText('SOL to add');
+    const notes = within(panel).getByTestId('lp-before-you-add');
+    expect(sol.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(panel).toHaveTextContent('Read the notes under this form before you review.');
+  });
+
+  it('chosen on the first card, then a typed address: the lookup ends in the Add form, and no pool form opens beside it', async () => {
+    const v = view();
+    mount(readers({ findPools: vi.fn(async () => search([v])) }), { path: '/pools' });
+    const finder = await screen.findByTestId('lp-finder');
+    expect(screen.queryByTestId('lp-pool')).toBeNull();
+    fireEvent.click(within(within(finder).getByTestId('lp-tasks')).getByRole('button', { name: 'Add liquidity' }));
+    fireEvent.change(within(finder).getByLabelText('Token mint address'), { target: { value: M } });
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    fireEvent.click(within(finder).getByRole('button', { name: 'Find pools' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    expect(await card()).toContainElement(panel);
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+  });
+
+  it('with two pools, Add goes to the first one that takes deposits, not to one a pending deposit holds', async () => {
+    const a = view();
+    const b = view();
+    savePendingTrade(LP_PENDING_SCOPE, { kind: 'lp-deposit', signature: SIG, lastValidBlockHeight: 50, pool: a.address });
+    const api = fakeLpApi({ recheckOutcome: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'Not found yet.' })) });
+    mount(readers({ findPools: vi.fn(async () => search([a, b])) }), { api });
+    await waitFor(() => expect(screen.getAllByTestId('lp-pool')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByTestId('lp-pool')[0]).toHaveAttribute('data-add', 'held'));
+    fireEvent.click(within(screen.getByTestId('lp-tasks')).getByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    const cards = screen.getAllByTestId('lp-pool');
+    expect(cards[1]).toHaveAttribute('data-pool', b.address);
+    expect(cards[1]).toContainElement(panel);
+    expect(cards[0]).not.toContainElement(panel);
+  });
+
   it("is never offered on 'unchecked' (no outside price), and says why in the amended words", async () => {
     mount(readers({ outsidePrice: vi.fn(async () => ({ kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' })) }));
     const c = await card();
@@ -297,6 +349,9 @@ describe('Add liquidity', () => {
     fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
     const panel = await screen.findByTestId('lp-add-panel');
     const cannot = await within(panel).findByTestId('lp-add-cannot');
+    // The swap opens on this token by its address, never by a name to search for; the wallet's address is one press to copy.
+    expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', `/solana?out=${M}`);
+    expect(within(cannot).getByRole('button', { name: /Copy this wallet’s address/ })).toBeInTheDocument();
     expect(cannot).toHaveTextContent('This wallet cannot add to this pool yet.');
     // (5,000 + 1,000,000) for one signature and the reserve, 2,039,280 for the share
     // account, and max(2,039,280, 890,880) kept in the wallet.
@@ -702,6 +757,65 @@ describe('the review', () => {
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
     expect(disclosure).toHaveTextContent(/change its fee rates at once/);
+  });
+});
+
+// A review read slowly on a phone outlives its blockhash. Adding and removing only read
+// the chain to prepare, so Sign prepares again and signs the fresh one (useTxFlow). Here
+// the block height says the first one's window is nearly over (the fixture's ends at 1234).
+describe('a review too old to sign when Sign in wallet is pressed', () => {
+  const rpc = conn.connection as { getBlockHeight?: () => Promise<number> };
+  beforeEach(() => {
+    rpc.getBlockHeight = async () => 1234 - 5;
+  });
+  afterEach(() => {
+    delete rpc.getBlockHeight;
+  });
+  const twice = (summary: TxSummary) => {
+    const fresh = prepared(summary, { lastValidBlockHeight: 5_000 });
+    const prepare = vi.fn<() => Promise<Prepared>>().mockResolvedValueOnce({ ok: true, prepared: prepared(summary) }).mockResolvedValueOnce({ ok: true, prepared: fresh });
+    const submitPrepared = vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 1 }));
+    return { fresh, prepare, submitPrepared };
+  };
+
+  it('adding: it is prepared again and the wallet gets the fresh transaction', async () => {
+    const v = view();
+    const { fresh, prepare, submitPrepared } = twice(lpDepositSummary(new PublicKey(v.address), MINT));
+    mount(readers({ findPools: vi.fn(async () => search([v])) }), { api: fakeLpApi({ prepareLpDeposit: prepare, submitPrepared }) });
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '0.1' } });
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: add liquidity' }));
+    });
+    await act(async () => {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(submitPrepared.mock.calls.map((c: unknown[]) => c[2])).toEqual([fresh]);
+  });
+
+  it('removing: it is prepared again and the wallet gets the fresh transaction', async () => {
+    const v = view();
+    const p = position(v);
+    const { fresh, prepare, submitPrepared } = twice(lpWithdrawSummary(new PublicKey(v.address), MINT, new PublicKey(p.lpAccount)));
+    mount(readers({ positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [p] })) }), {
+      api: fakeLpApi({ prepareLpWithdraw: prepare, submitPrepared }),
+    });
+    fireEvent.click(await within(await screen.findByTestId('lp-position')).findByRole('button', { name: 'Remove liquidity' }));
+    const panel = await screen.findByTestId('lp-remove-panel');
+    fireEvent.click(within(within(panel).getByRole('group', { name: 'How much to take out' })).getByRole('button', { name: '50%' }));
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: remove liquidity' }));
+    });
+    await act(async () => {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(submitPrepared.mock.calls.map((c: unknown[]) => c[2])).toEqual([fresh]);
   });
 });
 

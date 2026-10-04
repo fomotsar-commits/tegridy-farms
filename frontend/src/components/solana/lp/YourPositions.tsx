@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode, type Ref } from 'react';
 import type { PublicKey } from '@solana/web3.js';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { MAX_POSITIONS, type PositionsRead, type Position } from '../../../lib/solana/lp/positions';
@@ -8,6 +8,7 @@ import { formatWhen, withdrawalsState } from '../../../lib/solana/lp/poolHealth'
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
 import { solText, tokenText } from '../../../lib/solana/lp/format';
 import { SolanaConnectButton } from '../SolanaConnectButton';
+import { WalletAppHint } from '../curve/WalletNeeded';
 import { Card, Notice, Row } from '../curve/ui';
 import { LeaveWithoutThisSite } from './LpDisclosures';
 import { lpHeld, withdrawOffer, type WithdrawOffer } from './offers';
@@ -87,7 +88,18 @@ function statusText(owner: PublicKey | null, state: State | null): string {
   return `This wallet holds ${plural(totalShares, 'pool share', 'pool shares')}.${more > 0 ? ` ${positions.length} are shown; ${more} more are not looked up yet.` : ''}`;
 }
 
-export function YourPositions({ readers, owner, reloadKey = 0 }: { readers: LpReaders; owner: PublicKey | null; reloadKey?: number }) {
+export function YourPositions({
+  readers,
+  owner,
+  reloadKey = 0,
+  sectionRef,
+}: {
+  readers: LpReaders;
+  owner: PublicKey | null;
+  reloadKey?: number;
+  /** Set by the section: "Remove liquidity" scrolls here and sends focus here. */
+  sectionRef?: Ref<HTMLElement>;
+}) {
   const [nonce, setNonce] = useState(0);
   const [limit, setLimit] = useState(MAX_POSITIONS);
   // A different wallet starts from the first page again (adjusted during render).
@@ -110,7 +122,7 @@ export function YourPositions({ readers, owner, reloadKey = 0 }: { readers: LpRe
   }, [report, owner]);
   const readAgain = useCallback(() => setNonce((n) => n + 1), []);
   return (
-    <section data-testid="lp-positions" aria-label="Your positions">
+    <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="scroll-mt-[4.5rem] outline-none" data-testid="lp-positions" aria-label="Your positions">
       <Card title="Your positions">
         {/* One live region for the whole section, always mounted: only its text changes. */}
         <p role="status" aria-live="polite" className="sr-only" data-testid="lp-positions-status">
@@ -119,7 +131,10 @@ export function YourPositions({ readers, owner, reloadKey = 0 }: { readers: LpRe
         {!owner ? (
           <>
             <p>Connect a Solana wallet to see the pool shares it holds. Reading them sends nothing and signs nothing.</p>
+            {writes && <p>Removing liquidity starts here: each share that can be taken out gets a Remove liquidity button.</p>}
             <SolanaConnectButton />
+            {/* A phone's own browser has no wallet in it: the same way on the forms give. */}
+            <WalletAppHint />
           </>
         ) : !state || state.status === 'loading' ? (
           <p>Reading your wallet’s pool shares…</p>
@@ -163,6 +178,7 @@ function PositionsList({
     return (
       <>
         <p data-testid="lp-no-positions">This wallet holds no shares in our pools.</p>
+        <p>So there is nothing to remove yet. A share appears here once this wallet adds liquidity or opens a pool.</p>
         <ReadAgain onClick={onReadAgain} />
       </>
     );

@@ -115,7 +115,7 @@ export function GraduationPanel({
           disabled={!signer || !actions.migrate || flow.locked}
           onClick={() => {
             if (!signer) return;
-            void flow.prepare(() => api.prepareMigrate(rpc, gate, { payer: signer.publicKey, mint, curve }));
+            void flow.prepare(() => api.prepareMigrate(rpc, gate, { payer: signer.publicKey, mint, curve }), { repeatable: true });
           }}
         >
           Review: finish graduation
