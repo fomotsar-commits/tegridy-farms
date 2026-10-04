@@ -109,7 +109,9 @@ export const LP_COPY = {
   notUsable: (what: string, address: string) => `The account at ${address} is not a ${what} account this site can use, so nothing was built.`,
   withdrawBit:
     "Withdrawals are switched off on this pool by the pool program's admin (the team's vault). Only the vault can switch them back on. Your pool shares stay in your wallet.",
-  vaultFrozen: "The token's issuer has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
+  // `who`: on a pool paired with a coin whose issuer can freeze (USDC), the frozen vault may be the coin's.
+  vaultFrozen: (who = "The token's issuer") =>
+    `${who} has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.`,
   cannotBuild: (why: string) =>
     `This site cannot build a withdrawal for this token yet (${why}). The pool program still lets you withdraw with any other tool that can build its withdrawals. Your pool shares stay in your wallet.`,
   shareChanged: 'Your pool-share account now holds fewer shares than this would take out, or is no longer yours. Read your positions again.',
@@ -854,7 +856,7 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
 
   // 5. The pool program's own rules, and only those.
   if (!withdrawEnabled(p)) return notSent('build', LP_COPY.withdrawBit);
-  if (view.vaultsFrozen) return notSent('build', LP_COPY.vaultFrozen);
+  if (view.vaultsFrozen) return notSent('build', LP_COPY.vaultFrozen(quote.risk === null ? undefined : `The token's issuer, or ${quote.symbol}'s,`));
 
   // 6. Can this site build it (D21)? The token's side, and the pairing coin's when that
   // coin sits under Token-2022 (BAYLA): each payout's raw amount must be exact.

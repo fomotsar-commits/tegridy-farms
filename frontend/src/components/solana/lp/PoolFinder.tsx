@@ -79,7 +79,7 @@ function siteTokens(roomId: string | null): { id: string; symbol: string; mint: 
 
 const TASK_LABEL: Record<LpTask, string> = { create: 'Create a pool', add: 'Add liquidity', remove: 'Remove liquidity' };
 const TASK_LINE: Record<LpTask, string> = {
-  create: 'Pick the token to open a pool for. The form opens under the token’s checks.',
+  create: `Pick the token to open a pool for: you can pair it with ${QUOTE_COINS_OR}. The form opens under the token’s checks.`,
   add: 'Pick the token to add liquidity for. If it has no pool yet, your deposit opens one.',
   remove: 'Your pool shares are listed under Your positions. Each one that can be taken out has a Remove liquidity button.',
 };

@@ -324,8 +324,18 @@ describe('assessPool: token warnings that a deposit must carry', () => {
     expect(h.deposits.warnings).toEqual([COPY_DEPOSIT, FREEZE_DEPOSIT, 'Its price is 50.0% below the outside price. A deposit here would hand that gap to the first arbitrage trade.']);
   });
 
-  it('the other token warnings stay on the token: a live mint authority, USDC’s accepted freeze authority and the rest add nothing here', () => {
-    for (const code of ['mint-authority', 'freeze-authority-accepted', 'metadata-mutable', 'no-metadata', 'metadata-elsewhere', 'metadata-unreadable', 'lookalike-letters'] as const) {
+  // USDC or USDT looked up as the TOKEN: its issuer can freeze a pool's vault like any
+  // other freezable token's creator can, and the pool-level line says so (phone walk, 2026-10-03).
+  it('USDC’s and USDT’s accepted freeze authority carries the same pool-level line, said of the issuer', () => {
+    expect(assessPool({ ...base, safety: safetyWith('freeze-authority-accepted'), view: view(), outside: outside(0.01) }).deposits).toEqual({
+      verdict: 'allowed',
+      reasons: [],
+      warnings: ['Its issuer can freeze the vault of this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.'],
+    });
+  });
+
+  it('the other token warnings stay on the token: a live mint authority and the rest add nothing here', () => {
+    for (const code of ['mint-authority', 'metadata-mutable', 'no-metadata', 'metadata-elsewhere', 'metadata-unreadable', 'lookalike-letters'] as const) {
       expect(assessPool({ ...base, safety: safetyWith(code), view: view(), outside: outside(0.01) }).deposits, code).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
     }
   });

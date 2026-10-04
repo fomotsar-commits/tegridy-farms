@@ -184,9 +184,10 @@ export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'p
         `It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of ${pool}.`,
       );
     }
-    if (has('freeze-authority')) {
+    // USDC and USDT as the TOKEN are freezable like any other: the same line, said of their issuer.
+    if (has('freeze-authority') || has('freeze-authority-accepted')) {
       warned.push(
-        `Its creator can freeze the vault of ${pool}, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.`,
+        `Its ${has('freeze-authority') ? 'creator' : 'issuer'} can freeze the vault of ${pool}, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.`,
       );
     }
     if (has('interest-bearing') || has('scaled-amount')) {

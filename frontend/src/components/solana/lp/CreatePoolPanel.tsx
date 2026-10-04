@@ -7,7 +7,7 @@ import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type CreatePlan, type CreateProblem } from '../../../lib/solana/lp/liquidityMath';
 import { assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../lib/solana/lp/opening';
 import { priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
-import { SOL_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS, SOL_QUOTE, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
@@ -589,6 +589,12 @@ function CreateInner({
               ? // The reason is about the COIN: Jupiter's own words say "this token", which here would mean the wrong one.
                 `Market price in ${coin.symbol}: could not be worked out (Jupiter has no route for ${coin.symbol}).`
               : `Market price in ${coin.symbol}: could not be worked out (${quoted && quoted.kind !== 'ok' ? quoted.detail : 'not read'}).`;
+  // A pairing coin looked up as the token (USDC) is paired only with the coins that outrank
+  // it. Its pool with a lower coin (USDC with BAYLA) is the same pool read from the other
+  // side, and a visitor who started from USDC was left at a dead end (phone walk, 2026-10-03).
+  const own = quoteCoin(mint);
+  const lower = own ? QUOTE_COINS.slice(QUOTE_COINS.indexOf(own) + 1).map((q) => q.symbol) : [];
+  const otherSide = own && lower.length > 0 ? `. A pool of ${own.symbol} and ${lower.join(' or ')} is opened from the other side: look up ${lower.join(' or ')} and pair it with ${own.symbol}` : '';
   const pairLabel = useId();
   const warningsId = useId();
   const pairName = useId();
@@ -652,7 +658,7 @@ function CreateInner({
             </div>
           ) : (
             // Nothing to choose: the coin is said, and no group is drawn.
-            <Row label="Paired with" value={`${coin.symbol}: this site pairs this token with ${coin.symbol} only`} mono={false} />
+            <Row label="Paired with" value={`${coin.symbol}: this site pairs this token with ${coin.symbol} only${otherSide}`} mono={false} />
           )}
           <CoinRiskNotice coin={coin} />
           {readyConfig !== null && offer === 'offer' && advice && (
@@ -803,9 +809,10 @@ function CreateInner({
                 value={
                   neverRefunded !== null && lpRent !== null
                     ? coin.native
-                      ? `about ${solAbout((quoteRaw ?? 0n) + config.createPoolFee + neverRefunded + lpRent)}, plus the network fee`
-                      : // Two coins leave the wallet, and they are never added together.
-                        `${coinExact(quoteRaw ?? 0n, coin)}, and about ${solAbout(config.createPoolFee + neverRefunded + lpRent)} for the fee to open and the account deposits, plus the network fee`
+                      ? // The tokens leave the wallet too: "in all" names them (phone walk, 2026-10-03).
+                        `about ${solAbout((quoteRaw ?? 0n) + config.createPoolFee + neverRefunded + lpRent)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, plus the network fee`
+                      : // Three things leave the wallet, and they are never added together.
+                        `${coinExact(quoteRaw ?? 0n, coin)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, and about ${solAbout(config.createPoolFee + neverRefunded + lpRent)} for the fee to open and the account deposits, plus the network fee`
                     : signer
                       ? 'could not be worked out (the account deposits could not be read)'
                       : 'worked out once a wallet is connected'
@@ -841,7 +848,7 @@ function CreateInner({
               {offMarket && (
                 <>
                   <p>Match the market price to avoid that, or go on at your own price.</p>
-                  <button type="button" className="btn-secondary w-full min-h-[44px] text-[12px]" onClick={() => matchTo(keep)}>
+                  <button type="button" className="btn-secondary w-full min-h-[44px] text-[12px] disabled:opacity-60" disabled={!canMatch} onClick={() => matchTo(keep)}>
                     Match the market price
                   </button>
                 </>

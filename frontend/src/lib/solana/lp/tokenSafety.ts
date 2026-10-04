@@ -381,7 +381,7 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
     if (FREEZE_AUTHORITY_ACCEPTED.has(mint)) {
       warnings.push({
         code: 'freeze-authority-accepted',
-        text: `Its issuer can freeze accounts (${f.freezeAuthority}). That is normal for ${mint === USDC_MINT ? 'USDC' : 'USDT'} and accepted here.`,
+        text: `Its issuer can freeze any account that holds it (freeze authority ${f.freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool. That is how ${mint === USDC_MINT ? 'USDC' : 'USDT'} is built.`,
       });
     } else {
       warnings.push({

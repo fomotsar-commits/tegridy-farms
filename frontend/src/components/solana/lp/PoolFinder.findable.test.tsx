@@ -165,7 +165,7 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     mount();
     fireEvent.click(await task('Create a pool'));
     expect(await task('Create a pool')).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('lp-task-line')).toHaveTextContent('Pick the token to open a pool for.');
+    expect(screen.getByTestId('lp-task-line')).toHaveTextContent('Pick the token to open a pool for: you can pair it with SOL, USDC or BAYLA. The form opens under the token’s checks.');
     fireEvent.click(await task('Add liquidity'));
     expect(await task('Create a pool')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent('If it has no pool yet, your deposit opens one.');

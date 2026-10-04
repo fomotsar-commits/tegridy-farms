@@ -238,6 +238,8 @@ describe('Pair with: the coins a token can be paired with', () => {
     expect(within(panel).queryByRole('radiogroup')).toBeNull();
     expect(within(panel).queryByRole('radio')).toBeNull();
     expect(row(panel, 'Paired with')).toHaveTextContent('SOL: this site pairs this token with SOL only');
+    // Not a dead end: a USDC and BAYLA pool is the same pool read from BAYLA's side, and the row says so.
+    expect(row(panel, 'Paired with')).toHaveTextContent('A pool of USDC and BAYLA is opened from the other side: look up BAYLA and pair it with USDC');
     expect(coinBox(panel, 'SOL')).toBeInTheDocument();
   });
 });
@@ -258,7 +260,7 @@ describe('an amount typed for a coin is that coin’s, to the base unit', () => 
     // are 141 units of USDC and 70 of the token. Printed with SOL's 9 it would read 0.000000141.
     expect(row(panel, 'Locked in the pool forever')).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit), worth about 0.000141 USDC and 0.00007 tokens');
     // Two coins leave the wallet, and they are never added into one number.
-    expect(row(panel, 'In all, from your wallet')).toHaveTextContent('50 USDC, and about 0.192 SOL for the fee to open and the account deposits, plus the network fee');
+    expect(row(panel, 'In all, from your wallet')).toHaveTextContent('50 USDC and 25 tokens, and about 0.192 SOL for the fee to open and the account deposits, plus the network fee');
     expect(reviewButton(panel)).toBeEnabled();
     await act(async () => {
       fireEvent.click(reviewButton(panel));
@@ -730,7 +732,8 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     expect(refer).toHaveTextContent(
       `This token already has a pool on the public fee tier that passes the checks (above). The biggest is ${solPool.address}, holding 10 SOL. We suggest adding to it: liquidity in one place gives traders a better price.`,
     );
-    expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no USDC pool yet.');
+    // The card names the way to it before the form is open: the owner could not see how to open a BAYLA/USDC pool.
+    expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no USDC pool yet. Open a pool lets you choose what to pair it with.');
     expect(within(card).getByRole('button', { name: 'Add liquidity to that pool' })).toBeEnabled();
     expect(within(card).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
 

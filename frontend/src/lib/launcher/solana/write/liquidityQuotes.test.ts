@@ -126,7 +126,7 @@ interface World {
   lpAta: PublicKey;
 }
 
-function world(quote: QuoteCoin, o: { heldQuote?: bigint | null; heldLp?: bigint; wallet?: bigint; coinMint?: 'missing' | 'wrong-decimals' | 'wrong-program'; cpiGuard?: boolean; quoteOwner?: PublicKey } = {}): World {
+function world(quote: QuoteCoin, o: { heldQuote?: bigint | null; heldLp?: bigint; wallet?: bigint; coinMint?: 'missing' | 'wrong-decimals' | 'wrong-program'; cpiGuard?: boolean; quoteOwner?: PublicKey; frozenTokenVault?: boolean } = {}): World {
   const chain = FakeChain.healthy();
   chain.simulate = simulator;
   const mint = Keypair.generate().publicKey;
@@ -140,7 +140,7 @@ function world(quote: QuoteCoin, o: { heldQuote?: bigint | null; heldLp?: bigint
     if (token2022) chain.mint2022(quoteMint, METADATA_ONLY, { decimals });
     else chain.mint(quoteMint, { decimals });
   }
-  const pool = addPool(chain, mint, { quote, sol: QUOTE_RESERVE, tokens: TOKEN_RESERVE, lpSupply: LP_SUPPLY });
+  const pool = addPool(chain, mint, { quote, sol: QUOTE_RESERVE, tokens: TOKEN_RESERVE, lpSupply: LP_SUPPLY, frozenTokenVault: o.frozenTokenVault });
   setClock(chain, NOW);
   chain.fund(ME, Number(o.wallet ?? 5n * 10n ** 9n));
   const tokenAta = associatedTokenAddress(mint, ME);
@@ -537,5 +537,21 @@ describe('decodeIntent: a liquidity transaction for a pool paired with USDC or B
     expect(reasonOf(decodeIntent([pool], with_({ quote: BAYLA_QUOTE })))).toMatch(/pairing coin is not where the review says it is/);
     expect(reasonOf(decodeIntent([pool], with_({ quoteIsToken0: !pins.quoteIsToken0 })))).toMatch(/pairing coin is not where the review says it is/);
     expect(reasonOf(decodeIntent([pool], ctx('lp-deposit')))).toBe('accepted');
+  });
+});
+
+// The read says only that A vault is frozen, not which. On a pool paired with a coin whose
+// issuer can freeze (USDC), the Remove builder must not blame the token alone; on a BAYLA
+// pool (nobody can freeze BAYLA) the frozen vault can only be the token's (phone walk, 2026-10-03).
+describe('a frozen vault on a pool paired with a coin: who is said to have frozen it', () => {
+  it('USDC: the token’s issuer or USDC’s. BAYLA: the token’s issuer, as on a SOL pool', async () => {
+    const usdc = world(USDC_QUOTE, { heldLp: LP_SUPPLY / 10n, frozenTokenVault: true });
+    expect(refused(await withdraw(usdc))).toBe(
+      "The token's issuer, or USDC's, has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
+    );
+    const bayla = world(BAYLA_QUOTE, { heldLp: LP_SUPPLY / 10n, frozenTokenVault: true });
+    expect(refused(await withdraw(bayla))).toBe(
+      "The token's issuer has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
+    );
   });
 });

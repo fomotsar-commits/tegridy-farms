@@ -436,7 +436,7 @@ function OfferLines({
       const unpointed = pairs.filter((x) => x.advice.kind === 'none');
       const failing = unpointed.filter((x) => x.hasPool).map((x) => x.coin.symbol);
       const empty = cut ? [] : unpointed.filter((x) => !x.hasPool).map((x) => x.coin.symbol);
-      const noneYetLine = empty.length > 0 && <p data-testid="lp-create-none-yet">This token has no {orList(empty)} pool yet.</p>;
+      const noneYetLine = empty.length > 0 && <p data-testid="lp-create-none-yet">This token has no {orList(empty)} pool yet. Open a pool lets you choose what to pair it with.</p>;
       if (pointers.length === 0) {
         return (
           <>

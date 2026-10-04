@@ -194,7 +194,7 @@ describe('the panel', () => {
     // isqrt(1e9 × 1e8) = 316,227,766; the program keeps 100.
     expect(within(panel).getByText('You get').nextElementSibling).toHaveTextContent('0.316227666 pool shares');
     expect(within(panel).getByText('Locked in the pool forever').nextElementSibling).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit), worth about');
-    expect(within(panel).getByText('In all, from your wallet').nextElementSibling).toHaveTextContent('about 1.192 SOL, plus the network fee');
+    expect(within(panel).getByText('In all, from your wallet').nextElementSibling).toHaveTextContent('about 1.192 SOL and 100 tokens, plus the network fee');
     // Typing in the token box afterwards moves nothing else.
     fireEvent.change(tokens(panel), { target: { value: '101' } });
     expect(sol(panel)).toHaveValue('1');

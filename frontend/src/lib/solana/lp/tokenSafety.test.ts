@@ -151,6 +151,10 @@ describe('classifyToken', () => {
     const usdc = new PublicKey(USDC_MINT);
     const s = classifyToken(USDC_MINT, acct(usdc, TOKEN_PROGRAM, classicMint({ freezeAuthority: key() })), immutableName(usdc));
     expect(reasons(s)).toEqual({ blocks: [], warnings: ['freeze-authority-accepted'], verdict: 'warn' });
+    // Accepted is not harmless: the words say what a freeze does to a pool, as they do for any other freezable token.
+    const text = s.kind === 'read' ? s.warnings[0]!.text : '';
+    expect(text).toContain('a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.');
+    expect(text).toContain('That is how USDC is built.');
   });
 
   // The leave rule: the pool program takes these four by name, but this site cannot build

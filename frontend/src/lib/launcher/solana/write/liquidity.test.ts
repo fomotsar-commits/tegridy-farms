@@ -834,7 +834,14 @@ describe('prepareLpWithdraw: the leave rule', () => {
 describe('prepareLpWithdraw: what may refuse it', () => {
   it('the pool program’s withdraw switch, and a frozen vault, each with its own words', async () => {
     expect(refused(await withdraw(holding({ status: POOL_STATUS_DISABLE_WITHDRAW })))).toBe(LP_COPY.withdrawBit);
-    expect(refused(await withdraw(holding({ frozenTokenVault: true })))).toBe(LP_COPY.vaultFrozen);
+    // A SOL pool has one vault anyone can freeze, the token's: the words are as they were.
+    expect(refused(await withdraw(holding({ frozenTokenVault: true })))).toBe(
+      "The token's issuer has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
+    );
+    // On a pool paired with a coin whose issuer can freeze, the frozen vault may be the coin's.
+    expect(LP_COPY.vaultFrozen("The token's issuer, or USDC's,")).toBe(
+      "The token's issuer, or USDC's, has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
+    );
   });
 
   // The row still offers Remove in this state, so the "Leaving without this site" block
