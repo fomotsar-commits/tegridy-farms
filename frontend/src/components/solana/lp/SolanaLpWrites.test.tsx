@@ -263,7 +263,7 @@ describe('Add liquidity', () => {
     expect(c).not.toHaveTextContent(/only after checking the pool's price against a price from outside it/);
     expect(c).not.toHaveTextContent(/Often that means/);
     // Unread is not a warning: nothing here says deposits are open.
-    expect(c).not.toHaveTextContent('Deposits: open, with warnings');
+    expect(c).not.toHaveTextContent('Deposits: the checks pass, with warnings');
     expect(within(c).queryByTestId('lp-pool-warnings')).toBeNull();
   });
 
@@ -281,8 +281,8 @@ describe('Add liquidity', () => {
     expect(c).toHaveAttribute('data-deposits', 'allowed');
     // Never a clean pass: the heading says there are warnings, and the warning is under it.
     const deposits = within(c).getByTestId('lp-pool-deposits');
-    expect(deposits).toHaveTextContent('Deposits: open, with warnings');
-    expect(deposits).not.toHaveTextContent('Deposits: the checks pass');
+    expect(deposits).toHaveTextContent('Deposits: the checks pass, with warnings');
+    expect(within(deposits).queryByText('Deposits: the checks pass')).toBeNull();
     expect(within(deposits).getByText(POOL_LINE)).toHaveClass('text-amber-300/90');
     expect(c).not.toHaveTextContent(/does not take deposits|refused here/);
     fireEvent.click(within(c).getByRole('button', { name: 'Add liquidity' }));

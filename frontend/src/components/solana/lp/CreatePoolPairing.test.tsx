@@ -621,6 +621,7 @@ describe('the opening price is checked in the coin', () => {
     type(coinBox(panel, 'USDC'), '51.55');
     expect(price(panel)).toHaveAttribute('data-price', 'disagrees');
     expect(price(panel)).toHaveTextContent('Your opening price: 1 token = 2.062 USDC. Market: 2 USDC. Yours is 3.1% above the market.');
+    expect(price(panel)).not.toHaveTextContent('Close enough');
     const warnings = within(panel).getByTestId('lp-create-warnings');
     expect(warnings).toHaveTextContent('Your opening price is 3.1% above the market price (Jupiter). The first trades would move it to the market price, at your cost.');
     // (√51.55 − √(25 × 2))² USDC = 0.011829… USDC: 11,830 of USDC's smallest unit, rounded up.
@@ -658,6 +659,7 @@ describe('the opening price is checked in the coin', () => {
     type(tokens(panel), '25');
     expect(price(panel)).toHaveAttribute('data-price', 'disagrees');
     expect(price(panel)).toHaveTextContent('Your opening price: 1 token = 0.01 USDC. Market: 2 USDC. Yours is 99.5% below the market.');
+    expect(price(panel)).not.toHaveTextContent('Close enough');
     const warnings = within(panel).getByTestId('lp-create-warnings');
     expect(warnings).toHaveTextContent('Your opening price is 99.5% below the market price (Jupiter).');
     // (√0.25 − √50)² USDC: nearly all of the 50 USDC the tokens are worth.
@@ -1085,7 +1087,10 @@ describe('a coin’s price is only ever the answer to the read that is out now',
     expect(price(panel)).toHaveAttribute('data-price', 'unread');
     expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
     expect(reviewButton(panel)).toBeDisabled();
-    expect(within(panel).getByTestId('lp-create-coin-price')).toHaveTextContent('Review is off: the price of BAYLA could not be read');
+    const why = within(panel).getByTestId('lp-create-coin-price');
+    expect(why).toHaveTextContent('Review is off: Jupiter has no market price for BAYLA right now, so your opening price cannot be checked in BAYLA. Pair with another coin, or try again later.');
+    // It was an answer, not a failed read: reading again cannot change it, so the line does not say to.
+    expect(why).not.toHaveTextContent('Read the market price again');
   });
 });
 

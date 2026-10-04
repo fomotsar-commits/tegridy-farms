@@ -157,13 +157,13 @@ function CreateCard({
   // many pools as people open (owner ruling 2026-10-03). One button per pool pointed to,
   // and with more than one each says its coin, so "that pool" is never a guess.
   // Not for a pool whose price is off the market: this card does not suggest adding to
-  // it (`offMarketLine`), so it puts no button for that here. The pool's own card keeps
+  // it (`adviceCaveat`), so it puts no button for that here. The pool's own card keeps
   // its Add button.
   const { mode, gate } = writes;
   const notes = writes.pending.notes;
   const addInstead = pointers.filter(({ pool }) => {
     const health = healths.get(pool.address);
-    return !!health && offMarketLine(health) === null && gate?.kind === 'open' && depositOffer({ mode, gate, health, held: lpHeld(notes, pool.address, 'add') }) === 'offer';
+    return !!health && adviceCaveat(health)?.add !== false && gate?.kind === 'open' && depositOffer({ mode, gate, health, held: lpHeld(notes, pool.address, 'add') }) === 'offer';
   });
   if (offer === 'off') return null;
 
@@ -286,6 +286,27 @@ function offMarketLine(health: PoolHealth | undefined): string | null {
   const { diff } = health.price;
   const gap = `${(Math.abs(diff) * 100).toFixed(1)}% ${diff > 0 ? 'above' : 'below'}`;
   return `Its price is ${gap} the price it is checked against (its card above shows both), so we do not suggest adding to it now: a deposit there would pay for that gap.`;
+}
+
+/**
+ * What this card says of a pool it points to whose price check did not simply pass, and
+ * whether it still puts an Add button for it; null for a pool whose price agrees.
+ *   - off its reference: named, not suggested, no button here (`offMarketLine`);
+ *   - no market price at all (Jupiter has no route for the token): its price was compared
+ *     with nothing, so the card must not say it "passes the checks" or "we suggest". It
+ *     says what was not checked and what each choice means, and keeps the button: for a
+ *     token with no market, the pool that exists may well be the right place.
+ */
+function adviceCaveat(health: PoolHealth | undefined): { line: string; add: boolean } | null {
+  const off = offMarketLine(health);
+  if (off) return { line: off, add: false };
+  if (health?.price.state === 'no-market') {
+    return {
+      line: 'Jupiter has no market price for this token, so that pool’s price was not checked against anything. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.',
+      add: true,
+    };
+  }
+  return null;
 }
 
 /** Why some pool for this token could not be read or checked, in a few words. */
@@ -443,13 +464,14 @@ function OfferLines({
             return kind === 'opened-here' ? (
               <p key={coin.mint} data-testid="lp-create-opened" data-coin={coin.symbol}>
                 You opened {aPool} for this token just now (<span className="font-mono break-all">{pool.address}</span>). Your share is under
-                &apos;Your positions&apos;. {offMarketLine(healths.get(pool.address)) ?? 'Adding to it keeps your liquidity in one place.'}
+                &apos;Your positions&apos;. {adviceCaveat(healths.get(pool.address))?.line ?? 'Adding to it keeps your liquidity in one place.'}
               </p>
             ) : (
               <p key={coin.mint} data-testid="lp-create-refer" data-coin={coin.symbol}>
-                This token already has {aPool} on the public fee tier that passes the checks (above). The biggest is{' '}
+                This token already has {aPool} on the public fee tier{' '}
+                {adviceCaveat(healths.get(pool.address)) ? 'that takes deposits, with a warning (above)' : 'that passes the checks (above)'}. The biggest is{' '}
                 <span className="font-mono break-all">{pool.address}</span>, holding {coinAbout(pool.quoteReserve, coin)}.{' '}
-                {offMarketLine(healths.get(pool.address)) ?? 'We suggest adding to it: liquidity in one place gives traders a better price.'}
+                {adviceCaveat(healths.get(pool.address))?.line ?? 'We suggest adding to it: liquidity in one place gives traders a better price.'}
               </p>
             );
           })}

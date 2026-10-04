@@ -3,7 +3,7 @@ import type { PoolSnapshot } from '../cpswap/read';
 import { priceInQuote, type OutsidePrice } from './outsidePrice';
 import { ownAveragePrice, type OwnPrice } from './ownPrice';
 import type { PoolView } from './poolFinder';
-import { readPair } from './quotes';
+import { readPair, type QuoteCoin } from './quotes';
 import { TOKEN_2022_NATIVE_MINT, type SafetyReason, type TokenSafety } from './tokenSafety';
 
 /**
@@ -92,6 +92,15 @@ export interface PoolHealth {
    * (empty when there are none) and do not change the verdict: `allowed` may carry them.
    */
   deposits: { verdict: 'allowed' | 'refused' | 'unchecked'; reasons: string[]; warnings: string[] };
+}
+
+/**
+ * Who can have frozen one of a pool's vaults. A SOL pool has one vault anyone can freeze,
+ * the token's. A pool paired with a coin that has an issuer (USDC) has two, and the read
+ * does not say which is frozen, so the words must not blame the token for it.
+ */
+export function vaultFreezer(quote: Pick<QuoteCoin, 'native' | 'symbol'>): string {
+  return quote.native ? 'the token’s issuer' : `the token’s issuer or ${quote.symbol}’s`;
 }
 
 /** Whether money can come out of this pool, from its status bit and its vaults. */
@@ -223,7 +232,7 @@ export function assessPool(input: {
   // it by name (opening.ts); so does a deposit into a pool someone opened with another
   // tool, whatever its price check says (review, 2026-10-04).
   if (view.tokenMint === TOKEN_2022_NATIVE_MINT) refused.push('This is SOL under the newer token program. This site does not add to a pool for it.');
-  if (view.vaultsFrozen) refused.push('One of this pool’s vaults is frozen by the token’s issuer, so nothing can move in or out of it.');
+  if (view.vaultsFrozen) refused.push(`One of this pool’s vaults is frozen by ${vaultFreezer(view.quote)}, so nothing can move in or out of it.`);
   if (swaps.state === 'not-open-yet') {
     refused.push(
       swaps.farFuture

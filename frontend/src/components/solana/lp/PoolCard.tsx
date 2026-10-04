@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
-import { PRICE_TOLERANCE, formatWhen, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
+import { PRICE_TOLERANCE, formatWhen, vaultFreezer, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { feeRateText, priceText, quoteText, tokenText, tradeCostText } from '../../../lib/solana/lp/format';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
@@ -18,11 +18,12 @@ const ORIGIN_LABEL: Record<PoolView['origin'], string> = {
   other: 'At its own address (anyone could have opened it)',
 };
 
-const WITHDRAWALS_TEXT: Record<WithdrawalsState, string> = {
-  open: 'Open',
-  'switched-off': 'Switched off by the pool program’s admin',
-  'vault-frozen': 'Blocked: one of the pool’s vaults is frozen by the token’s issuer',
-};
+const withdrawalsText = (state: WithdrawalsState, quote: QuoteCoin): string =>
+  state === 'open'
+    ? 'Open'
+    : state === 'switched-off'
+      ? 'Switched off by the pool program’s admin'
+      : `Blocked: one of the pool’s vaults is frozen by ${vaultFreezer(quote)}`;
 
 function swapsText(h: PoolHealth): { text: string; tone: 'good' | 'warn' | 'bad' } {
   switch (h.swaps.state) {
@@ -49,7 +50,7 @@ function depositHeading(d: PoolHealth['deposits']): { title: string; tone: strin
   if (d.verdict === 'refused') return { title: 'Deposits: refused here', tone: 'text-rose-300/90' };
   if (d.verdict === 'unchecked') return { title: 'Deposits: not checked', tone: 'text-amber-300/90' };
   return d.warnings.length > 0
-    ? { title: 'Deposits: open, with warnings', tone: 'text-amber-300/90' }
+    ? { title: 'Deposits: the checks pass, with warnings', tone: 'text-amber-300/90' }
     : { title: 'Deposits: the checks pass', tone: 'text-emerald-300/90' };
 }
 
@@ -238,7 +239,7 @@ export function PoolCard({
         <Row label="Paired with" value={view.quote.symbol} mono={false} />
 
         <Row label="Swaps" value={swaps.text} mono={false} />
-        <Row label="Withdrawals" value={WITHDRAWALS_TEXT[health.withdrawals]} mono={false} />
+        <Row label="Withdrawals" value={withdrawalsText(health.withdrawals, view.quote)} mono={false} />
         <div data-testid="lp-pool-deposits">
           <p className={`text-[12px] font-semibold ${depositsHead.tone}`}>{depositsHead.title}</p>
           {health.deposits.reasons.map((r) => (

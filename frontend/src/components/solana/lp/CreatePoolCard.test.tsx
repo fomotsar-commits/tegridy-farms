@@ -251,9 +251,10 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(c).toHaveAttribute('data-advice', 'exists');
     const refer = within(c).getByTestId('lp-create-refer');
     expect(refer).toHaveTextContent(
-      `This token already has a pool on the public fee tier that passes the checks (above). The biggest is ${theirs.address}, holding 10 SOL. Its price is 50.0% below the price it is checked against (its card above shows both), so we do not suggest adding to it now: a deposit there would pay for that gap.`,
+      `This token already has a pool on the public fee tier that takes deposits, with a warning (above). The biggest is ${theirs.address}, holding 10 SOL. Its price is 50.0% below the price it is checked against (its card above shows both), so we do not suggest adding to it now: a deposit there would pay for that gap.`,
     );
     expect(refer).not.toHaveTextContent('We suggest adding to it');
+    expect(refer).not.toHaveTextContent('passes the checks');
     // The pool's own card still offers adding: the warning takes no button away there.
     await waitFor(() => expect(screen.getByTestId('lp-pool')).toHaveAttribute('data-add', 'offer'));
     // This card puts no Add button of its own beside a pool it does not suggest.

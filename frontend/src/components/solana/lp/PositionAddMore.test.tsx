@@ -292,7 +292,7 @@ describe('Add more liquidity is on a position', () => {
     const panel = await screen.findByTestId('lp-add-panel');
     expect(card(mine.address)).toContainElement(panel);
     expect(card(mine.address)).toHaveAttribute('data-deposits', 'allowed');
-    expect(card(mine.address)).toHaveTextContent('Deposits: open, with warnings');
+    expect(card(mine.address)).toHaveTextContent('Deposits: the checks pass, with warnings');
     expect(within(panel).getByTestId('lp-add-warnings')).toHaveTextContent('Its price is 25.0% above the outside price.');
     expect(screen.queryByTestId('lp-wish-why')).toBeNull();
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();

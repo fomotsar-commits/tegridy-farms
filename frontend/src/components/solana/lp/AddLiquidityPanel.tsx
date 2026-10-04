@@ -234,7 +234,9 @@ function AddInner({
   const lossLine = !off
     ? null
     : !plan
-      ? 'Type an amount to see about how much that could cost you.'
+      ? typed && typed.text.trim() !== ''
+        ? null
+        : 'Type an amount to see about how much that could cost you.'
       : priceGapLossText(loss === null ? null : coinExact(loss, coin), off.against === 'outside' ? 'the outside price' : 'its own average');
   // The pool's own warnings, then the cost line: the same order as on the review.
   const warningLines = lossLine ? [...health.deposits.warnings, lossLine] : health.deposits.warnings;
@@ -362,7 +364,11 @@ function AddInner({
           {/* What the pool's own checks warn of, said before Review and again on the review. It never switches Review off. */}
           {warningLines.length > 0 && (
             <div id={warningsId} data-testid="lp-add-warnings" className="space-y-1">
-              <Notice tone="warn">Read these before you review. You can still add, and each one is a risk to what you put in:</Notice>
+              <Notice tone="warn">
+                {health.deposits.verdict === 'allowed'
+                  ? 'Read these before you review. You can still add, and each one is a risk to what you put in:'
+                  : 'This pool’s checks no longer let a deposit through (its card above says why). Its warnings:'}
+              </Notice>
               {warningLines.map((w) => (
                 <Notice key={w} tone="warn">
                   {w}

@@ -8,7 +8,6 @@ import { act, render, screen, waitFor, within, fireEvent } from '@testing-librar
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
-import { solAbout } from './panelKit';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
@@ -245,6 +244,8 @@ describe('the panel', () => {
     const price = within(panel).getByTestId('lp-create-price');
     expect(price).toHaveAttribute('data-price', 'disagrees');
     expect(price).toHaveTextContent('Your opening price: 1 token = 0.015 SOL. Market: 0.01 SOL. Yours is 50.0% above the market.');
+    // Review is ON for this price now, so the line must never call it close enough.
+    expect(price).not.toHaveTextContent('Close enough');
     const warnings = within(panel).getByTestId('lp-create-warnings');
     expect(warnings).toHaveTextContent('Your opening price is 50.0% above the market price (Jupiter). The first trades would move it to the market price, at your cost.');
     // (√1.5 − √(100 × 0.01))² SOL, rounded up to the lamport: the review's own sentence.

@@ -284,8 +284,13 @@ export function createAdvice(a: {
   const mine = biggest(views.filter((v) => a.openedHere(v.address)));
   if (mine) return { kind: 'opened-here', pool: mine };
   const tier1 = publicTierConfig(a.gate.cfg.cpSwapProgram).toBase58();
-  const passing = biggest(views.filter((v) => v.snapshot.pool.ammConfig === tier1 && a.healths.get(v.address)?.deposits.verdict === 'allowed'));
-  return passing ? { kind: 'exists', pool: passing } : { kind: 'none' };
+  const passing = views.filter((v) => v.snapshot.pool.ammConfig === tier1 && a.healths.get(v.address)?.deposits.verdict === 'allowed');
+  // A pool more than 3% off its reference is 'allowed' now, with a warning (owner ruling
+  // 2026-10-04). One big pool at a wrong price must not hide a smaller one at the market:
+  // the biggest pool whose price is not off is the one pointed to, and an off-price pool
+  // is named only when it is all there is (review, 2026-10-04).
+  const pick = biggest(passing.filter((v) => a.healths.get(v.address)?.price.state !== 'disagrees')) ?? biggest(passing);
+  return pick ? { kind: 'exists', pool: pick } : { kind: 'none' };
 }
 
 /**

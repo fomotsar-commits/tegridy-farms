@@ -4,7 +4,7 @@ import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { MAX_POSITIONS, type PositionsRead, type Position } from '../../../lib/solana/lp/positions';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { formatWhen, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
+import { formatWhen, vaultFreezer, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
 import { quoteText, tokenText } from '../../../lib/solana/lp/format';
 import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
@@ -63,7 +63,10 @@ function usePositions(readers: LpReaders, owner: PublicKey | null, nonce: number
 }
 
 const VERDICT_WORD = { blocked: 'blocked on this site', warn: 'allowed, with warnings', ok: 'no problems found' } as const;
-const WITHDRAWALS_WORD = { open: 'open', 'switched-off': 'switched off', 'vault-frozen': 'blocked: a pool vault is frozen by the token’s issuer' } as const;
+const withdrawalsWord = (view: PoolView): string => {
+  const state = withdrawalsState(view);
+  return state === 'open' ? 'open' : state === 'switched-off' ? 'switched off' : `blocked: a pool vault is frozen by ${vaultFreezer(view.quote)}`;
+};
 
 /**
  * Shares that are set aside, below the rest and without the names their tokens give
@@ -367,7 +370,7 @@ function PositionRow({
             }
             mono={false}
           />
-          <Row label="Withdrawals" value={WITHDRAWALS_WORD[withdrawalsState(view)]} mono={false} />
+          <Row label="Withdrawals" value={withdrawalsWord(view)} mono={false} />
         </>
       )}
       <RemoveBlock

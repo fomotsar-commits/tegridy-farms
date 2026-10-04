@@ -356,10 +356,12 @@ function CreateInner({
   const onType = (side: LpSide, text: string) => {
     setBoxes((b) => ({ ...b, [side]: text }));
     setDriving(side);
+    // The change-of-coin note has been answered once the coin's amount is typed.
+    if (side === 'quote' && text.trim() !== '') setCoinNote('');
   };
   const keep: LpSide | null = driving && (driving === 'quote' ? quoteRaw : tokRaw) ? driving : quoteRaw ? 'quote' : tokRaw ? 'token' : null;
   const matchTo = (k: LpSide | null) => {
-    if (!k || market === null || decimals === null) return;
+    if (!k || market === null || decimals === null || reading || coinReading) return;
     const amount = k === 'quote' ? quoteRaw : tokRaw;
     if (!amount) return;
     const other = matchMarket({ keep: k, amount, pricePerToken: market, tokenDecimals: decimals, quote: coin });
@@ -367,7 +369,9 @@ function CreateInner({
     setSide(k === 'quote' ? 'token' : 'quote', other);
     setDriving(k);
   };
-  const canMatch = keep !== null && market !== null && decimals !== null;
+  // Off while either price is being read again: the coin's new price can land before the
+  // token's, and the two together are then a price that was never true (review, 2026-10-04).
+  const canMatch = keep !== null && market !== null && decimals !== null && !reading && !coinReading;
   const mostBoth =
     availableQuote !== null && availableToken !== null && market !== null && decimals !== null
       ? mostBothAtMarket({ spendableQuote: availableQuote, tokenBalance: availableToken, pricePerToken: market, tokenDecimals: decimals, quote: coin })
@@ -505,7 +509,9 @@ function CreateInner({
     ? null
     : coinOutside === null
       ? `Review is off while the price of ${coin.symbol} is read: your opening price is checked in ${coin.symbol}.`
-      : coinOutside.kind !== 'ok'
+      : coinOutside.kind === 'no-route'
+        ? `Review is off: Jupiter has no market price for ${coin.symbol} right now, so your opening price cannot be checked in ${coin.symbol}. Pair with another coin, or try again later.`
+        : coinOutside.kind !== 'ok'
         ? `Review is off: the price of ${coin.symbol} could not be read, so your opening price cannot be checked in ${coin.symbol}. Press Read the market price again.`
         : null;
   const callsItself =
@@ -571,6 +577,7 @@ function CreateInner({
                 `Market price in ${coin.symbol}: could not be worked out (Jupiter has no route for ${coin.symbol}).`
               : `Market price in ${coin.symbol}: could not be worked out (${quoted && quoted.kind !== 'ok' ? quoted.detail : 'not read'}).`;
   const pairLabel = useId();
+  const warningsId = useId();
   const pairName = useId();
   // SOL keeps its plain words until another coin has a pool to point to as well.
   const named = !coin.native || pairs.filter((x) => x.advice.kind !== 'none').length > 1;
@@ -812,7 +819,7 @@ function CreateInner({
               boxes, on a phone, they pushed the first box off the first screen. Each is a
               warning: none of them switches Review off. */}
           {warned.length > 0 && (
-            <div className="space-y-1" data-testid="lp-create-warnings">
+            <div id={warningsId} className="space-y-1" data-testid="lp-create-warnings">
               {warned.map((w) => (
                 <Notice key={w} tone="warn">
                   {w}
@@ -845,6 +852,7 @@ function CreateInner({
               type="button"
               className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale"
               disabled={!canReview}
+              aria-describedby={warned.length > 0 ? warningsId : undefined}
               onClick={review}
             >
               Review: open the pool

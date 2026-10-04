@@ -221,8 +221,8 @@ describe.each(CASES)('a %s pool whose price is 10%% above the outside price', (s
     expect(c).toHaveAttribute('data-price', 'disagrees');
     const deposits = within(c).getByTestId('lp-pool-deposits');
     // Not a clean pass, and not a refusal: said in the warning colour.
-    expect(within(deposits).getByText('Deposits: open, with warnings')).toHaveClass('text-amber-300/90');
-    expect(deposits).not.toHaveTextContent('Deposits: the checks pass');
+    expect(within(deposits).getByText('Deposits: the checks pass, with warnings')).toHaveClass('text-amber-300/90');
+    expect(within(deposits).queryByText('Deposits: the checks pass')).toBeNull();
     expect(deposits).not.toHaveTextContent('refused');
     expect(within(within(c).getByTestId('lp-pool-warnings')).getByText(PRICE_10_ABOVE)).toHaveClass('text-amber-300/90');
     // Allowed: no lead-in that sets the warnings apart from a refusal.
@@ -318,7 +318,7 @@ describe.each([
     const c = await cardWith('offer');
     expect(c).toHaveAttribute('data-deposits', 'allowed');
     expect(c).toHaveAttribute('data-price', 'no-market');
-    expect(within(c).getByText('Deposits: open, with warnings')).toBeInTheDocument();
+    expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
     expect(within(c).getByTestId('lp-pool-warnings')).toHaveTextContent(NO_MARKET);
     // Read, not unread: the price is there, in the pool's coin, and nothing is called "not checked".
     expect(cardRow(c, 'Price here')).toBe(`1 token = 0.01 ${symbol}`);
@@ -363,7 +363,7 @@ describe('a USDC pool 10% off the market whose token is a freezable copy', () =>
 
     // The card.
     const c = await cardWith('offer');
-    expect(within(c).getByText('Deposits: open, with warnings')).toBeInTheDocument();
+    expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
     const onCard = Array.from(within(c).getByTestId('lp-pool-warnings').querySelectorAll('p')).map((p) => p.textContent);
     expect(onCard).toEqual([copy, freeze, gap]);
     expect(cardRow(c, 'Paired with')).toBe('USDC');
@@ -408,9 +408,9 @@ describe('a USDC pool 10% off the market whose token is a freezable copy', () =>
     expect(c).toHaveAttribute('data-deposits', 'refused');
     const deposits = within(c).getByTestId('lp-pool-deposits');
     expect(within(deposits).getByText('Deposits: refused here')).toHaveClass('text-rose-300/90');
-    expect(deposits).not.toHaveTextContent('open, with warnings');
+    expect(deposits).not.toHaveTextContent('with warnings');
     // The reason that refuses it is said as a refusal, and the warnings as warnings, set apart.
-    expect(within(deposits).getByText('One of this pool’s vaults is frozen by the token’s issuer, so nothing can move in or out of it.')).toHaveClass('text-rose-300/90');
+    expect(within(deposits).getByText('One of this pool’s vaults is frozen by the token’s issuer or USDC’s, so nothing can move in or out of it.')).toHaveClass('text-rose-300/90');
     const warnings = within(c).getByTestId('lp-pool-warnings');
     expect(warnings).toHaveTextContent('Warnings about this pool, apart from that:');
     expect(Array.from(warnings.querySelectorAll('p')).slice(1).map((p) => p.textContent)).toEqual(healthOf(v, o).deposits.warnings);
@@ -428,7 +428,7 @@ describe('a USDC pool 10% off the market whose token is a freezable copy', () =>
     const c = await cardWith('checks');
     expect(c).toHaveAttribute('data-deposits', 'unchecked');
     expect(within(c).getByText('Deposits: not checked')).toBeInTheDocument();
-    expect(c).not.toHaveTextContent('open, with warnings');
+    expect(c).not.toHaveTextContent('with warnings');
     const warnings = within(c).getByTestId('lp-pool-warnings');
     expect(warnings).toHaveTextContent('Warnings about this pool, apart from that:');
     // The copy and the freeze are known; the price is not, so nothing is said of a gap.
@@ -461,7 +461,7 @@ describe('a launch pool whose price is off its own average', () => {
       </LpWritesProvider>,
     );
     const c = await cardWith('offer');
-    expect(within(c).getByText('Deposits: open, with warnings')).toBeInTheDocument();
+    expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
     expect(cardRow(c, 'Its own average, last 30 minutes')).toBe('1 token = 0.008 SOL');
     expect(cardRow(c, 'Difference')).toBe('25.0% above. That is more than 3% apart: see the warning above.');
     const { type, said } = await openAdd(c, SOL_QUOTE);
