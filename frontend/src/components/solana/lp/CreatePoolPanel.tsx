@@ -111,6 +111,13 @@ const terms = (c: AmmConfigView): TierTerms => ({
   creatorFeeRate: c.creatorFeeRate,
 });
 
+// A line that is shown once typing settles is kept for half a second after it changes. A
+// change of coin inside that half second must not leave the old coin's line on the new
+// coin's form, so a settled line carries the coin it was worked out for, and is shown
+// only under that coin.
+const forCoin = (coin: QuoteCoin, text: string) => (text === '' ? '' : `${coin.mint}\n${text}`);
+const ofCoin = (coin: QuoteCoin, kept: string) => (kept.startsWith(`${coin.mint}\n`) ? kept.slice(coin.mint.length + 1) : '');
+
 /** One price read, as one string: two reads that give the same string said the same thing. */
 const priceKey = (p: OutsidePrice | null) => (p === null ? 'none' : p.kind === 'ok' ? `ok:${p.solPerToken}` : `${p.kind}:${p.detail}`);
 
@@ -399,11 +406,14 @@ function CreateInner({
 
   // ── the preview ──
   const fee = config?.createPoolFee ?? null;
-  const status = useDebounced(
-    preview && opening !== null ? `You would open the pool at 1 token = ${formatSolPrice(opening)} ${coin.symbol} and get ${unitsExact(preview.lp, LP_DECIMALS)} pool shares.` : '',
+  const status = ofCoin(
+    coin,
+    useDebounced(
+      forCoin(coin, preview && opening !== null ? `You would open the pool at 1 token = ${formatSolPrice(opening)} ${coin.symbol} and get ${unitsExact(preview.lp, LP_DECIMALS)} pool shares.` : ''),
+    ),
   );
   // Read out once typing settles, never on every keystroke (its numbers change with each digit).
-  const alertText = useSettledAlert(problemText);
+  const alertText = ofCoin(coin, useSettledAlert(forCoin(coin, problemText)));
   const held = createHeld(pending.notes);
   const blockedByOther = writes.busy && flow.state.step === 'idle';
   const canReview =

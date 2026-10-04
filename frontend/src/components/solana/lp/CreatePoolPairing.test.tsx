@@ -408,6 +408,28 @@ describe('changing the coin', () => {
     expect(within(panel).getAllByText('Reading your wallet…')).toHaveLength(2);
   });
 
+  // The problems line is kept for half a second after it changes (it is read out once
+  // typing settles). A change of coin inside that half second must not bring the old
+  // coin's line back on the new coin's form.
+  it('a problems line that settled under one coin is not shown again under the next', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    type(coinBox(panel, 'SOL'), '1.5');
+    type(tokens(panel), '100');
+    const alert = within(panel).getByRole('alert');
+    await waitFor(() => expect(alert).toHaveTextContent(/taking about 0\.05\d* SOL of what you put in/));
+    fireEvent.click(within(panel).getByRole('radio', { name: 'USDC' }));
+    expect(alert).toHaveTextContent('');
+    // Typed at once: 20 units of USDC and 10 of the token, at the market and too small
+    // for any pool, so a new problem exists straight away.
+    type(coinBox(panel, 'USDC'), '0.00002');
+    type(tokens(panel), '0.00001');
+    expect(alert).not.toHaveTextContent('SOL');
+    expect(alert).toHaveTextContent('');
+    await waitFor(() => expect(alert).toHaveTextContent(/^Too small: the pool program keeps/));
+  });
+
   it('a wallet answer with no coin in it is unread for that coin, never 0 and never the wallet’s SOL', async () => {
     // A read that answered as it does for a SOL pool: nothing in it is about USDC.
     mount(readers({ wallet: vi.fn<WalletFn>(async () => walletFor(undefined)) }));
