@@ -556,6 +556,18 @@ describe('the market price in the coin', () => {
     await waitFor(() => expect(within(again).getByRole('status')).toHaveTextContent('Read again just now: the same answer.'));
     expect(reviewButton(panel)).toBeEnabled();
   }, LONG);
+
+  it('what the last Read again found was about one coin’s price: it is not said under the next coin', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await pair(panel, 'USDC');
+    await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
+    const again = within(panel).getByTestId('lp-create-market-again');
+    fireEvent.click(within(again).getByRole('button', { name: 'Read the market price again' }));
+    await waitFor(() => expect(within(again).getByRole('status')).toHaveTextContent('Read again just now: the same answer.'));
+    fireEvent.click(within(panel).getByRole('radio', { name: 'BAYLA' }));
+    expect(within(again).getByRole('status')).toHaveTextContent('');
+  }, LONG);
 });
 
 describe('the opening price is checked in the coin', () => {
@@ -570,6 +582,8 @@ describe('the opening price is checked in the coin', () => {
     expect(price(panel)).toHaveAttribute('data-price', 'agrees');
     expect(price(panel)).toHaveTextContent('Your opening price: 1 token = 2 USDC. Market: 2 USDC. Yours is 0.0% above the market. Close enough to the market.');
     expect(reviewButton(panel)).toBeEnabled();
+    // What a screen reader hears once typing settles is in USDC too. isqrt(50,000,000 × 25,000,000) − 100.
+    await waitFor(() => expect(panel.querySelector('p.sr-only[role="status"]')).toHaveTextContent('You would open the pool at 1 token = 2 USDC and get 0.035355239 pool shares.'));
     // The token box typed last: Match works the USDC out from it.
     type(tokens(panel), '10');
     fireEvent.click(matchButton(panel));
@@ -915,5 +929,17 @@ describe('what the coin adds to the risks', () => {
     expect(BAYLA_QUOTE.risk).toBeNull();
     expect(within(panel).queryByTestId('lp-coin-risk')).toBeNull();
     expect(panel).not.toHaveTextContent('Circle');
+  });
+
+  // A live mint authority can make new tokens and sell them into the pool: what it takes
+  // out is the pool's pairing coin, so that is the coin the warning names.
+  it('a token whose mint authority is live: what can be sold out of the pool is the chosen coin', async () => {
+    const warned: TokenSafety = { ...tokenFor(M), verdict: 'warn', warnings: [{ code: 'mint-authority', text: 'Someone can still make more of this token.' }] } as TokenSafety;
+    mount(readers({ safety: vi.fn(async () => new Map([[M, warned]])) }));
+    const { panel } = await openPanel();
+    expect(panel).toHaveTextContent('Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.');
+    await pair(panel, 'USDC');
+    expect(panel).toHaveTextContent('Whoever holds it can make new tokens at any time and sell them into your pool for its USDC.');
+    expect(panel).not.toHaveTextContent('for its SOL');
   });
 });
