@@ -22,7 +22,7 @@ import { test, expect, type Locator } from '@playwright/test';
 import { Keypair, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 import {
-  WSOL, accountDataLength, accountOwner, ata, chain, fundedKeypair, graduateDirect, lamportDelta, lamports, landedTx, mintFacts, poolFacts,
+  WSOL, accountDataLength, accountOwner, ata, chain, fundedKeypair, graduateDirect, lamportDelta, lamports, mintFacts, poolFacts,
   reassignAtaOwner, sol, swapDirect, tokenAmount, wrapSol, CP_SWAP_PROGRAM, LAUNCH_PROGRAM, type PoolFacts,
 } from './fixtures/chain';
 import {
@@ -211,9 +211,11 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect(out).toContainText('Sent, not confirmed yet');
     await expect(out).not.toContainText(/fail/i);
     expect(a.rpc.failedCount('getSignatureStatuses')).toBeGreaterThan(0);
-    // It did land: the chain says so.
-    expect((await landedTx(signature)).meta?.err ?? null).toBeNull();
-    expect((await books(A.creator.publicKey, f)).lp - before.lp).toBe(plan.lp);
+    // It did land: the chain holds the shares. Asked of the share account, not of the
+    // signature. By now the deposit is over a minute old, and under a full run's load the
+    // local validator keeps only a few hundred slots of transaction history (chain.ts
+    // landedTx): looked up by signature, a deposit that landed read "did not land".
+    await expect.poll(async () => (await books(A.creator.publicKey, f)).lp - before.lp, { message: 'the deposit landed: its shares are on chain', timeout: 30_000 }).toBe(plan.lp);
 
     await p.reload();
     const pending = ui.lp.pending(p);

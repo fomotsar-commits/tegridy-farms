@@ -400,8 +400,11 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect(out).toContainText(signature);
     await expect(out).toContainText('It may still land. Opening a pool again now could open a second pool and pay the fee to open twice.');
     await expect(out).not.toContainText(/fail/i);
-    // It did land: the chain says so.
-    expect((await landedTx(signature)).meta?.err ?? null).toBeNull();
+    // It did land: the chain holds the pool. Asked of the pool itself, not of the
+    // signature. By now the opening is over a minute old, and under a full run's load the
+    // local validator keeps only a few hundred slots of transaction history (chain.ts
+    // landedTx): looked up by signature, an opening that landed read "did not land".
+    await expect.poll(async () => (await accountOwner(pool))?.toBase58() ?? null, { message: 'the opening landed: its pool is on chain', timeout: 30_000 }).toBe(CP_SWAP_PROGRAM.toBase58());
 
     await p.reload();
     const pending = ui.lp.pending(p);
