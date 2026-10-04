@@ -85,8 +85,8 @@ function adviceLine(pair: PairFacts, named: boolean): string | null {
     case 'opened-here':
       return `You opened ${a} for this token just now. Opening again makes a second, separate pool and pays the fee to open again.`;
     case 'exists':
-      // The card's own words for it: a pool whose price is off, or was checked against
-      // nothing, is never said to pass the checks (offers.ts `priceWarned`).
+      // The card's own words for it: a pool that carries any warning, about its price or
+      // about its token, is never said to pass the checks (offers.ts `depositWarned`).
       return `This token already has ${a} that ${pair.warned ? 'takes deposits, with a warning' : 'passes the checks'} (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.`;
   }
 }

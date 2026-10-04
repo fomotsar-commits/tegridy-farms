@@ -458,6 +458,62 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     }
   }, 20_000);
 
+  // Whole-change review 2026-10-04 (W3). "Passes the checks" was decided by the PRICE
+  // alone, and on the other-tier line by nothing at all. So the Open card said it of pools
+  // whose own card, on the same screen, was headed "the checks pass, with warnings". It is
+  // now said only of a pool with no warning of any kind, by the test that heading uses.
+  // Whether adding is SUGGESTED, and whether the card puts an Add button, is still about
+  // the price alone: a token warning applies just as much to a pool the visitor opens.
+  it('a pool on another fee tier whose price is off: the card does not say it "passes the checks"', async () => {
+    const otherTier = view({});
+    // 0.01 SOL a token in the pool; Jupiter says 0.0125: the pool is 20% below it.
+    mount(readers({ findPools: vi.fn(async () => search([otherTier])), outsidePrice: vi.fn(async () => jupiter(0.0125)) }));
+    const c = await settled('offer');
+    await waitFor(() => expect(poolCard(otherTier.address)).toHaveAttribute('data-price', 'disagrees'));
+    // That pool's own card: allowed, and headed "with warnings".
+    expect(poolCard(otherTier.address)).toHaveAttribute('data-deposits', 'allowed');
+    expect(within(poolCard(otherTier.address)).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
+    expect(c).toHaveTextContent('This token also has a pool on fee tier 0 that takes deposits, with a warning. A new pool will not share its liquidity or fees.');
+    expect(c).not.toHaveTextContent('that passes the checks');
+  });
+
+  it('…one clean and one warned pool on other tiers: each is said as what it is', async () => {
+    const clean = view({});
+    // The same tier 0, at a price 300% above the market: only this one carries a warning.
+    const warned = view({ address: key(), sol: 40n * 10n ** 9n });
+    mount(readers({ findPools: vi.fn(async () => search([warned, clean])) }));
+    const c = await settled('offer');
+    await waitFor(() => expect(poolCard(warned.address)).toHaveAttribute('data-price', 'disagrees'));
+    // A tier that has a pool with no warning is said to have one that passes, and only that.
+    expect(c).toHaveTextContent('This token also has a pool on fee tier 0 that passes the checks. A new pool will not share its liquidity or fees.');
+    expect(c).not.toHaveTextContent('takes deposits, with a warning');
+  });
+
+  it('a pool at the market for a token its creator can freeze: "takes deposits, with a warning", and adding to it is still suggested, with its button', async () => {
+    const freezable = realToken(MINT, { freeze: key() });
+    const theirs = view({ tier1: true });
+    mount(readers({ findPools: vi.fn(async () => search([theirs])), safety: vi.fn(async () => new Map([[M, freezable]])) }));
+    const c = await settled('offer');
+    const pool = screen.getByTestId('lp-pool');
+    await waitFor(() => expect(pool).toHaveAttribute('data-add', 'offer'));
+    // At the market, and its card is headed "with warnings": the token can be frozen.
+    expect(pool).toHaveAttribute('data-price', 'agrees');
+    expect(within(pool).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
+    const refer = within(c).getByTestId('lp-create-refer');
+    expect(said(refer)).toBe(
+      `This token already has a pool on the public fee tier that takes deposits, with a warning (above). The biggest is ${theirs.address}, holding 10 SOL. We suggest adding to it: liquidity in one place gives traders a better price.`,
+    );
+    expect(c).not.toHaveTextContent('passes the checks (above)');
+    // Not suggested against: the price is right, and its Add button is the first choice.
+    expect(await within(c).findByRole('button', { name: 'Add liquidity to that pool' })).toHaveClass('btn-primary');
+    // The form says of that pool what the card says.
+    fireEvent.click(within(c).getByRole('button', { name: 'Open a pool' }));
+    const form = await screen.findByTestId('lp-create-panel');
+    expect(said(within(form).getByTestId('lp-create-advice'))).toBe(
+      'This token already has a pool that takes deposits, with a warning (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.',
+    );
+  }, 20_000);
+
   it('pools-unread: an index outage; Read again searches again', async () => {
     const r = readers({ findPools: vi.fn(async () => search([], { index: { kind: 'unread', detail: 'HTTP 502' } })) });
     mount(r);

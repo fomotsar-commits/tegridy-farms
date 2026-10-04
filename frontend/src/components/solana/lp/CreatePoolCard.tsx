@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { formatSol } from '../../../lib/launcher/solana/curve/format';
 import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
-import { isCreatedPool, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
+import { isCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { tradeCostText } from '../../../lib/solana/lp/format';
@@ -12,7 +12,7 @@ import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import type { CreateFacts, TierState } from '../curve/ports';
 import { CreatePoolPanel } from './CreatePoolPanel';
 import { MONEY_NOTE } from './LpDisclosures';
-import { createOffer, depositOffer, lpHeld, openingCautions, pairFacts, poolListCut, type CreateOffer, type PairFacts } from './offers';
+import { createOffer, depositOffer, depositWarned, lpHeld, openingCautions, pairFacts, poolListCut, type CreateOffer, type PairFacts } from './offers';
 import { coinAbout } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -407,13 +407,15 @@ function OfferLines({
         );
       }
       const tier1 = tier.address.toBase58();
-      const otherTiers = [
-        ...new Set(
-          pools
-            .filter((v) => v.snapshot.pool.ammConfig !== tier1 && healths.get(v.address)?.deposits.verdict === 'allowed')
-            .map((v) => String(v.config?.index ?? '?')),
-        ),
-      ];
+      // The pools on another fee tier that take deposits, by tier. A tier is said to have a
+      // pool that "passes the checks" only when one of its pools carries no warning at all
+      // (`depositWarned`: the pool card's own heading test). A tier whose pools all carry
+      // one "takes deposits, with a warning": a pool off its price is 'allowed' too now.
+      const elsewhere = pools.filter((v) => v.snapshot.pool.ammConfig !== tier1 && healths.get(v.address)?.deposits.verdict === 'allowed');
+      const tiersOf = (list: PoolView[]) => [...new Set(list.map((v) => String(v.config?.index ?? '?')))];
+      const otherTiers = tiersOf(elsewhere);
+      const cleanTiers = tiersOf(elsewhere.filter((v) => !depositWarned(healths.get(v.address))));
+      const warnedTiers = otherTiers.filter((t) => !cleanTiers.includes(t));
       const cutLine = cut && (
         <p>
           {pairs.length > 1
@@ -423,15 +425,25 @@ function OfferLines({
       );
       const onPublicTier = otherTiers.length > 0 ? ' on the public fee tier' : '';
       const otherTierLine = otherTiers.length > 0 && (
-        <p>
-          This token also has a pool on fee tier {otherTiers.join(' and ')} that passes the checks. A new pool will not share its liquidity or
-          fees.
-        </p>
+        <>
+          {cleanTiers.length > 0 && (
+            <p>
+              This token also has a pool on fee tier {cleanTiers.join(' and ')} that passes the checks. A new pool will not share its liquidity or
+              fees.
+            </p>
+          )}
+          {warnedTiers.length > 0 && (
+            <p>
+              This token also has a pool on fee tier {warnedTiers.join(' and ')} that takes deposits, with a warning. A new pool will not share its
+              liquidity or fees.
+            </p>
+          )}
+        </>
       );
       // The coins the card points to a pool for, and the ones it does not: those with pools
       // that do not pass, and those with no pool at all. A cut list never says "no pool yet"
       // for a coin: a pool that was not read may be paired with it.
-      const pointers = pairs.flatMap((x) => (x.advice.kind === 'none' ? [] : [{ coin: x.coin, kind: x.advice.kind, pool: x.advice.pool }]));
+      const pointers = pairs.flatMap((x) => (x.advice.kind === 'none' ? [] : [{ coin: x.coin, kind: x.advice.kind, pool: x.advice.pool, warned: x.warned }]));
       const several = pointers.length > 1;
       const unpointed = pairs.filter((x) => x.advice.kind === 'none');
       const failing = unpointed.filter((x) => x.hasPool).map((x) => x.coin.symbol);
@@ -459,7 +471,7 @@ function OfferLines({
       return (
         <>
           {cutLine}
-          {pointers.map(({ coin, kind, pool }) => {
+          {pointers.map(({ coin, kind, pool, warned }) => {
             const aPool = several || !coin.native ? `a ${coin.symbol} pool` : 'a pool';
             return kind === 'opened-here' ? (
               <p key={coin.mint} data-testid="lp-create-opened" data-coin={coin.symbol}>
@@ -468,8 +480,11 @@ function OfferLines({
               </p>
             ) : (
               <p key={coin.mint} data-testid="lp-create-refer" data-coin={coin.symbol}>
+                {/* "Passes the checks" only with no warning at all, about its price or its token
+                    (`PairFacts.warned`, which the form's own line reads too). The suggestion
+                    after it is about the price alone (`adviceCaveat`). */}
                 This token already has {aPool} on the public fee tier{' '}
-                {adviceCaveat(healths.get(pool.address)) ? 'that takes deposits, with a warning (above)' : 'that passes the checks (above)'}. The biggest is{' '}
+                {warned ? 'that takes deposits, with a warning (above)' : 'that passes the checks (above)'}. The biggest is{' '}
                 <span className="font-mono break-all">{pool.address}</span>, holding {coinAbout(pool.quoteReserve, coin)}.{' '}
                 {adviceCaveat(healths.get(pool.address))?.line ?? 'We suggest adding to it: liquidity in one place gives traders a better price.'}
               </p>
