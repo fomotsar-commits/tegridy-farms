@@ -15,6 +15,38 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-04: a test that asks the app's own planner what a row should read agrees with the app whatever it does
+
+**Believed:** the end-to-end check of the "Locked in the pool forever" row was independent of
+the app: the spec worked out the expected figure and compared it with the screen.
+
+**Measured:** the spec imported the app's own `planCreate` to get that figure. When the
+formula changed (from `floor(100 x put / supply)` to what really stays behind, rounded up), the
+spec and the page changed together and the test stayed green without anyone deciding the new
+figure was right. A second check, done by hand, went through an "about" row printed to four
+decimals, where a one-unit change cannot show. Only a test with whole-unit amounts (2 tokens
+of a token with no decimals: 1 stays behind, the old figure said 0) could tell the two apart.
+
+**Do:** where a test pins a money figure, work the figure out in the test from the rule in
+words, not by calling the code under test. Pin it on a row printed to the last digit, or with
+amounts where one unit is visible. A helper imported from `src/` into a spec is the app
+checking itself.
+
+## 2026-10-04: a "sent" card is drawn before the first byte leaves
+
+**Believed:** once the page shows "sent", a reload tests "a reload while the transaction is
+in the air".
+
+**Measured:** the page writes its note and draws the card BEFORE the first broadcast, on
+purpose (the note must exist before the first send). In a whole run of the local-validator
+suite a reload came 87 ms after the broadcast began: the browser stopped the request, the
+transaction never reached the chain, and the test that then asked the chain for it failed.
+It had passed for weeks because the reload was usually slower than the request.
+
+**Do:** in a test, "in the air" is "the network answered the broadcast with this signature
+and the transaction is not yet confirmed". Wait for the response to the `sendTransaction`
+request (ask for it before pressing Sign), not for a card on the page.
+
 ## 2026-10-04: when a verdict gains a middle state, every reader of the old top state was reading two things
 
 **Believed:** turning four refusals into warnings (pull request 742: a token with no market
