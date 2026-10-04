@@ -125,7 +125,7 @@ was ever true. Two bullets below describe the Meteora Solana rail, which was **d
 - ✅ **The Meteora DBC rail was deleted (2026-08-23).** Operator decision: only launchers that graduate into our own venue survive. Six lib modules and every user-facing surface removed, staged so the tree was never half-broken, with a `meteoraRetired` tripwire and rewritten (not deleted) registry entries so the retirement cannot quietly reverse. **Light mode was dropped the same day** rather than re-tune every surface for an app-wide contrast defect.
 - ✅ **Multichain went live (2026-08-25, wired 2026-08-26).** Base 8453 and Robinhood Chain 4663 carry the full MVP + curve stack, every slot on-chain read-back verified. Both fee sinks are **remittance Safes, not distributors.** Robinhood's `AttestedSequencerUptimeFeed` deployed first, because `SequencerCheck` reverts off-mainnet on a zero feed.
 - ✅ **Our own EVM bonding curve is live.** `TegridyCurveLauncher` at [`0xF4Dfa741…34dE`](https://etherscan.io/address/0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE) on Ethereum, plus Base and Robinhood deployments — a curve that graduates into a pool the protocol owns. Token identity (image/description/socials) rides Irys, bound by signature, with no contract change and no redeploy.
-- ✅ **Thirteen of thirteen bungalows stake (2026-08-26 → 08-30).** The BAYLA lighthouse was lit on 2026-08-26 after the whole pool lifecycle was rehearsed on devnet with real transactions; four Solana, five Base and one Ethereum pool followed. The six EVM pools are **TOWELI's own ladder**, verified on-chain rather than trusted from receipts. See [Jungle Bay Island](#jungle-bay-island). *(Superseded 2026-09-05: all six EVM pools were redeployed with a fix that stops rewards being paid from other stakers' principal, before anyone had staked (#433), and the venue points at the new pools.)* *(Superseded 2026-09-20: BAYLA stakes on the venue's own lock ladder, and its old Streamflow pool is closed to new deposits on the site; see the 2026-09-20 bullet below.)* *(Superseded 2026-10-01: the venue counts 12 bungalows, as the island does; the thirteenth row, `/nb1`, is the island's next open lot and never had a pool, so 12 of 12 bungalows stake.)*
+- ✅ **Thirteen of thirteen bungalows stake (2026-08-26 → 08-30).** The BAYLA lighthouse was lit on 2026-08-26 after the whole pool lifecycle was rehearsed on devnet with real transactions; four Solana, five Base and one Ethereum pool followed. The six EVM pools are **TOWELI's own ladder**, verified on-chain rather than trusted from receipts. See [Jungle Bay Island](#jungle-bay-island). *(Superseded 2026-09-05: all six EVM pools were redeployed with a fix that stops rewards being paid from other stakers' principal, before anyone had staked (#433), and the venue points at the new pools.)* *(Superseded 2026-09-12 and 2026-09-20: BAYLA's Streamflow pool closed to new deposits on the site on 2026-09-12, and BAYLA has staked on the venue's own lock ladder since 2026-09-20; see the 2026-09-20 bullet below.)* *(Superseded 2026-10-01: the venue counts 12 bungalows, as the island does; the thirteenth row, `/nb1`, is the island's next open lot and never had a pool, so 12 of 12 bungalows stake.)*
 - ✅ **The venue took its own name (2026-08-31).** The app speaks as memetics.finance, the venue of Jungle Bay Island; the classic Tegridy Farms surface is relocated whole behind `/toweli`, not edited. 171 sites changed, four names deliberately unmoved (repo, contracts, token, legal docs).
 - ✅ **Every SOON surface became a live product (2026-09-03, [#360](https://github.com/fomotsar-commits/tegridy-farms/pull/360)).** Eight nav entries had carried an amber pill — six keyed to an indexer that is complete, hosted nowhere and may never be hosted. All eight now render something real, built on rails that already exist. **Phantom and Trust joined both wallet modals** ([#359](https://github.com/fomotsar-commits/tegridy-farms/pull/359)) with the Solana swap surface gaining DCA, a chart, a speed control and USD input — and Trust deliberately **excluded** from the Solana side, because its adapter is legacy-only and would connect fine then throw on every swap. *(Superseded 2026-09-15: Trust Wallet connects on the Solana side of the venue.)*
 - ✅ **A 20-finding field review was resolved (2026-09-03, [#367](https://github.com/fomotsar-commits/tegridy-farms/pull/367))** — nine of them misdiagnosed, and which nine is recorded, because two of the prescribed fixes would have changed nothing and one would have removed working code. Real defects closed: a **640–790px dead band** with no reachable Connect button and no nav (the header is `position: fixed`, so scrolling cannot recover), a pool card that dashed out ~85% of the time on a *healthy* oracle, and a Farm fee-share claim that quoted the entire fee as reaching stakers while ignoring the referral carve taken off the top first.
@@ -163,7 +163,7 @@ funded.
 | Bungalow | Chain | Lighthouse (staking) |
 |---|---|---|
 | **TOWELI** | Ethereum | `TegridyStaking` — the original ladder, 7d…4y, 0.4×…4.0× |
-| **BAYLA** | Solana | Lock ladder (`bayla-ladder`, the venue's own program) · mainnet 2026-09-20. Its Streamflow lighthouse (lit 2026-08-26, Token-2022) is closed to new deposits on the site (2026-09-12) and, since 2026-10-01, shown only to wallets still staked in it |
+| **BAYLA** | Solana | Lock ladder (`bayla-ladder`, the venue's own program) · mainnet 2026-09-20. Its Streamflow lighthouse (first lit 2026-08-26 and on its current pool since 2026-08-30, Token-2022) is closed to new deposits on the site (2026-09-12) and, since 2026-10-01, shown only to wallets still staked in it |
 | **PEPE** | Ethereum | `LighthouseLadder` · 2026-08-30, redeployed 2026-09-05 |
 | **QR · MFER · BNKR · DRB · JBM** | Base | `LighthouseLadder` ×5 · 2026-08-30, redeployed 2026-09-05 |
 | **BOBO · SOY · BRAINLET · RIZZ** | Solana | Streamflow ×4 · 2026-08-30 |
@@ -549,8 +549,8 @@ launch and pool programs, both held by a two-signature Squads vault.
   top bar opens the Solana list on Solana pages, asks Solana or Ethereum first on every other
   page, and keeps a connected Solana wallet across pages and visits.
 - **Bungalow lighthouses (live).** Four Streamflow staking pools take deposits: BOBO, SOY,
-  BRAINLET and RIZZ (2026-08-30). BAYLA's own Streamflow pool (2026-08-26, the first, and
-  Token-2022 rather than legacy SPL) closed to new deposits on the site on 2026-09-12; its
+  BRAINLET and RIZZ (2026-08-30). BAYLA's own Streamflow pool (Token-2022 rather than legacy SPL; it
+  replaced the first pool, lit 2026-08-26, on 2026-08-30) closed to new deposits on the site on 2026-09-12; its
   stakers can still claim and unstake, and since 2026-10-01 the site shows it only to them, as
   a claim box under BAYLA's lock ladder (next bullet). The whole pool lifecycle was rehearsed
   on **devnet with real transactions** before a mainnet lamport was spent. This rail has **no
@@ -767,7 +767,7 @@ tegridy-farms/
 │   │                    ceremony scripts, and render-bungalow-doors.mjs
 │   ├── e2e/             38 Playwright specs; the five money-path ones run against an Anvil fork
 │   ├── e2e-solana/      Solana launch and pool flows on a local validator (npm run e2e:solana; not in CI)
-│   ├── e2e-prod/        A console sweep of the deployed site, run by hand (playwright.prod.config.ts)
+│   ├── e2e-prod/        A console sweep and a room-arrival walk of the deployed site, run by hand (playwright.prod.config.ts)
 │   └── supabase/        SQL migrations (orderbook, chat, profiles) + 000_base_schema.sql
 ├── indexer/             Ponder: event indexer & GraphQL API, hosted on Railway
 ├── indexer-solana/      The Solana leg, beside Ponder against the same Postgres
@@ -787,7 +787,7 @@ tegridy-farms/
 ### Deeper docs
 | Doc | For |
 |---|---|
-| [docs/GOLIVE_HANDOFF.md](docs/GOLIVE_HANDOFF.md) | Mainnet ownership-handoff state as read 2026-07-11, and its tx data. The later reads (Base and Robinhood, 2026-09-09) are in [docs/TODO_OPERATOR.md](docs/TODO_OPERATOR.md) |
+| [docs/GOLIVE_HANDOFF.md](docs/GOLIVE_HANDOFF.md) | Mainnet ownership-handoff state as read 2026-07-11, and its tx data. The later reads are in [docs/TODO_OPERATOR.md](docs/TODO_OPERATOR.md) (Base and Robinhood, 2026-09-09) and [`addresses.json`](frontend/scripts/addresses.json) (2026-09-17) |
 | [RELAUNCH_RUNBOOK.md](docs/archive/RELAUNCH_RUNBOOK.md) | Relaunch deploy sequence |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the contracts fit together |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Mainnet deploy runbook + rollback |
@@ -825,7 +825,7 @@ Tegridy Farms treats its own custom code as a known-risk attack surface: the sta
 - **Responsible disclosure:** see [`SECURITY.md`](SECURITY.md). Please don't file security reports as public issues.
 
 **What to be careful about:**
-- **Single-key ownership window.** The live Ethereum mainnet contracts were owned by the deployer EOA when last read (2026-07-11), while the Safe multisig handoff completes ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). On Base, three of four were Safe-owned when read on 2026-09-09, and Robinhood's handoff had lapsed ([`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md)). On Solana, the launcher and pool program went live on 2026-09-29 owned by the two-signature Squads vault, and `bayla-ladder`'s upgrade authority was the deployer wallet, a single operator-held key and not the Squads vault, when read at its 2026-09-20 deploy. This is the biggest unresolved risk.
+- **Single-key ownership window.** The live Ethereum mainnet contracts were owned by the deployer EOA when last read (2026-07-11), while the Safe multisig handoff completes ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). On Base, three of four were Safe-owned when read on 2026-09-09, and by the registry's read of 2026-09-17 the Safe had signed there and held the factory's `feeToSetter`; on Robinhood the handoff had lapsed and the factory's `feeToSetter` was still the deployer EOA ([`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md); [`addresses.json`](frontend/scripts/addresses.json), `l2-multisig-safe`). On Solana, the launcher and pool program went live on 2026-09-29 owned by the two-signature Squads vault, and `bayla-ladder`'s upgrade authority was the deployer wallet, a single operator-held key and not the Squads vault, when read at its 2026-09-20 deploy. This is the biggest unresolved risk.
 - **Smart contract risk exists.** No software is bug-free, and this hasn't had a paid human-firm audit. Size deposits accordingly.
 - **Market risk.** TOWELI is a thin-liquidity token; impermanent loss in the LP is real.
 - **Solana pools.** Since 2026-10-03 any connected Solana wallet can open a pool, add liquidity or remove it from the site, on the venue's own Solana pool program (the first pool, BAYLA/SOL, opened 2026-10-03). Since 2026-10-04 any token the pool program accepts can have a pool, with warnings to read before you sign; tokens with a transfer fee, and anything that could not be read, are still refused. The program is Raydium's CPMM with only its admin keys changed, and those changes have had no independent review. The team's two-signature vault can switch off deposits, withdrawals or swaps on a pool, change its fee rates at once, and upgrade the program; if it switched off withdrawals, nobody could take their money out until it switched them back on. As the site says, Jupiter does not send trades to these pools yet, so most trades against a pool come from arbitrage bots. Put in only what you can afford to lose.
@@ -930,8 +930,9 @@ every push. See the note at the end of this section.
 
 > **No veTOWELI on either L2, ever.** Both fee sinks are remittance Safes: an L2 fee is
 > *queued for the bridge*, not staker yield, and every surface that renders one says so.
-> Ownership handoffs to the multisig await the **2-of-2 accept ceremony**; the curve
-> launchers are multisig-owned from birth.
+> Ownership handoffs to the multisig: by the registry's read of 2026-09-17 the Safe had signed
+> on Base and held the factory's `feeToSetter`, and on Robinhood the **2-of-2 accept** was still
+> owed. The curve launchers are multisig-owned from birth.
 
 #### Bungalow lighthouses: `LighthouseLadder` (EVM), redeployed 2026-09-05
 | Bungalow | Chain | Pool |
@@ -987,12 +988,13 @@ Squads vault had not started.
 > *exactly* 32 bytes for Solana), **no truncation**, no duplicates on one chain, and a
 > denylist. It also checks that every address literal in `constants.ts`, `yield/protocols.ts`
 > and the Solana curve module is registered, and that every contract in the Foundry broadcast
-> receipts for mainnet, Base and Robinhood is registered or retired. `registry-onchain.yml`
+> receipts for mainnet, Base and Robinhood is registered or retired (the tree holds no Robinhood
+> receipts yet, so that leg checks nothing, and the verifier says so). `registry-onchain.yml`
 > adds a live chain read every day and on any change to the registry. The verifier exists
 > because on 2026-08-08 an operator wallet was nearly lost to a truncated `5hNA2MXk…927v`, and
 > a session then *invented* a plausible-looking replacement that decoded to 33 bytes. Retired
-> addresses usually stay in the file marked `retired` rather than being deleted. The PEPE
-> lighthouse keeps its original Synthetix pool (retired 2026-08-30) beside the live ladder. The
+> addresses usually stay in the file marked `retired` rather than being deleted. Each EVM
+> lighthouse keeps its original Synthetix pool (retired 2026-08-30) beside its live ladder. The
 > six first-build ladders of 2026-08-30 are the exception: the 2026-09-05 repin (PR #433)
 > replaced their rows, so they are not in the file.
 
@@ -1007,10 +1009,12 @@ cadence in [`CHANGELOG.md`](CHANGELOG.md) · the one live to-do is
 [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md).
 
 **Near-term go-live gates:**
-1. **Decentralize ownership.** The mainnet contracts are still owned by the deployer EOA;
-   the L2 legs are deployed and awaiting the **2-of-2 accept ceremony** on each chain. Two
-   Safes sit at `nonce() == 0`, which is the honest way of saying no ceremony has executed
-   yet — an N-of-M is unproven until something has actually executed at the new threshold.
+1. **Decentralize ownership.** The mainnet contracts are still owned by the deployer EOA.
+   On the L2s, the registry's read of 2026-09-17 found the MULTISIG Safe at `nonce()` 5 on
+   Base, where it holds the factory's `feeToSetter`, and at `nonce()` 0 on Robinhood, where
+   the **2-of-2 accept** is still owed. A `nonce()` of 0 is the honest way of saying no
+   ceremony has executed: an N-of-M is unproven until something has executed at the new
+   threshold.
    The single biggest item. ([`docs/SAFE_REHOME_RUNBOOK.md`](docs/SAFE_REHOME_RUNBOOK.md))
 2. **Deepen the native pool + bootstrap the TWAP** (`DeepenLP.s.sol` → `BootstrapTWAP.s.sol`),
    then run `VerifyMVP` — this also unblocks the oracle-gated `TegridyLending` deploy. Quote
