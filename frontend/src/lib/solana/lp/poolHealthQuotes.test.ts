@@ -6,9 +6,9 @@
 import { describe, it, expect } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import { priceInQuote, type OutsidePrice } from './outsidePrice';
-import { PRICE_TOLERANCE, assessPool, poolPricePerToken } from './poolHealth';
+import { PRICE_TOLERANCE, assessPool, poolPricePerToken, vaultFreezer } from './poolHealth';
 import type { PoolView } from './poolFinder';
-import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
+import { BAYLA_QUOTE, QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
 import type { TokenSafety } from './tokenSafety';
 import { buildPool, key, viewOf } from './testkit.fixture';
 
@@ -176,5 +176,43 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
       expect(h.price).toMatchObject({ state: 'agrees', against: 'outside' });
       expect(h.deposits.verdict).toBe('allowed');
     }
+  });
+});
+
+// Review 2026-10-04 (UA-9). `vaultsFrozen` is true for EITHER vault, and the read does not
+// say which one. The token's issuer can always be the one who froze it. The pairing coin's
+// issuer can be only when that coin has an issuer who can freeze: USDC's. SOL has none,
+// and BAYLA's mint has no freeze authority. So only a USDC pool names its coin.
+describe('a frozen vault: who can have frozen it', () => {
+  const TOKEN_ONLY = 'the token’s issuer';
+
+  it('SOL and BAYLA: the token’s issuer. USDC: the token’s issuer or USDC’s', () => {
+    expect(vaultFreezer(SOL_QUOTE)).toBe(TOKEN_ONLY);
+    expect(vaultFreezer(USDC_QUOTE)).toBe('the token’s issuer or USDC’s');
+    expect(vaultFreezer(BAYLA_QUOTE)).toBe(TOKEN_ONLY);
+  });
+
+  // A coin says that its issuer can freeze a pool's account in its own risk line
+  // (quotes.ts). It is named here exactly when that line says so: a new coin with a freeze
+  // authority cannot be listed without being named, and a coin without one is never blamed.
+  it('a coin is named exactly when its own risk line says its issuer can freeze', () => {
+    for (const q of QUOTE_COINS) {
+      const named = vaultFreezer(q) !== TOKEN_ONLY;
+      expect(named, q.symbol).toBe(/can freeze/.test(q.risk ?? ''));
+      if (named) expect(vaultFreezer(q)).toBe(`the token’s issuer or ${q.symbol}’s`);
+    }
+  });
+
+  it.each([
+    ['SOL', TOKEN_ONLY, SOL_QUOTE],
+    ['USDC', 'the token’s issuer or USDC’s', USDC_QUOTE],
+    ['BAYLA', TOKEN_ONLY, BAYLA_QUOTE],
+  ] as const)('a %s pool with a frozen vault is refused, and the reason says "%s"', (_n, who, quote) => {
+    const v: PoolView = { ...view(quote, 50, 2_000), vaultsFrozen: true };
+    // No market price for the token: the price check adds no reason of its own.
+    const h = assessPool({ ...base, view: v, outside: NO_ROUTE });
+    expect(h.withdrawals).toBe('vault-frozen');
+    expect(h.deposits.verdict).toBe('refused');
+    expect(h.deposits.reasons).toEqual([`One of this pool’s vaults is frozen by ${who}, so nothing can move in or out of it.`]);
   });
 });

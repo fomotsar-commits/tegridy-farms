@@ -47,7 +47,7 @@ const lockTooLarge = (pct: string) =>
   `Too small to be worth it: the ${LOCKED_SHARES_TEXT} the pool program keeps forever would be ${pct}% of this pool. Put in more, so that part is 0.1% or less.`;
 
 /** A token that can be paired with nothing (SOL itself) still draws the form, on SOL, with Review off elsewhere. */
-const NO_PAIR: PairFacts = { coin: SOL_QUOTE, advice: { kind: 'none' }, hasPool: false, standard: 'empty' };
+const NO_PAIR: PairFacts = { coin: SOL_QUOTE, advice: { kind: 'none' }, warned: false, hasPool: false, standard: 'empty' };
 
 /**
  * Why an open panel's Review is off when its card no longer offers an opening. 'held'
@@ -80,7 +80,9 @@ function adviceLine(pair: PairFacts, named: boolean): string | null {
     case 'opened-here':
       return `You opened ${a} for this token just now. Opening again makes a second, separate pool and pays the fee to open again.`;
     case 'exists':
-      return `This token already has ${a} that passes the checks (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.`;
+      // The card's own words for it: a pool whose price is off, or was checked against
+      // nothing, is never said to pass the checks (offers.ts `priceWarned`).
+      return `This token already has ${a} that ${pair.warned ? 'takes deposits, with a warning' : 'passes the checks'} (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.`;
   }
 }
 
@@ -259,7 +261,12 @@ function CreateInner({
   // Only the answer to the read that is out now. While the coin's price is read again its
   // old price is not a price: beside the token's new one it would give a market price of
   // no moment at all. Until both are in, the form says "reading" and Match is off.
-  const coinOutside = coinPrice !== null && coinPrice.key === coinKey ? coinPrice.price : null;
+  // The other order too: the coin's read is one call and the token's comes back with the
+  // whole pool search, so the coin's new price can land first. It is held back until the
+  // card's own read is in (`reading`): beside the token's OLD price it was shown as the
+  // market price, with the old read time, and the opening was checked against it
+  // (review, 2026-10-04).
+  const coinOutside = !reading && coinPrice !== null && coinPrice.key === coinKey ? coinPrice.price : null;
   // Being read, for the first time or again. Review waits for the answer by itself: with
   // no coin price the opening check has nothing to compare with, and says "not read".
   const coinReading = coinKey !== null && coinOutside === null;
@@ -356,12 +363,11 @@ function CreateInner({
   const onType = (side: LpSide, text: string) => {
     setBoxes((b) => ({ ...b, [side]: text }));
     setDriving(side);
-    // The change-of-coin note has been answered once the coin's amount is typed.
-    if (side === 'quote' && text.trim() !== '') setCoinNote('');
   };
   const keep: LpSide | null = driving && (driving === 'quote' ? quoteRaw : tokRaw) ? driving : quoteRaw ? 'quote' : tokRaw ? 'token' : null;
   const matchTo = (k: LpSide | null) => {
-    if (!k || market === null || decimals === null || reading || coinReading) return;
+    // `reading`: the Match under a price warning is a second way in here, and is not greyed out.
+    if (!k || market === null || decimals === null || reading) return;
     const amount = k === 'quote' ? quoteRaw : tokRaw;
     if (!amount) return;
     const other = matchMarket({ keep: k, amount, pricePerToken: market, tokenDecimals: decimals, quote: coin });
@@ -371,7 +377,10 @@ function CreateInner({
   };
   // Off while either price is being read again: the coin's new price can land before the
   // token's, and the two together are then a price that was never true (review, 2026-10-04).
-  const canMatch = keep !== null && market !== null && decimals !== null && !reading && !coinReading;
+  // For a coin that is not SOL there is no `market` for that whole time (`coinOutside`
+  // above). On SOL the last price stays on screen while it is read again, so `reading`
+  // is what switches Match off there.
+  const canMatch = keep !== null && market !== null && decimals !== null && !reading;
   const mostBoth =
     availableQuote !== null && availableToken !== null && market !== null && decimals !== null
       ? mostBothAtMarket({ spendableQuote: availableQuote, tokenBalance: availableToken, pricePerToken: market, tokenDecimals: decimals, quote: coin })
@@ -539,8 +548,12 @@ function CreateInner({
     setSaidMarket(null);
     onReread();
   };
-  // Said in the form's status line after a change of coin, until the new coin's amount is typed.
+  // Said in the form's status line after a change of coin, until the new coin's amount is in.
   const [coinNote, setCoinNote] = useState('');
+  // Answered once the coin's box holds an amount, however it got there: typed, Max, Match
+  // or the most both balances allow. Emptying the box later, to type another amount, then
+  // does not say it again (review, 2026-10-04).
+  if (coinNote !== '' && boxes.quote.trim() !== '') setCoinNote('');
   const chooseCoin = (next: QuoteCoin) => {
     if (next.mint === coin.mint) return;
     setPicked(next.mint);

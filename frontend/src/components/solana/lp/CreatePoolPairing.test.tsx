@@ -1052,6 +1052,90 @@ describe('a coin’s price is only ever the answer to the read that is out now',
     expect(tokens(panel)).toHaveValue('25');
   }, LONG);
 
+  // Review 2026-10-04 (P1): the other order. The coin's price is one read; the token's
+  // comes back with the whole pool search, so the coin's can land first. The token's OLD
+  // price over the coin's NEW one is as untrue as the mix above. Both doubled in SOL here,
+  // so the token was 2 USDC before and is 2 USDC after: 0.01 over 0.01 would read "1 USDC".
+  it('…nor the coin’s new price with the token’s old one: until the token’s read is back too, no price is shown and Match does nothing', async () => {
+    let releaseToken!: (p: OutsidePrice) => void;
+    let releaseUsdc!: (p: OutsidePrice) => void;
+    let held = false;
+    const token = vi.fn(() => (held ? new Promise<OutsidePrice>((res) => (releaseToken = res)) : Promise.resolve(ok(TOKEN_SOL))));
+    const usdc = vi.fn(() => (held ? new Promise<OutsidePrice>((res) => (releaseUsdc = res)) : Promise.resolve(priceOf(USDC))));
+    mount(readers({ outsidePrice: vi.fn((mint: string) => (mint === USDC ? usdc() : token())) }));
+    const { panel } = await openPanel();
+    await pair(panel, 'USDC');
+    await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
+    type(coinBox(panel, 'USDC'), '50');
+    type(tokens(panel), '25');
+    expect(price(panel)).toHaveAttribute('data-price', 'agrees');
+    expect(matchButton(panel)).toBeEnabled();
+    held = true;
+    fireEvent.click(within(within(panel).getByTestId('lp-create-market-again')).getByRole('button', { name: 'Read the market price again' }));
+    await waitFor(() => expect(usdc).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(token).toHaveBeenCalledTimes(2));
+    // USDC's new price lands. The token's read is still out.
+    await act(async () => releaseUsdc(ok(0.01)));
+    expect(screen.getByText('Reading the token and its pools again…')).toBeInTheDocument();
+    // No price is shown as the market price, and nothing is compared with one.
+    expect(market(panel)).not.toHaveTextContent('1 token =');
+    expect(market(panel)).toHaveTextContent(/^Market price in USDC: reading the price of USDC from Jupiter…$/);
+    expect(price(panel)).toHaveAttribute('data-price', 'unread');
+    expect(price(panel)).toHaveTextContent('Your opening price: 1 token = 2 USDC. It is not checked: the market price has not been read.');
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
+    // Nothing on the form can move the amounts to a price while one is being read.
+    expect(matchButton(panel)).toBeDisabled();
+    expect(within(panel).getAllByRole('button', { name: 'Match the market price' })).toHaveLength(1);
+    fireEvent.click(matchButton(panel));
+    expect(within(panel).queryByRole('button', { name: 'Use the most both balances allow' })).toBeNull();
+    expect(coinBox(panel, 'USDC')).toHaveValue('50');
+    expect(tokens(panel)).toHaveValue('25');
+    expect(reviewButton(panel)).toBeDisabled();
+    // The token's new price lands: 0.02 over 0.01 is 2 USDC, the price of one moment.
+    await act(async () => releaseToken(ok(0.02)));
+    await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
+    expect(price(panel)).toHaveAttribute('data-price', 'agrees');
+    expect(matchButton(panel)).toBeEnabled();
+    type(tokens(panel), '30');
+    fireEvent.click(matchButton(panel));
+    expect(coinBox(panel, 'USDC')).toHaveValue('60');
+  }, LONG);
+
+  // The same rule on SOL, where there is one price: while it is read again Match is off.
+  // An opening price off the market has a second Match button, under its warning, and
+  // that one must do nothing either.
+  it('on SOL too: while the market price is read again Match is off, and the Match under the price warning does nothing', async () => {
+    let release!: (p: OutsidePrice) => void;
+    let held = false;
+    const token = vi.fn(() => (held ? new Promise<OutsidePrice>((res) => (release = res)) : Promise.resolve(ok(TOKEN_SOL))));
+    mount(readers({ outsidePrice: vi.fn(() => token()) }));
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    // 2 SOL for 100 tokens is 0.02 SOL a token: 100% above the market's 0.01.
+    type(coinBox(panel, 'SOL'), '2');
+    type(tokens(panel), '100');
+    expect(price(panel)).toHaveAttribute('data-price', 'disagrees');
+    const underWarning = () => within(within(panel).getByTestId('lp-create-warnings')).getByRole('button', { name: 'Match the market price' });
+    expect(matchButton(panel)).toBeEnabled();
+    held = true;
+    fireEvent.click(within(within(panel).getByTestId('lp-create-market-again')).getByRole('button', { name: 'Read the market price again' }));
+    await waitFor(() => expect(token).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Reading the token and its pools again…')).toBeInTheDocument();
+    expect(matchButton(panel)).toBeDisabled();
+    fireEvent.click(matchButton(panel));
+    fireEvent.click(underWarning());
+    // At the old price either press would have made it 1 SOL for 100 tokens.
+    expect(coinBox(panel, 'SOL')).toHaveValue('2');
+    expect(tokens(panel)).toHaveValue('100');
+    // The token doubled: 2 SOL for 100 tokens is the market price now, and Match uses it.
+    await act(async () => release(ok(0.02)));
+    await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 0.02 SOL.'));
+    expect(matchButton(panel)).toBeEnabled();
+    type(tokens(panel), '50');
+    fireEvent.click(matchButton(panel));
+    expect(coinBox(panel, 'SOL')).toHaveValue('1');
+  }, LONG);
+
   // F6: with the guard gone, USDC's late answer took the place of BAYLA's.
   it('a late price answer for a coin that was left is dropped: it never takes the place of the chosen coin’s', async () => {
     let releaseUsdc!: (p: OutsidePrice) => void;
@@ -1118,6 +1202,33 @@ describe('changing the coin is never silent', () => {
     // With the coin's amount in, there is nothing left to ask for.
     expect(status(panel)).not.toHaveTextContent('Now pairing');
   });
+
+  // Review 2026-10-04 (P2). The note asks for the coin's amount once. With that amount in,
+  // it has been answered: emptying the box later, to type another, must not say it again.
+  it.each([
+    ['typed', (panel: HTMLElement) => type(coinBox(panel, 'USDC'), '200')],
+    ['put in by Max USDC', (panel: HTMLElement) => fireEvent.click(within(panel).getByRole('button', { name: 'Max USDC' }))],
+    ['put in by Match the market price', (panel: HTMLElement) => fireEvent.click(matchButton(panel))],
+  ])('the note is said once: after the coin’s amount is %s and the box is emptied again, it is not said again', async (_how, fill) => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    type(coinBox(panel, 'SOL'), '1');
+    type(tokens(panel), '100');
+    await pair(panel, 'USDC');
+    await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
+    expect(status(panel)).toHaveTextContent(/^Now pairing with USDC\. Type the USDC amount again\.$/);
+    fill(panel);
+    expect(coinBox(panel, 'USDC')).not.toHaveValue('');
+    expect(status(panel)).not.toHaveTextContent('Now pairing');
+    type(coinBox(panel, 'USDC'), '');
+    expect(coinBox(panel, 'USDC')).toHaveValue('');
+    expect(status(panel)).not.toHaveTextContent('Now pairing');
+    expect(status(panel)).not.toHaveTextContent('again');
+    // The next change of coin is a new note, and it is said.
+    await pair(panel, 'BAYLA');
+    expect(status(panel)).toHaveTextContent(/^Now pairing with BAYLA\.$/);
+  }, LONG);
 
   it('with nothing typed for the coin, it says the new coin and asks for nothing "again"', async () => {
     mount(readers());

@@ -294,6 +294,16 @@ export function createAdvice(a: {
 }
 
 /**
+ * Did a pool's price check end in a warning: its price is more than 3% off its reference,
+ * or the token has no market price, so it was compared with nothing? Such a pool takes
+ * deposits, and nothing on the page says it "passes the checks": the Open-a-pool card
+ * and its form both say it "takes deposits, with a warning" (review, 2026-10-04).
+ */
+export function priceWarned(health: PoolHealth | undefined): boolean {
+  return health?.price.state === 'disagrees' || health?.price.state === 'no-market';
+}
+
+/**
  * What the Open-a-pool card and its form know about ONE coin the token can be paired
  * with. Each pair is its own question: its own pool to add to first, its own standard
  * address, and whether any pool pairs the token with that coin at all.
@@ -302,6 +312,8 @@ export interface PairFacts {
   coin: QuoteCoin;
   /** The pool to add to first among the pools paired with this coin (`createAdvice`). */
   advice: CreateAdvice;
+  /** The pool `advice` names takes deposits with a warning about its price (`priceWarned`). False when it names none. */
+  warned: boolean;
   /** Did the search read any pool paired with this coin, passing its checks or not? */
   hasPool: boolean;
   /** Whether the search found anything at THIS pair's standard tier-1 address. Prepare decides for good. */
@@ -335,10 +347,14 @@ export function pairFacts(a: {
   advise: boolean;
 }): PairFacts[] {
   const paired = new Set(a.search.kind === 'ok' ? a.search.search.pools.flatMap((e) => (e.kind === 'pool' ? [e.view.quote.mint] : [])) : []);
-  return quotesFor(a.tokenMint).map((coin) => ({
-    coin,
-    advice: a.advise ? createAdvice({ gate: a.gate, search: a.search, healths: a.healths, openedHere: a.openedHere, quote: coin }) : { kind: 'none' },
-    hasPool: paired.has(coin.mint),
-    standard: standardState(a.search, coin),
-  }));
+  return quotesFor(a.tokenMint).map((coin) => {
+    const advice: CreateAdvice = a.advise ? createAdvice({ gate: a.gate, search: a.search, healths: a.healths, openedHere: a.openedHere, quote: coin }) : { kind: 'none' };
+    return {
+      coin,
+      advice,
+      warned: advice.kind !== 'none' && priceWarned(a.healths.get(advice.pool.address)),
+      hasPool: paired.has(coin.mint),
+      standard: standardState(a.search, coin),
+    };
+  });
 }

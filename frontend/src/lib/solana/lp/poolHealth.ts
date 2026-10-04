@@ -96,11 +96,16 @@ export interface PoolHealth {
 
 /**
  * Who can have frozen one of a pool's vaults. A SOL pool has one vault anyone can freeze,
- * the token's. A pool paired with a coin that has an issuer (USDC) has two, and the read
- * does not say which is frozen, so the words must not blame the token for it.
+ * the token's. A pool paired with a coin whose issuer can freeze accounts (USDC) has two,
+ * and the read does not say which is frozen, so the words must not blame the token for it.
+ *
+ * A coin says that its issuer can freeze a pool's account in its own `risk` line
+ * (quotes.ts), and is named here only then. BAYLA is not SOL, but its mint has no freeze
+ * authority: on a BAYLA pool a frozen vault can only be the token's, and BAYLA's issuer
+ * is not named for it. A test pins the two together.
  */
-export function vaultFreezer(quote: Pick<QuoteCoin, 'native' | 'symbol'>): string {
-  return quote.native ? 'the token’s issuer' : `the token’s issuer or ${quote.symbol}’s`;
+export function vaultFreezer(quote: Pick<QuoteCoin, 'risk' | 'symbol'>): string {
+  return quote.risk === null ? 'the token’s issuer' : `the token’s issuer or ${quote.symbol}’s`;
 }
 
 /** Whether money can come out of this pool, from its status bit and its vaults. */

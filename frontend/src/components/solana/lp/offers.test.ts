@@ -428,6 +428,88 @@ describe('createOffer', () => {
       }
     });
 
+    // Review 2026-10-04 (C1). A pool more than 3% off its reference is 'allowed' now, with
+    // a warning. One big pool at a wrong price must not take the place of a smaller pool at
+    // the market: the card would then name a pool it does not suggest, and never the one
+    // worth adding to. Each pool here is judged by the real check, with Jupiter at 0.01 SOL.
+    describe('a pool whose price is off is pointed to only when no other passes', () => {
+      const WHOLE_SOL = 10n ** 9n;
+      const WHOLE_TOKEN = 10n ** 6n;
+      /** A tier-1 pool at its own address holding `sol` SOL and `tokens` tokens. */
+      const poolOf = (sol: bigint, tokens: bigint) => {
+        const s = sol * WHOLE_SOL;
+        const t = tokens * WHOLE_TOKEN;
+        return { kind: 'pool' as const, view: viewOf(buildPool({ mint, quoteReserve: s, tokenReserve: t, configIndex: 1, address: key() }), { sol: s, tok: t }) };
+      };
+      /** 40 SOL and 1,000 tokens: 0.04 SOL a token, 300% above the market. */
+      const bigOff = () => poolOf(40n, 1_000n);
+      /** 10 SOL and 1,000 tokens: 0.01 SOL a token, the market price. */
+      const atMarket = () => poolOf(10n, 1_000n);
+      /** The pools, each with the real check's answer for it. */
+      const checked = (pools: ReturnType<typeof poolOf>[], price: Price = 0.01): In => {
+        let a = base();
+        for (const e of pools) a = withPool(a, e);
+        return { ...a, healths: new Map(pools.map((e) => [e.view.address, health(e.view, { price })])) };
+      };
+
+      it('the fixture: the 40 SOL pool is allowed with its price 300% off, the 10 SOL pool agrees', () => {
+        const off = health(bigOff().view);
+        expect(off.deposits.verdict).toBe('allowed');
+        expect(off.price.state).toBe('disagrees');
+        expect(off.deposits.warnings).toEqual(['Its price is 300.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.']);
+        const fair = health(atMarket().view);
+        expect(fair.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
+        expect(fair.price.state).toBe('agrees');
+      });
+
+      it('a 40 SOL pool 300% off beside a 10 SOL pool at the market: the 10 SOL pool is pointed to, wherever it sits in the list', () => {
+        const off = bigOff();
+        const fair = atMarket();
+        for (const order of [[off, fair], [fair, off]]) {
+          const a = checked(order);
+          expect(createOffer(a)).toBe('offer');
+          expect(adviceOf(a)).toEqual({ kind: 'exists', pool: fair.view });
+        }
+      });
+
+      it('the 40 SOL pool alone is pointed to: an off-price pool is named when it is all there is', () => {
+        const off = bigOff();
+        expect(adviceOf(checked([off]))).toEqual({ kind: 'exists', pool: off.view });
+      });
+
+      it('two off-price pools and no other: the bigger of them', () => {
+        const off = bigOff();
+        // 4 SOL and 100 tokens: 0.04 SOL a token as well.
+        const smallOff = poolOf(4n, 100n);
+        for (const order of [[smallOff, off], [off, smallOff]]) expect(adviceOf(checked(order))).toEqual({ kind: 'exists', pool: off.view });
+      });
+
+      it('among the pools whose price is NOT off, it is still the biggest', () => {
+        const off = bigOff();
+        const fair = atMarket();
+        // 5 SOL and 500 tokens: at the market too, and half the size.
+        const smallFair = poolOf(5n, 500n);
+        for (const order of [[off, smallFair, fair], [fair, smallFair, off]]) expect(adviceOf(checked(order))).toEqual({ kind: 'exists', pool: fair.view });
+      });
+
+      it('a pool at the market that is REFUSED is no pool to add to: the off-price pool that passes is the one named', () => {
+        const off = bigOff();
+        const fair = atMarket();
+        const a = checked([fair, off]);
+        const healths = new Map(a.healths).set(fair.view.address, healthOf('refused'));
+        expect(adviceOf({ ...a, healths })).toEqual({ kind: 'exists', pool: off.view });
+      });
+
+      // No market price is not "off": nothing was compared, so there is no pool to prefer over it.
+      it('with no market price at all, the biggest pool is pointed to as before', () => {
+        const big = bigOff();
+        const small = atMarket();
+        const a = checked([small, big], 'no-route');
+        expect(a.healths.get(big.view.address)?.price.state).toBe('no-market');
+        expect(adviceOf(a)).toEqual({ kind: 'exists', pool: big.view });
+      });
+    });
+
     it('a pool this tab opened is pointed to first, whatever its own health, and still does not stop', () => {
       const mine = poolOn(1, key());
       const theirs = poolOn(1, key(), 5n * SOL);
@@ -564,6 +646,25 @@ describe('createOffer', () => {
         expect(facts(a, { advise: false }).map((x) => x.advice)).toEqual([{ kind: 'none' }, { kind: 'none' }, { kind: 'none' }]);
         // What was read is still said: SOL has a pool.
         expect(facts(a, { advise: false }).map((x) => x.hasPool)).toEqual([true, false, false]);
+      });
+
+      // Review 2026-10-04 (C2). The card and the form say "passes the checks" only of a
+      // pool whose price check simply passed. `warned` is how the form knows: the pool
+      // pointed to has a price that is off, or one that was compared with nothing.
+      it('warned: the pool pointed to has a price that is off, or no market price to be checked against', () => {
+        const sol = poolOn(1);
+        const warnedFor = (price: Price) => {
+          const a = withPool(base(), sol);
+          return facts({ ...a, healths: new Map([[sol.view.address, health(sol.view, { price })]]) }).map((x) => [x.coin.symbol, x.advice.kind, x.warned]);
+        };
+        // The pool is at 0.01 SOL a token.
+        expect(warnedFor(0.01)).toEqual([['SOL', 'exists', false], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
+        expect(warnedFor(0.02)).toEqual([['SOL', 'exists', true], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
+        expect(warnedFor('no-route')).toEqual([['SOL', 'exists', true], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
+        // No pool pointed to, no warning about one: a card that offers nothing names nothing.
+        const off = withPool(base(), sol);
+        const stopped = facts({ ...off, healths: new Map([[sol.view.address, health(sol.view, { price: 0.02 })]]) }, { advise: false });
+        expect(stopped.map((x) => x.warned)).toEqual([false, false, false]);
       });
 
       // Every pair has its own standard address. A SOL pool at the SOL pair's address says

@@ -30,11 +30,12 @@ import { assessPool, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
+import type { Position } from '../../../lib/solana/lp/positions';
 import { buildPool, key, keyStartingWith } from '../../../lib/solana/lp/testkit.fixture';
 import { LP_COPY } from '../../../lib/launcher/solana/write/liquidity';
 import { prepared } from '../curve/fakeWriteApi.fixture';
 import type { LpWriteApi } from '../curve/ports';
-import { fakeLpApi, lpDepositSummary, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import { fakeLpApi, lpDepositSummary, lpOpenGate, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
 
 const OWNER = key();
 const wallet = vi.hoisted(() => ({
@@ -158,8 +159,8 @@ const healthOf = (v: PoolView, o: { token?: OutsidePrice; safety?: TokenSafety }
 
 const notSent = () => vi.fn(async () => ({ ok: false as const, outcome: { status: 'not-sent' as const, stage: 'build' as const, message: 'x' } }));
 
-function mount(r: LpReaders, api: LpWriteApi = fakeLpApi({ prepareLpDeposit: notSent() })) {
-  const writes: LpWritesOverrides = { mode: 'on', load: vi.fn(async () => api), gateRpc: unusedGateRpc };
+function mount(r: LpReaders, api: LpWriteApi = fakeLpApi({ prepareLpDeposit: notSent() }), mode: LpWritesOverrides['mode'] = 'on') {
+  const writes: LpWritesOverrides = { mode, load: vi.fn(async () => api), gateRpc: unusedGateRpc };
   render(
     <MemoryRouter initialEntries={[`/pools?mint=${M}`]}>
       <LpInner readers={r} writes={writes} />
@@ -471,4 +472,181 @@ describe('a launch pool whose price is off its own average', () => {
     expect(said()).toEqual([OWN, cost]);
     expect(cost).toBe(LP_COPY.priceGapLoss('0.011035165 SOL', 'its own average'));
   });
+});
+
+// ── What the review of these forms found (2026-10-04) ───────────────────────────────────
+
+/** The finder's own Read again: the token, its pools and every price are read again. */
+const readAgain = () => fireEvent.click(within(screen.getByRole('button', { name: 'Find pools' }).parentElement!).getByRole('button', { name: 'Read again' }));
+/** The open Add form, and every line of its warnings block: the heading first. */
+const form = () => screen.getByTestId('lp-add-panel');
+const formLines = () => Array.from(within(form()).getByTestId('lp-add-warnings').querySelectorAll('p')).map((p) => p.textContent);
+const NOT_NOW_HEAD = 'This pool’s checks no longer let a deposit through (its card above says why). Its warnings:';
+const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+// An open form stays open when its pool is read again (an outcome on it must not vanish).
+// So it can sit under a card that now says "refused" or "not checked", and there "You can
+// still add" was false: it is said only while the pool's check says a deposit is allowed.
+describe('an Add form left open while its pool stops taking deposits', () => {
+  it('Jupiter fails on a re-read: the card says "not checked", and the form no longer says "You can still add"', async () => {
+    const v = view(USDC_QUOTE);
+    const o = { safety: freezableCopy };
+    let jupiterDown = false;
+    const r = readers(v, o);
+    r.outsidePrice = vi.fn(async (mint: string): Promise<OutsidePrice> => {
+      if (jupiterDown) return { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' };
+      return mint === M ? tokenAt(USDC_QUOTE, 1) : { kind: 'ok', solPerToken: COIN_IN_SOL, source: 'Jupiter' };
+    });
+    mount(r);
+    const c = await cardWith('offer');
+    await openAdd(c, USDC_QUOTE);
+    // At the market: the token's two warnings (a copy, and one its creator can freeze).
+    const tokenWarnings = healthOf(v, o).deposits.warnings;
+    expect(tokenWarnings).toHaveLength(2);
+    expect(formLines()).toEqual([HEAD, ...tokenWarnings]);
+
+    jupiterDown = true;
+    readAgain();
+    await waitFor(() => expect(c).toHaveAttribute('data-deposits', 'unchecked'));
+    expect(c).toHaveAttribute('data-add', 'checks');
+    expect(within(c).getByText('Deposits: not checked')).toBeInTheDocument();
+    // The form is still open, under that card, and its warnings are still said.
+    expect(c).toContainElement(form());
+    expect(formLines()).toEqual([NOT_NOW_HEAD, ...tokenWarnings]);
+    expect(form()).not.toHaveTextContent('You can still add');
+
+    // Jupiter answers again: the pool takes deposits again, and the form says so again.
+    jupiterDown = false;
+    readAgain();
+    await waitFor(() => expect(c).toHaveAttribute('data-deposits', 'allowed'));
+    expect(formLines()).toEqual([HEAD, ...tokenWarnings]);
+  }, 20_000);
+
+  it('a vault is frozen on a re-read: the card says "refused here", and the form no longer says "You can still add"', async () => {
+    const v = view(USDC_QUOTE);
+    let frozen = false;
+    const r = readers(v, { token: tokenAt(USDC_QUOTE, 1.1) });
+    r.findPools = vi.fn(async () => search(frozen ? { ...v, vaultsFrozen: true } : v));
+    mount(r);
+    const c = await cardWith('offer');
+    await openAdd(c, USDC_QUOTE);
+    expect(formLines()).toEqual([HEAD, PRICE_10_ABOVE, TYPE_FIRST]);
+
+    frozen = true;
+    readAgain();
+    await waitFor(() => expect(c).toHaveAttribute('data-deposits', 'refused'));
+    expect(within(c).getByText('Deposits: refused here')).toBeInTheDocument();
+    expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
+    expect(c).toContainElement(form());
+    expect(formLines()).toEqual([NOT_NOW_HEAD, PRICE_10_ABOVE, TYPE_FIRST]);
+    expect(form()).not.toHaveTextContent('You can still add');
+  }, 20_000);
+});
+
+// The line was chosen on "there is no plan yet". There is also no plan when the amount in
+// the box is more than the wallet holds, is zero, or is not a number.
+describe('"Type an amount" is said only while nothing is typed', () => {
+  it('on a pool whose price is off: said with the box empty, never with an amount in it', async () => {
+    mount(readers(view(USDC_QUOTE), { token: tokenAt(USDC_QUOTE, 1.1) }));
+    const { panel, type, review, said } = await openAdd(await cardWith('offer'), USDC_QUOTE);
+    expect(said()).toEqual([PRICE_10_ABOVE, TYPE_FIRST]);
+    // The wallet holds 250 USDC.
+    for (const [what, text] of [
+      ['more than the wallet holds', '1000'],
+      ['zero', '0'],
+      ['not a number', 'abc'],
+    ] as const) {
+      type(text);
+      expect(within(panel).getByLabelText('USDC to add'), what).toHaveValue(text);
+      // The pool's own warning stays. Nothing asks for an amount that is already there.
+      expect(said(), what).toEqual([PRICE_10_ABOVE]);
+      expect(panel, what).not.toHaveTextContent(TYPE_FIRST);
+      expect(review(), what).toBeDisabled();
+    }
+    type('');
+    expect(said()).toEqual([PRICE_10_ABOVE, TYPE_FIRST]);
+    // An amount the wallet can cover gets the estimate in that line's place.
+    type('100');
+    expect(said()).toEqual([PRICE_10_ABOVE, LP_COPY.priceGapLoss('0.214427 USDC', 'the outside price')]);
+    expect(review()).toBeEnabled();
+  }, 20_000);
+});
+
+// The owner's rule for these forms (panelKit.ts `NOTES_BELOW`): long notes above the amount
+// boxes filled a phone's first screens, and the form read as if it were not there. On the
+// card a warning is read before the button it is about.
+describe('where the warnings sit', () => {
+  it('on the card before the Add liquidity button; in the form under both amount boxes and above Review', async () => {
+    mount(readers(view(USDC_QUOTE), { token: tokenAt(USDC_QUOTE, 1.1), safety: freezableCopy }));
+    const c = await cardWith('offer');
+    const onCard = within(c).getByTestId('lp-pool-warnings');
+    expect(onCard.querySelectorAll('p')).toHaveLength(3);
+    expect(before(onCard, within(c).getByRole('button', { name: 'Add liquidity' }))).toBe(true);
+
+    const { panel, review } = await openAdd(c, USDC_QUOTE);
+    // The form opens under that button, so the card's warnings are above the form too.
+    expect(before(onCard, panel)).toBe(true);
+    const inForm = within(panel).getByTestId('lp-add-warnings');
+    expect(inForm.querySelectorAll('p')).toHaveLength(5);
+    expect(before(within(panel).getByLabelText('USDC to add'), inForm)).toBe(true);
+    expect(before(within(panel).getByLabelText('Tokens to add'), inForm)).toBe(true);
+    expect(before(inForm, review())).toBe(true);
+  }, 20_000);
+});
+
+// The heading is about the CHECKS, so it is true whether or not this site takes deposits
+// right now. "Deposits: open, with warnings" was not true while adding is paused.
+describe('the card’s heading while adding is paused', () => {
+  it('an allowed pool with a warning: "the checks pass, with warnings", no Add button, and nothing says deposits are open', async () => {
+    const api = fakeLpApi({ gate: lpOpenGate({ mode: 'withdraw-only' }) });
+    mount(readers(view(SOL_QUOTE), { token: tokenAt(SOL_QUOTE, 1.1) }), api, 'withdraw-only');
+    const c = await cardWith('paused-here');
+    expect(c).toHaveAttribute('data-deposits', 'allowed');
+    const deposits = within(c).getByTestId('lp-pool-deposits');
+    expect(within(deposits).getByText('Deposits: the checks pass, with warnings')).toHaveClass('text-amber-300/90');
+    expect(within(deposits).getByTestId('lp-pool-warnings')).toHaveTextContent(PRICE_10_ABOVE);
+    expect(deposits).toHaveTextContent('Adding liquidity from this site is paused. Removing it still works.');
+    expect(deposits).not.toHaveTextContent(/\bopen\b/i);
+    expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+  });
+});
+
+// A pool has two vaults, and the read does not say which one is frozen. USDC's issuer can
+// freeze the USDC one, so on a USDC pool the words said before signing must not blame the
+// token alone. SOL has no issuer, and BAYLA's mint has no freeze authority (quotes.ts): on
+// those pools a frozen vault can only be the token's.
+describe('a frozen vault: who can have frozen it', () => {
+  const position = (v: PoolView): Position => ({
+    lpMint: v.snapshot.pool.lpMint,
+    lpAccount: key().toBase58(),
+    lpAmount: 250_000n,
+    placement: 'found',
+    placementDetail: null,
+    pool: { kind: 'pool', view: v },
+    value: { token0: 1n, token1: 2n, sharePct: 25 },
+    tooSmall: false,
+  });
+
+  it.each([
+    ['SOL', 'the token’s issuer', SOL_QUOTE],
+    ['USDC', 'the token’s issuer or USDC’s', USDC_QUOTE],
+    ['BAYLA', 'the token’s issuer', BAYLA_QUOTE],
+  ] as const)('a %s pool: the deposit reason, the card’s Withdrawals row and the position’s Withdrawals row say "%s"', async (_symbol, who, coin) => {
+    const v = view(coin, { frozen: true });
+    const r = readers(v);
+    r.positions = vi.fn(async () => ({ kind: 'ok' as const, chainNow: 1_000n, totalShares: 1, positions: [position(v)] }));
+    mount(r);
+    const c = await cardWith('checks');
+    expect(c).toHaveAttribute('data-deposits', 'refused');
+    expect(c).toHaveAttribute('data-withdrawals', 'vault-frozen');
+    // Each is the whole sentence: nothing after "issuer" on a pool whose coin nobody can freeze.
+    expect(within(within(c).getByTestId('lp-pool-deposits')).getByText(`One of this pool’s vaults is frozen by ${who}, so nothing can move in or out of it.`)).toHaveClass('text-rose-300/90');
+    expect(cardRow(c, 'Withdrawals')).toBe(`Blocked: one of the pool’s vaults is frozen by ${who}`);
+    const row = await screen.findByTestId('lp-position');
+    await waitFor(() => expect(row).toHaveAttribute('data-remove', 'vault-frozen'));
+    expect(within(row).getByText('Withdrawals').nextElementSibling?.textContent).toBe(`blocked: a pool vault is frozen by ${who}`);
+    // The coin is named as a possible freezer on the USDC pool only.
+    for (const el of [c, row]) expect(/issuer or (SOL|USDC|BAYLA)’s/.test(el.textContent ?? '')).toBe(coin === USDC_QUOTE);
+  }, 20_000);
 });

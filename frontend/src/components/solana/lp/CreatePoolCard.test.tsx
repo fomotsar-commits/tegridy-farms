@@ -43,16 +43,19 @@ const MINT = key();
 const M = MINT.toBase58();
 const SIG = '4'.repeat(88);
 
-/** A TOKEN/SOL pool for MINT. `tier1` puts it on the public tier; otherwise its tier is a stranger key (index 0). */
-function view(o: { tier1?: boolean; openTime?: bigint; address?: PublicKey } = {}): PoolView {
-  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, quoteReserve: 10n * 10n ** 9n, tokenReserve: 1_000n * 10n ** 6n, openTime: o.openTime ?? 1n });
+/**
+ * A TOKEN/SOL pool for MINT: 10 SOL and 1,000 tokens (0.01 SOL a token) unless `sol` says
+ * otherwise. `tier1` puts it on the public tier; otherwise its tier is a stranger key (index 0).
+ */
+function view(o: { tier1?: boolean; openTime?: bigint; address?: PublicKey; sol?: bigint } = {}): PoolView {
+  const s = o.sol ?? 10n * 10n ** 9n;
+  const t = 1_000n * 10n ** 6n;
+  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, quoteReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n });
   const raw = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const pool = { ...raw, ammConfig: o.tier1 ? TIER1_ADDRESS.toBase58() : raw.ammConfig };
   const decoded = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data)!;
   const config = { ...decoded, index: o.tier1 ? 1 : 0 };
   const quoteIsToken0 = pool.token0Mint.startsWith('So111');
-  const s = 10n * 10n ** 9n;
-  const t = 1_000n * 10n ** 6n;
   return {
     address: b.address.toBase58(),
     origin: 'other',
@@ -131,6 +134,10 @@ async function settled(state: string) {
   await waitFor(() => expect(c).toHaveAttribute('data-create', state));
   return c;
 }
+/** What an element says, as one line: for a sentence that must be exactly these words and no more. */
+const said = (el: HTMLElement) => (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+/** One pool's own card, by the pool's address. */
+const poolCard = (address: string) => screen.getAllByTestId('lp-pool').find((c) => c.getAttribute('data-pool') === address)!;
 
 beforeEach(() => {
   sessionStorage.clear();
@@ -287,6 +294,102 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(await within(c).findByRole('button', { name: 'Add liquidity to that pool' })).toHaveClass('btn-primary');
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toHaveClass('btn-secondary');
   });
+
+  // Review 2026-10-04 (C1). A pool at a wrong price takes deposits now, so it used to be
+  // "the biggest passing pool": the card named it, did not suggest it, and never showed the
+  // smaller pool at the market or a way into it.
+  it('a big pool at a wrong price beside a smaller one at the market: the card suggests the pool at the market, and its Add button opens THAT pool’s form', async () => {
+    const atMarket = view({ tier1: true });
+    // 40 SOL against the same 1,000 tokens: 0.04 SOL a token, 300% above Jupiter's 0.01.
+    const off = view({ tier1: true, address: key(), sol: 40n * 10n ** 9n });
+    // Listed biggest first, as the real lookup lists them.
+    mount(readers({ findPools: vi.fn(async () => search([off, atMarket])) }));
+    const c = await settled('offer');
+    await waitFor(() => expect(poolCard(off.address)).toHaveAttribute('data-price', 'disagrees'));
+    expect(poolCard(off.address)).toHaveAttribute('data-deposits', 'allowed');
+    expect(poolCard(atMarket.address)).toHaveAttribute('data-price', 'agrees');
+    expect(said(within(c).getByTestId('lp-create-refer'))).toBe(
+      `This token already has a pool on the public fee tier that passes the checks (above). The biggest is ${atMarket.address}, holding 10 SOL. We suggest adding to it: liquidity in one place gives traders a better price.`,
+    );
+    // The off-price pool is not the one this card sends anyone to.
+    expect(c).not.toHaveTextContent(off.address);
+    expect(c).not.toHaveTextContent('40 SOL');
+    expect(c).not.toHaveTextContent('we do not suggest adding to it');
+    // One Add button, the first choice, and it is the at-market pool's.
+    const add = await within(c).findByRole('button', { name: 'Add liquidity to that pool' });
+    expect(within(c).getAllByRole('button', { name: /^Add liquidity to/ })).toHaveLength(1);
+    expect(add).toHaveClass('btn-primary');
+    fireEvent.click(add);
+    const panel = await screen.findByTestId('lp-add-panel');
+    expect(poolCard(atMarket.address)).toContainElement(panel);
+    expect(poolCard(off.address)).not.toContainElement(panel);
+    expect(within(panel).getByText('Pool', { exact: true }).nextElementSibling).toHaveTextContent(atMarket.address);
+  }, 20_000);
+
+  // Review 2026-10-04 (C2). What the card says of the pool it points to, by what the
+  // price check found. Only a price that AGREES is "passes the checks" and "we suggest".
+  // No market price: nothing was compared, so neither is said, and its Add button stays
+  // (for a token with no market the pool that exists may be the right place). Off its
+  // reference: neither is said, and this card puts no Add button for it.
+  const NO_ROUTE = { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' };
+  const jupiter = (solPerToken: number) => ({ kind: 'ok' as const, solPerToken, source: 'Jupiter' as const });
+  const PASSES = 'that passes the checks (above)';
+  const WARNED = 'that takes deposits, with a warning (above)';
+  it.each([
+    {
+      name: 'its price agrees',
+      outside: jupiter(0.01),
+      state: 'agrees',
+      how: PASSES,
+      line: 'We suggest adding to it: liquidity in one place gives traders a better price.',
+      add: true,
+    },
+    {
+      name: 'the token has no market price',
+      outside: NO_ROUTE,
+      state: 'no-market',
+      how: WARNED,
+      line: 'Jupiter has no market price for this token, so that pool’s price was not checked against anything. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.',
+      add: true,
+    },
+    {
+      name: 'its price is off',
+      outside: jupiter(0.02),
+      state: 'disagrees',
+      how: WARNED,
+      line: 'Its price is 50.0% below the price it is checked against (its card above shows both), so we do not suggest adding to it now: a deposit there would pay for that gap.',
+      add: false,
+    },
+  ])('what the card says of the pool it points to, when $name (price check: $state)', async ({ outside, state, how, line, add }) => {
+    const theirs = view({ tier1: true });
+    mount(readers({ findPools: vi.fn(async () => search([theirs])), outsidePrice: vi.fn(async () => outside) }));
+    const c = await settled('offer');
+    const pool = screen.getByTestId('lp-pool');
+    await waitFor(() => expect(pool).toHaveAttribute('data-add', 'offer'));
+    expect(pool).toHaveAttribute('data-price', state);
+    const refer = within(c).getByTestId('lp-create-refer');
+    expect(said(refer)).toBe(`This token already has a pool on the public fee tier ${how}. The biggest is ${theirs.address}, holding 10 SOL. ${line}`);
+    // Only a price that agrees is called passing, and only that pool is suggested.
+    expect(refer.textContent?.includes('passes the checks')).toBe(state === 'agrees');
+    expect(refer.textContent?.includes('We suggest adding to it')).toBe(state === 'agrees');
+    const addButtons = within(c).queryAllByRole('button', { name: 'Add liquidity to that pool' });
+    expect(addButtons).toHaveLength(add ? 1 : 0);
+    if (add) expect(addButtons[0]).toBeEnabled();
+    // Whatever the card says of that pool, opening another stays offered. The form under
+    // the card says of that pool what the card says: it never "passes the checks" there
+    // when the card, one line above, says it takes deposits with a warning.
+    fireEvent.click(within(c).getByRole('button', { name: 'Open a pool' }));
+    const form = await screen.findByTestId('lp-create-panel');
+    const inForm = how === PASSES ? 'that passes the checks' : 'that takes deposits, with a warning';
+    expect(said(within(form).getByTestId('lp-create-advice'))).toBe(
+      `This token already has a pool ${inForm} (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.`,
+    );
+    // The card's Add button, where there is one, opens that pool's own form.
+    if (add) {
+      fireEvent.click(addButtons[0]!);
+      expect(pool).toContainElement(await screen.findByTestId('lp-add-panel'));
+    }
+  }, 20_000);
 
   it('pools-unread: an index outage; Read again searches again', async () => {
     const r = readers({ findPools: vi.fn(async () => search([], { index: { kind: 'unread', detail: 'HTTP 502' } })) });

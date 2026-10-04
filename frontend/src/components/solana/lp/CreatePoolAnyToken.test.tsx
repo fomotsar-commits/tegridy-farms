@@ -365,6 +365,46 @@ describe('one warning at a time, on SOL', () => {
   });
 });
 
+// Review 2026-10-04 (A1). The warnings are plain paragraphs, in no live region, so someone
+// who tabs from the boxes to Review with a screen reader never heard the token's lines.
+// Review is described by their block, as on the Add form. With no warnings it names no
+// block: an id that points at nothing is not left on the button.
+describe('Review is described by the warnings above it', () => {
+  it('a token with a warning: the button’s aria-describedby is the warnings block, and its description is the warning', async () => {
+    mount(readers(freezable));
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    const warnings = within(panel).getByTestId('lp-create-warnings');
+    expect(warnings.id).not.toBe('');
+    expect(document.getElementById(warnings.id)).toBe(warnings);
+    expect(reviewButton(panel)).toHaveAttribute('aria-describedby', warnings.id);
+    // What a screen reader says with the button: the block's own words.
+    const [freezeLine] = tokenReasons(freezable, 'pools').warned;
+    expect(reviewButton(panel)).toHaveAccessibleDescription(freezeLine!);
+  });
+
+  it('a clean token: described by nothing; a price typed off the market brings the block and the description, and back at the market both go', async () => {
+    mount(readers(clean));
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
+    expect(reviewButton(panel)).not.toHaveAttribute('aria-describedby');
+    // 2 SOL for 100 tokens is 0.02 SOL a token: 100% above the market's 0.01.
+    type(coinBox(panel, 'SOL'), '2');
+    type(tokens(panel), '100');
+    const warnings = within(panel).getByTestId('lp-create-warnings');
+    expect(warnings.id).not.toBe('');
+    expect(reviewButton(panel)).toHaveAttribute('aria-describedby', warnings.id);
+    expect(reviewButton(panel)).toHaveAccessibleDescription(
+      expect.stringContaining('Your opening price is 100.0% above the market price (Jupiter). The first trades would move it to the market price, at your cost.'),
+    );
+    expect(reviewButton(panel)).toBeEnabled();
+    type(coinBox(panel, 'SOL'), '1');
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
+    expect(reviewButton(panel)).not.toHaveAttribute('aria-describedby');
+  });
+});
+
 describe('what still stops an opening', () => {
   it('a token that charges a transfer fee is refused in the checker’s own words, and no form can be opened for it', async () => {
     const r = readers(feeToken);
