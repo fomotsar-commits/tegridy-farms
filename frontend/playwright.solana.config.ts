@@ -22,10 +22,15 @@ import { defineConfig, devices } from '@playwright/test';
 //
 // One worker, one browser: every spec moves money on one shared chain, in order.
 // ─────────────────────────────────────────────────────────────────────────
-const PORT = 4180;
+// The port and the output folder can be set from outside, because this machine runs
+// several checkouts at once: two runs sharing one port or one build folder would each
+// test the other's code. E2E_SOLANA_PORT (default 4180) and E2E_SOLANA_OUT (default
+// <temp>/tegridy-solana-e2e). A port already in use is never adopted: see webServer below.
+const PORT = Number(process.env.E2E_SOLANA_PORT ?? 4180);
+if (!Number.isInteger(PORT) || PORT < 1024 || PORT > 65535) throw new Error(`E2E_SOLANA_PORT is "${process.env.E2E_SOLANA_PORT}", not a port`);
 // Build output and reports live OUTSIDE frontend/: `npm run lint` is `eslint .` with only
 // dist/ ignored, so a minified build or an HTML report left in the tree would fail lint.
-const OUT = path.join(os.tmpdir(), 'tegridy-solana-e2e');
+const OUT = process.env.E2E_SOLANA_OUT ? path.resolve(process.env.E2E_SOLANA_OUT) : path.join(os.tmpdir(), 'tegridy-solana-e2e');
 const DIST = path.join(OUT, 'dist');
 const LOCALNET = process.env.E2E_SOLANA_RPC ?? 'http://127.0.0.1:8899';
 
@@ -73,7 +78,9 @@ export default defineConfig({
   webServer: {
     command: `npx vite build --mode solana-e2e --outDir "${DIST}" --emptyOutDir && npx vite preview --mode solana-e2e --outDir "${DIST}" --port ${PORT} --strictPort`,
     port: PORT,
-    // Never reuse: a server left over from another build would test other code.
+    // Never reuse: a server left over from another build would test other code. With this
+    // off, Playwright stops with "already used" when anything answers on the port, and
+    // --strictPort stops vite from quietly moving to the next one.
     reuseExistingServer: false,
     timeout: 900_000,
     env: buildEnv,

@@ -14,6 +14,7 @@ import { LP_KINDS } from './lpKinds';
 import { plantInstructions } from './plant';
 import { AMM_CONFIG, CPSWAP, cfgLocal } from './testkit.fixture';
 import type { LpKind, PoolPins } from './types';
+import { SOL_QUOTE } from '../../../solana/lp/quotes';
 
 const ME = Keypair.generate().publicKey;
 
@@ -36,7 +37,8 @@ function pins(): PoolPins {
     observation: deriveObservation(CPSWAP, address),
     tokenMint,
     tokenProgram: TOKEN_PROGRAM_ID,
-    solIsToken0: token0.equals(WSOL_MINT),
+    quote: SOL_QUOTE,
+    quoteIsToken0: token0.equals(WSOL_MINT),
     lpAccount: associatedTokenAddress(lpMint, ME, TOKEN_PROGRAM_ID),
   };
 }

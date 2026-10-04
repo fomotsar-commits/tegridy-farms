@@ -131,7 +131,9 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
         : tone === 'good'
           ? 'text-emerald-300/90'
           : 'text-white/55';
-  return <p className={cls}>{children}</p>;
+  // A 44-character address has no place to break: without this it ran off the right edge
+  // of a phone and lost its last characters (phone walk, 2026-10-03).
+  return <p className={`${cls} [overflow-wrap:anywhere]`}>{children}</p>;
 }
 
 /** The price impact row, and its warning when it is large or could not be computed. Form and review alike. */

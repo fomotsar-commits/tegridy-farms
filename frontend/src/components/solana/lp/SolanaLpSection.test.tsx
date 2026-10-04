@@ -5,6 +5,7 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
@@ -22,20 +23,21 @@ const MINT = key();
 const M = MINT.toBase58();
 
 function view(o: { address?: PublicKey; configIndex?: number; sol?: bigint; tok?: bigint; openTime?: bigint; origin?: PoolView['origin']; status?: number; frozen?: boolean; noConfig?: boolean } = {}): PoolView {
-  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: o.configIndex ?? 1, solReserve: o.sol ?? 10n * 10n ** 9n, tokenReserve: o.tok ?? 1_000n * 10n ** 6n, openTime: o.openTime ?? 1n, status: o.status });
+  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: o.configIndex ?? 1, quoteReserve: o.sol ?? 10n * 10n ** 9n, tokenReserve: o.tok ?? 1_000n * 10n ** 6n, openTime: o.openTime ?? 1n, status: o.status });
   const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const config = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data);
-  const solIsToken0 = pool.token0Mint.startsWith('So111');
+  const quoteIsToken0 = pool.token0Mint.startsWith('So111');
   const s = o.sol ?? 10n * 10n ** 9n;
   const t = o.tok ?? 1_000n * 10n ** 6n;
   return {
     address: b.address.toBase58(),
     origin: o.origin ?? 'other',
-    snapshot: { pool, vault0Amount: solIsToken0 ? s : t, vault1Amount: solIsToken0 ? t : s, reserve0: solIsToken0 ? s : t, reserve1: solIsToken0 ? t : s },
+    snapshot: { pool, vault0Amount: quoteIsToken0 ? s : t, vault1Amount: quoteIsToken0 ? t : s, reserve0: quoteIsToken0 ? s : t, reserve1: quoteIsToken0 ? t : s },
     config: o.noConfig ? null : config,
     tokenMint: M,
-    solIsToken0,
-    solReserve: s,
+    quote: SOL_QUOTE,
+    quoteIsToken0,
+    quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: o.frozen ?? false,
     history: { kind: 'not-read' },
@@ -52,7 +54,7 @@ function search(views: PoolView[], extra: Partial<Extract<PoolSearchRead, { kind
     kind: 'ok',
     search: {
       mint: M,
-      known: { launchPool: key().toBase58(), standard: [{ index: 1, config: key().toBase58(), address: key().toBase58() }, { index: 0, config: key().toBase58(), address: key().toBase58() }] },
+      known: { launchPool: key().toBase58(), standard: [{ index: 1, config: key().toBase58(), address: key().toBase58(), quote: SOL_QUOTE.mint }, { index: 0, config: key().toBase58(), address: key().toBase58(), quote: SOL_QUOTE.mint }] },
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
@@ -191,8 +193,9 @@ describe('the LP section', () => {
     const s = search([], { index: { kind: 'ok', pools: [], truncated: true } });
     mount(readers({ findPools: vi.fn(async () => s) }));
     const none = await screen.findByTestId('lp-no-pools');
-    expect(none).not.toHaveTextContent('No TOKEN/SOL pools found for this token.');
-    expect(none).toHaveTextContent(/may be more/);
+    // The plain "none found" line (see the next test) must not be what a cut list says.
+    expect(none).not.toHaveTextContent(/No pools pairing this token with SOL, USDC or BAYLA found\./);
+    expect(none).toHaveTextContent('None of the pools our index returned pairs this token with SOL, USDC or BAYLA. It returned its maximum, so there may be more.');
     expect(screen.getByTestId('lp-index-truncated')).toHaveClass('text-amber-300/90');
     expect(screen.getByTestId('lp-status')).toHaveTextContent(/returned its maximum/);
   });
@@ -245,7 +248,7 @@ describe('what a trade costs, on the tiers mainnet holds (recorded)', () => {
     ...v,
     config: recordedTier(0),
     // The launch program charges the creator in SOL: OnlyToken0 when SOL is token 0.
-    snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, enableCreatorFee, creatorFeeOn: v.solIsToken0 ? 1 : 2 } },
+    snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, enableCreatorFee, creatorFeeOn: v.quoteIsToken0 ? 1 : 2 } },
   });
 
   it('the fee-tier card: a launch pool on tier 0 costs 0.3% a trade, the creator fee has its own row, tier 1 costs 1%', async () => {
@@ -338,7 +341,7 @@ describe('your positions', () => {
     const aside = await screen.findByTestId('lp-positions-set-aside');
     const rows = within(aside).getAllByTestId('lp-position');
     expect(rows.map((r) => r.getAttribute('data-pool-kind'))).toEqual(['other-pair', 'absent', 'not-a-pool']);
-    expect(rows[0]).toHaveTextContent(/Neither side of this pool is SOL/);
+    expect(rows[0]).toHaveTextContent("Neither side of this pool is SOL, USDC or BAYLA. This site does not show those pools, so nothing about it is checked here.");
     expect(rows[0]).toHaveTextContent(t0);
     expect(rows[1]).toHaveTextContent(/could not be confirmed on chain/);
     expect(rows[2]).toHaveTextContent(/not owned by the pool program/);

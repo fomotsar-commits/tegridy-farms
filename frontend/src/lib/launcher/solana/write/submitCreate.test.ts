@@ -43,7 +43,8 @@ async function preparedOneOff(): Promise<{ chain: FakeChain; p: PreparedTx }> {
   const r = await prepareLpCreate(W(chain), OPEN, { outsidePrice: async () => ({ kind: 'ok', solPerToken: 0.01, source: 'Jupiter' }) }, {
     owner: ME,
     tokenMint: mint,
-    sol: 1_000_000_000n,
+    quoteMint: WSOL_MINT,
+    quote: 1_000_000_000n,
     token: 100_000_000n,
     shown: { terms: TERMS, standard: 'empty' },
   });

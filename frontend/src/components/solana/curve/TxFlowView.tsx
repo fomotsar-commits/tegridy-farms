@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode, type Ref } from 'react';
+import { useEffect, useId, useRef, type ReactNode, type Ref } from 'react';
 import { describeTreasury, formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
 import { ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
@@ -7,6 +7,7 @@ import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
 import type { ReviewState, TxFlow } from './useTxFlow';
+import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 
 // What the user sees between pressing a Review button and the chain's answer.
 // Every word here is about THIS transaction, and the numbers come from the
@@ -42,11 +43,13 @@ function tradeLamports(s: TxSummary): bigint | null {
       return s.quote.outAmount;
     case 'create':
       return s.openingBuy ? s.openingBuy.quote.lamportsIn : null;
+    // A pool paired with USDC or BAYLA moves none of the trade in SOL, so a fee has
+    // nothing in lamports to be measured against: it is shown as its own amount.
     case 'lp-deposit':
     case 'lp-withdraw':
-      return s.quoted.sol;
+      return s.quote.native ? s.quoted.quote : null;
     case 'lp-create':
-      return s.put.sol;
+      return s.quote.native ? s.put.quote : null;
     default:
       return null;
   }
@@ -238,11 +241,21 @@ function CreateReserveRows({ summary }: { summary: Extract<TxSummary, { kind: 'c
 // on. A row never falls back to a value the panel was typed into.
 
 type LpSummary = Extract<TxSummary, { kind: 'lp-deposit' | 'lp-withdraw' }>;
+/** Any liquidity summary: each one names the pool's pairing coin (`quote`). */
+type AnyLpSummary = Extract<TxSummary, { kind: 'lp-deposit' | 'lp-withdraw' | 'lp-create' }>;
+const isLpSummary = (s: TxSummary): s is AnyLpSummary => s.kind === 'lp-deposit' || s.kind === 'lp-withdraw' || s.kind === 'lp-create';
 
 // A bound the program enforces, or a count of pool shares, is printed to its last
 // digit: rounding "at most" down, or "you get" either way, would misstate it.
 const solExact = (l: bigint) => `${formatSol(l, 9)} SOL`;
 const unitsExact = (v: bigint, d: number) => tokenText(v, d, d);
+/**
+ * An amount of a pool's pairing coin, in that coin's own decimals: "about" (the page's
+ * usual rounding) and exact (to the last digit). SOL is `SOL` / `solExact`, to the
+ * character; USDC and BAYLA are printed with their own 6 decimals and symbol.
+ */
+const coinAbout = (v: bigint, q: QuoteCoin) => (q.native ? SOL(v) : `${formatTokenAmount(v, q.decimals).text} ${q.symbol}`);
+const coinExact = (v: bigint, q: QuoteCoin) => (q.native ? solExact(v) : `${formatTokenAmount(v, q.decimals, q.decimals).text} ${q.symbol}`);
 
 function poolKindText(s: LpSummary): string {
   switch (s.origin) {
@@ -270,23 +283,81 @@ function shareText(pct: number): string {
   return pct < 0.01 ? '<0.01%' : `${pct.toFixed(2)}%`;
 }
 
+/**
+ * A price further than 3% from what it was checked against (poolHealth.ts
+ * `PRICE_TOLERANCE`; a test pins the two together). It no longer stops a deposit or an
+ * opening, so the price row must not read as a check that passed: it says so in words.
+ */
+const OFF_PRICE = 'That is off by more than 3%.';
+
 function priceText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price']): string {
   switch (p.state) {
-    case 'agrees':
-    case 'disagrees': {
+    case 'agrees': {
       const d = (Math.abs(p.diff) * 100).toFixed(1);
       return p.against === 'outside'
         ? `${d}% ${p.diff >= 0 ? 'above' : 'below'} the outside price (Jupiter), read just now`
         : `${d}% from its own average over the last 30 minutes`;
     }
+    case 'disagrees': {
+      const gap = `${(Math.abs(p.diff) * 100).toFixed(1)}% ${p.diff >= 0 ? 'above' : 'below'}`;
+      return `${gap} ${p.against === 'outside' ? 'the outside price (Jupiter), read just now' : 'its own average over the last 30 minutes'}. ${OFF_PRICE}`;
+    }
     case 'no-trades-yet':
       return 'nobody has traded since the launch program opened it';
     case 'empty-pool':
       return 'not checked: the pool is empty';
+    case 'no-market':
+      return 'not checked against anything: Jupiter has no market price for this token';
     case 'skipped':
     case 'unread':
       return `not checked (${p.detail})`;
   }
+}
+
+type PriceGap = NonNullable<Extract<TxSummary, { kind: 'lp-deposit' }>['priceGap']>;
+/**
+ * What a price that is off is estimated to cost at the amounts going in, in the pool's
+ * OWN coin and that coin's decimals (the builder gives base units of the coin, never
+ * lamports for a USDC or BAYLA pool). An estimate that could not be worked out is said
+ * as that, never shown as 0.
+ */
+const gapCostText = (g: PriceGap, q: QuoteCoin) =>
+  g.lossQuote === null ? 'could not be worked out' : `up to about ${coinExact(g.lossQuote, q)} of what you put in`;
+
+/**
+ * What the builder says must be read before this is signed (`summary.warnings`: a price
+ * that is off and what it may cost, no market price, a copied name, a freezable token).
+ * Only adding and opening carry any. A removal never does: nothing here may give someone
+ * a reason to wait before taking their money out.
+ *
+ * What the pool's pairing coin itself adds to the risks (quotes.ts `risk`: Circle can
+ * freeze a pool's USDC account) is one of them, said last. It was a plain notice far down
+ * the rows, so a clean USDC review had no warnings box and its heading was described by
+ * nothing: someone moving by keyboard reached Sign without hearing it (review, 2026-10-04).
+ * Here it is read out when the review opens, like a token its creator can freeze. It is
+ * said once: the rows below do not repeat it.
+ */
+function reviewWarnings(s: TxSummary): string[] {
+  if (s.kind !== 'lp-deposit' && s.kind !== 'lp-create') return [];
+  return s.quote.risk ? [...s.warnings, s.quote.risk] : s.warnings;
+}
+
+/**
+ * The warnings, first on the review, above every row: on a phone the review is two screens
+ * long, and a warning at the foot of it is read after the decision is made. The review's
+ * heading is described by them, so a screen reader says them when the review opens.
+ */
+function ReviewWarnings({ id, warnings }: { id: string; warnings: string[] }) {
+  return (
+    <div id={id} className="space-y-1" data-testid="tx-review-warnings">
+      <Notice tone="warn">Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:</Notice>
+      <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+        {warnings.map((w, i) => (
+          <li key={`${i}:${w}`}>{w}</li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function LpPoolRows({ summary }: { summary: LpSummary }) {
@@ -301,18 +372,25 @@ function LpPoolRows({ summary }: { summary: LpSummary }) {
 
 function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-deposit' }> }) {
   const tok = (v: bigint) => tokenText(v, s.tokenDecimals);
+  const q = s.quote;
   const limited =
-    s.limitedByBalance === 'token' ? ' (all the tokens you have)' : s.limitedByBalance === 'sol' ? ' (all the SOL you can spend)' : '';
-  const unused = s.max.sol > s.quoted.sol ? s.max.sol - s.quoted.sol : 0n;
+    s.limitedByBalance === 'token'
+      ? ' (all the tokens you have)'
+      : s.limitedByBalance === 'quote'
+        ? q.native ? ' (all the SOL you can spend)' : ` (all the ${q.symbol} you have)`
+        : '';
+  const unused = s.max.quote > s.quoted.quote ? s.max.quote - s.quoted.quote : 0n;
   return (
     <>
       <LpPoolRows summary={s} />
       <Row label="Fee tier" value={feeTierText(s.config, s.enableCreatorFee)} mono={false} />
-      <Row label="You put in about" value={`${SOL(s.quoted.sol)} and ${tok(s.quoted.token)} tokens`} />
-      <Row label="At most" value={`${solExact(s.max.sol)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} />
+      <Row label="Paired with" value={q.symbol} mono={false} />
+      <Row label="You put in about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} />
+      <Row label="At most" value={`${coinExact(s.max.quote, q)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} />
       <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} />
       <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
       <Row label="Price check" value={priceText(s.price)} mono={false} />
+      {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} />}
       <Row label="Pool fee to add" value="none" mono={false} />
       {s.tokenWarnings.length > 0 && (
         <div className="space-y-1">
@@ -330,9 +408,11 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
         </Notice>
       ))}
       <Notice>
-        {s.unwrapsWsol
-          ? 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'
-          : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent. Up to ${solExact(unused)} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`}
+        {!q.native
+          ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped, and what the pool does not use never leaves that account.`
+          : s.unwrapsWsol
+            ? 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'
+            : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent. Up to ${solExact(unused)} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`}
       </Notice>
     </>
   );
@@ -342,13 +422,15 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
   const tok = (v: bigint) => tokenText(v, s.tokenDecimals);
   const shares = (v: bigint) => unitsExact(v, s.lpDecimals);
   const ofYours = sharePercent(s.lpAmount, s.heldBefore);
+  const q = s.quote;
   return (
     <>
       <LpPoolRows summary={s} />
+      <Row label="Paired with" value={q.symbol} mono={false} />
       <Row label="Pool shares you give back" value={`${shares(s.lpAmount)}${ofYours ? ` (${ofYours} of yours)` : ''}`} />
       {s.all && <Notice>This is all of your share in this pool.</Notice>}
-      <Row label="You get about" value={`${SOL(s.quoted.sol)} and ${tok(s.quoted.token)} tokens`} />
-      <Row label="You get at least" value={`${solExact(s.min.sol)} and ${unitsExact(s.min.token, s.tokenDecimals)} tokens`} />
+      <Row label="You get about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} />
+      <Row label="You get at least" value={`${coinExact(s.min.quote, q)} and ${unitsExact(s.min.token, s.tokenDecimals)} tokens`} />
       <Row label="You keep" value={s.keep > 0n ? `${shares(s.keep)} pool shares` : 'none in this pool'} />
       <Row
         label="The tokens arrive in"
@@ -358,7 +440,19 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
             : ''
         }`}
       />
-      <Row label="The SOL arrives" value={s.unwrapsWsol ? 'as plain SOL' : 'as wrapped SOL in the account you already hold'} mono={false} />
+      {/* The coin decides which row this is, not the account: a USDC pool never says "The SOL arrives", even when its summary names no account. */}
+      {q.native ? (
+        <Row label="The SOL arrives" value={s.unwrapsWsol ? 'as plain SOL' : 'as wrapped SOL in the account you already hold'} mono={false} />
+      ) : s.quoteAccount ? (
+        <Row
+          label={`The ${q.symbol} arrives in`}
+          value={`${s.quoteAccount.address.toBase58()}${
+            s.quoteAccount.rent > 0n ? ` (opened for you; its deposit of ${solExact(s.quoteAccount.rent)} stays in that account)` : ''
+          }`}
+        />
+      ) : (
+        <Row label={`The ${q.symbol} arrives in`} value={`your own ${q.symbol} account (its address was not read)`} mono={false} />
+      )}
       <Row label="Pool fee to take out" value="none" mono={false} />
       {s.notices.map((n) => (
         <Notice key={n} tone="warn">
@@ -370,13 +464,23 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
 }
 
 /** What a live mint authority allows, said once more where a pool is about to be opened. */
-const MINT_AUTHORITY_LINE = 'Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.';
+const mintAuthorityLine = (q: QuoteCoin) => `Whoever holds it can make new tokens at any time and sell them into your pool for its ${q.symbol}.`;
 
-/** The opening price against the market, from the check that passed while preparing. */
-function openingPriceText(p: Extract<TxSummary, { kind: 'lp-create' }>['price']): string {
+/**
+ * The opening price against the market, from the fresh check made while preparing. An
+ * opening is built when that check agrees, and also when the price is off or there is no
+ * market price at all (owner ruling 2026-10-04). Neither of those two is a check that
+ * passed, and the row says which it is.
+ */
+function openingPriceText(p: Extract<TxSummary, { kind: 'lp-create' }>['price'], q: QuoteCoin): string {
   if ((p.state === 'agrees' || p.state === 'disagrees') && p.against === 'outside') {
     const d = (Math.abs(p.diff) * 100).toFixed(1);
-    return `1 token = ${formatSolPrice(p.pool)} SOL. Market (Jupiter, read just now): ${formatSolPrice(p.reference)} SOL, ${d}% ${p.diff >= 0 ? 'above' : 'below'}`;
+    const line = `1 token = ${formatSolPrice(p.pool)} ${q.symbol}. Market (Jupiter, read just now): ${formatSolPrice(p.reference)} ${q.symbol}, ${d}% ${p.diff >= 0 ? 'above' : 'below'}`;
+    return p.state === 'disagrees' ? `${line}. ${OFF_PRICE}` : line;
+  }
+  // The opening price is still said: with no market, it is the only price there is.
+  if (p.state === 'no-market') {
+    return `1 token = ${formatSolPrice(p.pool)} ${q.symbol}. Jupiter has no market price for this token, so there is nothing to compare it with: you are setting the price yourself`;
   }
   return priceText(p);
 }
@@ -388,6 +492,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
   // The pool's share count less what the opener gets: the program's locked part.
   const lockedShares = s.supply - s.lpAmount;
   const pct = s.supply > 0n ? Number((s.lpAmount * 1_000_000n) / s.supply) / 10_000 : 0;
+  const q = s.quote;
   return (
     <>
       <Row label="Pool" value={s.pool.toBase58()} />
@@ -401,11 +506,13 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
         mono={false}
       />
       <Row label="Token (mint)" value={s.tokenMint.toBase58()} />
+      <Row label="Paired with" value={q.symbol} mono={false} />
       {/* Opened with cp-swap's `initialize`, which switches the new pool's creator fee off. */}
       <Row label="Fee tier" value={feeTierText(s.config, CREATOR_FEE_SWITCH.publicOpen)} mono={false} />
       {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
-      <Row label="You put in" value={`${solExact(s.put.sol)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
-      <Row label="Opening price" value={openingPriceText(s.price)} mono={false} />
+      <Row label="You put in" value={`${coinExact(s.put.quote, q)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
+      <Row label="Opening price" value={openingPriceText(s.price, q)} mono={false} />
+      {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} />}
       <Row label="Opens for trading" value="At once (one second after it lands)" mono={false} />
       <Row
         label="Fee to open the pool"
@@ -421,7 +528,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       <Row label="You get" value={`${shares(s.lpAmount)} pool shares, exactly`} mono={false} />
       <Row
         label="Locked in the pool forever"
-        value={`${shares(lockedShares)} pool shares (${lockedShares.toString()} of the smallest unit), worth about ${SOL(s.locked.sol)} and ${tok(s.locked.token)} tokens at these amounts`}
+        value={`${shares(lockedShares)} pool shares (${lockedShares.toString()} of the smallest unit), worth about ${coinAbout(s.locked.quote, q)} and ${tok(s.locked.token)} tokens at these amounts`}
         mono={false}
       />
       <Row label="Your share of the pool" value={shareText(pct)} mono={false} />
@@ -432,7 +539,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
             {s.tokenWarnings.map((w) => (
               <li key={w.code}>{w.text}</li>
             ))}
-            {s.tokenWarnings.some((w) => w.code === 'mint-authority') && <li>{MINT_AUTHORITY_LINE}</li>}
+            {s.tokenWarnings.some((w) => w.code === 'mint-authority') && <li>{mintAuthorityLine(q)}</li>}
           </ul>
         </div>
       )}
@@ -442,9 +549,11 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
         </Notice>
       ))}
       <Notice>
-        {s.unwrapsWsol
-          ? 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'
-          : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent.`}
+        {!q.native
+          ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped. The fee to open and the account deposits are paid in SOL.`
+          : s.unwrapsWsol
+            ? 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'
+            : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent.`}
       </Notice>
       {s.origin === 'other' && (
         <Notice tone="warn">
@@ -475,8 +584,9 @@ function CreatePlantRows({ plant }: { plant: Extract<TxSummary, { kind: 'create'
 
 /**
  * One test-run token change, in words for whose it is and for what this kind of
- * transaction does with it. The plant's are always in $BAYLA; every other account is
- * in its own mint's decimals when the builder knew them.
+ * transaction does with it. The plant's are always in $BAYLA; a pool's own pairing coin
+ * is in that coin's decimals; every other account is in its own mint's decimals when the
+ * builder knew them.
  */
 function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: PreparedTx, decimals: number | null) {
   const summary = prepared.summary;
@@ -486,6 +596,11 @@ function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: P
   if (summary.kind === 'create' && t.role !== 'treasury' && t.mint.equals(summary.plant.mint)) {
     return { label: 'Test run: your $BAYLA changes by', value: `${sign}${baylaText(amount)}` };
   }
+  // The pool's own coin (USDC, BAYLA) is known by its mint, not by the watch list's tag, and
+  // both its name and its decimals come from the summary's coin. So a wrong or missing tag
+  // cannot call it wrapped SOL, and a token with 9 decimals cannot make 250 USDC read as 0.25.
+  const coin = isLpSummary(summary) && !summary.quote.native && t.mint.toBase58() === summary.quote.mint ? summary.quote : null;
+  if (coin) return { label: `Test run: your ${coin.symbol} changes by`, value: `${sign}${tokenText(amount, coin.decimals)}` };
   return { label: testRunLabel(prepared.kind, t.role ?? 'token'), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
 }
 
@@ -523,6 +638,9 @@ const TEST_RUN_LABEL: Record<TokenRole, string> = {
   workshop: "Test run: the island's Workshop receives",
   token: 'Test run: your tokens change by',
   wsol: 'Test run: your wrapped SOL changes by',
+  // Only for an account tagged as a pairing coin that is not the pool's own coin, which no
+  // builder makes. The pool's own coin is named by `deltaRow`: "your USDC changes by".
+  quote: 'Test run: your pairing coin changes by',
   lp: 'Test run: your pool shares change by',
 };
 
@@ -547,6 +665,21 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
     "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
 };
 
+/**
+ * The rent line's label for this transaction. Taking liquidity out of a USDC or BAYLA pool
+ * can open the coin's own account as well as the token's (a SOL pool never keeps a new
+ * account for its SOL), so the line names every account its amount pays for.
+ */
+function rentRowLabel(prepared: PreparedTx): string {
+  const s = prepared.summary;
+  if (s.kind === 'lp-withdraw' && !s.quote.native && s.quoteAccount && s.quoteAccount.rent > 0n) {
+    return s.tokenAccountRent > 0n
+      ? `One-time deposits for your new token account and your new ${s.quote.symbol} account (each stays in its own account)`
+      : `One-time deposit for your new ${s.quote.symbol} account (it stays in that account)`;
+  }
+  return RENT_ROW_LABEL[prepared.kind];
+}
+
 export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals: number | null }) {
   const f = prepared.fees;
   const base = tradeLamports(prepared.summary);
@@ -568,7 +701,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
         </Notice>
       )}
       {f.newAccountRentLamports > 0n && (
-        <Row label={RENT_ROW_LABEL[prepared.kind]} value={SOL(f.newAccountRentLamports)} />
+        <Row label={rentRowLabel(prepared)} value={SOL(f.newAccountRentLamports)} />
       )}
       {prepared.kind === 'create' && (
         <p className="text-white/40 text-[10px]">
@@ -613,11 +746,14 @@ export function TxReview({
   /** Focus lands here when the review appears. */
   headingRef?: Ref<HTMLHeadingElement>;
 }) {
+  const warnings = reviewWarnings(prepared.summary);
+  const warningsId = useId();
   return (
     <div className="space-y-2" data-testid="tx-review">
-      <h3 ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[12px] outline-none">
+      <h3 ref={headingRef} tabIndex={-1} aria-describedby={warnings.length > 0 ? warningsId : undefined} className="text-white font-semibold text-[12px] outline-none">
         {TITLES[prepared.kind]}
       </h3>
+      {warnings.length > 0 && <ReviewWarnings id={warningsId} warnings={warnings} />}
       {extra}
       <SummaryRows summary={prepared.summary} decimals={decimals} display={display} />
       <div className="pt-2 space-y-1.5" style={DIVIDER}>

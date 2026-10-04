@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 import { Transaction, TransactionInstruction, type PublicKey } from '@solana/web3.js';
 import { FeeRows, TxFlowView, TxOutcomeCard, TxReview } from './TxFlowView';
 import { reviewLines } from './reviewLines';
@@ -7,6 +7,8 @@ import { REVIEW_TTL_MS, SIGN_MARGIN_BLOCKS, useTxFlow } from './useTxFlow';
 import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
 import { lpCreateSummary, lpDepositSummary, lpWithdrawSummary } from '../lp/fakeLpWriteApi.fixture';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, TxSummary, WriteApi, WriteRpc } from './ports';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { PRICE_TOLERANCE } from '../../../lib/solana/lp/poolHealth';
 
 const SOL_1 = 1_000_000_000n;
 const MINT_X = KEY(15);
@@ -1111,6 +1113,26 @@ describe('the stale review on screen', () => {
     expect(signed(api)).toEqual([fresh]);
   });
 
+  // The price can move while a review is read. A deposit built again that now carries a
+  // warning it did not carry before must never go straight to the wallet.
+  it('a deposit built again with a warning it did not have: the warning is listed as new, and nothing is signed unread', async () => {
+    const NEW = 'Its price is 10.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.';
+    const first = lpDepositSummary(KEY(30), KEY(31));
+    const fresh = again(lpDepositSummary(KEY(30), KEY(31), { warnings: [NEW] }));
+    const api = confirmedApi();
+    const sign = await openStale(api, builds(prepared(first), fresh));
+    await act(async () => {
+      fireEvent.click(sign);
+    });
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('This review was built again on fresh numbers. 2 lines read differently now:');
+    expect(alert).toHaveTextContent('Read these warnings first.');
+    expect(alert).toHaveTextContent(NEW);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    // The new review has the warning at its head.
+    expect(within(screen.getByTestId('tx-review-warnings')).getByText(NEW)).toBeInTheDocument();
+  });
+
   it('different instructions under the same words: says to read it through again, and names no line', async () => {
     const api = confirmedApi();
     const sign = await openStale(api, builds(prepared(buySummary()), again(buySummary(), { tx: txOf(CREATOR, ix([9])) })));
@@ -1141,6 +1163,14 @@ describe('the review as lines', () => {
     treasuryAccountRent: 1_488_440n, plant: PLANT_SUMMARY,
   };
   const withWarnings = { tokenWarnings: [{ code: 'mint-authority' as const, text: 'Its creator can still mint more.' }], notices: ['An approved spender can move tokens.'] };
+  // What the builder says must be read before signing: a price that is off, and its cost.
+  const SAID = ['Its price is 10.0% above the outside price.', 'At these amounts, a move back to the outside price would take up to about 0.002 SOL of what you put in. That is an estimate.'];
+  const offPrice = {
+    ...withWarnings,
+    warnings: SAID,
+    priceGap: { diff: 0.1, lossQuote: 2_000_000n },
+    price: { state: 'disagrees' as const, pool: 0.011, reference: 0.01, against: 'outside' as const, diff: 0.1 },
+  };
 
   it.each<[string, TxSummary]>([
     ['buy', buySummary()],
@@ -1148,8 +1178,10 @@ describe('the review as lines', () => {
     ['create', create],
     ['migrate', { kind: 'migrate', mint: CREATOR, pool: KEY(40) }],
     ['lp-deposit', lpDepositSummary(KEY(30), KEY(31), withWarnings)],
+    ['lp-deposit with warnings', lpDepositSummary(KEY(30), KEY(31), offPrice)],
     ['lp-withdraw', lpWithdrawSummary(KEY(30), KEY(31), KEY(32), { all: true, notices: ['Swaps on this pool are switched off.'] })],
     ['lp-create', lpCreateSummary(KEY(30), KEY(31), { ...withWarnings, origin: 'other' })],
+    ['lp-create with warnings', lpCreateSummary(KEY(30), KEY(31), { ...offPrice, origin: 'other' })],
   ])('%s: no text on the review is outside its lines', (_kind, summary) => {
     const p = prepared(summary, {
       simulated: { signerLamportsDelta: -SOL_1, tokenDeltas: [{ mint: KEY(20), account: KEY(21), delta: 2_500_000n, role: 'token' }] },
@@ -1163,6 +1195,17 @@ describe('the review as lines', () => {
     expect(texts.length).toBeGreaterThan(8);
     for (const t of texts) expect(got.some((l) => l.includes(t)), t).toBe(true);
     expect(got.every((l) => l.trim() !== '')).toBe(true);
+  });
+
+  // The warnings are part of what is compared when a review is built again: a warning that
+  // appears, goes or changes its figure is a line that reads differently, never a silent one.
+  it.each<[string, TxSummary]>([
+    ['lp-deposit', lpDepositSummary(KEY(30), KEY(31), offPrice)],
+    ['lp-create', lpCreateSummary(KEY(30), KEY(31), offPrice)],
+  ])('%s: each warning is a line of its own, right under the heading, and the cost is a row', (_kind, summary) => {
+    const got = reviewLines(<TxReview prepared={prepared(summary)} decimals={6} display={(s) => s} />);
+    expect(got.slice(1, 4)).toEqual(['Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:', ...SAID]);
+    expect(got).toContain('Estimated cost of that gap: up to about 0.002 SOL of what you put in');
   });
 });
 
@@ -1248,19 +1291,19 @@ describe('liquidity reviews', () => {
     fundFeeRate: 0n, createPoolFee: 0n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
   };
   const deposit = (over: Partial<Extract<TxSummary, { kind: 'lp-deposit' }>> = {}): TxSummary => ({
-    kind: 'lp-deposit', pool: KEY(30), origin: 'standard', config, enableCreatorFee: false, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
+    kind: 'lp-deposit', pool: KEY(30), origin: 'standard', config, enableCreatorFee: false, tokenMint: KEY(31), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
     lpAmount: 123_456_789_012n, lpDecimals: 9,
-    quoted: { sol: 2_000_000_000n, token: 5_000_000n }, max: { sol: 2_020_000_001n, token: 5_050_001n },
+    quoted: { quote: 2_000_000_000n, token: 5_000_000n }, max: { quote: 2_020_000_001n, token: 5_050_001n },
     limitedByBalance: 'none', sharePct: { before: 0, after: 12.5 },
     price: { state: 'agrees', pool: 1, reference: 1, against: 'outside', diff: -0.012 },
     tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }],
-    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['An approved spender can move tokens.'], ...over,
+    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['An approved spender can move tokens.'], warnings: [], priceGap: null, ...over,
   });
   const withdraw = (over: Partial<Extract<TxSummary, { kind: 'lp-withdraw' }>> = {}): TxSummary => ({
-    kind: 'lp-withdraw', pool: KEY(30), origin: 'launch-pool', config: null, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
+    kind: 'lp-withdraw', pool: KEY(30), origin: 'launch-pool', config: null, tokenMint: KEY(31), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
     lpAccount: KEY(32), lpAmount: 250_000_000n, lpDecimals: 9, heldBefore: 1_000_000_000n, all: false, keep: 750_000_000n,
-    quoted: { sol: 1_000_000_000n, token: 3_000_000n }, min: { sol: 990_000_001n, token: 2_970_001n },
-    tokenAccount: KEY(33), tokenAccountRent: 2_074_080n, unwrapsWsol: false, notices: ['Swaps on this pool are switched off.'], ...over,
+    quoted: { quote: 1_000_000_000n, token: 3_000_000n }, min: { quote: 990_000_001n, token: 2_970_001n },
+    tokenAccount: KEY(33), tokenAccountRent: 2_074_080n, quoteAccount: null, unwrapsWsol: false, notices: ['Swaps on this pool are switched off.'], ...over,
   });
   const value = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
   const review = async (summary: TxSummary) => {
@@ -1310,6 +1353,93 @@ describe('liquidity reviews', () => {
     expect(value('Price check')).toBe('nobody has traded since the launch program opened it');
   });
 
+  // Owner ruling 2026-10-04 ("any token"): a deposit is built for a pool whose price is off,
+  // or has no market price, or whose token copies a name or can be frozen. The builder puts
+  // what must be read on the summary (`warnings`), and the review says every sentence of it
+  // FIRST: before the rows, and so well above the Sign button.
+  const GAP = 'Its price is 10.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.';
+  const COST = 'At these amounts, a move back to the outside price would take up to about 0.0045 SOL of what you put in. That is an estimate.';
+  const COPY = 'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of this pool.';
+  const off = (over: Partial<Extract<TxSummary, { kind: 'lp-deposit' }>> = {}) =>
+    deposit({
+      price: { state: 'disagrees', pool: 1.1, reference: 1, against: 'outside', diff: 0.1 },
+      warnings: [COPY, GAP, COST],
+      priceGap: { diff: 0.1, lossQuote: 4_500_000n },
+      ...over,
+    });
+
+  it('adding with warnings: every sentence is shown first, under a line that says to read them first, in the warning colour', async () => {
+    await review(off());
+    const box = screen.getByTestId('tx-review-warnings');
+    expect(box.querySelector('p')).toHaveTextContent('Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:');
+    expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual([COPY, GAP, COST]);
+    expect(box.querySelector('p')).toHaveClass('text-amber-300/90');
+    expect(box.querySelector('ul')).toHaveClass('text-amber-300/90');
+    // First on the review: before its first row, and before the Sign button.
+    const heading = screen.getByRole('heading', { name: 'Review: add liquidity' });
+    expect(heading.nextElementSibling).toBe(box);
+    const after = (el: Element) => box.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(after(screen.getByText('Pool'))).toBeTruthy();
+    expect(after(screen.getByRole('button', { name: 'Sign in wallet' }))).toBeTruthy();
+    // A screen reader lands on the heading: the warnings are what it is described by.
+    expect(heading).toHaveAttribute('aria-describedby', box.id);
+    // The token's own warnings keep their place, further down.
+    expect(after(screen.getByText('Read these about this token first:'))).toBeTruthy();
+    // A warning is not a stop: Sign is on.
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+  });
+
+  it('adding with warnings: the price row does not read as a check that passed, and the cost has its own row', async () => {
+    await review(off());
+    expect(value('Price check')).toBe('10.0% above the outside price (Jupiter), read just now. That is off by more than 3%.');
+    expect(value('Estimated cost of that gap')).toBe('up to about 0.0045 SOL of what you put in');
+    // The words follow the rule (poolHealth.ts): more than 3% apart is what "off" means.
+    expect(PRICE_TOLERANCE).toBe(0.03);
+  });
+
+  it('adding below a launch pool’s own average: the row says which way, and that it is off', async () => {
+    await review(off({ origin: 'launch-pool', price: { state: 'disagrees', pool: 0.8, reference: 1, against: 'own-average', diff: -0.2 }, priceGap: { diff: -0.2, lossQuote: 1n } }));
+    expect(value('Price check')).toBe('20.0% below its own average over the last 30 minutes. That is off by more than 3%.');
+    expect(value('Estimated cost of that gap')).toBe('up to about 0.000000001 SOL of what you put in');
+  });
+
+  it('a cost that could not be worked out is said as that, never as 0', async () => {
+    const UNKNOWN = 'What a move back to the outside price would cost you at these amounts could not be worked out.';
+    await review(off({ warnings: [GAP, UNKNOWN], priceGap: { diff: 0.1, lossQuote: null } }));
+    expect(value('Estimated cost of that gap')).toBe('could not be worked out');
+    expect(within(screen.getByTestId('tx-review-warnings')).getByText(UNKNOWN)).toBeInTheDocument();
+    // No figure is put in its place anywhere on the review.
+    expect(screen.getByTestId('tx-review').textContent).not.toMatch(/up to about/);
+  });
+
+  it('adding to a pool with no market price: the row says it was checked against nothing', async () => {
+    const NONE = 'Jupiter has no market price for this token, so this pool’s price was not checked against anything.';
+    await review(deposit({ price: { state: 'no-market', pool: 1, detail: 'Jupiter has no route for this token' }, warnings: [NONE] }));
+    expect(value('Price check')).toBe('not checked against anything: Jupiter has no market price for this token');
+    expect(within(screen.getByTestId('tx-review-warnings')).getByText(NONE)).toBeInTheDocument();
+    // Nothing to compare with, so no gap and no cost row.
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+  });
+
+  it('with nothing to warn of, the review has no warnings box and its heading is described by nothing', async () => {
+    await review(deposit());
+    expect(screen.queryByTestId('tx-review-warnings')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Read these warnings first/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+    const heading = screen.getByRole('heading', { name: 'Review: add liquidity' });
+    expect(heading).not.toHaveAttribute('aria-describedby');
+    // The first thing under the heading is the first row, as before.
+    expect(heading.nextElementSibling).toHaveTextContent(`Pool${KEY(30).toBase58()}`);
+  });
+
+  // Taking liquidity out is never held up: a removal carries no warnings, and gets no box.
+  it('removing: no warnings box, whatever the pool or its token is like', async () => {
+    await review(withdraw());
+    expect(screen.queryByTestId('tx-review-warnings')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Review: remove liquidity' })).not.toHaveAttribute('aria-describedby');
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+  });
+
   it('removing: every row, from the prepared summary', async () => {
     await review(withdraw());
     expect(screen.getByRole('heading', { name: 'Review: remove liquidity' })).toBeInTheDocument();
@@ -1326,7 +1456,7 @@ describe('liquidity reviews', () => {
   });
 
   it('removing all of it: nothing kept, an existing token account, plain SOL', async () => {
-    await review(withdraw({ lpAmount: 1_000_000_000n, all: true, keep: 0n, tokenAccountRent: 0n, unwrapsWsol: true, origin: 'other' }));
+    await review(withdraw({ lpAmount: 1_000_000_000n, all: true, keep: 0n, tokenAccountRent: 0n, quoteAccount: null, unwrapsWsol: true, origin: 'other' }));
     expect(value('Pool kind')).toBe('Its own address');
     expect(value('Pool shares you give back')).toBe('1 (100.00% of yours)');
     expect(screen.getByText('This is all of your share in this pool.')).toBeInTheDocument();
@@ -1343,7 +1473,7 @@ describe('liquidity reviews', () => {
 
   it('the priority fee is measured against the SOL side of the liquidity change', async () => {
     // 12,000 lamports of priority (the fixture) against 100,000 lamports quoted.
-    await review(deposit({ quoted: { sol: 100_000n, token: 5_000_000n } }));
+    await review(deposit({ quoted: { quote: 100_000n, token: 5_000_000n } }));
     expect(value('Priority fee')).toMatch(/\(12\.00% of this trade\)$/);
   });
 });
@@ -1372,9 +1502,9 @@ describe('liquidity outcomes', () => {
     const api = fakeApi({ submitPrepared: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'slow' })) });
     const { result } = flowAt(api);
     const summary: TxSummary = {
-      kind: 'lp-withdraw', pool: KEY(30), origin: 'standard', config: null, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
-      lpAccount: KEY(32), lpAmount: 1n, lpDecimals: 9, heldBefore: 1n, all: true, keep: 0n, quoted: { sol: 1n, token: 1n },
-      min: { sol: 1n, token: 1n }, tokenAccount: KEY(33), tokenAccountRent: 0n, unwrapsWsol: true, notices: [],
+      kind: 'lp-withdraw', pool: KEY(30), origin: 'standard', config: null, tokenMint: KEY(31), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
+      lpAccount: KEY(32), lpAmount: 1n, lpDecimals: 9, heldBefore: 1n, all: true, keep: 0n, quoted: { quote: 1n, token: 1n },
+      min: { quote: 1n, token: 1n }, tokenAccount: KEY(33), tokenAccountRent: 0n, quoteAccount: null, unwrapsWsol: true, notices: [],
     };
     await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(summary) })));
     await act(() => result.current.confirm(signer));
@@ -1393,15 +1523,15 @@ describe('opening a pool: the review', () => {
     fundFeeRate: 0n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
   };
   const create = (over: Partial<Extract<TxSummary, { kind: 'lp-create' }>> = {}): TxSummary => ({
-    kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, solIsToken0: true,
-    put: { sol: 1_000_000_000n, token: 5_000_000n },
+    kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
+    put: { quote: 1_000_000_000n, token: 5_000_000n },
     supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
-    locked: { sol: 1_414n, token: 7n },
+    locked: { quote: 1_414n, token: 7n },
     createFee: 150_000_000n, feeReceiver: KEY(8),
     rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
     price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
     tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }],
-    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['A spender is approved on your token account.'], ...over,
+    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['A spender is approved on your token account.'], warnings: [], priceGap: null, ...over,
   });
   const value = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
   const review = async (summary: TxSummary, over: Partial<PreparedTx> = {}) => {
@@ -1468,8 +1598,53 @@ describe('opening a pool: the review', () => {
 
   it('the priority fee is measured against the SOL put in', async () => {
     // 12,000 lamports of priority (the fixture) against 100,000 lamports put in.
-    await review(create({ put: { sol: 100_000n, token: 5_000_000n } }));
+    await review(create({ put: { quote: 100_000n, token: 5_000_000n } }));
     expect(value('Priority fee')).toMatch(/\(12\.00% of this trade\)$/);
+  });
+
+  // Owner ruling 2026-10-04: a pool may open at a price that is off the market, or with no
+  // market price at all. Neither is a check that passed, and the review says which it is.
+  it('an opening price that is off the market: the warnings first, the row says it is off, and the cost has its own row', async () => {
+    const OFF = 'Your opening price is 50.0% above the market price (Jupiter). The first trades would move it to the market price, at your cost.';
+    const COST = 'At these amounts, a move back to the market price would take up to about 0.0334 SOL of what you put in. That is an estimate.';
+    await review(
+      create({
+        price: { state: 'disagrees', pool: 0.3, reference: 0.2, against: 'outside', diff: 0.5 },
+        warnings: [OFF, COST],
+        priceGap: { diff: 0.5, lossQuote: 33_400_000n },
+      }),
+    );
+    const box = screen.getByTestId('tx-review-warnings');
+    expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual([OFF, COST]);
+    const heading = screen.getByRole('heading', { name: 'Review: open a pool' });
+    expect(heading.nextElementSibling).toBe(box);
+    expect(heading).toHaveAttribute('aria-describedby', box.id);
+    expect(box.compareDocumentPosition(screen.getByRole('button', { name: 'Sign in wallet' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(value('Opening price')).toBe('1 token = 0.3 SOL. Market (Jupiter, read just now): 0.2 SOL, 50.0% above. That is off by more than 3%.');
+    expect(value('Estimated cost of that gap')).toBe('up to about 0.0334 SOL of what you put in');
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+  });
+
+  it('an opening with no market price: the opening price is still said, and that nothing checks it', async () => {
+    const ALONE = 'Jupiter has no market price for this token, so there is nothing to compare your opening price with.';
+    await review(create({ price: { state: 'no-market', pool: 0.2, detail: 'Jupiter has no route for this token' }, warnings: [ALONE] }));
+    expect(value('Opening price')).toBe(
+      '1 token = 0.2 SOL. Jupiter has no market price for this token, so there is nothing to compare it with: you are setting the price yourself',
+    );
+    expect(within(screen.getByTestId('tx-review-warnings')).getByText(ALONE)).toBeInTheDocument();
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+  });
+
+  it('an opening cost that could not be worked out is said as that, never as 0', async () => {
+    await review(create({ price: { state: 'disagrees', pool: 0.3, reference: 0.2, against: 'outside', diff: 0.5 }, warnings: ['x'], priceGap: { diff: 0.5, lossQuote: null } }));
+    expect(value('Estimated cost of that gap')).toBe('could not be worked out');
+  });
+
+  it('with nothing to warn of, an opening has no warnings box and no cost row', async () => {
+    await review(create());
+    expect(screen.queryByTestId('tx-review-warnings')).not.toBeInTheDocument();
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Review: open a pool' })).not.toHaveAttribute('aria-describedby');
   });
 });
 
@@ -1496,12 +1671,12 @@ describe('opening a pool: the review wraps sentences between words', () => {
       fundFeeRate: 0n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
     };
     const summary: TxSummary = {
-      kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, solIsToken0: true,
-      put: { sol: 1_000_000_000n, token: 5_000_000n }, supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
-      locked: { sol: 1_414n, token: 7n }, createFee: 150_000_000n, feeReceiver: KEY(8),
+      kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
+      put: { quote: 1_000_000_000n, token: 5_000_000n }, supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
+      locked: { quote: 1_414n, token: 7n }, createFee: 150_000_000n, feeReceiver: KEY(8),
       rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
       price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
-      tokenWarnings: [], unwrapsWsol: true, wsolHeldBefore: 0n, notices: [],
+      tokenWarnings: [], unwrapsWsol: true, wsolHeldBefore: 0n, notices: [], warnings: [], priceGap: null,
     };
     const api = fakeApi();
     const { result } = renderHook(() => useTxFlow(api, rpc));

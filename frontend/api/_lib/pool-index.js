@@ -2,40 +2,73 @@
 // aggregator catchall, reached through the vercel.json rewrite /api/pools (no function
 // of its own; see api/SERVERLESS_BUDGET.md).
 //
-//   GET /api/pools?mint=<token mint>     → TOKEN/SOL pools of this token, deepest SOL first
+//   GET /api/pools?mint=<token mint>     → this token's pools with each pairing coin: SOL's
+//                                           first, then USDC's, then BAYLA's, deepest first
+//                                           within a coin
 //   GET /api/pools?lpMint=<LP mint>      → the address of the pool whose share this is
 //
 // WHY A SERVER FUNCTION. The browser cannot list pools: `getProgramAccounts` stays OFF
 // the /api/solrpc proxy (an open scan against a keyed RPC is the hole audit L-1 closed).
 // But pools can sit at ANY address that signed their creation, so reading the "standard"
 // address for a pair is not enough: a stranger can take that address first at a bad
-// price or with an open time years away. This function does the one scan that finds
-// them all, filtered so the RPC only walks pool accounts of this exact pair, and caches
-// the answer.
+// price or with an open time years away. This function does the scans that find them
+// all, one per pairing coin, each filtered so the RPC only walks pool accounts of that
+// exact pair, and caches the answer.
+//
+// WHICH COINS. A pool on this site pairs a token with SOL, USDC or BAYLA (owner ruling
+// 2026-10-03; `QUOTE_COINS` below, in rank order). `?mint=X` scans X with every coin.
+// When X is itself a coin, only with the coins that outrank it: a BAYLA/SOL pool is
+// BAYLA's pool and never SOL's, so BAYLA is searched with SOL and USDC, USDC with SOL,
+// and SOL itself is a 400. The same rule as the browser's `quotesFor`.
 //
 // WHAT IT RETURNS: ADDRESSES ONLY. The browser reads every address itself and checks it
 // (owned by the program, decodes as a pool, holds the token). So this function is never
 // trusted with a fact about a pool; at worst it can leave one out, which the page says.
+// The answer does not say which coin an address is paired with: the browser reads that
+// from the pool itself, and the shape is the one a browser on older code expects.
 //
 // FLOODING. Opening a pool costs little (rent only on fee tier 0), and a pool can sit at
 // any keypair, whose address an attacker can grind to sort first. So the list is:
-//   - TOKEN/SOL only: the scan matches BOTH mint slots (token0 < token1 is enforced by
-//     initialize.rs:54 and initialize_with_permission.rs:57, so the pair has one order),
+//   - pairing coins only: each scan matches BOTH mint slots (token0 < token1 is enforced
+//     by initialize.rs:54 and initialize_with_permission.rs:57, so a pair has one order),
 //     and a pile of TOKEN/JUNK pools costs the answer nothing;
-//   - ranked by the SOL each pool holds, never by address: to push a real pool off the
-//     list an attacker must put more SOL than it holds into each of MAX_POOLS pools.
-//     EVERY pool the scan finds is ranked. Ranking only an address-ordered subset would
-//     let ground addresses decide which pools are even weighed;
-//   - more than MAX_SCANNED pools is a 502 ("could not read"), never a cut list;
-//   - `truncated` when there were more; the page then never says "no pools".
+//   - ranked, within a coin, by how much of THAT coin each pool holds, never by address.
+//     A vault counts only when the coin's own token program owns it. EVERY pool a scan
+//     finds is ranked. Ranking only an address-ordered subset would let ground addresses
+//     decide which pools are even weighed;
+//   - never ranked across coins: 5 SOL and 5 USDC are not the same depth, and this
+//     function reads no price. Each coin's pools stay together, in coin order;
+//   - shared by promise: with k coins scanned, each coin is promised floor(MAX_POOLS / k)
+//     addresses, and what a coin does not use goes to the others, highest rank first. So
+//     junk pools paired with one coin can never push a real pool paired with ANOTHER coin
+//     below that coin's promise. To push a real pool off the list an attacker must put
+//     more of its own coin than it holds into each of at least that many pools (32 for
+//     an ordinary token, and all MAX_POOLS when the other coins have no pools);
+//   - more than MAX_SCANNED pools with any one coin is a 502 ("could not read"), never a
+//     cut list;
+//   - `truncated` when any coin had more pools than it was given; the page then never
+//     says "no pools".
+//
+// ALL OR NOTHING. If any coin's scan or ranking fails, the whole answer is a 502 and
+// nothing is cached. A list missing one coin's pools would read as "this token has no
+// pools with that coin", which nobody read.
+//
+// RATE LIMITS, on cache MISSES only (a cache hit costs the upstream nothing):
+//   - per IP, counted per REQUEST: a visitor asked one question, whatever it costs us;
+//   - the global scan budget (POOLS_GLOBAL_RPM), counted per SCAN: a `?mint=` miss is
+//     charged once for each coin it scans (three for an ordinary token), all of them
+//     before the first scan is sent. The budget exists to cap what the keyed RPC is
+//     asked for, and the scan is the costly call. Counted per request, the same number
+//     would let three times the scans through that it was set to allow. The price: 600
+//     a minute now covers 200 ordinary-token misses, not 600. Raise the env if real
+//     traffic needs more.
 //
 // Hardening: GET only; the shared request-origin gate; the query must be exactly one
 // base58 32-byte key (decoded, not pattern-matched); the key must be a token mint
 // (one cheap account read, on its own global budget) before any scan is paid for, and a
 // key that is not one is remembered for 10 minutes, so random keys cannot spend the scan
-// budget; per-IP and global rate limits on cache MISSES (a cache hit costs the upstream
-// nothing); a response cap; the keyed RPC URL never leaves the server. Upstream failure
-// is a 502, never an empty list: "no pools" is only ever said when the scan answered.
+// budget; a response cap; the keyed RPC URL never leaves the server. Upstream failure
+// is a 502, never an empty list: "no pools" is only ever said when every scan answered.
 import { base58 } from "@scure/base";
 import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
@@ -45,17 +78,37 @@ import { isRequestOriginAllowed } from "./aggregator-proxy.js";
 /** The live cp-swap program (vault-owned), the same id on the local e2e validator. */
 export const CP_SWAP_PROGRAM = "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT";
 export const WSOL_MINT = "So11111111111111111111111111111111111111112";
+export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+export const BAYLA_MINT = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
 export const TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 export const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+/**
+ * The coins a pool may pair a token with, in rank order. The server's own copy of
+ * `QUOTE_COINS` in src/lib/solana/lp/quotes.ts (api/ is plain JS and does not import
+ * it). A test pins the two together: same mints, same token programs, same order. So a
+ * coin added in one place and not the other fails CI.
+ * `program` is the token program the coin's mint is under, so the one a pool's vault
+ * for that coin is under.
+ */
+export const QUOTE_COINS = Object.freeze([
+  Object.freeze({ symbol: "SOL", mint: WSOL_MINT, program: TOKEN_PROGRAM }),
+  Object.freeze({ symbol: "USDC", mint: USDC_MINT, program: TOKEN_PROGRAM }),
+  Object.freeze({ symbol: "BAYLA", mint: BAYLA_MINT, program: TOKEN_2022_PROGRAM }),
+]);
 /** PoolState: `#[repr(C, packed)]`, 637 bytes with the discriminator (frontend program.ts). */
 export const POOL_STATE_LEN = 637;
 export const POOL_DISCRIMINATOR_B58 = base58.encode(Uint8Array.from([247, 237, 227, 245, 215, 195, 222, 70]));
 export const OFFSETS = Object.freeze({ token0Vault: 72, lpMint: 136, token0Mint: 168, token1Mint: 200 });
-/** Addresses returned per answer (the browser reads these plus 3 it works out: 99, one call). */
+/**
+ * Addresses returned per answer. The browser refuses a longer list (poolIndex.ts
+ * `POOL_INDEX_MAX`, pinned to this by a test). It reads these plus the few it works out
+ * itself: the launch pool, and two standard addresses for each coin.
+ */
 export const MAX_POOLS = 96;
 /**
- * More TOKEN/SOL pools than this for one token is answered as a 502, not ranked: about
- * 300 SOL of never-refunded rent to reach, and 100 vault reads (8 at a time) to rank.
+ * More pools than this for one token with ONE coin is answered as a 502, not ranked:
+ * about 300 SOL of never-refunded rent to reach, and 100 vault reads (8 at a time) to
+ * rank. Per coin, so three coins at the limit is 300 reads.
  */
 export const MAX_SCANNED = 10_000;
 const RANK_CHUNK = 100;
@@ -69,6 +122,7 @@ const CACHE_MAX = 500;
 const RATE = { limit: 30, windowSec: 60, identifier: "pools" };
 /** The cheap "is this a token mint" read has its own budget, so random keys cannot spend the scan budget. */
 const PRECHECK = { limit: Number(process.env.POOLS_PRECHECK_GLOBAL_RPM) || 3000, windowSec: 60, identifier: "pools-precheck" };
+/** The scan budget: charged once per SCAN, so once per coin on a `?mint=` miss (RATE LIMITS above). */
 const GLOBAL = { limit: Number(process.env.POOLS_GLOBAL_RPM) || 600, windowSec: 60, identifier: "pools" };
 
 const cache = new Map();
@@ -160,12 +214,40 @@ async function scanLpMint(lpMint, fetchImpl) {
 }
 
 /**
- * Every TOKEN/SOL pool of `mint`, deepest SOL side first: one scan that matches both
- * mint slots and returns each pool's two vault keys, then the SOL vault balances.
+ * The coins `mint` can be paired with, in rank order: every coin, or, when `mint` is
+ * itself a coin, only the coins that outrank it. SOL has none. The same rule as
+ * `quotesFor` in src/lib/solana/lp/quotes.ts, pinned to it by a test.
  */
-async function scanSolPools(mint, fetchImpl) {
-  const solIs0 = compareBytes(base58.decode(WSOL_MINT), base58.decode(mint)) < 0;
-  const [token0, token1] = solIs0 ? [WSOL_MINT, mint] : [mint, WSOL_MINT];
+export function quotesFor(mint) {
+  const rank = QUOTE_COINS.findIndex((q) => q.mint === mint);
+  return rank < 0 ? [...QUOTE_COINS] : QUOTE_COINS.slice(0, rank);
+}
+
+/**
+ * How many addresses each scanned coin gets, given how many pools each has (`totals`, in
+ * rank order). Every coin is promised floor(max / k). Slots a coin does not use go to
+ * the others, highest rank first. A coin never gets less than its promise because
+ * another coin has many pools.
+ */
+export function shareSlots(totals, max = MAX_POOLS) {
+  const promised = Math.floor(max / totals.length);
+  const given = totals.map((n) => Math.min(n, promised));
+  let spare = max - given.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < totals.length && spare > 0; i++) {
+    const more = Math.min(spare, totals[i] - given[i]);
+    given[i] += more;
+    spare -= more;
+  }
+  return given;
+}
+
+/**
+ * One coin's scan: every pool of exactly `mint` and `coin` (both mint slots matched),
+ * each with the key of its vault for the coin. Not ranked yet.
+ */
+async function scanPair(mint, coin, fetchImpl) {
+  const coinIs0 = compareBytes(base58.decode(coin.mint), base58.decode(mint)) < 0;
+  const [token0, token1] = coinIs0 ? [coin.mint, mint] : [mint, coin.mint];
   const result = await rpc(
     "getProgramAccounts",
     [
@@ -189,42 +271,54 @@ async function scanSolPools(mint, fetchImpl) {
     if (slice.length !== 64) throw new Error("upstream answer carried a wrong-sized slice");
     if (seen.has(address)) continue;
     seen.add(address);
-    pools.push({ address, solVault: base58.encode(Uint8Array.from(slice.subarray(solIs0 ? 0 : 32, solIs0 ? 32 : 64))) });
+    // `depth` is how much of the coin the vault holds. -1 until read, and it stays -1 for
+    // a vault that is missing or odd, which ranks last.
+    pools.push({ address, vault: base58.encode(Uint8Array.from(slice.subarray(coinIs0 ? 0 : 32, coinIs0 ? 32 : 64))), program: coin.program, depth: -1n });
   }
-  if (pools.length > MAX_SCANNED) throw new Error(`more than ${MAX_SCANNED} pools for one token`);
-  const ranked = pools;
-  const depth = new Map();
+  if (pools.length > MAX_SCANNED) throw new Error(`more than ${MAX_SCANNED} ${coin.symbol} pools for one token`);
+  return pools;
+}
+
+/**
+ * Every pool of `mint` with each of `coins`: one list of addresses per coin, in the
+ * order given, deepest first. One scan per coin, then every pool's vault for its coin is
+ * read to rank it. Throws when ANY scan or vault read failed, so one coin's failure
+ * never leaves an answer that looks whole.
+ */
+async function scanPools(mint, coins, fetchImpl) {
+  const scans = await Promise.all(coins.map((coin) => scanPair(mint, coin, fetchImpl)));
+  // Vault reads for all the coins share the calls (100 keys each, 8 calls at a time): an
+  // ordinary answer is ranked by ONE read, however many coins were scanned.
+  const all = scans.flat();
   const chunks = [];
-  for (let i = 0; i < ranked.length; i += RANK_CHUNK) chunks.push(ranked.slice(i, i + RANK_CHUNK));
+  for (let i = 0; i < all.length; i += RANK_CHUNK) chunks.push(all.slice(i, i + RANK_CHUNK));
   const readChunk = async (chunk) => {
     const r = await rpc(
       "getMultipleAccounts",
-      [chunk.map((p) => p.solVault), { encoding: "base64", commitment: "confirmed", dataSlice: { offset: 64, length: 8 } }],
+      [chunk.map((p) => p.vault), { encoding: "base64", commitment: "confirmed", dataSlice: { offset: 64, length: 8 } }],
       fetchImpl,
     );
     if (!r || typeof r !== "object" || !Array.isArray(r.value) || r.value.length !== chunk.length) {
       throw new Error("upstream vault answer has the wrong shape");
     }
     r.value.forEach((acc, j) => {
+      // A vault counts only under its coin's own token program (BAYLA's is Token-2022).
       // A missing or odd vault ranks last; the browser reads and judges it anyway.
-      let amount = -1n;
-      if (acc && acc.owner === TOKEN_PROGRAM) {
+      if (acc && acc.owner === chunk[j].program) {
         const b = base64Of(acc);
-        if (b.length === 8) amount = b.readBigUInt64LE(0);
+        if (b.length === 8) chunk[j].depth = b.readBigUInt64LE(0);
       }
-      depth.set(chunk[j].address, amount);
     });
   };
   for (let i = 0; i < chunks.length; i += RANK_CONCURRENCY) {
     await Promise.all(chunks.slice(i, i + RANK_CONCURRENCY).map(readChunk));
   }
-  ranked.sort((a, b) => {
-    const da = depth.get(a.address);
-    const db = depth.get(b.address);
-    if (da !== db) return da > db ? -1 : 1;
+  // Each coin is sorted on its own: amounts of different coins are never compared.
+  const deepestFirst = (a, b) => {
+    if (a.depth !== b.depth) return a.depth > b.depth ? -1 : 1;
     return a.address < b.address ? -1 : 1;
-  });
-  return { list: ranked.map((p) => p.address), total: pools.length };
+  };
+  return scans.map((pools) => pools.sort(deepestFirst).map((p) => p.address));
 }
 
 function remember(cacheKey, entry) {
@@ -250,7 +344,9 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
   if (!which || !key) {
     return res.status(400).json({ error: "Give exactly one of mint or lpMint, as a Solana address" });
   }
-  if (which === "mint" && key === WSOL_MINT) {
+  // SOL is the top coin: no coin outranks it, so it is never the token of a pool.
+  const coins = which === "mint" ? quotesFor(key) : null;
+  if (coins && coins.length === 0) {
     return res.status(400).json({ error: "Give the other token of the pair, not SOL itself" });
   }
 
@@ -266,18 +362,26 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
     if (!(await checkRateLimit(req, res, RATE))) return;
     if (!(await checkGlobalLimit(res, PRECHECK))) return;
     let found;
-    let total;
+    let truncated;
     try {
       if (!(await isTokenMint(key, which, fetchImpl))) {
         remember(cacheKey, { notAMint: true });
         return res.status(404).json({ error: "That address is not a token mint" });
       }
-      if (!(await checkGlobalLimit(res, GLOBAL))) return;
-      if (which === "mint") {
-        ({ list: found, total } = await scanSolPools(key, fetchImpl));
+      if (coins) {
+        // One charge per scan, all taken before the first scan is sent (RATE LIMITS above).
+        for (let i = 0; i < coins.length; i++) {
+          if (!(await checkGlobalLimit(res, GLOBAL))) return;
+        }
+        const lists = await scanPools(key, coins, fetchImpl);
+        const given = shareSlots(lists.map((l) => l.length));
+        found = lists.flatMap((l, i) => l.slice(0, given[i]));
+        truncated = lists.some((l, i) => l.length > given[i]);
       } else {
-        found = [...new Set(await scanLpMint(key, fetchImpl))].sort();
-        total = found.length;
+        if (!(await checkGlobalLimit(res, GLOBAL))) return;
+        const all = [...new Set(await scanLpMint(key, fetchImpl))].sort();
+        found = all.slice(0, MAX_POOLS);
+        truncated = all.length > MAX_POOLS;
       }
     } catch (err) {
       console.error("[pools] scan failed:", logSafe(err));
@@ -286,8 +390,8 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
     payload = {
       [which]: key,
       program: CP_SWAP_PROGRAM,
-      pools: found.slice(0, MAX_POOLS),
-      truncated: total > MAX_POOLS,
+      pools: found,
+      truncated,
       readAt: new Date().toISOString(),
     };
     remember(cacheKey, { payload });

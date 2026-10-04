@@ -1,6 +1,7 @@
 import type { AmmConfigView } from '../../../lib/solana/cpswap/program';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText } from '../../../lib/solana/lp/format';
+import { SOL_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { Notice, Row } from '../curve/ui';
 import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 
@@ -82,19 +83,42 @@ export function LpRisksDetails() {
 }
 
 /**
+ * What pairing with this coin adds to the risks (quotes.ts `risk`), in the coin's own
+ * words, or nothing for a coin that adds none. Said where the coin is chosen; the review
+ * says it again before the signature (TxFlowView.tsx). `id`: so Review can be described by
+ * it, and a screen reader says it when focus reaches the button.
+ */
+export function CoinRiskNotice({ coin, id }: { coin: QuoteCoin; id?: string }) {
+  if (!coin.risk) return null;
+  return (
+    <div id={id} data-testid="lp-coin-risk" data-coin={coin.symbol}>
+      <Notice tone="warn">{coin.risk}</Notice>
+    </div>
+  );
+}
+
+/**
  * Before opening a pool, always visible: the fork line, what the vault can do, how a new
  * pool earns (honestly), what opening costs and keeps for good, and that it will not be
  * "the" pool. `fee` and `neverRefunded` are read live; an unread deposit says so.
+ *
+ * The fee to open and the account deposits are SOL whatever the pool is paired with (the
+ * pool program takes its fee in SOL, and every account's deposit is SOL). So those two
+ * figures never follow the coin, and for a pool paired with another coin the line says so:
+ * someone putting in USDC must not read "0.15" as USDC.
  */
 export function LpBeforeYouOpen({
   fee,
   neverRefunded,
   walletConnected = true,
+  coin = SOL_QUOTE,
 }: {
   fee: bigint;
   neverRefunded: bigint | null;
   /** The deposits are read with the wallet. With none connected they are not "unread": the page's fee tiers list has them. */
   walletConnected?: boolean;
+  /** The coin the new pool is paired with. Left out, it is SOL. */
+  coin?: QuoteCoin;
 }) {
   const deposits =
     neverRefunded !== null
@@ -109,8 +133,9 @@ export function LpBeforeYouOpen({
         <li>{CREATE_VAULT_LINE}</li>
         <li>{MONEY_LINE}</li>
         <li>
-          Opening costs {solExact(fee)}, paid to the team&apos;s vault, and {deposits}. {LOCKED_SHARES_TEXT} stay locked in the pool forever;
-          that is the pool program&apos;s rule for every new pool.
+          Opening costs {solExact(fee)}, paid to the team&apos;s vault, and {deposits}.{' '}
+          {!coin.native && `Both are paid in SOL, whatever the pool is paired with: none of it comes out of your ${coin.symbol}. `}
+          {LOCKED_SHARES_TEXT} stay locked in the pool forever; that is the pool program&apos;s rule for every new pool.
         </li>
         <li>{NOT_THE_POOL_LINE}</li>
       </ul>

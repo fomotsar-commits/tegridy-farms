@@ -3,6 +3,7 @@ import { JUPITER_PROXY_BASE, SOL_MINT } from '../../solana';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { getMultipleAccounts } from './accounts';
+import type { QuoteCoin } from './quotes';
 
 /**
  * The token's price OUTSIDE our pools, to check a pool's price against before anyone
@@ -10,8 +11,9 @@ import { getMultipleAccounts } from './accounts';
  *
  * Why it matters: anyone can open a pool for any token at any price. Depositing into a
  * pool whose price is off hands the difference to the first arbitrage bot. So a pool
- * more than 3% away from the outside price is refused (poolHealth.ts), and a pool whose
- * outside price could not be read is "unchecked", never "fine".
+ * more than 3% away from the outside price is warned about, with what the gap is
+ * estimated to cost (poolHealth.ts), and a pool whose outside price could not be read is
+ * "unchecked", never "fine" and never a warning.
  *
  * HOW. Two Jupiter quotes through our own proxy: 0.05 SOL into the token, then that many
  * tokens back into SOL. The buy price includes the route's fees and impact on one side,
@@ -168,4 +170,49 @@ export async function readOutsidePrice(
   const mid = Math.sqrt(buyPrice * sellPrice);
   if (!Number.isFinite(mid) || mid <= 0) return { kind: 'unread', detail: 'Jupiter’s quotes did not give a usable price' };
   return { kind: 'ok', solPerToken: mid, source: 'Jupiter' };
+}
+
+/**
+ * A token's outside price in a POOL'S OWN pairing coin: what a pool paired with USDC or
+ * BAYLA is checked against. `perToken` is whole coins per whole token.
+ */
+export type QuotePrice =
+  | { kind: 'ok'; perToken: number; source: 'Jupiter' }
+  /** Jupiter answered that it has no route for the TOKEN. Never said about the coin. */
+  | { kind: 'no-route'; detail: string }
+  | { kind: 'unread'; detail: string };
+
+/**
+ * Why a pairing coin's OWN price is missing, in words about the coin. The coin is priced
+ * by the same read as any token, and that read's words for "no route" say "this token".
+ * Said of the coin beside a pool or an opening, "this token" means the token on the other
+ * side, and a token with no route is allowed now: the sentence read as the site refusing
+ * a case it had lifted. So "no route" names the coin. Every other detail is the read's own.
+ * One place, for the pool card, the opening check and both builders.
+ */
+export function coinPriceDetail(quote: QuoteCoin, coin: Exclude<OutsidePrice, { kind: 'ok' }>): string {
+  return coin.kind === 'no-route' ? `Jupiter has no route for ${quote.symbol}` : coin.detail;
+}
+
+/**
+ * The token's outside price in `quote`, from SOL prices only: the token's own
+ * (`readOutsidePrice`) and, for a coin that is not SOL, that coin's own, read the same
+ * way. Both are the mid of a 0.05 SOL round trip, so their ratio is the token priced in
+ * the coin with each route's fees cancelled, and no second kind of Jupiter read exists.
+ *
+ * For SOL the answer IS the token's price: `coin` is not looked at.
+ *
+ * `no-route` is only ever the TOKEN's: it means the token has no outside market, and a
+ * launch pool then falls back to its own history (poolHealth.ts). A pairing coin that
+ * could not be priced (not asked, a failed read, even "no route") is `unread`: the
+ * token may well trade elsewhere, and unread is never a pass.
+ */
+export function priceInQuote(token: OutsidePrice, quote: QuoteCoin, coin: OutsidePrice | null): QuotePrice {
+  if (token.kind !== 'ok') return token;
+  if (quote.native) return { kind: 'ok', perToken: token.solPerToken, source: 'Jupiter' };
+  if (!coin) return { kind: 'unread', detail: `the price of ${quote.symbol} was not read` };
+  if (coin.kind !== 'ok') return { kind: 'unread', detail: `the price of ${quote.symbol} could not be read (${coinPriceDetail(quote, coin)})` };
+  const perToken = token.solPerToken / coin.solPerToken;
+  if (!Number.isFinite(perToken) || perToken <= 0) return { kind: 'unread', detail: `the price of ${quote.symbol} did not give a usable price` };
+  return { kind: 'ok', perToken, source: 'Jupiter' };
 }

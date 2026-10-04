@@ -8,6 +8,10 @@ page keeps the newest thirty days.
 
 ### 2026-10-04
 
+- Solana LP: a pool can be paired with SOL, USDC or BAYLA. Open a pool has a "Pair with" choice, so a BAYLA/USDC pool can be opened from the site. Every amount, price and review is in the pool's own coin; the fee to open and the account deposits are still paid in SOL. Pools are listed SOL first, then USDC, then BAYLA.
+- Solana LP: any token can have a pool. Four things that used to switch Open a pool and Add liquidity off are now warnings you read before you sign: a token Jupiter has no price for, a price more than 3% from the market (with an estimate of what that gap could cost you), a token whose creator can freeze accounts, and a token that copies a well-known name. Still refused: tokens the pool program rejects, tokens with a transfer fee (this site cannot build an exact withdrawal for them yet), and anything that could not be read.
+- Your positions: each position has an Add more liquidity button beside Remove liquidity. It opens the Add form of the pool that share is in, never another pool's.
+- Open a pool: when a token has several pools, the card points to the biggest one whose price is at the market, and "In all, from your wallet" now counts the tokens as well as the coin and the SOL.
 - TOWELI: on a phone the "Burned forever" and "Fixed supply" rows are no longer cut off with an ellipsis. A long value wraps onto a second line.
 - Burn tracker: a Solana read that never answers is given up after 20 seconds, and the card says it could not read, with Refresh ready again. It used to say "Reading" for good. With no connection, Refresh on an Ethereum or Base bungalow now says it could not read; it used to do nothing and leave the old figure up.
 - The dashboard of an Ethereum or Base bungalow (PEPE, QR, MFER, BNKR, DRB, JBM) sits in the page column with side margins. Its cards used to run to the edges of the window.

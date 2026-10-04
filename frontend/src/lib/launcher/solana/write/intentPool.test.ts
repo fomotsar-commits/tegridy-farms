@@ -23,6 +23,7 @@ import { depositIx, swapBaseInputIx, withdrawIx } from '../../../solana/cpswap/i
 import { LIGHTHOUSE_PROGRAM_ID, PROGRAMS_BY_KIND, decodeIntent, isPoolIntent } from './intent';
 import { AMM_CONFIG, CPSWAP, VAULT, cfgLocal } from './testkit.fixture';
 import type { IntentContext, PoolIntent, PoolPins } from './types';
+import { SOL_QUOTE } from '../../../solana/lp/quotes';
 
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
@@ -34,7 +35,7 @@ function pinsFor(o: { tokenProgram?: PublicKey; lpAccount?: PublicKey } = {}): P
   const tokenMint = fresh();
   const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
   const { token0, token1 } = sortMints(WSOL_MINT, tokenMint);
-  const solIsToken0 = token0.equals(WSOL_MINT);
+  const quoteIsToken0 = token0.equals(WSOL_MINT);
   const lpMint = deriveLpMint(CPSWAP, address);
   return {
     address,
@@ -42,15 +43,16 @@ function pinsFor(o: { tokenProgram?: PublicKey; lpAccount?: PublicKey } = {}): P
     origin: 'standard',
     token0Mint: token0,
     token1Mint: token1,
-    token0Program: solIsToken0 ? TOKEN_PROGRAM_ID : tokenProgram,
-    token1Program: solIsToken0 ? tokenProgram : TOKEN_PROGRAM_ID,
+    token0Program: quoteIsToken0 ? TOKEN_PROGRAM_ID : tokenProgram,
+    token1Program: quoteIsToken0 ? tokenProgram : TOKEN_PROGRAM_ID,
     vault0: deriveVault(CPSWAP, address, token0),
     vault1: deriveVault(CPSWAP, address, token1),
     lpMint,
     observation: deriveObservation(CPSWAP, address),
     tokenMint,
     tokenProgram,
-    solIsToken0,
+    quote: SOL_QUOTE,
+    quoteIsToken0,
     lpAccount: o.lpAccount ?? associatedTokenAddress(lpMint, ME, TOKEN_PROGRAM_ID),
   };
 }
@@ -213,7 +215,7 @@ describe('refused: a deposit slot that is not the checked pool’s, or not yours
 
   it('the token side spending from a classic-seeded account of a Token-2022 token is refused', () => {
     const t = pinsFor({ tokenProgram: TOKEN_2022_PROGRAM_ID });
-    const slot = t.solIsToken0 ? 5 : 4;
+    const slot = t.quoteIsToken0 ? 5 : 4;
     refused([withKey(deposit(t), slot, associatedTokenAddress(t.tokenMint, ME))], /spends from an account that is not yours/, ctxFor('lp-deposit', t));
   });
 
@@ -258,7 +260,7 @@ describe('refused: a withdrawal slot that is not the checked pool’s, or pays o
   it('a payout to the classic-seeded address of a Token-2022 token is refused; the Token-2022-seeded one is accepted', () => {
     const t = pinsFor({ tokenProgram: TOKEN_2022_PROGRAM_ID });
     const ct = ctxFor('lp-withdraw', t);
-    const slot = t.solIsToken0 ? 5 : 4;
+    const slot = t.quoteIsToken0 ? 5 : 4;
     refused([withKey(withdraw(t), slot, associatedTokenAddress(t.tokenMint, ME))], /pays out to an account that is not yours/, ct);
     ok([withKey(withdraw(t), slot, associatedTokenAddress(t.tokenMint, ME, TOKEN_2022_PROGRAM_ID))], ct);
   });

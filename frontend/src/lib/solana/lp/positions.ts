@@ -6,6 +6,7 @@ import { lpWithdrawValue } from '../cpswap/read';
 import { getMultipleAccounts, getTokenAccountsByOwner, type RawAccount } from './accounts';
 import { readPoolIndex } from './poolIndex';
 import { readPools, type PoolEntry, type ReadPoolsOptions } from './poolFinder';
+import { QUOTE_COINS } from './quotes';
 import { TOKEN_PROGRAM, decodeMintAccount } from './tokenSafety';
 
 /**
@@ -32,7 +33,9 @@ import { TOKEN_PROGRAM, decodeMintAccount } from './tokenSafety';
  * mint), never "whatever the RPC returned". A miss is not asked again for a minute
  * (`missedAt`), so "more" and "read again" spend lookups on shares not asked yet, and
  * lookups go a few at a time with those first, so the index's per-IP limit lands on
- * junk already asked about. The placed ones are listed most valuable first.
+ * junk already asked about. The placed ones are listed by pairing coin (SOL, USDC,
+ * BAYLA) and, within a coin, the one worth the most of it first: amounts of different
+ * coins are never compared.
  */
 
 export interface Position {
@@ -110,10 +113,20 @@ type Placement = Pick<Position, 'placement' | 'placementDetail'> & { pool: strin
 
 const toBase58 = (b: Uint8Array) => new PublicKey(b).toBase58();
 
-/** The SOL side of what a position pays out now, for ordering; -1 when it has no value read. */
-export function positionSolValue(p: Position): bigint {
+/**
+ * The pairing-coin side of what a position pays out now, in that coin's own base units,
+ * for ordering WITHIN one coin; -1 when it has no value read.
+ */
+export function positionQuoteValue(p: Position): bigint {
   if (!p.value || p.pool?.kind !== 'pool') return -1n;
-  return p.pool.view.solIsToken0 ? p.value.token0 : p.value.token1;
+  return p.pool.view.quoteIsToken0 ? p.value.token0 : p.value.token1;
+}
+
+/** A position's pairing coin's rank (SOL 0, USDC 1, BAYLA 2); past them all when it has no value read. */
+function positionCoinRank(p: Position): number {
+  if (!p.value || p.pool?.kind !== 'pool') return QUOTE_COINS.length;
+  const mint = p.pool.view.quote.mint;
+  return QUOTE_COINS.findIndex((q) => q.mint === mint);
 }
 
 export async function readPositions(
@@ -214,11 +227,15 @@ export async function readPositions(
     }
     return { lpMint: share.mint, lpAccount: share.address, lpAmount: share.amount, placement, placementDetail, pool: entry, value, tooSmall };
   });
-  // Most SOL first; shares with no value keep their stable order after them.
+  // By pairing coin, then the most of that coin first; shares with no value keep their
+  // stable order after them. A USDC amount is never weighed against a SOL amount.
   const order = new Map(positions.map((p, i) => [p, i]));
   positions.sort((a, b) => {
-    const va = positionSolValue(a);
-    const vb = positionSolValue(b);
+    const ra = positionCoinRank(a);
+    const rb = positionCoinRank(b);
+    if (ra !== rb) return ra - rb;
+    const va = positionQuoteValue(a);
+    const vb = positionQuoteValue(b);
     if (va !== vb) return va > vb ? -1 : 1;
     return order.get(a)! - order.get(b)!;
   });

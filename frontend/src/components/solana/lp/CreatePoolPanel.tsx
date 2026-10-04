@@ -1,33 +1,42 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { formatSol, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { sortMints, type AmmConfigView } from '../../../lib/solana/cpswap/program';
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type CreatePlan, type CreateProblem } from '../../../lib/solana/lp/liquidityMath';
-import { arbitrageLoss, assessOpening, matchMarket, mostBothAtMarket, openingSolPerToken } from '../../../lib/solana/lp/opening';
-import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
-import { PRICE_TOLERANCE } from '../../../lib/solana/lp/poolHealth';
-import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../lib/solana/lp/opening';
+import { coinPriceDetail, priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { SOL_QUOTE, lowerCoins, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
-import { baseUnitsToInput } from '../curve/uiFormat';
+import { SHADOW, TOGGLE_CLS, baseUnitsToInput } from '../curve/uiFormat';
 import { TxFlowView } from '../curve/TxFlowView';
 import { WalletNeeded } from '../curve/WalletNeeded';
 import { useReturnFocus, useTxFlow, type OnSettled } from '../curve/useTxFlow';
 import type { LpOpenGate, LpWriteApi, TierState, TierTerms } from '../curve/ports';
 import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
-import { LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
+import { CoinRiskNotice, LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
-import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, reviewOffWhy, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
-import { createHeld, type CreateAdvice, type CreateOffer } from './offers';
+import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, coinExact, reviewOffWhy, sharePct, solAbout, solAboutUp, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
+import { POOL_RISK_CODES, createHeld, type CreateOffer, type PairFacts } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
-const SOL_DECIMALS = 9;
 const LP_DECIMALS = 9;
-const MINT_AUTHORITY_LINE = 'Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.';
-const TOLERANCE_PCT = PRICE_TOLERANCE * 100;
+/** What a live mint authority can do to the new pool: the pool holds the pairing coin, so that is what is at risk. */
+const mintAuthorityLine = (coin: QuoteCoin) => `Whoever holds it can make new tokens at any time and sell them into your pool for its ${coin.symbol}.`;
+
+/**
+ * What an opening off the market is estimated to cost, in the words the review says again
+ * (write/liquidity.ts `LP_COPY.priceGapLoss`, pinned to these by a test). `loss` is in the
+ * chosen coin. Null is a loss that could not be worked out: it is said as that, never as 0.
+ */
+const lossLine = (loss: string | null) =>
+  loss === null
+    ? 'What a move back to the market price would cost you at these amounts could not be worked out.'
+    : `At these amounts, a move back to the market price would take up to about ${loss} of what you put in. That is an estimate.`;
 
 // The same words as the builder's refusals (write/createPool.ts CREATE_COPY), said here
 // before Review. The builder is not imported: this file is in the page's own bundle, and
@@ -36,6 +45,14 @@ const TOLERANCE_PCT = PRICE_TOLERANCE * 100;
 const TOO_SMALL = `Too small: the pool program keeps ${LOCKED_SHARES_TEXT} in every new pool forever, and this opening would not cover them. Put in more of either side.`;
 const lockTooLarge = (pct: string) =>
   `Too small to be worth it: the ${LOCKED_SHARES_TEXT} the pool program keeps forever would be ${pct}% of this pool. Put in more, so that part is 0.1% or less.`;
+// The leave rule (liquidityMath.ts `openingProblem`): with one smallest unit on a side, the
+// opener's own shares would pay 0 of it, and the pool program refuses a withdrawal that
+// pays 0 on a side. `what` is the coin's symbol, or "the token".
+const cannotLeave = (what: string) =>
+  `Too small: your own share of this pool could never be taken out, because it would pay out less than one unit of ${what}. Put in more of it.`;
+
+/** A token that can be paired with nothing (SOL itself) still draws the form, on SOL, with Review off elsewhere. */
+const NO_PAIR: PairFacts = { coin: SOL_QUOTE, advice: { kind: 'none' }, warned: false, hasPool: false, standard: 'empty' };
 
 /**
  * Why an open panel's Review is off when its card no longer offers an opening. 'held'
@@ -54,17 +71,39 @@ function offerOffLine(offer: CreateOffer): string | null {
 /**
  * What an opening here adds to, said next to Review while the card offers one. A pool
  * that already exists never switches Review off: the opener is told, and chooses.
+ *
+ * It follows the CHOSEN coin: a pool paired with SOL is not a pool to add to for someone
+ * opening the first USDC pool, so it is not said to them. `named` puts the coin in the
+ * sentence: always for a coin that is not SOL, and for SOL once another coin has a pool
+ * of its own to point to (then "a pool" would not say which).
  */
-function adviceLine(advice: CreateAdvice['kind']): string | null {
-  switch (advice) {
+function adviceLine(pair: PairFacts, named: boolean): string | null {
+  const a = named ? `a ${pair.coin.symbol} pool` : 'a pool';
+  switch (pair.advice.kind) {
     case 'none':
       return null;
     case 'opened-here':
-      return 'You opened a pool for this token just now. Opening again makes a second, separate pool and pays the fee to open again.';
+      return `You opened ${a} for this token just now. Opening again makes a second, separate pool and pays the fee to open again.`;
     case 'exists':
-      return 'This token already has a pool that passes the checks (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.';
+      // The card's own words for it: a pool that carries any warning, about its price or
+      // about its token, is never said to pass the checks (offers.ts `depositWarned`).
+      return `This token already has ${a} that ${pair.warned ? 'takes deposits, with a warning' : 'passes the checks'} (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.`;
   }
 }
+
+/**
+ * For a coin that is not SOL and has no pool yet: that this would be the first pool
+ * paired with it. A cut pool list (offers.ts `poolListCut`) never says "the first": a
+ * pool that was not read may be paired with this coin.
+ */
+function firstLine(pair: PairFacts, cut: boolean): string | null {
+  if (pair.coin.native || pair.hasPool || pair.advice.kind !== 'none') return null;
+  const coin = pair.coin.symbol;
+  return cut
+    ? `None of the pools read for this token is paired with ${coin}. This token has more pools than our pool index lists, so one that was not read may be.`
+    : `No pool pairs this token with ${coin} yet. Yours would be the first.`;
+}
+
 const rentBand = (most: string) =>
   `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and stay open on the network. The most you can put in from this wallet is ${most}.`;
 
@@ -87,29 +126,60 @@ const terms = (c: AmmConfigView): TierTerms => ({
   creatorFeeRate: c.creatorFeeRate,
 });
 
+// A line that is shown once typing settles is kept for half a second after it changes. A
+// change of coin inside that half second must not leave the old coin's line on the new
+// coin's form, so a settled line carries the coin it was worked out for, and is shown
+// only under that coin.
+const forCoin = (coin: QuoteCoin, text: string) => (text === '' ? '' : `${coin.mint}\n${text}`);
+const ofCoin = (coin: QuoteCoin, kept: string) => (kept.startsWith(`${coin.mint}\n`) ? kept.slice(coin.mint.length + 1) : '');
+
+/** One price read, as one string: two reads that give the same string said the same thing. */
+const priceKey = (p: OutsidePrice | null) => (p === null ? 'none' : p.kind === 'ok' ? `ok:${p.solPerToken}` : `${p.kind}:${p.detail}`);
+
 /**
  * Open a new pool for one token on the public fee tier, in place inside its card
  * (SPEC_S2_CREATE 4.3). The person types both sides; the boxes never move each other.
  * Everything shown before Review is worked out from what the page read, for the preview
  * only: Review reads the tier, the fee account, the token, the market price and the
  * wallet again, and builds from those (write/createPool.ts `prepareLpCreate`).
+ *
+ * THE PAIRING COIN. The opener chooses what the token is paired with (quotes.ts: SOL,
+ * USDC or BAYLA, as far as the token allows). Everything on the coin's side is in THAT
+ * coin: its box is parsed and printed in the coin's own decimals, the wallet is read for
+ * it, the market price is the token's price in it, and the pool to add to first and the
+ * standard address are that pair's own. Nothing read or typed for one coin is ever shown
+ * under another: a change of coin empties the coin's box and drops the old coin's
+ * answers. The token amount is kept (its units do not change with the coin), and the
+ * form's status line says the coin changed.
+ * The fee to open, the account deposits and the network fee are SOL whatever the coin.
+ *
+ * WARNINGS NEVER SWITCH REVIEW OFF (owner ruling 2026-10-04: any token may have a pool).
+ * A price more than 3% from the market, a token with no market price at all, a token its
+ * creator can freeze and a copy of a well-known name are each said above Review, in the
+ * check's own words (opening.ts `assessOpening`), and the review says them again from its
+ * own fresh reads. What still switches Review off is what stops an opening (an amount the
+ * wallet cannot cover, a pool too small) and everything that could not be READ: a failed
+ * price read is not "no market price".
  */
 export function CreatePoolPanel(p: {
   mint: string;
   safety: TokenSafety;
   decimals: number | null;
+  /** The TOKEN's market price, in SOL. A coin that is not SOL has its own price read here. */
   outside: OutsidePrice | null;
   outsideAt: number | null;
   tier: TierState | null;
-  /** Whether the search found anything at the standard tier-1 address. Prepare decides for good. */
-  standard: 'empty' | 'taken';
+  /**
+   * One entry per coin this token can be paired with, SOL first (offers.ts `pairFacts`):
+   * that pair's own pool to add to first, and whether its standard address is free.
+   * Neither ever switches Review off. The pool to add to is said next to Review instead,
+   * for the coin that is chosen.
+   */
+  pairs: readonly PairFacts[];
+  /** The pool index cut its list: a new pool is then never called "the first". */
+  cut: boolean;
   /** The card's answer now. An open panel obeys it: Review only while it is `offer`. */
   offer: CreateOffer;
-  /**
-   * The pool the card points to first, if any. It never switches Review off: a panel left
-   * open after its own opening, or after someone else's, says so next to Review instead.
-   */
-  advice: CreateAdvice['kind'];
   /** The card's inputs are being read again: Review waits for the new answer. */
   reading: boolean;
   onClose: () => void;
@@ -128,9 +198,9 @@ function CreateInner({
   outside,
   outsideAt,
   tier,
-  standard,
+  pairs,
+  cut,
   offer,
-  advice,
   reading,
   onClose,
   onReread,
@@ -146,14 +216,65 @@ function CreateInner({
   if (readyConfig && readyConfig !== shownConfig) setShownConfig(readyConfig);
   const config = readyConfig ?? shownConfig;
 
+  // The coin the pool is paired with. It starts on SOL, the first in rank order.
+  const [picked, setPicked] = useState<string | null>(null);
+  const pair = pairs.find((x) => x.coin.mint === picked) ?? pairs[0] ?? NO_PAIR;
+  const coin = pair.coin;
+
   const tokenProgram = safety.kind === 'read' && safety.facts?.program === 'token-2022' ? TOKEN_2022_PROGRAM : TOKEN_PROGRAM;
-  const solIsToken0 = useMemo(() => sortMints(new PublicKey(WSOL_MINT), new PublicKey(mint)).token0.toBase58() === WSOL_MINT, [mint]);
+  const quoteIsToken0 = useMemo(() => sortMints(new PublicKey(coin.mint), new PublicKey(mint)).token0.toBase58() === coin.mint, [mint, coin.mint]);
   const signer = writes.signerState.kind === 'ready' ? writes.signerState.signer : null;
   const [factsNonce, setFactsNonce] = useState(0);
-  const facts = useWalletFacts(writes, signer?.publicKey ?? null, { tokenMint: mint, tokenProgram, lpMint: null, opening: true }, factsNonce);
+  // Asked for the chosen coin. The answer is kept only for the coin it was asked about,
+  // so right after a change of coin this is null ("reading"), never the other coin's.
+  const facts = useWalletFacts(writes, signer?.publicKey ?? null, { tokenMint: mint, tokenProgram, lpMint: null, opening: true, quote: coin }, factsNonce);
 
-  const [boxes, setBoxes] = useState<{ sol: string; token: string }>({ sol: '', token: '' });
+  const [boxes, setBoxes] = useState<{ quote: string; token: string }>({ quote: '', token: '' });
   const [driving, setDriving] = useState<LpSide | null>(null);
+
+  // ── the coin's own market price ──
+  // The page has the TOKEN's price in SOL. A pool paired with USDC or BAYLA is priced in
+  // that coin, which takes the coin's own price in SOL too: read here, when the coin is
+  // chosen, and again whenever the card reads its own inputs again (so the two prices are
+  // of one moment). SOL needs none. Nor does a token Jupiter ANSWERED it has no market
+  // price for: nothing is compared then, so the coin's price is not asked for and never
+  // holds Review off.
+  const noMarket = outside?.kind === 'no-route';
+  const wantsCoinPrice = !coin.native && !noMarket;
+  const [coinAsk, setCoinAsk] = useState(0);
+  const [seenReading, setSeenReading] = useState(reading);
+  if (seenReading !== reading) {
+    setSeenReading(reading);
+    if (reading) setCoinAsk((n) => n + 1);
+  }
+  const coinKey = wantsCoinPrice ? `${coin.mint}#${coinAsk}` : null;
+  const [coinPrice, setCoinPrice] = useState<{ key: string; price: OutsidePrice } | null>(null);
+  const { readers } = writes;
+  useEffect(() => {
+    if (!coinKey) return;
+    let live = true;
+    // An answer that lands after its read was left (another coin, or a newer read of this
+    // one) is dropped: kept, it would take the place of the answer the form is showing.
+    const done = (price: OutsidePrice) => {
+      if (live) setCoinPrice({ key: coinKey, price });
+    };
+    readers.outsidePrice(coin.mint, coin.decimals).then(done, (e: unknown) => done({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
+    return () => {
+      live = false;
+    };
+  }, [readers, coinKey, coin.mint, coin.decimals]);
+  // Only the answer to the read that is out now. While the coin's price is read again its
+  // old price is not a price: beside the token's new one it would give a market price of
+  // no moment at all. Until both are in, the form says "reading" and Match is off.
+  // The other order too: the coin's read is one call and the token's comes back with the
+  // whole pool search, so the coin's new price can land first. It is held back until the
+  // card's own read is in (`reading`): beside the token's OLD price it was shown as the
+  // market price, with the old read time, and the opening was checked against it
+  // (review, 2026-10-04).
+  const coinOutside = !reading && coinPrice !== null && coinPrice.key === coinKey ? coinPrice.price : null;
+  // Being read, for the first time or again. Review waits for the answer by itself: with
+  // no coin price the opening check has nothing to compare with, and says "not read".
+  const coinReading = coinKey !== null && coinOutside === null;
 
   const lastOutcome = useRef<string | null>(null);
   const { pending, remember, refreshCreateFacts } = writes;
@@ -175,82 +296,110 @@ function CreateInner({
     if (lastOutcome.current === 'not-sent') refreshCreateFacts();
     // Opened: the amounts it opened with are spent. Nothing here may be reviewed again.
     if (lastOutcome.current === 'confirmed') {
-      setBoxes({ sol: '', token: '' });
+      setBoxes({ quote: '', token: '' });
       setDriving(null);
     }
   }, [refreshCreateFacts]);
   useFlowReports(writes, flow.state.step, flow.locked, reread);
 
+  // Every amount on the coin's side is in the CHOSEN coin's decimals: 9 for SOL, 6 for
+  // USDC and BAYLA. Read in another coin's, a typed 50 would be a thousand times off.
   const dec = decimals ?? 0;
-  const sideDecimals = (s: LpSide) => (s === 'sol' ? SOL_DECIMALS : dec);
+  const sideDecimals = (s: LpSide) => (s === 'quote' ? coin.decimals : dec);
   const parse = (s: LpSide): bigint | null => {
     const t = boxes[s].trim();
     if (t === '' || (s === 'token' && decimals === null)) return null;
     return parseDecimalToBaseUnits(t, sideDecimals(s));
   };
-  const solRaw = parse('sol');
+  const quoteRaw = parse('quote');
   const tokRaw = parse('token');
-  const bad = (s: LpSide) => boxes[s].trim() !== '' && (s === 'sol' ? solRaw : tokRaw) === null && !(s === 'token' && decimals === null);
+  const bad = (s: LpSide) => boxes[s].trim() !== '' && (s === 'quote' ? quoteRaw : tokRaw) === null && !(s === 'token' && decimals === null);
 
-  // What the wallet can put in, after the fee to open, the pool's own account deposits,
-  // the pool-share account and two signatures' fees. Unread is null, never 0.
+  // What the wallet must keep back in SOL: the fee to open, the pool's own account
+  // deposits, the pool-share account and two signatures' fees. A SOL opening also opens a
+  // wrapped-SOL account; any other coin wraps nothing. Unread is null, never 0.
   const neverRefunded = facts?.kind === 'ok' ? (facts.rents.neverRefunded ?? null) : null;
   const lpRent = facts?.kind === 'ok' ? facts.rents.tokenAccount165 : null;
+  const lamports = facts?.kind === 'ok' ? facts.lamports : null;
   const band =
     facts?.kind === 'ok' && config && neverRefunded !== null
       ? {
           walletFloor: facts.rents.walletFloor,
           feeReserve: feeReserveFor(2),
           lpAccountRent: facts.rents.tokenAccount165,
-          wsolCreateRent: facts.wsol.exists ? 0n : facts.rents.tokenAccount165,
+          wsolCreateRent: coin.native && !facts.wsol.exists ? facts.rents.tokenAccount165 : 0n,
           alsoPaid: config.createPoolFee + neverRefunded,
         }
       : null;
-  const availableSol = facts?.kind === 'ok' && band ? spendableSol({ lamports: facts.lamports, ...band }) : null;
   const setAside = band ? solSetAside(band) : null;
-  const availableToken = facts?.kind === 'ok' ? (facts.token?.amount ?? 0n) : null;
+  // What can go in on the coin's side. SOL: what is left after everything above. Any
+  // other coin: the wallet's balance of that coin, from its own account for it (no account
+  // there is a real 0; an answer with no coin read in it is unread, never 0).
+  const availableQuote =
+    facts?.kind !== 'ok' ? null : coin.native ? (band ? spendableSol({ lamports: facts.lamports, ...band }) : null) : facts.coin ? facts.coin.amount : null;
+  // A coin that is not SOL puts no SOL in, but the wallet's SOL must still cover the costs
+  // (the write layer's own rule, `lamports < setAside`). Short of it, Review is off.
+  const solShort = !coin.native && lamports !== null && setAside !== null && lamports < setAside;
+  // What the wallet holds of the token. Null while the token itself is not read: an open
+  // form stays open when a re-read of the token fails, and then its program is not known
+  // (`tokenProgram` above falls back to the classic one). The wallet, asked under the wrong
+  // program, answers "no account", and that was shown as "holds none of this token" to a
+  // wallet that held it (review, 2026-10-04). Nothing is claimed about the holding until
+  // the token is read again. With the token read, no account is a real 0.
+  // `decimals` is the token's own, from that read: null exactly when the token is not read.
+  const availableToken = facts?.kind === 'ok' && decimals !== null ? (facts.token?.amount ?? 0n) : null;
   // Said before anything is typed: a wallet that can put nothing in is not left with a greyed-out Review.
   const cannotOpen = cannotFundText({
     doing: 'open a pool',
     forWhat: 'the fee to open, the account deposits and network fees',
-    lamports: facts?.kind === 'ok' ? facts.lamports : null,
+    quote: coin,
+    lamports,
     setAside,
-    availableSol,
+    availableQuote,
     availableToken,
   });
-  const market = outside?.kind === 'ok' ? outside.solPerToken : null;
+  // The token's market price in the chosen coin: Jupiter's SOL price for SOL, and that
+  // over the coin's own SOL price for any other coin. Null while either is not read.
+  const quoted = outside ? priceInQuote(outside, coin, coinOutside) : null;
+  const market = quoted?.kind === 'ok' ? quoted.perToken : null;
 
-  const both = solRaw !== null && tokRaw !== null && solRaw > 0n && tokRaw > 0n;
-  const free = both ? planCreate({ solIsToken0, sol: solRaw, token: tokRaw, availableSol: null, availableToken: null }) : null;
+  const both = quoteRaw !== null && tokRaw !== null && quoteRaw > 0n && tokRaw > 0n;
+  const free = both ? planCreate({ quoteIsToken0, quote: quoteRaw, token: tokRaw, availableQuote: null, availableToken: null }) : null;
   const preview: CreatePlan | null = free && !('problem' in free) ? free : null;
-  const planned = both ? planCreate({ solIsToken0, sol: solRaw, token: tokRaw, availableSol, availableToken }) : null;
+  const planned = both ? planCreate({ quoteIsToken0, quote: quoteRaw, token: tokRaw, availableQuote, availableToken }) : null;
   const problem: CreateProblem | null = planned && 'problem' in planned ? planned : null;
-  const check = assessOpening({ tokenMint: mint, sol: solRaw ?? 0n, token: tokRaw ?? 0n, tokenDecimals: decimals, outside, safety });
-  const opening = both && decimals !== null ? openingSolPerToken(solRaw, tokRaw, decimals) : null;
+  const check = assessOpening({ tokenMint: mint, quote: coin, quoteAmount: quoteRaw ?? 0n, token: tokRaw ?? 0n, tokenDecimals: decimals, outside, coinOutside, safety });
+  const opening = both && decimals !== null ? openingPricePerToken(quoteRaw, tokRaw, decimals, coin) : null;
 
   const setSide = (side: LpSide, v: bigint) => setBoxes((b) => ({ ...b, [side]: baseUnitsToInput(v, sideDecimals(side)) }));
   const onType = (side: LpSide, text: string) => {
     setBoxes((b) => ({ ...b, [side]: text }));
     setDriving(side);
   };
-  const keep: LpSide | null = driving && (driving === 'sol' ? solRaw : tokRaw) ? driving : solRaw ? 'sol' : tokRaw ? 'token' : null;
+  const keep: LpSide | null = driving && (driving === 'quote' ? quoteRaw : tokRaw) ? driving : quoteRaw ? 'quote' : tokRaw ? 'token' : null;
   const matchTo = (k: LpSide | null) => {
-    if (!k || market === null || decimals === null) return;
-    const amount = k === 'sol' ? solRaw : tokRaw;
+    // `reading`: the Match under a price warning is a second way in here, and is not greyed out.
+    if (!k || market === null || decimals === null || reading) return;
+    const amount = k === 'quote' ? quoteRaw : tokRaw;
     if (!amount) return;
-    const other = matchMarket({ keep: k, amount, solPerToken: market, tokenDecimals: decimals });
+    const other = matchMarket({ keep: k, amount, pricePerToken: market, tokenDecimals: decimals, quote: coin });
     if (other === null) return;
-    setSide(k === 'sol' ? 'token' : 'sol', other);
+    setSide(k === 'quote' ? 'token' : 'quote', other);
     setDriving(k);
   };
-  const canMatch = keep !== null && market !== null && decimals !== null;
+  // Off while either price is being read again: the coin's new price can land before the
+  // token's, and the two together are then a price that was never true (review, 2026-10-04).
+  // For a coin that is not SOL there is no `market` for that whole time (`coinOutside`
+  // above). On SOL the last price stays on screen while it is read again, so `reading`
+  // is what switches Match off there.
+  const canMatch = keep !== null && market !== null && decimals !== null && !reading;
   const mostBoth =
-    availableSol !== null && availableToken !== null && market !== null && decimals !== null
-      ? mostBothAtMarket({ spendableSol: availableSol, tokenBalance: availableToken, solPerToken: market, tokenDecimals: decimals })
+    availableQuote !== null && availableToken !== null && market !== null && decimals !== null
+      ? mostBothAtMarket({ spendableQuote: availableQuote, tokenBalance: availableToken, pricePerToken: market, tokenDecimals: decimals, quote: coin })
       : null;
   const applyMostBoth = () => {
     if (!mostBoth) return;
-    setBoxes({ sol: baseUnitsToInput(mostBoth.sol, SOL_DECIMALS), token: baseUnitsToInput(mostBoth.token, dec) });
+    setBoxes({ quote: baseUnitsToInput(mostBoth.quote, coin.decimals), token: baseUnitsToInput(mostBoth.token, dec) });
   };
 
   // ── hints ──
@@ -259,38 +408,46 @@ function CreateInner({
     if (!signer) return 'Connect a wallet to see what you can put in.';
     if (!facts) return 'Reading your wallet…';
     if (facts.kind === 'unread') return `You have: could not read (${facts.detail})`;
-    if (side === 'token') return `You have ${unitsExact(availableToken ?? 0n, dec)} tokens.`;
-    return availableSol === null
-      ? `You have ${solExact(facts.lamports)}.`
-      : `You have ${solExact(facts.lamports)}. Up to ${solExact(availableSol)} can go in after the fee to open, the account deposits and network fees.`;
+    // Not read is said as that: never as 0, and never as a count in the wrong decimals.
+    if (side === 'token') return availableToken === null ? 'You have: could not read (this token was not read just now)' : `You have ${unitsExact(availableToken, dec)} tokens.`;
+    if (coin.native) {
+      return availableQuote === null
+        ? `You have ${solExact(facts.lamports)}.`
+        : `You have ${solExact(facts.lamports)}. Up to ${solExact(availableQuote)} can go in after the fee to open, the account deposits and network fees.`;
+    }
+    return availableQuote === null ? `You have: could not read (this wallet’s ${coin.symbol} was not read)` : `You have ${coinExact(availableQuote, coin)}.`;
   };
   const parseError = (side: LpSide) =>
-    bad(side) ? (side === 'sol' ? 'That is not a SOL amount (at most 9 decimals).' : `That is not an amount this token can hold (at most ${dec} decimals).`) : null;
+    bad(side)
+      ? side === 'quote'
+        ? `That is not a ${coin.symbol} amount (at most ${coin.decimals} decimals).`
+        : `That is not an amount this token can hold (at most ${dec} decimals).`
+      : null;
 
   // ── the problems line: one sentence ──
+  // Only what stops an opening. A price off the market does not: it is a warning (below).
   let problemText = '';
   let fix: { label: string; run: () => void } | null = null;
-  if (both && check.price.state === 'disagrees' && market !== null && decimals !== null) {
-    const loss = arbitrageLoss({ sol: solRaw, token: tokRaw, tokenDecimals: decimals, marketSolPerToken: market });
-    problemText = `Your opening price is ${gapText(check.price.diff)} the market price. Bots would trade against your pool as soon as it opens, taking about ${solAbout(BigInt(Math.round(loss)))} of what you put in. Pools opened from this site must start within ${TOLERANCE_PCT}% of the market.`;
-    fix = { label: 'Match the market price', run: () => matchTo(keep) };
-  } else if (problem?.problem === 'too-small') {
+  if (problem?.problem === 'too-small') {
     problemText = TOO_SMALL;
   } else if (problem?.problem === 'lock-too-large') {
     problemText = lockTooLarge(lockPct(problem.supply));
+  } else if (problem?.problem === 'cannot-leave') {
+    problemText = cannotLeave(problem.side === 'quote' ? coin.symbol : 'the token');
   } else if (problem?.problem === 'overflow') {
     problemText = 'The amounts are too large for one transaction.';
-  } else if (problem?.problem === 'over-balance' && problem.side === 'sol') {
-    problemText = rentBand(solExact(problem.have));
+  } else if (problem?.problem === 'over-balance' && problem.side === 'quote') {
+    // SOL: what is left after the costs. Any other coin: the wallet's balance of it.
+    problemText = coin.native ? rentBand(solExact(problem.have)) : `You have ${coinExact(problem.have, coin)}; this needs ${coinExact(problem.need, coin)}.`;
     const have = problem.have;
-    // The SOL side now drives: left on the token side, "Match the market price" put the
-    // SOL straight back over the limit and the two fixes undid each other for ever.
+    // The coin side now drives: left on the token side, "Match the market price" put the
+    // coin straight back over the limit and the two fixes undid each other for ever.
     if (have > 0n) {
       fix = {
-        label: `Use ${solExact(have)}`,
+        label: `Use ${coinExact(have, coin)}`,
         run: () => {
-          setSide('sol', have);
-          setDriving('sol');
+          setSide('quote', have);
+          setDriving('quote');
         },
       };
     }
@@ -299,13 +456,38 @@ function CreateInner({
     if (mostBoth) fix = { label: 'Use the most both balances allow', run: applyMostBoth };
   }
 
+  // ── the warnings: said above Review, and never a reason to switch it off ──
+  // The check's own sentences: about the token (a copy, a freezable one, a changing
+  // amount), and about the price once both amounts are typed (off the market, or no market
+  // price at all). A price off the market also gets what it is estimated to cost at the
+  // typed amounts, in the chosen coin, worked out against the price the check compared with.
+  const offMarket = check.price.state === 'disagrees';
+  const warned = [...check.warnings];
+  if (both && decimals !== null && check.price.state === 'disagrees') {
+    const loss = estimatedLoss({ quoteAmount: quoteRaw, token: tokRaw, tokenDecimals: decimals, marketPricePerToken: check.price.reference, quote: coin });
+    warned.push(lossLine(loss === null ? null : coinExact(loss, coin)));
+  }
+
   // ── the preview ──
   const fee = config?.createPoolFee ?? null;
-  const status = useDebounced(
-    preview && opening !== null ? `You would open the pool at 1 token = ${formatSolPrice(opening)} SOL and get ${unitsExact(preview.lp, LP_DECIMALS)} pool shares.` : '',
+  // What a screen reader hears once typing settles: the price, and that it carries a warning.
+  const statusPrice =
+    check.price.state === 'disagrees'
+      ? ` That price is ${gapText(check.price.diff)} the market price: the warning above Review says what that may cost.`
+      : check.price.state === 'no-market'
+        ? ' There is no market price to compare it with: you are setting the price yourself.'
+        : '';
+  const status = ofCoin(
+    coin,
+    useDebounced(
+      forCoin(
+        coin,
+        preview && opening !== null ? `You would open the pool at 1 token = ${formatSolPrice(opening)} ${coin.symbol} and get ${unitsExact(preview.lp, LP_DECIMALS)} pool shares.${statusPrice}` : '',
+      ),
+    ),
   );
   // Read out once typing settles, never on every keystroke (its numbers change with each digit).
-  const alertText = useSettledAlert(problemText);
+  const alertText = ofCoin(coin, useSettledAlert(forCoin(coin, problemText)));
   const held = createHeld(pending.notes);
   const blockedByOther = writes.busy && flow.state.step === 'idle';
   const canReview =
@@ -317,53 +499,132 @@ function CreateInner({
     !!planned &&
     !problem &&
     check.verdict === 'allowed' &&
+    !solShort &&
     !held &&
     offer === 'offer' &&
     !reading &&
     !flow.locked &&
     !blockedByOther;
   const review = () => {
-    if (!canReview || !signer || !config || solRaw === null || tokRaw === null) return;
+    if (!canReview || !signer || !config || quoteRaw === null || tokRaw === null) return;
     const build = () =>
       api.prepareLpCreate(writes.rpc, gate, writes.readers, {
         owner: signer.publicKey,
         tokenMint: new PublicKey(mint),
-        sol: solRaw,
+        // The chosen coin, and its amount in that coin's own base units.
+        quoteMint: new PublicKey(coin.mint),
+        quote: quoteRaw,
         token: tokRaw,
-        shown: { terms: terms(config), standard },
+        shown: { terms: terms(config), standard: pair.standard },
       });
     void flow.prepare(build, { repeatable: true });
   };
 
-  const warnings = safety.kind === 'read' && safety.verdict === 'warn' ? safety.warnings : [];
+  // The token's own warnings, above the boxes. The ones that change what a pool risks
+  // (offers.ts `POOL_RISK_CODES`) are left out here: the check says each of them above
+  // Review (`warned`), and up here they pushed the amount boxes off a phone's first screen.
+  const warnings = safety.kind === 'read' && safety.verdict === 'warn' ? safety.warnings.filter((w) => !POOL_RISK_CODES.has(w.code)) : [];
   const walletReady = writes.signerState.kind === 'ready';
   // An amount that does not parse has its own line under its box: it is not "type both amounts".
-  const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotOpen !== null, hasAmounts: both || bad('sol') || bad('token'), amountsWord: 'both amounts' });
+  const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotOpen !== null, hasAmounts: both || bad('quote') || bad('token'), amountsWord: 'both amounts' });
+  // A coin whose own price is missing: which price it is, said beside the Review it
+  // switches off. Never said when the coin's price is not needed (nothing is compared).
+  const coinPriceWhy = !wantsCoinPrice
+    ? null
+    : coinOutside === null
+      ? `Review is off while the price of ${coin.symbol} is read: your opening price is checked in ${coin.symbol}.`
+      : coinOutside.kind === 'no-route'
+        ? `Review is off: Jupiter has no market price for ${coin.symbol} right now, so your opening price cannot be checked in ${coin.symbol}. Pair with another coin, or try again later.`
+        : coinOutside.kind !== 'ok'
+        ? `Review is off: the price of ${coin.symbol} could not be read, so your opening price cannot be checked in ${coin.symbol}. Press Read the market price again.`
+        : null;
   const callsItself =
     safety.kind === 'read' && safety.verdict !== 'blocked' && (safety.name || safety.symbol)
       ? `${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`
       : null;
-  const wsolKept = facts?.kind === 'ok' && facts.wsol.exists && facts.wsol.amount > 0n;
+  const wsolKept = coin.native && facts?.kind === 'ok' && facts.wsol.exists && facts.wsol.amount > 0n;
   const confirmedPool =
     flow.state.step === 'outcome' && flow.state.outcome.status === 'confirmed' && flow.state.prepared?.summary.kind === 'lp-create'
       ? flow.state.prepared.summary.pool.toBase58()
       : null;
-  // A pressed Read again for the market price: what the line said before, until the new answer is in.
-  const marketKey = outside === null ? 'none' : outside.kind === 'ok' ? `ok:${outside.solPerToken}` : `${outside.kind}:${outside.detail}`;
+  // A pressed Read again for the market price: what the line said before, until the new
+  // answer is in. For a coin that is not SOL the answer is both prices.
+  const marketKey = coin.native ? priceKey(outside) : `${priceKey(outside)}|${coin.mint}:${priceKey(coinOutside)}`;
+  const priceReading = reading || coinReading;
   const [askedMarket, setAskedMarket] = useState<string | null>(null);
   const [saidMarket, setSaidMarket] = useState<'same' | 'changed' | null>(null);
-  if (askedMarket !== null && !reading) {
+  if (askedMarket !== null && !priceReading) {
     setAskedMarket(null);
     setSaidMarket(askedMarket === marketKey ? 'same' : 'changed');
   }
   const readMarketAgain = () => {
-    if (reading) return;
+    if (priceReading) return;
     setAskedMarket(marketKey);
     setSaidMarket(null);
     onReread();
   };
-  const priceState = check.price.state === 'agrees' || check.price.state === 'disagrees' || check.price.state === 'empty' ? check.price.state : 'unread';
+  // Said in the form's status line after a change of coin, until the new coin's amount is in.
+  const [coinNote, setCoinNote] = useState('');
+  // Answered once the coin's box holds an amount, however it got there: typed, Max, Match
+  // or the most both balances allow. Emptying the box later, to type another amount, then
+  // does not say it again (review, 2026-10-04).
+  if (coinNote !== '' && boxes.quote.trim() !== '') setCoinNote('');
+  const chooseCoin = (next: QuoteCoin) => {
+    if (next.mint === coin.mint) return;
+    setPicked(next.mint);
+    // An amount typed for one coin is never carried into another: 50 is 50 SOL in one and
+    // 50 USDC in the next. The token amount is kept: its units are the same under any coin.
+    const cleared = boxes.quote.trim() !== '';
+    setBoxes((b) => ({ quote: '', token: b.token }));
+    // Never silent: the arrow keys in the radio group change the coin, and a typed amount goes with it.
+    // What the new coin adds to the risks appears beside the group as it is chosen, so the
+    // line says that too: the notice alone is not read out to a screen reader.
+    setCoinNote(`Now pairing with ${next.symbol}.${next.risk ? ` ${next.risk}` : ''}${cleared ? ` Type the ${next.symbol} amount again.` : ''}`);
+    // The coin that was left keeps no price: coming back to it reads its price again, and
+    // says "reading" until that answer is in. Its old price is never shown as the current one.
+    setCoinPrice(null);
+    // What the last Read again found was about the old coin's market price.
+    setAskedMarket(null);
+    setSaidMarket(null);
+  };
+  const coinSaid = boxes.quote.trim() === '' ? coinNote : '';
+  const priceState =
+    check.price.state === 'agrees' || check.price.state === 'disagrees' || check.price.state === 'empty' || check.price.state === 'no-market' ? check.price.state : 'unread';
   const readAt = outsideAt === null ? '' : `, read ${new Date(outsideAt).toLocaleTimeString('en-GB', { hour12: false })}`;
+  // No market price is an answer, not a failed read: the opener sets the price, and is told so.
+  // Else, with the token's price read, what is missing for a market price in this coin is the coin's own.
+  const marketLine =
+    market !== null
+      ? `Market price (Jupiter${readAt}): 1 token = ${formatSolPrice(market)} ${coin.symbol}.`
+      : noMarket
+        ? `Market price (Jupiter${readAt}): there is none for this token. You are setting this pool’s first price yourself.`
+        : coin.native || outside?.kind !== 'ok'
+          ? `Market price (Jupiter): could not be read (${outside && outside.kind !== 'ok' ? outside.detail : 'not read'}).`
+          : coinOutside === null
+            ? `Market price in ${coin.symbol}: reading the price of ${coin.symbol} from Jupiter…`
+            : coinOutside.kind === 'no-route'
+              ? // The reason is about the COIN: Jupiter's own words say "this token", which here would mean the wrong one.
+                `Market price in ${coin.symbol}: could not be worked out (${coinPriceDetail(coin, coinOutside)}).`
+              : `Market price in ${coin.symbol}: could not be worked out (${quoted && quoted.kind !== 'ok' ? quoted.detail : 'not read'}).`;
+  // A pairing coin looked up as the token (USDC) is paired only with the coins that outrank
+  // it. Its pool with a lower coin (USDC with BAYLA) is the same pool read from the other
+  // side, and a visitor who started from USDC was left at a dead end (phone walk, 2026-10-03).
+  // The card and the pool list say the same before the form is opened (quotes.ts `otherSideLine`).
+  const own = quoteCoin(mint);
+  const lower = lowerCoins(mint).map((q) => q.symbol);
+  const otherSide = own && lower.length > 0 ? `. A pool of ${own.symbol} and ${lower.join(' or ')} is opened from the other side: look up ${lower.join(' or ')} and pair it with ${own.symbol}` : '';
+  const pairLabel = useId();
+  const warningsId = useId();
+  const pairName = useId();
+  // What Review is described by, so a screen reader says it when focus reaches the button:
+  // the check's warnings, then what the chosen coin itself adds to the risks. The coin's
+  // line was not among them, so a clean USDC opening had a Review described by nothing.
+  const coinRiskId = useId();
+  const describedBy = [warned.length > 0 ? warningsId : null, coin.risk ? coinRiskId : null].filter((id) => id !== null).join(' ') || undefined;
+  // SOL keeps its plain words until another coin has a pool to point to as well.
+  const named = !coin.native || pairs.filter((x) => x.advice.kind !== 'none').length > 1;
+  const advice = adviceLine(pair, named);
+  const first = firstLine(pair, cut);
 
   return (
     <PanelFrame testId="lp-create-panel" title="Open a pool for this token" headingRef={headingRef}>
@@ -380,11 +641,6 @@ function CreateInner({
         <Notice tone="warn">The public fee tier is not ready to open pools right now (see the card above), so Review is off.</Notice>
       )}
       {readyConfig !== null && flow.state.step === 'idle' && offerOffLine(offer) && <Notice tone="warn">{offerOffLine(offer)}</Notice>}
-      {readyConfig !== null && flow.state.step === 'idle' && offer === 'offer' && adviceLine(advice) && (
-        <div data-testid="lp-create-advice">
-          <Notice tone="warn">{adviceLine(advice)}</Notice>
-        </div>
-      )}
       {confirmedPool && (
         <Notice>
           Your pool is open at <span className="font-mono break-all">{confirmedPool}</span>. Swaps can start one second after it landed.
@@ -402,6 +658,42 @@ function CreateInner({
         />
       ) : (
         <>
+          {/* First on the form: everything under it is in the coin chosen here. */}
+          {pairs.length > 1 ? (
+            <div role="radiogroup" aria-labelledby={pairLabel} data-testid="lp-create-pair" data-coin={coin.symbol}>
+              <span id={pairLabel} className="text-white text-[11px] block mb-1.5" style={SHADOW}>
+                Pair with
+              </span>
+              {/* Real radio buttons: one Tab stop, and the arrow keys move the choice. The
+                  whole label is the 44px target. `relative` keeps the input inside it. */}
+              <div className="flex gap-2">
+                {pairs.map(({ coin: q }) => (
+                  <label
+                    key={q.mint}
+                    className={`${TOGGLE_CLS} relative flex items-center justify-center gap-2 px-3 cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white/70`}
+                    style={{ background: q.mint === coin.mint ? 'rgba(45,139,78,0.45)' : 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}
+                  >
+                    <input type="radio" name={pairName} value={q.symbol} checked={q.mint === coin.mint} onChange={() => chooseCoin(q)} />
+                    <span className="text-[13px] font-semibold">{q.symbol}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : (
+            // Nothing to choose: the coin is said, and no group is drawn.
+            <Row label="Paired with" value={`${coin.symbol}: this site pairs this token with ${coin.symbol} only${otherSide}`} mono={false} />
+          )}
+          <CoinRiskNotice coin={coin} id={coinRiskId} />
+          {readyConfig !== null && offer === 'offer' && advice && (
+            <div data-testid="lp-create-advice">
+              <Notice tone="warn">{advice}</Notice>
+            </div>
+          )}
+          {readyConfig !== null && offer === 'offer' && first && (
+            <div data-testid="lp-create-first">
+              <Notice>{first}</Notice>
+            </div>
+          )}
           {warnings.length > 0 && (
             <div className="space-y-1">
               <Notice tone="warn">Read these about this token first:</Notice>
@@ -409,7 +701,7 @@ function CreateInner({
                 {warnings.map((w) => (
                   <li key={w.code}>{w.text}</li>
                 ))}
-                {warnings.some((w) => w.code === 'mint-authority') && <li>{MINT_AUTHORITY_LINE}</li>}
+                {warnings.some((w) => w.code === 'mint-authority') && <li>{mintAuthorityLine(coin)}</li>}
               </ul>
             </div>
           )}
@@ -418,48 +710,66 @@ function CreateInner({
           {cannotOpen && (
             <div data-testid="lp-create-cannot" className="text-[13px] leading-relaxed space-y-1">
               <Notice tone="warn">{cannotOpen}</Notice>
-              <FundingNextStep needsSol={availableSol === 0n} needsToken={availableToken === 0n} mint={mint} wallet={signer?.publicKey.toBase58() ?? null} />
+              <FundingNextStep
+                coin={coin}
+                needsSol={coin.native ? availableQuote === 0n : solShort}
+                needsCoin={!coin.native && availableQuote === 0n}
+                needsToken={availableToken === 0n}
+                mint={mint}
+                wallet={signer?.publicKey.toBase58() ?? null}
+              />
             </div>
           )}
           <div className="space-y-2" data-testid="lp-create-market">
-            <p>
-              {market !== null
-                ? `Market price (Jupiter${readAt}): 1 token = ${formatSolPrice(market)} SOL.`
-                : `Market price (Jupiter): could not be read (${outside && outside.kind !== 'ok' ? outside.detail : 'not read'}).`}
-            </p>
+            <p>{marketLine}</p>
           </div>
           <LpAmountPair
-            sol={boxes.sol}
+            coin={coin}
+            quote={boxes.quote}
             token={boxes.token}
             driving={driving}
             tokenDecimals={decimals}
             linked={false}
-            labels={{ sol: 'SOL to put in', token: 'Tokens to put in' }}
+            labels={{ quote: `${coin.symbol} to put in`, token: 'Tokens to put in' }}
             onType={onType}
             onMax={(side) => {
-              if (side === 'sol' && availableSol !== null) {
-                setSide('sol', availableSol);
-                setDriving('sol');
+              if (side === 'quote' && availableQuote !== null) {
+                setSide('quote', availableQuote);
+                setDriving('quote');
               }
               if (side === 'token' && availableToken !== null) {
                 setSide('token', availableToken);
                 setDriving('token');
               }
             }}
-            canMax={{ sol: availableSol !== null, token: availableToken !== null && decimals !== null }}
-            hints={{ sol: hintFor('sol'), token: hintFor('token') }}
-            errors={{ sol: parseError('sol'), token: parseError('token') }}
+            canMax={{ quote: availableQuote !== null, token: availableToken !== null && decimals !== null }}
+            hints={{ quote: hintFor('quote'), token: hintFor('token') }}
+            errors={{ quote: parseError('quote'), token: parseError('token') }}
           />
+          {/* Under the boxes, so the first box stays on a phone's first screen. Someone putting
+              in USDC must not read the fee as USDC, or think their SOL is not needed. The
+              need is the notice's own figure, rounded up the same way (`solAboutUp`): cut
+              down, it read as less than the balance printed beside it. */}
+          {!coin.native && (
+            <p data-testid="lp-create-paid-in-sol">
+              The fee to open{fee === null ? '' : ` (${formatSol(fee, 9)} SOL)`}, the account deposits and the network fee are paid in SOL, whatever
+              the pool is paired with.{setAside !== null && lamports !== null ? ` This wallet needs about ${solAboutUp(setAside)} for them and has ${solExact(lamports)}.` : ''}{' '}
+              Only your {coin.symbol} and your tokens go into the pool.
+            </p>
+          )}
           <div className="space-y-2">
-            <button
-              type="button"
-              className="btn-secondary w-full min-h-[44px] text-[13px] disabled:opacity-60"
-              data-testid="lp-create-match"
-              disabled={!canMatch}
-              onClick={() => matchTo(keep)}
-            >
-              Match the market price
-            </button>
+            {/* With no market price there is nothing to match: the button is not drawn. */}
+            {!noMarket && (
+              <button
+                type="button"
+                className="btn-secondary w-full min-h-[44px] text-[13px] disabled:opacity-60"
+                data-testid="lp-create-match"
+                disabled={!canMatch}
+                onClick={() => matchTo(keep)}
+              >
+                Match the market price
+              </button>
+            )}
             {mostBoth && (
               <button type="button" className="btn-secondary w-full min-h-[44px] text-[13px]" onClick={applyMostBoth}>
                 Use the most both balances allow
@@ -470,7 +780,7 @@ function CreateInner({
               <button
                 type="button"
                 className="btn-secondary w-full min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60"
-                aria-disabled={reading}
+                aria-disabled={priceReading}
                 onClick={readMarketAgain}
               >
                 Read the market price again
@@ -488,15 +798,18 @@ function CreateInner({
           </div>
           <p data-testid="lp-create-price" data-price={priceState}>
             {opening !== null && market !== null && (check.price.state === 'agrees' || check.price.state === 'disagrees')
-              ? `Your opening price: 1 token = ${formatSolPrice(opening)} SOL. Market: ${formatSolPrice(market)} SOL. Yours is ${gapText(check.price.diff)} the market.${check.price.state === 'agrees' ? ' Close enough to the market.' : ''}`
+              ? `Your opening price: 1 token = ${formatSolPrice(opening)} ${coin.symbol}. Market: ${formatSolPrice(market)} ${coin.symbol}. Yours is ${gapText(check.price.diff)} the market.${check.price.state === 'agrees' ? ' Close enough to the market.' : ''}`
               : opening !== null
-                ? `Your opening price: 1 token = ${formatSolPrice(opening)} SOL. There is no market price to compare it with.`
+                ? check.price.state === 'no-market'
+                  ? `Your opening price: 1 token = ${formatSolPrice(opening)} ${coin.symbol}. There is no market price to compare it with.`
+                  : // Not read is not "none": the two are never said in the same words.
+                    `Your opening price: 1 token = ${formatSolPrice(opening)} ${coin.symbol}. It is not checked: the market price has not been read.`
                 : 'Type both amounts to see your opening price.'}
           </p>
           {preview && config && (
             <div className="space-y-1.5" data-testid="lp-create-preview">
               <p className="text-white/45 text-[10px]">Worked out from what the page read; read and checked again when you press Review.</p>
-              <Row label="You put in" value={`${solExact(solRaw ?? 0n)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, exactly`} mono={false} />
+              <Row label="You put in" value={`${coinExact(quoteRaw ?? 0n, coin)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, exactly`} mono={false} />
               <Row label="Fee to open" value={`${formatSol(config.createPoolFee, 9)} SOL, to the team's vault (not refundable)`} mono={false} />
               <Row
                 label="Account deposits"
@@ -512,7 +825,7 @@ function CreateInner({
               <Row label="You get" value={`${unitsExact(preview.lp, LP_DECIMALS)} pool shares`} mono={false} />
               <Row
                 label="Locked in the pool forever"
-                value={`${LOCKED_SHARES_TEXT}, worth about ${solExact(preview.locked.sol)} and ${unitsExact(preview.locked.token, dec)} tokens`}
+                value={`${LOCKED_SHARES_TEXT}, worth about ${coinExact(preview.locked.quote, coin)} and ${unitsExact(preview.locked.token, dec)} tokens`}
                 mono={false}
               />
               <Row label="Your share of the pool" value={sharePct(preview.lp, preview.supply)} mono={false} />
@@ -520,7 +833,12 @@ function CreateInner({
                 label="In all, from your wallet"
                 value={
                   neverRefunded !== null && lpRent !== null
-                    ? `about ${solAbout((solRaw ?? 0n) + config.createPoolFee + neverRefunded + lpRent)}, plus the network fee`
+                    ? coin.native
+                      ? // The tokens leave the wallet too: "in all" names them (phone walk, 2026-10-03).
+                        `about ${solAbout((quoteRaw ?? 0n) + config.createPoolFee + neverRefunded + lpRent)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, plus the network fee`
+                      : // Three things leave the wallet, and they are never added together. The SOL
+                        // is what the wallet must pay, so it is rounded up like the need above.
+                        `${coinExact(quoteRaw ?? 0n, coin)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, and about ${solAboutUp(config.createPoolFee + neverRefunded + lpRent)} for the fee to open and the account deposits, plus the network fee`
                     : signer
                       ? 'could not be worked out (the account deposits could not be read)'
                       : 'worked out once a wallet is connected'
@@ -543,10 +861,35 @@ function CreateInner({
             )}
           </div>
           {held && <Notice tone="warn">A pool you opened is not confirmed yet (see the top of this section), so opening another is off.</Notice>}
+          {/* Under the boxes and above Review, where this form puts its lines: above the
+              boxes, on a phone, they pushed the first box off the first screen. Each is a
+              warning: none of them switches Review off. */}
+          {warned.length > 0 && (
+            <div id={warningsId} className="space-y-1" data-testid="lp-create-warnings">
+              {warned.map((w) => (
+                <Notice key={w} tone="warn">
+                  {w}
+                </Notice>
+              ))}
+              {offMarket && (
+                <>
+                  <p>Match the market price to avoid that, or go on at your own price.</p>
+                  <button type="button" className="btn-secondary w-full min-h-[44px] text-[12px] disabled:opacity-60" disabled={!canMatch} onClick={() => matchTo(keep)}>
+                    Match the market price
+                  </button>
+                </>
+              )}
+            </div>
+          )}
           <p className="text-white/60">{NOTES_BELOW}</p>
           {!canReview && reviewWhy && (
             <p className="text-amber-300/90 text-[12px]" data-testid="lp-review-why">
               {reviewWhy}
+            </p>
+          )}
+          {coinPriceWhy && (
+            <p className="text-amber-300/90 text-[12px]" data-testid="lp-create-coin-price">
+              {coinPriceWhy}
             </p>
           )}
           <div className="flex flex-col sm:flex-row gap-2">
@@ -555,6 +898,7 @@ function CreateInner({
               type="button"
               className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale"
               disabled={!canReview}
+              aria-describedby={describedBy}
               onClick={review}
             >
               Review: open the pool
@@ -564,9 +908,11 @@ function CreateInner({
             </button>
           </div>
           <p className="text-white/40 text-[10px]">
-            {wsolKept && facts?.kind === 'ok'
-              ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. None of it is spent.`
-              : 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'}
+            {!coin.native
+              ? `Your ${coin.symbol} is spent straight from your own ${coin.symbol} account. Nothing is wrapped.`
+              : wsolKept && facts?.kind === 'ok'
+                ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. None of it is spent.`
+                : 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'}
           </p>
         </>
       )}
@@ -578,15 +924,16 @@ function CreateInner({
           mono={false}
         />
         <Row label="Fee to open" value={fee === null ? 'not read' : `${formatSol(fee, 9)} SOL, paid to the team's vault (read just now)`} mono={false} />
+        {/* Each pair has its own standard address: this row is the chosen coin's. */}
         <Row
           label="Pool address"
-          value={standard === 'empty' ? 'the standard address for fee tier 1' : 'a new address of its own (the standard address is already taken)'}
+          value={pair.standard === 'empty' ? 'the standard address for fee tier 1' : 'a new address of its own (the standard address is already taken)'}
           mono={false}
         />
       </div>
-      <LpBeforeYouOpen fee={fee ?? 0n} neverRefunded={neverRefunded} walletConnected={!!signer} />
+      <LpBeforeYouOpen fee={fee ?? 0n} neverRefunded={neverRefunded} walletConnected={!!signer} coin={coin} />
       <p role="status" className="sr-only">
-        {flow.state.step === 'idle' ? status : ''}
+        {flow.state.step === 'idle' ? [coinSaid, status].filter(Boolean).join(' ') : ''}
       </p>
     </PanelFrame>
   );

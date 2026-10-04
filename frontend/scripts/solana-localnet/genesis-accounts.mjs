@@ -27,6 +27,13 @@
 // differs in ONE field: mainnet's mint authority is null, the stand-in's is a test key the
 // harness holds (baylaMintAuthority), so the e2e can give makers $BAYLA for the plant.
 //
+// ./golden/usdc-mint.mainnet.json is the same kind of read of the USDC mint EPjFWdd5…Dt1v
+// (classic token program, 82 B, 6 decimals, read 2026-10-03 at slot 453074668). Pools may
+// pair a token with USDC, so the LP e2e needs USDC on the chain. The stand-in differs in
+// ONE field: mainnet's mint authority is Circle's, the stand-in's is a test key the harness
+// holds (usdcMintAuthority), so the e2e can give wallets USDC. Its freeze authority stays
+// mainnet's: the token check says USDC's issuer can freeze, and nothing here can.
+//
 // The e2e GlobalConfig is the 1-SOL book the rehearsal initialised on the same binary
 // (run 3111 step c, and run 230): 1% fee split 50/50, 3.69% platform reserve, target
 // 1 SOL + 0.05 SOL migration reserve. The program itself accepted exactly these values
@@ -64,6 +71,17 @@ export const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111
 export const TOKEN_2022_PROGRAM = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 /** $BAYLA, at its real address. The plant (island ruling 2) burns and moves it. */
 export const BAYLA_MINT = new PublicKey('7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump');
+
+/** USDC, at its real address: a coin a pool may pair a token with. */
+export const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
+/**
+ * The stand-in USDC mint's authority: a TEST key from a fixed phrase, like $BAYLA's. It can
+ * mint only on a local validator: on mainnet the USDC mint authority is Circle's.
+ */
+export function usdcMintAuthority() {
+  return Keypair.fromSeed(crypto.createHash('sha256').update('tegridy e2e: local stand-in USDC mint authority').digest());
+}
 
 /**
  * The stand-in $BAYLA mint's authority: a TEST key, derived from a fixed phrase so every
@@ -391,6 +409,23 @@ export function baylaMintStandIn(golden = readGolden('bayla-mint.mainnet.json'))
   return { pubkey: golden.pubkey, account: { ...golden.account, data: [out.toString('base64'), 'base64'], rentEpoch: 0 } };
 }
 
+/**
+ * The stand-in USDC mint: mainnet's bytes, lamports and owner, with ONLY the mint authority
+ * changed from Circle's to usdcMintAuthority(). Refuses a dump that is not the USDC mint as
+ * mainnet holds it (classic token program, 82 bytes, 6 decimals, a mint authority and a
+ * freeze authority both set).
+ */
+export function usdcMintStandIn(golden = readGolden('usdc-mint.mainnet.json')) {
+  const d = Buffer.from(golden.account.data[0], 'base64');
+  if (golden.pubkey !== USDC_MINT.toBase58() || golden.account.owner !== TOKEN_PROGRAM.toBase58()
+    || d.length !== 82 || d[44] !== 6 || d[45] !== 1 || d.readUInt32LE(0) !== 1 || d.readUInt32LE(46) !== 1) {
+    throw new Error('usdc-mint.mainnet.json is not the USDC mint as mainnet holds it');
+  }
+  const out = Buffer.from(d);
+  usdcMintAuthority().publicKey.toBuffer().copy(out, 4);
+  return { pubkey: golden.pubkey, account: { ...golden.account, data: [out.toString('base64'), 'base64'], rentEpoch: 0 } };
+}
+
 /** Everything the validator is started with, besides the programs. */
 export function buildGenesisAccounts({ launchIdl, cpIdl }) {
   const d = derived();
@@ -412,6 +447,7 @@ export function buildGenesisAccounts({ launchIdl, cpIdl }) {
     { file: 'vault.json', json: { pubkey: vault.pubkey, account: { ...vault.account, rentEpoch: 0 } } },
     { file: 'fee-ata.json', json: { pubkey: feeAta.pubkey, account: { ...feeAta.account, rentEpoch: 0 } } },
     { file: 'bayla-mint.json', json: baylaMintStandIn() },
+    { file: 'usdc-mint.json', json: usdcMintStandIn() },
   ];
 }
 

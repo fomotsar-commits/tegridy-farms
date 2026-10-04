@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { assessPool, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
 import { BUNGALOWS } from '../../../lib/bungalows';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
@@ -12,7 +13,7 @@ import { TOGGLE_CLS, inputCls, inputStyle } from '../curve/uiFormat';
 import { TokenSafetyCard } from './TokenSafetyCard';
 import { PoolCard, UnreadPoolCard } from './PoolCard';
 import { CreatePoolCard } from './CreatePoolCard';
-import { depositOffer, lpHeld } from './offers';
+import { depositOffer, lpHeld, priceWarned } from './offers';
 import { useLpWrites } from './useLpWrites';
 import type { LpReaders } from './readers';
 
@@ -28,6 +29,41 @@ export interface LpWish {
   task: 'create' | 'add';
   mint: string;
   n: number;
+  /**
+   * An 'add' wish for ONE pool, by its address: "Add more liquidity" on a position names
+   * the pool that share is in. Such a wish goes to that pool or to nowhere. It never
+   * opens another pool's Add form and never the open-a-pool form: the holder asked to add
+   * to the pool they are already in, not to whichever pool is deepest today.
+   */
+  pool?: string;
+}
+
+/** What the section can ask of the finder from outside it. */
+export interface PoolFinderHandle {
+  /**
+   * Look `mint` up exactly as a press in the finder does, and end in the Add form of the
+   * pool at `pool` (`LpWish.pool`). A position's "Add more liquidity" comes in this way,
+   * so there is one lookup and one set of checks, whichever button started it.
+   */
+  addTo(mint: string, pool: string): void;
+}
+
+/** Is this pool in the lookup's answer, read or not? A lookup that failed lists nothing. */
+function listsPool(pools: PoolSearchRead, address: string): boolean {
+  return pools.kind === 'ok' && pools.search.pools.some((p) => (p.kind === 'pool' ? p.view.address : p.address) === address);
+}
+
+/**
+ * The line for a position's wish whose pool the lookup did not return. A lookup that
+ * could not be read says that: it is never told as "your pool is not there". The pool's
+ * own address is read with every such lookup (`also`), so the second line means the chain
+ * answered and that address did not hold a pool for this token. Both end in the press
+ * that works: the wish is spent, so Read again alone opens nothing.
+ */
+function unfoundText(pools: PoolSearchRead, pool: string): string {
+  return pools.kind !== 'ok'
+    ? `This token’s pools could not be read just now, so the Add form for your position’s pool (${pool}) was not opened. Press Add more liquidity on your position again.`
+    : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
 }
 
 /**
@@ -43,7 +79,7 @@ function siteTokens(roomId: string | null): { id: string; symbol: string; mint: 
 
 const TASK_LABEL: Record<LpTask, string> = { create: 'Create a pool', add: 'Add liquidity', remove: 'Remove liquidity' };
 const TASK_LINE: Record<LpTask, string> = {
-  create: 'Pick the token to open a pool for. The form opens under the token’s checks.',
+  create: `Pick the token to open a pool for: you can pair it with ${QUOTE_COINS_OR}. The form opens under the token’s checks.`,
   add: 'Pick the token to add liquidity for. If it has no pool yet, your deposit opens one.',
   remove: 'Your pool shares are listed under Your positions. Each one that can be taken out has a Remove liquidity button.',
 };
@@ -61,8 +97,23 @@ type SearchState =
   /**
    * `refreshing`: the last answer for this same mint, shown while it is read again.
    * `outsideAt`: when Jupiter's price was read (ms), or null when it was not asked.
+   * `coins`: each pairing coin's own SOL price, by its mint, for the coins that were asked
+   * (USDC, BAYLA). A pool paired with one is checked in that coin (poolHealth.ts), and a
+   * coin missing here leaves its pools unchecked.
    */
-  | { status: 'done'; mint: string; safety: TokenSafety; pools: PoolSearchRead; outside: OutsidePrice | null; outsideAt: number | null; refreshing?: boolean };
+  | {
+      status: 'done';
+      mint: string;
+      safety: TokenSafety;
+      pools: PoolSearchRead;
+      outside: OutsidePrice | null;
+      coins: CoinPrices;
+      outsideAt: number | null;
+      refreshing?: boolean;
+    };
+
+/** Each pairing coin's own outside price in SOL, by its mint. */
+export type CoinPrices = Readonly<Record<string, OutsidePrice>>;
 
 type Done = Extract<SearchState, { status: 'done' }>;
 
@@ -72,9 +123,11 @@ type Done = Extract<SearchState, { status: 'done' }>;
  * re-read of the SAME mint keeps showing the last answer until the new one arrives, so
  * the cards and an open panel (with its outcome on screen) never unmount; only a
  * different mint reads as loading.
+ *
+ * `also`: a pool address to read whatever the index says (a position's own pool).
  */
-function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, reloadKey: number, wantOutside: boolean): SearchState {
-  const key = mint ? `${mint}#${nonce}#${reloadKey}#${wantOutside ? 'o' : ''}` : null;
+function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, reloadKey: number, wantOutside: boolean, also: string | null): SearchState {
+  const key = mint ? `${mint}#${nonce}#${reloadKey}#${wantOutside ? 'o' : ''}#${also ?? ''}` : null;
   const [answer, setAnswer] = useState<{ key: string; value: Done } | null>(null);
   useEffect(() => {
     if (!mint || !key) return;
@@ -83,7 +136,7 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
       if (live) setAnswer({ key, value });
     };
     (async () => {
-      const [safetyMap, pools] = await Promise.all([readers.safety([mint]), readers.findPools(new PublicKey(mint))]);
+      const [safetyMap, pools] = await Promise.all([readers.safety([mint]), also ? readers.findPools(new PublicKey(mint), [also]) : readers.findPools(new PublicKey(mint))]);
       const safety: TokenSafety = safetyMap.get(mint) ?? { kind: 'unread', mint, detail: 'no answer for this token' };
       // The outside price only matters when there is a pool to compare, or (with opening
       // pools offered, `wantOutside`) an opening price to check, and a token we could
@@ -91,16 +144,28 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
       const hasPool = pools.kind === 'ok' && pools.search.pools.some((p) => p.kind === 'pool');
       const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
       const ask = (hasPool || wantOutside) && decimals !== null && safety.kind === 'read' && safety.verdict !== 'blocked';
-      const outside = ask ? await readers.outsidePrice(mint, decimals) : null;
-      finish({ status: 'done', mint, safety, pools, outside, outsideAt: ask ? Date.now() : null });
+      // A pool paired with USDC or BAYLA is checked in that coin, which needs the coin's
+      // own price: two more Jupiter calls each, so it is asked only for a coin that has a
+      // pool here. (An opening priced in a coin reads that coin's price in its own panel.)
+      const paired = new Set(pools.kind === 'ok' ? pools.search.pools.flatMap((p) => (p.kind === 'pool' ? [p.view.quote.mint] : [])) : []);
+      const wanted = ask ? quotesFor(mint).filter((q) => !q.native && paired.has(q.mint)) : [];
+      const [outside, ...coinPrices] = await Promise.all([
+        ask ? readers.outsidePrice(mint, decimals) : null,
+        ...wanted.map((q) => readers.outsidePrice(q.mint, q.decimals)),
+      ]);
+      const coins: Record<string, OutsidePrice> = {};
+      wanted.forEach((q, i) => {
+        coins[q.mint] = coinPrices[i]!;
+      });
+      finish({ status: 'done', mint, safety, pools, outside, coins, outsideAt: ask ? Date.now() : null });
     })().catch((e: unknown) => {
       const detail = e instanceof Error ? e.message : String(e);
-      finish({ status: 'done', mint, safety: { kind: 'unread', mint, detail }, pools: { kind: 'unread', detail, index: { kind: 'unread', detail } }, outside: null, outsideAt: null });
+      finish({ status: 'done', mint, safety: { kind: 'unread', mint, detail }, pools: { kind: 'unread', detail, index: { kind: 'unread', detail } }, outside: null, coins: {}, outsideAt: null });
     });
     return () => {
       live = false;
     };
-  }, [readers, mint, key, wantOutside]);
+  }, [readers, mint, key, wantOutside, also]);
   if (!mint || !key) return { status: 'idle' };
   if (answer?.key === key) return answer.value;
   return answer?.value.mint === mint ? { ...answer.value, refreshing: true } : { status: 'loading', mint };
@@ -118,7 +183,10 @@ export function PoolFinder({
   reloadKey = 0,
   wantOutside = false,
   onRemove,
+  ref,
 }: {
+  /** For the section: a position's "Add more liquidity" starts its lookup here. */
+  ref?: Ref<PoolFinderHandle>;
   readers: LpReaders;
   mint: string | null;
   onMint: (m: string | null) => void;
@@ -136,7 +204,12 @@ export function PoolFinder({
   const [input, setInput] = useState(mint ?? linkError?.raw ?? '');
   const [error, setError] = useState<string | null>(linkError?.reason ?? null);
   const [nonce, setNonce] = useState(0);
-  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside);
+  // A position's own pool, read with every lookup of its token from the press on (the
+  // lookup otherwise reads only what the index and the worked-out addresses name). It is
+  // kept, so a later re-read (after a deposit, say) never drops the card an open form sits
+  // on, and it is only ever read with its own token's lookups.
+  const [extra, setExtra] = useState<{ mint: string; pool: string } | null>(null);
+  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside, extra && extra.mint === mint ? extra.pool : null);
   const reread = useCallback(() => setNonce((n) => n + 1), []);
   // A new ?mint= (a link, or back/forward) fills the field: adjusted during render, the
   // React way to follow a prop, rather than in an effect.
@@ -146,9 +219,15 @@ export function PoolFinder({
   // act: the page moving to another token drops it (Back, Forward, a link), and the card
   // that acts on it spends it (`spent`), so nothing later can act on it again.
   const [wish, setWish] = useState<LpWish | null>(null);
+  // A position's wish whose pool the lookup did not return. The wish is spent and this is
+  // the line the page keeps in its place (`unfoundText`). It is about one lookup of one
+  // token: the next thing the visitor asks for, or the page moving to another token,
+  // takes it away.
+  const [unfound, setUnfound] = useState<{ mint: string; pool: string } | null>(null);
   if (linkKey !== shownLink) {
     setShownLink(linkKey);
     if (wish && wish.mint !== mint) setWish(null);
+    if (unfound && unfound.mint !== mint) setUnfound(null);
     if (mint) {
       setInput(mint);
       setError(null);
@@ -157,6 +236,17 @@ export function PoolFinder({
       setError(linkError.reason);
     }
   }
+  // A wish that names a pool the fresh answer does not list goes to nowhere, at once
+  // (adjusted during render, like the link above). Left alive it would have nothing to
+  // open now, and would open that pool's form by itself whenever a later read listed it.
+  // A later answer that does list the pool takes the line away again.
+  if (state.status === 'done' && !state.refreshing) {
+    if (wish?.pool && wish.mint === state.mint && !listsPool(state.pools, wish.pool)) {
+      setUnfound({ mint: wish.mint, pool: wish.pool });
+      setWish(null);
+    } else if (unfound && unfound.mint === state.mint && listsPool(state.pools, unfound.pool)) setUnfound(null);
+  }
+  const unfoundLine = unfound && state.status === 'done' && unfound.mint === state.mint ? unfoundText(state.pools, unfound.pool) : null;
 
   // A lookup the visitor asked for is brought onto the screen. On a phone the answer
   // begins below the fold, so a press on Find pools looked as if it had done nothing
@@ -168,20 +258,50 @@ export function PoolFinder({
   const canAdd = writes?.mode === 'on';
   const [task, setTask] = useState<LpTask | null>(null);
   const wishes = useRef(0);
+  // A form the visitor opens while a lookup is still reading outranks the wish: the wish
+  // is dropped (adjusted during render, like the link above). A lookup has no time limit,
+  // and "Add more liquidity" sits one button from Remove: without this, a slow answer
+  // closed a Remove form opened meanwhile and put an Add form in its place, or pulled the
+  // page off a running one (review, 2026-10-04). The wish's own form opening is not
+  // caught here: the card spends the wish in the same pass that opens it.
+  const activeKey = writes?.active?.key ?? null;
+  const [seenActive, setSeenActive] = useState(activeKey);
+  if (activeKey !== seenActive) {
+    setSeenActive(activeKey);
+    if (activeKey !== null && wish) setWish(null);
+  }
   // Without this a wish outlived its form: a deposit sent from it held the pool, the
   // target moved to the Open card and the page jumped off "Sent, do not send it again";
   // a pool just opened came back in the re-read and its Add form opened by itself; Back
   // then Forward reopened a form the visitor had closed (review, 2026-10-03).
   const spent = useCallback((n: number) => setWish((w) => (w?.n === n ? null : w)), []);
   const lookUp = useCallback(
-    (next: string, want: LpWish['task'] | null) => {
+    (next: string, want: LpWish['task'] | null, pool?: string) => {
       asked.current = true;
       wishes.current += 1;
-      setWish(want ? { task: want, mint: next, n: wishes.current } : null);
+      setUnfound(null);
+      if (pool) setExtra({ mint: next, pool });
+      setWish(want ? { task: want, mint: next, n: wishes.current, ...(pool ? { pool } : {}) } : null);
       if (next === mint) setNonce((n) => n + 1);
       else onMint(next);
     },
     [mint, onMint],
+  );
+  // "Add more liquidity" on a position (the section passes it on). The token goes into
+  // the box and is looked up like a picked one, so the holder sees which token and which
+  // checks the form came from.
+  useImperativeHandle(
+    ref,
+    () => ({
+      addTo(next, pool) {
+        setInput(next);
+        setError(null);
+        // The first card says what the page is now doing, not what was pressed there before.
+        setTask('add');
+        lookUp(next, 'add', pool);
+      },
+    }),
+    [lookUp],
   );
   useEffect(() => {
     if (!asked.current || state.status === 'idle') return;
@@ -225,9 +345,13 @@ export function PoolFinder({
   const choose = useCallback(
     (t: LpTask) => {
       setTask(t);
-      if (t === 'remove') onRemove?.();
-      else if (answered && canAdd) {
+      if (t === 'remove') {
+        // Nobody who asked to take liquidity out gets an Add form from an earlier press.
+        setWish(null);
+        onRemove?.();
+      } else if (answered && canAdd) {
         wishes.current += 1;
+        setUnfound(null);
         setWish({ task: t, mint: answered, n: wishes.current });
       } else tasksRef.current?.scrollIntoView?.({ block: 'start' });
     },
@@ -328,14 +452,20 @@ export function PoolFinder({
       </Card>
 
       {/* Where a lookup the visitor asked for scrolls to: clear of the fixed bar and tabs. */}
-      <div ref={answerRef} className="scroll-mt-[4.5rem]" />
+      <div ref={answerRef} data-testid="lp-answer" className="scroll-mt-[4.5rem]" />
 
       <p role="status" aria-live="polite" className="sr-only" data-testid="lp-status">
-        {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? announce(state) : ''}
+        {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? `${announce(state)}${unfoundLine ? ` ${unfoundLine}` : ''}` : ''}
       </p>
 
       {state.status === 'loading' && <p className="text-white/70 text-[13px]">Reading the token and its pools from the chain…</p>}
       {state.status === 'done' && state.refreshing && <p className="text-white/55 text-[12px]">Reading the token and its pools again…</p>}
+      {/* Right under where the lookup scrolled to, so it is the first thing read. */}
+      {unfoundLine && (
+        <div data-testid="lp-wish-unfound" className="text-[13px] leading-relaxed [overflow-wrap:anywhere]">
+          <Notice tone="warn">{unfoundLine}</Notice>
+        </div>
+      )}
       {state.status === 'done' && (
         <SearchResults state={state} onReread={reread} wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null} onActed={spent} />
       )}
@@ -350,7 +480,13 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
   const { pools, index } = s.pools.search;
   const read = pools.filter((p) => p.kind === 'pool').length;
   const unread = pools.length - read;
-  const parts = [`${read === 0 ? 'No pools' : count(read, 'pool', 'pools')} found for this token.`];
+  // A pairing coin looked up as the token (USDC, BAYLA) was searched only against the
+  // coins that outrank it. "No pools" then names those coins, and the line says where its
+  // pool with a lower coin is: a pair that was never looked for is not said to have none.
+  const none = quoteCoin(s.mint) ? `No pools pairing this token with ${searchedCoinsOr(s.mint)} found.` : 'No pools found for this token.';
+  const parts = [read === 0 ? none : `${count(read, 'pool', 'pools')} found for this token.`];
+  const otherSide = otherSideLine(s.mint);
+  if (otherSide) parts.push(otherSide);
   if (unread) parts.push(`${count(unread, 'more pool', 'more pools')} could not be read.`);
   if (index.kind === 'unread') parts.push('Our pool index could not be read, so there may be other pools.');
   else if (index.truncated) parts.push('Our pool index returned its maximum, so there may be more pools.');
@@ -371,7 +507,7 @@ function SearchResults({
   /** A card acted on wish number `n`: it is spent. */
   onActed: (n: number) => void;
 }) {
-  const { safety, pools, outside, outsideAt, mint } = state;
+  const { safety, pools, outside, coins, outsideAt, mint } = state;
   const writes = useLpWrites();
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
   // One check per pool, shared by its card and by the "Open a new pool" card.
@@ -379,26 +515,53 @@ function SearchResults({
     const m = new Map<string, PoolHealth>();
     if (pools.kind !== 'ok') return m;
     for (const p of pools.search.pools) {
-      if (p.kind === 'pool') m.set(p.view.address, assessPool({ view: p.view, tokenDecimals: decimals, chainNow: pools.search.chainNow, outside, safety }));
+      if (p.kind === 'pool') {
+        m.set(p.view.address, assessPool({ view: p.view, tokenDecimals: decimals, chainNow: pools.search.chainNow, outside, coinOutside: coins[p.view.quote.mint] ?? null, safety }));
+      }
     }
     return m;
-  }, [pools, decimals, outside, safety]);
-  // Where a wish ends. Adding goes to the deepest pool that offers it; with none, and for
-  // creating, it goes to the "Open a new pool" card, which opens its form or says why not.
+  }, [pools, decimals, outside, coins, safety]);
+  // Where a wish ends. Adding goes to the first pool in the list (the deepest of its coin)
+  // that offers it with no price warning; with none, and for creating, it goes to the
+  // "Open a new pool" card, which opens its form or says why not.
+  // A pool whose price is off, or was compared with nothing, takes deposits now (owner
+  // ruling 2026-10-04), and the list is deepest first. So "the first that offers it" sent
+  // the visitor, by itself, into a deep pool at a wrong price while the Open card on the
+  // same page suggested the pool at the market (review, 2026-10-04). Such a pool is the
+  // wish's answer only when no other pool offers adding: a warning never takes the form
+  // away, and its form says the warning. The same rule as the card's (`createAdvice`).
+  // A wish that names its pool (`LpWish.pool`) is for that pool alone: its Add form when
+  // the pool offers adding, else its card, brought onto the screen so the pool's own
+  // reason is what is read. It is never passed on to another pool or to the Open card.
   const gate = writes?.gate ?? null;
   const mode = writes?.mode ?? 'off';
   const notes = writes?.pending.notes;
+  const named = wish?.task === 'add' ? wish.pool ?? null : null;
   const addTo = useMemo(() => {
     if (wish?.task !== 'add' || pools.kind !== 'ok' || !notes) return null;
+    let warned: string | null = null;
     for (const p of pools.search.pools) {
-      const health = p.kind === 'pool' ? healths.get(p.view.address) : undefined;
-      if (p.kind === 'pool' && health && depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) === 'offer') return p.view.address;
+      if (p.kind !== 'pool' || (named !== null && p.view.address !== named)) continue;
+      const health = healths.get(p.view.address);
+      if (!health || depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) !== 'offer') continue;
+      if (!priceWarned(health)) return p.view.address;
+      warned ??= p.view.address;
     }
-    return null;
-  }, [wish, pools, healths, mode, gate, notes]);
+    // A wish that names its pool looked at that pool alone, so it gets it whatever its price.
+    return warned;
+  }, [wish, named, pools, healths, mode, gate, notes]);
   // Waits for the gate: until it has answered, no pool can say whether it offers adding.
   const gateAnswered = writes !== null && writes.status !== 'loading' && gate !== null;
-  const openCreate = wish && gateAnswered && (wish.task === 'create' || addTo === null) ? wish.n : 0;
+  const due = wish && gateAnswered ? wish.n : 0;
+  const openCreate = wish && named === null && (wish.task === 'create' || addTo === null) ? due : 0;
+  // The named pool cannot open its form: its card is shown instead, once.
+  const showNamed = named !== null && addTo === null ? due : 0;
+  // The coins this lookup searched (all three for an ordinary token; only the coins that
+  // outrank it for USDC or BAYLA), and for such a coin where its pool with a lower coin
+  // is. The list said "SOL, USDC or BAYLA" whatever was searched: for USDC that told a
+  // pair nobody looked for as "none", and USDC with USDC is no pair at all.
+  const searched = searchedCoinsOr(mint);
+  const otherSide = otherSideLine(mint);
   return (
     <div className="space-y-4">
       <TokenSafetyCard mint={mint} safety={safety} />
@@ -415,17 +578,20 @@ function SearchResults({
             <Card title="Pools">
               <p data-testid="lp-no-pools">
                 {pools.search.index.kind !== 'ok'
-                  ? 'No TOKEN/SOL pools found at the addresses we could check.'
+                  ? `No pools pairing this token with ${searched} found at the addresses we could check.`
                   : pools.search.index.truncated
-                    ? 'None of the pools our index returned is a TOKEN/SOL pool we can show. It returned its maximum, so there may be more.'
-                    : 'No TOKEN/SOL pools found for this token.'}
+                    ? `None of the pools our index returned pairs this token with ${searched}. It returned its maximum, so there may be more.`
+                    : `No pools pairing this token with ${searched} found.`}
+                {otherSide && ` ${otherSide}`}
               </p>
               {pools.search.otherPairs > 0 && (
-                <Notice>{pools.search.otherPairs} pool(s) pair this token with something other than SOL. This site only shows TOKEN/SOL pools for now.</Notice>
+                <Notice>
+                  {pools.search.otherPairs} pool(s) pair this token with something else. This site only shows pools paired with {QUOTE_COINS_OR}.
+                </Notice>
               )}
             </Card>
           ) : (
-            <ul className="space-y-3" aria-label="Pools, deepest first">
+            <ul className="space-y-3" aria-label="Pools: SOL pools first, then USDC, then BAYLA, the deepest of each first">
               {pools.search.pools.map((p) =>
                 p.kind === 'pool' ? (
                   <PoolCard
@@ -435,16 +601,23 @@ function SearchResults({
                     safety={safety}
                     health={healths.get(p.view.address)!}
                     openNow={wish && addTo === p.view.address ? wish.n : 0}
+                    showNow={named === p.view.address ? showNamed : 0}
                     onActed={onActed}
                   />
                 ) : (
-                  <UnreadPoolCard key={p.address} entry={p} />
+                  <UnreadPoolCard key={p.address} entry={p} showNow={named === p.address ? showNamed : 0} onActed={onActed} />
                 ),
               )}
             </ul>
           )}
           {pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
-            <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than SOL and are not shown.</Notice>
+            <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
+          )}
+          {/* With pools listed there is no "no pools" sentence to carry it, so it is said under the list. */}
+          {pools.search.pools.length > 0 && otherSide && (
+            <div data-testid="lp-other-side">
+              <Notice>{otherSide}</Notice>
+            </div>
           )}
         </div>
       )}
@@ -473,25 +646,26 @@ function IndexNote({ read }: { read: Extract<PoolSearchRead, { kind: 'ok' }> }) 
       {index.kind === 'ok' ? (
         <>
           <p>
-            Pools are listed from our pool index and each one is then read and checked on chain. Deepest first. None of them is
+            Pools are listed from our pool index and each one is then read and checked on chain. SOL pools first, then USDC, then
+            BAYLA, the deepest of each first. None of them is
             “the” pool for this token: anyone can open one, at any price.
           </p>
           {index.truncated && (
             <p className="text-amber-300/90" data-testid="lp-index-truncated">
-              Our pool index returned its maximum: the pools holding the most SOL. There may be more pools for this token that are not
-              listed here.
+              Our pool index returned its maximum: for each coin, the pools holding the most of it. There may be more pools for this
+              token that are not listed here.
             </p>
           )}
         </>
       ) : (
         <p className="text-amber-300/90">
           Our pool index could not be read ({index.detail}), so only the addresses we can work out ourselves were checked:
-          the launch pool and the standard address on each fee tier. There may be other pools.
+          the launch pool and the standard address on each fee tier, for each coin a pool can pair with. There may be other pools.
         </p>
       )}
       {squatted.length > 0 && (
         <p>
-          Someone has opened a pool at the standard address for fee tier {squatted.map((s) => s.index).join(' and ')}. Being at that
+          Someone has opened a pool at the standard address for fee tier {[...new Set(squatted.map((s) => s.index))].join(' and ')}. Being at that
           address does not make it the right pool: check its price and open time below.
         </p>
       )}
