@@ -127,6 +127,20 @@ export function Field({
   );
 }
 
+/**
+ * The link to a transaction on the explorer, under its signature. It is one 17.875px line
+ * of small text with a finger-sized press area around it: 14px of padding above and below
+ * (46px in all), taken back by the same negative margin, so nothing around it moves. The
+ * button under it is drawn later, so where the two overlap a press is the button's.
+ */
+export function ExplorerLink({ href }: { href: string }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer nofollow" className="inline-block py-3.5 -my-3.5 underline text-white/80">
+      View on the explorer
+    </a>
+  );
+}
+
 /** A plain notice line. `tone` picks the colour only; the words carry the meaning. */
 export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | 'bad' | 'good'; children: ReactNode }) {
   const cls =

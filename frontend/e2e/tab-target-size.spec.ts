@@ -329,8 +329,56 @@ test('/solana-lp: the venue status card\'s Refresh and copy buttons are 44px pre
     expect(seen.height, `"${what}" is shorter than a finger`).toBeGreaterThanOrEqual(FLOOR);
     expect(seen.onTop, `something covers "${what}"`).toBe(true);
   }
+  // The press area is padding that the same negative margin takes back, so the card is no
+  // taller for it. The first fix grew the layout instead: a 44px header row and 46px chips,
+  // 55px more card on a phone. Measured 2026-10-04: the row is 16.5px (one line of small
+  // text) and each chip 32px (its text, its own padding and its border).
+  const laidOut = await card.evaluate((el) => {
+    const height = (box: Element | null) => Math.round(box?.getBoundingClientRect().height ?? Infinity);
+    const [refresh, ...copies] = Array.from(el.querySelectorAll('button'));
+    return { headerRow: height(refresh?.parentElement ?? null), chips: copies.map((copy) => height(copy.parentElement)) };
+  });
+  expect(laidOut.headerRow, 'Refresh stretches the card\'s header row').toBeLessThanOrEqual(22);
+  expect(laidOut.chips, 'one chip for the pool program and one for its config').toHaveLength(2);
+  for (const chip of laidOut.chips) expect(chip, 'a copy button stretches its chip').toBeLessThanOrEqual(36);
   await expectNoSidewaysScroll(page);
 });
+
+/**
+ * The two links that lead between the Solana LP tab and the Venue AMM tab are a line of
+ * text with a finger-sized press area around it. The same sweep measured the first at
+ * 391x36. Measured where each fits on one line (on a phone the first wraps to two, which
+ * is over 44px whatever the press area is). The line itself stays the height it has
+ * always had (35.5px): the extra press area is taken back by a negative margin.
+ */
+const TAB_LINKS = [
+  { path: '/solana-lp', to: 'the Venue AMM tab', name: /on the Venue AMM tab$/ },
+  // Its words follow what this site can do with the pools; every form of them ends the same.
+  { path: '/pools', to: 'the Solana LP tab', name: /the Solana LP tab$/ },
+];
+for (const link of TAB_LINKS) {
+  test(`${link.path}: the link to ${link.to} is a 44px press target that leaves its line as it was, at 799px`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize({ width: 799, height: 900 });
+    await settledSolanaLp(page, link.path, { gateOpen: true });
+    await page.evaluate(() => document.fonts.ready);
+    const target = page.getByRole('link', { name: link.name });
+    await expect(target).toHaveCount(1);
+    await target.scrollIntoViewIfNeeded();
+    const seen = await target.evaluate((el) => {
+      el.scrollIntoView({ block: 'center' });
+      const b = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return {
+        height: Math.round(b.height),
+        line: Math.round(el.parentElement!.getBoundingClientRect().height),
+        onTop: !!hit && (hit === el || el.contains(hit)),
+      };
+    });
+    expect(seen.height, 'the link is shorter than a finger').toBeGreaterThanOrEqual(FLOOR);
+    expect(seen.onTop, 'something covers the link').toBe(true);
+    expect(seen.line, 'the link stretches its line, or no longer fits on one').toBeLessThanOrEqual(40);
+  });
+}
 
 test('/solana-lp with the chain unreadable does not scroll horizontally at 390px', async ({ page, walletMock: _w }) => {
   await page.setViewportSize(IPHONE_390);
