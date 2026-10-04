@@ -53,6 +53,18 @@ describe('ProofOfClaims, the burn row', () => {
     expect(burnRow()).toContain('25.76% of everything minted');
   });
 
+  it('lets a long value wrap instead of cutting it off with an ellipsis', () => {
+    // On a phone "25.76% of everything minted" is wider than its box. Truncated, it read
+    // "25.76% of everythi…" and the supply row lost its last digits.
+    seed();
+    render(<ProofOfClaims />);
+    for (const text of [/of everything minted/, /1,000,000,000 TOWELI/]) {
+      const value = screen.getByText(text);
+      expect(value.className).not.toContain('truncate');
+      expect(value.className).not.toContain('whitespace-nowrap');
+    }
+  });
+
   it('still agrees with the card after TOWELI is destroyed with burn()', () => {
     // 10,000,000 burnt outright: the supply falls and the old row (burn address over supply) parted from the card.
     const supply = 990_000_000n * E18;
