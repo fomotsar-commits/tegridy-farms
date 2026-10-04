@@ -6,7 +6,7 @@ import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { tradeCostText } from '../../../lib/solana/lp/format';
 import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
-import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_OR, orList, otherSideLine, quoteCoin, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
 import { Notice } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import type { CreateFacts, TierState } from '../curve/ports';
@@ -18,8 +18,6 @@ import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const NATIVE_2022_LINE = `This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`;
 
-/** Coin names in a sentence: "USDC", "USDC or BAYLA", "SOL, USDC or BAYLA". */
-const orList = (names: string[]) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`);
 const solFee = (lamports: bigint) => formatSol(lamports, 9);
 
 /**
@@ -113,6 +111,7 @@ function CreateCard({
   const answer = answerKey(offer, pairs, facts, outside, search, healths);
   // What the opener is warned about before any button. Only beside an offer: a stopped card has no button.
   const cautions = offer === 'offer' ? openingCautions(safety, outside) : [];
+  const otherSide = otherSideLine(mint);
   // A pressed Read again: what the card said before, until the new answer is in.
   const [asked, setAsked] = useState<string | null>(null);
   const [said, setSaid] = useState<'same' | 'changed' | null>(null);
@@ -201,6 +200,9 @@ function CreateCard({
             onReread={readAgain(onReread)}
             onRereadFacts={readAgain(writes.refreshCreateFacts)}
           />
+          {/* A pairing coin looked up as the token: where its pool with a lower coin is found
+              and opened, said before the Open a pool button and not only inside the form. */}
+          {offer === 'offer' && otherSide && <p data-testid="lp-create-other-side">{otherSide}</p>}
           {/* Warnings, never a stop: the buttons below stay. The same lead-in as the forms and the review. */}
           {cautions.length > 0 && (
             <div className="space-y-1" data-testid="lp-create-cautions">
@@ -398,11 +400,17 @@ function OfferLines({
       // A cut list (see poolListCut) is never "no pool yet", and a new pool never "the first".
       const cut = poolListCut(search);
       if (pools.length === 0 && !cut) {
+        // A pairing coin looked up as the token (USDC, BAYLA) was searched only against the
+        // coins that outrank it, so the card names those: "no SOL pool", never "no pool".
+        // Its pool with a lower coin is another token's pool, and was not looked for here.
+        const aPool = quoteCoin(safety.mint) ? `${searchedCoinsOr(safety.mint)} pool` : 'pool';
         return (
           <>
             {/* With no pool anywhere there is nothing to press "Add liquidity" on: say that this is the way in. */}
-            <p>There is no pool to add liquidity to yet. Opening one is how the first liquidity goes in.</p>
-            <p>No pool for this token yet. You can open the first one on the public fee tier: {terms} (read just now).</p>
+            <p>There is no {aPool} to add liquidity to yet. Opening one is how the first liquidity goes in.</p>
+            <p>
+              No {aPool} for this token yet. You can open the first one on the public fee tier: {terms} (read just now).
+            </p>
           </>
         );
       }

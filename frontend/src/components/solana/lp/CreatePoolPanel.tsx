@@ -7,7 +7,7 @@ import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type CreatePlan, type CreateProblem } from '../../../lib/solana/lp/liquidityMath';
 import { assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../lib/solana/lp/opening';
 import { coinPriceDetail, priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
-import { QUOTE_COINS, SOL_QUOTE, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { SOL_QUOTE, lowerCoins, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
@@ -607,8 +607,9 @@ function CreateInner({
   // A pairing coin looked up as the token (USDC) is paired only with the coins that outrank
   // it. Its pool with a lower coin (USDC with BAYLA) is the same pool read from the other
   // side, and a visitor who started from USDC was left at a dead end (phone walk, 2026-10-03).
+  // The card and the pool list say the same before the form is opened (quotes.ts `otherSideLine`).
   const own = quoteCoin(mint);
-  const lower = own ? QUOTE_COINS.slice(QUOTE_COINS.indexOf(own) + 1).map((q) => q.symbol) : [];
+  const lower = lowerCoins(mint).map((q) => q.symbol);
   const otherSide = own && lower.length > 0 ? `. A pool of ${own.symbol} and ${lower.join(' or ')} is opened from the other side: look up ${lower.join(' or ')} and pair it with ${own.symbol}` : '';
   const pairLabel = useId();
   const warningsId = useId();

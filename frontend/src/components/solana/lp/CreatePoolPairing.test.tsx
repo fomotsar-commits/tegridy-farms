@@ -12,7 +12,7 @@
 // The write layer is a fake; nothing touches a chain.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
@@ -241,6 +241,75 @@ describe('Pair with: the coins a token can be paired with', () => {
     // Not a dead end: a USDC and BAYLA pool is the same pool read from BAYLA's side, and the row says so.
     expect(row(panel, 'Paired with')).toHaveTextContent('A pool of USDC and BAYLA is opened from the other side: look up BAYLA and pair it with USDC');
     expect(coinBox(panel, 'SOL')).toBeInTheDocument();
+  });
+});
+
+// Whole-change review 2026-10-04 (W4). A pairing coin looked up as the token is searched
+// only against the coins that outrank it: for USDC that is SOL alone. The page said "No
+// pools pairing this token with SOL, USDC or BAYLA found" and "No pool for this token yet":
+// USDC with USDC is nonsense, and a USDC and BAYLA pool was never looked for from here (it
+// is BAYLA's pool, listed under BAYLA). The page names the coins that WERE searched, and
+// says where the other pool is before the form is opened.
+describe('a pairing coin looked up as the token: the page names the coins that were searched', () => {
+  const OTHER_SIDE = 'A pool of USDC and BAYLA is found and opened from the other side: look up BAYLA and pair it with USDC.';
+  const said = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const status = () => said(screen.getByTestId('lp-status'));
+
+  it('USDC with no pool: the list, the status line and the Open card say SOL, and point to the other side, with no form open', async () => {
+    mount(readers(), { mint: USDC });
+    const card = await offered();
+    expect(said(screen.getByTestId('lp-no-pools'))).toBe(`No pools pairing this token with SOL found. ${OTHER_SIDE}`);
+    expect(status()).toBe(`No pools pairing this token with SOL found. ${OTHER_SIDE}`);
+    expect(card).toHaveTextContent('There is no SOL pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
+    expect(card).toHaveTextContent('No SOL pool for this token yet. You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
+    expect(said(within(card).getByTestId('lp-create-other-side'))).toBe(OTHER_SIDE);
+    // Nothing says a pair that was never looked for has no pool.
+    expect(document.body).not.toHaveTextContent('SOL, USDC or BAYLA found');
+    expect(document.body).not.toHaveTextContent('No pools found for this token.');
+    expect(card).not.toHaveTextContent('No pool for this token yet');
+    expect(card).not.toHaveTextContent('There is no pool to add liquidity to yet');
+    // All of it is said before the form: none is open.
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+  });
+
+  it('USDC, when the index is down or cut: the same coin in each of the list’s sentences', async () => {
+    const down = search([], { mint: USDC });
+    if (down.kind === 'ok') down.search.index = { kind: 'unread', detail: 'HTTP 502' };
+    mount(readers({ findPools: vi.fn(async () => down) }), { mint: USDC });
+    await waitFor(() => expect(said(screen.getByTestId('lp-no-pools'))).toBe(`No pools pairing this token with SOL found at the addresses we could check. ${OTHER_SIDE}`));
+    cleanup();
+    mount(readers({ findPools: vi.fn(async () => search([], { mint: USDC, truncated: true })) }), { mint: USDC });
+    await waitFor(() => expect(said(screen.getByTestId('lp-no-pools'))).toBe(`None of the pools our index returned pairs this token with SOL. It returned its maximum, so there may be more. ${OTHER_SIDE}`));
+  });
+
+  it('USDC with a USDC and SOL pool listed: the other side is still said, by the list and in the status line', async () => {
+    const pool = view({ mint: new PublicKey(USDC) });
+    mount(readers({ findPools: vi.fn(async () => search([pool], { mint: USDC })) }), { mint: USDC });
+    const card = await offered();
+    expect(screen.queryByTestId('lp-no-pools')).toBeNull();
+    expect(said(screen.getByTestId('lp-other-side'))).toBe(OTHER_SIDE);
+    expect(status()).toBe(`One pool found for this token. ${OTHER_SIDE}`);
+    expect(said(within(card).getByTestId('lp-create-other-side'))).toBe(OTHER_SIDE);
+  });
+
+  it('BAYLA: SOL or USDC were searched. No coin ranks below BAYLA, so no other side is named', async () => {
+    mount(readers(), { mint: BAYLA });
+    const card = await offered();
+    expect(said(screen.getByTestId('lp-no-pools'))).toBe('No pools pairing this token with SOL or USDC found.');
+    expect(status()).toBe('No pools pairing this token with SOL or USDC found.');
+    expect(card).toHaveTextContent('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
+    expect(card).toHaveTextContent('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier:');
+    expect(document.body).not.toHaveTextContent('from the other side');
+  });
+
+  it('any other token: all three coins were searched, and every sentence is word for word what it was', async () => {
+    mount(readers());
+    const card = await offered();
+    expect(said(screen.getByTestId('lp-no-pools'))).toBe('No pools pairing this token with SOL, USDC or BAYLA found.');
+    expect(status()).toBe('No pools found for this token.');
+    expect(card).toHaveTextContent('There is no pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
+    expect(card).toHaveTextContent('No pool for this token yet. You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
+    expect(document.body).not.toHaveTextContent('from the other side');
   });
 });
 

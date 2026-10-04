@@ -5,7 +5,7 @@ import { assessPool, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
-import { QUOTE_COINS_OR, quotesFor } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
 import { BUNGALOWS } from '../../../lib/bungalows';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
@@ -480,7 +480,13 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
   const { pools, index } = s.pools.search;
   const read = pools.filter((p) => p.kind === 'pool').length;
   const unread = pools.length - read;
-  const parts = [`${read === 0 ? 'No pools' : count(read, 'pool', 'pools')} found for this token.`];
+  // A pairing coin looked up as the token (USDC, BAYLA) was searched only against the
+  // coins that outrank it. "No pools" then names those coins, and the line says where its
+  // pool with a lower coin is: a pair that was never looked for is not said to have none.
+  const none = quoteCoin(s.mint) ? `No pools pairing this token with ${searchedCoinsOr(s.mint)} found.` : 'No pools found for this token.';
+  const parts = [read === 0 ? none : `${count(read, 'pool', 'pools')} found for this token.`];
+  const otherSide = otherSideLine(s.mint);
+  if (otherSide) parts.push(otherSide);
   if (unread) parts.push(`${count(unread, 'more pool', 'more pools')} could not be read.`);
   if (index.kind === 'unread') parts.push('Our pool index could not be read, so there may be other pools.');
   else if (index.truncated) parts.push('Our pool index returned its maximum, so there may be more pools.');
@@ -550,6 +556,12 @@ function SearchResults({
   const openCreate = wish && named === null && (wish.task === 'create' || addTo === null) ? due : 0;
   // The named pool cannot open its form: its card is shown instead, once.
   const showNamed = named !== null && addTo === null ? due : 0;
+  // The coins this lookup searched (all three for an ordinary token; only the coins that
+  // outrank it for USDC or BAYLA), and for such a coin where its pool with a lower coin
+  // is. The list said "SOL, USDC or BAYLA" whatever was searched: for USDC that told a
+  // pair nobody looked for as "none", and USDC with USDC is no pair at all.
+  const searched = searchedCoinsOr(mint);
+  const otherSide = otherSideLine(mint);
   return (
     <div className="space-y-4">
       <TokenSafetyCard mint={mint} safety={safety} />
@@ -566,10 +578,11 @@ function SearchResults({
             <Card title="Pools">
               <p data-testid="lp-no-pools">
                 {pools.search.index.kind !== 'ok'
-                  ? `No pools pairing this token with ${QUOTE_COINS_OR} found at the addresses we could check.`
+                  ? `No pools pairing this token with ${searched} found at the addresses we could check.`
                   : pools.search.index.truncated
-                    ? `None of the pools our index returned pairs this token with ${QUOTE_COINS_OR}. It returned its maximum, so there may be more.`
-                    : `No pools pairing this token with ${QUOTE_COINS_OR} found.`}
+                    ? `None of the pools our index returned pairs this token with ${searched}. It returned its maximum, so there may be more.`
+                    : `No pools pairing this token with ${searched} found.`}
+                {otherSide && ` ${otherSide}`}
               </p>
               {pools.search.otherPairs > 0 && (
                 <Notice>
@@ -599,6 +612,12 @@ function SearchResults({
           )}
           {pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
             <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
+          )}
+          {/* With pools listed there is no "no pools" sentence to carry it, so it is said under the list. */}
+          {pools.search.pools.length > 0 && otherSide && (
+            <div data-testid="lp-other-side">
+              <Notice>{otherSide}</Notice>
+            </div>
           )}
         </div>
       )}

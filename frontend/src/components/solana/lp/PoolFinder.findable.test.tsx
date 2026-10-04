@@ -237,7 +237,8 @@ describe('a lookup asked for with a button ends in a form', () => {
     fireEvent.click(await task('Add liquidity'));
     fireEvent.click(await chip('BAYLA'));
     expect(await screen.findByTestId('lp-create-panel')).toBeTruthy();
-    expect(screen.getByTestId('lp-create')).toHaveTextContent('There is no pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
+    // BAYLA is paired with SOL or USDC only, so those are the coins the card names.
+    expect(screen.getByTestId('lp-create')).toHaveTextContent('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
   });
 
   it("Add liquidity on a token whose pool takes deposits opens that pool's Add form, and never the Open-a-pool form beside it", async () => {
@@ -534,8 +535,10 @@ describe('a token with no pool yet', () => {
   it('is told that opening the pool is how the first liquidity goes in', async () => {
     mount(`/solana-lp?mint=${BAYLA}`);
     const card = await screen.findByTestId('lp-create');
-    await waitFor(() => expect(card).toHaveTextContent('There is no pool to add liquidity to yet. Opening one is how the first liquidity goes in.'));
+    // BAYLA is a pairing coin itself: it was searched against SOL and USDC only, and the
+    // card names those two (BAYLA with BAYLA is no pair, and was never looked for).
+    await waitFor(() => expect(card).toHaveTextContent('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.'));
     // The sentence the card already had is kept.
-    expect(card).toHaveTextContent('No pool for this token yet. You can open the first one on the public fee tier');
+    expect(card).toHaveTextContent('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier');
   });
 });

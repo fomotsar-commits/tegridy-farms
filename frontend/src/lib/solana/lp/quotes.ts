@@ -58,8 +58,11 @@ export const BAYLA_QUOTE: QuoteCoin = { mint: BAYLA_MINT, symbol: 'BAYLA', decim
 /** Rank order: when a pool pairs two of these, the EARLIER one is the quote. */
 export const QUOTE_COINS: readonly QuoteCoin[] = [SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE];
 
+/** Names in a sentence: "USDC", "USDC or BAYLA", "SOL, USDC or BAYLA". */
+export const orList = (names: string[]) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`);
+
 /** The pairing coins in words, for copy: "SOL, USDC or BAYLA". */
-export const QUOTE_COINS_OR = `${QUOTE_COINS.slice(0, -1).map((q) => q.symbol).join(', ')} or ${QUOTE_COINS[QUOTE_COINS.length - 1]!.symbol}`;
+export const QUOTE_COINS_OR = orList(QUOTE_COINS.map((q) => q.symbol));
 
 const rankOf = (mint: string): number => QUOTE_COINS.findIndex((q) => q.mint === mint);
 
@@ -92,6 +95,39 @@ export function readPair(token0Mint: string, token1Mint: string): { quote: Quote
 export function quotesFor(tokenMint: string): QuoteCoin[] {
   const r = rankOf(tokenMint);
   return r < 0 ? [...QUOTE_COINS] : QUOTE_COINS.slice(0, r);
+}
+
+/**
+ * The coins a lookup of `tokenMint` SEARCHED, in words: "SOL, USDC or BAYLA" for an
+ * ordinary token, "SOL" for USDC, "SOL or USDC" for BAYLA. A page that says "no pools
+ * pairing this token with ..." names these and no others: the browser and the pool index
+ * both look only for the pairs `quotesFor` gives, and a pair that was never looked for
+ * must not be said to have no pool.
+ */
+export function searchedCoinsOr(tokenMint: string): string {
+  return orList(quotesFor(tokenMint).map((q) => q.symbol));
+}
+
+/**
+ * For a pairing coin looked up as the TOKEN: the coins ranked below it. Its pool with one
+ * of those is read from the other side (a USDC and BAYLA pool is BAYLA's pool, priced in
+ * USDC), so it is listed and opened under the lower coin, never under this one. None for
+ * any other token, and none for the last coin in rank.
+ */
+export function lowerCoins(tokenMint: string): QuoteCoin[] {
+  const r = rankOf(tokenMint);
+  return r < 0 ? [] : QUOTE_COINS.slice(r + 1);
+}
+
+/**
+ * Where that pool is, in one sentence, or null when there is none to point to. Said on
+ * the page before any form is opened: a visitor who started from USDC was told "no pool"
+ * for a pair this site finds from BAYLA's side, and was left at a dead end.
+ */
+export function otherSideLine(tokenMint: string): string | null {
+  const own = quoteCoin(tokenMint);
+  const lower = orList(lowerCoins(tokenMint).map((q) => q.symbol));
+  return own && lower ? `A pool of ${own.symbol} and ${lower} is found and opened from the other side: look up ${lower} and pair it with ${own.symbol}.` : null;
 }
 
 /** Is a `tokenMint`/`quote` pool one this site reads that way round? */
