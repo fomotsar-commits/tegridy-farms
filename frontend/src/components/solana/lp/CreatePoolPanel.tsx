@@ -557,7 +557,7 @@ function CreateInner({
                 {pairs.map(({ coin: q }) => (
                   <label
                     key={q.mint}
-                    className={`${TOGGLE_CLS} relative flex items-center justify-center gap-2 px-3 cursor-pointer focus-within:ring-2 focus-within:ring-white/70`}
+                    className={`${TOGGLE_CLS} relative flex items-center justify-center gap-2 px-3 cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white/70`}
                     style={{ background: q.mint === coin.mint ? 'rgba(45,139,78,0.45)' : 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}
                   >
                     <input type="radio" name={pairName} value={q.symbol} checked={q.mint === coin.mint} onChange={() => chooseCoin(q)} />
@@ -571,13 +571,6 @@ function CreateInner({
             <Row label="Paired with" value={`${coin.symbol}: this site pairs this token with ${coin.symbol} only`} mono={false} />
           )}
           <CoinRiskNotice coin={coin} />
-          {!coin.native && (
-            <p data-testid="lp-create-paid-in-sol">
-              The fee to open{fee === null ? '' : ` (${formatSol(fee, 9)} SOL)`}, the account deposits and the network fee are paid in SOL, whatever
-              the pool is paired with.{setAside !== null && lamports !== null ? ` This wallet needs about ${solAbout(setAside)} for them and has ${solExact(lamports)}.` : ''}{' '}
-              Only your {coin.symbol} and your tokens go into the pool.
-            </p>
-          )}
           {readyConfig !== null && offer === 'offer' && advice && (
             <div data-testid="lp-create-advice">
               <Notice tone="warn">{advice}</Notice>
@@ -640,6 +633,15 @@ function CreateInner({
             hints={{ quote: hintFor('quote'), token: hintFor('token') }}
             errors={{ quote: parseError('quote'), token: parseError('token') }}
           />
+          {/* Under the boxes, so the first box stays on a phone's first screen. Someone putting
+              in USDC must not read the fee as USDC, or think their SOL is not needed. */}
+          {!coin.native && (
+            <p data-testid="lp-create-paid-in-sol">
+              The fee to open{fee === null ? '' : ` (${formatSol(fee, 9)} SOL)`}, the account deposits and the network fee are paid in SOL, whatever
+              the pool is paired with.{setAside !== null && lamports !== null ? ` This wallet needs about ${solAbout(setAside)} for them and has ${solExact(lamports)}.` : ''}{' '}
+              Only your {coin.symbol} and your tokens go into the pool.
+            </p>
+          )}
           <div className="space-y-2">
             <button
               type="button"
