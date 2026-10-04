@@ -486,7 +486,8 @@ describe('the panel', () => {
       const { panel } = await openPanel();
       const cannot = await within(panel).findByTestId('lp-create-cannot');
       expect(cannot).toHaveTextContent('This wallet cannot open a pool yet.');
-      expect(cannot).toHaveTextContent(`needs about ${solAbout(NEEDS)}`);
+      // Rounded UP at four decimals: 0.19508856 reads 0.1951, never 0.195 (less than it is).
+      expect(cannot).toHaveTextContent('needs about 0.1951 SOL');
       expect(cannot).toHaveTextContent('this wallet has 0.005960758 SOL');
       expect(cannot).toHaveTextContent('holds none of this token');
       expect(reviewButton(panel)).toBeDisabled();

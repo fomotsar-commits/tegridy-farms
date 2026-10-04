@@ -888,7 +888,7 @@ describe('what the wallet can put in, for a coin that is not SOL', () => {
     await pair(panel, 'USDC');
     const cannot = within(panel).getByTestId('lp-create-cannot');
     expect(cannot).toHaveTextContent(
-      'This wallet cannot open a pool yet. That needs about 0.1939 SOL for the fee to open, the account deposits and network fees, and this wallet has 0.193940159 SOL. No SOL goes into the pool, but those costs are paid in SOL.',
+      'This wallet cannot open a pool yet. That needs about 0.194 SOL for the fee to open, the account deposits and network fees, and this wallet has 0.193940159 SOL. No SOL goes into the pool, but those costs are paid in SOL.',
     );
     expect(cannot).toHaveTextContent('Send SOL to this wallet, then come back to this tab.');
     // It holds the USDC and the tokens: nothing else is said to be missing.

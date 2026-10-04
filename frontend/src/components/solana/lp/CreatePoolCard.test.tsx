@@ -362,7 +362,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
   it('token-refused: a token that charges a transfer fee, in the words of the check that blocked it', async () => {
     const feeToken = realToken(MINT, { transferFee: true });
     const block = reasonText(feeToken, 'transfer-fee');
-    expect(block).toContain('This site cannot build exact deposits and withdrawals for a token that charges a transfer fee, so it does not open or add to pools for it.');
+    expect(block).toContain('This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.');
     mount(readers({ safety: vi.fn(async () => new Map([[M, feeToken]])) }));
     const c = await settled('token-refused');
     expect(c).toHaveTextContent(`This site does not open pools for this token: ${block}`);

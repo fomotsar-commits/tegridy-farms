@@ -372,7 +372,7 @@ describe('what still stops an opening', () => {
     const card = await settled('token-refused');
     const block = reasonText(feeToken, 'transfer-fee');
     expect(block).toBe(
-      'It uses a transfer fee, which its owner can raise as high as 100%. This site cannot build exact deposits and withdrawals for a token that charges a transfer fee, so it does not open or add to pools for it.',
+      'It uses a transfer-fee setting, which lets the token take a fee out of every transfer. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.',
     );
     expect(card).toHaveTextContent(`This site does not open pools for this token: ${block}`);
     expect(within(card).queryByRole('button', { name: 'Open a pool' })).toBeNull();

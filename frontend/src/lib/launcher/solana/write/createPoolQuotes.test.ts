@@ -838,7 +838,7 @@ describe('the balance check for an opening paired with USDC or BAYLA', () => {
 
     const coinGone = world(USDC_QUOTE);
     beforeEveryRun(coinGone, (c) => holdCoin(c, USDC_QUOTE, coinGone.quoteAta, COINS - 1n));
-    expect(outcome(await create(coinGone))).toMatchObject(stopped('You do not hold that many tokens.'));
+    expect(outcome(await create(coinGone))).toMatchObject(stopped('You do not hold that much of the token, or of what it is paired with.'));
 
     const solGone = world(BAYLA_QUOTE);
     beforeEveryRun(solGone, (c) => c.fund(ME, 1_000_000));
