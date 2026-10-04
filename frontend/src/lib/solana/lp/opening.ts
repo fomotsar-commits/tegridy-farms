@@ -1,7 +1,7 @@
 import { comparePrice, tokenReasons, type PriceCheck } from './poolHealth';
 import { priceInQuote, type OutsidePrice } from './outsidePrice';
 import { QUOTE_COINS_OR, SOL_QUOTE, canPair, type QuoteCoin } from './quotes';
-import type { TokenSafety } from './tokenSafety';
+import { TOKEN_2022_NATIVE_MINT, type TokenSafety } from './tokenSafety';
 
 /**
  * May a new pool open at this price, and what must its opener be told first? Pure: every
@@ -28,8 +28,8 @@ import type { TokenSafety } from './tokenSafety';
  * comparison needs it could not be read.
  */
 
-/** SOL under the Token-2022 program (spl-token `NATIVE_MINT_2022`, pinned by a test). */
-export const TOKEN_2022_NATIVE_MINT = '9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP';
+// SOL under the Token-2022 program: kept in tokenSafety.ts, so the deposit check refuses it too.
+export { TOKEN_2022_NATIVE_MINT };
 
 /** Whole pairing coins per whole token at these opening amounts, or null; the same formula as `poolPricePerToken`. */
 export function openingPricePerToken(quoteAmount: bigint, token: bigint, tokenDecimals: number, quote: QuoteCoin): number | null {

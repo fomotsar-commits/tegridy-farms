@@ -4,7 +4,7 @@ import { priceInQuote, type OutsidePrice } from './outsidePrice';
 import { ownAveragePrice, type OwnPrice } from './ownPrice';
 import type { PoolView } from './poolFinder';
 import { readPair } from './quotes';
-import type { SafetyReason, TokenSafety } from './tokenSafety';
+import { TOKEN_2022_NATIVE_MINT, type SafetyReason, type TokenSafety } from './tokenSafety';
 
 /**
  * Is this pool safe to deposit into right now? Pure: every input was read elsewhere.
@@ -219,6 +219,10 @@ export function assessPool(input: {
   if (!depositEnabled(pool)) refused.push('Deposits are switched off on this pool.');
   if (!withdrawEnabled(pool)) refused.push('Withdrawals are switched off on this pool, so money put in now could not be taken out.');
   if ((pool.status & ~KNOWN_STATUS_BITS) !== 0) refused.push(`The pool has a status setting this site does not know (${pool.status}).`);
+  // SOL under the newer token program is not a token a pool here holds. An opening refuses
+  // it by name (opening.ts); so does a deposit into a pool someone opened with another
+  // tool, whatever its price check says (review, 2026-10-04).
+  if (view.tokenMint === TOKEN_2022_NATIVE_MINT) refused.push('This is SOL under the newer token program. This site does not add to a pool for it.');
   if (view.vaultsFrozen) refused.push('One of this pool’s vaults is frozen by the token’s issuer, so nothing can move in or out of it.');
   if (swaps.state === 'not-open-yet') {
     refused.push(

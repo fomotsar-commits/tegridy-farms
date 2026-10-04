@@ -111,6 +111,7 @@ function world(o: {
   mint?: PublicKey;
   tokenProgram?: PublicKey;
   mintExtensions?: Array<[number, number]>;
+  mintDecimals?: number;
   freezeAuthority?: PublicKey;
   name?: [string, string];
   noMint?: boolean;
@@ -128,7 +129,7 @@ function world(o: {
   if (o.feeReceiver !== null) chain.addFeeReceiver(o.feeReceiver ?? {});
   const mint = o.mint ?? Keypair.generate().publicKey;
   const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
-  const mintOpts = { decimals: 6, freezeAuthority: o.freezeAuthority };
+  const mintOpts = { decimals: o.mintDecimals ?? 6, freezeAuthority: o.freezeAuthority };
   if (!o.noMint) {
     if (tokenProgram.equals(TOKEN_2022_PROGRAM_ID)) chain.mint2022(mint, o.mintExtensions ?? METADATA_ONLY, mintOpts);
     else chain.mint(mint, mintOpts);
@@ -395,7 +396,7 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
     const fee = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108]] });
     expect(refused(await create(fee))).toBe(
       CREATE_COPY.tokenRefused(
-        'It uses a transfer fee, which its owner can raise as high as 100%. This site cannot build exact deposits and withdrawals for a token that charges a transfer fee, so it does not open or add to pools for it.',
+        'It uses a transfer-fee setting, which lets the token take a fee out of every transfer. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.',
       ),
     );
     const hook = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [extensionOf(EXTENSION.TransferHook)] });
@@ -443,6 +444,22 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
     }
     const sorted = (xs: Iterable<number>) => [...xs].sort((a, b) => a - b);
     expect(sorted(opened)).toEqual(sorted(BUILDABLE_EXTENSIONS));
+  });
+
+  // The loss is worked out with the TOKEN's own decimals. Every other loss test here uses
+  // a 6-decimal token, so a builder that assumed 6 passed them all (review, 2026-10-04).
+  it('a 9-decimal token: the estimated loss uses the token’s own decimals', async () => {
+    // 1 SOL against 100 whole tokens of 9 decimals: 0.01 SOL a token. The market says 0.0096.
+    const token = 100n * 10n ** 9n;
+    const w = world({ mintDecimals: 9, heldTokens: 1_000n * 10n ** 9n });
+    const s = summaryOf(ok(await create(w, { token }, priced(0.0096))));
+    expect(s.tokenDecimals).toBe(9);
+    expect(s.price).toMatchObject({ state: 'disagrees', against: 'outside', pool: 0.01, reference: 0.0096 });
+    const loss = estimatedLoss({ quoteAmount: SOL, token, tokenDecimals: 9, marketPricePerToken: 0.0096, quote: SOL_QUOTE })!;
+    expect(s.priceGap!.lossQuote).toBe(loss);
+    expect(Number(loss) / 1e9).toBeCloseTo((1 - Math.sqrt(0.96)) ** 2, 9);
+    // Read as 6 decimals the tokens would count a thousand times over, and so would the loss.
+    expect(loss).not.toBe(estimatedLoss({ quoteAmount: SOL, token, tokenDecimals: 6, marketPricePerToken: 0.0096, quote: SOL_QUOTE }));
   });
 
   // Owner ruling 2026-10-04: an opening price off the market builds. The gap and the
@@ -916,7 +933,7 @@ describe('vaultAccountSize', () => {
     expect(vaultAccountSize(acc(c, bare))).toBe(165);
     expect(vaultAccountSize(acc(c, meta))).toBe(165);
     expect(tokenAccountSize(acc(c, meta))).toBe(170);
-    expect(vaultAccountSize(acc(c, fee))).toMatch(/^it uses a transfer fee/);
+    expect(vaultAccountSize(acc(c, fee))).toMatch(/^it uses a transfer-fee setting/);
     expect(vaultAccountSize({ address: 'x', owner: STRANGER.toBase58(), data: new Uint8Array(82), lamports: 1 })).toMatch(/not owned by a token program/);
   });
 

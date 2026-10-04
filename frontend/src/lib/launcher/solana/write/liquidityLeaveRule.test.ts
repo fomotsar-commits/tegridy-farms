@@ -66,17 +66,17 @@ const ALL_EXTENSIONS = [...Object.values(EXTENSION), 99];
 const extensionOf = (type: number): [number, number] => [type, type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : 8];
 
 /** A chain whose test run always fails: a builder that reaches it got past all its own checks. */
-function chainWith(mint: PublicKey, type: number): FakeChain {
+function chainWith(mint: PublicKey, type: number | number[]): FakeChain {
   const chain = FakeChain.healthy();
   chain.simulate = () => ({ err: 'this file never runs a transaction', logs: [], unitsConsumed: 1 });
-  chain.mint2022(mint, [extensionOf(type)], { decimals: 6 });
+  chain.mint2022(mint, [type].flat().map(extensionOf), { decimals: 6 });
   chain.fund(ME, 20_000_000_000);
   chain.token2022Account(associatedTokenAddress(mint, ME, TOKEN_2022_PROGRAM_ID), mint, ME, 10_000_000_000n);
   return chain;
 }
 
 /** A 10 SOL / 1,000 token pool for a Token-2022 mint carrying this one extension, with the wallet holding 10% of its shares. */
-function poolWorld(type: number) {
+function poolWorld(type: number | number[]) {
   const mint = Keypair.generate().publicKey;
   const chain = chainWith(mint, type);
   const pool = addPool(chain, mint, { sol: 10_000_000_000n, tokens: 1_000_000_000n, lpSupply: LP_SUPPLY, tokenProgram: TOKEN_2022_PROGRAM_ID });
@@ -86,15 +86,15 @@ function poolWorld(type: number) {
   return { chain, mint, pool, lpAta };
 }
 
-const deposit = (type: number) => {
+const deposit = (type: number | number[]) => {
   const w = poolWorld(type);
   return prepareLpDeposit(W(w.chain), OPEN, priced, { owner: ME, pool: w.pool.address, tokenMint: w.mint, quoteMint: WSOL_MINT, driving: 'quote', maxIn: 100_000_000n, slippageBps: 100n, shownOtherMax: null });
 };
-const withdraw = (type: number) => {
+const withdraw = (type: number | number[]) => {
   const w = poolWorld(type);
   return prepareLpWithdraw(W(w.chain), OPEN, { owner: ME, pool: w.pool.address, tokenMint: w.mint, quoteMint: WSOL_MINT, lpAccount: w.lpAta, pctBps: 5_000n, slippageBps: 100n });
 };
-const create = (type: number) => {
+const create = (type: number | number[]) => {
   const mint = Keypair.generate().publicKey;
   const chain = chainWith(mint, type).addTier1({}).addFeeReceiver({});
   return prepareLpCreate(W(chain), OPEN, priced, { owner: ME, tokenMint: mint, quoteMint: WSOL_MINT, quote: 1_000_000_000n, token: 100_000_000n, shown: { terms: TERMS, standard: 'empty' } });
@@ -117,6 +117,29 @@ describe('the leave rule, with the token verdict loosened by mistake', () => {
       const s = classifyToken(mint.toBase58(), { address: mint.toBase58(), owner: acc.owner.toBase58(), data: acc.data, lamports: acc.lamports }, null);
       expect(s.kind === 'read' && [s.verdict, s.blocks]).toEqual(['warn', []]);
     }
+  });
+
+  // A real mint carries several extensions (a name, a picture, and then whatever else). A
+  // guard that looked only at the first would let a hook in behind a name: every other
+  // test here mints ONE extension, so nothing pinned that until this one (review, 2026-10-04).
+  it('a mint with a buildable extension AND one that is not is refused by all three builders, wherever the bad one sits', async () => {
+    const mixed: number[][] = [
+      [EXTENSION.MetadataPointer, EXTENSION.TokenMetadata, EXTENSION.TransferHook],
+      [EXTENSION.InterestBearingConfig, EXTENSION.MetadataPointer, EXTENSION.TokenMetadata, EXTENSION.TransferFeeConfig],
+      [EXTENSION.ScaledUiAmountConfig, EXTENSION.PermanentDelegate, EXTENSION.MetadataPointer, EXTENSION.TokenMetadata],
+      [EXTENSION.MetadataPointer, EXTENSION.TokenMetadata, EXTENSION.PausableConfig],
+      [EXTENSION.MetadataPointer, EXTENSION.TokenMetadata, 99],
+    ];
+    for (const types of mixed) {
+      expect(letThrough(await deposit(types)), `deposit ${types.join(',')}`).toBe(false);
+      expect(letThrough(await create(types)), `create ${types.join(',')}`).toBe(false);
+      expect(letThrough(await withdraw(types)), `withdraw ${types.join(',')}`).toBe(false);
+    }
+    // The four buildable ones together go through all three, so each refusal above is the bad one's.
+    const all = [EXTENSION.MetadataPointer, EXTENSION.InterestBearingConfig, EXTENSION.ScaledUiAmountConfig, EXTENSION.TokenMetadata];
+    expect(letThrough(await deposit(all))).toBe(true);
+    expect(letThrough(await create(all))).toBe(true);
+    expect(letThrough(await withdraw(all))).toBe(true);
   });
 
   it('adding to a pool, opening one and removing from one let through exactly the same extensions: the one set', async () => {

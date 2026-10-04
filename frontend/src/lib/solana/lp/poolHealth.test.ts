@@ -4,7 +4,7 @@ import { assessPool, comparePrice, poolPricePerToken, PRICE_TOLERANCE, FAR_FUTUR
 import { decodeObservationState } from './ownPrice';
 import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISABLE_WITHDRAW } from '../cpswap/program';
 import type { PoolView } from './poolFinder';
-import type { SafetyReason, TokenSafety } from './tokenSafety';
+import { TOKEN_2022_NATIVE_MINT, type SafetyReason, type TokenSafety } from './tokenSafety';
 import { buildPool, key, observationBytes, viewOf } from './testkit.fixture';
 
 const mint = key();
@@ -118,6 +118,20 @@ describe('assessPool', () => {
       reasons: ['We could not check its price against an outside price (Jupiter did not give a price (HTTP 502)).'],
       warnings: [],
     });
+  });
+
+  // A pool for SOL under the newer token program can be opened with another tool. This
+  // site refuses to OPEN one by name; a deposit into one is refused by name too, and not
+  // left to the price check, which a 'no market' answer now passes with a warning.
+  it('SOL under the newer token program: a deposit is refused whatever the price check says', () => {
+    const v = { ...view(), tokenMint: TOKEN_2022_NATIVE_MINT };
+    for (const o of [outside(0.01), noOutside]) {
+      const h = assessPool({ ...base, view: v, outside: o });
+      expect(h.deposits.verdict).toBe('refused');
+      expect(h.deposits.reasons).toContain('This is SOL under the newer token program. This site does not add to a pool for it.');
+    }
+    // Any other token at the same pool and price is not refused by this rule.
+    expect(assessPool({ ...base, view: view(), outside: noOutside }).deposits.verdict).toBe('allowed');
   });
 
   // Owner ruling 2026-10-04. A pool anyone could open has no history worth trusting, so

@@ -172,6 +172,17 @@ describe('classifyToken', () => {
     return classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, data), null);
   };
 
+  // A real mint carries several extensions. The verdict looks at every one: a hook is
+  // blocked whether it comes before the name, between its two parts, or after them.
+  it('a rejected extension is blocked wherever it sits among the others: first, between, or last', () => {
+    const hook = tlv(ExtensionType.TransferHook, new Uint8Array(8));
+    const name = [pointer(null, mint), metadataExt(mint, null)] as const;
+    for (const exts of [[hook, name[0], name[1]], [name[0], hook, name[1]], [name[0], name[1], hook]]) {
+      const s = classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, t22Mint(classicMint(), exts)), null);
+      expect(reasons(s)).toMatchObject({ blocks: ['extension'], verdict: 'blocked' });
+    }
+  });
+
   it('blocks every Token-2022 extension the pool program rejects, and says the pool program does not accept it', () => {
     const cases: [number, RegExp][] = [
       [ExtensionType.TransferHook, /transfer hook/],
@@ -198,8 +209,10 @@ describe('classifyToken', () => {
     const s = withExtension(ExtensionType.TransferFeeConfig);
     expect(reasons(s)).toEqual({ blocks: ['transfer-fee'], warnings: [], verdict: 'blocked' });
     const text = s.kind === 'read' ? s.blocks[0]!.text : '';
-    expect(text).toMatch(/^It uses a transfer fee/);
-    expect(text).toContain('This site cannot build exact deposits and withdrawals for a token that charges a transfer fee, so it does not open or add to pools for it.');
+    // Nothing is said about the fee itself: neither its size nor who can change it was read.
+    expect(text).toMatch(/^It uses a transfer-fee setting, which lets the token take a fee out of every transfer\./);
+    expect(text).not.toMatch(/100%|its owner/);
+    expect(text).toContain('This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.');
     expect(text).not.toMatch(/pool program does not accept/);
   });
 

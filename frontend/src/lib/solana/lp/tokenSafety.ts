@@ -47,6 +47,8 @@ import { getMultipleAccounts, type RawAccount } from './accounts';
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 export const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 export const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+/** SOL under the Token-2022 program (spl-token `NATIVE_MINT_2022`, pinned by a test). Never a pool's token here. */
+export const TOKEN_2022_NATIVE_MINT = '9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP';
 export const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 export const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 
@@ -145,7 +147,7 @@ export const EXTENSION = {
 } as const;
 
 const EXTENSION_PLAIN: Record<number, string> = {
-  1: 'a transfer fee, which its owner can raise as high as 100%',
+  1: 'a transfer-fee setting, which lets the token take a fee out of every transfer',
   3: 'a close authority, which can delete the token entirely',
   4: 'confidential transfers, which hide balances',
   6: 'a default account state, which can make new accounts start frozen',
@@ -412,7 +414,7 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
       // The pool program takes a transfer fee. The limit is this site's, and the words say so.
       blocks.push({
         code: 'transfer-fee',
-        text: `It uses ${extensionPlain(e)}. This site cannot build exact deposits and withdrawals for a token that charges a transfer fee, so it does not open or add to pools for it.`,
+        text: `It uses ${extensionPlain(e)}. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.`,
       });
     } else if (!takenByName) {
       // Never said of the four stablecoins: the pool program takes those by name.

@@ -188,6 +188,8 @@ function world(o: {
   tokenProgram?: PublicKey;
   mintExtensions?: Array<[number, number]>;
   mintDecimals?: number;
+  /** The decimals the POOL records for the token (default 6). */
+  poolDecimals?: number;
   freezeAuthority?: PublicKey;
   sol?: bigint;
   tokens?: bigint;
@@ -221,6 +223,7 @@ function world(o: {
     tokenProgram,
     frozenTokenVault: o.frozenTokenVault,
     record: o.record,
+    ...(o.poolDecimals === undefined ? {} : { tokenDecimals: o.poolDecimals }),
   });
   setClock(chain, NOW);
   chain.fund(ME, Number(o.wallet ?? 20n * 10n ** 9n));
@@ -398,6 +401,22 @@ describe('prepareLpDeposit', () => {
     ok(await withdraw(w, {}, WITHDRAW_ONLY));
   });
 
+  // The loss is worked out with the TOKEN's own decimals. Every other loss test here uses
+  // a 6-decimal token, so a builder that assumed 6 passed them all (review, 2026-10-04).
+  it('a 9-decimal token: the estimated loss uses the token’s own decimals', async () => {
+    // 10 SOL against 1,000 whole tokens of 9 decimals: 0.01 SOL a token. The market says 0.0096.
+    const w = world({ mintDecimals: 9, poolDecimals: 9, tokens: 1_000n * 10n ** 9n, heldTokens: 10_000n * 10n ** 9n });
+    const s = ok(await deposit(w, {}, priced(0.0096))).summary as LpDepositSummary;
+    expect(s.tokenDecimals).toBe(9);
+    expect(s.price).toMatchObject({ state: 'disagrees', against: 'outside' });
+    const loss = estimatedLoss({ quoteAmount: s.quoted.quote, token: s.quoted.token, tokenDecimals: 9, marketPricePerToken: 0.0096, quote: SOL_QUOTE })!;
+    expect(s.priceGap!.lossQuote).toBe(loss);
+    // Read as 6 decimals the tokens would count a thousand times over, and so would the loss.
+    expect(loss).not.toBe(estimatedLoss({ quoteAmount: s.quoted.quote, token: s.quoted.token, tokenDecimals: 6, marketPricePerToken: 0.0096, quote: SOL_QUOTE }));
+    expect(loss).toBeGreaterThan(0n);
+    expect(loss).toBeLessThan(s.quoted.quote / 1_000n);
+  });
+
   // Owner ruling 2026-10-04: a price that is off is a warning. The gap and the estimated
   // loss come from the builder's own fresh reads, not from what the card showed.
   it('a price pushed after the card read it (the card saw it agree; the fresh read is 4% off) builds, with the gap and the estimated loss from the fresh read', async () => {
@@ -472,7 +491,7 @@ describe('prepareLpDeposit', () => {
     const fee = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
     expect(refused(await deposit(fee))).toBe(
       LP_COPY.tokenBlocked(
-        'It uses a transfer fee, which its owner can raise as high as 100%. This site cannot build exact deposits and withdrawals for a token that charges a transfer fee, so it does not open or add to pools for it.',
+        'It uses a transfer-fee setting, which lets the token take a fee out of every transfer. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.',
       ),
     );
     const hook = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: withExtra(EXTENSION.TransferHook) });
@@ -823,7 +842,7 @@ describe('prepareLpWithdraw: what may refuse it', () => {
   it('a transfer-fee token: this site cannot build it yet, says the program still allows it, and points at no section that is not shown', async () => {
     const w = holding({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
     const msg = refused(await withdraw(w));
-    expect(msg).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer fee[^)]*\)\. The pool program still lets you withdraw/);
+    expect(msg).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer-fee setting[^)]*\)\. The pool program still lets you withdraw/);
     expect(msg).not.toMatch(/Leaving without this site|\bsee\b/i);
   });
 
