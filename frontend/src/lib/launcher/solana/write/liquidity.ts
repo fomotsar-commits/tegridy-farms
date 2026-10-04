@@ -99,12 +99,25 @@ export const LP_COPY = {
   moved: (now: string, shown: string) =>
     `The pool's price moved since these amounts were worked out: this now needs up to ${now} on the other side, not ${shown}. Check the new amounts and press Review again.`,
   foreignOwner: (address: string, owner: string) => `Your account at ${address} now belongs to another wallet (${owner}). Using it would hand the tokens over.`,
-  frozenSource: (what: string) => `Your ${what} account is frozen by the token's issuer, so nothing can move out of it.`,
-  frozenDestination: (what: string) => `Your ${what} account is frozen by the token's issuer, so nothing can be paid into it.`,
+  // `issuer`: who froze it. The token's issuer for the token's account; a pairing coin's own
+  // issuer for the visitor's account for that coin (USDC's, not the token's).
+  frozenSource: (what: string, issuer = "the token's issuer") => `Your ${what} account is frozen by ${issuer}, so nothing can move out of it.`,
+  frozenDestination: (what: string, issuer = "the token's issuer") => `Your ${what} account is frozen by ${issuer}, so nothing can be paid into it.`,
   cpiGuard: 'Your account for this token has CPI Guard switched on, which stops a pool taking tokens from it. Switch it off in your wallet, then try again.',
   memosRequired: 'Your account for this token only accepts transfers that carry a memo, and the pool cannot add one. Switch off required memos in your wallet, then try again.',
+  // The same two rules, said of the visitor's own account for a pairing coin (BAYLA sits
+  // under Token-2022): the coin is named, because "this token" there means the other side.
+  cpiGuardCoin: (symbol: string) =>
+    `Your ${symbol} account has CPI Guard switched on, which stops a pool taking ${symbol} from it. Switch it off in your wallet, then try again.`,
+  memosRequiredCoin: (symbol: string) =>
+    `Your ${symbol} account only accepts transfers that carry a memo, and the pool cannot add one. Switch off required memos in your wallet, then try again.`,
   delegatedDestination: (spender: string, amount: string, what: string, address: string) =>
     `An approved spender (${spender}) can move up to ${amount} out of your ${what} account (${address}), and this would pay into it. Revoke that approval in your wallet, then try again.`,
+  // The same account on the way IN (a deposit or an opening spends from it). Nothing is
+  // refused: a spender on a source does not endanger what goes into the pool. But the way
+  // out pays into this account and is refused while the approval stands, so it is said now.
+  delegatedSource: (spender: string, amount: string, what: string, address: string) =>
+    `An approved spender (${spender}) can move up to ${amount} out of your ${what} account (${address}). This site will not pay a withdrawal into that account until you revoke that approval.`,
   closeAuthorityNotice: (authority: string, what: string) => `${authority} can close your ${what} account once it is empty.`,
   notUsable: (what: string, address: string) => `The account at ${address} is not a ${what} account this site can use, so nothing was built.`,
   withdrawBit:
@@ -414,18 +427,53 @@ function amountOf(acc: RawAccount | null): bigint {
  * is empty is a notice. Wrapped SOL's spender and close authority: see wsolPlanFrom.
  * An absent account is not refused here; the caller decides what absence means. An
  * address that only holds SOL someone sent it is absent too (`opened`, wsol.ts).
+ *
+ * A SOURCE with an approved spender is not refused, and is a notice: a deposit and an
+ * opening spend from the same accounts a withdrawal later pays into, so the wallet is
+ * told on the way in what will refuse it on the way out (review, 2026-10-04).
+ *
+ * `coin`: the account is the visitor's own account for a pairing coin that is not SOL
+ * (`coinAccount`). Its refusals name that coin and its issuer, never "this token".
  */
-export function accountCheck(
-  read: RawAccount | null,
-  want: { owner: PublicKey; mint: PublicKey; program: PublicKey; use: 'source' | 'destination'; what: string; decimals?: number },
-): { refuse?: string; notices: string[] } {
+export interface AccountWant {
+  owner: PublicKey;
+  mint: PublicKey;
+  program: PublicKey;
+  use: 'source' | 'destination';
+  what: string;
+  decimals?: number;
+  coin?: boolean;
+}
+
+/**
+ * What `accountCheck` is asked about the signer's own account for a pool's pairing coin:
+ * the wrapped-SOL account for SOL, else the coin's own account, named by its symbol. One
+ * place, so the deposit, the opening and the withdrawal ask the same question.
+ */
+export function coinAccount(owner: PublicKey, quote: QuoteCoin, use: AccountWant['use']): AccountWant {
+  return {
+    owner,
+    mint: new PublicKey(quote.mint),
+    program: new PublicKey(quote.program),
+    use,
+    what: quote.native ? 'wrapped SOL' : quote.symbol,
+    decimals: quote.decimals,
+    coin: !quote.native,
+  };
+}
+
+export function accountCheck(read: RawAccount | null, want: AccountWant): { refuse?: string; notices: string[] } {
   const acc = opened(read);
   if (!acc) return { notices: [] };
   if (acc.owner !== want.program.toBase58() || acc.data.length < 165) return { refuse: LP_COPY.notUsable(want.what, acc.address), notices: [] };
   const b = baseAccount(acc.data);
   if (!b.mint.equals(want.mint)) return { refuse: LP_COPY.notUsable(want.what, acc.address), notices: [] };
   if (!b.owner.equals(want.owner)) return { refuse: LP_COPY.foreignOwner(acc.address, b.owner.toBase58()), notices: [] };
-  if (b.state === 2) return { refuse: want.use === 'source' ? LP_COPY.frozenSource(want.what) : LP_COPY.frozenDestination(want.what), notices: [] };
+  if (b.state === 2) {
+    // A coin's account is frozen by the coin's own issuer (USDC's), not by the token's.
+    const issuer = want.coin ? 'its issuer' : undefined;
+    return { refuse: want.use === 'source' ? LP_COPY.frozenSource(want.what, issuer) : LP_COPY.frozenDestination(want.what, issuer), notices: [] };
+  }
   if (b.state !== 1) return { refuse: LP_COPY.notUsable(want.what, acc.address), notices: [] };
   if (want.program.equals(TOKEN_2022_PROGRAM_ID)) {
     let unpacked;
@@ -434,19 +482,23 @@ export function accountCheck(
     } catch {
       return { refuse: LP_COPY.notUsable(want.what, acc.address), notices: [] };
     }
-    if (want.use === 'source' && getCpiGuard(unpacked)?.lockCpi) return { refuse: LP_COPY.cpiGuard, notices: [] };
-    if (want.use === 'destination' && getMemoTransfer(unpacked)?.requireIncomingTransferMemos) return { refuse: LP_COPY.memosRequired, notices: [] };
+    if (want.use === 'source' && getCpiGuard(unpacked)?.lockCpi) return { refuse: want.coin ? LP_COPY.cpiGuardCoin(want.what) : LP_COPY.cpiGuard, notices: [] };
+    if (want.use === 'destination' && getMemoTransfer(unpacked)?.requireIncomingTransferMemos) {
+      return { refuse: want.coin ? LP_COPY.memosRequiredCoin(want.what) : LP_COPY.memosRequired, notices: [] };
+    }
   }
   // Wrapped SOL's delegate and close authority decide whether that account is used at
   // all, so wsolPlanFrom (wsol.ts) rules on them, for every builder that uses it.
   if (want.mint.equals(WSOL_MINT)) return { notices: [] };
-  if (want.use === 'destination' && b.delegate && b.delegatedAmount > 0n) {
+  const notices: string[] = [];
+  if (b.delegate && b.delegatedAmount > 0n) {
+    const amt = want.decimals === undefined ? `${b.delegatedAmount} of its smallest units` : formatTokenAmount(b.delegatedAmount, want.decimals, want.decimals).text;
     // A spender approved on an account this pays into can move what arrives: the
     // payout would not be only yours. Revoking is one step in the wallet.
-    const amt = want.decimals === undefined ? `${b.delegatedAmount} of its smallest units` : formatTokenAmount(b.delegatedAmount, want.decimals, want.decimals).text;
-    return { refuse: LP_COPY.delegatedDestination(b.delegate.toBase58(), amt, want.what, acc.address), notices: [] };
+    if (want.use === 'destination') return { refuse: LP_COPY.delegatedDestination(b.delegate.toBase58(), amt, want.what, acc.address), notices: [] };
+    // Spent from, not paid into: nothing is refused, and the way out's refusal is said now.
+    notices.push(LP_COPY.delegatedSource(b.delegate.toBase58(), amt, want.what, acc.address));
   }
-  const notices: string[] = [];
   if (want.use === 'destination' && b.closeAuthority && !b.closeAuthority.equals(want.owner)) {
     // Not native SOL: the token program lets a close authority close it only when it is empty.
     notices.push(LP_COPY.closeAuthorityNotice(b.closeAuthority.toBase58(), want.what));
@@ -559,7 +611,6 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   const quoteIsToken0 = view.quoteIsToken0;
   const tokenProgram = new PublicKey(quoteIsToken0 ? p.token1Program : p.token0Program);
   const quoteMintKey = new PublicKey(quote.mint);
-  const quoteProgram = new PublicKey(quote.program);
 
   // 5. The token, read again.
   const safety = classifyToken(a.tokenMint.toBase58(), snap.mint, snap.metaplex);
@@ -600,9 +651,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   if (source.refuse) return notSent('build', source.refuse);
   // A coin that is not SOL is spent from the signer's own account for it, which must exist.
   if (!quote.native && !snap.quoteAccount.account) return notSent('build', LP_COPY.noCoinAccount(quote.symbol, snap.quoteAccount.address.toBase58()));
-  const wsolCheck = accountCheck(snap.quoteAccount.account, {
-    owner: a.owner, mint: quoteMintKey, program: quoteProgram, use: 'source', what: quote.native ? 'wrapped SOL' : quote.symbol, decimals: quote.decimals,
-  });
+  const wsolCheck = accountCheck(snap.quoteAccount.account, coinAccount(a.owner, quote, 'source'));
   if (wsolCheck.refuse) return notSent('build', wsolCheck.refuse);
   const lpCheck = accountCheck(snap.lp.account, { owner: a.owner, mint: lpMint, program: TOKEN_PROGRAM_ID, use: 'destination', what: 'pool-share', decimals: p.lpMintDecimals });
   if (lpCheck.refuse) return notSent('build', lpCheck.refuse);
@@ -610,7 +659,9 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   // 9. Wrapped SOL: only a SOL pool has a plan for it. `null` = nothing is wrapped.
   const plan = quote.native ? wsolPlanFrom(a.owner, snap.quoteAccount.account) : null;
   if (typeof plan === 'string') return notSent('build', plan);
-  const notices = [...lpCheck.notices];
+  // Said on the review: an approved spender on an account this spends from (the way out
+  // pays into it, and is refused while the approval stands), and what the pool-share account's check found.
+  const notices = [...source.notices, ...wsolCheck.notices, ...lpCheck.notices];
 
   // 10. What can go in.
   const availableToken = amountOf(snap.tokenAccount.account);
@@ -899,9 +950,7 @@ export async function prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWi
   const quoteAta = snap.quoteAccount.address;
   const dest = accountCheck(snap.tokenAccount.account, { owner: a.owner, mint: a.tokenMint, program: tokenProgram, use: 'destination', what: 'token', decimals });
   if (dest.refuse) return notSent('build', dest.refuse);
-  const wsolCheck = accountCheck(snap.quoteAccount.account, {
-    owner: a.owner, mint: quoteMintKey, program: quoteProgram, use: 'destination', what: quote.native ? 'wrapped SOL' : quote.symbol, decimals: quote.decimals,
-  });
+  const wsolCheck = accountCheck(snap.quoteAccount.account, coinAccount(a.owner, quote, 'destination'));
   if (wsolCheck.refuse) return notSent('build', wsolCheck.refuse);
   // Wrapped SOL: only a SOL pool has a plan for it. `null` = the coin is paid into its own account.
   const plan = quote.native ? wsolPlanFrom(a.owner, snap.quoteAccount.account) : null;

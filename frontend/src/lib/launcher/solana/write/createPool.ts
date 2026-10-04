@@ -76,7 +76,7 @@ import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../sol
 import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, MAX_CREATE_FEE_LAMPORTS, feeAccountStateOf, tierStateOf } from './config';
-import { LP_COPY, accountCheck, rentOf, toRaw, type LpPrepareReads } from './liquidity';
+import { LP_COPY, accountCheck, coinAccount, rentOf, toRaw, type LpPrepareReads } from './liquidity';
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import type { CurveWriteConfig, IntentStep, LpCreateSummary, LpOpenGate, PoolPins, Prepared, PriceGap, TierTerms, TxSummary, WriteRpc } from './types';
@@ -418,7 +418,6 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if (!quote) return notSent('build', CREATE_COPY.notAPairingCoin);
   if (!canPair(a.tokenMint.toBase58(), quote) && !a.tokenMint.equals(WSOL_MINT)) return notSent('build', CREATE_COPY.cannotPair(quote.symbol));
   const quoteMintKey = new PublicKey(quote.mint);
-  const quoteProgram = new PublicKey(quote.program);
   const cfg = gate.cfg;
   const cp = cfg.cpSwapProgram;
 
@@ -540,7 +539,8 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if (priceGap) warnings.push(LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coinText(priceGap.lossQuote, quote), 'the market price'));
 
   // 10. The wallet's accounts. The tokens leave by CPI inside `initialize`, so CPI Guard
-  // on the source refuses (accountCheck). A source's notices are not shown.
+  // on the source refuses (accountCheck). An approved spender on a source is not refused:
+  // it is a notice on the review, because the way out pays into the same account.
   const tokenAddress = associatedTokenAddress(a.tokenMint, a.owner, tokenProgram);
   const tokenAccount = tokenProgram.equals(TOKEN_2022_PROGRAM_ID) ? snap.tokenAccounts.token2022 : snap.tokenAccounts.classic;
   if (!tokenAccount) return notSent('build', LP_COPY.noTokenAccount(tokenAddress.toBase58()));
@@ -550,9 +550,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if (availableToken < a.token) return notSent('build', LP_COPY.overBalance(tokensText(a.token, decimals), tokensText(availableToken, decimals)));
   // A coin that is not SOL is spent from the signer's own account for it, which must exist.
   if (!quote.native && !snap.quoteAccount.account) return notSent('build', LP_COPY.noCoinAccount(quote.symbol, snap.quoteAccount.address.toBase58()));
-  const wsolCheck = accountCheck(snap.quoteAccount.account, {
-    owner: a.owner, mint: quoteMintKey, program: quoteProgram, use: 'source', what: quote.native ? 'wrapped SOL' : quote.symbol, decimals: quote.decimals,
-  });
+  const wsolCheck = accountCheck(snap.quoteAccount.account, coinAccount(a.owner, quote, 'source'));
   if (wsolCheck.refuse) return notSent('build', wsolCheck.refuse);
   // A stranger's close authority, or a spender on a kept account, is refused here (wsol.ts).
   // Only a SOL opening has a plan for wrapped SOL: `null` = nothing is wrapped.
@@ -727,7 +725,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
         priceGap,
         unwrapsWsol: bodySteps(steps).some((s) => s.kind === 'close-wsol'),
         wsolHeldBefore: plan ? plan.heldBefore : 0n,
-        notices: [],
+        notices: [...source.notices, ...wsolCheck.notices],
       };
       return summary;
     },

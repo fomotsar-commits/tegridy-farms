@@ -537,6 +537,17 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
     expect(refused(await create(world({ heldTokens: 50_000_000n })))).toBe(LP_COPY.overBalance(tokensText(TOKENS), tokensText(50_000_000n)));
   });
 
+  // Whole-change review 2026-10-04 (L4). A withdrawal is refused while the token account
+  // it pays into has an approved spender. The opening spends from that account and built
+  // with no word about it: its review now says so. A clean wallet's review says nothing new.
+  it('an approved spender on the token account: the opening builds, and its review says a withdrawal into that account is off until it is revoked', async () => {
+    const w = world({ tokenAccount: { delegate: STRANGER, delegatedAmount: 2_500_000n } });
+    expect(summaryOf(ok(await create(w))).notices).toEqual([
+      `An approved spender (${STRANGER.toBase58()}) can move up to 2.5 out of your token account (${w.tokenAta.toBase58()}). This site will not pay a withdrawal into that account until you revoke that approval.`,
+    ]);
+    expect(summaryOf(ok(await create(world()))).notices).toEqual([]);
+  });
+
   it('a wrapped-SOL account a stranger can close is refused (wsolPlanFrom), kept or empty', async () => {
     const w = world({ heldWsol: 0n, wsolOptions: { closeAuthority: STRANGER } });
     expect(refused(await create(w))).toMatch(new RegExp(`^${STRANGER.toBase58()} can close your wrapped-SOL account`));
