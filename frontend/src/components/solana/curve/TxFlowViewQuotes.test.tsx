@@ -192,6 +192,26 @@ describe.each(COINS)('adding to a pool paired with $symbol: the review', (coin) 
     await review(deposit(coin), { simulated: { signerLamportsDelta: -3_244_280n, tokenDeltas: [coinDelta(coin, -250_000_000n, null)] } }, 9);
     expect(value(`Test run: your ${C} changes by`)).toBe('-250');
   });
+
+  // The line is the coin's because the account holds the coin's mint. The watch list's tag
+  // and decimals are the builder's word for it, and the screen does not lean on them.
+  it('the coin’s line is known by its mint: a wrong tag cannot call it wrapped SOL, and wrong decimals cannot rescale it', async () => {
+    const mint = new PublicKey(coin.mint);
+    await review(deposit(coin), { simulated: { signerLamportsDelta: -3_244_280n, tokenDeltas: [{ mint, account: COIN_ACCOUNT, delta: -250_000_000n, role: 'wsol', decimals: 9 }] } }, 9);
+    expect(value(`Test run: your ${C} changes by`)).toBe('-250');
+    expect(screen.queryByText('Test run: your wrapped SOL changes by')).not.toBeInTheDocument();
+    cleanup();
+    // No tag at all would read as "your tokens".
+    await review(deposit(coin), { simulated: { signerLamportsDelta: -3_244_280n, tokenDeltas: [{ mint, account: COIN_ACCOUNT, delta: -250_000_000n }] } }, 9);
+    expect(value(`Test run: your ${C} changes by`)).toBe('-250');
+    expect(screen.queryByText('Test run: your tokens change by')).not.toBeInTheDocument();
+  }, 30_000);
+
+  it('an account tagged as a pairing coin that does not hold the pool’s coin is not given the coin’s name', async () => {
+    await review(deposit(coin), { simulated: { signerLamportsDelta: -3_244_280n, tokenDeltas: [{ mint: KEY(60), account: KEY(61), delta: -250_000_000n, role: 'quote', decimals: 6 }] } });
+    expect(value('Test run: your pairing coin changes by')).toBe('-250');
+    expect(screen.queryByText(`Test run: your ${C} changes by`)).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -501,7 +521,7 @@ describe('the review prints a coin amount exactly as the forms do', () => {
       expect(after(open, 'You put in').startsWith(`${exact} and 10,000 tokens, exactly`), `open, put in, ${v}`).toBe(true);
       expect(after(open, 'Locked in the pool forever'), `open, locked, ${v}`).toContain(`worth about ${about} and `);
     }
-  });
+  }, 30_000);
 });
 
 // ---------------------------------------------------------------------------

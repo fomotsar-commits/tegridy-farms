@@ -516,8 +516,9 @@ function CreatePlantRows({ plant }: { plant: Extract<TxSummary, { kind: 'create'
 
 /**
  * One test-run token change, in words for whose it is and for what this kind of
- * transaction does with it. The plant's are always in $BAYLA; every other account is
- * in its own mint's decimals when the builder knew them.
+ * transaction does with it. The plant's are always in $BAYLA; a pool's own pairing coin
+ * is in that coin's decimals; every other account is in its own mint's decimals when the
+ * builder knew them.
  */
 function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: PreparedTx, decimals: number | null) {
   const summary = prepared.summary;
@@ -527,10 +528,12 @@ function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: P
   if (summary.kind === 'create' && t.role !== 'treasury' && t.mint.equals(summary.plant.mint)) {
     return { label: 'Test run: your $BAYLA changes by', value: `${sign}${baylaText(amount)}` };
   }
-  // The pool's own coin is never printed in the page's token decimals: a token with 9
-  // decimals would show 250 USDC as 0.25. Without the watch list's figure, the coin's own.
-  const fallback = t.role === 'quote' && isLpSummary(summary) ? summary.quote.decimals : decimals;
-  return { label: testRunLabel(prepared.kind, t.role ?? 'token', prepared.summary), value: `${sign}${tokenText(amount, t.decimals ?? fallback)}` };
+  // The pool's own coin (USDC, BAYLA) is known by its mint, not by the watch list's tag, and
+  // both its name and its decimals come from the summary's coin. So a wrong or missing tag
+  // cannot call it wrapped SOL, and a token with 9 decimals cannot make 250 USDC read as 0.25.
+  const coin = isLpSummary(summary) && !summary.quote.native && t.mint.toBase58() === summary.quote.mint ? summary.quote : null;
+  if (coin) return { label: `Test run: your ${coin.symbol} changes by`, value: `${sign}${tokenText(amount, coin.decimals)}` };
+  return { label: testRunLabel(prepared.kind, t.role ?? 'token'), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
 }
 
 /**
@@ -567,17 +570,16 @@ const TEST_RUN_LABEL: Record<TokenRole, string> = {
   workshop: "Test run: the island's Workshop receives",
   token: 'Test run: your tokens change by',
   wsol: 'Test run: your wrapped SOL changes by',
-  // A pool's pairing coin that is not SOL. `testRunLabel` names the coin when it knows it.
+  // Only for an account tagged as a pairing coin that is not the pool's own coin, which no
+  // builder makes. The pool's own coin is named by `deltaRow`: "your USDC changes by".
   quote: 'Test run: your pairing coin changes by',
   lp: 'Test run: your pool shares change by',
 };
 
 /** The test-run line for an account, said for what this kind of transaction does with it. */
-function testRunLabel(kind: TxKind, role: TokenRole, summary: TxSummary): string {
+function testRunLabel(kind: TxKind, role: TokenRole): string {
   // An opening's `treasury` account is the pool program's fee account, owned by the team's vault.
   if (kind === 'lp-create' && role === 'treasury') return "Test run: the team's vault account gains, in SOL (the fee, plus any SOL that account was already holding)";
-  // The pool's own pairing coin, by name: "your USDC changes by".
-  if (role === 'quote' && isLpSummary(summary)) return `Test run: your ${summary.quote.symbol} changes by`;
   return TEST_RUN_LABEL[role];
 }
 
