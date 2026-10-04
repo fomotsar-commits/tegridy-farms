@@ -4,6 +4,8 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { ISLAND_SECTION } from '../lib/navConfig';
 import { VENUE } from '../lib/arrival';
 import { FlamesBoard } from '../components/FlamesBoard';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
 
 /**
  * The four-piece arrival film, on demand.
@@ -52,6 +54,9 @@ const BLURB: Record<string, string> = {
   '/tokenomics': 'Supply, the treasury, lifetime fees, and your own tax reports.',
 };
 
+/** How many door cards have an art surface of their own (island idx 1 to 5). */
+const DOOR_ART_SLOTS = 5;
+
 export default function IslandPage() {
   usePageTitle('The island', `${VENUE.tagline}. The gallery, the marketplace, the community and the numbers.`);
 
@@ -67,7 +72,9 @@ export default function IslandPage() {
   const [watching, setWatching] = useState(false);
 
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+    <>
+    <PageArtBackdrop pageId="island" />
+    <div className="relative z-10 mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
       <header className="mb-7">
         <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
           Jungle Bay Island
@@ -121,20 +128,20 @@ export default function IslandPage() {
         </Suspense>
       )}
 
-      {/* NO ArtImg ON THESE CARDS, DELIBERATELY. Every art-backed surface in
-          this app is a registered (pageId, idx) in the studio inventory with a
-          pool behind it — artStudioCoverage.test.ts enforces the registration
-          and /art-studio has to be able to place it. Inventing a new surface for
-          a lobby that is five links is more machinery than the page earns, and
-          an unregistered ArtImg reds CI. `.glass-card` is the repo's existing
-          chrome for exactly this. */}
+      {/* One art surface per door (island idx 1 up), registered in
+          lib/artSurfaces.ts so a studio can place each. These were bare glass
+          on purpose until 2026-10-03, to save the lobby a registration; the
+          owner then asked for art on every card of every tab. The index wraps
+          at DOOR_ART_SLOTS, so a door added to the nav reuses a registered
+          surface rather than rendering one no studio lists. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {doors.map((door) => (
+        {doors.map((door, i) => (
           <Link
             key={door.to}
             to={door.to}
-            className="glass-card rounded-2xl min-h-[112px] flex flex-col justify-center p-4 transition-all hover:brightness-125"
+            className="glass-card relative isolate rounded-2xl min-h-[112px] flex flex-col justify-center p-4 transition-all hover:brightness-125"
           >
+            <CardArt pageId="island" idx={1 + (i % DOOR_ART_SLOTS)} />
             <span className="flex items-center gap-2">
               <span className="text-white text-[15px] font-semibold">{door.label}</span>
               {door.soon && (
@@ -150,5 +157,6 @@ export default function IslandPage() {
         ))}
       </div>
     </div>
+    </>
   );
 }

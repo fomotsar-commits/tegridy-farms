@@ -139,6 +139,7 @@ describe('art-studio surface coverage', () => {
 const ART_TAGS: Record<string, { idxProp: string; defaultIdx: string | null; defaultPageId?: string }> = {
   ArtImg: { idxProp: 'idx', defaultIdx: null }, // idx is required
   ArtCard: { idxProp: 'idx', defaultIdx: null }, // idx is required
+  CardArt: { idxProp: 'idx', defaultIdx: null }, // idx is required
   PageArtBackdrop: { idxProp: 'idx', defaultIdx: '0' },
   FeatureNotDeployed: { idxProp: 'idx', defaultIdx: '0' },
   WrongChainScreen: { idxProp: 'artIdx', defaultIdx: '0', defaultPageId: 'admin' },
