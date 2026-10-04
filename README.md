@@ -17,23 +17,23 @@
 [![App: memetics.finance](https://img.shields.io/badge/app-memetics.finance-ff7a18)](https://memetics.finance)
 
 > **This repository is the code. `memetics.finance` is the venue.**
-> Since **2026-08-31** the deployed app speaks as **memetics.finance, the venue of Jungle Bay Island** — a hall of thirteen bungalows, one per resident token, each with its own walls, its own market and (since 2026-08-30) its own staking lighthouse. The classic **Tegridy Farms** experience was not deleted: it lives whole behind its own door at [`/toweli`](https://memetics.finance/toweli). Four things keep the original name and always will — this repository, the Solidity contracts, the on-chain TOWELI token, and the legal/provenance documents. Read "Tegridy Farms" below as the name of the protocol and its code, and "the venue" as the thing users land on.
+> Since **2026-08-31** the deployed app speaks as **memetics.finance, the venue of Jungle Bay Island**: a hall of twelve bungalows, one per resident token, each with its own walls, its own market and (since 2026-08-30) its own staking lighthouse, and the island's next open lot at `/nb1`. Until 2026-10-01 the venue counted that lot as a thirteenth bungalow. The classic **Tegridy Farms** experience was not deleted: it lives whole behind its own door at [`/toweli`](https://memetics.finance/toweli). Four things keep the original name and always will — this repository, the Solidity contracts, the on-chain TOWELI token, and the legal/provenance documents. Read "Tegridy Farms" below as the name of the protocol and its code, and "the venue" as the thing users land on.
 
-> **A DeFi protocol across four chains.** On **Ethereum**: swap fees are routed toward TOWELI stakers (the rail has collected and has **never paid out** — see [Live deployment status](#live-deployment-status)), votes are weighted by how long you have locked, and the whole thing runs on fixed-supply TOWELI. On **Base (8453)** and **Robinhood Chain (4663)**: the same DEX/fee stack, live since 2026-08-25, with fees landing in a **remittance Safe** — queued for the bridge, explicitly *not* staker yield. On **Solana**: a Jupiter-routed swap with DCA, Streamflow staking lighthouses for the island's Solana residents, and (since 2026-09-29) our own bonding-curve launcher and pool program on mainnet, both owned by a two-signature Squads vault — **TOWELI itself never ships there.** Real yield. No inflation tricks.
+> **A DeFi protocol across four chains.** On **Ethereum**: swap fees are routed toward TOWELI stakers (the rail has collected and has **never paid out** — see [Live deployment status](#live-deployment-status)), votes are weighted by how long you have locked, and the whole thing runs on fixed-supply TOWELI. On **Base (8453)** and **Robinhood Chain (4663)**: the same DEX/fee stack, live since 2026-08-25, with fees landing in a **remittance Safe** — queued for the bridge, explicitly *not* staker yield. On **Solana**: a Jupiter-routed swap with DCA, Streamflow staking lighthouses for four of the island's Solana residents, BAYLA's lock ladder on our own `bayla-ladder` program (mainnet since 2026-09-20), and (since 2026-09-29) our own bonding-curve launcher and pool program on mainnet, both owned by a two-signature Squads vault. Since 2026-10-03 a connected Solana wallet can add and remove liquidity, and open a pool, on that pool program from the site. Launching from the site is still off. **TOWELI itself never ships there.** Real yield. No inflation tricks.
 
 > **Live at [memetics.finance](https://memetics.finance)** — the one canonical origin. `www.memetics.finance` and `tegridyfarms.vercel.app` **permanently redirect (308) onto it** (`frontend/vercel.json`); they are ways in, not second homes. `memetic.fun` and `www.memetic.fun` are not this venue: since 2026-09-20 they serve the Island Lab from a separate Vercel project. **What the synthetic monitor actually measures**, every 30 minutes: the canonical host answers 200 and serves the app shell plus the API routes; each of those two aliases answers a *permanent* redirect (301 or 308) whose `Location` is the canonical host, since a plain 200 on an alias is itself the outage; and `memetic.fun` does not serve this venue's app shell. `llms.txt`'s alias sentence is derived from the same `vercel.json`, so the file, the monitor and the deploy config cannot drift apart. This line claimed until 2026-09-19 that the `tegridyfarms*.vercel.app` aliases redirected; both were measured answering **200**, and `tegridyfarms.vercel.app` was fixed on 2026-09-20.
 
-> ⚠️ **One host is still outside all of this, and no commit can close it.** `tegridyfarms-three.vercel.app` answers **200** with a *stale* copy of the whole venue — a different bundle hash from production, and no `/llms.txt` (that path SPA-falls-back to `200 text/html`). It is a **separate Vercel project**, so this repo's `vercel.json` never runs for it and the redirect that used to sit there had never fired once. It is an operator action in the Vercel dashboard: delete that project, or repoint the domain at this one. Until then it is deliberately absent from the monitor and from `llms.txt`, because neither may claim a redirect that does not happen. This line used to read "two co-equal production origins, neither redirecting to the other", which had stopped being true when SITE_URL moved on 2026-08-27 and was never true of a site that also ships a single `rel=canonical`. The surfaces taking the most build effort today are the **island build-out** (thirteen bungalows, ten lighthouse staking pools across Ethereum/Base/Solana) and the **token launchers** — our own [`TegridyCurveLauncher`](https://etherscan.io/address/0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE) on three EVM chains, plus the Doppler rail at [/launch](https://memetics.finance/launch).
+> ⚠️ **One host is still outside all of this, and no commit can close it.** `tegridyfarms-three.vercel.app` answers **200** with a *stale* copy of the whole venue — a different bundle hash from production, and no `/llms.txt` (that path SPA-falls-back to `200 text/html`). It is a **separate Vercel project**, so this repo's `vercel.json` never runs for it and the redirect that used to sit there had never fired once. It is an operator action in the Vercel dashboard: delete that project, or repoint the domain at this one. Until then it is deliberately absent from the monitor and from `llms.txt`, because neither may claim a redirect that does not happen. This line used to read "two co-equal production origins, neither redirecting to the other", which had stopped being true when SITE_URL moved on 2026-08-27 and was never true of a site that also ships a single `rel=canonical`. The surfaces taking the most build effort today (2026-10-04) are the **Solana pools** at [/solana-lp](https://memetics.finance/solana-lp) (liquidity from the site since 2026-10-03), the **island build-out** (twelve bungalows, each with its own staking pool and burn tracker; besides TOWELI's own staking, eleven lighthouse pools across Ethereum/Base/Solana: six EVM ladders, four Streamflow pools and BAYLA's lock ladder) and the **token launchers**: our own [`TegridyCurveLauncher`](https://etherscan.io/address/0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE) on three EVM chains, plus the Doppler rail at [/launch](https://memetics.finance/launch).
 
 > ⚠️ **Status: live, hardening in progress, not yet decentralized.** The core protocol was **redeployed to Ethereum mainnet on 2026-06-06** (the "MVP" set), the audited **gated-feature batch — 11 contracts** — was deployed and Etherscan-verified on **2026-07-16**, the capital-free revenue surfaces went live in the app on **2026-07-21/22**, and the **Base + Robinhood legs** deployed on **2026-08-25**. Ownership still sits behind the deployer key on mainnet (Safe rebuild + 2-of-2 accept ceremony pending — [`docs/SAFE_REHOME_RUNBOOK.md`](docs/SAFE_REHOME_RUNBOOK.md)), the emission/spend-side features (governance, grants, bounties) stay **frontend-gated until a revenue line funds them**, and there is **no professional human-firm audit yet**. Size deposits accordingly.
 
 ### The 30-second version
 
 1. TOWELI is fixed supply (1B, no mint function, no rebase). It exists on Ethereum only — no bridge, no wrapped version, ever.
-2. The protocol runs a DEX, staking, revenue distribution, an oracle, LP farming, **NFT finance (P2P NFT lending + a bonding-curve NFT AMM), an NFT launchpad, a premium tier, two token launchers, and thirteen bungalow staking pools** live today; **governance and the community programs** are deployed on-chain + verified (2026-07-16) but stay app-gated until a revenue line funds their emissions. (Token lending is audited and staged, pending the oracle bootstrap.)
+2. The protocol runs a DEX, staking, revenue distribution, an oracle, LP farming, **NFT finance (P2P NFT lending + a bonding-curve NFT AMM), an NFT launchpad, a premium tier, two token launchers, our own Solana pools (liquidity from the site since 2026-10-03), and a staking pool at each of the twelve bungalows** live today; **governance and the community programs** are deployed on-chain + verified (2026-07-16) but stay app-gated until a revenue line funds their emissions. (Token lending is audited and staged, pending the oracle bootstrap.)
 3. One live surface is aimed at TOWELI stakers in ETH — the front-door swap fee. The rest fund the treasury Safe, and the two L2 legs fund a **remittance** Safe. **Nothing has been distributed to a staker yet**; the front-door's take is still sitting in `ReferralSplitter.callerCredit`, awaiting the permissionless `recoverCallerCredit()`.
-4. The longer you lock (7 days → 4 years, 0.4× → 4.0×), the more you earn and the louder you will vote once governance is live. That same ladder is now the shape of every EVM lighthouse pool on the island.
-5. **Solana is fee-capture and staking, never TOWELI.** The Jupiter-routed swap (Instant / Limit / DCA) is live and takes a platform fee; four Streamflow lighthouses stake the island's Solana residents. The **Meteora DBC rail was deleted on 2026-08-23** — only launchers that graduate into our own venue survive — and our own two Solana programs were deployed on 2026-08-08 and **closed on 2026-08-13**, so their program ids are permanently spent. **The restart went live on 2026-09-29** at new ids, owned by the team's Squads vault. Launching from this site stays **switched off** until Jungle Bay Island answers whether Solana launches may open before "born in $BAYLA", and the pool screens only read so far.
+4. The longer you lock (7 days → 4 years, 0.4× → 4.0×), the more you earn and the louder you will vote once governance is live. That same ladder is now the shape of every EVM lighthouse pool on the island, and of BAYLA's lock ladder on Solana (the venue's own `bayla-ladder` program, mainnet since 2026-09-20).
+5. **Solana is fee-capture and staking, never TOWELI.** The Jupiter-routed swap (Instant / Limit / DCA) is live and takes a platform fee; four Streamflow lighthouses stake BOBO, SOY, BRAINLET and RIZZ, and BAYLA stakes on the venue's own lock ladder (`bayla-ladder`, Solana mainnet since 2026-09-20). The **Meteora DBC rail was deleted on 2026-08-23** — only launchers that graduate into our own venue survive — and our own two Solana programs were deployed on 2026-08-08 and **closed on 2026-08-13**, so their program ids are permanently spent. **The restart went live on 2026-09-29** at new ids, owned by the team's Squads vault. Launching from this site stays **switched off** by the owner's decision of 2026-10-02; the island ruled the SOL lane open in answer sixteen. The pool screens no longer only read: since 2026-10-03 a connected wallet can add and remove liquidity and open a pool from the site, and since 2026-10-04 a pool can pair with SOL, USDC or BAYLA.
 6. The app ships **trust tooling** — a token scanner, wallet-exposure check, deployer-reputation graph, launch fact-sheets and afterlife tracking — that self-gates to "no data" instead of faking signal. That rule is the house doctrine: **a read that failed is never rendered as an answer.**
 
 Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there — the contracts are standard Synthetix / Curve / Aave / Uniswap / Gondi / Raydium primitives, copied from battle-tested sources on purpose. Since **2026-08-26** that is standing rule 0: *only battle-tested, billion-dollar, unhacked upstreams*, with minimal surface on top.
@@ -48,7 +48,7 @@ Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there —
 
 - [What it is](#what-it-is) — feature surface
 - [Live deployment status](#live-deployment-status) — what's on-chain vs gated
-- [Jungle Bay Island](#jungle-bay-island) — the thirteen bungalows and their lighthouses
+- [Jungle Bay Island](#jungle-bay-island): the twelve bungalows, their lighthouses and the open lot
 - [How it all fits together](#how-it-all-fits-together) — flywheel diagrams
 - [How to use it (for users)](#how-to-use-it-for-users)
 - [Token launcher](#token-launcher) — the rails, and the two fee phases
@@ -67,7 +67,7 @@ Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there —
 
 ## What it is
 
-Tegridy Farms is a set of DeFi primitives that share one token and one revenue stream. Every surface either **generates revenue** for TOWELI stakers or **uses the staking position** as a primitive — nothing is decorative.
+Tegridy Farms is a set of DeFi primitives built around one token, TOWELI. One live fee is aimed at TOWELI stakers (the front-door swap fee) and the staking position is the input to several primitives; the other live surfaces do not pay TOWELI stakers (see [Live deployment status](#live-deployment-status)).
 
 | Surface | What it does | Contract(s) | Status |
 |---|---|---|---|
@@ -79,16 +79,16 @@ Tegridy Farms is a set of DeFi primitives that share one token and one revenue s
 | **LP Farming** | Synthetix-style boosted LP staking. Deposit TOWELI/WETH LP, earn TOWELI; your boost comes from your existing staking NFT. | `TegridyLPFarming` | 🟢 Live |
 | **Protocol-owned liquidity** | Captures POL from a share of swap fees so liquidity isn't 100% mercenary. | `POLAccumulator` | 🟢 Live |
 | **Referrals** | Stake-gated referral rewards — only stakers (≥1000 TOWELI power) can earn. A referrer below the threshold earns nothing and their referees' carve goes to the treasury in full; the referee pays the same fee either way, and the UI says so. | `ReferralSplitter` | 🟢 Live |
-| **Bungalow lighthouses** | Per-resident staking for the island's thirteen bungalows. The six EVM pools are **TOWELI's own ladder** — 7d…4y, 0.4×…4.0×, the same linear interpolation — with an exit hatch. The four Solana pools run on **Streamflow**, which has no early exit, so the ceremony defaults to a 7-day ceiling and gates long locks. | `LighthouseLadder` (EVM) · Streamflow (Solana) | 🟢 Live — 13 of 13 bungalows stake |
+| **Bungalow lighthouses** | Per-resident staking for the island's twelve bungalows. The six EVM pools are **TOWELI's own ladder** (7d…4y, 0.4×…4.0×, the same linear interpolation) with an exit hatch. BAYLA stakes on `bayla-ladder`, the venue's own Solana port of that ladder (live 2026-09-20), where leaving early costs the time left over four years, capped at 75%. The old BAYLA Streamflow pool is closed to new deposits on the site and shows only to wallets still staked in it. The other four Solana pools run on **Streamflow**, which has no early exit, so the ceremony defaults to a 7-day ceiling and gates long locks. | `LighthouseLadder` (EVM) · `bayla-ladder` + Streamflow (Solana) | 🟢 Live: 12 of 12 bungalows stake |
 | **Multichain legs** | Base 8453 and Robinhood Chain 4663 run the same factory/router/TWAP/fee stack. **No veTOWELI on either, ever**: the fee sink is a **remittance Safe**, so an L2 fee is "queued for the bridge", not staker yield, and every surface says so. Robinhood carries a deployed `AttestedSequencerUptimeFeed` because Chainlink publishes no uptime feed for 4663. | Full stack per chain + `AttestedSequencerUptimeFeed` | 🟢 Live 2026-08-25 |
 | **NFT Finance** | Peer-to-peer NFT lending (Gondi pattern, lender-only liquidation, sequencer-aware grace) + Sudoswap-style bonding-curve NFT AMM, plus pooled lending and BNPL. ERC-20 lending against TOWELI positions is staged behind the oracle. | `TegridyNFTLending`(+Admin), `TegridyNFTPoolFactory`, `TegridyLending` | 🟢 Live † |
 | **Governance** | Curve-style gauge voting with commit-reveal, plus a permissionless bribe market ("Cartman's Market"). | `GaugeController`, `VoteIncentives`(+Admin) | 🔵 On-chain |
 | **NFT Launchpad** | Click-deploy ERC-721 collections (Merkle allowlist, Dutch auction, delayed reveal, ERC-2981/7572) via a single `createCollection` tx. | `TegridyLaunchpadV2`, `TegridyDropV2` | 🟢 Live |
-| **Token launcher — our own curve** | `TegridyCurveLauncher`: a bonding curve the protocol owns, live on **Ethereum, Base and Robinhood**. Token identity (image, description, socials) is uploaded through Irys and bound by signature, with the immutable contract untouched. Every launch gets a permanent `/eth-curve/:token` page and the creator can claim their fees. | `TegridyCurveLauncher` | 🟢 Live (3 chains) |
-| **Token launcher — Doppler rail** | Launch an ERC-20 through Doppler with vetted defaults, a published fee constitution, Fact Sheets, a permanent per-token record at `/launch/:token`, afterlife tracking, and an opt-in **TOWELI** base pair; the auction's integrator fee accrues to the protocol and is withdrawable from `/admin`. Full detail — including the **two** distinct fee phases — in [Token launcher](#token-launcher). | (Doppler periphery — no *deployed* Tegridy contract) | 🟢 Live (EVM) |
+| **Token launcher — our own curve** | `TegridyCurveLauncher`: a bonding curve the protocol owns, live on **Ethereum, Base and Robinhood**. Token identity (image, description, socials) is uploaded through Irys and bound by signature, with the immutable contract untouched. Every launch gets a permanent `/eth-curve/:token` page that shows the maker's create-buy and wallet, read from the launch transaction, and says the curve has no lock; the creator can claim their fees. Since 2026-10-02 the create form opens only through the Who may plant door (80 served degrees, Resident), and Create launch reads the wallet's held time again before anything is signed. | `TegridyCurveLauncher` | 🟢 Live (3 chains) |
+| **Token launcher — Doppler rail** | Launch an ERC-20 through Doppler with vetted defaults, a published fee constitution, Fact Sheets, a permanent per-token record at `/launch/:token` (since 2026-10-02 it shows the maker's wallet, its allocation and whether its vesting still locks it, read from the launch transaction Doppler's Airlock made), afterlife tracking, and an opt-in **TOWELI** base pair; the auction's integrator fee accrues to the protocol and is withdrawable from `/admin`. Full detail — including the **two** distinct fee phases — in [Token launcher](#token-launcher). | (Doppler periphery — no *deployed* Tegridy contract) | 🟢 Live (EVM) |
 | **Solana swap** | Jupiter-routed swap with three modes — Instant, Limit order, and **DCA** via Jupiter Recurring — plus a price chart, a priority/speed control, USD-denominated input and real receipts. Takes a platform fee; custodies no liquidity. | — (aggregator integration) | 🟢 Live |
-| **Solana launcher — our own curve** | `tegridy-launch`: a bonding curve that graduates into our own pool at 25 SOL and burns the pool's LP tokens in the same step. 3.69% of each token goes to the treasury vault when it is created. [/curve-launch](https://memetics.finance/curve-launch) reads it live; the launch form opens only for holders the island reads at Resident or better. | `tegridy-launch` (Solana) | 🟢 Program live 2026-09-29 · ⏸ site launching off until the island's answer |
-| **Solana pools — our own AMM** | A verbatim fork of Raydium's CPMM (only the admin keys differ). Anyone can open a pool on chain; [/pools](https://memetics.finance/pools) finds a token's pools, checks the token and each pool's price and status, and shows a wallet's shares. Adding and removing liquidity from the site comes next. | cp-swap fork (Solana) | 🟢 Program live 2026-09-29 · 🔵 site reads only |
+| **Solana launcher — our own curve** | `tegridy-launch`: a bonding curve that graduates into our own pool at 25 SOL and burns the pool's LP tokens in the same step. 3.69% of each token goes to the treasury vault when it is created. [/curve-launch](https://memetics.finance/curve-launch) reads it live. Launching from the site is off by the owner's decision (2026-10-02). Once it is on, the launch form opens only for wallets the island reads at Resident (80 served degrees) or better, and every launch plants 100,000 $BAYLA in its own create transaction: 50,000 burned and 50,000 to the island's Workshop. | `tegridy-launch` (Solana) | 🟢 Program live 2026-09-29 · ⏸ launching and trading from the site off by the owner's decision (2026-10-02) |
+| **Solana pools — our own AMM** | A verbatim fork of Raydium's CPMM (only the admin keys differ). Anyone can open a pool on chain; [/pools](https://memetics.finance/pools) and the Pools section's Solana LP tab ([/solana-lp](https://memetics.finance/solana-lp)) find a token's pools, check the token and each pool's price and status, and show a wallet's shares. Since 2026-10-03 a connected Solana wallet can add and remove liquidity there and open a pool on the public fee tier (traders pay 1% a trade); each transaction is read again, checked and test-run before the wallet signs. Since 2026-10-04 the site can pair a token with SOL, USDC or BAYLA, and any token can have a pool: a token with no Jupiter price, a price more than 3% from the market, a freeze authority or a look-alike name gets a warning before signing instead of a block. The fork's admin-key changes have had no independent review, and Jupiter does not send trades to these pools yet; the site says both before anyone adds liquidity. | cp-swap fork (Solana) | 🟢 Program live 2026-09-29 · 🟢 site add, remove and open live 2026-10-03 |
 | **Airdrops & vesting** | Merkle airdrop factory (verbatim Uniswap merkle-distributor fork, upstream pinned in-tree) and vesting/lock rails, with client-side tree building and the leaf encoding derived from the Solidity rather than assumed. | `AirdropFactory`, `TegridyAirdropDistributor`, `VestingFactory`, `TegridyVestingWallet`, `TegridyLockVault` | 🟡 Built · deployed nowhere |
 | **Yield & discovery surfaces** | Portfolio (states when a total is PARTIAL), alerts (four verdicts — "quiet" and "could not look" are different facts), the safety-scored trenches terminal, charting, copy-trading, competitions, a keyed public API with rate tiers, and `/yield` reading 27 registered mainnet protocol addresses live. | — (frontend + `api/`) | 🟢 Live 2026-09-03 |
 | **Premium / community** | Subscription premium tier, staker-voted community grants, meme-bounty board. | `PremiumAccess`, `CommunityGrants`, `MemeBountyBoard` | 🟢 Premium live · 🔵 grants/bounties on-chain |
@@ -125,25 +125,31 @@ was ever true. Two bullets below describe the Meteora Solana rail, which was **d
 - ✅ **The Meteora DBC rail was deleted (2026-08-23).** Operator decision: only launchers that graduate into our own venue survive. Six lib modules and every user-facing surface removed, staged so the tree was never half-broken, with a `meteoraRetired` tripwire and rewritten (not deleted) registry entries so the retirement cannot quietly reverse. **Light mode was dropped the same day** rather than re-tune every surface for an app-wide contrast defect.
 - ✅ **Multichain went live (2026-08-25, wired 2026-08-26).** Base 8453 and Robinhood Chain 4663 carry the full MVP + curve stack, every slot on-chain read-back verified. Both fee sinks are **remittance Safes, not distributors.** Robinhood's `AttestedSequencerUptimeFeed` deployed first, because `SequencerCheck` reverts off-mainnet on a zero feed.
 - ✅ **Our own EVM bonding curve is live.** `TegridyCurveLauncher` at [`0xF4Dfa741…34dE`](https://etherscan.io/address/0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE) on Ethereum, plus Base and Robinhood deployments — a curve that graduates into a pool the protocol owns. Token identity (image/description/socials) rides Irys, bound by signature, with no contract change and no redeploy.
-- ✅ **Thirteen of thirteen bungalows stake (2026-08-26 → 08-30).** The BAYLA lighthouse was lit on 2026-08-26 after the whole pool lifecycle was rehearsed on devnet with real transactions; four Solana, five Base and one Ethereum pool followed. The six EVM pools are **TOWELI's own ladder**, verified on-chain rather than trusted from receipts. See [Jungle Bay Island](#jungle-bay-island).
+- ✅ **Thirteen of thirteen bungalows stake (2026-08-26 → 08-30).** The BAYLA lighthouse was lit on 2026-08-26 after the whole pool lifecycle was rehearsed on devnet with real transactions; four Solana, five Base and one Ethereum pool followed. The six EVM pools are **TOWELI's own ladder**, verified on-chain rather than trusted from receipts. See [Jungle Bay Island](#jungle-bay-island). *(Superseded 2026-09-05: all six EVM pools were redeployed with a fix that stops rewards being paid from other stakers' principal, before anyone had staked (#433), and the venue points at the new pools.)* *(Superseded 2026-09-20: BAYLA stakes on the venue's own lock ladder, and its old Streamflow pool is closed to new deposits on the site; see the 2026-09-20 bullet below.)* *(Superseded 2026-10-01: the venue counts 12 bungalows, as the island does; the thirteenth row, `/nb1`, is the island's next open lot and never had a pool, so 12 of 12 bungalows stake.)*
 - ✅ **The venue took its own name (2026-08-31).** The app speaks as memetics.finance, the venue of Jungle Bay Island; the classic Tegridy Farms surface is relocated whole behind `/toweli`, not edited. 171 sites changed, four names deliberately unmoved (repo, contracts, token, legal docs).
-- ✅ **Every SOON surface became a live product (2026-09-03, [#360](https://github.com/fomotsar-commits/tegridy-farms/pull/360)).** Eight nav entries had carried an amber pill — six keyed to an indexer that is complete, hosted nowhere and may never be hosted. All eight now render something real, built on rails that already exist. **Phantom and Trust joined both wallet modals** ([#359](https://github.com/fomotsar-commits/tegridy-farms/pull/359)) with the Solana swap surface gaining DCA, a chart, a speed control and USD input — and Trust deliberately **excluded** from the Solana side, because its adapter is legacy-only and would connect fine then throw on every swap.
+- ✅ **Every SOON surface became a live product (2026-09-03, [#360](https://github.com/fomotsar-commits/tegridy-farms/pull/360)).** Eight nav entries had carried an amber pill — six keyed to an indexer that is complete, hosted nowhere and may never be hosted. All eight now render something real, built on rails that already exist. **Phantom and Trust joined both wallet modals** ([#359](https://github.com/fomotsar-commits/tegridy-farms/pull/359)) with the Solana swap surface gaining DCA, a chart, a speed control and USD input — and Trust deliberately **excluded** from the Solana side, because its adapter is legacy-only and would connect fine then throw on every swap. *(Superseded 2026-09-15: Trust Wallet connects on the Solana side of the venue.)*
 - ✅ **A 20-finding field review was resolved (2026-09-03, [#367](https://github.com/fomotsar-commits/tegridy-farms/pull/367))** — nine of them misdiagnosed, and which nine is recorded, because two of the prescribed fixes would have changed nothing and one would have removed working code. Real defects closed: a **640–790px dead band** with no reachable Connect button and no nav (the header is `position: fixed`, so scrolling cannot recover), a pool card that dashed out ~85% of the time on a *healthy* oracle, and a Farm fee-share claim that quoted the entire fee as reaching stakers while ignoring the referral carve taken off the top first.
-- ✅ **Our own Solana programs are live again (2026-09-29), owned by a Squads vault.** The launcher [`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`](https://solscan.io/account/64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2) and the pool program [`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`](https://solscan.io/account/EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT) were deployed with bytecode dumped back off mainnet and matched to the release build, after a full local and devnet rehearsal. Both programs' upgrade authority, the launcher's config authority and its fee recipient are the two-signature vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`. Settings read from the chain: graduation at 25 SOL, a 1% curve fee, a 3.69% platform reserve paid at create; pool fee tier 0 is 0.25% a trade, 12% of it to the venue. **As of 2026-09-30 there are zero launches and zero pools.** The fork's admin-key changes have had **no independent review**, and the site says so.
-- ✅ **The Solana pool screens and launch pages reached the site (2026-10-01), launching switched off.** [/pools](https://memetics.finance/pools) reads pools, token safety, pool health and a wallet's shares (read-only; a failed read never shows as safe or empty). [/curve-launch](https://memetics.finance/curve-launch) shows the live program and any launch, read-only, until the owner switches launching on (the island ruled the SOL lane open in answer sixteen). The program itself still accepts a create from any wallet that builds its own transaction; the site's heat gate only governs the site.
-- ⏳ **Ownership is not yet decentralized.** All live contracts are still owned by the deployer EOA. A 2-step Safe multisig handoff is in progress; the first attempt's 14-day window lapsed and is being re-initiated ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). **This single-key window is the biggest current risk — bigger than any specific code finding.**
+- ✅ **BAYLA's lock ladder went live on Solana mainnet (2026-09-20).** The venue's own `bayla-ladder` program [`EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ`](https://solscan.io/account/EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ), a port of `LighthouseLadder`, runs the BAYLA pool `Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV`: 7 days to 4 years at 0.4× to 4.0×, and leaving early costs the time left over four years, capped at 75%. The boost curve and that penalty were read back from mainnet positions on 2026-09-20. The old BAYLA Streamflow pool closed to new deposits on the site on 2026-09-12; wallets still staked in it can still claim and unstake, and since 2026-10-01 it shows only to those wallets, as a claim box under the ladder. As registered on 2026-09-20, the program's upgrade authority and the pool's authority are the deployer wallet, `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`, not the Squads vault.
+- ✅ **Our own Solana programs are live again (2026-09-29), owned by a Squads vault.** The launcher [`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`](https://solscan.io/account/64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2) and the pool program [`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`](https://solscan.io/account/EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT) were deployed with bytecode dumped back off mainnet and matched to the release build, after a full local and devnet rehearsal. Both programs' upgrade authority, the launcher's config authority and its fee recipient are the two-signature vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`. Settings read from the chain: graduation at 25 SOL, a 1% curve fee, a 3.69% platform reserve paid at create; pool fee tier 0 is 0.25% a trade, 12% of it to the venue. **As of 2026-09-30 there are zero launches and zero pools.** *(Superseded 2026-10-03 for pools: the first pool on the venue, BAYLA/SOL, was opened that day. Launching from the site is still off.)* The fork's admin-key changes have had **no independent review**, and the site says so.
+- ✅ **The Solana pool screens and launch pages reached the site (2026-10-01), launching switched off.** [/pools](https://memetics.finance/pools) reads pools, token safety, pool health and a wallet's shares (read-only; a failed read never shows as safe or empty). [/curve-launch](https://memetics.finance/curve-launch) shows the live program and any launch, read-only, until the owner switches launching on (the island ruled the SOL lane open in answer sixteen). The program itself still accepts a create from any wallet that builds its own transaction; the site's heat gate only governs the site. *(Superseded 2026-10-03: adding and removing liquidity, and opening a pool, are switched on from the site; launching stays off. See the 2026-10-03 bullet below.)*
+- ✅ **Launch pages show the maker, and the EVM curve has a door (2026-10-02).** On [/eth-curve](https://memetics.finance/eth-curve) the create form opens only through the Who may plant door, which reads 80 served degrees (Resident) in every production build, and Create launch reads the wallet's held time again before anything is signed. A Memetics Curve launch's page shows the maker's create-buy and wallet and says the curve has no lock; a Doppler launch's page shows the maker's wallet, allocation and vesting. Every launch page says under its door that it is a venue launch. Once Solana launching is switched on, each launch plants 100,000 $BAYLA in its own create transaction, 50,000 burned and 50,000 to the island's Workshop.
+- ✅ **Solana liquidity opened on the site (2026-10-03 → 10-04).** Since [#693](https://github.com/fomotsar-commits/tegridy-farms/pull/693) (2026-10-03) a connected Solana wallet can add liquidity to a pool on our cp-swap fork, take its share back out, or open a new pool on the public fee tier, where traders pay 1% a trade; the fee to open goes to the team's vault. It works from [/pools](https://memetics.finance/pools) and from the Solana LP tab that Pools gained at [/solana-lp](https://memetics.finance/solana-lp) the same day. Each transaction is read again, checked and test-run before the wallet is asked to sign. The first pool on the venue, BAYLA/SOL, was opened on 2026-10-03. Since [#742](https://github.com/fomotsar-commits/tegridy-farms/pull/742) (2026-10-04) a pool can pair with SOL, USDC or BAYLA, and any token can have a pool: no Jupiter price, a price more than 3% from the market, a freeze authority or a copied name is a warning read before signing. Tokens the pool program rejects, tokens with a transfer fee and anything that could not be read are still refused. Before any deposit the page says the fork's admin-key changes have had no independent review and that Jupiter does not send trades to these pools yet.
+- ✅ **Every bungalow has a burn tracker (2026-10-04).** Each bungalow shows the percent of everything ever minted that is burnt, the amount, and where it went: sent to the burn address, stuck in the token's own contract, or destroyed so the supply fell (for QR, DRB and JBM a fall in supply is not counted). It is read from the token's own chain when the card loads, and a burn that could not be read says so and never shows as zero.
+- ⏳ **Ownership is not yet decentralized.** The Ethereum mainnet protocol contracts are still owned by the deployer EOA (the Solana launcher and pool programs answer to the Squads vault, `bayla-ladder` to its Solana deployer wallet, and each EVM lighthouse ladder's only privileged role is a Safe). A 2-step Safe multisig handoff is in progress; the first attempt's 14-day window lapsed and is being re-initiated ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). **This single-key window is the biggest current risk — bigger than any specific code finding.**
 - 🟠 **The protocol-owned TOWELI/WETH pool has been partially re-seeded, and LP farming is running again — but it is still far too thin to price or bootstrap against.** Read on-chain **2026-09-05**: the native pair [`0x55875…a481`](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) holds **2,792,972 TOWELI + 0.0797 WETH**, its LP `totalSupply` is **469.56**, and **LP Farming holds 384.20 of that (81.8%)** — so farming *is* live on it again. (This supersedes the 2026-08-02 reading of 146,258 TOWELI + 0.00383 WETH with **0** staked LP; the pool was drained and has since been refilled ~20×.) The Uniswap V2 pool is still **~96× deeper in WETH** (7.6651 vs 0.0797), and the smart front-door correctly routes swaps there. The TWAP oracle remains unbootstrapped: its floor is 10 WETH per side, which **neither** pool clears. Deepen + bootstrap remain scripted ([`DeepenLP.s.sol`](contracts/script/DeepenLP.s.sol), [`BootstrapTWAP.s.sol`](contracts/script/BootstrapTWAP.s.sol)), and the original ~1.33-WETH sizing is still undersized; a realistic deepen is **8–11 WETH (~$30–41k both sides)**.
 - 💧 **Swap-fee capture is no longer at zero, but is still negligible.** `SwapFeeRouter.totalETHFees()` — a lifetime counter, never reset — read **3,000,000,000,000 wei (0.000003 ETH)** on 2026-09-05, superseding the long-standing "has never captured a wei" claim. That is ~0.0003% of `RevenueDistributor`'s **1 ETH** `MIN_DISTRIBUTE_AMOUNT`, so **no ETH yield epoch has still ever opened**, and any surface implying live staker income remains an overclaim.
 - 🔴 **The staker fee rail has collected and has never paid.** Read on-chain 2026-08-12. The front-door has earned: `SwapFeeRouter.totalETHFees()` is non-zero. None of it is staker yield yet, and the reason is structural rather than a matter of waiting. `_recordReferralFee` forwards the **whole** fee to [`ReferralSplitter`](https://etherscan.io/address/0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c) at swap time, which (a) keeps `referralFeeBps` — **20% today, and it cannot be set to zero**: `proposeReferralFee` rejects `0` and `applyReferralSplitter(address(0))` reverts `ReferralFeeNonZero()` while the share is above zero, so the splitter cannot be unwired either — and (b) parks the remaining ~80% as `callerCredit`, which only returns to the router when someone calls the **permissionless** `recoverCallerCredit()`. Nobody ever has. Downstream, `RevenueDistributor.totalDistributed()` and its balance are both `0`: **no ETH yield epoch has ever opened, and no staker has ever been paid.** Quote the mechanism, not a balance — the balance moves with the next swap, the mechanism does not.
-- 🟡 **A few surfaces remain not-yet-deployed:** token lending (`TegridyLending` — pre-deploy-audited but oracle-gated), restaking (EIP-170 split / Phase 7), the Pro Pass (a launchpad operation), and the Uniswap V4 module (next-wave, unaudited).
+- 🟡 **A few surfaces remain not-yet-deployed:** token lending (`TegridyLending`, pre-deploy-audited but oracle-gated), restaking (EIP-170 split / Phase 7), the Pro Pass (a launchpad operation), airdrops and vesting (`AirdropFactory`, `VestingFactory`, `TegridyLockVault`: built, deployed nowhere), and the Uniswap V4 module (next-wave, unaudited).
 - 🟡 **No professional firm audit yet.** Extensive internal adversarial multi-agent audits are ongoing; a paid human-firm review is the gate before scaling TVL.
 
 ---
 
 ## Jungle Bay Island
 
-Since **2026-08-24** the venue is an island of **thirteen bungalows** — one per resident
-token — and since **2026-08-31** the venue speaks as itself rather than as any one of them.
+Since **2026-08-24** the venue has been an island of bungalows, one per resident token, and
+since **2026-08-31** the venue speaks as itself rather than as any one of them. Since
+2026-10-01 the venue counts **twelve bungalows**, as the island does; `/nb1` is the island's
+next open lot, not a bungalow.
 `memetics.finance/<bungalow>` is each bungalow's address; `/toweli` is the classic Tegridy
 Farms surface, whole and untouched.
 
@@ -157,23 +163,32 @@ funded.
 | Bungalow | Chain | Lighthouse (staking) |
 |---|---|---|
 | **TOWELI** | Ethereum | `TegridyStaking` — the original ladder, 7d…4y, 0.4×…4.0× |
-| **BAYLA** | Solana | Streamflow · lit 2026-08-26 (Token-2022) |
-| **PEPE** | Ethereum | `LighthouseLadder` · 2026-08-30 |
-| **QR · MFER · BNKR · DRB · JBM** | Base | `LighthouseLadder` ×5 · 2026-08-30 |
+| **BAYLA** | Solana | Lock ladder (`bayla-ladder`, the venue's own program) · mainnet 2026-09-20. Its Streamflow lighthouse (lit 2026-08-26, Token-2022) is closed to new deposits on the site (2026-09-12) and, since 2026-10-01, shown only to wallets still staked in it |
+| **PEPE** | Ethereum | `LighthouseLadder` · 2026-08-30, redeployed 2026-09-05 |
+| **QR · MFER · BNKR · DRB · JBM** | Base | `LighthouseLadder` ×5 · 2026-08-30, redeployed 2026-09-05 |
 | **BOBO · SOY · BRAINLET · RIZZ** | Solana | Streamflow ×4 · 2026-08-30 |
-| **(unmarked)** | — | Quiet. Someone is building there. |
+| **Unmarked** (`/nb1`) | none | The island's next open lot (Lot 13), for the next community, not one of the twelve bungalows. No lighthouse. |
 
 **The two rails are not the same product, and the UI never pretends otherwise.**
 
 - **EVM lighthouses run [`LighthouseLadder`](contracts/src/LighthouseLadder.sol)** — TOWELI's
-  ladder exactly: `MIN_LOCK` 7 days at 0.4×, `MAX_LOCK` 4 years at 4.0×, the same linear
+  ladder exactly: `MIN_LOCK_DURATION` 7 days at 0.4×, `MAX_LOCK_DURATION` 4 years at 4.0×, the same linear
   interpolation, the same six named tiers, **and an exit hatch**. Each pool was verified
   on-chain before wiring rather than trusted from its broadcast receipt: real code present,
   `stakingToken == rewardsToken ==` that resident's verified token, the right Safe as the
   only privileged role, and `boostFor()` matching at both ends. The ladder is visible to
   **disconnected** visitors, because a ladder you must connect to see is a ladder nobody
   climbs.
-- **Solana lighthouses run on Streamflow, which has no early exit.** Verified three ways:
+- **BAYLA's lock ladder runs on [`bayla-ladder`](solana/tegridy-amm/programs/bayla-ladder),
+  the venue's own Solana port of `LighthouseLadder`, live on mainnet since 2026-09-20.** It is
+  TOWELI's ladder again (7 days at 0.4× to 4 years at 4.0×, linear), with an exit hatch on
+  Yearn's veYFI schedule: leaving early costs the time left over four years, capped at 75%,
+  and the penalty stays in the pool as reward budget. BAYLA's Streamflow pool is closed to new
+  deposits on the site (2026-09-12) and is shown only to wallets still staked in it, as a claim
+  box under the ladder (2026-10-01). Go-live record:
+  [`docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md`](docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md).
+- **The other Solana lighthouses (BOBO, SOY, BRAINLET, RIZZ, and BAYLA's closed pool) run on
+  Streamflow, which has no early exit.** Verified three ways:
   the program has only stake/unstake, unstake is refused before the duration elapses
   (`6013 LockedStake`), and the position cannot be sold (owner-derived entry PDA, frozen
   stake mint). So the ceremony defaults to a **7-day ceiling** and gates long locks behind an
@@ -187,6 +202,13 @@ funded.
   prints the configured rate **and** the vault that has to back it — never one without the
   other.
 
+**As of 2026-10-04 every bungalow has a burn tracker.** Each bungalow's door at
+`memetics.finance/<bungalow>`, and its dashboard (all but TOWELI's), shows the share of everything ever minted
+that is burnt, the amount, and where it went (sent to the burn address, stuck for good in the
+token's own contract, or a fall in supply), read from the token's own chain when the card
+loads. A burn that could not be read says so and never shows as zero. For QR, DRB and JBM a
+fall in supply is not counted.
+
 Plans and ceremony records: [`docs/ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md`](docs/ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md) ·
 [`docs/JUNGLE_BAY_ISLAND_PLAN.md`](docs/JUNGLE_BAY_ISLAND_PLAN.md) ·
 [`docs/ISLAND_ROSTER_DOSSIER.md`](docs/ISLAND_ROSTER_DOSSIER.md) ·
@@ -196,7 +218,7 @@ Plans and ceremony records: [`docs/ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md`](d
 
 ## How it all fits together
 
-The `contracts/src/` tree holds **77 Solidity files**: the root primitives and their EIP-170 admin/vault sisters, the Uniswap V4 next-wave module under `v4/`, `LighthouseLadder` and the curve launcher, the airdrop/vesting rails, verbatim upstream forks under `vendor/`, and the shared `base/` + `lib/` utilities. None are redundant — every revenue surface feeds the same staker reward stream; every governance lever points to TOWELI stakers; every NFT-collateral primitive uses the same staking position. It's **one flywheel** spread across many files.
+The `contracts/src/` tree holds **77 Solidity files**: the root primitives and their EIP-170 admin/vault sisters, the Uniswap V4 next-wave module under `v4/`, `LighthouseLadder` and the curve launcher, the airdrop/vesting rails, verbatim upstream forks under `vendor/`, and the shared `base/` + `lib/` utilities. None are redundant. One revenue rail, the front-door swap fee, is aimed at the staker reward stream, and the other live surfaces fund the treasury Safe (Ethereum) or a remittance Safe (Base, Robinhood); every governance lever points to TOWELI stakers; every NFT-collateral primitive uses the same staking position. It's **one flywheel** spread across many files.
 
 ### 1. The revenue flywheel (where the ETH actually comes from)
 
@@ -224,10 +246,10 @@ flowchart LR
     subgraph users[" "]
         direction TB
         U1[Trader]
-        U2["NFT Borrower 🔒"]
-        U3["NFT Trader 🔒"]
-        U4["NFT Minter 🔒"]
-        U5["Premium Sub 🔒"]
+        U2["NFT Borrower"]
+        U3["NFT Trader"]
+        U4["NFT Minter"]
+        U5["Premium Sub"]
     end
 
     subgraph features["Revenue surfaces"]
@@ -274,7 +296,7 @@ flowchart LR
 
 ### 2. The staking position as universal collateral
 
-Your `TegridyStaking` lock is an **ERC-721 NFT**. That NFT is the input to every other primitive — boosting LP farming, voting on gauges, qualifying for referrals, serving as lending collateral, restaking for extra yield. **You stake once; everything else compounds on top.**
+Your `TegridyStaking` lock is an **ERC-721 NFT**. That NFT is the input to the other primitives: it boosts LP farming and qualifies you for referrals today, and it is built to vote on gauges, back a loan and restake once those ship (gauges are app-gated; `TegridyLending` and `TegridyRestaking` are not deployed). **You stake once; everything else compounds on top.**
 
 ```mermaid
 flowchart TB
@@ -313,13 +335,13 @@ sequenceDiagram
 
     Note over Briber,LPer: Each epoch (weekly)
 
-    Briber->>VI: depositBribe(gauge, token, amount)
-    Staker->>GC: commitVote(epoch, hash)
+    Briber->>VI: depositBribe(pair, token, amount)
+    Staker->>GC: commitVote(tokenId, commitmentHash)
     Note right of Staker: Commit-reveal blinds front-runners
-    Staker->>GC: revealVote(epoch, gauge, weight)
+    Staker->>GC: revealVote(tokenId, gauges, weights, salt)
     GC->>GC: compute gauge weights at epoch boundary
-    GC->>LP: applyEmissions(gauge_share)
-    LPer->>LP: provide LP + stake position NFT
+    Note over GC,LP: getGaugeEmission(gauge) is a view. No contract call links GC to the farm, whose owner funds it with notifyRewardAmount
+    LPer->>LP: stake(amount) of LP tokens, boosted by their TOWELI lock
     LP-->>LPer: TOWELI rewards, boosted by stake
     VI-->>Staker: claim bribe(s) in any token
     Note over VI,Staker: Stakers earn TWICE:<br/>(a) ETH revenue stream (b) bribes
@@ -333,9 +355,12 @@ You don't need to read the contracts. Four steps from cold wallet to earning yie
 
 ### 1. Get a wallet
 MetaMask, Rabby, Coinbase Wallet, **Phantom** or **Trust** — or anything RainbowKit supports.
-Fund it with ETH for gas. For the Solana surfaces (the swap and the four Solana bungalow
-lighthouses) use Phantom, Trust, or another Solana wallet — **Trust works on both sides as
-of 2026-09-15**. TOWELI itself is Ethereum-only.
+Fund it with ETH for gas. For the Solana surfaces (the swap, Solana LP, BAYLA's lock ladder
+and the four Streamflow lighthouses) use Phantom, Trust, Solflare, Backpack or another Solana
+wallet; **Trust works on both sides as of 2026-09-15**. Since 2026-10-03 the Connect button at
+the top connects a Solana wallet too: on a Solana page it opens the Solana wallet list, on
+every other page it asks Solana or Ethereum first, and a Solana wallet stays connected as you
+move between pages. TOWELI itself is Ethereum-only.
 
 ### 2. Get TOWELI
 - **App swap:** [memetics.finance/swap](https://memetics.finance/swap) — the smart front-door; the protocol fee is routed toward stakers (nothing has arrived yet — see the fee-rail bullet above).
@@ -348,15 +373,17 @@ Go to [memetics.finance/earn/toweli](https://memetics.finance/earn/toweli) and p
 
 | Lock | Boost | Flavor |
 |---|---|---|
-| 7 days | 0.4× | The Taste Test |
-| 30 days | ~1.0× | One Month of Integrity |
-| 90 days | ~1.5× | The Harvest Season |
-| 6 months | ~1.7× | Half a Year of Honesty |
-| 1 year | ~2.0× | The Long Haul |
-| 2 years | ~3.0× | In It For The Kids |
-| 4 years | 4.0× | Till Death Do Us Farm |
+| 7 days | 0.40× | The Taste Test |
+| 30 days | 0.46× | One Month of Integrity |
+| 90 days | 0.61× | The Harvest Season |
+| 6 months (180 days) | 0.83× | (unnamed) |
+| 1 year | 1.29× | The Long Haul |
+| 2 years | 2.19× | In It For The Kids |
+| 4 years | 4.00× | Till Death Do Us Farm |
 
-Hold a [JBAC NFT](https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336afAaFDdA9) for a **+0.5× bonus** (ceiling 4.5×). **Early exit costs 25%** (the "DEA Raid Tax") — the penalty goes to the **protocol treasury**, *not* to other stakers.
+The boost rises in a straight line from 0.4× at 7 days to 4.0× at 4 years (`TegridyStaking.calculateBoost`).
+
+The contract adds a **+0.5× bonus** (ceiling 4.5×) to a stake made with a [JBAC NFT](https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336afAaFDdA9) deposited through `stakeWithBoost`. The site's stake form calls plain `stake()`, which never applies it, and the form says so. **Early exit costs 25%** (the "DEA Raid Tax") — the penalty goes to the **protocol treasury**, *not* to other stakers.
 
 ### 4. Earn, farm, (soon) vote
 - **ETH rewards are paid per epoch, and no epoch has ever opened.** An epoch needs ≥ 1 ETH
@@ -364,11 +391,21 @@ Hold a [JBAC NFT](https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336
   continuous drip — and the front door's take is still parked in `ReferralSplitter`
   awaiting a permissionless `recoverCallerCredit()` that nobody has called. **Stake for the
   lock, the boost and the position NFT; do not stake expecting ETH yield today.**
-- **Farm LP** under the LP tab on the Farm page — your staking lock auto-boosts LP rewards.
-- **Stake a bungalow token** at its own door — `memetics.finance/<bungalow>` — on any of
-  the thirteen lighthouses. The six EVM pools use this same ladder; the four Solana pools
-  have **no early exit at all**, so read the lock warning before you sign.
-- **Vote on gauges** — the governance contracts (`GaugeController` + `VoteIncentives`) are **deployed on-chain**; voting un-gates in the app once ownership hands off to the Safe.
+- **Farm LP** in the LP Farming section of [memetics.finance/earn/toweli](https://memetics.finance/earn/toweli): your staking lock boosts LP rewards.
+- **Stake a bungalow token** at any of the eleven lighthouses besides TOWELI's, on its pool
+  page `memetics.finance/earn/<bungalow>`, its own address since 2026-10-01 (the door at
+  `memetics.finance/<bungalow>` links there). The six EVM pools use this same ladder with a
+  25% early exit. BAYLA's lock ladder uses the same 7-day to 4-year ladder; leaving it early
+  costs the time left over four years, capped at 75%. The four Streamflow pools (BOBO, SOY,
+  BRAINLET, RIZZ) have **no early exit at all**, so read the lock warning before you sign.
+- **Provide liquidity on Solana** at [memetics.finance/solana-lp](https://memetics.finance/solana-lp),
+  a tab of Pools since 2026-10-03. As of 2026-10-04 a Solana wallet can open a pool on the
+  venue's own AMM, add liquidity and take it back out, and a pool can pair a token with SOL,
+  USDC or BAYLA. The pool program is Raydium's CPMM with only its admin keys changed. Those
+  changes have had no independent review, and Jupiter does not send trades to these pools
+  yet: the page says so before anyone adds. The first pool, BAYLA/SOL, was opened on
+  2026-10-03.
+- **Vote on gauges**: the governance contracts (`GaugeController` + `VoteIncentives`) are **deployed on-chain** (2026-07-16) and stay app-gated until a revenue line funds emissions and gauges exist.
 
 New to DeFi? See [QUICKSTART.md](docs/QUICKSTART.md) or [FAQ.md](docs/FAQ.md).
 
@@ -376,17 +413,27 @@ New to DeFi? See [QUICKSTART.md](docs/QUICKSTART.md) or [FAQ.md](docs/FAQ.md).
 
 ## Token launcher
 
-Launch an ERC-20 without writing a contract. There are **three rails on trunk** and they are
+Launch a token without writing a contract: an ERC-20 on the two EVM rails, or a Solana token
+on our own Solana curve once launching there is switched on. There are **three rails on trunk** and they are
 at very different stages — the difference matters more than the shared branding does. Since
 **2026-08-23** the standing rule is that *only launchers which graduate into a venue we own
 survive*, which is why one of the four that existed in August is gone.
 
 | Rail | Where | Venue it graduates into | Status |
 |---|---|---|---|
-| **Our own EVM curve** | [/eth-curve](https://memetics.finance/eth-curve) | `TegridyCurveLauncher` → a pool the protocol owns | 🟢 **Live on three chains** — Ethereum (`0xF4Dfa741…34dE`), Base 8453 and Robinhood 4663. Token identity (image/description/socials) uploads through Irys and is bound by **signature**, so the immutable contract is untouched; every launch gets a permanent `/eth-curve/:token` page and the creator can claim their fees |
+| **Our own EVM curve** | [/eth-curve](https://memetics.finance/eth-curve) | `TegridyCurveLauncher` → a pool the protocol owns | 🟢 **Live on three chains** — Ethereum (`0xF4Dfa741…34dE`), Base 8453 and Robinhood 4663. Token identity (image/description/socials) uploads through Irys and is bound by **signature**, so the immutable contract is untouched; every launch gets a permanent `/eth-curve/:token` page and the creator can claim their fees. Since 2026-10-02 the create form opens only through the Who may plant door, at 80 served degrees (Resident) or more (see **Who may launch** below) |
 | **Doppler EVM launcher** | [/launch](https://memetics.finance/launch) | Doppler V4 dynamic auction, then (eventually) a Tegridy-hooked V4 pool | 🟢 **Live** — a real in-app signing path (`LAUNCHER_ENABLED = true`, [`launcher/config.ts`](frontend/src/lib/launcher/config.ts)). Graduation still runs through Doppler's own migrator: `TEGRIDY_V4_MIGRATOR_ADDRESS` is `0x0` and that zero is load-bearing |
-| **Own Solana curve** | — | `tegridy-launch` bonding curve → our own CP-AMM pool PDA | 🔴 **Deployed 2026-08-08, closed 2026-08-13.** Both program ids (`CpFnacr…hzED`, `3ZvZXEBr…PM9y`) are permanently spent and cannot be reused — their *ProgramData* accounts are the separate `6vV7DqMy…` / `6TnZb1GT…`, and only those two reads prove the close. The instruction builders, decoders, offset tables and guards all survive; the restart is planned and not live. See [Solana surface](#solana-surface) |
+| **Own Solana curve** | [/curve-launch](https://memetics.finance/curve-launch) | `tegridy-launch` bonding curve → our own CP-AMM pool PDA | 🟢 **Program live since 2026-09-29** at `64WBTeNc…z4q2`, owned by the Squads vault · ⏸ **launching from the site off.** The site reads it, but launching and trading from the site are off by the owner's decision of 2026-10-02 (`CURVE_WRITES_ENABLED = false` in [`curveWriteFlag.ts`](frontend/src/lib/launcher/solana/curveWriteFlag.ts)), so the Solana Curve tab reads Soon. Once switched on, the create form opens only through the Who may plant door (Resident, 80 served degrees, or better), and every launch plants 100,000 $BAYLA in its create transaction: 50,000 burned and 50,000 to the island's Workshop. The first ids (`CpFnacr…hzED`, `3ZvZXEBr…PM9y`), deployed 2026-08-08 and closed 2026-08-13, are permanently spent. See [Solana surface](#solana-surface) |
 | ~~Meteora DBC rail~~ | ~~/solana-launch~~ | ~~Meteora DAMM v2~~ | 🪦 **Deleted 2026-08-23.** It graduated into a pool the protocol does not own and could not own without deploying a different program — that asymmetry, not the fee split, is what retired it. Six lib modules and every user-facing surface removed; a `meteoraRetired` tripwire and rewritten (not deleted) registry entries keep it from quietly returning |
+
+**Who may launch.** Both EVM rails sit behind the heat door: a wallet needs 80 served degrees
+(Resident) or more, as the island serves them, and no setting in a production build can switch
+the door off or lower it. Since 2026-10-02 the [/eth-curve](https://memetics.finance/eth-curve)
+create form opens only through the "Who may plant" door, and Create launch reads the wallet
+again before anything is signed; the launches list and trading stay open to anyone. On
+[/launch](https://memetics.finance/launch) the wizard stays open and the door is read again at
+launch (`assertMayLaunch` in [`launchService.ts`](frontend/src/lib/launcher/launchService.ts)).
+Every launch page says under its door that it is a venue launch.
 
 **Two tiers on the Doppler rail** (`LAUNCH_TIERS`): *Flagship* — full dynamic Dutch auction,
 strictest structural config (renounced or timelocked admin, 12-month LP lock, capped insider
@@ -439,6 +486,10 @@ Every launch gets a permanent page at **`/launch/:token`** — provenance read f
 `Airlock.getAssetData`, the resolved Fact Sheet, its EAS attestation, and the migration
 stream. Everything on it is a read, and it keeps three states apart: proven true, proven
 false, and *not readable* — a failed read is never painted as a confident zero.
+Since 2026-10-02 every launch page shows the maker: on `/launch/:token` the maker's wallet,
+its allocation and whether its vesting still locks it, read from the launch transaction
+Doppler's Airlock made; on `/eth-curve/:token` the maker's create-buy and its wallet, read
+from the launch transaction, with a line that the curve has no lock.
 
 ---
 
@@ -457,7 +508,7 @@ And it now reads **which holders are contracts**, via `eth_getCode`. The exclusi
 | Surface | Where | What it tells you |
 |---|---|---|
 | **Trust hub** | [/trust](https://memetics.finance/trust) | The index for the suite — a deliberately thin page that owns no detection logic, so the tools below are discoverable instead of buried in a submenu. |
-| **Token scanner** | [/scan](https://memetics.finance/scan) | Paste any ETH or Solana token → holder-distribution report with a three-band risk verdict and a separate data-confidence flag. |
+| **Token scanner** | [/scan](https://memetics.finance/scan) | Paste any Ethereum, Base or Solana token → holder-distribution report with a three-band risk verdict and a separate data-confidence flag. |
 | **Wallet exposure** | [/exposure](https://memetics.finance/exposure) | The scanner pointed inward — how concentrated the tokens you hold are. Reads a curated token set plus any address you paste; it does not enumerate every token in your wallet. Position sizes are exact on-chain reads; a token whose holder distribution can't be read is marked *not measured*, never scored. |
 | **Deployer reputation** | [/deployer](https://memetics.finance/deployer) | A deployer address's launch track record, shareable via `?address=` links. Shows "unobserved" when there is no history — it never invents one. |
 | **Launch simulator** | [/launch-simulator](https://memetics.finance/launch-simulator) | Preview the distribution band + fact-sheet tier your token would earn *before* you launch it. |
@@ -472,7 +523,8 @@ The same 2026-07-22 wave made **limit orders** live on the Trade page ([/swap](h
 ## Solana surface
 
 The venue runs a Solana surface — but **TOWELI never touches Solana** (no bridge, no wrapped
-token, ever). Solana is fee-capture, staking, and a venue we intend to own.
+token, ever). Solana is fee-capture, staking, and since 2026-09-29 a venue we own: our own
+launch and pool programs, both held by a two-signature Squads vault.
 
 - **Swap (live).** Solana swaps route through the Jupiter aggregator with a small platform
   fee that accrues to a Solana fee account. Three modes since 2026-09-03: **Instant**, **Limit
@@ -491,19 +543,44 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
   declares `['legacy', 0]` and `wallet-core` has signed v0 since 2023, so the venue vendors
   an adapter with the honest declaration instead (`frontend/src/lib/solanaWallets.ts`) rather
   than adopting a package whose metadata is stale. Phantom's EVM entry cannot work in mobile
-  Safari at all; the app states that rather than papering over it.
-- **Bungalow lighthouses (live).** Five Streamflow staking pools — BAYLA (2026-08-26, the
-  first, and Token-2022 rather than legacy SPL), then BOBO, SOY, BRAINLET and RIZZ
-  (2026-08-30). The whole pool lifecycle was rehearsed on **devnet with real transactions**
-  before a mainnet lamport was spent. This rail has **no early exit** — verified three ways —
-  so the ceremony defaults to a 7-day ceiling and gates long locks. See
-  [Jungle Bay Island](#jungle-bay-island).
+  Safari at all; the app states that rather than papering over it. Since 2026-10-01 the Solana
+  wallet list also has MetaMask, Coinbase Wallet, Solflare and Backpack, and on a computer or
+  an iPad it offers WalletConnect with its QR code. Since 2026-10-03 the Connect button in the
+  top bar opens the Solana list on Solana pages, asks Solana or Ethereum first on every other
+  page, and keeps a connected Solana wallet across pages and visits.
+- **Bungalow lighthouses (live).** Four Streamflow staking pools take deposits: BOBO, SOY,
+  BRAINLET and RIZZ (2026-08-30). BAYLA's own Streamflow pool (2026-08-26, the first, and
+  Token-2022 rather than legacy SPL) closed to new deposits on the site on 2026-09-12; its
+  stakers can still claim and unstake, and since 2026-10-01 the site shows it only to them, as
+  a claim box under BAYLA's lock ladder (next bullet). The whole pool lifecycle was rehearsed
+  on **devnet with real transactions** before a mainnet lamport was spent. This rail has **no
+  early exit** (verified three ways), so the ceremony defaults to a 7-day ceiling and gates
+  long locks. See [Jungle Bay Island](#jungle-bay-island).
+- **BAYLA lock ladder (live).** New BAYLA stakes go to the venue's own `bayla-ladder` program
+  (`EJLP5GEJ…FfUQ`, on mainnet since 2026-09-20, source in
+  [`solana/tegridy-amm/programs/bayla-ladder`](solana/tegridy-amm/programs/bayla-ladder)), on
+  the same ladder as TOWELI: 7 days to 4 years, 0.4× to 4.0×. Leaving early costs a share of
+  the stake equal to the time left over four years, capped at 75% (Yearn's veYFI schedule).
+  Its upgrade authority is the deployer wallet, not the Squads vault (read 2026-09-20,
+  [`addresses.json`](frontend/scripts/addresses.json)).
 - 🪦 **The Meteora DBC launch rail was deleted (2026-08-23).** It graduated into a pool the
   protocol does not own. The partner config that went live on mainnet 2026-08-01 launched
   **zero tokens**; its registry entries are kept (rewritten, not deleted) as evidence that
   the rail really did exist, because a retired rail that leaves no trace is how a future
   session re-adds it.
-- 🟢 **The restart is live (2026-09-29).** `tegridy-launch` at `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2` and the cp-swap fork at `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, both controlled by the Squads vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`. The site reads both; launching from the site stays switched off until the owner switches it on, and adding liquidity from the site is the next stage. See [Live deployment status](#live-deployment-status).
+- 🟢 **The restart is live (2026-09-29).** `tegridy-launch` at `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2` and the cp-swap fork at `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, both controlled by the Squads vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`. The site reads both; launching from the site stays switched off until the owner switches it on, and since 2026-10-03 a wallet can add and remove liquidity and open a pool from the site (see the next bullet). See [Live deployment status](#live-deployment-status).
+- 🟢 **Solana LP from the site (since 2026-10-03).** [/solana-lp](https://memetics.finance/solana-lp),
+  a tab under Pools, and the Solana section of [/pools](https://memetics.finance/pools) find a
+  token's pools, add and remove liquidity, and open a pool on our cp-swap fork
+  (`LP_WRITES = 'on'` in [`lpWriteFlag.ts`](frontend/src/lib/launcher/solana/lpWriteFlag.ts)).
+  The first pool on the venue, BAYLA/SOL, was opened on 2026-10-03. Since 2026-10-04 a pool can
+  pair a token with SOL, USDC or BAYLA, and any token can have a pool: no Jupiter price, a price
+  more than 3% from the market, a freeze authority or a copied well-known name is a warning you
+  read before you sign. Still refused: tokens the pool program rejects, tokens with a transfer
+  fee, and anything that could not be read. The add and open-a-pool forms and their reviews say
+  the fork's admin-key changes have not had their own independent review yet, and that Jupiter
+  does not send trades to these pools yet. If adding ever has to pause, the switch goes to
+  `'withdraw-only'` and Remove liquidity keeps working.
 - 🔴 **Our own two programs were deployed on 2026-08-08 and closed on 2026-08-13.** *(Superseded 2026-09-29 by the restart above; kept as history.)*
   The **program ids** are `CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED` (`tegridy-launch`)
   and `3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y` (the cp-swap fork). Their **ProgramData**
@@ -531,8 +608,10 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
 - **The cp-swap fork itself** remains a **verbatim fork of Raydium's audited CPMM**
   ([`raydium-cp-swap`](https://github.com/raydium-io/raydium-cp-swap), Apache-2.0) so the
   protocol can earn a config-set fee on pools it hosts. The entire code delta from upstream is
-  authority/identity constants and comments, CI-enforced. A fund-holding mainnet deploy stays
-  gated behind a professional diff-audit. See
+  authority/identity constants and comments, CI-enforced. It went live on mainnet on
+  2026-09-29 without a professional diff-audit, and since 2026-10-03 anyone can add liquidity
+  to it from the site: the owner ruled on 2026-09-29 that public LP opens before the fork
+  review, with a disclosure, and the add and open-a-pool forms say so before anyone signs. See
   [`solana/tegridy-amm/TEGRIDY_FORK.md`](solana/tegridy-amm/TEGRIDY_FORK.md) and
   [`MAINNET_RUNBOOK.md`](solana/tegridy-amm/MAINNET_RUNBOOK.md).
 
@@ -541,10 +620,11 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
 ## Tokenomics in one minute
 
 - **Total supply:** 1,000,000,000 TOWELI. **Fixed** — `mint(address,uint256)` is not in the live bytecode. `burn(uint256)` and `burnFrom(address,uint256)` **are**: any holder can destroy their own TOWELI, so supply is a ceiling, not a constant. The protocol itself burns nothing. See [TOKENOMICS.md](docs/TOKENOMICS.md) for the on-chain capability read.
-- **Engagement season:** Season 3 (2026-06-07 → 2026-09-05) — an engagement/leaderboard window. LP-farm reward rate, total funded, and period-end are read **live from the contract**; nothing here renders a number the chain can't back.
+  Since 2026-10-04 the TOWELI page's burn card reads from the chain how much of everything minted is gone (sent to the burn address, stuck in the token's own contract, or destroyed so the supply fell), and its "Burned forever" row prints the same figure: 25.76% of everything minted, as read on 2026-10-04.
+- **Engagement season:** Season 3 (2026-06-07 → 2026-09-05) ended on 2026-09-05, and no later season is set (`CURRENT_SEASON` in [`constants.ts`](frontend/src/lib/constants.ts)); the site shows it as ended. LP-farm reward rate, total funded, and period-end are read **live from the contract**; nothing here renders a number the chain can't back.
 - **Revenue flow (wiring, not history):** the 0.5% smart-front-door fee → `SwapFeeRouter` (collected in ETH) → `ReferralSplitter` (**20% off the top, unremovable**; the rest parked as `callerCredit` awaiting a permissionless `recoverCallerCredit()`) → back to `SwapFeeRouter` → `RevenueDistributor` → stakers claim their share **per epoch** (each epoch needs ≥ 1 ETH pooled and ≥ 4h since the last — it's discrete, not a continuous drip). **Zero epochs have opened.** The native pair's separate 0.3% grows the pool for LPs.
 - **Penalty flow:** 25% early-exit penalty → the **treasury** (`safeTransfer(treasury, penalty)`, emitting `PenaltySentToTreasury`). The penalty-recycle split was removed for EIP-170 size; it does *not* redistribute to stakers.
-- **Treasury take:** the native pair's ⅙ slice of its 0.3% accrues to `feeTo` as **LP tokens** (a treasury asset — *not* staker ETH); the front-door's 0.5% is the leg pointed at stakers, and `stakerShareBps` (default `10000`, floor `5000`) governs the share of what survives the referral split, not of the fee. Lending / launchpad / NFT-pool / premium fees join the same staker stream once those surfaces un-gate — none of them do today.
+- **Treasury take:** the native pair's ⅙ slice of its 0.3% accrues to `feeTo` as **LP tokens** (a treasury asset — *not* staker ETH); the front-door's 0.5% is the leg pointed at stakers, and `stakerShareBps` (default `10000`, floor `5000`) governs the share of what survives the referral split, not of the fee. NFT-lending, NFT-pool, launchpad and premium fees are not in the staker stream: those surfaces have been live since 2026-07-21/22 and their fees go to the treasury Safe, and token lending is still staged. Routing them to `RevenueDistributor` is a later step.
 
 Full detail: **[TOKENOMICS.md](docs/TOKENOMICS.md)** · **[REVENUE_ANALYSIS.md](docs/archive/REVENUE_ANALYSIS.md)** (honest fee-lever benchmarks).
 
@@ -553,7 +633,7 @@ Full detail: **[TOKENOMICS.md](docs/TOKENOMICS.md)** · **[REVENUE_ANALYSIS.md](
 ## For developers
 
 ### Prerequisites
-- **Node.js 24** (the version in `.nvmrc`) and `pnpm` (or `npm`)
+- **Node.js 24** (the version in `.nvmrc`) and `npm`. `frontend/` and `indexer/` pin their trees in `package-lock.json`, and CI installs with `npm ci --ignore-scripts`.
 - **Foundry** for contracts: [getfoundry.sh](https://getfoundry.sh/)
 - **An RPC URL** for local dev/tests · **A WalletConnect project ID** for the wallet modal
 - **Anchor + Solana CLI** only if you're touching `solana/tegridy-amm/`
@@ -561,9 +641,9 @@ Full detail: **[TOKENOMICS.md](docs/TOKENOMICS.md)** · **[REVENUE_ANALYSIS.md](
 ### Quick start — frontend
 ```bash
 cd frontend
-cp .env.example .env    # add VITE_WALLETCONNECT_PROJECT_ID, VITE_RPC_URL, etc.
-pnpm install
-pnpm dev                # Vite dev server (usually http://localhost:5173)
+cp .env.example .env    # add VITE_WALLETCONNECT_PROJECT_ID; each entry says what happens when it is unset
+npm ci --ignore-scripts
+npm run dev             # Vite dev server (usually http://localhost:5173)
 ```
 
 ### Quick start — contracts
@@ -575,7 +655,7 @@ forge build
 forge test
 ```
 
-The Foundry suite (**151 test files**, most of them audit-derived regressions) is gated in CI — **Contracts CI + Slither + CodeQL run on every PR**, with the toolchain pinned to **forge 1.7.1** across all seven workflow sites after `stable` floated to 1.8.0 mid-day on 2026-08-27 and made two runs of identical code disagree. CI is the compile/test source of truth. ⚠️ Contracts CI is **manifest-driven**: a new `test/` subdirectory needs its own slice, or it never runs.
+The Foundry suite (**168 test files** on 2026-10-04, most of them audit-derived regressions) is gated in CI: **Contracts CI + Slither + CodeQL run on every PR**, with the toolchain pinned to **forge 1.7.1** across all seven workflow sites after `stable` floated to 1.8.0 mid-day on 2026-08-27 and made two runs of identical code disagree. CI is the compile/test source of truth. ⚠️ Contracts CI is **manifest-driven**: a new `test/` subdirectory needs its own slice, or it never runs.
 
 Go-live scripts (operator-run, dry-run first, submit via a private RPC):
 `SeedLP.s.sol` (seed the TOWELI/WETH pool) · `BootstrapTWAP.s.sol` (warm the oracle) · `VerifyMVP.s.sol` (post-deploy invariant check) · `TransferOwnershipToMultisig.s.sol` (Safe handoff).
@@ -583,13 +663,18 @@ Go-live scripts (operator-run, dry-run first, submit via a private RPC):
 ### Quick start — indexer
 ```bash
 cd indexer
-pnpm install
-pnpm dev                # Ponder against the RPC in .env — repointed to the relaunch addresses
+cp .env.local.example .env.local   # the RPCs are PONDER_RPC_URL_1..4; the file lists every variable read
+npm ci
+npm run dev             # Ponder, against the relaunch addresses baked into ponder.config.ts
 ```
 
 ### Running tests
 - **Solidity:** `cd contracts && forge test`
-- **Frontend typecheck / unit / build:** `cd frontend && pnpm exec tsc -b --noEmit` · `pnpm exec vitest run` · `pnpm build`
+- **Frontend (what `ci.yml` runs):** `cd frontend && npm ci --ignore-scripts && npm run lint && npx tsc -b --noEmit && npm test && npm run build`, then `npx playwright install --with-deps chromium webkit && npx playwright test` (against `vite preview` of that build).
+- **Money paths on an Anvil fork:** `npm run e2e` (it starts a fork when `anvil` is on PATH).
+- **Solana launch and pool flows:** `npm run e2e:solana`, against a local validator (`frontend/scripts/solana-localnet/`). CI does not run it.
+- **Root tools:** `node --test scripts/lib/redact-url.test.mjs`, and each `node scripts/<tool>.mjs --self-test` that `ci.yml` names.
+- **No CI host:** `bash scripts/ci/local-gates.sh <root|frontend|contracts|solana|all>` runs the same gates on your machine (since 2026-10-01).
 
 > ⚠️ **`tsc --noEmit` without `-b` checks zero files.** `frontend/tsconfig.json` is a
 > solution file (`{"files": [], "references": [...]}`) — plain `tsc` finds an empty
@@ -604,6 +689,8 @@ pnpm dev                # Ponder against the RPC in .env — repointed to the re
 > `tsc -b` typechecked **no test file** — compiling the orphan produced 53 errors across 24
 > files (2026-08-21). It is wired into the solution now. If you add a `tsconfig.*.json`,
 > reference it, or it is decoration.
+>
+> **A third hole is open (recorded 2026-10-02, still open 2026-10-04).** No project in the solution includes the Playwright specs in `frontend/e2e/` or `frontend/e2e-solana/`, nor `playwright.solana.config.ts`, so `tsc -b` type-checks none of them, and Playwright strips types without checking them. Until a project reference covers them, check them with a scratch config (NOTES.md, 2026-10-02).
 
 > ⚠️ **Verify a gate by trying to make it fail.** This repo has now found, in one month: a
 > typecheck that read nothing, an EIP-170 size gate that measured libraries and blamed
@@ -632,17 +719,25 @@ none of them was the one everybody assumed:
 - the fork was never seeded with TOWELI (`anvil_setBalance` covers ETH only).
 
 ### Contributing
-See [CONTRIBUTING.md](CONTRIBUTING.md). Branch off **`mvp-launch`** — it is the real
-trunk and the repo's default branch; `main` has diverged substantially and a merge is a
-63-file conflict. Run `git log HEAD..mvp-launch` **before your first edit**. Keep changes
-focused, and run `forge test` + `pnpm exec tsc -b --noEmit` before opening a PR.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Branch off **`mvp-launch`**. It is the real
+trunk and the repo's default branch. `main`, a diverged fork, is now `archive/main-2026-07-23`
+(on GitLab, `archive/main`): never branch from it. Run `git log HEAD..mvp-launch` **before
+your first edit**. Keep changes focused, and run `forge test`, plus `npm run precommit`
+(lint and `tsc -b --noEmit`) in `frontend/`, before opening a PR.
+
+GitHub is the primary host. GitLab (`memetics-finance/tegridy-farms`) is the standby that
+every push is meant to reach. The owner's setup for that is still open in
+[docs/TODO_OPERATOR.md](docs/TODO_OPERATOR.md) (O-0929-H1), and on 2026-10-04 the standby's
+`mvp-launch` still pointed at a 2026-09-24 commit. Read [docs/GIT_HOSTING.md](docs/GIT_HOSTING.md)
+before any remote operation. A merge to `mvp-launch` on GitHub deploys the site, and moving
+`mvp-launch` on any remote counts as a production deploy.
 
 ---
 
 ## Repo layout
 
 ```
-tegriddy-farms/
+tegridy-farms/
 ├── contracts/           Foundry project — Solidity 0.8.26, toolchain PINNED to forge 1.7.1
 │   ├── src/             77 .sol: root primitives + their EIP-170 admin/vault sisters,
 │   │   │                LighthouseLadder, the curve launcher, airdrop/vesting rails
@@ -653,27 +748,36 @@ tegriddy-farms/
 │   ├── script/          Deploy + go-live scripts (DeployMVP, DeployBaseMVP,
 │   │                    DeployRobinhoodMVP, DeployCurveLauncher, DeployLighthouse*, SeedLP, …)
 │   ├── broadcast/       Deploy receipts, tracked — they are the provenance record
-│   └── test/            151 .t.sol — most are audit-derived regressions. Every file must
+│   └── test/            168 .t.sol: most are audit-derived regressions. Every file must
 │                        match a CI slice or an explicit exclusion, or it never runs
 ├── frontend/            Vite + React 19 + TypeScript (+ Solana surface)
-│   ├── src/pages/       Routed pages (Launch, Swap, Farm, SolanaSwap, NFT surfaces, …)
+│   ├── src/pages/       Routed pages (Launch, Swap, Farm, SolanaSwap, SolanaLp, NFT surfaces, …)
 │   ├── src/lib/         constants.ts (canonical addresses), ABIs, arrival.ts, bungalows.ts
 │   │   ├── chains/      registry.ts — Ethereum 1, Base 8453, Robinhood 4663, with each
 │   │   │                chain's capabilities and its fee-sink KIND (distributor vs remittance)
-│   │   ├── launcher/    Doppler config + airlock, Fact Sheet/gate, locker stream, curve
+│   │   ├── launcher/    Doppler config + airlock, Fact Sheet/gate, locker stream, curve; solana/ holds
+│   │   │                the Solana curve and pool write paths (pool writes on, launching off)
+│   │   ├── ladder/      The client for the bayla-ladder program (the BAYLA lock ladder)
 │   │   └── detection/   Shared holder-distribution core behind the trust surfaces
-│   ├── api/             Vercel serverless — 8 functions. The 12-function Hobby cap was
+│   ├── api/             Vercel serverless: 13 functions (counted 2026-10-02). The 12-function Hobby cap was
 │   │                    LIFTED 2026-09-04 (Pro plan); the ?resource= catchall stays as a
 │   │                    design choice, not a forced one — see api/SERVERLESS_BUDGET.md
 │   ├── scripts/         Build/operator CLIs — incl. addresses.json + verify-addresses.mjs
 │   │                    (the registry every live address must appear in), the lighthouse
 │   │                    ceremony scripts, and render-bungalow-doors.mjs
-│   ├── e2e/             20 Playwright specs; the money-path ones run against an Anvil fork
+│   ├── e2e/             38 Playwright specs; the five money-path ones run against an Anvil fork
+│   ├── e2e-solana/      Solana launch and pool flows on a local validator (npm run e2e:solana; not in CI)
+│   ├── e2e-prod/        A console sweep of the deployed site, run by hand (playwright.prod.config.ts)
 │   └── supabase/        SQL migrations (orderbook, chat, profiles) + 000_base_schema.sql
-├── indexer/             Ponder — event indexer & GraphQL API (built, hosted nowhere)
+├── indexer/             Ponder: event indexer & GraphQL API, hosted on Railway
 ├── indexer-solana/      The Solana leg, beside Ponder against the same Postgres
-├── solana/tegridy-amm/  Raydium CPMM fork + tegridy-launch curve — deployed 2026-08-08,
-│                        CLOSED 2026-08-13; program ids permanently spent. See TEGRIDY_FORK.md
+├── bot/                 Telegram bot: zero npm dependencies, holds no key (built, hosted nowhere)
+├── scripts/             Root ops tools: the guards and self-tests CI runs, git-hosting, monitoring,
+│                        ops runners, and ci/local-gates.sh (the CI gates with no CI host)
+├── solana/tegridy-amm/  Anchor workspace: cp-swap (Raydium CPMM fork), tegridy-launch (our curve) and
+│                        bayla-ladder (the BAYLA lock ladder). The 2026-08-08 ids were closed 2026-08-13
+│                        and are spent. bayla-ladder went live 2026-09-20, and the other two on
+│                        2026-09-29 at new ids. See TEGRIDY_FORK.md
 ├── docs/                Live docs (FAQ, CONTRACTS, TOKENOMICS, QUICKSTART, ROADMAP, AUDITS,
 │                        HALL_OF_FAME), architecture, runbooks and island plans; audits/ holds
 │                        the audit passes and archive/ the old plans and reports
@@ -683,7 +787,7 @@ tegriddy-farms/
 ### Deeper docs
 | Doc | For |
 |---|---|
-| [docs/GOLIVE_HANDOFF.md](docs/GOLIVE_HANDOFF.md) | **Current** ownership-handoff state + tx data |
+| [docs/GOLIVE_HANDOFF.md](docs/GOLIVE_HANDOFF.md) | Mainnet ownership-handoff state as read 2026-07-11, and its tx data. The later reads (Base and Robinhood, 2026-09-09) are in [docs/TODO_OPERATOR.md](docs/TODO_OPERATOR.md) |
 | [RELAUNCH_RUNBOOK.md](docs/archive/RELAUNCH_RUNBOOK.md) | Relaunch deploy sequence |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the contracts fit together |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Mainnet deploy runbook + rollback |
@@ -694,40 +798,45 @@ tegriddy-farms/
 | [docs/SOLANA_FEE_CAPTURE_PLAN.md](docs/SOLANA_FEE_CAPTURE_PLAN.md) | Solana fee-capture strategy |
 | [docs/LAUNCHPAD_GUIDE.md](docs/LAUNCHPAD_GUIDE.md) | Creator walkthrough for the NFT launchpad |
 | [docs/TODO_OPERATOR.md](docs/TODO_OPERATOR.md) | **Start here.** The single operator entry point — every remaining item with its commands, expected results, and what a mismatch means |
-| [docs/ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md](docs/ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md) | The island build-out: thirteen bungalows, staking on every chain |
+| [docs/ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md](docs/ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md) | The 2026-08-30 island build-out plan, a record: staking on every chain. It counts thirteen bungalows; the venue counts 12 since 2026-10-01, and /nb1 is an open lot |
 | [docs/ISLAND_ROSTER_DOSSIER.md](docs/ISLAND_ROSTER_DOSSIER.md) | Per-bungalow market reads, including the honest dark ones |
 | [docs/BAYLA_LIQUID_LIGHTHOUSE_DESIGN.md](docs/BAYLA_LIQUID_LIGHTHOUSE_DESIGN.md) | The liquid-wrapper design, and the gate for building it |
 | [docs/CONSOLIDATION_2026_08_28.md](docs/CONSOLIDATION_2026_08_28.md) | What merged on 08-28, and what deliberately did not |
+| [docs/GIT_HOSTING.md](docs/GIT_HOSTING.md) | Where the code lives: GitHub primary, GitLab standby, and the failover drill. Read it before any remote operation |
+| [docs/CI_ON_GITLAB.md](docs/CI_ON_GITLAB.md) | The failover CI on GitLab, off until the owner switches it on. It runs the GitHub workflow files unchanged |
+| [solana/tegridy-amm/BAYLA_LADDER_MAINNET_RUNBOOK.md](solana/tegridy-amm/BAYLA_LADDER_MAINNET_RUNBOOK.md) | The BAYLA lock ladder's mainnet deploy (2026-09-20), and the audit waiver it records |
 
 ---
 
 ## Security & audits
 
-Tegridy Farms treats its own custom code as a known-risk attack surface: the standing mandate is **minimal surface, copy verbatim from battle-tested protocols** (OpenZeppelin, Uniswap V2/V4, Curve, Aave V3, Synthetix, Gondi, Solady, Raydium), and only conservative tweaks on top.
+Tegridy Farms treats its own custom code as a known-risk attack surface: the standing mandate is **minimal surface, copy verbatim from battle-tested protocols** (OpenZeppelin, Uniswap V2/V4, Curve, Aave V3, Synthetix, Gondi, Solady, Raydium, Yearn), and only conservative tweaks on top.
 
 - **Internal adversarial audits are continuous**, and every wave runs find → *independent refute-by-default* verify, because a finder grading its own findings is not a second opinion. Recent waves, all on the record:
   - **2026-08-15** — the launch program, six lanes over `tegridy-launch` and the cp-swap fork diff: **43 findings, 0 critical**, 16 confirmed / 3 refuted on verify. It also established that both Solana program ids are closed.
   - **2026-08-22 → 08-25** — the Slither triage. A first pass cleared 54 of 56 findings as false positives and recommended eighteen suppressions; **the adversarial pass rejected twelve of those verdicts**, including all three fee-router HIGH reentrancy findings it had argued down hardest. Those twelve were fixed, not suppressed.
   - **2026-08-28** — a frontend audit ([#340](https://github.com/fomotsar-commits/tegridy-farms/pull/340)): 53 verified, 46 fixed.
   - **2026-08-30** — a 45-agent island gap scan, which caught a shipped EIP-55 defect within the hour of it landing.
+  - **2026-09-01**: a lighthouse staking audit, 31 lenses over the whole staking money path (the EVM ladder contract, the Solana Streamflow rail and the infra) ([`LIGHTHOUSE_AUDIT_2026_09_01.md`](docs/LIGHTHOUSE_AUDIT_2026_09_01.md)): 145 findings raised, 100 refuted, **45 survived, five of them critical**.
   - **2026-09-03** — a four-lane review sweep (53 findings survived verification; 50 fixed, 3 declined with reasons) and an external field review of the live site (**20 findings, 9 of them misdiagnosed**).
   Findings that can be expressed as a regression test have one, and a test only counts once it has been shown to **fail on the pre-fix code**. Historical artifacts are indexed in [`AUDITS.md`](docs/AUDITS.md) and [`FIX_STATUS.md`](docs/archive/FIX_STATUS.md).
 - **One review to an external methodology** (Spartan, [`SPARTAN_AUDIT.txt`](docs/archive/SPARTAN_AUDIT.txt)) has been done. Its own Appendix C says who wrote it: "The reviewer is an AI assistant (Claude, Anthropic) acting at the direction of the repository owner." The *methodology* is external; the *reviewer* was not. It is not a third-party audit and this README does not claim it as one.
-- **No professional-firm audit yet.** A paid review (OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena) is on the roadmap and **not yet scheduled**. Gated surfaces each get a dedicated audit wave before they deploy.
+- **No professional-firm audit yet.** A paid review (OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena) is on the roadmap and **not yet scheduled**. A gated surface is meant to get a dedicated audit wave before it deploys. `bayla-ladder` (on mainnet since 2026-09-20) did not on its newest code: its penalty schedule and rate guard came after every review on record, and the owner waived its external audit. The Solana restart (2026-09-29) went live before any independent review of the fork's admin-key changes.
 - **Responsible disclosure:** see [`SECURITY.md`](SECURITY.md). Please don't file security reports as public issues.
 
 **What to be careful about:**
-- **Single-key ownership window.** Live contracts are still owned by the deployer EOA while the Safe multisig handoff completes ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). This is the biggest unresolved risk.
+- **Single-key ownership window.** The live Ethereum mainnet contracts were owned by the deployer EOA when last read (2026-07-11), while the Safe multisig handoff completes ([`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md)). On Base, three of four were Safe-owned when read on 2026-09-09, and Robinhood's handoff had lapsed ([`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md)). On Solana, the launcher and pool program went live on 2026-09-29 owned by the two-signature Squads vault, and `bayla-ladder`'s upgrade authority was the deployer wallet, a single operator-held key and not the Squads vault, when read at its 2026-09-20 deploy. This is the biggest unresolved risk.
 - **Smart contract risk exists.** No software is bug-free, and this hasn't had a paid human-firm audit. Size deposits accordingly.
 - **Market risk.** TOWELI is a thin-liquidity token; impermanent loss in the LP is real.
+- **Solana pools.** Since 2026-10-03 any connected Solana wallet can open a pool, add liquidity or remove it from the site, on the venue's own Solana pool program (the first pool, BAYLA/SOL, opened 2026-10-03). Since 2026-10-04 any token the pool program accepts can have a pool, with warnings to read before you sign; tokens with a transfer fee, and anything that could not be read, are still refused. The program is Raydium's CPMM with only its admin keys changed, and those changes have had no independent review. The team's two-signature vault can switch off deposits, withdrawals or swaps on a pool, change its fee rates at once, and upgrade the program; if it switched off withdrawals, nobody could take their money out until it switched them back on. As the site says, Jupiter does not send trades to these pools yet, so most trades against a pool come from arbitrage bots. Put in only what you can afford to lose.
 
 ---
 
 ## Deployed contracts
 
-Four chains. Every address below is mirrored in
+Four chains. Every address below except the closed BAYLA Streamflow pool is mirrored in
 [`frontend/scripts/addresses.json`](frontend/scripts/addresses.json), which CI decodes on
-every push — see the note at the end of this section.
+every push. See the note at the end of this section.
 
 ### Ethereum Mainnet
 
@@ -788,7 +897,7 @@ every push — see the note at the end of this section.
 | TegridyLaunchpadV2 | [`0xa614…0dF7`](https://etherscan.io/address/0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7) |
 | TegridyDropV2 (launchpad template) | [`0xA35e…e872`](https://etherscan.io/address/0xA35ec3e20C4361144b0D99573DEa00B67873e872) |
 
-**Still gated (not live in the app):** the emission/spend-side of the batch — `GaugeController`, `VoteIncentives`(+Admin), `CommunityGrants`, `MemeBountyBoard` (deployed + verified, held until a revenue line funds them) — plus `TegridyLending` (pre-deploy-audited; oracle-gated — deploys after the pool deepen + TWAP bootstrap), `TegridyRestaking` (not deployed — EIP-170 split / Phase 7), the Pro Pass (a `TegridyLaunchpadV2.createCollection` operation, not a standalone contract), and the Uniswap V4 module — whose fee hook is **pre-deployed** to a mined address ([`0xB6cf…0044`](https://etherscan.io/address/0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044)) but whose swap surface stays gated pending its audit wave. The frontend un-gates each automatically once the address is set. The Wave-0 (April 2026) contracts are superseded and retained only for provenance in [`docs/MIGRATION_HISTORY.md`](docs/MIGRATION_HISTORY.md).
+**Still gated (not live in the app):** the emission/spend-side of the batch (`GaugeController`, `VoteIncentives`(+Admin), `CommunityGrants`, `MemeBountyBoard`: deployed + verified, held until a revenue line funds them), plus `TegridyLending` (pre-deploy-audited; oracle-gated, deploys after the pool deepen + TWAP bootstrap), `TegridyRestaking` (not deployed; its EIP-170 split executed 2026-08-19, and its deploy waits on an external re-audit and a real Safe), the Pro Pass (a `TegridyLaunchpadV2.createCollection` operation, not a standalone contract), and the Uniswap V4 module, whose fee hook is **pre-deployed** to a mined address ([`0xB6cf…0044`](https://etherscan.io/address/0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044)) but whose swap surface stays gated pending its audit wave. The frontend un-gates each automatically once the address is set. The Wave-0 (April 2026) contracts are superseded and retained only for provenance in [`docs/MIGRATION_HISTORY.md`](docs/MIGRATION_HISTORY.md).
 
 #### Our own curve launcher — `TegridyCurveLauncher`
 | Chain | Address |
@@ -824,36 +933,68 @@ every push — see the note at the end of this section.
 > Ownership handoffs to the multisig await the **2-of-2 accept ceremony**; the curve
 > launchers are multisig-owned from birth.
 
-#### Bungalow lighthouses — `LighthouseLadder` (EVM), deployed 2026-08-30
+#### Bungalow lighthouses: `LighthouseLadder` (EVM), redeployed 2026-09-05
 | Bungalow | Chain | Pool |
 |---|---|---|
-| PEPE | Ethereum | `0xdC0B34cE782029f30382F42097f6b33F0544329c` |
-| QR | Base | `0xdcc3a95A0921b83326157132B17770f02094c8E3` |
-| MFER | Base | `0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273` |
-| BNKR | Base | `0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178` |
-| DRB | Base | `0xB62BaD165997E95C503044787b2Dcc85DC6D83F1` |
-| JBM | Base | `0xA0D43eF39C4940e68b2f81d51E6316a45C136D93` |
+| PEPE | Ethereum | `0xBE1905de5FCDe60E13a9F1AfA44BEfdE1C5aaA1D` |
+| QR | Base | `0x55B72f09d31f43834bf7Eba42f53a419a716F554` |
+| MFER | Base | `0xeCB3C54488A2A0dF764444f67B2Df6b8Ad4EaDd6` |
+| BNKR | Base | `0xe6abC8AcA0415aFaC426ec1242BB17afABe8Dbcf` |
+| DRB | Base | `0x0aCB93fcFD5b1950D94064998017a2601b36D7bB` |
+| JBM | Base | `0x3C339692ec7B3b96ad6F8fbEb5F5202164b44465` |
+
+The pools above are the 2026-09-05 redeploy. The first build of 2026-08-30 was retired on
+2026-09-05 (PR #433). Its deposits were closed and the site points at the pools above.
+
+#### Solana programs: the restart, live 2026-09-29
+| Program | Id |
+|---|---|
+| `tegridy-launch` (curve launcher) | `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2` |
+| cp-swap fork (the venue's pools) | `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` |
+| Squads vault (upgrade authority of both) | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` |
+
+The 2026-08-08 ids `CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED` and
+`3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y` were closed on 2026-08-13 and cannot be reused.
+
+#### BAYLA lock ladder: `bayla-ladder`, the venue's own Solana staking program, deployed 2026-09-20
+| Account | Address |
+|---|---|
+| Program | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` |
+| BAYLA pool | `Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV` |
+
+When the registry read them on 2026-09-20, both the upgrade authority and the pool's authority
+were the deployer key `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`. The handover to the
+Squads vault had not started.
 
 #### Bungalow lighthouses — Streamflow (Solana)
 | Bungalow | Stake pool |
 |---|---|
-| BAYLA *(2026-08-26, Token-2022)* | `EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f` |
+| BAYLA *(created 2026-08-30, Token-2022; closed to new deposits on the site since 2026-09-12, claim and unstake only; since 2026-10-01 shown only to wallets still staked in it)* | `EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f` |
 | BOBO | `PkwDYVNxyesAukE9STqRQL9H1pBpXbt1tVbiYVMX96w` |
 | SOY | `5hgUVCWW4fwM7oq3SQyaj5ucVQFa2dQ4YqQc4JqrGXHj` |
 | BRAINLET | `2qSZBzjpxKzhJWmyaoN5kP3XQxUikH3SQR5suXuQjkZR` |
 | RIZZ | `BZ1rGCD8G5kXyKkXxmNh2Xf92QLz4PUZitzauMEdxd5c` |
 
 > **[`frontend/scripts/addresses.json`](frontend/scripts/addresses.json) is the single source
-> of truth for every address above** — **130 entries** across Ethereum (75), Base (20),
-> Robinhood (11) and Solana (24), each in **full**, with its
-> role, who holds the key, and its live status. `verify-addresses.mjs` runs in CI and
-> enforces six rules: structural decode (EIP-55 for EVM, base58 to *exactly* 32 bytes for
-> Solana), **no truncation**, no duplicates, a denylist, drift against `constants.ts`, and an
-> optional live on-chain read. It exists because on 2026-08-08 an operator wallet was nearly
-> lost to a truncated `5hNA2MXk…927v`, and a session then *invented* a plausible-looking
-> replacement that decoded to 33 bytes. Retired addresses stay in the file marked `retired`
-> rather than being deleted — the PEPE lighthouse above has both its original Synthetix pool
-> and the ladder that replaced it the same day.
+> of truth for every address above except the closed BAYLA Streamflow pool
+> `EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f`, which `frontend/src/lib/bungalows.ts` carries
+> and the registry does not list yet**: **147 rows** as `verify-addresses.mjs` counted them on
+> 2026-10-04: 79 in the Ethereum section, 18 Base, 6 Robinhood and 44 Solana (four L2 Safes and
+> the Robinhood curve launcher are kept in the Ethereum section but live on the L2s), plus 46
+> retired mainnet deploys and 2 denylisted addresses listed apart. Each is in **full**, with its
+> role, who holds the key, and its live status. `verify-addresses.mjs` runs in CI. It checks
+> that every section of the file is read, that each address decodes (EIP-55 for EVM, base58 to
+> *exactly* 32 bytes for Solana), **no truncation**, no duplicates on one chain, and a
+> denylist. It also checks that every address literal in `constants.ts`, `yield/protocols.ts`
+> and the Solana curve module is registered, and that every contract in the Foundry broadcast
+> receipts for mainnet, Base and Robinhood is registered or retired. `registry-onchain.yml`
+> adds a live chain read every day and on any change to the registry. The verifier exists
+> because on 2026-08-08 an operator wallet was nearly lost to a truncated `5hNA2MXk…927v`, and
+> a session then *invented* a plausible-looking replacement that decoded to 33 bytes. Retired
+> addresses usually stay in the file marked `retired` rather than being deleted. The PEPE
+> lighthouse keeps its original Synthetix pool (retired 2026-08-30) beside the live ladder. The
+> six first-build ladders of 2026-08-30 are the exception: the 2026-09-05 repin (PR #433)
+> replaced their rows, so they are not in the file.
 
 Live directory in the app: [memetics.finance/contracts](https://memetics.finance/contracts).
 
@@ -861,8 +1002,9 @@ Live directory in the app: [memetics.finance/contracts](https://memetics.finance
 
 ## Roadmap & status
 
-Full roadmap in [`ROADMAP.md`](docs/ROADMAP.md) · shipping cadence in [`CHANGELOG.md`](CHANGELOG.md) ·
-the single operator entry point is [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md).
+The roadmap record, last reconciled 2026-09-04, is [`ROADMAP.md`](docs/ROADMAP.md) · shipping
+cadence in [`CHANGELOG.md`](CHANGELOG.md) · the one live to-do is
+[`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md).
 
 **Near-term go-live gates:**
 1. **Decentralize ownership.** The mainnet contracts are still owned by the deployer EOA;
@@ -883,14 +1025,24 @@ the single operator entry point is [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.
    — then a **professional firm audit** before scaling TVL.
 
 **Medium-term:**
-- **Host the indexer.** The Ponder app and its Solana leg are complete, tested and **hosted
-  nowhere** — it is the chokepoint under the largest revenue cluster, and it needs an account,
-  not code. Every surface that would consume it now ships a real product without it (see the
-  2026-09-03 changelog entry), so this buys depth rather than unblocking a dead page.
-- **Restart the Solana venue.** Both own-venue program ids were closed on 2026-08-13 and are
-  permanently spent; a restart needs fresh keypairs, a signable **and funded** `admin::ID`,
-  a WSOL ATA for the pool-fee receiver, `create_amm_config`, and a published
-  `VITE_SOLANA_CPSWAP_PROGRAM`. The five-step path is written out in the operator to-do.
+- **Host the indexer's Solana leg.** The EVM indexer (`indexer/`) runs on Railway: the site's
+  CSP (`frontend/vercel.json`) allows its host, and the synthetic monitor
+  (`scripts/monitoring/venueHealth.mjs`) probes its `/ready` and `/graphql`. The Solana leg
+  (`indexer-solana/`) is built, and the operator to-do still lists it as hosted nowhere. The
+  surfaces that once waited on the indexer became working pages in
+  [#360](https://github.com/fomotsar-commits/tegridy-farms/pull/360) (changelog 2026-09-04).
+- ✅ ~~**Restart the Solana venue.**~~ **Done 2026-09-29.** The launcher and the pool program
+  are live at new ids, owned by the Squads vault. Since 2026-10-03 a connected Solana wallet
+  can open a pool, add liquidity and remove it from the site. The first pool on the venue,
+  BAYLA/SOL, was opened on 2026-10-03, and since 2026-10-04 a pool can pair with SOL, USDC or
+  BAYLA.
+- **Switch Solana launching on.** Launching from
+  [/curve-launch](https://memetics.finance/curve-launch) stays off by the owner's decision of
+  2026-10-02 (`CURVE_WRITES_ENABLED = false`), and switching it on is the owner's own one-line
+  change. The fork's admin-key changes have still had no independent review.
+- **Send this site's Solana swaps to our own pools.** The swap trades through Jupiter, and
+  Jupiter does not send trades to our pools yet, so a pool earns only from bots that trade the
+  pool program directly. Planned, not built.
 - **The V4 graduation leg.** `TegridyLiquidityMigrator` + `TegridyFeeLocker` are written and
   tested but undeployed; adoption needs a Whetstone module whitelist plus a timelocked hook
   allowance. Until then `TEGRIDY_V4_MIGRATOR_ADDRESS` stays `0x0` and launches graduate
@@ -908,15 +1060,19 @@ the single operator entry point is [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.
 - **A professional firm audit**, still not scheduled, and still the gate before scaling TVL.
 
 **Known-red, and known why.** This repo's standing position is that a red check with a
-stated reason beats a green one nobody has tested. Currently: **Slither has been red on
-`mvp-launch` itself since 2026-08-28**, so a red Slither on a PR is not necessarily that
-PR's diff — compare against trunk's findings before believing it.
+stated reason beats a green one nobody has tested. Currently: **Mirror to GitLab** fails on
+every push to `mvp-launch`, on purpose, until the owner adds the `GITLAB_MIRROR_SSH_KEY` secret
+(step 2C of [`docs/GIT_HOSTING.md`](docs/GIT_HOSTING.md)). The weekly **Contracts Coverage**
+workflow has failed at its `forge coverage` step on every scheduled run since its first, on
+2026-08-16, and no cause is recorded yet. Slither, red on trunk until 2026-09-04, has passed on
+every completed trunk run since.
 
 ## Community
 
 We're early and small, and we're not going to fake momentum.
 
-- **Issues / discussions:** this repo's [Issues](../../issues) and [Discussions](../../discussions) tabs
+- **Issues:** this repo's [Issues](../../issues) tab
+- **Chat:** [Discord](https://discord.gg/jMqEV3zSvD) and [X](https://x.com/junglebayac), the same two links the site footer carries.
 - **Security disclosures:** [SECURITY.md](SECURITY.md) — not as public issues
 - **Contributions:** [CONTRIBUTING.md](CONTRIBUTING.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
@@ -924,7 +1080,10 @@ We're early and small, and we're not going to fake momentum.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE), with two carve-outs. `solana/tegridy-amm/` is Apache-2.0
+([`solana/tegridy-amm/LICENSE`](solana/tegridy-amm/LICENSE)) because it derives from Raydium's
+cp-swap. The airdrop module is GPL-3.0-or-later because it derives from Uniswap's
+merkle-distributor. [NOTICE.md](NOTICE.md) lists every affected file.
 
 ---
 
