@@ -55,8 +55,19 @@ export function fakeLpApi(over: Partial<LpWriteApi> & { gate?: LpGate } = {}): L
   return { ...api, ...rest };
 }
 
-/** An `lp-deposit` summary, as a prepare would return it. */
+/**
+ * Where a fake wallet keeps a pool's pairing coin when that coin is not SOL (its USDC or
+ * BAYLA account). A fixed key: web3's address derivation cannot run under jsdom.
+ */
+export const COIN_ACCOUNT = new PublicKey(new Uint8Array(32).fill(43));
+
+/**
+ * An `lp-deposit` summary, as a prepare would return it. Pass `quote` in `over` for a
+ * pool paired with USDC or BAYLA: every `quote` amount is then in THAT coin's base units
+ * (100_000_000n is 0.1 SOL, and 100 USDC), and nothing is wrapped, as the builder has it.
+ */
 export function lpDepositSummary(pool: PublicKey, tokenMint: PublicKey, over: Partial<Extract<TxSummary, { kind: 'lp-deposit' }>> = {}): TxSummary {
+  const quote = over.quote ?? SOL_QUOTE;
   return {
     kind: 'lp-deposit',
     pool,
@@ -65,7 +76,7 @@ export function lpDepositSummary(pool: PublicKey, tokenMint: PublicKey, over: Pa
     enableCreatorFee: false,
     tokenMint,
     tokenDecimals: 6,
-    quote: SOL_QUOTE,
+    quote,
     quoteIsToken0: true,
     lpAmount: 1_000_000n,
     lpDecimals: 9,
@@ -75,20 +86,25 @@ export function lpDepositSummary(pool: PublicKey, tokenMint: PublicKey, over: Pa
     sharePct: { before: 0, after: 1 },
     price: { state: 'agrees', pool: 0.01, reference: 0.01, against: 'outside', diff: 0 },
     tokenWarnings: [],
-    unwrapsWsol: true,
+    unwrapsWsol: quote.native,
     wsolHeldBefore: 0n,
     notices: [],
     ...over,
   };
 }
 
-/** An `lp-withdraw` summary, as a prepare would return it. */
+/**
+ * An `lp-withdraw` summary, as a prepare would return it. With `quote` in `over` set to
+ * USDC or BAYLA, the coin is paid into the wallet's own account for it (`COIN_ACCOUNT`,
+ * already open) and nothing is unwrapped, as the builder has it.
+ */
 export function lpWithdrawSummary(
   pool: PublicKey,
   tokenMint: PublicKey,
   lpAccount: PublicKey,
   over: Partial<Extract<TxSummary, { kind: 'lp-withdraw' }>> = {},
 ): TxSummary {
+  const quote = over.quote ?? SOL_QUOTE;
   return {
     kind: 'lp-withdraw',
     pool,
@@ -96,7 +112,7 @@ export function lpWithdrawSummary(
     config: null,
     tokenMint,
     tokenDecimals: 6,
-    quote: SOL_QUOTE,
+    quote,
     quoteIsToken0: true,
     lpAccount,
     lpAmount: 500_000n,
@@ -108,8 +124,8 @@ export function lpWithdrawSummary(
     min: { quote: 49_500_000n, token: 4_950_000n },
     tokenAccount: tokenMint,
     tokenAccountRent: 0n,
-    quoteAccount: null,
-    unwrapsWsol: true,
+    quoteAccount: quote.native ? null : { address: COIN_ACCOUNT, rent: 0n },
+    unwrapsWsol: quote.native,
     notices: [],
     ...over,
   };
@@ -142,8 +158,13 @@ export const readyFacts = (over: Partial<AmmConfigView> = {}): CreateFacts => ({
 
 export const notOpenFacts = (): CreateFacts => ({ tier: { kind: 'not-open', address: TIER1_ADDRESS }, feeAccount: { kind: 'ready' } });
 
-/** An `lp-create` summary, as a prepare would return it. */
+/**
+ * An `lp-create` summary, as a prepare would return it. With `quote` in `over` set to USDC
+ * or BAYLA, `put.quote` and `locked.quote` are in that coin's base units and nothing is
+ * wrapped; the fee to open and the rents stay in lamports, whatever the coin.
+ */
 export function lpCreateSummary(pool: PublicKey, tokenMint: PublicKey, over: Partial<Extract<TxSummary, { kind: 'lp-create' }>> = {}): TxSummary {
+  const quote = over.quote ?? SOL_QUOTE;
   return {
     kind: 'lp-create',
     pool,
@@ -151,7 +172,7 @@ export function lpCreateSummary(pool: PublicKey, tokenMint: PublicKey, over: Par
     config: tier1Config(),
     tokenMint,
     tokenDecimals: 6,
-    quote: SOL_QUOTE,
+    quote,
     quoteIsToken0: true,
     put: { quote: 1_000_000_000n, token: 100_000_000n },
     supply: 10_000_000_000n,
@@ -163,7 +184,7 @@ export function lpCreateSummary(pool: PublicKey, tokenMint: PublicKey, over: Par
     rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
     price: { state: 'agrees', pool: 0.01, reference: 0.01, against: 'outside', diff: 0 },
     tokenWarnings: [],
-    unwrapsWsol: true,
+    unwrapsWsol: quote.native,
     wsolHeldBefore: 0n,
     notices: [],
     ...over,

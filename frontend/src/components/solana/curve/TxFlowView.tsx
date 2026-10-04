@@ -241,6 +241,9 @@ function CreateReserveRows({ summary }: { summary: Extract<TxSummary, { kind: 'c
 // on. A row never falls back to a value the panel was typed into.
 
 type LpSummary = Extract<TxSummary, { kind: 'lp-deposit' | 'lp-withdraw' }>;
+/** Any liquidity summary: each one names the pool's pairing coin (`quote`). */
+type AnyLpSummary = Extract<TxSummary, { kind: 'lp-deposit' | 'lp-withdraw' | 'lp-create' }>;
+const isLpSummary = (s: TxSummary): s is AnyLpSummary => s.kind === 'lp-deposit' || s.kind === 'lp-withdraw' || s.kind === 'lp-create';
 
 // A bound the program enforces, or a count of pool shares, is printed to its last
 // digit: rounding "at most" down, or "you get" either way, would misstate it.
@@ -379,7 +382,10 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
             : ''
         }`}
       />
-      {s.quoteAccount ? (
+      {/* The coin decides which row this is, not the account: a USDC pool never says "The SOL arrives", even when its summary names no account. */}
+      {q.native ? (
+        <Row label="The SOL arrives" value={s.unwrapsWsol ? 'as plain SOL' : 'as wrapped SOL in the account you already hold'} mono={false} />
+      ) : s.quoteAccount ? (
         <Row
           label={`The ${q.symbol} arrives in`}
           value={`${s.quoteAccount.address.toBase58()}${
@@ -387,7 +393,7 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
           }`}
         />
       ) : (
-        <Row label="The SOL arrives" value={s.unwrapsWsol ? 'as plain SOL' : 'as wrapped SOL in the account you already hold'} mono={false} />
+        <Row label={`The ${q.symbol} arrives in`} value={`your own ${q.symbol} account (its address was not read)`} mono={false} />
       )}
       <Row label="Pool fee to take out" value="none" mono={false} />
       {s.notices.map((n) => (
@@ -521,7 +527,10 @@ function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: P
   if (summary.kind === 'create' && t.role !== 'treasury' && t.mint.equals(summary.plant.mint)) {
     return { label: 'Test run: your $BAYLA changes by', value: `${sign}${baylaText(amount)}` };
   }
-  return { label: testRunLabel(prepared.kind, t.role ?? 'token', prepared.summary), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
+  // The pool's own coin is never printed in the page's token decimals: a token with 9
+  // decimals would show 250 USDC as 0.25. Without the watch list's figure, the coin's own.
+  const fallback = t.role === 'quote' && isLpSummary(summary) ? summary.quote.decimals : decimals;
+  return { label: testRunLabel(prepared.kind, t.role ?? 'token', prepared.summary), value: `${sign}${tokenText(amount, t.decimals ?? fallback)}` };
 }
 
 /**
@@ -568,9 +577,7 @@ function testRunLabel(kind: TxKind, role: TokenRole, summary: TxSummary): string
   // An opening's `treasury` account is the pool program's fee account, owned by the team's vault.
   if (kind === 'lp-create' && role === 'treasury') return "Test run: the team's vault account gains, in SOL (the fee, plus any SOL that account was already holding)";
   // The pool's own pairing coin, by name: "your USDC changes by".
-  if (role === 'quote' && (summary.kind === 'lp-deposit' || summary.kind === 'lp-withdraw' || summary.kind === 'lp-create')) {
-    return `Test run: your ${summary.quote.symbol} changes by`;
-  }
+  if (role === 'quote' && isLpSummary(summary)) return `Test run: your ${summary.quote.symbol} changes by`;
   return TEST_RUN_LABEL[role];
 }
 
@@ -587,6 +594,21 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
   'lp-create':
     "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
 };
+
+/**
+ * The rent line's label for this transaction. Taking liquidity out of a USDC or BAYLA pool
+ * can open the coin's own account as well as the token's (a SOL pool never keeps a new
+ * account for its SOL), so the line names every account its amount pays for.
+ */
+function rentRowLabel(prepared: PreparedTx): string {
+  const s = prepared.summary;
+  if (s.kind === 'lp-withdraw' && !s.quote.native && s.quoteAccount && s.quoteAccount.rent > 0n) {
+    return s.tokenAccountRent > 0n
+      ? `One-time deposits for your new token account and your new ${s.quote.symbol} account (each stays in its own account)`
+      : `One-time deposit for your new ${s.quote.symbol} account (it stays in that account)`;
+  }
+  return RENT_ROW_LABEL[prepared.kind];
+}
 
 export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals: number | null }) {
   const f = prepared.fees;
@@ -609,7 +631,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
         </Notice>
       )}
       {f.newAccountRentLamports > 0n && (
-        <Row label={RENT_ROW_LABEL[prepared.kind]} value={SOL(f.newAccountRentLamports)} />
+        <Row label={rentRowLabel(prepared)} value={SOL(f.newAccountRentLamports)} />
       )}
       {prepared.kind === 'create' && (
         <p className="text-white/40 text-[10px]">
