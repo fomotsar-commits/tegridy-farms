@@ -289,8 +289,18 @@ export interface CreatePlan {
   supply: bigint;
   /** What the opener gets: supply − 100. */
   lp: bigint;
-  /** What the 100 locked shares are worth at these amounts (floor; display). */
+  /** What the opener can never take back from each side at these amounts (`lockedBehind`; display). */
   locked: { quote: bigint; token: bigint };
+}
+
+/**
+ * What an opener can never take back from one side: what they put in, less what their own
+ * shares (the supply less the locked 100) pay out, rounded down the pool program's way. So
+ * it rounds UP and is never 0. The old figure, floor(100 x put / supply), said "0 tokens"
+ * of a whole-unit token when one whole token stayed behind (review, 2026-10-04). Display only.
+ */
+export function lockedBehind(put: bigint, supply: bigint): bigint {
+  return put - ((supply - LOCKED_LP) * put) / supply;
 }
 
 /**
@@ -319,7 +329,7 @@ export function planCreate(a: {
     init1: a.quoteIsToken0 ? a.token : a.quote,
     supply,
     lp: supply - LOCKED_LP,
-    locked: { quote: (LOCKED_LP * a.quote) / supply, token: (LOCKED_LP * a.token) / supply },
+    locked: { quote: lockedBehind(a.quote, supply), token: lockedBehind(a.token, supply) },
   };
 }
 

@@ -403,7 +403,9 @@ describe.each(HAPPY)('prepareLpCreate, a clean opening: %s', (_name, quote, toke
     expect(s.supply).toBe(supply);
     expect(s.lpAmount).toBe(supply - 100n);
     expect(s.lpDecimals).toBe(9);
-    expect(s.locked).toEqual({ quote: (100n * COINS) / supply, token: (100n * tokens) / supply });
+    // What stays behind: what was put in less what the opener's own shares pay out (floor), so it rounds up.
+    const behind = (put: bigint) => put - ((supply - 100n) * put) / supply;
+    expect(s.locked).toEqual({ quote: behind(COINS), token: behind(tokens) });
     expect(s.createFee).toBe(FEE);
     expect(s.feeReceiver.equals(CP_CREATE_POOL_FEE_RECEIVER)).toBe(true);
     expect(s.rents).toEqual({ neverRefunded: NEVER_REFUNDED, lpAccount: R(165) });
