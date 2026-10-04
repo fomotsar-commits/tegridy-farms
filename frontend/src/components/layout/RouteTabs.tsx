@@ -1,8 +1,7 @@
-import { useLayoutEffect, useRef } from 'react';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import type { NavItem } from '../../lib/navConfig';
 import { tabDomId } from './routeTabId';
-import { revealScrollLeft } from './tabStripScroll';
+import { useRevealSelectedTab } from './tabStripScroll';
 
 /**
  * The sticky pill tab strip shared by every route-navigating tabbed host.
@@ -77,30 +76,7 @@ function TabLabel({ item }: { item: NavItem }) {
 export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: RouteTabsProps) {
   const keys = items.map((i) => i.to);
   const tabKeys = useTabListKeys(keys, active, onSelect);
-  const listRef = useRef<HTMLDivElement>(null);
-  const keyList = keys.join(' ');
-
-  /* A strip that scrolls shows the selected tab whole: on landing, on a new
-     selection, and when the strip or a tab resizes (web fonts, rotation). It
-     moves only the strip's own scrollLeft, before paint, never the page. */
-  useLayoutEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-    const reveal = () => {
-      const tab = list.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
-      if (!tab) return;
-      const box = tab.getBoundingClientRect();
-      const start = box.left - list.getBoundingClientRect().left - list.clientLeft + list.scrollLeft;
-      const next = revealScrollLeft({ start, end: start + box.width }, list);
-      if (Math.abs(next - list.scrollLeft) > 0.5) list.scrollLeft = next;
-    };
-    reveal();
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(reveal);
-    ro.observe(list);
-    for (const tab of list.children) ro.observe(tab);
-    return () => ro.disconnect();
-  }, [active, keyList]);
+  const listRef = useRevealSelectedTab(active, keys.join(' '));
 
   return (
     <div
