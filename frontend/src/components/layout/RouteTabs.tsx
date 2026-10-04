@@ -105,7 +105,10 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
   return (
     <div
       className="fixed left-0 right-0 z-30 px-4 md:px-6 pointer-events-none"
-      style={{ top: 'calc(56px + var(--room-band-h, 0px))' }}
+      /* The header is 3.5rem PLUS the top safe-area inset (TopNav.tsx). Without the
+         inset here the strip sat under the header wherever the inset is not zero:
+         an Android 15 in-app browser drawn edge to edge (seen on a Galaxy S25). */
+      style={{ top: 'calc(56px + env(safe-area-inset-top, 0px) + var(--room-band-h, 0px))' }}
     >
       <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
         <div
