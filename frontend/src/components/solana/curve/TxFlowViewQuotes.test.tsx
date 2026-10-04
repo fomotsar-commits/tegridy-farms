@@ -38,6 +38,9 @@ const COINS: QuoteCoin[] = [USDC_QUOTE, BAYLA_QUOTE];
 // priority fee measured against a coin amount as if it were lamports shows on screen.
 const FEES: PreparedTx['fees'] = { baseLamports: 5_000n, priorityLamports: 1_200_000n, priorityFeeRead: true, newAccountRentLamports: 2_039_280n };
 
+/** A pool price 10% above the outside price: built for, with a warning, since 2026-10-04. */
+const OFF_PRICE = { state: 'disagrees', pool: 0.011, reference: 0.01, against: 'outside', diff: 0.1 } as const;
+
 type Deposit = Extract<TxSummary, { kind: 'lp-deposit' }>;
 type Withdraw = Extract<TxSummary, { kind: 'lp-withdraw' }>;
 type Create = Extract<TxSummary, { kind: 'lp-create' }>;
@@ -150,7 +153,30 @@ describe.each(COINS)('adding to a pool paired with $symbol: the review', (coin) 
     for (const limitedByBalance of ['none', 'quote', 'token'] as const) {
       expect(summaryText(deposit(coin, { limitedByBalance })), limitedByBalance).not.toContain('SOL');
     }
+    // Nor when the price is off and its cost is said: that cost is the coin's.
+    expect(summaryText(deposit(coin, { price: OFF_PRICE, priceGap: { diff: 0.1, lossQuote: 214_427n } }))).not.toContain('SOL');
   });
+
+  // "Any token" (owner ruling 2026-10-04). What a price that is off may cost is an amount of
+  // the pool's coin. The builder gives it in the coin's smallest units: 214,427 of them is
+  // 0.214427 of the coin. Read as lamports that is 0.000214427 SOL, a thousand times too small.
+  it('the estimated cost of a price that is off is in the coin, in the coin’s own decimals', async () => {
+    const said = [
+      'Its price is 10.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.',
+      `At these amounts, a move back to the outside price would take up to about 0.214427 ${C} of what you put in. That is an estimate.`,
+    ];
+    await review(deposit(coin, { price: OFF_PRICE, warnings: said, priceGap: { diff: 0.1, lossQuote: 214_427n } }));
+    expect(value('Price check')).toBe('10.0% above the outside price (Jupiter), read just now. That is off by more than 3%.');
+    expect(value('Estimated cost of that gap')).toBe(`up to about 0.214427 ${C} of what you put in`);
+    const box = screen.getByTestId('tx-review-warnings');
+    expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual(said);
+    expect(box.textContent).not.toContain('SOL');
+    expect(reviewText()).not.toContain('0.000214427');
+    cleanup();
+    // The smallest cost there is: one unit of the coin, never a nothing.
+    await review(deposit(coin, { price: OFF_PRICE, warnings: said, priceGap: { diff: 0.1, lossQuote: 1n } }));
+    expect(value('Estimated cost of that gap')).toBe(`up to about 0.000001 ${C} of what you put in`);
+  }, 30_000);
 
   it('the costs paid in SOL stay in SOL', async () => {
     await review(deposit(coin), { simulated: { signerLamportsDelta: -3_244_280n, tokenDeltas: [] } });
@@ -267,8 +293,13 @@ describe.each(COINS)('removing from a pool paired with $symbol: the review', (co
     const COIN_RENT = 2_039_280n;
     const fees = (rent: bigint) => ({ fees: { ...FEES, newAccountRentLamports: rent } });
 
+    // The deposit of the token's account is SOL, on a coin pool too: 2,074,080 lamports read
+    // as the coin's 6 decimals would say "2.07408 USDC".
+    const tokenRow = `${TOKEN_ACCOUNT.toBase58()} (opened for you; its deposit of 0.00207408 SOL stays in that account)`;
+
     await review(withdraw(coin, { tokenAccountRent: TOKEN_RENT }), fees(TOKEN_RENT));
     expect(value('One-time deposit for your new token account (it stays in that account)')).toBe('0.002 SOL');
+    expect(value('The tokens arrive in')).toBe(tokenRow);
     cleanup();
 
     await review(withdraw(coin, { quoteAccount: { address: COIN_ACCOUNT, rent: COIN_RENT } }), fees(COIN_RENT));
@@ -278,6 +309,8 @@ describe.each(COINS)('removing from a pool paired with $symbol: the review', (co
 
     await review(withdraw(coin, { tokenAccountRent: TOKEN_RENT, quoteAccount: { address: COIN_ACCOUNT, rent: COIN_RENT } }), fees(TOKEN_RENT + COIN_RENT));
     expect(value(`One-time deposits for your new token account and your new ${C} account (each stays in its own account)`)).toBe('0.0041 SOL');
+    expect(value('The tokens arrive in')).toBe(tokenRow);
+    expect(reviewText()).not.toContain(`2.07408 ${C}`);
   }, 30_000);
 
   it('the priority fee is its own amount in SOL, never a share "of this trade"', async () => {
@@ -330,6 +363,29 @@ describe.each(COINS)('opening a pool paired with $symbol: the review', (coin) =>
   it('the opening price and the market’s are said in the coin', async () => {
     await review(create(coin));
     expect(value('Opening price')).toBe(`1 token = 0.025 ${C}. Market (Jupiter, read just now): 0.0249 ${C}, 0.4% above`);
+  });
+
+  it('an opening price that is off the market, and what that may cost, are said in the coin', async () => {
+    await review(
+      create(coin, {
+        price: { state: 'disagrees', pool: 0.025, reference: 0.02, against: 'outside', diff: 0.25 },
+        warnings: [`Your opening price is 25.0% above the market price (Jupiter).`],
+        priceGap: { diff: 0.25, lossQuote: 2_500_001n },
+      }),
+    );
+    expect(value('Opening price')).toBe(`1 token = 0.025 ${C}. Market (Jupiter, read just now): 0.02 ${C}, 25.0% above. That is off by more than 3%.`);
+    // 2,500,001 of the coin's smallest units, to the last digit. As lamports: 0.002500001 SOL.
+    expect(value('Estimated cost of that gap')).toBe(`up to about 2.500001 ${C} of what you put in`);
+    expect(reviewText()).not.toContain('0.002500001');
+  });
+
+  it('an opening with no market price still says its price, in the coin, written out', async () => {
+    await review(create(coin, { price: { state: 'no-market', pool: 104_000, detail: 'Jupiter has no route for this token' }, warnings: ['Jupiter has no market price for this token.'] }));
+    // 104,000 of the coin a token: never "1.040e+5".
+    expect(value('Opening price')).toBe(
+      `1 token = 104,000 ${C}. Jupiter has no market price for this token, so there is nothing to compare it with: you are setting the price yourself`,
+    );
+    expect(reviewText()).not.toMatch(/e\+/);
   });
 
   it('the locked shares are valued in the coin, and a real amount too small to show is not shown as nothing', async () => {

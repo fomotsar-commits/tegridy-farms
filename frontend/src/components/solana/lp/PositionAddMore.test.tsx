@@ -210,7 +210,8 @@ describe('Add more liquidity is on a position', () => {
     const mine = view();
     const blockedMint = key();
     const ofBlocked = view({ mint: blockedMint });
-    const blocked: TokenSafety = { ...okToken, mint: blockedMint.toBase58(), verdict: 'blocked', blocks: [{ code: 'freeze-authority', text: 'Its creator can still freeze token accounts.' }] } as TokenSafety;
+    // Blocked for a reason that still blocks: the pool program does not accept the token.
+    const blocked: TokenSafety = { ...okToken, mint: blockedMint.toBase58(), verdict: 'blocked', blocks: [{ code: 'extension', text: 'It uses a transfer hook. The pool program does not accept tokens with it.' }] } as TokenSafety;
     const r = readers({
       safety: vi.fn(async (mints: string[]) => new Map(mints.map((m) => [m, m === blockedMint.toBase58() ? blocked : okToken]))),
       positions: held(
@@ -273,6 +274,28 @@ describe('Add more liquidity is on a position', () => {
     const panel = await screen.findByTestId('lp-add-panel');
     expect(card(mine.address)).toHaveAttribute('data-quote', quote.symbol);
     expect(card(mine.address)).toContainElement(panel);
+  });
+
+  // A warning is not a refusal (owner ruling 2026-10-04). A pool whose price is off still
+  // takes a deposit, so the holder's press ends in its form, and the form says the warning.
+  // Only a pool that refuses a deposit, or could not be checked, shows its card instead.
+  it('a position’s pool that is open WITH warnings ends in its Add form, and the warning is on the form', async () => {
+    const mine = view();
+    const r = readers({
+      findPools: vi.fn(async () => search([mine])),
+      // The market is 0.008 SOL a token: the pool's 0.01 is 25% above it.
+      outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.008, source: 'Jupiter' as const })),
+      positions: held(position(mine)),
+    });
+    mount(r);
+    fireEvent.click(await addMore(mine.address));
+    const panel = await screen.findByTestId('lp-add-panel');
+    expect(card(mine.address)).toContainElement(panel);
+    expect(card(mine.address)).toHaveAttribute('data-deposits', 'allowed');
+    expect(card(mine.address)).toHaveTextContent('Deposits: open, with warnings');
+    expect(within(panel).getByTestId('lp-add-warnings')).toHaveTextContent('Its price is 25.0% above the outside price.');
+    expect(screen.queryByTestId('lp-wish-why')).toBeNull();
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
   });
 });
 

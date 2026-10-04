@@ -158,12 +158,16 @@ function RemoveInner({
   // The accounts this withdrawal opens, each with the deposit it keeps (null: the review reads it).
   const opens = [...(tokenMissing ? [{ what: 'token', rent }] : []), ...(coinMissing ? [{ what: coin.symbol, rent: coinRent }] : [])];
   const opensText = opens.map((o) => `the ${o.what} account`).join(' and ');
-  const deposits = opens.reduce((sum, o) => sum + (o.rent ?? 0n), 0n);
   const depositsKnown = opens.every((o) => o.rent !== null);
+  // What those accounts' deposits come to. One that was not read is counted at the classic
+  // account's deposit, never at 0: no token account costs less, so the sum is then the
+  // LEAST they can come to (`depositsKnown` says whether it is exact). Counted as 0, a
+  // wallet short of SOL was told a figure half the truth, or told nothing (review, 2026-10-04).
+  const smallestDeposit = facts?.kind === 'ok' ? facts.rents.tokenAccount165 : 0n;
+  const deposits = opens.reduce((sum, o) => sum + (o.rent ?? smallestDeposit), 0n);
   // The wallet pays those deposits and the fee in SOL before anything comes back, and
   // must keep its own floor. Below that it MAY be refused: said, never a reason to stop
-  // someone leaving. Only for a coin that is not SOL (a SOL pool's words are unchanged),
-  // and only from deposits that were read.
+  // someone leaving. Only for a coin that is not SOL (a SOL pool's words are unchanged).
   const mayLackSol =
     !coin.native && facts?.kind === 'ok' && opens.length > 0 && facts.lamports < deposits + feeReserveFor(1) + facts.rents.walletFloor
       ? { has: facts.lamports, deposits }
@@ -286,9 +290,9 @@ function RemoveInner({
           {mayLackSol && (
             <div data-testid="lp-remove-may-lack-sol">
               <Notice tone="warn">
-                {`This wallet may be short of SOL for this. It has ${solExact(mayLackSol.has)}. This withdrawal opens ${opensText}${
-                  mayLackSol.deposits > 0n ? `, ${opens.length > 1 ? 'whose deposits come to' : 'whose deposit is'} ${solExact(mayLackSol.deposits)},` : ''
-                } and pays the network fee. You can still press Review: it test-runs the withdrawal and says for sure. If it is refused, send a little SOL to this wallet and try again.`}
+                {`This wallet may be short of SOL for this. It has ${solExact(mayLackSol.has)}. This withdrawal opens ${opensText}, ${
+                  opens.length > 1 ? 'whose deposits come to' : 'whose deposit is'
+                } ${depositsKnown ? solExact(mayLackSol.deposits) : `at least ${solExact(mayLackSol.deposits)} (the review shows the exact figure)`}, and pays the network fee. You can still press Review: it test-runs the withdrawal and says for sure. If it is refused, send a little SOL to this wallet and try again.`}
               </Notice>
             </div>
           )}
