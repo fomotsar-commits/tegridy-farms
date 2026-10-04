@@ -259,8 +259,9 @@ describe('an amount typed for a coin is that coin’s, to the base unit', () => 
     // The locked part's worth is in USDC's own 6 decimals: 100 shares of isqrt(50,000,000 × 25,000,000) = 35,355,339
     // are 141 units of USDC and 70 of the token. Printed with SOL's 9 it would read 0.000000141.
     expect(row(panel, 'Locked in the pool forever')).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit), worth about 0.000141 USDC and 0.00007 tokens');
-    // Two coins leave the wallet, and they are never added into one number.
-    expect(row(panel, 'In all, from your wallet')).toHaveTextContent('50 USDC and 25 tokens, and about 0.192 SOL for the fee to open and the account deposits, plus the network fee');
+    // Two coins leave the wallet, and they are never added into one number. The SOL is
+    // 0.19203928, said rounded UP: what the wallet must pay never reads as less than it is.
+    expect(row(panel, 'In all, from your wallet')).toHaveTextContent('50 USDC and 25 tokens, and about 0.1921 SOL for the fee to open and the account deposits, plus the network fee');
     expect(reviewButton(panel)).toBeEnabled();
     await act(async () => {
       fireEvent.click(reviewButton(panel));
@@ -896,6 +897,12 @@ describe('what the wallet can put in, for a coin that is not SOL', () => {
       'This wallet cannot open a pool yet. That needs about 0.194 SOL for the fee to open, the account deposits and network fees, and this wallet has 0.193940159 SOL. No SOL goes into the pool, but those costs are paid in SOL.',
     );
     expect(cannot).toHaveTextContent('Send SOL to this wallet, then come back to this tab.');
+    // The line under the boxes states the same need, and states it the same way: rounded
+    // UP. Cut down it read "needs about 0.1939 SOL ... and has 0.193940159 SOL", which
+    // looks like enough and is one lamport short (whole-change review, 2026-10-04).
+    const paid = within(panel).getByTestId('lp-create-paid-in-sol');
+    expect(paid).toHaveTextContent('This wallet needs about 0.194 SOL for them and has 0.193940159 SOL.');
+    expect(paid).not.toHaveTextContent('0.1939 SOL');
     // It holds the USDC and the tokens: nothing else is said to be missing.
     expect(cannot).not.toHaveTextContent(/holds no|none of this token/);
     // Amounts the USDC and the tokens cover, at the market: only the SOL stops it.
@@ -940,7 +947,8 @@ describe('what the wallet can put in, for a coin that is not SOL', () => {
     expect(panel).toHaveTextContent('Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.');
     await pair(panel, 'USDC');
     expect(within(panel).getByTestId('lp-create-paid-in-sol')).toHaveTextContent(
-      'The fee to open (0.15 SOL), the account deposits and the network fee are paid in SOL, whatever the pool is paired with. This wallet needs about 0.1939 SOL for them and has 5 SOL. Only your USDC and your tokens go into the pool.',
+      // 0.19394016 SOL, rounded up: a need is never said as less than it is.
+      'The fee to open (0.15 SOL), the account deposits and the network fee are paid in SOL, whatever the pool is paired with. This wallet needs about 0.194 SOL for them and has 5 SOL. Only your USDC and your tokens go into the pool.',
     );
     expect(within(panel).getByTestId('lp-before-you-open')).toHaveTextContent(
       "Opening costs 0.15 SOL, paid to the team's vault, and about 0.04 SOL in account deposits that never come back. Both are paid in SOL, whatever the pool is paired with: none of it comes out of your USDC. 0.0000001 pool shares",

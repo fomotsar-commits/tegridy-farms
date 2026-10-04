@@ -20,7 +20,7 @@ import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { CoinRiskNotice, LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
-import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, coinExact, reviewOffWhy, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
+import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, coinExact, reviewOffWhy, sharePct, solAbout, solAboutUp, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { POOL_RISK_CODES, createHeld, type CreateOffer, type PairFacts } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -340,7 +340,14 @@ function CreateInner({
   // A coin that is not SOL puts no SOL in, but the wallet's SOL must still cover the costs
   // (the write layer's own rule, `lamports < setAside`). Short of it, Review is off.
   const solShort = !coin.native && lamports !== null && setAside !== null && lamports < setAside;
-  const availableToken = facts?.kind === 'ok' ? (facts.token?.amount ?? 0n) : null;
+  // What the wallet holds of the token. Null while the token itself is not read: an open
+  // form stays open when a re-read of the token fails, and then its program is not known
+  // (`tokenProgram` above falls back to the classic one). The wallet, asked under the wrong
+  // program, answers "no account", and that was shown as "holds none of this token" to a
+  // wallet that held it (review, 2026-10-04). Nothing is claimed about the holding until
+  // the token is read again. With the token read, no account is a real 0.
+  // `decimals` is the token's own, from that read: null exactly when the token is not read.
+  const availableToken = facts?.kind === 'ok' && decimals !== null ? (facts.token?.amount ?? 0n) : null;
   // Said before anything is typed: a wallet that can put nothing in is not left with a greyed-out Review.
   const cannotOpen = cannotFundText({
     doing: 'open a pool',
@@ -401,7 +408,8 @@ function CreateInner({
     if (!signer) return 'Connect a wallet to see what you can put in.';
     if (!facts) return 'Reading your wallet…';
     if (facts.kind === 'unread') return `You have: could not read (${facts.detail})`;
-    if (side === 'token') return `You have ${unitsExact(availableToken ?? 0n, dec)} tokens.`;
+    // Not read is said as that: never as 0, and never as a count in the wrong decimals.
+    if (side === 'token') return availableToken === null ? 'You have: could not read (this token was not read just now)' : `You have ${unitsExact(availableToken, dec)} tokens.`;
     if (coin.native) {
       return availableQuote === null
         ? `You have ${solExact(facts.lamports)}.`
@@ -731,11 +739,13 @@ function CreateInner({
             errors={{ quote: parseError('quote'), token: parseError('token') }}
           />
           {/* Under the boxes, so the first box stays on a phone's first screen. Someone putting
-              in USDC must not read the fee as USDC, or think their SOL is not needed. */}
+              in USDC must not read the fee as USDC, or think their SOL is not needed. The
+              need is the notice's own figure, rounded up the same way (`solAboutUp`): cut
+              down, it read as less than the balance printed beside it. */}
           {!coin.native && (
             <p data-testid="lp-create-paid-in-sol">
               The fee to open{fee === null ? '' : ` (${formatSol(fee, 9)} SOL)`}, the account deposits and the network fee are paid in SOL, whatever
-              the pool is paired with.{setAside !== null && lamports !== null ? ` This wallet needs about ${solAbout(setAside)} for them and has ${solExact(lamports)}.` : ''}{' '}
+              the pool is paired with.{setAside !== null && lamports !== null ? ` This wallet needs about ${solAboutUp(setAside)} for them and has ${solExact(lamports)}.` : ''}{' '}
               Only your {coin.symbol} and your tokens go into the pool.
             </p>
           )}
@@ -818,8 +828,9 @@ function CreateInner({
                     ? coin.native
                       ? // The tokens leave the wallet too: "in all" names them (phone walk, 2026-10-03).
                         `about ${solAbout((quoteRaw ?? 0n) + config.createPoolFee + neverRefunded + lpRent)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, plus the network fee`
-                      : // Three things leave the wallet, and they are never added together.
-                        `${coinExact(quoteRaw ?? 0n, coin)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, and about ${solAbout(config.createPoolFee + neverRefunded + lpRent)} for the fee to open and the account deposits, plus the network fee`
+                      : // Three things leave the wallet, and they are never added together. The SOL
+                        // is what the wallet must pay, so it is rounded up like the need above.
+                        `${coinExact(quoteRaw ?? 0n, coin)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, and about ${solAboutUp(config.createPoolFee + neverRefunded + lpRent)} for the fee to open and the account deposits, plus the network fee`
                     : signer
                       ? 'could not be worked out (the account deposits could not be read)'
                       : 'worked out once a wallet is connected'
