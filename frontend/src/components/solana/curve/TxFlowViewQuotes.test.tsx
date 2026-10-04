@@ -169,7 +169,8 @@ describe.each(COINS)('adding to a pool paired with $symbol: the review', (coin) 
     expect(value('Price check')).toBe('10.0% above the outside price (Jupiter), read just now. That is off by more than 3%.');
     expect(value('Estimated cost of that gap')).toBe(`up to about 0.214427 ${C} of what you put in`);
     const box = screen.getByTestId('tx-review-warnings');
-    expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual(said);
+    // The builder's warnings, then what the coin itself adds to the risks (USDC's only).
+    expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual(coin.risk ? [...said, coin.risk] : said);
     expect(box.textContent).not.toContain('SOL');
     expect(reviewText()).not.toContain('0.000214427');
     cleanup();
@@ -458,13 +459,39 @@ describe.each(COINS)('opening a pool paired with $symbol: the review', (coin) =>
 describe('the coin’s own risk line', () => {
   const RISK = USDC_QUOTE.risk!;
 
-  it('USDC: said in the coin table’s own words, as a warning, on adding and on opening', async () => {
+  /** The lines of the warnings box the review opens on, and whether the review's heading is described by that box. */
+  const warningsBox = () => {
+    const box = screen.getByTestId('tx-review-warnings');
+    const heading = screen.getByRole('heading', { name: /^Review: / });
+    return { lines: Array.from(box.querySelectorAll('li')).map((li) => li.textContent), described: heading.getAttribute('aria-describedby') === box.id, box };
+  };
+
+  // Whole-change review 2026-10-04 (W5). The line was a plain notice far down the rows: a
+  // clean USDC review had no warnings box at all, so the heading was described by nothing
+  // and a screen-reader user could reach Sign without hearing that Circle can freeze the
+  // pool's USDC. It is a risk to what goes in, like a token its creator can freeze, so it
+  // is among the warnings the review opens on. Said once: not there and again in the rows.
+  it('USDC: among the warnings the review opens on, in the coin table’s own words, and the heading is described by them, on adding and on opening', async () => {
     expect(RISK).toMatch(/Circle.*can freeze any USDC account/);
-    await review(deposit(USDC_QUOTE));
-    expect(screen.getByText(RISK)).toHaveClass('text-amber-300/90');
-    cleanup();
-    await review(create(USDC_QUOTE));
-    expect(screen.getByText(RISK)).toHaveClass('text-amber-300/90');
+    for (const summary of [deposit(USDC_QUOTE), create(USDC_QUOTE)]) {
+      await review(summary);
+      const { lines, described, box } = warningsBox();
+      expect(lines).toEqual([RISK]);
+      expect(described).toBe(true);
+      expect(box.querySelector('ul')).toHaveClass('text-amber-300/90');
+      expect(screen.getAllByText(RISK)).toHaveLength(1);
+      cleanup();
+    }
+  }, 30_000);
+
+  it('USDC, with the builder’s own warnings: after them, still once', async () => {
+    const said = ['Its price is 10.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.'];
+    for (const summary of [deposit(USDC_QUOTE, { warnings: said }), create(USDC_QUOTE, { warnings: said })]) {
+      await review(summary);
+      expect(warningsBox().lines).toEqual([...said, RISK]);
+      expect(screen.getAllByText(RISK)).toHaveLength(1);
+      cleanup();
+    }
   }, 30_000);
 
   it('BAYLA and SOL have none, so nothing about freezing is said', async () => {

@@ -1045,6 +1045,37 @@ describe('what the coin adds to the risks', () => {
     expect(panel).not.toHaveTextContent('Circle');
   });
 
+  // Whole-change review 2026-10-04 (W5). The check's own warnings are what Review is
+  // described by, so a screen reader says them when focus reaches the button. The coin's
+  // risk was not among them: a clean USDC opening had a Review described by nothing.
+  it('USDC’s is part of what Review is described by, with or without other warnings; BAYLA and SOL add nothing to it', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    // SOL, nothing typed: described by nothing, as it always was.
+    expect(reviewButton(panel)).not.toHaveAttribute('aria-describedby');
+    await pair(panel, 'USDC');
+    // A clean opening at the market (2 USDC a token): the coin's risk is the whole description.
+    type(coinBox(panel, 'USDC'), '50');
+    type(tokens(panel), '25');
+    await waitFor(() => expect(price(panel)).toHaveAttribute('data-price', 'agrees'));
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
+    expect(reviewButton(panel)).toBeEnabled();
+    expect(reviewButton(panel)).toHaveAccessibleDescription(USDC_QUOTE.risk!);
+    // Off the market: the price warning and what it may cost, then the coin's risk.
+    type(tokens(panel), '50');
+    await waitFor(() => expect(price(panel)).toHaveAttribute('data-price', 'disagrees'));
+    const description = reviewButton(panel).getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)?.textContent ?? '');
+    expect(description).toHaveLength(2);
+    expect(description[0]).toContain('Your opening price is 50.0% below the market price');
+    expect(description[1]).toBe(USDC_QUOTE.risk);
+    // BAYLA adds none: at the market, Review is described by nothing again.
+    await pair(panel, 'BAYLA');
+    type(coinBox(panel, 'BAYLA'), '5000');
+    await waitFor(() => expect(price(panel)).toHaveAttribute('data-price', 'agrees'));
+    expect(reviewButton(panel)).not.toHaveAttribute('aria-describedby');
+  }, LONG);
+
   // A live mint authority can make new tokens and sell them into the pool: what it takes
   // out is the pool's pairing coin, so that is the coin the warning names. It was never a
   // refusal, so it stays in the form's own list above the boxes.
@@ -1260,6 +1291,24 @@ describe('a coin’s price is only ever the answer to the read that is out now',
 
 describe('changing the coin is never silent', () => {
   const status = (p: HTMLElement) => p.querySelector('p.sr-only[role="status"]');
+  /** The whole status line, and nothing else. */
+  const said = (p: HTMLElement) => (status(p)?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+  // Whole-change review 2026-10-04 (W5). The arrow keys in the radio group change the coin,
+  // and the amber notice about what USDC adds to the risks appears beside it without a
+  // word to a screen reader. The status line says the change of coin: it says that too.
+  it('choosing USDC says what USDC adds to the risks, in the coin table’s own words; BAYLA and SOL add nothing to say', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    await pair(panel, 'USDC');
+    expect(USDC_QUOTE.risk).toMatch(/Circle\) can freeze any USDC account/);
+    expect(said(panel)).toBe(`Now pairing with USDC. ${USDC_QUOTE.risk}`);
+    await pair(panel, 'BAYLA');
+    expect(said(panel)).toBe('Now pairing with BAYLA.');
+    await pair(panel, 'SOL');
+    expect(said(panel)).toBe('Now pairing with SOL.');
+  });
 
   // F9: the radio group's arrow keys change the coin, and a typed amount went with it
   // without a word.
@@ -1273,7 +1322,7 @@ describe('changing the coin is never silent', () => {
     await pair(panel, 'USDC');
     expect(coinBox(panel, 'USDC')).toHaveValue('');
     expect(tokens(panel)).toHaveValue('100');
-    expect(status(panel)).toHaveTextContent(/^Now pairing with USDC\. Type the USDC amount again\.$/);
+    expect(said(panel)).toBe(`Now pairing with USDC. ${USDC_QUOTE.risk} Type the USDC amount again.`);
     // The kept token amount is what Match works from: 100 tokens at 2 USDC.
     await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
     fireEvent.click(matchButton(panel));
@@ -1297,7 +1346,7 @@ describe('changing the coin is never silent', () => {
     type(tokens(panel), '100');
     await pair(panel, 'USDC');
     await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
-    expect(status(panel)).toHaveTextContent(/^Now pairing with USDC\. Type the USDC amount again\.$/);
+    expect(said(panel)).toBe(`Now pairing with USDC. ${USDC_QUOTE.risk} Type the USDC amount again.`);
     fill(panel);
     expect(coinBox(panel, 'USDC')).not.toHaveValue('');
     expect(status(panel)).not.toHaveTextContent('Now pairing');
@@ -1332,7 +1381,7 @@ describe('changing the coin is never silent', () => {
     // At once: the settled line was SOL's, and is not USDC's.
     expect(status(panel)).not.toHaveTextContent('You would open the pool');
     expect(status(panel)).not.toHaveTextContent('SOL');
-    expect(status(panel)).toHaveTextContent('Now pairing with USDC. Type the USDC amount again.');
+    expect(said(panel)).toBe(`Now pairing with USDC. ${USDC_QUOTE.risk} Type the USDC amount again.`);
   });
 });
 

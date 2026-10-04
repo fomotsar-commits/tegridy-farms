@@ -577,7 +577,9 @@ function CreateInner({
     const cleared = boxes.quote.trim() !== '';
     setBoxes((b) => ({ quote: '', token: b.token }));
     // Never silent: the arrow keys in the radio group change the coin, and a typed amount goes with it.
-    setCoinNote(`Now pairing with ${next.symbol}.${cleared ? ` Type the ${next.symbol} amount again.` : ''}`);
+    // What the new coin adds to the risks appears beside the group as it is chosen, so the
+    // line says that too: the notice alone is not read out to a screen reader.
+    setCoinNote(`Now pairing with ${next.symbol}.${next.risk ? ` ${next.risk}` : ''}${cleared ? ` Type the ${next.symbol} amount again.` : ''}`);
     // The coin that was left keeps no price: coming back to it reads its price again, and
     // says "reading" until that answer is in. Its old price is never shown as the current one.
     setCoinPrice(null);
@@ -614,6 +616,11 @@ function CreateInner({
   const pairLabel = useId();
   const warningsId = useId();
   const pairName = useId();
+  // What Review is described by, so a screen reader says it when focus reaches the button:
+  // the check's warnings, then what the chosen coin itself adds to the risks. The coin's
+  // line was not among them, so a clean USDC opening had a Review described by nothing.
+  const coinRiskId = useId();
+  const describedBy = [warned.length > 0 ? warningsId : null, coin.risk ? coinRiskId : null].filter((id) => id !== null).join(' ') || undefined;
   // SOL keeps its plain words until another coin has a pool to point to as well.
   const named = !coin.native || pairs.filter((x) => x.advice.kind !== 'none').length > 1;
   const advice = adviceLine(pair, named);
@@ -676,7 +683,7 @@ function CreateInner({
             // Nothing to choose: the coin is said, and no group is drawn.
             <Row label="Paired with" value={`${coin.symbol}: this site pairs this token with ${coin.symbol} only${otherSide}`} mono={false} />
           )}
-          <CoinRiskNotice coin={coin} />
+          <CoinRiskNotice coin={coin} id={coinRiskId} />
           {readyConfig !== null && offer === 'offer' && advice && (
             <div data-testid="lp-create-advice">
               <Notice tone="warn">{advice}</Notice>
@@ -891,7 +898,7 @@ function CreateInner({
               type="button"
               className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale"
               disabled={!canReview}
-              aria-describedby={warned.length > 0 ? warningsId : undefined}
+              aria-describedby={describedBy}
               onClick={review}
             >
               Review: open the pool
