@@ -15,6 +15,43 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-04: a page too wide for its window can be scrolled sideways in every test browser
+
+**Believed:** `scrollWidth <= innerWidth`, or `scrollTo(500, 0)` and then reading `scrollX`,
+shows a page that is too wide in any Playwright project.
+
+**Measured:** /nft-finance on trunk bcafb7b3, production build, Chromium, viewport set to
+820px. The section tabs made the document 1,119px wide. Desktop project: `innerWidth` 820,
+`scrollWidth` 1119, and `scrollTo(500, 0)` left `scrollX` at 299. Pixel 5 project
+(`isMobile`): `innerWidth` 1119, `scrollWidth` 1119, and `scrollX` stayed 0. A phone browser
+widens its layout viewport to fit the page, so the page has nothing left to scroll and both
+checks pass on the broken page. `documentElement.clientWidth` read 820 in both. `hasTouch`
+alone does not do it (`innerWidth` 820, `scrollX` 299): `isMobile` does. WebKit's two phone
+projects were not measured: WebKit would not launch (next entry).
+
+**Do:** compare `scrollWidth` with `documentElement.clientWidth`, or with the width the test
+set. A check written the `scrollX` way cannot fail for this reason in a phone project, so a
+green there says nothing about a page that is too wide.
+
+## 2026-10-04: WebKit that dies at launch is the machine being busy
+
+**Believed:** `browserType.launch: Target page, context or browser has been closed` on the
+WebKit projects means load. Run WebKit alone with `--workers=1` and it passes.
+
+**Measured:** alone, with one worker, all 12 WebKit tests failed in 1 to 3 ms each, and a bare
+`webkit.launch()` failed three times in a row. `Playwright.exe --version` exited
+`0xC0E90002`, which the launch log prints as `exitCode=3236495362`. The Code Integrity log
+(`Get-WinEvent -LogName Microsoft-Windows-CodeIntegrity/Operational`, event 3077) named the
+cause: Windows Smart App Control refused the unsigned `libEGL.dll` inside
+`ms-playwright\webkit-2336`. The same log holds one such block on 10-02 and none during the
+WebKit runs other sessions made earlier on 10-03, so the block comes and goes. Chromium ran
+throughout.
+
+**Do:** when WebKit fails in milliseconds, read the exit code in the launch log before
+retrying. `3236495362` is this block, and waiting for the machine to go quiet does nothing.
+Leave Smart App Control on. Say WebKit did not run, and let CI's `iphone-safari` and
+`ipad-safari` projects be the WebKit check.
+
 ## 2026-10-04: a new card that passes on a phone means the change passes on a phone
 
 **Believed:** the burn tracker was checked on phones: every new card at 320, 393, 810 and
