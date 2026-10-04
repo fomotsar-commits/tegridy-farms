@@ -29,7 +29,7 @@ import {
   type WriteSnapshot,
 } from './liquidity';
 import { bodySteps } from './prepare';
-import { CPSWAP, EXT, FakeChain, addPool, cfgLocal, openAccount, rent, setClock, type PoolFixture, type SimHandler } from './testkit.fixture';
+import { CPSWAP, EXT, FakeChain, addPool, beforeBalanceRun, cfgLocal, openAccount, rent, setClock, skewTestRun, type PoolFixture, type SimHandler } from './testkit.fixture';
 import type { IntentStep, LpDepositSummary, LpOpenGate, LpWithdrawSummary, PoolIntent, PoolPins, PreparedTx, WriteRpc } from './types';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
@@ -286,8 +286,9 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
       ['lp', 9, w.lpAta.toBase58()],
       ['quote', quote.decimals, w.quoteAta.toBase58()],
     ]);
-    // At most the limit leaves the coin's account, and at least one unit.
-    expect(row(p, w.quoteAta)).toEqual([-(100n * U6), -1n]);
+    // At most the limit leaves the coin's account. No upper bound: more of the coin
+    // arriving while Review builds must not block the deposit.
+    expect(row(p, w.quoteAta)).toEqual([-(100n * U6), 2n ** 64n]);
     expect(row(p, w.tokenAta)).toEqual([-s.max.token, -1n]);
     expect(row(p, w.lpAta)).toEqual([s.lpAmount, 2n ** 64n]);
     // The only SOL that leaves is the new pool-share account's deposit: none goes into the pool.
@@ -558,11 +559,47 @@ describe('a frozen vault on a pool paired with a coin: who is said to have froze
 });
 
 /** The wallet's own account for the coin, as the chain holds it, with `o` on top (an approved spender, frozen, ...). */
-function setCoinAccount(w: World, o: Parameters<FakeChain['token2022Account']>[4]): void {
+function setCoinAccount(w: World, o: Parameters<FakeChain['token2022Account']>[4], amount = 50_000n * U6): void {
   const mint = new PublicKey(w.quote.mint);
-  if (w.quote.program === TOKEN_2022_PROGRAM_ID.toBase58()) w.chain.token2022Account(w.quoteAta, mint, ME, 50_000n * U6, o);
-  else w.chain.tokenAccount(w.quoteAta, mint, ME, 50_000n * U6, o);
+  if (w.quote.program === TOKEN_2022_PROGRAM_ID.toBase58()) w.chain.token2022Account(w.quoteAta, mint, ME, amount, o);
+  else w.chain.tokenAccount(w.quoteAta, mint, ME, amount, o);
 }
+
+// Whole-change review 2026-10-04 (checker-1). The balances are read a slot or more before
+// the test run, and anyone can send a coin to the wallet in between. The deposit's row for
+// the coin's account said it must FALL by at least one unit, so a payment arriving while
+// Review was building blocked an honest deposit. The opening's row for the same account has
+// no upper bound for exactly this. What protects the signer is the other end of the row:
+// no more than the limit may leave, and that is not loosened.
+describe('the coin’s account in a deposit: more arriving does not block it; more leaving than the limit still does', () => {
+  const BLOCKED = { status: 'not-sent', stage: 'simulate', message: 'Blocked: the simulation shows a different token amount than this screen says.' };
+  const outcome = (r: Awaited<ReturnType<typeof deposit>>) => (r.ok ? 'prepared' : r.outcome);
+  const moved = (p: PreparedTx, k: PublicKey) => p.simulated.tokenDeltas.find((d) => d.account.equals(k))!.delta;
+
+  it.each(COINS)('%s: 1,000 coins sent to the wallet between the balance read and the test run: the deposit still prepares', async (_n, quote) => {
+    const w = world(quote);
+    beforeBalanceRun(w.chain, () => setCoinAccount(w, {}, 51_000n * U6));
+    const p = prepared(await deposit(w));
+    const s = p.summary as LpDepositSummary;
+    // The account ends 1,000 coins up, less what the deposit took: a rise, not a fall.
+    expect(moved(p, w.quoteAta)).toBe(1_000n * U6 - s.quoted.quote);
+    expect(moved(p, w.quoteAta) > 0n).toBe(true);
+    // At most the limit leaves; no upper bound, as on the opening's row for this account.
+    expect(row(p, w.quoteAta)).toEqual([-s.max.quote, 2n ** 64n]);
+  });
+
+  it.each(COINS)('%s: exactly the limit leaving passes; one unit more than the limit is still blocked', async (_n, quote) => {
+    const clean = prepared(await deposit(world(quote))).summary as LpDepositSummary;
+    const room = clean.max.quote - clean.quoted.quote;
+    expect(room > 0n).toBe(true);
+    const atLimit = world(quote);
+    skewTestRun(atLimit.chain, atLimit.quoteAta, -room);
+    expect(outcome(await deposit(atLimit))).toBe('prepared');
+    const over = world(quote);
+    skewTestRun(over.chain, over.quoteAta, -room - 1n);
+    expect(outcome(await deposit(over))).toMatchObject(BLOCKED);
+  });
+});
 
 // Whole-change review 2026-10-04 (L4). A withdrawal is refused when the account it pays
 // into has an approved spender: what arrives would not be only the visitor's. A deposit

@@ -765,10 +765,13 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
       const tokRow = { account: tokenAddress, mint: a.tokenMint, minDelta: -maxTok, maxDelta: -1n };
       if (!plan) {
         // Nothing is wrapped. The only SOL that leaves is the pool-share account's
-        // deposit, and the coin leaves its own account: at least one unit, at most its limit.
+        // deposit, and the coin leaves its own account: at most its limit. No upper bound,
+        // as on the opening's row for this account (createPool.ts): the balance is read a
+        // slot or more before the test run, and a payment of the coin arriving in between
+        // cannot hurt the signer. A row that had to FALL let it block an honest deposit.
         return {
           maxSolOut: lpExists ? 0n : rents.tokenAccount,
-          tokens: [lpRow, tokRow, { account: quoteAddress, mint: quoteMintKey, minDelta: -maxSol, maxDelta: -1n }],
+          tokens: [lpRow, tokRow, { account: quoteAddress, mint: quoteMintKey, minDelta: -maxSol, maxDelta: 2n ** 64n }],
         };
       }
       const kept = plan.closeAfter ? 0n : syncCredit(pre.tokens.get(plan.ata.toBase58()), rents.tokenAccount);
