@@ -29,7 +29,7 @@ import {
   type WriteSnapshot,
 } from './liquidity';
 import { bodySteps } from './prepare';
-import { CPSWAP, EXT, FakeChain, addPool, cfgLocal, openAccount, rent, setClock, type PoolFixture, type SimHandler } from './testkit.fixture';
+import { CPSWAP, EXT, FakeChain, addPool, beforeBalanceRun, cfgLocal, openAccount, rent, setClock, skewTestRun, type PoolFixture, type SimHandler } from './testkit.fixture';
 import type { IntentStep, LpDepositSummary, LpOpenGate, LpWithdrawSummary, PoolIntent, PoolPins, PreparedTx, WriteRpc } from './types';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
@@ -286,8 +286,9 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
       ['lp', 9, w.lpAta.toBase58()],
       ['quote', quote.decimals, w.quoteAta.toBase58()],
     ]);
-    // At most the limit leaves the coin's account, and at least one unit.
-    expect(row(p, w.quoteAta)).toEqual([-(100n * U6), -1n]);
+    // At most the limit leaves the coin's account. No upper bound: more of the coin
+    // arriving while Review builds must not block the deposit.
+    expect(row(p, w.quoteAta)).toEqual([-(100n * U6), 2n ** 64n]);
     expect(row(p, w.tokenAta)).toEqual([-s.max.token, -1n]);
     expect(row(p, w.lpAta)).toEqual([s.lpAmount, 2n ** 64n]);
     // The only SOL that leaves is the new pool-share account's deposit: none goes into the pool.
@@ -324,7 +325,8 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
   });
 
   it('BAYLA sits under Token-2022: CPI Guard on the signer’s BAYLA account stops the pool taking it', async () => {
-    expect(refused(await deposit(world(BAYLA_QUOTE, { cpiGuard: true })))).toBe(LP_COPY.cpiGuard);
+    // Said of the BAYLA account, in BAYLA's name: the token's own words say "this token".
+    expect(refused(await deposit(world(BAYLA_QUOTE, { cpiGuard: true })))).toBe(LP_COPY.cpiGuardCoin('BAYLA'));
   });
 
   it('a wallet with the coin but not the SOL for the fee and the new account is told how much SOL it needs', async () => {
@@ -336,12 +338,14 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
 
   it.each([
     ['could not be read', { kind: 'unread', detail: 'HTTP 502' } as OutsidePrice],
-    ['has no route', { kind: 'no-route', detail: 'no route' } as OutsidePrice],
+    ['has no route', { kind: 'no-route', detail: 'Jupiter has no route for this token' } as OutsidePrice],
   ])('the coin’s own price %s, with a token price to compare: the deposit check is unchecked, so nothing is built', async (_n, coin) => {
     const w = world(USDC_QUOTE);
     const msg = refused(await deposit(w, {}, priced(USDC_QUOTE, { coin })));
     expect(msg).toMatch(/^We did not build this deposit: /);
     expect(msg).toMatch(/the price of USDC/);
+    // Jupiter's "no route" words say "this token"; of the coin, the refusal names the coin.
+    expect(msg).not.toMatch(/this token/);
   });
 
   // With no route for the TOKEN nothing is compared, so the coin's own price is not needed.
@@ -552,6 +556,133 @@ describe('a frozen vault on a pool paired with a coin: who is said to have froze
     const bayla = world(BAYLA_QUOTE, { heldLp: LP_SUPPLY / 10n, frozenTokenVault: true });
     expect(refused(await withdraw(bayla))).toBe(
       "The token's issuer has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
+    );
+  });
+});
+
+/** The wallet's own account for the coin, as the chain holds it, with `o` on top (an approved spender, frozen, ...). */
+function setCoinAccount(w: World, o: Parameters<FakeChain['token2022Account']>[4], amount = 50_000n * U6): void {
+  const mint = new PublicKey(w.quote.mint);
+  if (w.quote.program === TOKEN_2022_PROGRAM_ID.toBase58()) w.chain.token2022Account(w.quoteAta, mint, ME, amount, o);
+  else w.chain.tokenAccount(w.quoteAta, mint, ME, amount, o);
+}
+
+// Whole-change review 2026-10-04 (checker-1). The balances are read a slot or more before
+// the test run, and anyone can send a coin to the wallet in between. The deposit's row for
+// the coin's account said it must FALL by at least one unit, so a payment arriving while
+// Review was building blocked an honest deposit. The opening's row for the same account has
+// no upper bound for exactly this. What protects the signer is the other end of the row:
+// no more than the limit may leave, and that is not loosened.
+describe('the coin’s account in a deposit: more arriving does not block it; more leaving than the limit still does', () => {
+  const BLOCKED = { status: 'not-sent', stage: 'simulate', message: 'Blocked: the simulation shows a different token amount than this screen says.' };
+  const outcome = (r: Awaited<ReturnType<typeof deposit>>) => (r.ok ? 'prepared' : r.outcome);
+  const moved = (p: PreparedTx, k: PublicKey) => p.simulated.tokenDeltas.find((d) => d.account.equals(k))!.delta;
+
+  it.each(COINS)('%s: 1,000 coins sent to the wallet between the balance read and the test run: the deposit still prepares', async (_n, quote) => {
+    const w = world(quote);
+    beforeBalanceRun(w.chain, () => setCoinAccount(w, {}, 51_000n * U6));
+    const p = prepared(await deposit(w));
+    const s = p.summary as LpDepositSummary;
+    // The account ends 1,000 coins up, less what the deposit took: a rise, not a fall.
+    expect(moved(p, w.quoteAta)).toBe(1_000n * U6 - s.quoted.quote);
+    expect(moved(p, w.quoteAta) > 0n).toBe(true);
+    // At most the limit leaves; no upper bound, as on the opening's row for this account.
+    expect(row(p, w.quoteAta)).toEqual([-s.max.quote, 2n ** 64n]);
+  });
+
+  it.each(COINS)('%s: exactly the limit leaving passes; one unit more than the limit is still blocked', async (_n, quote) => {
+    const clean = prepared(await deposit(world(quote))).summary as LpDepositSummary;
+    const room = clean.max.quote - clean.quoted.quote;
+    expect(room > 0n).toBe(true);
+    const atLimit = world(quote);
+    skewTestRun(atLimit.chain, atLimit.quoteAta, -room);
+    expect(outcome(await deposit(atLimit))).toBe('prepared');
+    const over = world(quote);
+    skewTestRun(over.chain, over.quoteAta, -room - 1n);
+    expect(outcome(await deposit(over))).toMatchObject(BLOCKED);
+  });
+});
+
+// Whole-change review 2026-10-04 (L4). A withdrawal is refused when the account it pays
+// into has an approved spender: what arrives would not be only the visitor's. A deposit
+// SPENDS from that same account, and built with no word about it. So a wallet was let in
+// in silence and then refused on the way out. The exit rule stays; the way in now says it.
+// (A card or payment app's standing approval on a USDC account is the ordinary case.)
+describe('an approved spender on the visitor’s own account: said on the way in, refused on the way out', () => {
+  const approved = { delegate: STRANGER, delegatedAmount: 25n * U6 };
+
+  it.each(COINS)('%s: a deposit builds, and its review says who is approved, for how much, and what this site will not do until it is revoked', async (_n, quote) => {
+    const w = world(quote, { heldLp: LP_SUPPLY / 10n });
+    setCoinAccount(w, approved);
+    const s = prepared(await deposit(w)).summary as LpDepositSummary;
+    expect(s.notices).toEqual([
+      `An approved spender (${STRANGER.toBase58()}) can move up to 25 out of your ${quote.symbol} account (${w.quoteAta.toBase58()}). This site will not pay a withdrawal into that account until you revoke that approval.`,
+    ]);
+    expect(s.notices).toEqual([LP_COPY.delegatedSource(STRANGER.toBase58(), '25', quote.symbol, w.quoteAta.toBase58())]);
+    // A notice is not a warning about the pool: nothing is added to the pool's own list.
+    expect(s.warnings).toEqual([]);
+    // The same wallet on the way out: refused, as it always was, naming the same spender and account.
+    expect(refused(await withdraw(w))).toBe(LP_COPY.delegatedDestination(STRANGER.toBase58(), '25', quote.symbol, w.quoteAta.toBase58()));
+  });
+
+  it('the token’s account too: the same notice, naming it as the token account', async () => {
+    const w = world(USDC_QUOTE, { heldLp: LP_SUPPLY / 10n });
+    w.chain.tokenAccount(w.tokenAta, w.mint, ME, 10_000n * U6, approved);
+    const s = prepared(await deposit(w)).summary as LpDepositSummary;
+    expect(s.notices).toEqual([LP_COPY.delegatedSource(STRANGER.toBase58(), '25', 'token', w.tokenAta.toBase58())]);
+    expect(refused(await withdraw(w))).toBe(LP_COPY.delegatedDestination(STRANGER.toBase58(), '25', 'token', w.tokenAta.toBase58()));
+  });
+
+  it('both accounts approved: both are said, the token’s first', async () => {
+    const w = world(BAYLA_QUOTE);
+    setCoinAccount(w, approved);
+    w.chain.tokenAccount(w.tokenAta, w.mint, ME, 10_000n * U6, approved);
+    expect((prepared(await deposit(w)).summary as LpDepositSummary).notices).toEqual([
+      LP_COPY.delegatedSource(STRANGER.toBase58(), '25', 'token', w.tokenAta.toBase58()),
+      LP_COPY.delegatedSource(STRANGER.toBase58(), '25', 'BAYLA', w.quoteAta.toBase58()),
+    ]);
+  });
+
+  it('a spender with nothing left to move is not said, and does not refuse the way out either', async () => {
+    const w = world(USDC_QUOTE, { heldLp: LP_SUPPLY / 10n });
+    setCoinAccount(w, { delegate: STRANGER, delegatedAmount: 0n });
+    expect((prepared(await deposit(w)).summary as LpDepositSummary).notices).toEqual([]);
+    expect((await withdraw(w)).ok).toBe(true);
+  });
+});
+
+// Whole-change review 2026-10-04 (W6). The account rules were written for the token's
+// account, and said "this token" and "the token's issuer" of the visitor's own account for
+// the pairing coin as well. A USDC account is frozen by USDC's issuer, not the token's.
+describe('a refusal about the visitor’s own account for the coin names the coin, never "this token"', () => {
+  it('BAYLA (under Token-2022) with CPI Guard on: a deposit is refused in BAYLA’s name', async () => {
+    const msg = refused(await deposit(world(BAYLA_QUOTE, { cpiGuard: true })));
+    expect(msg).toBe('Your BAYLA account has CPI Guard switched on, which stops a pool taking BAYLA from it. Switch it off in your wallet, then try again.');
+    expect(msg).not.toMatch(/this token/);
+  });
+
+  it('BAYLA with required memos: a withdrawal is refused in BAYLA’s name', async () => {
+    const w = world(BAYLA_QUOTE, { heldLp: LP_SUPPLY / 10n });
+    setCoinAccount(w, { memoRequired: true });
+    const msg = refused(await withdraw(w));
+    expect(msg).toBe('Your BAYLA account only accepts transfers that carry a memo, and the pool cannot add one. Switch off required memos in your wallet, then try again.');
+    expect(msg).not.toMatch(/this token/);
+  });
+
+  it('a frozen USDC account is frozen by ITS issuer: on the way in and on the way out', async () => {
+    const w = world(USDC_QUOTE, { heldLp: LP_SUPPLY / 10n });
+    setCoinAccount(w, { state: 2 });
+    expect(refused(await deposit(w))).toBe('Your USDC account is frozen by its issuer, so nothing can move out of it.');
+    expect(refused(await withdraw(w))).toBe('Your USDC account is frozen by its issuer, so nothing can be paid into it.');
+  });
+
+  it('the token’s own account keeps its words: "this token", and "the token’s issuer"', async () => {
+    const frozen = world(USDC_QUOTE);
+    frozen.chain.tokenAccount(frozen.tokenAta, frozen.mint, ME, 10_000n * U6, { state: 2 });
+    expect(refused(await deposit(frozen))).toBe("Your token account is frozen by the token's issuer, so nothing can move out of it.");
+    expect(LP_COPY.cpiGuard).toBe('Your account for this token has CPI Guard switched on, which stops a pool taking tokens from it. Switch it off in your wallet, then try again.');
+    expect(LP_COPY.memosRequired).toBe(
+      'Your account for this token only accepts transfers that carry a memo, and the pool cannot add one. Switch off required memos in your wallet, then try again.',
     );
   });
 });

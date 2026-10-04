@@ -514,15 +514,27 @@ describe('what the pool’s coin adds to the risks, on the Add form', () => {
     expect(risk.compareDocumentPosition(review()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // Whole-change review 2026-10-04 (W5). The pool's own warnings are what Review is
+  // described by, so a screen reader says them when focus reaches the button. The coin's
+  // risk sat outside that, so on a clean USDC pool Review was described by nothing.
+  it('USDC: Review is described by that line, so it is read out when focus reaches the button', async () => {
+    const { panel, review } = await openAdd(view(USDC_QUOTE, LOW));
+    await walletRead(panel);
+    expect(within(panel).queryByTestId('lp-add-warnings')).toBeNull();
+    expect(review()).toHaveAccessibleDescription(USDC_QUOTE.risk!);
+  });
+
   it.each([
     ['BAYLA', BAYLA_QUOTE],
     ['SOL', SOL_QUOTE],
   ] as const)('%s: no line, because the coin adds none', async (_n, coin) => {
     expect(coin.risk).toBeNull();
-    const { panel } = await openAdd(view(coin, LOW));
+    const { panel, review } = await openAdd(view(coin, LOW));
     await walletRead(panel);
     expect(within(panel).queryByTestId('lp-add-coin-risk')).toBeNull();
     expect(panel).not.toHaveTextContent('Circle');
+    // A clean pool with a coin that adds no risk: Review is described by nothing, as before.
+    expect(review()).not.toHaveAttribute('aria-describedby');
   });
 });
 

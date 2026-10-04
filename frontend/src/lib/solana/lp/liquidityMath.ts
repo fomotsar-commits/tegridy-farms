@@ -207,6 +207,12 @@ export function planWithdraw(s: PoolSnapshot, a: { held: bigint; pctBps: bigint;
 // BELOW 100 (`liquidity.checked_sub(100)`): at exactly 100 the opening LANDS and mints the
 // opener nothing. This site's own rule steps over that trap and keeps the locked part
 // at most 0.1% of the pool.
+//
+// THE LEAVE RULE: nobody is let in who cannot be let out. A withdrawal that pays 0 on a
+// side is refused by the pool program (withdraw.rs), so an opening is refused here when
+// the opener's own shares, taken out whole, would pay 0 on a side. That is an opening
+// with ONE base unit on a side: 1 of a token with no decimals against 10,000 BAYLA gave
+// 100,000 shares, and the opener's 99,900 paid floor(0.999) = 0 tokens, for good.
 
 /** The pool shares cp-swap keeps in every new pool forever (initialize.rs). */
 export const LOCKED_LP = 100n;
@@ -239,19 +245,39 @@ export type CreateProblem =
   | { problem: 'too-small'; supply: bigint }
   /** 100 < supply < 100,000: the locked 100 would be more than 0.1% of the pool. */
   | { problem: 'lock-too-large'; supply: bigint }
+  /** The opener's own shares (the supply less the locked 100) would pay out 0 on `side`, so they could never be taken out. */
+  | { problem: 'cannot-leave'; supply: bigint; side: 'quote' | 'token' }
   | { problem: 'over-balance'; side: 'quote' | 'token'; need: bigint; have: bigint };
 
 /**
- * Why an opening with these amounts must not be built, or null. Order: an empty side,
- * a value past u64, a supply the program refuses or turns into nothing (≤ 100), and a
- * locked part above 0.1% of the pool.
+ * What `openingProblem` answers. It is given two amounts and not which is the coin's, so
+ * `cannot-leave` says which of the two is short (`short`: 0 the first, 1 the second), and
+ * `planCreate` names the side.
  */
-export function openingProblem(amount0: bigint, amount1: bigint): Exclude<CreateProblem, { problem: 'over-balance' }> | null {
+export type OpeningProblem =
+  | Exclude<CreateProblem, { problem: 'over-balance' } | { problem: 'cannot-leave' }>
+  | { problem: 'cannot-leave'; supply: bigint; short: 0 | 1 };
+
+/**
+ * Why an opening with these amounts must not be built, or null. Order: an empty side,
+ * a value past u64, a supply the program refuses or turns into nothing (≤ 100), a
+ * locked part above 0.1% of the pool, and an opener's share that could never leave.
+ *
+ * The last is the leave rule. The pool as this opening leaves it holds exactly these two
+ * amounts and `supply` shares, and the opener holds `supply − 100`. Taken out whole, the
+ * pool program's own way (floor), they must pay at least 1 on EACH side: a withdrawal
+ * that pays 0 on a side is refused, and a smaller share of the same pool pays no more.
+ */
+export function openingProblem(amount0: bigint, amount1: bigint): OpeningProblem | null {
   if (amount0 < 1n || amount1 < 1n) return { problem: 'empty-side' };
   if (amount0 > U64_MAX || amount1 > U64_MAX) return { problem: 'overflow' };
   const supply = isqrt(amount0 * amount1);
   if (supply <= LOCKED_LP) return { problem: 'too-small', supply };
   if (LOCKED_LP * BPS > supply * MAX_LOCK_BPS) return { problem: 'lock-too-large', supply };
+  const mine = lpTokensToTradingTokens(supply - LOCKED_LP, supply, amount0, amount1, 'floor');
+  if (!mine) return { problem: 'overflow' };
+  if (mine.token0Amount < 1n) return { problem: 'cannot-leave', supply, short: 0 };
+  if (mine.token1Amount < 1n) return { problem: 'cannot-leave', supply, short: 1 };
   return null;
 }
 
@@ -279,7 +305,9 @@ export function planCreate(a: {
   availableQuote: bigint | null;
   availableToken: bigint | null;
 }): CreatePlan | CreateProblem {
+  // Asked with the coin's amount first, so a short first amount is the coin's.
   const problem = openingProblem(a.quote, a.token);
+  if (problem?.problem === 'cannot-leave') return { problem: 'cannot-leave', supply: problem.supply, side: problem.short === 0 ? 'quote' : 'token' };
   if (problem) return problem;
   if (a.availableQuote !== null && a.quote > a.availableQuote) return { problem: 'over-balance', side: 'quote', need: a.quote, have: a.availableQuote };
   if (a.availableToken !== null && a.token > a.availableToken) {

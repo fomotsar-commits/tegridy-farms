@@ -620,9 +620,10 @@ describe('prepareLpCreate with USDC or BAYLA: what refuses it, each in its own w
     expect(refused(await create(w, {}, priced(quote, { coin: unread })))).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'Jupiter did not give a price (HTTP 502)'));
     const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
     const msg = refused(await create(w, {}, priced(quote, { coin: noRoute })));
-    expect(msg).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'Jupiter has no route for this token'));
-    // "No market price for this token" is only ever said about the token.
-    expect(msg).not.toMatch(/no market price for this token/);
+    // Jupiter's own sentence says "this token"; said of the coin it names the coin. A token
+    // with no route is allowed now, so "this token" here read as refusing a lifted case.
+    expect(msg).toBe(`We could not get the price of ${quote.symbol} from Jupiter just now (Jupiter has no route for ${quote.symbol}), so we could not check the opening price. Try again in a moment.`);
+    expect(msg).not.toMatch(/this token/);
     expect(refused(await create(w, {}, priced(quote, { coin: new Error('offline') })))).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'offline'));
     // A price that is a number but prices nothing is not a pass either.
     expect(refused(await create(w, {}, priced(quote, { coin: price(0) })))).toMatch(/^We did not build this opening: We could not get a market price from Jupiter/);
@@ -721,12 +722,34 @@ describe('prepareLpCreate with USDC or BAYLA: what refuses it, each in its own w
   it('the coin’s account: another wallet’s, frozen, not a token account, or (BAYLA, under Token-2022) with CPI Guard on', async () => {
     const foreign = world(USDC_QUOTE, { quoteAccount: { owner: STRANGER } });
     expect(refused(await create(foreign))).toBe(LP_COPY.foreignOwner(foreign.quoteAta.toBase58(), STRANGER.toBase58()));
-    expect(refused(await create(world(USDC_QUOTE, { quoteAccount: { state: 2 } })))).toBe(LP_COPY.frozenSource('USDC'));
+    // A USDC account is frozen by USDC's own issuer, not by the token's.
+    expect(refused(await create(world(USDC_QUOTE, { quoteAccount: { state: 2 } })))).toBe('Your USDC account is frozen by its issuer, so nothing can move out of it.');
     const other = world(USDC_QUOTE, { heldQuote: null });
     other.chain.set(other.quoteAta, { lamports: rent(165), owner: STRANGER, data: new Uint8Array(165) });
     expect(refused(await create(other))).toBe(LP_COPY.notUsable('USDC', other.quoteAta.toBase58()));
-    expect(refused(await create(world(BAYLA_QUOTE, { quoteAccount: { cpiGuard: true } })))).toBe(LP_COPY.cpiGuard);
+    // Said in BAYLA's name, never "this token": it is the BAYLA account that has the guard on.
+    expect(refused(await create(world(BAYLA_QUOTE, { quoteAccount: { cpiGuard: true } })))).toBe(
+      'Your BAYLA account has CPI Guard switched on, which stops a pool taking BAYLA from it. Switch it off in your wallet, then try again.',
+    );
     ok(await create(world(BAYLA_QUOTE, { quoteAccount: { cpiGuard: false } })));
+  });
+
+  // Whole-change review 2026-10-04 (L4). An opening spends from the same two accounts a
+  // withdrawal later pays into, and a withdrawal is refused while either has an approved
+  // spender. The opening built with no word about it; now its review says so.
+  it.each(COIN_ROWS)('%s: an approved spender on the coin’s account or the token’s: the opening builds, and its review says what this site will not do until it is revoked', async (_n, quote) => {
+    const approved = { delegate: STRANGER, delegatedAmount: 25n * U6 };
+    const w = world(quote);
+    if (quote.program === TOKEN_2022_PROGRAM_ID.toBase58()) w.chain.token2022Account(w.quoteAta, w.quoteMint, ME, 50_000n * U6, approved);
+    else w.chain.tokenAccount(w.quoteAta, w.quoteMint, ME, 50_000n * U6, approved);
+    expect(summaryOf(ok(await create(w))).notices).toEqual([
+      `An approved spender (${STRANGER.toBase58()}) can move up to 25 out of your ${quote.symbol} account (${w.quoteAta.toBase58()}). This site will not pay a withdrawal into that account until you revoke that approval.`,
+    ]);
+    const t = world(quote);
+    t.chain.tokenAccount(t.tokenAta, t.mint, ME, 1_000n * U6, approved);
+    expect(summaryOf(ok(await create(t))).notices).toEqual([LP_COPY.delegatedSource(STRANGER.toBase58(), '25', 'token', t.tokenAta.toBase58())]);
+    // No approval, nothing said.
+    expect(summaryOf(ok(await create(world(quote)))).notices).toEqual([]);
   });
 
   it('the token’s side is judged as ever: no account for it, or too few tokens', async () => {

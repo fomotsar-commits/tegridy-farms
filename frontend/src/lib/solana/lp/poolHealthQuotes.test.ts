@@ -5,7 +5,7 @@
 // What could not be read is unchecked, never a pass.
 import { describe, it, expect } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
-import { priceInQuote, type OutsidePrice } from './outsidePrice';
+import { coinPriceDetail, priceInQuote, type OutsidePrice } from './outsidePrice';
 import { PRICE_TOLERANCE, assessPool, poolPricePerToken, vaultFreezer } from './poolHealth';
 import type { PoolView } from './poolFinder';
 import { BAYLA_QUOTE, QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
@@ -70,7 +70,17 @@ describe('priceInQuote', () => {
   it('a coin that could not be priced is unread, never "no route" and never a price', () => {
     expect(priceInQuote(ok(0.004), USDC_QUOTE, null)).toEqual({ kind: 'unread', detail: 'the price of USDC was not read' });
     expect(priceInQuote(ok(0.004), USDC_QUOTE, DOWN)).toEqual({ kind: 'unread', detail: 'the price of USDC could not be read (HTTP 502)' });
-    expect(priceInQuote(ok(0.004), BAYLA_QUOTE, NO_ROUTE)).toEqual({ kind: 'unread', detail: 'the price of BAYLA could not be read (Jupiter has no route for this token)' });
+    // Jupiter's own words for "no route" say "this token". Here they are about the COIN,
+    // and beside a pool "this token" means the token on the other side, which is allowed
+    // to have no route. So the detail names the coin (whole-change review, 2026-10-04).
+    for (const quote of [USDC_QUOTE, BAYLA_QUOTE]) {
+      const r = priceInQuote(ok(0.004), quote, NO_ROUTE);
+      expect(r).toEqual({ kind: 'unread', detail: `the price of ${quote.symbol} could not be read (Jupiter has no route for ${quote.symbol})` });
+      expect(r.kind === 'unread' && r.detail).not.toMatch(/this token/);
+    }
+    // A failed read keeps its own detail, word for word.
+    expect(coinPriceDetail(USDC_QUOTE, DOWN)).toBe('HTTP 502');
+    expect(coinPriceDetail(USDC_QUOTE, NO_ROUTE)).toBe('Jupiter has no route for USDC');
     for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(priceInQuote(ok(0.004), USDC_QUOTE, ok(bad)).kind, String(bad)).toBe('unread');
     }
@@ -126,6 +136,8 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
     expect(h.price.state).toBe('unread');
     expect(h.deposits.verdict).toBe('unchecked');
     expect(h.deposits.reasons.join(' ')).toMatch(/the price of USDC/);
+    // What the card says of this pool never says "this token" of the coin.
+    expect(h.deposits.reasons.join(' ')).not.toMatch(/this token/);
     expect(h.deposits.warnings).toEqual([]);
   });
 

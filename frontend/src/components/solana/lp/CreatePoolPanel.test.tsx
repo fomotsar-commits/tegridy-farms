@@ -551,6 +551,58 @@ describe('the panel', () => {
     expect(within(panel).queryByRole('button', { name: 'Use the most both balances allow' })).toBeNull();
   });
 
+  // Whole-change review 2026-10-04 (unread-2). An open form stays open when the token is
+  // read again and that read fails. The form then does not know the token's program or its
+  // decimals. It used to fall back to the classic program and to 0 decimals, and showed the
+  // result as an answer: a wallet holding 500 of a Token-2022 token was told it "holds none
+  // of this token" and pointed at the swap, and for a classic token "You have 500,000,000
+  // tokens" (raw units). A value that could not be read is never shown as 0.
+  describe('the token cannot be read on a re-read: the form claims nothing about the wallet’s holding of it', () => {
+    const TOKEN_2022 = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+    const token2022: TokenSafety = { ...okToken, facts: { ...okToken.facts!, program: 'token-2022' } } as TokenSafety;
+    const unread: TokenSafety = { kind: 'unread', mint: M, detail: 'HTTP 429' };
+    /** The real wallet read's shape: the token account is found only under the program asked for. */
+    const walletUnder = (program: string) => vi.fn(async (_o: unknown, _m: unknown, asked: string) => facts(asked === program ? {} : { token: null }));
+
+    it.each([
+      ['a Token-2022 token', token2022, TOKEN_2022],
+      ['a classic token', okToken, TOKEN_PROGRAM],
+    ])('%s the wallet holds 500 of: no "holds none", no "0 tokens", no raw units, no swap link; it says the token was not read, and Review stays off', async (_n, token, program) => {
+      const safety = vi.fn(async () => new Map([[M, token]]));
+      const r = readers({ safety, wallet: walletUnder(program) as LpReaders['wallet'] });
+      mount(r);
+      const { card, panel } = await openPanel();
+      await waitFor(() => expect(panel).toHaveTextContent('You have 500 tokens.'));
+      expect(within(panel).queryByTestId('lp-create-cannot')).toBeNull();
+
+      safety.mockResolvedValue(new Map([[M, unread]]));
+      fireEvent.click(within(panel).getByRole('button', { name: 'Read the market price again' }));
+      await waitFor(() => expect(card).toHaveAttribute('data-create', 'token-unread'));
+      // The wallet is asked again under whatever program the form now assumes: wait for that answer.
+      await waitFor(() => expect(panel).toHaveTextContent('You have: could not read (this token was not read just now)'));
+      expect(panel).not.toHaveTextContent('holds none of this token');
+      expect(panel).not.toHaveTextContent('You have 0 tokens.');
+      expect(panel).not.toHaveTextContent('500,000,000');
+      expect(panel).not.toHaveTextContent(/You have [\d,.]+ tokens/);
+      expect(within(panel).queryByTestId('lp-create-cannot')).toBeNull();
+      expect(within(panel).queryByTestId('lp-funding-next')).toBeNull();
+      expect(within(panel).queryByRole('link', { name: 'this site’s Solana swap' })).toBeNull();
+      expect(within(panel).queryByRole('button', { name: 'Max tokens' })).toBeNull();
+      // Review is off, and the form says why in the card's words, not "this wallet is short".
+      expect(reviewButton(panel)).toBeDisabled();
+      expect(panel).toHaveTextContent('Opening a pool is off right now (the card above says why), so Review is off here.');
+      expect(panel).not.toHaveTextContent('Review is off for this wallet');
+      // What was read is still said: the wallet's SOL.
+      expect(panel).toHaveTextContent('You have 5 SOL.');
+
+      // The next good read brings the balance back.
+      safety.mockResolvedValue(new Map([[M, token]]));
+      fireEvent.click(within(panel).getByRole('button', { name: 'Read the market price again' }));
+      await waitFor(() => expect(card).toHaveAttribute('data-create', 'offer'));
+      await waitFor(() => expect(panel).toHaveTextContent('You have 500 tokens.'));
+    }, 20_000);
+  });
+
   // B review person-4: the problems line's numbers change with every digit; a screen
   // reader hears it once typing settles, not on each keystroke.
   it('the problems line is read out once typing settles, not on every digit', async () => {

@@ -547,7 +547,8 @@ const INITIALIZE_KEY_COUNT = 20;
  * never from a read or a caller; the pool, its vaults, its share token and its price
  * record are derived from the pool address prepare chose; the creator's accounts are
  * the signer's own under each mint's program. The amounts must clear the site's
- * share rule (`openingProblem`), and the pool must open for trading at once.
+ * share rule (`openingProblem`: the locked part at most 0.1%, and the opener's own shares
+ * able to leave), and the pool must open for trading at once.
  */
 function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
   const d = ix.data;
@@ -601,6 +602,8 @@ function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep
   const openTime = u64(d, 24);
   const problem = openingProblem(init0, init1);
   if (problem?.problem === 'empty-side') refuse('the pool would open with an empty side');
+  // The leave rule: an opening whose own shares would pay 0 on a side can never be withdrawn.
+  if (problem?.problem === 'cannot-leave') refuse('your own share of the pool could never be taken out: it would pay out nothing on one side');
   if (problem) refuse('the pool would keep more than 0.1% of what you put in forever');
   if (openTime !== 0n) refuse('the pool would open for trading later, not now');
   return { kind: 'pool-create', pool: p.address, ammConfig: tier1, init0, init1 };

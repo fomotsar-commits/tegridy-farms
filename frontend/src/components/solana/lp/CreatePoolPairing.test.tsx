@@ -12,7 +12,7 @@
 // The write layer is a fake; nothing touches a chain.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { LpInner } from './SolanaLpSection';
@@ -244,6 +244,75 @@ describe('Pair with: the coins a token can be paired with', () => {
   });
 });
 
+// Whole-change review 2026-10-04 (W4). A pairing coin looked up as the token is searched
+// only against the coins that outrank it: for USDC that is SOL alone. The page said "No
+// pools pairing this token with SOL, USDC or BAYLA found" and "No pool for this token yet":
+// USDC with USDC is nonsense, and a USDC and BAYLA pool was never looked for from here (it
+// is BAYLA's pool, listed under BAYLA). The page names the coins that WERE searched, and
+// says where the other pool is before the form is opened.
+describe('a pairing coin looked up as the token: the page names the coins that were searched', () => {
+  const OTHER_SIDE = 'A pool of USDC and BAYLA is found and opened from the other side: look up BAYLA and pair it with USDC.';
+  const said = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const status = () => said(screen.getByTestId('lp-status'));
+
+  it('USDC with no pool: the list, the status line and the Open card say SOL, and point to the other side, with no form open', async () => {
+    mount(readers(), { mint: USDC });
+    const card = await offered();
+    expect(said(screen.getByTestId('lp-no-pools'))).toBe(`No pools pairing this token with SOL found. ${OTHER_SIDE}`);
+    expect(status()).toBe(`No pools pairing this token with SOL found. ${OTHER_SIDE}`);
+    expect(card).toHaveTextContent('There is no SOL pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
+    expect(card).toHaveTextContent('No SOL pool for this token yet. You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
+    expect(said(within(card).getByTestId('lp-create-other-side'))).toBe(OTHER_SIDE);
+    // Nothing says a pair that was never looked for has no pool.
+    expect(document.body).not.toHaveTextContent('SOL, USDC or BAYLA found');
+    expect(document.body).not.toHaveTextContent('No pools found for this token.');
+    expect(card).not.toHaveTextContent('No pool for this token yet');
+    expect(card).not.toHaveTextContent('There is no pool to add liquidity to yet');
+    // All of it is said before the form: none is open.
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+  });
+
+  it('USDC, when the index is down or cut: the same coin in each of the list’s sentences', async () => {
+    const down = search([], { mint: USDC });
+    if (down.kind === 'ok') down.search.index = { kind: 'unread', detail: 'HTTP 502' };
+    mount(readers({ findPools: vi.fn(async () => down) }), { mint: USDC });
+    await waitFor(() => expect(said(screen.getByTestId('lp-no-pools'))).toBe(`No pools pairing this token with SOL found at the addresses we could check. ${OTHER_SIDE}`));
+    cleanup();
+    mount(readers({ findPools: vi.fn(async () => search([], { mint: USDC, truncated: true })) }), { mint: USDC });
+    await waitFor(() => expect(said(screen.getByTestId('lp-no-pools'))).toBe(`None of the pools our index returned pairs this token with SOL. It returned its maximum, so there may be more. ${OTHER_SIDE}`));
+  });
+
+  it('USDC with a USDC and SOL pool listed: the other side is still said, by the list and in the status line', async () => {
+    const pool = view({ mint: new PublicKey(USDC) });
+    mount(readers({ findPools: vi.fn(async () => search([pool], { mint: USDC })) }), { mint: USDC });
+    const card = await offered();
+    expect(screen.queryByTestId('lp-no-pools')).toBeNull();
+    expect(said(screen.getByTestId('lp-other-side'))).toBe(OTHER_SIDE);
+    expect(status()).toBe(`One pool found for this token. ${OTHER_SIDE}`);
+    expect(said(within(card).getByTestId('lp-create-other-side'))).toBe(OTHER_SIDE);
+  });
+
+  it('BAYLA: SOL or USDC were searched. No coin ranks below BAYLA, so no other side is named', async () => {
+    mount(readers(), { mint: BAYLA });
+    const card = await offered();
+    expect(said(screen.getByTestId('lp-no-pools'))).toBe('No pools pairing this token with SOL or USDC found.');
+    expect(status()).toBe('No pools pairing this token with SOL or USDC found.');
+    expect(card).toHaveTextContent('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
+    expect(card).toHaveTextContent('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier:');
+    expect(document.body).not.toHaveTextContent('from the other side');
+  });
+
+  it('any other token: all three coins were searched, and every sentence is word for word what it was', async () => {
+    mount(readers());
+    const card = await offered();
+    expect(said(screen.getByTestId('lp-no-pools'))).toBe('No pools pairing this token with SOL, USDC or BAYLA found.');
+    expect(status()).toBe('No pools found for this token.');
+    expect(card).toHaveTextContent('There is no pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
+    expect(card).toHaveTextContent('No pool for this token yet. You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
+    expect(document.body).not.toHaveTextContent('from the other side');
+  });
+});
+
 describe('an amount typed for a coin is that coin’s, to the base unit', () => {
   it('USDC, then 50: the builder is handed 50,000,000 of USDC’s mint, never 50,000,000,000', async () => {
     const r = readers();
@@ -259,8 +328,9 @@ describe('an amount typed for a coin is that coin’s, to the base unit', () => 
     // The locked part's worth is in USDC's own 6 decimals: 100 shares of isqrt(50,000,000 × 25,000,000) = 35,355,339
     // are 141 units of USDC and 70 of the token. Printed with SOL's 9 it would read 0.000000141.
     expect(row(panel, 'Locked in the pool forever')).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit), worth about 0.000141 USDC and 0.00007 tokens');
-    // Two coins leave the wallet, and they are never added into one number.
-    expect(row(panel, 'In all, from your wallet')).toHaveTextContent('50 USDC and 25 tokens, and about 0.192 SOL for the fee to open and the account deposits, plus the network fee');
+    // Two coins leave the wallet, and they are never added into one number. The SOL is
+    // 0.19203928, said rounded UP: what the wallet must pay never reads as less than it is.
+    expect(row(panel, 'In all, from your wallet')).toHaveTextContent('50 USDC and 25 tokens, and about 0.1921 SOL for the fee to open and the account deposits, plus the network fee');
     expect(reviewButton(panel)).toBeEnabled();
     await act(async () => {
       fireEvent.click(reviewButton(panel));
@@ -896,6 +966,12 @@ describe('what the wallet can put in, for a coin that is not SOL', () => {
       'This wallet cannot open a pool yet. That needs about 0.194 SOL for the fee to open, the account deposits and network fees, and this wallet has 0.193940159 SOL. No SOL goes into the pool, but those costs are paid in SOL.',
     );
     expect(cannot).toHaveTextContent('Send SOL to this wallet, then come back to this tab.');
+    // The line under the boxes states the same need, and states it the same way: rounded
+    // UP. Cut down it read "needs about 0.1939 SOL ... and has 0.193940159 SOL", which
+    // looks like enough and is one lamport short (whole-change review, 2026-10-04).
+    const paid = within(panel).getByTestId('lp-create-paid-in-sol');
+    expect(paid).toHaveTextContent('This wallet needs about 0.194 SOL for them and has 0.193940159 SOL.');
+    expect(paid).not.toHaveTextContent('0.1939 SOL');
     // It holds the USDC and the tokens: nothing else is said to be missing.
     expect(cannot).not.toHaveTextContent(/holds no|none of this token/);
     // Amounts the USDC and the tokens cover, at the market: only the SOL stops it.
@@ -940,7 +1016,8 @@ describe('what the wallet can put in, for a coin that is not SOL', () => {
     expect(panel).toHaveTextContent('Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.');
     await pair(panel, 'USDC');
     expect(within(panel).getByTestId('lp-create-paid-in-sol')).toHaveTextContent(
-      'The fee to open (0.15 SOL), the account deposits and the network fee are paid in SOL, whatever the pool is paired with. This wallet needs about 0.1939 SOL for them and has 5 SOL. Only your USDC and your tokens go into the pool.',
+      // 0.19394016 SOL, rounded up: a need is never said as less than it is.
+      'The fee to open (0.15 SOL), the account deposits and the network fee are paid in SOL, whatever the pool is paired with. This wallet needs about 0.194 SOL for them and has 5 SOL. Only your USDC and your tokens go into the pool.',
     );
     expect(within(panel).getByTestId('lp-before-you-open')).toHaveTextContent(
       "Opening costs 0.15 SOL, paid to the team's vault, and about 0.04 SOL in account deposits that never come back. Both are paid in SOL, whatever the pool is paired with: none of it comes out of your USDC. 0.0000001 pool shares",
@@ -967,6 +1044,37 @@ describe('what the coin adds to the risks', () => {
     expect(within(panel).queryByTestId('lp-coin-risk')).toBeNull();
     expect(panel).not.toHaveTextContent('Circle');
   });
+
+  // Whole-change review 2026-10-04 (W5). The check's own warnings are what Review is
+  // described by, so a screen reader says them when focus reaches the button. The coin's
+  // risk was not among them: a clean USDC opening had a Review described by nothing.
+  it('USDC’s is part of what Review is described by, with or without other warnings; BAYLA and SOL add nothing to it', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    // SOL, nothing typed: described by nothing, as it always was.
+    expect(reviewButton(panel)).not.toHaveAttribute('aria-describedby');
+    await pair(panel, 'USDC');
+    // A clean opening at the market (2 USDC a token): the coin's risk is the whole description.
+    type(coinBox(panel, 'USDC'), '50');
+    type(tokens(panel), '25');
+    await waitFor(() => expect(price(panel)).toHaveAttribute('data-price', 'agrees'));
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
+    expect(reviewButton(panel)).toBeEnabled();
+    expect(reviewButton(panel)).toHaveAccessibleDescription(USDC_QUOTE.risk!);
+    // Off the market: the price warning and what it may cost, then the coin's risk.
+    type(tokens(panel), '50');
+    await waitFor(() => expect(price(panel)).toHaveAttribute('data-price', 'disagrees'));
+    const description = reviewButton(panel).getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)?.textContent ?? '');
+    expect(description).toHaveLength(2);
+    expect(description[0]).toContain('Your opening price is 50.0% below the market price');
+    expect(description[1]).toBe(USDC_QUOTE.risk);
+    // BAYLA adds none: at the market, Review is described by nothing again.
+    await pair(panel, 'BAYLA');
+    type(coinBox(panel, 'BAYLA'), '5000');
+    await waitFor(() => expect(price(panel)).toHaveAttribute('data-price', 'agrees'));
+    expect(reviewButton(panel)).not.toHaveAttribute('aria-describedby');
+  }, LONG);
 
   // A live mint authority can make new tokens and sell them into the pool: what it takes
   // out is the pool's pairing coin, so that is the coin the warning names. It was never a
@@ -1183,6 +1291,24 @@ describe('a coin’s price is only ever the answer to the read that is out now',
 
 describe('changing the coin is never silent', () => {
   const status = (p: HTMLElement) => p.querySelector('p.sr-only[role="status"]');
+  /** The whole status line, and nothing else. */
+  const said = (p: HTMLElement) => (status(p)?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+  // Whole-change review 2026-10-04 (W5). The arrow keys in the radio group change the coin,
+  // and the amber notice about what USDC adds to the risks appears beside it without a
+  // word to a screen reader. The status line says the change of coin: it says that too.
+  it('choosing USDC says what USDC adds to the risks, in the coin table’s own words; BAYLA and SOL add nothing to say', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    await pair(panel, 'USDC');
+    expect(USDC_QUOTE.risk).toMatch(/Circle\) can freeze any USDC account/);
+    expect(said(panel)).toBe(`Now pairing with USDC. ${USDC_QUOTE.risk}`);
+    await pair(panel, 'BAYLA');
+    expect(said(panel)).toBe('Now pairing with BAYLA.');
+    await pair(panel, 'SOL');
+    expect(said(panel)).toBe('Now pairing with SOL.');
+  });
 
   // F9: the radio group's arrow keys change the coin, and a typed amount went with it
   // without a word.
@@ -1196,7 +1322,7 @@ describe('changing the coin is never silent', () => {
     await pair(panel, 'USDC');
     expect(coinBox(panel, 'USDC')).toHaveValue('');
     expect(tokens(panel)).toHaveValue('100');
-    expect(status(panel)).toHaveTextContent(/^Now pairing with USDC\. Type the USDC amount again\.$/);
+    expect(said(panel)).toBe(`Now pairing with USDC. ${USDC_QUOTE.risk} Type the USDC amount again.`);
     // The kept token amount is what Match works from: 100 tokens at 2 USDC.
     await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
     fireEvent.click(matchButton(panel));
@@ -1220,7 +1346,7 @@ describe('changing the coin is never silent', () => {
     type(tokens(panel), '100');
     await pair(panel, 'USDC');
     await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
-    expect(status(panel)).toHaveTextContent(/^Now pairing with USDC\. Type the USDC amount again\.$/);
+    expect(said(panel)).toBe(`Now pairing with USDC. ${USDC_QUOTE.risk} Type the USDC amount again.`);
     fill(panel);
     expect(coinBox(panel, 'USDC')).not.toHaveValue('');
     expect(status(panel)).not.toHaveTextContent('Now pairing');
@@ -1255,7 +1381,7 @@ describe('changing the coin is never silent', () => {
     // At once: the settled line was SOL's, and is not USDC's.
     expect(status(panel)).not.toHaveTextContent('You would open the pool');
     expect(status(panel)).not.toHaveTextContent('SOL');
-    expect(status(panel)).toHaveTextContent('Now pairing with USDC. Type the USDC amount again.');
+    expect(said(panel)).toBe(`Now pairing with USDC. ${USDC_QUOTE.risk} Type the USDC amount again.`);
   });
 });
 
@@ -1318,5 +1444,71 @@ describe('the card, per coin (round 3)', () => {
       // 1 USDC. With SOL's 9 decimals this would be 1,000,000,000: a thousand USDC.
       maxIn: 1_000_000n,
     });
+  }, LONG);
+});
+
+// THE LEAVE RULE: nobody is let in who cannot be let out. The pool program refuses a
+// withdrawal that pays 0 on a side. With ONE base unit on a side, the opener's 99.9% of
+// the pool's shares pays floor(0.999) = 0 of that side, so no share of the pool could ever
+// be taken out. For a token with no decimals, "1" is exactly what someone types. The form
+// let it through to Review, and so did the builder (review, 2026-10-04).
+describe('an opening whose own share could never be taken out', () => {
+  /** A token with no decimals: its smallest unit is one whole token. */
+  const whole = (mint: string): TokenSafety => {
+    const t = tokenFor(mint);
+    return t.kind === 'read' && t.facts ? { ...t, facts: { ...t.facts, decimals: 0 } } : t;
+  };
+  /** Nobody trades it: Jupiter ANSWERS that it has no route, which is a warning and never a stop. */
+  const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+  /** A wallet that can cover any amount typed here: only the share rule can stop the opening. */
+  const rich = (quote: QuoteCoin | undefined): WalletFacts =>
+    walletFor(quote, {
+      lamports: 50n * UNIT.SOL,
+      token: { address: key().toBase58(), amount: 20_000_000_000n },
+      ...(quote && !quote.native ? { coin: { address: key().toBase58(), exists: true, amount: 50_000n * 10n ** 6n } } : {}),
+    });
+  const mountWhole = () =>
+    mount(
+      readers({
+        safety: vi.fn(async (mints: string[]) => new Map(mints.map((m) => [m, whole(m)]))),
+        outsidePrice: vi.fn(async (mint: string) => (mint === M ? noRoute : priceOf(mint))),
+        wallet: vi.fn<WalletFn>(async (_o, _m, _p, _l, opts) => rich(opts?.quote)),
+      }),
+    );
+  const cannotLeave = (what: string) =>
+    `Too small: your own share of this pool could never be taken out, because it would pay out less than one unit of ${what}. Put in more of it.`;
+  // 10 SOL, 10,000 USDC and 10,000 BAYLA are each 10,000,000,000 base units: with one
+  // token that is exactly 100,000 pool shares, so no other "too small" rule is in the way.
+  const COINS: Array<[QuoteSymbol, string]> = [['SOL', '10'], ['USDC', '10000'], ['BAYLA', '10000']];
+
+  it.each(COINS)('%s: ONE token with no decimals: the form says why, names the token, and Review is off; with two it is on', async (symbol, amount) => {
+    mountWhole();
+    const { panel } = await openPanel();
+    if (symbol === 'SOL') await within(panel).findByRole('button', { name: 'Max SOL' });
+    else await pair(panel, symbol);
+    type(coinBox(panel, symbol), amount);
+    type(tokens(panel), '1');
+    const alert = within(panel).getByRole('alert');
+    await waitFor(() => expect(alert).toHaveTextContent(cannotLeave('the token')));
+    expect(reviewButton(panel)).toBeDisabled();
+    // Not sent to the wrong fix: nothing here says the locked part is too large.
+    expect(alert).not.toHaveTextContent('0.1%');
+    // Two tokens: the opener's share pays one of them back, so it can leave.
+    type(tokens(panel), '2');
+    await waitFor(() => expect(alert).toHaveTextContent(''));
+    expect(reviewButton(panel)).toBeEnabled();
+  }, LONG);
+
+  it.each(COINS)('%s: ONE base unit of the coin against 10,000,000,000 tokens: the words name the coin', async (symbol) => {
+    mountWhole();
+    const { panel } = await openPanel();
+    if (symbol === 'SOL') await within(panel).findByRole('button', { name: 'Max SOL' });
+    else await pair(panel, symbol);
+    type(coinBox(panel, symbol), symbol === 'SOL' ? '0.000000001' : '0.000001');
+    type(tokens(panel), '10000000000');
+    const alert = within(panel).getByRole('alert');
+    await waitFor(() => expect(alert).toHaveTextContent(cannotLeave(symbol)));
+    expect(alert).not.toHaveTextContent('the token');
+    expect(reviewButton(panel)).toBeDisabled();
   }, LONG);
 });

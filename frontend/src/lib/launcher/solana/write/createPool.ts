@@ -71,12 +71,12 @@ import { ratePercent } from '../../../solana/cpswap/math';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, planCreate, solSetAside, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
 import { TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss } from '../../../solana/lp/opening';
-import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
+import { coinPriceDetail, type OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, MAX_CREATE_FEE_LAMPORTS, feeAccountStateOf, tierStateOf } from './config';
-import { LP_COPY, accountCheck, rentOf, toRaw, type LpPrepareReads } from './liquidity';
+import { LP_COPY, accountCheck, coinAccount, rentOf, toRaw, type LpPrepareReads } from './liquidity';
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import type { CurveWriteConfig, IntentStep, LpCreateSummary, LpOpenGate, PoolPins, Prepared, PriceGap, TierTerms, TxSummary, WriteRpc } from './types';
@@ -124,6 +124,11 @@ export const CREATE_COPY = {
   tooSmall: `Too small: the pool program keeps ${LOCKED_SHARES_TEXT} in every new pool forever, and this opening would not cover them. Put in more of either side.`,
   lockTooLarge: (pct: string) =>
     `Too small to be worth it: the ${LOCKED_SHARES_TEXT} the pool program keeps forever would be ${pct}% of this pool. Put in more, so that part is 0.1% or less.`,
+  // The leave rule: the pool program refuses a withdrawal that pays 0 on a side, so an
+  // opening whose own shares would pay 0 of `what` (the coin's symbol, or "the token") is
+  // never built. Nobody is let in who cannot be let out.
+  cannotLeave: (what: string) =>
+    `Too small: your own share of this pool could never be taken out, because it would pay out less than one unit of ${what}. Put in more of it.`,
   rentBand: (most: string) =>
     `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and stay open on the network. The most you can put in from this wallet is ${most}.`,
   signerMismatch: "Internal check failed: the pool's signer does not match the review.",
@@ -388,6 +393,8 @@ function createProblemCopy(p: CreateProblem, decimals: number, quote: QuoteCoin)
       return CREATE_COPY.tooSmall;
     case 'lock-too-large':
       return CREATE_COPY.lockTooLarge(lockPct(p.supply));
+    case 'cannot-leave':
+      return CREATE_COPY.cannotLeave(p.side === 'quote' ? quote.symbol : 'the token');
     case 'over-balance':
       // SOL: `have` is what the wallet can put in after the fee, the deposits and its own
       // floor, so it is named as the most it can put in. Any other coin's is its balance.
@@ -411,7 +418,6 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if (!quote) return notSent('build', CREATE_COPY.notAPairingCoin);
   if (!canPair(a.tokenMint.toBase58(), quote) && !a.tokenMint.equals(WSOL_MINT)) return notSent('build', CREATE_COPY.cannotPair(quote.symbol));
   const quoteMintKey = new PublicKey(quote.mint);
-  const quoteProgram = new PublicKey(quote.program);
   const cfg = gate.cfg;
   const cp = cfg.cpSwapProgram;
 
@@ -519,7 +525,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if (opening.verdict !== 'allowed' || (price.state !== 'agrees' && price.state !== 'disagrees' && price.state !== 'no-market')) {
     if (outside.kind === 'unread') return notSent('build', CREATE_COPY.priceUnread(outside.detail));
     // The coin's own price only matters when there is a token price to compare with.
-    if (outside.kind === 'ok' && coinOutside && coinOutside.kind !== 'ok') return notSent('build', CREATE_COPY.coinPriceUnread(quote.symbol, coinOutside.detail));
+    if (outside.kind === 'ok' && coinOutside && coinOutside.kind !== 'ok') return notSent('build', CREATE_COPY.coinPriceUnread(quote.symbol, coinPriceDetail(quote, coinOutside)));
     return notSent('build', CREATE_COPY.notBuilt(opening.reasons));
   }
 
@@ -533,7 +539,8 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if (priceGap) warnings.push(LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coinText(priceGap.lossQuote, quote), 'the market price'));
 
   // 10. The wallet's accounts. The tokens leave by CPI inside `initialize`, so CPI Guard
-  // on the source refuses (accountCheck). A source's notices are not shown.
+  // on the source refuses (accountCheck). An approved spender on a source is not refused:
+  // it is a notice on the review, because the way out pays into the same account.
   const tokenAddress = associatedTokenAddress(a.tokenMint, a.owner, tokenProgram);
   const tokenAccount = tokenProgram.equals(TOKEN_2022_PROGRAM_ID) ? snap.tokenAccounts.token2022 : snap.tokenAccounts.classic;
   if (!tokenAccount) return notSent('build', LP_COPY.noTokenAccount(tokenAddress.toBase58()));
@@ -543,9 +550,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if (availableToken < a.token) return notSent('build', LP_COPY.overBalance(tokensText(a.token, decimals), tokensText(availableToken, decimals)));
   // A coin that is not SOL is spent from the signer's own account for it, which must exist.
   if (!quote.native && !snap.quoteAccount.account) return notSent('build', LP_COPY.noCoinAccount(quote.symbol, snap.quoteAccount.address.toBase58()));
-  const wsolCheck = accountCheck(snap.quoteAccount.account, {
-    owner: a.owner, mint: quoteMintKey, program: quoteProgram, use: 'source', what: quote.native ? 'wrapped SOL' : quote.symbol, decimals: quote.decimals,
-  });
+  const wsolCheck = accountCheck(snap.quoteAccount.account, coinAccount(a.owner, quote, 'source'));
   if (wsolCheck.refuse) return notSent('build', wsolCheck.refuse);
   // A stranger's close authority, or a spender on a kept account, is refused here (wsol.ts).
   // Only a SOL opening has a plan for wrapped SOL: `null` = nothing is wrapped.
@@ -720,7 +725,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
         priceGap,
         unwrapsWsol: bodySteps(steps).some((s) => s.kind === 'close-wsol'),
         wsolHeldBefore: plan ? plan.heldBefore : 0n,
-        notices: [],
+        notices: [...source.notices, ...wsolCheck.notices],
       };
       return summary;
     },

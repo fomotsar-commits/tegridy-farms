@@ -5,7 +5,7 @@ import { assessPool, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
-import { QUOTE_COINS_OR, quotesFor } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
 import { BUNGALOWS } from '../../../lib/bungalows';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
@@ -13,7 +13,7 @@ import { TOGGLE_CLS, inputCls, inputStyle } from '../curve/uiFormat';
 import { TokenSafetyCard } from './TokenSafetyCard';
 import { PoolCard, UnreadPoolCard } from './PoolCard';
 import { CreatePoolCard } from './CreatePoolCard';
-import { depositOffer, lpHeld } from './offers';
+import { depositOffer, lpHeld, priceWarned } from './offers';
 import { useLpWrites } from './useLpWrites';
 import type { LpReaders } from './readers';
 
@@ -480,7 +480,13 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
   const { pools, index } = s.pools.search;
   const read = pools.filter((p) => p.kind === 'pool').length;
   const unread = pools.length - read;
-  const parts = [`${read === 0 ? 'No pools' : count(read, 'pool', 'pools')} found for this token.`];
+  // A pairing coin looked up as the token (USDC, BAYLA) was searched only against the
+  // coins that outrank it. "No pools" then names those coins, and the line says where its
+  // pool with a lower coin is: a pair that was never looked for is not said to have none.
+  const none = quoteCoin(s.mint) ? `No pools pairing this token with ${searchedCoinsOr(s.mint)} found.` : 'No pools found for this token.';
+  const parts = [read === 0 ? none : `${count(read, 'pool', 'pools')} found for this token.`];
+  const otherSide = otherSideLine(s.mint);
+  if (otherSide) parts.push(otherSide);
   if (unread) parts.push(`${count(unread, 'more pool', 'more pools')} could not be read.`);
   if (index.kind === 'unread') parts.push('Our pool index could not be read, so there may be other pools.');
   else if (index.truncated) parts.push('Our pool index returned its maximum, so there may be more pools.');
@@ -515,8 +521,15 @@ function SearchResults({
     }
     return m;
   }, [pools, decimals, outside, coins, safety]);
-  // Where a wish ends. Adding goes to the deepest pool that offers it; with none, and for
-  // creating, it goes to the "Open a new pool" card, which opens its form or says why not.
+  // Where a wish ends. Adding goes to the first pool in the list (the deepest of its coin)
+  // that offers it with no price warning; with none, and for creating, it goes to the
+  // "Open a new pool" card, which opens its form or says why not.
+  // A pool whose price is off, or was compared with nothing, takes deposits now (owner
+  // ruling 2026-10-04), and the list is deepest first. So "the first that offers it" sent
+  // the visitor, by itself, into a deep pool at a wrong price while the Open card on the
+  // same page suggested the pool at the market (review, 2026-10-04). Such a pool is the
+  // wish's answer only when no other pool offers adding: a warning never takes the form
+  // away, and its form says the warning. The same rule as the card's (`createAdvice`).
   // A wish that names its pool (`LpWish.pool`) is for that pool alone: its Add form when
   // the pool offers adding, else its card, brought onto the screen so the pool's own
   // reason is what is read. It is never passed on to another pool or to the Open card.
@@ -526,12 +539,16 @@ function SearchResults({
   const named = wish?.task === 'add' ? wish.pool ?? null : null;
   const addTo = useMemo(() => {
     if (wish?.task !== 'add' || pools.kind !== 'ok' || !notes) return null;
+    let warned: string | null = null;
     for (const p of pools.search.pools) {
       if (p.kind !== 'pool' || (named !== null && p.view.address !== named)) continue;
       const health = healths.get(p.view.address);
-      if (health && depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) === 'offer') return p.view.address;
+      if (!health || depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) !== 'offer') continue;
+      if (!priceWarned(health)) return p.view.address;
+      warned ??= p.view.address;
     }
-    return null;
+    // A wish that names its pool looked at that pool alone, so it gets it whatever its price.
+    return warned;
   }, [wish, named, pools, healths, mode, gate, notes]);
   // Waits for the gate: until it has answered, no pool can say whether it offers adding.
   const gateAnswered = writes !== null && writes.status !== 'loading' && gate !== null;
@@ -539,6 +556,12 @@ function SearchResults({
   const openCreate = wish && named === null && (wish.task === 'create' || addTo === null) ? due : 0;
   // The named pool cannot open its form: its card is shown instead, once.
   const showNamed = named !== null && addTo === null ? due : 0;
+  // The coins this lookup searched (all three for an ordinary token; only the coins that
+  // outrank it for USDC or BAYLA), and for such a coin where its pool with a lower coin
+  // is. The list said "SOL, USDC or BAYLA" whatever was searched: for USDC that told a
+  // pair nobody looked for as "none", and USDC with USDC is no pair at all.
+  const searched = searchedCoinsOr(mint);
+  const otherSide = otherSideLine(mint);
   return (
     <div className="space-y-4">
       <TokenSafetyCard mint={mint} safety={safety} />
@@ -555,10 +578,11 @@ function SearchResults({
             <Card title="Pools">
               <p data-testid="lp-no-pools">
                 {pools.search.index.kind !== 'ok'
-                  ? `No pools pairing this token with ${QUOTE_COINS_OR} found at the addresses we could check.`
+                  ? `No pools pairing this token with ${searched} found at the addresses we could check.`
                   : pools.search.index.truncated
-                    ? `None of the pools our index returned pairs this token with ${QUOTE_COINS_OR}. It returned its maximum, so there may be more.`
-                    : `No pools pairing this token with ${QUOTE_COINS_OR} found.`}
+                    ? `None of the pools our index returned pairs this token with ${searched}. It returned its maximum, so there may be more.`
+                    : `No pools pairing this token with ${searched} found.`}
+                {otherSide && ` ${otherSide}`}
               </p>
               {pools.search.otherPairs > 0 && (
                 <Notice>
@@ -588,6 +612,12 @@ function SearchResults({
           )}
           {pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
             <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
+          )}
+          {/* With pools listed there is no "no pools" sentence to carry it, so it is said under the list. */}
+          {pools.search.pools.length > 0 && otherSide && (
+            <div data-testid="lp-other-side">
+              <Notice>{otherSide}</Notice>
+            </div>
           )}
         </div>
       )}
