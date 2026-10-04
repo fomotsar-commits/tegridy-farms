@@ -15,6 +15,71 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-04: when a verdict gains a middle state, every reader of the old top state was reading two things
+
+**Believed:** turning four refusals into warnings (pull request 742: a token with no market
+price, a price more than 3% off, a freezable token, a copied name) was a change to the check,
+the builders and the forms that show the warnings. Each of those was built, tested and
+reviewed on its own, and each review passed.
+
+**Measured:** `allowed` had been standing in for "nothing to say" in places nobody listed. A
+whole-change review of the merged branch, five readers and then a second reader told to refute
+each finding, confirmed twelve and refuted none. The pattern in most of them: a consumer that
+took "the biggest allowed pool" or "the first pool that offers" now picked a pool the page
+itself warned about, and three sentences still said "passes the checks" of a pool whose own
+card was headed "with warnings". One consumer had been fixed for exactly this an hour earlier;
+its sibling, forty lines of another file away, was found by three reviewers independently.
+
+**Do:** when a verdict gains a state between yes and no, grep every reader of the old yes and
+decide for each one which question it was asking: "may this go ahead" or "is there nothing to
+warn of". They were the same question until the change. Review the pieces, then review the
+whole: the defects were all between the pieces.
+
+## 2026-10-04: an entry rule is only checked when the exit's own sum is run on what it lets in
+
+**Believed:** an opening that passes the pool program's minimum, and this site's stricter one
+(the locked 100 shares at most 0.1% of the pool), can always be taken out again.
+
+**Measured:** 1 token of a token with no decimals against 10 SOL gives `isqrt(1e10 x 1)` =
+100,000 shares: exactly 0.1%, so both rules pass and the real builder built it. The opener's
+99,900 shares then pay `floor(99,900 x 1 / 100,000)` = 0 tokens, and the pool program refuses a
+withdrawal that pays 0 on a side: at 100%, at 50% and at 0.01%. The share could never leave.
+With 2 tokens it leaves. The same floor was in the "locked forever" figure,
+`floor(100 x put / supply)`, which said "0 tokens" while one whole token stayed behind.
+
+**Do:** for any rule that lets money in, take what it lets through and run the EXIT's own
+arithmetic on it, rounding the way the program rounds, before calling the rule safe. A figure
+that tells someone what they can never get back is rounded up, not down. Whole-unit tokens
+(0 decimals) are the case that finds these: one base unit is the whole thing.
+
+## 2026-10-04: a mutation no test catches is sometimes a line that does nothing
+
+**Believed:** when breaking a line leaves the suite green, a test is missing.
+
+**Measured:** twice in one change it was the line. A guard that stopped a late lookup answer
+from scrolling the page off an open form survived its mutation because the page scrolls when
+the lookup STARTS, not when it lands: the guard could never fire. And one half of a two-part
+condition on a button could never be true while the thing it guarded was on screen. Both were
+written with a reason in a comment, and both were deleted. Of 18 mutations in that round, 16
+were caught and these 2 were dead code.
+
+**Do:** when a mutation survives, first ask whether the line can ever change an outcome, and
+find the moment it would. Write the test only if that moment exists. Otherwise delete the line
+and its comment: a guard that cannot fire reads as protection that is not there.
+
+## 2026-10-04: a rule over a list passes with one item whatever it does
+
+**Believed:** "the fallback opens the first warned pool" and "a rejected token extension is
+refused" were pinned: each had a test, and each test failed when the rule was removed.
+
+**Measured:** changing "first" to "last" left 669 tests green, because the only fallback test
+had one pool. Making each guard look at the FIRST extension only left 453 tests green in five
+places, because every test minted a token with one extension: a transfer hook behind a name
+and a picture would have been let in and then let out by three builders that all agreed.
+
+**Do:** a test of a rule over a list needs at least two items, with the one that matters not
+in the first place, and where order matters, first and last being different items.
+
 ## 2026-10-04: a new card that passes on a phone means the change passes on a phone
 
 **Believed:** the burn tracker was checked on phones: every new card at 320, 393, 810 and
