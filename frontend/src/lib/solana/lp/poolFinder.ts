@@ -353,10 +353,18 @@ export function isCreatedPool(pool: string): boolean {
   return createdPools.has(pool);
 }
 
+/**
+ * `also`: pool addresses the caller already holds (a position's own pool, read from the
+ * share's chain record). They are read like remembered pools, after everything the index
+ * and the known addresses name, and under the same filter: an address that is not this
+ * token's pool is never listed. Without it a pool at its own address was found by the
+ * index or not at all, so a holder of a pool the index had cut (more than its maximum
+ * for the token) or could not answer for had no way to that pool's Add form.
+ */
 export async function findPools(
   rpc: SolanaRpc,
   mint: PublicKey,
-  opts: ReadPoolsOptions & { fetchImpl?: typeof fetch },
+  opts: ReadPoolsOptions & { fetchImpl?: typeof fetch; also?: readonly string[] },
 ): Promise<PoolSearchRead> {
   const m = mint.toBase58();
   const known = knownPoolAddresses(mint, opts.programId, opts.launchProgramId);
@@ -364,7 +372,7 @@ export async function findPools(
   const named = [...new Set([known.launchPool, ...known.standard.map((s) => s.address), ...(index.kind === 'ok' ? index.pools : [])])].slice(0, MAX_CANDIDATES);
   const namedSet = new Set(named);
   const remembered = [...createdPools].filter(([pool, token]) => !namedSet.has(pool) && (token === null || token === m)).map(([pool]) => pool);
-  const addresses = [...named, ...remembered];
+  const addresses = [...new Set([...named, ...remembered, ...(opts.also ?? [])])];
 
   const read = await readPools(rpc, addresses, opts);
   if (read.kind === 'unread') return { kind: 'unread', detail: read.detail, index };

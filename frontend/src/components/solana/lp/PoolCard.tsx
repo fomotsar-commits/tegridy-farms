@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { formatWhen, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { feeRateText, priceText, quoteText, tokenText, tradeCostText } from '../../../lib/solana/lp/format';
@@ -99,6 +99,46 @@ function useShownOnce(showNow: number, onActed: ((n: number) => void) | undefine
   }, [showNow, onActed, card, heading]);
 }
 
+/**
+ * Why a wish that named this pool did not end in its Add form, in one sentence. The card
+ * shows it under its heading and the heading is described by it, so the reason is what a
+ * screen reader says when focus lands there: the heading alone is only the pool's kind,
+ * and two cards can carry the same one (review, 2026-10-04).
+ */
+function notOpenedWhy(offer: DepositOffer, health: PoolHealth): string {
+  const reasons = health.deposits.reasons.join(' ');
+  switch (offer) {
+    case 'paused-here':
+      return 'adding liquidity from this site is paused right now.';
+    case 'held':
+      return 'a deposit you sent to this pool is not confirmed yet.';
+    case 'checks':
+      return health.deposits.verdict === 'refused'
+        ? `this pool does not pass the checks a deposit needs. ${reasons}`
+        : `the checks a deposit needs could not be run on this pool. ${reasons}`;
+    case 'gate':
+    case 'off':
+    case 'offer':
+      return 'adding liquidity is not open right now.';
+  }
+}
+
+/** The wish number this card was last shown for (`useShownOnce`), kept after the wish is spent. */
+function useShownFor(showNow: number): number {
+  const [shownFor, setShownFor] = useState(0);
+  // Adjusted during render, so the line is on the page before the heading takes focus.
+  if (showNow && showNow !== shownFor) setShownFor(showNow);
+  return shownFor;
+}
+
+function WishWhy({ id, why }: { id: string; why: string }) {
+  return (
+    <div id={id} data-testid="lp-wish-why" className="mb-2 text-[12px] leading-relaxed">
+      <Notice tone="warn">This is your position’s pool. Its Add form was not opened: {why}</Notice>
+    </div>
+  );
+}
+
 export function PoolCard({
   view,
   health,
@@ -123,10 +163,14 @@ export function PoolCard({
   const cardRef = useRef<HTMLLIElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   useShownOnce(showNow, onActed, cardRef, headingRef);
+  const shownFor = useShownFor(showNow);
+  const whyId = useId();
   const writes = useLpWrites();
   const offer: DepositOffer = writes
     ? depositOffer({ mode: writes.mode, gate: writes.gate, health, held: lpHeld(writes.pending.notes, view.address, 'add') })
     : 'off';
+  // Gone as soon as the pool offers adding again: the button under the checks says so then.
+  const why = shownFor && offer !== 'offer' ? notOpenedWhy(offer, health) : null;
   const { pool } = view.snapshot;
   const swaps = swapsText(health);
   const cfg = view.config;
@@ -152,9 +196,10 @@ export function PoolCard({
       data-price={price.state}
       data-add={offer}
     >
-      <h3 ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>
+      <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>
         {view.origin === 'launch-pool' ? 'Launch pool' : view.origin === 'standard' ? `Standard address, fee tier ${cfg?.index ?? '?'}` : 'Pool at its own address'}
       </h3>
+      {why && <WishWhy id={whyId} why={why} />}
       <p className="text-white/50 text-[11px] mb-2">{ORIGIN_LABEL[view.origin]}</p>
       {isCreatedPool(view.address) && (
         <p className="text-emerald-300/90 text-[12px] mb-2" data-testid="lp-opened-here">
@@ -313,9 +358,12 @@ export function UnreadPoolCard({
   const cardRef = useRef<HTMLLIElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   useShownOnce(showNow, onActed, cardRef, headingRef);
+  const shownFor = useShownFor(showNow);
+  const whyId = useId();
   return (
     <li ref={cardRef} className={`${CARD} scroll-mt-[4.5rem]`} style={CARD_STYLE} data-testid="lp-pool" data-pool={entry.address} data-deposits="unchecked" data-swaps="unread">
-      <h3 ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>Pool not read</h3>
+      <h3 ref={headingRef} tabIndex={-1} aria-describedby={shownFor ? whyId : undefined} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>Pool not read</h3>
+      {shownFor > 0 && <WishWhy id={whyId} why="this pool could not be read just now. Press Add more liquidity on your position again in a minute." />}
       <div className="text-white/60 text-[11px] leading-relaxed space-y-2">
         <Row label="Pool address" value={entry.address} />
         <Notice tone="warn">We could not read this pool ({entry.detail}). Nothing about it is checked.</Notice>

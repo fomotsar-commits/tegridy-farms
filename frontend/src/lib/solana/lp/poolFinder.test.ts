@@ -383,3 +383,37 @@ describe('findPools: remembered pools never crowd out or leak into another token
     expect(r.kind === 'ok' && r.search.pools).toEqual([]);
   });
 });
+
+// A position knows its pool's address from the share's own chain record. The lookup that
+// "Add more liquidity" starts reads that address whatever the index says: a pool at its own
+// address was otherwise found by the index or not at all (review, 2026-10-04).
+describe('findPools: pools the caller already holds (`also`)', () => {
+  it('is read and listed when the index omits it, is down, or is full; without it the pool is not found', async () => {
+    const mint = key();
+    const mine = buildPool({ mint, configIndex: 1, address: key(), quoteReserve: 10n ** 6n, tokenReserve: 10n });
+    const full = Array.from({ length: POOL_INDEX_MAX }, (_, i) => buildPool({ mint, configIndex: 1, address: key(), quoteReserve: BigInt(i + 2) * 10n ** 6n, tokenReserve: 10n }));
+    const accounts = Object.assign({ [CLOCK]: clockAccount(5n) }, mine.accounts, ...full.map((f) => f.accounts));
+    const listed = (r: Awaited<ReturnType<typeof findPools>>) => (r.kind === 'ok' ? r.search.pools.map((x) => (x.kind === 'pool' ? x.view.address : x.kind)) : r.kind);
+    const indexes = [fakeIndex({}), fakeIndex({}, { status: 502 }), fakeIndex({ [`mint:${mint.toBase58()}`]: full.map((f) => f.address.toBase58()) })];
+    for (const index of indexes) {
+      expect(listed(await findPools(fakeRpc(accounts), mint, opts(index)))).not.toContain(mine.address.toBase58());
+      expect(listed(await findPools(fakeRpc(accounts), mint, { ...opts(index), also: [mine.address.toBase58()] }))).toContain(mine.address.toBase58());
+    }
+    // Under a full index nothing the index named was dropped to make room.
+    const r = await findPools(fakeRpc(accounts), mint, { ...opts(indexes[2]!), also: [mine.address.toBase58()] });
+    expect(listed(r)).toHaveLength(POOL_INDEX_MAX + 1);
+  });
+
+  it('an address the index already names is read once, and one that holds another token’s pool is never listed for this one', async () => {
+    const mint = key();
+    const mine = buildPool({ mint, configIndex: 1, address: key(), quoteReserve: 10n ** 9n, tokenReserve: 10n });
+    const elsewhere = buildPool({ mint: key(), configIndex: 1, address: key(), quoteReserve: 10n ** 9n, tokenReserve: 10n });
+    const accounts: Record<string, FakeAccount> = { ...mine.accounts, ...elsewhere.accounts, [CLOCK]: clockAccount(5n) };
+    const calls: [string, unknown[]][] = [];
+    const also = [mine.address.toBase58(), elsewhere.address.toBase58(), key().toBase58()];
+    const r = await findPools(fakeRpc(accounts, { calls }), mint, { ...opts(fakeIndex({ [`mint:${mint.toBase58()}`]: [mine.address.toBase58()] })), also });
+    expect(r.kind === 'ok' && r.search.pools.map((x) => (x.kind === 'pool' ? x.view.address : x.kind))).toEqual([mine.address.toBase58()]);
+    const first = (calls.find(([m]) => m === 'getMultipleAccounts')![1] as [string[]])[0];
+    expect(first.filter((a) => a === mine.address.toBase58())).toHaveLength(1);
+  });
+});

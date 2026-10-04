@@ -55,12 +55,15 @@ function listsPool(pools: PoolSearchRead, address: string): boolean {
 
 /**
  * The line for a position's wish whose pool the lookup did not return. A lookup that
- * could not be read says that: it is never told as "your pool is not there".
+ * could not be read says that: it is never told as "your pool is not there". The pool's
+ * own address is read with every such lookup (`also`), so the second line means the chain
+ * answered and that address did not hold a pool for this token. Both end in the press
+ * that works: the wish is spent, so Read again alone opens nothing.
  */
 function unfoundText(pools: PoolSearchRead, pool: string): string {
   return pools.kind !== 'ok'
-    ? `This token’s pools could not be read just now, so the Add form for your position’s pool (${pool}) was not opened. Press Read again.`
-    : `Your position’s pool (${pool}) is not among the pools found for this token just now, so its Add form was not opened, and no other pool’s was opened in its place. Read again in a minute.`;
+    ? `This token’s pools could not be read just now, so the Add form for your position’s pool (${pool}) was not opened. Press Add more liquidity on your position again.`
+    : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
 }
 
 /**
@@ -120,9 +123,11 @@ type Done = Extract<SearchState, { status: 'done' }>;
  * re-read of the SAME mint keeps showing the last answer until the new one arrives, so
  * the cards and an open panel (with its outcome on screen) never unmount; only a
  * different mint reads as loading.
+ *
+ * `also`: a pool address to read whatever the index says (a position's own pool).
  */
-function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, reloadKey: number, wantOutside: boolean): SearchState {
-  const key = mint ? `${mint}#${nonce}#${reloadKey}#${wantOutside ? 'o' : ''}` : null;
+function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, reloadKey: number, wantOutside: boolean, also: string | null): SearchState {
+  const key = mint ? `${mint}#${nonce}#${reloadKey}#${wantOutside ? 'o' : ''}#${also ?? ''}` : null;
   const [answer, setAnswer] = useState<{ key: string; value: Done } | null>(null);
   useEffect(() => {
     if (!mint || !key) return;
@@ -131,7 +136,7 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
       if (live) setAnswer({ key, value });
     };
     (async () => {
-      const [safetyMap, pools] = await Promise.all([readers.safety([mint]), readers.findPools(new PublicKey(mint))]);
+      const [safetyMap, pools] = await Promise.all([readers.safety([mint]), also ? readers.findPools(new PublicKey(mint), [also]) : readers.findPools(new PublicKey(mint))]);
       const safety: TokenSafety = safetyMap.get(mint) ?? { kind: 'unread', mint, detail: 'no answer for this token' };
       // The outside price only matters when there is a pool to compare, or (with opening
       // pools offered, `wantOutside`) an opening price to check, and a token we could
@@ -160,7 +165,7 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
     return () => {
       live = false;
     };
-  }, [readers, mint, key, wantOutside]);
+  }, [readers, mint, key, wantOutside, also]);
   if (!mint || !key) return { status: 'idle' };
   if (answer?.key === key) return answer.value;
   return answer?.value.mint === mint ? { ...answer.value, refreshing: true } : { status: 'loading', mint };
@@ -199,7 +204,12 @@ export function PoolFinder({
   const [input, setInput] = useState(mint ?? linkError?.raw ?? '');
   const [error, setError] = useState<string | null>(linkError?.reason ?? null);
   const [nonce, setNonce] = useState(0);
-  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside);
+  // A position's own pool, read with every lookup of its token from the press on (the
+  // lookup otherwise reads only what the index and the worked-out addresses name). It is
+  // kept, so a later re-read (after a deposit, say) never drops the card an open form sits
+  // on, and it is only ever read with its own token's lookups.
+  const [extra, setExtra] = useState<{ mint: string; pool: string } | null>(null);
+  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside, extra && extra.mint === mint ? extra.pool : null);
   const reread = useCallback(() => setNonce((n) => n + 1), []);
   // A new ?mint= (a link, or back/forward) fills the field: adjusted during render, the
   // React way to follow a prop, rather than in an effect.
@@ -248,6 +258,18 @@ export function PoolFinder({
   const canAdd = writes?.mode === 'on';
   const [task, setTask] = useState<LpTask | null>(null);
   const wishes = useRef(0);
+  // A form the visitor opens while a lookup is still reading outranks the wish: the wish
+  // is dropped (adjusted during render, like the link above). A lookup has no time limit,
+  // and "Add more liquidity" sits one button from Remove: without this, a slow answer
+  // closed a Remove form opened meanwhile and put an Add form in its place, or pulled the
+  // page off a running one (review, 2026-10-04). The wish's own form opening is not
+  // caught here: the card spends the wish in the same pass that opens it.
+  const activeKey = writes?.active?.key ?? null;
+  const [seenActive, setSeenActive] = useState(activeKey);
+  if (activeKey !== seenActive) {
+    setSeenActive(activeKey);
+    if (activeKey !== null && wish) setWish(null);
+  }
   // Without this a wish outlived its form: a deposit sent from it held the pool, the
   // target moved to the Open card and the page jumped off "Sent, do not send it again";
   // a pool just opened came back in the re-read and its Add form opened by itself; Back
@@ -258,6 +280,7 @@ export function PoolFinder({
       asked.current = true;
       wishes.current += 1;
       setUnfound(null);
+      if (pool) setExtra({ mint: next, pool });
       setWish(want ? { task: want, mint: next, n: wishes.current, ...(pool ? { pool } : {}) } : null);
       if (next === mint) setNonce((n) => n + 1);
       else onMint(next);
@@ -273,6 +296,8 @@ export function PoolFinder({
       addTo(next, pool) {
         setInput(next);
         setError(null);
+        // The first card says what the page is now doing, not what was pressed there before.
+        setTask('add');
         lookUp(next, 'add', pool);
       },
     }),
@@ -320,8 +345,11 @@ export function PoolFinder({
   const choose = useCallback(
     (t: LpTask) => {
       setTask(t);
-      if (t === 'remove') onRemove?.();
-      else if (answered && canAdd) {
+      if (t === 'remove') {
+        // Nobody who asked to take liquidity out gets an Add form from an earlier press.
+        setWish(null);
+        onRemove?.();
+      } else if (answered && canAdd) {
         wishes.current += 1;
         setUnfound(null);
         setWish({ task: t, mint: answered, n: wishes.current });

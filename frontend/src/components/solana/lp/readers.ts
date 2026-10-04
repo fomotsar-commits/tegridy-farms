@@ -19,7 +19,11 @@ import { readWalletFacts, type WalletFacts } from '../../../lib/solana/lp/wallet
 export interface LpReaders {
   programId: string;
   safety(mints: string[]): Promise<Map<string, TokenSafety>>;
-  findPools(mint: PublicKey): Promise<PoolSearchRead>;
+  /**
+   * `also`: pool addresses the caller already holds (a position's own pool), read as well
+   * as what the index names, under the same this-token-only filter (poolFinder.ts).
+   */
+  findPools(mint: PublicKey, also?: readonly string[]): Promise<PoolSearchRead>;
   outsidePrice(mint: string, decimals: number): Promise<OutsidePrice>;
   /** `limit`: how many pool shares to place (each costs one index lookup). */
   positions(owner: PublicKey, limit?: number): Promise<PositionsRead>;
@@ -60,7 +64,7 @@ export function browserLpReaders(): LpReaders | null {
   return {
     programId: programId.toBase58(),
     safety: (mints) => readTokenSafety(rpc, mints),
-    findPools: (mint) => findPools(rpc, mint, opts),
+    findPools: (mint, also) => findPools(rpc, mint, also?.length ? { ...opts, also } : opts),
     outsidePrice: (mint, decimals) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }),
     positions: (owner, limit) => readPositions(rpc, owner, { ...opts, limit }),
     feeTiers: () => readFeeTiers(rpc, programId),

@@ -435,9 +435,11 @@ function RemoveBlock({
   // of its own and which names this share, while the section can add at all. Whether THIS
   // pool takes a deposit right now is not decided here: the finder says so, on the pool's
   // card, after its checks. Nor does it wait on Remove: a share too small to take out is
-  // one a holder may well want to add to.
+  // one a holder may well want to add to. The one thing the row does know: a pool whose
+  // withdrawals are off or whose vault is frozen takes no deposit from this site (nobody
+  // is let in who cannot be let out), so the row that says so does not offer to add.
   const addMore =
-    onAddMore && !setAside && view && view.snapshot.pool.lpMint === p.lpMint && addingOpen(writes) ? (
+    onAddMore && !setAside && view && view.snapshot.pool.lpMint === p.lpMint && withdrawalsState(view) === 'open' && addingOpen(writes) ? (
       <button
         type="button"
         className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"

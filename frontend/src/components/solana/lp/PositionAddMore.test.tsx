@@ -16,6 +16,9 @@
 //   4. A pool the lookup did not return is said in a line, and nothing opens.
 //   5. No button while adding is paused or the network check is not open, and it is off
 //      while another form's flow is running.
+//   6. (review, 2026-10-04) The position's own pool is read with the lookup, whatever the
+//      index lists. A form the holder opens while the lookup reads is not replaced when
+//      the answer lands. A card shown instead of a form says why, to a screen reader too.
 //
 // The write layer is a fake (fakeLpWriteApi.fixture.ts); the pools, positions and wallet
 // are fake readers. Nothing here touches a chain.
@@ -117,6 +120,7 @@ const facts = (): WalletFacts => ({
   lamports: 5n * 10n ** 9n,
   token: { address: key().toBase58(), amount: 500n * 10n ** 6n },
   wsol: { exists: false, amount: 0n },
+  coin: null,
   lpAccountExists: false,
   rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n },
 });
@@ -369,10 +373,10 @@ describe('the press is the finder’s own lookup, and it ends in that pool’s A
 describe('it goes to that pool or to nowhere', () => {
   // Each of these has a deeper pool that takes deposits right beside it, and an
   // Open-a-pool card that can offer: both are what the press must NOT end in.
-  const cases: { name: string; mine: () => PoolView; hold?: boolean; offer: string; says: RegExp }[] = [
-    { name: 'refuses deposits (it cannot trade yet)', mine: () => view({ openTime: 10n ** 10n }), offer: 'checks', says: /Deposits: refused here/ },
-    { name: 'could not be checked (its fee settings were not read)', mine: () => view({ noConfig: true }), offer: 'checks', says: /Deposits: not checked/ },
-    { name: 'has a deposit still pending', mine: () => view(), hold: true, offer: 'held', says: /A deposit you sent to this pool is not confirmed yet/ },
+  const cases: { name: string; mine: () => PoolView; hold?: boolean; offer: string; says: RegExp; why: RegExp }[] = [
+    { name: 'refuses deposits (it cannot trade yet)', mine: () => view({ openTime: 10n ** 10n }), offer: 'checks', says: /Deposits: refused here/, why: /this pool does not pass the checks a deposit needs\. \S/ },
+    { name: 'could not be checked (its fee settings were not read)', mine: () => view({ noConfig: true }), offer: 'checks', says: /Deposits: not checked/, why: /the checks a deposit needs could not be run on this pool\. \S/ },
+    { name: 'has a deposit still pending', mine: () => view(), hold: true, offer: 'held', says: /A deposit you sent to this pool is not confirmed yet/, why: /a deposit you sent to this pool is not confirmed yet\./ },
   ];
   it.each(cases)('the position’s pool $name: its card comes onto the screen with its own reason, and no form opens anywhere', async (c) => {
     const deep = deeper();
@@ -386,8 +390,16 @@ describe('it goes to that pool or to nowhere', () => {
     const its = card(mine.address);
     expect(its).toHaveAttribute('data-add', c.offer);
     expect(its).toHaveTextContent(c.says);
-    // A keyboard and a screen reader land on the card too.
-    expect(within(its).getByRole('heading', { level: 3 })).toHaveFocus();
+    // A keyboard and a screen reader land on the card too, and are told why: the heading
+    // alone is only the pool's kind, and the card beside it carries the same one.
+    const heading = within(its).getByRole('heading', { level: 3 });
+    expect(heading).toHaveFocus();
+    expect(heading.textContent).toBe(within(card(deep.address)).getByRole('heading', { level: 3 }).textContent);
+    const why = within(its).getByTestId('lp-wish-why');
+    expect(why).toHaveTextContent('This is your position’s pool. Its Add form was not opened:');
+    expect(why).toHaveTextContent(c.why);
+    expect(heading).toHaveAttribute('aria-describedby', why.id);
+    expect(screen.getAllByTestId('lp-wish-why')).toHaveLength(1);
     // The pool beside it would have taken the deposit. It was not asked, and not shown.
     expect(card(deep.address)).toHaveAttribute('data-add', 'offer');
     await act(async () => {});
@@ -407,11 +419,15 @@ describe('it goes to that pool or to nowhere', () => {
     mount(r);
     fireEvent.click(await addMore(closed.address));
     await waitFor(() => expect(scrolledTo()).toContain(card(closed.address)));
+    expect(within(card(closed.address)).getByTestId('lp-wish-why')).toBeInTheDocument();
     now = opened;
     fireEvent.click(within(screen.getByTestId('lp-finder')).getByRole('button', { name: 'Read again' }));
     await waitFor(() => expect(card(closed.address)).toHaveAttribute('data-add', 'offer'));
     await act(async () => {});
     noFormOpen();
+    // The reason is gone with the refusal: the card now has its own Add liquidity button.
+    expect(screen.queryByTestId('lp-wish-why')).toBeNull();
+    expect(within(card(closed.address)).getByRole('heading', { level: 3 })).not.toHaveAttribute('aria-describedby');
   });
 
   it('a pool that is listed but could not be read: its card comes onto the screen, and nothing opens', async () => {
@@ -425,7 +441,11 @@ describe('it goes to that pool or to nowhere', () => {
     fireEvent.click(await addMore(mine.address));
     await waitFor(() => expect(scrolledTo()).toContain(card(mine.address)));
     expect(card(mine.address)).toHaveTextContent('We could not read this pool (HTTP 502). Nothing about it is checked.');
-    expect(within(card(mine.address)).getByRole('heading', { level: 3 })).toHaveFocus();
+    const heading = within(card(mine.address)).getByRole('heading', { level: 3 });
+    expect(heading).toHaveFocus();
+    const why = within(card(mine.address)).getByTestId('lp-wish-why');
+    expect(why).toHaveTextContent('This is your position’s pool. Its Add form was not opened: this pool could not be read just now.');
+    expect(heading).toHaveAttribute('aria-describedby', why.id);
     await act(async () => {});
     noFormOpen();
     neverWentToOpenCard();
@@ -440,8 +460,11 @@ describe('it goes to that pool or to nowhere', () => {
     mount(r);
     fireEvent.click(await addMore(mine.address));
     const line = await screen.findByTestId('lp-wish-unfound');
-    expect(line).toHaveTextContent(`Your position’s pool (${mine.address}) is not among the pools found for this token just now`);
+    expect(line).toHaveTextContent(`Your position’s pool (${mine.address}) did not read as a pool for this token just now`);
     expect(line).toHaveTextContent('its Add form was not opened, and no other pool’s was opened in its place');
+    // The wish is spent, so Read again alone opens nothing: the line names the press that does.
+    expect(line).toHaveTextContent('Press Add more liquidity on your position again in a minute.');
+    expect(line).not.toHaveTextContent('Read again');
     // Said to a screen reader too, from the finder's one live region.
     expect(screen.getByTestId('lp-status')).toHaveTextContent('Your position’s pool');
     // The deeper pool takes deposits, and the Open-a-pool card offers: neither was used.
@@ -470,7 +493,9 @@ describe('it goes to that pool or to nowhere', () => {
     const line = await screen.findByTestId('lp-wish-unfound');
     expect(line).toHaveTextContent('This token’s pools could not be read just now');
     expect(line).toHaveTextContent(mine.address);
-    expect(line).not.toHaveTextContent('is not among the pools');
+    expect(line).not.toHaveTextContent('did not read as a pool');
+    expect(line).toHaveTextContent('Press Add more liquidity on your position again.');
+    expect(line).not.toHaveTextContent('Read again');
     await waitFor(() => expect(screen.getByTestId('lp-create')).toHaveAttribute('data-create', 'pools-unread'));
     await act(async () => {});
     noFormOpen();
@@ -517,6 +542,142 @@ describe('it goes to that pool or to nowhere', () => {
   });
 });
 
+// The lookup reads what the index and the worked-out addresses name. A pool at its own
+// address is in the index or nowhere, and the index is cut at its maximum and can be down:
+// the holder of such a pool pressed the button and was told their pool was not there. The
+// position holds the address, so the lookup is given it.
+describe('the position’s own pool is read with the lookup', () => {
+  it('a pool the index did not name is asked for by its address, and its Add form opens on the fresh answer, not on the old one', async () => {
+    const deep = deeper();
+    const mine = view();
+    // The index names only the deeper pool. The position's pool is read when asked for.
+    const r = readers({
+      findPools: vi.fn(async (_mint: PublicKey, also?: readonly string[]) => search(also?.includes(mine.address) ? [deep, mine] : [deep])),
+      positions: held(position(mine)),
+    });
+    mount(r, { path: `/pools?mint=${M}` });
+    // The link's own lookup: no pool is asked for by address, and one card is on the page.
+    await waitFor(() => expect(screen.getAllByTestId('lp-pool')).toHaveLength(1));
+    expect(lookups(r)).toHaveLength(1);
+    expect(lookups(r)[0]).toHaveLength(1);
+    fireEvent.click(await addMore(mine.address));
+    // Judged against the OLD answer (which does not list it) the press would end in the
+    // "not found" line at once. It waits for the fresh one.
+    const panel = await screen.findByTestId('lp-add-panel');
+    expect(card(mine.address)).toContainElement(panel);
+    expect(screen.queryByTestId('lp-wish-unfound')).toBeNull();
+    expect(lookups(r)).toHaveLength(2);
+    expect(lookups(r)[1]![0].toBase58()).toBe(M);
+    expect(lookups(r)[1]![1]).toEqual([mine.address]);
+    // And it stays asked for while the page is on this token: a later read does not take
+    // the card away from under the open form.
+    fireEvent.click(within(screen.getByTestId('lp-finder')).getByRole('button', { name: 'Read again' }));
+    await waitFor(() => expect(lookups(r)).toHaveLength(3));
+    expect(lookups(r)[2]![1]).toEqual([mine.address]);
+    await waitFor(() => expect(screen.queryByText('Reading the token and its pools again…')).toBeNull());
+    expect(card(mine.address)).toContainElement(screen.getByTestId('lp-add-panel'));
+  });
+
+  it('moving to another token stops asking for it', async () => {
+    const mine = view();
+    const other = key().toBase58();
+    const r = readers({ findPools: vi.fn(async () => search([mine])), positions: held(position(mine)) });
+    mount(r);
+    fireEvent.click(await addMore(mine.address));
+    await screen.findByTestId('lp-add-panel');
+    expect(lookups(r)[0]![1]).toEqual([mine.address]);
+    const finder = screen.getByTestId('lp-finder');
+    fireEvent.change(within(finder).getByLabelText('Token mint address'), { target: { value: other } });
+    fireEvent.click(within(finder).getByRole('button', { name: 'Find pools' }));
+    await waitFor(() => expect(lookups(r)).toHaveLength(2));
+    expect(lookups(r)[1]![0].toBase58()).toBe(other);
+    expect(lookups(r)[1]).toHaveLength(1);
+  });
+});
+
+// A lookup has no time limit, and the button sits one press from Remove liquidity. The
+// press stays good only while the holder waits for it: what they do meanwhile outranks it.
+describe('a form the holder opens while the lookup reads is not replaced', () => {
+  /** A lookup that answers when `release` is called. */
+  function slow() {
+    let release!: (v: PoolSearchRead) => void;
+    const findPools = vi.fn(() => new Promise<PoolSearchRead>((res) => (release = res)));
+    return { findPools, answer: (v: PoolSearchRead) => act(async () => release(v)) };
+  }
+
+  it('Remove liquidity on the same row: its form stays, no Add form takes its place, and the page is not pulled off it', async () => {
+    const mine = view();
+    const lookup = slow();
+    const r = readers({ findPools: lookup.findPools, positions: held(position(mine)) });
+    mount(r);
+    fireEvent.click(await addMore(mine.address));
+    await screen.findByText('Reading the token and its pools from the chain…');
+    const its = await row(mine.address);
+    const remove = within(its).getByRole('button', { name: 'Remove liquidity' });
+    fireEvent.click(remove);
+    const panel = await screen.findByTestId('lp-remove-panel');
+    fireEvent.click(within(panel).getByRole('button', { name: 'All' }));
+    await act(async () => {});
+    scrolled.mockClear();
+    await lookup.answer(search([mine]));
+    await waitFor(() => expect(card(mine.address)).toHaveAttribute('data-add', 'offer'));
+    await act(async () => {});
+    expect(screen.getByTestId('lp-remove-panel')).toBe(panel);
+    expect(remove).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    expect(scrolled).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('lp-wish-unfound')).toBeNull();
+    // The press is spent, not parked: closing the form and reading again opens nothing.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByTestId('lp-remove-panel')).toBeNull());
+    lookup.findPools.mockImplementation(async () => search([mine]));
+    fireEvent.click(within(screen.getByTestId('lp-finder')).getByRole('button', { name: 'Read again' }));
+    await waitFor(() => expect(lookups(r)).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByText('Reading the token and its pools again…')).toBeNull());
+    await act(async () => {});
+    noFormOpen();
+  });
+
+  it('Remove liquidity on the first card: the Add form does not open after all', async () => {
+    const mine = view();
+    const lookup = slow();
+    mount(readers({ findPools: lookup.findPools, positions: held(position(mine)) }));
+    fireEvent.click(await addMore(mine.address));
+    const tasks = within(screen.getByTestId('lp-tasks'));
+    // The first card says what the page is doing: adding.
+    expect(tasks.getByRole('button', { name: 'Add liquidity' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(tasks.getByRole('button', { name: 'Remove liquidity' }));
+    scrolled.mockClear();
+    await lookup.answer(search([mine]));
+    await waitFor(() => expect(card(mine.address)).toHaveAttribute('data-add', 'offer'));
+    await act(async () => {});
+    noFormOpen();
+    expect(scrolled).not.toHaveBeenCalled();
+  });
+
+  it('with nothing opened meanwhile, the slow answer still ends in the Add form', async () => {
+    const mine = view();
+    const lookup = slow();
+    mount(readers({ findPools: lookup.findPools, positions: held(position(mine)) }));
+    fireEvent.click(await addMore(mine.address));
+    await screen.findByText('Reading the token and its pools from the chain…');
+    await lookup.answer(search([mine]));
+    expect(card(mine.address)).toContainElement(await screen.findByTestId('lp-add-panel'));
+  });
+
+  it('a form that was already open when the button was pressed gives way: the holder asked after it', async () => {
+    const deep = deeper();
+    const mine = view();
+    const r = readers({ findPools: vi.fn(async () => search([deep, mine])), positions: held(position(mine)) });
+    mount(r, { path: `/pools?mint=${M}` });
+    fireEvent.click(await within(card((await screen.findAllByTestId('lp-pool'))[0]!.getAttribute('data-pool')!)).findByRole('button', { name: 'Add liquidity' }));
+    expect(card(deep.address)).toContainElement(await screen.findByTestId('lp-add-panel'));
+    fireEvent.click(await addMore(mine.address));
+    await waitFor(() => expect(card(mine.address)).toContainElement(screen.getByTestId('lp-add-panel')));
+    expect(screen.getAllByTestId('lp-add-panel')).toHaveLength(1);
+  });
+});
+
 // Every wish, with a pool named or not, is acted on only once the network check has
 // answered: until then no pool can say whether it takes deposits. A position's button
 // exists only after that answer, so the rule is shown here with the first card's button.
@@ -556,6 +717,31 @@ describe('when the button is not there, and when it is off', () => {
     await act(async () => {});
     expect(within(r).queryByRole('button', { name: ADD_MORE })).toBeNull();
     expect(within(r).queryAllByRole('button', { name: 'Remove liquidity' })).toHaveLength(c.remove === 'offer' ? 1 : 0);
+  });
+
+  // Nobody is let in who cannot be let out: a pool with withdrawals off or a frozen vault
+  // takes no deposit from this site, and the row says so itself. It does not also offer a
+  // press that costs a full lookup to learn the same thing.
+  const shut: { name: string; mine: () => PoolView; remove: string }[] = [
+    { name: 'one of its vaults is frozen', mine: () => ({ ...view(), vaultsFrozen: true }), remove: 'vault-frozen' },
+    {
+      name: 'its withdrawals are switched off',
+      mine: () => {
+        const v = view();
+        return { ...v, snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, status: 2 } } };
+      },
+      remove: 'switched-off',
+    },
+  ];
+  it.each(shut)('a pool nothing can be taken out of ($name): no Add more liquidity button on its row', async (c) => {
+    const mine = c.mine();
+    const open = view();
+    mount(readers({ positions: held(position(mine), position(open)) }));
+    // The other row has its button, so the section can add: this is about the pool.
+    await addMore(open.address);
+    const r = await row(mine.address);
+    await waitFor(() => expect(r).toHaveAttribute('data-remove', c.remove));
+    expect(within(r).queryByRole('button', { name: ADD_MORE })).toBeNull();
   });
 
   it('is off while another form’s flow is running, says why, and a press does nothing', async () => {
