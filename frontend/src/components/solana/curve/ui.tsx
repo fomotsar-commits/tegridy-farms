@@ -201,7 +201,7 @@ export function SlippagePicker({
           </button>
         ))}
         <input
-          className={`${inputCls} flex-1 min-w-[72px] !w-auto disabled:opacity-50`}
+          className={`${inputCls} flex-1 min-w-[96px] !w-auto disabled:opacity-50`}
           style={inputStyle}
           inputMode="decimal"
           placeholder="Other %"

@@ -43,14 +43,14 @@ export function FundingNextStep({
   const shortCoin = !coin.native && needsCoin;
   if (!needsSol && !shortCoin && !needsToken) return null;
   const swapOn = (to: string, text: string) => (
-    <Link to={`/solana?out=${to}`} className="inline-block py-1.5 underline underline-offset-2 text-white hover:text-white/80">
+    <Link to={`/solana?out=${to}`} className="inline-flex items-center min-h-[44px] underline underline-offset-2 text-white hover:text-white/80">
       {text}
     </Link>
   );
   const copy = wallet ? (
     <>
       {' '}
-      <CopyButton text={wallet} display="Copy this wallet’s address" className="inline-block py-1.5 underline text-white/85" />
+      <CopyButton text={wallet} display="Copy this wallet’s address" className="min-h-[44px] underline text-white/85" />
     </>
   ) : null;
   // What the swap is tried for: the words after "try".

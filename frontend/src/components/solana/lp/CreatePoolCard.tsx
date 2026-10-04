@@ -207,7 +207,7 @@ function CreateCard({
           {cautions.length > 0 && (
             <div className="space-y-1" data-testid="lp-create-cautions">
               <Notice tone="warn">Read these about this token first:</Notice>
-              <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+              <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5 [overflow-wrap:anywhere]">
                 {cautions.map((c) => (
                   <li key={c}>{c}</li>
                 ))}

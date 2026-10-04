@@ -318,7 +318,7 @@ function AddInner({
           {warnings.length > 0 && (
             <div className="space-y-1">
               <Notice tone="warn">Read these about this token first:</Notice>
-              <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+              <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5 [overflow-wrap:anywhere]">
                 {warnings.map((w) => (
                   <li key={w.code}>{w.text}</li>
                 ))}
