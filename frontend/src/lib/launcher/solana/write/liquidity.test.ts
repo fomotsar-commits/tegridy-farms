@@ -21,6 +21,7 @@ import { spendableSol } from '../../../solana/lp/liquidityMath';
 import { estimatedLoss } from '../../../solana/lp/opening';
 import { assessPool } from '../../../solana/lp/poolHealth';
 import { BUILDABLE_EXTENSIONS, EXTENSION, classifyToken } from '../../../solana/lp/tokenSafety';
+import { observationBytes } from '../../../solana/lp/testkit.fixture';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from './metaplex';
 import {
@@ -628,6 +629,36 @@ describe('prepareLpDeposit', () => {
     expect((p.summary as LpDepositSummary).price.state).toBe('no-trades-yet');
     // The card had said allowed; at prepare Jupiter is down: unchecked, so no deposit.
     expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+  });
+
+  // A launch pool with no route keeps its own-average check. Off that average it builds
+  // too, and the review is told which price it is off: its own, not the market's.
+  it('a launch pool pushed to double its own half-hour average builds, and the gap and the loss are said against its own average', async () => {
+    const w = world({ launch: true });
+    // One hour of trading at half today's price, last written ten seconds ago.
+    const Q32 = 1n << 32n;
+    const [first, last] = [NOW - 3_610n, NOW - 10n];
+    const own = 5n * Q32 * (last - first);
+    const other = ((Q32 * Q32) / (5n * Q32)) * (last - first);
+    const [c0, c1] = w.pool.quoteIsToken0 ? [other, own] : [own, other];
+    w.chain.set(w.pool.observation, {
+      lamports: rent(4075),
+      owner: CPSWAP,
+      data: observationBytes({ pool: w.pool.address, index: 1, lastUpdate: last, obs: [[0, first, 0n, 0n], [1, last, c0, c1]] }),
+    });
+    const s = ok(await deposit(w, {}, answering(NO_ROUTE))).summary as LpDepositSummary;
+    expect(s.price).toMatchObject({ state: 'disagrees', against: 'own-average' });
+    expect(s.priceGap!.diff).toBeCloseTo(0.994, 2);
+    const reference = s.price.state === 'disagrees' ? s.price.reference : 0;
+    const loss = estimatedLoss({ quoteAmount: s.quoted.quote, token: s.quoted.token, tokenDecimals: 6, marketPricePerToken: reference, quote: SOL_QUOTE })!;
+    expect(s.priceGap!.lossQuote).toBe(loss);
+    expect(loss).toBeGreaterThan(0n);
+    expect(s.warnings).toEqual([
+      'Its price is 99.4% above its own average over the last half hour. Someone may have just pushed it; a deposit now would pay for that.',
+      `At these amounts, a move back to its own average would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
+    ]);
+    // Nothing here names a market this token does not have.
+    expect(s.warnings.join(' ')).not.toMatch(/outside price|market price/);
   });
 
   it('existing wrapped SOL is never closed, and only what the pool did not use may stay in it', async () => {
