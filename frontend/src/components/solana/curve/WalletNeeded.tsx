@@ -39,15 +39,17 @@ export function WalletNeeded({ state }: { state: CurveSignerState }) {
 export function WalletAppHint() {
   const here = typeof window !== 'undefined' ? window.location.href : '';
   return (
-    <p className="text-white/40 text-[10px] leading-relaxed">
-      On a phone or tablet with no wallet in this browser: open this page inside your wallet app&apos;s own browser
-      (Phantom, Solflare or Backpack), then connect there.
+    <div className="text-white/40 text-[10px] leading-relaxed">
+      <p>
+        On a phone or tablet with no wallet in this browser: open this page inside your wallet app&apos;s own browser
+        (Phantom, Solflare or Backpack), then connect there.
+      </p>
       {here && (
-        <>
-          {' '}
-          <CopyButton text={here} display="Copy this page's link" className="underline text-white/60" />
-        </>
+        // On its own line and 44px tall, as "Copy the mint address" is: it is pressed with a thumb.
+        <div>
+          <CopyButton text={here} display="Copy this page's link" className="min-h-[44px] underline text-white/60" />
+        </div>
       )}
-    </p>
+    </div>
   );
 }

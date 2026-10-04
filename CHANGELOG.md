@@ -15,6 +15,7 @@ page keeps the newest thirty days.
 - Solana pools and trades: a review you take your time reading can still be signed. Sign in wallet builds it again on fresh numbers first; if every line reads the same your wallet opens, and if any line changed you are shown which, beside the button. It used to say the quote was too old and send you back to the form. A launch review is unchanged.
 - Every bungalow now has a burn tracker. Each token's bungalow shows the percent of everything ever minted that is burnt, the amount, and where it went: sent to the burn address, stuck for good in the token's own contract, or destroyed outright so the supply itself fell. It is read from the token's own chain when the card loads. A burn that could not be read says so and never shows as zero. For QR, DRB and JBM a fall in supply is not counted.
 - TOWELI: the "Burned forever" row on its page now prints the same figure as the burn card, 25.76% of everything minted. It read 25.8% of supply.
+- Solana LP on a phone: under Connect Solana Wallet, "Copy this page's link" now sits on its own line and is tall enough to press with a thumb. It was a small link at the end of the note above it.
 
 ### 2026-10-03
 
