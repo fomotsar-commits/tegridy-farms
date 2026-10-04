@@ -31,9 +31,13 @@ const NOBODY = new Uint8Array(32);
  * A token as the page would read it. Left as it is: a clean token called Corn, with a
  * name nobody can change. `freeze`: its creator kept the freeze authority. `name` and
  * `symbol`: what it calls itself (BOBO is a well-known name with one real mint).
- * `transferFee`: it charges a transfer fee, which this site still refuses.
+ * `transferFee`: it charges a transfer fee, which this site still refuses. `transferHook`:
+ * it runs a program on every transfer, which the pool program itself rejects.
  */
-export function realToken(mint: PublicKey, o: { freeze?: PublicKey; name?: string; symbol?: string; transferFee?: boolean; decimals?: number } = {}): TokenSafety {
+export function realToken(
+  mint: PublicKey,
+  o: { freeze?: PublicKey; name?: string; symbol?: string; transferFee?: boolean; transferHook?: boolean; decimals?: number } = {},
+): TokenSafety {
   const base = mintBytes(null, o.decimals ?? 6);
   if (o.freeze) {
     new DataView(base.buffer).setUint32(46, 1, true);
@@ -43,6 +47,7 @@ export function realToken(mint: PublicKey, o: { freeze?: PublicKey; name?: strin
     // The name is kept in the mint itself, and nobody can point it elsewhere.
     entry(EXTENSION.MetadataPointer, Uint8Array.from([...NOBODY, ...mint.toBytes()])),
     ...(o.transferFee ? [entry(EXTENSION.TransferFeeConfig, new Uint8Array(108))] : []),
+    ...(o.transferHook ? [entry(EXTENSION.TransferHook, new Uint8Array(64))] : []),
     entry(EXTENSION.TokenMetadata, Uint8Array.from([...NOBODY, ...mint.toBytes(), ...text(o.name ?? 'Corn'), ...text(o.symbol ?? 'CORN'), ...text('https://x.test/a.json'), 0, 0, 0, 0])),
   ];
   // The base mint, zero padding up to byte 165, the account-type byte (1 = a mint), then the entries.

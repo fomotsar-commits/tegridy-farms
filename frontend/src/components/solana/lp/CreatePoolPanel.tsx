@@ -259,8 +259,9 @@ function CreateInner({
   // Only the answer to the read that is out now. While the coin's price is read again its
   // old price is not a price: beside the token's new one it would give a market price of
   // no moment at all. Until both are in, the form says "reading" and Match is off.
-  const coinOutside = coinKey !== null && coinPrice?.key === coinKey ? coinPrice.price : null;
-  // Being read, for the first time or again: Review waits for the answer.
+  const coinOutside = coinPrice !== null && coinPrice.key === coinKey ? coinPrice.price : null;
+  // Being read, for the first time or again. Review waits for the answer by itself: with
+  // no coin price the opening check has nothing to compare with, and says "not read".
   const coinReading = coinKey !== null && coinOutside === null;
 
   const lastOutcome = useRef<string | null>(null);
@@ -474,7 +475,6 @@ function CreateInner({
     !held &&
     offer === 'offer' &&
     !reading &&
-    !coinReading &&
     !flow.locked &&
     !blockedByOther;
   const review = () => {
@@ -534,7 +534,7 @@ function CreateInner({
     onReread();
   };
   // Said in the form's status line after a change of coin, until the new coin's amount is typed.
-  const [coinNote, setCoinNote] = useState<{ mint: string; text: string } | null>(null);
+  const [coinNote, setCoinNote] = useState('');
   const chooseCoin = (next: QuoteCoin) => {
     if (next.mint === coin.mint) return;
     setPicked(next.mint);
@@ -543,7 +543,7 @@ function CreateInner({
     const cleared = boxes.quote.trim() !== '';
     setBoxes((b) => ({ quote: '', token: b.token }));
     // Never silent: the arrow keys in the radio group change the coin, and a typed amount goes with it.
-    setCoinNote({ mint: next.mint, text: `Now pairing with ${next.symbol}.${cleared ? ` Type the ${next.symbol} amount again.` : ''}` });
+    setCoinNote(`Now pairing with ${next.symbol}.${cleared ? ` Type the ${next.symbol} amount again.` : ''}`);
     // The coin that was left keeps no price: coming back to it reads its price again, and
     // says "reading" until that answer is in. Its old price is never shown as the current one.
     setCoinPrice(null);
@@ -551,7 +551,7 @@ function CreateInner({
     setAskedMarket(null);
     setSaidMarket(null);
   };
-  const coinSaid = coinNote && coinNote.mint === coin.mint && boxes.quote.trim() === '' ? coinNote.text : '';
+  const coinSaid = boxes.quote.trim() === '' ? coinNote : '';
   const priceState =
     check.price.state === 'agrees' || check.price.state === 'disagrees' || check.price.state === 'empty' || check.price.state === 'no-market' ? check.price.state : 'unread';
   const readAt = outsideAt === null ? '' : `, read ${new Date(outsideAt).toLocaleTimeString('en-GB', { hour12: false })}`;

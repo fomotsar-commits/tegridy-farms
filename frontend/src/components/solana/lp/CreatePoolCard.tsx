@@ -18,8 +18,6 @@ import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const NATIVE_2022_LINE = `This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`;
 
-/** A sentence ends once: reasons from the checks already carry their own full stop. */
-const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
 /** Coin names in a sentence: "USDC", "USDC or BAYLA", "SOL, USDC or BAYLA". */
 const orList = (names: string[]) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`);
 const solFee = (lamports: bigint) => formatSol(lamports, 9);
@@ -493,9 +491,10 @@ function OfferLines({
     case 'token-refused': {
       // In the words of the check that refused it: every block on a blocked token (they say
       // whether the pool program or this site is the limit), or that the token does not
-      // exist. The one refusal with neither is SOL under the newer token program.
+      // exist. Each is a whole sentence. The one refusal with neither is SOL under the
+      // newer token program.
       const reasons = safety.kind === 'read' ? safety.blocks.map((b) => b.text) : tokenReasons(safety, 'pools').refused;
-      return <p>This site does not open pools for this token: {reasons.length > 0 ? reasons.map(sentence).join(' ') : NATIVE_2022_LINE}</p>;
+      return <p>This site does not open pools for this token: {reasons.length > 0 ? reasons.join(' ') : NATIVE_2022_LINE}</p>;
     }
     case 'token-unread':
       return (

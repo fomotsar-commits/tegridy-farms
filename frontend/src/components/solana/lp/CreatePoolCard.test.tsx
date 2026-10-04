@@ -10,6 +10,7 @@ import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { isCreatedPool, rememberCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
@@ -113,11 +114,11 @@ function readers(o: Partial<LpReaders> = {}): LpReaders {
   };
 }
 
-function mount(r: LpReaders, o: { mode?: LpWritesOverrides['mode']; api?: LpWriteApi; createFacts?: CreateFacts } = {}) {
+function mount(r: LpReaders, o: { mode?: LpWritesOverrides['mode']; api?: LpWriteApi; createFacts?: CreateFacts; mint?: string } = {}) {
   const api = o.api ?? fakeLpApi({ readCreateFacts: vi.fn(async () => o.createFacts ?? readyFacts()) });
   const load = vi.fn(async () => api);
   render(
-    <MemoryRouter initialEntries={[`/pools?mint=${M}`]}>
+    <MemoryRouter initialEntries={[`/pools?mint=${o.mint ?? M}`]}>
       <LpInner readers={r} writes={{ mode: o.mode ?? 'on', load, gateRpc: unusedGateRpc }} />
     </MemoryRouter>,
   );
@@ -381,9 +382,30 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(c).not.toHaveTextContent('NOT the real BOBO');
   });
 
+  // Two blocks of two kinds: one is this site's limit, the other is the pool program's.
+  // Both are said, so nobody fixes one and comes back to be told about the next.
+  it('token-refused: a token blocked twice over is told both reasons, each in its own words', async () => {
+    const twice = realToken(MINT, { transferFee: true, transferHook: true });
+    const fee = reasonText(twice, 'transfer-fee');
+    const hook = reasonText(twice, 'extension');
+    expect(hook).toContain('a transfer hook');
+    expect(hook).toContain('The pool program does not accept tokens with it.');
+    mount(readers({ safety: vi.fn(async () => new Map([[M, twice]])) }));
+    expect(await settled('token-refused')).toHaveTextContent(`This site does not open pools for this token: ${fee} ${hook}`);
+  });
+
   it('token-refused: an address with no account behind it', async () => {
     mount(readers({ safety: vi.fn(async () => new Map([[M, { kind: 'absent' as const, mint: M }]])) }));
     expect(await settled('token-refused')).toHaveTextContent('This site does not open pools for this token: The token does not exist.');
+  });
+
+  // The one refusal that is neither a block nor a missing token: its mint reads as a clean one.
+  it('token-refused: SOL under the newer token program, in its own words', async () => {
+    const native: TokenSafety = { ...okToken, mint: TOKEN_2022_NATIVE_MINT } as TokenSafety;
+    mount(readers({ safety: vi.fn(async () => new Map([[TOKEN_2022_NATIVE_MINT, native]])) }), { mint: TOKEN_2022_NATIVE_MINT });
+    expect(await settled('token-refused')).toHaveTextContent(
+      'This site does not open pools for this token: This is SOL under the newer token program. Pools here pair a token with SOL, USDC or BAYLA.',
+    );
   });
 
   it('token-unread', async () => {
