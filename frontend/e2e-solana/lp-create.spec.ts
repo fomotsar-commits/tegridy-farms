@@ -19,7 +19,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { Keypair, PublicKey, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, createSyncNativeInstruction } from '@solana/spl-token';
 import {
-  WSOL, accountDataLength, accountOwner, ata, chain, fundedKeypair, lamportDelta, lamports, landedTx, poolFacts, poolsFor, sol, tokenAmount, txAccountKeys,
+  WSOL, accountDataLength, accountOwner, ata, chain, fundedKeypair, lamportDelta, lamports, landedTx, mintFacts, poolFacts, poolsFor, sol, tokenAmount, txAccountKeys,
   wrapSol, CP_SWAP_PROGRAM,
 } from './fixtures/chain';
 import {
@@ -32,7 +32,7 @@ import {
 } from './fixtures/lpPage';
 import { ui, expectPressableAtSizes, tokensToInput } from './fixtures/ui';
 import { formatSol, parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
-import { initializeIx } from '../src/lib/solana/cpswap/ix';
+import { initializeIx, withdrawIx } from '../src/lib/solana/cpswap/ix';
 import {
   AMM_CONFIG_OFFSETS, decodeAmmConfig, deriveAmmConfig, deriveLpMint, derivePool, deriveVault, publicTierConfig, sortMints, type AmmConfigView,
 } from '../src/lib/solana/cpswap/program';
@@ -1305,5 +1305,140 @@ test.describe('group B (chromium only)', () => {
     expect(a.wallet.records).toEqual([]);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
+  });
+
+  // The leave rule (whole-change review, 2026-10-04): nobody is let in who cannot be let out.
+  // The pool program refuses a withdrawal that pays 0 on a side, so an opening whose own
+  // shares, taken out whole, would pay 0 on a side is refused on screen. That is an opening
+  // with ONE smallest unit on a side: here 1 token of a token with no decimals. With 2 it
+  // opens, and the opener's whole share then leaves through the site's own Remove.
+  // The token and its wallet are made here, not in beforeAll: nothing else uses them.
+  test('P20: the leave rule: 1 token with no decimals against 10 SOL is refused on screen, because its own share could never be taken out; 2 tokens open, and Remove All of that share lands; in Node, the program takes the 1-token opening and then refuses its withdrawal (6006)', async ({ browser }) => {
+    test.setTimeout(8 * 60_000);
+    const opener = await fundedKeypair(25);
+    const owner = opener.publicKey;
+    // No decimals: one token is one smallest unit. Not priced: the stub says "no route", so
+    // the opener sets the price and there is no market price to be off.
+    const mint = await createClassicToken(opener, { decimals: 0, supply: 1_000n, name: { name: 'E2E Whole Units', symbol: 'EWHOLE' } });
+    expect((await mintFacts(mint)).decimals).toBe(0);
+    const tenSol = sol(10);
+    // The sums, by hand. 1 token: 100,000 shares, so the locked 100 are exactly 0.1% and the
+    // older rule lets it through; the opener's 99,900 would pay floor(99,900 x 1 / 100,000) = 0 tokens.
+    expect(isqrt(tenSol * 1n)).toBe(100_000n);
+    expect((99_900n * 1n) / 100_000n).toBe(0n);
+    // 2 tokens: 141,421 shares; the opener's 141,321 pay floor(141,321 x 2 / 141,421) = 1 token.
+    const supply = isqrt(tenSol * 2n);
+    expect(supply).toBe(141_421n);
+    expect(((supply - 100n) * 2n) / supply).toBe(1n);
+    // What stays behind for good on each side, by hand: what went in, less what the opener's
+    // own shares pay out, rounded down the pool program's way. So it rounds UP: 1 of the 2
+    // tokens stays, and 7,071,086 lamports. The older figure, floor(100 x put / supply),
+    // said 0 tokens and 7,071,085 lamports. Worked out here, never by the page's own function.
+    const staysTok = 2n - ((supply - 100n) * 2n) / supply;
+    const staysSol = tenSol - ((supply - 100n) * tenSol) / supply;
+    expect(staysTok).toBe(1n);
+    expect(staysSol).toBe(7_071_086n);
+    expect([(100n * 2n) / supply, (100n * tenSol) / supply], 'the older figure, for the record').toEqual([0n, 7_071_085n]);
+
+    const a = await actor(browser, opener, { prices: B.prices });
+    const p = a.page;
+    await openPools(p, mint);
+    await connect(p);
+    const panel = await openCreate(p);
+    await expect(ui.lp.create.match(p), 'no market price, so nothing to match').toHaveCount(0);
+    await expect(panel).toContainText('You have 1,000 tokens.', { timeout: 30_000 });
+    const alert = panel.getByRole('alert');
+
+    // 1 token against 10 SOL: refused on screen, in the rule's own words, and Review is off.
+    await ui.lp.create.solToPut(p).fill('10');
+    await ui.lp.create.tokensToPut(p).fill('1');
+    await expect(alert).toHaveText('Too small: your own share of this pool could never be taken out, because it would pay out less than one unit of the token. Put in more of it.');
+    await expect(ui.lp.create.review(p)).toBeDisabled();
+    expect(a.wallet.records).toEqual([]);
+
+    // 2 tokens: the line goes, Review comes on, and the opening lands with exactly these amounts.
+    await ui.lp.create.tokensToPut(p).fill('2');
+    await expect(alert).toHaveText('');
+    await expect(ui.lp.create.price(p)).toHaveAttribute('data-price', 'no-market');
+    // The form says what stays behind, to the lamport and to the token: 1 token, never "0 tokens".
+    const preview = panel.getByTestId('lp-create-preview');
+    await expect(preview).toContainText(`${LOCKED_SHARES}, worth about ${solExact(staysSol)} and ${units(staysTok, 0)} tokens`);
+    // And what leaves the wallet in all names the tokens too, not the SOL alone.
+    const [tier, rents] = await Promise.all([tierView(1), liveRents()]);
+    await expect(preview).toContainText(`about ${formatSol(tenSol + tier.createPoolFee + rents.neverRefunded + rents.r165, 4)} SOL and 2 tokens, plus the network fee`);
+    const rows = await reviewCreate(p);
+    const pool = await checkCreateReview(p, rows, { mint, sol: tenSol, token: 2n, origin: 'standard', market: null, decimals: 0 });
+    expect(rows['You get']).toBe(`${units(supply - 100n, 9)} pool shares, exactly`);
+    // The review says the same, "about": the hand-worked figure, not the page's own plan.
+    expect(rows['Locked in the pool forever']).toBe(`${LOCKED_SHARES}, worth about ${SOL(staysSol)} and ${tok(staysTok, 0)} tokens at these amounts`);
+    const feeBefore = (await tokenAmount(CREATE_POOL_FEE_RECEIVER))!;
+    const tokenBefore = (await tokenAmount(ata(mint, owner)))!;
+    expect(tokenBefore).toBe(1_000n);
+    const opened = await signConfirmed(a);
+    checkSignedOpening(a, pool, 'standard');
+    await checkOpenedPool({ pool, mint, owner, sol: tenSol, token: 2n, signature: opened.signature, feeBefore, tokenBefore, fee: (await tierView(1)).createPoolFee });
+    await checkOpenerSol(opened.t, owner, tenSol);
+
+    // Remove All: the whole share the opening gave, through the site's own form.
+    await closeAll(p, ui.lp.create.panel(p));
+    const lpAcc = ata(deriveLpMint(CP_SWAP_PROGRAM, pool), owner);
+    const held = (await tokenAmount(lpAcc))!;
+    expect(held).toBe(supply - 100n);
+    const rpanel = await openRemove(positionRow(p, pool));
+    await press(ui.lp.percent(rpanel, 'All'), 'All');
+    await expect(ui.lp.reviewRemove(rpanel)).toBeEnabled({ timeout: 30_000 });
+    await press(ui.lp.reviewRemove(rpanel), 'Review: remove liquidity');
+    const rrows = await reviewRows(p);
+    const wplan = withdrawPlan(await poolFacts(pool), held, 10_000n);
+    // By hand: every share it holds, paying 1 token and the same part of the SOL, rounded down.
+    expect(wplan.lp).toBe(held);
+    expect(wplan.outTok).toBe(1n);
+    expect(wplan.outSol).toBe((held * tenSol) / supply);
+    expect(wplan.minTok, 'the minimum is never below 1').toBe(1n);
+    expect(rrows['Pool']).toBe(pool.toBase58());
+    expect(rrows['You get at least']).toBe(`${solExact(wplan.minSol)} and ${units(wplan.minTok, 0)} tokens`);
+    expect(rrows['You keep']).toBe('none in this pool');
+    await expect(ui.review(p)).toContainText('This is all of your share in this pool.');
+    const solVault = deriveVault(CP_SWAP_PROGRAM, pool, WSOL);
+    const tokenVault = deriveVault(CP_SWAP_PROGRAM, pool, mint);
+    const tokenHeld = (await tokenAmount(ata(mint, owner)))!;
+    await signConfirmed(a);
+    const w = a.wallet.lastIx('withdraw');
+    expect(w.accounts.pool_state).toBe(pool.toBase58());
+    expect(w.args.lpTokenAmount).toBe(String(held));
+    // What moved, read from the chain: every share burned, 1 token and the SOL paid out.
+    expect((await tokenAmount(lpAcc)) ?? 0n, 'no share left').toBe(0n);
+    expect((await tokenAmount(ata(mint, owner)))! - tokenHeld, 'the token side paid exactly 1 token').toBe(1n);
+    expect(await tokenAmount(tokenVault), 'the other token stays with the locked shares').toBe(1n);
+    expect(await tokenAmount(solVault), 'the SOL the locked shares keep').toBe(tenSol - wplan.outSol);
+    // What the chain keeps is what the form and the review said stays behind: 1 token, and the SOL to the lamport.
+    expect([await tokenAmount(tokenVault), await tokenAmount(solVault)], 'the chain keeps exactly the "Locked in the pool forever" figure').toEqual([staysTok, staysSol]);
+    expect((await poolFacts(pool)).pool.lpSupply, 'only the locked shares are left').toBe(100n);
+    expect(a.wallet.signed()).toHaveLength(2);
+    expect(a.rpc.violations).toEqual([]);
+    await a.ctx.close();
+
+    // The pool program itself, in Node: it TAKES the 1-token opening the site refuses…
+    const trap = await createSolPool(opener, mint, { configIndex: 1, sol: tenSol, tokens: 1n, at: 'fresh' });
+    const tf = await poolFacts(trap.address);
+    expect(tf.pool.lpSupply).toBe(100_000n);
+    const stuck = (await tokenAmount(ata(trap.lpMint, owner)))!;
+    expect(stuck, 'the opener holds every share but the locked 100').toBe(99_900n);
+    // …and then refuses to pay its opener's whole share back out: ZeroTradingTokens (6006).
+    const m0 = new PublicKey(tf.pool.token0Mint);
+    const m1 = new PublicKey(tf.pool.token1Mint);
+    const tx = new Transaction().add(
+      withdrawIx({
+        programId: CP_SWAP_PROGRAM, owner, poolState: trap.address, ownerLpToken: ata(trap.lpMint, owner),
+        token0Account: ata(m0, owner), token1Account: ata(m1, owner),
+        token0Vault: new PublicKey(tf.pool.token0Vault), token1Vault: new PublicKey(tf.pool.token1Vault),
+        vault0Mint: m0, vault1Mint: m1, lpMint: trap.lpMint,
+        lpTokenAmount: stuck, minimumToken0Amount: 0n, minimumToken1Amount: 0n,
+      }),
+    );
+    tx.feePayer = owner;
+    tx.recentBlockhash = (await chain().getLatestBlockhash('confirmed')).blockhash;
+    const sim = await chain().simulateTransaction(new VersionedTransaction(tx.compileMessage()), { sigVerify: false, commitment: 'confirmed' });
+    expect(sim.value.err, (sim.value.logs ?? []).join('\n')).toEqual({ InstructionError: [0, { Custom: 6006 }] });
   });
 });
