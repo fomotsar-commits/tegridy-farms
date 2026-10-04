@@ -6,6 +6,12 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-04
+
+- Solana pools and trades: a review you take your time reading can still be signed. Sign in wallet builds it again on fresh numbers first; if every line reads the same your wallet opens, and if any line changed you are shown which, beside the button. It used to say the quote was too old and send you back to the form. A launch review is unchanged.
+- Every bungalow now has a burn tracker. Each token's bungalow shows the percent of everything ever minted that is burnt, the amount, and where it went: sent to the burn address, stuck for good in the token's own contract, or destroyed outright so the supply itself fell. It is read from the token's own chain when the card loads. A burn that could not be read says so and never shows as zero. For QR, DRB and JBM a fall in supply is not counted.
+- TOWELI: the "Burned forever" row on its page now prints the same figure as the burn card, 25.76% of everything minted. It read 25.8% of supply.
+
 ### 2026-10-03
 
 - Solana LP on a phone: the tab now opens on three buttons, Create a pool, Add liquidity and Remove liquidity, and on the site's own Solana tokens (BAYLA, BOBO, SOY, Brainlet, RIZZ) as buttons, so nothing has to be pasted. Two presses open the form with its amount boxes on the screen. Before, the first screen was a paragraph and an empty box asking for a 44-character token address, with nothing else to press.
@@ -35,6 +41,10 @@ page keeps the newest thirty days.
 - Solana Connect no longer goes dead while a wallet is being waited on. If Phantom or another wallet is locked, or its approval window opened where you did not see it, the Connect buttons still open the wallet list, the page says which wallet it is waiting for and what to do, and you can pick another wallet without reloading.
 - On a Solana page (/pools, /solana, /curve-launch, a Solana pool, or the dashboard in a Solana room) the Connect button at the top opens the Solana wallet list, and shows your Solana address once connected. Before, it connected only Ethereum and Base wallets there.
 - Tapping your Solana address at the top opens the wallet list, which now names the wallet in use and has a Disconnect.
+- On every other page the Connect button at the top now asks which network first, Solana or Ethereum, so a Solana wallet can be connected from the home page, the Earn list and the doors. Once a wallet is connected the button lists both networks.
+- A Solana wallet you connected stays connected as you move between pages, and comes back on your next visit. With an Ethereum wallet connected too, the button at the top names the Ethereum account off the Solana pages and lists both wallets when tapped.
+- On a phone, a wallet's "Open app" row in the Solana wallet list now finishes the job. The site opens again inside that wallet's app and asks the wallet to connect by itself. Before, the page inside the app looked like the start again, and Connect, Solana and the wallet had to be pressed a second time. The page left behind says where the connect went.
+- Connect buttons that open the Ethereum wallet list now say "Connect Ethereum wallet": the Ethereum swap form and its DCA, Limit, TWAP and Trigger tabs, the Ethereum liquidity form, TOWELI's home page, TOWELI's farm, its dashboard and the exposure scan. The zap page says it needs an Ethereum wallet. They said "Connect Wallet", and a Trust wallet picked from that list is offered Ethereum, Robinhood Chain and Base and no Solana.
 - The indexer's upload parser moves to a release that fixes two published denial-of-service flaws; it takes effect at the indexer's next deploy.
 - A DCA or limit-order swap your wallet cancelled no longer counts as done: the schedule does not count it and the order goes back to waiting. A sped-up swap still counts.
 - A TWAP or stop-loss whose registration your wallet cancelled no longer says it was registered, and no CoW order is signed on top of a token approval your wallet cancelled.

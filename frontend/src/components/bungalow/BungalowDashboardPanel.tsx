@@ -27,6 +27,7 @@ import { ArtImg } from '../ArtImg';
 import { HeatCard } from './HeatCard';
 import { BungalowMarket } from './BungalowMarket';
 import { BungalowHolders } from './BungalowHolders';
+import { BungalowBurn } from './BungalowBurn';
 
 /**
  * The bungalow dashboard (Bayla) — "your standing on the island".
@@ -487,6 +488,13 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
         {bungalow.market && (
           <div className="mt-6">
             <BungalowMarket bungalow={bungalow} />
+          </div>
+        )}
+
+        {/* The burn follows the market wherever a live bungalow shows its market. */}
+        {bungalow.address && (
+          <div className="mt-6">
+            <BungalowBurn bungalow={bungalow} />
           </div>
         )}
 

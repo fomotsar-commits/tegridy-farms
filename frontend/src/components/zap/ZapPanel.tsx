@@ -331,7 +331,7 @@ export function ZapPanel() {
 
       {/* ─── The button ────────────────────────────────────────────────── */}
       {!isConnected ? (
-        <p className="text-[12px] text-white/60">Connect a wallet to compose a zap.</p>
+        <p className="text-[12px] text-white/60">Connect an Ethereum wallet to compose a zap.</p>
       ) : wrongChain ? (
         <p className="text-[12px] text-amber-200">Switch to Ethereum mainnet — every contract this zap touches is there.</p>
       ) : (

@@ -121,11 +121,11 @@ export function CurveTradePanel({
   const review = () => {
     if (!signer || raw === null || slippageBps === null) return;
     if (side === 'buy') {
-      void flow.prepare(() =>
-        api.prepareCurveBuy(rpc, gate, { trader: signer.publicKey, mint, curve, lamportsIn: raw, slippageBps }),
-      );
+      const build = () =>
+        api.prepareCurveBuy(rpc, gate, { trader: signer.publicKey, mint, curve, lamportsIn: raw, slippageBps });
+      void flow.prepare(build, { repeatable: true });
     } else if (rentFloor !== null) {
-      void flow.prepare(() =>
+      const build = () =>
         api.prepareCurveSell(rpc, gate, {
           trader: signer.publicKey,
           mint,
@@ -133,8 +133,8 @@ export function CurveTradePanel({
           curveRentFloor: rentFloor,
           tokensIn: raw,
           slippageBps,
-        }),
-      );
+        });
+      void flow.prepare(build, { repeatable: true });
     }
   };
 

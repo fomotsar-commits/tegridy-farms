@@ -3,7 +3,7 @@
 // what the URL may NOT set. The write layer is a fake (fakeLpWriteApi.fixture.ts); the
 // pools, positions and wallet are fake readers. Nothing here touches a chain.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
@@ -19,8 +19,8 @@ import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { LP_PENDING_SCOPE, savePendingTrade } from '../curve/pendingTrade';
 import { prepared } from '../curve/fakeWriteApi.fixture';
-import type { LpWriteApi, Prepared } from '../curve/ports';
-import { fakeLpApi, lpCfg, lpDepositSummary, lpOpenGate, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import type { LpWriteApi, Prepared, TxOutcome, TxSummary } from '../curve/ports';
+import { fakeLpApi, lpCfg, lpDepositSummary, lpOpenGate, lpWithdrawSummary, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { parsePercentBps } from './PercentPicker';
 import { recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
 
@@ -761,6 +761,65 @@ describe('the review', () => {
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
     expect(disclosure).toHaveTextContent(/change its fee rates at once/);
+  });
+});
+
+// A review read slowly on a phone outlives its blockhash. Adding and removing only read
+// the chain to prepare, so Sign prepares again and signs the fresh one (useTxFlow). Here
+// the block height says the first one's window is nearly over (the fixture's ends at 1234).
+describe('a review too old to sign when Sign in wallet is pressed', () => {
+  const rpc = conn.connection as { getBlockHeight?: () => Promise<number> };
+  beforeEach(() => {
+    rpc.getBlockHeight = async () => 1234 - 5;
+  });
+  afterEach(() => {
+    delete rpc.getBlockHeight;
+  });
+  const twice = (summary: TxSummary) => {
+    const fresh = prepared(summary, { lastValidBlockHeight: 5_000 });
+    const prepare = vi.fn<() => Promise<Prepared>>().mockResolvedValueOnce({ ok: true, prepared: prepared(summary) }).mockResolvedValueOnce({ ok: true, prepared: fresh });
+    const submitPrepared = vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 1 }));
+    return { fresh, prepare, submitPrepared };
+  };
+
+  it('adding: it is prepared again and the wallet gets the fresh transaction', async () => {
+    const v = view();
+    const { fresh, prepare, submitPrepared } = twice(lpDepositSummary(new PublicKey(v.address), MINT));
+    mount(readers({ findPools: vi.fn(async () => search([v])) }), { api: fakeLpApi({ prepareLpDeposit: prepare, submitPrepared }) });
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '0.1' } });
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: add liquidity' }));
+    });
+    await act(async () => {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(submitPrepared.mock.calls.map((c: unknown[]) => c[2])).toEqual([fresh]);
+  });
+
+  it('removing: it is prepared again and the wallet gets the fresh transaction', async () => {
+    const v = view();
+    const p = position(v);
+    const { fresh, prepare, submitPrepared } = twice(lpWithdrawSummary(new PublicKey(v.address), MINT, new PublicKey(p.lpAccount)));
+    mount(readers({ positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [p] })) }), {
+      api: fakeLpApi({ prepareLpWithdraw: prepare, submitPrepared }),
+    });
+    fireEvent.click(await within(await screen.findByTestId('lp-position')).findByRole('button', { name: 'Remove liquidity' }));
+    const panel = await screen.findByTestId('lp-remove-panel');
+    fireEvent.click(within(within(panel).getByRole('group', { name: 'How much to take out' })).getByRole('button', { name: '50%' }));
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: remove liquidity' }));
+    });
+    await act(async () => {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(submitPrepared.mock.calls.map((c: unknown[]) => c[2])).toEqual([fresh]);
   });
 });
 

@@ -104,6 +104,15 @@ export function scansForWallet(readyState: WalletReadyState, name: string, canSc
   return canScan && readyState === WalletReadyState.NotDetected && SCANNABLE_WALLETS.has(name);
 }
 
+/**
+ * Does a click on this row reopen the page inside that wallet's own app? True
+ * for the offered wallets in a phone browser. Not for the Mobile Wallet
+ * Adapter row, which is Loadable too and connects in place.
+ */
+export function opensInWalletApp(readyState: WalletReadyState, name: string): boolean {
+  return readyState === WalletReadyState.Loadable && PRIORITY.has(name);
+}
+
 /** What a click on this row will do, in the row's own words. */
 export function rowStatus(readyState: WalletReadyState, name?: string, canScan = false): string {
   // Always Loadable, but a click shows a QR code — it opens no app.

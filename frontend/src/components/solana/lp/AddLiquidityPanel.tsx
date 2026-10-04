@@ -195,7 +195,7 @@ function AddInner({
   const review = () => {
     if (!signer || !plan || !typed || maxIn === null || slippageBps === null) return;
     const shownOtherMax = typed.side === 'quote' ? tokOf(plan).max : solOf(plan).max;
-    void flow.prepare(() =>
+    const build = () =>
       api.prepareLpDeposit(writes.rpc, gate, writes.readers, {
         owner: signer.publicKey,
         pool: new PublicKey(view.address),
@@ -205,8 +205,8 @@ function AddInner({
         maxIn,
         slippageBps,
         shownOtherMax,
-      }),
-    );
+      });
+    void flow.prepare(build, { repeatable: true });
   };
 
   const warnings = safety?.kind === 'read' && safety.verdict === 'warn' ? safety.warnings : [];

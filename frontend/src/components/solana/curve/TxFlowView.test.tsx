@@ -1,9 +1,12 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
-import { FeeRows, TxFlowView, TxOutcomeCard } from './TxFlowView';
-import { REVIEW_TTL_MS, useTxFlow } from './useTxFlow';
+import { Transaction, TransactionInstruction, type PublicKey } from '@solana/web3.js';
+import { FeeRows, TxFlowView, TxOutcomeCard, TxReview } from './TxFlowView';
+import { reviewLines } from './reviewLines';
+import { REVIEW_TTL_MS, SIGN_MARGIN_BLOCKS, useTxFlow } from './useTxFlow';
 import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
-import type { PreparedTx, TxOutcome, TxSigner, TxSummary, WriteRpc } from './ports';
+import { lpCreateSummary, lpDepositSummary, lpWithdrawSummary } from '../lp/fakeLpWriteApi.fixture';
+import type { Prepared, PreparedTx, TxOutcome, TxSigner, TxSummary, WriteApi, WriteRpc } from './ports';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 
 const SOL_1 = 1_000_000_000n;
@@ -413,7 +416,15 @@ describe('announced and focused', () => {
 // ---------------------------------------------------------------------------
 
 describe('useTxFlow', () => {
-  it('a review goes stale after a minute and can no longer be signed', async () => {
+  // Mainnet on 2026-10-03: 219 to 228 slots a minute (getRecentPerformanceSamples) and 114
+  // blocks in 30.6 seconds. A blockhash lasts 150 blocks: about 40 seconds, not a minute.
+  it('the review clock runs out while the blockhash still has its signing margin', () => {
+    const BLOCK_MS = 268;
+    const BLOCKHASH_BLOCKS = 150;
+    expect(REVIEW_TTL_MS / BLOCK_MS + SIGN_MARGIN_BLOCKS).toBeLessThanOrEqual(BLOCKHASH_BLOCKS);
+  });
+
+  it('a review goes stale when its clock runs out and can no longer be signed', async () => {
     vi.useFakeTimers();
     const api = fakeApi();
     const { result } = flowAt(api);
@@ -672,6 +683,487 @@ describe('useTxFlow', () => {
     rerender();
     view.rerender(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
     expect(screen.getByText(/Done\. The network confirmed it\./)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A review left open past its blockhash. On a phone the review is two screens and a
+// blockhash does not last long enough to read it, so Sign on a stale review builds it
+// again on fresh reads: the same review goes to the wallet, a different one is shown first.
+// ---------------------------------------------------------------------------
+
+/** One of the transaction's own instructions (never compute budget), with its bytes. */
+const ix = (data: number[], account: PublicKey = KEY(51)) =>
+  new TransactionInstruction({
+    programId: KEY(50),
+    keys: [
+      { pubkey: CREATOR, isSigner: true, isWritable: true },
+      { pubkey: account, isSigner: false, isWritable: true },
+    ],
+    data: Buffer.from(data),
+  });
+
+function txOf(payer: PublicKey, ...ixs: TransactionInstruction[]): Transaction {
+  const tx = new Transaction();
+  tx.feePayer = payer;
+  if (ixs.length) tx.add(...ixs);
+  return tx;
+}
+
+type Buy = Extract<TxSummary, { kind: 'buy' }>;
+const buyWith = (over: Partial<Buy>): TxSummary => ({ ...(buySummary() as Buy), ...over });
+
+/** A transaction as prepared a second time: a newer blockhash, and whatever `over` changes. */
+const again = (summary: TxSummary = buySummary(), over: Partial<PreparedTx> = {}) =>
+  prepared(summary, { blockhash: '2'.repeat(32), lastValidBlockHeight: 5_000, ...over });
+
+/** A build that answers with each prepared transaction in turn. */
+function builds(...ps: PreparedTx[]) {
+  const build = vi.fn<() => Promise<Prepared>>();
+  for (const p of ps) build.mockResolvedValueOnce({ ok: true, prepared: p });
+  return build;
+}
+
+const confirmedApi = (over: Partial<WriteApi> = {}) =>
+  fakeApi({ submitPrepared: vi.fn(async () => ({ status: 'confirmed' as const, signature: SIG, slot: 1 })), ...over });
+
+/** What each call handed the wallet. */
+const signed = (api: WriteApi) => vi.mocked(api.submitPrepared).mock.calls.map((c) => c[2]);
+
+/** A buy review's lines, as the view hands them to the flow: enough to tell two apart. */
+const lines = (p: PreparedTx): string[] => {
+  const s = p.summary;
+  if (s.kind !== 'buy') throw new Error('kind');
+  return [`You pay (at most): ${s.maxLamportsIn}`, `You receive at least: ${s.minTokensOut}`, `Priority fee: ${p.fees.priorityLamports}`];
+};
+
+const pastItsClock = () =>
+  act(() => {
+    vi.advanceTimersByTime(REVIEW_TTL_MS + 1);
+  });
+
+describe('a review left open past its blockhash', () => {
+  it('Sign builds it again and, when nothing changed, the wallet gets the FRESH transaction', async () => {
+    vi.useFakeTimers();
+    const fresh = again();
+    const build = builds(prepared(buySummary()), fresh);
+    const api = confirmedApi();
+    const settled = vi.fn();
+    const { result } = renderHook(() => useTxFlow(api, rpc, settled));
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    expect(result.current.state).toMatchObject({ step: 'review', expired: true, renewable: true });
+    await act(() => result.current.confirm(signer, lines));
+    expect(build).toHaveBeenCalledTimes(2);
+    // The stale transaction never reaches the wallet: the one signed carries the newer blockhash.
+    expect(signed(api)).toEqual([fresh]);
+    expect(result.current.state).toMatchObject({ step: 'outcome', outcome: { status: 'confirmed' }, prepared: fresh });
+    expect(settled).toHaveBeenCalledWith({ status: 'confirmed', signature: SIG, slot: 1 }, fresh, null);
+  });
+
+  it.each<[string, PreparedTx, string[], string[]]>([
+    [
+      'a lower minimum',
+      again(buyWith({ minTokensOut: 2_900_000_000n }), { tx: txOf(CREATOR, ix([9])) }),
+      ['You receive at least: 2900000000'],
+      ['You receive at least: 3000000000'],
+    ],
+    [
+      'the same instructions under a fee that reads differently',
+      again(buySummary(), { fees: { baseLamports: 5_000n, priorityLamports: 90_000n, priorityFeeRead: true, newAccountRentLamports: 2_039_280n } }),
+      ['Priority fee: 90000'],
+      ['Priority fee: 12000'],
+    ],
+    ['different instructions under a review that reads the same', again(buySummary(), { tx: txOf(CREATOR, ix([9])) }), [], []],
+    ['another wallet paying', again(buySummary(), { tx: txOf(KEY(60)) }), [], []],
+  ])('built again with %s: the new review is shown with what reads differently, and nothing is signed unread', async (_what, fresh, now, gone) => {
+    vi.useFakeTimers();
+    const build = builds(prepared(buySummary()), fresh);
+    const api = confirmedApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    await act(() => result.current.confirm(signer, lines));
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: 'review', prepared: fresh, expired: false, renewable: true, replaced: { n: 1, now, gone } });
+    // It is a review like any other now: one more press signs it, and only it.
+    await act(() => result.current.confirm(signer, lines));
+    expect(build).toHaveBeenCalledTimes(2);
+    expect(signed(api)).toEqual([fresh]);
+  });
+
+  it.each<[string, ((p: PreparedTx) => string[]) | undefined]>([
+    ['is not given the review lines', undefined],
+    [
+      'cannot read the review lines',
+      () => {
+        throw new Error('no document');
+      },
+    ],
+    // Two empty readings agree with each other and say nothing about the review.
+    ['reads no lines at all', () => []],
+  ])('a flow that %s never signs a rebuilt transaction unread', async (_what, read) => {
+    vi.useFakeTimers();
+    const fresh = again();
+    const api = confirmedApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(builds(prepared(buySummary()), fresh), { repeatable: true }));
+    pastItsClock();
+    await act(() => result.current.confirm(signer, read));
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: 'review', prepared: fresh, expired: false, replaced: { n: 1, now: [], gone: [] } });
+  });
+
+  it.each<[string, () => Promise<Prepared>, Partial<TxOutcome>]>([
+    [
+      'is refused',
+      async () => ({ ok: false, outcome: { status: 'not-sent', stage: 'simulate', message: 'The price moved past your limit.' } }),
+      { status: 'not-sent', stage: 'simulate', message: 'The price moved past your limit.' },
+    ],
+    ['throws', async () => Promise.reject(new Error('boom')), { status: 'not-sent', stage: 'build' }],
+  ])('a second build that %s is not-sent: nothing is signed, and the page reads the chain again', async (_what, second, outcome) => {
+    vi.useFakeTimers();
+    const build = builds(prepared(buySummary())).mockImplementationOnce(second);
+    const api = confirmedApi();
+    const settled = vi.fn();
+    const { result } = renderHook(() => useTxFlow(api, rpc, settled));
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    await act(() => result.current.confirm(signer, lines));
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: 'outcome', outcome, prepared: null });
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect(settled.mock.calls[0]).toEqual([expect.objectContaining(outcome), null]);
+  });
+
+  // The launch: its build reads the door, asks the wallet for the upload and uploads.
+  it('a build not marked repeatable is never run twice: its stale review still cannot be signed', async () => {
+    vi.useFakeTimers();
+    const build = builds(prepared(buySummary()), again());
+    const api = confirmedApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(build));
+    pastItsClock();
+    expect(result.current.state).toMatchObject({ step: 'review', expired: true });
+    expect(result.current.state).not.toMatchObject({ renewable: true });
+    await act(() => result.current.confirm(signer, lines));
+    expect(build).toHaveBeenCalledTimes(1);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  // The fixture's lastValidBlockHeight is 1234; a rebuilt one's is 5,000.
+  const nearlyOver = () => ({ getBlockHeight: vi.fn(async () => 1234 - 5) }) as unknown as WriteRpc;
+
+  it('a Sign press that finds the block window nearly over builds it again in the same press', async () => {
+    const fresh = again();
+    const build = builds(prepared(buySummary()), fresh);
+    const api = confirmedApi();
+    const heightRpc = nearlyOver();
+    const { result } = renderHook(() => useTxFlow(api, heightRpc));
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    await act(() => result.current.confirm(signer, lines));
+    expect(build).toHaveBeenCalledTimes(2);
+    expect(signed(api)).toEqual([fresh]);
+  });
+
+  it('a rebuilt transaction whose own window is nearly over is not signed, and that press does not build a third', async () => {
+    const fresh = again(buySummary(), { lastValidBlockHeight: 1240 });
+    const build = builds(prepared(buySummary()), fresh, again());
+    const api = confirmedApi();
+    const heightRpc = nearlyOver();
+    const { result } = renderHook(() => useTxFlow(api, heightRpc));
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    await act(() => result.current.confirm(signer, lines));
+    expect(build).toHaveBeenCalledTimes(2);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: 'review', prepared: fresh, expired: true, renewable: true });
+    expect(result.current.state).not.toHaveProperty('replaced');
+  });
+
+  it('a rebuild that outlasts the review clock is not signed', async () => {
+    vi.useFakeTimers();
+    const fresh = again();
+    const build = builds(prepared(buySummary())).mockImplementationOnce(async () => {
+      vi.advanceTimersByTime(REVIEW_TTL_MS); // a build that hung on the network
+      return { ok: true, prepared: fresh };
+    });
+    const api = confirmedApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    await act(() => result.current.confirm(signer, lines));
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: 'review', prepared: fresh, expired: true });
+  });
+
+  it('Start over while it is built again abandons the press: the wallet is never asked, and the flow is free', async () => {
+    vi.useFakeTimers();
+    let finish: (r: Prepared) => void = () => undefined;
+    const build = builds(prepared(buySummary())).mockImplementationOnce(() => new Promise<Prepared>((r) => (finish = r)));
+    const api = confirmedApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = result.current.confirm(signer, lines);
+    });
+    expect(result.current.state).toMatchObject({ step: 'review', expired: true, renewing: true });
+    act(() => result.current.reset());
+    expect(result.current.state).toEqual({ step: 'idle' });
+    await act(async () => {
+      finish({ ok: true, prepared: again() });
+      await done;
+    });
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toEqual({ step: 'idle' });
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
+    expect(result.current.state).toMatchObject({ step: 'review', expired: false });
+  });
+
+  it.each<[string, Prepared]>([
+    ['a refusal', { ok: false, outcome: { status: 'not-sent', stage: 'simulate', message: 'The price moved past your limit.' } }],
+    ['a review that changed', { ok: true, prepared: again(buyWith({ minTokensOut: 2_900_000_000n }), { tx: txOf(CREATOR, ix([9])) }) }],
+  ])('Start over, then the abandoned build answers with %s: the flow stays closed and the page is told nothing', async (_what, answer) => {
+    vi.useFakeTimers();
+    let finish: (r: Prepared) => void = () => undefined;
+    const build = builds(prepared(buySummary())).mockImplementationOnce(() => new Promise<Prepared>((r) => (finish = r)));
+    const api = confirmedApi();
+    const settled = vi.fn();
+    const { result } = renderHook(() => useTxFlow(api, rpc, settled));
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = result.current.confirm(signer, lines);
+    });
+    act(() => result.current.reset());
+    await act(async () => {
+      finish(answer);
+      await done;
+    });
+    expect(result.current.state).toEqual({ step: 'idle' });
+    expect(settled).not.toHaveBeenCalled();
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('Start over while the rebuilt transaction waits on the block height: the wallet is never asked', async () => {
+    vi.useFakeTimers();
+    let answer: (h: number) => void = () => undefined;
+    const heightRpc = { getBlockHeight: vi.fn(() => new Promise<number>((r) => (answer = r))) } as unknown as WriteRpc;
+    const api = confirmedApi();
+    const { result } = renderHook(() => useTxFlow(api, heightRpc));
+    await act(() => result.current.prepare(builds(prepared(buySummary()), again()), { repeatable: true }));
+    pastItsClock();
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = result.current.confirm(signer, lines);
+    });
+    expect(heightRpc.getBlockHeight).toHaveBeenCalledTimes(1);
+    act(() => result.current.reset());
+    await act(async () => {
+      answer(1_000);
+      await done;
+    });
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toEqual({ step: 'idle' });
+  });
+
+  it('leaving the page while it is built again abandons the press: no wallet prompt for a review nobody is reading', async () => {
+    vi.useFakeTimers();
+    let finish: (r: Prepared) => void = () => undefined;
+    const build = builds(prepared(buySummary())).mockImplementationOnce(() => new Promise<Prepared>((r) => (finish = r)));
+    const api = confirmedApi();
+    const { result, unmount } = flowAt(api);
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = result.current.confirm(signer, lines);
+    });
+    unmount();
+    await act(async () => {
+      finish({ ok: true, prepared: again() });
+      await done;
+    });
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('builds again once and sends once, however many times Sign is pressed on a stale review', async () => {
+    vi.useFakeTimers();
+    const fresh = again();
+    const build = builds(prepared(buySummary()), fresh, again());
+    const api = confirmedApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    const confirm = result.current.confirm;
+    let first: Promise<void> = Promise.resolve();
+    await act(async () => {
+      first = confirm(signer, lines);
+      void confirm(signer, lines);
+      void confirm(signer, lines);
+      await first;
+    });
+    expect(build).toHaveBeenCalledTimes(2);
+    expect(signed(api)).toEqual([fresh]);
+  });
+});
+
+// The same, through the button a visitor presses and the review they read.
+function Flow({ api, build }: { api: WriteApi; build: () => Promise<Prepared> }) {
+  const flow = useTxFlow(api, rpc);
+  return (
+    <>
+      <button type="button" onClick={() => void flow.prepare(build, { repeatable: true })}>
+        Review
+      </button>
+      <TxFlowView flow={flow} api={api} cluster="localnet" decimals={6} signer={signer} />
+    </>
+  );
+}
+
+describe('the stale review on screen', () => {
+  const openStale = async (api: WriteApi, build: () => Promise<Prepared>) => {
+    vi.useFakeTimers();
+    render(<Flow api={api} build={build} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    });
+    const sign = screen.getByRole('button', { name: 'Sign in wallet' });
+    sign.focus();
+    pastItsClock();
+    return sign;
+  };
+
+  it('keeps Sign in wallet on, says what pressing it does, and leaves focus where it is', async () => {
+    const sign = await openStale(fakeApi(), builds(prepared(buySummary())));
+    expect(sign).toBeEnabled();
+    expect(sign).not.toHaveAttribute('aria-disabled');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'This review is too old to sign as it is. Sign in wallet builds it again on fresh numbers first: your wallet opens only if every line still reads the same. If any line reads differently, you are shown which.',
+    );
+    expect(document.activeElement).toBe(sign);
+    expect(screen.getByRole('button', { name: 'Start over' })).toBeInTheDocument();
+  });
+
+  it('Sign in wallet opens the wallet with the fresh transaction when every line reads the same', async () => {
+    const fresh = again();
+    const api = confirmedApi();
+    const sign = await openStale(api, builds(prepared(buySummary()), fresh));
+    await act(async () => {
+      fireEvent.click(sign);
+      await vi.waitFor(() => expect(api.submitPrepared).toHaveBeenCalled());
+    });
+    expect(signed(api)).toEqual([fresh]);
+    expect(screen.getByText(/Done\. The network confirmed it\./)).toBeInTheDocument();
+  });
+
+  it('while it is built again, a status line says so and Sign in wallet keeps focus without acting twice', async () => {
+    let finish: (r: Prepared) => void = () => undefined;
+    const build = builds(prepared(buySummary())).mockImplementationOnce(() => new Promise<Prepared>((r) => (finish = r)));
+    const api = confirmedApi();
+    const sign = await openStale(api, build);
+    await act(async () => {
+      fireEvent.click(sign);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'This review was too old to sign, so it is being built and test-run again on fresh numbers. Your wallet opens next only if every line still reads the same.',
+    );
+    expect(sign).not.toBeDisabled();
+    expect(sign).toHaveAttribute('aria-disabled', 'true');
+    expect(document.activeElement).toBe(sign);
+    fireEvent.click(sign);
+    expect(build).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      finish({ ok: true, prepared: again() });
+      await vi.waitFor(() => expect(api.submitPrepared).toHaveBeenCalled());
+    });
+  });
+
+  it('a review that changed lists the lines that read differently beside Sign in wallet, takes focus there, and one more press signs it', async () => {
+    const fresh = again(buyWith({ minTokensOut: 2_900_000_000n }), { tx: txOf(CREATOR, ix([9])) });
+    const api = confirmedApi();
+    const sign = await openStale(api, builds(prepared(buySummary()), fresh));
+    await act(async () => {
+      fireEvent.click(sign);
+    });
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('This review was built again on fresh numbers. 1 line reads differently now:');
+    expect(alert).toHaveTextContent('You receive at least: 2,900');
+    expect(alert).toHaveTextContent('In place of:');
+    expect(alert).toHaveTextContent('You receive at least: 3,000');
+    expect(alert).toHaveTextContent('Every other line reads as it did. Sign in wallet if this is still what you want.');
+    expect(alert).not.toHaveTextContent('You pay (at most)');
+    expect(document.activeElement).toBe(alert);
+    // It sits with the buttons, after the review, so nobody scrolls back up to find it.
+    expect(screen.getByTestId('tx-review').compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    // The review above is the new one, and it can be signed.
+    expect(screen.getByText('You receive at least').nextElementSibling).toHaveTextContent('2,900');
+    const signNew = screen.getByRole('button', { name: 'Sign in wallet' });
+    expect(signNew).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(signNew);
+      await vi.waitFor(() => expect(api.submitPrepared).toHaveBeenCalled());
+    });
+    expect(signed(api)).toEqual([fresh]);
+  });
+
+  it('different instructions under the same words: says to read it through again, and names no line', async () => {
+    const api = confirmedApi();
+    const sign = await openStale(api, builds(prepared(buySummary()), again(buySummary(), { tx: txOf(CREATOR, ix([9])) })));
+    await act(async () => {
+      fireEvent.click(sign);
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /^This review was built again on fresh numbers, and this page cannot say it is the same as the one you were reading\. Read it through again before you sign\.$/,
+    );
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+});
+
+// What the flow compares is what a visitor reads: every piece of text on the review is
+// in one of its lines, for every kind, so nothing on screen can change unseen.
+describe('the review as lines', () => {
+  it('a row is "label: value"; the heading and each notice are lines of their own', () => {
+    const got = reviewLines(<TxReview prepared={prepared(buySummary())} decimals={6} display={(s) => s} />);
+    expect(got[0]).toBe('Review your buy');
+    expect(got).toContain('You pay (at most): 0.1 SOL');
+    expect(got).toContain('You receive at least: 3,000');
+    expect(got).toContain('Test run passed: the network ran this exact transaction without sending it.');
+  });
+
+  const create: TxSummary = {
+    kind: 'create', mint: MINT_X, creator: CREATOR, name: 'A', symbol: 'AB', uri: 'https://x', decimals: 6, openingBuy: null,
+    platformReserve: { amount: 36_900_000_000_000n, bps: 369n, recipient: KEY(4), treasuryToken: KEY(12) },
+    treasuryAccountRent: 1_488_440n, plant: PLANT_SUMMARY,
+  };
+  const withWarnings = { tokenWarnings: [{ code: 'mint-authority' as const, text: 'Its creator can still mint more.' }], notices: ['An approved spender can move tokens.'] };
+
+  it.each<[string, TxSummary]>([
+    ['buy', buySummary()],
+    ['buy that fills the curve', buyWith({ fillsCurve: true, requestedLamports: SOL_1, priceImpactBps: 1_600n })],
+    ['create', create],
+    ['migrate', { kind: 'migrate', mint: CREATOR, pool: KEY(40) }],
+    ['lp-deposit', lpDepositSummary(KEY(30), KEY(31), withWarnings)],
+    ['lp-withdraw', lpWithdrawSummary(KEY(30), KEY(31), KEY(32), { all: true, notices: ['Swaps on this pool are switched off.'] })],
+    ['lp-create', lpCreateSummary(KEY(30), KEY(31), { ...withWarnings, origin: 'other' })],
+  ])('%s: no text on the review is outside its lines', (_kind, summary) => {
+    const p = prepared(summary, {
+      simulated: { signerLamportsDelta: -SOL_1, tokenDeltas: [{ mint: KEY(20), account: KEY(21), delta: 2_500_000n, role: 'token' }] },
+    });
+    const review = <TxReview prepared={p} decimals={6} display={(s) => s} />;
+    const got = reviewLines(review);
+    render(review);
+    const walker = document.createTreeWalker(screen.getByTestId('tx-review'), NodeFilter.SHOW_TEXT);
+    const texts: string[] = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.textContent?.trim()) texts.push(n.textContent);
+    expect(texts.length).toBeGreaterThan(8);
+    for (const t of texts) expect(got.some((l) => l.includes(t)), t).toBe(true);
+    expect(got.every((l) => l.trim() !== '')).toBe(true);
   });
 });
 

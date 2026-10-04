@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAccount, useBalance, useChainId, useWalletClient } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { formatUnits, parseUnits } from 'viem';
 import { toast } from 'sonner';
 import { useAddLiquidity } from '../../hooks/useAddLiquidity';
@@ -356,7 +357,7 @@ export function LiquidityTab() {
         {!isConnected ? (
           <div className="text-center py-8">
             <p className="text-white/70 text-[13px] mb-4">Gotta connect a wallet to farm liquidity.</p>
-            <ConnectButton />
+            <ConnectButton label={CONNECT_ETHEREUM_WALLET} />
           </div>
         ) : mode === 'add' ? (
           <>

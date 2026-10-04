@@ -326,7 +326,7 @@ function CreateInner({
     !blockedByOther;
   const review = () => {
     if (!canReview || !signer || !config || solRaw === null || tokRaw === null) return;
-    void flow.prepare(() =>
+    const build = () =>
       api.prepareLpCreate(writes.rpc, gate, writes.readers, {
         owner: signer.publicKey,
         tokenMint: new PublicKey(mint),
@@ -334,8 +334,8 @@ function CreateInner({
         quote: solRaw,
         token: tokRaw,
         shown: { terms: terms(config), standard },
-      }),
-    );
+      });
+    void flow.prepare(build, { repeatable: true });
   };
 
   const warnings = safety.kind === 'read' && safety.verdict === 'warn' ? safety.warnings : [];
