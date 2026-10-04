@@ -15,6 +15,27 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-03: a Solana blockhash lasts about 40 seconds on mainnet now, not a minute
+
+**Believed:** a block takes about 0.4 seconds, so a blockhash (150 blocks) is good for
+about a minute, and a 45-second clock on a review "stays well inside" it.
+
+**Measured:** on mainnet (api.mainnet-beta.solana.com, apiVersion 4.3.0),
+`getRecentPerformanceSamples` gave 219 to 228 slots a minute over five samples, and
+`getBlockHeight` at 'confirmed' rose 114 in 30.6 seconds with the slot rising the same 114:
+0.27 seconds a block, 150 blocks in about 40 seconds. Two `getLatestBlockhash` answers 46.7
+seconds apart were 171 blocks apart, so the first was dead before the second was read: the
+45-second clock ran out after the blockhash had died. A phone walk of Add liquidity (Pixel
+5, a production build, mainnet reads, a wallet that refuses) took 3.0 seconds to prepare
+and showed "too old" 42.4 seconds after the review appeared: the timer, not the chain.
+Worked out from that rate and not pressed: the review's block-height check (25 blocks to
+spare) refuses from 125 blocks, about 33 seconds after the blockhash is read.
+
+**Do:** never turn blocks into seconds from a remembered block time; read
+`getRecentPerformanceSamples` (numSlots over samplePeriodSecs) the day you size a clock, and
+pin the clock to that number in a test. Let a block-height read decide, and treat any
+wall-clock limit as the fallback for when the height cannot be read.
+
 ## 2026-10-03: a flag carried through a wallet's "Open app" link is an input anyone can write
 
 **Believed:** after a phone visitor presses a wallet's "Open app" row and the page reopens

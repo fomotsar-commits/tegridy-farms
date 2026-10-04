@@ -163,7 +163,7 @@ function RemoveInner({
   const canReview = !!signer && !!plan && slippageBps !== null && !flow.locked && !pendingHere && typeof pct === 'bigint';
   const review = () => {
     if (!signer || !plan || typeof pct !== 'bigint' || slippageBps === null) return;
-    void flow.prepare(() =>
+    const build = () =>
       api.prepareLpWithdraw(writes.rpc, gate, {
         owner: signer.publicKey,
         pool: new PublicKey(view.address),
@@ -171,8 +171,8 @@ function RemoveInner({
         lpAccount: new PublicKey(position.lpAccount),
         pctBps: pct,
         slippageBps,
-      }),
-    );
+      });
+    void flow.prepare(build, { repeatable: true });
   };
 
   const callsItself = !setAside && safety?.kind === 'read' && (safety.name || safety.symbol)

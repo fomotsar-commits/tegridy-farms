@@ -3,7 +3,7 @@
 // Max from one wallet read, the disclosures, the review and what a confirmed opening
 // leaves behind. The write layer is a fake; nothing touches a chain.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
@@ -570,5 +570,72 @@ describe('the review and a confirmed opening', () => {
     expect(screen.getByTestId('lp-create-panel')).toBe(panel);
     expect(outcome.isConnected).toBe(true);
     expect(within(screen.getByTestId('lp-pool')).getByTestId('lp-opened-here')).toBeInTheDocument();
+  });
+
+  // The opening review is two screens on a phone and outlives its blockhash. Preparing an
+  // opening only reads the chain, so Sign prepares it again (useTxFlow). The block height
+  // here says the first one's window is nearly over (the fixture's ends at 1234).
+  describe('a review too old to sign when Sign in wallet is pressed', () => {
+    const rpc = conn.connection as { getBlockHeight?: () => Promise<number> };
+    beforeEach(() => {
+      rpc.getBlockHeight = async () => 1234 - 5;
+    });
+    afterEach(() => {
+      delete rpc.getBlockHeight;
+    });
+    const toReview = async (prepareLpCreate: () => Promise<Prepared>, submitPrepared: () => Promise<TxOutcome>) => {
+      mount(readers(), { api: { prepareLpCreate, submitPrepared } });
+      const { panel } = await openPanel();
+      fireEvent.change(sol(panel), { target: { value: '1' } });
+      fireEvent.click(matchButton(panel));
+      await act(async () => {
+        fireEvent.click(reviewButton(panel));
+      });
+      await act(async () => {
+        fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+      });
+      return panel;
+    };
+
+    it('the same opening is prepared again and the wallet gets the fresh transaction', async () => {
+      const summary = lpCreateSummary(key(), MINT);
+      const fresh = prepared(summary, { lastValidBlockHeight: 5_000 });
+      const prepareLpCreate = vi.fn<() => Promise<Prepared>>().mockResolvedValueOnce({ ok: true, prepared: prepared(summary) }).mockResolvedValueOnce({ ok: true, prepared: fresh });
+      const submitPrepared = vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 7 }));
+      const panel = await toReview(prepareLpCreate, submitPrepared);
+      expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
+      expect(prepareLpCreate).toHaveBeenCalledTimes(2);
+      expect(submitPrepared.mock.calls.map((c: unknown[]) => c[2])).toEqual([fresh]);
+    });
+
+    // A one-off pool address is a fresh key each time it is prepared, and the market
+    // price is read again: neither is signed until the person has seen it.
+    it('an opening that reads differently is shown, with the lines that changed, and is not signed', async () => {
+      const first = key();
+      const second = key();
+      const market = (reference: number) => ({ state: 'agrees' as const, pool: 0.01, reference, against: 'outside' as const, diff: 0.01 / reference - 1 });
+      const fresh = prepared(lpCreateSummary(second, MINT, { origin: 'other', price: market(0.0102) }), { lastValidBlockHeight: 5_000 });
+      const prepareLpCreate = vi
+        .fn<() => Promise<Prepared>>()
+        .mockResolvedValueOnce({ ok: true, prepared: prepared(lpCreateSummary(first, MINT, { origin: 'other', price: market(0.01) })) })
+        .mockResolvedValueOnce({ ok: true, prepared: fresh });
+      const submitPrepared = vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 7 }));
+      const panel = await toReview(prepareLpCreate, submitPrepared);
+      const changed = await within(panel).findByTestId('tx-review-changed');
+      expect(submitPrepared).not.toHaveBeenCalled();
+      expect(changed).toHaveTextContent('2 lines read differently now:');
+      expect(changed).toHaveTextContent(`Pool: ${second.toBase58()}`);
+      expect(changed).toHaveTextContent('Opening price: 1 token = 0.01 SOL. Market (Jupiter, read just now): 0.0102 SOL, 2.0% below');
+      expect(changed).toHaveTextContent(`In place of:Pool: ${first.toBase58()}`);
+      expect(changed).not.toHaveTextContent('You put in');
+      expect(changed).toHaveFocus();
+      // One more press signs the opening that is on screen now.
+      await act(async () => {
+        fireEvent.click(within(panel).getByRole('button', { name: 'Sign in wallet' }));
+      });
+      expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
+      expect(submitPrepared.mock.calls.map((c: unknown[]) => c[2])).toEqual([fresh]);
+      expect(prepareLpCreate).toHaveBeenCalledTimes(2);
+    });
   });
 });

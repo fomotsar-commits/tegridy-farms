@@ -16,7 +16,7 @@ import {
 } from './fakeWriteApi.fixture';
 import { quoteBuyOnCurve, quoteSellOnCurve } from '../../../lib/launcher/solana/curve';
 import type { CurveSignerState } from './useCurveSigner';
-import type { WriteRpc } from './ports';
+import type { Prepared, TxSummary, WriteRpc } from './ports';
 
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
 
@@ -255,6 +255,35 @@ describe('curve trade panel', () => {
       fireEvent.click(cancel);
     });
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Review buy' }));
+  });
+
+  // A buy and a sell only read the chain to prepare, so a review too old to sign is
+  // prepared again when Sign is pressed (useTxFlow). The block height here says the first
+  // one's window is nearly over (the fixture's ends at 1234).
+  it.each(['buy', 'sell'] as const)('a %s review too old to sign is prepared again, and the wallet gets the fresh transaction', async (side) => {
+    const sell: TxSummary = {
+      kind: 'sell', mint: MINT, tokensIn: 1_000_000n, minLamportsOut: 900n,
+      quote: { lamportsOut: 1_000n, feeLamports: 10n, grossLamports: 1_010n },
+      priceImpactBps: 5n, feeSplit: { total: 10n, creator: 5n, platform: 5n },
+    };
+    const summary = side === 'buy' ? buySummary() : sell;
+    const fresh = prepared(summary, { lastValidBlockHeight: 5_000 });
+    const prepare = vi.fn<() => Promise<Prepared>>().mockResolvedValueOnce({ ok: true, prepared: prepared(summary) }).mockResolvedValueOnce({ ok: true, prepared: fresh });
+    const submitPrepared = vi.fn(async () => ({ status: 'confirmed' as const, signature: '5'.repeat(88), slot: 1 }));
+    const api = fakeApi({ [side === 'buy' ? 'prepareCurveBuy' : 'prepareCurveSell']: prepare, submitPrepared });
+    const c = bondingCurve({ realSolReserves: 5n * SOL });
+    renderPanel({ api, rpc: { getBlockHeight: async () => 1234 - 5 } as unknown as WriteRpc, curve: curveAccount(c), launch: launchState(c) });
+    if (side === 'sell') fireEvent.click(screen.getByRole('button', { name: 'sell' }));
+    fireEvent.change(screen.getByLabelText(side === 'buy' ? 'Spend at most (SOL)' : 'Sell (tokens)'), { target: { value: side === 'buy' ? '0.5' : '1000' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: `Review ${side}` }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(screen.getByText(/Done\. The network confirmed it\./)).toBeInTheDocument();
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(submitPrepared.mock.calls.map((c: unknown[]) => c[2])).toEqual([fresh]);
   });
 
   it('a disconnected visitor gets a connect button inside the panel', () => {
