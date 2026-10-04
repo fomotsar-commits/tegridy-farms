@@ -15,6 +15,52 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-04: a new card that passes on a phone means the change passes on a phone
+
+**Believed:** the burn tracker was checked on phones: every new card at 320, 393, 810 and
+1280px, measured and looked at. So the change was phone-safe.
+
+**Measured:** the same change also made one EXISTING value longer. TOWELI's older "Burned
+forever" row went from "25.8% of supply" to "25.76% of everything minted", inside a span
+with `truncate`, 2,700px down a page nobody re-opened. Live, an independent phone walk found
+"25.76% of everythi…" at 360px: the text needs 219px and the box is 134 to 214px on every
+phone width. The percent was intact, so no test on the figure could see it. The same box had
+been cutting "1,000,000,000 TOWELI" to "1,000,000,0…" all along.
+
+**Do:** when a change alters the TEXT of a component it did not create, open that component
+at 320 and 393 as well. A truncating box is a length limit nobody wrote down: grep the
+component for `truncate` and `whitespace-nowrap` before making its text longer.
+
+## 2026-10-04: pressing Refresh always does something
+
+**Believed:** a Refresh button wired to a query's `refetch()` either shows a new figure or
+shows the failure.
+
+**Measured:** on the live site, with the device offline, Refresh on an Ethereum or Base card
+did nothing for the 30 s watched: no request, the button never said "Reading", the old figure
+stayed up. TanStack Query's default `networkMode: 'online'` PAUSES a query while
+`navigator.onLine` is false, so `refetch()` returns without running the read and without
+changing any state. The Solana card beside it, a plain `fetch`, printed its outage line at
+once. A browser test that only refuses requests cannot see this: the read has to be asked
+for while the browser reports itself offline (`context.setOffline(true)`).
+
+**Do:** for a read whose failure must be shown, set `networkMode: 'always'` so it runs and
+fails. Test it offline, not only with refused requests.
+
+## 2026-10-04: a read either lands or fails
+
+**Believed:** every way a read can go wrong ends in the card's "could not be read" line.
+
+**Measured:** a request that is held open and never answered is neither. With the Solana
+proxy call held, the card said "Reading…" with Refresh disabled for the whole 300 s watched,
+and showed the real figure 0.6 s after the request was let through. The Ethereum and Base
+card under the same hang gave up by itself after about 81 s, because viem's transport has a
+10 s timeout per endpoint; the hand-rolled `fetch` had none.
+
+**Do:** give every hand-rolled `fetch` a timeout that ends in the same unread state as a
+failure (an `AbortController` and a timer, cleared on answer and on unmount). Test it with a
+fetch that only ever ends by being aborted, under fake timers.
+
 ## 2026-10-03: minted minus today's supply is what was burnt
 
 **Believed:** for a fixed-supply ERC-20, everything ever minted minus `totalSupply()` is the
