@@ -15,6 +15,170 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-04: a new card that passes on a phone means the change passes on a phone
+
+**Believed:** the burn tracker was checked on phones: every new card at 320, 393, 810 and
+1280px, measured and looked at. So the change was phone-safe.
+
+**Measured:** the same change also made one EXISTING value longer. TOWELI's older "Burned
+forever" row went from "25.8% of supply" to "25.76% of everything minted", inside a span
+with `truncate`, 2,700px down a page nobody re-opened. Live, an independent phone walk found
+"25.76% of everythi…" at 360px: the text needs 219px and the box is 134 to 214px on every
+phone width. The percent was intact, so no test on the figure could see it. The same box had
+been cutting "1,000,000,000 TOWELI" to "1,000,000,0…" all along.
+
+**Do:** when a change alters the TEXT of a component it did not create, open that component
+at 320 and 393 as well. A truncating box is a length limit nobody wrote down: grep the
+component for `truncate` and `whitespace-nowrap` before making its text longer.
+
+## 2026-10-04: pressing Refresh always does something
+
+**Believed:** a Refresh button wired to a query's `refetch()` either shows a new figure or
+shows the failure.
+
+**Measured:** on the live site, with the device offline, Refresh on an Ethereum or Base card
+did nothing for the 30 s watched: no request, the button never said "Reading", the old figure
+stayed up. TanStack Query's default `networkMode: 'online'` PAUSES a query while
+`navigator.onLine` is false, so `refetch()` returns without running the read and without
+changing any state. The Solana card beside it, a plain `fetch`, printed its outage line at
+once. A browser test that only refuses requests cannot see this: the read has to be asked
+for while the browser reports itself offline (`context.setOffline(true)`).
+
+**Do:** for a read whose failure must be shown, set `networkMode: 'always'` so it runs and
+fails. Test it offline, not only with refused requests.
+
+## 2026-10-04: a read either lands or fails
+
+**Believed:** every way a read can go wrong ends in the card's "could not be read" line.
+
+**Measured:** a request that is held open and never answered is neither. With the Solana
+proxy call held, the card said "Reading…" with Refresh disabled for the whole 300 s watched,
+and showed the real figure 0.6 s after the request was let through. The Ethereum and Base
+card under the same hang gave up by itself after about 81 s, because viem's transport has a
+10 s timeout per endpoint; the hand-rolled `fetch` had none.
+
+**Do:** give every hand-rolled `fetch` a timeout that ends in the same unread state as a
+failure (an `AbortController` and a timer, cleared on answer and on unmount). Test it with a
+fetch that only ever ends by being aborted, under fake timers.
+
+## 2026-10-03: minted minus today's supply is what was burnt
+
+**Believed:** for a fixed-supply ERC-20, everything ever minted minus `totalSupply()` is the
+burn, so a burn figure needs one constant per token and one read.
+
+**Measured:** QR, DRB and JBM on Base are ClankerTokens (IERC7802). Their verified source has
+`crosschainBurn` and `crosschainMint`, callable only by the SuperchainTokenBridge predeploy
+`0x4200000000000000000000000000000000000028`. At Base block 52136964 that proxy's EIP-1967
+implementation slot reads zero, so the bridge is off today, and its admin slot reads
+`0x4200000000000000000000000000000000000018`, the standard ProxyAdmin, so an ordinary upgrade
+can switch it on. A bridge-out would then lower `totalSupply()` with nothing destroyed. The
+same contract also has a public `burn()`, and the two cannot be told apart from the supply.
+A first read of that proxy reported "no admin": the script held a mistyped slot constant, and
+a slot nobody writes returns zero, which reads exactly like "no admin".
+
+**Do:** before counting a fall in supply as a burn, read the token's source for every path
+that lowers supply. Where a second one exists, count only the burn-address balance, show the
+fall beside it as not counted, and do not print a "not burnt" figure. Paste the EIP-1967
+slots from the standard (implementation `0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc`,
+admin `0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103`): never retype one,
+and treat a zero from a storage read as "nothing here OR the wrong slot".
+
+## 2026-10-03: a pump.fun mint ends in "pump"
+
+**Believed:** RIZZ (`5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k`) was not a pump.fun mint,
+because its address has no "pump" suffix, so its minted supply could not be taken as
+pump.fun's 1,000,000,000.
+
+**Measured:** its create transaction
+`4mKCtSuQtBgtFfpThuqgDxaVJzz7fhpkFTvbRj7xMYHysjPgNynzkYP5QU81Cs7b9hLuZBUATPbj3hazE8Vbs5Sc`
+(slot 263919365, 2024-05-05) is pump.fun's `Create`: InitializeMint2 with pump's PDA as mint
+authority, one MintTo of 1,000,000,000,000,000 base units, then the authority set to none.
+Its bonding-curve account (seeds `bonding-curve` and the mint, under
+`6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P`) exists and is owned by pump, in the older
+49-byte layout. The suffix came later. It proves nothing in the other direction either:
+anyone can grind an address that ends in "pump". Finding the create transaction did not need
+the mint's own history, which is too deep to page on a free RPC: the oldest signature of the
+mint's Metaplex metadata account, or of its bonding-curve account, is the create transaction
+and sits one or two pages down.
+
+**Do:** prove pump.fun origin from the owner of the bonding-curve account or from the create
+transaction, never from the address. To find a busy mint's first transaction, page an account
+that only its creation and a few later events touch, not the mint.
+
+## 2026-10-03: no element box past the card means every number fits
+
+**Believed:** "no descendant's box runs past the card, and the page is no wider than the
+window" proves a long figure fits on a phone. The first run printed zero overflow for twelve
+bungalows at four widths, and its screenshots were filed as the proof.
+
+**Measured:** two blind spots, both in that run. (1) The figure sat in a `min-w-0` cell
+inside an `overflow-hidden` panel. A figure too wide for its row shrinks the cell and is
+clipped, or its unit drops under it, and no element's box moves. Run with the figures set
+to 26px on a 393px WebKit phone: the box check read 0 past the card and 0 page overflow,
+and the page did not slide, while a check on the TEXT (a `Range` over the cell) reported 4
+of the 5 rows, four with the unit on a second line and two with digits past the row. At
+320px in Chromium the same: box check 0, text check 4 of 5. (2) Every screenshot from that run was
+Vite's red error overlay. The page's market card fetches `/api/aggregator`; `vite` (dev) has
+no such function, serves `api/aggregator.js` as a module, fails its import analysis and
+paints the overlay over the whole page. The DOM under the overlay measured fine.
+
+**Do:** measure a figure's fit on its text: `range.selectNodeContents(cell)`, then require
+the rects to sit inside the row's padding box and to share one line. See the check fail
+once at a size that cannot fit before trusting its zero. Take screenshots from
+`vite preview` of a build, and open them: a measurement that passes says nothing about
+what was painted.
+
+## 2026-10-03: a helper that asks "the wallet" picks a network when the browser carries two
+
+**Believed:** a "use my wallet" helper that tries the Ethereum provider and falls back to
+Solana serves both kinds of visitor, and a Solana wallet's provider is at `window.solana`.
+
+**Measured:** at 393px on a production build, with a stand-in for Trust Wallet's own
+browser (`window.ethereum` and `window.trustwallet.solana`, each recording its calls), the
+Heat reader's button sent `eth_accounts`, then `eth_requestAccounts`, and never called the
+Solana provider. It did so on the home page, on the Solana launch door, and on trunk with
+#714 merged after the top bar showed the connected Solana address. Once each network had
+its own button, an Ethereum prompt approved after the Solana button was pressed replaced
+the Solana address in the field.
+
+**Do:** a fill or connect helper takes the network as an argument, and the caller names it:
+the page's own network, or one button per network. Where the site already holds the
+address (a connected wallet), use it and ask no provider. Two buttons are two answers that
+can arrive in either order: drop an answer only when the field was written after its press
+(typing, or another fill). "Latest press wins" was tried first and lost a prompt the
+visitor approved after a second press on the same button had been refused. Read
+`window.trustwallet.solana` wherever `window.solana` is read.
+
+## 2026-10-03: a plain `vite build` is not the build the e2e suite runs against
+
+**Believed:** `vite build --outDir <temp>` plus `vite preview --outDir <temp>` is the
+production build, so any spec can run against it.
+
+**Measured:** against such a folder `e2e/door-first-frame.spec.ts` failed 11 tests on
+chromium ("/bayla: served the stock shell"). Against the `dist/` that `npm run build`
+writes, the same eleven spec files listed 456 tests on chromium and mobile-chrome: 284
+passed, 172 skipped by design, none failed. `npm run build` runs
+`render-bungalow-doors.mjs` after `vite build`, and the door pages exist only after it.
+
+**Do:** walk a flow on a plain `vite build`; run specs against `npm run build`. A local,
+uncommitted config that spreads `playwright.config.ts` and overrides `webServer` (its own
+port, `reuseExistingServer: false`), `use.baseURL` and `outputDir` keeps the run off
+another session's preview on 4173.
+
+## 2026-10-03: a `flex: 1 1 0; min-width: 0` field does not let a sibling wrap; it shrinks
+
+**Believed:** `flex-wrap` on a form drops a third control to the next row on a phone.
+
+**Measured:** at 393px the address field (`flex-1 min-w-0`), Read Heat and one wallet
+button stayed on one row. The field's hint needs 158px and the field was left 99px on the
+home page and 57px on the launch door. A line wraps on the items' starting sizes, and a
+zero basis with no minimum starts at zero. With the wallet button in a `w-full sm:w-auto`
+row of its own the field had 212px and 170px.
+
+**Do:** give the control that must not squeeze the field its own full-width row below the
+breakpoint, or give the field a real minimum. Pin it by measuring the hint's drawn width
+(canvas `measureText` with the field's computed font) against the field's content width.
+
 ## 2026-10-03: a Solana blockhash lasts about 40 seconds on mainnet now, not a minute
 
 **Believed:** a block takes about 0.4 seconds, so a blockhash (150 blocks) is good for

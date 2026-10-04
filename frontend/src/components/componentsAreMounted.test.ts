@@ -78,6 +78,14 @@ const UNMOUNTED_BY_DESIGN: Array<{ pattern: RegExp; because: string }> = [
       'shared fake LpWriteApi for the /pools liquidity UI suites (components/solana/lp/*.test.tsx), ' +
       'which is the only place it is imported.',
   },
+  {
+    pattern: /^solana\/lp\/anyToken\.fixture\.ts$/,
+    because:
+      'Test-only by construction: it builds on lib/solana/lp/testkit.fixture (fake mint bytes), ' +
+      'which no shipped file imports. It makes the tokens for the "any token may have a pool" ' +
+      'suites (CreatePoolAnyToken.test.tsx and CreatePoolCard.test.tsx), judged by the real ' +
+      'checker, and those two are the only places it is imported.',
+  },
 ];
 
 const isTest = (p: string) => /\.(test|spec)\.[tj]sx?$/.test(p);

@@ -156,7 +156,8 @@ function BurnLedger({ bungalow, tally }: { bungalow: Bungalow; tally: Extract<Bu
               aria-label={`${proofLabel} (opens in new tab)`}
               className="underline underline-offset-2 text-white/80 hover:text-white"
             >
-              {proofLabel} ↗
+              {/* A no-break space: the arrow never wraps onto a line of its own. */}
+              {proofLabel}{'\u00A0'}↗
             </a>
           </>
         )}

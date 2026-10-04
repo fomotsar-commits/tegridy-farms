@@ -3,12 +3,13 @@
 // the lane only while it is open. On Ethereum it keeps its words and its proof step.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { clearGateAudit } from '../lib/heat/gateAudit';
 import { parseHeatReading } from '../lib/heat/heatOracle';
+import { setSolanaSurface } from '../lib/solanaSurface';
 
-const SOL_A = 'EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK';
+const SOL_A ='EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK';
 const SOL_B = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 const EVM = '0x71be63f3384f5fb98995898a86b02fb2426c5788';
 
@@ -107,6 +108,29 @@ describe('the door on the Solana rail', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Read Heat' }));
     });
     expect(h.fetchHeat).toHaveBeenCalledWith(SOL_A, expect.anything());
+  });
+
+  // MUTATION CHECK: drop `fillFrom` from the door's card in LaunchGate.tsx. This fails:
+  // the card then offers the Ethereum address too.
+  it('with no Solana wallet, the wallet fill asks the Solana provider and never the Ethereum one', async () => {
+    const w = window as unknown as Record<string, unknown>;
+    const request = vi.fn(async ({ method }: { method: string }) => (method === 'eth_requestAccounts' ? [EVM] : []));
+    const connect = vi.fn(async () => ({ publicKey: { toString: () => SOL_A } }));
+    // Trust Wallet's own browser: Ethereum at window.ethereum, Solana at window.trustwallet.solana.
+    w.ethereum = { isTrust: true, request };
+    w.trustwallet = { solana: { isTrust: true, publicKey: null, connect } };
+    try {
+      render(solanaDoor(null));
+      expect(screen.queryByRole('button', { name: /Ethereum address/ })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+      const field = screen.getByRole('textbox', { name: /Wallet address to read Heat for/ });
+      await waitFor(() => expect(field).toHaveValue(SOL_A));
+      expect(connect.mock.calls).toEqual([[{ onlyIfTrusted: true }]]);
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      delete w.ethereum;
+      delete w.trustwallet;
+    }
   });
 
   it('WARM opens the lane for the connected Solana wallet, with no sign-message', async () => {
@@ -319,6 +343,34 @@ describe('the door on the Ethereum rail', () => {
     expect(words).toContain('Connect the Ethereum wallet that carries it, or read any address below.');
     expect(words).not.toContain('One person, every wallet.');
     expect(screen.getByText('A reading is not a key. The lane opens for a wallet that signs.')).toBeInTheDocument();
+  });
+
+  // MUTATION CHECK: pass `fillFrom` on the Solana door only. This fails: the card then
+  // fills the Solana wallet connected to the site.
+  it('with no wallet, the wallet fill asks the Ethereum provider only, whatever Solana wallet the site holds', async () => {
+    const w = window as unknown as Record<string, unknown>;
+    const request = vi.fn(async ({ method }: { method: string }) => (method === 'eth_requestAccounts' ? [EVM] : []));
+    const connect = vi.fn(async () => ({ publicKey: { toString: () => SOL_A } }));
+    w.ethereum = { isTrust: true, request };
+    w.trustwallet = { solana: { isTrust: true, publicKey: null, connect } };
+    const surfaceOwner = {};
+    act(() => setSolanaSurface(surfaceOwner, { open: () => {}, address: SOL_A, connecting: false }));
+    try {
+      render(
+        <MemoryRouter>
+          <LaunchGate rail="ethereum" />
+        </MemoryRouter>,
+      );
+      expect(screen.queryByRole('button', { name: /Solana address/ })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+      const field = screen.getByRole('textbox', { name: /Wallet address to read Heat for/ });
+      await waitFor(() => expect(field).toHaveValue(EVM));
+      expect(connect).not.toHaveBeenCalled();
+    } finally {
+      delete w.ethereum;
+      delete w.trustwallet;
+      act(() => setSolanaSurface(surfaceOwner, null));
+    }
   });
 
   it('WARM still asks the wagmi wallet to prove itself before the lane opens', async () => {
